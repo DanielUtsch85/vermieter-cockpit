@@ -1,0 +1,153 @@
+# Coding Guidelines
+
+**Project:** Vermieter Cockpit DE
+**Version:** 0.1 (first draft)
+**Status:** Living Document
+**Document Type:** Implementation Conventions
+
+---
+
+# 1. Purpose
+
+Concrete implementation conventions for the DE Investment Layer. These translate the constitution, ADRs, and `AGENTS.md` into day-to-day coding rules. Where this document and an accepted ADR disagree, the ADR wins.
+
+This document covers *how* to write code. It does **not** re-decide architecture — that lives in the ADRs.
+
+---
+
+# 2. Language, runtime, tooling
+
+- **Node.js 20**, **TypeScript** in `strict` mode, **Yarn 3.3**-compatible workspaces (ADR-032).
+- `strict: true` plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride` are recommended for new DE code.
+- No new runtime ecosystem (no second language) without an ADR.
+- Implementation-level library choices (HTTP framework, PG access layer, validation, test runner, decimal lib) follow TECH-ADR §10 criteria: maintenance quality, TS support, low lock-in, deterministic behavior. Record the initial picks here once made.
+
+**To be recorded once scaffolded (see roadmap Phase 0):** PG access layer (Prisma/Drizzle/Kysely/node-postgres), migration tool, decimal library, validation library, test runner.
+
+---
+
+# 3. Module structure (modular monolith)
+
+One deployable backend, strong internal boundaries (ADR-026). Conceptual layout (`technology.md` §5):
+
+```text
+de-backend/
+├── domains/{party,ownership,acquisition,ledger,financing,
+│           security-deposit,weg,taxation,depreciation,investment,documents}/
+├── integrations/{mre,bank-import,document-import}/
+├── reporting/
+├── application/    # workflows/use-cases orchestrating domains
+├── api/            # HTTP controllers, DTOs, serialization
+└── shared/         # Money, Percentage, IDs, dates, result types
+```
+
+Rules:
+- **Dependency direction:** `api/application → domain → ports → infrastructure adapters`. Domain code must not import HTTP, DB drivers, the MRE client, CSV/PDF libs, or UI (`technology.md` §5.2).
+- Cross-domain interaction goes through an application service, a domain interface, a reference, or an adapter — **never** direct cross-module DB access (`AGENTS.md` §26).
+- No "god service" spanning multiple domains' business logic.
+
+---
+
+# 4. Domain types — no primitive obsession
+
+Represent business concepts as explicit types/value objects, not raw primitives (ADR-032, `technology.md` §6.3):
+
+- **Money** — value object over exact decimal, `NUMERIC` in PG, `{ "amount": "1250.00", "currency": "EUR" }` over the API (ADR-033). **Never** use JS `number` for canonical money arithmetic.
+- **Percentage** — canonical `0.50 == 50%`; avoid ambiguous implicit scaling.
+- **IDs** — opaque, branded types (`PropertyReferenceId`, `TransactionId`, …); do not reuse raw MRE IDs as DE primary keys (`technology.md` §11).
+- **Business dates** — date-only where time-of-day has no meaning (acquisition date, tax year, rent period); distinct from technical timestamps (`createdAt`, `importedAt`, `reconciledAt`) which are UTC-aware (`AGENTS.md` §21).
+
+---
+
+# 5. Money & rounding
+
+- All monetary arithmetic through the `Money` abstraction; mixing currencies is an error, never silent (`AGENTS.md` §20).
+- **Ledger sign model (binding, `data-model.md` §17.4):** `Transaction.amount` and `TransactionSplit.amount` are **non-negative** Money; the cash sign is expressed by `Transaction.direction` (`INFLOW`/`OUTFLOW`). Splits inherit the Transaction's direction and never carry their own. A reversal uses the same amount with the opposite direction. Signed Money is not used for canonical ledger values.
+- **Currency/scale:** only supported currencies are accepted (Phase 1: at least EUR, 2 decimals); amounts not representable in the currency's scale, or in an unsupported currency, are **rejected, never silently rounded**.
+- The split invariant `sum(TransactionSplit.amount) == Transaction.amount` is checked **exactly** on canonical, currency-validated amounts — there is **no rounding tolerance** for canonical ledger values (`data-model.md` §18, domain-model §22–24, `AGENTS.md` §9).
+- Later calculations that can introduce rounding (ownership allocation, loan interest/principal, tax amounts, depreciation, metrics) round **explicitly at a documented business boundary** (`technology.md` §9.3); those rules live in their own domains and are not invented here. Allocation remainders are assigned deterministically, not dropped.
+
+---
+
+# 6. MRE integration (anti-corruption layer)
+
+- All MRE access through the `MreClient` interface; domain code never builds MRE HTTP calls directly (`technology.md` §12).
+- Translate MRE DTOs into DE integration models at the adapter boundary; never expose MRE persistence schemas through the DE public API.
+- Use canonical terminology (`AGENTS.md` §27): `PropertyReference`/`propertyReferenceId`, `RentalContractReference`/`rentalContractReferenceId`, `FinancialAccount`, `RentPaymentReconciliation`. Never `Unit`/`unitId`, never a generic DE `propertyId`/`leaseId`.
+- MRE identifiers carry Realm context where required. DE records must survive an upstream MRE entity being deleted/unavailable (`AGENTS.md` §5).
+
+---
+
+# 7. API design
+
+- REST resources under `/api/v1` **plus explicit business commands** (`api-design.md`, `AGENTS.md` §25). Prefer intent-expressing commands (`confirm`, `classify`, `split`, `allocate`, `reconcile`) over generic CRUD that can bypass invariants.
+- Requests validated at the boundary; domain invariants enforced in the domain, not only in the controller.
+- Money serialized as decimal string + currency; dates as ISO-8601 (date-only where applicable).
+
+---
+
+# 8. Persistence & migrations
+
+- PostgreSQL, accessed through a **repository port**; domain services never expose DB-native objects (`technology.md` §8.3).
+- No direct reads/writes of MRE MongoDB collections where an MRE API exists (`technology.md` §8.4).
+- Every schema change ships a migration and checks aggregate boundaries, invariants, and data compatibility (`AGENTS.md` §28). Do not store unstructured blobs to avoid modeling.
+- `NUMERIC` for money; timezone-aware timestamps; explicit date columns for business dates.
+
+---
+
+# 9. Correctness invariants
+
+Idempotency, concurrency, provenance are first-class (`AGENTS.md` §22–24):
+
+- **Idempotency:** retryable writes (bank import, MRE sync, reconciliation confirm, webhook processing) must not create duplicate financial records. Use fingerprints / natural keys / `ImportBatch`.
+- **Concurrency:** honor optimistic-concurrency/versioning from the data model; conflicts are explicit, never a silent overwrite.
+- **Provenance:** preserve external IDs, MRE Realm/entity references, bank import IDs, document/statement references, rule and calculation versions, timestamps, actor identity. Do not destroy source data because normalized data is easier to query.
+
+---
+
+# 10. Actuals vs derived vs scenario
+
+- The ledger is **cash-only**. Never create Transactions for forecasts, expected rent, depreciation, valuations, schedules, tax calcs, WEG estimates, or scenarios (`AGENTS.md` §7).
+- Derived values (remaining debt, NOI, AfA, metrics) are computed, never editable canonical state (`AGENTS.md` §16–18). `InvestmentMetricSnapshot` keeps enough metadata to be reproducible.
+- Scenario output is interpretive and never overwrites actuals (`AGENTS.md` §19).
+
+---
+
+# 11. German rules as versioned domain knowledge
+
+- Do not hardcode tax/AfA/WEG rules as unexplained constants (`AGENTS.md` §16, §30; ADR-022).
+- Time-dependent rules carry applicability window + source/provenance and are versioned. See `docs/germany/*` and each doc's "rule representation" section.
+- If a legally material rule is unspecified in the docs, **stop and surface it** — do not guess (`AGENTS.md` §33).
+
+---
+
+# 12. Testing
+
+Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shares; split totals; reconciliation uniqueness; idempotent imports; shared-loan allocation integrity; security-deposit cash references; actual/scenario separation; calculation reproducibility; date validity; monetary precision; Realm isolation/authorization.
+
+- Bug fixes ship a regression test. Never weaken/delete a test to make a change pass.
+- Prefer deterministic tests; no reliance on wall-clock or timezone of the host.
+
+---
+
+# 13. Naming & style
+
+- Terminology from `docs/glossary.md` is mandatory; introducing a new domain term updates the glossary in the same change (`AGENTS.md` §27).
+- Prefer explicit code, cohesive modules, small interfaces, documented invariants, narrow dependencies (`AGENTS.md` §35). Avoid hidden side effects, clever metaprogramming, broad shared utilities carrying business logic, magic constants.
+- Match surrounding code's conventions once a baseline exists.
+
+---
+
+# 14. Commits, scope, and "done"
+
+- One coherent change per commit; no opportunistic unrelated refactors (`AGENTS.md` §36).
+- Commit message convention: `<domain>: <imperative summary>` (e.g. `ledger: enforce split sum invariant`). Reference the ADR/phase where relevant.
+- Before "done" (`AGENTS.md` §37): tests/lint/type/format pass; no obsolete terminology; no duplicate source of truth; financial invariants hold; MRE boundaries respected; docs updated; migrations included; no `.DS_Store` or unrelated files; scoped diff. Never claim a check passed unless it was run.
+
+---
+
+# 15. Open items for this document
+
+- Record concrete library picks after Phase 0 scaffolding.
+- Add lint/format config references (ESLint/Prettier or Biome) once selected.
+- Link the chosen error-handling/result convention (exceptions vs result types) once decided during scaffolding.
