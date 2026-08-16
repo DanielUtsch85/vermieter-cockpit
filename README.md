@@ -363,6 +363,4 @@ Do not introduce speculative abstractions merely because they are common in othe
 
 ## License
 
-The project license has not yet been finalized.
-
-Do not assume a license until the repository's `LICENSE` file contains the selected license terms.
+The project is licensed under the MIT License. See the [`LICENSE`](LICENSE) file for details.

@@ -96,7 +96,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-02 | decision | ~~Resolve open ADRs 004/005/006/007/009/010~~ — **done** (ADR-037–042). Open new `ADR-OPEN-*` only if fresh architectural questions arise |
 | VC-X-03 | infra | CI: typecheck + lint + tests + migration check on every change |
 | VC-X-04 | infra | Data export tooling (constitution Art. I; ADR-030 open formats) |
-| VC-X-05 | decision | Finalize `LICENSE` (currently undecided — README §License) |
+| VC-X-05 | decision | ~~Finalize `LICENSE`~~ — **done** (MIT, see README §License) |
 | VC-X-06 | test | MRE-upgrade compatibility test suite (contract + integration) per ADR-036 |
 
 ---
