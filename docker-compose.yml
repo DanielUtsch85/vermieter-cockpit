@@ -1,0 +1,172 @@
+# Local development stack (VC-0-07): MRE (MongoDB) + DE (PostgreSQL) side by side.
+#
+#   docker compose up -d --build --wait
+#
+# - DE backend:  http://localhost:8090/health/live, /health/ready
+# - MRE gateway: http://localhost:8080 (landlord API under /api/v2)
+#
+# MRE runs from the published images of the pinned baseline commit (ADR-036,
+# mre-integration.md §55). The frontends are not started; DE only needs the APIs.
+# All secrets below are development defaults — override them via .env, never use
+# them in production.
+
+x-node-healthcheck: &node-healthcheck
+  interval: 5s
+  timeout: 3s
+  retries: 30
+  start_period: 10s
+
+services:
+  #############################################################################
+  # DE (Vermieter Cockpit)
+  #############################################################################
+  de-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${DE_DB_USER:-de}
+      POSTGRES_PASSWORD: ${DE_DB_PASSWORD:-de_dev_password}
+      POSTGRES_DB: ${DE_DB_NAME:-de}
+    volumes:
+      - de-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DE_DB_USER:-de} -d ${DE_DB_NAME:-de}']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks: [net]
+
+  de-backend:
+    build:
+      context: .
+      dockerfile: services/de-backend/Dockerfile
+    environment:
+      PORT: 8090
+      DATABASE_URL: postgres://${DE_DB_USER:-de}:${DE_DB_PASSWORD:-de_dev_password}@de-postgres:5432/${DE_DB_NAME:-de}
+    ports:
+      - '8090:8090'
+    depends_on:
+      de-postgres:
+        condition: service_healthy
+    networks: [net]
+
+  #############################################################################
+  # MRE (pinned baseline)
+  #############################################################################
+  redis:
+    image: redis:7.4-bookworm
+    command: ['sh', '-c', 'docker-entrypoint.sh --requirepass ${REDIS_PASSWORD:-redis_password} --loglevel warning']
+    networks: [net]
+
+  mongo:
+    image: mongo:7
+    command: --quiet --logpath /dev/null
+    volumes:
+      - mre-mongo-data:/data/db
+    networks: [net]
+
+  gateway:
+    image: ghcr.io/microrealestate/microrealestate/gateway:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    environment:
+      NODE_ENV: production
+      LOGGER_LEVEL: info
+      PORT: 8080
+      EXPOSE_FRONTENDS: 'false'
+      AUTHENTICATOR_URL: http://authenticator:8000
+      API_URL: http://api:8200/api/v2
+      PDFGENERATOR_URL: http://pdfgenerator:8300/pdfgenerator
+      EMAILER_URL: http://emailer:8400/emailer
+      TENANTAPI_URL: http://tenantapi:8250/tenantapi
+      APP_DOMAIN: localhost:8080
+      CORS_ENABLED: 'true'
+    ports:
+      - '8080:8080'
+    healthcheck:
+      <<: *node-healthcheck
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+    depends_on: [authenticator, api, tenantapi, pdfgenerator, emailer]
+    networks: [net]
+
+  authenticator:
+    image: ghcr.io/microrealestate/microrealestate/authenticator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    environment:
+      NODE_ENV: production
+      PORT: 8000
+      LOGGER_LEVEL: info
+      REDIS_URL: redis://redis
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_password}
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-access_token_secret}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-refresh_token_secret}
+      RESET_TOKEN_SECRET: ${RESET_TOKEN_SECRET:-reset_token_secret}
+      APPCREDZ_TOKEN_SECRET: ${APPCREDZ_TOKEN_SECRET:-appcredz_token_secret}
+      MONGO_URL: mongodb://mongo/mredb
+      EMAILER_URL: http://emailer:8400/emailer
+      SIGNUP: 'true'
+      APP_DOMAIN: localhost
+      APP_PROTOCOL: http
+    depends_on: [redis, mongo, emailer]
+    networks: [net]
+
+  api:
+    image: ghcr.io/microrealestate/microrealestate/api:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    environment:
+      NODE_ENV: production
+      PORT: 8200
+      LOGGER_LEVEL: info
+      MONGO_URL: mongodb://mongo/mredb
+      EMAILER_URL: http://emailer:8400/emailer
+      PDFGENERATOR_URL: http://pdfgenerator:8300/pdfgenerator
+      RESTORE_DB: 'false'
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-access_token_secret}
+      CIPHER_KEY: ${CIPHER_KEY:-cipher_key}
+      CIPHER_IV_KEY: ${CIPHER_IV_KEY:-cipher_iv_key}
+    depends_on: [mongo, emailer, pdfgenerator]
+    networks: [net]
+
+  tenantapi:
+    image: ghcr.io/microrealestate/microrealestate/tenantapi:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    environment:
+      NODE_ENV: production
+      PORT: 8250
+      LOGGER_LEVEL: info
+      MONGO_URL: mongodb://mongo/mredb
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-access_token_secret}
+    depends_on: [mongo]
+    networks: [net]
+
+  pdfgenerator:
+    image: ghcr.io/microrealestate/microrealestate/pdfgenerator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    environment:
+      NODE_ENV: production
+      PORT: 8300
+      LOGGER_LEVEL: info
+      MONGO_URL: mongodb://mongo/mredb
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-access_token_secret}
+      CIPHER_KEY: ${CIPHER_KEY:-cipher_key}
+      CIPHER_IV_KEY: ${CIPHER_IV_KEY:-cipher_iv_key}
+      UPLOAD_MAX_SIZE: 2000000000
+    depends_on: [mongo]
+    networks: [net]
+
+  emailer:
+    image: ghcr.io/microrealestate/microrealestate/emailer:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    environment:
+      NODE_ENV: production
+      ALLOW_SENDING_EMAILS: 'false'
+      PORT: 8400
+      LOGGER_LEVEL: info
+      LANDLORD_APP_URL: http://localhost:8080/landlord
+      TENANT_APP_URL: http://localhost:8080/tenant
+      MONGO_URL: mongodb://mongo/mredb
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET:-access_token_secret}
+      CIPHER_KEY: ${CIPHER_KEY:-cipher_key}
+      CIPHER_IV_KEY: ${CIPHER_IV_KEY:-cipher_iv_key}
+      PDFGENERATOR_URL: http://pdfgenerator:8300/pdfgenerator
+    depends_on: [mongo, pdfgenerator]
+    networks: [net]
+
+volumes:
+  de-postgres-data:
+  mre-mongo-data:
+
+networks:
+  net:
