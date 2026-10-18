@@ -10,6 +10,9 @@ import { HttpMreClient } from './http-mre-client.js';
  *
  * Runs only when MRE_CONTRACT_API_URL is set (CI job compose-smoke); with
  * REQUIRE_MRE_CONTRACT=1 a missing URL is an error, so it cannot be skipped there.
+ *
+ * The suite creates accounts, Realms and properties: never point
+ * MRE_CONTRACT_API_URL at a shared or production MRE — only at a throwaway stack.
  */
 const apiUrl = process.env['MRE_CONTRACT_API_URL'];
 if (apiUrl === undefined && process.env['REQUIRE_MRE_CONTRACT'] === '1') {
