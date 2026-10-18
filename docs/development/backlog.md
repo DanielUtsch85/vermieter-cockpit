@@ -28,10 +28,10 @@ Detailed epics below cover **Phase 0 and Phase 1** (the immediate build). Later 
 
 | ID | Type | Item | Exit | Blockers |
 |---|---|---|---|---|
-| VC-0-01 | infra | `git init` DE repo; `.gitignore`; commit convention. **Deliberately deferred until the documentation-readiness gate is complete, then mandatory before any productive code** (first Phase-0 step) | Repo under version control; stray `.DS_Store` removed from the worktree and ignored; done before every other Phase-0 code item | — |
-| VC-0-02 | decision | Pick PG access layer + migration tool; record in coding-guidelines §2 | Choice documented with rationale | — |
-| VC-0-03 | decision | Pick decimal library, validation library, test runner | Choices documented | — |
-| VC-0-04 | infra | Yarn workspace + TS strict config + module skeleton (domains/, integrations/, api/, shared/) | `yarn build`/typecheck pass on empty modules | VC-0-02/03 |
+| VC-0-01 | infra | **done** · `git init` DE repo; `.gitignore`; commit convention. **Deliberately deferred until the documentation-readiness gate is complete, then mandatory before any productive code** (first Phase-0 step) | Repo under version control; stray `.DS_Store` removed from the worktree and ignored; done before every other Phase-0 code item | — |
+| VC-0-02 | decision | **done** · Pick PG access layer + migration tool; record in coding-guidelines §2 | Choice documented with rationale | — |
+| VC-0-03 | decision | **done** · Pick decimal library, validation library, test runner | Choices documented | — |
+| VC-0-04 | infra | **done** · Yarn workspace + TS strict config + module skeleton (domains/, integrations/, api/, shared/) | `yarn build`/typecheck pass on empty modules | VC-0-02/03 |
 | VC-0-05 | feature | `Money` value object over `NUMERIC` + rounding policy | Round-trips exactly through PG; rounding tests green | VC-0-03 |
 | VC-0-06 | feature | `MreClient` interface + auth adapter against pinned MRE baseline (`479d0ad…`) | Verifies MRE identity + Realm server-side | — |
 | VC-0-07 | infra | Docker Compose: MRE (MongoDB) + DE (PostgreSQL) up together | `docker compose up` yields both DBs + DE health endpoint | VC-0-04 |

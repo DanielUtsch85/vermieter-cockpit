@@ -2,7 +2,7 @@
 
 A Germany-focused investment, finance, tax, and condominium-management extension for [MicroRealEstate](https://github.com/microrealestate/microrealestate).
 
-> **Project status:** Specification and architecture phase.  
+> **Project status:** Phase 0 (scaffold) in progress — specification baseline complete.  
 > The project is not yet intended for production use.
 
 ## Vision
@@ -358,6 +358,19 @@ At minimum, do not implement significant domain behavior without consulting:
 Do not infer upstream MRE semantics from generic property-management terminology.
 
 Do not introduce speculative abstractions merely because they are common in other property-management systems.
+
+### Local development
+
+Requires Node.js 20 (see `.nvmrc`). Yarn is pinned in the repository (`.yarn/releases`), as in MRE.
+
+```bash
+yarn install
+yarn build       # compile all workspaces
+yarn typecheck   # strict TypeScript check
+yarn test        # Vitest suites
+```
+
+The DE backend lives in `services/de-backend` (modular monolith, see `docs/development/coding-guidelines.md` §2–3).
 
 ---
 

@@ -3,3 +3,14 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Yarn (Berry) — keep the pinned release and plugins, ignore the rest
+.yarn/*
+!.yarn/releases
+!.yarn/plugins
+.pnp.*
+
+# Build output
+dist/
+coverage/
+*.tsbuildinfo

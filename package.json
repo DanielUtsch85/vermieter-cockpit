@@ -1,0 +1,17 @@
+{
+  "name": "vermieter-cockpit",
+  "private": true,
+  "license": "MIT",
+  "workspaces": [
+    "services/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "yarn workspaces foreach --topological-dev --verbose run build",
+    "typecheck": "yarn workspaces foreach --verbose run typecheck",
+    "test": "yarn workspaces foreach --verbose run test"
+  },
+  "packageManager": "yarn@3.3.0"
+}
