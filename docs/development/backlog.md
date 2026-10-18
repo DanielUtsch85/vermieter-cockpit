@@ -37,6 +37,7 @@ Detailed epics below cover **Phase 0 and Phase 1** (the immediate build). Later 
 | VC-0-07 | infra | **done** (health endpoints for orchestration only — the Phase-0 "health only for an authenticated Realm identity" exit is met by VC-0-08) · Docker Compose: MRE (MongoDB) + DE (PostgreSQL) up together | `docker compose up` yields both DBs + DE health endpoint | VC-0-04 |
 | VC-0-08 | feature | **done** · Realm-isolation middleware for all DE endpoints (uses `verifyMrePrincipal`; policy: `administrator` full access, `renter` none — see `mre-integration.md` §47.1) | Requests without valid Realm membership are rejected | VC-0-06 |
 | VC-0-09 | test | **done** · Contract test against MRE landlord `/api/v2` for the endpoints Phase 1 needs (start with signup → signin → `GET /api/v2/realms` against the compose stack, proving authenticator/api/Mongo/Redis of the pinned baseline actually work) | Contract test pins upstream shape | VC-0-06 |
+| VC-0-10 | infra | **done** · Migrations run: Kysely `Migrator` with a static migration list, baseline migration `0001_baseline`, applied at backend start (fail-fast) | Fresh DB migrates, second run is a no-op, failing migration aborts and is not recorded; compose-smoke checks `kysely_migration` in the stack | VC-0-02, VC-0-07 |
 
 **Phase 0 exit:** DE health endpoint responds only for a valid MRE-authenticated identity within a Realm; migrations run; `Money` exact; both DBs orchestrated.
 
