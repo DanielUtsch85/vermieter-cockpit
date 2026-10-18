@@ -1,4 +1,6 @@
 import express, { type Express } from 'express';
+import type { PrincipalVerifier, RealmPrincipal } from '../application/index.js';
+import { requireDeAccess } from './access-middleware.js';
 
 /**
  * HTTP application (ADR-026, api-design.md). Infrastructure is injected by the
@@ -7,6 +9,8 @@ import express, { type Express } from 'express';
 export interface AppDependencies {
   /** Resolves true when the DE backend can serve requests (e.g. PostgreSQL reachable). */
   readonly isReady: () => Promise<boolean>;
+  /** Verifies MRE identity and Realm membership (VC-0-08). */
+  readonly verifyPrincipal: PrincipalVerifier;
 }
 
 export function createApp(deps: AppDependencies): Express {
@@ -28,8 +32,17 @@ export function createApp(deps: AppDependencies): Express {
       });
   });
 
+  // Business API: every route below requires a verified principal with DE access.
+  const api = express.Router();
+  api.use(requireDeAccess(deps.verifyPrincipal));
+  api.get('/health', (_req, res) => {
+    const principal = res.locals['principal'] as RealmPrincipal;
+    res.json({ status: 'ok', mreRealmId: principal.mreRealmId });
+  });
+  app.use('/api/v1', api);
+
   app.use((_req, res) => {
-    res.status(404).json({ status: 404, message: 'Not found' });
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
   });
 
   return app;

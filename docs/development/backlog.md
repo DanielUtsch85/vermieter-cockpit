@@ -35,7 +35,7 @@ Detailed epics below cover **Phase 0 and Phase 1** (the immediate build). Later 
 | VC-0-05 | feature | **done** · `Money` value object over `NUMERIC` + rounding policy | Round-trips exactly through PG; rounding tests green | VC-0-03 |
 | VC-0-06 | feature | **done** · `MreClient` interface + auth adapter against pinned MRE baseline (`479d0ad…`) | Verifies MRE identity + Realm server-side | — |
 | VC-0-07 | infra | **done** (health endpoints for orchestration only — the Phase-0 "health only for an authenticated Realm identity" exit is met by VC-0-08) · Docker Compose: MRE (MongoDB) + DE (PostgreSQL) up together | `docker compose up` yields both DBs + DE health endpoint | VC-0-04 |
-| VC-0-08 | feature | Realm-isolation middleware for all DE endpoints (uses `verifyMrePrincipal`; **open decision:** which MRE roles — `administrator`, `renter` — may access which DE data, see `mre-integration.md` §47.1) | Requests without valid Realm membership are rejected | VC-0-06 |
+| VC-0-08 | feature | **done** · Realm-isolation middleware for all DE endpoints (uses `verifyMrePrincipal`; policy: `administrator` full access, `renter` none — see `mre-integration.md` §47.1) | Requests without valid Realm membership are rejected | VC-0-06 |
 | VC-0-09 | test | Contract test against MRE landlord `/api/v2` for the endpoints Phase 1 needs (start with signup → signin → `GET /api/v2/realms` against the compose stack, proving authenticator/api/Mongo/Redis of the pinned baseline actually work) | Contract test pins upstream shape | VC-0-06 |
 
 **Phase 0 exit:** DE health endpoint responds only for a valid MRE-authenticated identity within a Realm; migrations run; `Money` exact; both DBs orchestrated.
@@ -101,6 +101,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-07 | infra | Upgrade TypeScript from 5.6 to a current release (DefinitelyTyped drops TS versions after ~2 years, so later `@types/node@24` updates may require it) and raise `target`/`lib` in `tsconfig.base.json` from `ES2022` to what Node 24 supports (`ES2024`) |
 | VC-X-08 | infra | Re-evaluate Node.js 26 LTS once Yarn 3.3.0 / TypeScript / Vitest are verified on it (ADR-032 Amendment) |
 | VC-X-09 | infra | Pin container images by digest (`@sha256:…`) instead of tag — MRE images (ADR-036 pinned baseline) and `node:24-bookworm-slim` / `postgres:16` — with a documented update procedure |
+| VC-X-10 | infra | Structured logging (incl. unexpected access-guard errors, MRE client failures, pool errors) and a per-token verification cache / rate limit for `/api/v1` (`mre-integration.md` §47.1) |
 
 ---
 

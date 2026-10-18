@@ -53,8 +53,15 @@ jobs:
         run: |
           curl -fsS http://localhost:8090/health/live
           curl -fsS http://localhost:8090/health/ready
+      - name: DE business API rejects unauthenticated calls
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' -H 'organizationid: x' http://localhost:8090/api/v1/health)
+          echo "status=$status"
+          test "$status" = 401
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
+      - name: DE access against real MRE (signup → signin → realm → /api/v1/health)
+        run: .github/scripts/compose-auth-smoke.sh
       - name: Logs on failure
         if: failure()
         run: docker compose ps -a && docker compose logs --no-color --tail=200

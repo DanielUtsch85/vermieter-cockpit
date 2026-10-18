@@ -1,11 +1,17 @@
 import { createApp } from './api/index.js';
 import { loadConfig } from './config.js';
 import { createPool, isDatabaseReachable } from './infrastructure/postgres/index.js';
+import { HttpMreClient } from './integrations/mre/index.js';
+import { mrePrincipalVerifier } from './wiring.js';
 
 /** Composition root: wires configuration, infrastructure and the HTTP app. */
 const config = loadConfig(process.env);
 const pool = createPool(config.DATABASE_URL);
-const app = createApp({ isReady: () => isDatabaseReachable(pool) });
+const mreClient = new HttpMreClient({ apiBaseUrl: config.MRE_API_URL, timeoutMs: config.MRE_TIMEOUT_MS });
+const app = createApp({
+  isReady: () => isDatabaseReachable(pool),
+  verifyPrincipal: mrePrincipalVerifier(mreClient),
+});
 
 const server = app.listen(config.PORT, () => {
   console.log(`de-backend listening on port ${config.PORT}`);
