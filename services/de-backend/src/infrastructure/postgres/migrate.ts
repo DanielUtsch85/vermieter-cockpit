@@ -8,16 +8,25 @@ import { migrations } from './migrations/index.js';
  * records applied migrations in `kysely_migration`. Throws if any migration fails;
  * the caller must not start serving requests then.
  */
+export interface MigrateOptions {
+  /** Migration set to apply; defaults to all registered DE migrations. */
+  readonly migrations?: Record<string, Migration>;
+  /** Schema for `kysely_migration*` tables; defaults to `public`. Tests use their own. */
+  readonly migrationTableSchema?: string;
+}
+
 export async function migrateToLatest(
   pool: pg.Pool,
-  migrationSet: Record<string, Migration> = migrations,
+  options: MigrateOptions = {},
 ): Promise<readonly MigrationResult[]> {
+  const migrationSet = options.migrations ?? migrations;
   // The Kysely instance borrows the pool; it is not destroyed here because
   // destroying it would end the shared pool.
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   const migrator = new Migrator({
     db,
     provider: { getMigrations: async () => migrationSet },
+    ...(options.migrationTableSchema === undefined ? {} : { migrationTableSchema: options.migrationTableSchema }),
   });
   const { error, results } = await migrator.migrateToLatest();
   if (error !== undefined) {

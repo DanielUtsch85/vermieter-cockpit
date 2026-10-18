@@ -31,16 +31,16 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
   });
 
   it('applies every migration on a fresh database, in order', async () => {
-    const results = await migrateToLatest(pool);
+    const results = await migrateToLatest(pool, { migrationTableSchema: schema });
     expect(results.map((r) => [r.migrationName, r.status])).toEqual(
       Object.keys(migrations).map((name) => [name, 'Success']),
     );
-    const applied = await pool.query<{ name: string }>('SELECT name FROM kysely_migration ORDER BY name');
+    const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration ORDER BY name`);
     expect(applied.rows.map((r) => r.name)).toEqual(Object.keys(migrations));
   });
 
   it('is idempotent: a second run applies nothing', async () => {
-    expect(await migrateToLatest(pool)).toEqual([]);
+    expect(await migrateToLatest(pool, { migrationTableSchema: schema })).toEqual([]);
   });
 
   it('a failing migration throws (startup aborts) and is not recorded as applied', async () => {
@@ -52,8 +52,8 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
         },
       },
     };
-    await expect(migrateToLatest(pool, failing)).rejects.toThrow('Database migration failed at 9999_failing');
-    const applied = await pool.query<{ name: string }>('SELECT name FROM kysely_migration');
+    await expect(migrateToLatest(pool, { migrations: failing, migrationTableSchema: schema })).rejects.toThrow('Database migration failed at 9999_failing');
+    const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration`);
     expect(applied.rows.map((r) => r.name)).not.toContain('9999_failing');
   });
 });
