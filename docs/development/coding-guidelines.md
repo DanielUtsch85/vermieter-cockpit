@@ -40,7 +40,7 @@ Binding consequences of these picks:
 
 Runtime dependencies are added to `services/de-backend` by the backlog item that first uses them, not up front.
 
-**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn test`; CI runs all three on Node 24 (`.github/workflows/ci.yml`). The §3 dependency direction for `domains/` and `shared/` is enforced by `src/architecture.test.ts` (relative imports per layer; third-party packages via an allowlist, currently `decimal.js` and `zod`). Lint-based enforcement (e.g. `eslint-plugin-boundaries` or `dependency-cruiser`) can replace it once linting is set up (§15).
+**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn test`; CI runs all three on Node 24 with a PostgreSQL 16 service (`.github/workflows/ci.yml`). Database tests read `DE_TEST_DATABASE_URL`; they are skipped locally when it is unset and fail the run in CI when it is missing. The §3 dependency direction for `domains/` and `shared/` is enforced by `src/architecture.test.ts` (relative imports per layer; third-party packages via an allowlist, currently `decimal.js` and `zod`). Lint-based enforcement (e.g. `eslint-plugin-boundaries` or `dependency-cruiser`) can replace it once linting is set up (§15).
 
 ---
 
@@ -56,6 +56,7 @@ de-backend/
 ├── reporting/
 ├── application/    # workflows/use-cases orchestrating domains
 ├── api/            # HTTP controllers, DTOs, serialization
+├── infrastructure/ # persistence adapters (e.g. postgres/), implementing domain ports
 └── shared/         # Money, Percentage, IDs, dates, result types
 ```
 
@@ -63,6 +64,7 @@ Rules:
 - **Dependency direction:** `api/application → domain → ports → infrastructure adapters`. Domain code must not import HTTP, DB drivers, the MRE client, CSV/PDF libs, or UI (`technology.md` §5.2).
 - Cross-domain interaction goes through an application service, a domain interface, a reference, or an adapter — **never** direct cross-module DB access (`AGENTS.md` §26).
 - No "god service" spanning multiple domains' business logic.
+- Another module (another domain, or another top-level layer) is imported only through its public `index.js`; deep imports into its internals are rejected by `src/architecture.test.ts`.
 
 ---
 
@@ -83,6 +85,7 @@ Represent business concepts as explicit types/value objects, not raw primitives 
 - **Ledger sign model (binding, `data-model.md` §17.4):** `Transaction.amount` and `TransactionSplit.amount` are **non-negative** Money; the cash sign is expressed by `Transaction.direction` (`INFLOW`/`OUTFLOW`). Splits inherit the Transaction's direction and never carry their own. A reversal uses the same amount with the opposite direction. Signed Money is not used for canonical ledger values.
 - **Currency/scale:** only supported currencies are accepted (Phase 1: at least EUR, 2 decimals); amounts not representable in the currency's scale, or in an unsupported currency, are **rejected, never silently rounded**.
 - The split invariant `sum(TransactionSplit.amount) == Transaction.amount` is checked **exactly** on canonical, currency-validated amounts — there is **no rounding tolerance** for canonical ledger values (`data-model.md` §18, domain-model §22–24, `AGENTS.md` §9).
+- **Implementation (VC-0-05):** `shared/money.ts`. `Money.of(amount, currency)` accepts only canonical decimal strings (no exponent, no `+`, no leading zeros, no JS `number`) and rejects unsupported currencies and amounts exceeding the currency scale. `add`/`subtract`/`sum`/`compare` require the same currency (`CURRENCY_MISMATCH` otherwise). The only rounding operations are `Money.rounded(value, currency, mode)` and `multiply(factor, mode)`; both require an explicit `RoundingMode` (`HALF_UP`, `HALF_EVEN`, `UP`, `DOWN`, `CEIL`, `FLOOR`) — there is no default mode. Amounts are bounded to 18 integer digits and factors to 60 significant digits so that every intermediate result is exact (no double rounding). Money itself may be negative (differences); non-negativity of ledger amounts is enforced by the ledger domain. Serialization: `toJSON()` → `{ "amount": "1250.00", "currency": "EUR" }`; persistence: `infrastructure/postgres/money-column.ts` binds `money.amount` to a plain `NUMERIC` column next to a `currency` column and refuses non-string values from the driver.
 - Later calculations that can introduce rounding (ownership allocation, loan interest/principal, tax amounts, depreciation, metrics) round **explicitly at a documented business boundary** (`technology.md` §9.3); those rules live in their own domains and are not invented here. Allocation remainders are assigned deterministically, not dropped.
 
 ---
@@ -167,4 +170,4 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 # 15. Open items for this document
 
 - Add lint/format config references (ESLint/Prettier or Biome) once selected.
-- Link the chosen error-handling/result convention (exceptions vs result types) once decided during scaffolding.
+- Error-handling convention: value objects in `shared/` throw typed errors carrying a stable `code` (e.g. `MoneyError` with `INVALID_AMOUNT`, `SCALE_EXCEEDED`, `UNSUPPORTED_CURRENCY`, `CURRENCY_MISMATCH`) that the API layer maps to `400`. The convention for domain services/commands (exceptions vs result types) is still open and is decided with the first command (Phase 1).

@@ -370,6 +370,8 @@ yarn typecheck   # strict TypeScript check
 yarn test        # Vitest suites
 ```
 
+Database tests (e.g. the Money ↔ `NUMERIC` round-trip) run when `DE_TEST_DATABASE_URL` points to a PostgreSQL database, e.g. `DE_TEST_DATABASE_URL=postgres://de_test:de_test@localhost:5432/de_test yarn test`; otherwise they are skipped locally. CI always runs them.
+
 The DE backend lives in `services/de-backend` (modular monolith, see `docs/development/coding-guidelines.md` §2–3).
 
 ---
