@@ -8,7 +8,9 @@
 # MRE runs from the published images of the pinned baseline commit (ADR-036,
 # mre-integration.md §55). The frontends are not started; DE only needs the APIs.
 # All secrets below are development defaults — override them via .env, never use
-# them in production.
+# them in production. Published ports bind to 127.0.0.1 only: with the known
+# default ACCESS_TOKEN_SECRET anyone who can reach the gateway could forge MRE
+# tokens.
 
 x-node-healthcheck: &node-healthcheck
   interval: 5s
@@ -42,8 +44,9 @@ services:
     environment:
       PORT: 8090
       DATABASE_URL: postgres://${DE_DB_USER:-de}:${DE_DB_PASSWORD:-de_dev_password}@de-postgres:5432/${DE_DB_NAME:-de}
+    restart: unless-stopped
     ports:
-      - '8090:8090'
+      - '127.0.0.1:8090:8090'
     depends_on:
       de-postgres:
         condition: service_healthy
@@ -79,7 +82,7 @@ services:
       APP_DOMAIN: localhost:8080
       CORS_ENABLED: 'true'
     ports:
-      - '8080:8080'
+      - '127.0.0.1:8080:8080'
     healthcheck:
       <<: *node-healthcheck
       # MRE images are distroless (no shell, node at /nodejs/bin/node).
