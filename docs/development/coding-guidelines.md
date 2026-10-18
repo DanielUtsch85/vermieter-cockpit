@@ -109,6 +109,8 @@ Represent business concepts as explicit types/value objects, not raw primitives 
 - REST resources under `/api/v1` **plus explicit business commands** (`api-design.md`, `AGENTS.md` §25). Prefer intent-expressing commands (`confirm`, `classify`, `split`, `allocate`, `reconcile`) over generic CRUD that can bypass invariants.
 - Requests validated at the boundary; domain invariants enforced in the domain, not only in the controller.
 - Money serialized as decimal string + currency; dates as ISO-8601 (date-only where applicable).
+- **Runtime wiring (VC-0-07):** `src/main.ts` is the composition root (config → infrastructure → `createApp`); `src/config.ts` validates environment variables with Zod at startup and fails fast without echoing values. The API layer receives infrastructure only through injected functions/ports.
+- **Health endpoints:** `GET /health/live` (process up) and `GET /health/ready` (PostgreSQL reachable; 503 otherwise) are unauthenticated and return no data — they exist for container orchestration. Business endpoints under `/api/v1` always require a verified MRE principal (VC-0-08).
 
 ---
 

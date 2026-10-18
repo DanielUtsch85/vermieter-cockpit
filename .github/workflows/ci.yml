@@ -41,3 +41,23 @@ jobs:
       - run: yarn build
       - run: yarn typecheck
       - run: yarn test
+
+  # VC-0-07: the full local stack (DE + pinned MRE images) starts and is healthy.
+  compose-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start stack
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: DE backend health
+        run: |
+          curl -fsS http://localhost:8090/health/live
+          curl -fsS http://localhost:8090/health/ready
+      - name: MRE gateway health
+        run: curl -fsS http://localhost:8080/health
+      - name: Logs on failure
+        if: failure()
+        run: docker compose ps -a && docker compose logs --no-color --tail=200
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
