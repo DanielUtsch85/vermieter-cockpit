@@ -176,4 +176,4 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 # 15. Open items for this document
 
 - Add lint/format config references (ESLint/Prettier or Biome) once selected.
-- Error-handling convention: value objects in `shared/` throw typed errors carrying a stable `code` (e.g. `MoneyError` with `INVALID_AMOUNT`, `SCALE_EXCEEDED`, `UNSUPPORTED_CURRENCY`, `CURRENCY_MISMATCH`) that the API layer maps to `400`. The convention for domain services/commands (exceptions vs result types) is still open and is decided with the first command (Phase 1).
+- Error-handling convention: value objects in `shared/` throw typed errors carrying a stable `code` (e.g. `MoneyError` with `INVALID_AMOUNT`, `SCALE_EXCEEDED`, `UNSUPPORTED_CURRENCY`, `CURRENCY_MISMATCH`) that the API layer maps to `400`. This covers **both** `MoneyError` and `ExactDecimalError` (e.g. `money.multiply(...)` can throw `ExactDecimalError` with `PRECISION_EXCEEDED`); the error mapping of the first controller must handle both types. The convention for domain services/commands (exceptions vs result types) is still open and is decided with the first command (Phase 1).
