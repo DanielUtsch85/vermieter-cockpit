@@ -82,7 +82,8 @@ services:
       - '8080:8080'
     healthcheck:
       <<: *node-healthcheck
-      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      # MRE images are distroless (no shell, node at /nodejs/bin/node).
+      test: ['CMD', '/nodejs/bin/node', '-e', "fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
     depends_on: [authenticator, api, tenantapi, pdfgenerator, emailer]
     networks: [net]
 
