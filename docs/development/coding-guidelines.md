@@ -22,7 +22,20 @@ This document covers *how* to write code. It does **not** re-decide architecture
 - No new runtime ecosystem (no second language) without an ADR.
 - Implementation-level library choices (HTTP framework, PG access layer, validation, test runner, decimal lib) follow TECH-ADR §10 criteria: maintenance quality, TS support, low lock-in, deterministic behavior. Record the initial picks here once made.
 
-**To be recorded once scaffolded (see roadmap Phase 0):** PG access layer (Prisma/Drizzle/Kysely/node-postgres), migration tool, decimal library, validation library, test runner.
+**Initial library picks (Phase 0, VC-0-02/VC-0-03):**
+
+| Concern | Pick | Rationale |
+|---|---|---|
+| PG access layer | **Kysely** (over `pg`) | Typed SQL query builder without an ORM runtime model; low lock-in (plain SQL stays visible); `NUMERIC` is returned as a string by `pg`, so money stays exact until it enters `Money` |
+| Migration tool | **Kysely `Migrator`** (built-in, file-based) | No second tool; migrations are ordered TypeScript files reviewed with the code |
+| Decimal library | **decimal.js** | Mature, arbitrary-precision decimal with explicit rounding modes; backs the `Money` value object (ADR-033) |
+| Validation | **Zod** | Boundary validation of API requests with inferred TS types; widely maintained |
+| Test runner | **Vitest** | Native TS/ESM support without a separate transpile step; Jest-compatible API |
+| HTTP framework | **Express** | Same framework as MRE services, keeps the stack close to upstream (TECH-ADR §6.2) |
+
+Runtime dependencies are added to `services/de-backend` by the backlog item that first uses them, not up front.
+
+**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn test`. The §3 dependency direction for `domains/` is enforced by `src/architecture.test.ts`.
 
 ---
 
@@ -148,6 +161,5 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 
 # 15. Open items for this document
 
-- Record concrete library picks after Phase 0 scaffolding.
 - Add lint/format config references (ESLint/Prettier or Biome) once selected.
 - Link the chosen error-handling/result convention (exceptions vs result types) once decided during scaffolding.
