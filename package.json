@@ -6,7 +6,7 @@
     "services/*"
   ],
   "engines": {
-    "node": ">=20"
+    "node": "^20"
   },
   "scripts": {
     "build": "yarn workspaces foreach --topological-dev --verbose run build",
