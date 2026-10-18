@@ -35,7 +35,7 @@ interface LayerRule {
 }
 
 /** Additionally allowed in test files only. */
-const testPackages = ['vitest'];
+const testPackages = ['vitest', 'node:http', 'node:net'];
 const testFilePattern = /\.test\.(c|m)?ts$/;
 
 const rules: readonly LayerRule[] = [
@@ -50,7 +50,7 @@ const rules: readonly LayerRule[] = [
   // Use cases and policies: no HTTP, no adapters; infrastructure arrives through ports.
   { layer: 'application', allowedLayers: ['shared', 'domains'], allowedPackages: ['zod'] },
   // HTTP layer: talks to the application layer, never to adapters directly.
-  { layer: 'api', allowedLayers: ['application', 'shared'], allowedPackages: 'any' },
+  { layer: 'api', allowedLayers: ['application', 'shared'], allowedPackages: ['express', 'zod'] },
 ];
 
 const sourceFilePattern = /\.(c|m)?ts$/;
@@ -221,7 +221,7 @@ describe('architecture rules (fixtures)', () => {
     expect(violation(ruleFor('integrations'), 'integrations/mre/probe.ts', specifier)).toBeUndefined();
   });
 
-  it.each(['../infrastructure/postgres/index.js', '../integrations/mre/index.js', '../domains/ledger/index.js', '../application/access.js'])(
+  it.each(['../infrastructure/postgres/index.js', '../integrations/mre/index.js', '../domains/ledger/index.js', '../application/access.js', 'pg', 'axios', 'node:fs'])(
     'api/ rejects %s',
     (specifier) => {
       expect(violation(ruleFor('api'), 'api/probe.ts', specifier)).toBeDefined();

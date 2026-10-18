@@ -4,9 +4,9 @@
  * Authentication and Realm membership are verified by MRE through an injected
  * PrincipalVerifier; this module only decides what a verified principal may do.
  *
- * Decision (2026-10-18, project owner): the MRE Realm role `administrator` has
- * full access to all DE data. `renter` has no DE access until a narrower policy is
- * specified. Unknown roles are denied.
+ * Decision (2026-10-18, project owner; record: https://github.com/DanielUtsch85/vermieter-cockpit/pull/6#issuecomment-6250297469):
+ * the MRE Realm role `administrator` has full access to all DE data. `renter` has
+ * no DE access until a narrower policy is specified. Unknown roles are denied.
  */
 
 export type AccessErrorCode =
