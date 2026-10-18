@@ -13,6 +13,10 @@ import { describe, expect, it } from 'vitest';
  * Third-party packages are checked against an allowlist, not a denylist, so a new
  * infrastructure package cannot slip through unnoticed. Extending the allowlist is a
  * deliberate, reviewed change.
+ *
+ * Imports into another module (another domain, or another top-level layer) must go
+ * through that module's public `index.js`; deep imports into its internals are
+ * rejected (ADR-026 "strong internal boundaries").
  */
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
@@ -22,15 +26,25 @@ interface LayerRule {
   layer: string;
   /** Top-level src/ directories this layer may import from (besides itself). */
   allowedLayers: readonly string[];
-  /** Bare package specifiers this layer may import. Node built-ins are never allowed. */
-  allowedPackages: readonly string[];
+  /**
+   * Bare package specifiers this layer may import; Node built-ins count as packages and
+   * are therefore never allowed in an allowlist. `'any'` leaves packages and built-ins
+   * unrestricted (infrastructure adapters are where drivers and file access belong).
+   */
+  allowedPackages: readonly string[] | 'any';
 }
 
-const pureDependencies = ['decimal.js', 'zod'];
+/** Additionally allowed in test files only. */
+const testPackages = ['vitest'];
+const testFilePattern = /\.test\.(c|m)?ts$/;
 
 const rules: readonly LayerRule[] = [
-  { layer: 'domains', allowedLayers: ['shared'], allowedPackages: pureDependencies },
-  { layer: 'shared', allowedLayers: [], allowedPackages: pureDependencies },
+  // decimal.js only inside shared/: domains compute through ExactDecimal/Money, so the
+  // global decimal.js configuration can never take part in a calculation (ADR-033).
+  { layer: 'domains', allowedLayers: ['shared'], allowedPackages: ['zod'] },
+  { layer: 'shared', allowedLayers: [], allowedPackages: ['decimal.js', 'zod'] },
+  // Adapters implement domain ports; they never call use cases or the API (technology.md §5.2).
+  { layer: 'infrastructure', allowedLayers: ['shared', 'domains'], allowedPackages: 'any' },
 ];
 
 const sourceFilePattern = /\.(c|m)?ts$/;
@@ -57,6 +71,12 @@ function packageName(specifier: string): string {
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : (parts[0] ?? specifier);
 }
 
+/** Module a src/-relative path belongs to: `domains/<name>` for domains, else the top-level layer. */
+function moduleOf(path: string): string {
+  const [layer = '', name = ''] = path.split(sep);
+  return layer === 'domains' ? `domains${sep}${name}` : layer;
+}
+
 /** `file` is relative to src/, e.g. `domains/ledger/index.ts`. */
 function violation(rule: LayerRule, file: string, specifier: string): string | undefined {
   if (specifier.startsWith('.')) {
@@ -65,11 +85,18 @@ function violation(rule: LayerRule, file: string, specifier: string): string | u
     if (targetLayer === '..' || target.startsWith('..')) {
       return `${file} imports '${specifier}' from outside src/`;
     }
-    return targetLayer === rule.layer || rule.allowedLayers.includes(targetLayer)
-      ? undefined
-      : `${file} imports layer '${targetLayer}' via '${specifier}'`;
+    if (targetLayer !== rule.layer && !rule.allowedLayers.includes(targetLayer)) {
+      return `${file} imports layer '${targetLayer}' via '${specifier}'`;
+    }
+    const targetModule = moduleOf(target);
+    return targetModule !== moduleOf(file) && target !== join(targetModule, 'index.js')
+      ? `${file} deep-imports '${specifier}'; use ${targetModule}/index.js`
+      : undefined;
   }
-  return rule.allowedPackages.includes(packageName(specifier))
+  const name = packageName(specifier);
+  return rule.allowedPackages === 'any' ||
+    rule.allowedPackages.includes(name) ||
+    (testFilePattern.test(file) && testPackages.includes(name))
     ? undefined
     : `${file} imports non-allowlisted package '${specifier}'`;
 }
@@ -129,19 +156,25 @@ describe('architecture rules (fixtures)', () => {
     '../../application/index.js',
     '../../integrations/mre/index.js',
     '../../reporting/index.js',
+    '../../infrastructure/postgres/index.js',
     '../../../package.json',
+    '../../shared/money.js',
+    '../ownership/internal/repository.js',
+    '../ownership/',
+    'decimal.js',
+    'decimal.js/decimal.mjs',
   ])('domains/ rejects %s', (specifier) => {
     expect(violation(ruleFor('domains'), domainFile, specifier)).toBeDefined();
   });
 
-  it.each(['decimal.js', 'zod', '../../shared/index.js', '../ownership/index.js', './money.js'])(
+  it.each(['zod', '../../shared/index.js', '../ownership/index.js', './money.js', './internal/repo.js'])(
     'domains/ allows %s',
     (specifier) => {
       expect(violation(ruleFor('domains'), domainFile, specifier)).toBeUndefined();
     },
   );
 
-  it.each(['../domains/ledger/index.js', '../api/index.js', '../integrations/mre/index.js', 'express', 'node:crypto'])(
+  it.each(['../domains/ledger/index.js', '../api/index.js', '../integrations/mre/index.js', '../infrastructure/postgres/index.js', 'express', 'node:crypto'])(
     'shared/ rejects %s',
     (specifier) => {
       expect(violation(ruleFor('shared'), sharedFile, specifier)).toBeDefined();
@@ -150,6 +183,27 @@ describe('architecture rules (fixtures)', () => {
 
   it.each(['decimal.js', './money.js'])('shared/ allows %s', (specifier) => {
     expect(violation(ruleFor('shared'), sharedFile, specifier)).toBeUndefined();
+  });
+
+  const infraFile = 'infrastructure/postgres/probe.ts';
+
+  it.each(['../../api/index.js', '../../application/index.js', '../../integrations/mre/index.js', '../../reporting/index.js', '../../shared/money.js', '../../domains/ledger/internal/repo.js'])(
+    'infrastructure/ rejects %s',
+    (specifier) => {
+      expect(violation(ruleFor('infrastructure'), infraFile, specifier)).toBeDefined();
+    },
+  );
+
+  it.each(['pg', 'kysely', 'node:fs', '../../shared/index.js', '../../domains/ledger/index.js', './money-column.js'])(
+    'infrastructure/ allows %s',
+    (specifier) => {
+      expect(violation(ruleFor('infrastructure'), infraFile, specifier)).toBeUndefined();
+    },
+  );
+
+  it('allows vitest only in test files', () => {
+    expect(violation(ruleFor('shared'), 'shared/money.test.ts', 'vitest')).toBeUndefined();
+    expect(violation(ruleFor('shared'), sharedFile, 'vitest')).toBeDefined();
   });
 
   it('detects static, type-only, re-export, dynamic and require imports, ignoring comments', () => {
