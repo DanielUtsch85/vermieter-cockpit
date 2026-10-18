@@ -96,7 +96,8 @@ Represent business concepts as explicit types/value objects, not raw primitives 
 
 # 6. MRE integration (anti-corruption layer)
 
-- All MRE access through the `MreClient` interface; domain code never builds MRE HTTP calls directly (`technology.md` §12).
+- All MRE access through the `MreClient` interface (`integrations/mre/`); domain code never builds MRE HTTP calls directly (`technology.md` §12). `HttpMreClient` uses Node's built-in `fetch` with a timeout, validates MRE responses with Zod and maps every failure to a typed `MreClientError` (`UNAUTHENTICATED`, `FORBIDDEN`, `UNAVAILABLE`).
+- Authentication is delegated to MRE (`verifyMrePrincipal`, `mre-integration.md` §47.1): DE never holds MRE's token secret, and an unreachable MRE is a failure, never a pass.
 - Translate MRE DTOs into DE integration models at the adapter boundary; never expose MRE persistence schemas through the DE public API.
 - Use canonical terminology (`AGENTS.md` §27): `PropertyReference`/`propertyReferenceId`, `RentalContractReference`/`rentalContractReferenceId`, `FinancialAccount`, `RentPaymentReconciliation`. Never `Unit`/`unitId`, never a generic DE `propertyId`/`leaseId`.
 - MRE identifiers carry Realm context where required. DE records must survive an upstream MRE entity being deleted/unavailable (`AGENTS.md` §5).
