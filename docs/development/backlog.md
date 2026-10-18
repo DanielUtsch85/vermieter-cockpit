@@ -33,9 +33,9 @@ Detailed epics below cover **Phase 0 and Phase 1** (the immediate build). Later 
 | VC-0-03 | decision | **done** · Pick decimal library, validation library, test runner | Choices documented | — |
 | VC-0-04 | infra | **done** · Yarn workspace + TS strict config + module skeleton (domains/, integrations/, api/, shared/) | `yarn build`/typecheck pass on empty modules | VC-0-02/03 |
 | VC-0-05 | feature | **done** · `Money` value object over `NUMERIC` + rounding policy | Round-trips exactly through PG; rounding tests green | VC-0-03 |
-| VC-0-06 | feature | `MreClient` interface + auth adapter against pinned MRE baseline (`479d0ad…`) | Verifies MRE identity + Realm server-side | — |
+| VC-0-06 | feature | **done** · `MreClient` interface + auth adapter against pinned MRE baseline (`479d0ad…`) | Verifies MRE identity + Realm server-side | — |
 | VC-0-07 | infra | Docker Compose: MRE (MongoDB) + DE (PostgreSQL) up together | `docker compose up` yields both DBs + DE health endpoint | VC-0-04 |
-| VC-0-08 | feature | Realm-isolation middleware for all DE endpoints | Requests without valid Realm membership are rejected | VC-0-06 |
+| VC-0-08 | feature | Realm-isolation middleware for all DE endpoints (uses `verifyMrePrincipal`; **open decision:** which MRE roles — `administrator`, `renter` — may access which DE data, see `mre-integration.md` §47.1) | Requests without valid Realm membership are rejected | VC-0-06 |
 | VC-0-09 | test | Contract test against MRE landlord `/api/v2` for the endpoints Phase 1 needs | Contract test pins upstream shape | VC-0-06 |
 
 **Phase 0 exit:** DE health endpoint responds only for a valid MRE-authenticated identity within a Realm; migrations run; `Money` exact; both DBs orchestrated.

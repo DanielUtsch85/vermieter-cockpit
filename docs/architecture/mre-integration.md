@@ -938,6 +938,25 @@ Strong architectural preference:
 
 The authentication direction is accepted (ADR-034 / TECH-ADR-005: reuse MRE authentication and Realm authority). The exact token/session propagation mechanism is an **implementation spike** to be resolved against the pinned MRE authenticator/gateway during scaffolding — it is not a new architecture decision.
 
+## 47.1 Resolved mechanism (spike VC-0-06, pinned baseline `479d0ad`)
+
+Observed in MRE:
+
+- The authenticator issues landlord **access tokens** as HS256 JWTs signed with `ACCESS_TOKEN_SECRET`, payload `{ account: { email, … } }` (no role), valid **30 s**, refreshed via a refresh token. Tenant **session tokens** use the same secret with `{ account: { email, role: 'tenant' } }`; application credentials use `{ application: { clientId } }`, internal services `{ service: { … } }`.
+- The landlord API (`/api/v2`, behind the gateway) runs `needAccessToken` → `checkOrganization` → `notRoles(['tenant'])`. `GET /api/v2/realms` returns the Realms whose `members[].email` equals the token's account email (secrets stripped), `401` for a missing/invalid/expired token and `403` for a tenant token. Members carry `role: 'administrator' | 'renter'`.
+
+Mechanism used by DE (**delegated verification**):
+
+1. The landlord UI sends the MRE access token as `Authorization: Bearer …` and the Realm as an explicit parameter.
+2. DE forwards the token to MRE `GET /api/v2/realms` (`integrations/mre/http-mre-client.ts`). MRE verifies signature and expiry; DE does **not** hold `ACCESS_TOKEN_SECRET`, stores no credentials and does not read MRE MongoDB (§38).
+3. Only after MRE accepted the token, DE reads its claims and accepts **landlord user tokens only** (`account.email`, role not `tenant`); tenant, application and service tokens are rejected (§48).
+4. DE checks server-side that the requested Realm is in the returned list and that the caller is a member; the result is a `VerifiedMrePrincipal { email, mreRealmId, mreRole }` (`integrations/mre/mre-auth.ts`). A known Realm ID alone grants nothing.
+5. If MRE is unreachable or answers unexpectedly, the request fails (`MRE_UNAVAILABLE`), it is never treated as authenticated.
+
+Details: the `Bearer` scheme is matched case-insensitively (RFC 7235); the MRE call never follows redirects (a redirect means a misconfigured gateway → `MRE_UNAVAILABLE`); a structurally invalid realms response is rejected as a whole, while a single member with an unknown role or shape is dropped (it gets no access, other Realms stay usable). Application and service tokens are answered by MRE with `200` and their realm — only DE's landlord-account check refuses them, which the end-to-end test covers.
+
+Consequences: one MRE call per verification; emails are compared exactly, as MRE does. A per-token cache may be added later; it must expire no later than the token's `exp` and must never cache a rejection (401/403). **Open for VC-0-08:** which MRE roles (`administrator`, `renter`) may access which DE data is a DE authorization-policy decision that the documentation does not yet define.
+
 ---
 
 # 48. Tenant-Facing Boundary
