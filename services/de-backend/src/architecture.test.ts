@@ -26,18 +26,25 @@ interface LayerRule {
   layer: string;
   /** Top-level src/ directories this layer may import from (besides itself). */
   allowedLayers: readonly string[];
-  /** Bare package specifiers this layer may import. Node built-ins are never allowed. */
-  allowedPackages: readonly string[];
+  /**
+   * Bare package specifiers this layer may import; Node built-ins count as packages and
+   * are therefore never allowed in an allowlist. `'any'` leaves packages and built-ins
+   * unrestricted (infrastructure adapters are where drivers and file access belong).
+   */
+  allowedPackages: readonly string[] | 'any';
 }
 
-const pureDependencies = ['decimal.js', 'zod'];
 /** Additionally allowed in test files only. */
 const testPackages = ['vitest'];
 const testFilePattern = /\.test\.(c|m)?ts$/;
 
 const rules: readonly LayerRule[] = [
-  { layer: 'domains', allowedLayers: ['shared'], allowedPackages: pureDependencies },
-  { layer: 'shared', allowedLayers: [], allowedPackages: pureDependencies },
+  // decimal.js only inside shared/: domains compute through ExactDecimal/Money, so the
+  // global decimal.js configuration can never take part in a calculation (ADR-033).
+  { layer: 'domains', allowedLayers: ['shared'], allowedPackages: ['zod'] },
+  { layer: 'shared', allowedLayers: [], allowedPackages: ['decimal.js', 'zod'] },
+  // Adapters implement domain ports; they never call use cases or the API (technology.md §5.2).
+  { layer: 'infrastructure', allowedLayers: ['shared', 'domains'], allowedPackages: 'any' },
 ];
 
 const sourceFilePattern = /\.(c|m)?ts$/;
@@ -87,7 +94,9 @@ function violation(rule: LayerRule, file: string, specifier: string): string | u
       : undefined;
   }
   const name = packageName(specifier);
-  return rule.allowedPackages.includes(name) || (testFilePattern.test(file) && testPackages.includes(name))
+  return rule.allowedPackages === 'any' ||
+    rule.allowedPackages.includes(name) ||
+    (testFilePattern.test(file) && testPackages.includes(name))
     ? undefined
     : `${file} imports non-allowlisted package '${specifier}'`;
 }
@@ -152,11 +161,13 @@ describe('architecture rules (fixtures)', () => {
     '../../shared/money.js',
     '../ownership/internal/repository.js',
     '../ownership/',
+    'decimal.js',
+    'decimal.js/decimal.mjs',
   ])('domains/ rejects %s', (specifier) => {
     expect(violation(ruleFor('domains'), domainFile, specifier)).toBeDefined();
   });
 
-  it.each(['decimal.js', 'zod', '../../shared/index.js', '../ownership/index.js', './money.js', './internal/repo.js'])(
+  it.each(['zod', '../../shared/index.js', '../ownership/index.js', './money.js', './internal/repo.js'])(
     'domains/ allows %s',
     (specifier) => {
       expect(violation(ruleFor('domains'), domainFile, specifier)).toBeUndefined();
@@ -173,6 +184,22 @@ describe('architecture rules (fixtures)', () => {
   it.each(['decimal.js', './money.js'])('shared/ allows %s', (specifier) => {
     expect(violation(ruleFor('shared'), sharedFile, specifier)).toBeUndefined();
   });
+
+  const infraFile = 'infrastructure/postgres/probe.ts';
+
+  it.each(['../../api/index.js', '../../application/index.js', '../../integrations/mre/index.js', '../../reporting/index.js', '../../shared/money.js', '../../domains/ledger/internal/repo.js'])(
+    'infrastructure/ rejects %s',
+    (specifier) => {
+      expect(violation(ruleFor('infrastructure'), infraFile, specifier)).toBeDefined();
+    },
+  );
+
+  it.each(['pg', 'kysely', 'node:fs', '../../shared/index.js', '../../domains/ledger/index.js', './money-column.js'])(
+    'infrastructure/ allows %s',
+    (specifier) => {
+      expect(violation(ruleFor('infrastructure'), infraFile, specifier)).toBeUndefined();
+    },
+  );
 
   it('allows vitest only in test files', () => {
     expect(violation(ruleFor('shared'), 'shared/money.test.ts', 'vitest')).toBeUndefined();
