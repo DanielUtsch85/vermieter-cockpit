@@ -4,6 +4,18 @@ import { Money } from '../../shared/index.js';
  * Maps Money to and from a PostgreSQL `NUMERIC` amount column plus a separate
  * currency column (ADR-031, ADR-033, coding-guidelines §8).
  *
+ * Column convention (binding for every Money column pair):
+ *
+ *   amount   NUMERIC NOT NULL CHECK (scale(amount) <= 2 AND abs(amount) < 1e18),
+ *   currency TEXT    NOT NULL CHECK (currency IN ('EUR'))
+ *
+ * Unconstrained `NUMERIC` plus CHECK, never `NUMERIC(p,s)`: PostgreSQL silently
+ * rounds on insert into `NUMERIC(p,2)` (`'1.005'::numeric(20,2)` = 1.01), which
+ * would contradict "rejected, never silently rounded" (data-model.md §17.4) for
+ * any writer that bypasses Money. The bounds match `MAX_INTEGER_DIGITS` and the
+ * EUR scale. When a second currency with another scale is added, the scale
+ * check moves into a per-currency check.
+ *
  * node-postgres returns `NUMERIC` as a string by default; this mapping relies on
  * that and refuses any other runtime type, so a misconfigured type parser that
  * yields JS numbers fails loudly instead of losing precision.

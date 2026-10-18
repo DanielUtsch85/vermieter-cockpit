@@ -19,7 +19,11 @@ describe.skipIf(databaseUrl === undefined)('Money ↔ PostgreSQL NUMERIC', () =>
   beforeAll(async () => {
     await client.connect();
     await client.query(
-      'CREATE TEMPORARY TABLE money_roundtrip (id serial PRIMARY KEY, amount NUMERIC NOT NULL, currency text NOT NULL)',
+      `CREATE TEMPORARY TABLE money_roundtrip (
+         id serial PRIMARY KEY,
+         amount NUMERIC NOT NULL CHECK (scale(amount) <= 2 AND abs(amount) < 1e18),
+         currency TEXT NOT NULL CHECK (currency IN ('EUR'))
+       )`,
     );
   });
 
@@ -71,7 +75,32 @@ describe.skipIf(databaseUrl === undefined)('Money ↔ PostgreSQL NUMERIC', () =>
     expect(fromNumericAmount(result.rows[0]?.total, 'EUR').equals(Money.sum(parts, 'EUR'))).toBe(true);
   });
 
-  it('rejects a stored amount with more decimals than the currency allows', async () => {
+  async function insertRaw(amount: string, currency: string): Promise<unknown> {
+    try {
+      await client.query('INSERT INTO money_roundtrip (amount, currency) VALUES ($1, $2)', [amount, currency]);
+      return undefined;
+    } catch (error) {
+      return error;
+    }
+  }
+
+  it.each([
+    ['1.005', 'EUR'],
+    ['0.001', 'EUR'],
+    ['1000000000000000000.00', 'EUR'],
+    ['-1000000000000000000', 'EUR'],
+    ['1.00', 'USD'],
+  ])('the column CHECK rejects %s %s instead of rounding or storing it', async (amount, currency) => {
+    const error = await insertRaw(amount, currency);
+    expect(error).toMatchObject({ code: '23514' }); // check_violation
+  });
+
+  it('documents why NUMERIC(p,2) is not used: PostgreSQL rounds silently', async () => {
+    const result = await client.query<{ amount: unknown }>("SELECT '1.005'::numeric(20,2) AS amount");
+    expect(result.rows[0]?.amount).toBe('1.01');
+  });
+
+  it('rejects a read amount with more decimals than the currency allows', async () => {
     const result = await client.query<{ amount: unknown }>("SELECT '1.005'::numeric AS amount");
     expect(() => fromNumericAmount(result.rows[0]?.amount, 'EUR')).toThrow(/decimal places/);
   });
