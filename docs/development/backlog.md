@@ -36,7 +36,7 @@ Detailed epics below cover **Phase 0 and Phase 1** (the immediate build). Later 
 | VC-0-06 | feature | **done** · `MreClient` interface + auth adapter against pinned MRE baseline (`479d0ad…`) | Verifies MRE identity + Realm server-side | — |
 | VC-0-07 | infra | **done** (health endpoints for orchestration only — the Phase-0 "health only for an authenticated Realm identity" exit is met by VC-0-08) · Docker Compose: MRE (MongoDB) + DE (PostgreSQL) up together | `docker compose up` yields both DBs + DE health endpoint | VC-0-04 |
 | VC-0-08 | feature | **done** · Realm-isolation middleware for all DE endpoints (uses `verifyMrePrincipal`; policy: `administrator` full access, `renter` none — see `mre-integration.md` §47.1) | Requests without valid Realm membership are rejected | VC-0-06 |
-| VC-0-09 | test | Contract test against MRE landlord `/api/v2` for the endpoints Phase 1 needs (start with signup → signin → `GET /api/v2/realms` against the compose stack, proving authenticator/api/Mongo/Redis of the pinned baseline actually work) | Contract test pins upstream shape | VC-0-06 |
+| VC-0-09 | test | **done** · Contract test against MRE landlord `/api/v2` for the endpoints Phase 1 needs (start with signup → signin → `GET /api/v2/realms` against the compose stack, proving authenticator/api/Mongo/Redis of the pinned baseline actually work) | Contract test pins upstream shape | VC-0-06 |
 
 **Phase 0 exit:** DE health endpoint responds only for a valid MRE-authenticated identity within a Realm; migrations run; `Money` exact; both DBs orchestrated.
 
@@ -48,7 +48,7 @@ Reference: `docs/project-brief.md` §7, `api-design.md`.
 
 | ID | Type | Item | API | Exit |
 |---|---|---|---|---|
-| VC-1-01 | feature | `PropertyReference` link to MRE `Property` | `POST /api/v1/property-references/link` | DE ref bound to `mrePropertyId` (+`mreRealmId`); MRE not duplicated |
+| VC-1-01 | feature | `PropertyReference` link to MRE `Property` (resolve existence via `GET /properties`, not `GET /properties/:id` — see `mre-integration.md` §21.1) | `POST /api/v1/property-references/link` | DE ref bound to `mrePropertyId` (+`mreRealmId`); MRE not duplicated |
 | VC-1-02 | feature | Refresh cached, non-authoritative display data | `POST /api/v1/property-references/{id}/refresh` | Cached fields updated; authority stays in MRE |
 | VC-1-03 | feature | `FinancialAccount` create/close | `POST /api/v1/financial-accounts` (+`/close`) | Bank/cash account persisted; distinct from MRE `Account` and from `Loan` |
 | VC-1-04 | feature | Manual `Transaction` create | `POST /api/v1/transactions` | Cash-only Transaction with `Money`; provenance = manual |
