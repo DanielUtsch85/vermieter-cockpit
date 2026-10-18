@@ -98,6 +98,8 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-04 | infra | Data export tooling (constitution Art. I; ADR-030 open formats) |
 | VC-X-05 | decision | ~~Finalize `LICENSE`~~ — **done** (MIT, see README §License) |
 | VC-X-06 | test | MRE-upgrade compatibility test suite (contract + integration) per ADR-036 |
+| VC-X-07 | infra | Upgrade TypeScript from 5.6 to a current release (DefinitelyTyped drops TS versions after ~2 years, so later `@types/node@24` updates may require it) and raise `target`/`lib` in `tsconfig.base.json` from `ES2022` to what Node 24 supports (`ES2024`) |
+| VC-X-08 | infra | Re-evaluate Node.js 26 LTS once Yarn 3.3.0 / TypeScript / Vitest are verified on it (ADR-032 Amendment) |
 
 ---
 

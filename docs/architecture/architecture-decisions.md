@@ -1207,7 +1207,7 @@ Introducing another runtime ecosystem would increase development, deployment and
 
 The DE Investment Layer uses:
 
-- **Node.js 24 (LTS)**
+- **Node.js 24 (LTS)** (originally Node.js 20 to match the MRE baseline; see "Amendment")
 - **TypeScript**
 - **Yarn 3.3-compatible workspace tooling**
 
@@ -1239,7 +1239,15 @@ The choice of HTTP controller library remains an implementation-level decision u
 
 ## Amendment (2026-10-18) — Node.js 24 LTS instead of Node.js 20
 
-Node.js 20 reached end-of-life on 2026-04-30, before the first line of DE code was written. Building a new financial system on an unsupported runtime (no security fixes) is not acceptable. Node.js 22 was considered and rejected: it is only in maintenance LTS until 2027-04-30. Node.js 24 is the active LTS line (supported until 2028-04-30).
+Node.js 20 reached end-of-life on 2026-04-30, before the first line of DE code was written. Building a new financial system on an unsupported runtime (no security fixes) is not acceptable.
+
+The candidates were judged on **end-of-life date** and **toolchain compatibility**, not on the current release phase (active vs. maintenance LTS), because the phase changes within weeks while EOL dates are fixed:
+
+| Version | EOL | Decision |
+|---|---|---|
+| Node.js 22 | 2027-04-30 | Rejected: forced upgrade within ~6 months of the decision. |
+| **Node.js 24** | **2028-04-30** | **Chosen.** LTS line (active LTS until 2026-10-20, maintenance thereafter); the pinned toolchain (Yarn 3.3.0, TypeScript 5.6, Vitest 2) is verified on it by CI. |
+| Node.js 26 | 2029-04-30 | Not chosen: not yet LTS at decision time (LTS from ~2026-10-28), and the pinned toolchain is unverified on it. Re-evaluate once the toolchain is confirmed on 26. |
 
 - The DE backend pins Node.js 24 (`.nvmrc`, `engines: "^24"`, CI, Docker base images).
 - **MRE compatibility:** the pinned MRE baseline still runs on Node.js 20. This does not conflict: DE is a separately deployed service (ADR-026, ADR-036) that talks to MRE only over HTTP (ADR-034), so the runtimes are independent. Code shared with MRE packages (if ever needed) must not rely on Node-24-only APIs.
