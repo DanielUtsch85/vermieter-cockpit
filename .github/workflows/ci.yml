@@ -53,6 +53,11 @@ jobs:
         run: |
           curl -fsS http://localhost:8090/health/live
           curl -fsS http://localhost:8090/health/ready
+      - name: DE business API rejects unauthenticated calls
+        run: |
+          status=$(curl -s -o /dev/null -w '%{http_code}' -H 'organizationid: x' http://localhost:8090/api/v1/health)
+          echo "status=$status"
+          test "$status" = 401
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
       - name: Logs on failure
