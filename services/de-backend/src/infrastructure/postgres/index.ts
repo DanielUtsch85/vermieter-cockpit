@@ -3,3 +3,4 @@
  * the domains; domain code never imports from here (coding-guidelines §3).
  */
 export { fromNumericAmount, toNumericAmount } from './money-column.js';
+export { createPool, isDatabaseReachable } from './pool.js';
