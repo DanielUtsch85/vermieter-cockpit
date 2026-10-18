@@ -40,7 +40,7 @@ Where this roadmap and an accepted ADR disagree, the ADR wins and this document 
 
 Scope:
 - `git init` and separate `vermieter-cockpit` repository (ADR-036).
-- Node.js 20 + TypeScript strict + Yarn workspace scaffold (ADR-032).
+- Node.js 24 LTS + TypeScript strict + Yarn workspace scaffold (ADR-032).
 - Modular monolith skeleton with empty domain modules (ADR-026).
 - PostgreSQL connection + migration tool selected and wired (ADR-031).
 - Money value object over `NUMERIC` (ADR-033) with rounding tests.

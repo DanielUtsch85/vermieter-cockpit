@@ -1181,7 +1181,7 @@ Use them only for a demonstrated requirement.
 | MRE integration | API + anti-corruption layer | Accepted |
 | Public API | HTTP/JSON, `/api/v1` | Specified |
 | API style | REST-like + business commands | Specified |
-| Backend ecosystem | Node.js 20 + TypeScript | **Accepted (ADR-032)**; verify exact upstream versions |
+| Backend ecosystem | Node.js 24 LTS + TypeScript | **Accepted (ADR-032, amended 2026-10-18)** |
 | Static typing | Strong typing for DE code | **Accepted (ADR-032)** |
 | Frontend | Align with MRE frontend ecosystem | Recommended; verify upstream |
 | Database | PostgreSQL, separate from MRE MongoDB | **Accepted (ADR-031)** |
@@ -1211,7 +1211,7 @@ The technology decisions this section originally listed as "to become ADRs" **ha
 |---|---|---|
 | TECH-ADR-001 DE Persistence | PostgreSQL, separate from MRE MongoDB | ADR-031 |
 | TECH-ADR-002 Application Process Structure | Modular monolith | ADR-026 |
-| TECH-ADR-003 Runtime / Language / Package Manager | Node.js 20 + TypeScript + Yarn 3.3 | ADR-032 |
+| TECH-ADR-003 Runtime / Language / Package Manager | Node.js 24 LTS + TypeScript + Yarn 3.3 | ADR-032 |
 | TECH-ADR-004 Money Representation | Money value object, exact decimal, `NUMERIC`, decimal-string API | ADR-033 |
 | TECH-ADR-005 Authentication Between DE and MRE | Reuse MRE auth + Realm authority | ADR-034 |
 | TECH-ADR-006 Document Binary Storage | Pluggable storage, local FS default, metadata in PostgreSQL | ADR-035 |

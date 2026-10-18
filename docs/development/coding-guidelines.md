@@ -17,12 +17,12 @@ This document covers *how* to write code. It does **not** re-decide architecture
 
 # 2. Language, runtime, tooling
 
-- **Node.js 20**, **TypeScript** in `strict` mode, **Yarn 3.3**-compatible workspaces (ADR-032).
+- **Node.js 24 LTS**, **TypeScript** in `strict` mode, **Yarn 3.3**-compatible workspaces (ADR-032).
 - `strict: true` plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `noImplicitOverride` are recommended for new DE code.
 - No new runtime ecosystem (no second language) without an ADR.
 - Implementation-level library choices (HTTP framework, PG access layer, validation, test runner, decimal lib) follow TECH-ADR §10 criteria: maintenance quality, TS support, low lock-in, deterministic behavior. Record the initial picks here once made.
 
-**Initial library picks (Phase 0, VC-0-02/VC-0-03).** Compared per `technology-adrs.md` §11 against the §10 criteria (maintenance quality, TypeScript support, low lock-in, deterministic behavior, ecosystem maturity, Node 20 compatibility):
+**Initial library picks (Phase 0, VC-0-02/VC-0-03).** Compared per `technology-adrs.md` §11 against the §10 criteria (maintenance quality, TypeScript support, low lock-in, deterministic behavior, ecosystem maturity, Node 24 compatibility):
 
 | Concern | Pick | Rejected alternatives (and why) |
 |---|---|---|
@@ -30,7 +30,7 @@ This document covers *how* to write code. It does **not** re-decide architecture
 | Migration tool | **Kysely `Migrator`** (built-in, file-based) | **node-pg-migrate:** solid, but a second tool with its own conventions next to Kysely. **drizzle-kit / Prisma Migrate:** only with their ORMs (rejected above). **Plain SQL files + custom runner:** reinvents ordering/locking the `Migrator` already provides. |
 | Decimal library | **decimal.js** | **big.js:** smaller, deliberately minimal API (division precision via `DP` only, four rounding modes); sufficient but no advantage. **bignumber.js:** functionally comparable (also supports isolated clones); tie broken in favour of decimal.js's explicit `toDecimalPlaces(dp, rounding)` API, which maps directly onto ADR-033 "rounding is explicit". |
 | Validation | **Zod** | **Valibot:** smaller bundle (a frontend concern, not relevant for the backend) and a younger, less mature ecosystem. **TypeBox:** JSON-Schema-first and fast, but less ergonomic for refinements/transformations (e.g. decimal-string → `Money`). |
-| Test runner | **Vitest** | **Jest:** needs a separate transform (ts-jest/babel) for TS + ESM and its ESM support is still experimental. **`node:test`:** no transform, but no TS support on Node 20 without a loader, and a thinner assertion/mocking API. |
+| Test runner | **Vitest** | **Jest:** needs a separate transform (ts-jest/babel) for TS + ESM and its ESM support is still experimental. **`node:test`:** Node 24 strips TS types natively, but only erasable syntax (no `enum`/parameter properties, no `tsconfig` paths), and its assertion/mocking API is thinner. |
 | HTTP framework | **Express 4** (4.21.x, as pinned in MRE) | **Express 5:** native async-error propagation, but MRE services use Express 4; staying on 4 keeps middleware and auth code portable to/from MRE (TECH-ADR-003 "Backend Framework"; `technology.md` §6.2). Async handlers therefore go through an explicit error-forwarding wrapper. Revisit when MRE moves to 5. **Fastify:** good TS support, but a different plugin/middleware model than MRE. |
 
 Binding consequences of these picks:
@@ -40,7 +40,7 @@ Binding consequences of these picks:
 
 Runtime dependencies are added to `services/de-backend` by the backlog item that first uses them, not up front.
 
-**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn test`; CI runs all three on Node 20 (`.github/workflows/ci.yml`). The §3 dependency direction for `domains/` and `shared/` is enforced by `src/architecture.test.ts` (relative imports per layer; third-party packages via an allowlist, currently `decimal.js` and `zod`). Lint-based enforcement (e.g. `eslint-plugin-boundaries` or `dependency-cruiser`) can replace it once linting is set up (§15).
+**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn test`; CI runs all three on Node 24 (`.github/workflows/ci.yml`). The §3 dependency direction for `domains/` and `shared/` is enforced by `src/architecture.test.ts` (relative imports per layer; third-party packages via an allowlist, currently `decimal.js` and `zod`). Lint-based enforcement (e.g. `eslint-plugin-boundaries` or `dependency-cruiser`) can replace it once linting is set up (§15).
 
 ---
 

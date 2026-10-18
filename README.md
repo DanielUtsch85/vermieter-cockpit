@@ -361,7 +361,7 @@ Do not introduce speculative abstractions merely because they are common in othe
 
 ### Local development
 
-Requires Node.js 20 (see `.nvmrc`). Yarn is pinned in the repository (`.yarn/releases`), as in MRE.
+Requires Node.js 24 LTS (see `.nvmrc`). Yarn is pinned in the repository (`.yarn/releases`), as in MRE.
 
 ```bash
 yarn install

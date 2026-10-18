@@ -58,7 +58,7 @@ Recorded canonically in `docs/architecture/architecture-decisions.md`; detailed 
 
 | Concern | Decision | ADR |
 |---|---|---|
-| Runtime / language | Node.js 20 + TypeScript (strict) | ADR-032 |
+| Runtime / language | Node.js 24 LTS + TypeScript (strict) | ADR-032 |
 | Package tooling | Yarn 3.3-compatible workspaces | ADR-032 |
 | Backend shape | Modular monolith (module boundaries mandatory, process split not) | ADR-026 |
 | DE persistence | **PostgreSQL**, separate from MRE's MongoDB | ADR-031 |
