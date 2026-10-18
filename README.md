@@ -370,6 +370,16 @@ yarn typecheck   # strict TypeScript check
 yarn test        # Vitest suites
 ```
 
+Full local stack (DE backend + PostgreSQL, and MRE from the images of the pinned baseline commit; needs Docker):
+
+```bash
+docker compose up -d --build --wait
+curl http://localhost:8090/health/ready   # DE backend
+curl http://localhost:8080/health         # MRE gateway
+```
+
+The secrets in `docker-compose.yml` are development defaults; override them via `.env` and never use them in production. CI starts the same stack (`compose-smoke` job).
+
 Database tests (e.g. the Money ↔ `NUMERIC` round-trip) run when `DE_TEST_DATABASE_URL` points to a PostgreSQL database, e.g. `DE_TEST_DATABASE_URL=postgres://de_test:de_test@localhost:5432/de_test yarn test`; otherwise they are skipped locally. CI always runs them.
 
 The DE backend lives in `services/de-backend` (modular monolith, see `docs/development/coding-guidelines.md` §2–3).
