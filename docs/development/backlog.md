@@ -99,7 +99,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-04 | infra | Data export tooling (constitution Art. I; ADR-030 open formats) |
 | VC-X-05 | decision | ~~Finalize `LICENSE`~~ — **done** (MIT, see README §License) |
 | VC-X-06 | test | MRE-upgrade compatibility test suite (contract + integration) per ADR-036 |
-| VC-X-07 | infra | Upgrade TypeScript from 5.6 to a current release (DefinitelyTyped drops TS versions after ~2 years, so later `@types/node@24` updates may require it) and raise `target`/`lib` in `tsconfig.base.json` from `ES2022` to what Node 24 supports (`ES2024`) |
+| VC-X-07 | infra | Upgrade TypeScript from 5.6 to a current release (DefinitelyTyped drops TS versions after ~2 years, so later `@types/node@24` updates may require it) and raise `target`/`lib` in `tsconfig.base.json` from `ES2022` to what Node 24 supports (`ES2024`). Also choose the Kysely version deliberately **before VC-1-01** builds repositories on it (currently `^0.27`, which never moves to a newer 0.x minor) |
 | VC-X-08 | infra | Re-evaluate Node.js 26 LTS once Yarn 3.3.0 / TypeScript / Vitest are verified on it (ADR-032 Amendment) |
 | VC-X-09 | infra | Pin container images by digest (`@sha256:…`) instead of tag — MRE images (ADR-036 pinned baseline) and `node:24-bookworm-slim` / `postgres:16` — with a documented update procedure; likewise move GitHub Actions to current majors pinned by commit SHA (CI warns that `actions/checkout@v4` / `setup-node@v4` target the deprecated Node 20 runtime) |
 | VC-X-10 | infra | Structured logging (incl. unexpected access-guard errors, MRE client failures, pool errors) and a per-token verification cache / rate limit for `/api/v1` (`mre-integration.md` §47.1) |

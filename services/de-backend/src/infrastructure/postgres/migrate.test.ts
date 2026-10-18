@@ -1,3 +1,6 @@
+import { readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { migrateToLatest } from './migrate.js';
@@ -52,6 +55,19 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
     await expect(migrateToLatest(pool, failing)).rejects.toThrow('Database migration failed at 9999_failing');
     const applied = await pool.query<{ name: string }>('SELECT name FROM kysely_migration');
     expect(applied.rows.map((r) => r.name)).not.toContain('9999_failing');
+  });
+});
+
+describe('migration registry (no database needed)', () => {
+  it('every migration file is registered, and nothing else', () => {
+    // The list in migrations/index.ts is static; a file that is not registered
+    // would silently never run. This keeps directory and registry in sync.
+    const dir = join(dirname(fileURLToPath(import.meta.url)), 'migrations');
+    const files = readdirSync(dir)
+      .filter((f) => /^\d{4}_.+\.(c|m)?ts$/.test(f) && !f.endsWith('.d.ts'))
+      .map((f) => f.replace(/\.(c|m)?ts$/, ''))
+      .sort();
+    expect(Object.keys(migrations)).toEqual(files);
   });
 
   it('migration names are ordered and never reuse a number', () => {
