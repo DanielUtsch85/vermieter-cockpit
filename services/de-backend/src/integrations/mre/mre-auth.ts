@@ -35,7 +35,8 @@ export class MreAuthError extends Error {
   }
 }
 
-const BEARER = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/;
+/** The auth scheme is case-insensitive (RFC 7235); the token is a three-part JWT. */
+const BEARER = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i;
 
 export async function verifyMrePrincipal(
   client: MreClient,

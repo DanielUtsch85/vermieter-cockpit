@@ -86,13 +86,54 @@ describe('HttpMreClient failure handling', () => {
     [404, ''],
     [200, 'not json'],
     [200, '{"realms":[]}'],
-    [200, '[{"_id":"r","name":"n","members":[{"email":"a@b","role":"owner"}]}]'],
+    [200, '[{"_id":"","name":"n","members":[]}]'],
+    [200, '[{"_id":"r","name":"n","members":{}}]'],
+    [302, ''],
   ])('status %i with body %j → UNAVAILABLE', async (status, body) => {
     const stub = await startStub(status, body);
     try {
       await expectCode(new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listRealms('a.b.c'), 'UNAVAILABLE');
     } finally {
       stub.close();
+    }
+  });
+
+  it('drops members with unknown roles or shape individually, keeping the rest', async () => {
+    const body = JSON.stringify([
+      {
+        _id: 'r1',
+        name: 'n',
+        members: [
+          { email: 'a@b', role: 'owner' },
+          { email: '', role: 'administrator' },
+          'garbage',
+          { email: 'c@d', role: 'renter' },
+        ],
+      },
+      { _id: 'r2', name: 'm', members: [{ email: 'a@b', role: 'administrator' }] },
+    ]);
+    const stub = await startStub(200, body);
+    try {
+      const realms = await new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listRealms('a.b.c');
+      expect(realms).toEqual([
+        { mreRealmId: 'r1', name: 'n', members: [{ email: 'c@d', role: 'renter' }] },
+        { mreRealmId: 'r2', name: 'm', members: [{ email: 'a@b', role: 'administrator' }] },
+      ]);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it('does not follow redirects with the caller token', async () => {
+    const target = await startStub(200, '[]');
+    const server = createServer((_req, res) => res.writeHead(302, { location: `${target.url}/realms` }).end());
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address() as AddressInfo;
+    try {
+      await expectCode(new HttpMreClient({ apiBaseUrl: `http://127.0.0.1:${port}/api/v2`, timeoutMs: 2000 }).listRealms('a.b.c'), 'UNAVAILABLE');
+    } finally {
+      server.close();
+      target.close();
     }
   });
 

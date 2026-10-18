@@ -13,15 +13,20 @@ import { MreClientError, type MreClient, type MreRealmMembership } from './mre-c
  * Only the fields DE needs are read; the MRE DTO never leaves this file.
  */
 
+/**
+ * Structure errors (missing `_id`, `members` not an array) reject the whole
+ * response. A single member with an unknown shape or role (legacy data, or a role
+ * added by a later MRE release) is dropped on its own: a dropped member gets no
+ * access, and the caller's other Realms stay usable.
+ */
+const memberDto = z.object({
+  email: z.string().min(1),
+  role: z.enum(['administrator', 'renter']),
+});
 const realmDto = z.object({
   _id: z.string().min(1),
   name: z.string(),
-  members: z.array(
-    z.object({
-      email: z.string().min(1),
-      role: z.enum(['administrator', 'renter']),
-    }),
-  ),
+  members: z.array(z.unknown()),
 });
 const realmsDto = z.array(realmDto);
 
@@ -48,6 +53,8 @@ export class HttpMreClient implements MreClient {
       response = await this.fetchFn(this.realmsUrl, {
         headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
         signal: AbortSignal.timeout(this.options.timeoutMs),
+        // Never follow a redirect with the caller's token; a redirect means a misconfigured gateway.
+        redirect: 'error',
       });
     } catch (error) {
       throw new MreClientError('UNAVAILABLE', `MRE request failed: ${String(error)}`);
@@ -72,7 +79,10 @@ export class HttpMreClient implements MreClient {
     return parsed.data.map((realm) => ({
       mreRealmId: realm._id,
       name: realm.name,
-      members: realm.members.map(({ email, role }) => ({ email, role })),
+      members: realm.members.flatMap((member) => {
+        const parsedMember = memberDto.safeParse(member);
+        return parsedMember.success ? [{ email: parsedMember.data.email, role: parsedMember.data.role }] : [];
+      }),
     }));
   }
 }

@@ -953,7 +953,9 @@ Mechanism used by DE (**delegated verification**):
 4. DE checks server-side that the requested Realm is in the returned list and that the caller is a member; the result is a `VerifiedMrePrincipal { email, mreRealmId, mreRole }` (`integrations/mre/mre-auth.ts`). A known Realm ID alone grants nothing.
 5. If MRE is unreachable or answers unexpectedly, the request fails (`MRE_UNAVAILABLE`), it is never treated as authenticated.
 
-Consequences: one MRE call per verification (a short per-token cache bounded by the 30 s token lifetime may be added later); emails are compared exactly, as MRE does. **Open for VC-0-08:** which MRE roles (`administrator`, `renter`) may access which DE data is a DE authorization-policy decision that the documentation does not yet define.
+Details: the `Bearer` scheme is matched case-insensitively (RFC 7235); the MRE call never follows redirects (a redirect means a misconfigured gateway → `MRE_UNAVAILABLE`); a structurally invalid realms response is rejected as a whole, while a single member with an unknown role or shape is dropped (it gets no access, other Realms stay usable). Application and service tokens are answered by MRE with `200` and their realm — only DE's landlord-account check refuses them, which the end-to-end test covers.
+
+Consequences: one MRE call per verification; emails are compared exactly, as MRE does. A per-token cache may be added later; it must expire no later than the token's `exp` and must never cache a rejection (401/403). **Open for VC-0-08:** which MRE roles (`administrator`, `renter`) may access which DE data is a DE authorization-policy decision that the documentation does not yet define.
 
 ---
 

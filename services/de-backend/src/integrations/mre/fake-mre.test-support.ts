@@ -6,7 +6,8 @@ import type { AddressInfo } from 'node:net';
  * Minimal stand-in for the MRE gateway + API `GET /api/v2/realms`, mirroring the
  * pinned baseline (479d0ad) middleware chain: HS256 JWT verified with the access
  * token secret (401 on failure/expiry), tenant tokens refused (403), realms
- * filtered by member email. Test support only.
+ * filtered by member email for account tokens; application and service tokens
+ * get 200 with their associated realm, as `checkOrganization` does. Test support only.
  */
 
 export const FAKE_SECRET = 'test-access-token-secret';
@@ -33,7 +34,7 @@ export interface FakeRealm {
   _id: string;
   name: string;
   members: { name: string; email: string; role: 'administrator' | 'renter'; registered: boolean }[];
-  applications: unknown[];
+  applications: { clientId: string; [extra: string]: unknown }[];
   [extra: string]: unknown;
 }
 
@@ -53,6 +54,17 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
     }
     const token = req.headers.authorization?.split(' ')[1];
     const payload = token === undefined ? undefined : verifyJwt(token);
+    const json = (body: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+    const application = payload?.['application'] as { clientId?: string } | undefined;
+    if (application !== undefined) {
+      json(realms.filter((r) => r.applications.some((a) => a.clientId === application.clientId)));
+      return;
+    }
+    const service = payload?.['service'] as { realmId?: string } | undefined;
+    if (service !== undefined) {
+      json(realms.filter((r) => r._id === service.realmId));
+      return;
+    }
     const account = payload?.['account'] as { email?: string; role?: string } | undefined;
     if (account === undefined) {
       res.writeHead(401).end('Unauthorized');
@@ -62,8 +74,7 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
       res.writeHead(403).end('Forbidden');
       return;
     }
-    const visible = realms.filter((r) => r.members.some((m) => m.email === account.email));
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(visible));
+    json(realms.filter((r) => r.members.some((m) => m.email === account.email)));
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;

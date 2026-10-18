@@ -45,7 +45,7 @@ describe('verifyMrePrincipal', () => {
     expect(renter.mreRole).toBe('renter');
   });
 
-  it.each([undefined, '', 'Basic dXNlcjpwYXNz', 'Bearer', 'Bearer abc', 'Bearer a.b', 'bearer a.b.c', 'Bearer a.b.c extra'])(
+  it.each([undefined, '', 'Basic dXNlcjpwYXNz', 'Bearer', 'Bearer abc', 'Bearer a.b', 'Bearer  a.b.c', 'Bearer a.b.c extra'])(
     'rejects authorization header %j without calling MRE',
     async (header) => {
       const client = fakeClient();
@@ -53,6 +53,11 @@ describe('verifyMrePrincipal', () => {
       expect(client.calls).toEqual([]);
     },
   );
+
+  it('accepts the auth scheme case-insensitively (RFC 7235)', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    await expect(verifyMrePrincipal(fakeClient(), `bearer ${token}`, 'realm-a')).resolves.toMatchObject({ mreRole: 'administrator' });
+  });
 
   it('rejects a missing Realm', async () => {
     await expectCode(verifyMrePrincipal(fakeClient(), bearer({ account: { email: 'anna@example.com' } }), undefined), 'NOT_A_REALM_MEMBER');
@@ -95,7 +100,7 @@ describe('verifyMrePrincipal end-to-end with HttpMreClient and a fake MRE', () =
         _id: 'realm-a',
         name: 'Landlord A',
         members: [{ name: 'Anna', email: 'anna@example.com', role: 'administrator', registered: true }],
-        applications: [],
+        applications: [{ clientId: 'app-1' }],
       },
     ]);
     try {
@@ -108,6 +113,15 @@ describe('verifyMrePrincipal end-to-end with HttpMreClient and a fake MRE', () =
         verifyMrePrincipal(client, `Bearer ${signJwt({ account: { email: 'anna@example.com', role: 'tenant' } })}`, 'realm-a'),
         'NOT_A_REALM_MEMBER',
       );
+      // MRE answers 200 with the associated realm for application and service tokens;
+      // only the landlord-account check in DE refuses them.
+      for (const payload of [
+        { application: { clientId: 'app-1' } },
+        { service: { serviceId: 'api', realmId: 'realm-a', role: 'administrator' } },
+      ]) {
+        await expect(client.listRealms(signJwt(payload))).resolves.toHaveLength(1);
+        await expectCode(verifyMrePrincipal(client, `Bearer ${signJwt(payload)}`, 'realm-a'), 'NOT_A_REALM_MEMBER');
+      }
     } finally {
       await mre.close();
     }
