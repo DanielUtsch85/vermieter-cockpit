@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Money, MoneyError, RoundingMode, type MoneyErrorCode } from './money.js';
+import { ExactDecimal, RoundingMode } from './exact-decimal.js';
+import { Money, MoneyError, type MoneyErrorCode } from './money.js';
+
+const d = (value: string) => ExactDecimal.of(value);
 
 function expectMoneyError(fn: () => unknown, code: MoneyErrorCode): void {
   try {
@@ -113,7 +116,7 @@ describe('Rounding policy: explicit, at the business boundary', () => {
     ['-1.005', '-1.01', '-1.00', '-1.01', '-1.00', '-1.00', '-1.01'],
     ['2.5', '2.50', '2.50', '2.50', '2.50', '2.50', '2.50'],
   ])('rounds %s per mode', (value, halfUp, halfEven, up, down, ceil, floor) => {
-    const r = (mode: RoundingMode) => Money.rounded(value, 'EUR', mode).amount;
+    const r = (mode: RoundingMode) => Money.rounded(d(value), 'EUR', mode).amount;
     expect(r('HALF_UP')).toBe(halfUp);
     expect(r('HALF_EVEN')).toBe(halfEven);
     expect(r('UP')).toBe(up);
@@ -124,25 +127,44 @@ describe('Rounding policy: explicit, at the business boundary', () => {
 
   it('rounds the exact product, not a floating-point approximation', () => {
     // 1.005 is 1.00499999999999989... as a double; exact decimal must round half up to 1.01.
-    expect(Money.of('1.00', 'EUR').multiply('1.005', RoundingMode.HALF_UP).amount).toBe('1.01');
+    expect(Money.of('1.00', 'EUR').multiply(d('1.005'), RoundingMode.HALF_UP).amount).toBe('1.01');
     // interest-style product: 3333.33 * 0.0425 = 141.666525 -> 141.67
-    expect(Money.of('3333.33', 'EUR').multiply('0.0425', RoundingMode.HALF_UP).amount).toBe('141.67');
+    expect(Money.of('3333.33', 'EUR').multiply(d('0.0425'), RoundingMode.HALF_UP).amount).toBe('141.67');
     // one third ownership share of 100.00
-    expect(Money.of('100.00', 'EUR').multiply('0.3333333333', RoundingMode.HALF_EVEN).amount).toBe('33.33');
+    expect(Money.of('100.00', 'EUR').multiply(d('0.3333333333'), RoundingMode.HALF_EVEN).amount).toBe('33.33');
   });
 
   it('no double rounding with long factors', () => {
     // exact product 0.004999999...9995 (59 nines) must round to 0.00, not 0.01
     const factor = `0.${'4'.repeat(1)}${'9'.repeat(58)}5`;
-    expect(Money.of('0.01', 'EUR').multiply(factor, RoundingMode.HALF_UP).amount).toBe('0.00');
+    expect(Money.of('0.01', 'EUR').multiply(d(factor), RoundingMode.HALF_UP).amount).toBe('0.00');
   });
 
-  it('rejects malformed or oversized factors', () => {
-    expectMoneyError(() => Money.of('1.00', 'EUR').multiply('1e2', RoundingMode.HALF_UP), 'INVALID_FACTOR');
-    expectMoneyError(
-      () => Money.of('1.00', 'EUR').multiply(`0.${'1'.repeat(61)}`, RoundingMode.HALF_UP),
-      'INVALID_FACTOR',
-    );
+  it('accepts only ExactDecimal as calculation input, never a string', () => {
+    expectMoneyError(() => Money.rounded('1.005' as unknown as ExactDecimal, 'EUR', RoundingMode.HALF_UP), 'INVALID_AMOUNT');
+  });
+
+  // Regression (PR #3 review, a): a result computed with the global decimal.js
+  // (precision 20) would be rounded twice; ExactDecimal keeps it exact.
+  it('regression: no double rounding of long calculation results', () => {
+    const value = d('0.004999999999999999999999');
+    expect(Money.rounded(value, 'EUR', RoundingMode.HALF_UP).amount).toBe('0.00');
+    expect(Money.rounded(value.times(d('1')), 'EUR', RoundingMode.HALF_UP).amount).toBe('0.00');
+  });
+
+  // Regression (PR #3 review, b): tiny intermediate results must not turn into
+  // exponent notation ("1e-7") and break the rounding step.
+  it('regression: tiny products stay in plain notation and round normally', () => {
+    const tiny = d('0.01').times(d('0.00001'));
+    expect(tiny.toString()).toBe('0.0000001');
+    expect(Money.rounded(tiny, 'EUR', RoundingMode.HALF_UP).amount).toBe('0.00');
+    expect(Money.rounded(tiny, 'EUR', RoundingMode.UP).amount).toBe('0.01');
+  });
+
+  it('computes a ratio from Money and rounds the share explicitly', () => {
+    // one third of 100.00 via exact division, then rounded to cents
+    const third = Money.of('100.00', 'EUR').toExactDecimal().dividedBy(d('3'), 10, RoundingMode.HALF_EVEN);
+    expect(Money.rounded(third, 'EUR', RoundingMode.HALF_EVEN).amount).toBe('33.33');
   });
 
   it('rounding does not touch the global decimal.js configuration', async () => {
@@ -151,7 +173,8 @@ describe('Rounding policy: explicit, at the business boundary', () => {
     Decimal.set({ precision: 2, rounding: Decimal.ROUND_DOWN });
     try {
       expect(Money.of('123.45', 'EUR').add(Money.of('0.01', 'EUR')).amount).toBe('123.46');
-      expect(Money.rounded('1.005', 'EUR', RoundingMode.HALF_UP).amount).toBe('1.01');
+      expect(Money.rounded(d('1.005'), 'EUR', RoundingMode.HALF_UP).amount).toBe('1.01');
+      expect(d('0.01').times(d('0.00001')).toString()).toBe('0.0000001');
     } finally {
       Decimal.set(before);
     }

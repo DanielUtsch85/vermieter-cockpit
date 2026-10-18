@@ -1,36 +1,21 @@
-import { Decimal } from 'decimal.js';
+import { DECIMAL_STRING, ExactDecimal, type RoundingMode } from './exact-decimal.js';
 
 /**
  * Money value object (ADR-033, coding-guidelines §4–5, data-model.md §6.1).
  *
- * - Exact decimal arithmetic via an isolated decimal.js constructor; the global
- *   decimal.js configuration is never read or changed.
+ * - Exact decimal arithmetic via ExactDecimal; decimal.js and its global
+ *   configuration are never touched outside shared/.
  * - Every value carries its currency; mixing currencies is an error.
  * - Input that is not representable in the currency's scale is rejected, never
- *   silently rounded. Rounding happens only through the explicit `rounded`
- *   operations, which require the caller to name the rounding mode.
+ *   silently rounded. Rounding happens only through `Money.rounded` and
+ *   `multiply`, which take an ExactDecimal and require an explicit rounding mode.
  * - Money may be negative (e.g. a difference of two amounts). Whether a value
  *   must be non-negative — like canonical ledger amounts (data-model.md §17.4) —
  *   is a rule of the owning domain, checked there via `isNegative()`.
  */
 
-/** Largest supported number of integer digits; keeps every operation exact (see DecimalCtor). */
+/** Largest supported number of integer digits (matches the NUMERIC column CHECK, coding-guidelines §8). */
 export const MAX_INTEGER_DIGITS = 18;
-/** Largest supported number of significant digits in a multiplication factor. */
-export const MAX_FACTOR_DIGITS = 60;
-
-/**
- * Isolated constructor. With amounts bounded to MAX_INTEGER_DIGITS + scale and
- * factors to MAX_FACTOR_DIGITS, sums and products stay far below this precision,
- * so no intermediate result is ever rounded implicitly.
- */
-const DecimalCtor = Decimal.clone({
-  precision: 200,
-  rounding: Decimal.ROUND_HALF_EVEN,
-  toExpNeg: -1000,
-  toExpPos: 1000,
-});
-type Dec = InstanceType<typeof DecimalCtor>;
 
 /** Supported currencies and their minor-unit scale. Phase 1: EUR only (data-model.md §17.4). */
 const CURRENCY_SCALE = {
@@ -47,33 +32,12 @@ export function currencyScale(currency: CurrencyCode): number {
   return CURRENCY_SCALE[currency];
 }
 
-/** Explicit rounding modes for business-boundary rounding. There is no default. */
-export const RoundingMode = {
-  HALF_UP: 'HALF_UP',
-  HALF_EVEN: 'HALF_EVEN',
-  UP: 'UP',
-  DOWN: 'DOWN',
-  CEIL: 'CEIL',
-  FLOOR: 'FLOOR',
-} as const;
-export type RoundingMode = (typeof RoundingMode)[keyof typeof RoundingMode];
-
-const DECIMAL_ROUNDING: Record<RoundingMode, Decimal.Rounding> = {
-  HALF_UP: Decimal.ROUND_HALF_UP,
-  HALF_EVEN: Decimal.ROUND_HALF_EVEN,
-  UP: Decimal.ROUND_UP,
-  DOWN: Decimal.ROUND_DOWN,
-  CEIL: Decimal.ROUND_CEIL,
-  FLOOR: Decimal.ROUND_FLOOR,
-};
-
 export type MoneyErrorCode =
   | 'INVALID_AMOUNT'
   | 'AMOUNT_OUT_OF_RANGE'
   | 'SCALE_EXCEEDED'
   | 'UNSUPPORTED_CURRENCY'
-  | 'CURRENCY_MISMATCH'
-  | 'INVALID_FACTOR';
+  | 'CURRENCY_MISMATCH';
 
 export class MoneyError extends Error {
   override readonly name = 'MoneyError';
@@ -86,9 +50,6 @@ export class MoneyError extends Error {
   }
 }
 
-/** Canonical decimal string: optional minus, no leading zeros, no exponent, no '+'. */
-const DECIMAL_STRING = /^-?(0|[1-9]\d*)(\.\d+)?$/;
-
 /** API / JSON representation (api-design.md §86). */
 export interface MoneyJson {
   readonly amount: string;
@@ -97,7 +58,7 @@ export interface MoneyJson {
 
 export class Money {
   private constructor(
-    private readonly value: Dec,
+    private readonly value: ExactDecimal,
     readonly currency: CurrencyCode,
   ) {}
 
@@ -110,7 +71,7 @@ export class Money {
     if (typeof amount !== 'string' || !DECIMAL_STRING.test(amount)) {
       throw new MoneyError('INVALID_AMOUNT', `Not a canonical decimal string: ${String(amount)}`);
     }
-    const value = new DecimalCtor(amount);
+    const value = ExactDecimal.of(amount);
     if (value.decimalPlaces() > currencyScale(code)) {
       throw new MoneyError(
         'SCALE_EXCEEDED',
@@ -121,34 +82,35 @@ export class Money {
   }
 
   static zero(currency: string): Money {
-    return Money.create(new DecimalCtor(0), requireCurrency(currency));
+    return Money.create(ExactDecimal.of('0'), requireCurrency(currency));
   }
 
   /**
-   * Turns the result of a calculation (e.g. an allocation share or interest) into
-   * Money by rounding to the currency scale with an explicitly chosen mode. This
-   * is the documented business-boundary rounding (coding-guidelines §5).
+   * Turns the result of a calculation (e.g. an allocation share or interest),
+   * computed with ExactDecimal, into Money by rounding to the currency scale with
+   * an explicitly chosen mode. This is the documented business-boundary rounding
+   * (coding-guidelines §5).
    */
-  static rounded(value: string, currency: string, mode: RoundingMode): Money {
+  static rounded(value: ExactDecimal, currency: string, mode: RoundingMode): Money {
     const code = requireCurrency(currency);
-    if (typeof value !== 'string' || !DECIMAL_STRING.test(value)) {
-      throw new MoneyError('INVALID_AMOUNT', `Not a canonical decimal string: ${String(value)}`);
+    if (!(value instanceof ExactDecimal)) {
+      throw new MoneyError('INVALID_AMOUNT', 'Money.rounded expects an ExactDecimal');
     }
-    return Money.create(roundToScale(new DecimalCtor(value), code, mode), code);
+    return Money.create(value.rounded(currencyScale(code), mode), code);
   }
 
   static fromJSON(json: MoneyJson): Money {
     return Money.of(json.amount, json.currency);
   }
 
-  private static create(value: Dec, currency: CurrencyCode): Money {
-    if (value.isZero()) value = new DecimalCtor(0); // normalize -0
-    const integerDigits = value.abs().truncated().toFixed(0).length;
-    if (integerDigits > MAX_INTEGER_DIGITS) {
-      throw new MoneyError(
-        'AMOUNT_OUT_OF_RANGE',
-        `Amount exceeds ${MAX_INTEGER_DIGITS} integer digits`,
-      );
+  /** Sums amounts of one currency; an empty list needs the currency explicitly. */
+  static sum(amounts: readonly Money[], currency: string): Money {
+    return amounts.reduce((acc, m) => acc.add(m), Money.zero(currency));
+  }
+
+  private static create(value: ExactDecimal, currency: CurrencyCode): Money {
+    if (value.integerDigits() > MAX_INTEGER_DIGITS) {
+      throw new MoneyError('AMOUNT_OUT_OF_RANGE', `Amount exceeds ${MAX_INTEGER_DIGITS} integer digits`);
     }
     return new Money(value, currency);
   }
@@ -168,23 +130,16 @@ export class Money {
   }
 
   /**
-   * Multiplies by a decimal factor (e.g. an ownership share or interest rate) and
+   * Multiplies by an exact factor (e.g. an ownership share or interest rate) and
    * rounds the exact product to the currency scale with the given mode.
    */
-  multiply(factor: string, mode: RoundingMode): Money {
-    if (typeof factor !== 'string' || !DECIMAL_STRING.test(factor)) {
-      throw new MoneyError('INVALID_FACTOR', `Not a canonical decimal string: ${String(factor)}`);
-    }
-    const f = new DecimalCtor(factor);
-    if (f.precision(true) > MAX_FACTOR_DIGITS) {
-      throw new MoneyError('INVALID_FACTOR', `Factor exceeds ${MAX_FACTOR_DIGITS} significant digits`);
-    }
-    return Money.create(roundToScale(this.value.times(f), this.currency, mode), this.currency);
+  multiply(factor: ExactDecimal, mode: RoundingMode): Money {
+    return Money.rounded(this.value.times(factor), this.currency, mode);
   }
 
-  /** Sums amounts of one currency; an empty list needs the currency explicitly. */
-  static sum(amounts: readonly Money[], currency: string): Money {
-    return amounts.reduce((acc, m) => acc.add(m), Money.zero(currency));
+  /** The exact amount, e.g. as input for a ratio computed with ExactDecimal. */
+  toExactDecimal(): ExactDecimal {
+    return this.value;
   }
 
   equals(other: Money): boolean {
@@ -194,7 +149,7 @@ export class Money {
   /** -1, 0 or 1. Throws on currency mismatch. */
   compare(other: Money): -1 | 0 | 1 {
     this.assertSameCurrency(other);
-    return this.value.comparedTo(other.value) as -1 | 0 | 1;
+    return this.value.compare(other.value);
   }
 
   isZero(): boolean {
@@ -206,7 +161,7 @@ export class Money {
   }
 
   isPositive(): boolean {
-    return this.value.isPositive() && !this.value.isZero();
+    return !this.value.isNegative() && !this.value.isZero();
   }
 
   /** Amount as a fixed-scale decimal string, e.g. "1250.00". Used for API and NUMERIC persistence. */
@@ -237,8 +192,4 @@ function requireCurrency(currency: string): CurrencyCode {
     throw new MoneyError('UNSUPPORTED_CURRENCY', `Unsupported currency: ${String(currency)}`);
   }
   return currency;
-}
-
-function roundToScale(value: Dec, currency: CurrencyCode, mode: RoundingMode): Dec {
-  return value.toDecimalPlaces(currencyScale(currency), DECIMAL_ROUNDING[mode]);
 }
