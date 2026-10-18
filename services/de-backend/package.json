@@ -25,6 +25,7 @@
   "dependencies": {
     "decimal.js": "^10",
     "express": "^4.21",
+    "kysely": "^0.27",
     "pg": "^8",
     "zod": "^3"
   }

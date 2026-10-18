@@ -58,6 +58,11 @@ jobs:
           status=$(curl -s -o /dev/null -w '%{http_code}' -H 'organizationid: x' http://localhost:8090/api/v1/health)
           echo "status=$status"
           test "$status" = 401
+      - name: DE migrations applied in the stack (Phase-0 exit)
+        run: |
+          applied=$(docker compose exec -T de-postgres psql -U de -d de -tAc "SELECT name FROM kysely_migration ORDER BY name")
+          echo "$applied"
+          echo "$applied" | grep -qx '0001_baseline'
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
       - name: DE access against real MRE (signup → signin → realm → /api/v1/health)

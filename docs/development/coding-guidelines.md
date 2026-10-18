@@ -35,7 +35,7 @@ This document covers *how* to write code. It does **not** re-decide architecture
 
 Binding consequences of these picks:
 
-- **Migrations** are TypeScript files under `services/de-backend/src/**/migrations/`, compiled by `tsc` into `dist/` like all other code. The Kysely `Migrator` (`FileMigrationProvider`) runs against the compiled `dist/` files in every environment; no `tsx`/`ts-node` at runtime. This is the basis for the Docker setup (VC-0-07).
+- **Migrations** are TypeScript files in `services/de-backend/src/infrastructure/postgres/migrations/` (`NNNN_snake_case.ts`, exporting `up`/`down`), compiled by `tsc` into `dist/` like all other code; no `tsx`/`ts-node` at runtime. They are registered in a static, ordered list (`migrations/index.ts`) instead of the `FileMigrationProvider` directory scan, so tests (from `src/`) and containers (from `dist/`) run exactly the same set. `migrateToLatest` (Kysely `Migrator`, database lock, history in `kysely_migration`) runs at backend start before the server listens; a failed migration aborts the start. Never edit or rename an applied migration — add a new one.
 - **decimal.js is never configured globally, and is used only inside `shared/`.** `ExactDecimal` and `Money` (VC-0-05) use their own isolated constructor via `Decimal.clone({ ... })`; all other code — including domains — computes through `ExactDecimal`/`Money`, so the global decimal.js configuration never takes part in a calculation (enforced by the architecture test). Rounding is applied explicitly at the business boundary (TECH-ADR-004 "Rounding", §5 below), never through a global default.
 
 Runtime dependencies are added to `services/de-backend` by the backlog item that first uses them, not up front.
