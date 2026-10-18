@@ -90,7 +90,10 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
   });
 
   it('access token: HS256 JWT with { account: { email } }, no role, 30 s lifetime', async () => {
-    const [header, payload] = (await token()).split('.').map((part) => JSON.parse(Buffer.from(part, 'base64url').toString()));
+    const [headerPart = '', payloadPart = ''] = (await token()).split('.');
+    const decode = (part: string) => JSON.parse(Buffer.from(part, 'base64url').toString());
+    const header = decode(headerPart);
+    const payload = decode(payloadPart);
     expect(header).toMatchObject({ alg: 'HS256' });
     expect(payload.account.email).toBe(email);
     expect(payload.account.role).toBeUndefined();
