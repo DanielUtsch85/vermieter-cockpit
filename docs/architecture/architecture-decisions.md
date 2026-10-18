@@ -1193,9 +1193,9 @@ DE domains must not directly mutate MRE MongoDB collections.
 
 ---
 
-# ADR-032 — Node.js 20, TypeScript and Yarn 3.3-Compatible Tooling
+# ADR-032 — Node.js 24 LTS, TypeScript and Yarn 3.3-Compatible Tooling
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-18: runtime raised from Node.js 20 to Node.js 24 LTS, see "Amendment" below)
 
 ## Context
 
@@ -1207,7 +1207,7 @@ Introducing another runtime ecosystem would increase development, deployment and
 
 The DE Investment Layer uses:
 
-- **Node.js 20**
+- **Node.js 24 (LTS)**
 - **TypeScript**
 - **Yarn 3.3-compatible workspace tooling**
 
@@ -1236,6 +1236,15 @@ Examples include:
 The DE layer remains within the same primary runtime ecosystem as MRE while allowing stronger typing for newly implemented domain logic.
 
 The choice of HTTP controller library remains an implementation-level decision unless it materially changes the architecture.
+
+## Amendment (2026-10-18) — Node.js 24 LTS instead of Node.js 20
+
+Node.js 20 reached end-of-life on 2026-04-30, before the first line of DE code was written. Building a new financial system on an unsupported runtime (no security fixes) is not acceptable. Node.js 22 was considered and rejected: it is only in maintenance LTS until 2027-04-30. Node.js 24 is the active LTS line (supported until 2028-04-30).
+
+- The DE backend pins Node.js 24 (`.nvmrc`, `engines: "^24"`, CI, Docker base images).
+- **MRE compatibility:** the pinned MRE baseline still runs on Node.js 20. This does not conflict: DE is a separately deployed service (ADR-026, ADR-036) that talks to MRE only over HTTP (ADR-034), so the runtimes are independent. Code shared with MRE packages (if ever needed) must not rely on Node-24-only APIs.
+- The decision's intent (stay in MRE's Node/TypeScript/Yarn ecosystem) is unchanged; only the major version moves.
+- Future runtime upgrades follow the Node.js LTS schedule and are recorded here as further amendments.
 
 ---
 
@@ -1771,7 +1780,7 @@ The following terminology is architectural, not stylistic:
 | MRE rent-state ↔ DE cash matching | `RentPaymentReconciliation` |
 | DE canonical datastore | PostgreSQL |
 | MRE operational datastore | existing MRE MongoDB |
-| DE runtime | Node.js 20 + TypeScript |
+| DE runtime | Node.js 24 LTS + TypeScript |
 | Canonical monetary arithmetic | exact Decimal / Money abstraction |
 | DE binary document storage | `DocumentStorage` abstraction |
 

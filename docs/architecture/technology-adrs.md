@@ -13,7 +13,7 @@ This document closes the initial Technology ADRs identified in `docs/architectur
 > |---|---|
 > | TECH-ADR-001 Separate PostgreSQL | ADR-031 |
 > | TECH-ADR-002 Modular Monolith | ADR-026 |
-> | TECH-ADR-003 Node.js 20 + TS + Yarn 3.3 | ADR-032 |
+> | TECH-ADR-003 Node.js 24 LTS + TS + Yarn 3.3 | ADR-032 |
 > | TECH-ADR-004 Decimal Money / NUMERIC | ADR-033 |
 > | TECH-ADR-005 Reuse MRE Auth | ADR-034 |
 > | TECH-ADR-006 Pluggable Document Storage | ADR-035 |
@@ -162,9 +162,9 @@ Extraction requires a future ADR.
 
 ---
 
-# TECH-ADR-003 — Node.js 20 + TypeScript + Yarn 3.3
+# TECH-ADR-003 — Node.js 24 LTS + TypeScript + Yarn 3.3
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-10-18: Node.js 20 → 24 LTS; rationale in ADR-032 "Amendment")
 
 ## Context
 
@@ -182,7 +182,7 @@ Maintaining a second runtime ecosystem would increase operational and cognitive 
 
 The DE Investment Layer will use:
 
-- **Node.js 20**
+- **Node.js 24 (LTS)** — originally Node.js 20, the MRE baseline version; raised because Node.js 20 is end-of-life (ADR-032 "Amendment")
 - **TypeScript**
 - **Yarn 3.3.x compatible workspace tooling**
 
@@ -489,7 +489,7 @@ The accepted baseline is:
 
 ```text
 Runtime
-└── Node.js 20
+└── Node.js 24 LTS
 
 Language
 └── TypeScript
@@ -564,7 +564,7 @@ They should be selected conservatively using:
 - low framework lock-in
 - deterministic behavior
 - ecosystem maturity
-- compatibility with Node 20
+- compatibility with Node 24 LTS
 
 ---
 
