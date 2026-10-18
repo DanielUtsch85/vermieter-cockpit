@@ -1,6 +1,5 @@
 /**
  * Application layer: workflows/use-cases orchestrating domains.
- *
- * Empty module skeleton (Phase 0, VC-0-04). See docs/development/coding-guidelines.md §3.
  */
-export {};
+export { AccessError, DE_ACCESS_ROLES, assertDeAccess } from './access.js';
+export type { AccessErrorCode, PrincipalVerifier, RealmPrincipal } from './access.js';

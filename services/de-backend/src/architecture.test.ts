@@ -47,6 +47,10 @@ const rules: readonly LayerRule[] = [
   { layer: 'infrastructure', allowedLayers: ['shared', 'domains'], allowedPackages: 'any' },
   // The MRE anti-corruption layer and other external adapters: same direction as infrastructure.
   { layer: 'integrations', allowedLayers: ['shared', 'domains'], allowedPackages: 'any' },
+  // Use cases and policies: no HTTP, no adapters; infrastructure arrives through ports.
+  { layer: 'application', allowedLayers: ['shared', 'domains'], allowedPackages: ['zod'] },
+  // HTTP layer: talks to the application layer, never to adapters directly.
+  { layer: 'api', allowedLayers: ['application', 'shared'], allowedPackages: 'any' },
 ];
 
 const sourceFilePattern = /\.(c|m)?ts$/;
@@ -216,6 +220,24 @@ describe('architecture rules (fixtures)', () => {
   it.each(['zod', 'node:crypto', '../../shared/index.js', './mre-client.js', '../bank-import/index.js'])('integrations/ allows %s', (specifier) => {
     expect(violation(ruleFor('integrations'), 'integrations/mre/probe.ts', specifier)).toBeUndefined();
   });
+
+  it.each(['../infrastructure/postgres/index.js', '../integrations/mre/index.js', '../domains/ledger/index.js', '../application/access.js'])(
+    'api/ rejects %s',
+    (specifier) => {
+      expect(violation(ruleFor('api'), 'api/probe.ts', specifier)).toBeDefined();
+    },
+  );
+
+  it.each(['express', '../application/index.js', '../shared/index.js', './app.js'])('api/ allows %s', (specifier) => {
+    expect(violation(ruleFor('api'), 'api/probe.ts', specifier)).toBeUndefined();
+  });
+
+  it.each(['express', 'pg', '../api/index.js', '../infrastructure/postgres/index.js', '../integrations/mre/index.js'])(
+    'application/ rejects %s',
+    (specifier) => {
+      expect(violation(ruleFor('application'), 'application/probe.ts', specifier)).toBeDefined();
+    },
+  );
 
   it('allows vitest only in test files', () => {
     expect(violation(ruleFor('shared'), 'shared/money.test.ts', 'vitest')).toBeUndefined();
