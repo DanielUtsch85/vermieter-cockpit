@@ -45,6 +45,8 @@ const rules: readonly LayerRule[] = [
   { layer: 'shared', allowedLayers: [], allowedPackages: ['decimal.js', 'zod'] },
   // Adapters implement domain ports; they never call use cases or the API (technology.md §5.2).
   { layer: 'infrastructure', allowedLayers: ['shared', 'domains'], allowedPackages: 'any' },
+  // The MRE anti-corruption layer and other external adapters: same direction as infrastructure.
+  { layer: 'integrations', allowedLayers: ['shared', 'domains'], allowedPackages: 'any' },
 ];
 
 const sourceFilePattern = /\.(c|m)?ts$/;
@@ -71,10 +73,13 @@ function packageName(specifier: string): string {
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : (parts[0] ?? specifier);
 }
 
-/** Module a src/-relative path belongs to: `domains/<name>` for domains, else the top-level layer. */
+/** Layers whose sub-directories are separate modules (one domain / one adapter each). */
+const layersWithModules = ['domains', 'integrations', 'infrastructure'];
+
+/** Module a src/-relative path belongs to: `<layer>/<name>` for layersWithModules, else the layer. */
 function moduleOf(path: string): string {
   const [layer = '', name = ''] = path.split(sep);
-  return layer === 'domains' ? `domains${sep}${name}` : layer;
+  return layersWithModules.includes(layer) ? `${layer}${sep}${name}` : layer;
 }
 
 /** `file` is relative to src/, e.g. `domains/ledger/index.ts`. */
@@ -200,6 +205,17 @@ describe('architecture rules (fixtures)', () => {
       expect(violation(ruleFor('infrastructure'), infraFile, specifier)).toBeUndefined();
     },
   );
+
+  it.each(['../../api/index.js', '../../application/index.js', '../../infrastructure/postgres/index.js', '../bank-import/internal/parser.js', '../../shared/money.js'])(
+    'integrations/ rejects %s',
+    (specifier) => {
+      expect(violation(ruleFor('integrations'), 'integrations/mre/probe.ts', specifier)).toBeDefined();
+    },
+  );
+
+  it.each(['zod', 'node:crypto', '../../shared/index.js', './mre-client.js', '../bank-import/index.js'])('integrations/ allows %s', (specifier) => {
+    expect(violation(ruleFor('integrations'), 'integrations/mre/probe.ts', specifier)).toBeUndefined();
+  });
 
   it('allows vitest only in test files', () => {
     expect(violation(ruleFor('shared'), 'shared/money.test.ts', 'vitest')).toBeUndefined();
