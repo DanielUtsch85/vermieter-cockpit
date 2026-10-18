@@ -22,7 +22,25 @@ This document covers *how* to write code. It does **not** re-decide architecture
 - No new runtime ecosystem (no second language) without an ADR.
 - Implementation-level library choices (HTTP framework, PG access layer, validation, test runner, decimal lib) follow TECH-ADR §10 criteria: maintenance quality, TS support, low lock-in, deterministic behavior. Record the initial picks here once made.
 
-**To be recorded once scaffolded (see roadmap Phase 0):** PG access layer (Prisma/Drizzle/Kysely/node-postgres), migration tool, decimal library, validation library, test runner.
+**Initial library picks (Phase 0, VC-0-02/VC-0-03).** Compared per `technology-adrs.md` §11 against the §10 criteria (maintenance quality, TypeScript support, low lock-in, deterministic behavior, ecosystem maturity, Node 20 compatibility):
+
+| Concern | Pick | Rejected alternatives (and why) |
+|---|---|---|
+| PG access layer | **Kysely** over `pg` (node-postgres) | **Prisma:** own schema language and generated client (high lock-in), `NUMERIC` mapped to its own `Decimal` runtime type; aggregates would be shaped by the ORM model. **Drizzle:** comparable typed SQL, but schema-as-code couples table definitions, migrations (drizzle-kit) and queries to one tool, and its 0.x line has shipped breaking changes in minor releases. **Plain `pg` + repository layer:** lowest lock-in, but every query is untyped string SQL and row mapping is hand-written; Kysely keeps that model (SQL-shaped queries, no entity runtime, repositories still own mapping) and only adds compile-time typing. Kysely sits on `pg`, so dropping it later means rewriting query builders, not the data layer. |
+| Migration tool | **Kysely `Migrator`** (built-in, file-based) | **node-pg-migrate:** solid, but a second tool with its own conventions next to Kysely. **drizzle-kit / Prisma Migrate:** only with their ORMs (rejected above). **Plain SQL files + custom runner:** reinvents ordering/locking the `Migrator` already provides. |
+| Decimal library | **decimal.js** | **big.js:** smaller, deliberately minimal API (division precision via `DP` only, four rounding modes); sufficient but no advantage. **bignumber.js:** functionally comparable (also supports isolated clones); tie broken in favour of decimal.js's explicit `toDecimalPlaces(dp, rounding)` API, which maps directly onto ADR-033 "rounding is explicit". |
+| Validation | **Zod** | **Valibot:** smaller bundle (a frontend concern, not relevant for the backend) and a younger, less mature ecosystem. **TypeBox:** JSON-Schema-first and fast, but less ergonomic for refinements/transformations (e.g. decimal-string → `Money`). |
+| Test runner | **Vitest** | **Jest:** needs a separate transform (ts-jest/babel) for TS + ESM and its ESM support is still experimental. **`node:test`:** no transform, but no TS support on Node 20 without a loader, and a thinner assertion/mocking API. |
+| HTTP framework | **Express 4** (4.21.x, as pinned in MRE) | **Express 5:** native async-error propagation, but MRE services use Express 4; staying on 4 keeps middleware and auth code portable to/from MRE (TECH-ADR-003 "Backend Framework"; `technology.md` §6.2). Async handlers therefore go through an explicit error-forwarding wrapper. Revisit when MRE moves to 5. **Fastify:** good TS support, but a different plugin/middleware model than MRE. |
+
+Binding consequences of these picks:
+
+- **Migrations** are TypeScript files under `services/de-backend/src/**/migrations/`, compiled by `tsc` into `dist/` like all other code. The Kysely `Migrator` (`FileMigrationProvider`) runs against the compiled `dist/` files in every environment; no `tsx`/`ts-node` at runtime. This is the basis for the Docker setup (VC-0-07).
+- **decimal.js is never configured globally.** `Money` (VC-0-05) uses its own isolated constructor via `Decimal.clone({ ... })`, so no other code can change precision or rounding mode process-wide. Rounding is applied explicitly at the business boundary (TECH-ADR-004 "Rounding", §5 below), never through a global default.
+
+Runtime dependencies are added to `services/de-backend` by the backlog item that first uses them, not up front.
+
+**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn test`; CI runs all three on Node 20 (`.github/workflows/ci.yml`). The §3 dependency direction for `domains/` and `shared/` is enforced by `src/architecture.test.ts` (relative imports per layer; third-party packages via an allowlist, currently `decimal.js` and `zod`). Lint-based enforcement (e.g. `eslint-plugin-boundaries` or `dependency-cruiser`) can replace it once linting is set up (§15).
 
 ---
 
@@ -148,6 +166,5 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 
 # 15. Open items for this document
 
-- Record concrete library picks after Phase 0 scaffolding.
 - Add lint/format config references (ESLint/Prettier or Biome) once selected.
 - Link the chosen error-handling/result convention (exceptions vs result types) once decided during scaffolding.

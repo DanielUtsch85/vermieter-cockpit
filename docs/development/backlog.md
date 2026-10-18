@@ -28,10 +28,10 @@ Detailed epics below cover **Phase 0 and Phase 1** (the immediate build). Later 
 
 | ID | Type | Item | Exit | Blockers |
 |---|---|---|---|---|
-| VC-0-01 | infra | `git init` DE repo; `.gitignore`; commit convention. **Deliberately deferred until the documentation-readiness gate is complete, then mandatory before any productive code** (first Phase-0 step) | Repo under version control; stray `.DS_Store` removed from the worktree and ignored; done before every other Phase-0 code item | — |
-| VC-0-02 | decision | Pick PG access layer + migration tool; record in coding-guidelines §2 | Choice documented with rationale | — |
-| VC-0-03 | decision | Pick decimal library, validation library, test runner | Choices documented | — |
-| VC-0-04 | infra | Yarn workspace + TS strict config + module skeleton (domains/, integrations/, api/, shared/) | `yarn build`/typecheck pass on empty modules | VC-0-02/03 |
+| VC-0-01 | infra | **done** · `git init` DE repo; `.gitignore`; commit convention. **Deliberately deferred until the documentation-readiness gate is complete, then mandatory before any productive code** (first Phase-0 step) | Repo under version control; stray `.DS_Store` removed from the worktree and ignored; done before every other Phase-0 code item | — |
+| VC-0-02 | decision | **done** · Pick PG access layer + migration tool; record in coding-guidelines §2 | Choice documented with rationale | — |
+| VC-0-03 | decision | **done** · Pick decimal library, validation library, test runner | Choices documented | — |
+| VC-0-04 | infra | **done** · Yarn workspace + TS strict config + module skeleton (domains/, integrations/, api/, shared/) | `yarn build`/typecheck pass on empty modules | VC-0-02/03 |
 | VC-0-05 | feature | `Money` value object over `NUMERIC` + rounding policy | Round-trips exactly through PG; rounding tests green | VC-0-03 |
 | VC-0-06 | feature | `MreClient` interface + auth adapter against pinned MRE baseline (`479d0ad…`) | Verifies MRE identity + Realm server-side | — |
 | VC-0-07 | infra | Docker Compose: MRE (MongoDB) + DE (PostgreSQL) up together | `docker compose up` yields both DBs + DE health endpoint | VC-0-04 |
@@ -94,7 +94,7 @@ Listed for visibility; expand into items when their blocker clears.
 |---|---|---|
 | VC-X-01 | spec | **Verify** the four drafted `docs/germany/*` specs against current law using `docs/germany/verification-checklist.md` (ideally a tax professional); replace `VERIFY` markers with confirmed, dated rules before Phases 6–8 |
 | VC-X-02 | decision | ~~Resolve open ADRs 004/005/006/007/009/010~~ — **done** (ADR-037–042). Open new `ADR-OPEN-*` only if fresh architectural questions arise |
-| VC-X-03 | infra | CI: typecheck + lint + tests + migration check on every change |
+| VC-X-03 | infra | **in-progress** (build/typecheck/test on Node 20 since VC-0-04; lint + migration check still open) · CI: typecheck + lint + tests + migration check on every change |
 | VC-X-04 | infra | Data export tooling (constitution Art. I; ADR-030 open formats) |
 | VC-X-05 | decision | ~~Finalize `LICENSE`~~ — **done** (MIT, see README §License) |
 | VC-X-06 | test | MRE-upgrade compatibility test suite (contract + integration) per ADR-036 |
