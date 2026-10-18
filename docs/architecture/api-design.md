@@ -2300,6 +2300,8 @@ Should Realm context be encoded primarily in:
 
 Implementation-level under ADR-034 (Realm authority reused); Realm membership must be verified server-side regardless of transport.
 
+**Resolved at implementation level (VC-0-08):** the Realm is sent in the `organizationid` request header — the same header the MRE landlord API uses — and verified server-side against MRE on every `/api/v1` request (`mre-integration.md` §47.1). Route scoping may be added later where a resource path naturally carries the Realm.
+
 ---
 
 ## API-OPEN-003 — MRE Payment ID Limitation
