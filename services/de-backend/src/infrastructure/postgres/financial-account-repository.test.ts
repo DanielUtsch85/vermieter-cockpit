@@ -40,7 +40,6 @@ describe.skipIf(databaseUrl === undefined)('PostgresFinancialAccountRepository',
   });
 
   afterAll(async () => {
-    await pool.query(`DROP SCHEMA "${schema}" CASCADE`);
     await pool.end();
   });
 

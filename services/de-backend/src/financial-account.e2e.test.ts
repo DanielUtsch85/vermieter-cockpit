@@ -54,7 +54,6 @@ describe.skipIf(databaseUrl === undefined)('financial-accounts create + close en
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await mre.close();
-    await pool.query(`DROP SCHEMA "${schema}" CASCADE`);
     await pool.end();
   });
 
