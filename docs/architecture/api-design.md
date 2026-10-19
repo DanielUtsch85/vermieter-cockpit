@@ -943,6 +943,24 @@ The command replaces the current unconfirmed split proposal atomically.
 - **Idempotency:** naturally idempotent — a full atomic replacement of the unconfirmed proposal.
 - **Side effects:** replaces the unconfirmed split proposal; writes an AuditRecord.
 
+## 33.2 Implementation (VC-1-07)
+
+- **Request:** `{ "splits": [ … ] }` with 1–100 splits, each `amount` (Money string pair, §86), `financialCategoryCode` (§36), optional `propertyReferenceId` and `description` (≤ 500 characters, trimmed; explicit `null` = omitted). Unknown keys are refused.
+- **`400`:**
+  - Per field: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED`, `INVALID_FORMAT` (also a JSON number as amount).
+  - `NOT_ALLOWED` for a `direction` on a split.
+  - `NOT_SUPPORTED` for references whose entities do not exist yet (`loanId`, `wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `securityDepositId`, `taxClassificationId`): refused rather than stored unchecked.
+  - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` (field `splits`) for a split currency other than the Transaction's.
+- **`404`:** unknown or foreign Transaction; a `propertyReferenceId` not in the caller's Realm.
+- **`409 INVARIANT_VIOLATION`**, `details.reason = "SPLIT_SUM_MISMATCH"`, with `expected`, `actual` and `difference` as Money: the sum differs from the Transaction amount by any amount, one cent included.
+- **`409 CONFLICT`**, `reason = "TRANSACTION_FROZEN"`, with the `status`: the Transaction is `CONFIRMED`, `RECONCILED`, `CORRECTED` or `IGNORED`.
+- **Status:** a valid set moves `IMPORTED` / `UNREVIEWED` to `CLASSIFIED` (domain-model §21); `CLASSIFIED` stays `CLASSIFIED`.
+- **Replacement and idempotency:**
+  - **Changed set:** replaced as a whole under the Transaction's row lock. The Transaction's `version` increases by 1, and one AuditRecord `SPLITS_REPLACED` is written.
+  - **Same set again:** same order, same values (`"600"` equals `"600.00"`). Answered `200` with the stored set, no new version and no AuditRecord, even after confirmation. Only a **different** set is frozen.
+- **Response `200`:** `transactionId`, `amount`, `direction`, `status`, `version`, `splits` (`splitId`, `position`, `amount`, `financialCategoryCode`, `propertyReferenceId`, `description`).
+- **Schema:** a split references its Transaction together with the Realm and the currency (composite foreign key), so it can never belong to another Realm's Transaction or carry another currency. Its amount is non-negative with at most two decimals.
+
 ---
 
 # 34. Confirm Transaction
@@ -1003,6 +1021,8 @@ POST /api/v1/financial-categories
 ```
 
 Core category codes should remain stable.
+
+**Implementation (VC-1-07):** `GET /financial-categories` → `{ items: [{ code, name, categoryType, active }] }`, active first, then by code; `GET /financial-categories/{code}` → one category, `404` if unknown, `400` for a malformed code. In Phase 1 the catalog is global (the same for every Realm) and seeded by migration 0008: the examples of `data-model.md` §19 plus common landlord categories (`RENT_OPERATING_COST_SETTLEMENT`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES`, `SECURITY_DEPOSIT`, `OWNER_CONTRIBUTION`/`OWNER_WITHDRAWAL`, `TRANSFER`, …). Codes are deactivated, never reused; the administrative `POST` is not implemented.
 
 ---
 

@@ -3,7 +3,7 @@
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
-# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction;
+# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it;
 # VC-1-05/06: import a bank CSV, re-import it as duplicates; VC-1-06a: review and resolve a reordered file.
 set -euo pipefail
 
@@ -145,6 +145,21 @@ tx -H "idempotency-key: tx-$run" -d "$rent"
 expect "transaction replay" "$(echo "$tx_body" | jq -r .transactionId)" "$transaction_id"
 tx -d "{\"financialAccountId\":\"$ledger_account\",\"amount\":{\"amount\":\"1.005\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2026-09-01\"}"
 expect "amount beyond EUR scale" "$tx_status" 400
+
+# VC-1-07: split the rent into base rent and operating-cost advance; one cent off is refused.
+splits() { # body — PUT /transactions/$transaction_id/splits; sets splits_status and splits_body
+  local out
+  out=$(curl -s -w '\n%{http_code}' -X PUT "$DE/transactions/$transaction_id/splits" \
+    -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' -d "$1")
+  splits_status=$(echo "$out" | tail -n1)
+  splits_body=$(echo "$out" | sed '$d')
+}
+splits '{"splits":[{"amount":{"amount":"1000.00","currency":"EUR"},"financialCategoryCode":"RENT_BASE"},{"amount":{"amount":"250.00","currency":"EUR"},"financialCategoryCode":"RENT_OPERATING_COST_ADVANCE"}]}'
+expect "split transaction" "$splits_status" 200
+expect "classified" "$(echo "$splits_body" | jq -r .status)" CLASSIFIED
+splits '{"splits":[{"amount":{"amount":"1000.00","currency":"EUR"},"financialCategoryCode":"RENT_BASE"},{"amount":{"amount":"249.99","currency":"EUR"},"financialCategoryCode":"RENT_OPERATING_COST_ADVANCE"}]}'
+expect "split sum one cent off" "$splits_status" 409
+expect "categories listed" "$(curl -s "$DE/financial-categories" -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" | jq -r '[.items[].code] | index("RENT_BASE") != null')" true
 
 # VC-1-05/06: bank CSV import (multipart); the identical file again is all duplicates.
 statement_file=$(mktemp)

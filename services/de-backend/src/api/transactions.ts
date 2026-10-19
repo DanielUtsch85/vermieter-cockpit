@@ -1,7 +1,12 @@
 import express, { type Router } from 'express';
 import { z } from 'zod';
 import {
+  CATEGORY_CODE,
   CurrencyMismatchError,
+  FinancialCategoryNotFoundError,
+  SplitSumMismatchError,
+  TransactionFrozenError,
+  TransactionNotFoundError,
   DIRECTIONS,
   FinancialAccountClosedError,
   FinancialAccountNotFoundError,
@@ -10,42 +15,13 @@ import {
   checkBusinessDate,
   type CreateManualTransaction,
   type RealmPrincipal,
+  type SetTransactionSplits,
+  type SplitTransaction,
   type Transaction,
+  type TransactionSplit,
 } from '../application/index.js';
-import { Money, MoneyError } from '../shared/index.js';
 import { sendError } from './errors.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, sendValidationError } from './validation.js';
-
-/** Field codes for amounts (api-design.md §31.1: 400 for each). */
-const MONEY_CODES: Record<MoneyError['code'], string> = {
-  INVALID_AMOUNT: 'INVALID_FORMAT',
-  AMOUNT_OUT_OF_RANGE: 'AMOUNT_OUT_OF_RANGE',
-  SCALE_EXCEEDED: 'SCALE_EXCEEDED',
-  UNSUPPORTED_CURRENCY: 'UNSUPPORTED_CURRENCY',
-  CURRENCY_MISMATCH: 'CURRENCY_MISMATCH',
-};
-
-/**
- * Money arrives as `{ amount: "1250.00", currency: "EUR" }` (api-design.md §86).
- * The amount must be a decimal string, never a JSON number (no float in transit),
- * non-negative (the sign is `direction`, data-model.md §17.4) and representable
- * in the currency's scale — rejected, never rounded.
- */
-const money = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
-  try {
-    const parsed = Money.of(value.amount, value.currency);
-    if (parsed.isNegative()) {
-      ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NEGATIVE_AMOUNT' } });
-      return z.NEVER;
-    }
-    return parsed;
-  } catch (error) {
-    if (!(error instanceof MoneyError)) throw error;
-    const path = error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'];
-    ctx.addIssue({ code: 'custom', path, params: { code: MONEY_CODES[error.code] } });
-    return z.NEVER;
-  }
-});
+import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, sendValidationError } from './validation.js';
 
 /** `YYYY-MM-DD` within 1900–2100 (api-design.md §88): INVALID_FORMAT or OUT_OF_RANGE. */
 const businessDate = z.string().transform((value, ctx) => {
@@ -70,8 +46,40 @@ const createBody = z.object({
   provenance: z.literal('MANUAL').optional(),
 });
 
+/** References of a split whose entities do not exist yet (data-model.md §18): refused, not stored unchecked. */
+const NOT_YET_SUPPORTED = [
+  'rentalContractReferenceId',
+  'loanId',
+  'wegId',
+  'maintenanceProjectId',
+  'acquisitionId',
+  'securityDepositId',
+  'taxClassificationId',
+] as const;
+
+const split = z
+  .object({
+    amount: money,
+    financialCategoryCode: z.string().regex(CATEGORY_CODE),
+    propertyReferenceId: z.string().regex(RESOURCE_ID).nullish(),
+    description: z.string().trim().max(500).nullish(),
+    // A split has no direction of its own: it inherits the Transaction's (§17.4).
+    direction: z.undefined(),
+    ...Object.fromEntries(NOT_YET_SUPPORTED.map((key) => [key, z.undefined()])),
+  })
+  .strict();
+const splitsBody = z.object({ splits: z.array(split).min(1).max(100) }).strict();
+
+/** `splits.0.direction` → NOT_ALLOWED, `splits.0.loanId` → NOT_SUPPORTED. */
+function splitFieldCode(field: string, code: string): string {
+  const key = field.split('.').at(-1) ?? '';
+  if (key === 'direction') return 'NOT_ALLOWED';
+  return (NOT_YET_SUPPORTED as readonly string[]).includes(key) ? 'NOT_SUPPORTED' : code;
+}
+
 export interface TransactionCommands {
   readonly createManual: CreateManualTransaction;
+  readonly setSplits: SetTransactionSplits;
 }
 
 /** Transaction API (api-design.md §30–31). */
@@ -127,7 +135,85 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       });
   });
 
+  router.put('/transactions/:transactionId/splits', express.json({ limit: '64kb' }), (req, res, next) => {
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    const parsed = splitsBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(
+        res,
+        fieldErrors(parsed.error).map((f) => ({ ...f, code: splitFieldCode(f.field, f.code) })),
+      );
+      return;
+    }
+    const splits = parsed.data.splits.map((s) => ({
+      amount: s.amount,
+      financialCategoryCode: s.financialCategoryCode,
+      propertyReferenceId: s.propertyReferenceId?.toLowerCase() ?? null,
+      description: s.description === undefined || s.description === null || s.description === '' ? null : s.description,
+    }));
+
+    commands
+      .setSplits({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), splits })
+      .then(({ transaction, splits: stored }) => {
+        res.json(toSplitsDto(transaction, stored));
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else if (error instanceof PropertyReferenceNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
+        } else if (error instanceof FinancialCategoryNotFoundError) {
+          sendValidationError(
+            res,
+            splits.flatMap((s, i) =>
+              error.codes.includes(s.financialCategoryCode)
+                ? [{ field: `splits.${i}.financialCategoryCode`, code: 'UNKNOWN_CATEGORY' }]
+                : [],
+            ),
+          );
+        } else if (error instanceof CurrencyMismatchError) {
+          sendValidationError(res, [{ field: 'splits', code: 'CURRENCY_MISMATCH' }]);
+        } else if (error instanceof TransactionFrozenError) {
+          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status}; its splits cannot change.`, {
+            reason: 'TRANSACTION_FROZEN',
+            status: error.status,
+          });
+        } else if (error instanceof SplitSumMismatchError) {
+          sendError(res, 409, 'INVARIANT_VIOLATION', 'Splits do not add up to the Transaction amount.', {
+            reason: 'SPLIT_SUM_MISMATCH',
+            expected: error.expected.toJSON(),
+            actual: error.actual.toJSON(),
+            difference: error.expected.subtract(error.actual).toJSON(),
+          });
+        } else {
+          next(error);
+        }
+      });
+  });
+
   return router;
+}
+
+function toSplitsDto(transaction: SplitTransaction, splits: readonly TransactionSplit[]) {
+  return {
+    transactionId: transaction.id,
+    amount: transaction.amount.toJSON(),
+    direction: transaction.direction,
+    status: transaction.status,
+    version: transaction.version,
+    splits: splits.map((s) => ({
+      splitId: s.id,
+      position: s.position,
+      amount: s.amount.toJSON(),
+      financialCategoryCode: s.financialCategoryCode,
+      propertyReferenceId: s.propertyReferenceId,
+      description: s.description,
+    })),
+  };
 }
 
 function toDto(transaction: Transaction) {

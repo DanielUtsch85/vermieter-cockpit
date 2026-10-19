@@ -6,6 +6,7 @@ import * as m0004 from './0004_financial_account.js';
 import * as m0005 from './0005_ledger_transaction.js';
 import * as m0006 from './0006_bank_import.js';
 import * as m0007 from './0007_import_review.js';
+import * as m0008 from './0008_transaction_split.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -21,4 +22,5 @@ export const migrations: Record<string, Migration> = {
   '0005_ledger_transaction': m0005,
   '0006_bank_import': m0006,
   '0007_import_review': m0007,
+  '0008_transaction_split': m0008,
 };

@@ -993,6 +993,8 @@ For every confirmed Transaction:
 
 A split belongs to exactly one Transaction.
 
+**Implementation (VC-1-07):** table `transaction_split`, ordered by `position`. In Phase 1 the only optional reference stored is `propertyReferenceId` (plus `description`); the other references are refused until their entities exist. The category is referenced by `financialCategoryId` and addressed by its `code` in the API (§19, API §33.2).
+
 ---
 
 # 18A. RentPaymentReconciliation
@@ -1098,6 +1100,8 @@ Represent economic classification independent from tax treatment.
 
 - Financial Category must not encode tax treatment as its primary semantic meaning.
 - Category codes should be stable once used historically.
+
+**Implementation (VC-1-07):** a global catalog in Phase 1 (no Realm), seeded by migration; see API §36.
 
 ---
 

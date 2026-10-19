@@ -32,6 +32,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`ALTER TABLE import_batch ALTER COLUMN provenance DROP DEFAULT`.execute(db);
 }
 
+/**
+ * Restores the old fallback index, which fails once a resolution has created a
+ * Transaction at a source identity that already holds one (review note on #15):
+ * such data must be cleaned up by hand before rolling back.
+ */
 export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`ALTER TABLE import_batch DROP COLUMN provenance`.execute(db);
   await sql`ALTER TABLE import_review_item DROP CONSTRAINT import_review_item_transaction_matches`.execute(db);

@@ -26,7 +26,6 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
   });
 
   afterAll(async () => {
-    await pool.query(`DROP SCHEMA "${schema}" CASCADE`);
     await pool.end();
   });
 

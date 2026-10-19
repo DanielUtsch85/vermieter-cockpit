@@ -4,18 +4,23 @@ import {
   closeFinancialAccount,
   createFinancialAccount,
   createManualTransaction,
+  getFinancialCategory,
   getImportBatch,
   importBankStatement,
   linkPropertyReference,
+  listFinancialCategories,
   listReviewItems,
   refreshPropertyReference,
   resolveReviewItem,
+  setTransactionSplits,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
+  PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
   PostgresTransactionRepository,
+  PostgresTransactionSplitRepository,
   createDatabase,
   createPool,
   isDatabaseReachable,
@@ -36,6 +41,7 @@ const propertyReferences = {
 };
 const financialAccounts = new PostgresFinancialAccountRepository(db);
 const imports = new PostgresImportRepository(db);
+const categories = new PostgresFinancialCategoryRepository(db);
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
   verifyPrincipal: mrePrincipalVerifier(mreClient),
@@ -44,6 +50,9 @@ const app = createApp({
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
+  setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
+  listFinancialCategories: listFinancialCategories({ categories }),
+  getFinancialCategory: getFinancialCategory({ categories }),
   importBankStatement: importBankStatement({ imports, accounts: financialAccounts, findAdapter: findBankStatementAdapter }),
   getImportBatch: getImportBatch({ imports }),
   listReviewItems: listReviewItems({ imports }),

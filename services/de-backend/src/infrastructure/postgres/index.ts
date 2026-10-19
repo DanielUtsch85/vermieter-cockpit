@@ -11,3 +11,5 @@ export type { Database } from './schema.js';
 export { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 export { PostgresTransactionRepository } from './transaction-repository.js';
 export { PostgresImportRepository } from './import-repository.js';
+export { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
+export { PostgresFinancialCategoryRepository } from './financial-category-repository.js';

@@ -3,18 +3,22 @@ import type {
   CloseFinancialAccount,
   CreateFinancialAccount,
   CreateManualTransaction,
+  GetFinancialCategory,
   GetImportBatch,
   ImportBankStatement,
+  ListFinancialCategories,
   ListReviewItems,
   LinkPropertyReference,
   PrincipalVerifier,
   RealmPrincipal,
   RefreshPropertyReference,
   ResolveReviewItem,
+  SetTransactionSplits,
 } from '../application/index.js';
 import { requireDeAccess } from './access-middleware.js';
 import { errorHandler } from './errors.js';
 import { financialAccountRoutes } from './financial-accounts.js';
+import { financialCategoryRoutes } from './financial-categories.js';
 import { importRoutes } from './imports.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
@@ -37,6 +41,10 @@ export interface AppDependencies {
   readonly closeFinancialAccount: CloseFinancialAccount;
   /** Manual Transaction (VC-1-04). */
   readonly createManualTransaction: CreateManualTransaction;
+  /** Splits and categories (VC-1-07). */
+  readonly setTransactionSplits: SetTransactionSplits;
+  readonly listFinancialCategories: ListFinancialCategories;
+  readonly getFinancialCategory: GetFinancialCategory;
   /** Bank import (VC-1-05/06). */
   readonly importBankStatement: ImportBankStatement;
   readonly getImportBatch: GetImportBatch;
@@ -73,7 +81,7 @@ export function createApp(deps: AppDependencies): Express {
   });
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
-  api.use(transactionRoutes({ createManual: deps.createManualTransaction }));
+  api.use(transactionRoutes({ createManual: deps.createManualTransaction, setSplits: deps.setTransactionSplits }));
   api.use(
     importRoutes({
       importStatement: deps.importBankStatement,
@@ -82,6 +90,7 @@ export function createApp(deps: AppDependencies): Express {
       resolveReviewItem: deps.resolveReviewItem,
     }),
   );
+  api.use(financialCategoryRoutes({ list: deps.listFinancialCategories, get: deps.getFinancialCategory }));
   app.use('/api/v1', api);
 
   app.use((_req, res) => {

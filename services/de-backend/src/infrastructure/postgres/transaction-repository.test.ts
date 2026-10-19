@@ -53,7 +53,6 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
   });
 
   afterAll(async () => {
-    await pool.query(`DROP SCHEMA "${schema}" CASCADE`);
     await pool.end();
   });
 

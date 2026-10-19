@@ -138,6 +138,29 @@ export interface ImportReviewItemTable {
   created_at: Generated<Date>;
 }
 
+export interface FinancialCategoryTable {
+  id: Generated<string>;
+  code: string;
+  name: string;
+  category_type: string;
+  active: Generated<boolean>;
+}
+
+export interface TransactionSplitTable {
+  id: Generated<string>;
+  transaction_id: string;
+  mre_realm_id: string;
+  position: number;
+  /** NUMERIC: written and read as a decimal string (money-column.ts). */
+  amount: string;
+  currency: string;
+  financial_category_id: string;
+  property_reference_id: string | null;
+  description: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+}
+
 export interface Database {
   property_reference: PropertyReferenceTable;
   audit_record: AuditRecordTable;
@@ -146,4 +169,6 @@ export interface Database {
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;
+  financial_category: FinancialCategoryTable;
+  transaction_split: TransactionSplitTable;
 }
