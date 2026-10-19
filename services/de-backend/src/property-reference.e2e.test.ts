@@ -108,7 +108,15 @@ describe.skipIf(databaseUrl === undefined)('property-references link + refresh e
       displayName: 'Wohnung 1',
       cachedAddress: { city: 'Berlin' },
     });
-    expect(JSON.stringify(created)).not.toContain('950'); // MRE price is never cached
+    // MRE price is never cached: no key `price` and no value 950 anywhere in the response.
+    // (Not a substring check on the JSON text: a random UUID may contain "950".)
+    const keysAndValues: unknown[] = [];
+    JSON.stringify(created, (key, value: unknown) => {
+      keysAndValues.push(key, value);
+      return value;
+    });
+    expect(keysAndValues).not.toContain('price');
+    expect(keysAndValues).not.toContain(950);
 
     const propertyCalls = () => mre.requests.filter((r) => r.path === '/api/v2/properties').length;
     const before = propertyCalls();
