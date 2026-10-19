@@ -82,6 +82,57 @@ export interface LedgerTransactionTable {
   created_by: string;
   updated_at: Generated<Date>;
   version: Generated<number>;
+  /** Import identity (§70); null for manual Transactions. */
+  import_batch_id: string | null;
+  external_transaction_id: string | null;
+  counterparty_name_raw: string | null;
+  counterparty_iban_raw: string | null;
+  adapter_id: string | null;
+  adapter_version: string | null;
+  source_statement_key: string | null;
+  source_row_key: string | null;
+  content_fingerprint: string | null;
+}
+
+export interface ImportBatchTable {
+  id: string;
+  mre_realm_id: string;
+  financial_account_id: string;
+  adapter_id: string;
+  adapter_version: string;
+  source_filename: string | null;
+  content_hash: string;
+  status: string;
+  transaction_count: number;
+  duplicate_count: number;
+  needs_review_count: number;
+  error_count: number;
+  skipped_count: number;
+  rows: Json<unknown[]>;
+  imported_at: Generated<Date>;
+  imported_by: string;
+}
+
+export interface ImportReviewItemTable {
+  id: string;
+  import_batch_id: string;
+  mre_realm_id: string;
+  financial_account_id: string;
+  adapter_id: string;
+  adapter_version: string;
+  source_statement_key: string;
+  source_row_key: string;
+  content_fingerprint: string;
+  normalized_row: Json<Record<string, unknown>>;
+  ambiguity_reason: string;
+  conflicting_transaction_ids: string[];
+  prior_review_item_ids: string[];
+  status: string;
+  resolution: string | null;
+  resolved_by: string | null;
+  resolved_at: Date | null;
+  created_transaction_id: string | null;
+  created_at: Generated<Date>;
 }
 
 export interface Database {
@@ -90,4 +141,6 @@ export interface Database {
   financial_account: FinancialAccountTable;
   idempotency_key: IdempotencyKeyTable;
   ledger_transaction: LedgerTransactionTable;
+  import_batch: ImportBatchTable;
+  import_review_item: ImportReviewItemTable;
 }

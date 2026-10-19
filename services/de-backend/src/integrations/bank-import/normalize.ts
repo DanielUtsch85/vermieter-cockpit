@@ -32,17 +32,23 @@ export function parseSignedAmount(raw: string, decimalSeparator: DecimalSeparato
   return { magnitude: fraction === undefined ? integer : `${integer}.${fraction}`, negative: sign === '-' };
 }
 
-export type DateFormat = 'DD.MM.YYYY' | 'YYYY-MM-DD';
+export type DateFormat = 'DD.MM.YYYY' | 'DD.MM.YY' | 'YYYY-MM-DD';
 
-/** A source date in the configured format, as a plausible business date (§88), or why not. */
+/**
+ * A source date in the configured format, as a plausible business date (§88),
+ * or why not. `DD.MM.YY` (e.g. Sparkasse CSV-CAMT) is only read when configured,
+ * with one fixed rule: `YY` means `20YY`. Nothing is inferred per row.
+ */
 export function parseSourceDate(
   raw: string,
   format: DateFormat,
 ): { readonly date: BusinessDate } | { readonly error: BusinessDateError } {
   const value = raw.trim();
   if (format === 'YYYY-MM-DD') return checkBusinessDate(value);
-  const match = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value);
-  return match === null ? { error: 'INVALID_FORMAT' } : checkBusinessDate(`${match[3]}-${match[2]}-${match[1]}`);
+  const match = format === 'DD.MM.YY' ? /^(\d{2})\.(\d{2})\.(\d{2})$/.exec(value) : /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value);
+  if (match === null) return { error: 'INVALID_FORMAT' };
+  const year = format === 'DD.MM.YY' ? `20${match[3]}` : match[3];
+  return checkBusinessDate(`${year}-${match[2]}-${match[1]}`);
 }
 
 /** Trims and collapses whitespace (§70.3); empty becomes null. */

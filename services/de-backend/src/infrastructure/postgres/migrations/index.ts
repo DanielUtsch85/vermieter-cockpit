@@ -4,6 +4,7 @@ import * as m0002 from './0002_property_reference.js';
 import * as m0003 from './0003_property_reference_refresh.js';
 import * as m0004 from './0004_financial_account.js';
 import * as m0005 from './0005_ledger_transaction.js';
+import * as m0006 from './0006_bank_import.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -17,4 +18,5 @@ export const migrations: Record<string, Migration> = {
   '0003_property_reference_refresh': m0003,
   '0004_financial_account': m0004,
   '0005_ledger_transaction': m0005,
+  '0006_bank_import': m0006,
 };

@@ -1137,6 +1137,8 @@ Group Transactions imported together from an external source.
 
 Each imported row resolves to exactly one outcome: `created`, `duplicate`, `needs_review`, or `error`.
 
+Implementation (VC-1-05/06): `sourceType` is the adapter (`adapterId` + `adapterVersion`); `status` is `COMPLETED` or `NEEDS_REVIEW`; a fifth outcome `skipped` (with `skippedCount`) reports rows that move no cash (`ZERO_AMOUNT`, e.g. balance lines) — neither booked nor an error. The per-row outcomes are stored with the batch (`rows`), so `GET /imports/{id}` answers exactly what the import answered.
+
 - `needs_review` rows are ambiguous matches (§70.4: ambiguous cross-file content matches or adapter-version conflicts). They create **no** Transaction and are recorded as **`ImportReviewItem`** child records (§20A), each with its own `id` (API name `reviewItemId`), the normalized row, the ambiguity reason, and `conflictingTransactionIds`.
 - `duplicate` rows are structured by cause: a plain Transaction-identity match (`TRANSACTION`) or a re-presented identity whose review item is already resolved (`RESOLVED_REVIEW_ITEM`, §20A Ownership and Retry). The result structure is defined in API §32.1.
 - A human resolves each `ImportReviewItem` (API §32.2) to `CREATE` (materialize one `IMPORTED` Transaction) or `SKIP` (discard). No Transaction exists for a `needs_review` row until its item is resolved with `CREATE`.

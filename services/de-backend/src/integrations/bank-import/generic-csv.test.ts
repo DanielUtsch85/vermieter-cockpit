@@ -173,6 +173,12 @@ describe('generic-csv v1', () => {
     expect(rowsOf(result)[0]?.row.description).toBe('=HYPERLINK("http://x")');
   });
 
+  it('a quote inside an unquoted field fails the whole file with its line number (strict RFC 4180, no guessing)', () => {
+    const csv = 'Buchungstag;Betrag;Verwendungszweck\n01.09.2026;5,00;Miete\n03.02.2026;1.250,00;=HYPERLINK("x")\n';
+    const result = parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', description: 'Verwendungszweck' } });
+    expect(result).toEqual({ error: { code: 'UNPARSEABLE', message: expect.stringMatching(/line 3/) } });
+  });
+
   it('a stray extra cell makes that row an error, not a shifted mapping', () => {
     const csv = 'Buchungstag;Betrag;Verwendungszweck\n01.09.2026;5,00;Miete;extra\n';
     const result = parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', description: 'Verwendungszweck' } });

@@ -4,11 +4,14 @@ import {
   closeFinancialAccount,
   createFinancialAccount,
   createManualTransaction,
+  getImportBatch,
+  importBankStatement,
   linkPropertyReference,
   refreshPropertyReference,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
+  PostgresImportRepository,
   PostgresPropertyReferenceRepository,
   PostgresTransactionRepository,
   createDatabase,
@@ -16,6 +19,7 @@ import {
   isDatabaseReachable,
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
+import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
 
@@ -29,6 +33,7 @@ const propertyReferences = {
   lookupMreProperty: mrePropertyLookup(mreClient),
 };
 const financialAccounts = new PostgresFinancialAccountRepository(db);
+const imports = new PostgresImportRepository(db);
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
   verifyPrincipal: mrePrincipalVerifier(mreClient),
@@ -37,6 +42,8 @@ const app = createApp({
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
+  importBankStatement: importBankStatement({ imports, accounts: financialAccounts, findAdapter: findBankStatementAdapter }),
+  getImportBatch: getImportBatch({ imports }),
 });
 
 // Migrate before accepting requests; a failed migration aborts the start.

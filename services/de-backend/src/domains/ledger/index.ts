@@ -46,3 +46,20 @@ export type {
   RowError,
   StatementError,
 } from './bank-statement.js';
+export { decideRow, importPostable, isSkippable, normalizedRowJson, sourceRowKey, summarize } from './bank-import.js';
+export type {
+  AmbiguityReason,
+  ImportBatch,
+  ImportBatchId,
+  ImportBatchStatus,
+  ImportOutcome,
+  ImportRepository,
+  KnownReviewItem,
+  NewImport,
+  ReviewItemId,
+  ReviewResolution,
+  RowDecision,
+  RowLookup,
+  RowOutcome,
+  SourceRowKey,
+} from './bank-import.js';

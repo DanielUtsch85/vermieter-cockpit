@@ -3,6 +3,8 @@ import type {
   CloseFinancialAccount,
   CreateFinancialAccount,
   CreateManualTransaction,
+  GetImportBatch,
+  ImportBankStatement,
   LinkPropertyReference,
   PrincipalVerifier,
   RealmPrincipal,
@@ -11,6 +13,7 @@ import type {
 import { requireDeAccess } from './access-middleware.js';
 import { errorHandler } from './errors.js';
 import { financialAccountRoutes } from './financial-accounts.js';
+import { importRoutes } from './imports.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
 
@@ -32,6 +35,9 @@ export interface AppDependencies {
   readonly closeFinancialAccount: CloseFinancialAccount;
   /** Manual Transaction (VC-1-04). */
   readonly createManualTransaction: CreateManualTransaction;
+  /** Bank import (VC-1-05/06). */
+  readonly importBankStatement: ImportBankStatement;
+  readonly getImportBatch: GetImportBatch;
 }
 
 export function createApp(deps: AppDependencies): Express {
@@ -63,6 +69,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
   api.use(transactionRoutes({ createManual: deps.createManualTransaction }));
+  api.use(importRoutes({ importStatement: deps.importBankStatement, getBatch: deps.getImportBatch }));
   app.use('/api/v1', api);
 
   app.use((_req, res) => {

@@ -39,6 +39,13 @@ describe('parseSourceDate', () => {
     expect(parseSourceDate(' 2026-09-01 ', 'YYYY-MM-DD')).toEqual({ date: '2026-09-01' });
   });
 
+  it('reads DD.MM.YY only when configured, always as 20YY', () => {
+    expect(parseSourceDate('01.02.26', 'DD.MM.YY')).toEqual({ date: '2026-02-01' });
+    expect(parseSourceDate('31.12.99', 'DD.MM.YY')).toEqual({ date: '2099-12-31' });
+    expect(parseSourceDate('01.02.2026', 'DD.MM.YY')).toEqual({ error: 'INVALID_FORMAT' });
+    expect(parseSourceDate('29.02.25', 'DD.MM.YY')).toEqual({ error: 'INVALID_FORMAT' });
+  });
+
   it.each([
     ['1.9.2026', 'DD.MM.YYYY', 'INVALID_FORMAT'],
     ['31.02.2026', 'DD.MM.YYYY', 'INVALID_FORMAT'],

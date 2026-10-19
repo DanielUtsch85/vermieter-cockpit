@@ -10,3 +10,4 @@ export { PostgresPropertyReferenceRepository } from './property-reference-reposi
 export type { Database } from './schema.js';
 export { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 export { PostgresTransactionRepository } from './transaction-repository.js';
+export { PostgresImportRepository } from './import-repository.js';

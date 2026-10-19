@@ -50,7 +50,7 @@ export const genericCsvOptions = z
       .strict(),
     delimiter: z.enum([';', ',', '\t']).default(';'),
     decimalSeparator: z.enum([',', '.']).default(','),
-    dateFormat: z.enum(['DD.MM.YYYY', 'YYYY-MM-DD']).default('DD.MM.YYYY'),
+    dateFormat: z.enum(['DD.MM.YYYY', 'DD.MM.YY', 'YYYY-MM-DD']).default('DD.MM.YYYY'),
     encoding: z.enum(['utf-8', 'windows-1252']).default('utf-8'),
     /** Lines before the header row (bank exports often start with account metadata). */
     skipLines: z.number().int().min(0).max(50).default(0),
@@ -61,6 +61,7 @@ export type GenericCsvOptions = z.infer<typeof genericCsvOptions>;
 export const genericCsvAdapter: BankStatementAdapter = {
   id: GENERIC_CSV_ID,
   version: GENERIC_CSV_VERSION,
+  provenance: 'BANK_CSV',
   parse(file, rawOptions, accountCurrency) {
     const parsedOptions = genericCsvOptions.safeParse(rawOptions);
     if (!parsedOptions.success) {
