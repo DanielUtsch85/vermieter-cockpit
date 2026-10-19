@@ -13,3 +13,9 @@ export type {
 } from './link-property-reference.js';
 export type { CachedAddress, LinkOutcome, PropertyReference } from '../domains/property-reference/index.js';
 export { MRE_OBJECT_ID } from '../domains/property-reference/index.js';
+export { PropertyReferenceNotFoundError, refreshPropertyReference } from './refresh-property-reference.js';
+export type {
+  RefreshPropertyReference,
+  RefreshPropertyReferenceDeps,
+  RefreshPropertyReferenceInput,
+} from './refresh-property-reference.js';

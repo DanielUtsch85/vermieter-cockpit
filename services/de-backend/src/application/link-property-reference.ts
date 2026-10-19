@@ -3,6 +3,7 @@ import type {
   LinkOutcome,
   PropertyReferenceRepository,
 } from '../domains/property-reference/index.js';
+import type { ExactDecimal } from '../shared/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
 
 /**
@@ -21,6 +22,7 @@ export interface MrePropertySnapshot {
   readonly mrePropertyId: string;
   readonly name: string | null;
   readonly address: CachedAddress | null;
+  readonly surface: ExactDecimal | null;
 }
 
 /**
@@ -78,6 +80,8 @@ export function linkPropertyReference(deps: LinkPropertyReferenceDeps): LinkProp
     const existing = await deps.repository.findByMreIdentity(mreRealmId, mrePropertyId);
     if (existing !== undefined) return { reference: existing, created: false };
 
+    // Taken before the request, like a refresh observation (planRefresh orders by it).
+    const observedAt = now();
     const property = await deps.lookupMreProperty(authorizationHeader, mreRealmId, mrePropertyId);
     if (property === undefined) throw new MrePropertyNotFoundError(mreRealmId, mrePropertyId);
 
@@ -87,7 +91,8 @@ export function linkPropertyReference(deps: LinkPropertyReferenceDeps): LinkProp
         mrePropertyId,
         displayName: property.name,
         cachedAddress: property.address,
-        refreshedAt: now(),
+        cachedSurface: property.surface,
+        refreshedAt: observedAt,
       },
       { actorType: 'USER', actorId: principal.email },
     );

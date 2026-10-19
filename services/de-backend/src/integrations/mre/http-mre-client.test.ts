@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ExactDecimal } from '../../shared/index.js';
 import { HttpMreClient } from './http-mre-client.js';
 import { MreClientError, type MreClientErrorCode } from './mre-client.js';
 import { signJwt, startFakeMre, type FakeMre } from './fake-mre.test-support.js';
@@ -91,8 +92,9 @@ describe('HttpMreClient against a fake MRE', () => {
         mrePropertyId: PROPERTY_A,
         name: 'Wohnung 1',
         address: { street1: 'Musterstraße 1', zipCode: '10115', city: 'Berlin', country: 'DE' },
+        surface: ExactDecimal.of('64.5'),
       },
-      { mrePropertyId: PROPERTY_B, name: 'Stellplatz', address: null },
+      { mrePropertyId: PROPERTY_B, name: 'Stellplatz', address: null, surface: null },
     ]);
     expect(mre.requests.at(-1)).toEqual({ path: '/api/v2/properties', authorization: `Bearer ${token}`, organizationid: 'realm-a' });
   });
@@ -143,6 +145,27 @@ describe('HttpMreClient failure handling', () => {
     }
   });
 
+  it.each([
+    [64.5, '64.5'],
+    [0, '0'],
+    [120, '120'],
+    [0.1, '0.1'],
+    [33.333333333333336, '33.333333333333336'],
+    [-5, null],
+    [1e-7, null],
+    [1e21, null],
+    ['64.5', null],
+    [null, null],
+  ])('listProperties takes surface %j exactly as %j (no float arithmetic)', async (surface, expected) => {
+    const stub = await startStub(200, JSON.stringify([{ _id: 'p1', surface }]));
+    try {
+      const [property] = await new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listProperties('a.b.c', 'r');
+      expect(property?.surface?.toString() ?? null).toBe(expected);
+    } finally {
+      stub.close();
+    }
+  });
+
   it('listProperties keeps a property whose display fields are malformed, without them', async () => {
     const body = JSON.stringify([
       { _id: 'p1', name: 42, address: 'Berlin' },
@@ -152,9 +175,9 @@ describe('HttpMreClient failure handling', () => {
     const stub = await startStub(200, body);
     try {
       expect(await new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listProperties('a.b.c', 'r')).toEqual([
-        { mrePropertyId: 'p1', name: null, address: null },
-        { mrePropertyId: 'p2', name: 'ok', address: { city: 'Köln' } },
-        { mrePropertyId: 'p3', name: null, address: null },
+        { mrePropertyId: 'p1', name: null, address: null, surface: null },
+        { mrePropertyId: 'p2', name: 'ok', address: { city: 'Köln' }, surface: null },
+        { mrePropertyId: 'p3', name: null, address: null, surface: null },
       ]);
     } finally {
       stub.close();

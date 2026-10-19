@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ExactDecimal } from '../../shared/index.js';
 import {
   MreClientError,
   type MreAddress,
@@ -102,6 +103,7 @@ export class HttpMreClient implements MreClient {
       mrePropertyId: property._id,
       name: typeof property['name'] === 'string' && property['name'] !== '' ? property['name'] : null,
       address: toAddress(property['address']),
+      surface: toSurface(property['surface']),
     }));
   }
 
@@ -148,4 +150,18 @@ function toAddress(value: unknown): MreAddress | null {
   if (!parsed.success) return null;
   const parts = Object.fromEntries(Object.entries(parsed.data).filter(([, part]) => part !== undefined && part !== ''));
   return Object.keys(parts).length === 0 ? null : (parts as MreAddress);
+}
+
+/**
+ * MRE `surface` is a JS number. Its shortest round-trip decimal text (64.5 →
+ * "64.5") is taken exactly, never through float arithmetic. Negative,
+ * non-finite or exponent-notation values are not a usable surface and are left out.
+ */
+function toSurface(value: unknown): ExactDecimal | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  try {
+    return ExactDecimal.of(String(value));
+  } catch {
+    return null;
+  }
 }

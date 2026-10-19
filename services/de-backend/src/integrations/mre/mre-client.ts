@@ -1,3 +1,5 @@
+import type { ExactDecimal } from '../../shared/index.js';
+
 /**
  * Anti-corruption boundary to MicroRealEstate (ADR-034, mre-integration.md,
  * coding-guidelines §6). Domain and application code depend on this interface
@@ -19,6 +21,8 @@ export interface MreProperty {
   readonly mrePropertyId: string;
   readonly name: string | null;
   readonly address: MreAddress | null;
+  /** MRE stores surface as a JS number; DE keeps its decimal text exactly. */
+  readonly surface: ExactDecimal | null;
 }
 
 export interface MreAddress {
