@@ -12,14 +12,13 @@ import {
   type RefreshPropertyReference,
 } from '../application/index.js';
 import { sendAccessError, sendError } from './errors.js';
+import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
 
 /** A malformed MRE id would end in a 500 upstream, so it is rejected here (mre-integration.md §21.1). */
 const linkBody = z.object({
   mreRealmId: z.string().min(1),
   mrePropertyId: z.string().regex(MRE_OBJECT_ID),
 });
-
-const PROPERTY_REFERENCE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface PropertyReferenceCommands {
   readonly link: LinkPropertyReference;
@@ -33,11 +32,7 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
   router.post('/property-references/link', express.json({ limit: '16kb' }), (req, res, next) => {
     const parsed = linkBody.safeParse(req.body);
     if (!parsed.success) {
-      const fields = parsed.error.issues.map((issue) => ({
-        field: issue.path.join('.') || '(body)',
-        code: issue.code === 'invalid_type' && issue.received === 'undefined' ? 'REQUIRED' : 'INVALID_FORMAT',
-      }));
-      sendError(res, 400, 'VALIDATION_ERROR', 'Validation failed.', { fields });
+      sendValidationError(res, fieldErrors(parsed.error));
       return;
     }
 
@@ -66,10 +61,8 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
   // Takes no body; a refresh only re-reads MRE (VC-1-02).
   router.post('/property-references/:propertyReferenceId/refresh', (req, res, next) => {
     const { propertyReferenceId } = req.params;
-    if (!PROPERTY_REFERENCE_ID.test(propertyReferenceId)) {
-      sendError(res, 400, 'VALIDATION_ERROR', 'Validation failed.', {
-        fields: [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }],
-      });
+    if (!RESOURCE_ID.test(propertyReferenceId)) {
+      sendValidationError(res, [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
       return;
     }
 

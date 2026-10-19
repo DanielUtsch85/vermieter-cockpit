@@ -3,7 +3,7 @@
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
-# VC-1-03: create and close a FinancialAccount.
+# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction.
 set -euo pipefail
 
 MRE=${MRE:-http://localhost:8080/api/v2}
@@ -123,3 +123,28 @@ expect "unsupported currency" "$account_status" 400
 close_status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$DE/financial-accounts/$account_id/close" \
   -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
 expect "close financial account" "$close_status" 200
+
+# VC-1-04: manual Transaction on an open account; refused on a closed one.
+tx() { # [extra curl args...] — POST /transactions; sets tx_status and tx_body
+  local out
+  out=$(curl -s -w '\n%{http_code}' -X POST "$DE/transactions" \
+    -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' "$@")
+  tx_status=$(echo "$out" | tail -n1)
+  tx_body=$(echo "$out" | sed '$d')
+}
+account -d '{"accountType":"BANK","displayName":"Smoke Mietkonto","currency":"EUR"}'
+ledger_account=$(echo "$account_body" | jq -r .financialAccountId)
+rent="{\"financialAccountId\":\"$ledger_account\",\"amount\":{\"amount\":\"1250.00\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2026-09-01\",\"propertyReferenceId\":\"$reference_id\"}"
+tx -H "idempotency-key: tx-$run" -d "$rent"
+expect "book manual transaction" "$tx_status" 201
+transaction_id=$(echo "$tx_body" | jq -r .transactionId)
+expect "amount exact" "$(echo "$tx_body" | jq -r .amount.amount)" "1250.00"
+expect "status" "$(echo "$tx_body" | jq -r .status)" UNREVIEWED
+tx -H "idempotency-key: tx-$run" -d "$rent"
+expect "transaction replay" "$(echo "$tx_body" | jq -r .transactionId)" "$transaction_id"
+tx -d "{\"financialAccountId\":\"$ledger_account\",\"amount\":{\"amount\":\"1.005\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2026-09-01\"}"
+expect "amount beyond EUR scale" "$tx_status" 400
+curl -fsS -o /dev/null -X POST "$DE/financial-accounts/$ledger_account/close" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id"
+tx -d "$rent"
+expect "transaction on closed account" "$tx_status" 409

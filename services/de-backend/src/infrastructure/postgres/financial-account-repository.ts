@@ -56,7 +56,7 @@ export class PostgresFinancialAccountRepository implements FinancialAccountRepos
         })
         .returningAll()
         .executeTakeFirstOrThrow();
-      const created = toDomain(inserted);
+      const created = toFinancialAccount(inserted);
       if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, inserted.id, toSnapshot(created));
       await writeAudit(trx, { type: ENTITY_TYPE, id: inserted.id }, 'CREATED', actor, {
         newVersion: inserted.version,
@@ -74,7 +74,7 @@ export class PostgresFinancialAccountRepository implements FinancialAccountRepos
       .where('id', '=', id)
       .where('mre_realm_id', '=', mreRealmId)
       .executeTakeFirst();
-    return row === undefined ? undefined : toDomain(row);
+    return row === undefined ? undefined : toFinancialAccount(row);
   }
 
   async close(id: FinancialAccountId, mreRealmId: string, at: Date, actor: AuditActor): Promise<FinancialAccount | undefined> {
@@ -89,7 +89,7 @@ export class PostgresFinancialAccountRepository implements FinancialAccountRepos
         .executeTakeFirst();
       if (row === undefined) return undefined;
 
-      const current = toDomain(row);
+      const current = toFinancialAccount(row);
       const { next, changed } = planClose(current, at);
       if (!changed) return current;
       const updated = await trx
@@ -103,12 +103,12 @@ export class PostgresFinancialAccountRepository implements FinancialAccountRepos
         newVersion: next.version,
         metadata: {},
       });
-      return toDomain(updated);
+      return toFinancialAccount(updated);
     });
   }
 }
 
-function toDomain(row: Selectable<FinancialAccountTable>): FinancialAccount {
+export function toFinancialAccount(row: Selectable<FinancialAccountTable>): FinancialAccount {
   return {
     id: row.id as FinancialAccountId,
     mreRealmId: row.mre_realm_id,

@@ -63,9 +63,31 @@ export interface IdempotencyKeyTable {
   created_at: Generated<Date>;
 }
 
+export interface LedgerTransactionTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  financial_account_id: string;
+  /** NUMERIC: written and read as a decimal string (money-column.ts). */
+  amount: string;
+  currency: string;
+  direction: string;
+  /** date: always read through to_char as `YYYY-MM-DD` (transaction-repository.ts), never as a JS Date. */
+  booking_date: string;
+  value_date: string | null;
+  description: string | null;
+  property_reference_id: string | null;
+  provenance: string;
+  status: string;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface Database {
   property_reference: PropertyReferenceTable;
   audit_record: AuditRecordTable;
   financial_account: FinancialAccountTable;
   idempotency_key: IdempotencyKeyTable;
+  ledger_transaction: LedgerTransactionTable;
 }

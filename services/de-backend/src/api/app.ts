@@ -2,6 +2,7 @@ import express, { type Express } from 'express';
 import type {
   CloseFinancialAccount,
   CreateFinancialAccount,
+  CreateManualTransaction,
   LinkPropertyReference,
   PrincipalVerifier,
   RealmPrincipal,
@@ -11,6 +12,7 @@ import { requireDeAccess } from './access-middleware.js';
 import { errorHandler } from './errors.js';
 import { financialAccountRoutes } from './financial-accounts.js';
 import { propertyReferenceRoutes } from './property-references.js';
+import { transactionRoutes } from './transactions.js';
 
 /**
  * HTTP application (ADR-026, api-design.md). Infrastructure is injected by the
@@ -28,6 +30,8 @@ export interface AppDependencies {
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
+  /** Manual Transaction (VC-1-04). */
+  readonly createManualTransaction: CreateManualTransaction;
 }
 
 export function createApp(deps: AppDependencies): Express {
@@ -58,6 +62,7 @@ export function createApp(deps: AppDependencies): Express {
   });
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
+  api.use(transactionRoutes({ createManual: deps.createManualTransaction }));
   app.use('/api/v1', api);
 
   app.use((_req, res) => {

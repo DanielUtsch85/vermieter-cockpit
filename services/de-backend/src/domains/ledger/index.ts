@@ -13,3 +13,23 @@ export type {
   FinancialAccountRepository,
   NewFinancialAccount,
 } from './financial-account.js';
+export {
+  DIRECTIONS,
+  PROVENANCES,
+  TRANSACTION_STATUSES,
+  checkPosting,
+  manualTransactionFingerprint,
+  parseBusinessDate,
+} from './transaction.js';
+export type {
+  BusinessDate,
+  CreateTransactionOutcome,
+  Direction,
+  NewManualTransaction,
+  PostingRejection,
+  Provenance,
+  Transaction,
+  TransactionId,
+  TransactionRepository,
+  TransactionStatus,
+} from './transaction.js';

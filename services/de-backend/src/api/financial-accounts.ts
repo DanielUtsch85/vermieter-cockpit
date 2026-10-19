@@ -11,10 +11,7 @@ import {
 } from '../application/index.js';
 import { isSupportedCurrency, normalizeIban } from '../shared/index.js';
 import { sendError } from './errors.js';
-
-const FINANCIAL_ACCOUNT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-/** Client-generated key (api-design.md §15): visible ASCII, bounded length. */
-const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,255}$/;
+import { RESOURCE_ID, fieldErrors, readIdempotencyKey, sendValidationError } from './validation.js';
 
 /** Field mapping verbatim from data-model.md §16 (api-design.md §29.1). */
 const createBody = z.object({
@@ -37,21 +34,12 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
   const router = express.Router();
 
   router.post('/financial-accounts', express.json({ limit: '16kb' }), (req, res, next) => {
-    const keyHeader = req.headers['idempotency-key'];
-    const idempotencyKey = typeof keyHeader === 'string' ? keyHeader : undefined;
-    if (keyHeader !== undefined && (idempotencyKey === undefined || !IDEMPOTENCY_KEY.test(idempotencyKey))) {
-      sendError(res, 400, 'VALIDATION_ERROR', 'Validation failed.', {
-        fields: [{ field: 'Idempotency-Key', code: 'INVALID_FORMAT' }],
-      });
-      return;
-    }
+    const idempotency = readIdempotencyKey(req, res);
+    if (idempotency === undefined) return;
+    const idempotencyKey = idempotency.key;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
-      const fields = parsed.error.issues.map((issue) => ({
-        field: issue.path.join('.') || '(body)',
-        code: issue.code === 'invalid_type' && issue.received === 'undefined' ? 'REQUIRED' : 'INVALID_FORMAT',
-      }));
-      sendError(res, 400, 'VALIDATION_ERROR', 'Validation failed.', { fields });
+      sendValidationError(res, fieldErrors(parsed.error));
       return;
     }
 
@@ -80,10 +68,8 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
 
   router.post('/financial-accounts/:financialAccountId/close', (req, res, next) => {
     const { financialAccountId } = req.params;
-    if (!FINANCIAL_ACCOUNT_ID.test(financialAccountId)) {
-      sendError(res, 400, 'VALIDATION_ERROR', 'Validation failed.', {
-        fields: [{ field: 'financialAccountId', code: 'INVALID_FORMAT' }],
-      });
+    if (!RESOURCE_ID.test(financialAccountId)) {
+      sendValidationError(res, [{ field: 'financialAccountId', code: 'INVALID_FORMAT' }]);
       return;
     }
     commands
