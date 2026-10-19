@@ -1,4 +1,4 @@
-import type { Migration } from 'kysely';
+import type { Migration } from 'kysely/migration';
 import * as m0001 from './0001_baseline.js';
 
 /**
