@@ -508,6 +508,7 @@ __metadata:
     "@types/express": ^4
     "@types/node": ^24
     "@types/pg": ^8
+    csv-parse: ^6.2.1
     decimal.js: ^10
     express: ^4.21
     kysely: 0.29.6
@@ -752,6 +753,13 @@ __metadata:
   version: 0.7.2
   resolution: "cookie@npm:0.7.2"
   checksum: 9bf8555e33530affd571ea37b615ccad9b9a34febbf2c950c86787088eb00a8973690833b0f8ebd6b69b753c62669ea60cec89178c1fb007bf0749abed74f93e
+  languageName: node
+  linkType: hard
+
+"csv-parse@npm:^6.2.1":
+  version: 6.2.1
+  resolution: "csv-parse@npm:6.2.1"
+  checksum: e9ac9c6f83ba8eb4522d40dc3f3b244ce8a008612555699de29966898786da45a35ea1ecca642ab70204db1a431a6e27c0bcd0c450a7da9f0307675b771b75b4
   languageName: node
   linkType: hard
 

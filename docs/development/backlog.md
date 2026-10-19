@@ -59,7 +59,7 @@ Reference: `docs/project-brief.md` §7, `api-design.md`.
 | VC-1-07 | feature | `TransactionSplit` set + invariant | `PUT /api/v1/transactions/{id}/splits` | Non-negative split amounts, direction inherited; `sum(splits)==transaction` checked **exactly** (`data-model.md` §17.4/§18) |
 | VC-1-08 | feature | Confirm a transaction | `POST /api/v1/transactions/{id}/confirm` | Allowed transitions + confirm preconditions per domain-model §21; immutable once `CONFIRMED` |
 | VC-1-09 | test | Invariant suite | — | Split totals (exact), non-negative amount + direction, dedup + `needs_review`/resolve test cases incl. re-import of a still-`PENDING` ambiguous row, re-import after `CREATE` and after `SKIP` (structured `RESOLVED_REVIEW_ITEM` duplicate, no new decision/Transaction), and adapter-version conflict (`needs_review`, no auto-Transaction) (`data-model.md` §70.5), no silent merge/duplicate of ambiguous rows, monetary precision/scale rejection, Realm isolation |
-| VC-1-10 | infra | Bank CSV adapter interface + first concrete format | — | New formats pluggable; ledger format-agnostic |
+| VC-1-10 | infra | **done** · Bank CSV adapter interface + first concrete format (`generic-csv` v1, api-design §32.4) | — | New formats pluggable; ledger format-agnostic |
 
 **Phase 1 exit:** see `docs/project-brief.md` §7 "Definition of done."
 

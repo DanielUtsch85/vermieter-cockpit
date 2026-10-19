@@ -16,13 +16,17 @@ export type {
 export {
   DIRECTIONS,
   PROVENANCES,
+  BUSINESS_DATE_MAX_YEAR,
+  BUSINESS_DATE_MIN_YEAR,
   TRANSACTION_STATUSES,
+  checkBusinessDate,
   checkPosting,
   manualTransactionFingerprint,
   parseBusinessDate,
 } from './transaction.js';
 export type {
   BusinessDate,
+  BusinessDateError,
   CreateTransactionOutcome,
   Direction,
   NewManualTransaction,
@@ -33,3 +37,12 @@ export type {
   TransactionRepository,
   TransactionStatus,
 } from './transaction.js';
+export { contentFingerprintFieldsV1 } from './bank-statement.js';
+export type {
+  BankStatementAdapter,
+  NormalizedBankRow,
+  ParsedRow,
+  ParsedStatement,
+  RowError,
+  StatementError,
+} from './bank-statement.js';

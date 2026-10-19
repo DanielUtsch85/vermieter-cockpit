@@ -23,6 +23,7 @@
     "vitest": "^2"
   },
   "dependencies": {
+    "csv-parse": "^6.2.1",
     "decimal.js": "^10",
     "express": "^4.21",
     "kysely": "0.29.6",
