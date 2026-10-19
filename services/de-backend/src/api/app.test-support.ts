@@ -8,4 +8,5 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   refreshPropertyReference: unused,
   createFinancialAccount: unused,
   closeFinancialAccount: unused,
+  createManualTransaction: unused,
 };

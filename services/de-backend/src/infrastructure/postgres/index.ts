@@ -9,3 +9,4 @@ export { createPool, isDatabaseReachable } from './pool.js';
 export { PostgresPropertyReferenceRepository } from './property-reference-repository.js';
 export type { Database } from './schema.js';
 export { PostgresFinancialAccountRepository } from './financial-account-repository.js';
+export { PostgresTransactionRepository } from './transaction-repository.js';

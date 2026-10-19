@@ -3,12 +3,14 @@ import { loadConfig } from './config.js';
 import {
   closeFinancialAccount,
   createFinancialAccount,
+  createManualTransaction,
   linkPropertyReference,
   refreshPropertyReference,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
   PostgresPropertyReferenceRepository,
+  PostgresTransactionRepository,
   createDatabase,
   createPool,
   isDatabaseReachable,
@@ -34,6 +36,7 @@ const app = createApp({
   refreshPropertyReference: refreshPropertyReference(propertyReferences),
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
+  createManualTransaction: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
 });
 
 // Migrate before accepting requests; a failed migration aborts the start.

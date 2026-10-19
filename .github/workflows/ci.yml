@@ -66,9 +66,10 @@ jobs:
           echo "$applied" | grep -qx '0002_property_reference'
           echo "$applied" | grep -qx '0003_property_reference_refresh'
           echo "$applied" | grep -qx '0004_financial_account'
+          echo "$applied" | grep -qx '0005_ledger_transaction'
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
-      - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account)
+      - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction)
         run: .github/scripts/compose-auth-smoke.sh
       - uses: actions/setup-node@v4
         with:

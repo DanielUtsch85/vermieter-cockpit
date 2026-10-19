@@ -776,6 +776,18 @@ Example:
 - **Idempotency:** accepts an `Idempotency-Key`. The same key with a semantically identical payload returns the original Transaction (no duplicate); the same key with a different payload returns `409`.
 - **Side effects:** creates one Transaction; writes an AuditRecord.
 
+## 31.2 Implementation (VC-1-04)
+
+- **Money:** `amount` is `{ "amount": "<decimal string>", "currency": "EUR" }`. A JSON number or exponent notation is `400` (no float in transit). Field codes: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED` (more than two decimals for EUR, never rounded), `UNSUPPORTED_CURRENCY`, `AMOUNT_OUT_OF_RANGE`; `CURRENCY_MISMATCH` when it differs from the account's currency (no FX, data-model §17.7). Zero is allowed (non-negative, §17.4).
+- **Dates:** `bookingDate` (required) and `valueDate` are real calendar dates `YYYY-MM-DD` (§88); timestamps or impossible dates are `400`. Stored as `date`, never as a timestamp.
+- **References:** `financialAccountId` and the optional `propertyReferenceId` must exist **in the caller's Realm**, otherwise `404` (same answer for unknown and foreign). The schema enforces this too (composite foreign keys with the Realm).
+- **Decisions not fixed by §31.1:**
+  - **Closed account → `409 CONFLICT`** with `details.reason = "ACCOUNT_CLOSED"`. Earlier Transactions stay valid (data-model §16), only new ones are refused. The account is locked `FOR SHARE` while posting, so a concurrent close waits and cannot slip in between check and insert.
+  - **`rentalContractReferenceId` → `400 NOT_SUPPORTED`** until `RentalContractReference` exists (VC later), instead of storing an unchecked id.
+  - `provenance` may be omitted or `MANUAL`; anything else is `400` (other provenances come from imports).
+- **Idempotency:** as §15. The fingerprint is the normalized payload (`"1250"` and `"1250.00"` are one request; id case is ignored). A replay answers with the Transaction as created, before any check, so it still succeeds after the account was closed. A **rejected** request rolls back its key claim: the client may fix the request and retry with the same key.
+- **Response:** `transactionId`, `mreRealmId`, `financialAccountId`, `amount`, `direction`, `bookingDate`, `valueDate`, `description`, `propertyReferenceId`, `provenance`, `status`, `createdAt`, `version`.
+
 ---
 
 # 32. Bank Import API
