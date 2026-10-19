@@ -30,6 +30,30 @@ const realmAProperties: Record<string, unknown>[] = [
   { _id: PROPERTY_A, name: 'Wohnung 1', price: 950, surface: 64.5, address: { city: 'Berlin' } },
 ];
 
+/**
+ * Where the MRE price (950) shows up in a response: a key `price`, or the value as
+ * a number or decimal string (Money and decimals serialize as strings, §86), at
+ * any depth. Values, not a substring of the JSON text: a random UUID may contain "950".
+ */
+function mrePriceLeaks(body: unknown): unknown[] {
+  const found: unknown[] = [];
+  JSON.stringify(body, (key, value: unknown) => {
+    if (key === 'price' || value === 950 || (typeof value === 'string' && /^950(\.0+)?$/.test(value))) found.push(key || value);
+    return value;
+  });
+  return found;
+}
+
+describe('mrePriceLeaks', () => {
+  it('finds the price as key, number or decimal string at any depth, but not inside an id', () => {
+    expect(mrePriceLeaks({ price: 1 })).toEqual(['price']);
+    for (const leak of [{ rent: 950 }, { rent: '950' }, { rent: '950.00' }, { cachedRent: { amount: '950.00', currency: 'EUR' } }]) {
+      expect(mrePriceLeaks(leak)).not.toEqual([]);
+    }
+    expect(mrePriceLeaks({ id: 'f1e2b0f0-eeeb-4cda-950d-473995cb97c3', surface: '64.5', amount: '9500.00' })).toEqual([]);
+  });
+});
+
 describe.skipIf(databaseUrl === undefined)('property-references link + refresh end to end', () => {
   const schema = `link_e2e_${process.pid}_${Date.now()}`;
   let pool: pg.Pool;
@@ -108,15 +132,7 @@ describe.skipIf(databaseUrl === undefined)('property-references link + refresh e
       displayName: 'Wohnung 1',
       cachedAddress: { city: 'Berlin' },
     });
-    // MRE price is never cached: no key `price` and no value 950 anywhere in the response.
-    // (Not a substring check on the JSON text: a random UUID may contain "950".)
-    const keysAndValues: unknown[] = [];
-    JSON.stringify(created, (key, value: unknown) => {
-      keysAndValues.push(key, value);
-      return value;
-    });
-    expect(keysAndValues).not.toContain('price');
-    expect(keysAndValues).not.toContain(950);
+    expect(mrePriceLeaks(created)).toEqual([]); // MRE price is never cached
 
     const propertyCalls = () => mre.requests.filter((r) => r.path === '/api/v2/properties').length;
     const before = propertyCalls();
