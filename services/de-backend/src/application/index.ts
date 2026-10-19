@@ -38,6 +38,24 @@ export { CurrencyMismatchError, FinancialAccountClosedError, createManualTransac
 export type { CreateManualTransaction, CreateManualTransactionInput, CreateManualTransactionResult } from './transactions.js';
 export { DIRECTIONS, checkBusinessDate, parseBusinessDate } from '../domains/ledger/index.js';
 export type { BusinessDate, Direction, Transaction } from '../domains/ledger/index.js';
-export { ImportBatchNotFoundError, ImportFileError, UnsupportedAdapterError, getImportBatch, importBankStatement } from './bank-import.js';
-export type { GetImportBatch, ImportBankStatement, ImportBankStatementDeps, ImportBankStatementInput } from './bank-import.js';
-export type { ImportBatch, RowOutcome } from '../domains/ledger/index.js';
+export {
+  ImportBatchNotFoundError,
+  ImportFileError,
+  ReviewItemNotFoundError,
+  ReviewResolutionConflictError,
+  UnsupportedAdapterError,
+  getImportBatch,
+  importBankStatement,
+  listReviewItems,
+  resolveReviewItem,
+} from './bank-import.js';
+export type {
+  GetImportBatch,
+  ImportBankStatement,
+  ImportBankStatementDeps,
+  ImportBankStatementInput,
+  ListReviewItems,
+  ResolveReviewItem,
+  ResolveReviewItemResult,
+} from './bank-import.js';
+export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';

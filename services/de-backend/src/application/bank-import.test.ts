@@ -8,11 +8,24 @@ import type {
   ImportRepository,
   NewImport,
   ParsedStatement,
+  ResolveOutcome,
+  ReviewItem,
 } from '../domains/ledger/index.js';
 import type { AuditActor } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
-import { ImportBatchNotFoundError, ImportFileError, UnsupportedAdapterError, getImportBatch, importBankStatement } from './bank-import.js';
+import {
+  ImportBatchNotFoundError,
+  ImportFileError,
+  ReviewItemNotFoundError,
+  ReviewResolutionConflictError,
+  UnsupportedAdapterError,
+  getImportBatch,
+  importBankStatement,
+  listReviewItems,
+  resolveReviewItem,
+} from './bank-import.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
+import { FinancialAccountClosedError } from './transactions.js';
 
 const REALM = '64b0c0ffee0000000000000a';
 const ACCOUNT = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
@@ -20,6 +33,8 @@ const principal: RealmPrincipal = { email: 'anna@example.com', mreRealmId: REALM
 const account = { id: ACCOUNT, mreRealmId: REALM, currency: 'EUR', status: 'OPEN' } as unknown as FinancialAccount;
 const statement: ParsedStatement = { adapterId: 'generic-csv', adapterVersion: '1', contentHash: 'abc', sourceStatementId: null, rows: [] };
 const batch = { id: 'batch-1' } as unknown as ImportBatch;
+const item = { id: 'item-1', financialAccountId: ACCOUNT, resolution: 'CREATE' } as unknown as ReviewItem;
+let resolveOutcome: ResolveOutcome = { kind: 'RESOLVED', item, replayed: false };
 const input = {
   principal,
   financialAccountId: ACCOUNT,
@@ -48,6 +63,8 @@ function setup(overrides: { parse?: BankStatementAdapter['parse']; account?: Fin
       return overrides.outcome ?? { kind: 'IMPORTED', batch };
     },
     findBatch: async (id, realm) => (id === 'batch-1' && realm === REALM ? batch : undefined),
+    listReviewItems: async (id, realm) => (id === 'batch-1' && realm === REALM ? { items: [], conflicting: [] } : undefined),
+    resolveReviewItem: async () => resolveOutcome,
   };
   const accounts = {
     findById: async (id: string, realm: string) => (id === ACCOUNT && realm === REALM ? (overrides.account ?? account) : undefined),
@@ -103,5 +120,29 @@ describe('getImportBatch', () => {
     await expect(get({ principal: { ...principal, mreRealmId: 'other' }, importBatchId: 'batch-1' })).rejects.toBeInstanceOf(
       ImportBatchNotFoundError,
     );
+  });
+});
+
+describe('listReviewItems / resolveReviewItem', () => {
+  const resolveInput = { principal, importBatchId: 'batch-1', reviewItemId: 'item-1', resolution: 'CREATE' } as const;
+
+  it('lists the batch items; an unknown or foreign batch is not found', async () => {
+    const { imports } = setup();
+    const list = listReviewItems({ imports });
+    expect(await list({ principal, importBatchId: 'batch-1' })).toEqual({ items: [], conflicting: [] });
+    await expect(list({ principal, importBatchId: 'other' })).rejects.toBeInstanceOf(ImportBatchNotFoundError);
+  });
+
+  it('maps every resolve outcome', async () => {
+    const { imports } = setup();
+    const run = resolveReviewItem({ imports });
+    resolveOutcome = { kind: 'RESOLVED', item, replayed: true };
+    expect(await run(resolveInput)).toEqual({ item, replayed: true });
+    resolveOutcome = { kind: 'NOT_FOUND' };
+    await expect(run(resolveInput)).rejects.toBeInstanceOf(ReviewItemNotFoundError);
+    resolveOutcome = { kind: 'RESOLUTION_CONFLICT', item };
+    await expect(run(resolveInput)).rejects.toBeInstanceOf(ReviewResolutionConflictError);
+    resolveOutcome = { kind: 'ACCOUNT_CLOSED', item };
+    await expect(run(resolveInput)).rejects.toBeInstanceOf(FinancialAccountClosedError);
   });
 });

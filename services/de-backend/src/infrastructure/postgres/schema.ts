@@ -92,6 +92,8 @@ export interface LedgerTransactionTable {
   source_statement_key: string | null;
   source_row_key: string | null;
   content_fingerprint: string | null;
+  /** Set when a review item's `CREATE` resolution created this Transaction (§20A). */
+  import_review_item_id: string | null;
 }
 
 export interface ImportBatchTable {
@@ -102,6 +104,7 @@ export interface ImportBatchTable {
   adapter_version: string;
   source_filename: string | null;
   content_hash: string;
+  provenance: string;
   status: string;
   transaction_count: number;
   duplicate_count: number;

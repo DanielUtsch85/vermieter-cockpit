@@ -5,10 +5,12 @@ import type {
   CreateManualTransaction,
   GetImportBatch,
   ImportBankStatement,
+  ListReviewItems,
   LinkPropertyReference,
   PrincipalVerifier,
   RealmPrincipal,
   RefreshPropertyReference,
+  ResolveReviewItem,
 } from '../application/index.js';
 import { requireDeAccess } from './access-middleware.js';
 import { errorHandler } from './errors.js';
@@ -38,6 +40,9 @@ export interface AppDependencies {
   /** Bank import (VC-1-05/06). */
   readonly importBankStatement: ImportBankStatement;
   readonly getImportBatch: GetImportBatch;
+  /** Review items (VC-1-06a). */
+  readonly listReviewItems: ListReviewItems;
+  readonly resolveReviewItem: ResolveReviewItem;
 }
 
 export function createApp(deps: AppDependencies): Express {
@@ -69,7 +74,14 @@ export function createApp(deps: AppDependencies): Express {
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
   api.use(transactionRoutes({ createManual: deps.createManualTransaction }));
-  api.use(importRoutes({ importStatement: deps.importBankStatement, getBatch: deps.getImportBatch }));
+  api.use(
+    importRoutes({
+      importStatement: deps.importBankStatement,
+      getBatch: deps.getImportBatch,
+      listReviewItems: deps.listReviewItems,
+      resolveReviewItem: deps.resolveReviewItem,
+    }),
+  );
   app.use('/api/v1', api);
 
   app.use((_req, res) => {

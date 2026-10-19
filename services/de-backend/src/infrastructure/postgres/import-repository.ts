@@ -1,8 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import type { Insertable, Kysely, Selectable, Transaction as Trx } from 'kysely';
+import { sql, type Insertable, type Kysely, type Selectable, type Transaction as Trx } from 'kysely';
 import {
   decideRow,
+  keepsExternalId,
+  planResolution,
   type AmbiguityReason,
+  type BusinessDate,
+  type ConflictingTransaction,
+  type Direction,
+  type ResolveOutcome,
+  type ReviewItem,
+  type ReviewItemId,
   importPostable,
   isSkippable,
   normalizedRowJson,
@@ -23,10 +31,10 @@ import {
   type SourceRowKey,
   type TransactionStatus,
 } from '../../domains/ledger/index.js';
-import type { AuditActor } from '../../shared/index.js';
+import { Money, type AuditActor } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { toFinancialAccount } from './financial-account-repository.js';
-import { toNumericAmount } from './money-column.js';
+import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database, ImportBatchTable, ImportReviewItemTable, LedgerTransactionTable } from './schema.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -81,6 +89,7 @@ export class PostgresImportRepository implements ImportRepository {
             adapter_version: statement.adapterVersion,
             source_filename: input.sourceFilename,
             content_hash: statement.contentHash,
+            provenance: input.provenance,
             status: 'COMPLETED',
             transaction_count: 0,
             duplicate_count: 0,
@@ -241,6 +250,240 @@ export class PostgresImportRepository implements ImportRepository {
       .executeTakeFirst();
     return row === undefined ? undefined : toDomain(row);
   }
+
+  async listReviewItems(importBatchId: string, mreRealmId: string, status?: ReviewItem['status']) {
+    if (!UUID.test(importBatchId)) return undefined;
+    const batch = await this.db
+      .selectFrom('import_batch')
+      .select('id')
+      .where('id', '=', importBatchId)
+      .where('mre_realm_id', '=', mreRealmId)
+      .executeTakeFirst();
+    if (batch === undefined) return undefined;
+    let query = this.db
+      .selectFrom('import_review_item')
+      .selectAll()
+      .where('import_batch_id', '=', importBatchId)
+      .where('mre_realm_id', '=', mreRealmId);
+    if (status !== undefined) query = query.where('status', '=', status);
+    const items = (
+      await query
+        .orderBy(sql`(normalized_row->>'position')::int`)
+        .orderBy('id')
+        .execute()
+    ).map(toReviewItem);
+    const ids = [
+      ...new Set(
+        items.flatMap((i) => [...i.conflictingTransactionIds, ...(i.createdTransactionId === null ? [] : [i.createdTransactionId])]),
+      ),
+    ];
+    if (ids.length === 0) return { items, conflicting: [] };
+    const rows = await this.db
+      .selectFrom('ledger_transaction')
+      .select([
+        'id',
+        sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'),
+        sql<string | null>`to_char(value_date, 'YYYY-MM-DD')`.as('value_date'),
+        'amount',
+        'currency',
+        'direction',
+        'description',
+        'counterparty_name_raw',
+        'counterparty_iban_raw',
+        'external_transaction_id',
+        'import_batch_id',
+      ])
+      .where('id', 'in', ids)
+      .where('mre_realm_id', '=', mreRealmId)
+      .orderBy('booking_date')
+      .orderBy('id')
+      .execute();
+    const conflicting = rows.map(
+      (t): ConflictingTransaction => ({
+        id: t.id,
+        bookingDate: t.booking_date as BusinessDate,
+        valueDate: t.value_date as BusinessDate | null,
+        amount: fromNumericAmount(t.amount, t.currency),
+        direction: t.direction as Direction,
+        description: t.description,
+        counterpartyNameRaw: t.counterparty_name_raw,
+        counterpartyIbanRaw: t.counterparty_iban_raw,
+        externalTransactionId: t.external_transaction_id,
+        importBatchId: t.import_batch_id,
+      }),
+    );
+    return { items, conflicting };
+  }
+
+  async resolveReviewItem(
+    importBatchId: string,
+    reviewItemId: string,
+    mreRealmId: string,
+    resolution: ReviewResolution,
+    actor: AuditActor,
+  ): Promise<ResolveOutcome> {
+    if (!UUID.test(importBatchId) || !UUID.test(reviewItemId)) return { kind: 'NOT_FOUND' };
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<ResolveOutcome> => {
+        // Owned by the path batch, in the Realm: anything else is not found (§32.2 path validation).
+        const located = await trx
+          .selectFrom('import_review_item')
+          .select('financial_account_id')
+          .where('id', '=', reviewItemId)
+          .where('import_batch_id', '=', importBatchId)
+          .where('mre_realm_id', '=', mreRealmId)
+          .executeTakeFirst();
+        if (located === undefined) return { kind: 'NOT_FOUND' };
+        // Same lock order as an import (account first): a resolve and an import into the account serialize.
+        const accountRow = await trx
+          .selectFrom('financial_account')
+          .selectAll()
+          .where('id', '=', located.financial_account_id)
+          .where('mre_realm_id', '=', mreRealmId)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        const row = await trx
+          .selectFrom('import_review_item')
+          .selectAll()
+          .where('id', '=', reviewItemId)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        const item = toReviewItem(row);
+
+        switch (planResolution(item, resolution)) {
+          case 'REPLAY':
+            return { kind: 'RESOLVED', item, replayed: true };
+          case 'CONFLICT':
+            return { kind: 'RESOLUTION_CONFLICT', item };
+          case 'APPLY':
+            break;
+        }
+
+        let createdTransactionId: string | null = null;
+        if (resolution === 'CREATE') {
+          const normalized = storedRow(item);
+          if (!importPostable(toFinancialAccount(accountRow), normalized.bookingDate)) return { kind: 'ACCOUNT_CLOSED', item };
+          const batch = await trx
+            .selectFrom('import_batch')
+            .select('provenance')
+            .where('id', '=', item.importBatchId)
+            .executeTakeFirstOrThrow();
+          const externalId = normalized.externalTransactionId;
+          const idTaken =
+            externalId !== null &&
+            (await trx
+              .selectFrom('ledger_transaction')
+              .select('id')
+              .where('mre_realm_id', '=', mreRealmId)
+              .where('financial_account_id', '=', item.financialAccountId)
+              .where('external_transaction_id', '=', externalId)
+              .executeTakeFirst()) !== undefined;
+          createdTransactionId = randomUUID();
+          await trx
+            .insertInto('ledger_transaction')
+            .values({
+              id: createdTransactionId,
+              mre_realm_id: mreRealmId,
+              financial_account_id: item.financialAccountId,
+              amount: toNumericAmount(normalized.amount),
+              currency: normalized.amount.currency,
+              direction: normalized.direction,
+              booking_date: normalized.bookingDate,
+              value_date: normalized.valueDate,
+              description: normalized.description,
+              property_reference_id: null,
+              provenance: batch.provenance,
+              status: 'IMPORTED' satisfies TransactionStatus,
+              created_by: actor.actorId,
+              import_batch_id: item.importBatchId,
+              external_transaction_id: externalId !== null && keepsExternalId(item.ambiguityReason, idTaken) ? externalId : null,
+              counterparty_name_raw: normalized.counterpartyNameRaw,
+              counterparty_iban_raw: normalized.counterpartyIbanRaw,
+              adapter_id: item.adapterId,
+              adapter_version: item.adapterVersion,
+              source_statement_key: item.sourceStatementKey,
+              source_row_key: item.sourceRowKey,
+              content_fingerprint: row.content_fingerprint,
+              import_review_item_id: item.id,
+            })
+            .execute();
+        }
+
+        const updated = await trx
+          .updateTable('import_review_item')
+          .set({
+            status: 'RESOLVED',
+            resolution,
+            resolved_by: actor.actorId,
+            resolved_at: new Date(),
+            created_transaction_id: createdTransactionId,
+          })
+          .where('id', '=', item.id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        // The owning batch counts its own PENDING items only (§20A).
+        await trx
+          .updateTable('import_batch')
+          .set({
+            needs_review_count: sql`needs_review_count - 1`,
+            status: sql`CASE WHEN needs_review_count > 1 THEN 'NEEDS_REVIEW' ELSE 'COMPLETED' END`,
+          })
+          .where('id', '=', item.importBatchId)
+          .execute();
+        await writeAudit(trx, { type: 'ImportReviewItem', id: item.id }, 'RESOLVED', actor, {
+          newVersion: 1,
+          metadata: {
+            importBatchId: item.importBatchId,
+            financialAccountId: item.financialAccountId,
+            resolution,
+            ambiguityReason: item.ambiguityReason,
+            conflictingTransactionIds: item.conflictingTransactionIds,
+            ...(createdTransactionId === null ? {} : { createdTransactionId }),
+          },
+        });
+        return { kind: 'RESOLVED', item: toReviewItem(updated), replayed: false };
+      });
+  }
+}
+
+/** The normalized row of a review item, as stored by the import (`normalizedRowJson`). */
+function storedRow(item: ReviewItem) {
+  const row = item.normalizedRow as {
+    bookingDate: BusinessDate;
+    valueDate: BusinessDate | null;
+    amount: { amount: string; currency: string };
+    direction: Direction;
+    counterpartyNameRaw: string | null;
+    counterpartyIbanRaw: string | null;
+    description: string | null;
+    externalTransactionId: string | null;
+  };
+  return { ...row, amount: Money.of(row.amount.amount, row.amount.currency) };
+}
+
+function toReviewItem(row: Selectable<ImportReviewItemTable>): ReviewItem {
+  return {
+    id: row.id as ReviewItemId,
+    importBatchId: row.import_batch_id as ImportBatchId,
+    mreRealmId: row.mre_realm_id,
+    financialAccountId: row.financial_account_id as FinancialAccountId,
+    adapterId: row.adapter_id,
+    adapterVersion: row.adapter_version,
+    sourceStatementKey: row.source_statement_key,
+    sourceRowKey: row.source_row_key,
+    normalizedRow: row.normalized_row,
+    ambiguityReason: row.ambiguity_reason as AmbiguityReason,
+    conflictingTransactionIds: row.conflicting_transaction_ids,
+    priorReviewItemIds: row.prior_review_item_ids,
+    status: row.status as ReviewItem['status'],
+    resolution: row.resolution as ReviewResolution | null,
+    resolvedBy: row.resolved_by,
+    resolvedAt: row.resolved_at,
+    createdTransactionId: row.created_transaction_id,
+    createdAt: row.created_at,
+  };
 }
 
 interface FingerprintMatch {
@@ -386,8 +629,10 @@ function lookupFor(known: Known, statement: NewImport['statement'], parsed: Pars
     otherAdapterVersion: {
       // A prior decision's Transaction is part of the conflict too (provenance preserved).
       transactionIds: [
-        ...otherTransactions.map((t) => t.id),
-        ...otherItems.flatMap((i) => (i.createdTransactionId === null ? [] : [i.createdTransactionId])),
+        ...new Set([
+          ...otherTransactions.map((t) => t.id),
+          ...otherItems.flatMap((i) => (i.createdTransactionId === null ? [] : [i.createdTransactionId])),
+        ]),
       ],
       reviewItemIds: otherItems.map((i) => i.id),
     },

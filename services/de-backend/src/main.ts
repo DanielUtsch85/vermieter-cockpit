@@ -7,7 +7,9 @@ import {
   getImportBatch,
   importBankStatement,
   linkPropertyReference,
+  listReviewItems,
   refreshPropertyReference,
+  resolveReviewItem,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
@@ -44,6 +46,8 @@ const app = createApp({
   createManualTransaction: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
   importBankStatement: importBankStatement({ imports, accounts: financialAccounts, findAdapter: findBankStatementAdapter }),
   getImportBatch: getImportBatch({ imports }),
+  listReviewItems: listReviewItems({ imports }),
+  resolveReviewItem: resolveReviewItem({ imports }),
 });
 
 // Migrate before accepting requests; a failed migration aborts the start.

@@ -2,14 +2,21 @@ import busboy from 'busboy';
 import express, { type Request, type Router } from 'express';
 import { z } from 'zod';
 import {
+  FinancialAccountClosedError,
   FinancialAccountNotFoundError,
   ImportBatchNotFoundError,
   ImportFileError,
+  ReviewItemNotFoundError,
+  ReviewResolutionConflictError,
   UnsupportedAdapterError,
+  type ConflictingTransaction,
   type GetImportBatch,
   type ImportBankStatement,
   type ImportBatch,
+  type ListReviewItems,
   type RealmPrincipal,
+  type ResolveReviewItem,
+  type ReviewItem,
 } from '../application/index.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
@@ -32,9 +39,14 @@ const metadataSchema = z
   })
   .passthrough();
 
+const listQuery = z.object({ status: z.enum(['PENDING', 'RESOLVED']).optional() });
+const resolveBody = z.object({ resolution: z.enum(['CREATE', 'SKIP']) });
+
 export interface ImportCommands {
   readonly importStatement: ImportBankStatement;
   readonly getBatch: GetImportBatch;
+  readonly listReviewItems: ListReviewItems;
+  readonly resolveReviewItem: ResolveReviewItem;
 }
 
 type Upload =
@@ -134,6 +146,82 @@ export function importRoutes(commands: ImportCommands): Router {
         if (error instanceof ImportBatchNotFoundError) {
           sendError(res, 404, 'NOT_FOUND', 'ImportBatch not found.', {
             importBatchId: error.importBatchId,
+          });
+        } else {
+          next(error);
+        }
+      });
+  });
+
+  router.get('/imports/:importBatchId/review-items', (req, res, next) => {
+    const id = req.params['importBatchId'] ?? '';
+    const query = listQuery.safeParse(req.query);
+    if (!RESOURCE_ID.test(id) || !query.success) {
+      sendValidationError(res, [
+        ...(RESOURCE_ID.test(id) ? [] : [{ field: 'importBatchId', code: 'INVALID_FORMAT' }]),
+        ...(query.success ? [] : fieldErrors(query.error)),
+      ]);
+      return;
+    }
+    commands
+      .listReviewItems({
+        principal: res.locals['principal'] as RealmPrincipal,
+        importBatchId: id.toLowerCase(),
+        ...(query.data.status === undefined ? {} : { status: query.data.status }),
+      })
+      .then(({ items, conflicting }) => {
+        const byId = new Map(conflicting.map((t) => [t.id, t]));
+        res.json({ importBatchId: id.toLowerCase(), items: items.map((item) => toItemDto(item, byId)) });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ImportBatchNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'ImportBatch not found.', { importBatchId: error.importBatchId });
+        } else {
+          next(error);
+        }
+      });
+  });
+
+  router.post('/imports/:importBatchId/review-items/:reviewItemId/resolve', express.json({ limit: '1kb' }), (req, res, next) => {
+    const batchId = req.params['importBatchId'] ?? '';
+    const itemId = req.params['reviewItemId'] ?? '';
+    const ids = [
+      ...(RESOURCE_ID.test(batchId) ? [] : [{ field: 'importBatchId', code: 'INVALID_FORMAT' }]),
+      ...(RESOURCE_ID.test(itemId) ? [] : [{ field: 'reviewItemId', code: 'INVALID_FORMAT' }]),
+    ];
+    if (ids.length > 0) {
+      sendValidationError(res, ids);
+      return;
+    }
+    const body = resolveBody.safeParse(req.body);
+    if (!body.success) {
+      // An invalid resolution value is a validation issue of the request content (api-design.md §32.2 → 422).
+      sendError(res, 422, 'VALIDATION_ERROR', 'Validation failed.', { fields: fieldErrors(body.error) });
+      return;
+    }
+    commands
+      .resolveReviewItem({
+        principal: res.locals['principal'] as RealmPrincipal,
+        importBatchId: batchId.toLowerCase(),
+        reviewItemId: itemId.toLowerCase(),
+        resolution: body.data.resolution,
+      })
+      .then(({ item, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        res.json(toItemDto(item, new Map()));
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ReviewItemNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'ImportReviewItem not found in this ImportBatch.', { reviewItemId: error.reviewItemId });
+        } else if (error instanceof ReviewResolutionConflictError) {
+          sendError(res, 409, 'CONFLICT', 'The review item is already resolved differently.', {
+            reason: 'ALREADY_RESOLVED',
+            resolution: error.item.resolution,
+          });
+        } else if (error instanceof FinancialAccountClosedError) {
+          sendError(res, 409, 'CONFLICT', 'FinancialAccount was closed before the row was booked.', {
+            reason: 'ACCOUNT_CLOSED',
+            financialAccountId: error.financialAccountId,
           });
         } else {
           next(error);
@@ -244,5 +332,49 @@ function toDto(batch: ImportBatch) {
     importedAt: batch.importedAt.toISOString(),
     importedBy: batch.importedBy,
     rows: batch.rows,
+  };
+}
+
+function toItemDto(item: ReviewItem, transactions: ReadonlyMap<string, ConflictingTransaction>) {
+  return {
+    reviewItemId: item.id,
+    importBatchId: item.importBatchId,
+    financialAccountId: item.financialAccountId,
+    adapterId: item.adapterId,
+    adapterVersion: item.adapterVersion,
+    status: item.status,
+    ambiguityReason: item.ambiguityReason,
+    normalizedRow: item.normalizedRow,
+    conflictingTransactionIds: item.conflictingTransactionIds,
+    // The other side of the decision, next to the row (only in the list).
+    ...(transactions.size === 0
+      ? {}
+      : {
+          conflictingTransactions: item.conflictingTransactionIds.flatMap((id) => {
+            const t = transactions.get(id);
+            return t === undefined ? [] : [toConflictDto(t)];
+          }),
+        }),
+    priorReviewItemIds: item.priorReviewItemIds,
+    resolution: item.resolution,
+    resolvedByAccountId: item.resolvedBy,
+    resolvedAt: item.resolvedAt?.toISOString() ?? null,
+    createdTransactionId: item.createdTransactionId,
+    createdAt: item.createdAt.toISOString(),
+  };
+}
+
+function toConflictDto(t: ConflictingTransaction) {
+  return {
+    transactionId: t.id,
+    importBatchId: t.importBatchId,
+    bookingDate: t.bookingDate,
+    valueDate: t.valueDate,
+    amount: t.amount.toJSON(),
+    direction: t.direction,
+    counterpartyNameRaw: t.counterpartyNameRaw,
+    counterpartyIbanRaw: t.counterpartyIbanRaw,
+    description: t.description,
+    externalTransactionId: t.externalTransactionId,
   };
 }
