@@ -51,6 +51,6 @@ export function mrePropertyLookup(client: MreClient): MrePropertyLookup {
     const property = properties.find((p) => p.mrePropertyId === mrePropertyId);
     return property === undefined
       ? undefined
-      : { mrePropertyId: property.mrePropertyId, name: property.name, address: property.address };
+      : { mrePropertyId: property.mrePropertyId, name: property.name, address: property.address, surface: property.surface };
   };
 }

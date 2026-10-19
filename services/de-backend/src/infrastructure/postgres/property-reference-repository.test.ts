@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { NewPropertyReference } from '../../domains/property-reference/index.js';
+import type { MreObservation, NewPropertyReference } from '../../domains/property-reference/index.js';
+import { ExactDecimal } from '../../shared/index.js';
 import { createDatabase } from './database.js';
 import { migrateToLatest } from './migrate.js';
 import { PostgresPropertyReferenceRepository } from './property-reference-repository.js';
@@ -22,6 +23,7 @@ function draft(mrePropertyId: string, mreRealmId = REALM): NewPropertyReference 
     mrePropertyId,
     displayName: 'Wohnung 1',
     cachedAddress: { street1: 'Musterstraße 1', city: 'Berlin' },
+    cachedSurface: ExactDecimal.of('64.5'),
     refreshedAt: new Date('2026-10-19T08:00:00Z'),
   };
 }
@@ -158,6 +160,86 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
       actor,
     );
     expect(reference).toMatchObject({ displayName: null, cachedAddress: null });
+  });
+
+  describe('refresh', () => {
+    const found = (displayName: string, surface: string | null = '64.5'): MreObservation => ({
+      kind: 'FOUND',
+      observedAt: new Date('2026-10-20T09:00:00Z'),
+      displayName,
+      cachedAddress: { city: 'Berlin' },
+      cachedSurface: surface === null ? null : ExactDecimal.of(surface),
+    });
+    const versions = async (entityId: string) =>
+      (
+        await pool.query<{ action: string; previous_version: number | null; new_version: number | null }>(
+          `SELECT action, previous_version, new_version FROM audit_record WHERE entity_id = $1 ORDER BY new_version`,
+          [entityId],
+        )
+      ).rows;
+
+    it('persists a change with version bump and an AuditRecord carrying previous/new version', async () => {
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60711'), actor);
+      const refreshed = await repository.refresh(reference.id, REALM, found('Wohnung 1 (EG)', '65.25'), actor);
+      expect(refreshed).toMatchObject({ displayName: 'Wohnung 1 (EG)', version: 2, cachedAddress: { city: 'Berlin' } });
+      expect(refreshed?.cachedSurface?.toString()).toBe('65.25');
+      expect(await repository.findById(reference.id, REALM)).toEqual(refreshed);
+      expect(await versions(reference.id)).toEqual([
+        { action: 'LINKED', previous_version: null, new_version: 1 },
+        { action: 'REFRESHED', previous_version: 1, new_version: 2 },
+      ]);
+    });
+
+    it('a refresh without news writes lastRefreshedAt only', async () => {
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60712'), actor);
+      const same = { ...found('Wohnung 1'), cachedAddress: reference.cachedAddress };
+      const refreshed = await repository.refresh(reference.id, REALM, same, actor);
+      expect(refreshed).toMatchObject({ version: 1, lastRefreshedAt: new Date('2026-10-20T09:00:00Z') });
+      expect(await versions(reference.id)).toHaveLength(1);
+    });
+
+    it('surface is stored exactly as NUMERIC (no float rounding)', async () => {
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60713'), actor);
+      await repository.refresh(reference.id, REALM, found('Wohnung 1', '33.333333333333336'), actor);
+      const row = await pool.query<{ cached_surface: string }>('SELECT cached_surface FROM property_reference WHERE id = $1', [
+        reference.id,
+      ]);
+      expect(row.rows[0]?.cached_surface).toBe('33.333333333333336');
+    });
+
+    it('concurrent refreshes serialize on the row: each change gets its own version', async () => {
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60714'), actor);
+      const results = await Promise.all(
+        Array.from({ length: 6 }, (_, i) => repository.refresh(reference.id, REALM, found(`Name ${i}`), actor)),
+      );
+      expect(new Set(results.map((r) => r?.version)).size).toBe(6);
+      const trail = await versions(reference.id);
+      expect(trail.map((a) => [a.previous_version, a.new_version])).toEqual([
+        [null, 1],
+        [1, 2],
+        [2, 3],
+        [3, 4],
+        [4, 5],
+        [5, 6],
+        [6, 7],
+      ]);
+    });
+
+    it("is scoped to the Realm and ignores ids that are not UUIDs", async () => {
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60715'), actor);
+      expect(await repository.refresh(reference.id, OTHER_REALM, found('x'), actor)).toBeUndefined();
+      expect(await repository.findById(reference.id, OTHER_REALM)).toBeUndefined();
+      expect(await repository.findById('not-a-uuid', REALM)).toBeUndefined();
+      expect(await repository.refresh('not-a-uuid' as typeof reference.id, REALM, found('x'), actor)).toBeUndefined();
+      expect((await repository.findById(reference.id, REALM))?.version).toBe(1);
+    });
+
+    it('the database rejects a negative surface', async () => {
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60716'), actor);
+      await expect(
+        pool.query('UPDATE property_reference SET cached_surface = -1 WHERE id = $1', [reference.id]),
+      ).rejects.toThrow(/check constraint/);
+    });
   });
 
   it('the database rejects an mre_property_id that is not an ObjectId', async () => {

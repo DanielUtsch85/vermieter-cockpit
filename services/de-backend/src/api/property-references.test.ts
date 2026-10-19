@@ -8,8 +8,12 @@ import {
   type LinkPropertyReference,
   type LinkPropertyReferenceInput,
   type PrincipalVerifier,
+  PropertyReferenceNotFoundError,
   type PropertyReference,
+  type RefreshPropertyReference,
+  type RefreshPropertyReferenceInput,
 } from '../application/index.js';
+import { ExactDecimal } from '../shared/index.js';
 import { createApp } from './app.js';
 
 const REALM = '64b0c0ffee0000000000000a';
@@ -22,8 +26,10 @@ const reference = {
   externalReferenceState: 'ACTIVE',
   displayName: 'Wohnung 1',
   cachedAddress: { city: 'Berlin' },
+  cachedSurface: ExactDecimal.of('64.50'),
   lastRefreshedAt: new Date('2026-10-19T08:00:00Z'),
   createdAt: new Date('2026-10-19T08:00:01Z'),
+  version: 1,
 } as PropertyReference;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
@@ -34,8 +40,19 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
 
 let server: Server | undefined;
 
-async function start(link: LinkPropertyReference, verifyPrincipal: PrincipalVerifier = admin): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal, linkPropertyReference: link }).listen(0, '127.0.0.1');
+const unused = () => Promise.reject(new Error('not used in this test'));
+
+async function start(
+  link: LinkPropertyReference,
+  verifyPrincipal: PrincipalVerifier = admin,
+  refresh: RefreshPropertyReference = unused,
+): Promise<string> {
+  server = createApp({
+    isReady: async () => true,
+    verifyPrincipal,
+    linkPropertyReference: link,
+    refreshPropertyReference: refresh,
+  }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -67,8 +84,10 @@ describe('POST /api/v1/property-references/link', () => {
       externalReferenceState: 'ACTIVE',
       displayName: 'Wohnung 1',
       cachedAddress: { city: 'Berlin' },
+      cachedSurface: '64.5',
       lastRefreshedAt: '2026-10-19T08:00:00.000Z',
       createdAt: '2026-10-19T08:00:01.000Z',
+      version: 1,
     });
     expect(seen).toEqual([
       {
@@ -146,5 +165,66 @@ describe('POST /api/v1/property-references/link', () => {
     expect(body.error.code).toBe(code);
     expect(JSON.stringify(body)).not.toContain('connection refused');
     if (status === 404) expect(body.error.details).toEqual({ mreRealmId: REALM, mrePropertyId: PROPERTY });
+  });
+});
+
+describe('POST /api/v1/property-references/{id}/refresh', () => {
+  const refreshUrl = (base: string, id: string) => `${base}/api/v1/property-references/${id}/refresh`;
+  const call = (base: string, id: string) =>
+    fetch(refreshUrl(base, id), { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } });
+
+  it('200 with the refreshed PropertyReference; the use case gets principal, token and id', async () => {
+    const seen: RefreshPropertyReferenceInput[] = [];
+    const base = await start(unused, admin, async (input) => (seen.push(input), { ...reference, version: 2 }));
+    const res = await call(base, reference.id);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: reference.id, cachedSurface: '64.5', version: 2 });
+    expect(seen).toEqual([
+      {
+        principal: { email: 'anna@example.com', mreRealmId: REALM, mreRole: 'administrator' },
+        authorizationHeader: 'Bearer a.b.c',
+        propertyReferenceId: reference.id,
+      },
+    ]);
+  });
+
+  it('400 for an id that is not a UUID — the use case is not called', async () => {
+    let called = false;
+    const base = await start(unused, admin, async () => ((called = true), reference));
+    const res = await call(base, 'not-a-uuid');
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Validation failed.',
+        details: { fields: [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }] },
+      },
+    });
+    expect(called).toBe(false);
+  });
+
+  it.each([
+    ['unknown or other Realm', new PropertyReferenceNotFoundError(reference.id), 404, 'NOT_FOUND'],
+    ['MRE refuses', new AccessError('FORBIDDEN', 'x'), 403, 'FORBIDDEN'],
+    ['MRE unavailable', new MreUnavailableError('down'), 503, 'EXTERNAL_SYSTEM_ERROR'],
+    ['unexpected', new Error('connection refused'), 500, 'INTERNAL_ERROR'],
+  ])('%s → %i %s', async (_label, error, status, code) => {
+    const base = await start(unused, admin, () => Promise.reject(error));
+    const res = await call(base, reference.id);
+    expect(res.status).toBe(status);
+    const body = (await res.json()) as { error: { code: string; details?: unknown } };
+    expect(body.error.code).toBe(code);
+    if (status === 404) expect(body.error.details).toEqual({ propertyReferenceId: reference.id });
+  });
+
+  it('the access guard runs first', async () => {
+    const base = await start(
+      unused,
+      async () => {
+        throw new AccessError('UNAUTHENTICATED', 'no token');
+      },
+      async () => reference,
+    );
+    expect((await call(base, 'not-a-uuid')).status).toBe(401);
   });
 });

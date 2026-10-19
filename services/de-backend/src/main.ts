@@ -1,6 +1,6 @@
 import { createApp } from './api/index.js';
 import { loadConfig } from './config.js';
-import { linkPropertyReference } from './application/index.js';
+import { linkPropertyReference, refreshPropertyReference } from './application/index.js';
 import {
   PostgresPropertyReferenceRepository,
   createDatabase,
@@ -16,13 +16,15 @@ const config = loadConfig(process.env);
 const pool = createPool(config.DATABASE_URL);
 const db = createDatabase(pool);
 const mreClient = new HttpMreClient({ apiBaseUrl: config.MRE_API_URL, timeoutMs: config.MRE_TIMEOUT_MS });
+const propertyReferences = {
+  repository: new PostgresPropertyReferenceRepository(db),
+  lookupMreProperty: mrePropertyLookup(mreClient),
+};
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
   verifyPrincipal: mrePrincipalVerifier(mreClient),
-  linkPropertyReference: linkPropertyReference({
-    repository: new PostgresPropertyReferenceRepository(db),
-    lookupMreProperty: mrePropertyLookup(mreClient),
-  }),
+  linkPropertyReference: linkPropertyReference(propertyReferences),
+  refreshPropertyReference: refreshPropertyReference(propertyReferences),
 });
 
 // Migrate before accepting requests; a failed migration aborts the start.

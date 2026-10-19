@@ -165,6 +165,7 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
     it('HttpMreClient.listProperties (used by link, VC-1-01) finds the property only in its Realm', async () => {
       const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
       const inA = await client.listProperties(await token(), realmA);
+      expect(inA.find((p) => p.mrePropertyId === propertyId)?.surface?.toString()).toBe('64.5');
       expect(inA.find((p) => p.mrePropertyId === propertyId)).toMatchObject({
         mrePropertyId: propertyId,
         name: 'Wohnung 1',

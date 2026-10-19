@@ -13,9 +13,10 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
 });
 
 const unusedLink: AppDependencies['linkPropertyReference'] = () => Promise.reject(new Error('not used in this test'));
+const unusedRefresh: AppDependencies['refreshPropertyReference'] = () => Promise.reject(new Error('not used in this test'));
 
 async function start(deps: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, linkPropertyReference: unusedLink, ...deps }).listen(
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, linkPropertyReference: unusedLink, refreshPropertyReference: unusedRefresh, ...deps }).listen(
     0,
     '127.0.0.1',
   );

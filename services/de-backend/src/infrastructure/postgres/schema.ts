@@ -15,6 +15,8 @@ export interface PropertyReferenceTable {
   external_reference_state: string;
   display_name: string | null;
   cached_address: Json<Record<string, string> | null> | null;
+  /** NUMERIC: written and read as a decimal string. */
+  cached_surface: string | null;
   last_refreshed_at: Date | null;
   created_at: Generated<Date>;
   created_by: string;
@@ -31,6 +33,8 @@ export interface AuditRecordTable {
   actor_type: 'USER' | 'SYSTEM';
   actor_id: string | null;
   metadata: Json<Record<string, unknown> | null> | null;
+  previous_version: number | null;
+  new_version: number | null;
 }
 
 export interface Database {

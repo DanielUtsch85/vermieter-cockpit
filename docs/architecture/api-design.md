@@ -541,8 +541,26 @@ Behavior:
   - `mrePropertyId` must match `^[0-9a-f]{24}$` and `mreRealmId` must be non-empty; otherwise `400 VALIDATION_ERROR` with `details.fields[]` (`REQUIRED` / `INVALID_FORMAT`), before MRE is called.
   - An existing link for the natural key is returned (`200`) **without** asking MRE, so a repeat stays a success after the upstream Property was deleted.
   - A new link resolves the Property via `GET /properties` in the Realm, never `GET /properties/:id` (`mre-integration.md` §21.1); unknown in the Realm → `404 NOT_FOUND`; MRE no longer grants the Realm (upstream 404 from `checkOrganization`, e.g. membership revoked after the access guard) → `403`; MRE unreachable → `503 EXTERNAL_SYSTEM_ERROR` and nothing is written (§77).
-  - Cached on create: `displayName` (MRE `name`) and `cachedAddress`, with `lastRefreshedAt`; MRE `price` is never cached. `surface` follows with the refresh command (VC-1-02).
+  - Cached on create: `displayName` (MRE `name`), `cachedAddress` and `cachedSurface`, with `lastRefreshedAt`; MRE `price` is never cached.
   - Concurrent links of the same natural key yield one PropertyReference (unique constraint, insert-or-return in one transaction pinned to `READ COMMITTED`, independent of the session default), with exactly one AuditRecord (`LINKED`, actor = verified MRE account email). An empty MRE `name` is cached as `null`.
+
+---
+
+## 23.2 Refresh Property Reference (VC-1-02)
+
+```text
+POST /api/v1/property-references/{propertyReferenceId}/refresh
+```
+
+- **Domain owner:** MRE Integration. No request body.
+- **Authorization:** as §23.1; the reference must belong to the verified Realm. A reference of another Realm is `404`, the same as an unknown id, so existence does not leak across Realms.
+- **Behavior:** re-reads the Property via `GET /properties` in the Realm (never `GET /properties/:id`, `mre-integration.md` §21.1):
+  - **found:** `displayName`, `cachedAddress` and `cachedSurface` are replaced by MRE's values, the state becomes `ACTIVE` (also from `MISSING`), `lastRefreshedAt` is set;
+  - **not listed:** the state becomes `MISSING`; cached values and `lastRefreshedAt` are kept and nothing is deleted. MRE cannot tell deletion from invisibility, so DE never sets `DELETED_UPSTREAM` from a refresh.
+- **Outputs:** `200 OK` with the PropertyReference (including `version`).
+- **Error codes:** `400 VALIDATION_ERROR` for an id that is not a UUID; `401/403` as §23.1 (also when MRE no longer grants the Realm); `404` unknown reference in this Realm; `503 EXTERNAL_SYSTEM_ERROR` when MRE is unavailable. On any error nothing is changed (§77).
+- **Idempotency:** a refresh without news changes only `lastRefreshedAt`. `version` increases, and an AuditRecord (`REFRESHED` or `MARKED_MISSING`, with `previousVersion`/`newVersion` and the changed fields) is written, only when cached values or the state change. Concurrent refreshes serialize on the row (`SELECT … FOR UPDATE` under READ COMMITTED).
+- **Representation:** `cachedSurface` is a decimal string (e.g. `"64.5"`), never a JSON number. MRE stores surface as a JS number; DE takes its shortest decimal text exactly and leaves out negative, non-finite or exponent values.
 
 ---
 

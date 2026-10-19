@@ -3,6 +3,7 @@ import type {
   LinkOutcome,
   PropertyReferenceRepository,
 } from '../domains/property-reference/index.js';
+import type { ExactDecimal } from '../shared/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
 
 /**
@@ -21,6 +22,7 @@ export interface MrePropertySnapshot {
   readonly mrePropertyId: string;
   readonly name: string | null;
   readonly address: CachedAddress | null;
+  readonly surface: ExactDecimal | null;
 }
 
 /**
@@ -87,6 +89,7 @@ export function linkPropertyReference(deps: LinkPropertyReferenceDeps): LinkProp
         mrePropertyId,
         displayName: property.name,
         cachedAddress: property.address,
+        cachedSurface: property.surface,
         refreshedAt: now(),
       },
       { actorType: 'USER', actorId: principal.email },

@@ -492,6 +492,8 @@ For the initial condominium use case, the MRE Property represents the apartment 
 
 Cached values are non-authoritative.
 
+`cachedSurface` is stored as an exact decimal (PostgreSQL `NUMERIC` without fixed scale), never a binary float. A refresh that no longer finds the Property in MRE sets `MISSING` and keeps the cached values (api-design §23.2).
+
 `MRE Property.price` is rental pricing metadata and must never be interpreted as acquisition price or Market Valuation.
 
 ### Suggested `externalReferenceState`
