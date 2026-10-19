@@ -18,6 +18,7 @@ export interface PropertyReferenceTable {
   /** NUMERIC: written and read as a decimal string. */
   cached_surface: string | null;
   last_refreshed_at: Date | null;
+  last_observed_at: Date | null;
   created_at: Generated<Date>;
   created_by: string;
   updated_at: Generated<Date>;

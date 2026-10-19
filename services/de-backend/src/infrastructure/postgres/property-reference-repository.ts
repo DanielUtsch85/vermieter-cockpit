@@ -57,6 +57,7 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
           cached_address: toJson(reference.cachedAddress),
           cached_surface: reference.cachedSurface?.toString() ?? null,
           last_refreshed_at: reference.refreshedAt,
+          last_observed_at: reference.refreshedAt,
           created_by: actor.actorId,
         })
         .onConflict((oc) => oc.columns(['mre_realm_id', 'mre_property_id']).doNothing())
@@ -101,7 +102,8 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
       if (row === undefined) return undefined;
 
       const current = toDomain(row);
-      const { next, change } = planRefresh(current, observation);
+      const { next, stale, change } = planRefresh(current, observation);
+      if (stale) return current;
       const updated = await trx
         .updateTable('property_reference')
         .set({
@@ -110,6 +112,7 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
           cached_address: toJson(next.cachedAddress),
           cached_surface: next.cachedSurface?.toString() ?? null,
           last_refreshed_at: next.lastRefreshedAt,
+          last_observed_at: next.lastObservedAt,
           version: next.version,
           ...(change === undefined ? {} : { updated_at: new Date() }),
         })
@@ -169,6 +172,7 @@ function toDomain(row: Selectable<PropertyReferenceTable>): PropertyReference {
     cachedAddress: row.cached_address as CachedAddress | null,
     cachedSurface: row.cached_surface === null ? null : ExactDecimal.of(row.cached_surface),
     lastRefreshedAt: row.last_refreshed_at,
+    lastObservedAt: row.last_observed_at,
     createdAt: row.created_at,
     version: row.version,
   };

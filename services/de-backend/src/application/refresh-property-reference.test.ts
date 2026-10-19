@@ -42,9 +42,29 @@ describe('refreshPropertyReference', () => {
 
   it('a Property no longer in MRE marks the reference MISSING instead of failing', async () => {
     const { repository, id } = await linked();
-    const refreshed = await refreshPropertyReference({ repository, lookupMreProperty: lookupOf(undefined) })(input(id));
-    expect(refreshed).toMatchObject({ externalReferenceState: 'MISSING', displayName: 'Wohnung 1', lastRefreshedAt: linkedAt });
+    const refreshed = await refreshPropertyReference({
+      repository,
+      lookupMreProperty: lookupOf(undefined),
+      now: () => refreshedAt,
+    })(input(id));
+    expect(refreshed).toMatchObject({
+      externalReferenceState: 'MISSING',
+      displayName: 'Wohnung 1',
+      lastRefreshedAt: linkedAt,
+      lastObservedAt: refreshedAt,
+    });
     expect(repository.rows).toHaveLength(1);
+  });
+
+  it('takes observedAt before the MRE request, so a slow response cannot pass for a newer one', async () => {
+    const { repository, id } = await linked();
+    const clock = [new Date('2026-10-20T09:00:00Z'), new Date('2026-10-20T09:00:09Z')];
+    const order: string[] = [];
+    const lookup = async () => (order.push('lookup'), wohnung);
+    const now = () => (order.push('now'), clock.shift() ?? new Date(0));
+    const refreshed = await refreshPropertyReference({ repository, lookupMreProperty: lookup, now })(input(id));
+    expect(order).toEqual(['now', 'lookup']);
+    expect(refreshed.lastObservedAt).toEqual(new Date('2026-10-20T09:00:00Z'));
   });
 
   it("another Realm's reference is not found, and MRE is not asked", async () => {

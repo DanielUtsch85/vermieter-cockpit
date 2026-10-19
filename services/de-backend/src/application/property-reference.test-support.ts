@@ -35,6 +35,7 @@ export function memoryRepository(): PropertyReferenceRepository & {
         cachedAddress: draft.cachedAddress,
         cachedSurface: draft.cachedSurface,
         lastRefreshedAt: draft.refreshedAt,
+        lastObservedAt: draft.refreshedAt,
         createdAt: draft.refreshedAt,
         version: 1,
       };
@@ -46,7 +47,8 @@ export function memoryRepository(): PropertyReferenceRepository & {
       const index = rows.findIndex((r) => r.id === id && r.mreRealmId === realm);
       const current = rows[index];
       if (current === undefined) return undefined;
-      const { next, change } = planRefresh(current, observation);
+      const { next, stale, change } = planRefresh(current, observation);
+      if (stale) return current;
       rows[index] = next;
       if (change !== undefined) audits.push({ action: change.action, actor });
       return next;

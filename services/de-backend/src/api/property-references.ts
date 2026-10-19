@@ -118,6 +118,7 @@ function toDto(reference: PropertyReference) {
     // Decimal string, never a JSON number (exactness, api-design.md).
     cachedSurface: reference.cachedSurface?.toString() ?? null,
     lastRefreshedAt: reference.lastRefreshedAt?.toISOString() ?? null,
+    lastObservedAt: reference.lastObservedAt?.toISOString() ?? null,
     createdAt: reference.createdAt.toISOString(),
     version: reference.version,
   };

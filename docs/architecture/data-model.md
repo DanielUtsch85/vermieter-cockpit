@@ -489,10 +489,13 @@ For the initial condominium use case, the MRE Property represents the apartment 
 - `cachedSurface`
 - `externalReferences`
 - `lastRefreshedAt`
+- `lastObservedAt`
 
 Cached values are non-authoritative.
 
 `cachedSurface` is stored as an exact decimal (PostgreSQL `NUMERIC` without fixed scale), never a binary float. A refresh that no longer finds the Property in MRE sets `MISSING` and keeps the cached values (api-design §23.2).
+
+`lastRefreshedAt` is when the cached values were last read from MRE; `lastObservedAt` is the start of the latest applied MRE lookup, whether it found the Property or not. A refresh whose lookup started no later than `lastObservedAt` is stale and discarded, so an older MRE state never overwrites a newer one.
 
 `MRE Property.price` is rental pricing metadata and must never be interpreted as acquisition price or Market Valuation.
 

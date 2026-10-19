@@ -80,6 +80,8 @@ export function linkPropertyReference(deps: LinkPropertyReferenceDeps): LinkProp
     const existing = await deps.repository.findByMreIdentity(mreRealmId, mrePropertyId);
     if (existing !== undefined) return { reference: existing, created: false };
 
+    // Taken before the request, like a refresh observation (planRefresh orders by it).
+    const observedAt = now();
     const property = await deps.lookupMreProperty(authorizationHeader, mreRealmId, mrePropertyId);
     if (property === undefined) throw new MrePropertyNotFoundError(mreRealmId, mrePropertyId);
 
@@ -90,7 +92,7 @@ export function linkPropertyReference(deps: LinkPropertyReferenceDeps): LinkProp
         displayName: property.name,
         cachedAddress: property.address,
         cachedSurface: property.surface,
-        refreshedAt: now(),
+        refreshedAt: observedAt,
       },
       { actorType: 'USER', actorId: principal.email },
     );

@@ -45,8 +45,9 @@ export function refreshPropertyReference(deps: RefreshPropertyReferenceDeps): Re
     const current = await deps.repository.findById(propertyReferenceId, principal.mreRealmId);
     if (current === undefined) throw new PropertyReferenceNotFoundError(propertyReferenceId);
 
-    const property = await deps.lookupMreProperty(authorizationHeader, current.mreRealmId, current.mrePropertyId);
+    // Taken before the request: the conservative order for a slow MRE response (planRefresh).
     const observedAt = now();
+    const property = await deps.lookupMreProperty(authorizationHeader, current.mreRealmId, current.mrePropertyId);
     const observation: MreObservation =
       property === undefined
         ? { kind: 'NOT_FOUND', observedAt }

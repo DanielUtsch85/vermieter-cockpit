@@ -207,22 +207,49 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
       expect(row.rows[0]?.cached_surface).toBe('33.333333333333336');
     });
 
-    it('concurrent refreshes serialize on the row: each change gets its own version', async () => {
+    it('concurrent refreshes serialize on the row: the newest observation wins, versions have no gaps', async () => {
       const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60714'), actor);
-      const results = await Promise.all(
-        Array.from({ length: 6 }, (_, i) => repository.refresh(reference.id, REALM, found(`Name ${i}`), actor)),
+      const base = Date.parse('2026-10-20T09:00:00Z');
+      await Promise.all(
+        Array.from({ length: 6 }, (_, i) =>
+          repository.refresh(reference.id, REALM, { ...found(`Name ${i}`), observedAt: new Date(base + i) }, actor),
+        ),
       );
-      expect(new Set(results.map((r) => r?.version)).size).toBe(6);
+      // Whatever order the row lock grants, an older observation never lands after a newer one.
+      expect(await repository.findById(reference.id, REALM)).toMatchObject({
+        displayName: 'Name 5',
+        lastObservedAt: new Date(base + 5),
+      });
       const trail = await versions(reference.id);
-      expect(trail.map((a) => [a.previous_version, a.new_version])).toEqual([
-        [null, 1],
-        [1, 2],
-        [2, 3],
-        [3, 4],
-        [4, 5],
-        [5, 6],
-        [6, 7],
-      ]);
+      trail.forEach((entry, i) => {
+        expect(entry.new_version).toBe(i + 1);
+        expect(entry.previous_version).toBe(i === 0 ? null : i);
+      });
+    });
+
+    it('swapped commit order: a slow, older observation does not overwrite a newer one', async () => {
+      const at = (ms: number) => new Date(Date.parse('2026-10-20T09:00:00Z') + ms);
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60717'), actor);
+      // B started later (t2) but commits first; A started earlier (t1) and commits after it.
+      const b = await repository.refresh(reference.id, REALM, { ...found('NEU (B, t2)'), observedAt: at(2000) }, actor);
+      const a = await repository.refresh(reference.id, REALM, { ...found('ALT (A, t1)'), observedAt: at(1000) }, actor);
+      expect(a).toEqual(b);
+      expect(await repository.findById(reference.id, REALM)).toMatchObject({
+        displayName: 'NEU (B, t2)',
+        lastRefreshedAt: at(2000),
+        lastObservedAt: at(2000),
+        version: 2,
+      });
+      expect((await versions(reference.id)).map((v) => v.action)).toEqual(['LINKED', 'REFRESHED']);
+    });
+
+    it('swapped commit order: an older FOUND does not revive a newer MISSING', async () => {
+      const at = (ms: number) => new Date(Date.parse('2026-10-20T09:00:00Z') + ms);
+      const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60718'), actor);
+      await repository.refresh(reference.id, REALM, { kind: 'NOT_FOUND', observedAt: at(2000) }, actor);
+      const late = await repository.refresh(reference.id, REALM, { ...found('Wohnung 1'), observedAt: at(1000) }, actor);
+      expect(late).toMatchObject({ externalReferenceState: 'MISSING', lastObservedAt: at(2000), version: 2 });
+      expect((await versions(reference.id)).map((v) => v.action)).toEqual(['LINKED', 'MARKED_MISSING']);
     });
 
     it("is scoped to the Realm and ignores ids that are not UUIDs", async () => {

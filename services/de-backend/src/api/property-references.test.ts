@@ -28,6 +28,7 @@ const reference = {
   cachedAddress: { city: 'Berlin' },
   cachedSurface: ExactDecimal.of('64.50'),
   lastRefreshedAt: new Date('2026-10-19T08:00:00Z'),
+  lastObservedAt: new Date('2026-10-19T08:00:00Z'),
   createdAt: new Date('2026-10-19T08:00:01Z'),
   version: 1,
 } as PropertyReference;
@@ -86,6 +87,7 @@ describe('POST /api/v1/property-references/link', () => {
       cachedAddress: { city: 'Berlin' },
       cachedSurface: '64.5',
       lastRefreshedAt: '2026-10-19T08:00:00.000Z',
+      lastObservedAt: '2026-10-19T08:00:00.000Z',
       createdAt: '2026-10-19T08:00:01.000Z',
       version: 1,
     });
