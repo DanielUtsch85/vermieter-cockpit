@@ -11,7 +11,7 @@ import {
 } from '../../domains/ledger/index.js';
 import type { AuditActor, CurrencyCode } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
-import { claimIdempotencyKey, recordIdempotentResource } from './idempotency.js';
+import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import type { Database, FinancialAccountTable } from './schema.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,14 +39,8 @@ export class PostgresFinancialAccountRepository implements FinancialAccountRepos
       if (keyed !== undefined) {
         const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
         if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-        if (claim.kind === 'REPLAY') {
-          const original = await trx
-            .selectFrom('financial_account')
-            .selectAll()
-            .where('id', '=', claim.resourceId)
-            .executeTakeFirstOrThrow();
-          return { kind: 'REPLAYED', account: toDomain(original) };
-        }
+        // The account as the first request created it, not as it is now (idempotency.ts).
+        if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', account: fromSnapshot(claim.result) };
       }
 
       const inserted = await trx
@@ -62,12 +56,13 @@ export class PostgresFinancialAccountRepository implements FinancialAccountRepos
         })
         .returningAll()
         .executeTakeFirstOrThrow();
-      if (keyed !== undefined) await recordIdempotentResource(trx, keyed.ref, inserted.id);
+      const created = toDomain(inserted);
+      if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, inserted.id, toSnapshot(created));
       await writeAudit(trx, { type: ENTITY_TYPE, id: inserted.id }, 'CREATED', actor, {
         newVersion: inserted.version,
         metadata: { accountType: inserted.account_type, currency: inserted.currency },
       });
-      return { kind: 'CREATED', account: toDomain(inserted) };
+      return { kind: 'CREATED', account: created };
     });
   }
 
@@ -125,5 +120,40 @@ function toDomain(row: Selectable<FinancialAccountTable>): FinancialAccount {
     createdAt: row.created_at,
     closedAt: row.closed_at,
     version: row.version,
+  };
+}
+
+/** The created account as JSON for the idempotency store; dates as ISO strings. */
+interface AccountSnapshot {
+  readonly id: string;
+  readonly mreRealmId: string;
+  readonly accountType: string;
+  readonly displayName: string;
+  readonly currency: string;
+  readonly iban: string | null;
+  readonly status: string;
+  readonly createdAt: string;
+  readonly closedAt: string | null;
+  readonly version: number;
+}
+
+function toSnapshot(account: FinancialAccount): AccountSnapshot {
+  return { ...account, createdAt: account.createdAt.toISOString(), closedAt: account.closedAt?.toISOString() ?? null };
+}
+
+/** Written by toSnapshot in the same codebase, so its shape is trusted. */
+function fromSnapshot(result: unknown): FinancialAccount {
+  const snapshot = result as AccountSnapshot;
+  return {
+    id: snapshot.id as FinancialAccountId,
+    mreRealmId: snapshot.mreRealmId,
+    accountType: snapshot.accountType as AccountType,
+    displayName: snapshot.displayName,
+    currency: snapshot.currency as CurrencyCode,
+    iban: snapshot.iban,
+    status: snapshot.status as AccountStatus,
+    createdAt: new Date(snapshot.createdAt),
+    closedAt: snapshot.closedAt === null ? null : new Date(snapshot.closedAt),
+    version: snapshot.version,
   };
 }

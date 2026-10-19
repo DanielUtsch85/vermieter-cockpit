@@ -104,6 +104,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-09 | infra | Pin container images by digest (`@sha256:…`) instead of tag — MRE images (ADR-036 pinned baseline) and `node:24-bookworm-slim` / `postgres:16` — with a documented update procedure; likewise move GitHub Actions to current majors pinned by commit SHA (CI warns that `actions/checkout@v4` / `setup-node@v4` target the deprecated Node 20 runtime) |
 | VC-X-10 | infra | Structured logging (incl. unexpected access-guard errors, MRE client failures, pool errors) and a per-token verification cache / rate limit for `/api/v1` (`mre-integration.md` §47.1) |
 | VC-X-11 | infra | Observation order across instances: `PropertyReference` refresh orders MRE observations by the DE process clock (`observedAt`, api-design §23.2). Before running more than one DE backend instance, take the timestamp from PostgreSQL (`clock_timestamp()`) or otherwise synchronize it (review note on #10) |
+| VC-X-12 | infra | Retention for `idempotency_key` (api-design §15): keys are currently kept forever, so a key can never be reused. Add a TTL (typically 24 h to a few days) with a cleanup job, and document what a request with an expired key does (treated as new: creates again). Review note on #11 |
 
 ---
 

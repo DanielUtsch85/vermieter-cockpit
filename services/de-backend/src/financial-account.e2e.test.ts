@@ -88,6 +88,19 @@ describe.skipIf(databaseUrl === undefined)('financial-accounts create + close en
     expect(await count()).toBe(1);
   });
 
+  it('a replay after close repeats the original 201 body (OPEN, v1), not the current state', async () => {
+    const body = { accountType: 'BANK', displayName: 'Replay nach Close', currency: 'EUR' };
+    const first = await call(REALM_A, '', body, { 'idempotency-key': 'e2e-close-1' });
+    const original = (await first.json()) as { financialAccountId: string };
+    expect((await call(REALM_A, `/${original.financialAccountId}/close`)).status).toBe(200);
+
+    const replay = await call(REALM_A, '', body, { 'idempotency-key': 'e2e-close-1' });
+    expect(replay.status).toBe(201);
+    expect(replay.headers.get('idempotent-replayed')).toBe('true');
+    expect(await replay.json()).toEqual(original);
+    expect(original).toMatchObject({ status: 'OPEN', closedAt: null, version: 1 });
+  });
+
   it("closes an account of the caller's Realm; another Realm's account is 404", async () => {
     const created = (await (await call(REALM_A, '', { accountType: 'CASH', displayName: 'Kasse', currency: 'EUR' })).json()) as {
       financialAccountId: string;

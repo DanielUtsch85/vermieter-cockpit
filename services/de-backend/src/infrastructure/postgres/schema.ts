@@ -59,6 +59,7 @@ export interface IdempotencyKeyTable {
   key: string;
   request_fingerprint: string;
   resource_id: string | null;
+  result: Json<unknown> | null;
   created_at: Generated<Date>;
 }
 

@@ -8,12 +8,16 @@ import type { Database } from './schema.js';
  * level to READ COMMITTED: the INSERT claims the key, a concurrent claim of the
  * same key waits on the primary key until the first transaction commits, and the
  * SELECT that follows (a new statement, new snapshot) then sees that winner.
+ *
+ * A replay answers with the result **as recorded when the key was first used**,
+ * never with the resource's current state: a retried create gets the same
+ * answer as the original, even after the resource changed since.
  */
 export type IdempotencyClaim =
-  /** The key is new: create the resource, then `recordIdempotentResource`. */
+  /** The key is new: create the resource, then `recordIdempotentResult`. */
   | { readonly kind: 'CLAIMED' }
-  /** Same key, same payload: the resource an earlier request created. */
-  | { readonly kind: 'REPLAY'; readonly resourceId: string }
+  /** Same key, same payload: the result the first request recorded (JSON, as stored). */
+  | { readonly kind: 'REPLAY'; readonly result: unknown }
   /** Same key, different payload. */
   | { readonly kind: 'CONFLICT' };
 
@@ -39,26 +43,27 @@ export async function claimIdempotencyKey(
 
   const existing = await trx
     .selectFrom('idempotency_key')
-    .select(['request_fingerprint', 'resource_id'])
+    .select(['request_fingerprint', 'result'])
     .where('mre_realm_id', '=', ref.mreRealmId)
     .where('scope', '=', ref.scope)
     .where('key', '=', ref.key)
     .executeTakeFirstOrThrow();
   if (existing.request_fingerprint !== fingerprint) return { kind: 'CONFLICT' };
-  // Set in the claiming transaction before it committed, so never null here.
-  if (existing.resource_id === null) throw new Error(`idempotency key ${ref.scope}/${ref.key} has no resource`);
-  return { kind: 'REPLAY', resourceId: existing.resource_id };
+  // Recorded in the claiming transaction before it committed, so never null here.
+  if (existing.result === null) throw new Error(`idempotency key ${ref.scope}/${ref.key} has no recorded result`);
+  return { kind: 'REPLAY', result: existing.result };
 }
 
-/** Binds a claimed key to the resource created for it (same transaction as the claim). */
-export async function recordIdempotentResource(
+/** Binds a claimed key to the created resource and its result (same transaction as the claim). */
+export async function recordIdempotentResult(
   trx: Transaction<Database>,
   ref: IdempotencyKeyRef,
   resourceId: string,
+  result: unknown,
 ): Promise<void> {
   await trx
     .updateTable('idempotency_key')
-    .set({ resource_id: resourceId })
+    .set({ resource_id: resourceId, result: JSON.stringify(result) })
     .where('mre_realm_id', '=', ref.mreRealmId)
     .where('scope', '=', ref.scope)
     .where('key', '=', ref.key)

@@ -74,6 +74,18 @@ describe.skipIf(databaseUrl === undefined)('PostgresFinancialAccountRepository',
     expect(await audits(first.account.id)).toHaveLength(1);
   });
 
+  it('a replay after close answers with the account as created (OPEN, v1), not its current state', async () => {
+    const account = { ...girokonto, displayName: 'Replay after close' };
+    const first = await repository.create(account, actor, keyed('replay-close-1', account));
+    if (first.kind !== 'CREATED') throw new Error(first.kind);
+    await repository.close(first.account.id, REALM, new Date('2026-12-31T12:00:00Z'), actor);
+
+    const replay = await repository.create(account, actor, keyed('replay-close-1', account));
+    expect(replay).toEqual({ kind: 'REPLAYED', account: first.account });
+    expect(first.account).toMatchObject({ status: 'OPEN', closedAt: null, version: 1 });
+    expect(await repository.findById(first.account.id, REALM)).toMatchObject({ status: 'CLOSED', version: 2 });
+  });
+
   it('same key, different payload is a conflict and creates nothing', async () => {
     const account = { ...girokonto, displayName: 'Conflict' };
     await repository.create(account, actor, keyed('conflict-1', account));
