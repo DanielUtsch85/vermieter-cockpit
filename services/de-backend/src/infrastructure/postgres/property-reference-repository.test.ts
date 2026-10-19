@@ -26,6 +26,14 @@ function draft(mrePropertyId: string, mreRealmId = REALM): NewPropertyReference 
   };
 }
 
+async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error('condition not reached');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository', () => {
   const schema = `property_reference_test_${process.pid}_${Date.now()}`;
   let pool: pg.Pool;
@@ -92,6 +100,48 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
     expect(outcomes.filter((o) => o.created)).toHaveLength(1);
     expect(new Set(outcomes.map((o) => o.reference.id)).size).toBe(1);
     expect(await audits(outcomes[0]?.reference.id ?? '')).toHaveLength(1);
+  });
+
+  it('a link racing a concurrent insert stays idempotent even when the session default is REPEATABLE READ', async () => {
+    // A role or database may set default_transaction_isolation; linkOnce must not depend on it.
+    const strict = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 4 });
+    strict.on('connect', (client) => {
+      void client.query('SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+    });
+    const mrePropertyId = '6512f0c2a1b2c3d4e5f60707';
+    const other = await strict.connect();
+    try {
+      const level = await other.query<{ transaction_isolation: string }>('SHOW transaction_isolation');
+      expect(level.rows[0]?.transaction_isolation).toBe('repeatable read');
+
+      // Deterministic race: another transaction holds an uncommitted insert of the same key ...
+      await other.query('BEGIN');
+      const { rows } = await other.query<{ id: string }>(
+        `INSERT INTO property_reference (mre_realm_id, mre_property_id, external_reference_state, created_by)
+         VALUES ($1, $2, 'ACTIVE', 'other@example.com') RETURNING id`,
+        [REALM, mrePropertyId],
+      );
+      const pending = new PostgresPropertyReferenceRepository(createDatabase(strict)).linkOnce(draft(mrePropertyId), actor);
+      // ... linkOnce blocks on it ...
+      await waitUntil(
+        async () =>
+          (
+            await pool.query(
+              `SELECT 1 FROM pg_stat_activity
+               WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE 'insert into "property_reference"%'`,
+            )
+          ).rowCount !== 0,
+      );
+      // ... and must return that row once it commits, not fail with a serialization error.
+      await other.query('COMMIT');
+      const outcome = await pending;
+      expect(outcome.created).toBe(false);
+      expect(outcome.reference.id).toBe(rows[0]?.id);
+      expect(await audits(outcome.reference.id)).toEqual([]);
+    } finally {
+      other.release();
+      await strict.end();
+    }
   });
 
   it('the same MRE Property id in another Realm is a separate reference (Realm isolation)', async () => {

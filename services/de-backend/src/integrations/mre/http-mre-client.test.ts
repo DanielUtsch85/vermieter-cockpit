@@ -97,9 +97,9 @@ describe('HttpMreClient against a fake MRE', () => {
     expect(mre.requests.at(-1)).toEqual({ path: '/api/v2/properties', authorization: `Bearer ${token}`, organizationid: 'realm-a' });
   });
 
-  it('listProperties maps 401 to UNAUTHENTICATED and a foreign Realm (404 upstream) to UNAVAILABLE', async () => {
+  it('listProperties maps 401 to UNAUTHENTICATED and a foreign Realm (404 upstream) to FORBIDDEN', async () => {
     await expectCode(client.listProperties(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret'), 'realm-a'), 'UNAUTHENTICATED');
-    await expectCode(client.listProperties(signJwt({ account: { email: 'anna@example.com' } }), 'realm-b'), 'UNAVAILABLE');
+    await expectCode(client.listProperties(signJwt({ account: { email: 'anna@example.com' } }), 'realm-b'), 'FORBIDDEN');
   });
 
   it('maps 401 (bad signature or expired) to UNAUTHENTICATED', async () => {
@@ -147,12 +147,14 @@ describe('HttpMreClient failure handling', () => {
     const body = JSON.stringify([
       { _id: 'p1', name: 42, address: 'Berlin' },
       { _id: 'p2', name: 'ok', address: { street1: 7, city: 'Köln' } },
+      { _id: 'p3', name: '' },
     ]);
     const stub = await startStub(200, body);
     try {
       expect(await new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listProperties('a.b.c', 'r')).toEqual([
         { mrePropertyId: 'p1', name: null, address: null },
         { mrePropertyId: 'p2', name: 'ok', address: { city: 'Köln' } },
+        { mrePropertyId: 'p3', name: null, address: null },
       ]);
     } finally {
       stub.close();

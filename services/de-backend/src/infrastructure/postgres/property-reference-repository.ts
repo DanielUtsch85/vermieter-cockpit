@@ -26,9 +26,11 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
   }
 
   async linkOnce(reference: NewPropertyReference, actor: AuditActor): Promise<LinkOutcome> {
-    return this.db.transaction().execute(async (trx) => {
-      // ON CONFLICT DO NOTHING waits for a concurrent insert of the same key to
-      // commit; the SELECT below (a new statement, new snapshot) then sees it.
+    // READ COMMITTED explicitly, never the session default: ON CONFLICT DO NOTHING
+    // waits for a concurrent insert of the same key to commit, and only under READ
+    // COMMITTED does the SELECT below (a new statement, new snapshot) then see it.
+    // Under REPEATABLE READ the insert fails with a serialization error instead.
+    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx) => {
       const inserted = await trx
         .insertInto('property_reference')
         .values({

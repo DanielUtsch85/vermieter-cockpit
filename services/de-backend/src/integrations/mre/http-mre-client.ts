@@ -3,6 +3,7 @@ import {
   MreClientError,
   type MreAddress,
   type MreClient,
+  type MreClientErrorCode,
   type MreProperty,
   type MreRealmMembership,
 } from './mre-client.js';
@@ -16,7 +17,8 @@ import {
  *   403 for a tenant session token, otherwise the realms whose `members`
  *   contain the token's account email (secrets already stripped by MRE).
  * - `GET /properties` with `organizationid` returns only that Realm's
- *   properties (mre-integration.md §21.1). `GET /properties/:id` is not used:
+ *   properties (mre-integration.md §21.1); 404 when the Realm is not the
+ *   caller's. `GET /properties/:id` is not used:
  *   it answers 500 instead of 404 for an unknown or foreign id.
  *
  * Only the fields DE needs are read; the MRE DTO never leaves this file.
@@ -89,19 +91,26 @@ export class HttpMreClient implements MreClient {
   }
 
   async listProperties(accessToken: string, mreRealmId: string): Promise<readonly MreProperty[]> {
-    const body = await this.get('/properties', accessToken, mreRealmId);
+    // checkOrganization answers 404 when the Realm is not one of the caller's
+    // (membership revoked after the access guard ran): no access, not an outage.
+    const body = await this.get('/properties', accessToken, mreRealmId, 'FORBIDDEN');
     const parsed = propertiesDto.safeParse(body);
     if (!parsed.success) {
       throw new MreClientError('UNAVAILABLE', `Unexpected MRE properties shape: ${parsed.error.message}`);
     }
     return parsed.data.map((property) => ({
       mrePropertyId: property._id,
-      name: typeof property['name'] === 'string' ? property['name'] : null,
+      name: typeof property['name'] === 'string' && property['name'] !== '' ? property['name'] : null,
       address: toAddress(property['address']),
     }));
   }
 
-  private async get(path: string, accessToken: string, mreRealmId?: string): Promise<unknown> {
+  private async get(
+    path: string,
+    accessToken: string,
+    mreRealmId?: string,
+    notFound: MreClientErrorCode = 'UNAVAILABLE',
+  ): Promise<unknown> {
     const headers: Record<string, string> = { authorization: `Bearer ${accessToken}`, accept: 'application/json' };
     if (mreRealmId !== undefined) headers['organizationid'] = mreRealmId;
     let response: Response;
@@ -118,6 +127,9 @@ export class HttpMreClient implements MreClient {
 
     if (response.status === 401) throw new MreClientError('UNAUTHENTICATED', 'MRE rejected the access token');
     if (response.status === 403) throw new MreClientError('FORBIDDEN', 'MRE refused the caller');
+    if (response.status === 404 && notFound === 'FORBIDDEN') {
+      throw new MreClientError('FORBIDDEN', 'MRE does not grant access to this Realm');
+    }
     if (response.status !== 200) {
       throw new MreClientError('UNAVAILABLE', `Unexpected MRE status ${response.status}`);
     }

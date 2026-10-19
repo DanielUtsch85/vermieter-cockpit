@@ -540,9 +540,9 @@ Behavior:
   - The Realm is taken from the `organizationid` header and verified by the access guard (§47.1 of `mre-integration.md`). A body `mreRealmId` other than the header's Realm is `403`.
   - `mrePropertyId` must match `^[0-9a-f]{24}$` and `mreRealmId` must be non-empty; otherwise `400 VALIDATION_ERROR` with `details.fields[]` (`REQUIRED` / `INVALID_FORMAT`), before MRE is called.
   - An existing link for the natural key is returned (`200`) **without** asking MRE, so a repeat stays a success after the upstream Property was deleted.
-  - A new link resolves the Property via `GET /properties` in the Realm, never `GET /properties/:id` (`mre-integration.md` §21.1); unknown in the Realm → `404 NOT_FOUND`; MRE unreachable → `503 EXTERNAL_SYSTEM_ERROR` and nothing is written (§77).
+  - A new link resolves the Property via `GET /properties` in the Realm, never `GET /properties/:id` (`mre-integration.md` §21.1); unknown in the Realm → `404 NOT_FOUND`; MRE no longer grants the Realm (upstream 404 from `checkOrganization`, e.g. membership revoked after the access guard) → `403`; MRE unreachable → `503 EXTERNAL_SYSTEM_ERROR` and nothing is written (§77).
   - Cached on create: `displayName` (MRE `name`) and `cachedAddress`, with `lastRefreshedAt`; MRE `price` is never cached. `surface` follows with the refresh command (VC-1-02).
-  - Concurrent links of the same natural key yield one PropertyReference (unique constraint, insert-or-return in one transaction), with exactly one AuditRecord (`LINKED`, actor = verified MRE account email).
+  - Concurrent links of the same natural key yield one PropertyReference (unique constraint, insert-or-return in one transaction pinned to `READ COMMITTED`, independent of the session default), with exactly one AuditRecord (`LINKED`, actor = verified MRE account email). An empty MRE `name` is cached as `null`.
 
 ---
 
