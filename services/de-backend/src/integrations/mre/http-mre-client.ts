@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { MreClientError, type MreClient, type MreRealmMembership } from './mre-client.js';
+import {
+  MreClientError,
+  type MreAddress,
+  type MreClient,
+  type MreClientErrorCode,
+  type MreProperty,
+  type MreRealmMembership,
+} from './mre-client.js';
 
 /**
  * MreClient over the MRE landlord API (`/api/v2`, reached through the MRE
@@ -9,6 +16,10 @@ import { MreClientError, type MreClient, type MreRealmMembership } from './mre-c
  *   `notRoles(['tenant'])` chain: 401 for a missing/invalid/expired token,
  *   403 for a tenant session token, otherwise the realms whose `members`
  *   contain the token's account email (secrets already stripped by MRE).
+ * - `GET /properties` with `organizationid` returns only that Realm's
+ *   properties (mre-integration.md §21.1); 404 when the Realm is not the
+ *   caller's. `GET /properties/:id` is not used:
+ *   it answers 500 instead of 404 for an unknown or foreign id.
  *
  * Only the fields DE needs are read; the MRE DTO never leaves this file.
  */
@@ -30,6 +41,22 @@ const realmDto = z.object({
 });
 const realmsDto = z.array(realmDto);
 
+/**
+ * Every property needs an `_id`, otherwise the whole response is rejected: a
+ * silently dropped entry would turn an existing Property into "not found".
+ * Display fields are optional cache values; a malformed one is left out.
+ */
+const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough());
+const addressPart = z.string().optional().catch(undefined);
+const addressDto = z.object({
+  street1: addressPart,
+  street2: addressPart,
+  zipCode: addressPart,
+  city: addressPart,
+  state: addressPart,
+  country: addressPart,
+});
+
 export interface HttpMreClientOptions {
   /** MRE landlord API base URL including `/api/v2`, e.g. `http://gateway:8080/api/v2`. */
   readonly apiBaseUrl: string;
@@ -39,39 +66,16 @@ export interface HttpMreClientOptions {
 }
 
 export class HttpMreClient implements MreClient {
-  private readonly realmsUrl: string;
+  private readonly baseUrl: string;
   private readonly fetchFn: typeof globalThis.fetch;
 
   constructor(private readonly options: HttpMreClientOptions) {
-    this.realmsUrl = `${options.apiBaseUrl.replace(/\/+$/, '')}/realms`;
+    this.baseUrl = options.apiBaseUrl.replace(/\/+$/, '');
     this.fetchFn = options.fetch ?? globalThis.fetch;
   }
 
   async listRealms(accessToken: string): Promise<readonly MreRealmMembership[]> {
-    let response: Response;
-    try {
-      response = await this.fetchFn(this.realmsUrl, {
-        headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
-        signal: AbortSignal.timeout(this.options.timeoutMs),
-        // Never follow a redirect with the caller's token; a redirect means a misconfigured gateway.
-        redirect: 'error',
-      });
-    } catch (error) {
-      throw new MreClientError('UNAVAILABLE', `MRE request failed: ${String(error)}`);
-    }
-
-    if (response.status === 401) throw new MreClientError('UNAUTHENTICATED', 'MRE rejected the access token');
-    if (response.status === 403) throw new MreClientError('FORBIDDEN', 'MRE refused the caller');
-    if (response.status !== 200) {
-      throw new MreClientError('UNAVAILABLE', `Unexpected MRE status ${response.status}`);
-    }
-
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      throw new MreClientError('UNAVAILABLE', 'MRE returned a non-JSON body');
-    }
+    const body = await this.get('/realms', accessToken);
     const parsed = realmsDto.safeParse(body);
     if (!parsed.success) {
       throw new MreClientError('UNAVAILABLE', `Unexpected MRE realms shape: ${parsed.error.message}`);
@@ -85,4 +89,63 @@ export class HttpMreClient implements MreClient {
       }),
     }));
   }
+
+  async listProperties(accessToken: string, mreRealmId: string): Promise<readonly MreProperty[]> {
+    // checkOrganization answers 404 when the Realm is not one of the caller's
+    // (membership revoked after the access guard ran): no access, not an outage.
+    const body = await this.get('/properties', accessToken, mreRealmId, 'FORBIDDEN');
+    const parsed = propertiesDto.safeParse(body);
+    if (!parsed.success) {
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE properties shape: ${parsed.error.message}`);
+    }
+    return parsed.data.map((property) => ({
+      mrePropertyId: property._id,
+      name: typeof property['name'] === 'string' && property['name'] !== '' ? property['name'] : null,
+      address: toAddress(property['address']),
+    }));
+  }
+
+  private async get(
+    path: string,
+    accessToken: string,
+    mreRealmId?: string,
+    notFound: MreClientErrorCode = 'UNAVAILABLE',
+  ): Promise<unknown> {
+    const headers: Record<string, string> = { authorization: `Bearer ${accessToken}`, accept: 'application/json' };
+    if (mreRealmId !== undefined) headers['organizationid'] = mreRealmId;
+    let response: Response;
+    try {
+      response = await this.fetchFn(`${this.baseUrl}${path}`, {
+        headers,
+        signal: AbortSignal.timeout(this.options.timeoutMs),
+        // Never follow a redirect with the caller's token; a redirect means a misconfigured gateway.
+        redirect: 'error',
+      });
+    } catch (error) {
+      throw new MreClientError('UNAVAILABLE', `MRE request failed: ${String(error)}`);
+    }
+
+    if (response.status === 401) throw new MreClientError('UNAUTHENTICATED', 'MRE rejected the access token');
+    if (response.status === 403) throw new MreClientError('FORBIDDEN', 'MRE refused the caller');
+    if (response.status === 404 && notFound === 'FORBIDDEN') {
+      throw new MreClientError('FORBIDDEN', 'MRE does not grant access to this Realm');
+    }
+    if (response.status !== 200) {
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE status ${response.status}`);
+    }
+
+    try {
+      return await response.json();
+    } catch {
+      throw new MreClientError('UNAVAILABLE', 'MRE returned a non-JSON body');
+    }
+  }
+}
+
+/** The address parts MRE has, or null when there are none. */
+function toAddress(value: unknown): MreAddress | null {
+  const parsed = addressDto.safeParse(value);
+  if (!parsed.success) return null;
+  const parts = Object.fromEntries(Object.entries(parsed.data).filter(([, part]) => part !== undefined && part !== ''));
+  return Object.keys(parts).length === 0 ? null : (parts as MreAddress);
 }

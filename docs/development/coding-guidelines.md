@@ -51,7 +51,8 @@ One deployable backend, strong internal boundaries (ADR-026). Conceptual layout 
 ```text
 de-backend/
 ├── domains/{party,ownership,acquisition,ledger,financing,
-│           security-deposit,weg,taxation,depreciation,investment,documents}/
+│           security-deposit,weg,taxation,depreciation,investment,documents,
+│           property-reference}/
 ├── integrations/{mre,bank-import,document-import}/
 ├── reporting/
 ├── application/    # workflows/use-cases orchestrating domains
@@ -64,6 +65,7 @@ Rules:
 - **Dependency direction:** `api/application → domain → ports → infrastructure adapters`. Domain code must not import HTTP, DB drivers, the MRE client, CSV/PDF libs, or UI (`technology.md` §5.2).
 - Cross-domain interaction goes through an application service, a domain interface, a reference, or an adapter — **never** direct cross-module DB access (`AGENTS.md` §26).
 - No "god service" spanning multiple domains' business logic.
+- `domains/property-reference/` holds the `PropertyReference` entity and its repository port (MRE Integration domain, api-design §23.1); the MRE client and DTOs stay in `integrations/mre/`, so application code reaches MRE only through ports wired in `src/wiring.ts`.
 - Another module (another domain, or another top-level layer) is imported only through its public `index.js`; deep imports into its internals are rejected by `src/architecture.test.ts`.
 
 ---

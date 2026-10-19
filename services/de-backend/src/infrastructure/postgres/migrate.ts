@@ -1,4 +1,5 @@
-import { Kysely, Migrator, PostgresDialect, type Migration, type MigrationResult } from 'kysely';
+import { Kysely, PostgresDialect } from 'kysely';
+import { Migrator, type Migration, type MigrationResult } from 'kysely/migration';
 import type pg from 'pg';
 import { migrations } from './migrations/index.js';
 

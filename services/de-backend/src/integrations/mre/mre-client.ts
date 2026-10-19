@@ -14,6 +14,22 @@ export interface MreRealmMembership {
   readonly members: readonly { readonly email: string; readonly role: MreMemberRole }[];
 }
 
+/** An MRE Property reduced to what DE caches for a PropertyReference (data-model.md §9). */
+export interface MreProperty {
+  readonly mrePropertyId: string;
+  readonly name: string | null;
+  readonly address: MreAddress | null;
+}
+
+export interface MreAddress {
+  readonly street1?: string;
+  readonly street2?: string;
+  readonly zipCode?: string;
+  readonly city?: string;
+  readonly state?: string;
+  readonly country?: string;
+}
+
 export type MreClientErrorCode =
   /** MRE rejected the token (missing, malformed, expired, bad signature): HTTP 401. */
   | 'UNAUTHENTICATED'
@@ -39,4 +55,10 @@ export interface MreClient {
    * (signature, expiry) and resolves membership server-side.
    */
   listRealms(accessToken: string): Promise<readonly MreRealmMembership[]>;
+
+  /**
+   * Properties of one Realm as visible to the bearer of `accessToken`; MRE
+   * enforces membership and Realm isolation (mre-integration.md §21.1).
+   */
+  listProperties(accessToken: string, mreRealmId: string): Promise<readonly MreProperty[]>;
 }

@@ -1,6 +1,8 @@
 import express, { type Express } from 'express';
-import type { PrincipalVerifier, RealmPrincipal } from '../application/index.js';
+import type { LinkPropertyReference, PrincipalVerifier, RealmPrincipal } from '../application/index.js';
 import { requireDeAccess } from './access-middleware.js';
+import { errorHandler } from './errors.js';
+import { propertyReferenceRoutes } from './property-references.js';
 
 /**
  * HTTP application (ADR-026, api-design.md). Infrastructure is injected by the
@@ -11,6 +13,8 @@ export interface AppDependencies {
   readonly isReady: () => Promise<boolean>;
   /** Verifies MRE identity and Realm membership (VC-0-08). */
   readonly verifyPrincipal: PrincipalVerifier;
+  /** Link Property command (VC-1-01). */
+  readonly linkPropertyReference: LinkPropertyReference;
 }
 
 export function createApp(deps: AppDependencies): Express {
@@ -39,11 +43,13 @@ export function createApp(deps: AppDependencies): Express {
     const principal = res.locals['principal'] as RealmPrincipal;
     res.json({ status: 'ok', mreRealmId: principal.mreRealmId });
   });
+  api.use(propertyReferenceRoutes(deps.linkPropertyReference));
   app.use('/api/v1', api);
 
   app.use((_req, res) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Not found' } });
   });
+  app.use(errorHandler);
 
   return app;
 }

@@ -38,12 +38,17 @@ export class MreAuthError extends Error {
 /** The auth scheme is case-insensitive (RFC 7235); the token is a three-part JWT. */
 const BEARER = /^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/i;
 
+/** The bearer token of an `Authorization` header, or undefined if there is none. */
+export function bearerToken(authorizationHeader: string | undefined): string | undefined {
+  return authorizationHeader === undefined ? undefined : BEARER.exec(authorizationHeader)?.[1];
+}
+
 export async function verifyMrePrincipal(
   client: MreClient,
   authorizationHeader: string | undefined,
   mreRealmId: string | undefined,
 ): Promise<VerifiedMrePrincipal> {
-  const token = authorizationHeader === undefined ? undefined : BEARER.exec(authorizationHeader)?.[1];
+  const token = bearerToken(authorizationHeader);
   if (token === undefined) {
     throw new MreAuthError('UNAUTHENTICATED', 'Missing or malformed bearer token');
   }

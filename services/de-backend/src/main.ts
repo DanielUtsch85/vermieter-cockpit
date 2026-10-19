@@ -1,16 +1,28 @@
 import { createApp } from './api/index.js';
 import { loadConfig } from './config.js';
-import { createPool, isDatabaseReachable, migrateToLatest } from './infrastructure/postgres/index.js';
+import { linkPropertyReference } from './application/index.js';
+import {
+  PostgresPropertyReferenceRepository,
+  createDatabase,
+  createPool,
+  isDatabaseReachable,
+  migrateToLatest,
+} from './infrastructure/postgres/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
-import { mrePrincipalVerifier } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
 
 /** Composition root: wires configuration, infrastructure and the HTTP app. */
 const config = loadConfig(process.env);
 const pool = createPool(config.DATABASE_URL);
+const db = createDatabase(pool);
 const mreClient = new HttpMreClient({ apiBaseUrl: config.MRE_API_URL, timeoutMs: config.MRE_TIMEOUT_MS });
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
   verifyPrincipal: mrePrincipalVerifier(mreClient),
+  linkPropertyReference: linkPropertyReference({
+    repository: new PostgresPropertyReferenceRepository(db),
+    lookupMreProperty: mrePropertyLookup(mreClient),
+  }),
 });
 
 // Migrate before accepting requests; a failed migration aborts the start.

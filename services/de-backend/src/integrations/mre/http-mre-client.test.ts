@@ -24,6 +24,9 @@ async function startStub(status: number, body: string, delayMs = 0): Promise<{ u
   };
 }
 
+const PROPERTY_A = '6512f0c2a1b2c3d4e5f60718';
+const PROPERTY_B = '6512f0c2a1b2c3d4e5f60719';
+
 describe('HttpMreClient against a fake MRE', () => {
   let mre: FakeMre;
   let client: HttpMreClient;
@@ -39,6 +42,16 @@ describe('HttpMreClient against a fake MRE', () => {
         ],
         applications: [{ clientId: 'x' }],
         bankInfo: { iban: 'DE00' },
+        properties: [
+          {
+            _id: PROPERTY_A,
+            name: 'Wohnung 1',
+            surface: 64.5,
+            price: 950,
+            address: { street1: 'Musterstraße 1', street2: '', zipCode: '10115', city: 'Berlin', country: 'DE' },
+          },
+          { _id: PROPERTY_B, name: 'Stellplatz' },
+        ],
       },
       {
         _id: 'realm-b',
@@ -67,7 +80,26 @@ describe('HttpMreClient against a fake MRE', () => {
         ],
       },
     ]);
-    expect(mre.requests.at(-1)).toEqual({ path: '/api/v2/realms', authorization: `Bearer ${token}` });
+    expect(mre.requests.at(-1)).toEqual({ path: '/api/v2/realms', authorization: `Bearer ${token}`, organizationid: undefined });
+  });
+
+  it('lists the Realm properties via GET /properties with organizationid, mapping only cached fields', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    const properties = await client.listProperties(token, 'realm-a');
+    expect(properties).toEqual([
+      {
+        mrePropertyId: PROPERTY_A,
+        name: 'Wohnung 1',
+        address: { street1: 'Musterstraße 1', zipCode: '10115', city: 'Berlin', country: 'DE' },
+      },
+      { mrePropertyId: PROPERTY_B, name: 'Stellplatz', address: null },
+    ]);
+    expect(mre.requests.at(-1)).toEqual({ path: '/api/v2/properties', authorization: `Bearer ${token}`, organizationid: 'realm-a' });
+  });
+
+  it('listProperties maps 401 to UNAUTHENTICATED and a foreign Realm (404 upstream) to FORBIDDEN', async () => {
+    await expectCode(client.listProperties(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret'), 'realm-a'), 'UNAUTHENTICATED');
+    await expectCode(client.listProperties(signJwt({ account: { email: 'anna@example.com' } }), 'realm-b'), 'FORBIDDEN');
   });
 
   it('maps 401 (bad signature or expired) to UNAUTHENTICATED', async () => {
@@ -93,6 +125,37 @@ describe('HttpMreClient failure handling', () => {
     const stub = await startStub(status, body);
     try {
       await expectCode(new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listRealms('a.b.c'), 'UNAVAILABLE');
+    } finally {
+      stub.close();
+    }
+  });
+
+  it.each([
+    ['not an array', '{"properties":[]}'],
+    ['a property without _id', '[{"_id":"6512f0c2a1b2c3d4e5f60718","name":"a"},{"name":"b"}]'],
+    ['an empty _id', '[{"_id":""}]'],
+  ])('listProperties: %s → UNAVAILABLE (never a silent "not found")', async (_label, body) => {
+    const stub = await startStub(200, body);
+    try {
+      await expectCode(new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listProperties('a.b.c', 'r'), 'UNAVAILABLE');
+    } finally {
+      stub.close();
+    }
+  });
+
+  it('listProperties keeps a property whose display fields are malformed, without them', async () => {
+    const body = JSON.stringify([
+      { _id: 'p1', name: 42, address: 'Berlin' },
+      { _id: 'p2', name: 'ok', address: { street1: 7, city: 'Köln' } },
+      { _id: 'p3', name: '' },
+    ]);
+    const stub = await startStub(200, body);
+    try {
+      expect(await new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listProperties('a.b.c', 'r')).toEqual([
+        { mrePropertyId: 'p1', name: null, address: null },
+        { mrePropertyId: 'p2', name: 'ok', address: { city: 'Köln' } },
+        { mrePropertyId: 'p3', name: null, address: null },
+      ]);
     } finally {
       stub.close();
     }
