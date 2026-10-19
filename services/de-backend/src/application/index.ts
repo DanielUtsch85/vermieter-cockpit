@@ -40,5 +40,5 @@ export type {
   CreateManualTransactionInput,
   CreateManualTransactionResult,
 } from './transactions.js';
-export { DIRECTIONS, parseBusinessDate } from '../domains/ledger/index.js';
+export { DIRECTIONS, checkBusinessDate, parseBusinessDate } from '../domains/ledger/index.js';
 export type { BusinessDate, Direction, Transaction } from '../domains/ledger/index.js';

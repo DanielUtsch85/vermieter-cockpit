@@ -779,7 +779,8 @@ Example:
 ## 31.2 Implementation (VC-1-04)
 
 - **Money:** `amount` is `{ "amount": "<decimal string>", "currency": "EUR" }`. A JSON number or exponent notation is `400` (no float in transit). Field codes: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED` (more than two decimals for EUR, never rounded), `UNSUPPORTED_CURRENCY`, `AMOUNT_OUT_OF_RANGE`; `CURRENCY_MISMATCH` when it differs from the account's currency (no FX, data-model §17.7). Zero is allowed (non-negative, §17.4).
-- **Dates:** `bookingDate` (required) and `valueDate` are real calendar dates `YYYY-MM-DD` (§88); timestamps or impossible dates are `400`. Stored as `date`, never as a timestamp.
+- **Dates:** `bookingDate` (required) and `valueDate` are real calendar dates `YYYY-MM-DD` within 1900–2100 (§88); timestamps or impossible dates are `400 INVALID_FORMAT`, other years `400 OUT_OF_RANGE`. Stored as `date`, never as a timestamp.
+- **Optional fields:** an explicit `null` for `valueDate`, `description` or `propertyReferenceId` means the same as omitting it.
 - **References:** `financialAccountId` and the optional `propertyReferenceId` must exist **in the caller's Realm**, otherwise `404` (same answer for unknown and foreign). The schema enforces this too (composite foreign keys with the Realm).
 - **Decisions not fixed by §31.1:**
   - **Closed account → `409 CONFLICT`** with `details.reason = "ACCOUNT_CLOSED"`. Earlier Transactions stay valid (data-model §16), only new ones are refused. The account is locked `FOR SHARE` while posting, so a concurrent close waits and cannot slip in between check and insert.
@@ -863,6 +864,21 @@ GET /api/v1/imports/{importBatchId}/review-items
 - **Error codes:** `404` unknown / other-Realm `importBatchId`.
 - **Idempotency:** safe, read-only, repeatable.
 - **Side effects:** none (read-only).
+
+## 32.4 Adapter `generic-csv`, version 1 (VC-1-10)
+
+The first adapter reads any bank's CSV export with a header row. The ledger only sees the normalized row (`domains/ledger/bank-statement.ts`); adapters live in `integrations/bank-import/` behind the `BankStatementAdapter` port and are selected by `adapterId` + `adapterVersion`.
+
+- **Options** (the adapter-specific part of the import request, §32.1; all except `columnMapping` optional):
+  - `columnMapping`: header names for `bookingDate` and `amount` (required) and optionally `valueDate`, `currency`, `counterpartyName`, `counterpartyIban`, `description`, `externalTransactionId`, `sourceRowId`. Unknown keys are refused.
+  - `delimiter` `;` (default) | `,` | tab; `decimalSeparator` `,` (default) | `.`; `dateFormat` `DD.MM.YYYY` (default) | `YYYY-MM-DD`; `encoding` `utf-8` (default) | `windows-1252`; `skipLines` 0–50 (preamble lines before the header).
+- **Amount:** one signed column. A leading `-` is `OUTFLOW`, otherwise `INFLOW`; the stored amount is non-negative (§17.4). Thousands separators are accepted only at every third digit. Anything ambiguous is a row error, never guessed; more decimals than the currency allows are `SCALE_EXCEEDED`, never rounded; a zero amount is `ZERO_AMOUNT` (no cash moved, no direction).
+- **Currency:** the account's. A mapped currency column must match it (`CURRENCY_MISMATCH`, no FX).
+- **Normalization (§70.3):** whitespace trimmed and collapsed, IBANs without spaces and upper case (kept raw, not validated), dates as `YYYY-MM-DD` within §88's range, amounts canonical.
+- **Identity inputs (§70.2):** `contentHash` = SHA-256 of the raw file bytes; `sourceStatementId` = none (a CSV export has no statement id); `sourceRowPosition` = 1-based data-row ordinal; `sourceRowId` and `externalTransactionId` only if mapped. The content fingerprint is SHA-256 over field set v1 (booking and value date, amount, currency, direction, counterparty IBAN else name, description).
+- **File-level errors (→ `400`, nothing imported):** `INVALID_OPTIONS`, `UNSUPPORTED_ENCODING` (UTF-8 is decoded strictly, so a Windows-1252 file is refused instead of garbling umlauts), `UNPARSEABLE`, `EMPTY`, `MISSING_COLUMN`, `AMBIGUOUS_COLUMN`, `TOO_MANY_ROWS` (more than 10,000).
+- **Row-level errors (→ per-row `error`, the batch still returns):** `REQUIRED`, `INVALID_FORMAT`, `OUT_OF_RANGE`, `SCALE_EXCEEDED`, `AMOUNT_OUT_OF_RANGE`, `ZERO_AMOUNT`, `CURRENCY_MISMATCH`, `TOO_LONG` (over 2,000 characters), `COLUMN_COUNT`.
+- **Untrusted input (technology.md §36):** cell values are parsed as data only; nothing is evaluated.
 
 ---
 
@@ -1899,6 +1915,8 @@ Business dates:
 ```text
 YYYY-MM-DD
 ```
+
+A business date must be a real calendar date with a year from **1900 to 2100**. Other years are refused as `OUT_OF_RANGE` (a typo such as `0202` would otherwise book into the year 202); malformed or impossible dates are `INVALID_FORMAT`.
 
 System timestamps:
 

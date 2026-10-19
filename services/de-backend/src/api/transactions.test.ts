@@ -108,6 +108,14 @@ describe('POST /api/v1/transactions', () => {
     expect(seen[0]?.amount.toJSON()).toEqual({ amount: '1250.00', currency: 'EUR' });
   });
 
+  it('explicit null for optional fields means omitted', async () => {
+    const seen: CreateManualTransactionInput[] = [];
+    const base = await start(async (input) => (seen.push(input), { transaction, replayed: false }));
+    const res = await post(base, { ...valid, valueDate: null, description: null, propertyReferenceId: null });
+    expect(res.status).toBe(201);
+    expect(seen[0]).toMatchObject({ valueDate: null, description: null, propertyReferenceId: null });
+  });
+
   it('a replay answers 201 like the original, marked Idempotent-Replayed', async () => {
     const base = await start(async () => ({ transaction, replayed: true }));
     const res = await post(base, valid, { 'idempotency-key': 'k-1' });
@@ -126,6 +134,7 @@ describe('POST /api/v1/transactions', () => {
     ['unknown direction', { direction: 'IN' }, [{ field: 'direction', code: 'INVALID_FORMAT' }]],
     ['missing bookingDate', { bookingDate: undefined }, [{ field: 'bookingDate', code: 'REQUIRED' }]],
     ['impossible bookingDate', { bookingDate: '2026-02-30' }, [{ field: 'bookingDate', code: 'INVALID_FORMAT' }]],
+    ['typo year in bookingDate', { bookingDate: '0202-03-01' }, [{ field: 'bookingDate', code: 'OUT_OF_RANGE' }]],
     ['timestamp as valueDate', { valueDate: '2026-09-01T10:00:00Z' }, [{ field: 'valueDate', code: 'INVALID_FORMAT' }]],
     ['account id not a UUID', { financialAccountId: 'acc-1' }, [{ field: 'financialAccountId', code: 'INVALID_FORMAT' }]],
     ['rentalContractReferenceId (not supported yet)', { rentalContractReferenceId: PROPERTY }, [{ field: 'rentalContractReferenceId', code: 'NOT_SUPPORTED' }]],

@@ -7,7 +7,7 @@ import {
   FinancialAccountNotFoundError,
   IdempotencyKeyConflictError,
   PropertyReferenceNotFoundError,
-  parseBusinessDate,
+  checkBusinessDate,
   type CreateManualTransaction,
   type RealmPrincipal,
   type Transaction,
@@ -47,16 +47,23 @@ const money = z.object({ amount: z.string(), currency: z.string() }).transform((
   }
 });
 
-const businessDate = z.string().transform((value, ctx) => parseBusinessDate(value) ?? (ctx.addIssue({ code: 'custom' }), z.NEVER));
+/** `YYYY-MM-DD` within 1900–2100 (api-design.md §88): INVALID_FORMAT or OUT_OF_RANGE. */
+const businessDate = z.string().transform((value, ctx) => {
+  const result = checkBusinessDate(value);
+  if ('date' in result) return result.date;
+  ctx.addIssue({ code: 'custom', params: { code: result.error } });
+  return z.NEVER;
+});
 
 const createBody = z.object({
   financialAccountId: z.string().regex(RESOURCE_ID),
   amount: money,
   direction: z.enum(DIRECTIONS),
   bookingDate: businessDate,
-  valueDate: businessDate.optional(),
-  description: z.string().trim().max(500).optional(),
-  propertyReferenceId: z.string().regex(RESOURCE_ID).optional(),
+  // Explicit null means the same as omitted (the usual JSON idiom for "empty").
+  valueDate: businessDate.nullish(),
+  description: z.string().trim().max(500).nullish(),
+  propertyReferenceId: z.string().regex(RESOURCE_ID).nullish(),
   // RentalContractReference does not exist yet: refuse rather than store an unchecked id.
   rentalContractReferenceId: z.undefined(),
   // Manual creation only; other provenances come from imports (data-model.md §17.6).
@@ -92,7 +99,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         direction: body.direction,
         bookingDate: body.bookingDate,
         valueDate: body.valueDate ?? null,
-        description: body.description === undefined || body.description === '' ? null : body.description,
+        description: body.description === undefined || body.description === null || body.description === '' ? null : body.description,
         propertyReferenceId: body.propertyReferenceId?.toLowerCase() ?? null,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })

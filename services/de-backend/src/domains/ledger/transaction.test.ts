@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
 import {
+  checkBusinessDate,
   checkPosting,
   manualTransactionFingerprint,
   parseBusinessDate,
@@ -43,8 +44,28 @@ describe('parseBusinessDate', () => {
     'rejects %j',
     (value) => {
       expect(parseBusinessDate(value)).toBeUndefined();
+      expect(checkBusinessDate(value)).toEqual({ error: 'INVALID_FORMAT' });
     },
   );
+
+  it.each([
+    ['0202-03-01', 'a typo year (would book into the year 202)'],
+    ['0050-01-01', 'a two-digit year (no Date.UTC mapping to 1950)'],
+    ['1850-01-01', 'before 1900'],
+    ['2101-01-01', 'after 2100'],
+  ])('%s is OUT_OF_RANGE: %s', (value) => {
+    expect(checkBusinessDate(value)).toEqual({ error: 'OUT_OF_RANGE' });
+  });
+
+  it.each(['1900-01-01', '2100-12-31'])('accepts the bound %s', (value) => {
+    expect(checkBusinessDate(value)).toEqual({ date: value });
+  });
+
+  it('years below 100 are judged as themselves, not as 19xx', () => {
+    // Year 48 is a leap year, year 50 is not; Date.UTC would have checked 1948 and 1950 instead.
+    expect(checkBusinessDate('0048-02-29')).toEqual({ error: 'OUT_OF_RANGE' });
+    expect(checkBusinessDate('0050-02-29')).toEqual({ error: 'INVALID_FORMAT' });
+  });
 });
 
 describe('checkPosting', () => {
