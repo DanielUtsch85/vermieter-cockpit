@@ -140,6 +140,17 @@ describe('generic-csv v1', () => {
     expect(row).toMatchObject({ sourceRowId: '42', row: { externalTransactionId: 'E2E-77' } });
   });
 
+  it('treats reference placeholders such as SEPA NOTPROVIDED as no reference', () => {
+    const csv = 'Buchungstag;Betrag;Ref;Nr\n01.09.2026;750,00;NOTPROVIDED;-\n02.09.2026;980,00;notprovided;NONREF\n';
+    const rows = rowsOf(
+      parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', externalTransactionId: 'Ref', sourceRowId: 'Nr' } }),
+    );
+    expect(rows.map((r) => [r.sourceRowId, r.row.externalTransactionId])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+  });
+
   it.each([
     ['no mapping', {}, 'INVALID_OPTIONS'],
     ['mapping without amount', { columnMapping: { bookingDate: 'Buchungstag' } }, 'INVALID_OPTIONS'],

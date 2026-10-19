@@ -20,7 +20,9 @@ export type AmbiguityReason =
   /** Same content fingerprint as an imported row of another statement (§70.4). */
   | 'AMBIGUOUS_CROSS_FILE_MATCH'
   /** Same source row already imported or reviewed under another adapter version (§70.4). */
-  | 'ADAPTER_VERSION_CONFLICT';
+  | 'ADAPTER_VERSION_CONFLICT'
+  /** Same external id as an imported Transaction, but different content (§70.4): not provably the same payment. */
+  | 'EXTERNAL_ID_CONTENT_CONFLICT';
 
 /** Per-row result of an import (api-design.md §32.1). */
 export type RowOutcome =
@@ -95,12 +97,19 @@ export interface KnownReviewItem {
 
 /** What the ledger already holds that concerns one row; looked up by the repository. */
 export interface RowLookup {
-  /** External-id branch: the Transaction with this external id in the account. */
-  readonly transactionByExternalId?: string;
+  /** The review item with the row's full source identity (same adapter id and version), in either branch. */
+  readonly reviewItemByIdentity?: KnownReviewItem;
+  /** External-id branch: the Transaction with this external id in the account, with its content fingerprint. */
+  readonly transactionByExternalId?: { readonly id: string; readonly contentFingerprint: string };
+  /** External-id branch: the row's content fingerprint, compared with `transactionByExternalId`. */
+  readonly contentFingerprint?: string;
+  /**
+   * External-id branch: earlier imported Transactions without an external id (any statement)
+   * with the same content fingerprint — the same payment imported before without its id.
+   */
+  readonly fallbackFingerprintMatches?: readonly string[];
   /** Fallback branch: the Transaction with the full identity (same adapter id and version). */
   readonly transactionByIdentity?: string;
-  /** Fallback branch: the review item with the full identity. */
-  readonly reviewItemByIdentity?: KnownReviewItem;
   /** Fallback branch: the same source row recorded under another adapter id or version. */
   readonly otherAdapterVersion?: {
     readonly transactionIds: readonly string[];
@@ -126,26 +135,27 @@ export type RowDecision =
 /**
  * The binding order of §70.1/§70.4 and §20A for one row:
  *
- * 1. A stable external id decides alone (adapter-independent): duplicate or create.
- * 2. Otherwise the full source-row identity: an imported Transaction → duplicate;
- *    a review item → reference it while PENDING, duplicate once RESOLVED (the
- *    decision stands, nothing new is created).
- * 3. The same source row under another adapter version → a new review item, never automatic.
- * 4. The same content in another statement → a new review item (sameness cannot be proven).
- * 5. Otherwise create.
+ * 1. A review item with the row's full source identity → reference it while
+ *    PENDING, duplicate once RESOLVED (the decision stands, nothing new is created).
+ * 2. A stable external id (adapter-independent):
+ *    - the same id with the same content → duplicate; with other content → a new
+ *      review item (a reused or placeholder id must not swallow a payment);
+ *    - no id match, but the same content imported earlier without an id → a new
+ *      review item (the same payment must not be booked twice);
+ *    - otherwise create.
+ * 3. Otherwise the full source-row identity: an imported Transaction → duplicate.
+ * 4. The same source row under another adapter version → a new review item, never automatic.
+ * 5. The same content in another statement → a new review item (sameness cannot be proven).
+ * 6. Otherwise create.
  */
 export function decideRow(hasExternalId: boolean, lookup: RowLookup): RowDecision {
-  if (hasExternalId) {
-    return lookup.transactionByExternalId === undefined
-      ? { kind: 'CREATE' }
-      : { kind: 'DUPLICATE_TRANSACTION', transactionId: lookup.transactionByExternalId };
-  }
-  if (lookup.transactionByIdentity !== undefined) {
-    return { kind: 'DUPLICATE_TRANSACTION', transactionId: lookup.transactionByIdentity };
-  }
   if (lookup.reviewItemByIdentity !== undefined) {
     const item = lookup.reviewItemByIdentity;
     return item.status === 'PENDING' ? { kind: 'REFERENCE_PENDING_ITEM', item } : { kind: 'DUPLICATE_RESOLVED_ITEM', item };
+  }
+  if (hasExternalId) return decideByExternalId(lookup);
+  if (lookup.transactionByIdentity !== undefined) {
+    return { kind: 'DUPLICATE_TRANSACTION', transactionId: lookup.transactionByIdentity };
   }
   const prior = lookup.otherAdapterVersion;
   if (prior !== undefined && (prior.transactionIds.length > 0 || prior.reviewItemIds.length > 0)) {
@@ -167,15 +177,48 @@ export function decideRow(hasExternalId: boolean, lookup: RowLookup): RowDecisio
   return { kind: 'CREATE' };
 }
 
+function decideByExternalId(lookup: RowLookup): RowDecision {
+  const byId = lookup.transactionByExternalId;
+  if (byId !== undefined) {
+    if (lookup.contentFingerprint !== undefined && byId.contentFingerprint === lookup.contentFingerprint) {
+      return { kind: 'DUPLICATE_TRANSACTION', transactionId: byId.id };
+    }
+    return {
+      kind: 'NEW_REVIEW_ITEM',
+      reason: 'EXTERNAL_ID_CONTENT_CONFLICT',
+      conflictingTransactionIds: [byId.id],
+      priorReviewItemIds: [],
+    };
+  }
+  const sameContent = lookup.fallbackFingerprintMatches ?? [];
+  if (sameContent.length > 0) {
+    return {
+      kind: 'NEW_REVIEW_ITEM',
+      reason: 'AMBIGUOUS_CROSS_FILE_MATCH',
+      conflictingTransactionIds: sameContent,
+      priorReviewItemIds: [],
+    };
+  }
+  return { kind: 'CREATE' };
+}
+
+/** Business days are German calendar days (the landlord's day, not UTC). */
+const BUSINESS_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Berlin', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+/** The `Europe/Berlin` calendar day of an instant, as `YYYY-MM-DD`. */
+export function businessDayOf(instant: Date): BusinessDate {
+  return BUSINESS_DAY.format(instant) as BusinessDate;
+}
+
 /**
  * Imports post to closed accounts too, but only up to the day of closing:
  * statements typically arrive after the account was closed, with booking dates
  * before it. Manual Transactions stay refused on closed accounts (§31.2).
- * The closing day is the UTC date of `closedAt`.
+ * The closing day is the `Europe/Berlin` calendar day of `closedAt`.
  */
 export function importPostable(account: FinancialAccount, bookingDate: BusinessDate): boolean {
   if (account.status === 'OPEN' || account.closedAt === null) return true;
-  return bookingDate <= account.closedAt.toISOString().slice(0, 10);
+  return bookingDate <= businessDayOf(account.closedAt);
 }
 
 /** Outcome tally and status for a batch (§20: needsReviewCount counts own PENDING items only). */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeIbanRaw, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
+import { normalizeIbanRaw, normalizeReference, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
 
 describe('parseSignedAmount', () => {
   it.each([
@@ -68,5 +68,19 @@ describe('text and IBAN normalization (§70.3)', () => {
     expect(normalizeIbanRaw('de89 3704 0044 0532 0130 00')).toBe('DE89370400440532013000');
     expect(normalizeIbanRaw('not-an-iban')).toBe('NOTANIBAN');
     expect(normalizeIbanRaw('')).toBeNull();
+  });
+});
+
+describe('normalizeReference (§70.3)', () => {
+  it.each([['NOTPROVIDED'], ['Not Provided'], ['NOT_PROVIDED'], ['NONREF'], ['-'], ['n/a'], ['  '], [undefined]])(
+    '%s is no reference',
+    (raw) => {
+      expect(normalizeReference(raw)).toBeNull();
+    },
+  );
+
+  it('keeps real references, whitespace-normalized', () => {
+    expect(normalizeReference(' E2E  4711 ')).toBe('E2E 4711');
+    expect(normalizeReference('NOTPROVIDED-1')).toBe('NOTPROVIDED-1');
   });
 });

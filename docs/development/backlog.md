@@ -105,6 +105,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-10 | infra | Structured logging (incl. unexpected access-guard errors, MRE client failures, pool errors) and a per-token verification cache / rate limit for `/api/v1` (`mre-integration.md` §47.1) |
 | VC-X-11 | infra | Observation order across instances: `PropertyReference` refresh orders MRE observations by the DE process clock (`observedAt`, api-design §23.2). Before running more than one DE backend instance, take the timestamp from PostgreSQL (`clock_timestamp()`) or otherwise synchronize it (review note on #10) |
 | VC-X-12 | infra | Retention for `idempotency_key` (api-design §15): keys are currently kept forever, so a key can never be reused. Add a TTL (typically 24 h to a few days) with a cleanup job, and document what a request with an expired key does (treated as new: creates again). Review note on #11. Also version the stored result snapshots (or migrate them) before a stored entity's shape changes, since a replay re-reads them (second note on #11) |
+| VC-X-13 | infra | Large bank imports (up to 10,000 rows) run in **one** transaction holding the account lock: lookups are already set-based, but inserts, the batch row and the lock span the whole file. Measure and, if needed, chunk the write phase or move imports to a job with progress (review note on #14) |
 
 ---
 

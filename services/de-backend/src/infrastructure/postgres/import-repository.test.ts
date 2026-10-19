@@ -60,6 +60,14 @@ function statement(specs: readonly (RowSpec | { error: string })[], adapterVersi
   return { adapterId: 'generic-csv', adapterVersion, contentHash, sourceStatementId: null, rows };
 }
 
+/** The same statement with the id column mapped: every row gets the external id, content and hash unchanged. */
+function withExternalId(parsed: ParsedStatement, externalTransactionId: string): ParsedStatement {
+  return {
+    ...parsed,
+    rows: parsed.rows.map((r) => (r.kind === 'ROW' ? { ...r, row: { ...r.row, externalTransactionId } } : r)),
+  };
+}
+
 const outcomes = (batch: ImportBatch) => batch.rows.map((r) => r.outcome);
 const created = (batch: ImportBatch) => batch.rows.flatMap((r) => (r.outcome === 'created' ? [r.transactionId] : []));
 
@@ -298,7 +306,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
     expect(item.rows).toEqual([{ prior_review_item_ids: [v2Row?.reviewItemId], conflicting_transaction_ids: [created(first)[0]] }]);
   });
 
-  it('a stable external id decides alone: duplicate across files and adapter versions', async () => {
+  it('a stable external id with the same content is a duplicate across files and adapter versions', async () => {
     const accountId = await openAccount();
     const first = await run(
       accountId,
@@ -306,7 +314,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
     );
     expect(outcomes(first)).toEqual(['created', 'created']);
 
-    const other = await run(accountId, statement([{ externalTransactionId: 'BANK-REF-2', amount: '7.00', description: 'anders' }], '2'));
+    const other = await run(accountId, statement([{ externalTransactionId: 'BANK-REF-2', amount: '7.00' }], '2'));
     expect(other.rows).toEqual([{ outcome: 'duplicate', position: 1, duplicateOf: 'TRANSACTION', transactionId: created(first)[1] }]);
 
     // Same content but its own external id: a different payment, not ambiguous.
@@ -318,6 +326,58 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
     const [ambiguous] = withoutId.rows as Extract<RowOutcome, { outcome: 'needs_review' }>[];
     expect(ambiguous?.outcome).toBe('needs_review');
     expect([...(ambiguous?.conflictingTransactionIds ?? [])].sort()).toEqual([created(first)[0], created(third)[0]].sort());
+  });
+
+  it('the same external id with other content is a review item, never a swallowed payment — also within one file', async () => {
+    const accountId = await openAccount();
+    const batch = await run(
+      accountId,
+      statement([
+        { externalTransactionId: 'E2E-REUSED', amount: '750.00', description: 'Miete Whg 1' },
+        { externalTransactionId: 'E2E-REUSED', amount: '980.00', description: 'Miete Whg 2' },
+      ]),
+    );
+    expect(batch).toMatchObject({ status: 'NEEDS_REVIEW', transactionCount: 1, duplicateCount: 0, needsReviewCount: 1 });
+    expect(batch.rows[1]).toMatchObject({
+      outcome: 'needs_review',
+      importBatchId: batch.id,
+      reason: 'EXTERNAL_ID_CONTENT_CONFLICT',
+      conflictingTransactionIds: [created(batch)[0]],
+    });
+
+    // A later file with the 980 row again: the id matches, the content does not → review, not duplicate.
+    const later = await run(accountId, statement([{ externalTransactionId: 'E2E-REUSED', amount: '980.00', description: 'Miete Whg 2' }]));
+    expect(later.rows[0]).toMatchObject({ outcome: 'needs_review', reason: 'EXTERNAL_ID_CONTENT_CONFLICT', importBatchId: later.id });
+
+    // Re-importing the first file references its pending item instead of creating a second one.
+    const retry = await run(
+      accountId,
+      statement([
+        { externalTransactionId: 'E2E-REUSED', amount: '750.00', description: 'Miete Whg 1' },
+        { externalTransactionId: 'E2E-REUSED', amount: '980.00', description: 'Miete Whg 2' },
+      ]),
+    );
+    expect(retry).toMatchObject({ status: 'COMPLETED', transactionCount: 0, duplicateCount: 1, needsReviewCount: 0 });
+    expect(retry.rows[1]).toEqual(batch.rows[1]);
+    expect(await count('ledger_transaction', accountId)).toBe(1);
+    expect(await count('import_review_item', accountId)).toBe(2);
+  });
+
+  it('a row imported first without, then with its external id is a review item, not a second Transaction', async () => {
+    const accountId = await openAccount();
+    const rent = { description: 'Miete Oktober', bookingDate: '2026-10-01' as BusinessDate };
+    const withoutId = await run(accountId, statement([rent]));
+    expect(outcomes(withoutId)).toEqual(['created']);
+
+    // The same export, now with the id column mapped: same file, same position, same content.
+    const withId = await run(accountId, withExternalId(statement([rent]), 'E-1'));
+    expect(withId).toMatchObject({ status: 'NEEDS_REVIEW', transactionCount: 0, needsReviewCount: 1 });
+    expect(withId.rows[0]).toMatchObject({
+      outcome: 'needs_review',
+      reason: 'AMBIGUOUS_CROSS_FILE_MATCH',
+      conflictingTransactionIds: [created(withoutId)[0]],
+    });
+    expect(await count('ledger_transaction', accountId)).toBe(1);
   });
 
   it('records row errors and zero amounts without failing the batch', async () => {

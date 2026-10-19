@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Insertable, Kysely, Selectable, Transaction as Trx } from 'kysely';
 import {
   decideRow,
+  type AmbiguityReason,
   importPostable,
   isSkippable,
   normalizedRowJson,
@@ -19,6 +20,7 @@ import {
   type ReviewResolution,
   type RowLookup,
   type RowOutcome,
+  type SourceRowKey,
   type TransactionStatus,
 } from '../../domains/ledger/index.js';
 import type { AuditActor } from '../../shared/index.js';
@@ -111,13 +113,13 @@ export class PostgresImportRepository implements ImportRepository {
 
           const key = sourceRowKey(statement, parsed);
           const externalId = parsed.row.externalTransactionId;
-          const decision = decideRow(externalId !== null, lookupFor(known, statement, parsed, key.rowKey));
+          const decision = decideRow(externalId !== null, lookupFor(known, statement, parsed, key));
           switch (decision.kind) {
             case 'CREATE': {
               const id = randomUUID();
               transactions.push(newTransaction(id, batchId, input, parsed, key, account.mreRealmId, actor));
               // Visible to the following rows of the same file.
-              if (externalId !== null) known.byExternalId.set(externalId, id);
+              if (externalId !== null) known.byExternalId.set(externalId, { id, contentFingerprint: parsed.contentFingerprint });
               else
                 positionOf(known, key.rowKey).transactions.push({
                   id,
@@ -241,13 +243,19 @@ export class PostgresImportRepository implements ImportRepository {
   }
 }
 
+interface FingerprintMatch {
+  readonly id: string;
+  readonly statementKey: string;
+  readonly hasExternalId: boolean;
+}
+
 interface Known {
-  readonly byExternalId: Map<string, string>;
+  readonly byExternalId: Map<string, { readonly id: string; readonly contentFingerprint: string }>;
   /** Transactions and review items of this statement, by source row key, with their adapter. */
   readonly byPosition: Map<string, RecordedAtPosition>;
-  /** Imported Transactions of other statements of the account, by content fingerprint. */
-  readonly byFingerprint: Map<string, string[]>;
-  readonly reasons: Map<string, RowOutcome & { outcome: 'needs_review' } extends { reason: infer R } ? R : never>;
+  /** Earlier imported Transactions of the account, by content fingerprint. */
+  readonly byFingerprint: Map<string, FingerprintMatch[]>;
+  readonly reasons: Map<string, AmbiguityReason>;
   readonly conflicts: Map<string, readonly string[]>;
 }
 
@@ -256,9 +264,8 @@ async function prefetch(trx: Trx<Database>, input: NewImport): Promise<Known> {
   const dataRows = statement.rows.filter((r): r is ParsedDataRow => r.kind === 'ROW');
   const statementKey = sourceRowKey(statement, { position: 0, sourceRowId: null }).statementKey;
   const externalIds = [...new Set(dataRows.flatMap((r) => (r.row.externalTransactionId === null ? [] : [r.row.externalTransactionId])))];
-  const fallback = dataRows.filter((r) => r.row.externalTransactionId === null);
-  const rowKeys = [...new Set(fallback.map((r) => sourceRowKey(statement, r).rowKey))];
-  const fingerprints = [...new Set(fallback.map((r) => r.contentFingerprint))];
+  const rowKeys = [...new Set(dataRows.map((r) => sourceRowKey(statement, r).rowKey))];
+  const fingerprints = [...new Set(dataRows.map((r) => r.contentFingerprint))];
   const scope = { realm: input.mreRealmId, account: input.financialAccountId };
 
   const known: Known = {
@@ -272,12 +279,15 @@ async function prefetch(trx: Trx<Database>, input: NewImport): Promise<Known> {
   if (externalIds.length > 0) {
     const byExternal = await trx
       .selectFrom('ledger_transaction')
-      .select(['id', 'external_transaction_id'])
+      .select(['id', 'external_transaction_id', 'content_fingerprint'])
       .where('mre_realm_id', '=', scope.realm)
       .where('financial_account_id', '=', scope.account)
       .where('external_transaction_id', 'in', externalIds)
       .execute();
-    for (const t of byExternal) if (t.external_transaction_id !== null) known.byExternalId.set(t.external_transaction_id, t.id);
+    for (const t of byExternal) {
+      if (t.external_transaction_id === null || t.content_fingerprint === null) continue;
+      known.byExternalId.set(t.external_transaction_id, { id: t.id, contentFingerprint: t.content_fingerprint });
+    }
   }
 
   if (rowKeys.length > 0) {
@@ -324,7 +334,7 @@ async function prefetch(trx: Trx<Database>, input: NewImport): Promise<Known> {
         adapterId: item.adapter_id,
         adapterVersion: item.adapter_version,
       });
-      known.reasons.set(item.id, item.ambiguity_reason as 'AMBIGUOUS_CROSS_FILE_MATCH' | 'ADAPTER_VERSION_CONFLICT');
+      known.reasons.set(item.id, item.ambiguity_reason as AmbiguityReason);
       known.conflicts.set(item.id, item.conflicting_transaction_ids);
     }
   }
@@ -332,32 +342,42 @@ async function prefetch(trx: Trx<Database>, input: NewImport): Promise<Known> {
   if (fingerprints.length > 0) {
     const matches = await trx
       .selectFrom('ledger_transaction')
-      .select(['id', 'content_fingerprint'])
+      .select(['id', 'content_fingerprint', 'source_statement_key', 'external_transaction_id'])
       .where('mre_realm_id', '=', scope.realm)
       .where('financial_account_id', '=', scope.account)
       .where('content_fingerprint', 'in', fingerprints)
-      // Rows imported via an external id count too: an export without ids may show the same payment.
-      .where('source_statement_key', '<>', statementKey)
+      .orderBy('created_at')
+      .orderBy('id')
       .execute();
     for (const m of matches) {
-      if (m.content_fingerprint === null) continue;
-      known.byFingerprint.set(m.content_fingerprint, [...(known.byFingerprint.get(m.content_fingerprint) ?? []), m.id]);
+      if (m.content_fingerprint === null || m.source_statement_key === null) continue;
+      const match = { id: m.id, statementKey: m.source_statement_key, hasExternalId: m.external_transaction_id !== null };
+      known.byFingerprint.set(m.content_fingerprint, [...(known.byFingerprint.get(m.content_fingerprint) ?? []), match]);
     }
   }
   return known;
 }
 
-function lookupFor(known: Known, statement: NewImport['statement'], parsed: ParsedDataRow, rowKey: string): RowLookup {
-  const externalId = parsed.row.externalTransactionId;
-  if (externalId !== null) {
-    const existing = known.byExternalId.get(externalId);
-    return { ...(existing === undefined ? {} : { transactionByExternalId: existing }), fingerprintMatches: [] };
-  }
-  const recorded = known.byPosition.get(rowKey) ?? { transactions: [], items: [] };
+function lookupFor(known: Known, statement: NewImport['statement'], parsed: ParsedDataRow, key: SourceRowKey): RowLookup {
+  const recorded = known.byPosition.get(key.rowKey) ?? { transactions: [], items: [] };
   const sameAdapter = (r: { adapterId: string; adapterVersion: string }) =>
     r.adapterId === statement.adapterId && r.adapterVersion === statement.adapterVersion;
-  const ownTransaction = recorded.transactions.find(sameAdapter);
   const ownItem = recorded.items.find(sameAdapter);
+  const sameContent = known.byFingerprint.get(parsed.contentFingerprint) ?? [];
+
+  const externalId = parsed.row.externalTransactionId;
+  if (externalId !== null) {
+    const byId = known.byExternalId.get(externalId);
+    return {
+      ...(ownItem === undefined ? {} : { reviewItemByIdentity: ownItem }),
+      ...(byId === undefined ? {} : { transactionByExternalId: byId }),
+      contentFingerprint: parsed.contentFingerprint,
+      // Any statement: the same file may have been imported before without mapping the id column.
+      fallbackFingerprintMatches: sameContent.filter((m) => !m.hasExternalId).map((m) => m.id),
+      fingerprintMatches: [],
+    };
+  }
+  const ownTransaction = recorded.transactions.find(sameAdapter);
   const otherTransactions = recorded.transactions.filter((t) => !sameAdapter(t));
   const otherItems = recorded.items.filter((i) => !sameAdapter(i));
   return {
@@ -371,7 +391,8 @@ function lookupFor(known: Known, statement: NewImport['statement'], parsed: Pars
       ],
       reviewItemIds: otherItems.map((i) => i.id),
     },
-    fingerprintMatches: known.byFingerprint.get(parsed.contentFingerprint) ?? [],
+    // Rows imported via an external id count too: an export without ids may show the same payment.
+    fingerprintMatches: sameContent.filter((m) => m.statementKey !== key.statementKey).map((m) => m.id),
   };
 }
 

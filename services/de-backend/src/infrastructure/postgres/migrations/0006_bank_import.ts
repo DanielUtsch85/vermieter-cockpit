@@ -90,7 +90,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       source_row_key text NOT NULL,
       content_fingerprint text NOT NULL,
       normalized_row jsonb NOT NULL CHECK (jsonb_typeof(normalized_row) = 'object'),
-      ambiguity_reason text NOT NULL CHECK (ambiguity_reason IN ('AMBIGUOUS_CROSS_FILE_MATCH', 'ADAPTER_VERSION_CONFLICT')),
+      ambiguity_reason text NOT NULL CHECK (ambiguity_reason IN ('AMBIGUOUS_CROSS_FILE_MATCH', 'ADAPTER_VERSION_CONFLICT', 'EXTERNAL_ID_CONTENT_CONFLICT')),
       conflicting_transaction_ids uuid[] NOT NULL,
       prior_review_item_ids uuid[] NOT NULL,
       status text NOT NULL CHECK (status IN ('PENDING', 'RESOLVED')),

@@ -11,7 +11,7 @@ import {
   type StatementError,
 } from '../../domains/ledger/index.js';
 import { Money, MoneyError, type CurrencyCode } from '../../shared/index.js';
-import { normalizeIbanRaw, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
+import { normalizeIbanRaw, normalizeReference, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
 
 /**
  * `generic-csv` version 1: any bank's CSV export with a header row, configured
@@ -174,7 +174,7 @@ function parseRow(
   const texts = {
     counterpartyNameRaw: normalizeText(cell('counterpartyName')),
     description: normalizeText(cell('description')),
-    externalTransactionId: normalizeText(cell('externalTransactionId')),
+    externalTransactionId: normalizeReference(cell('externalTransactionId')),
   };
   for (const [field, value] of Object.entries(texts)) {
     if (value !== null && value.length > MAX_TEXT_LENGTH) errors.push({ field, code: 'TOO_LONG' });
@@ -194,7 +194,7 @@ function parseRow(
   return {
     kind: 'ROW',
     position,
-    sourceRowId: normalizeText(cell('sourceRowId')),
+    sourceRowId: normalizeReference(cell('sourceRowId')),
     row,
     contentFingerprint: createHash('sha256').update(contentFingerprintFieldsV1(row)).digest('hex'),
   };

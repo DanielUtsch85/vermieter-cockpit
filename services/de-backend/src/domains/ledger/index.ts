@@ -46,7 +46,7 @@ export type {
   RowError,
   StatementError,
 } from './bank-statement.js';
-export { decideRow, importPostable, isSkippable, normalizedRowJson, sourceRowKey, summarize } from './bank-import.js';
+export { businessDayOf, decideRow, importPostable, isSkippable, normalizedRowJson, sourceRowKey, summarize } from './bank-import.js';
 export type {
   AmbiguityReason,
   ImportBatch,

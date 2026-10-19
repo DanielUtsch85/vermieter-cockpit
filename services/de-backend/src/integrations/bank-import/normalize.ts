@@ -39,10 +39,7 @@ export type DateFormat = 'DD.MM.YYYY' | 'DD.MM.YY' | 'YYYY-MM-DD';
  * or why not. `DD.MM.YY` (e.g. Sparkasse CSV-CAMT) is only read when configured,
  * with one fixed rule: `YY` means `20YY`. Nothing is inferred per row.
  */
-export function parseSourceDate(
-  raw: string,
-  format: DateFormat,
-): { readonly date: BusinessDate } | { readonly error: BusinessDateError } {
+export function parseSourceDate(raw: string, format: DateFormat): { readonly date: BusinessDate } | { readonly error: BusinessDateError } {
   const value = raw.trim();
   if (format === 'YYYY-MM-DD') return checkBusinessDate(value);
   const match = format === 'DD.MM.YY' ? /^(\d{2})\.(\d{2})\.(\d{2})$/.exec(value) : /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(value);
@@ -63,4 +60,22 @@ export function normalizeIbanRaw(raw: string | undefined): string | null {
   if (raw === undefined) return null;
   const iban = raw.replace(/[\s -]/g, '').toUpperCase();
   return iban === '' ? null : iban;
+}
+
+/**
+ * Values banks write into reference columns when there is no reference: the
+ * SEPA placeholder `NOTPROVIDED` (missing end-to-end id), MT940's `NONREF`, and
+ * dashes. Compared case-insensitively, ignoring spaces and underscores.
+ */
+const REFERENCE_PLACEHOLDERS = new Set(['NOTPROVIDED', 'NONREF', 'NONE', 'NA', 'N/A', '-', '--']);
+
+/**
+ * A source reference (external transaction id, source row id) or null. A
+ * placeholder is no reference: taken as an id, it would make different payments
+ * look like one (§70.3).
+ */
+export function normalizeReference(raw: string | undefined): string | null {
+  const text = normalizeText(raw);
+  if (text === null) return null;
+  return REFERENCE_PLACEHOLDERS.has(text.replace(/[\s_]/g, '').toUpperCase()) ? null : text;
 }

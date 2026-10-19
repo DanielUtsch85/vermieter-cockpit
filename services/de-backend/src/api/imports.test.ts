@@ -157,9 +157,14 @@ describe('POST /api/v1/imports/bank-transactions', () => {
         return batch;
       },
     });
+    // Just over the limit: caught while streaming.
     const res = await upload(base, form({ metadata, file: new Uint8Array(MAX_IMPORT_FILE_BYTES + 1) }));
     expect(res.status).toBe(413);
+    expect(res.headers.get('connection')).toBe('close');
     expect(await errorOf(res)).toMatchObject({ code: 'VALIDATION_ERROR', details: { maxBytes: MAX_IMPORT_FILE_BYTES } });
+    // Far over the limit: refused from the declared length, before reading the body.
+    const huge = await upload(base, form({ metadata, file: new Uint8Array(4 * MAX_IMPORT_FILE_BYTES) }));
+    expect(huge.status).toBe(413);
     expect(called).toBe(false);
   });
 

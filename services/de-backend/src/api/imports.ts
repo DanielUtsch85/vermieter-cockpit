@@ -17,6 +17,8 @@ import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
 /** Upper bound of an uploaded statement, enforced while streaming, before any parsing. */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_METADATA_BYTES = 64 * 1024;
+/** Boundaries and part headers of a two-part upload, generously. */
+const MULTIPART_OVERHEAD_BYTES = 16 * 1024;
 
 /**
  * The `metadata` part: the import target and adapter, plus the adapter's own
@@ -53,6 +55,8 @@ export function importRoutes(commands: ImportCommands): Router {
     readUpload(req)
       .then((upload) => {
         if (upload.kind === 'TOO_LARGE') {
+          // The rest of the body is not read: end the connection instead of draining it.
+          res.setHeader('Connection', 'close');
           sendError(res, 413, 'VALIDATION_ERROR', 'The uploaded file is too large.', { maxBytes: MAX_IMPORT_FILE_BYTES });
           return undefined;
         }
@@ -146,6 +150,12 @@ export function importRoutes(commands: ImportCommands): Router {
  */
 function readUpload(req: Request): Promise<Upload> {
   return new Promise((resolve) => {
+    // A declared length beyond file + metadata + multipart framing is refused before reading anything.
+    const declared = Number(req.headers['content-length']);
+    if (Number.isFinite(declared) && declared > MAX_IMPORT_FILE_BYTES + MAX_METADATA_BYTES + MULTIPART_OVERHEAD_BYTES) {
+      resolve({ kind: 'TOO_LARGE' });
+      return;
+    }
     let parser: busboy.Busboy;
     try {
       parser = busboy({
@@ -187,7 +197,11 @@ function readUpload(req: Request): Promise<Upload> {
       }
       const chunks: Buffer[] = [];
       stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      stream.on('limit', () => fail({ kind: 'TOO_LARGE' }));
+      stream.on('limit', () => {
+        // Stop at the limit; reading on would only hold the connection for bytes we discard.
+        req.unpipe(parser);
+        resolve({ kind: 'TOO_LARGE' });
+      });
       stream.on('close', () => {
         file = Buffer.concat(chunks);
         filename = info.filename ? info.filename.slice(0, 255) : null;
