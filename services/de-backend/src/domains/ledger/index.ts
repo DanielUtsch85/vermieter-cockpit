@@ -1,6 +1,15 @@
 /**
  * Financial Ledger domain: FinancialAccount, cash-only Transaction, TransactionSplit.
- *
- * Empty module skeleton (Phase 0, VC-0-04). See docs/development/coding-guidelines.md §3.
+ * See docs/development/coding-guidelines.md §3.
  */
-export {};
+export { ACCOUNT_STATUSES, ACCOUNT_TYPES, createFingerprint, planClose } from './financial-account.js';
+export type {
+  AccountStatus,
+  AccountType,
+  ClosePlan,
+  CreateOutcome,
+  FinancialAccount,
+  FinancialAccountId,
+  FinancialAccountRepository,
+  NewFinancialAccount,
+} from './financial-account.js';

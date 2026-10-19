@@ -1,4 +1,4 @@
-import type { Kysely, Selectable, Transaction } from 'kysely';
+import type { Kysely, Selectable } from 'kysely';
 import {
   planRefresh,
   type CachedAddress,
@@ -11,6 +11,7 @@ import {
   type PropertyReferenceRepository,
 } from '../../domains/property-reference/index.js';
 import { ExactDecimal, type AuditActor } from '../../shared/index.js';
+import { writeAudit } from './audit.js';
 import type { Database, PropertyReferenceTable } from './schema.js';
 
 /** `id` is a PostgreSQL uuid; anything else cannot match and must not reach the query. */
@@ -65,7 +66,7 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
         .executeTakeFirst();
 
       if (inserted !== undefined) {
-        await audit(trx, inserted.id, 'LINKED', actor, {
+        await writeAudit(trx, { type: 'PropertyReference', id: inserted.id }, 'LINKED', actor, {
           newVersion: inserted.version,
           metadata: { mreRealmId: inserted.mre_realm_id, mrePropertyId: inserted.mre_property_id },
         });
@@ -121,7 +122,7 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
         .executeTakeFirstOrThrow();
 
       if (change !== undefined) {
-        await audit(trx, id, change.action, actor, {
+        await writeAudit(trx, { type: 'PropertyReference', id }, change.action, actor, {
           previousVersion: current.version,
           newVersion: next.version,
           metadata: {
@@ -134,28 +135,6 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
       return toDomain(updated);
     });
   }
-}
-
-async function audit(
-  trx: Transaction<Database>,
-  entityId: string,
-  action: string,
-  actor: AuditActor,
-  details: { previousVersion?: number; newVersion: number; metadata: Record<string, unknown> },
-): Promise<void> {
-  await trx
-    .insertInto('audit_record')
-    .values({
-      entity_type: 'PropertyReference',
-      entity_id: entityId,
-      action,
-      actor_type: actor.actorType,
-      actor_id: actor.actorId,
-      previous_version: details.previousVersion ?? null,
-      new_version: details.newVersion,
-      metadata: JSON.stringify(details.metadata),
-    })
-    .execute();
 }
 
 function toJson(address: CachedAddress | null): string | null {

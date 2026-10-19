@@ -19,3 +19,18 @@ export type {
   RefreshPropertyReferenceDeps,
   RefreshPropertyReferenceInput,
 } from './refresh-property-reference.js';
+export {
+  FinancialAccountNotFoundError,
+  IdempotencyKeyConflictError,
+  closeFinancialAccount,
+  createFinancialAccount,
+} from './financial-accounts.js';
+export type {
+  CloseFinancialAccount,
+  CloseFinancialAccountInput,
+  CreateFinancialAccount,
+  CreateFinancialAccountInput,
+  CreateFinancialAccountResult,
+} from './financial-accounts.js';
+export { ACCOUNT_TYPES } from '../domains/ledger/index.js';
+export type { AccountType, FinancialAccount } from '../domains/ledger/index.js';

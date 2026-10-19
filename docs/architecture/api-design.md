@@ -362,6 +362,8 @@ Recommended mechanism:
 Idempotency-Key: <client-generated-key>
 ```
 
+Implementation: one store for all commands (`idempotency_key`: Realm, command scope, key → fingerprint of the normalized payload and the created resource), claimed in the same transaction as the resource. Same key and payload → the original result; same key, different payload → `409`.
+
 ---
 
 # 16. Optimistic Concurrency
@@ -704,6 +706,13 @@ Account types (`accountType`, per `data-model.md` §16): `BANK`, `SECURITY_DEPOS
 - **Side effects:** creates the account; writes an AuditRecord.
 
 `POST /{financialAccountId}/close` sets `status = CLOSED`; historical Transactions remain valid (`data-model.md` §16). Rejected if the account is not in the caller's Realm.
+
+## 29.2 Implementation (VC-1-03)
+
+- **Validation (`400 VALIDATION_ERROR`, `details.fields[]` with `REQUIRED` / `INVALID_FORMAT`):** `accountType` from the five types; `displayName` trimmed, 1–200 characters; `currency` supported (Phase 1: `EUR`); `iban` optional, normalized (spaces removed, upper case) and checked for structure and the ISO 7064 mod-97 checksum. An `Idempotency-Key` must be 1–255 visible ASCII characters.
+- **Idempotency:** the key is scoped to the Realm and the command. "Semantically identical" means the same **normalized** payload, so `DE89 3704 …` and `DE893704…` are one request. A replay answers like the original (`201`, same body) with the header `Idempotent-Replayed: true`. Concurrent requests with the same key create exactly one account.
+- **Close:** `200` with the account (`status = CLOSED`, `closedAt`, `version` +1, AuditRecord `CLOSED`). Closing a closed account is a `200` no-op without an AuditRecord. An id that is not a UUID is `400`; an unknown account or one of another Realm is `404`.
+- **Response:** `financialAccountId`, `mreRealmId`, `accountType`, `displayName`, `currency`, `iban` (normalized or `null`), `status`, `createdAt`, `closedAt`, `version`.
 
 ---
 
