@@ -9,4 +9,6 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   createFinancialAccount: unused,
   closeFinancialAccount: unused,
   createManualTransaction: unused,
+  importBankStatement: unused,
+  getImportBatch: unused,
 };

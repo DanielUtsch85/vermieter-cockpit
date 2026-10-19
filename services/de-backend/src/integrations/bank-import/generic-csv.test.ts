@@ -140,6 +140,17 @@ describe('generic-csv v1', () => {
     expect(row).toMatchObject({ sourceRowId: '42', row: { externalTransactionId: 'E2E-77' } });
   });
 
+  it('treats reference placeholders such as SEPA NOTPROVIDED as no reference', () => {
+    const csv = 'Buchungstag;Betrag;Ref;Nr\n01.09.2026;750,00;NOTPROVIDED;-\n02.09.2026;980,00;notprovided;NONREF\n';
+    const rows = rowsOf(
+      parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', externalTransactionId: 'Ref', sourceRowId: 'Nr' } }),
+    );
+    expect(rows.map((r) => [r.sourceRowId, r.row.externalTransactionId])).toEqual([
+      [null, null],
+      [null, null],
+    ]);
+  });
+
   it.each([
     ['no mapping', {}, 'INVALID_OPTIONS'],
     ['mapping without amount', { columnMapping: { bookingDate: 'Buchungstag' } }, 'INVALID_OPTIONS'],
@@ -171,6 +182,12 @@ describe('generic-csv v1', () => {
     const csv = 'Buchungstag;Betrag;Verwendungszweck\n01.09.2026;5,00;"=HYPERLINK(""http://x"")"\n';
     const result = parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', description: 'Verwendungszweck' } });
     expect(rowsOf(result)[0]?.row.description).toBe('=HYPERLINK("http://x")');
+  });
+
+  it('a quote inside an unquoted field fails the whole file with its line number (strict RFC 4180, no guessing)', () => {
+    const csv = 'Buchungstag;Betrag;Verwendungszweck\n01.09.2026;5,00;Miete\n03.02.2026;1.250,00;=HYPERLINK("x")\n';
+    const result = parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', description: 'Verwendungszweck' } });
+    expect(result).toEqual({ error: { code: 'UNPARSEABLE', message: expect.stringMatching(/line 3/) } });
   });
 
   it('a stray extra cell makes that row an error, not a shifted mapping', () => {

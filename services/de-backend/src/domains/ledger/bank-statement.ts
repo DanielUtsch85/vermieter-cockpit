@@ -1,5 +1,5 @@
 import type { CurrencyCode, Money } from '../../shared/index.js';
-import type { BusinessDate, Direction } from './transaction.js';
+import type { BusinessDate, Direction, Provenance } from './transaction.js';
 
 /**
  * The normalized import contract between bank-statement adapters and the
@@ -65,6 +65,8 @@ export interface StatementError {
 export interface BankStatementAdapter {
   readonly id: string;
   readonly version: string;
+  /** Provenance of the Transactions it produces (data-model.md §17.6). */
+  readonly provenance: Provenance;
   parse(
     file: Uint8Array,
     options: unknown,

@@ -11,7 +11,7 @@ import {
   type StatementError,
 } from '../../domains/ledger/index.js';
 import { Money, MoneyError, type CurrencyCode } from '../../shared/index.js';
-import { normalizeIbanRaw, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
+import { normalizeIbanRaw, normalizeReference, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
 
 /**
  * `generic-csv` version 1: any bank's CSV export with a header row, configured
@@ -50,7 +50,7 @@ export const genericCsvOptions = z
       .strict(),
     delimiter: z.enum([';', ',', '\t']).default(';'),
     decimalSeparator: z.enum([',', '.']).default(','),
-    dateFormat: z.enum(['DD.MM.YYYY', 'YYYY-MM-DD']).default('DD.MM.YYYY'),
+    dateFormat: z.enum(['DD.MM.YYYY', 'DD.MM.YY', 'YYYY-MM-DD']).default('DD.MM.YYYY'),
     encoding: z.enum(['utf-8', 'windows-1252']).default('utf-8'),
     /** Lines before the header row (bank exports often start with account metadata). */
     skipLines: z.number().int().min(0).max(50).default(0),
@@ -61,6 +61,7 @@ export type GenericCsvOptions = z.infer<typeof genericCsvOptions>;
 export const genericCsvAdapter: BankStatementAdapter = {
   id: GENERIC_CSV_ID,
   version: GENERIC_CSV_VERSION,
+  provenance: 'BANK_CSV',
   parse(file, rawOptions, accountCurrency) {
     const parsedOptions = genericCsvOptions.safeParse(rawOptions);
     if (!parsedOptions.success) {
@@ -173,7 +174,7 @@ function parseRow(
   const texts = {
     counterpartyNameRaw: normalizeText(cell('counterpartyName')),
     description: normalizeText(cell('description')),
-    externalTransactionId: normalizeText(cell('externalTransactionId')),
+    externalTransactionId: normalizeReference(cell('externalTransactionId')),
   };
   for (const [field, value] of Object.entries(texts)) {
     if (value !== null && value.length > MAX_TEXT_LENGTH) errors.push({ field, code: 'TOO_LONG' });
@@ -193,7 +194,7 @@ function parseRow(
   return {
     kind: 'ROW',
     position,
-    sourceRowId: normalizeText(cell('sourceRowId')),
+    sourceRowId: normalizeReference(cell('sourceRowId')),
     row,
     contentFingerprint: createHash('sha256').update(contentFingerprintFieldsV1(row)).digest('hex'),
   };

@@ -16,6 +16,7 @@
     "start": "node dist/main.js"
   },
   "devDependencies": {
+    "@types/busboy": "^1.5.4",
     "@types/express": "^4",
     "@types/node": "^24",
     "@types/pg": "^8",
@@ -23,7 +24,8 @@
     "vitest": "^2"
   },
   "dependencies": {
-    "csv-parse": "^6.2.1",
+    "busboy": "^1.6.0",
+    "csv-parse": "^7.0.3",
     "decimal.js": "^10",
     "express": "^4.21",
     "kysely": "0.29.6",

@@ -3,7 +3,8 @@
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
-# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction.
+# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction;
+# VC-1-05/06: import a bank CSV, re-import it as duplicates.
 set -euo pipefail
 
 MRE=${MRE:-http://localhost:8080/api/v2}
@@ -144,6 +145,30 @@ tx -H "idempotency-key: tx-$run" -d "$rent"
 expect "transaction replay" "$(echo "$tx_body" | jq -r .transactionId)" "$transaction_id"
 tx -d "{\"financialAccountId\":\"$ledger_account\",\"amount\":{\"amount\":\"1.005\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2026-09-01\"}"
 expect "amount beyond EUR scale" "$tx_status" 400
+
+# VC-1-05/06: bank CSV import (multipart); the identical file again is all duplicates.
+statement_file=$(mktemp)
+printf 'Buchungstag;Betrag;Verwendungszweck\r\n01.09.2026;1.250,00;Miete September\r\n02.09.2026;-310,40;Hausgeld\r\n' >"$statement_file"
+import_metadata="{\"financialAccountId\":\"$ledger_account\",\"adapterId\":\"generic-csv\",\"adapterVersion\":\"1\",\"columnMapping\":{\"bookingDate\":\"Buchungstag\",\"amount\":\"Betrag\",\"description\":\"Verwendungszweck\"}}"
+bank_import() { # sets import_status and import_body
+  local out
+  out=$(curl -s -w '\n%{http_code}' -X POST "$DE/imports/bank-transactions" \
+    -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" \
+    -F "metadata=$import_metadata" -F "file=@$statement_file;filename=umsatz.csv")
+  import_status=$(echo "$out" | tail -n1)
+  import_body=$(echo "$out" | sed '$d')
+}
+bank_import
+expect "bank import" "$import_status" 201
+expect "imported rows" "$(echo "$import_body" | jq -r .transactionCount)" 2
+import_batch_id=$(echo "$import_body" | jq -r .importBatchId)
+bank_import
+expect "re-import duplicates" "$(echo "$import_body" | jq -r '"\(.transactionCount)/\(.duplicateCount)"')" "0/2"
+batch_status=$(curl -s -o /dev/null -w '%{http_code}' "$DE/imports/$import_batch_id" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
+expect "get import batch" "$batch_status" 200
+rm -f "$statement_file"
+
 curl -fsS -o /dev/null -X POST "$DE/financial-accounts/$ledger_account/close" \
   -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id"
 tx -d "$rent"

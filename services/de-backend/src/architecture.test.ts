@@ -50,7 +50,8 @@ const rules: readonly LayerRule[] = [
   // Use cases and policies: no HTTP, no adapters; infrastructure arrives through ports.
   { layer: 'application', allowedLayers: ['shared', 'domains'], allowedPackages: ['zod'] },
   // HTTP layer: talks to the application layer, never to adapters directly.
-  { layer: 'api', allowedLayers: ['application', 'shared'], allowedPackages: ['express', 'zod'] },
+  // busboy: multipart parsing for file uploads (bank import), an HTTP concern.
+  { layer: 'api', allowedLayers: ['application', 'shared'], allowedPackages: ['busboy', 'express', 'zod'] },
 ];
 
 const sourceFilePattern = /\.(c|m)?ts$/;
