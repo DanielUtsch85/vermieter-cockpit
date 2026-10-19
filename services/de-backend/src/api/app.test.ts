@@ -12,8 +12,13 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
   mreRole: 'administrator',
 });
 
+const unusedLink: AppDependencies['linkPropertyReference'] = () => Promise.reject(new Error('not used in this test'));
+
 async function start(deps: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...deps }).listen(0, '127.0.0.1');
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, linkPropertyReference: unusedLink, ...deps }).listen(
+    0,
+    '127.0.0.1',
+  );
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   const { port } = server.address() as AddressInfo;
   return `http://127.0.0.1:${port}`;

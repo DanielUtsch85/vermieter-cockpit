@@ -27,6 +27,7 @@ function fakeClient(behaviour: 'ok' | MreClientError = 'ok'): MreClient & { call
       const email = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString()).account?.email;
       return realms.filter((r) => r.members.some((m) => m.email === email));
     },
+    listProperties: async () => [],
   };
 }
 
@@ -79,7 +80,7 @@ describe('verifyMrePrincipal', () => {
     ['internal service', { service: { serviceId: 'api', realmId: 'realm-a', role: 'administrator' } }],
     ['account without email', { account: {} }],
   ])('rejects a %s token even if MRE answers', async (_label, payload) => {
-    const client: MreClient = { listRealms: async () => realms };
+    const client: MreClient = { listRealms: async () => realms, listProperties: async () => [] };
     await expectCode(verifyMrePrincipal(client, bearer(payload), 'realm-a'), 'NOT_A_REALM_MEMBER');
   });
 

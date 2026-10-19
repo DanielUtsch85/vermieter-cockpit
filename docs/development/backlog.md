@@ -49,7 +49,7 @@ Reference: `docs/project-brief.md` §7, `api-design.md`.
 
 | ID | Type | Item | API | Exit |
 |---|---|---|---|---|
-| VC-1-01 | feature | `PropertyReference` link to MRE `Property` (validate `mrePropertyId` as 24-hex ObjectId at the API boundary → 400; resolve existence via `GET /properties`, not `GET /properties/:id` — see `mre-integration.md` §21.1) | `POST /api/v1/property-references/link` | DE ref bound to `mrePropertyId` (+`mreRealmId`); MRE not duplicated |
+| VC-1-01 | feature | **done** · `PropertyReference` link to MRE `Property` (validate `mrePropertyId` as 24-hex ObjectId at the API boundary → 400; resolve existence via `GET /properties`, not `GET /properties/:id` — see `mre-integration.md` §21.1) | `POST /api/v1/property-references/link` | DE ref bound to `mrePropertyId` (+`mreRealmId`); MRE not duplicated |
 | VC-1-02 | feature | Refresh cached, non-authoritative display data | `POST /api/v1/property-references/{id}/refresh` | Cached fields updated; authority stays in MRE |
 | VC-1-03 | feature | `FinancialAccount` create/close | `POST /api/v1/financial-accounts` (+`/close`) | Bank/cash account persisted; distinct from MRE `Account` and from `Loan` |
 | VC-1-04 | feature | Manual `Transaction` create | `POST /api/v1/transactions` | Cash-only Transaction with `Money`; provenance = manual |

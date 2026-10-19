@@ -162,6 +162,18 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       expect(z.array(propertyContract).parse(list.json).map((p) => p._id)).not.toContain(propertyId);
     });
 
+    it('HttpMreClient.listProperties (used by link, VC-1-01) finds the property only in its Realm', async () => {
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      const inA = await client.listProperties(await token(), realmA);
+      expect(inA.find((p) => p.mrePropertyId === propertyId)).toMatchObject({
+        mrePropertyId: propertyId,
+        name: 'Wohnung 1',
+        address: { street1: 'Musterstraße 1', zipCode: '10115', city: 'Berlin', country: 'DE' },
+      });
+      const inB = await client.listProperties(await token(), realmB);
+      expect(inB.map((p) => p.mrePropertyId)).not.toContain(propertyId);
+    });
+
     // Pinned quirk: MRE does not answer 404 for an unknown or foreign-Realm id on
     // GET /properties/:id — the handler fails on the missing document. DE must not
     // treat this status as "not found"; resolve existence via GET /properties.

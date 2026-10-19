@@ -63,9 +63,10 @@ jobs:
           applied=$(docker compose exec -T de-postgres psql -U de -d de -tAc "SELECT name FROM kysely_migration ORDER BY name")
           echo "$applied"
           echo "$applied" | grep -qx '0001_baseline'
+          echo "$applied" | grep -qx '0002_property_reference'
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
-      - name: DE access against real MRE (signup → signin → realm → /api/v1/health)
+      - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link)
         run: .github/scripts/compose-auth-smoke.sh
       - uses: actions/setup-node@v4
         with:

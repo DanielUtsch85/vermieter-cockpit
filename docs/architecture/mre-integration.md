@@ -453,7 +453,7 @@ Verified against the real MRE images by `services/de-backend/src/integrations/mr
 - All property calls need `Authorization: Bearer <landlord token>` and `organizationid: <realmId>`; a missing `organizationid` is answered with **404**.
 - Fields DE reads for `PropertyReference` (data-model §9): `_id` (24-hex ObjectId), `name`, optional `surface` (number) and `address { street1, zipCode, city, country, … }`. `price` is a JS number and is **not** used as Money (§32).
 - `GET /properties` returns only the Realm's properties (Realm isolation holds upstream).
-- **Quirk:** `GET /properties/:id` for an id that does not exist in the given Realm does **not** return 404 — the handler fails on the missing document and answers **500**. DE must therefore decide existence (link → `404` in api-design §23.1) via `GET /properties` filtered by id, and must not map a 5xx of the single-item endpoint to "not found". A non-ObjectId id also ends in 500 upstream (`CastError`), so DE validates `mrePropertyId` against `^[0-9a-f]{24}$` at its API boundary (400).
+- **Quirk:** `GET /properties/:id` for an id that does not exist in the given Realm does **not** return 404 — the handler fails on the missing document and answers **500**. DE must therefore decide existence (link → `404` in api-design §23.1) via `GET /properties` filtered by id, and must not map a 5xx of the single-item endpoint to "not found". A non-ObjectId id also ends in 500 upstream (`CastError`), so DE validates `mrePropertyId` against `^[0-9a-f]{24}$` at its API boundary (400). Implemented in VC-1-01 as `MreClient.listProperties` (pinned by the contract suite).
 
 ---
 

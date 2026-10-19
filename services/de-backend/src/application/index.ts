@@ -3,3 +3,13 @@
  */
 export { AccessError, DE_ACCESS_ROLES, assertDeAccess } from './access.js';
 export type { AccessErrorCode, PrincipalVerifier, RealmPrincipal } from './access.js';
+export { MrePropertyNotFoundError, MreUnavailableError, linkPropertyReference } from './link-property-reference.js';
+export type {
+  LinkPropertyReference,
+  LinkPropertyReferenceDeps,
+  LinkPropertyReferenceInput,
+  MrePropertyLookup,
+  MrePropertySnapshot,
+} from './link-property-reference.js';
+export type { CachedAddress, LinkOutcome, PropertyReference } from '../domains/property-reference/index.js';
+export { MRE_OBJECT_ID } from '../domains/property-reference/index.js';

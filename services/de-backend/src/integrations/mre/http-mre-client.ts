@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { MreClientError, type MreClient, type MreRealmMembership } from './mre-client.js';
+import {
+  MreClientError,
+  type MreAddress,
+  type MreClient,
+  type MreProperty,
+  type MreRealmMembership,
+} from './mre-client.js';
 
 /**
  * MreClient over the MRE landlord API (`/api/v2`, reached through the MRE
@@ -9,6 +15,9 @@ import { MreClientError, type MreClient, type MreRealmMembership } from './mre-c
  *   `notRoles(['tenant'])` chain: 401 for a missing/invalid/expired token,
  *   403 for a tenant session token, otherwise the realms whose `members`
  *   contain the token's account email (secrets already stripped by MRE).
+ * - `GET /properties` with `organizationid` returns only that Realm's
+ *   properties (mre-integration.md §21.1). `GET /properties/:id` is not used:
+ *   it answers 500 instead of 404 for an unknown or foreign id.
  *
  * Only the fields DE needs are read; the MRE DTO never leaves this file.
  */
@@ -30,6 +39,22 @@ const realmDto = z.object({
 });
 const realmsDto = z.array(realmDto);
 
+/**
+ * Every property needs an `_id`, otherwise the whole response is rejected: a
+ * silently dropped entry would turn an existing Property into "not found".
+ * Display fields are optional cache values; a malformed one is left out.
+ */
+const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough());
+const addressPart = z.string().optional().catch(undefined);
+const addressDto = z.object({
+  street1: addressPart,
+  street2: addressPart,
+  zipCode: addressPart,
+  city: addressPart,
+  state: addressPart,
+  country: addressPart,
+});
+
 export interface HttpMreClientOptions {
   /** MRE landlord API base URL including `/api/v2`, e.g. `http://gateway:8080/api/v2`. */
   readonly apiBaseUrl: string;
@@ -39,19 +64,50 @@ export interface HttpMreClientOptions {
 }
 
 export class HttpMreClient implements MreClient {
-  private readonly realmsUrl: string;
+  private readonly baseUrl: string;
   private readonly fetchFn: typeof globalThis.fetch;
 
   constructor(private readonly options: HttpMreClientOptions) {
-    this.realmsUrl = `${options.apiBaseUrl.replace(/\/+$/, '')}/realms`;
+    this.baseUrl = options.apiBaseUrl.replace(/\/+$/, '');
     this.fetchFn = options.fetch ?? globalThis.fetch;
   }
 
   async listRealms(accessToken: string): Promise<readonly MreRealmMembership[]> {
+    const body = await this.get('/realms', accessToken);
+    const parsed = realmsDto.safeParse(body);
+    if (!parsed.success) {
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE realms shape: ${parsed.error.message}`);
+    }
+    return parsed.data.map((realm) => ({
+      mreRealmId: realm._id,
+      name: realm.name,
+      members: realm.members.flatMap((member) => {
+        const parsedMember = memberDto.safeParse(member);
+        return parsedMember.success ? [{ email: parsedMember.data.email, role: parsedMember.data.role }] : [];
+      }),
+    }));
+  }
+
+  async listProperties(accessToken: string, mreRealmId: string): Promise<readonly MreProperty[]> {
+    const body = await this.get('/properties', accessToken, mreRealmId);
+    const parsed = propertiesDto.safeParse(body);
+    if (!parsed.success) {
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE properties shape: ${parsed.error.message}`);
+    }
+    return parsed.data.map((property) => ({
+      mrePropertyId: property._id,
+      name: typeof property['name'] === 'string' ? property['name'] : null,
+      address: toAddress(property['address']),
+    }));
+  }
+
+  private async get(path: string, accessToken: string, mreRealmId?: string): Promise<unknown> {
+    const headers: Record<string, string> = { authorization: `Bearer ${accessToken}`, accept: 'application/json' };
+    if (mreRealmId !== undefined) headers['organizationid'] = mreRealmId;
     let response: Response;
     try {
-      response = await this.fetchFn(this.realmsUrl, {
-        headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' },
+      response = await this.fetchFn(`${this.baseUrl}${path}`, {
+        headers,
         signal: AbortSignal.timeout(this.options.timeoutMs),
         // Never follow a redirect with the caller's token; a redirect means a misconfigured gateway.
         redirect: 'error',
@@ -66,23 +122,18 @@ export class HttpMreClient implements MreClient {
       throw new MreClientError('UNAVAILABLE', `Unexpected MRE status ${response.status}`);
     }
 
-    let body: unknown;
     try {
-      body = await response.json();
+      return await response.json();
     } catch {
       throw new MreClientError('UNAVAILABLE', 'MRE returned a non-JSON body');
     }
-    const parsed = realmsDto.safeParse(body);
-    if (!parsed.success) {
-      throw new MreClientError('UNAVAILABLE', `Unexpected MRE realms shape: ${parsed.error.message}`);
-    }
-    return parsed.data.map((realm) => ({
-      mreRealmId: realm._id,
-      name: realm.name,
-      members: realm.members.flatMap((member) => {
-        const parsedMember = memberDto.safeParse(member);
-        return parsedMember.success ? [{ email: parsedMember.data.email, role: parsedMember.data.role }] : [];
-      }),
-    }));
   }
+}
+
+/** The address parts MRE has, or null when there are none. */
+function toAddress(value: unknown): MreAddress | null {
+  const parsed = addressDto.safeParse(value);
+  if (!parsed.success) return null;
+  const parts = Object.fromEntries(Object.entries(parsed.data).filter(([, part]) => part !== undefined && part !== ''));
+  return Object.keys(parts).length === 0 ? null : (parts as MreAddress);
 }
