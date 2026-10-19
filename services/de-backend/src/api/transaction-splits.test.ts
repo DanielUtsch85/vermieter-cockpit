@@ -1,0 +1,183 @@
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  CurrencyMismatchError,
+  FinancialCategoryNotFoundError,
+  PropertyReferenceNotFoundError,
+  SplitSumMismatchError,
+  TransactionFrozenError,
+  TransactionNotFoundError,
+  type PrincipalVerifier,
+  type SetTransactionSplits,
+} from '../application/index.js';
+import type { AppDependencies } from './index.js';
+import { Money } from '../shared/index.js';
+import { createApp } from './app.js';
+import { unusedCommands } from './app.test-support.js';
+
+const REALM = '64b0c0ffee0000000000000a';
+const TX = '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+const PROPERTY = 'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f';
+const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
+  email: 'anna@example.com',
+  mreRealmId: mreRealmId ?? '',
+  mreRole: 'administrator',
+});
+const auth = { authorization: 'Bearer a.b.c', organizationid: REALM };
+
+let server: Server | undefined;
+async function start(overrides: Partial<AppDependencies>): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...overrides }).listen(0, '127.0.0.1');
+  await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+}
+afterEach(async () => {
+  await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+  server = undefined;
+});
+const errorOf = async (res: Response) => ((await res.json()) as { error: { code: string; details: Record<string, unknown> } }).error;
+
+const loanSplits = {
+  splits: [
+    { amount: { amount: '600.00', currency: 'EUR' }, financialCategoryCode: 'LOAN_INTEREST', propertyReferenceId: PROPERTY.toUpperCase() },
+    {
+      amount: { amount: '600.00', currency: 'EUR' },
+      financialCategoryCode: 'LOAN_PRINCIPAL',
+      description: '  Rate 10  ',
+      propertyReferenceId: null,
+    },
+  ],
+};
+const put = (base: string, body: unknown, id = TX) =>
+  fetch(`${base}/api/v1/transactions/${id}/splits`, {
+    method: 'PUT',
+    headers: { ...auth, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
+  it('200 with the stored set; the use case gets parsed, normalized splits', async () => {
+    const seen: Parameters<SetTransactionSplits>[0][] = [];
+    const base = await start({
+      setTransactionSplits: async (input) => {
+        seen.push(input);
+        return {
+          transaction: { id: TX, amount: Money.of('1200.00', 'EUR'), direction: 'OUTFLOW', status: 'CLASSIFIED', version: 2 } as never,
+          splits: input.splits.map((s, i) => ({ ...s, id: `s-${i + 1}`, position: i + 1 })),
+        };
+      },
+    });
+    const res = await put(base, loanSplits, TX.toUpperCase());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      transactionId: TX,
+      amount: { amount: '1200.00', currency: 'EUR' },
+      direction: 'OUTFLOW',
+      status: 'CLASSIFIED',
+      version: 2,
+      splits: [
+        {
+          splitId: 's-1',
+          position: 1,
+          amount: { amount: '600.00', currency: 'EUR' },
+          financialCategoryCode: 'LOAN_INTEREST',
+          propertyReferenceId: PROPERTY,
+          description: null,
+        },
+        {
+          splitId: 's-2',
+          position: 2,
+          amount: { amount: '600.00', currency: 'EUR' },
+          financialCategoryCode: 'LOAN_PRINCIPAL',
+          propertyReferenceId: null,
+          description: 'Rate 10',
+        },
+      ],
+    });
+    expect(seen[0]?.transactionId).toBe(TX);
+    expect(seen[0]?.principal.mreRealmId).toBe(REALM);
+  });
+
+  it('400 for negative, unscaled or numeric amounts, a direction, unsupported references, unknown keys and an empty list', async () => {
+    const base = await start({});
+    const one = (extra: Record<string, unknown>) => ({
+      splits: [{ amount: { amount: '1.00', currency: 'EUR' }, financialCategoryCode: 'OTHER', ...extra }],
+    });
+    const cases: [unknown, { field: string; code: string }[]][] = [
+      [one({ amount: { amount: '-1.00', currency: 'EUR' } }), [{ field: 'splits.0.amount.amount', code: 'NEGATIVE_AMOUNT' }]],
+      [one({ amount: { amount: '1.005', currency: 'EUR' } }), [{ field: 'splits.0.amount.amount', code: 'SCALE_EXCEEDED' }]],
+      [one({ amount: { amount: 1, currency: 'EUR' } }), [{ field: 'splits.0.amount.amount', code: 'INVALID_FORMAT' }]],
+      [one({ direction: 'OUTFLOW' }), [{ field: 'splits.0.direction', code: 'NOT_ALLOWED' }]],
+      [one({ loanId: TX }), [{ field: 'splits.0.loanId', code: 'NOT_SUPPORTED' }]],
+      [one({ financialCategoryCode: 'loan interest' }), [{ field: 'splits.0.financialCategoryCode', code: 'INVALID_FORMAT' }]],
+      [one({ colour: 'red' }), [{ field: 'splits.0', code: 'INVALID_FORMAT' }]],
+      [{ splits: [] }, [{ field: 'splits', code: 'INVALID_FORMAT' }]],
+      [{}, [{ field: 'splits', code: 'REQUIRED' }]],
+    ];
+    for (const [body, fields] of cases) {
+      const res = await put(base, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect((await errorOf(res)).details['fields']).toEqual(fields);
+    }
+    expect((await put(base, loanSplits, 'nope')).status).toBe(400);
+  });
+
+  it('maps not found, unknown category, currency, frozen and sum mismatch', async () => {
+    const cases = [
+      [new TransactionNotFoundError(TX), 404, { code: 'NOT_FOUND' }],
+      [new PropertyReferenceNotFoundError(PROPERTY), 404, { code: 'NOT_FOUND', details: { propertyReferenceId: PROPERTY } }],
+      [
+        new FinancialCategoryNotFoundError(['LOAN_PRINCIPAL']),
+        400,
+        { code: 'VALIDATION_ERROR', details: { fields: [{ field: 'splits.1.financialCategoryCode', code: 'UNKNOWN_CATEGORY' }] } },
+      ],
+      [new CurrencyMismatchError('x'), 400, { details: { fields: [{ field: 'splits', code: 'CURRENCY_MISMATCH' }] } }],
+      [
+        new TransactionFrozenError(TX, 'CONFIRMED'),
+        409,
+        { code: 'CONFLICT', details: { reason: 'TRANSACTION_FROZEN', status: 'CONFIRMED' } },
+      ],
+      [
+        new SplitSumMismatchError(Money.of('1200.00', 'EUR'), Money.of('1199.99', 'EUR')),
+        409,
+        {
+          code: 'INVARIANT_VIOLATION',
+          details: {
+            reason: 'SPLIT_SUM_MISMATCH',
+            expected: { amount: '1200.00', currency: 'EUR' },
+            actual: { amount: '1199.99', currency: 'EUR' },
+            difference: { amount: '0.01', currency: 'EUR' },
+          },
+        },
+      ],
+    ] as const;
+    for (const [error, status, body] of cases) {
+      const base = await start({ setTransactionSplits: () => Promise.reject(error) });
+      const res = await put(base, loanSplits);
+      expect(res.status).toBe(status);
+      expect(await errorOf(res)).toMatchObject(body);
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      server = undefined;
+    }
+  });
+});
+
+describe('GET /api/v1/financial-categories', () => {
+  const category = { code: 'LOAN_INTEREST', name: 'Darlehenszinsen', categoryType: 'FINANCING', active: true } as const;
+
+  it('lists the catalog and serves one code; unknown → 404, malformed → 400', async () => {
+    const base = await start({
+      listFinancialCategories: async () => [category],
+      getFinancialCategory: async (code) => {
+        if (code === 'LOAN_INTEREST') return category;
+        throw new FinancialCategoryNotFoundError([code]);
+      },
+    });
+    const list = await fetch(`${base}/api/v1/financial-categories`, { headers: auth });
+    expect(await list.json()).toEqual({ items: [category] });
+    expect(await (await fetch(`${base}/api/v1/financial-categories/LOAN_INTEREST`, { headers: auth })).json()).toEqual(category);
+    expect((await fetch(`${base}/api/v1/financial-categories/NOPE`, { headers: auth })).status).toBe(404);
+    expect((await fetch(`${base}/api/v1/financial-categories/x-y`, { headers: auth })).status).toBe(400);
+  });
+});

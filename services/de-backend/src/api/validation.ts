@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
-import type { ZodError } from 'zod';
+import { z, type ZodError } from 'zod';
+import { Money, MoneyError } from '../shared/index.js';
 import { sendError } from './errors.js';
 
 /** DE resource ids (PostgreSQL uuid). */
@@ -41,3 +42,34 @@ export function readIdempotencyKey(req: Request, res: Response): { key: string |
   sendValidationError(res, [{ field: 'Idempotency-Key', code: 'INVALID_FORMAT' }]);
   return undefined;
 }
+
+/** Field codes for amounts (api-design.md §31.1: 400 for each). */
+const MONEY_CODES: Record<MoneyError['code'], string> = {
+  INVALID_AMOUNT: 'INVALID_FORMAT',
+  AMOUNT_OUT_OF_RANGE: 'AMOUNT_OUT_OF_RANGE',
+  SCALE_EXCEEDED: 'SCALE_EXCEEDED',
+  UNSUPPORTED_CURRENCY: 'UNSUPPORTED_CURRENCY',
+  CURRENCY_MISMATCH: 'CURRENCY_MISMATCH',
+};
+
+/**
+ * Money arrives as `{ amount: "1250.00", currency: "EUR" }` (api-design.md §86).
+ * The amount must be a decimal string, never a JSON number (no float in transit),
+ * non-negative (the sign is `direction`, data-model.md §17.4) and representable
+ * in the currency's scale — rejected, never rounded.
+ */
+export const money = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
+  try {
+    const parsed = Money.of(value.amount, value.currency);
+    if (parsed.isNegative()) {
+      ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NEGATIVE_AMOUNT' } });
+      return z.NEVER;
+    }
+    return parsed;
+  } catch (error) {
+    if (!(error instanceof MoneyError)) throw error;
+    const path = error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'];
+    ctx.addIssue({ code: 'custom', path, params: { code: MONEY_CODES[error.code] } });
+    return z.NEVER;
+  }
+});

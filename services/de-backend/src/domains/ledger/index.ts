@@ -66,3 +66,14 @@ export type {
   RowOutcome,
   SourceRowKey,
 } from './bank-import.js';
+export { SPLITTABLE_STATUSES, planSplits, sameSplits } from './transaction-split.js';
+export type {
+  ReplaceSplitsOutcome,
+  SplitInput,
+  SplitPlan,
+  SplitTransaction,
+  TransactionSplit,
+  TransactionSplitRepository,
+} from './transaction-split.js';
+export { CATEGORY_CODE, CATEGORY_TYPES } from './financial-category.js';
+export type { CategoryType, FinancialCategory, FinancialCategoryRepository } from './financial-category.js';

@@ -59,3 +59,20 @@ export type {
   ResolveReviewItemResult,
 } from './bank-import.js';
 export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';
+export {
+  FinancialCategoryNotFoundError,
+  SplitSumMismatchError,
+  TransactionFrozenError,
+  TransactionNotFoundError,
+  getFinancialCategory,
+  listFinancialCategories,
+  setTransactionSplits,
+} from './transaction-splits.js';
+export type {
+  GetFinancialCategory,
+  ListFinancialCategories,
+  SetTransactionSplits,
+  SetTransactionSplitsResult,
+} from './transaction-splits.js';
+export { CATEGORY_CODE } from '../domains/ledger/index.js';
+export type { FinancialCategory, SplitInput, SplitTransaction, TransactionSplit } from '../domains/ledger/index.js';
