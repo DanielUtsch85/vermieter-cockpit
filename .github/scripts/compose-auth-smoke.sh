@@ -2,7 +2,8 @@
 # VC-0-08 / VC-0-09 seed: proves the delegated MRE authentication (mre-integration.md
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
-# VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it.
+# VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
+# VC-1-03: create and close a FinancialAccount.
 set -euo pipefail
 
 MRE=${MRE:-http://localhost:8080/api/v2}
@@ -98,3 +99,27 @@ expect "state after MRE delete" "$(echo "$refresh_body" | jq -r .externalReferen
 expect "cached name kept" "$(echo "$refresh_body" | jq -r .displayName)" "Smoke Wohnung EG"
 refresh "00000000-0000-4000-8000-000000000000"
 expect "refresh unknown reference" "$refresh_status" 404
+
+# VC-1-03: FinancialAccount create (with Idempotency-Key) and close.
+account() { # [extra curl args...] — POST /financial-accounts; sets account_status and account_body
+  local out
+  out=$(curl -s -w '\n%{http_code}' -X POST "$DE/financial-accounts" \
+    -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' "$@")
+  account_status=$(echo "$out" | tail -n1)
+  account_body=$(echo "$out" | sed '$d')
+}
+key="smoke-$run"
+account -H "idempotency-key: $key" -d '{"accountType":"BANK","displayName":"Smoke Girokonto","currency":"EUR","iban":"DE89 3704 0044 0532 0130 00"}'
+expect "create financial account" "$account_status" 201
+account_id=$(echo "$account_body" | jq -r .financialAccountId)
+expect "IBAN normalized" "$(echo "$account_body" | jq -r .iban)" DE89370400440532013000
+account -H "idempotency-key: $key" -d '{"accountType":"BANK","displayName":"Smoke Girokonto","currency":"EUR","iban":"DE89370400440532013000"}'
+expect "idempotent replay" "$account_status" 201
+expect "replay returns the same account" "$(echo "$account_body" | jq -r .financialAccountId)" "$account_id"
+account -H "idempotency-key: $key" -d '{"accountType":"CASH","displayName":"Smoke Kasse","currency":"EUR"}'
+expect "same key, other payload" "$account_status" 409
+account -d '{"accountType":"BANK","displayName":"x","currency":"USD"}'
+expect "unsupported currency" "$account_status" 400
+close_status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$DE/financial-accounts/$account_id/close" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
+expect "close financial account" "$close_status" 200

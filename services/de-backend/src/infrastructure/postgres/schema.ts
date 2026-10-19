@@ -38,7 +38,34 @@ export interface AuditRecordTable {
   new_version: number | null;
 }
 
+export interface FinancialAccountTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  account_type: string;
+  display_name: string;
+  currency: string;
+  iban: string | null;
+  status: string;
+  closed_at: Date | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface IdempotencyKeyTable {
+  mre_realm_id: string;
+  scope: string;
+  key: string;
+  request_fingerprint: string;
+  resource_id: string | null;
+  result: Json<unknown> | null;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   property_reference: PropertyReferenceTable;
   audit_record: AuditRecordTable;
+  financial_account: FinancialAccountTable;
+  idempotency_key: IdempotencyKeyTable;
 }

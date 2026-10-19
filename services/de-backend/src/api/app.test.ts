@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AccessError, type PrincipalVerifier } from '../application/index.js';
 import { createApp, type AppDependencies } from './app.js';
+import { unusedCommands } from './app.test-support.js';
 
 let server: Server | undefined;
 
@@ -12,11 +13,9 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
   mreRole: 'administrator',
 });
 
-const unusedLink: AppDependencies['linkPropertyReference'] = () => Promise.reject(new Error('not used in this test'));
-const unusedRefresh: AppDependencies['refreshPropertyReference'] = () => Promise.reject(new Error('not used in this test'));
 
 async function start(deps: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, linkPropertyReference: unusedLink, refreshPropertyReference: unusedRefresh, ...deps }).listen(
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...deps }).listen(
     0,
     '127.0.0.1',
   );

@@ -1,7 +1,13 @@
 import { createApp } from './api/index.js';
 import { loadConfig } from './config.js';
-import { linkPropertyReference, refreshPropertyReference } from './application/index.js';
 import {
+  closeFinancialAccount,
+  createFinancialAccount,
+  linkPropertyReference,
+  refreshPropertyReference,
+} from './application/index.js';
+import {
+  PostgresFinancialAccountRepository,
   PostgresPropertyReferenceRepository,
   createDatabase,
   createPool,
@@ -20,11 +26,14 @@ const propertyReferences = {
   repository: new PostgresPropertyReferenceRepository(db),
   lookupMreProperty: mrePropertyLookup(mreClient),
 };
+const financialAccounts = new PostgresFinancialAccountRepository(db);
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
   verifyPrincipal: mrePrincipalVerifier(mreClient),
   linkPropertyReference: linkPropertyReference(propertyReferences),
   refreshPropertyReference: refreshPropertyReference(propertyReferences),
+  createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
+  closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
 });
 
 // Migrate before accepting requests; a failed migration aborts the start.

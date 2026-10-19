@@ -1,5 +1,7 @@
 import express, { type Express } from 'express';
 import type {
+  CloseFinancialAccount,
+  CreateFinancialAccount,
   LinkPropertyReference,
   PrincipalVerifier,
   RealmPrincipal,
@@ -7,6 +9,7 @@ import type {
 } from '../application/index.js';
 import { requireDeAccess } from './access-middleware.js';
 import { errorHandler } from './errors.js';
+import { financialAccountRoutes } from './financial-accounts.js';
 import { propertyReferenceRoutes } from './property-references.js';
 
 /**
@@ -22,6 +25,9 @@ export interface AppDependencies {
   readonly linkPropertyReference: LinkPropertyReference;
   /** Refresh command (VC-1-02). */
   readonly refreshPropertyReference: RefreshPropertyReference;
+  /** FinancialAccount commands (VC-1-03). */
+  readonly createFinancialAccount: CreateFinancialAccount;
+  readonly closeFinancialAccount: CloseFinancialAccount;
 }
 
 export function createApp(deps: AppDependencies): Express {
@@ -51,6 +57,7 @@ export function createApp(deps: AppDependencies): Express {
     res.json({ status: 'ok', mreRealmId: principal.mreRealmId });
   });
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));
+  api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
   app.use('/api/v1', api);
 
   app.use((_req, res) => {
