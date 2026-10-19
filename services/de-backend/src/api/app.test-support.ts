@@ -11,4 +11,6 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   createManualTransaction: unused,
   importBankStatement: unused,
   getImportBatch: unused,
+  listReviewItems: unused,
+  resolveReviewItem: unused,
 };

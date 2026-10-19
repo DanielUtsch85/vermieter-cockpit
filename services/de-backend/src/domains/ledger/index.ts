@@ -46,9 +46,10 @@ export type {
   RowError,
   StatementError,
 } from './bank-statement.js';
-export { businessDayOf, decideRow, importPostable, isSkippable, normalizedRowJson, sourceRowKey, summarize } from './bank-import.js';
+export { businessDayOf, decideRow, importPostable, keepsExternalId, planResolution, isSkippable, normalizedRowJson, sourceRowKey, summarize } from './bank-import.js';
 export type {
   AmbiguityReason,
+  ConflictingTransaction,
   ImportBatch,
   ImportBatchId,
   ImportBatchStatus,
@@ -56,6 +57,8 @@ export type {
   ImportRepository,
   KnownReviewItem,
   NewImport,
+  ResolveOutcome,
+  ReviewItem,
   ReviewItemId,
   ReviewResolution,
   RowDecision,

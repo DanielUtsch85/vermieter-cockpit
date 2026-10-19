@@ -876,6 +876,16 @@ GET /api/v1/imports/{importBatchId}/review-items
 - **Idempotency:** safe, read-only, repeatable.
 - **Side effects:** none (read-only).
 
+## 32.3a Implementation (VC-1-06a)
+
+- **List** (`GET …/review-items`, optional `status=PENDING|RESOLVED`, other values `400`): `200` with `{ importBatchId, items }`, the items **owned by** the batch in file order. Each item: `reviewItemId`, `importBatchId`, `financialAccountId`, `adapterId`, `adapterVersion`, `status`, `ambiguityReason` (`AMBIGUOUS_CROSS_FILE_MATCH` | `ADAPTER_VERSION_CONFLICT` | `EXTERNAL_ID_CONTENT_CONFLICT`), `normalizedRow` (with `position`, `statementKey`, `rowKey`), `conflictingTransactionIds` **and** `conflictingTransactions` — the conflicting Transactions themselves (dates, amount, direction, counterparty, description, external id, their batch), so the row and what it may duplicate can be shown side by side — `priorReviewItemIds`, `resolution`, `resolvedByAccountId` (the MRE email), `resolvedAt`, `createdTransactionId`, `createdAt`. Unknown and foreign batches are `404`.
+- **Resolve** (`POST …/resolve`, body `{ "resolution": "CREATE" | "SKIP" }`): `200` with the item (as in the list, without `conflictingTransactions`). Missing or invalid `resolution` → `422 VALIDATION_ERROR`; malformed ids → `400`; an item not owned by the path batch, unknown or foreign → `404`.
+  - **Same resolution again:** `200` no-op with `Idempotent-Replayed: true` and the same `createdTransactionId`. **Other resolution:** `409 CONFLICT`, `details.reason = "ALREADY_RESOLVED"`, `details.resolution` = the stored one.
+  - **`CREATE`** creates exactly one `IMPORTED` Transaction from the stored normalized row: the batch's provenance, the owning batch as `importBatchId`, the row's source identity (adapter, statement, row, fingerprint) and a link to the item. It keeps the row's external id unless the reason was `EXTERNAL_ID_CONTENT_CONFLICT` or another Transaction of the account holds that id meanwhile (`data-model.md` §70.4). A row booked after the account's closing day (Europe/Berlin, as for imports, §32.1a) is `409 CONFLICT` with `reason = "ACCOUNT_CLOSED"`; `SKIP` is always possible.
+  - The owning batch's `needsReviewCount` is decremented; at `0` its `status` becomes `COMPLETED`. Its stored per-row outcomes stay as the import answered them.
+  - Resolves serialize with imports into the same account (account row lock, then item row lock); two concurrent `CREATE`s create one Transaction, the second is the replay.
+  - One AuditRecord `RESOLVED` on the `ImportReviewItem` (resolution, reason, conflicts, created Transaction).
+
 ## 32.4 Adapter `generic-csv`, version 1 (VC-1-10)
 
 The first adapter reads any bank's CSV export with a header row. The ledger only sees the normalized row (`domains/ledger/bank-statement.ts`); adapters live in `integrations/bank-import/` behind the `BankStatementAdapter` port and are selected by `adapterId` + `adapterVersion`.

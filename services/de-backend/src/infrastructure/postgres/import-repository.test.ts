@@ -425,6 +425,221 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
     expect(await count('ledger_transaction', accountId)).toBe(3);
   });
 
+  describe('review items (VC-1-06a)', () => {
+    type NeedsReview = Extract<RowOutcome, { outcome: 'needs_review' }>;
+    const reviewRows = (batch: ImportBatch) => batch.rows.filter((r): r is NeedsReview => r.outcome === 'needs_review');
+    const resolve = (batchId: string, itemId: string, resolution: 'CREATE' | 'SKIP', realm = REALM) =>
+      imports.resolveReviewItem(batchId, itemId, realm, resolution, actor);
+    /** An account whose second import of September (reordered) produced two pending items. */
+    async function withReview() {
+      const accountId = await openAccount();
+      const first = await run(accountId, statement(september));
+      const reordered = [september[1], september[0]] as RowSpec[];
+      const owning = await run(accountId, statement(reordered));
+      return { accountId, first, owning, reordered, items: reviewRows(owning) };
+    }
+
+    it('lists only the items the batch owns, in file order, with the conflicting Transactions', async () => {
+      const { accountId, first, owning, reordered, items } = await withReview();
+      const later = await run(accountId, statement(reordered));
+      expect(reviewRows(later).map((r) => r.importBatchId)).toEqual([owning.id, owning.id]);
+
+      const listed = await imports.listReviewItems(owning.id, REALM);
+      expect(listed?.items.map((i) => [i.id, i.status, i.ambiguityReason, i.sourceRowKey])).toEqual([
+        [items[0]?.reviewItemId, 'PENDING', 'AMBIGUOUS_CROSS_FILE_MATCH', 'pos:1'],
+        [items[1]?.reviewItemId, 'PENDING', 'AMBIGUOUS_CROSS_FILE_MATCH', 'pos:2'],
+      ]);
+      expect(listed?.conflicting.map((t) => [t.id, t.amount.amount, t.description]).sort()).toEqual(
+        [
+          [created(first)[0], '1250.00', 'Miete September Whg 1'],
+          [created(first)[1], '980.00', 'Miete September Whg 2'],
+        ].sort(),
+      );
+      expect((await imports.listReviewItems(later.id, REALM))?.items).toEqual([]);
+      expect(await imports.listReviewItems(owning.id, OTHER_REALM)).toBeUndefined();
+      expect((await imports.listReviewItems(owning.id, REALM, 'RESOLVED'))?.items).toEqual([]);
+    });
+
+    it('CREATE makes exactly one IMPORTED Transaction, closes the batch with its last item and audits', async () => {
+      const { accountId, owning, items } = await withReview();
+      const [a, b] = items;
+      if (a === undefined || b === undefined) throw new Error('expected two items');
+
+      const created1 = await resolve(owning.id, a.reviewItemId, 'CREATE');
+      if (created1.kind !== 'RESOLVED') throw new Error(created1.kind);
+      expect(created1).toMatchObject({
+        replayed: false,
+        item: { status: 'RESOLVED', resolution: 'CREATE', resolvedBy: 'anna@example.com' },
+      });
+      const transactionId = created1.item.createdTransactionId;
+      const { rows } = await pool.query(
+        `SELECT amount::text, provenance, status, import_batch_id, import_review_item_id, source_row_key, external_transaction_id
+           FROM ledger_transaction WHERE id = $1`,
+        [transactionId],
+      );
+      expect(rows).toEqual([
+        {
+          amount: '980.00',
+          provenance: 'BANK_CSV',
+          status: 'IMPORTED',
+          import_batch_id: owning.id,
+          import_review_item_id: a.reviewItemId,
+          source_row_key: 'pos:1',
+          external_transaction_id: null,
+        },
+      ]);
+      expect(await imports.findBatch(owning.id, REALM)).toMatchObject({ needsReviewCount: 1, status: 'NEEDS_REVIEW' });
+
+      expect(await resolve(owning.id, b.reviewItemId, 'SKIP')).toMatchObject({
+        kind: 'RESOLVED',
+        item: { resolution: 'SKIP', createdTransactionId: null },
+      });
+      expect(await imports.findBatch(owning.id, REALM)).toMatchObject({ needsReviewCount: 0, status: 'COMPLETED' });
+      expect(await count('ledger_transaction', accountId)).toBe(4);
+
+      const audit = await pool.query(
+        `SELECT action, metadata FROM audit_record WHERE entity_type = 'ImportReviewItem' AND entity_id = $1`,
+        [a.reviewItemId],
+      );
+      expect(audit.rows).toEqual([
+        { action: 'RESOLVED', metadata: expect.objectContaining({ resolution: 'CREATE', createdTransactionId: transactionId }) },
+      ]);
+    });
+
+    it('the same resolution again is a no-op replay; the other one is refused; nothing changes', async () => {
+      const { accountId, owning, items } = await withReview();
+      const id = items[0]?.reviewItemId ?? '';
+      const first = await resolve(owning.id, id, 'CREATE');
+      const again = await resolve(owning.id, id, 'CREATE');
+      expect(again).toMatchObject({ kind: 'RESOLVED', replayed: true });
+      expect(
+        again.kind === 'RESOLVED' && first.kind === 'RESOLVED' && again.item.createdTransactionId === first.item.createdTransactionId,
+      ).toBe(true);
+      expect(await resolve(owning.id, id, 'SKIP')).toMatchObject({ kind: 'RESOLUTION_CONFLICT', item: { resolution: 'CREATE' } });
+      expect(await count('ledger_transaction', accountId)).toBe(4);
+      expect(await imports.findBatch(owning.id, REALM)).toMatchObject({ needsReviewCount: 1 });
+    });
+
+    it('re-importing after the decision reports the stored decision, with the created Transaction after CREATE', async () => {
+      const { accountId, owning, reordered, items } = await withReview();
+      const [a, b] = items;
+      const createdItem = await resolve(owning.id, a?.reviewItemId ?? '', 'CREATE');
+      await resolve(owning.id, b?.reviewItemId ?? '', 'SKIP');
+      const again = await run(accountId, statement(reordered));
+      expect(again).toMatchObject({ transactionCount: 0, duplicateCount: 2, needsReviewCount: 0 });
+      expect(again.rows).toEqual([
+        {
+          outcome: 'duplicate',
+          position: 1,
+          duplicateOf: 'RESOLVED_REVIEW_ITEM',
+          reviewItemId: a?.reviewItemId,
+          importBatchId: owning.id,
+          resolution: 'CREATE',
+          createdTransactionId: createdItem.kind === 'RESOLVED' ? createdItem.item.createdTransactionId : undefined,
+        },
+        {
+          outcome: 'duplicate',
+          position: 2,
+          duplicateOf: 'RESOLVED_REVIEW_ITEM',
+          reviewItemId: b?.reviewItemId,
+          importBatchId: owning.id,
+          resolution: 'SKIP',
+        },
+      ]);
+    });
+
+    it('only the owning batch path resolves an item; other batches and Realms do not find it', async () => {
+      const { accountId, owning, reordered, items } = await withReview();
+      const later = await run(accountId, statement(reordered));
+      const id = items[0]?.reviewItemId ?? '';
+      expect(await resolve(later.id, id, 'SKIP')).toEqual({ kind: 'NOT_FOUND' });
+      expect(await resolve(owning.id, id, 'SKIP', OTHER_REALM)).toEqual({ kind: 'NOT_FOUND' });
+      expect(await resolve(owning.id, 'nope', 'SKIP')).toEqual({ kind: 'NOT_FOUND' });
+      expect((await imports.listReviewItems(owning.id, REALM, 'PENDING'))?.items).toHaveLength(2);
+    });
+
+    it('CREATE after an external-id content conflict creates the Transaction without the id; a re-import references the item', async () => {
+      const accountId = await openAccount();
+      const rows = [
+        { externalTransactionId: 'E2E-REUSED', amount: '750.00', description: 'Miete Whg 1' },
+        { externalTransactionId: 'E2E-REUSED', amount: '980.00', description: 'Miete Whg 2' },
+      ];
+      const batch = await run(accountId, statement(rows));
+      const [conflict] = reviewRows(batch);
+      expect(conflict?.reason).toBe('EXTERNAL_ID_CONTENT_CONFLICT');
+      const outcome = await resolve(batch.id, conflict?.reviewItemId ?? '', 'CREATE');
+      if (outcome.kind !== 'RESOLVED') throw new Error(outcome.kind);
+      const stored = await pool.query(
+        `SELECT amount::text, external_transaction_id FROM ledger_transaction WHERE financial_account_id = $1 ORDER BY amount`,
+        [accountId],
+      );
+      expect(stored.rows).toEqual([
+        { amount: '750.00', external_transaction_id: 'E2E-REUSED' },
+        { amount: '980.00', external_transaction_id: null },
+      ]);
+
+      const retry = await run(accountId, statement(rows));
+      expect(retry.rows).toEqual([
+        { outcome: 'duplicate', position: 1, duplicateOf: 'TRANSACTION', transactionId: created(batch)[0] },
+        {
+          outcome: 'duplicate',
+          position: 2,
+          duplicateOf: 'RESOLVED_REVIEW_ITEM',
+          reviewItemId: conflict?.reviewItemId,
+          importBatchId: batch.id,
+          resolution: 'CREATE',
+          createdTransactionId: outcome.item.createdTransactionId,
+        },
+      ]);
+    });
+
+    it('CREATE keeps a free external id, drops a taken one, and may share a source position with an earlier Transaction', async () => {
+      const accountId = await openAccount();
+      const rent = { description: 'Miete Oktober', bookingDate: '2026-10-01' as BusinessDate };
+      await run(accountId, statement([rent]));
+      const withId = await run(accountId, withExternalId(statement([rent]), 'E-1'));
+      const [item] = reviewRows(withId);
+      // Meanwhile another statement brings a different payment with the same id.
+      await run(accountId, statement([{ externalTransactionId: 'E-1', amount: '5.00', description: 'Gebühr' }]));
+
+      const outcome = await resolve(withId.id, item?.reviewItemId ?? '', 'CREATE');
+      if (outcome.kind !== 'RESOLVED') throw new Error(outcome.kind);
+      const stored = await pool.query(`SELECT external_transaction_id, source_row_key FROM ledger_transaction WHERE id = $1`, [
+        outcome.item.createdTransactionId,
+      ]);
+      // Same statement, position and adapter as the first import's Transaction: allowed for a decided item.
+      expect(stored.rows).toEqual([{ external_transaction_id: null, source_row_key: 'pos:1' }]);
+
+      const free = await openAccount();
+      await run(free, statement([rent]));
+      const freeBatch = await run(free, withExternalId(statement([rent]), 'E-7'));
+      const freeOutcome = await resolve(freeBatch.id, reviewRows(freeBatch)[0]?.reviewItemId ?? '', 'CREATE');
+      const kept = await pool.query(`SELECT external_transaction_id FROM ledger_transaction WHERE id = $1`, [
+        freeOutcome.kind === 'RESOLVED' ? freeOutcome.item.createdTransactionId : null,
+      ]);
+      expect(kept.rows).toEqual([{ external_transaction_id: 'E-7' }]);
+    });
+
+    it('CREATE refuses a row booked after the account was closed; SKIP still resolves it', async () => {
+      const accountId = await openAccount();
+      await run(accountId, statement([{ bookingDate: '2026-09-20' as BusinessDate }]));
+      const batch = await run(accountId, statement([{ bookingDate: '2026-09-20' as BusinessDate }, { description: 'x', amount: '1.00' }]));
+      const [item] = reviewRows(batch);
+      await accounts.close(accountId, REALM, new Date('2026-09-15T10:00:00Z'), actor);
+      expect(await resolve(batch.id, item?.reviewItemId ?? '', 'CREATE')).toMatchObject({ kind: 'ACCOUNT_CLOSED' });
+      expect(await resolve(batch.id, item?.reviewItemId ?? '', 'SKIP')).toMatchObject({ kind: 'RESOLVED', item: { resolution: 'SKIP' } });
+    });
+
+    it('two concurrent CREATE resolutions create one Transaction', async () => {
+      const { accountId, owning, items } = await withReview();
+      const id = items[0]?.reviewItemId ?? '';
+      const outcomes = await Promise.all([resolve(owning.id, id, 'CREATE'), resolve(owning.id, id, 'CREATE')]);
+      expect(outcomes.map((o) => o.kind === 'RESOLVED' && o.replayed).sort()).toEqual([false, true]);
+      expect(await count('ledger_transaction', accountId)).toBe(4);
+      expect(await imports.findBatch(owning.id, REALM)).toMatchObject({ needsReviewCount: 1 });
+    });
+  });
+
   it('the schema itself refuses a second Transaction or review item for one source identity', async () => {
     const accountId = await openAccount();
     const first = await run(accountId, statement(september));

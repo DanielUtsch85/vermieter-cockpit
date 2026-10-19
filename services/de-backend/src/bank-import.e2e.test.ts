@@ -4,7 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { unusedCommands } from './api/app.test-support.js';
-import { createFinancialAccount, getImportBatch, importBankStatement } from './application/index.js';
+import { createFinancialAccount, getImportBatch, importBankStatement, listReviewItems, resolveReviewItem } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
   PostgresImportRepository,
@@ -16,7 +16,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
 
-/** VC-1-05/06 end to end, wired as in main.ts: a real CSV through generic-csv v1 into PostgreSQL. */
+/** VC-1-05/06/06a end to end, wired as in main.ts: a real CSV through generic-csv v1 into PostgreSQL. */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
 const REALM_A = '64b0c0ffee0000000000000a';
@@ -67,6 +67,8 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
       createFinancialAccount: createFinancialAccount({ repository: accounts }),
       importBankStatement: importBankStatement({ imports, accounts, findAdapter: findBankStatementAdapter }),
       getImportBatch: getImportBatch({ imports }),
+      listReviewItems: listReviewItems({ imports }),
+      resolveReviewItem: resolveReviewItem({ imports }),
     }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -142,6 +144,46 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
     expect(fetched.status).toBe(200);
     expect(await fetched.json()).toEqual(batch);
     expect((await fetch(`${base}/api/v1/imports/${batch.importBatchId}`, { headers: headers(REALM_B) })).status).toBe(404);
+  });
+
+  it('lists the review items of a reordered file and resolves them; the batch completes and a re-import reports the decisions', async () => {
+    const accountId = await newAccount();
+    await upload(REALM_A, accountId, csv);
+    const review = (await (await upload(REALM_A, accountId, reordered)).json()) as { importBatchId: string };
+    const listed = (await (
+      await fetch(`${base}/api/v1/imports/${review.importBatchId}/review-items`, { headers: headers(REALM_A) })
+    ).json()) as {
+      items: { reviewItemId: string; normalizedRow: { description: string }; conflictingTransactions: { description: string }[] }[];
+    };
+    expect(listed.items.map((i) => [i.normalizedRow.description, i.conflictingTransactions.map((t) => t.description)])).toEqual([
+      ['Hausgeld', ['Hausgeld']],
+      ['Miete September', ['Miete September']],
+    ]);
+    const [hausgeld, miete] = listed.items;
+    const resolveAs = (id: string, resolution: string, realm = REALM_A) =>
+      fetch(`${base}/api/v1/imports/${review.importBatchId}/review-items/${id}/resolve`, {
+        method: 'POST',
+        headers: { ...headers(realm), 'content-type': 'application/json' },
+        body: JSON.stringify({ resolution }),
+      });
+
+    expect((await resolveAs(hausgeld?.reviewItemId ?? '', 'SKIP', REALM_B)).status).toBe(404);
+    expect((await resolveAs(hausgeld?.reviewItemId ?? '', 'SKIP')).status).toBe(200);
+    const created = await resolveAs(miete?.reviewItemId ?? '', 'CREATE');
+    expect(created.status).toBe(200);
+    const createdItem = (await created.json()) as { createdTransactionId: string };
+    expect((await resolveAs(miete?.reviewItemId ?? '', 'CREATE')).headers.get('idempotent-replayed')).toBe('true');
+    expect((await resolveAs(miete?.reviewItemId ?? '', 'SKIP')).status).toBe(409);
+
+    const batch = await (await fetch(`${base}/api/v1/imports/${review.importBatchId}`, { headers: headers(REALM_A) })).json();
+    expect(batch).toMatchObject({ status: 'COMPLETED', needsReviewCount: 0 });
+    const again = (await (await upload(REALM_A, accountId, reordered)).json()) as { rows: unknown[] };
+    expect(again.rows).toEqual([
+      expect.objectContaining({ outcome: 'duplicate', duplicateOf: 'RESOLVED_REVIEW_ITEM', resolution: 'SKIP' }),
+      expect.objectContaining({ outcome: 'duplicate', resolution: 'CREATE', createdTransactionId: createdItem.createdTransactionId }),
+    ]);
+    const count = await pool.query('SELECT count(*) FROM ledger_transaction WHERE financial_account_id = $1', [accountId]);
+    expect(Number(count.rows[0].count)).toBe(3);
   });
 
   it("another Realm's account is 404 and a broken file is 400 IMPORT_ERROR; neither stores a batch", async () => {

@@ -4,7 +4,7 @@
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
 # VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction;
-# VC-1-05/06: import a bank CSV, re-import it as duplicates.
+# VC-1-05/06: import a bank CSV, re-import it as duplicates; VC-1-06a: review and resolve a reordered file.
 set -euo pipefail
 
 MRE=${MRE:-http://localhost:8080/api/v2}
@@ -167,6 +167,22 @@ expect "re-import duplicates" "$(echo "$import_body" | jq -r '"\(.transactionCou
 batch_status=$(curl -s -o /dev/null -w '%{http_code}' "$DE/imports/$import_batch_id" \
   -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
 expect "get import batch" "$batch_status" 200
+# The same rows in another order are another statement: both go to review, nothing is booked.
+printf 'Buchungstag;Betrag;Verwendungszweck\r\n02.09.2026;-310,40;Hausgeld\r\n01.09.2026;1.250,00;Miete September\r\n' >"$statement_file"
+bank_import
+expect "reordered import needs review" "$(echo "$import_body" | jq -r '"\(.status)/\(.needsReviewCount)"')" "NEEDS_REVIEW/2"
+review_batch_id=$(echo "$import_body" | jq -r .importBatchId)
+review_items=$(curl -s "$DE/imports/$review_batch_id/review-items" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
+expect "review items listed" "$(echo "$review_items" | jq -r '.items | length')" 2
+for review_item_id in $(echo "$review_items" | jq -r '.items[].reviewItemId'); do
+  resolve_status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$DE/imports/$review_batch_id/review-items/$review_item_id/resolve" \
+    -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' \
+    -d '{"resolution":"SKIP"}')
+  expect "resolve review item" "$resolve_status" 200
+done
+expect "batch completed after review" "$(curl -s "$DE/imports/$review_batch_id" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" | jq -r .status)" COMPLETED
 rm -f "$statement_file"
 
 curl -fsS -o /dev/null -X POST "$DE/financial-accounts/$ledger_account/close" \

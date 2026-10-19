@@ -1,7 +1,7 @@
-import type { AuditActor } from '../../shared/index.js';
+import type { AuditActor, Money } from '../../shared/index.js';
 import type { NormalizedBankRow, ParsedStatement, RowError } from './bank-statement.js';
 import type { FinancialAccount, FinancialAccountId } from './financial-account.js';
-import type { BusinessDate, Provenance } from './transaction.js';
+import type { BusinessDate, Direction, Provenance } from './transaction.js';
 
 /**
  * Bank import (api-design.md §32.1, data-model.md §20, §20A, §70): turns a
@@ -250,6 +250,76 @@ export interface NewImport {
   readonly sourceFilename: string | null;
 }
 
+/** An ImportReviewItem (data-model.md §20A) as listed and resolved. */
+export interface ReviewItem {
+  readonly id: ReviewItemId;
+  /** The owning batch (first seen). */
+  readonly importBatchId: ImportBatchId;
+  readonly mreRealmId: string;
+  readonly financialAccountId: FinancialAccountId;
+  readonly adapterId: string;
+  readonly adapterVersion: string;
+  readonly sourceStatementKey: string;
+  readonly sourceRowKey: string;
+  /** The normalized row as imported (§70.2–70.3), with its position and source keys. */
+  readonly normalizedRow: Readonly<Record<string, unknown>>;
+  readonly ambiguityReason: AmbiguityReason;
+  readonly conflictingTransactionIds: readonly string[];
+  readonly priorReviewItemIds: readonly string[];
+  readonly status: 'PENDING' | 'RESOLVED';
+  readonly resolution: ReviewResolution | null;
+  readonly resolvedBy: string | null;
+  readonly resolvedAt: Date | null;
+  readonly createdTransactionId: string | null;
+  readonly createdAt: Date;
+}
+
+/** A Transaction an item may duplicate, shown next to the row so the decision can be made (review note on #14). */
+export interface ConflictingTransaction {
+  readonly id: string;
+  readonly bookingDate: BusinessDate;
+  readonly valueDate: BusinessDate | null;
+  readonly amount: Money;
+  readonly direction: Direction;
+  readonly description: string | null;
+  readonly counterpartyNameRaw: string | null;
+  readonly counterpartyIbanRaw: string | null;
+  readonly externalTransactionId: string | null;
+  readonly importBatchId: string | null;
+}
+
+/**
+ * What a resolve request does with an item (api-design.md §32.2): a PENDING item
+ * is decided; a RESOLVED one answers the same resolution as a no-op replay and
+ * refuses a different one — a review decision is never silently reversed.
+ */
+export function planResolution(
+  item: Pick<ReviewItem, 'status' | 'resolution'>,
+  resolution: ReviewResolution,
+): 'APPLY' | 'REPLAY' | 'CONFLICT' {
+  if (item.status === 'PENDING') return 'APPLY';
+  return item.resolution === resolution ? 'REPLAY' : 'CONFLICT';
+}
+
+/**
+ * Whether a `CREATE` resolution keeps the row's external id on the new
+ * Transaction. Not after an EXTERNAL_ID_CONTENT_CONFLICT (the id belongs to the
+ * other payment), and not when another Transaction holds it meanwhile: an
+ * external id stays unique per account (§70.1). The Transaction keeps its
+ * source-row identity either way, so a re-import references the resolved item.
+ */
+export function keepsExternalId(reason: AmbiguityReason, idTaken: boolean): boolean {
+  return reason !== 'EXTERNAL_ID_CONTENT_CONFLICT' && !idTaken;
+}
+
+export type ResolveOutcome =
+  | { readonly kind: 'RESOLVED'; readonly item: ReviewItem; readonly replayed: boolean }
+  | { readonly kind: 'NOT_FOUND' }
+  /** Already RESOLVED with the other resolution (→ 409). */
+  | { readonly kind: 'RESOLUTION_CONFLICT'; readonly item: ReviewItem }
+  /** CREATE on an account closed before the row's booking date (→ 409, as for imports). */
+  | { readonly kind: 'ACCOUNT_CLOSED'; readonly item: ReviewItem };
+
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface ImportRepository {
   /**
@@ -260,6 +330,29 @@ export interface ImportRepository {
   importStatement(input: NewImport, actor: AuditActor): Promise<ImportOutcome>;
   /** Only within the given Realm: another Realm's batch is not found. */
   findBatch(id: string, mreRealmId: string): Promise<ImportBatch | undefined>;
+  /**
+   * The items owned by the batch (never those of other batches it re-presented),
+   * in file order, with the Transactions they conflict with. Undefined when the
+   * batch is not in the Realm.
+   */
+  listReviewItems(
+    importBatchId: string,
+    mreRealmId: string,
+    status?: ReviewItem['status'],
+  ): Promise<{ readonly items: readonly ReviewItem[]; readonly conflicting: readonly ConflictingTransaction[] } | undefined>;
+  /**
+   * In one transaction, serialized with imports into the account: applies
+   * `planResolution`; on CREATE inserts exactly one IMPORTED Transaction; marks
+   * the item RESOLVED, decrements the owning batch's needsReviewCount and writes
+   * the AuditRecord. The item must be owned by `importBatchId`.
+   */
+  resolveReviewItem(
+    importBatchId: string,
+    reviewItemId: string,
+    mreRealmId: string,
+    resolution: ReviewResolution,
+    actor: AuditActor,
+  ): Promise<ResolveOutcome>;
 }
 
 /** The normalized row as stored on a review item (§20A `normalizedRow`). */

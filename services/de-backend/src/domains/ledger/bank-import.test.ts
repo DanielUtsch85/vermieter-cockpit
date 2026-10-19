@@ -4,6 +4,8 @@ import {
   decideRow,
   importPostable,
   isSkippable,
+  keepsExternalId,
+  planResolution,
   sourceRowKey,
   summarize,
   type KnownReviewItem,
@@ -180,5 +182,19 @@ describe('summarize / isSkippable', () => {
         { field: 'bookingDate', code: 'REQUIRED' },
       ]),
     ).toBe(false);
+  });
+});
+
+describe('planResolution / keepsExternalId (api-design.md §32.2, data-model.md §70.4)', () => {
+  it('decides a PENDING item, replays the same resolution, refuses the other', () => {
+    expect(planResolution({ status: 'PENDING', resolution: null }, 'CREATE')).toBe('APPLY');
+    expect(planResolution({ status: 'RESOLVED', resolution: 'SKIP' }, 'SKIP')).toBe('REPLAY');
+    expect(planResolution({ status: 'RESOLVED', resolution: 'SKIP' }, 'CREATE')).toBe('CONFLICT');
+  });
+
+  it('keeps the external id only when it belongs to nobody else', () => {
+    expect(keepsExternalId('AMBIGUOUS_CROSS_FILE_MATCH', false)).toBe(true);
+    expect(keepsExternalId('AMBIGUOUS_CROSS_FILE_MATCH', true)).toBe(false);
+    expect(keepsExternalId('EXTERNAL_ID_CONTENT_CONFLICT', false)).toBe(false);
   });
 });

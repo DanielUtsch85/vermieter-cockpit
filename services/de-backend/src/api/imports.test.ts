@@ -2,16 +2,24 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  FinancialAccountClosedError,
   FinancialAccountNotFoundError,
   ImportBatchNotFoundError,
   ImportFileError,
+  ReviewItemNotFoundError,
+  ReviewResolutionConflictError,
   UnsupportedAdapterError,
+  type ConflictingTransaction,
   type GetImportBatch,
   type ImportBankStatement,
   type ImportBankStatementInput,
   type ImportBatch,
+  type ListReviewItems,
   type PrincipalVerifier,
+  type ResolveReviewItem,
+  type ReviewItem,
 } from '../application/index.js';
+import { Money } from '../shared/index.js';
 import { createApp } from './app.js';
 import { unusedCommands } from './app.test-support.js';
 import { MAX_IMPORT_FILE_BYTES } from './imports.js';
@@ -46,13 +54,20 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
 
 let server: Server | undefined;
 
-async function start(commands: { importStatement?: ImportBankStatement; getBatch?: GetImportBatch }): Promise<string> {
+async function start(commands: {
+  importStatement?: ImportBankStatement;
+  getBatch?: GetImportBatch;
+  listReviewItems?: ListReviewItems;
+  resolveReviewItem?: ResolveReviewItem;
+}): Promise<string> {
   server = createApp({
     isReady: async () => true,
     verifyPrincipal: admin,
     ...unusedCommands,
     ...(commands.importStatement === undefined ? {} : { importBankStatement: commands.importStatement }),
     ...(commands.getBatch === undefined ? {} : { getImportBatch: commands.getBatch }),
+    ...(commands.listReviewItems === undefined ? {} : { listReviewItems: commands.listReviewItems }),
+    ...(commands.resolveReviewItem === undefined ? {} : { resolveReviewItem: commands.resolveReviewItem }),
   }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -211,5 +226,178 @@ describe('GET /api/v1/imports/{importBatchId}', () => {
 
     const unknown = await fetch(`${base}/api/v1/imports/${ACCOUNT}`, { headers: auth });
     expect(unknown.status).toBe(404);
+  });
+});
+
+const ITEM = '9c8b7a6f-5e4d-4c3b-8a29-18f7e6d5c4b3';
+const TX = '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+const item = {
+  id: ITEM,
+  importBatchId: BATCH,
+  mreRealmId: REALM,
+  financialAccountId: ACCOUNT,
+  adapterId: 'generic-csv',
+  adapterVersion: '1',
+  sourceStatementKey: 'sha256:abc',
+  sourceRowKey: 'pos:2',
+  normalizedRow: { bookingDate: '2026-09-01', amount: { amount: '980.00', currency: 'EUR' }, direction: 'INFLOW', position: 2 },
+  ambiguityReason: 'AMBIGUOUS_CROSS_FILE_MATCH',
+  conflictingTransactionIds: [TX],
+  priorReviewItemIds: [],
+  status: 'PENDING',
+  resolution: null,
+  resolvedBy: null,
+  resolvedAt: null,
+  createdTransactionId: null,
+  createdAt: new Date('2026-10-19T08:00:00Z'),
+} as unknown as ReviewItem;
+const conflicting = {
+  id: TX,
+  bookingDate: '2026-09-01',
+  valueDate: null,
+  amount: Money.of('980.00', 'EUR'),
+  direction: 'INFLOW',
+  description: 'Miete',
+  counterpartyNameRaw: 'Max Mieter',
+  counterpartyIbanRaw: null,
+  externalTransactionId: null,
+  importBatchId: '11111111-2222-4333-8444-555555555555',
+} as unknown as ConflictingTransaction;
+
+describe('GET /api/v1/imports/{importBatchId}/review-items', () => {
+  it('200 with the owned items, each next to the Transactions it conflicts with; the status filter is passed on', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      listReviewItems: async (input) => {
+        seen.push(input.status);
+        return { items: [item], conflicting: [conflicting] };
+      },
+    });
+    const res = await fetch(`${base}/api/v1/imports/${BATCH}/review-items?status=PENDING`, { headers: auth });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      importBatchId: BATCH,
+      items: [
+        {
+          reviewItemId: ITEM,
+          importBatchId: BATCH,
+          financialAccountId: ACCOUNT,
+          adapterId: 'generic-csv',
+          adapterVersion: '1',
+          status: 'PENDING',
+          ambiguityReason: 'AMBIGUOUS_CROSS_FILE_MATCH',
+          normalizedRow: { bookingDate: '2026-09-01', amount: { amount: '980.00', currency: 'EUR' }, direction: 'INFLOW', position: 2 },
+          conflictingTransactionIds: [TX],
+          conflictingTransactions: [
+            {
+              transactionId: TX,
+              importBatchId: '11111111-2222-4333-8444-555555555555',
+              bookingDate: '2026-09-01',
+              valueDate: null,
+              amount: { amount: '980.00', currency: 'EUR' },
+              direction: 'INFLOW',
+              counterpartyNameRaw: 'Max Mieter',
+              counterpartyIbanRaw: null,
+              description: 'Miete',
+              externalTransactionId: null,
+            },
+          ],
+          priorReviewItemIds: [],
+          resolution: null,
+          resolvedByAccountId: null,
+          resolvedAt: null,
+          createdTransactionId: null,
+          createdAt: '2026-10-19T08:00:00.000Z',
+        },
+      ],
+    });
+    expect(seen).toEqual(['PENDING']);
+  });
+
+  it('400 for a non-UUID or an unknown status; 404 for an unknown batch', async () => {
+    const base = await start({
+      listReviewItems: ({ importBatchId }) => Promise.reject(new ImportBatchNotFoundError(importBatchId)),
+    });
+    const invalid = await fetch(`${base}/api/v1/imports/nope/review-items?status=OPEN`, { headers: auth });
+    expect(invalid.status).toBe(400);
+    expect((await errorOf(invalid)).details.fields).toEqual([
+      { field: 'importBatchId', code: 'INVALID_FORMAT' },
+      { field: 'status', code: 'INVALID_FORMAT' },
+    ]);
+    expect((await fetch(`${base}/api/v1/imports/${BATCH}/review-items`, { headers: auth })).status).toBe(404);
+  });
+});
+
+describe('POST /api/v1/imports/{importBatchId}/review-items/{reviewItemId}/resolve', () => {
+  const resolveAt = (base: string, body: unknown, batch = BATCH, reviewItem = ITEM) =>
+    fetch(`${base}/api/v1/imports/${batch}/review-items/${reviewItem}/resolve`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+  it('200 with the resolved item; a replay is marked', async () => {
+    const resolved = {
+      ...item,
+      status: 'RESOLVED',
+      resolution: 'CREATE',
+      resolvedBy: 'anna@example.com',
+      resolvedAt: new Date('2026-10-19T09:00:00Z'),
+      createdTransactionId: TX,
+    } as unknown as ReviewItem;
+    const seen: unknown[] = [];
+    let replayed = false;
+    const base = await start({
+      resolveReviewItem: async (input) => {
+        seen.push(input);
+        const result = { item: resolved, replayed };
+        replayed = true;
+        return result;
+      },
+    });
+    const first = await resolveAt(base, { resolution: 'CREATE' }, BATCH.toUpperCase());
+    expect(first.status).toBe(200);
+    expect(first.headers.get('idempotent-replayed')).toBeNull();
+    expect(await first.json()).toMatchObject({
+      reviewItemId: ITEM,
+      status: 'RESOLVED',
+      resolution: 'CREATE',
+      resolvedByAccountId: 'anna@example.com',
+      resolvedAt: '2026-10-19T09:00:00.000Z',
+      createdTransactionId: TX,
+    });
+    expect(seen[0]).toMatchObject({ importBatchId: BATCH, reviewItemId: ITEM, resolution: 'CREATE' });
+    const again = await resolveAt(base, { resolution: 'CREATE' });
+    expect(again.headers.get('idempotent-replayed')).toBe('true');
+  });
+
+  it('422 for an invalid or missing resolution, 400 for malformed ids', async () => {
+    const base = await start({});
+    for (const body of [{ resolution: 'MERGE' }, {}]) {
+      const res = await resolveAt(base, body);
+      expect(res.status).toBe(422);
+      expect((await errorOf(res)).code).toBe('VALIDATION_ERROR');
+    }
+    expect((await resolveAt(base, { resolution: 'SKIP' }, 'x', 'y')).status).toBe(400);
+  });
+
+  it('maps 404 not owned/unknown, 409 resolved differently, 409 account closed', async () => {
+    const errors = [
+      [new ReviewItemNotFoundError(ITEM), 404, { code: 'NOT_FOUND' }],
+      [
+        new ReviewResolutionConflictError({ ...item, resolution: 'SKIP' } as ReviewItem),
+        409,
+        { code: 'CONFLICT', details: { reason: 'ALREADY_RESOLVED', resolution: 'SKIP' } },
+      ],
+      [new FinancialAccountClosedError(ACCOUNT), 409, { code: 'CONFLICT', details: { reason: 'ACCOUNT_CLOSED' } }],
+    ] as const;
+    for (const [error, status, body] of errors) {
+      const base = await start({ resolveReviewItem: () => Promise.reject(error) });
+      const res = await resolveAt(base, { resolution: 'CREATE' });
+      expect(res.status).toBe(status);
+      expect(await errorOf(res)).toMatchObject(body);
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      server = undefined;
+    }
   });
 });

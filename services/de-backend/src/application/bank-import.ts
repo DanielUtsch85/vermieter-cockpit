@@ -1,12 +1,16 @@
 import type {
   BankStatementAdapter,
+  ConflictingTransaction,
+  FinancialAccountRepository,
   ImportBatch,
   ImportRepository,
-  FinancialAccountRepository,
+  ReviewItem,
+  ReviewResolution,
   StatementError,
 } from '../domains/ledger/index.js';
 import type { RealmPrincipal } from './access.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
+import { FinancialAccountClosedError } from './transactions.js';
 
 /**
  * Bank import (api-design.md §32.1, backlog VC-1-05/06): parses an uploaded
@@ -96,5 +100,70 @@ export function getImportBatch(deps: { readonly imports: ImportRepository }): Ge
     const batch = await deps.imports.findBatch(importBatchId, principal.mreRealmId);
     if (batch === undefined) throw new ImportBatchNotFoundError(importBatchId);
     return batch;
+  };
+}
+
+export type ListReviewItems = (input: {
+  readonly principal: RealmPrincipal;
+  readonly importBatchId: string;
+  readonly status?: ReviewItem['status'];
+}) => Promise<{ readonly items: readonly ReviewItem[]; readonly conflicting: readonly ConflictingTransaction[] }>;
+
+/** List review items (api-design.md §32.3): only those owned by the batch. */
+export function listReviewItems(deps: { readonly imports: ImportRepository }): ListReviewItems {
+  return async ({ principal, importBatchId, status }) => {
+    const listed = await deps.imports.listReviewItems(importBatchId, principal.mreRealmId, status);
+    if (listed === undefined) throw new ImportBatchNotFoundError(importBatchId);
+    return listed;
+  };
+}
+
+export class ReviewItemNotFoundError extends Error {
+  override readonly name = 'ReviewItemNotFoundError';
+
+  constructor(readonly reviewItemId: string) {
+    super(`ImportReviewItem ${reviewItemId} not found`);
+  }
+}
+
+/** The item is already RESOLVED with the other resolution (→ 409): a decision is never silently reversed. */
+export class ReviewResolutionConflictError extends Error {
+  override readonly name = 'ReviewResolutionConflictError';
+
+  constructor(readonly item: ReviewItem) {
+    super(`ImportReviewItem ${item.id} is already resolved as ${item.resolution ?? ''}`);
+  }
+}
+
+export interface ResolveReviewItemResult {
+  readonly item: ReviewItem;
+  /** true when the item was already resolved the same way (a 200 no-op). */
+  readonly replayed: boolean;
+}
+
+export type ResolveReviewItem = (input: {
+  readonly principal: RealmPrincipal;
+  readonly importBatchId: string;
+  readonly reviewItemId: string;
+  readonly resolution: ReviewResolution;
+}) => Promise<ResolveReviewItemResult>;
+
+/** Resolve an ambiguous review item (api-design.md §32.2). */
+export function resolveReviewItem(deps: { readonly imports: ImportRepository }): ResolveReviewItem {
+  return async ({ principal, importBatchId, reviewItemId, resolution }) => {
+    const outcome = await deps.imports.resolveReviewItem(importBatchId, reviewItemId, principal.mreRealmId, resolution, {
+      actorType: 'USER',
+      actorId: principal.email,
+    });
+    switch (outcome.kind) {
+      case 'RESOLVED':
+        return { item: outcome.item, replayed: outcome.replayed };
+      case 'NOT_FOUND':
+        throw new ReviewItemNotFoundError(reviewItemId);
+      case 'RESOLUTION_CONFLICT':
+        throw new ReviewResolutionConflictError(outcome.item);
+      case 'ACCOUNT_CLOSED':
+        throw new FinancialAccountClosedError(outcome.item.financialAccountId);
+    }
   };
 }
