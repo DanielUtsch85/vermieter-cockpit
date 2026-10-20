@@ -3,6 +3,7 @@ import {
   checkPosting,
   planConfirm,
   type ConfirmOutcome,
+  type CorrectionRole,
   type BusinessDate,
   type CreateTransactionOutcome,
   type Direction,
@@ -22,7 +23,7 @@ import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_TYPE = 'Transaction';
 const CREATE_SCOPE = 'transaction.create-manual';
 
@@ -33,8 +34,11 @@ class Rejected extends Error {
   }
 }
 
-/** Columns of a ledger_transaction row; dates as `YYYY-MM-DD` text, independent of DateStyle. */
-const COLUMNS = [
+/**
+ * Columns of a ledger_transaction row; dates as `YYYY-MM-DD` text, independent of DateStyle. The reverse links of a
+ * corrected original are subqueries, so they also work in `RETURNING` (they see the transaction's earlier writes).
+ */
+export const COLUMNS = [
   'id',
   'mre_realm_id',
   'financial_account_id',
@@ -51,9 +55,18 @@ const COLUMNS = [
   'version',
   'confirmed_at',
   'confirmed_by',
+  'correction_of_transaction_id',
+  'correction_role',
+  correctionLink('REVERSAL').as('reversal_transaction_id'),
+  correctionLink('REPLACEMENT').as('replacement_transaction_id'),
 ] as const;
 
-interface Row {
+function correctionLink(role: CorrectionRole) {
+  return sql<string | null>`(SELECT c.id FROM ledger_transaction c
+    WHERE c.correction_of_transaction_id = ledger_transaction.id AND c.correction_role = ${role})`;
+}
+
+export interface Row {
   id: string;
   mre_realm_id: string;
   financial_account_id: string;
@@ -70,6 +83,10 @@ interface Row {
   version: number;
   confirmed_at: Date | null;
   confirmed_by: string | null;
+  correction_of_transaction_id: string | null;
+  correction_role: string | null;
+  reversal_transaction_id: string | null;
+  replacement_transaction_id: string | null;
 }
 
 /** PostgreSQL implementation of the Transaction persistence port. */
@@ -215,7 +232,7 @@ export class PostgresTransactionRepository implements TransactionRepository {
   }
 }
 
-function toDomain(row: Row): Transaction {
+export function toDomain(row: Row): Transaction {
   return {
     id: row.id as TransactionId,
     mreRealmId: row.mre_realm_id,
@@ -232,11 +249,15 @@ function toDomain(row: Row): Transaction {
     version: row.version,
     confirmedAt: row.confirmed_at,
     confirmedBy: row.confirmed_by,
+    correctionOfTransactionId: row.correction_of_transaction_id as TransactionId | null,
+    correctionRole: row.correction_role as CorrectionRole | null,
+    reversalTransactionId: row.reversal_transaction_id as TransactionId | null,
+    replacementTransactionId: row.replacement_transaction_id as TransactionId | null,
   };
 }
 
-/** The created Transaction as JSON for the idempotency store (Money as its JSON form, dates as text). */
-function toSnapshot(transaction: Transaction): Record<string, unknown> {
+/** A Transaction as JSON for the idempotency store (Money as its JSON form, dates as text). */
+export function toSnapshot(transaction: Transaction): Record<string, unknown> {
   return {
     ...transaction,
     amount: transaction.amount.toJSON(),
@@ -246,7 +267,7 @@ function toSnapshot(transaction: Transaction): Record<string, unknown> {
 }
 
 /** Written by toSnapshot in the same codebase, so its shape is trusted; Money is re-validated. */
-function fromSnapshot(result: unknown): Transaction {
+export function fromSnapshot(result: unknown): Transaction {
   const s = result as Record<string, unknown> & { amount: { amount: string; currency: string }; createdAt: string };
   return toDomain({
     id: s['id'] as string,
@@ -263,8 +284,13 @@ function fromSnapshot(result: unknown): Transaction {
     status: s['status'] as string,
     created_at: new Date(s.createdAt),
     version: s['version'] as number,
-    // Snapshots of created Transactions: never confirmed at creation (older ones lack the fields).
+    // Snapshots from before VC-1-08 lack the fields.
     confirmed_at: typeof s['confirmedAt'] === 'string' ? new Date(s['confirmedAt']) : null,
     confirmed_by: (s['confirmedBy'] as string | null | undefined) ?? null,
+    // Snapshots from before VC-1-11 lack the correction fields.
+    correction_of_transaction_id: (s['correctionOfTransactionId'] as string | null | undefined) ?? null,
+    correction_role: (s['correctionRole'] as string | null | undefined) ?? null,
+    reversal_transaction_id: (s['reversalTransactionId'] as string | null | undefined) ?? null,
+    replacement_transaction_id: (s['replacementTransactionId'] as string | null | undefined) ?? null,
   });
 }

@@ -72,9 +72,10 @@ jobs:
           echo "$applied" | grep -qx '0008_transaction_split'
           echo "$applied" | grep -qx '0009_confirm_transaction'
           echo "$applied" | grep -qx '0010_confirm_split_invariant'
+          echo "$applied" | grep -qx '0011_correct_transaction'
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
-      - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction → splits → confirm → bank import → review)
+      - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction → splits → confirm → correct → bank import → review)
         run: .github/scripts/compose-auth-smoke.sh
       - uses: actions/setup-node@v4
         with:

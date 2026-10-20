@@ -254,4 +254,210 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       ).rejects.toThrow(/import_review_item_batch_fk/);
     });
   });
+
+  describe('correction chain (VC-1-11, api-design §35.6, data-model §17.8)', () => {
+    /** A confirmed Transaction with one split, written past the repositories. */
+    async function confirmed(mreRealmId = REALM): Promise<string> {
+      const id = await transaction(mreRealmId);
+      await pool.query(
+        `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, created_by)
+         VALUES ($1, $2, 1, 1200.00, 'EUR', $3, 'x')`,
+        [id, mreRealmId, await category('OTHER')],
+      );
+      await confirmBySql(id);
+      return id;
+    }
+
+    /** Runs statements in one transaction, so the deferred chain check fires at its commit. */
+    async function inTransaction(statements: (client: pg.PoolClient) => Promise<void>): Promise<void> {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await statements(client);
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+
+    interface Linked {
+      readonly role: 'REVERSAL' | 'REPLACEMENT';
+      readonly amount?: string;
+      readonly sameDirection?: boolean;
+      readonly confirm?: boolean;
+    }
+    /** A reversal or replacement of `originalId` (a copy of it, opposite direction for a reversal), confirmed by default. */
+    async function insertLinked(client: pg.PoolClient, originalId: string, linked: Linked): Promise<string> {
+      const amount = linked.amount ?? '1200.00';
+      const flip = linked.role === 'REVERSAL' && linked.sameDirection !== true;
+      const { rows } = await client.query(
+        `INSERT INTO ledger_transaction (mre_realm_id, financial_account_id, amount, currency, direction, booking_date, value_date,
+           provenance, status, created_by, correction_of_transaction_id, correction_role)
+         SELECT mre_realm_id, financial_account_id, $3, currency,
+                CASE WHEN $4 THEN (CASE direction WHEN 'INFLOW' THEN 'OUTFLOW' ELSE 'INFLOW' END) ELSE direction END,
+                booking_date, value_date, 'CORRECTION', 'CLASSIFIED', 'x', id, $2
+         FROM ledger_transaction WHERE id = $1 RETURNING id`,
+        [originalId, linked.role, amount, flip],
+      );
+      const id = rows[0].id as string;
+      await client.query(
+        `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, created_by)
+         VALUES ($1, $2, 1, $3, 'EUR', $4, 'x')`,
+        [id, REALM, amount, await category('OTHER')],
+      );
+      if (linked.confirm !== false) {
+        await client.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [id]);
+      }
+      return id;
+    }
+    const markCorrected = (client: pg.PoolClient, id: string) =>
+      client.query(`UPDATE ledger_transaction SET status = 'CORRECTED' WHERE id = $1`, [id]);
+
+    it('a complete chain commits, in any order of its writes', async () => {
+      const original = await confirmed();
+      await inTransaction(async (c) => {
+        await markCorrected(c, original);
+        await insertLinked(c, original, { role: 'REPLACEMENT', amount: '1100.00' });
+        await insertLinked(c, original, { role: 'REVERSAL' });
+      });
+      const { rows } = await pool.query(`SELECT status FROM ledger_transaction WHERE id = $1`, [original]);
+      expect(rows[0].status).toBe('CORRECTED');
+    });
+
+    it('CORRECTED exactly when reversal and replacement exist, checked at commit', async () => {
+      const alone = await confirmed();
+      await expect(inTransaction((c) => markCorrected(c, alone).then(() => undefined))).rejects.toThrow(
+        /without its reversal and replacement/,
+      );
+      const halfway = await confirmed();
+      await expect(
+        inTransaction(async (c) => {
+          await insertLinked(c, halfway, { role: 'REVERSAL' });
+          await markCorrected(c, halfway);
+        }),
+      ).rejects.toThrow(/without its reversal and replacement/);
+      // Linked records without the original becoming CORRECTED.
+      const untouched = await confirmed();
+      await expect(
+        inTransaction(async (c) => {
+          await insertLinked(c, untouched, { role: 'REVERSAL' });
+          await insertLinked(c, untouched, { role: 'REPLACEMENT', amount: '1100.00' });
+        }),
+      ).rejects.toThrow(/not CORRECTED/);
+    });
+
+    it('CORRECTED only from CONFIRMED/RECONCILED: a covered CLASSIFIED row cannot jump to it (review counterexample on #21)', async () => {
+      const id = await transaction();
+      await addSplit(id, 1, '1200.00');
+      await expect(
+        pool.query(`UPDATE ledger_transaction SET status = 'CORRECTED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [id]),
+      ).rejects.toThrow(/cannot become CORRECTED/);
+      await expect(
+        pool.query(
+          `INSERT INTO ledger_transaction (mre_realm_id, financial_account_id, amount, currency, direction, booking_date, provenance,
+             status, created_by, confirmed_at, confirmed_by)
+           VALUES ($1, $2, 1, 'EUR', 'INFLOW', '2026-09-01', 'MANUAL', 'CORRECTED', 'x', now(), 'x')`,
+          [REALM, await account()],
+        ),
+      ).rejects.toThrow(/not inserted confirmed/);
+    });
+
+    it('link and role go together, exactly with provenance CORRECTION', async () => {
+      const original = await confirmed();
+      const accountId = (await pool.query(`SELECT financial_account_id FROM ledger_transaction WHERE id = $1`, [original])).rows[0]
+        .financial_account_id as string;
+      const insert = (provenance: string, link: string | null, role: string | null) =>
+        pool.query(
+          `INSERT INTO ledger_transaction (mre_realm_id, financial_account_id, amount, currency, direction, booking_date, provenance,
+             status, created_by, correction_of_transaction_id, correction_role)
+           VALUES ($1, $2, 1, 'EUR', 'INFLOW', '2026-09-01', $3, 'CLASSIFIED', 'x', $4, $5)`,
+          [REALM, accountId, provenance, link, role],
+        );
+      await expect(insert('CORRECTION', null, null)).rejects.toThrow(/ledger_transaction_correction_link/);
+      await expect(insert('CORRECTION', original, null)).rejects.toThrow(/ledger_transaction_correction_link/);
+      await expect(insert('CORRECTION', null, 'REVERSAL')).rejects.toThrow(/ledger_transaction_correction_link/);
+      await expect(insert('MANUAL', original, 'REPLACEMENT')).rejects.toThrow(/ledger_transaction_correction_link/);
+      await expect(insert('CORRECTION', original, 'OTHER')).rejects.toThrow(/check constraint/);
+    });
+
+    it('a correction links only within its Realm', async () => {
+      const foreign = await confirmed(OTHER_REALM);
+      await expect(
+        pool.query(
+          `INSERT INTO ledger_transaction (mre_realm_id, financial_account_id, amount, currency, direction, booking_date, provenance,
+             status, created_by, correction_of_transaction_id, correction_role)
+           VALUES ($1, $2, 1, 'EUR', 'INFLOW', '2026-09-01', 'CORRECTION', 'CLASSIFIED', 'x', $3, 'REVERSAL')`,
+          [REALM, await account(), foreign],
+        ),
+      ).rejects.toThrow(/ledger_transaction_correction_fk/);
+    });
+
+    it('at most one reversal and one replacement per original', async () => {
+      const original = await confirmed();
+      await expect(
+        inTransaction(async (c) => {
+          await insertLinked(c, original, { role: 'REVERSAL' });
+          await insertLinked(c, original, { role: 'REVERSAL' });
+        }),
+      ).rejects.toThrow(/ledger_transaction_correction_key/);
+    });
+
+    it('a reversal matches its original: same amount, opposite direction; and it is confirmed', async () => {
+      const cases: Linked[] = [
+        { role: 'REVERSAL', amount: '1199.99' },
+        { role: 'REVERSAL', sameDirection: true },
+      ];
+      for (const reversal of cases) {
+        const original = await confirmed();
+        await expect(
+          inTransaction(async (c) => {
+            await insertLinked(c, original, reversal);
+            await insertLinked(c, original, { role: 'REPLACEMENT', amount: '1100.00' });
+            await markCorrected(c, original);
+          }),
+          JSON.stringify(reversal),
+        ).rejects.toThrow(/does not match/);
+      }
+      const unconfirmed = await confirmed();
+      await expect(
+        inTransaction(async (c) => {
+          await insertLinked(c, unconfirmed, { role: 'REVERSAL' });
+          await insertLinked(c, unconfirmed, { role: 'REPLACEMENT', amount: '1100.00', confirm: false });
+          await markCorrected(c, unconfirmed);
+        }),
+      ).rejects.toThrow(/not confirmed/);
+    });
+
+    it('no correction links to a reversal', async () => {
+      const original = await confirmed();
+      let reversal = '';
+      await inTransaction(async (c) => {
+        reversal = await insertLinked(c, original, { role: 'REVERSAL' });
+        await insertLinked(c, original, { role: 'REPLACEMENT', amount: '1100.00' });
+        await markCorrected(c, original);
+      });
+      await expect(
+        inTransaction(async (c) => {
+          await insertLinked(c, reversal, { role: 'REVERSAL' });
+          await insertLinked(c, reversal, { role: 'REPLACEMENT', amount: '1100.00' });
+          await markCorrected(c, reversal);
+        }),
+      ).rejects.toThrow(/is a reversal and cannot be corrected/);
+    });
+
+    it('PropertyReference, description and the link of a confirmed Transaction are frozen (review counterexample on #21)', async () => {
+      const id = await confirmed();
+      const reference = await property(REALM, '64b0c0ffee00000000000c11');
+      for (const [statement, value] of [
+        [`UPDATE ledger_transaction SET property_reference_id = $2 WHERE id = $1`, reference],
+        [`UPDATE ledger_transaction SET description = $2 WHERE id = $1`, 'anders'],
+        [`UPDATE ledger_transaction SET correction_role = $2 WHERE id = $1`, 'REPLACEMENT'],
+      ] as const) {
+        await expect(pool.query(statement, [id, value]), statement).rejects.toThrow(/ADR-037/);
+      }
+    });
+  });
 });

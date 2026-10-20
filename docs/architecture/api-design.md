@@ -996,7 +996,7 @@ POST /api/v1/transactions/{id}/confirm
 - **Immutability (ADR-037), enforced by the database** (migration 0009), once `CONFIRMED` (and in the later `RECONCILED`/`CORRECTED`):
   - **Frozen fields:** account, Realm, amount, currency, direction, booking and value date, `confirmedAt`/`confirmedBy`, and the provenance and import identity a re-import relies on (`provenance`, import batch, external id, adapter, source keys, content fingerprint, review item). From VC-1-11 on also `propertyReferenceId`, `description` and the correction link (§35.6), so every change of a confirmed Transaction goes through `correct`.
   - **Status only moves forward:** `CONFIRMED` → `RECONCILED` / `CORRECTED`, `RECONCILED` → `CORRECTED` (domain-model §21). `CORRECTED` is terminal; nothing returns to `CONFIRMED` or to an unconfirmed state, so a superseded Transaction cannot be revived and counted twice.
-  - **No deletion**, and its splits cannot be inserted, changed or deleted. Until VC-1-11 the database leaves `description` and `propertyReferenceId` editable; no endpoint changes them.
+  - **No deletion**, and its splits cannot be inserted, changed or deleted. Before migration 0011 (VC-1-11) the database left `description` and `propertyReferenceId` editable; no endpoint ever changed them.
   - `confirmed_at`/`confirmed_by` are set exactly for the confirmed states (CHECK).
 - **Split invariant in the database** (migration 0010, VC-1-09): a Transaction becomes `CONFIRMED` only with splits in its currency summing exactly to its amount, and none is inserted already confirmed, so "confirmed ⇒ covered exactly" holds for every row, not only for those confirmed through this endpoint. This includes two writers at once: the split trigger writes the Transaction row (a no-op update), so a split change and a confirmation in different sessions serialize instead of missing each other, under every isolation level.
 
@@ -1098,7 +1098,7 @@ Example request:
 - At most one `REVERSAL` and one `REPLACEMENT` per original (unique index).
 - A reversal matches its original: same Realm, account, currency, amount, booking and value date, and opposite direction.
 - A Transaction is `CORRECTED` exactly when its reversal and replacement exist. This is checked by a deferred constraint trigger at commit, so the three writes of §35.1 can happen in any order inside the transaction.
-- `CORRECTED` is reached only from `CONFIRMED` or `RECONCILED`, never from an unconfirmed status, and no row is inserted as `CORRECTED`. Today a `CLASSIFIED` row whose splits cover it can be updated straight to `CORRECTED`; VC-1-11 closes that.
+- `CORRECTED` is reached only from `CONFIRMED` or `RECONCILED`, never from an unconfirmed status, and no row is inserted as `CORRECTED`. Before migration 0011 a `CLASSIFIED` row whose splits covered it could be updated straight to `CORRECTED`; 0011 closes that.
 - The target of a correction link is never a reversal.
 - On a confirmed Transaction `propertyReferenceId`, `description` and the correction link are frozen too (extends the 0009 list, §34.2).
 - The other triggers stay as they are: immutability (0009) and "confirmed ⇒ covered exactly" (0010). So reversal and replacement are written unconfirmed, get their splits and are then confirmed, all in the same transaction.
@@ -1109,6 +1109,25 @@ Example request:
 - Correction of `RECONCILED` Transactions (Phase 4, see §35.4).
 - Bulk corrections.
 - **Closed periods:** the reversal takes the original's dates, so it changes the totals of the original's period. Phase 1 has no period close. When tax years or reports get closed (Phase 7/9), those phases decide how a correction into a closed period is handled (refused, or reversal dated in the open period).
+
+
+## 35.8 Implementation (VC-1-11)
+
+- **Migration 0011:** `correction_of_transaction_id` / `correction_role` with the composite foreign key, the CHECK and the unique index of §35.6. The immutability trigger of 0009 is extended in place, so the frozen fields stay one list: it now also freezes `property_reference_id`, `description` and the link, and refuses `CORRECTED` from an unconfirmed status. The chain itself is checked by the deferred constraint trigger `ledger_transaction_correction_chain`. It fires on the status change and on the linked inserts, only for rows in a chain, and re-reads the rows at commit.
+- **Write order** inside one READ COMMITTED transaction:
+  1. claim the `Idempotency-Key`;
+  2. lock the original `FOR UPDATE`;
+  3. **re-read it in a new statement**: a request that waited on a concurrent correction then sees its links, which a subquery of the locking statement would not;
+  4. lock the accounts `FOR SHARE` in id order;
+  5. check;
+  6. reversal and replacement, each inserted `CLASSIFIED`, given its splits, then `CONFIRMED`;
+  7. original → `CORRECTED` (version + 1);
+  8. one AuditRecord `CORRECTED`;
+  9. record the key.
+- **Error mapping:**
+  - Unknown or inactive categories in requested `splits` are `400 VALIDATION_ERROR` with `replacement.splits.<i>.financialCategoryCode` / `UNKNOWN_CATEGORY`, as §33. An inactive category in the *copied* splits is `422 INACTIVE_CATEGORY`.
+  - A replacement amount in another currency than the target account is `400` with `replacement.amount.currency` / `CURRENCY_MISMATCH`.
+- **Version:** reversal and replacement start at `version 1` and stay there; their confirmation is part of their creation.
 
 ---
 

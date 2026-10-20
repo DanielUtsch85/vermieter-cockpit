@@ -2,7 +2,10 @@ import express, { type Router } from 'express';
 import { z } from 'zod';
 import {
   CATEGORY_CODE,
+  CorrectionNoChangeError,
   CurrencyMismatchError,
+  TransactionAlreadyCorrectedError,
+  TransactionNotCorrectableError,
   FinancialCategoryNotFoundError,
   InactiveCategoryError,
   SplitsMissingError,
@@ -17,6 +20,8 @@ import {
   PropertyReferenceNotFoundError,
   checkBusinessDate,
   type ConfirmTransaction,
+  type CorrectTransaction,
+  type ReplacementInput,
   type CreateManualTransaction,
   type RealmPrincipal,
   type SetTransactionSplits,
@@ -74,6 +79,37 @@ const split = z
   .strict();
 const splitsBody = z.object({ splits: z.array(split).min(1).max(100) }).strict();
 
+type SplitBody = z.infer<typeof split>;
+
+/** A split as the use cases take it: lower-case ids, empty description = none. */
+function toSplitInput(s: SplitBody) {
+  return {
+    amount: s.amount,
+    financialCategoryCode: s.financialCategoryCode,
+    propertyReferenceId: s.propertyReferenceId?.toLowerCase() ?? null,
+    description: s.description === undefined || s.description === null || s.description === '' ? null : s.description,
+  };
+}
+
+/** `correct` (api-design.md §35.2): the replacement names only the fields that differ; null clears an optional one. */
+const correctBody = z
+  .object({
+    reason: z.string().trim().min(1).max(500),
+    replacement: z
+      .object({
+        financialAccountId: z.string().regex(RESOURCE_ID).optional(),
+        amount: money.optional(),
+        direction: z.enum(DIRECTIONS).optional(),
+        bookingDate: businessDate.optional(),
+        valueDate: businessDate.nullable().optional(),
+        description: z.string().trim().max(500).nullable().optional(),
+        propertyReferenceId: z.string().regex(RESOURCE_ID).nullable().optional(),
+        splits: z.array(split).min(1).max(100).optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
 /** `splits.0.direction` → NOT_ALLOWED, `splits.0.loanId` → NOT_SUPPORTED. */
 function splitFieldCode(field: string, code: string): string {
   const key = field.split('.').at(-1) ?? '';
@@ -85,6 +121,7 @@ export interface TransactionCommands {
   readonly createManual: CreateManualTransaction;
   readonly setSplits: SetTransactionSplits;
   readonly confirm: ConfirmTransaction;
+  readonly correct: CorrectTransaction;
 }
 
 /** Transaction API (api-design.md §30–31). */
@@ -154,12 +191,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       );
       return;
     }
-    const splits = parsed.data.splits.map((s) => ({
-      amount: s.amount,
-      financialCategoryCode: s.financialCategoryCode,
-      propertyReferenceId: s.propertyReferenceId?.toLowerCase() ?? null,
-      description: s.description === undefined || s.description === null || s.description === '' ? null : s.description,
-    }));
+    const splits = parsed.data.splits.map(toSplitInput);
 
     commands
       .setSplits({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), splits })
@@ -242,6 +274,111 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       });
   });
 
+  router.post('/transactions/:transactionId/correct', express.json({ limit: '64kb' }), (req, res, next) => {
+    const idempotency = readIdempotencyKey(req, res);
+    if (idempotency === undefined) return;
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    const parsed = correctBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(
+        res,
+        fieldErrors(parsed.error).map((f) =>
+          f.field.startsWith('replacement.splits.') ? { ...f, code: splitFieldCode(f.field, f.code) } : f,
+        ),
+      );
+      return;
+    }
+    const body = parsed.data.replacement;
+    // Omitted keys stay undefined (copy the original's value); explicit null clears it (§35.2).
+    const replacement: ReplacementInput = {
+      ...(body.financialAccountId === undefined ? {} : { financialAccountId: body.financialAccountId.toLowerCase() }),
+      ...(body.amount === undefined ? {} : { amount: body.amount }),
+      ...(body.direction === undefined ? {} : { direction: body.direction }),
+      ...(body.bookingDate === undefined ? {} : { bookingDate: body.bookingDate }),
+      ...(body.valueDate === undefined ? {} : { valueDate: body.valueDate }),
+      ...(body.description === undefined ? {} : { description: body.description === '' ? null : body.description }),
+      ...(body.propertyReferenceId === undefined ? {} : { propertyReferenceId: body.propertyReferenceId?.toLowerCase() ?? null }),
+      ...(body.splits === undefined ? {} : { splits: body.splits.map(toSplitInput) }),
+    };
+
+    commands
+      .correct({
+        principal: res.locals['principal'] as RealmPrincipal,
+        transactionId: id.toLowerCase(),
+        reason: parsed.data.reason,
+        replacement,
+        ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
+      })
+      .then(({ original, reversal, replacement: corrected, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        res.status(201).json({ original: toDto(original), reversal: toDto(reversal), replacement: toDto(corrected) });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else if (error instanceof FinancialAccountNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'FinancialAccount not found.', { financialAccountId: error.financialAccountId });
+        } else if (error instanceof PropertyReferenceNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
+        } else if (error instanceof TransactionAlreadyCorrectedError) {
+          sendError(res, 409, 'CONFLICT', 'Transaction is already corrected.', {
+            reason: 'ALREADY_CORRECTED',
+            reversalTransactionId: error.reversalTransactionId,
+            replacementTransactionId: error.replacementTransactionId,
+          });
+        } else if (error instanceof TransactionNotCorrectableError) {
+          const message =
+            error.correctionRole === 'REVERSAL'
+              ? 'A reversal cannot be corrected; correct its replacement.'
+              : `Transaction is ${error.status} and cannot be corrected.`;
+          sendError(res, 409, 'CONFLICT', message, {
+            reason: 'NOT_CORRECTABLE',
+            status: error.status,
+            ...(error.correctionRole === undefined ? {} : { correctionRole: error.correctionRole }),
+          });
+        } else if (error instanceof CorrectionNoChangeError) {
+          sendError(res, 409, 'CONFLICT', 'The replacement equals the original; nothing to correct.', { reason: 'NO_CHANGE' });
+        } else if (error instanceof FinancialAccountClosedError) {
+          sendError(res, 409, 'CONFLICT', 'The target FinancialAccount is closed.', {
+            reason: 'ACCOUNT_CLOSED',
+            financialAccountId: error.financialAccountId,
+          });
+        } else if (error instanceof CurrencyMismatchError) {
+          sendValidationError(res, [{ field: 'replacement.amount.currency', code: 'CURRENCY_MISMATCH' }]);
+        } else if (error instanceof FinancialCategoryNotFoundError) {
+          const splits = replacement.splits ?? [];
+          sendValidationError(
+            res,
+            splits.flatMap((s, i) =>
+              error.codes.includes(s.financialCategoryCode)
+                ? [{ field: `replacement.splits.${i}.financialCategoryCode`, code: 'UNKNOWN_CATEGORY' }]
+                : [],
+            ),
+          );
+        } else if (error instanceof SplitSumMismatchError) {
+          sendError(res, 409, 'INVARIANT_VIOLATION', 'Replacement splits do not add up to its amount.', {
+            reason: 'SPLIT_SUM_MISMATCH',
+            expected: error.expected.toJSON(),
+            actual: error.actual.toJSON(),
+            difference: error.expected.subtract(error.actual).toJSON(),
+          });
+        } else if (error instanceof InactiveCategoryError) {
+          sendError(res, 422, 'REVIEW_REQUIRED', 'A copied split uses an inactive financial category; send new splits.', {
+            reason: 'INACTIVE_CATEGORY',
+            financialCategoryCodes: error.codes,
+          });
+        } else if (error instanceof IdempotencyKeyConflictError) {
+          sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
+        } else {
+          next(error);
+        }
+      });
+  });
+
   return router;
 }
 
@@ -280,5 +417,9 @@ function toDto(transaction: Transaction) {
     version: transaction.version,
     confirmedAt: transaction.confirmedAt?.toISOString() ?? null,
     confirmedBy: transaction.confirmedBy,
+    correctionOfTransactionId: transaction.correctionOfTransactionId,
+    correctionRole: transaction.correctionRole,
+    reversalTransactionId: transaction.reversalTransactionId,
+    replacementTransactionId: transaction.replacementTransactionId,
   };
 }

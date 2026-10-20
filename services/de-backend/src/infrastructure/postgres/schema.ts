@@ -97,6 +97,9 @@ export interface LedgerTransactionTable {
   /** Set exactly for confirmed Transactions (CONFIRMED, RECONCILED, CORRECTED). */
   confirmed_at: Date | null;
   confirmed_by: string | null;
+  /** Correction chain (VC-1-11): the original this reversal or replacement belongs to. */
+  correction_of_transaction_id: string | null;
+  correction_role: string | null;
 }
 
 export interface ImportBatchTable {

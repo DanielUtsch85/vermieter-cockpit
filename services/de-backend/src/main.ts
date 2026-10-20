@@ -3,6 +3,7 @@ import { loadConfig } from './config.js';
 import {
   closeFinancialAccount,
   confirmTransaction,
+  correctTransaction,
   createFinancialAccount,
   createManualTransaction,
   getFinancialCategory,
@@ -20,6 +21,7 @@ import {
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
+  PostgresCorrectionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
   createDatabase,
@@ -53,6 +55,7 @@ const app = createApp({
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: transactions }),
   confirmTransaction: confirmTransaction({ repository: transactions }),
+  correctTransaction: correctTransaction({ repository: new PostgresCorrectionRepository(db) }),
   setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
   listFinancialCategories: listFinancialCategories({ categories }),
   getFinancialCategory: getFinancialCategory({ categories }),

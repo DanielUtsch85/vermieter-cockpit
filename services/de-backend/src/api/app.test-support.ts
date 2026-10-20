@@ -10,6 +10,7 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   closeFinancialAccount: unused,
   createManualTransaction: unused,
   confirmTransaction: unused,
+  correctTransaction: unused,
   setTransactionSplits: unused,
   listFinancialCategories: unused,
   getFinancialCategory: unused,
