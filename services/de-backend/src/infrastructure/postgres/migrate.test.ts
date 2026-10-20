@@ -58,6 +58,24 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
   });
 });
 
+describe.skipIf(databaseUrl === undefined)('migrateToLatest with a single-connection pool', () => {
+  const schema = testSchemaName('migrate_single_test');
+
+  it('does not deadlock: the advisory lock uses its own connection, not one of the pool', async () => {
+    const admin = new pg.Client({ connectionString: databaseUrl });
+    await admin.connect();
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    await admin.end();
+    const pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 1, connectionTimeoutMillis: 5_000 });
+    try {
+      const results = await migrateToLatest(pool, { migrationTableSchema: schema });
+      expect(results).toHaveLength(Object.keys(migrations).length);
+    } finally {
+      await pool.end();
+    }
+  });
+});
+
 describe('migration registry (no database needed)', () => {
   it('every migration file is registered, and nothing else', () => {
     // The list in migrations/index.ts is static; a file that is not registered

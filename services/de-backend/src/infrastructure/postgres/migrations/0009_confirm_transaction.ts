@@ -6,9 +6,11 @@ import { sql, type Kysely } from 'kysely';
  * - `confirmed_at` / `confirmed_by` exist exactly for confirmed Transactions
  *   (CONFIRMED and the states that follow it, RECONCILED and CORRECTED).
  * - Immutability is enforced by the database, not only by the code paths that
- *   exist today: once confirmed, a Transaction's cash fields and account cannot
- *   change, it cannot return to an unconfirmed state or be deleted, and its
- *   splits are frozen. Corrections are new records (reversal + replacement).
+ *   exist today: once confirmed, a Transaction's cash fields, account,
+ *   provenance and import identity cannot change, its status only moves forward
+ *   (CONFIRMED → RECONCILED → CORRECTED; CORRECTED is terminal), it cannot be
+ *   deleted, and its splits are frozen. Corrections are new records
+ *   (reversal + replacement).
  */
 const CONFIRMED_STATES = sql.raw(`('CONFIRMED', 'RECONCILED', 'CORRECTED')`);
 
@@ -29,12 +31,21 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         IF TG_OP = 'DELETE' THEN
           RAISE EXCEPTION 'confirmed Transaction % cannot be deleted (ADR-037)', OLD.id USING ERRCODE = 'integrity_constraint_violation';
         END IF;
-        IF NEW.status NOT IN ${CONFIRMED_STATES}
+        -- Only forward (domain-model.md §21): CONFIRMED → RECONCILED / CORRECTED, RECONCILED → CORRECTED.
+        -- CORRECTED is terminal; nothing returns to CONFIRMED or to an unconfirmed state.
+        IF (NEW.status IS DISTINCT FROM OLD.status AND NOT (
+              (OLD.status = 'CONFIRMED' AND NEW.status IN ('RECONCILED', 'CORRECTED'))
+              OR (OLD.status = 'RECONCILED' AND NEW.status = 'CORRECTED')))
+           -- Cash facts, and the provenance and import identity a re-import relies on (§70).
            OR (NEW.mre_realm_id, NEW.financial_account_id, NEW.amount, NEW.currency, NEW.direction, NEW.booking_date,
-               NEW.value_date, NEW.confirmed_at, NEW.confirmed_by)
+               NEW.value_date, NEW.confirmed_at, NEW.confirmed_by, NEW.provenance, NEW.import_batch_id,
+               NEW.external_transaction_id, NEW.adapter_id, NEW.adapter_version, NEW.source_statement_key,
+               NEW.source_row_key, NEW.content_fingerprint, NEW.import_review_item_id)
               IS DISTINCT FROM
               (OLD.mre_realm_id, OLD.financial_account_id, OLD.amount, OLD.currency, OLD.direction, OLD.booking_date,
-               OLD.value_date, OLD.confirmed_at, OLD.confirmed_by) THEN
+               OLD.value_date, OLD.confirmed_at, OLD.confirmed_by, OLD.provenance, OLD.import_batch_id,
+               OLD.external_transaction_id, OLD.adapter_id, OLD.adapter_version, OLD.source_statement_key,
+               OLD.source_row_key, OLD.content_fingerprint, OLD.import_review_item_id) THEN
           RAISE EXCEPTION 'confirmed Transaction % is immutable (ADR-037)', OLD.id USING ERRCODE = 'integrity_constraint_violation';
         END IF;
       END IF;

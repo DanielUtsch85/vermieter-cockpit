@@ -1,6 +1,6 @@
 import { Kysely, PostgresDialect } from 'kysely';
 import { Migrator, type Migration, type MigrationResult } from 'kysely/migration';
-import type pg from 'pg';
+import pg from 'pg';
 import { migrations } from './migrations/index.js';
 
 /**
@@ -28,13 +28,15 @@ export async function migrateToLatest(
   pool: pg.Pool,
   options: MigrateOptions = {},
 ): Promise<readonly MigrationResult[]> {
-  const lock = await pool.connect();
+  // A connection of its own, outside the pool: the migration takes pool
+  // connections while the lock is held, so a small or busy pool cannot deadlock.
+  const lock = new pg.Client(pool.options);
+  await lock.connect();
   try {
     await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
     return await migrate(pool, options);
   } finally {
-    await lock.query('SELECT pg_advisory_unlock($1)', [MIGRATION_ADVISORY_LOCK]).catch(() => undefined);
-    lock.release();
+    await lock.end().catch(() => undefined);
   }
 }
 

@@ -992,7 +992,11 @@ POST /api/v1/transactions/{id}/confirm
 - **`422 REVIEW_REQUIRED`** with `reason = "INACTIVE_CATEGORY"` and `financialCategoryCodes`: a split's category was deactivated since the split was stored (an unresolved reference): split again before confirming. PropertyReferences are bound by foreign key and cannot be unresolved; there is no other blocking review state for an existing Transaction in Phase 1.
 - **`404`:** unknown or foreign Transaction; `400` for a malformed id.
 - **Concurrency:** confirm takes the same row lock as a split replacement, so a replacement that waited on a confirm finds the Transaction frozen; two confirms yield one confirmation and one no-op.
-- **Immutability (ADR-037), enforced by the database** (migration 0009): once `CONFIRMED` (and in the later `RECONCILED`/`CORRECTED`), the account, Realm, amount, currency, direction, booking and value date and `confirmedAt`/`confirmedBy` cannot change, the Transaction cannot return to an unconfirmed state or be deleted, and its splits cannot be inserted, changed or deleted. `description` and the move to the later states stay possible. `confirmed_at`/`confirmed_by` are set exactly for the confirmed states (CHECK).
+- **Immutability (ADR-037), enforced by the database** (migration 0009), once `CONFIRMED` (and in the later `RECONCILED`/`CORRECTED`):
+  - **Frozen fields:** account, Realm, amount, currency, direction, booking and value date, `confirmedAt`/`confirmedBy`, and the provenance and import identity a re-import relies on (`provenance`, import batch, external id, adapter, source keys, content fingerprint, review item).
+  - **Status only moves forward:** `CONFIRMED` → `RECONCILED` / `CORRECTED`, `RECONCILED` → `CORRECTED` (domain-model §21). `CORRECTED` is terminal; nothing returns to `CONFIRMED` or to an unconfirmed state, so a superseded Transaction cannot be revived and counted twice.
+  - **No deletion**, and its splits cannot be inserted, changed or deleted. Only `description` stays editable.
+  - `confirmed_at`/`confirmed_by` are set exactly for the confirmed states (CHECK).
 
 ---
 

@@ -334,6 +334,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       for (const statement of refused) {
         await expect(pool.query(statement, [id]), statement).rejects.toThrow(/ADR-037/);
       }
+      // Provenance and import identity are frozen too: a re-import must still find the confirmed payment.
+      for (const statement of [
+        `UPDATE ledger_transaction SET provenance = 'MIGRATION' WHERE id = $1`,
+        `UPDATE ledger_transaction SET external_transaction_id = 'E-OTHER' WHERE id = $1`,
+        `UPDATE ledger_transaction SET content_fingerprint = 'x' WHERE id = $1`,
+      ]) {
+        await expect(pool.query(statement, [id]), statement).rejects.toThrow(/ADR-037/);
+      }
       // Non-cash bookkeeping stays possible: the later states and the description.
       await pool.query(`UPDATE ledger_transaction SET description = 'Miete Sept.', status = 'RECONCILED' WHERE id = $1`, [id]);
       // confirmed_at and confirmed_by exist exactly for confirmed states.
@@ -341,6 +349,26 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       await expect(pool.query(`UPDATE ledger_transaction SET status = 'CONFIRMED' WHERE id = $1`, [unconfirmed])).rejects.toThrow(
         /ledger_transaction_confirmed/,
       );
+    });
+    it('the status of a confirmed Transaction only moves forward; CORRECTED is terminal', async () => {
+      const setStatus = (id: string, status: string) => pool.query(`UPDATE ledger_transaction SET status = $2 WHERE id = $1`, [id, status]);
+      const confirmedOne = async () => {
+        const id = await classified();
+        await transactions.confirm(id, REALM, actor);
+        return id;
+      };
+
+      const reconciled = await confirmedOne();
+      await setStatus(reconciled, 'RECONCILED');
+      await expect(setStatus(reconciled, 'CONFIRMED')).rejects.toThrow(/ADR-037/);
+      await setStatus(reconciled, 'CORRECTED');
+
+      const corrected = await confirmedOne();
+      await setStatus(corrected, 'CORRECTED');
+      for (const back of ['CONFIRMED', 'RECONCILED', 'CLASSIFIED', 'IGNORED']) {
+        await expect(setStatus(corrected, back), back).rejects.toThrow(/ADR-037|ledger_transaction_confirmed/);
+      }
+      await expect(setStatus(await confirmedOne(), 'IGNORED')).rejects.toThrow(/ADR-037|ledger_transaction_confirmed/);
     });
   });
 
