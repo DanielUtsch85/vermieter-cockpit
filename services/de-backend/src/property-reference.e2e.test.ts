@@ -138,7 +138,8 @@ describe.skipIf(databaseUrl === undefined)('property-references link + refresh e
     const before = propertyCalls();
     const repeat = await link(REALM_A, { mreRealmId: REALM_A, mrePropertyId: PROPERTY_A });
     expect(repeat.status).toBe(200);
-    expect(((await repeat.json()) as { id: string }).id).toBe(created['id']);
+    const repeated = (await repeat.json()) as { propertyReferenceId: string };
+    expect(repeated.propertyReferenceId).toBe(created['propertyReferenceId']);
     expect(propertyCalls()).toBe(before);
     expect(await count('property_reference')).toBe(1);
     expect(await count('audit_record')).toBe(1);
@@ -183,7 +184,7 @@ describe.skipIf(databaseUrl === undefined)('property-references link + refresh e
 
     beforeAll(async () => {
       const linked = await link(REALM_A, { mreRealmId: REALM_A, mrePropertyId: PROPERTY_A });
-      id = ((await linked.json()) as { id: string }).id;
+      id = ((await linked.json()) as { propertyReferenceId: string }).propertyReferenceId;
     });
 
     it('takes over changed MRE values exactly, bumps the version and audits the change', async () => {
@@ -191,7 +192,7 @@ describe.skipIf(databaseUrl === undefined)('property-references link + refresh e
       const res = await refresh(REALM_A, id);
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({
-        id,
+        propertyReferenceId: id,
         externalReferenceState: 'ACTIVE',
         displayName: 'Wohnung 1 (EG)',
         cachedSurface: '65.25',

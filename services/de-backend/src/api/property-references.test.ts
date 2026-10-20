@@ -81,7 +81,7 @@ describe('POST /api/v1/property-references/link', () => {
 
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({
-      id: reference.id,
+      propertyReferenceId: reference.id,
       mreRealmId: REALM,
       mrePropertyId: PROPERTY,
       externalReferenceState: 'ACTIVE',
@@ -107,7 +107,7 @@ describe('POST /api/v1/property-references/link', () => {
     const base = await start(async () => ({ reference, created: false }));
     const res = await post(base, { mreRealmId: REALM, mrePropertyId: PROPERTY });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ id: reference.id });
+    expect(await res.json()).toMatchObject({ propertyReferenceId: reference.id });
   });
 
   it.each([
@@ -182,7 +182,7 @@ describe('POST /api/v1/property-references/{id}/refresh', () => {
     const base = await start(unused, admin, async (input) => (seen.push(input), { ...reference, version: 2 }));
     const res = await call(base, reference.id);
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ id: reference.id, cachedSurface: '64.5', version: 2 });
+    expect(await res.json()).toMatchObject({ propertyReferenceId: reference.id, cachedSurface: '64.5', version: 2 });
     expect(seen).toEqual([
       {
         principal: { email: 'anna@example.com', mreRealmId: REALM, mreRole: 'administrator' },
