@@ -59,7 +59,7 @@ Scope: `PropertyReference` linking; `FinancialAccount`; manual `Transaction` + i
 
 **Exit:** link an MRE property → create account → import a CSV twice without duplicates → split → confirm, all Realm-isolated, all exact money, all traceable to source. Invariant tests green.
 
-**Correction flow (gated fast-follow, NOT part of the Phase-1 exit):** `transactions/{id}/correct` is unblocked by ADR-037 (confirmed transactions immutable; corrected via reversal + replacement), but its full contract must be specified first (`api-design.md` §35). It is explicitly excluded from the Phase-1 exit above and delivered as a gated fast-follow — consistent with `docs/project-brief.md` §7, `docs/development/backlog.md` (VC-1-11) and `api-design.md` §35.
+**Correction flow (gated fast-follow, NOT part of the Phase-1 exit):** `transactions/{id}/correct` is unblocked by ADR-037 (confirmed transactions immutable; corrected via reversal + replacement), and its full contract is specified in `api-design.md` §35. It is explicitly excluded from the Phase-1 exit above and delivered as a gated fast-follow — consistent with `docs/project-brief.md` §7, `docs/development/backlog.md` (VC-1-11) and `api-design.md` §35.
 
 ## Phase 2 — Party, Ownership & Acquisition
 

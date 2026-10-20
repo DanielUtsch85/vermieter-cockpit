@@ -63,9 +63,9 @@ Reference: `docs/project-brief.md` §7, `api-design.md`.
 
 **Phase 1 exit:** see `docs/project-brief.md` §7 "Definition of done."
 
-| VC-1-11 | feature | Correct a confirmed transaction via reversal + replacement | `POST /api/v1/transactions/{id}/correct` | Confirmed tx immutable; correction = linked reversal record + new corrected tx (ADR-037); full audit chain preserved |
+| VC-1-11 | feature | **specified** (api-design §35) · Correct a confirmed transaction via reversal + replacement | `POST /api/v1/transactions/{id}/correct` | Confirmed tx immutable; correction = linked reversal record + new corrected tx (ADR-037); full audit chain preserved |
 
-**Note:** VC-1-11 is a **gated fast-follow and is not part of the Phase-1 exit** (see `api-design.md` §35 and `docs/roadmap.md` Phase 1). The behavior is fixed by **ADR-037** (confirmed transactions immutable; corrections use a linked reversal + replacement), but the full `correct` contract — reversal/replacement roles, chaining invariants, the `CORRECTED` transition, effect on splits/reconciliation, and idempotency identity — must be specified before it is implemented.
+**Note:** VC-1-11 is a **gated fast-follow and is not part of the Phase-1 exit** (see `api-design.md` §35 and `docs/roadmap.md` Phase 1). The behavior is fixed by **ADR-037** (confirmed transactions immutable; corrections use a linked reversal + replacement), and the full `correct` contract — reversal/replacement roles, chaining invariants, the `CORRECTED` transition, effect on splits/reconciliation, and idempotency identity — is now specified in `api-design.md` §35. Implementation follows in its own PR.
 
 ---
 
@@ -107,6 +107,8 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-12 | infra | Retention for `idempotency_key` (api-design §15): keys are currently kept forever, so a key can never be reused. Add a TTL (typically 24 h to a few days) with a cleanup job, and document what a request with an expired key does (treated as new: creates again). Review note on #11. Also version the stored result snapshots (or migrate them) before a stored entity's shape changes, since a replay re-reads them (second note on #11) |
 | VC-X-13 | infra | Large bank imports (up to 10,000 rows) run in **one** transaction holding the account lock: lookups are already set-based, but inserts, the batch row and the lock span the whole file. Measure and, if needed, chunk the write phase or move imports to a job with progress (review note on #14) |
 | VC-X-14 | api | **done** · Align the PropertyReference response to the other resources: `propertyReferenceId` instead of `id` (api-design §22–23). A breaking change, cheap only before the UI uses it (review note on #19) |
+| VC-X-15 | feature | Reverse a confirmed Transaction **without** a replacement (e.g. a confirmed duplicate manual entry): needs its own net-effect rule; deliberately left out of VC-1-11 (api-design §35.7) |
+| VC-X-16 | feature | Change or ignore an **unconfirmed** Transaction (cash fields, `IGNORED`): the states exist (domain-model §21) but no endpoint does yet; `correct` covers only confirmed ones (api-design §35.4). Must follow the anti-PATCH rule (api-design §3), i.e. explicit commands |
 
 ---
 
