@@ -79,3 +79,15 @@ export { CATEGORY_CODE, CATEGORY_TYPES } from './financial-category.js';
 export type { CategoryType, FinancialCategory, FinancialCategoryRepository } from './financial-category.js';
 export { CONFIRMED_STATUSES, planConfirm } from './confirm-transaction.js';
 export type { ConfirmOutcome, ConfirmPlan, SplitForConfirm } from './confirm-transaction.js';
+export { CORRECTION_ROLES, correctionFingerprint, opposite, planCorrection } from './correct-transaction.js';
+export type {
+  CorrectionOriginal,
+  CorrectionPlan,
+  CorrectionRepository,
+  CorrectionRequest,
+  CorrectionResult,
+  CorrectionRole,
+  CorrectOutcome,
+  PlannedReplacement,
+  ReplacementInput,
+} from './correct-transaction.js';

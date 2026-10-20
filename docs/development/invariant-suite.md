@@ -18,6 +18,8 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **BI** | `domains/ledger/bank-import.test.ts` |
 | **TS** | `domains/ledger/transaction-split.test.ts` |
 | **CT** | `domains/ledger/confirm-transaction.test.ts` |
+| **CR** | `infrastructure/postgres/correction-repository.test.ts` (VC-1-11) |
+| **CC** | `domains/ledger/correct-transaction.test.ts` (VC-1-11) |
 
 Database tests run against `DE_TEST_DATABASE_URL` (CI: a PostgreSQL 16
 service; also run locally with `default_transaction_isolation = repeatable read`).
@@ -88,20 +90,24 @@ service; also run locally with `default_transaction_isolation = repeatable read`
 
 TR confirm "the database keeps a confirmed Transaction and its splits immutable (ADR-037)", "the status of a confirmed Transaction only moves forward; CORRECTED is terminal"; SR "a replacement waiting on a confirm in progress finds the Transaction frozen"; ACC (splits refused after confirm).
 
-## 7. Correction chain (planned, VC-1-11)
+## 7. Correction chain (VC-1-11)
 
-Specified in API §35.6 and data-model §17.8; the tests come with the implementation:
+Specified in API §35.6 and data-model §17.8.
 
-- link and role are set together, only with `provenance = CORRECTION`, and stay within the Realm;
-- at most one reversal and one replacement per original;
-- a reversal matches its original (amount, currency, account, dates; opposite direction);
-- `CORRECTED` exactly when both exist, checked at commit;
-- `CORRECTED` only from `CONFIRMED`/`RECONCILED` (a covered `CLASSIFIED` row cannot jump to it);
-- a correction link never targets a reversal;
-- `propertyReferenceId` and `description` of a confirmed Transaction are frozen;
-- net effect: the signed sums over the whole chain equal those over the current Transactions, per account, period (booking date), split category and split PropertyReference;
-- two concurrent corrections: one chain, one `ALREADY_CORRECTED`;
-- a re-import of a corrected original's row stays a duplicate.
+| Invariant | Tests |
+|---|---|
+| Link and role set together, exactly with `provenance = CORRECTION` | INV "link and role go together, exactly with provenance CORRECTION" |
+| The link stays within the Realm | INV "a correction links only within its Realm" |
+| At most one reversal and one replacement per original | INV "at most one reversal and one replacement per original" |
+| A reversal matches its original (amount, account, dates; opposite direction), both records confirmed | INV "a reversal matches its original …"; CR "writes a confirmed reversal and replacement …" |
+| `CORRECTED` exactly when reversal and replacement exist, checked at commit | INV "CORRECTED exactly when reversal and replacement exist, checked at commit", "a complete chain commits, in any order of its writes" |
+| `CORRECTED` only from `CONFIRMED`/`RECONCILED` (review counterexample on #21) | INV "CORRECTED only from CONFIRMED/RECONCILED …"; TR "the status of a confirmed Transaction only moves forward" |
+| No correction links to a reversal | INV "no correction links to a reversal"; CC, CR (`NOT_CORRECTABLE` with `correctionRole`) |
+| `propertyReferenceId`, `description` and the link of a confirmed Transaction are frozen (review counterexample on #21) | INV "PropertyReference, description and the link …"; TR "the database keeps a confirmed Transaction … immutable" |
+| Net effect per account, period, split category and split PropertyReference, over a chain T1 → T2 → T3 | CR "net effect …"; ACC "corrects a confirmed import …" |
+| Two concurrent corrections: one chain, the waiter gets `ALREADY_CORRECTED` with its ids (deterministic: both wait on a held lock) | CR "two concurrent corrections …" |
+| A re-import of a corrected original's row stays a duplicate | ACC "corrects a confirmed import …" |
+| Must change something; closed account of the original; idempotency | CC "NO_CHANGE only when …"; CR "a correction must change something …", "the original’s closed account …", "Idempotency-Key …" |
 
 ## Keeping this current
 

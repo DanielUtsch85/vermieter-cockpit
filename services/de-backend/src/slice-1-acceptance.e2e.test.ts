@@ -6,6 +6,7 @@ import { createApp } from './api/index.js';
 import {
   closeFinancialAccount,
   confirmTransaction,
+  correctTransaction,
   createFinancialAccount,
   createManualTransaction,
   getFinancialCategory,
@@ -23,6 +24,7 @@ import {
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
+  PostgresCorrectionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
   createDatabase,
@@ -90,6 +92,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       closeFinancialAccount: closeFinancialAccount({ repository: accounts }),
       createManualTransaction: createManualTransaction({ repository: transactions }),
       confirmTransaction: confirmTransaction({ repository: transactions }),
+      correctTransaction: correctTransaction({ repository: new PostgresCorrectionRepository(db) }),
       setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
       listFinancialCategories: listFinancialCategories({ categories }),
       getFinancialCategory: getFinancialCategory({ categories }),
@@ -250,6 +253,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       ],
       ['PUT', `/transactions/${rentId}/splits`, { splits: rentSplits }],
       ['POST', `/transactions/${rentId}/confirm`],
+      ['POST', `/transactions/${rentId}/correct`, { reason: 'x', replacement: { bookingDate: '2026-09-03' } }],
       ['GET', `/imports/${first.importBatchId}`],
       ['GET', `/imports/${review.importBatchId}/review-items`],
       ['POST', `/imports/${review.importBatchId}/review-items/${itemId}/resolve`, { resolution: 'SKIP' }],
@@ -259,5 +263,68 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     }
     expect((await upload(REALM_B, account.financialAccountId, september)).status).toBe(404);
     expect((await pool.query(`SELECT count(*) FROM audit_record`)).rows).toEqual(before.rows);
+  });
+
+  it('corrects a confirmed import by reversal + replacement; a re-import still finds the original (VC-1-11)', async () => {
+    const account = await json<{ financialAccountId: string }>(
+      await call(REALM_A, 'POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Mietkonto 2', currency: 'EUR' }),
+      201,
+    );
+    const imported = await json<{ rows: { transactionId?: string }[] }>(await upload(REALM_A, account.financialAccountId, september), 201);
+    const rentId = imported.rows[0]?.transactionId ?? '';
+    await json(await call(REALM_A, 'PUT', `/transactions/${rentId}/splits`, { splits: [{ amount: eur('1250.00'), financialCategoryCode: 'RENT_BASE' }] }), 200);
+    await json(await call(REALM_A, 'POST', `/transactions/${rentId}/confirm`), 200);
+
+    // Realm B cannot correct Realm A's Transaction, and nothing is written.
+    const before = await pool.query(`SELECT count(*) FROM ledger_transaction`);
+    const foreign = await call(REALM_B, 'POST', `/transactions/${rentId}/correct`, { reason: 'x', replacement: { bookingDate: '2026-09-03' } });
+    expect(foreign.status).toBe(404);
+    expect((await pool.query(`SELECT count(*) FROM ledger_transaction`)).rows).toEqual(before.rows);
+
+    const corrected = await json<Record<'original' | 'reversal' | 'replacement', Record<string, unknown>>>(
+      await call(REALM_A, 'POST', `/transactions/${rentId}/correct`, {
+        reason: 'Parser hat Kaltmiete und Nebenkosten nicht getrennt',
+        replacement: {
+          splits: [
+            { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE' },
+            { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' },
+          ],
+        },
+      }),
+      201,
+    );
+    expect(corrected.original).toMatchObject({ transactionId: rentId, status: 'CORRECTED', provenance: 'BANK_CSV' });
+    expect(corrected.reversal).toMatchObject({ direction: 'OUTFLOW', amount: eur('1250.00'), provenance: 'CORRECTION', correctionRole: 'REVERSAL' });
+    expect(corrected.replacement).toMatchObject({ direction: 'INFLOW', amount: eur('1250.00'), status: 'CONFIRMED', correctionRole: 'REPLACEMENT' });
+    // A second attempt names the correction instead of making another one.
+    const again = await json<{ error: { details: Record<string, unknown> } }>(
+      await call(REALM_A, 'POST', `/transactions/${rentId}/correct`, { reason: 'x', replacement: { bookingDate: '2026-09-03' } }),
+      409,
+    );
+    expect(again.error.details).toEqual({
+      reason: 'ALREADY_CORRECTED',
+      reversalTransactionId: corrected.reversal['transactionId'],
+      replacementTransactionId: corrected.replacement['transactionId'],
+    });
+
+    // The bank row still belongs to the original: re-importing the file creates nothing.
+    const reimport = await json<{ transactionCount: number; duplicateCount: number }>(
+      await upload(REALM_A, account.financialAccountId, september),
+      201,
+    );
+    expect(reimport).toMatchObject({ transactionCount: 0, duplicateCount: 2 });
+
+    // Net effect on the account: the rent counts once, now split in two categories.
+    const totals = await pool.query(
+      `SELECT c.code, sum(CASE t.direction WHEN 'INFLOW' THEN s.amount ELSE -s.amount END)::text AS total
+       FROM ledger_transaction t JOIN transaction_split s ON s.transaction_id = t.id JOIN financial_category c ON c.id = s.financial_category_id
+       WHERE t.financial_account_id = $1 AND t.status IN ('CONFIRMED', 'RECONCILED', 'CORRECTED')
+       GROUP BY c.code HAVING sum(CASE t.direction WHEN 'INFLOW' THEN s.amount ELSE -s.amount END) <> 0 ORDER BY c.code`,
+      [account.financialAccountId],
+    );
+    expect(totals.rows).toEqual([
+      { code: 'RENT_BASE', total: '1000.00' },
+      { code: 'RENT_OPERATING_COST_ADVANCE', total: '250.00' },
+    ]);
   });
 });

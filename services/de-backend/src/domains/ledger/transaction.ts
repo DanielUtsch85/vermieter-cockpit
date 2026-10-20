@@ -1,4 +1,5 @@
 import type { ConfirmOutcome } from './confirm-transaction.js';
+import type { CorrectionRole } from './correct-transaction.js';
 import type { AuditActor, Money } from '../../shared/index.js';
 import type { FinancialAccount, FinancialAccountId } from './financial-account.js';
 
@@ -77,6 +78,12 @@ export interface Transaction {
   /** Set once confirmed (api-design.md §34); null before. */
   readonly confirmedAt: Date | null;
   readonly confirmedBy: string | null;
+  /** Correction chain (api-design.md §35.4): set on a reversal or replacement, null otherwise. */
+  readonly correctionOfTransactionId: TransactionId | null;
+  readonly correctionRole: CorrectionRole | null;
+  /** Set on a CORRECTED original: its reversal and replacement. */
+  readonly reversalTransactionId: TransactionId | null;
+  readonly replacementTransactionId: TransactionId | null;
 }
 
 /** A validated manual Transaction about to be created (api-design.md §31). */

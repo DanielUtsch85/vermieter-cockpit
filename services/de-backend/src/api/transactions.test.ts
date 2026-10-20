@@ -8,7 +8,13 @@ import {
   SplitsMissingError,
   TransactionNotConfirmableError,
   TransactionNotFoundError,
+  CorrectionNoChangeError,
+  FinancialCategoryNotFoundError,
+  TransactionAlreadyCorrectedError,
+  TransactionNotCorrectableError,
   type ConfirmTransaction,
+  type CorrectTransaction,
+  type CorrectTransactionInput,
   FinancialAccountClosedError,
   FinancialAccountNotFoundError,
   IdempotencyKeyConflictError,
@@ -41,6 +47,10 @@ const transaction = {
   version: 1,
   confirmedAt: null,
   confirmedBy: null,
+  correctionOfTransactionId: null,
+  correctionRole: null,
+  reversalTransactionId: null,
+  replacementTransactionId: null,
 } as unknown as Transaction;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
@@ -105,6 +115,10 @@ describe('POST /api/v1/transactions', () => {
       version: 1,
       confirmedAt: null,
       confirmedBy: null,
+      correctionOfTransactionId: null,
+      correctionRole: null,
+      reversalTransactionId: null,
+      replacementTransactionId: null,
     });
     expect(seen[0]).toMatchObject({
       financialAccountId: ACCOUNT,
@@ -253,5 +267,171 @@ describe('POST /api/v1/transactions/{transactionId}/confirm', () => {
       await new Promise<void>((resolve) => server?.close(() => resolve()));
       server = undefined;
     }
+  });
+});
+
+describe('POST /api/v1/transactions/{transactionId}/correct', () => {
+  const REVERSAL = '1a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const REPLACEMENT = '2a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const confirmedAt = new Date('2026-10-20T09:00:00Z');
+  const result = {
+    original: {
+      ...transaction,
+      status: 'CORRECTED',
+      version: 4,
+      confirmedAt,
+      confirmedBy: 'anna@example.com',
+      reversalTransactionId: REVERSAL,
+      replacementTransactionId: REPLACEMENT,
+    },
+    reversal: {
+      ...transaction,
+      id: REVERSAL,
+      direction: 'OUTFLOW',
+      provenance: 'CORRECTION',
+      status: 'CONFIRMED',
+      confirmedAt,
+      confirmedBy: 'anna@example.com',
+      correctionOfTransactionId: transaction.id,
+      correctionRole: 'REVERSAL',
+    },
+    replacement: {
+      ...transaction,
+      id: REPLACEMENT,
+      bookingDate: '2026-09-03',
+      provenance: 'CORRECTION',
+      status: 'CONFIRMED',
+      confirmedAt,
+      confirmedBy: 'anna@example.com',
+      correctionOfTransactionId: transaction.id,
+      correctionRole: 'REPLACEMENT',
+    },
+  } as unknown as { original: Transaction; reversal: Transaction; replacement: Transaction };
+
+  async function startCorrect(correct: CorrectTransaction): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, correctTransaction: correct }).listen(
+      0,
+      '127.0.0.1',
+    );
+    await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const stop = () =>
+    new Promise<void>((resolve) => server?.close(() => resolve())).then(() => {
+      server = undefined;
+    });
+  const correctAt = (base: string, body: unknown, id: string = transaction.id, extra: Record<string, string> = {}) =>
+    fetch(`${base}/api/v1/transactions/${id}/correct`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', ...extra },
+      body: JSON.stringify(body),
+    });
+
+  it('201 with original, reversal and replacement; omitted fields stay omitted, null clears, ids are lower-cased', async () => {
+    const seen: CorrectTransactionInput[] = [];
+    let replayed = false;
+    const base = await startCorrect(async (input) => {
+      seen.push(input);
+      const answer = { ...result, replayed };
+      replayed = true;
+      return answer;
+    });
+    const res = await correctAt(
+      base,
+      {
+        reason: '  Falsches Datum ',
+        replacement: { bookingDate: '2026-09-03', valueDate: null, description: '', propertyReferenceId: PROPERTY.toUpperCase() },
+      },
+      transaction.id.toUpperCase(),
+      { 'idempotency-key': 'k-9' },
+    );
+    expect(res.status).toBe(201);
+    expect(res.headers.get('idempotent-replayed')).toBeNull();
+    const body = (await res.json()) as Record<string, Record<string, unknown>>;
+    expect(body['original']).toMatchObject({
+      transactionId: transaction.id,
+      status: 'CORRECTED',
+      reversalTransactionId: REVERSAL,
+      replacementTransactionId: REPLACEMENT,
+      correctionOfTransactionId: null,
+    });
+    expect(body['reversal']).toMatchObject({ transactionId: REVERSAL, direction: 'OUTFLOW', correctionRole: 'REVERSAL', correctionOfTransactionId: transaction.id });
+    expect(body['replacement']).toMatchObject({ transactionId: REPLACEMENT, bookingDate: '2026-09-03', correctionRole: 'REPLACEMENT' });
+    expect(seen[0]).toEqual({
+      principal: expect.anything(),
+      transactionId: transaction.id,
+      reason: 'Falsches Datum',
+      replacement: { bookingDate: '2026-09-03', valueDate: null, description: null, propertyReferenceId: PROPERTY },
+      idempotencyKey: 'k-9',
+    });
+    expect((await correctAt(base, { reason: 'x', replacement: { bookingDate: '2026-09-03' } })).headers.get('idempotent-replayed')).toBe('true');
+  });
+
+  it('400 for a malformed id or body: reason required, unknown keys, splits like §33', async () => {
+    const base = await startCorrect(() => Promise.reject(new Error('unused')));
+    expect((await correctAt(base, { reason: 'x', replacement: {} }, 'nope')).status).toBe(400);
+    const fields = async (body: unknown) =>
+      (((await (await correctAt(base, body)).json()) as { error: { details: { fields: { field: string; code: string }[] } } }).error.details.fields);
+    expect(await fields({ replacement: {} })).toEqual([expect.objectContaining({ field: 'reason' })]);
+    expect(await fields({ reason: '   ', replacement: {} })).toEqual([expect.objectContaining({ field: 'reason' })]);
+    expect(await fields({ reason: 'x' })).toEqual([expect.objectContaining({ field: 'replacement' })]);
+    expect((await fields({ reason: 'x', replacement: { status: 'CONFIRMED' } })).length).toBe(1);
+    expect(await fields({ reason: 'x', replacement: { amount: 12.5 } })).toEqual([expect.objectContaining({ field: expect.stringMatching(/^replacement\.amount/) })]);
+    expect(
+      await fields({
+        reason: 'x',
+        replacement: { splits: [{ amount: { amount: '1', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE', direction: 'INFLOW' }] },
+      }),
+    ).toEqual([{ field: 'replacement.splits.0.direction', code: 'NOT_ALLOWED' }]);
+  });
+
+  it('maps the refusals of §35.4', async () => {
+    const cases = [
+      [new TransactionNotFoundError(transaction.id), 404, { code: 'NOT_FOUND', details: { transactionId: transaction.id } }],
+      [new FinancialAccountNotFoundError(ACCOUNT), 404, { code: 'NOT_FOUND', details: { financialAccountId: ACCOUNT } }],
+      [new PropertyReferenceNotFoundError(PROPERTY), 404, { code: 'NOT_FOUND', details: { propertyReferenceId: PROPERTY } }],
+      [
+        new TransactionAlreadyCorrectedError(transaction.id, REVERSAL, REPLACEMENT),
+        409,
+        { code: 'CONFLICT', details: { reason: 'ALREADY_CORRECTED', reversalTransactionId: REVERSAL, replacementTransactionId: REPLACEMENT } },
+      ],
+      [
+        new TransactionNotCorrectableError(transaction.id, 'RECONCILED'),
+        409,
+        { code: 'CONFLICT', details: { reason: 'NOT_CORRECTABLE', status: 'RECONCILED' } },
+      ],
+      [
+        new TransactionNotCorrectableError(transaction.id, 'CONFIRMED', 'REVERSAL'),
+        409,
+        { code: 'CONFLICT', details: { reason: 'NOT_CORRECTABLE', status: 'CONFIRMED', correctionRole: 'REVERSAL' } },
+      ],
+      [new CorrectionNoChangeError('same'), 409, { code: 'CONFLICT', details: { reason: 'NO_CHANGE' } }],
+      [new FinancialAccountClosedError(ACCOUNT), 409, { code: 'CONFLICT', details: { reason: 'ACCOUNT_CLOSED', financialAccountId: ACCOUNT } }],
+      [
+        new SplitSumMismatchError(Money.of('1200.00', 'EUR'), Money.of('1250.00', 'EUR')),
+        409,
+        { code: 'INVARIANT_VIOLATION', details: { reason: 'SPLIT_SUM_MISMATCH', difference: { amount: '-50.00', currency: 'EUR' } } },
+      ],
+      [new IdempotencyKeyConflictError('x'), 409, { code: 'CONFLICT' }],
+      [new InactiveCategoryError(['OLD']), 422, { code: 'REVIEW_REQUIRED', details: { reason: 'INACTIVE_CATEGORY', financialCategoryCodes: ['OLD'] } }],
+      [new CurrencyMismatchError('x'), 400, { code: 'VALIDATION_ERROR' }],
+    ] as const;
+    for (const [error, status, body] of cases) {
+      const base = await startCorrect(() => Promise.reject(error));
+      const res = await correctAt(base, { reason: 'x', replacement: { bookingDate: '2026-09-03' } });
+      expect(res.status, error.name).toBe(status);
+      expect(((await res.json()) as { error: unknown }).error, error.name).toMatchObject(body);
+      await stop();
+    }
+
+    const base = await startCorrect(() => Promise.reject(new FinancialCategoryNotFoundError(['NOPE'])));
+    const res = await correctAt(base, {
+      reason: 'x',
+      replacement: { splits: [{ amount: { amount: '1250.00', currency: 'EUR' }, financialCategoryCode: 'NOPE' }] },
+    });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: { details: unknown } }).error.details).toEqual({
+      fields: [{ field: 'replacement.splits.0.financialCategoryCode', code: 'UNKNOWN_CATEGORY' }],
+    });
   });
 });

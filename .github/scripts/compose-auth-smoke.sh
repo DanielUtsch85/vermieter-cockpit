@@ -3,7 +3,7 @@
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
-# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it; VC-1-08: confirm it;
+# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it; VC-1-08: confirm it; VC-1-11: correct it;
 # VC-1-05/06: import a bank CSV, re-import it as duplicates; VC-1-06a: review and resolve a reordered file.
 set -euo pipefail
 
@@ -170,6 +170,24 @@ replay_status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$DE/transactions
 expect "confirm repeat" "$replay_status" 200
 splits '{"splits":[{"amount":{"amount":"1250.00","currency":"EUR"},"financialCategoryCode":"RENT_BASE"}]}'
 expect "splits frozen after confirm" "$splits_status" 409
+
+# VC-1-11: correct the booking date by reversal + replacement; a second correction names the first.
+correct() { # body — POST /transactions/$transaction_id/correct; sets correct_status and correct_body
+  local out
+  out=$(curl -s -w '\n%{http_code}' -X POST "$DE/transactions/$transaction_id/correct" \
+    -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' -d "$1")
+  correct_status=$(echo "$out" | tail -n1)
+  correct_body=$(echo "$out" | sed '$d')
+}
+correct '{"reason":"Smoke: falsches Datum","replacement":{"bookingDate":"2026-09-03"}}'
+expect "correct transaction" "$correct_status" 201
+expect "original corrected" "$(echo "$correct_body" | jq -r .original.status)" CORRECTED
+expect "reversal opposite" "$(echo "$correct_body" | jq -r .reversal.direction)" OUTFLOW
+expect "replacement date" "$(echo "$correct_body" | jq -r .replacement.bookingDate)" "2026-09-03"
+expect "replacement confirmed" "$(echo "$correct_body" | jq -r .replacement.status)" CONFIRMED
+correct '{"reason":"Smoke: nochmal","replacement":{"bookingDate":"2026-09-04"}}'
+expect "second correction refused" "$correct_status" 409
+expect "names the first" "$(echo "$correct_body" | jq -r .error.details.reason)" ALREADY_CORRECTED
 
 # VC-1-05/06: bank CSV import (multipart); the identical file again is all duplicates.
 statement_file=$(mktemp)

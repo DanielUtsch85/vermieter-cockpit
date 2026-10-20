@@ -3,6 +3,7 @@ import type {
   CloseFinancialAccount,
   CreateFinancialAccount,
   ConfirmTransaction,
+  CorrectTransaction,
   CreateManualTransaction,
   GetFinancialCategory,
   GetImportBatch,
@@ -44,6 +45,8 @@ export interface AppDependencies {
   readonly createManualTransaction: CreateManualTransaction;
   /** Confirm (VC-1-08). */
   readonly confirmTransaction: ConfirmTransaction;
+  /** Correct a confirmed Transaction (VC-1-11). */
+  readonly correctTransaction: CorrectTransaction;
   /** Splits and categories (VC-1-07). */
   readonly setTransactionSplits: SetTransactionSplits;
   readonly listFinancialCategories: ListFinancialCategories;
@@ -89,6 +92,7 @@ export function createApp(deps: AppDependencies): Express {
       createManual: deps.createManualTransaction,
       setSplits: deps.setTransactionSplits,
       confirm: deps.confirmTransaction,
+      correct: deps.correctTransaction,
     }),
   );
   api.use(

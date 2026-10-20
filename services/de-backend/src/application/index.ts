@@ -90,3 +90,11 @@ export type {
 } from './transaction-splits.js';
 export { CATEGORY_CODE } from '../domains/ledger/index.js';
 export type { FinancialCategory, SplitInput, SplitTransaction, TransactionSplit } from '../domains/ledger/index.js';
+export {
+  CorrectionNoChangeError,
+  TransactionAlreadyCorrectedError,
+  TransactionNotCorrectableError,
+  correctTransaction,
+} from './correct-transaction.js';
+export type { CorrectTransaction, CorrectTransactionInput, CorrectTransactionResult } from './correct-transaction.js';
+export type { ReplacementInput } from '../domains/ledger/index.js';

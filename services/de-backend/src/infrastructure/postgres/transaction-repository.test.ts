@@ -7,6 +7,7 @@ import {
   type NewManualTransaction,
 } from '../../domains/ledger/index.js';
 import { Money } from '../../shared/index.js';
+import { PostgresCorrectionRepository } from './correction-repository.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { migrateToLatest } from './migrate.js';
@@ -38,6 +39,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
   const schema = testSchemaName('transaction_test');
   let pool: pg.Pool;
   let transactions: PostgresTransactionRepository;
+  let corrections: PostgresCorrectionRepository;
   let accounts: PostgresFinancialAccountRepository;
   let propertyReferences: PostgresPropertyReferenceRepository;
 
@@ -50,6 +52,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     transactions = new PostgresTransactionRepository(db);
+    corrections = new PostgresCorrectionRepository(db);
     accounts = new PostgresFinancialAccountRepository(db);
     propertyReferences = new PostgresPropertyReferenceRepository(db);
   });
@@ -301,7 +304,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       expect(await transactions.confirm(ignored, REALM, actor)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'IGNORED' });
       const corrected = await classified();
       await transactions.confirm(corrected, REALM, actor);
-      await pool.query(`UPDATE ledger_transaction SET status = 'CORRECTED' WHERE id = $1`, [corrected]);
+      await corrections.correct(corrected, REALM, { reason: 'Datum', replacement: { bookingDate: '2026-09-02' as BusinessDate } }, actor);
       expect(await transactions.confirm(corrected, REALM, actor)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'CORRECTED' });
     });
 
@@ -342,8 +345,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       ]) {
         await expect(pool.query(statement, [id]), statement).rejects.toThrow(/ADR-037/);
       }
-      // Non-cash bookkeeping stays possible: the later states and the description.
-      await pool.query(`UPDATE ledger_transaction SET description = 'Miete Sept.', status = 'RECONCILED' WHERE id = $1`, [id]);
+      // VC-1-11: description and PropertyReference too; every change goes through a correction (api-design §35.6).
+      for (const statement of [
+        `UPDATE ledger_transaction SET description = 'Miete Sept.' WHERE id = $1`,
+        `UPDATE ledger_transaction SET property_reference_id = gen_random_uuid() WHERE id = $1`,
+      ]) {
+        await expect(pool.query(statement, [id]), statement).rejects.toThrow(/ADR-037/);
+      }
+      // Non-cash bookkeeping stays possible: the later states.
+      await pool.query(`UPDATE ledger_transaction SET status = 'RECONCILED' WHERE id = $1`, [id]);
       // confirmed_at and confirmed_by exist exactly for confirmed states.
       const unconfirmed = await classified();
       await expect(pool.query(`UPDATE ledger_transaction SET status = 'CONFIRMED' WHERE id = $1`, [unconfirmed])).rejects.toThrow(
@@ -361,10 +371,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       const reconciled = await confirmedOne();
       await setStatus(reconciled, 'RECONCILED');
       await expect(setStatus(reconciled, 'CONFIRMED')).rejects.toThrow(/ADR-037/);
-      await setStatus(reconciled, 'CORRECTED');
+      // RECONCILED → CORRECTED is a forward step, but only with its reversal and replacement (0011, checked at commit).
+      await expect(setStatus(reconciled, 'CORRECTED')).rejects.toThrow(/without its reversal and replacement/);
 
       const corrected = await confirmedOne();
-      await setStatus(corrected, 'CORRECTED');
+      const outcome = await corrections.correct(corrected, REALM, { reason: 'Datum', replacement: { bookingDate: '2026-09-02' as BusinessDate } }, actor);
+      expect(outcome.kind).toBe('CORRECTED');
       for (const back of ['CONFIRMED', 'RECONCILED', 'CLASSIFIED', 'IGNORED']) {
         await expect(setStatus(corrected, back), back).rejects.toThrow(/ADR-037|ledger_transaction_confirmed/);
       }
