@@ -18,7 +18,7 @@ import { MIGRATION_ADVISORY_LOCK } from './src/infrastructure/postgres/migrate.j
 export default function setup({ provide }: GlobalSetupContext): () => Promise<void> {
   const runId = randomBytes(4).toString('hex');
   provide('testRunId', runId);
-  const ownSchema = new RegExp(`^[a-z_]+_(?:test|e2e)_${runId}$`);
+  const ownSchema = new RegExp(`^[a-z0-9_]+_(?:test|e2e)_${runId}$`);
   return async () => {
     const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
     if (databaseUrl === undefined) return;

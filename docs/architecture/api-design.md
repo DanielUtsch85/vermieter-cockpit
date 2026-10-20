@@ -997,6 +997,7 @@ POST /api/v1/transactions/{id}/confirm
   - **Status only moves forward:** `CONFIRMED` → `RECONCILED` / `CORRECTED`, `RECONCILED` → `CORRECTED` (domain-model §21). `CORRECTED` is terminal; nothing returns to `CONFIRMED` or to an unconfirmed state, so a superseded Transaction cannot be revived and counted twice.
   - **No deletion**, and its splits cannot be inserted, changed or deleted. Only `description` stays editable.
   - `confirmed_at`/`confirmed_by` are set exactly for the confirmed states (CHECK).
+- **Split invariant in the database** (migration 0010, VC-1-09): a Transaction becomes `CONFIRMED` only with splits in its currency summing exactly to its amount, and none is inserted already confirmed, so "confirmed ⇒ covered exactly" holds for every row, not only for those confirmed through this endpoint. This includes two writers at once: the split trigger writes the Transaction row (a no-op update), so a split change and a confirmation in different sessions serialize instead of missing each other, under every isolation level.
 
 ---
 

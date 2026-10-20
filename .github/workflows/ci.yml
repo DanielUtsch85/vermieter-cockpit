@@ -71,6 +71,7 @@ jobs:
           echo "$applied" | grep -qx '0007_import_review'
           echo "$applied" | grep -qx '0008_transaction_split'
           echo "$applied" | grep -qx '0009_confirm_transaction'
+          echo "$applied" | grep -qx '0010_confirm_split_invariant'
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
       - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction → splits → confirm → bank import → review)
