@@ -939,6 +939,8 @@ Generated schedules, forecasts and non-cash projections must never create Ledger
 - `amount` is non-negative; the cash sign is expressed solely by `direction` (§17.4).
 - Transaction currency and FinancialAccount currency must be compatible or explicit FX handling must exist. Amounts must be representable in the currency's scale, else the Transaction is rejected.
 - Confirmed Transactions must have complete split coverage.
+
+**Implementation (VC-1-08):** `confirmedAt` / `confirmedBy` record the confirmation; the immutability of confirmed Transactions and their splits (ADR-037) is enforced by database triggers, see API §34.2.
 - Duplicate imported Transactions must be detected or flagged.
 - Material correction must preserve traceability; a reversal uses the same amount with opposite `direction`.
 

@@ -2,6 +2,7 @@ import express, { type Express } from 'express';
 import type {
   CloseFinancialAccount,
   CreateFinancialAccount,
+  ConfirmTransaction,
   CreateManualTransaction,
   GetFinancialCategory,
   GetImportBatch,
@@ -41,6 +42,8 @@ export interface AppDependencies {
   readonly closeFinancialAccount: CloseFinancialAccount;
   /** Manual Transaction (VC-1-04). */
   readonly createManualTransaction: CreateManualTransaction;
+  /** Confirm (VC-1-08). */
+  readonly confirmTransaction: ConfirmTransaction;
   /** Splits and categories (VC-1-07). */
   readonly setTransactionSplits: SetTransactionSplits;
   readonly listFinancialCategories: ListFinancialCategories;
@@ -81,7 +84,13 @@ export function createApp(deps: AppDependencies): Express {
   });
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
-  api.use(transactionRoutes({ createManual: deps.createManualTransaction, setSplits: deps.setTransactionSplits }));
+  api.use(
+    transactionRoutes({
+      createManual: deps.createManualTransaction,
+      setSplits: deps.setTransactionSplits,
+      confirm: deps.confirmTransaction,
+    }),
+  );
   api.use(
     importRoutes({
       importStatement: deps.importBankStatement,

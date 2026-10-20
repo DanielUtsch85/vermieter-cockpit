@@ -5,6 +5,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { migrateToLatest } from './migrate.js';
 import { migrations } from './migrations/index.js';
+import { testSchemaName } from './test-schema.test-support.js';
 
 /**
  * Phase-0 exit "migrations run": a fresh database migrates to latest, and a
@@ -14,7 +15,7 @@ import { migrations } from './migrations/index.js';
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
 describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
-  const schema = `migrate_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('migrate_test');
   let pool: pg.Pool;
 
   beforeAll(async () => {
@@ -54,6 +55,24 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
     await expect(migrateToLatest(pool, { migrations: failing, migrationTableSchema: schema })).rejects.toThrow('Database migration failed at 9999_failing');
     const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration`);
     expect(applied.rows.map((r) => r.name)).not.toContain('9999_failing');
+  });
+});
+
+describe.skipIf(databaseUrl === undefined)('migrateToLatest with a single-connection pool', () => {
+  const schema = testSchemaName('migrate_single_test');
+
+  it('does not deadlock: the advisory lock uses its own connection, not one of the pool', async () => {
+    const admin = new pg.Client({ connectionString: databaseUrl });
+    await admin.connect();
+    await admin.query(`CREATE SCHEMA "${schema}"`);
+    await admin.end();
+    const pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 1, connectionTimeoutMillis: 5_000 });
+    try {
+      const results = await migrateToLatest(pool, { migrationTableSchema: schema });
+      expect(results).toHaveLength(Object.keys(migrations).length);
+    } finally {
+      await pool.end();
+    }
   });
 });
 

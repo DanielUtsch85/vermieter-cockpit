@@ -959,6 +959,7 @@ The command replaces the current unconfirmed split proposal atomically.
   - **Changed set:** replaced as a whole under the Transaction's row lock. The Transaction's `version` increases by 1, and one AuditRecord `SPLITS_REPLACED` is written.
   - **Same set again:** same order, same values (`"600"` equals `"600.00"`). Answered `200` with the stored set, no new version and no AuditRecord, even after confirmation. Only a **different** set is frozen.
 - **Response `200`:** `transactionId`, `amount`, `direction`, `status`, `version`, `splits` (`splitId`, `position`, `amount`, `financialCategoryCode`, `propertyReferenceId`, `description`).
+- **Category and direction are deliberately not cross-checked:** an `INCOME` category on an `OUTFLOW` (e.g. a refunded rent, `RENT_BASE` on the way out) or an expense category on an `INFLOW` (an insurance refund) is legitimate. The category says *what* the money is; `direction` says which way it moved. Do not add such a check.
 - **Schema:** a split references its Transaction together with the Realm and the currency (composite foreign key), so it can never belong to another Realm's Transaction or carry another currency. Its amount is non-negative with at most two decimals.
 
 ---
@@ -979,6 +980,23 @@ POST /api/v1/transactions/{id}/confirm
 - **Error codes:** `404` unknown / other-Realm transaction; `409` split sum ≠ amount; `422` unresolved references / blocking review. Already-confirmed is **not** an error — it is a `200` no-op (see idempotency).
 - **Idempotency:** repeated `confirm` of the same transaction is a consistent `200` no-op returning the existing confirmed Transaction; confirmed cash fields are immutable thereafter (ADR-037).
 - **Side effects:** status → `CONFIRMED`; AuditRecord created; downstream recalculation may be triggered.
+
+## 34.2 Implementation (VC-1-08)
+
+- **Confirmable:** a `CLASSIFIED` Transaction (VC-1-07) whose split set still sums exactly to its amount (re-checked under the Transaction's row lock, not taken from when it was stored) and whose splits use only active categories.
+- **`200`:** the Transaction (as in §31.2) with `status = CONFIRMED`, `confirmedAt`, `confirmedBy` (the MRE email), `version` + 1; one AuditRecord `CONFIRMED`. Already `CONFIRMED` or `RECONCILED` → `200` with the Transaction unchanged and `Idempotent-Replayed: true`, no new version or AuditRecord.
+- **`409`:**
+  - `INVARIANT_VIOLATION` with `reason = "SPLITS_MISSING"`: no split set yet (`IMPORTED`/`UNREVIEWED`). The complete coverage of §24 is required.
+  - `INVARIANT_VIOLATION` with `reason = "SPLIT_SUM_MISMATCH"`, `expected`/`actual`/`difference`.
+  - `CONFLICT` with `reason = "NOT_CONFIRMABLE"` and the `status`: `CORRECTED` or `IGNORED`.
+- **`422 REVIEW_REQUIRED`** with `reason = "INACTIVE_CATEGORY"` and `financialCategoryCodes`: a split's category was deactivated since the split was stored (an unresolved reference): split again before confirming. PropertyReferences are bound by foreign key and cannot be unresolved; there is no other blocking review state for an existing Transaction in Phase 1.
+- **`404`:** unknown or foreign Transaction; `400` for a malformed id.
+- **Concurrency:** confirm takes the same row lock as a split replacement, so a replacement that waited on a confirm finds the Transaction frozen; two confirms yield one confirmation and one no-op.
+- **Immutability (ADR-037), enforced by the database** (migration 0009), once `CONFIRMED` (and in the later `RECONCILED`/`CORRECTED`):
+  - **Frozen fields:** account, Realm, amount, currency, direction, booking and value date, `confirmedAt`/`confirmedBy`, and the provenance and import identity a re-import relies on (`provenance`, import batch, external id, adapter, source keys, content fingerprint, review item).
+  - **Status only moves forward:** `CONFIRMED` → `RECONCILED` / `CORRECTED`, `RECONCILED` → `CORRECTED` (domain-model §21). `CORRECTED` is terminal; nothing returns to `CONFIRMED` or to an unconfirmed state, so a superseded Transaction cannot be revived and counted twice.
+  - **No deletion**, and its splits cannot be inserted, changed or deleted. Only `description` stays editable.
+  - `confirmed_at`/`confirmed_by` are set exactly for the confirmed states (CHECK).
 
 ---
 

@@ -3,7 +3,7 @@
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
-# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it;
+# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it; VC-1-08: confirm it;
 # VC-1-05/06: import a bank CSV, re-import it as duplicates; VC-1-06a: review and resolve a reordered file.
 set -euo pipefail
 
@@ -160,6 +160,16 @@ expect "classified" "$(echo "$splits_body" | jq -r .status)" CLASSIFIED
 splits '{"splits":[{"amount":{"amount":"1000.00","currency":"EUR"},"financialCategoryCode":"RENT_BASE"},{"amount":{"amount":"249.99","currency":"EUR"},"financialCategoryCode":"RENT_OPERATING_COST_ADVANCE"}]}'
 expect "split sum one cent off" "$splits_status" 409
 expect "categories listed" "$(curl -s "$DE/financial-categories" -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" | jq -r '[.items[].code] | index("RENT_BASE") != null')" true
+# VC-1-08: confirm the split Transaction; a repeat is a no-op, the splits are frozen afterwards.
+confirm_out=$(curl -s -w '\n%{http_code}' -X POST "$DE/transactions/$transaction_id/confirm" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
+expect "confirm transaction" "$(echo "$confirm_out" | tail -n1)" 200
+expect "confirmed" "$(echo "$confirm_out" | sed '$d' | jq -r .status)" CONFIRMED
+replay_status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$DE/transactions/$transaction_id/confirm" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
+expect "confirm repeat" "$replay_status" 200
+splits '{"splits":[{"amount":{"amount":"1250.00","currency":"EUR"},"financialCategoryCode":"RENT_BASE"}]}'
+expect "splits frozen after confirm" "$splits_status" 409
 
 # VC-1-05/06: bank CSV import (multipart); the identical file again is all duplicates.
 statement_file=$(mktemp)

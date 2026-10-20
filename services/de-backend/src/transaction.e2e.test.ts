@@ -14,6 +14,7 @@ import {
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 
 /** VC-1-04 end to end, wired as in main.ts, against a fake MRE and PostgreSQL. */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
@@ -22,7 +23,7 @@ const REALM_A = '64b0c0ffee0000000000000a';
 const REALM_B = '64b0c0ffee0000000000000b';
 
 describe.skipIf(databaseUrl === undefined)('manual Transactions end to end', () => {
-  const schema = `transaction_e2e_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('transaction_e2e');
   let pool: pg.Pool;
   let mre: FakeMre;
   let server: Server;

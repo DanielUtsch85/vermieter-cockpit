@@ -5,6 +5,7 @@ import { ExactDecimal } from '../../shared/index.js';
 import { createDatabase } from './database.js';
 import { migrateToLatest } from './migrate.js';
 import { PostgresPropertyReferenceRepository } from './property-reference-repository.js';
+import { testSchemaName } from './test-schema.test-support.js';
 
 /**
  * VC-1-01 persistence: one PropertyReference per natural key, also under
@@ -37,7 +38,7 @@ async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): 
 }
 
 describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository', () => {
-  const schema = `property_reference_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('property_reference_test');
   let pool: pg.Pool;
   let repository: PostgresPropertyReferenceRepository;
 

@@ -1,6 +1,6 @@
 import { Kysely, PostgresDialect } from 'kysely';
 import { Migrator, type Migration, type MigrationResult } from 'kysely/migration';
-import type pg from 'pg';
+import pg from 'pg';
 import { migrations } from './migrations/index.js';
 
 /**
@@ -16,10 +16,31 @@ export interface MigrateOptions {
   readonly migrationTableSchema?: string;
 }
 
+/**
+ * Session advisory lock held while migrating. Kysely's Migrator introspects all
+ * schemas of the database, which fails if another session drops a schema
+ * meanwhile; anything that drops schemas (the test teardown) takes this lock
+ * too, so the two never overlap. It also serializes concurrent starts.
+ */
+export const MIGRATION_ADVISORY_LOCK = 71_340_017;
+
 export async function migrateToLatest(
   pool: pg.Pool,
   options: MigrateOptions = {},
 ): Promise<readonly MigrationResult[]> {
+  // A connection of its own, outside the pool: the migration takes pool
+  // connections while the lock is held, so a small or busy pool cannot deadlock.
+  const lock = new pg.Client(pool.options);
+  await lock.connect();
+  try {
+    await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
+    return await migrate(pool, options);
+  } finally {
+    await lock.end().catch(() => undefined);
+  }
+}
+
+async function migrate(pool: pg.Pool, options: MigrateOptions): Promise<readonly MigrationResult[]> {
   const migrationSet = options.migrations ?? migrations;
   // The Kysely instance borrows the pool; it is not destroyed here because
   // destroying it would end the shared pool.

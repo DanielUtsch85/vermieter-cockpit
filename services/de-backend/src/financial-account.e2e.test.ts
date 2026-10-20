@@ -9,6 +9,7 @@ import { PostgresFinancialAccountRepository, createDatabase, migrateToLatest } f
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 
 /**
  * VC-1-03 end to end, wired as in main.ts: real HTTP app, MRE-verified access
@@ -20,7 +21,7 @@ const REALM_A = '64b0c0ffee0000000000000a';
 const REALM_B = '64b0c0ffee0000000000000b';
 
 describe.skipIf(databaseUrl === undefined)('financial-accounts create + close end to end', () => {
-  const schema = `financial_account_e2e_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('financial_account_e2e');
   let pool: pg.Pool;
   let mre: FakeMre;
   let server: Server;

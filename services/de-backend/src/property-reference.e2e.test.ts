@@ -13,6 +13,7 @@ import {
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
+import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 
 /**
  * VC-1-01 / VC-1-02 end to end, wired as in main.ts: real HTTP app, MRE client and
@@ -55,7 +56,7 @@ describe('mrePriceLeaks', () => {
 });
 
 describe.skipIf(databaseUrl === undefined)('property-references link + refresh end to end', () => {
-  const schema = `link_e2e_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('link_e2e');
   let pool: pg.Pool;
   let mre: FakeMre;
   let server: Server;

@@ -77,3 +77,5 @@ export type {
 } from './transaction-split.js';
 export { CATEGORY_CODE, CATEGORY_TYPES } from './financial-category.js';
 export type { CategoryType, FinancialCategory, FinancialCategoryRepository } from './financial-category.js';
+export { CONFIRMED_STATUSES, planConfirm } from './confirm-transaction.js';
+export type { ConfirmOutcome, ConfirmPlan, SplitForConfirm } from './confirm-transaction.js';

@@ -15,6 +15,7 @@ import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 
 /** VC-1-05/06/06a end to end, wired as in main.ts: a real CSV through generic-csv v1 into PostgreSQL. */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
@@ -38,7 +39,7 @@ const reordered = [
 ].join('\r\n');
 
 describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
-  const schema = `import_e2e_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('import_e2e');
   let pool: pg.Pool;
   let mre: FakeMre;
   let server: Server;

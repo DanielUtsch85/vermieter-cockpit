@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { unusedCommands } from './api/app.test-support.js';
 import {
+  confirmTransaction,
   createFinancialAccount,
   createManualTransaction,
   getFinancialCategory,
@@ -22,15 +23,16 @@ import {
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 
-/** VC-1-07 end to end, wired as in main.ts, against a fake MRE and PostgreSQL. */
+/** VC-1-07/08 end to end, wired as in main.ts, against a fake MRE and PostgreSQL. */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
 const REALM_A = '64b0c0ffee0000000000000a';
 const REALM_B = '64b0c0ffee0000000000000b';
 
 describe.skipIf(databaseUrl === undefined)('transaction splits end to end', () => {
-  const schema = `split_e2e_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('split_e2e');
   let pool: pg.Pool;
   let mre: FakeMre;
   let server: Server;
@@ -51,12 +53,14 @@ describe.skipIf(databaseUrl === undefined)('transaction splits end to end', () =
     ]);
     const db = createDatabase(pool);
     const categories = new PostgresFinancialCategoryRepository(db);
+    const transactions = new PostgresTransactionRepository(db);
     server = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 })),
       ...unusedCommands,
       createFinancialAccount: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }),
-      createManualTransaction: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
+      createManualTransaction: createManualTransaction({ repository: transactions }),
+      confirmTransaction: confirmTransaction({ repository: transactions }),
       setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
       listFinancialCategories: listFinancialCategories({ categories }),
       getFinancialCategory: getFinancialCategory({ categories }),
@@ -128,7 +132,17 @@ describe.skipIf(databaseUrl === undefined)('transaction splits end to end', () =
     const again = await call(REALM_A, 'PUT', `/transactions/${id}/splits`, body);
     expect(await again.json()).toMatchObject({ version: 2 });
 
-    await pool.query(`UPDATE ledger_transaction SET status = 'CONFIRMED' WHERE id = $1`, [id]);
+    // Confirm through the API; a split change afterwards is frozen, a repeated confirm a no-op.
+    const unsplit = await loanPayment();
+    const notYet = await call(REALM_A, 'POST', `/transactions/${unsplit}/confirm`);
+    expect(notYet.status).toBe(409);
+    expect(await notYet.json()).toMatchObject({ error: { details: { reason: 'SPLITS_MISSING' } } });
+    const confirmed = await call(REALM_A, 'POST', `/transactions/${id}/confirm`);
+    expect(confirmed.status).toBe(200);
+    expect(await confirmed.json()).toMatchObject({ status: 'CONFIRMED', version: 3, confirmedBy: 'anna@example.com' });
+    const repeated = await call(REALM_A, 'POST', `/transactions/${id}/confirm`);
+    expect(repeated.headers.get('idempotent-replayed')).toBe('true');
+    expect((await call(REALM_B, 'POST', `/transactions/${id}/confirm`)).status).toBe(404);
     const frozen = await call(REALM_A, 'PUT', `/transactions/${id}/splits`, {
       splits: [{ amount: eur('1200'), financialCategoryCode: 'OTHER' }],
     });

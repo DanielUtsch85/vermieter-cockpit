@@ -4,6 +4,9 @@ import {
   CATEGORY_CODE,
   CurrencyMismatchError,
   FinancialCategoryNotFoundError,
+  InactiveCategoryError,
+  SplitsMissingError,
+  TransactionNotConfirmableError,
   SplitSumMismatchError,
   TransactionFrozenError,
   TransactionNotFoundError,
@@ -13,6 +16,7 @@ import {
   IdempotencyKeyConflictError,
   PropertyReferenceNotFoundError,
   checkBusinessDate,
+  type ConfirmTransaction,
   type CreateManualTransaction,
   type RealmPrincipal,
   type SetTransactionSplits,
@@ -80,6 +84,7 @@ function splitFieldCode(field: string, code: string): string {
 export interface TransactionCommands {
   readonly createManual: CreateManualTransaction;
   readonly setSplits: SetTransactionSplits;
+  readonly confirm: ConfirmTransaction;
 }
 
 /** Transaction API (api-design.md §30–31). */
@@ -195,6 +200,48 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       });
   });
 
+  router.post('/transactions/:transactionId/confirm', (req, res, next) => {
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    commands
+      .confirm({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase() })
+      .then(({ transaction, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        res.json(toDto(transaction));
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else if (error instanceof TransactionNotConfirmableError) {
+          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status} and cannot be confirmed.`, {
+            reason: 'NOT_CONFIRMABLE',
+            status: error.status,
+          });
+        } else if (error instanceof SplitsMissingError) {
+          sendError(res, 409, 'INVARIANT_VIOLATION', 'Transaction has no splits; split it before confirming.', {
+            reason: 'SPLITS_MISSING',
+          });
+        } else if (error instanceof SplitSumMismatchError) {
+          sendError(res, 409, 'INVARIANT_VIOLATION', 'Splits do not add up to the Transaction amount.', {
+            reason: 'SPLIT_SUM_MISMATCH',
+            expected: error.expected.toJSON(),
+            actual: error.actual.toJSON(),
+            difference: error.expected.subtract(error.actual).toJSON(),
+          });
+        } else if (error instanceof InactiveCategoryError) {
+          sendError(res, 422, 'REVIEW_REQUIRED', 'A split uses an inactive financial category; split again before confirming.', {
+            reason: 'INACTIVE_CATEGORY',
+            financialCategoryCodes: error.codes,
+          });
+        } else {
+          next(error);
+        }
+      });
+  });
+
   return router;
 }
 
@@ -231,5 +278,7 @@ function toDto(transaction: Transaction) {
     status: transaction.status,
     createdAt: transaction.createdAt.toISOString(),
     version: transaction.version,
+    confirmedAt: transaction.confirmedAt?.toISOString() ?? null,
+    confirmedBy: transaction.confirmedBy,
   };
 }
