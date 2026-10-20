@@ -9,8 +9,36 @@ import { sql, type Kysely } from 'kysely';
  * - no Transaction is inserted already confirmed (it would skip that check).
  *
  * With the frozen splits of migration 0009 this holds for every confirmed
- * Transaction for good.
+ * Transaction for good — also for two writers at once (review note on #19).
+ * A foreign-key insert alone only takes `FOR KEY SHARE` on the Transaction,
+ * which does not conflict with a status change, so a split written in one
+ * session and a confirmation in another would not see each other. The split
+ * trigger of 0009 therefore *touches* its Transaction row (a no-op update of
+ * `version`): a concurrent confirmation then waits for it and, under READ
+ * COMMITTED, re-reads the splits in its trigger; under REPEATABLE READ or
+ * SERIALIZABLE it fails with a serialization error instead of confirming a
+ * stale sum. A lock alone (`FOR SHARE`) would not suffice there: a waiting
+ * REPEATABLE READ statement keeps its snapshot after a mere lock is released.
  */
+const SPLIT_FROZEN_BODY = (touchParent: boolean) =>
+  sql.raw(`
+    DECLARE
+      parent_status text;
+    BEGIN
+      ${
+        touchParent
+          ? `UPDATE ledger_transaction SET version = version
+        WHERE id = CASE WHEN TG_OP = 'DELETE' THEN OLD.transaction_id ELSE NEW.transaction_id END
+        RETURNING status INTO parent_status;`
+          : `SELECT status INTO parent_status FROM ledger_transaction
+        WHERE id = CASE WHEN TG_OP = 'DELETE' THEN OLD.transaction_id ELSE NEW.transaction_id END;`
+      }
+      IF parent_status IN ('CONFIRMED', 'RECONCILED', 'CORRECTED') THEN
+        RAISE EXCEPTION 'splits of a confirmed Transaction are frozen (ADR-037)' USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+    END`);
+
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`
     CREATE FUNCTION ledger_transaction_confirm_invariant() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -44,9 +72,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     CREATE TRIGGER ledger_transaction_confirm_invariant BEFORE INSERT OR UPDATE OF status ON ledger_transaction
       FOR EACH ROW EXECUTE FUNCTION ledger_transaction_confirm_invariant()
   `.execute(db);
+  // Serializes a split change with a concurrent confirmation: both now write the Transaction row.
+  await sql`
+    CREATE OR REPLACE FUNCTION transaction_split_frozen() RETURNS trigger LANGUAGE plpgsql AS $$${SPLIT_FROZEN_BODY(true)} $$
+  `.execute(db);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
+  await sql`
+    CREATE OR REPLACE FUNCTION transaction_split_frozen() RETURNS trigger LANGUAGE plpgsql AS $$${SPLIT_FROZEN_BODY(false)} $$
+  `.execute(db);
   await sql`DROP TRIGGER ledger_transaction_confirm_invariant ON ledger_transaction`.execute(db);
   await sql`DROP FUNCTION ledger_transaction_confirm_invariant()`.execute(db);
 }

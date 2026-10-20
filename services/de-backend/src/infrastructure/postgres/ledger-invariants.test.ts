@@ -21,6 +21,14 @@ const REALM = '64b0c0ffee0000000000000a';
 const OTHER_REALM = '64b0c0ffee0000000000000b';
 const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
 
+async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error('condition not reached');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', () => {
   const schema = testSchemaName('ledger_invariants_test');
   let pool: pg.Pool;
@@ -108,6 +116,60 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       await expect(
         pool.query(`UPDATE transaction_split SET amount = 599.99 WHERE transaction_id = $1 AND position = 2`, [id]),
       ).rejects.toThrow(/ADR-037/);
+    });
+
+    const lockWait = (fragment: string) => async () =>
+      (
+        await pool.query(
+          `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`,
+          [`%${fragment}%`],
+        )
+      ).rowCount !== 0;
+
+    it('two writers: a confirmation waits for an uncommitted split and is refused (no 150 on 100)', async () => {
+      const id = await transaction(REALM, '100.00');
+      await addSplit(id, 1, '100.00');
+      const writer = await pool.connect();
+      try {
+        // Session A adds a split but has not committed yet ...
+        await writer.query('BEGIN');
+        await writer.query(
+          `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, created_by)
+           VALUES ($1, $2, 2, 50, 'EUR', $3, 'x')`,
+          [id, REALM, await category('OTHER')],
+        );
+        // ... session B confirms: it must wait for A instead of summing only the committed splits.
+        const confirming = confirmBySql(id);
+        await waitUntil(lockWait("SET status = 'CONFIRMED'"));
+        await writer.query('COMMIT');
+        // READ COMMITTED re-reads the splits and refuses; REPEATABLE READ refuses with a serialization error.
+        await expect(confirming).rejects.toThrow(/sum 150.*amount 100|could not serialize/);
+        const row = await pool.query(`SELECT status FROM ledger_transaction WHERE id = $1`, [id]);
+        expect(row.rows).toEqual([{ status: 'UNREVIEWED' }]);
+      } finally {
+        writer.release();
+      }
+    });
+
+    it('two writers: a split waits for an uncommitted confirmation and is then refused as frozen', async () => {
+      const id = await transaction(REALM, '100.00');
+      await addSplit(id, 1, '100.00');
+      const confirmer = await pool.connect();
+      try {
+        await confirmer.query('BEGIN');
+        await confirmer.query(
+          `UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`,
+          [id],
+        );
+        const adding = addSplit(id, 2, '50.00');
+        await waitUntil(lockWait('INSERT INTO transaction_split'));
+        await confirmer.query('COMMIT');
+        await expect(adding).rejects.toThrow(/frozen|could not serialize/);
+        const splits = await pool.query(`SELECT sum(amount)::text AS total FROM transaction_split WHERE transaction_id = $1`, [id]);
+        expect(splits.rows).toEqual([{ total: '100.00' }]);
+      } finally {
+        confirmer.release();
+      }
     });
 
     it('no Transaction is inserted already confirmed', async () => {
