@@ -96,7 +96,10 @@ Specified in API §35.6 and data-model §17.8; the tests come with the implement
 - at most one reversal and one replacement per original;
 - a reversal matches its original (amount, currency, account, dates; opposite direction);
 - `CORRECTED` exactly when both exist, checked at commit;
-- net effect: the signed sums over the whole chain equal those over the current Transactions, per account, category and PropertyReference;
+- `CORRECTED` only from `CONFIRMED`/`RECONCILED` (a covered `CLASSIFIED` row cannot jump to it);
+- a correction link never targets a reversal;
+- `propertyReferenceId` and `description` of a confirmed Transaction are frozen;
+- net effect: the signed sums over the whole chain equal those over the current Transactions, per account, period (booking date), split category and split PropertyReference;
 - two concurrent corrections: one chain, one `ALREADY_CORRECTED`;
 - a re-import of a corrected original's row stays a duplicate.
 

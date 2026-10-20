@@ -108,6 +108,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-13 | infra | Large bank imports (up to 10,000 rows) run in **one** transaction holding the account lock: lookups are already set-based, but inserts, the batch row and the lock span the whole file. Measure and, if needed, chunk the write phase or move imports to a job with progress (review note on #14) |
 | VC-X-14 | api | **done** · Align the PropertyReference response to the other resources: `propertyReferenceId` instead of `id` (api-design §22–23). A breaking change, cheap only before the UI uses it (review note on #19) |
 | VC-X-15 | feature | Reverse a confirmed Transaction **without** a replacement (e.g. a confirmed duplicate manual entry): needs its own net-effect rule; deliberately left out of VC-1-11 (api-design §35.7) |
+| VC-X-16 | feature | Change or ignore an **unconfirmed** Transaction (cash fields, `IGNORED`): the states exist (domain-model §21) but no endpoint does yet; `correct` covers only confirmed ones (api-design §35.4). Must follow the anti-PATCH rule (api-design §3), i.e. explicit commands |
 
 ---
 

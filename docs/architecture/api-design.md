@@ -994,9 +994,9 @@ POST /api/v1/transactions/{id}/confirm
 - **`404`:** unknown or foreign Transaction; `400` for a malformed id.
 - **Concurrency:** confirm takes the same row lock as a split replacement, so a replacement that waited on a confirm finds the Transaction frozen; two confirms yield one confirmation and one no-op.
 - **Immutability (ADR-037), enforced by the database** (migration 0009), once `CONFIRMED` (and in the later `RECONCILED`/`CORRECTED`):
-  - **Frozen fields:** account, Realm, amount, currency, direction, booking and value date, `confirmedAt`/`confirmedBy`, and the provenance and import identity a re-import relies on (`provenance`, import batch, external id, adapter, source keys, content fingerprint, review item).
+  - **Frozen fields:** account, Realm, amount, currency, direction, booking and value date, `confirmedAt`/`confirmedBy`, and the provenance and import identity a re-import relies on (`provenance`, import batch, external id, adapter, source keys, content fingerprint, review item). From VC-1-11 on also `propertyReferenceId`, `description` and the correction link (§35.6), so every change of a confirmed Transaction goes through `correct`.
   - **Status only moves forward:** `CONFIRMED` → `RECONCILED` / `CORRECTED`, `RECONCILED` → `CORRECTED` (domain-model §21). `CORRECTED` is terminal; nothing returns to `CONFIRMED` or to an unconfirmed state, so a superseded Transaction cannot be revived and counted twice.
-  - **No deletion**, and its splits cannot be inserted, changed or deleted. Only `description` stays editable.
+  - **No deletion**, and its splits cannot be inserted, changed or deleted. Until VC-1-11 the database leaves `description` and `propertyReferenceId` editable; no endpoint changes them.
   - `confirmed_at`/`confirmed_by` are set exactly for the confirmed states (CHECK).
 - **Split invariant in the database** (migration 0010, VC-1-09): a Transaction becomes `CONFIRMED` only with splits in its currency summing exactly to its amount, and none is inserted already confirmed, so "confirmed ⇒ covered exactly" holds for every row, not only for those confirmed through this endpoint. This includes two writers at once: the split trigger writes the Transaction row (a no-op update), so a split change and a confirmation in different sessions serialize instead of missing each other, under every isolation level.
 
@@ -1039,10 +1039,12 @@ Example request:
 - **`reason`** (required): trimmed, 1–500 characters. It is stored in the AuditRecord, not on the Transactions.
 - **`replacement`** (required object): the fields that differ from the original. Omitted fields are copied from the original. Unknown keys are `400`.
   - `amount` (Money, §31.2 rules: non-negative, scale, currency of the account), `direction`, `bookingDate`, `valueDate`, `description`, `propertyReferenceId`. For the last three an explicit `null` clears the value.
-  - `financialAccountId`: another account of the same Realm and currency (no FX, data-model §17.7). A closed target account is `409 ACCOUNT_CLOSED`, as for a new manual Transaction (§31.2).
+  - `financialAccountId`: another account of the same Realm and currency (no FX, data-model §17.7). Moving the Transaction to a **different, closed** account is `409 ACCOUNT_CLOSED`, as for a new manual Transaction (§31.2).
+- **Closed account of the original:** reversal and replacement may both be posted to the original's account even if it was closed since, with any of the changes above (amount, dates, direction, splits, …). They restate a movement already recorded on that account, they are not a new one, so a mistake on a closed account stays correctable.
   - `splits`: a full split set with the rules of §33. If omitted, the original's splits are copied (same positions, amounts, categories, PropertyReferences, descriptions).
 - **Coverage:** the replacement is confirmed in the same step, so its splits must cover its amount exactly (`409 INVARIANT_VIOLATION`, `SPLIT_SUM_MISMATCH`). They must also use only active categories (`422 REVIEW_REQUIRED`, `INACTIVE_CATEGORY`), as §34.2. A changed `amount` therefore needs new `splits` unless the copied ones still sum exactly.
-- **Must change something:** a request whose replacement equals the original in every cash field (account, amount, currency, direction, booking and value date) and in its split set is `409 CONFLICT` with `reason = "NO_CHANGE"`. `propertyReferenceId` counts as a change; `description` alone does not, because it can be edited in place (§34.2).
+- **Must change something:** a request whose replacement equals the original in every field it can set (account, amount, direction, booking and value date, `description`, `propertyReferenceId`) and in its split set is `409 CONFLICT` with `reason = "NO_CHANGE"`. A change of `description` or `propertyReferenceId` alone is a correction like any other: a confirmed Transaction has no other way to change (§35.6), and an in-place edit would bypass the audit chain.
+- **Bank transactions:** correcting amount, date or account of a `BANK_CSV`/`BANK_API` Transaction is allowed (e.g. after a parser error), with the required `reason`. The ledger then differs from the bank statement on purpose, and the original keeps the bank row. A later statement reconciliation should flag such replacements for review; it is not part of VC-1-11.
 
 ## 35.3 The records
 
@@ -1057,32 +1059,37 @@ Example request:
 | splits | mirror of the original's (same positions, amounts, categories, PropertyReferences) | from the request, else copied |
 | `provenance` | `CORRECTION` | `CORRECTION` |
 | import identity (batch, external id, adapter, source keys, fingerprint, review item) | none | none |
-| `status` | `CONFIRMED`; `confirmedAt`/`confirmedBy` = the correction | `CONFIRMED`; `confirmedAt`/`confirmedBy` = the correction |
+| `status` | `CONFIRMED`; `confirmedAt` = time of the correction, `confirmedBy` = the acting MRE user's email | `CONFIRMED`; `confirmedAt` = time of the correction, `confirmedBy` = the acting MRE user's email |
 
 - **The original keeps everything:** its fields, splits, `confirmedAt`/`confirmedBy`, provenance and import identity. Only its status changes, to `CORRECTED`. A re-import of its bank row is therefore still a duplicate of the original, also once it is `CORRECTED`, and never recreates it (data-model §70).
-- **Reversal on a closed account:** the reversal is posted to the original's account even if that account was closed since. It removes an existing record and is not a new cash movement; refusing it would make a mistake on a closed account impossible to fix.
-- **Chain:** an original has at most one reversal and one replacement. A later correction of the replacement links to the replacement, not to the first original, so the chain is a list `T₁ → T₂ → …`. In that list every member except the last is `CORRECTED` and the last is the current one. A reversal is never corrected (`409 NOT_CORRECTABLE`, `reason = "REVERSAL"`): a mistake in a correction is fixed by correcting its replacement.
-- **Net effect (ADR-037, reporting):** per account, period, category and PropertyReference, the sum over `CONFIRMED`, `RECONCILED` and `CORRECTED` Transactions with sign by `direction` equals the sum over the current ones alone. "Current" means `CONFIRMED` or `RECONCILED` and not a reversal. Each original and its reversal cancel exactly, so the full chain stays visible and nothing is counted twice.
+- **Closed account:** see §35.2. Neither record is refused because the original's account was closed since.
+- **Chain:** an original has at most one reversal and one replacement. A later correction of the replacement links to the replacement, not to the first original, so the chain is a list `T₁ → T₂ → …`. In that list every member except the last is `CORRECTED` and the last is the current one. A reversal is never corrected (§35.4, `NOT_CORRECTABLE` with `correctionRole = "REVERSAL"`): a mistake in a correction is fixed by correcting its replacement.
+- **Net effect (ADR-037, reporting):** per account, period (by `bookingDate`), category and PropertyReference, the sum over `CONFIRMED`, `RECONCILED` and `CORRECTED` Transactions with sign by `direction` equals the sum over the current ones alone. "Current" means `CONFIRMED` or `RECONCILED` and not a reversal. Each original and its reversal cancel exactly, so the full chain stays visible and nothing is counted twice. Category and PropertyReference mean the **split** level (each split's category and PropertyReference), which is what reports aggregate. The rule holds at Transaction level (`propertyReferenceId` of the Transaction) as well, since the reversal copies it.
 
 ## 35.4 Response and errors
 
 - **Transaction fields added by correction** (in every Transaction response from VC-1-11 on): `correctionOfTransactionId` and `correctionRole` (both `null` on an ordinary Transaction), and on a `CORRECTED` original `reversalTransactionId` and `replacementTransactionId`.
-- **AuditRecord** `CORRECTED` on the original: actor (the MRE email), `reason`, the reversal and replacement ids, the changed fields with old and new values, `previousVersion`/`newVersion`.
+- **AuditRecord:** one record `CORRECTED` on the original: actor (the MRE email), `reason`, the reversal and replacement ids, the changed fields with old and new values, `previousVersion`/`newVersion`. This is a deliberate exception to "one AuditRecord per new Transaction" (§31.1): reversal and replacement are created by this one act and get **no record of their own**. From either of them the record is found through `correctionOfTransactionId` (the original's record names both).
 - **`400`:** malformed id or body (§31.2 / §33 field codes).
 - **`404`:** unknown or foreign Transaction; a target account or PropertyReference not in the caller's Realm.
 - **`409`:**
   - `CONFLICT` with `reason = "ALREADY_CORRECTED"` and `reversalTransactionId`/`replacementTransactionId`, so a client that lost the first answer can find the result.
-  - `CONFLICT` with `reason = "NOT_CORRECTABLE"` and the `status` for `IMPORTED`, `UNREVIEWED`, `CLASSIFIED` (edit or split it instead) and `IGNORED`; `reason = "REVERSAL"` for a reversal; `reason = "RECONCILED"` (see below).
+  - `CONFLICT` with `reason = "NOT_CORRECTABLE"`, in the pattern of `NOT_CONFIRMABLE` (§34.2). `details` always carry the `status`, and for a reversal also `correctionRole = "REVERSAL"`:
+    - `status` `IMPORTED`, `UNREVIEWED` or `CLASSIFIED`: not confirmed yet. Split and confirm it instead. Changing its cash fields before confirmation has no endpoint in Phase 1 (backlog VC-X-16);
+    - `status` `IGNORED`;
+    - `status` `RECONCILED` (see below);
+    - `status` `CONFIRMED` with `correctionRole = "REVERSAL"`.
   - `CONFLICT` with `reason = "NO_CHANGE"` or `"ACCOUNT_CLOSED"`.
   - `INVARIANT_VIOLATION` with `SPLIT_SUM_MISMATCH`.
 - **`422`:** `REVIEW_REQUIRED` with `INACTIVE_CATEGORY`.
-- **Reconciled Transactions:** a `RECONCILED` Transaction is matched to MRE rent state, and correcting it must also undo or re-evaluate that match (workflows: "invalidate/re-evaluate affected reconciliations"). Until Phase 4 specifies that, correcting a `RECONCILED` Transaction is `409 NOT_CORRECTABLE` with `reason = "RECONCILED"`. The status rule `RECONCILED → CORRECTED` (§34.2) stays in place for then. Phase 1 has no `RECONCILED` Transactions.
+- **Reconciled Transactions:** a `RECONCILED` Transaction is matched to MRE rent state, and correcting it must also undo or re-evaluate that match (workflows: "invalidate/re-evaluate affected reconciliations"). Until Phase 4 specifies that, correcting a `RECONCILED` Transaction is `409 CONFLICT` with `reason = "NOT_CORRECTABLE"` and `status = "RECONCILED"`. The status rule `RECONCILED → CORRECTED` (§34.2) stays in place for then. Phase 1 has no `RECONCILED` Transactions.
 
 ## 35.5 Idempotency and concurrency
 
 - **`Idempotency-Key`** as §15, scoped to the Realm and the command. The fingerprint is the original's id plus the normalized request. A replay answers `201` with the result as recorded and `Idempotent-Replayed: true`. A rejected request rolls back its key claim.
 - **Without a key** a retry is still safe: the original is `CORRECTED` by then, so the retry gets `409 ALREADY_CORRECTED` with the ids of the existing correction. It never creates a second one.
 - **Locks:** the original is locked `FOR UPDATE`, the same lock as confirm and split replacement (§34.2). Of two concurrent corrections, one creates the chain and the other gets `ALREADY_CORRECTED`. A split replacement waiting on the lock finds the original frozen. The replacement's account is locked `FOR SHARE` as in §31.2.
+- **Lock order (rule):** first the original `FOR UPDATE`, then the account(s) `FOR SHARE` (if two, in id order). Import and account close never take a Transaction lock after an account lock, so this order cannot deadlock with them; later commands must keep it.
 
 ## 35.6 Enforced by the database
 
@@ -1091,7 +1098,10 @@ Example request:
 - At most one `REVERSAL` and one `REPLACEMENT` per original (unique index).
 - A reversal matches its original: same Realm, account, currency, amount, booking and value date, and opposite direction.
 - A Transaction is `CORRECTED` exactly when its reversal and replacement exist. This is checked by a deferred constraint trigger at commit, so the three writes of §35.1 can happen in any order inside the transaction.
-- The existing triggers stay as they are: immutability (0009) and "confirmed ⇒ covered exactly" (0010). So reversal and replacement are written unconfirmed, get their splits and are then confirmed, all in the same transaction.
+- `CORRECTED` is reached only from `CONFIRMED` or `RECONCILED`, never from an unconfirmed status, and no row is inserted as `CORRECTED`. Today a `CLASSIFIED` row whose splits cover it can be updated straight to `CORRECTED`; VC-1-11 closes that.
+- The target of a correction link is never a reversal.
+- On a confirmed Transaction `propertyReferenceId`, `description` and the correction link are frozen too (extends the 0009 list, §34.2).
+- The other triggers stay as they are: immutability (0009) and "confirmed ⇒ covered exactly" (0010). So reversal and replacement are written unconfirmed, get their splits and are then confirmed, all in the same transaction.
 
 ## 35.7 Out of scope for VC-1-11
 
