@@ -69,6 +69,15 @@ function withExternalId(parsed: ParsedStatement, externalTransactionId: string):
   };
 }
 
+/** A source with its own statement id and row ids (e.g. a bank API or CAMT): identity does not depend on file order. */
+function withSourceIds(parsed: ParsedStatement, sourceStatementId: string, rowIds: readonly string[]): ParsedStatement {
+  return {
+    ...parsed,
+    sourceStatementId,
+    rows: parsed.rows.map((r, i) => (r.kind === 'ROW' ? { ...r, sourceRowId: rowIds[i] ?? null } : r)),
+  };
+}
+
 const outcomes = (batch: ImportBatch) => batch.rows.map((r) => r.outcome);
 const created = (batch: ImportBatch) => batch.rows.flatMap((r) => (r.outcome === 'created' ? [r.transactionId] : []));
 
@@ -378,6 +387,50 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       conflictingTransactionIds: [created(withoutId)[0]],
     });
     expect(await count('ledger_transaction', accountId)).toBe(1);
+  });
+
+  describe('sources with a statement id and row ids (data-model.md §70.5)', () => {
+    const rentA = { description: 'Miete Whg 1' };
+    const rentB = { description: 'Miete Whg 2', amount: '980.00' };
+    const rentC = { description: 'Miete Whg 3', amount: '640.00' };
+
+    it('an overlapping export of the same statement creates only the new rows and dedupes the shared ones', async () => {
+      const accountId = await openAccount();
+      const first = await run(accountId, withSourceIds(statement([rentA, rentB]), 'ST-2026-09', ['R1', 'R2']));
+      expect(outcomes(first)).toEqual(['created', 'created']);
+      expect(
+        await pool.query(`SELECT DISTINCT source_statement_key FROM ledger_transaction WHERE financial_account_id = $1`, [accountId]),
+      ).toMatchObject({
+        rows: [{ source_statement_key: 'id:ST-2026-09' }],
+      });
+
+      // A later export of the same statement: a different file (other content hash), sharing R2.
+      const overlap = await run(accountId, withSourceIds(statement([rentB, rentC]), 'ST-2026-09', ['R2', 'R3']));
+      expect(overlap).toMatchObject({ status: 'COMPLETED', transactionCount: 1, duplicateCount: 1, needsReviewCount: 0 });
+      expect(overlap.rows[0]).toEqual({ outcome: 'duplicate', position: 1, duplicateOf: 'TRANSACTION', transactionId: created(first)[1] });
+      expect(overlap.rows[1]).toMatchObject({ outcome: 'created' });
+      expect(await count('ledger_transaction', accountId)).toBe(3);
+    });
+
+    it('a reordered export is deduped by its row ids, not sent to review', async () => {
+      const accountId = await openAccount();
+      const first = await run(accountId, withSourceIds(statement([rentA, rentB]), 'ST-1', ['R1', 'R2']));
+      const reordered = await run(accountId, withSourceIds(statement([rentB, rentA]), 'ST-1', ['R2', 'R1']));
+      expect(reordered).toMatchObject({ transactionCount: 0, duplicateCount: 2, needsReviewCount: 0 });
+      expect(
+        reordered.rows.map((r) => (r.outcome === 'duplicate' && r.duplicateOf === 'TRANSACTION' ? r.transactionId : r.outcome)),
+      ).toEqual([created(first)[1], created(first)[0]]);
+    });
+
+    it('row ids only count within their statement: the same row id in another statement is not a duplicate', async () => {
+      const accountId = await openAccount();
+      await run(accountId, withSourceIds(statement([rentA]), 'ST-1', ['R1']));
+      const other = await run(accountId, withSourceIds(statement([rentC]), 'ST-2', ['R1']));
+      expect(outcomes(other)).toEqual(['created']);
+      // Same content under another statement stays ambiguous, as without ids.
+      const sameContent = await run(accountId, withSourceIds(statement([rentA]), 'ST-3', ['R9']));
+      expect(sameContent.rows[0]).toMatchObject({ outcome: 'needs_review', reason: 'AMBIGUOUS_CROSS_FILE_MATCH' });
+    });
   });
 
   it('records row errors and zero amounts without failing the batch', async () => {
