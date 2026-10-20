@@ -17,6 +17,7 @@ import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { PostgresImportRepository } from './import-repository.js';
 import { migrateToLatest } from './migrate.js';
+import { testSchemaName } from './test-schema.test-support.js';
 
 /**
  * VC-1-05/06 persistence: the duplicate rules of data-model.md §70 and the
@@ -72,7 +73,7 @@ const outcomes = (batch: ImportBatch) => batch.rows.map((r) => r.outcome);
 const created = (batch: ImportBatch) => batch.rows.flatMap((r) => (r.outcome === 'created' ? [r.transactionId] : []));
 
 describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
-  const schema = `import_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('import_test');
   let pool: pg.Pool;
   let imports: PostgresImportRepository;
   let accounts: PostgresFinancialAccountRepository;

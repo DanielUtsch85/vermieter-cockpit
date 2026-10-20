@@ -5,6 +5,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { migrateToLatest } from './migrate.js';
 import { migrations } from './migrations/index.js';
+import { testSchemaName } from './test-schema.test-support.js';
 
 /**
  * Phase-0 exit "migrations run": a fresh database migrates to latest, and a
@@ -14,7 +15,7 @@ import { migrations } from './migrations/index.js';
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
 describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
-  const schema = `migrate_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('migrate_test');
   let pool: pg.Pool;
 
   beforeAll(async () => {

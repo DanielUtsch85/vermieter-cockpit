@@ -1,4 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import pg from 'pg';
+import type { GlobalSetupContext } from 'vitest/node';
+import { MIGRATION_ADVISORY_LOCK } from './src/infrastructure/postgres/migrate.js';
 
 /**
  * Test schemas are dropped once, after every test file has finished — never by
@@ -7,25 +10,26 @@ import pg from 'pg';
  * one file while another migrates makes that migration fail with "schema … does
  * not exist".
  *
- * Every database test names its schema `<name>_(test|e2e)_<pid>_<Date.now()>`;
- * the teardown drops the ones created since this run started.
+ * Every database test names its schema with `testSchemaName`, which appends
+ * this run's id; the teardown drops exactly those, so a second test run against
+ * the same database keeps its schemas. While dropping it holds the migration
+ * advisory lock, so no migration (of either run) introspects meanwhile.
  */
-const TEST_SCHEMA = /^[a-z_]+_(?:test|e2e)_\d+_(\d+)$/;
-
-export default function setup(): () => Promise<void> {
-  const startedAt = Date.now();
+export default function setup({ provide }: GlobalSetupContext): () => Promise<void> {
+  const runId = randomBytes(4).toString('hex');
+  provide('testRunId', runId);
+  const ownSchema = new RegExp(`^[a-z_]+_(?:test|e2e)_${runId}$`);
   return async () => {
     const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
     if (databaseUrl === undefined) return;
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
     try {
+      // Waits for migrations in progress (also of another run) and holds them off while dropping.
+      await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
       const { rows } = await client.query<{ nspname: string }>('SELECT nspname FROM pg_namespace');
       for (const { nspname } of rows) {
-        const createdAt = TEST_SCHEMA.exec(nspname)?.[1];
-        if (createdAt !== undefined && Number(createdAt) >= startedAt) {
-          await client.query(`DROP SCHEMA "${nspname}" CASCADE`);
-        }
+        if (ownSchema.test(nspname)) await client.query(`DROP SCHEMA "${nspname}" CASCADE`);
       }
     } finally {
       await client.end();

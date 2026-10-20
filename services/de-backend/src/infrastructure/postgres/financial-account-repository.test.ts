@@ -4,6 +4,7 @@ import { createFingerprint, type FinancialAccountId, type NewFinancialAccount } 
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { migrateToLatest } from './migrate.js';
+import { testSchemaName } from './test-schema.test-support.js';
 
 /**
  * VC-1-03 persistence: accounts with AuditRecords, Idempotency-Key replay and
@@ -25,7 +26,7 @@ const girokonto: NewFinancialAccount = {
 const keyed = (key: string, account = girokonto) => ({ key, fingerprint: createFingerprint(account) });
 
 describe.skipIf(databaseUrl === undefined)('PostgresFinancialAccountRepository', () => {
-  const schema = `financial_account_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('financial_account_test');
   let pool: pg.Pool;
   let repository: PostgresFinancialAccountRepository;
 
