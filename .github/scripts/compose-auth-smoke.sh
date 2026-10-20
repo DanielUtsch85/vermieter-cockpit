@@ -63,12 +63,12 @@ link() { # realm property; sets link_status and link_body
 
 link "$realm_id" "$property_id"
 expect "link MRE property" "$link_status" 201
-reference_id=$(echo "$link_body" | jq -r .id)
+reference_id=$(echo "$link_body" | jq -r .propertyReferenceId)
 expect "cached display name" "$(echo "$link_body" | jq -r .displayName)" "Smoke Wohnung"
 expect "cached surface (exact decimal string)" "$(echo "$link_body" | jq -r .cachedSurface)" "64.5"
 link "$realm_id" "$property_id"
 expect "repeat link (idempotent)" "$link_status" 200
-expect "repeat returns the same reference" "$(echo "$link_body" | jq -r .id)" "$reference_id"
+expect "repeat returns the same reference" "$(echo "$link_body" | jq -r .propertyReferenceId)" "$reference_id"
 link "$realm_id" "000000000000000000000000"
 expect "unknown MRE property" "$link_status" 404
 link "$realm_id" "not-an-object-id"

@@ -140,7 +140,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
 
   it('links, imports twice without duplicates, splits exactly, confirms — isolated, exact and traceable', async () => {
     // 1. Link the MRE property.
-    const property = await json<{ id: string }>(
+    const property = await json<{ propertyReferenceId: string }>(
       await call(REALM_A, 'POST', '/property-references/link', { mreRealmId: REALM_A, mrePropertyId: PROPERTY }),
       201,
     );
@@ -166,8 +166,8 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
 
     // 4. Split the rent so the totals reconcile exactly; a cent off is refused.
     const rentSplits = [
-      { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: property.id },
-      { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: property.id },
+      { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: property.propertyReferenceId },
+      { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: property.propertyReferenceId },
     ];
     const offByOneCent = await call(REALM_A, 'PUT', `/transactions/${rentId}/splits`, {
       splits: [rentSplits[0], { ...rentSplits[1], amount: eur('249.99') }],
@@ -241,7 +241,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     const itemId = items.items[0]?.reviewItemId ?? '';
     const before = await pool.query(`SELECT count(*) FROM audit_record`);
     const fromB: [string, string, unknown?][] = [
-      ['POST', `/property-references/${property.id}/refresh`],
+      ['POST', `/property-references/${property.propertyReferenceId}/refresh`],
       ['POST', `/financial-accounts/${account.financialAccountId}/close`],
       [
         'POST',

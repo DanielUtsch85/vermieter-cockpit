@@ -498,9 +498,9 @@ Instead:
 
 ```text
 GET  /api/v1/property-references
-GET  /api/v1/property-references/{id}
+GET  /api/v1/property-references/{propertyReferenceId}
 POST /api/v1/property-references/link
-POST /api/v1/property-references/{id}/refresh
+POST /api/v1/property-references/{propertyReferenceId}/refresh
 ```
 
 ---
@@ -535,6 +535,7 @@ Behavior:
 - **Authorization:** MRE identity; the caller must have access to the given `mreRealmId`; the resulting PropertyReference is scoped to that Realm.
 - **Inputs:** `mreRealmId` (required), `mrePropertyId` (required).
 - **Outputs:** `201 Created` with the new PropertyReference on first link; `200 OK` with the existing PropertyReference on a repeat of the same natural key (documented success repeat).
+- **Response fields:** `propertyReferenceId` (the domain `id`, like `financialAccountId` and `transactionId`), `mreRealmId`, `mrePropertyId`, `externalReferenceState`, `displayName`, `cachedAddress`, `cachedSurface`, `lastRefreshedAt`, `lastObservedAt`, `createdAt`, `version`. The same shape is returned by refresh (§23.2).
 - **Error codes:** `401/403` missing identity or no access to the Realm; `404` MRE Property not found for `(mreRealmId, mrePropertyId)`. There is no `409`: a repeat of the same natural key is a success, not a conflict.
 - **Idempotency:** natural key `(mreRealmId, mrePropertyId)`; a repeat returns the existing PropertyReference (`200`), never a duplicate and never `409`.
 - **Side effects:** creates one PropertyReference; reads MRE via the anti-corruption client (`mre-integration.md`); writes an AuditRecord. DE records remain valid if the upstream MRE Property is later deleted.
