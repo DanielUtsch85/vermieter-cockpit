@@ -3,6 +3,12 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   CurrencyMismatchError,
+  InactiveCategoryError,
+  SplitSumMismatchError,
+  SplitsMissingError,
+  TransactionNotConfirmableError,
+  TransactionNotFoundError,
+  type ConfirmTransaction,
   FinancialAccountClosedError,
   FinancialAccountNotFoundError,
   IdempotencyKeyConflictError,
@@ -33,6 +39,8 @@ const transaction = {
   status: 'UNREVIEWED',
   createdAt: new Date('2026-10-19T08:00:00Z'),
   version: 1,
+  confirmedAt: null,
+  confirmedBy: null,
 } as unknown as Transaction;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
@@ -95,6 +103,8 @@ describe('POST /api/v1/transactions', () => {
       status: 'UNREVIEWED',
       createdAt: '2026-10-19T08:00:00.000Z',
       version: 1,
+      confirmedAt: null,
+      confirmedBy: null,
     });
     expect(seen[0]).toMatchObject({
       financialAccountId: ACCOUNT,
@@ -162,5 +172,86 @@ describe('POST /api/v1/transactions', () => {
     const body = (await res.json()) as { error: { code: string; details?: Record<string, unknown> } };
     expect(body.error.code).toBe(code);
     if (error instanceof FinancialAccountClosedError) expect(body.error.details).toEqual({ reason: 'ACCOUNT_CLOSED', financialAccountId: ACCOUNT });
+  });
+});
+
+describe('POST /api/v1/transactions/{transactionId}/confirm', () => {
+  const confirmed = {
+    ...transaction,
+    status: 'CONFIRMED',
+    version: 3,
+    confirmedAt: new Date('2026-10-20T09:00:00Z'),
+    confirmedBy: 'anna@example.com',
+  } as unknown as Transaction;
+  async function startConfirm(confirm: ConfirmTransaction): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, confirmTransaction: confirm }).listen(
+      0,
+      '127.0.0.1',
+    );
+    await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const confirmAt = (base: string, id: string = transaction.id) =>
+    fetch(`${base}/api/v1/transactions/${id}/confirm`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer a.b.c', organizationid: REALM },
+    });
+
+  it('200 with the confirmed Transaction; a repeat is marked as replayed', async () => {
+    let replayed = false;
+    const seen: string[] = [];
+    const base = await startConfirm(async ({ transactionId }) => {
+      seen.push(transactionId);
+      const result = { transaction: confirmed, replayed };
+      replayed = true;
+      return result;
+    });
+    const first = await confirmAt(base, transaction.id.toUpperCase());
+    expect(first.status).toBe(200);
+    expect(first.headers.get('idempotent-replayed')).toBeNull();
+    expect(await first.json()).toMatchObject({
+      transactionId: transaction.id,
+      status: 'CONFIRMED',
+      version: 3,
+      confirmedAt: '2026-10-20T09:00:00.000Z',
+      confirmedBy: 'anna@example.com',
+    });
+    expect(seen).toEqual([transaction.id]);
+    expect((await confirmAt(base)).headers.get('idempotent-replayed')).toBe('true');
+  });
+
+  it('maps 400 malformed id, 404, 409 not confirmable / splits missing / sum mismatch, 422 inactive category', async () => {
+    const base0 = await startConfirm(() => Promise.reject(new Error('unused')));
+    expect((await confirmAt(base0, 'nope')).status).toBe(400);
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    server = undefined;
+
+    const cases = [
+      [new TransactionNotFoundError(transaction.id), 404, { code: 'NOT_FOUND' }],
+      [
+        new TransactionNotConfirmableError(transaction.id, 'IGNORED'),
+        409,
+        { code: 'CONFLICT', details: { reason: 'NOT_CONFIRMABLE', status: 'IGNORED' } },
+      ],
+      [new SplitsMissingError(transaction.id), 409, { code: 'INVARIANT_VIOLATION', details: { reason: 'SPLITS_MISSING' } }],
+      [
+        new SplitSumMismatchError(Money.of('1250.00', 'EUR'), Money.of('1249.99', 'EUR')),
+        409,
+        { code: 'INVARIANT_VIOLATION', details: { reason: 'SPLIT_SUM_MISMATCH', difference: { amount: '0.01', currency: 'EUR' } } },
+      ],
+      [
+        new InactiveCategoryError(['OLD']),
+        422,
+        { code: 'REVIEW_REQUIRED', details: { reason: 'INACTIVE_CATEGORY', financialCategoryCodes: ['OLD'] } },
+      ],
+    ] as const;
+    for (const [error, status, body] of cases) {
+      const base = await startConfirm(() => Promise.reject(error));
+      const res = await confirmAt(base);
+      expect(res.status).toBe(status);
+      expect(((await res.json()) as { error: unknown }).error).toMatchObject(body);
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      server = undefined;
+    }
   });
 });

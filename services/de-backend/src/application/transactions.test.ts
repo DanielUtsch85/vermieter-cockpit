@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
   BusinessDate,
+  ConfirmOutcome,
   CreateTransactionOutcome,
   NewManualTransaction,
   Transaction,
@@ -11,7 +12,16 @@ import { Money, type AuditActor } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
-import { CurrencyMismatchError, FinancialAccountClosedError, createManualTransaction } from './transactions.js';
+import { SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
+import {
+  CurrencyMismatchError,
+  FinancialAccountClosedError,
+  InactiveCategoryError,
+  SplitsMissingError,
+  TransactionNotConfirmableError,
+  confirmTransaction,
+  createManualTransaction,
+} from './transactions.js';
 
 const REALM = '64b0c0ffee0000000000000a';
 const principal: RealmPrincipal = { email: 'anna@example.com', mreRealmId: REALM, mreRole: 'administrator' };
@@ -34,6 +44,7 @@ function repositoryAnswering(outcome: CreateTransactionOutcome | ((t: NewManualT
       calls.push({ transaction, actor, ...(idempotency === undefined ? {} : { idempotency }) });
       return typeof outcome === 'function' ? outcome(transaction) : outcome;
     },
+    confirm: () => Promise.reject(new Error('not used in this test')),
   };
   return { repository, calls };
 }
@@ -80,5 +91,40 @@ describe('createManualTransaction', () => {
   ] as const)('%o → %o', async (outcome, errorType) => {
     const { repository } = repositoryAnswering(outcome);
     await expect(createManualTransaction({ repository })(input)).rejects.toBeInstanceOf(errorType);
+  });
+});
+
+describe('confirmTransaction', () => {
+  const confirmed = { id: 't-1', status: 'CONFIRMED' } as unknown as Transaction;
+  const answering = (outcome: ConfirmOutcome) => {
+    const calls: unknown[][] = [];
+    const repository: TransactionRepository = {
+      createManual: () => Promise.reject(new Error('not used in this test')),
+      confirm: async (...args) => {
+        calls.push(args);
+        return outcome;
+      },
+    };
+    return { repository, calls };
+  };
+
+  it('confirms in the caller Realm as the caller; a repeat reports replayed', async () => {
+    const { repository, calls } = answering({ kind: 'CONFIRMED', transaction: confirmed, replayed: true });
+    expect(await confirmTransaction({ repository })({ principal, transactionId: 't-1' })).toEqual({
+      transaction: confirmed,
+      replayed: true,
+    });
+    expect(calls).toEqual([['t-1', REALM, { actorType: 'USER', actorId: 'anna@example.com' }]]);
+  });
+
+  it.each([
+    [{ kind: 'NOT_FOUND' }, TransactionNotFoundError],
+    [{ kind: 'NOT_CONFIRMABLE', status: 'IGNORED' }, TransactionNotConfirmableError],
+    [{ kind: 'SPLITS_MISSING' }, SplitsMissingError],
+    [{ kind: 'SUM_MISMATCH', expected: Money.of('2', 'EUR'), actual: Money.of('1', 'EUR') }, SplitSumMismatchError],
+    [{ kind: 'INACTIVE_CATEGORY', codes: ['OLD'] }, InactiveCategoryError],
+  ] as const)('maps %o', async (outcome, error) => {
+    const { repository } = answering(outcome as ConfirmOutcome);
+    await expect(confirmTransaction({ repository })({ principal, transactionId: 't-1' })).rejects.toBeInstanceOf(error);
   });
 });

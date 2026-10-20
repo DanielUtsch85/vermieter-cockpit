@@ -1,6 +1,8 @@
 import { sql, type Kysely, type Transaction as Trx } from 'kysely';
 import {
   checkPosting,
+  planConfirm,
+  type ConfirmOutcome,
   type BusinessDate,
   type CreateTransactionOutcome,
   type Direction,
@@ -47,6 +49,8 @@ const COLUMNS = [
   'status',
   'created_at',
   'version',
+  'confirmed_at',
+  'confirmed_by',
 ] as const;
 
 interface Row {
@@ -64,6 +68,8 @@ interface Row {
   status: string;
   created_at: Date;
   version: number;
+  confirmed_at: Date | null;
+  confirmed_by: string | null;
 }
 
 /** PostgreSQL implementation of the Transaction persistence port. */
@@ -152,6 +158,61 @@ export class PostgresTransactionRepository implements TransactionRepository {
       if (reference === undefined) throw new Rejected('PROPERTY_REFERENCE_NOT_FOUND');
     }
   }
+
+  confirm(id: string, mreRealmId: string, actor: AuditActor): Promise<ConfirmOutcome> {
+    if (!UUID.test(id)) return Promise.resolve({ kind: 'NOT_FOUND' });
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<ConfirmOutcome> => {
+        // The same lock a split replacement takes: confirm and replace serialize.
+        const row = await trx
+          .selectFrom('ledger_transaction')
+          .select(COLUMNS)
+          .where('id', '=', id)
+          .where('mre_realm_id', '=', mreRealmId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const transaction = toDomain(row);
+        const splits = await trx
+          .selectFrom('transaction_split')
+          .innerJoin('financial_category', 'financial_category.id', 'transaction_split.financial_category_id')
+          .select(['transaction_split.amount', 'transaction_split.currency', 'financial_category.code', 'financial_category.active'])
+          .where('transaction_split.transaction_id', '=', id)
+          .execute();
+        const plan = planConfirm(
+          transaction,
+          splits.map((s) => ({ amount: fromNumericAmount(s.amount, s.currency), financialCategoryCode: s.code, categoryActive: s.active })),
+        );
+        switch (plan.kind) {
+          case 'ALREADY_CONFIRMED':
+            return { kind: 'CONFIRMED', transaction, replayed: true };
+          case 'CONFIRM':
+            break;
+          default:
+            return plan;
+        }
+        const confirmed = await trx
+          .updateTable('ledger_transaction')
+          .set((eb) => ({
+            status: 'CONFIRMED',
+            confirmed_at: new Date(),
+            confirmed_by: actor.actorId,
+            version: eb('version', '+', 1),
+            updated_at: new Date(),
+          }))
+          .where('id', '=', id)
+          .returning(COLUMNS)
+          .executeTakeFirstOrThrow();
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CONFIRMED', actor, {
+          previousVersion: transaction.version,
+          newVersion: confirmed.version,
+          metadata: { previousStatus: transaction.status, amount: transaction.amount.toJSON(), direction: transaction.direction },
+        });
+        return { kind: 'CONFIRMED', transaction: toDomain(confirmed), replayed: false };
+      });
+  }
 }
 
 function toDomain(row: Row): Transaction {
@@ -169,12 +230,19 @@ function toDomain(row: Row): Transaction {
     status: row.status as TransactionStatus,
     createdAt: row.created_at,
     version: row.version,
+    confirmedAt: row.confirmed_at,
+    confirmedBy: row.confirmed_by,
   };
 }
 
 /** The created Transaction as JSON for the idempotency store (Money as its JSON form, dates as text). */
 function toSnapshot(transaction: Transaction): Record<string, unknown> {
-  return { ...transaction, amount: transaction.amount.toJSON(), createdAt: transaction.createdAt.toISOString() };
+  return {
+    ...transaction,
+    amount: transaction.amount.toJSON(),
+    createdAt: transaction.createdAt.toISOString(),
+    confirmedAt: transaction.confirmedAt?.toISOString() ?? null,
+  };
 }
 
 /** Written by toSnapshot in the same codebase, so its shape is trusted; Money is re-validated. */
@@ -195,5 +263,8 @@ function fromSnapshot(result: unknown): Transaction {
     status: s['status'] as string,
     created_at: new Date(s.createdAt),
     version: s['version'] as number,
+    // Snapshots of created Transactions: never confirmed at creation (older ones lack the fields).
+    confirmed_at: typeof s['confirmedAt'] === 'string' ? new Date(s['confirmedAt']) : null,
+    confirmed_by: (s['confirmedBy'] as string | null | undefined) ?? null,
   });
 }

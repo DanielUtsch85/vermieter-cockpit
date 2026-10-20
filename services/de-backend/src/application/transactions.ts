@@ -1,5 +1,6 @@
 import {
   manualTransactionFingerprint,
+  type TransactionStatus,
   type BusinessDate,
   type Direction,
   type Transaction,
@@ -9,6 +10,7 @@ import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
+import { SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
 
 /**
  * Create Manual Transaction (api-design.md §31, backlog VC-1-04): a cash-only
@@ -76,6 +78,68 @@ export function createManualTransaction(deps: { readonly repository: Transaction
           case 'PROPERTY_REFERENCE_NOT_FOUND':
             throw new PropertyReferenceNotFoundError(fields.propertyReferenceId ?? '');
         }
+    }
+  };
+}
+
+/** CORRECTED or IGNORED: not confirmable (→ 409). */
+export class TransactionNotConfirmableError extends Error {
+  override readonly name = 'TransactionNotConfirmableError';
+
+  constructor(
+    readonly transactionId: string,
+    readonly status: TransactionStatus,
+  ) {
+    super(`Transaction ${transactionId} is ${status} and cannot be confirmed`);
+  }
+}
+
+/** Confirmation needs a complete split set (→ 409, domain-model.md §24). */
+export class SplitsMissingError extends Error {
+  override readonly name = 'SplitsMissingError';
+
+  constructor(readonly transactionId: string) {
+    super(`Transaction ${transactionId} has no splits yet`);
+  }
+}
+
+/** A split's category was deactivated: the classification must be reviewed first (→ 422). */
+export class InactiveCategoryError extends Error {
+  override readonly name = 'InactiveCategoryError';
+
+  constructor(readonly codes: readonly string[]) {
+    super(`Inactive financial categories: ${codes.join(', ')}`);
+  }
+}
+
+export interface ConfirmTransactionResult {
+  readonly transaction: Transaction;
+  /** true when it was already confirmed (a 200 no-op). */
+  readonly replayed: boolean;
+}
+
+export type ConfirmTransaction = (input: {
+  readonly principal: RealmPrincipal;
+  readonly transactionId: string;
+}) => Promise<ConfirmTransactionResult>;
+
+/** Confirm Transaction (api-design.md §34, backlog VC-1-08). */
+export function confirmTransaction(deps: { readonly repository: TransactionRepository }): ConfirmTransaction {
+  return async ({ principal, transactionId }) => {
+    const outcome = await deps.repository.confirm(transactionId, principal.mreRealmId, { actorType: 'USER', actorId: principal.email });
+    switch (outcome.kind) {
+      case 'CONFIRMED':
+        return { transaction: outcome.transaction, replayed: outcome.replayed };
+      case 'NOT_FOUND':
+        throw new TransactionNotFoundError(transactionId);
+      case 'NOT_CONFIRMABLE':
+        throw new TransactionNotConfirmableError(transactionId, outcome.status);
+      case 'SPLITS_MISSING':
+        throw new SplitsMissingError(transactionId);
+      case 'SUM_MISMATCH':
+        throw new SplitSumMismatchError(outcome.expected, outcome.actual);
+      case 'INACTIVE_CATEGORY':
+        throw new InactiveCategoryError(outcome.codes);
     }
   };
 }

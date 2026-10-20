@@ -1,3 +1,4 @@
+import type { ConfirmOutcome } from './confirm-transaction.js';
 import type { AuditActor, Money } from '../../shared/index.js';
 import type { FinancialAccount, FinancialAccountId } from './financial-account.js';
 
@@ -73,6 +74,9 @@ export interface Transaction {
   readonly status: TransactionStatus;
   readonly createdAt: Date;
   readonly version: number;
+  /** Set once confirmed (api-design.md §34); null before. */
+  readonly confirmedAt: Date | null;
+  readonly confirmedBy: string | null;
 }
 
 /** A validated manual Transaction about to be created (api-design.md §31). */
@@ -144,4 +148,10 @@ export interface TransactionRepository {
     actor: AuditActor,
     idempotency?: { readonly key: string; readonly fingerprint: string },
   ): Promise<CreateTransactionOutcome>;
+  /**
+   * Under the Transaction's row lock, with its splits and their categories:
+   * applies `planConfirm` and, if confirmable, sets CONFIRMED with
+   * `confirmedAt`/`confirmedBy`, bumps the version and writes the AuditRecord.
+   */
+  confirm(id: string, mreRealmId: string, actor: AuditActor): Promise<ConfirmOutcome>;
 }

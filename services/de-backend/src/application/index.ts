@@ -34,8 +34,22 @@ export type {
 } from './financial-accounts.js';
 export { ACCOUNT_TYPES } from '../domains/ledger/index.js';
 export type { AccountType, FinancialAccount } from '../domains/ledger/index.js';
-export { CurrencyMismatchError, FinancialAccountClosedError, createManualTransaction } from './transactions.js';
-export type { CreateManualTransaction, CreateManualTransactionInput, CreateManualTransactionResult } from './transactions.js';
+export {
+  CurrencyMismatchError,
+  FinancialAccountClosedError,
+  InactiveCategoryError,
+  SplitsMissingError,
+  TransactionNotConfirmableError,
+  confirmTransaction,
+  createManualTransaction,
+} from './transactions.js';
+export type {
+  ConfirmTransaction,
+  ConfirmTransactionResult,
+  CreateManualTransaction,
+  CreateManualTransactionInput,
+  CreateManualTransactionResult,
+} from './transactions.js';
 export { DIRECTIONS, checkBusinessDate, parseBusinessDate } from '../domains/ledger/index.js';
 export type { BusinessDate, Direction, Transaction } from '../domains/ledger/index.js';
 export {

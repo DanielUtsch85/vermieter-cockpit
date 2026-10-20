@@ -2,6 +2,7 @@ import { createApp } from './api/index.js';
 import { loadConfig } from './config.js';
 import {
   closeFinancialAccount,
+  confirmTransaction,
   createFinancialAccount,
   createManualTransaction,
   getFinancialCategory,
@@ -41,6 +42,7 @@ const propertyReferences = {
 };
 const financialAccounts = new PostgresFinancialAccountRepository(db);
 const imports = new PostgresImportRepository(db);
+const transactions = new PostgresTransactionRepository(db);
 const categories = new PostgresFinancialCategoryRepository(db);
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
@@ -49,7 +51,8 @@ const app = createApp({
   refreshPropertyReference: refreshPropertyReference(propertyReferences),
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
-  createManualTransaction: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
+  createManualTransaction: createManualTransaction({ repository: transactions }),
+  confirmTransaction: confirmTransaction({ repository: transactions }),
   setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
   listFinancialCategories: listFinancialCategories({ categories }),
   getFinancialCategory: getFinancialCategory({ categories }),

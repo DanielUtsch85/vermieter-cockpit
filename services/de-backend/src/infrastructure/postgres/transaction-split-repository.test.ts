@@ -9,6 +9,7 @@ import { migrateToLatest } from './migrate.js';
 import { PostgresPropertyReferenceRepository } from './property-reference-repository.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
+import { testSchemaName } from './test-schema.test-support.js';
 
 /**
  * VC-1-07 persistence: exact sum, atomic replacement, CLASSIFIED status and
@@ -22,6 +23,14 @@ const REALM = '64b0c0ffee0000000000000a';
 const OTHER_REALM = '64b0c0ffee0000000000000b';
 const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
 
+async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error('condition not reached');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 const split = (amount: string, financialCategoryCode = 'LOAN_INTEREST', extra: Partial<SplitInput> = {}): SplitInput => ({
   amount: Money.of(amount, 'EUR'),
   financialCategoryCode,
@@ -32,7 +41,7 @@ const split = (amount: string, financialCategoryCode = 'LOAN_INTEREST', extra: P
 const loanSplits = [split('600.00'), split('600.00', 'LOAN_PRINCIPAL')];
 
 describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository', () => {
-  const schema = `split_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('split_test');
   let pool: pg.Pool;
   let splits: PostgresTransactionSplitRepository;
   let transactions: PostgresTransactionRepository;
@@ -88,7 +97,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
     ).rows;
   const audits = async (transactionId: string) =>
     (
-      await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1 ORDER BY occurred_at, new_version`, [transactionId])
+      await pool.query(
+        `SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1 ORDER BY occurred_at, new_version`,
+        [transactionId],
+      )
     ).rows.map((r: { action: string }) => r.action);
 
   it('stores an exact split set, classifies the Transaction, bumps its version and audits', async () => {
@@ -147,7 +159,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
   it('a CONFIRMED Transaction is frozen; only the identical repeat is answered as a no-op', async () => {
     const id = await loanPayment();
     await splits.replaceSplits(id, REALM, loanSplits, actor);
-    await pool.query(`UPDATE ledger_transaction SET status = 'CONFIRMED' WHERE id = $1`, [id]);
+    await pool.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [id]);
     expect(await splits.replaceSplits(id, REALM, [split('1200.00')], actor)).toEqual({ kind: 'FROZEN', status: 'CONFIRMED' });
     expect(await splits.replaceSplits(id, REALM, loanSplits, actor)).toMatchObject({ kind: 'REPLACED', changed: false });
     const ignored = await loanPayment();
@@ -208,24 +220,68 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
     await expect(insert(REALM, '1.005')).rejects.toThrow(/transaction_split_amount_check/);
   });
 
-  it('two concurrent replacements serialize: one wins, the set is never mixed', async () => {
+  it('a replacement waits for the Transaction row lock and then works on the committed state', async () => {
     const id = await loanPayment();
-    const a = [split('1000.00'), split('200.00', 'LOAN_PRINCIPAL')];
-    const b = [split('100.00', 'MAINTENANCE'), split('1100.00', 'ADMINISTRATION')];
-    const [ra, rb] = await Promise.all([splits.replaceSplits(id, REALM, a, actor), splits.replaceSplits(id, REALM, b, actor)]);
-    expect([ra.kind, rb.kind]).toEqual(['REPLACED', 'REPLACED']);
-    const codes = (await stored(id)).map((r: { code: string }) => r.code);
-    expect([
-      ['LOAN_INTEREST', 'LOAN_PRINCIPAL'],
-      ['MAINTENANCE', 'ADMINISTRATION'],
-    ]).toContainEqual(codes);
-    const version = (await pool.query(`SELECT version FROM ledger_transaction WHERE id = $1`, [id])).rows[0].version;
-    expect(version).toBe(3);
+    const holder = await pool.connect();
+    try {
+      // Another writer (a replacement or a confirm) holds the row and changes it ...
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM ledger_transaction WHERE id = $1 FOR UPDATE', [id]);
+      const pending = splits.replaceSplits(id, REALM, loanSplits, actor);
+      await waitUntil(
+        async () =>
+          (
+            await pool.query(
+              `SELECT 1 FROM pg_stat_activity
+               WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%ledger_transaction%for update%'`,
+            )
+          ).rowCount !== 0,
+      );
+      await holder.query(`UPDATE ledger_transaction SET version = version + 1 WHERE id = $1`, [id]);
+      await holder.query('COMMIT');
+      // ... so the waiting replacement builds on version 2, not on what it would have read without the lock.
+      expect(await pending).toMatchObject({ kind: 'REPLACED', transaction: { version: 3 } });
+      const audit = await pool.query(
+        `SELECT previous_version, new_version FROM audit_record WHERE entity_id = $1 AND action = 'SPLITS_REPLACED'`,
+        [id],
+      );
+      expect(audit.rows).toEqual([{ previous_version: 2, new_version: 3 }]);
+    } finally {
+      holder.release();
+    }
+  });
+
+  it('a replacement waiting on a confirm in progress finds the Transaction frozen', async () => {
+    const id = await loanPayment();
+    await splits.replaceSplits(id, REALM, loanSplits, actor);
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query('SELECT 1 FROM ledger_transaction WHERE id = $1 FOR UPDATE', [id]);
+      const pending = splits.replaceSplits(id, REALM, [split('1200.00', 'OTHER')], actor);
+      await waitUntil(
+        async () =>
+          (
+            await pool.query(
+              `SELECT 1 FROM pg_stat_activity
+               WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%ledger_transaction%for update%'`,
+            )
+          ).rowCount !== 0,
+      );
+      await holder.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [
+        id,
+      ]);
+      await holder.query('COMMIT');
+      expect(await pending).toEqual({ kind: 'FROZEN', status: 'CONFIRMED' });
+      expect((await stored(id)).map((r: { code: string }) => r.code)).toEqual(['LOAN_INTEREST', 'LOAN_PRINCIPAL']);
+    } finally {
+      holder.release();
+    }
   });
 });
 
 describe.skipIf(databaseUrl === undefined)('PostgresFinancialCategoryRepository', () => {
-  const schema = `category_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('category_test');
   let pool: pg.Pool;
   let categories: PostgresFinancialCategoryRepository;
 

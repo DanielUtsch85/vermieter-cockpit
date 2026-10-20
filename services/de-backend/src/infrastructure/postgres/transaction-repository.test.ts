@@ -12,6 +12,8 @@ import { PostgresFinancialAccountRepository } from './financial-account-reposito
 import { migrateToLatest } from './migrate.js';
 import { PostgresPropertyReferenceRepository } from './property-reference-repository.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
+import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
+import { testSchemaName } from './test-schema.test-support.js';
 
 /**
  * VC-1-04 persistence: exact Money and business dates, AuditRecord,
@@ -33,7 +35,7 @@ async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): 
 }
 
 describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () => {
-  const schema = `transaction_test_${process.pid}_${Date.now()}`;
+  const schema = testSchemaName('transaction_test');
   let pool: pg.Pool;
   let transactions: PostgresTransactionRepository;
   let accounts: PostgresFinancialAccountRepository;
@@ -227,6 +229,119 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
     } finally {
       closer.release();
     }
+  });
+
+  describe('confirm (VC-1-08)', () => {
+    const eurSplit = (amount: string, financialCategoryCode: string) => ({
+      amount: Money.of(amount, 'EUR'),
+      financialCategoryCode,
+      propertyReferenceId: null,
+      description: null,
+    });
+    async function classified(): Promise<string> {
+      const created = await transactions.createManual(rent(await openAccount()), actor);
+      if (created.kind !== 'CREATED') throw new Error(created.kind);
+      const splits = new PostgresTransactionSplitRepository(createDatabase(pool));
+      const outcome = await splits.replaceSplits(
+        created.transaction.id,
+        REALM,
+        [eurSplit('1000.00', 'RENT_BASE'), eurSplit('250.00', 'RENT_OPERATING_COST_ADVANCE')],
+        actor,
+      );
+      if (outcome.kind !== 'REPLACED') throw new Error(outcome.kind);
+      return created.transaction.id;
+    }
+    const auditActions = async (id: string) =>
+      (await pool.query(`SELECT action FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, new_version`, [id])).rows.map(
+        (r: { action: string }) => r.action,
+      );
+
+    it('confirms a classified Transaction with who and when, bumps the version and audits; a repeat is a no-op', async () => {
+      const id = await classified();
+      const outcome = await transactions.confirm(id, REALM, actor);
+      expect(outcome).toMatchObject({
+        kind: 'CONFIRMED',
+        replayed: false,
+        transaction: { status: 'CONFIRMED', version: 3, confirmedBy: 'anna@example.com' },
+      });
+      if (outcome.kind !== 'CONFIRMED') throw new Error(outcome.kind);
+      expect(outcome.transaction.confirmedAt).toBeInstanceOf(Date);
+
+      const again = await transactions.confirm(id, REALM, actor);
+      expect(again).toEqual({ kind: 'CONFIRMED', replayed: true, transaction: outcome.transaction });
+      expect(await auditActions(id)).toEqual(['CREATED', 'SPLITS_REPLACED', 'CONFIRMED']);
+    });
+
+    it('refuses without splits, with a sum off, with an inactive category, and when CORRECTED or IGNORED', async () => {
+      const unsplit = await transactions.createManual(rent(await openAccount()), actor);
+      if (unsplit.kind !== 'CREATED') throw new Error(unsplit.kind);
+      expect(await transactions.confirm(unsplit.transaction.id, REALM, actor)).toEqual({ kind: 'SPLITS_MISSING' });
+
+      // The stored set was valid; a confirmation still re-checks the sum.
+      const tampered = await classified();
+      await pool.query(`UPDATE transaction_split SET amount = 249.99 WHERE transaction_id = $1 AND position = 2`, [tampered]);
+      expect(await transactions.confirm(tampered, REALM, actor)).toMatchObject({
+        kind: 'SUM_MISMATCH',
+        actual: Money.of('1249.99', 'EUR'),
+      });
+
+      const retired = await classified();
+      await pool.query(`UPDATE financial_category SET active = false WHERE code = 'RENT_OPERATING_COST_ADVANCE'`);
+      try {
+        expect(await transactions.confirm(retired, REALM, actor)).toEqual({
+          kind: 'INACTIVE_CATEGORY',
+          codes: ['RENT_OPERATING_COST_ADVANCE'],
+        });
+      } finally {
+        await pool.query(`UPDATE financial_category SET active = true WHERE code = 'RENT_OPERATING_COST_ADVANCE'`);
+      }
+
+      const ignored = await classified();
+      await pool.query(`UPDATE ledger_transaction SET status = 'IGNORED' WHERE id = $1`, [ignored]);
+      expect(await transactions.confirm(ignored, REALM, actor)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'IGNORED' });
+      const corrected = await classified();
+      await transactions.confirm(corrected, REALM, actor);
+      await pool.query(`UPDATE ledger_transaction SET status = 'CORRECTED' WHERE id = $1`, [corrected]);
+      expect(await transactions.confirm(corrected, REALM, actor)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'CORRECTED' });
+    });
+
+    it('another Realm’s Transaction is not found', async () => {
+      const id = await classified();
+      expect(await transactions.confirm(id, OTHER_REALM, actor)).toEqual({ kind: 'NOT_FOUND' });
+      expect(await transactions.confirm('nope', REALM, actor)).toEqual({ kind: 'NOT_FOUND' });
+    });
+
+    it('two concurrent confirms: one confirms, the other is the no-op', async () => {
+      const id = await classified();
+      const outcomes = await Promise.all([transactions.confirm(id, REALM, actor), transactions.confirm(id, REALM, actor)]);
+      expect(outcomes.map((o) => o.kind === 'CONFIRMED' && o.replayed).sort()).toEqual([false, true]);
+      expect((await auditActions(id)).filter((a) => a === 'CONFIRMED')).toHaveLength(1);
+    });
+
+    it('the database keeps a confirmed Transaction and its splits immutable (ADR-037)', async () => {
+      const id = await classified();
+      await transactions.confirm(id, REALM, actor);
+      const refused = [
+        `UPDATE ledger_transaction SET amount = 1 WHERE id = $1`,
+        `UPDATE ledger_transaction SET direction = 'OUTFLOW' WHERE id = $1`,
+        `UPDATE ledger_transaction SET booking_date = '2026-09-02' WHERE id = $1`,
+        `UPDATE ledger_transaction SET status = 'CLASSIFIED', confirmed_at = NULL, confirmed_by = NULL WHERE id = $1`,
+        `UPDATE ledger_transaction SET confirmed_by = 'someone else' WHERE id = $1`,
+        `DELETE FROM ledger_transaction WHERE id = $1`,
+        `UPDATE transaction_split SET description = 'x' WHERE transaction_id = $1`,
+        `DELETE FROM transaction_split WHERE transaction_id = $1`,
+      ];
+      for (const statement of refused) {
+        await expect(pool.query(statement, [id]), statement).rejects.toThrow(/ADR-037/);
+      }
+      // Non-cash bookkeeping stays possible: the later states and the description.
+      await pool.query(`UPDATE ledger_transaction SET description = 'Miete Sept.', status = 'RECONCILED' WHERE id = $1`, [id]);
+      // confirmed_at and confirmed_by exist exactly for confirmed states.
+      const unconfirmed = await classified();
+      await expect(pool.query(`UPDATE ledger_transaction SET status = 'CONFIRMED' WHERE id = $1`, [unconfirmed])).rejects.toThrow(
+        /ledger_transaction_confirmed/,
+      );
+    });
   });
 
   it('the schema itself refuses foreign-Realm references, negative or over-scaled amounts', async () => {
