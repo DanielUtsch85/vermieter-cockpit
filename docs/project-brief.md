@@ -107,7 +107,7 @@ Scope:
 5. **Transaction splits** — `PUT /api/v1/transactions/{id}/splits`, enforcing the invariant `sum(splits.amount) == transaction.amount` under the model's sign/rounding rules (`AGENTS.md` §9, domain-model §22–24).
 6. **Confirm** — `POST /api/v1/transactions/{id}/confirm`.
 
-Deferred out of the core Slice 1: rent reconciliation write-back, loans, ownership allocation. `transactions/{id}/correct` is a **gated fast-follow, not part of the Phase-1 exit**: its behavior is fixed by **ADR-037** (confirmed transactions immutable; corrected via reversal + replacement), but its full contract must be specified before implementation (`api-design.md` §35).
+Deferred out of the core Slice 1: rent reconciliation write-back, loans, ownership allocation. `transactions/{id}/correct` is a **gated fast-follow, not part of the Phase-1 exit**: its behavior is fixed by **ADR-037** (confirmed transactions immutable; corrected via reversal + replacement), and its full contract is specified in `api-design.md` §35.
 
 **Definition of done for Slice 1:** a user can link an MRE property, create a financial account, import a bank CSV twice without duplicates, split a transaction so totals reconcile, and confirm it — all Realm-isolated, all monetary values exact, all records traceable to source. Tests cover: split totals, idempotent import, monetary precision, Realm isolation (`AGENTS.md` §29).
 

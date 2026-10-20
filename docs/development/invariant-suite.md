@@ -88,6 +88,18 @@ service; also run locally with `default_transaction_isolation = repeatable read`
 
 TR confirm "the database keeps a confirmed Transaction and its splits immutable (ADR-037)", "the status of a confirmed Transaction only moves forward; CORRECTED is terminal"; SR "a replacement waiting on a confirm in progress finds the Transaction frozen"; ACC (splits refused after confirm).
 
+## 7. Correction chain (planned, VC-1-11)
+
+Specified in API §35.6 and data-model §17.8; the tests come with the implementation:
+
+- link and role are set together, only with `provenance = CORRECTION`, and stay within the Realm;
+- at most one reversal and one replacement per original;
+- a reversal matches its original (amount, currency, account, dates; opposite direction);
+- `CORRECTED` exactly when both exist, checked at commit;
+- net effect: the signed sums over the whole chain equal those over the current Transactions, per account, category and PropertyReference;
+- two concurrent corrections: one chain, one `ALREADY_CORRECTED`;
+- a re-import of a corrected original's row stays a duplicate.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

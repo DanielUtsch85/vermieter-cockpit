@@ -1008,7 +1008,7 @@ POST /api/v1/transactions/{id}/confirm
 POST /api/v1/transactions/{id}/correct
 ```
 
-**Phase-1 scope:** correction is **not part of the Phase-1 exit**; it is a gated fast-follow (see `docs/roadmap.md` Phase 1). The behavior is fixed by ADR-037 — the confirmed transaction is immutable, a linked reversal record negates it, and a new corrected transaction is created — but the full contract below must be completed before the fast-follow is implemented.
+**Phase-1 scope:** correction is **not part of the Phase-1 exit**; it is a gated fast-follow (VC-1-11, see `docs/roadmap.md` Phase 1). The behavior is fixed by ADR-037: the confirmed Transaction is never changed; a linked **reversal** negates it and a linked **replacement** carries the corrected values. The contract below is the specification VC-1-11 implements.
 
 Example request:
 
@@ -1021,7 +1021,84 @@ Example request:
 }
 ```
 
-**Still to be specified before implementing the fast-follow:** the reversal and replacement roles and their fields; the chaining invariants (original ↔ reversal ↔ replacement, and the `CORRECTED` status transition); the effect on the original's splits and on any reconciliation; and the idempotency identity of a correction. Until then, `correct` is not part of the Phase-1 contract set.
+## 35.1 Contract
+
+- **Domain owner:** Financial Ledger.
+- **Authorization:** MRE identity; Realm-scoped, as §34.
+- **Correctable:** a Transaction in status `CONFIRMED` that is not itself a reversal. A replacement is an ordinary confirmed Transaction and can be corrected again, which extends the chain (§35.3).
+- **One step, all or nothing:** in one database transaction the command
+  1. creates the **reversal**,
+  2. creates the **replacement**, already `CONFIRMED`,
+  3. moves the original `CONFIRMED` → `CORRECTED` (domain-model §21) and writes one AuditRecord.
+
+  Either all three happen or nothing does. There is never a moment in which the original is `CORRECTED` but its replacement does not yet count, or in which both count.
+- **Outputs:** `201 Created` with `{ "original": …, "reversal": …, "replacement": … }`, each a Transaction as §31.2 plus the correction fields (§35.4).
+
+## 35.2 Request
+
+- **`reason`** (required): trimmed, 1–500 characters. It is stored in the AuditRecord, not on the Transactions.
+- **`replacement`** (required object): the fields that differ from the original. Omitted fields are copied from the original. Unknown keys are `400`.
+  - `amount` (Money, §31.2 rules: non-negative, scale, currency of the account), `direction`, `bookingDate`, `valueDate`, `description`, `propertyReferenceId`. For the last three an explicit `null` clears the value.
+  - `financialAccountId`: another account of the same Realm and currency (no FX, data-model §17.7). A closed target account is `409 ACCOUNT_CLOSED`, as for a new manual Transaction (§31.2).
+  - `splits`: a full split set with the rules of §33. If omitted, the original's splits are copied (same positions, amounts, categories, PropertyReferences, descriptions).
+- **Coverage:** the replacement is confirmed in the same step, so its splits must cover its amount exactly (`409 INVARIANT_VIOLATION`, `SPLIT_SUM_MISMATCH`). They must also use only active categories (`422 REVIEW_REQUIRED`, `INACTIVE_CATEGORY`), as §34.2. A changed `amount` therefore needs new `splits` unless the copied ones still sum exactly.
+- **Must change something:** a request whose replacement equals the original in every cash field (account, amount, currency, direction, booking and value date) and in its split set is `409 CONFLICT` with `reason = "NO_CHANGE"`. `propertyReferenceId` counts as a change; `description` alone does not, because it can be edited in place (§34.2).
+
+## 35.3 The records
+
+| | Reversal | Replacement |
+| --- | --- | --- |
+| `correctionOfTransactionId` | the original | the original |
+| `correctionRole` | `REVERSAL` | `REPLACEMENT` |
+| account, currency, `amount` | as the original | from the request, else the original's |
+| `direction` | the **opposite** of the original (data-model §17.4) | from the request, else the original's |
+| `bookingDate`, `valueDate` | **as the original**, so every period the original counted in nets to zero | from the request, else the original's |
+| `description`, `propertyReferenceId` | as the original | from the request, else the original's |
+| splits | mirror of the original's (same positions, amounts, categories, PropertyReferences) | from the request, else copied |
+| `provenance` | `CORRECTION` | `CORRECTION` |
+| import identity (batch, external id, adapter, source keys, fingerprint, review item) | none | none |
+| `status` | `CONFIRMED`; `confirmedAt`/`confirmedBy` = the correction | `CONFIRMED`; `confirmedAt`/`confirmedBy` = the correction |
+
+- **The original keeps everything:** its fields, splits, `confirmedAt`/`confirmedBy`, provenance and import identity. Only its status changes, to `CORRECTED`. A re-import of its bank row is therefore still a duplicate of the original, also once it is `CORRECTED`, and never recreates it (data-model §70).
+- **Reversal on a closed account:** the reversal is posted to the original's account even if that account was closed since. It removes an existing record and is not a new cash movement; refusing it would make a mistake on a closed account impossible to fix.
+- **Chain:** an original has at most one reversal and one replacement. A later correction of the replacement links to the replacement, not to the first original, so the chain is a list `T₁ → T₂ → …`. In that list every member except the last is `CORRECTED` and the last is the current one. A reversal is never corrected (`409 NOT_CORRECTABLE`, `reason = "REVERSAL"`): a mistake in a correction is fixed by correcting its replacement.
+- **Net effect (ADR-037, reporting):** per account, period, category and PropertyReference, the sum over `CONFIRMED`, `RECONCILED` and `CORRECTED` Transactions with sign by `direction` equals the sum over the current ones alone. "Current" means `CONFIRMED` or `RECONCILED` and not a reversal. Each original and its reversal cancel exactly, so the full chain stays visible and nothing is counted twice.
+
+## 35.4 Response and errors
+
+- **Transaction fields added by correction** (in every Transaction response from VC-1-11 on): `correctionOfTransactionId` and `correctionRole` (both `null` on an ordinary Transaction), and on a `CORRECTED` original `reversalTransactionId` and `replacementTransactionId`.
+- **AuditRecord** `CORRECTED` on the original: actor (the MRE email), `reason`, the reversal and replacement ids, the changed fields with old and new values, `previousVersion`/`newVersion`.
+- **`400`:** malformed id or body (§31.2 / §33 field codes).
+- **`404`:** unknown or foreign Transaction; a target account or PropertyReference not in the caller's Realm.
+- **`409`:**
+  - `CONFLICT` with `reason = "ALREADY_CORRECTED"` and `reversalTransactionId`/`replacementTransactionId`, so a client that lost the first answer can find the result.
+  - `CONFLICT` with `reason = "NOT_CORRECTABLE"` and the `status` for `IMPORTED`, `UNREVIEWED`, `CLASSIFIED` (edit or split it instead) and `IGNORED`; `reason = "REVERSAL"` for a reversal; `reason = "RECONCILED"` (see below).
+  - `CONFLICT` with `reason = "NO_CHANGE"` or `"ACCOUNT_CLOSED"`.
+  - `INVARIANT_VIOLATION` with `SPLIT_SUM_MISMATCH`.
+- **`422`:** `REVIEW_REQUIRED` with `INACTIVE_CATEGORY`.
+- **Reconciled Transactions:** a `RECONCILED` Transaction is matched to MRE rent state, and correcting it must also undo or re-evaluate that match (workflows: "invalidate/re-evaluate affected reconciliations"). Until Phase 4 specifies that, correcting a `RECONCILED` Transaction is `409 NOT_CORRECTABLE` with `reason = "RECONCILED"`. The status rule `RECONCILED → CORRECTED` (§34.2) stays in place for then. Phase 1 has no `RECONCILED` Transactions.
+
+## 35.5 Idempotency and concurrency
+
+- **`Idempotency-Key`** as §15, scoped to the Realm and the command. The fingerprint is the original's id plus the normalized request. A replay answers `201` with the result as recorded and `Idempotent-Replayed: true`. A rejected request rolls back its key claim.
+- **Without a key** a retry is still safe: the original is `CORRECTED` by then, so the retry gets `409 ALREADY_CORRECTED` with the ids of the existing correction. It never creates a second one.
+- **Locks:** the original is locked `FOR UPDATE`, the same lock as confirm and split replacement (§34.2). Of two concurrent corrections, one creates the chain and the other gets `ALREADY_CORRECTED`. A split replacement waiting on the lock finds the original frozen. The replacement's account is locked `FOR SHARE` as in §31.2.
+
+## 35.6 Enforced by the database
+
+- `correction_of_transaction_id` references a Transaction **of the same Realm** (composite foreign key, like the other references).
+- `correction_role` and `correction_of_transaction_id` are both set or both `NULL`, and `provenance = 'CORRECTION'` exactly when they are set.
+- At most one `REVERSAL` and one `REPLACEMENT` per original (unique index).
+- A reversal matches its original: same Realm, account, currency, amount, booking and value date, and opposite direction.
+- A Transaction is `CORRECTED` exactly when its reversal and replacement exist. This is checked by a deferred constraint trigger at commit, so the three writes of §35.1 can happen in any order inside the transaction.
+- The existing triggers stay as they are: immutability (0009) and "confirmed ⇒ covered exactly" (0010). So reversal and replacement are written unconfirmed, get their splits and are then confirmed, all in the same transaction.
+
+## 35.7 Out of scope for VC-1-11
+
+- **A reversal without replacement** ("this confirmed Transaction should not exist", e.g. a duplicate manual entry). It needs its own rule for the net effect, so it is backlog VC-X-15 and not a `replacement: null` here.
+- Correction of `RECONCILED` Transactions (Phase 4, see §35.4).
+- Bulk corrections.
+- **Closed periods:** the reversal takes the original's dates, so it changes the totals of the original's period. Phase 1 has no period close. When tax years or reports get closed (Phase 7/9), those phases decide how a correction into a closed period is handled (refused, or reversal dated in the open period).
 
 ---
 
