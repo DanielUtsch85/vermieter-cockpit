@@ -27,6 +27,9 @@ import {
   type ConfirmTransaction,
   type GetTransaction,
   type ListTransactions,
+  type ListPropertyReferenceTransactions,
+  type TransactionFilter,
+  type TransactionPage,
   type TransactionStatus,
   REVIEWABLE_STATUSES,
   TRANSACTION_STATUSES,
@@ -126,8 +129,7 @@ const correctBody = z
   .strict();
 
 /** `GET /transactions` (api-design.md §30.1): filters and page; unknown parameters are refused. */
-const listQuery = z
-  .object({
+const listFields = z.object({
     financialAccountId: z.string().regex(RESOURCE_ID).optional(),
     // Comma-separated, any of them.
     status: z
@@ -148,12 +150,37 @@ const listQuery = z
     bookingDateTo: businessDate.optional(),
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict()
-  .refine((q) => q.bookingDateFrom === undefined || q.bookingDateTo === undefined || q.bookingDateFrom <= q.bookingDateTo, {
-    path: ['bookingDateTo'],
-    params: { code: 'INVALID_RANGE' },
-  });
+});
+const dateRange = {
+  check: (q: { bookingDateFrom?: string | undefined; bookingDateTo?: string | undefined }) =>
+    q.bookingDateFrom === undefined || q.bookingDateTo === undefined || q.bookingDateFrom <= q.bookingDateTo,
+  issue: { path: ['bookingDateTo'], params: { code: 'INVALID_RANGE' } },
+};
+const listQuery = listFields.strict().refine(dateRange.check, dateRange.issue);
+/** `GET /property-references/{id}/transactions`: the same, with the PropertyReference in the path. */
+const propertyReferenceListQuery = listFields.omit({ propertyReferenceId: true }).strict().refine(dateRange.check, dateRange.issue);
+
+type ListQuery = z.infer<typeof listQuery>;
+
+/** The filter of a parsed list query (§30.1). */
+function listFilter(q: Omit<ListQuery, 'propertyReferenceId'> & { propertyReferenceId?: string | undefined }): TransactionFilter {
+  // `reviewable=true` is the statuses IMPORTED and UNREVIEWED; with `status` too, both must hold.
+  const reviewable: readonly TransactionStatus[] | undefined = q.reviewable === 'true' ? REVIEWABLE_STATUSES : undefined;
+  const statuses =
+    q.status !== undefined && reviewable !== undefined ? q.status.filter((s) => reviewable.includes(s)) : (q.status ?? reviewable);
+  return {
+    ...(q.financialAccountId === undefined ? {} : { financialAccountId: q.financialAccountId.toLowerCase() }),
+    ...(statuses === undefined ? {} : { statuses }),
+    ...(q.propertyReferenceId === undefined ? {} : { propertyReferenceId: q.propertyReferenceId.toLowerCase() }),
+    ...(q.bookingDateFrom === undefined ? {} : { bookingDateFrom: q.bookingDateFrom }),
+    ...(q.bookingDateTo === undefined ? {} : { bookingDateTo: q.bookingDateTo }),
+    ...(q.current === 'true' ? { current: true as const } : {}),
+  };
+}
+
+function sendPage(res: Response, result: TransactionPage): void {
+  res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
+}
 
 /** `amend` (api-design.md §31.3): only the fields to change, at least one; null clears an optional one. */
 const amendBody = z
@@ -188,6 +215,7 @@ export interface TransactionCommands {
   readonly reverse: ReverseTransaction;
   readonly get: GetTransaction;
   readonly list: ListTransactions;
+  readonly listForPropertyReference: ListPropertyReferenceTransactions;
   readonly amend: AmendTransaction;
   readonly ignore: IgnoreTransaction;
   readonly restore: RestoreTransaction;
@@ -204,27 +232,39 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       return;
     }
     const q = parsed.data;
-    // `reviewable=true` is the statuses IMPORTED and UNREVIEWED; with `status` too, both must hold.
-    const reviewable: readonly TransactionStatus[] | undefined = q.reviewable === 'true' ? REVIEWABLE_STATUSES : undefined;
-    const statuses =
-      q.status !== undefined && reviewable !== undefined ? q.status.filter((s) => reviewable.includes(s)) : (q.status ?? reviewable);
     commands
-      .list({
+      .list({ principal: res.locals['principal'] as RealmPrincipal, filter: listFilter(q), page: { page: q.page, pageSize: q.pageSize } })
+      .then((result) => sendPage(res, result))
+      .catch(next);
+  });
+
+  router.get('/property-references/:propertyReferenceId/transactions', (req, res, next) => {
+    const propertyReferenceId = req.params['propertyReferenceId'] ?? '';
+    if (!RESOURCE_ID.test(propertyReferenceId)) {
+      sendValidationError(res, [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    const parsed = propertyReferenceListQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const q = parsed.data;
+    commands
+      .listForPropertyReference({
         principal: res.locals['principal'] as RealmPrincipal,
-        filter: {
-          ...(q.financialAccountId === undefined ? {} : { financialAccountId: q.financialAccountId.toLowerCase() }),
-          ...(statuses === undefined ? {} : { statuses }),
-          ...(q.propertyReferenceId === undefined ? {} : { propertyReferenceId: q.propertyReferenceId.toLowerCase() }),
-          ...(q.bookingDateFrom === undefined ? {} : { bookingDateFrom: q.bookingDateFrom }),
-          ...(q.bookingDateTo === undefined ? {} : { bookingDateTo: q.bookingDateTo }),
-          ...(q.current === 'true' ? { current: true as const } : {}),
-        },
+        propertyReferenceId: propertyReferenceId.toLowerCase(),
+        filter: listFilter(q),
         page: { page: q.page, pageSize: q.pageSize },
       })
-      .then((result) => {
-        res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
-      })
-      .catch(next);
+      .then((result) => sendPage(res, result))
+      .catch((error: unknown) => {
+        if (error instanceof PropertyReferenceNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId });
+        } else {
+          next(error);
+        }
+      });
   });
 
   router.get('/transactions/:transactionId', (req, res, next) => {

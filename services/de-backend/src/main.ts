@@ -6,6 +6,7 @@ import {
   correctTransaction,
   reverseTransaction,
   getTransaction,
+  listPropertyReferenceTransactions,
   listTransactions,
   amendTransaction,
   ignoreTransaction,
@@ -68,6 +69,10 @@ const app = createApp({
   reverseTransaction: reverseTransaction({ repository: new PostgresCorrectionRepository(db) }),
   getTransaction: getTransaction({ queries: new PostgresTransactionQueries(db) }),
   listTransactions: listTransactions({ queries: new PostgresTransactionQueries(db) }),
+  listPropertyReferenceTransactions: listPropertyReferenceTransactions({
+    queries: new PostgresTransactionQueries(db),
+    propertyReferences: propertyReferences.repository,
+  }),
   amendTransaction: amendTransaction({ repository: unconfirmed }),
   ignoreTransaction: ignoreTransaction({ repository: unconfirmed }),
   restoreTransaction: restoreTransaction({ repository: unconfirmed }),

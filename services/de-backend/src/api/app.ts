@@ -7,6 +7,7 @@ import type {
   ReverseTransaction,
   GetTransaction,
   ListTransactions,
+  ListPropertyReferenceTransactions,
   AmendTransaction,
   IgnoreTransaction,
   RestoreTransaction,
@@ -58,6 +59,7 @@ export interface AppDependencies {
   /** Read Transactions (VC-X-21). */
   readonly getTransaction: GetTransaction;
   readonly listTransactions: ListTransactions;
+  readonly listPropertyReferenceTransactions: ListPropertyReferenceTransactions;
   /** Amend, ignore and restore an unconfirmed Transaction (VC-X-16). */
   readonly amendTransaction: AmendTransaction;
   readonly ignoreTransaction: IgnoreTransaction;
@@ -111,6 +113,7 @@ export function createApp(deps: AppDependencies): Express {
       reverse: deps.reverseTransaction,
       get: deps.getTransaction,
       list: deps.listTransactions,
+      listForPropertyReference: deps.listPropertyReferenceTransactions,
       amend: deps.amendTransaction,
       ignore: deps.ignoreTransaction,
       restore: deps.restoreTransaction,

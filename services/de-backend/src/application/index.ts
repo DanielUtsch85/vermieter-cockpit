@@ -117,7 +117,7 @@ export {
 } from './amend-transaction.js';
 export type { AmendTransaction, IgnoreTransaction, RestoreTransaction } from './amend-transaction.js';
 export type { TransactionChanges } from '../domains/ledger/index.js';
-export { getTransaction, listTransactions } from './read-transactions.js';
-export type { GetTransaction, ListTransactions } from './read-transactions.js';
+export { getTransaction, listPropertyReferenceTransactions, listTransactions } from './read-transactions.js';
+export type { GetTransaction, ListPropertyReferenceTransactions, ListTransactions } from './read-transactions.js';
 export { REVIEWABLE_STATUSES, TRANSACTION_STATUSES } from '../domains/ledger/index.js';
-export type { TransactionStatus } from '../domains/ledger/index.js';
+export type { TransactionFilter, TransactionPage, TransactionStatus } from '../domains/ledger/index.js';

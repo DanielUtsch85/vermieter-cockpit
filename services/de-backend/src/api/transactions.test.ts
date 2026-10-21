@@ -24,6 +24,7 @@ import {
   type CorrectTransaction,
   type ReverseTransaction,
   type ListTransactions,
+  type ListPropertyReferenceTransactions,
   type CorrectTransactionInput,
   FinancialAccountClosedError,
   FinancialAccountNotFoundError,
@@ -691,6 +692,31 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     // current=true is passed as such; the repository applies it together with status.
     await get(base, '/transactions?current=true&status=RECONCILED');
     expect(seen[4]?.filter).toEqual({ statuses: ['RECONCILED'], current: true });
+  });
+
+  it('GET /property-references/{id}/transactions: the same filters, the id from the path; 404 when unknown or foreign', async () => {
+    const seen: Parameters<ListPropertyReferenceTransactions>[0][] = [];
+    const base = await startWith({
+      listPropertyReferenceTransactions: async (input) => {
+        seen.push(input);
+        if (input.propertyReferenceId !== PROPERTY) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
+        return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+      },
+    });
+    const res = await get(base, `/property-references/${PROPERTY.toUpperCase()}/transactions?current=true&bookingDateFrom=2026-09-01&pageSize=5`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ items: [{ transactionId: transaction.id }], page: 1, pageSize: 5, total: 1 });
+    expect(seen[0]).toMatchObject({ propertyReferenceId: PROPERTY, filter: { current: true, bookingDateFrom: '2026-09-01' }, page: { page: 1, pageSize: 5 } });
+
+    const unknown = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
+    const missing = await get(base, `/property-references/${unknown}/transactions`);
+    expect(missing.status).toBe(404);
+    expect(((await missing.json()) as { error: { details: unknown } }).error.details).toEqual({ propertyReferenceId: unknown });
+    // The PropertyReference is the path: a query filter for it is unknown here, and a malformed id is 400.
+    for (const path of [`/property-references/${PROPERTY}/transactions?propertyReferenceId=${PROPERTY}`, '/property-references/nope/transactions']) {
+      expect((await get(base, path)).status, path).toBe(400);
+    }
+    expect(seen).toHaveLength(2);
   });
 
   it('400 for unknown parameters, bad values and an inverted date range', async () => {
