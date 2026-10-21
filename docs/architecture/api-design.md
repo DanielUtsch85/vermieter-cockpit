@@ -774,7 +774,8 @@ Useful filters:
   - `reviewable=true`: `IMPORTED` or `UNREVIEWED`, and together with `status` both must hold;
   - `propertyReferenceId`: the Transaction's own **or** one of its splits';
   - `bookingDateFrom` / `bookingDateTo`: inclusive, `400 INVALID_RANGE` when inverted;
-  - `current=true`: only the current Transactions of §35.3, i.e. `CONFIRMED` or `RECONCILED` and not a reversal. A chain shows only its last member: neither the `CORRECTED` originals nor their reversals. Combined with `status` like the other filters, so `current=true&status=RECONCILED` lists the reconciled ones and `current=true&status=CORRECTED` lists nothing. Summing a `current=true` list gives the net effect of §35.3.
+  - `current=true`: only the current Transactions of §35.3, i.e. `CONFIRMED` or `RECONCILED` and not a reversal. A chain shows only its last member: neither the `CORRECTED` originals nor their reversals. Combined with `status` like the other filters, so `current=true&status=RECONCILED` lists the reconciled ones and `current=true&status=CORRECTED` lists nothing. Summing a `current=true` list (signed by `direction`, over all pages) gives the net effect of §35.3 per account and period; per category and PropertyReference the current Transactions' splits are needed, since the list items carry none (review note on #31).
+- **`GET /api/v1/property-references/{propertyReferenceId}/transactions`:** the same list with `propertyReferenceId` taken from the path (the Transaction's own or one of its splits'), with the same filters and paging. A `propertyReferenceId` query parameter is unknown there (`400`). An unknown or foreign PropertyReference is `404 NOT_FOUND` with `details.propertyReferenceId`, not an empty page; a malformed id is `400`.
 - **Paging:** `page` starts at 1. `pageSize` is 1–200, default 50. `total` and `items` come from the same snapshot.
 - **Query plan (VC-X-19, migration 0015):** the page's ids are read in list order from the index `(mre_realm_id, booking_date DESC, created_at DESC, id DESC)`, and the scan stops at offset + limit. Only then is the DTO read for those rows, so the two link subqueries (`reversalTransactionId`, `replacementTransactionId`) run once per row of the page, each an index probe, and never for the rows the offset skips. A plan test (`EXPLAIN`) holds this. A deep page still walks its offset in the index; keyset paging is a later choice.
 - **Refusals:** unknown parameters are `400`.
@@ -783,7 +784,6 @@ Useful filters:
 - **Raw list:** without `status` or `current` the list also holds `CORRECTED` originals, reversals and `IGNORED` Transactions.
 - **Not yet:**
   - The filters for financial category, counterparty, source, unreconciled and needs review.
-  - The alias `GET /property-references/{id}/transactions` (use `?propertyReferenceId=`).
 
 ---
 

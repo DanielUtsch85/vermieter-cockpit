@@ -14,6 +14,7 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   reverseTransaction: unused,
   getTransaction: unused,
   listTransactions: unused,
+  listPropertyReferenceTransactions: unused,
   amendTransaction: unused,
   ignoreTransaction: unused,
   restoreTransaction: unused,
