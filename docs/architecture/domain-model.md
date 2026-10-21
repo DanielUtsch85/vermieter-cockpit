@@ -632,7 +632,8 @@ Minimal allowed transitions for Phase 1:
 Correction (VC-1-11, API §35):
 
 - `CONFIRMED` → `CORRECTED`, only through `correct`, which in the same step creates a confirmed **reversal** (same amount and dates, opposite direction, mirrored splits) and a confirmed **replacement** (the corrected values), both linked to the original;
-- `CORRECTED` is terminal; a reversal is never corrected; a replacement can be corrected again, which extends the chain;
+- or only through `reverse` (API §35.9): the confirmed reversal without a replacement, for a Transaction that should not exist; the chain then has no current member;
+- `CORRECTED` is terminal; a reversal is never corrected; a replacement can be corrected or reversed again, which extends or ends the chain;
 - a `RECONCILED` Transaction is not correctable until Phase 4 specifies how its reconciliation is undone.
 
 Transitions introduced by later phases (reconciliation) are defined in those phases and must not weaken these rules.

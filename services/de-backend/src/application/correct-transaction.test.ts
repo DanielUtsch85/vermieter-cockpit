@@ -15,6 +15,7 @@ import {
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
   correctTransaction,
+  reverseTransaction,
 } from './correct-transaction.js';
 import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
@@ -84,5 +85,18 @@ describe('correctTransaction (api-design.md §35)', () => {
         replacement,
       }),
     ).rejects.toMatchObject({ reversalTransactionId: 'r', replacementTransactionId: 'n' });
+  });
+
+  it('reverse: the same correction without a replacement, with its own fingerprint', async () => {
+    const result = { original: {}, reversal: {}, replacement: null } as unknown as CorrectionResult;
+    const { repository, calls } = answering({ kind: 'CORRECTED', result, replayed: false });
+    expect(await reverseTransaction({ repository })({ principal, transactionId: ID, reason: 'Doppelt', idempotencyKey: 'k' })).toEqual({
+      ...result,
+      replayed: false,
+    });
+    expect(calls[0]).toMatchObject({
+      request: { reason: 'Doppelt', replacement: null },
+      idempotency: { key: 'k', fingerprint: correctionFingerprint(ID, { reason: 'Doppelt', replacement: null }) },
+    });
   });
 });

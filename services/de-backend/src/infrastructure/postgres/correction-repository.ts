@@ -23,6 +23,8 @@ import type { Database } from './schema.js';
 import { COLUMNS, UUID, fromSnapshot, toDomain, toSnapshot } from './transaction-repository.js';
 
 const SCOPE = 'transaction.correct';
+/** `reverse` (§35.9) has its own key scope: the same key on `correct` and on `reverse` are different requests. */
+const REVERSE_SCOPE = 'transaction.reverse';
 
 /** Thrown inside the transaction to roll back the key claim and every write together. */
 class Rejected extends Error {
@@ -61,7 +63,10 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
         const keyed =
           idempotency === undefined
             ? undefined
-            : { ref: { mreRealmId, scope: SCOPE, key: idempotency.key }, fingerprint: idempotency.fingerprint };
+            : {
+                ref: { mreRealmId, scope: request.replacement === null ? REVERSE_SCOPE : SCOPE, key: idempotency.key },
+                fingerprint: idempotency.fingerprint,
+              };
         if (keyed !== undefined) {
           const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
           if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
@@ -88,8 +93,8 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
         const conflict = checkVersion(original.version, expectedVersions);
         if (conflict !== undefined) throw new Rejected(conflict);
         const replacement = plan.replacement;
-        await this.check(trx, mreRealmId, original, replacement);
-        const categoryIds = await this.categoryIds(trx, replacement);
+        // Reverse only (§35.9): no replacement to check; the reversal goes to the original's account, closed or not.
+        const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement);
 
         const reversalId = await insertCorrection(trx, actor, original, 'REVERSAL', {
           financialAccountId: original.financialAccountId,
@@ -102,34 +107,42 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
           // A mirror of the original's splits, inactive categories included: the reversal must cancel it exactly.
           splits: originalSplits,
         });
-        const replacementId = await insertCorrection(trx, actor, original, 'REPLACEMENT', {
-          ...replacement,
-          splits: replacement.splits.map((s) => ({ ...s, financialCategoryId: categoryIds.get(s.financialCategoryCode) as string })),
-        });
+        const replacementId =
+          replacement === null || categoryIds === undefined
+            ? null
+            : await insertCorrection(trx, actor, original, 'REPLACEMENT', {
+                ...replacement,
+                splits: replacement.splits.map((s) => ({ ...s, financialCategoryId: categoryIds.get(s.financialCategoryCode) as string })),
+              });
         const corrected = await trx
           .updateTable('ledger_transaction')
           .set((eb) => ({ status: 'CORRECTED', version: eb('version', '+', 1), updated_at: new Date() }))
           .where('id', '=', original.id)
           .returning(COLUMNS)
           .executeTakeFirstOrThrow();
-        const written = await trx.selectFrom('ledger_transaction').select(COLUMNS).where('id', 'in', [reversalId, replacementId]).execute();
+        const written = await trx
+          .selectFrom('ledger_transaction')
+          .select(COLUMNS)
+          .where('id', 'in', replacementId === null ? [reversalId] : [reversalId, replacementId])
+          .execute();
         const byId = new Map(written.map((r) => [r.id, toDomain(r)]));
         const result: CorrectionResult = {
           original: toDomain(corrected),
           reversal: byId.get(reversalId) as Transaction,
-          replacement: byId.get(replacementId) as Transaction,
+          replacement: replacementId === null ? null : (byId.get(replacementId) as Transaction),
         };
 
-        // One AuditRecord for the whole act (§35.4); reversal and replacement are found from it via their link.
-        await writeAudit(trx, { type: 'Transaction', id: original.id }, 'CORRECTED', actor, {
+        // One AuditRecord for the whole act (§35.4, §35.9); reversal and replacement are found from it via their link.
+        await writeAudit(trx, { type: 'Transaction', id: original.id }, replacement === null ? 'REVERSED' : 'CORRECTED', actor, {
           previousVersion: original.version,
           newVersion: result.original.version,
           metadata: {
             reason: request.reason,
             previousStatus: original.status,
             reversalTransactionId: reversalId,
-            replacementTransactionId: replacementId,
-            changes: changes(original, originalSplits, replacement),
+            ...(replacement === null
+              ? {}
+              : { replacementTransactionId: replacementId, changes: changes(original, originalSplits, replacement) }),
           },
         });
         if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, original.id, toResultSnapshot(result));
@@ -145,6 +158,17 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
    * Accounts (locked `FOR SHARE` in id order, so a concurrent close waits), currency, exact split sum and the
    * PropertyReferences of the replacement. The original's own account may be closed (§35.2).
    */
+  /** `check`, then `categoryIds`: everything the replacement needs before it is written. */
+  private async checkReplacement(
+    trx: Trx<Database>,
+    mreRealmId: string,
+    original: Transaction,
+    replacement: PlannedReplacement,
+  ): Promise<Map<string, string>> {
+    await this.check(trx, mreRealmId, original, replacement);
+    return this.categoryIds(trx, replacement);
+  }
+
   private async check(trx: Trx<Database>, mreRealmId: string, original: Transaction, replacement: PlannedReplacement): Promise<void> {
     const ids = [...new Set([original.financialAccountId as string, replacement.financialAccountId])].filter((id) => UUID.test(id)).sort();
     const accounts = new Map<string, ReturnType<typeof toFinancialAccount>>();
@@ -317,10 +341,18 @@ function changes(original: Transaction, originalSplits: readonly SplitInput[], r
 }
 
 function toResultSnapshot(result: CorrectionResult): Record<string, unknown> {
-  return { original: toSnapshot(result.original), reversal: toSnapshot(result.reversal), replacement: toSnapshot(result.replacement) };
+  return {
+    original: toSnapshot(result.original),
+    reversal: toSnapshot(result.reversal),
+    replacement: result.replacement === null ? null : toSnapshot(result.replacement),
+  };
 }
 
 function fromResultSnapshot(snapshot: unknown): CorrectionResult {
   const s = snapshot as Record<'original' | 'reversal' | 'replacement', unknown>;
-  return { original: fromSnapshot(s.original), reversal: fromSnapshot(s.reversal), replacement: fromSnapshot(s.replacement) };
+  return {
+    original: fromSnapshot(s.original),
+    reversal: fromSnapshot(s.reversal),
+    replacement: s.replacement === null ? null : fromSnapshot(s.replacement),
+  };
 }

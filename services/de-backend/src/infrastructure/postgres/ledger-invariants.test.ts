@@ -330,18 +330,22 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       expect(rows[0].status).toBe('CORRECTED');
     });
 
-    it('CORRECTED exactly when reversal and replacement exist, checked at commit', async () => {
+    it('CORRECTED exactly when its reversal exists (the replacement is optional, VC-X-15), checked at commit', async () => {
       const alone = await confirmed();
-      await expect(inTransaction((c) => markCorrected(c, alone).then(() => undefined))).rejects.toThrow(
-        /without its reversal and replacement/,
-      );
-      const halfway = await confirmed();
+      await expect(inTransaction((c) => markCorrected(c, alone).then(() => undefined))).rejects.toThrow(/without its reversal/);
+      const replacementOnly = await confirmed();
       await expect(
         inTransaction(async (c) => {
-          await insertLinked(c, halfway, { role: 'REVERSAL' });
-          await markCorrected(c, halfway);
+          await insertLinked(c, replacementOnly, { role: 'REPLACEMENT', amount: '1100.00' });
+          await markCorrected(c, replacementOnly);
         }),
-      ).rejects.toThrow(/without its reversal and replacement/);
+      ).rejects.toThrow(/without its reversal/);
+      // Reverse only: the original and its reversal cancel, nothing replaces it (api-design §35.9).
+      const reversed = await confirmed();
+      await inTransaction(async (c) => {
+        await insertLinked(c, reversed, { role: 'REVERSAL' });
+        await markCorrected(c, reversed);
+      });
       // Linked records without the original becoming CORRECTED.
       const untouched = await confirmed();
       await expect(
@@ -350,6 +354,29 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
           await insertLinked(c, untouched, { role: 'REPLACEMENT', amount: '1100.00' });
         }),
       ).rejects.toThrow(/not CORRECTED/);
+    });
+
+    it('a reversed Transaction never gets a replacement later; it is written only with its correction (VC-X-15)', async () => {
+      const reversed = await confirmed();
+      await inTransaction(async (c) => {
+        await insertLinked(c, reversed, { role: 'REVERSAL' });
+        await markCorrected(c, reversed);
+      });
+      await expect(inTransaction((c) => insertLinked(c, reversed, { role: 'REPLACEMENT', amount: '1100.00' }).then(() => undefined))).rejects.toThrow(
+        /reversed earlier/,
+      );
+      // A replacement of an original corrected with one is still part of the chain later: its own correction works.
+      const original = await confirmed();
+      let replacement = '';
+      await inTransaction(async (c) => {
+        await insertLinked(c, original, { role: 'REVERSAL' });
+        replacement = await insertLinked(c, original, { role: 'REPLACEMENT', amount: '1200.00' });
+        await markCorrected(c, original);
+      });
+      await inTransaction(async (c) => {
+        await insertLinked(c, replacement, { role: 'REVERSAL' });
+        await markCorrected(c, replacement);
+      });
     });
 
     it('CORRECTED only from CONFIRMED/RECONCILED: a covered CLASSIFIED row cannot jump to it (review counterexample on #21)', async () => {

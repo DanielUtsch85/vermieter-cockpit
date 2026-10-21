@@ -96,8 +96,15 @@ export {
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
   correctTransaction,
+  reverseTransaction,
 } from './correct-transaction.js';
-export type { CorrectTransaction, CorrectTransactionInput, CorrectTransactionResult } from './correct-transaction.js';
+export type {
+  CorrectTransaction,
+  CorrectTransactionInput,
+  CorrectTransactionResult,
+  ReverseTransaction,
+  ReverseTransactionInput,
+} from './correct-transaction.js';
 export type { ReplacementInput } from '../domains/ledger/index.js';
 export {
   ImportedFieldsFixedError,

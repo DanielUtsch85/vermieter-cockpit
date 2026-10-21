@@ -22,6 +22,7 @@ import {
   TransactionNotCorrectableError,
   type ConfirmTransaction,
   type CorrectTransaction,
+  type ReverseTransaction,
   type ListTransactions,
   type CorrectTransactionInput,
   FinancialAccountClosedError,
@@ -696,5 +697,59 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     }
     const inverted = await get(base, '/transactions?bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01');
     expect(((await inverted.json()) as { error: { details: unknown } }).error.details).toEqual({ fields: [{ field: 'bookingDateTo', code: 'INVALID_RANGE' }] });
+  });
+});
+
+describe('POST /api/v1/transactions/{id}/reverse (§35.9, VC-X-15)', () => {
+  async function startWith(reverse: ReverseTransaction): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, reverseTransaction: reverse }).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const stop = () =>
+    new Promise<void>((resolve) => server?.close(() => resolve())).then(() => {
+      server = undefined;
+    });
+  const reverseAt = (base: string, body: unknown, headers: Record<string, string> = {}) =>
+    fetch(`${base}/api/v1/transactions/${transaction.id}/reverse`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+
+  it('201 with original and reversal, replacement null; passes reason, key and If-Match', async () => {
+    const seen: Parameters<ReverseTransaction>[0][] = [];
+    const base = await startWith(async (input) => {
+      seen.push(input);
+      return {
+        original: { ...transaction, status: 'CORRECTED' } as Transaction,
+        reversal: { ...transaction, id: 'rev', direction: 'OUTFLOW', correctionRole: 'REVERSAL' } as unknown as Transaction,
+        replacement: null,
+        replayed: false,
+      };
+    });
+    const res = await reverseAt(base, { reason: ' Doppelt ' }, { 'idempotency-key': 'k-1', 'if-match': '"2"' });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ original: { status: 'CORRECTED' }, reversal: { transactionId: 'rev', correctionRole: 'REVERSAL' }, replacement: null });
+    expect(seen[0]).toMatchObject({ transactionId: transaction.id, reason: 'Doppelt', idempotencyKey: 'k-1', expectedVersions: [2] });
+    expect((await reverseAt(base, {})).status).toBe(400);
+    expect((await reverseAt(base, { reason: 'x', replacement: {} })).status).toBe(400);
+  });
+
+  it('maps the refusals', async () => {
+    const cases = [
+      [new TransactionNotFoundError(transaction.id), 404, { code: 'NOT_FOUND' }],
+      [new TransactionAlreadyCorrectedError(transaction.id, 'rev', null), 409, { details: { reason: 'ALREADY_CORRECTED', reversalTransactionId: 'rev', replacementTransactionId: null } }],
+      [new TransactionNotCorrectableError(transaction.id, 'CONFIRMED', 'REVERSAL'), 409, { details: { reason: 'NOT_CORRECTABLE', correctionRole: 'REVERSAL' } }],
+      [new VersionConflictError([2], 3), 412, { code: 'VERSION_CONFLICT' }],
+      [new IdempotencyKeyConflictError('x'), 409, { code: 'CONFLICT' }],
+    ] as const;
+    for (const [error, status, body] of cases) {
+      const base = await startWith(() => Promise.reject(error));
+      const res = await reverseAt(base, { reason: 'x' });
+      expect(res.status, error.name).toBe(status);
+      expect(((await res.json()) as { error: unknown }).error, error.name).toMatchObject(body);
+      await stop();
+    }
   });
 });

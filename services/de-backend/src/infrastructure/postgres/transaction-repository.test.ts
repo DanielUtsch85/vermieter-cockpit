@@ -372,7 +372,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       await setStatus(reconciled, 'RECONCILED');
       await expect(setStatus(reconciled, 'CONFIRMED')).rejects.toThrow(/ADR-037/);
       // RECONCILED → CORRECTED is a forward step, but only with its reversal and replacement (0011, checked at commit).
-      await expect(setStatus(reconciled, 'CORRECTED')).rejects.toThrow(/without its reversal and replacement/);
+      await expect(setStatus(reconciled, 'CORRECTED')).rejects.toThrow(/without its reversal/);
 
       const corrected = await confirmedOne();
       const outcome = await corrections.correct(corrected, REALM, { reason: 'Datum', replacement: { bookingDate: '2026-09-02' as BusinessDate } }, actor);

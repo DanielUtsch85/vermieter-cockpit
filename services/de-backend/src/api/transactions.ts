@@ -31,6 +31,7 @@ import {
   REVIEWABLE_STATUSES,
   TRANSACTION_STATUSES,
   type CorrectTransaction,
+  type ReverseTransaction,
   type AmendTransaction,
   type IgnoreTransaction,
   type RestoreTransaction,
@@ -168,6 +169,8 @@ const amendBody = z
   .refine((body) => Object.keys(body).length > 0, { message: 'no field to change', params: { code: 'REQUIRED' } });
 
 const ignoreBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+/** `reverse` (api-design.md §35.9): only the reason. */
+const reverseBody = ignoreBody;
 
 /** `splits.0.direction` → NOT_ALLOWED, `splits.0.loanId` → NOT_SUPPORTED. */
 function splitFieldCode(field: string, code: string): string {
@@ -181,6 +184,7 @@ export interface TransactionCommands {
   readonly setSplits: SetTransactionSplits;
   readonly confirm: ConfirmTransaction;
   readonly correct: CorrectTransaction;
+  readonly reverse: ReverseTransaction;
   readonly get: GetTransaction;
   readonly list: ListTransactions;
   readonly amend: AmendTransaction;
@@ -452,7 +456,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       })
       .then(({ original, reversal, replacement: corrected, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
-        res.status(201).json({ original: toDto(original), reversal: toDto(reversal), replacement: toDto(corrected) });
+        res.status(201).json({ original: toDto(original), reversal: toDto(reversal), replacement: corrected === null ? null : toDto(corrected) });
       })
       .catch((error: unknown) => {
         if (error instanceof TransactionNotFoundError) {
@@ -507,6 +511,62 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           sendError(res, 422, 'REVIEW_REQUIRED', 'A copied split uses an inactive financial category; send new splits.', {
             reason: 'INACTIVE_CATEGORY',
             financialCategoryCodes: error.codes,
+          });
+        } else if (error instanceof IdempotencyKeyConflictError) {
+          sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
+        } else if (error instanceof VersionConflictError) {
+          sendVersionConflict(res, error);
+        } else {
+          next(error);
+        }
+      });
+  });
+
+  router.post('/transactions/:transactionId/reverse', express.json({ limit: '16kb' }), (req, res, next) => {
+    const idempotency = readIdempotencyKey(req, res);
+    if (idempotency === undefined) return;
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = reverseBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .reverse({
+        principal: res.locals['principal'] as RealmPrincipal,
+        transactionId: id.toLowerCase(),
+        reason: parsed.data.reason,
+        ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+      })
+      .then(({ original, reversal, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        res.status(201).json({ original: toDto(original), reversal: toDto(reversal), replacement: null });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else if (error instanceof TransactionAlreadyCorrectedError) {
+          sendError(res, 409, 'CONFLICT', 'Transaction is already corrected or reversed.', {
+            reason: 'ALREADY_CORRECTED',
+            reversalTransactionId: error.reversalTransactionId,
+            replacementTransactionId: error.replacementTransactionId,
+          });
+        } else if (error instanceof TransactionNotCorrectableError) {
+          const message =
+            error.correctionRole === 'REVERSAL'
+              ? 'A reversal cannot be reversed; correct or reverse its original’s replacement.'
+              : `Transaction is ${error.status} and cannot be reversed.`;
+          sendError(res, 409, 'CONFLICT', message, {
+            reason: 'NOT_CORRECTABLE',
+            status: error.status,
+            ...(error.correctionRole === undefined ? {} : { correctionRole: error.correctionRole }),
           });
         } else if (error instanceof IdempotencyKeyConflictError) {
           sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');

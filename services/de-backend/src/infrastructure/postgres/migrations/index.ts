@@ -10,6 +10,7 @@ import * as m0008 from './0008_transaction_split.js';
 import * as m0009 from './0009_confirm_transaction.js';
 import * as m0010 from './0010_confirm_split_invariant.js';
 import * as m0011 from './0011_correct_transaction.js';
+import * as m0012 from './0012_reverse_transaction.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -29,4 +30,5 @@ export const migrations: Record<string, Migration> = {
   '0009_confirm_transaction': m0009,
   '0010_confirm_split_invariant': m0010,
   '0011_correct_transaction': m0011,
+  '0012_reverse_transaction': m0012,
 };

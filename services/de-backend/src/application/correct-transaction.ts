@@ -25,7 +25,8 @@ export class TransactionAlreadyCorrectedError extends Error {
   constructor(
     readonly transactionId: string,
     readonly reversalTransactionId: string,
-    readonly replacementTransactionId: string,
+    /** Null when the Transaction was reversed without a replacement (§35.9). */
+    readonly replacementTransactionId: string | null,
   ) {
     super(`Transaction ${transactionId} is already corrected`);
   }
@@ -67,45 +68,60 @@ export interface CorrectTransactionResult extends CorrectionResult {
 export type CorrectTransaction = (input: CorrectTransactionInput) => Promise<CorrectTransactionResult>;
 
 export function correctTransaction(deps: { readonly repository: CorrectionRepository }): CorrectTransaction {
-  return async ({ principal, transactionId, reason, replacement, idempotencyKey, expectedVersions }) => {
-    const request = { reason, replacement };
-    const outcome = await deps.repository.correct(
-      transactionId,
-      principal.mreRealmId,
-      request,
-      { actorType: 'USER', actorId: principal.email },
-      idempotencyKey === undefined ? undefined : { key: idempotencyKey, fingerprint: correctionFingerprint(transactionId, request) },
-      expectedVersions,
-    );
-    switch (outcome.kind) {
-      case 'CORRECTED':
-        return { ...outcome.result, replayed: outcome.replayed };
-      case 'NOT_FOUND':
-        throw new TransactionNotFoundError(transactionId);
-      case 'IDEMPOTENCY_CONFLICT':
-        throw new IdempotencyKeyConflictError('Idempotency-Key was already used with a different payload');
-      case 'ALREADY_CORRECTED':
-        throw new TransactionAlreadyCorrectedError(transactionId, outcome.reversalTransactionId, outcome.replacementTransactionId);
-      case 'NOT_CORRECTABLE':
-        throw new TransactionNotCorrectableError(transactionId, outcome.status, outcome.correctionRole);
-      case 'NO_CHANGE':
-        throw new CorrectionNoChangeError('The replacement equals the original');
-      case 'ACCOUNT_NOT_FOUND':
-        throw new FinancialAccountNotFoundError(outcome.financialAccountId);
-      case 'ACCOUNT_CLOSED':
-        throw new FinancialAccountClosedError(outcome.financialAccountId);
-      case 'CURRENCY_MISMATCH':
-        throw new CurrencyMismatchError('Replacement currency differs from the account currency');
-      case 'PROPERTY_REFERENCE_NOT_FOUND':
-        throw new PropertyReferenceNotFoundError(outcome.propertyReferenceIds[0] ?? '');
-      case 'UNKNOWN_CATEGORY':
-        throw new FinancialCategoryNotFoundError(outcome.codes);
-      case 'INACTIVE_CATEGORY':
-        throw new InactiveCategoryError(outcome.codes);
-      case 'SUM_MISMATCH':
-        throw new SplitSumMismatchError(outcome.expected, outcome.actual);
-      case 'VERSION_CONFLICT':
-        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
-    }
-  };
+  return (input) => run(deps.repository, input, input.replacement);
+}
+
+export type ReverseTransactionInput = Omit<CorrectTransactionInput, 'replacement'>;
+
+export type ReverseTransaction = (input: ReverseTransactionInput) => Promise<CorrectTransactionResult>;
+
+/** Reverse a confirmed Transaction without a replacement (api-design.md §35.9, backlog VC-X-15). */
+export function reverseTransaction(deps: { readonly repository: CorrectionRepository }): ReverseTransaction {
+  return (input) => run(deps.repository, input, null);
+}
+
+async function run(
+  repository: CorrectionRepository,
+  { principal, transactionId, reason, idempotencyKey, expectedVersions }: ReverseTransactionInput,
+  replacement: ReplacementInput | null,
+): Promise<CorrectTransactionResult> {
+  const request = { reason, replacement };
+  const outcome = await repository.correct(
+    transactionId,
+    principal.mreRealmId,
+    request,
+    { actorType: 'USER', actorId: principal.email },
+    idempotencyKey === undefined ? undefined : { key: idempotencyKey, fingerprint: correctionFingerprint(transactionId, request) },
+    expectedVersions,
+  );
+  switch (outcome.kind) {
+    case 'CORRECTED':
+      return { ...outcome.result, replayed: outcome.replayed };
+    case 'NOT_FOUND':
+      throw new TransactionNotFoundError(transactionId);
+    case 'IDEMPOTENCY_CONFLICT':
+      throw new IdempotencyKeyConflictError('Idempotency-Key was already used with a different payload');
+    case 'ALREADY_CORRECTED':
+      throw new TransactionAlreadyCorrectedError(transactionId, outcome.reversalTransactionId, outcome.replacementTransactionId);
+    case 'NOT_CORRECTABLE':
+      throw new TransactionNotCorrectableError(transactionId, outcome.status, outcome.correctionRole);
+    case 'NO_CHANGE':
+      throw new CorrectionNoChangeError('The replacement equals the original');
+    case 'ACCOUNT_NOT_FOUND':
+      throw new FinancialAccountNotFoundError(outcome.financialAccountId);
+    case 'ACCOUNT_CLOSED':
+      throw new FinancialAccountClosedError(outcome.financialAccountId);
+    case 'CURRENCY_MISMATCH':
+      throw new CurrencyMismatchError('Replacement currency differs from the account currency');
+    case 'PROPERTY_REFERENCE_NOT_FOUND':
+      throw new PropertyReferenceNotFoundError(outcome.propertyReferenceIds[0] ?? '');
+    case 'UNKNOWN_CATEGORY':
+      throw new FinancialCategoryNotFoundError(outcome.codes);
+    case 'INACTIVE_CATEGORY':
+      throw new InactiveCategoryError(outcome.codes);
+    case 'SUM_MISMATCH':
+      throw new SplitSumMismatchError(outcome.expected, outcome.actual);
+    case 'VERSION_CONFLICT':
+      throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+  }
 }
