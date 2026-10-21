@@ -69,6 +69,19 @@ export class PostgresTransactionQueries implements TransactionQueries {
       if (filter.statuses !== undefined) query = query.where('status', 'in', filter.statuses);
       if (filter.bookingDateFrom !== undefined) query = query.where('booking_date', '>=', filter.bookingDateFrom);
       if (filter.bookingDateTo !== undefined) query = query.where('booking_date', '<=', filter.bookingDateTo);
+      if (filter.financialCategoryCode !== undefined) {
+        const code = filter.financialCategoryCode;
+        query = query.where((eb) =>
+          eb.exists(
+            eb
+              .selectFrom('transaction_split')
+              .innerJoin('financial_category', 'financial_category.id', 'transaction_split.financial_category_id')
+              .select('transaction_split.id')
+              .whereRef('transaction_split.transaction_id', '=', 'ledger_transaction.id')
+              .where('financial_category.code', '=', code),
+          ),
+        );
+      }
       if (filter.current === true) {
         query = query
           .where('status', 'in', CURRENT_STATUSES)

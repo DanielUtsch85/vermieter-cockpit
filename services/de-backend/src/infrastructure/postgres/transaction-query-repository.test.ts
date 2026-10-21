@@ -149,6 +149,21 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     expect(page.total).toBe(2);
   });
 
+  it('list by financial category: Transactions with at least one split of that code; an unknown code matches nothing', async () => {
+    const account = await openAccount();
+    const split = (amount: string, financialCategoryCode: string) => ({ amount: eur(amount), financialCategoryCode, propertyReferenceId: null, description: null });
+    const rent = await book(account, '2026-05-01', '1250.00');
+    await splits.replaceSplits(rent, REALM, [split('1000.00', 'RENT_BASE'), split('250.00', 'RENT_OPERATING_COST_ADVANCE')], actor);
+    const other = await book(account, '2026-05-02', '10.00');
+    await splits.replaceSplits(other, REALM, [split('10.00', 'OTHER')], actor);
+    await book(account, '2026-05-03');
+    const byCode = (financialCategoryCode: string) =>
+      queries.list(REALM, { financialAccountId: account, financialCategoryCode }, { page: 1, pageSize: 50 });
+    expect((await byCode('RENT_OPERATING_COST_ADVANCE')).items.map((t) => t.id)).toEqual([rent]);
+    expect((await byCode('OTHER')).items.map((t) => t.id)).toEqual([other]);
+    expect(await byCode('NO_SUCH_CATEGORY')).toMatchObject({ items: [], total: 0 });
+  });
+
   it('list current=true: confirmed or reconciled and not a reversal, so a chain shows only its current member (§35.3)', async () => {
     const account = await openAccount();
     const confirmed = async (day: string) => {
