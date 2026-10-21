@@ -4,6 +4,9 @@ import {
   closeFinancialAccount,
   confirmTransaction,
   correctTransaction,
+  amendTransaction,
+  ignoreTransaction,
+  restoreTransaction,
   createFinancialAccount,
   createManualTransaction,
   getFinancialCategory,
@@ -22,6 +25,7 @@ import {
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
+  PostgresUnconfirmedTransactionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
   createDatabase,
@@ -45,6 +49,7 @@ const propertyReferences = {
 const financialAccounts = new PostgresFinancialAccountRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
+const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
 const categories = new PostgresFinancialCategoryRepository(db);
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
@@ -56,6 +61,9 @@ const app = createApp({
   createManualTransaction: createManualTransaction({ repository: transactions }),
   confirmTransaction: confirmTransaction({ repository: transactions }),
   correctTransaction: correctTransaction({ repository: new PostgresCorrectionRepository(db) }),
+  amendTransaction: amendTransaction({ repository: unconfirmed }),
+  ignoreTransaction: ignoreTransaction({ repository: unconfirmed }),
+  restoreTransaction: restoreTransaction({ repository: unconfirmed }),
   setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
   listFinancialCategories: listFinancialCategories({ categories }),
   getFinancialCategory: getFinancialCategory({ categories }),

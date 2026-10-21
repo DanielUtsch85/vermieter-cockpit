@@ -4,6 +4,9 @@ import type {
   CreateFinancialAccount,
   ConfirmTransaction,
   CorrectTransaction,
+  AmendTransaction,
+  IgnoreTransaction,
+  RestoreTransaction,
   CreateManualTransaction,
   GetFinancialCategory,
   GetImportBatch,
@@ -47,6 +50,10 @@ export interface AppDependencies {
   readonly confirmTransaction: ConfirmTransaction;
   /** Correct a confirmed Transaction (VC-1-11). */
   readonly correctTransaction: CorrectTransaction;
+  /** Amend, ignore and restore an unconfirmed Transaction (VC-X-16). */
+  readonly amendTransaction: AmendTransaction;
+  readonly ignoreTransaction: IgnoreTransaction;
+  readonly restoreTransaction: RestoreTransaction;
   /** Splits and categories (VC-1-07). */
   readonly setTransactionSplits: SetTransactionSplits;
   readonly listFinancialCategories: ListFinancialCategories;
@@ -93,6 +100,9 @@ export function createApp(deps: AppDependencies): Express {
       setSplits: deps.setTransactionSplits,
       confirm: deps.confirmTransaction,
       correct: deps.correctTransaction,
+      amend: deps.amendTransaction,
+      ignore: deps.ignoreTransaction,
+      restore: deps.restoreTransaction,
     }),
   );
   api.use(

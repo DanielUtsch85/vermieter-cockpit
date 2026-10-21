@@ -7,6 +7,9 @@ import {
   closeFinancialAccount,
   confirmTransaction,
   correctTransaction,
+  amendTransaction,
+  ignoreTransaction,
+  restoreTransaction,
   createFinancialAccount,
   createManualTransaction,
   getFinancialCategory,
@@ -25,6 +28,7 @@ import {
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
+  PostgresUnconfirmedTransactionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
   createDatabase,
@@ -81,6 +85,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     const propertyReferences = { repository: new PostgresPropertyReferenceRepository(db), lookupMreProperty: mrePropertyLookup(client) };
     const accounts = new PostgresFinancialAccountRepository(db);
     const transactions = new PostgresTransactionRepository(db);
+    const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
     const imports = new PostgresImportRepository(db);
     const categories = new PostgresFinancialCategoryRepository(db);
     server = createApp({
@@ -93,6 +98,9 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       createManualTransaction: createManualTransaction({ repository: transactions }),
       confirmTransaction: confirmTransaction({ repository: transactions }),
       correctTransaction: correctTransaction({ repository: new PostgresCorrectionRepository(db) }),
+      amendTransaction: amendTransaction({ repository: unconfirmed }),
+      ignoreTransaction: ignoreTransaction({ repository: unconfirmed }),
+      restoreTransaction: restoreTransaction({ repository: unconfirmed }),
       setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
       listFinancialCategories: listFinancialCategories({ categories }),
       getFinancialCategory: getFinancialCategory({ categories }),
@@ -254,6 +262,9 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       ['PUT', `/transactions/${rentId}/splits`, { splits: rentSplits }],
       ['POST', `/transactions/${rentId}/confirm`],
       ['POST', `/transactions/${rentId}/correct`, { reason: 'x', replacement: { bookingDate: '2026-09-03' } }],
+      ['POST', `/transactions/${rentId}/amend`, { description: 'x' }],
+      ['POST', `/transactions/${rentId}/ignore`, { reason: 'x' }],
+      ['POST', `/transactions/${rentId}/restore`],
       ['GET', `/imports/${first.importBatchId}`],
       ['GET', `/imports/${review.importBatchId}/review-items`],
       ['POST', `/imports/${review.importBatchId}/review-items/${itemId}/resolve`, { resolution: 'SKIP' }],

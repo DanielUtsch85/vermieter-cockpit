@@ -98,3 +98,14 @@ export {
 } from './correct-transaction.js';
 export type { CorrectTransaction, CorrectTransactionInput, CorrectTransactionResult } from './correct-transaction.js';
 export type { ReplacementInput } from '../domains/ledger/index.js';
+export {
+  ImportedFieldsFixedError,
+  TransactionNotAmendableError,
+  TransactionNotIgnorableError,
+  TransactionNotIgnoredError,
+  amendTransaction,
+  ignoreTransaction,
+  restoreTransaction,
+} from './amend-transaction.js';
+export type { AmendTransaction, IgnoreTransaction, RestoreTransaction } from './amend-transaction.js';
+export type { TransactionChanges } from '../domains/ledger/index.js';

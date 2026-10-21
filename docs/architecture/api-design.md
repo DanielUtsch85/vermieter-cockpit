@@ -790,6 +790,45 @@ Example:
 - **Idempotency:** as §15. The fingerprint is the normalized payload (`"1250"` and `"1250.00"` are one request; id case is ignored). A replay answers with the Transaction as created, before any check, so it still succeeds after the account was closed. A **rejected** request rolls back its key claim: the client may fix the request and retry with the same key.
 - **Response:** `transactionId`, `mreRealmId`, `financialAccountId`, `amount`, `direction`, `bookingDate`, `valueDate`, `description`, `propertyReferenceId`, `provenance`, `status`, `createdAt`, `version`.
 
+## 31.3 Amend an unconfirmed Transaction (VC-X-16)
+
+```text
+POST /api/v1/transactions/{id}/amend
+```
+
+An explicit command, not a `PATCH` (§3). A confirmed Transaction is never amended; it is corrected (§35).
+
+- **Body:** only the fields to change, at least one. The fields are `financialAccountId`, `amount`, `direction`, `bookingDate`, `valueDate`, `description` and `propertyReferenceId`, with the rules of §31.2. An explicit `null` clears `valueDate`, `description` or `propertyReferenceId`. Unknown keys and an empty body are `400`.
+- **Amendable:** `IMPORTED`, `UNREVIEWED`, `CLASSIFIED`. Otherwise `409 CONFLICT` with `reason = "NOT_AMENDABLE"` and the `status`. For a confirmed Transaction use `correct`; for an `IGNORED` one, `restore` it first.
+- **Imported Transactions** (`provenance` not `MANUAL`) keep the bank statement's values. Account, amount, direction and dates are `409 CONFLICT` with `reason = "IMPORTED_FIELDS_FIXED"` and `fields`. Only `description` and `propertyReferenceId` change. A wrong bank row is ignored, or corrected after confirmation, which keeps its import identity (§35.3).
+- **Account:**
+  - The target must be in the Realm (`404`) and in the amount's currency (`400 CURRENCY_MISMATCH`).
+  - Moving to a **different, closed** account is `409 ACCOUNT_CLOSED`. The Transaction's own account may have been closed since, as in §35.2.
+  - The account is locked `FOR SHARE` after the Transaction (lock order §35.5).
+- **Splits:**
+  - A changed amount invalidates the split set of a `CLASSIFIED` Transaction. The set is dropped, and the Transaction returns to `UNREVIEWED`, or to `IMPORTED` if it came from an import. The response shows the new `status`, and the AuditRecord carries `splitsDropped`.
+  - Other changes keep the split set, and with it `CLASSIFIED`.
+- **`200`** with the Transaction (version + 1, AuditRecord `AMENDED` with each changed field's old and new value). Values equal to the current ones are a `200` no-op without a new version or AuditRecord (naturally idempotent, like §33).
+
+## 31.4 Ignore and restore (VC-X-16)
+
+```text
+POST /api/v1/transactions/{id}/ignore     { "reason": "…" }
+POST /api/v1/transactions/{id}/restore
+```
+
+- **`ignore`:**
+  - Takes an `IMPORTED`, `UNREVIEWED` or `CLASSIFIED` Transaction to `IGNORED` (domain-model §21). It is then excluded from ledger totals, not confirmable and not amendable, and its splits are frozen but kept.
+  - `reason` is required (trimmed, 1–500) and goes into the AuditRecord `IGNORED`.
+  - Already `IGNORED` is a `200` no-op with `Idempotent-Replayed: true`.
+  - A confirmed Transaction is `409 CONFLICT` with `reason = "NOT_IGNORABLE"`: it is corrected, not ignored.
+  - An ignored imported row still counts for deduplication, so a re-import does not bring it back.
+- **`restore`:**
+  - Takes an `IGNORED` Transaction back to `CLASSIFIED` if it kept a split set. Those splits still cover its amount, which cannot change while ignored.
+  - Otherwise it goes back to its entry status (`UNREVIEWED` for manual Transactions, `IMPORTED` for imported ones).
+  - Writes the AuditRecord `RESTORED`. Anything not `IGNORED` is `409 CONFLICT` with `reason = "NOT_IGNORED"` and the `status`.
+- Both take the Transaction's row lock (§34.2) and answer `404` for an unknown or foreign Transaction.
+
 ---
 
 # 32. Bank Import API

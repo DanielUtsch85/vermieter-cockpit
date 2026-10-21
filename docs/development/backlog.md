@@ -108,7 +108,10 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-13 | infra | Large bank imports (up to 10,000 rows) run in **one** transaction holding the account lock: lookups are already set-based, but inserts, the batch row and the lock span the whole file. Measure and, if needed, chunk the write phase or move imports to a job with progress (review note on #14) |
 | VC-X-14 | api | **done** · Align the PropertyReference response to the other resources: `propertyReferenceId` instead of `id` (api-design §22–23). A breaking change, cheap only before the UI uses it (review note on #19) |
 | VC-X-15 | feature | Reverse a confirmed Transaction **without** a replacement (e.g. a confirmed duplicate manual entry): needs its own net-effect rule; deliberately left out of VC-1-11 (api-design §35.7) |
-| VC-X-16 | feature | Change or ignore an **unconfirmed** Transaction (cash fields, `IGNORED`): the states exist (domain-model §21) but no endpoint does yet; `correct` covers only confirmed ones (api-design §35.4). Must follow the anti-PATCH rule (api-design §3), i.e. explicit commands |
+| VC-X-16 | feature | **done** (api-design §31.3–31.4) · Change or ignore an **unconfirmed** Transaction (cash fields, `IGNORED`): the states exist (domain-model §21) but no endpoint does yet; `correct` covers only confirmed ones (api-design §35.4). Must follow the anti-PATCH rule (api-design §3), i.e. explicit commands |
+| VC-X-17 | test | Check the **mirrored splits** of a reversal in the database too (review note on #22): the deferred chain trigger of 0011 compares only the header (account, amount, dates, direction). It could compare the split multiset (category, PropertyReference, amount) of reversal and original, since the net effect per category rests on it |
+| VC-X-18 | api | Field path of a currency mismatch in `correct`: a split currency ≠ account currency is reported as `replacement.amount.currency` (review note on #22). Unreachable with EUR only; make it precise (`replacement.splits.<i>.amount.currency`) before a second currency |
+| VC-X-19 | infra | The Transaction DTO reads its reversal/replacement ids by two subqueries (`ledger_transaction_correction_key`). Check list endpoints with `EXPLAIN` once they exist (review note on #22) |
 
 ---
 
