@@ -444,6 +444,28 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
     expect(((await res.json()) as { error: { details: unknown } }).error.details).toEqual({
       fields: [{ field: 'replacement.splits.0.financialCategoryCode', code: 'UNKNOWN_CATEGORY' }],
     });
+    await stop();
+
+    // A currency mismatch names the field (VC-X-18): a requested amount or split by its path, a copied one by the
+    // account whose currency it no longer matches.
+    const eurSplit = (amount: string) => ({ amount: { amount, currency: 'EUR' }, financialCategoryCode: 'OTHER' });
+    const currencyCases = [
+      [{ amount: true, splitPositions: [2] }, { amount: { amount: '1250.00', currency: 'EUR' }, splits: [eurSplit('1000.00'), eurSplit('250.00')] }, [
+        'replacement.amount.currency',
+        'replacement.splits.1.amount.currency',
+      ]],
+      [{ amount: true, splitPositions: [1, 2] }, { financialAccountId: ACCOUNT }, ['replacement.financialAccountId']],
+      [{ amount: false, splitPositions: [1] }, { financialAccountId: ACCOUNT, splits: [eurSplit('1250.00')] }, ['replacement.splits.0.amount.currency']],
+    ] as const;
+    for (const [where, replacement, fields] of currencyCases) {
+      const at = await startCorrect(() => Promise.reject(new CurrencyMismatchError('x', where)));
+      const answer = await correctAt(at, { reason: 'x', replacement });
+      expect(answer.status).toBe(400);
+      expect(((await answer.json()) as { error: { details: unknown } }).error.details).toEqual({
+        fields: fields.map((field) => ({ field, code: 'CURRENCY_MISMATCH' })),
+      });
+      await stop();
+    }
   });
 });
 
@@ -619,6 +641,22 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
     });
     expect(res.status).toBe(412);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VERSION_CONFLICT');
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    server = undefined;
+
+    // PUT splits: a split outside the Transaction's currency is named by its path (VC-X-18).
+    const mismatch = await startWith({
+      setTransactionSplits: () => Promise.reject(new CurrencyMismatchError('x', { amount: false, splitPositions: [2] })),
+    });
+    const refused = await fetch(`${mismatch}/api/v1/transactions/${transaction.id}/splits`, {
+      method: 'PUT',
+      headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json' },
+      body: JSON.stringify({ splits: [{ amount: { amount: '1250.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' }] }),
+    });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: { details: unknown } }).error.details).toEqual({
+      fields: [{ field: 'splits.1.amount.currency', code: 'CURRENCY_MISMATCH' }],
+    });
   });
 });
 

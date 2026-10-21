@@ -65,7 +65,7 @@ describe('correctTransaction (api-design.md §35)', () => {
       [{ kind: 'NO_CHANGE' }, CorrectionNoChangeError],
       [{ kind: 'ACCOUNT_NOT_FOUND', financialAccountId: 'a' }, FinancialAccountNotFoundError],
       [{ kind: 'ACCOUNT_CLOSED', financialAccountId: 'a' }, FinancialAccountClosedError],
-      [{ kind: 'CURRENCY_MISMATCH' }, CurrencyMismatchError],
+      [{ kind: 'CURRENCY_MISMATCH', amount: false, positions: [2] }, CurrencyMismatchError],
       [{ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceIds: ['p'] }, PropertyReferenceNotFoundError],
       [{ kind: 'UNKNOWN_CATEGORY', codes: ['X'] }, FinancialCategoryNotFoundError],
       [{ kind: 'INACTIVE_CATEGORY', codes: ['X'] }, InactiveCategoryError],
@@ -85,6 +85,9 @@ describe('correctTransaction (api-design.md §35)', () => {
         replacement,
       }),
     ).rejects.toMatchObject({ reversalTransactionId: 'r', replacementTransactionId: 'n' });
+    await expect(
+      correctTransaction(answering({ kind: 'CURRENCY_MISMATCH', amount: false, positions: [2] }))({ principal, transactionId: ID, reason: 'x', replacement }),
+    ).rejects.toMatchObject({ where: { amount: false, splitPositions: [2] } });
   });
 
   it('reverse: the same correction without a replacement, with its own fingerprint', async () => {

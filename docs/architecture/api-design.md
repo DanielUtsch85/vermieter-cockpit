@@ -1043,7 +1043,7 @@ The command replaces the current unconfirmed split proposal atomically.
   - Per field: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED`, `INVALID_FORMAT` (also a JSON number as amount).
   - `NOT_ALLOWED` for a `direction` on a split.
   - `NOT_SUPPORTED` for references whose entities do not exist yet (`loanId`, `wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `securityDepositId`, `taxClassificationId`): refused rather than stored unchecked.
-  - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` (field `splits`) for a split currency other than the Transaction's.
+  - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` for a split currency other than the Transaction's, with the split's path (`splits.<i>.amount.currency`, VC-X-18).
 - **`404`:** unknown or foreign Transaction; a `propertyReferenceId` not in the caller's Realm.
 - **`409 INVARIANT_VIOLATION`**, `details.reason = "SPLIT_SUM_MISMATCH"`, with `expected`, `actual` and `difference` as Money: the sum differs from the Transaction amount by any amount, one cent included.
 - **`409 CONFLICT`**, `reason = "TRANSACTION_FROZEN"`, with the `status`: the Transaction is `CONFIRMED`, `RECONCILED`, `CORRECTED` or `IGNORED`.
@@ -1220,7 +1220,7 @@ Example request:
   9. record the key.
 - **Error mapping:**
   - Unknown or inactive categories in requested `splits` are `400 VALIDATION_ERROR` with `replacement.splits.<i>.financialCategoryCode` / `UNKNOWN_CATEGORY`, as §33. An inactive category in the *copied* splits is `422 INACTIVE_CATEGORY`.
-  - A replacement amount in another currency than the target account is `400` with `replacement.amount.currency` / `CURRENCY_MISMATCH`.
+  - A replacement in another currency than the target account is `400 CURRENCY_MISMATCH` with the field at fault (VC-X-18): `replacement.amount.currency` for a requested amount, `replacement.splits.<i>.amount.currency` for a requested split, and `replacement.financialAccountId` for a copied amount or split that no longer matches the changed account's currency.
 - **Version:** reversal and replacement start at `version 1` and stay there; their confirmation is part of their creation.
 
 ## 35.9 Reverse without a replacement (VC-X-15)

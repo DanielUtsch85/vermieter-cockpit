@@ -90,7 +90,10 @@ export function setTransactionSplits(deps: { readonly repository: TransactionSpl
       case 'SUM_MISMATCH':
         throw new SplitSumMismatchError(outcome.expected, outcome.actual);
       case 'CURRENCY_MISMATCH':
-        throw new CurrencyMismatchError(`Split currency differs from the Transaction currency (positions ${outcome.positions.join(', ')})`);
+        throw new CurrencyMismatchError(`Split currency differs from the Transaction currency (positions ${outcome.positions.join(', ')})`, {
+          amount: false,
+          splitPositions: outcome.positions,
+        });
       case 'UNKNOWN_CATEGORY':
         throw new FinancialCategoryNotFoundError(outcome.codes);
       case 'PROPERTY_REFERENCE_NOT_FOUND':

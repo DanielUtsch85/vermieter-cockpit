@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
-import { correctionFingerprint, opposite, planCorrection, type CorrectionOriginal } from './correct-transaction.js';
+import { correctionFingerprint, currencyMismatch, opposite, planCorrection, type CorrectionOriginal } from './correct-transaction.js';
 import type { FinancialAccountId } from './financial-account.js';
 import type { SplitInput } from './transaction-split.js';
 import type { BusinessDate, TransactionId, TransactionStatus } from './transaction.js';
@@ -85,6 +85,14 @@ describe('planCorrection (api-design.md §35)', () => {
     const reversed = original({ status: 'CORRECTED', reversalTransactionId: 'r' as TransactionId });
     expect(planCorrection(reversed, splits, null)).toEqual({ kind: 'ALREADY_CORRECTED', reversalTransactionId: 'r', replacementTransactionId: null });
     expect(correctionFingerprint('a', { reason: 'r', replacement: null })).not.toBe(correctionFingerprint('a', { reason: 'r', replacement: {} }));
+  });
+
+  it('currencyMismatch names the amount and the split positions (1-based) outside the account currency (VC-X-18)', () => {
+    // EUR is the only currency yet (Money refuses others), so a foreign split is a stand-in carrying only its currency.
+    const usd = (amount: string): SplitInput => ({ ...split(amount), amount: { currency: 'USD' } as unknown as Money });
+    expect(currencyMismatch({ amount: eur('1250.00'), splits }, 'EUR')).toBeUndefined();
+    expect(currencyMismatch({ amount: eur('1250.00'), splits: [split('1000.00'), usd('250.00')] }, 'EUR')).toEqual({ amount: false, positions: [2] });
+    expect(currencyMismatch({ amount: eur('1250.00'), splits }, 'USD')).toEqual({ amount: true, positions: [1, 2] });
   });
 
   it('a reversal has the opposite direction', () => {
