@@ -317,7 +317,7 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       return id;
     }
     const markCorrected = (client: pg.PoolClient, id: string) =>
-      client.query(`UPDATE ledger_transaction SET status = 'CORRECTED' WHERE id = $1`, [id]);
+      client.query(`UPDATE ledger_transaction SET status = 'CORRECTED', version = version + 1 WHERE id = $1`, [id]);
 
     it('a complete chain commits; the reversal may come before or after the status change, the replacement before it', async () => {
       const original = await confirmed();
@@ -365,10 +365,11 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       await expect(inTransaction((c) => insertLinked(c, reversed, { role: 'REPLACEMENT', amount: '1100.00' }).then(() => undefined))).rejects.toThrow(
         /already CORRECTED/,
       );
-      // Touching the original first does not open a gap (review on #27, case B): the rule is the order, not the writer.
+      // Writing the original first does not open a gap (review on #27, case B): the rule is the order, not the writer.
+      // (A real `updated_at` touch is refused by itself since VC-X-22; a no-op write still makes a new row version.)
       await expect(
         inTransaction(async (c) => {
-          await c.query(`UPDATE ledger_transaction SET updated_at = now() WHERE id = $1`, [reversed]);
+          await c.query(`UPDATE ledger_transaction SET updated_at = updated_at WHERE id = $1`, [reversed]);
           await insertLinked(c, reversed, { role: 'REPLACEMENT', amount: '1100.00' });
         }),
       ).rejects.toThrow(/already CORRECTED/);
@@ -550,6 +551,55 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       ] as const) {
         await expect(pool.query(statement, [id, value]), statement).rejects.toThrow(/ADR-037/);
       }
+    });
+  });
+
+  describe('version and updated_at of a confirmed Transaction (VC-X-22, api-design §16.1)', () => {
+    async function confirmedAt(): Promise<{ id: string; version: number; updatedAt: Date }> {
+      const id = await transaction();
+      await addSplit(id, 1, '1200.00');
+      await confirmBySql(id);
+      return { id, ...(await stamp(id)) };
+    }
+    const stamp = async (id: string) => {
+      const { rows } = await pool.query(`SELECT version, updated_at FROM ledger_transaction WHERE id = $1`, [id]);
+      return { version: rows[0].version as number, updatedAt: rows[0].updated_at as Date };
+    };
+
+    it('without a status step, version and updated_at stay; a no-op write is fine', async () => {
+      const { id, version, updatedAt } = await confirmedAt();
+      for (const statement of [
+        `UPDATE ledger_transaction SET version = version + 1 WHERE id = $1`,
+        `UPDATE ledger_transaction SET version = version - 1 WHERE id = $1`,
+        `UPDATE ledger_transaction SET updated_at = now() + interval '1 second' WHERE id = $1`,
+        `UPDATE ledger_transaction SET status = 'CONFIRMED', version = version + 1, updated_at = now() WHERE id = $1`,
+      ]) {
+        await expect(pool.query(statement, [id]), statement).rejects.toThrow(/change only with a status step/);
+      }
+      // The split trigger's touch (0010) and other no-op writes still pass.
+      await pool.query(`UPDATE ledger_transaction SET version = version, updated_at = updated_at WHERE id = $1`, [id]);
+      expect(await stamp(id)).toEqual({ version, updatedAt });
+    });
+
+    it('a status step raises version by exactly one; updated_at may move with it; then both are frozen again', async () => {
+      const { id, version } = await confirmedAt();
+      const step = (raise: string) =>
+        pool.query(`UPDATE ledger_transaction SET status = 'RECONCILED', version = version ${raise}, updated_at = now() WHERE id = $1`, [id]);
+      await expect(step('+ 0')).rejects.toThrow(/must raise version/);
+      await expect(step('+ 2')).rejects.toThrow(/must raise version/);
+      await step('+ 1');
+      expect((await stamp(id)).version).toBe(version + 1);
+      await expect(pool.query(`UPDATE ledger_transaction SET updated_at = now() + interval '1 second' WHERE id = $1`, [id])).rejects.toThrow(
+        /change only with a status step/,
+      );
+    });
+
+    it('the step into CONFIRMED starts from an unconfirmed row and is not covered', async () => {
+      const id = await transaction();
+      await addSplit(id, 1, '1200.00');
+      const before = await stamp(id);
+      await confirmBySql(id);
+      expect((await stamp(id)).version).toBe(before.version);
     });
   });
 });

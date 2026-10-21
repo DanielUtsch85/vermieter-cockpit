@@ -317,7 +317,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
     expect(await corrections.correct(created.transaction.id, REALM, request, actor)).toEqual({ kind: 'NOT_CORRECTABLE', status: 'UNREVIEWED' });
 
     const reconciled = await confirmedRent();
-    await pool.query(`UPDATE ledger_transaction SET status = 'RECONCILED' WHERE id = $1`, [reconciled]);
+    await pool.query(`UPDATE ledger_transaction SET status = 'RECONCILED', version = version + 1 WHERE id = $1`, [reconciled]);
     expect(await corrections.correct(reconciled, REALM, request, actor)).toEqual({ kind: 'NOT_CORRECTABLE', status: 'RECONCILED' });
 
     const id = await confirmedRent();

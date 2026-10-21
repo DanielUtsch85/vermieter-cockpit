@@ -353,7 +353,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
         await expect(pool.query(statement, [id]), statement).rejects.toThrow(/ADR-037/);
       }
       // Non-cash bookkeeping stays possible: the later states.
-      await pool.query(`UPDATE ledger_transaction SET status = 'RECONCILED' WHERE id = $1`, [id]);
+      await pool.query(`UPDATE ledger_transaction SET status = 'RECONCILED', version = version + 1 WHERE id = $1`, [id]);
       // confirmed_at and confirmed_by exist exactly for confirmed states.
       const unconfirmed = await classified();
       await expect(pool.query(`UPDATE ledger_transaction SET status = 'CONFIRMED' WHERE id = $1`, [unconfirmed])).rejects.toThrow(
@@ -361,7 +361,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       );
     });
     it('the status of a confirmed Transaction only moves forward; CORRECTED is terminal', async () => {
-      const setStatus = (id: string, status: string) => pool.query(`UPDATE ledger_transaction SET status = $2 WHERE id = $1`, [id, status]);
+      const setStatus = (id: string, status: string) => pool.query(`UPDATE ledger_transaction SET status = $2, version = version + 1 WHERE id = $1`, [id, status]);
       const confirmedOne = async () => {
         const id = await classified();
         await transactions.confirm(id, REALM, actor);
