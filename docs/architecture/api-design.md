@@ -775,7 +775,12 @@ Useful filters:
 - **Paging:** `page` starts at 1. `pageSize` is 1–200, default 50. `total` and `items` come from the same snapshot.
 - **Refusals:** unknown parameters are `400`.
 - **Realm:** only the caller's Realm is ever read; another Realm's ids simply match nothing.
-- **Not yet:** the filters for financial category, counterparty, source, unreconciled and needs review, and the alias `GET /property-references/{id}/transactions` (use `?propertyReferenceId=`).
+- **No match possible:** `status` together with `reviewable=true` without a common status (e.g. `status=CONFIRMED&reviewable=true`) is an empty page, not an error.
+- **Raw list:** without `status` the list also holds `CORRECTED` originals, reversals and `IGNORED` Transactions.
+- **Not yet:**
+  - A `current=true` filter for a UI: `CONFIRMED`/`RECONCILED` without reversals, the current Transactions of §35.3.
+  - The filters for financial category, counterparty, source, unreconciled and needs review.
+  - The alias `GET /property-references/{id}/transactions` (use `?propertyReferenceId=`).
 
 ---
 

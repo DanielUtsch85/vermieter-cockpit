@@ -126,6 +126,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     const ignored = await queries.list(REALM, { financialAccountId: account, statuses: ['IGNORED'] }, { page: 1, pageSize: 50 });
     expect(ignored.items.map((t) => t.id)).toEqual([ids[1]]);
     expect((await queries.list(REALM, { financialAccountId: account, statuses: ['UNREVIEWED', 'IMPORTED'] }, { page: 1, pageSize: 50 })).total).toBe(4);
+    // No status can match: an empty page, not `IN ()` (review on #26).
+    expect(await queries.list(REALM, { statuses: [] }, { page: 2, pageSize: 10 })).toEqual({ items: [], page: 2, pageSize: 10, total: 0 });
 
     // The other Realm's Transaction on 2026-08-03 never shows; another account's only without the account filter.
     expect((await queries.list(REALM, { bookingDateFrom: '2026-08-03' as BusinessDate, bookingDateTo: '2026-08-03' as BusinessDate }, { page: 1, pageSize: 50 })).items.every((t) => t.mreRealmId === REALM)).toBe(true);

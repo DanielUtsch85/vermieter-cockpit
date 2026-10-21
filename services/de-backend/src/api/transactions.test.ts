@@ -684,6 +684,9 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     await get(base, '/transactions?reviewable=true&status=IMPORTED,CONFIRMED');
     expect(seen[1]).toMatchObject({ filter: { statuses: ['IMPORTED', 'UNREVIEWED'] }, page: { page: 1, pageSize: 50 } });
     expect(seen[2]?.filter).toEqual({ statuses: ['IMPORTED'] });
+    // No overlap: the filter matches nothing (the repository answers an empty page, review on #26).
+    expect((await get(base, '/transactions?reviewable=true&status=CONFIRMED')).status).toBe(200);
+    expect(seen[3]?.filter).toEqual({ statuses: [] });
   });
 
   it('400 for unknown parameters, bad values and an inverted date range', async () => {

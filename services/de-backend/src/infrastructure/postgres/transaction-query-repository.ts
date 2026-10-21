@@ -17,7 +17,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
 
   async get(id: string, mreRealmId: string): Promise<{ transaction: Transaction; splits: TransactionSplit[] } | undefined> {
     if (!UUID.test(id)) return undefined;
-    // One statement for both, so the splits belong to the version read (a concurrent replacement is all or nothing).
+    // One snapshot for both, so the splits belong to the version read (a concurrent replacement is all or nothing).
     return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
       const row = await trx
         .selectFrom('ledger_transaction')
@@ -56,9 +56,12 @@ export class PostgresTransactionQueries implements TransactionQueries {
   }
 
   async list(mreRealmId: string, filter: TransactionFilter, page: PageRequest): Promise<TransactionPage> {
+    const empty: TransactionPage = { items: [], page: page.page, pageSize: page.pageSize, total: 0 };
+    // No status can match (e.g. `status` and `reviewable` without overlap); `IN ()` would be a syntax error.
+    if (filter.statuses?.length === 0) return empty;
     let query = this.db.selectFrom('ledger_transaction').where('ledger_transaction.mre_realm_id', '=', mreRealmId);
     if (filter.financialAccountId !== undefined) {
-      if (!UUID.test(filter.financialAccountId)) return { items: [], page: page.page, pageSize: page.pageSize, total: 0 };
+      if (!UUID.test(filter.financialAccountId)) return empty;
       query = query.where('financial_account_id', '=', filter.financialAccountId);
     }
     if (filter.statuses !== undefined) query = query.where('status', 'in', filter.statuses);
@@ -66,7 +69,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
     if (filter.bookingDateTo !== undefined) query = query.where('booking_date', '<=', filter.bookingDateTo);
     if (filter.propertyReferenceId !== undefined) {
       const reference = filter.propertyReferenceId;
-      if (!UUID.test(reference)) return { items: [], page: page.page, pageSize: page.pageSize, total: 0 };
+      if (!UUID.test(reference)) return empty;
       query = query.where((eb) =>
         eb.or([
           eb('ledger_transaction.property_reference_id', '=', reference),
