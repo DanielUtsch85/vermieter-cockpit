@@ -229,7 +229,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         principal: res.locals['principal'] as RealmPrincipal,
         transactionId: id.toLowerCase(),
         splits,
-        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ transaction, splits: stored }) => {
         setVersionTag(res, transaction.version);
@@ -283,7 +283,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       .confirm({
         principal: res.locals['principal'] as RealmPrincipal,
         transactionId: id.toLowerCase(),
-        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ transaction, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
@@ -362,7 +362,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         reason: parsed.data.reason,
         replacement,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
-        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ original, reversal, replacement: corrected, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
@@ -461,7 +461,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         principal: res.locals['principal'] as RealmPrincipal,
         transactionId: id.toLowerCase(),
         changes,
-        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ transaction, splitsDropped }) => {
         // The Transaction plus whether a changed amount discarded its split set (§31.3).
@@ -518,7 +518,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         principal: res.locals['principal'] as RealmPrincipal,
         transactionId: id.toLowerCase(),
         reason: parsed.data.reason,
-        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ transaction, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
@@ -553,7 +553,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       .restore({
         principal: res.locals['principal'] as RealmPrincipal,
         transactionId: id.toLowerCase(),
-        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ transaction }) => {
         setVersionTag(res, transaction.version);
@@ -580,9 +580,10 @@ function setVersionTag(res: Response, version: number): void {
   res.setHeader('ETag', `"${version}"`);
 }
 
+/** A stale `If-Match`: 412 Precondition Failed (RFC 9110 §13.2.2), with the versions to compare (§16.1). */
 function sendVersionConflict(res: Response, error: VersionConflictError): void {
-  sendError(res, 409, 'VERSION_CONFLICT', 'The Transaction changed since the version given in If-Match.', {
-    expectedVersion: error.expectedVersion,
+  sendError(res, 412, 'VERSION_CONFLICT', 'The Transaction changed since the version given in If-Match.', {
+    expectedVersions: error.expectedVersions,
     currentVersion: error.currentVersion,
   });
 }

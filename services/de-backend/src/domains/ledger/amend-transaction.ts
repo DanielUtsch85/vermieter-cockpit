@@ -148,9 +148,9 @@ export interface UnconfirmedTransactionRepository {
    * and the reference checks, writes the values, drops an invalidated split set, bumps the version and writes
    * the AuditRecord `AMENDED`. UNCHANGED answers the current state without a write.
    */
-  amend(id: string, mreRealmId: string, changes: TransactionChanges, actor: AuditActor, expectedVersion?: number): Promise<AmendOutcome>;
+  amend(id: string, mreRealmId: string, changes: TransactionChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendOutcome>;
   /** Under the row lock: IGNORED with an AuditRecord carrying the reason; already IGNORED is a no-op. */
-  ignore(id: string, mreRealmId: string, reason: string, actor: AuditActor, expectedVersion?: number): Promise<IgnoreOutcome>;
+  ignore(id: string, mreRealmId: string, reason: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<IgnoreOutcome>;
   /** Under the row lock: back from IGNORED per `planRestore`, with an AuditRecord. */
-  restore(id: string, mreRealmId: string, actor: AuditActor, expectedVersion?: number): Promise<RestoreOutcome>;
+  restore(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RestoreOutcome>;
 }

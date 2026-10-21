@@ -101,11 +101,12 @@ describe('manualTransactionFingerprint', () => {
   });
 });
 
-describe('checkVersion (api-design.md §16)', () => {
-  it('no expected version, or the current one, passes; another one is a conflict naming both', () => {
+describe('checkVersion (api-design.md §16.1)', () => {
+  it('no list passes; a list passes when any entry is the current version; otherwise a conflict naming both', () => {
     expect(checkVersion(3, undefined)).toBeUndefined();
-    expect(checkVersion(3, 3)).toBeUndefined();
-    expect(checkVersion(3, 2)).toEqual({ kind: 'VERSION_CONFLICT', expectedVersion: 2, currentVersion: 3 });
-    expect(checkVersion(3, 4)).toEqual({ kind: 'VERSION_CONFLICT', expectedVersion: 4, currentVersion: 3 });
+    expect(checkVersion(3, [3])).toBeUndefined();
+    expect(checkVersion(3, [1, 3])).toBeUndefined();
+    expect(checkVersion(3, [2])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 3 });
+    expect(checkVersion(3, [])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [], currentVersion: 3 });
   });
 });

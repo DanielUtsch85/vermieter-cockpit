@@ -558,25 +558,25 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
       body: JSON.stringify({ description: 'x' }),
     });
 
-  it('passes the version from If-Match (quoted or bare), none for * or no header; answers with an ETag', async () => {
-    const seen: (number | undefined)[] = [];
+  it('passes the strong versions of If-Match (a list too; weak tags never match), none for * or no header; answers with an ETag', async () => {
+    const seen: (readonly number[] | undefined)[] = [];
     const base = await startWith({
       amendTransaction: async (input) => {
-        seen.push(input.expectedVersion);
+        seen.push(input.expectedVersions);
         return { transaction: { ...transaction, version: 4 } as Transaction, changed: true, splitsDropped: false };
       },
     });
-    for (const header of ['"3"', '3', '*', undefined]) {
+    for (const header of ['"3"', '"3", "4"', 'W/"3"', '"abc", W/"4", "5"', '*', undefined]) {
       const res = await amendWith(base, header);
       expect(res.status, String(header)).toBe(200);
       expect(res.headers.get('etag')).toBe('"4"');
     }
-    expect(seen).toEqual([3, 3, undefined, undefined]);
+    expect(seen).toEqual([[3], [3, 4], [], [5], undefined, undefined]);
   });
 
-  it('400 for a malformed If-Match; 409 VERSION_CONFLICT names both versions', async () => {
+  it('400 for an If-Match that is not a list of entity tags; 412 VERSION_CONFLICT names the versions', async () => {
     const base0 = await startWith({ amendTransaction: () => Promise.reject(new Error('unused')) });
-    for (const header of ['W/"3"', '"3", "4"', 'abc', '"3']) {
+    for (const header of ['3', 'abc', '"3', '"3",', 'W/3']) {
       const res = await amendWith(base0, header);
       expect(res.status, header).toBe(400);
       expect(((await res.json()) as { error: { details: unknown } }).error.details).toEqual({ fields: [{ field: 'If-Match', code: 'INVALID_FORMAT' }] });
@@ -584,7 +584,7 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
     await new Promise<void>((resolve) => server?.close(() => resolve()));
     server = undefined;
 
-    const error = new VersionConflictError(3, 5);
+    const error = new VersionConflictError([3], 5);
     const cases: [string, Partial<Parameters<typeof createApp>[0]>, string, unknown][] = [
       ['amend', { amendTransaction: () => Promise.reject(error) }, 'amend', { description: 'x' }],
       ['ignore', { ignoreTransaction: () => Promise.reject(error) }, 'ignore', { reason: 'x' }],
@@ -599,10 +599,10 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
         headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', 'if-match': '"3"' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
-      expect(res.status, name).toBe(409);
+      expect(res.status, name).toBe(412);
       expect(((await res.json()) as { error: unknown }).error, name).toMatchObject({
         code: 'VERSION_CONFLICT',
-        details: { expectedVersion: 3, currentVersion: 5 },
+        details: { expectedVersions: [3], currentVersion: 5 },
       });
       await new Promise<void>((resolve) => server?.close(() => resolve()));
       server = undefined;
@@ -610,10 +610,10 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
     const base = await startWith({ setTransactionSplits: () => Promise.reject(error) });
     const res = await fetch(`${base}/api/v1/transactions/${transaction.id}/splits`, {
       method: 'PUT',
-      headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', 'if-match': '3' },
+      headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', 'if-match': '"3"' },
       body: JSON.stringify({ splits: [{ amount: { amount: '1250.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' }] }),
     });
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(412);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VERSION_CONFLICT');
   });
 });

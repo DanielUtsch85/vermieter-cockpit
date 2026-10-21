@@ -94,14 +94,17 @@ export interface Transaction {
  */
 export interface VersionConflict {
   readonly kind: 'VERSION_CONFLICT';
-  readonly expectedVersion: number;
+  readonly expectedVersions: readonly number[];
   readonly currentVersion: number;
 }
 
-/** The conflict when `expectedVersion` is given and not the current one. */
-export function checkVersion(currentVersion: number, expectedVersion: number | undefined): VersionConflict | undefined {
-  if (expectedVersion === undefined || expectedVersion === currentVersion) return undefined;
-  return { kind: 'VERSION_CONFLICT', expectedVersion, currentVersion };
+/**
+ * `expectedVersions`: the versions named by the strong entity tags of `If-Match` (any one matches, RFC 9110
+ * §13.1.1); `undefined` = no check (no header, or `*`). An empty list (only weak or foreign tags) never matches.
+ */
+export function checkVersion(currentVersion: number, expectedVersions: readonly number[] | undefined): VersionConflict | undefined {
+  if (expectedVersions === undefined || expectedVersions.includes(currentVersion)) return undefined;
+  return { kind: 'VERSION_CONFLICT', expectedVersions, currentVersion };
 }
 
 /** A validated manual Transaction about to be created (api-design.md §31). */
@@ -178,5 +181,5 @@ export interface TransactionRepository {
    * applies `planConfirm` and, if confirmable, sets CONFIRMED with
    * `confirmedAt`/`confirmedBy`, bumps the version and writes the AuditRecord.
    */
-  confirm(id: string, mreRealmId: string, actor: AuditActor, expectedVersion?: number): Promise<ConfirmOutcome>;
+  confirm(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmOutcome>;
 }

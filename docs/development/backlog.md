@@ -113,6 +113,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-18 | api | Field path of a currency mismatch in `correct`: a split currency ≠ account currency is reported as `replacement.amount.currency` (review note on #22). Unreachable with EUR only; make it precise (`replacement.splits.<i>.amount.currency`) before a second currency |
 | VC-X-19 | infra | The Transaction DTO reads its reversal/replacement ids by two subqueries (`ledger_transaction_correction_key`). Check list endpoints with `EXPLAIN` once they exist (review note on #22) |
 | VC-X-20 | api | **done** (api-design §16.1) · Optimistic concurrency for field edits (api-design §16, review note on #23): `amend` is the first real field edit and is "last write wins" under the row lock. Accept `If-Match: <version>` (or `expectedVersion`) and answer `409 VERSION_CONFLICT` when it is stale, before a UI lets two people edit one draft |
+| VC-X-21 | api | Read a Transaction: `GET /api/v1/transactions/{id}` (and the list of api-design §30) with `ETag`, so a client can reload the current version after a `412 VERSION_CONFLICT` instead of retrying blindly with `details.currentVersion` (review note on #25) |
 
 ---
 

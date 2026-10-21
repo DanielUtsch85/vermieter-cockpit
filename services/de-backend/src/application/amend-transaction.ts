@@ -68,12 +68,12 @@ export type AmendTransaction = (input: {
   readonly transactionId: string;
   readonly changes: TransactionChanges;
   /** From `If-Match` (api-design §16); omitted = no version check. */
-  readonly expectedVersion?: number;
+  readonly expectedVersions?: readonly number[];
 }) => Promise<{ readonly transaction: Transaction; readonly changed: boolean; readonly splitsDropped: boolean }>;
 
 export function amendTransaction(deps: { readonly repository: UnconfirmedTransactionRepository }): AmendTransaction {
-  return async ({ principal, transactionId, changes, expectedVersion }) => {
-    const outcome = await deps.repository.amend(transactionId, principal.mreRealmId, changes, actorOf(principal), expectedVersion);
+  return async ({ principal, transactionId, changes, expectedVersions }) => {
+    const outcome = await deps.repository.amend(transactionId, principal.mreRealmId, changes, actorOf(principal), expectedVersions);
     switch (outcome.kind) {
       case 'AMENDED':
         return { transaction: outcome.transaction, changed: outcome.changed, splitsDropped: outcome.splitsDropped };
@@ -92,7 +92,7 @@ export function amendTransaction(deps: { readonly repository: UnconfirmedTransac
       case 'PROPERTY_REFERENCE_NOT_FOUND':
         throw new PropertyReferenceNotFoundError(outcome.propertyReferenceId);
       case 'VERSION_CONFLICT':
-        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
   };
 }
@@ -101,12 +101,12 @@ export type IgnoreTransaction = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
   readonly reason: string;
-  readonly expectedVersion?: number;
+  readonly expectedVersions?: readonly number[];
 }) => Promise<{ readonly transaction: Transaction; readonly replayed: boolean }>;
 
 export function ignoreTransaction(deps: { readonly repository: UnconfirmedTransactionRepository }): IgnoreTransaction {
-  return async ({ principal, transactionId, reason, expectedVersion }) => {
-    const outcome = await deps.repository.ignore(transactionId, principal.mreRealmId, reason, actorOf(principal), expectedVersion);
+  return async ({ principal, transactionId, reason, expectedVersions }) => {
+    const outcome = await deps.repository.ignore(transactionId, principal.mreRealmId, reason, actorOf(principal), expectedVersions);
     switch (outcome.kind) {
       case 'IGNORED':
         return { transaction: outcome.transaction, replayed: outcome.replayed };
@@ -115,7 +115,7 @@ export function ignoreTransaction(deps: { readonly repository: UnconfirmedTransa
       case 'NOT_IGNORABLE':
         throw new TransactionNotIgnorableError(transactionId, outcome.status);
       case 'VERSION_CONFLICT':
-        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
   };
 }
@@ -123,12 +123,12 @@ export function ignoreTransaction(deps: { readonly repository: UnconfirmedTransa
 export type RestoreTransaction = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
-  readonly expectedVersion?: number;
+  readonly expectedVersions?: readonly number[];
 }) => Promise<{ readonly transaction: Transaction }>;
 
 export function restoreTransaction(deps: { readonly repository: UnconfirmedTransactionRepository }): RestoreTransaction {
-  return async ({ principal, transactionId, expectedVersion }) => {
-    const outcome = await deps.repository.restore(transactionId, principal.mreRealmId, actorOf(principal), expectedVersion);
+  return async ({ principal, transactionId, expectedVersions }) => {
+    const outcome = await deps.repository.restore(transactionId, principal.mreRealmId, actorOf(principal), expectedVersions);
     switch (outcome.kind) {
       case 'RESTORED':
         return { transaction: outcome.transaction };
@@ -137,7 +137,7 @@ export function restoreTransaction(deps: { readonly repository: UnconfirmedTrans
       case 'NOT_IGNORED':
         throw new TransactionNotIgnoredError(transactionId, outcome.status);
       case 'VERSION_CONFLICT':
-        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
   };
 }

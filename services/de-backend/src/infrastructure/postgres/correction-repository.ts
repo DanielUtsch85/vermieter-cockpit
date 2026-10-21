@@ -52,7 +52,7 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     request: CorrectionRequest,
     actor: AuditActor,
     idempotency?: { readonly key: string; readonly fingerprint: string },
-    expectedVersion?: number,
+    expectedVersions?: readonly number[],
   ): Promise<CorrectOutcome> {
     if (!UUID.test(originalId)) return { kind: 'NOT_FOUND' };
     try {
@@ -85,7 +85,7 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
 
         const plan = planCorrection(original, originalSplits, request.replacement);
         if (plan.kind !== 'CORRECT') throw new Rejected(plan);
-        const conflict = checkVersion(original.version, expectedVersion);
+        const conflict = checkVersion(original.version, expectedVersions);
         if (conflict !== undefined) throw new Rejected(conflict);
         const replacement = plan.replacement;
         await this.check(trx, mreRealmId, original, replacement);

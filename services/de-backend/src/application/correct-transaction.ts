@@ -56,7 +56,7 @@ export interface CorrectTransactionInput {
   readonly replacement: ReplacementInput;
   readonly idempotencyKey?: string;
   /** From `If-Match` (api-design §16); omitted = no version check. */
-  readonly expectedVersion?: number;
+  readonly expectedVersions?: readonly number[];
 }
 
 export interface CorrectTransactionResult extends CorrectionResult {
@@ -67,7 +67,7 @@ export interface CorrectTransactionResult extends CorrectionResult {
 export type CorrectTransaction = (input: CorrectTransactionInput) => Promise<CorrectTransactionResult>;
 
 export function correctTransaction(deps: { readonly repository: CorrectionRepository }): CorrectTransaction {
-  return async ({ principal, transactionId, reason, replacement, idempotencyKey, expectedVersion }) => {
+  return async ({ principal, transactionId, reason, replacement, idempotencyKey, expectedVersions }) => {
     const request = { reason, replacement };
     const outcome = await deps.repository.correct(
       transactionId,
@@ -75,7 +75,7 @@ export function correctTransaction(deps: { readonly repository: CorrectionReposi
       request,
       { actorType: 'USER', actorId: principal.email },
       idempotencyKey === undefined ? undefined : { key: idempotencyKey, fingerprint: correctionFingerprint(transactionId, request) },
-      expectedVersion,
+      expectedVersions,
     );
     switch (outcome.kind) {
       case 'CORRECTED':
@@ -105,7 +105,7 @@ export function correctTransaction(deps: { readonly repository: CorrectionReposi
       case 'SUM_MISMATCH':
         throw new SplitSumMismatchError(outcome.expected, outcome.actual);
       case 'VERSION_CONFLICT':
-        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
   };
 }

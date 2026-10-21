@@ -192,6 +192,6 @@ export interface CorrectionRepository {
     request: CorrectionRequest,
     actor: AuditActor,
     idempotency?: { readonly key: string; readonly fingerprint: string },
-    expectedVersion?: number,
+    expectedVersions?: readonly number[],
   ): Promise<CorrectOutcome>;
 }

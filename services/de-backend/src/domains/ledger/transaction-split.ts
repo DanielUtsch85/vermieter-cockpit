@@ -109,6 +109,6 @@ export interface TransactionSplitRepository {
     mreRealmId: string,
     splits: readonly SplitInput[],
     actor: AuditActor,
-    expectedVersion?: number,
+    expectedVersions?: readonly number[],
   ): Promise<ReplaceSplitsOutcome>;
 }

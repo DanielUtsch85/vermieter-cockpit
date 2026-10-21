@@ -338,6 +338,7 @@ Recommended mapping:
 | Forbidden | 403 |
 | Not found | 404 |
 | Domain conflict | 409 |
+| Stale `If-Match` (§16.1) | 412 |
 | Validation/review issue | 422 |
 | External dependency unavailable | 502/503 |
 
@@ -384,19 +385,28 @@ If-Match: 12
 
 or equivalent request field.
 
-Conflict should return `409 VERSION_CONFLICT`.
+Conflict should return `VERSION_CONFLICT`: `412 Precondition Failed` when the version comes in `If-Match` (RFC 9110 §13.2.2, so generic HTTP clients and proxies read it right), `409` when it comes in a request field.
 
 ## 16.1 Implementation for Transactions (VC-X-20)
 
 - **Where:** every command that changes a Transaction takes an optional `If-Match` header: `amend`, `PUT …/splits`, `confirm`, `ignore`, `restore` and `correct` (for `correct`, the original's version).
-- **Format:** `If-Match: "3"` (quotes optional). `*` or no header means no check. A weak tag (`W/"3"`), several tags or anything else is `400 VALIDATION_ERROR` with `field = "If-Match"`.
-- **Check:** under the Transaction's row lock, after reading it in a new statement, so a command that waited sees the version the other one wrote. A different current version is `409 VERSION_CONFLICT` with `details.expectedVersion` and `details.currentVersion`, and nothing is written. For `correct` the `Idempotency-Key` claim is rolled back too.
+- **Format (RFC 9110 §13.1.1):** a list of entity tags, `If-Match: "3"` or `If-Match: "3", "4"`.
+  - `*` or no header means no check.
+  - `If-Match` compares strongly: a weak tag (`W/"3"`), or a tag that is not a version, never matches. A header with only such tags therefore fails the check.
+  - A header that is not a list of quoted entity tags (`3`, `"3`) is `400 VALIDATION_ERROR` with `field = "If-Match"`.
+- **Check:**
+  - **Where:** under the Transaction's row lock, after reading it in a new statement, so a command that waited sees the version the other one wrote.
+  - **Refusal:** if no tag of the list is the current version, the answer is **`412 Precondition Failed`** with `code = "VERSION_CONFLICT"`, `details.expectedVersions` (the versions of the list) and `details.currentVersion`. Nothing is written. For `correct` the `Idempotency-Key` claim is rolled back too.
 - **Order:**
   - Domain refusals come first. A stale version on a confirmed Transaction still answers `NOT_AMENDABLE`.
-  - A command that would change nothing is answered as before, whatever the version: an amend with the current values, the same split set, a repeated `confirm` or `ignore`. It cannot lose an update, and a retry after a lost answer stays a retry.
+  - A command that would change nothing is answered as before, whatever the version: an amend with the current values, the same split set, a repeated `confirm` or `ignore`. This is the 2xx exception of RFC 9110 §13.2.2 (the desired state is already there). It cannot lose an update, and a retry after a lost answer stays a retry.
   - An idempotent replay of `correct` (§15) answers before the lock.
-- **`ETag`:** the responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`. `correct` returns three Transactions, each with its `version` in the body.
-- **Optional for now:** there is no UI yet. A client that lets people edit should always send `If-Match`. Making it required is a later decision (`428 Precondition Required`).
+- **`ETag`:**
+  - The responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`.
+  - `correct` returns three Transactions, each with its `version` in the body.
+  - A **replayed** create (`Idempotency-Key`, §15) answers with the snapshot recorded then, its `ETag` included. That version is stale if the Transaction changed since; it is the original answer, not the current state.
+- **Reading the current version:** there is no `GET /transactions/{id}` yet (backlog VC-X-21). After a `412` a client must not simply retry with `details.currentVersion`, because that would defeat the check. It has to read the Transaction again first.
+- **Optional for now:** there is no UI yet. A client that lets people edit should always send `If-Match`. Making it required (`428 Precondition Required`) is a later decision, and it applies to **all** changing commands at once, not per endpoint.
 
 ---
 
@@ -826,7 +836,7 @@ An explicit command, not a `PATCH` (§3). A confirmed Transaction is never amend
   - The response carries `splitsDropped: true` next to the Transaction's fields and the new `status`, and the AuditRecord carries `splitsDropped` too. Otherwise the response has `splitsDropped: false`.
   - Other changes keep the split set, and with it `CLASSIFIED`.
 - **`200`** with the Transaction (version + 1, AuditRecord `AMENDED` with each changed field's old and new value) and `splitsDropped`. Values equal to the current ones are a `200` no-op without a new version or AuditRecord (naturally idempotent, like §33).
-- **Concurrency:** the row lock serializes two amendments. With `If-Match` (§16.1) the second of two edits based on the same version gets `409 VERSION_CONFLICT` instead of silently overwriting the first; without it, the later one wins.
+- **Concurrency:** the row lock serializes two amendments. With `If-Match` (§16.1) the second of two edits based on the same version gets `412 VERSION_CONFLICT` instead of silently overwriting the first; without it, the later one wins.
 
 ## 31.4 Ignore and restore (VC-X-16)
 

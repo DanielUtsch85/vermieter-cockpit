@@ -68,17 +68,17 @@ export type SetTransactionSplits = (input: {
   readonly transactionId: string;
   readonly splits: readonly SplitInput[];
   /** From `If-Match` (api-design §16); omitted = no version check. */
-  readonly expectedVersion?: number;
+  readonly expectedVersions?: readonly number[];
 }) => Promise<SetTransactionSplitsResult>;
 
 export function setTransactionSplits(deps: { readonly repository: TransactionSplitRepository }): SetTransactionSplits {
-  return async ({ principal, transactionId, splits, expectedVersion }) => {
+  return async ({ principal, transactionId, splits, expectedVersions }) => {
     const outcome = await deps.repository.replaceSplits(
       transactionId,
       principal.mreRealmId,
       splits,
       { actorType: 'USER', actorId: principal.email },
-      expectedVersion,
+      expectedVersions,
     );
     switch (outcome.kind) {
       case 'REPLACED':
@@ -96,7 +96,7 @@ export function setTransactionSplits(deps: { readonly repository: TransactionSpl
       case 'PROPERTY_REFERENCE_NOT_FOUND':
         throw new PropertyReferenceNotFoundError(outcome.propertyReferenceIds[0] ?? '');
       case 'VERSION_CONFLICT':
-        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
   };
 }

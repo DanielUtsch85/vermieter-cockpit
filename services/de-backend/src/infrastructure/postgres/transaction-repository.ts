@@ -177,7 +177,7 @@ export class PostgresTransactionRepository implements TransactionRepository {
     }
   }
 
-  confirm(id: string, mreRealmId: string, actor: AuditActor, expectedVersion?: number): Promise<ConfirmOutcome> {
+  confirm(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmOutcome> {
     if (!UUID.test(id)) return Promise.resolve({ kind: 'NOT_FOUND' });
     return this.db
       .transaction()
@@ -211,7 +211,7 @@ export class PostgresTransactionRepository implements TransactionRepository {
           default:
             return plan;
         }
-        const conflict = checkVersion(transaction.version, expectedVersion);
+        const conflict = checkVersion(transaction.version, expectedVersions);
         if (conflict !== undefined) return conflict;
         const confirmed = await trx
           .updateTable('ledger_transaction')
