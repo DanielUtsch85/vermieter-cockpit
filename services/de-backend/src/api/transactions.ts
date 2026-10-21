@@ -129,7 +129,6 @@ const correctBody = z
   })
   .strict();
 
-/** `GET /transactions` (api-design.md §30.1): filters and page; unknown parameters are refused. */
 /** A comma-separated list of known values, any of them (`status`, `provenance`). */
 const anyOf = <T extends string>(values: readonly T[]) =>
   z.string().transform((value, ctx) => {
@@ -141,18 +140,19 @@ const anyOf = <T extends string>(values: readonly T[]) =>
     return items as T[];
   });
 
+/** `GET /transactions` (api-design.md §30.1): filters and page; unknown parameters are refused. */
 const listFields = z.object({
-    financialAccountId: z.string().regex(RESOURCE_ID).optional(),
-    status: anyOf(TRANSACTION_STATUSES).optional(),
-    provenance: anyOf(PROVENANCES).optional(),
-    reviewable: z.enum(['true']).optional(),
-    current: z.enum(['true']).optional(),
-    propertyReferenceId: z.string().regex(RESOURCE_ID).optional(),
-    financialCategoryCode: z.string().regex(CATEGORY_CODE).optional(),
-    bookingDateFrom: businessDate.optional(),
-    bookingDateTo: businessDate.optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  financialAccountId: z.string().regex(RESOURCE_ID).optional(),
+  status: anyOf(TRANSACTION_STATUSES).optional(),
+  provenance: anyOf(PROVENANCES).optional(),
+  reviewable: z.enum(['true']).optional(),
+  current: z.enum(['true']).optional(),
+  propertyReferenceId: z.string().regex(RESOURCE_ID).optional(),
+  financialCategoryCode: z.string().regex(CATEGORY_CODE).optional(),
+  bookingDateFrom: businessDate.optional(),
+  bookingDateTo: businessDate.optional(),
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50),
 });
 const dateRange = {
   check: (q: { bookingDateFrom?: string | undefined; bookingDateTo?: string | undefined }) =>
