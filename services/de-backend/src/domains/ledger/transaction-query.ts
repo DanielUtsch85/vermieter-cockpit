@@ -12,6 +12,8 @@ export interface TransactionFilter {
   readonly statuses?: readonly TransactionStatus[];
   /** The Transaction's own PropertyReference **or** one of its splits' (a split can carry the property, §33). */
   readonly propertyReferenceId?: string;
+  /** Transactions with at least one split of this category (by code); an unknown code matches nothing. */
+  readonly financialCategoryCode?: string;
   /** Inclusive booking-date range. */
   readonly bookingDateFrom?: BusinessDate;
   readonly bookingDateTo?: BusinessDate;

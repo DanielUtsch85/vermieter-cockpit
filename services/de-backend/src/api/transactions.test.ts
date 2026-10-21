@@ -706,7 +706,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     });
     const res = await get(
       base,
-      `/transactions?financialAccountId=${ACCOUNT.toUpperCase()}&status=IMPORTED,CONFIRMED&propertyReferenceId=${PROPERTY}&bookingDateFrom=2026-09-01&bookingDateTo=2026-09-30&page=2&pageSize=5`,
+      `/transactions?financialAccountId=${ACCOUNT.toUpperCase()}&status=IMPORTED,CONFIRMED&propertyReferenceId=${PROPERTY}&financialCategoryCode=RENT_BASE&bookingDateFrom=2026-09-01&bookingDateTo=2026-09-30&page=2&pageSize=5`,
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ items: [{ transactionId: transaction.id }], page: 2, pageSize: 5, total: 7 });
@@ -715,6 +715,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
         financialAccountId: ACCOUNT,
         statuses: ['IMPORTED', 'CONFIRMED'],
         propertyReferenceId: PROPERTY,
+        financialCategoryCode: 'RENT_BASE',
         bookingDateFrom: '2026-09-01',
         bookingDateTo: '2026-09-30',
       },
@@ -759,7 +760,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
 
   it('400 for unknown parameters, bad values and an inverted date range', async () => {
     const base = await startWith({ listTransactions: () => Promise.reject(new Error('unused')) });
-    for (const query of ['foo=1', 'status=DONE', 'pageSize=201', 'page=0', 'bookingDateFrom=2026-13-01', 'reviewable=yes', 'current=false', 'financialAccountId=x', 'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01']) {
+    for (const query of ['foo=1', 'status=DONE', 'pageSize=201', 'page=0', 'bookingDateFrom=2026-13-01', 'reviewable=yes', 'current=false', 'financialCategoryCode=rent', 'financialAccountId=x', 'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01']) {
       expect((await get(base, `/transactions?${query}`)).status, query).toBe(400);
     }
     const inverted = await get(base, '/transactions?bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01');
