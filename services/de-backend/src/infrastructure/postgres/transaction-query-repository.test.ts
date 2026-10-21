@@ -1,6 +1,6 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { BusinessDate, FinancialAccountId, TransactionStatus } from '../../domains/ledger/index.js';
+import type { BusinessDate, FinancialAccountId, Provenance, TransactionStatus } from '../../domains/ledger/index.js';
 import { Money } from '../../shared/index.js';
 import { PostgresCorrectionRepository } from './correction-repository.js';
 import { createDatabase } from './database.js';
@@ -162,6 +162,21 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     expect((await byCode('RENT_OPERATING_COST_ADVANCE')).items.map((t) => t.id)).toEqual([rent]);
     expect((await byCode('OTHER')).items.map((t) => t.id)).toEqual([other]);
     expect(await byCode('NO_SUCH_CATEGORY')).toMatchObject({ items: [], total: 0 });
+  });
+
+  it('list by provenance: any of the given sources', async () => {
+    const account = await openAccount();
+    const original = await book(account, '2026-04-01');
+    await splits.replaceSplits(original, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, description: null }], actor);
+    await transactions.confirm(original, REALM, actor);
+    const reversed = await corrections.correct(original, REALM, { reason: 'Doppelt', replacement: null }, actor);
+    if (reversed.kind !== 'CORRECTED') throw new Error(reversed.kind);
+    const manual = await book(account, '2026-04-02');
+    const bySource = (provenances: Provenance[]) => queries.list(REALM, { financialAccountId: account, provenances }, { page: 1, pageSize: 50 });
+    expect((await bySource(['CORRECTION'])).items.map((t) => t.id)).toEqual([reversed.result.reversal.id]);
+    expect((await bySource(['MANUAL'])).items.map((t) => t.id)).toEqual([manual, original]);
+    expect((await bySource(['MANUAL', 'CORRECTION'])).total).toBe(3);
+    expect((await bySource(['BANK_CSV'])).total).toBe(0);
   });
 
   it('list current=true: confirmed or reconciled and not a reversal, so a chain shows only its current member (§35.3)', async () => {

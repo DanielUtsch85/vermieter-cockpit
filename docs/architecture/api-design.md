@@ -771,9 +771,10 @@ Useful filters:
 - **`GET /api/v1/transactions`:** `200` with `{ items, page, pageSize, total }` (§11), newest booking first (then creation, then id). `items` are Transactions without their splits. Filters, all optional and combined with AND:
   - `financialAccountId`;
   - `status`: a comma-separated list, any of them;
+  - `provenance` (the source of §30): a comma-separated list of `MANUAL`, `BANK_CSV`, `BANK_API`, `MIGRATION`, `CORRECTION`, any of them (e.g. `provenance=BANK_CSV` for imported ones); another value is `400`;
   - `reviewable=true`: `IMPORTED` or `UNREVIEWED`, and together with `status` both must hold;
   - `propertyReferenceId`: the Transaction's own **or** one of its splits';
-  - `financialCategoryCode`: at least one split of that category (a code such as `RENT_BASE`; an unknown code matches nothing, a malformed one is `400`). Unsplit Transactions never match;
+  - `financialCategoryCode`: at least one split of that category (a code such as `RENT_BASE`). Unsplit Transactions never match. A deactivated category still matches its historical splits. An unknown code matches nothing, unlike in the split commands (§33), where it is `400 UNKNOWN_CATEGORY`: a read filter for a code that has no splits is an empty answer, not an error (review note on #34). A malformed code is `400`;
   - `bookingDateFrom` / `bookingDateTo`: inclusive, `400 INVALID_RANGE` when inverted;
   - `current=true`: only the current Transactions of §35.3, i.e. `CONFIRMED` or `RECONCILED` and not a reversal. A chain shows only its last member: neither the `CORRECTED` originals nor their reversals. Combined with `status` like the other filters, so `current=true&status=RECONCILED` lists the reconciled ones and `current=true&status=CORRECTED` lists nothing. Summing a `current=true` list (signed by `direction`, over all pages) gives the net effect of §35.3 per account and period; per category and PropertyReference the current Transactions' splits are needed, since the list items carry none (review note on #31).
 - **`GET /api/v1/property-references/{propertyReferenceId}/transactions`:** the same list with `propertyReferenceId` taken from the path (the Transaction's own or one of its splits'), with the same filters and paging. A `propertyReferenceId` query parameter is unknown there (`400`). An unknown or foreign PropertyReference is `404 NOT_FOUND` with `details.propertyReferenceId`, not an empty page; a malformed id is `400`.
@@ -784,7 +785,7 @@ Useful filters:
 - **No match possible:** `status` together with `reviewable=true` without a common status (e.g. `status=CONFIRMED&reviewable=true`) is an empty page, not an error.
 - **Raw list:** without `status` or `current` the list also holds `CORRECTED` originals, reversals and `IGNORED` Transactions.
 - **Not yet:**
-  - The filters for counterparty, source, unreconciled and needs review.
+  - The filters for counterparty (no counterparty fields on Transactions yet), unreconciled (Phase 4, reconciliation) and needs review (meaning still open).
 
 ---
 

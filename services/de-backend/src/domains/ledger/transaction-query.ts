@@ -1,5 +1,5 @@
 import type { TransactionSplit } from './transaction-split.js';
-import type { BusinessDate, Transaction, TransactionStatus } from './transaction.js';
+import type { BusinessDate, Provenance, Transaction, TransactionStatus } from './transaction.js';
 
 /**
  * Reading Transactions (api-design.md §30, backlog VC-X-21): one Transaction with its splits, or a page of them,
@@ -10,6 +10,8 @@ export interface TransactionFilter {
   readonly financialAccountId?: string;
   /** Any of these statuses. */
   readonly statuses?: readonly TransactionStatus[];
+  /** Any of these sources (`provenance`, data-model §17.6), e.g. only imported ones. */
+  readonly provenances?: readonly Provenance[];
   /** The Transaction's own PropertyReference **or** one of its splits' (a split can carry the property, §33). */
   readonly propertyReferenceId?: string;
   /** Transactions with at least one split of this category (by code); an unknown code matches nothing. */

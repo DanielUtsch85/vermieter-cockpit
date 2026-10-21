@@ -33,6 +33,7 @@ import {
   type TransactionStatus,
   REVIEWABLE_STATUSES,
   TRANSACTION_STATUSES,
+  PROVENANCES,
   type CorrectTransaction,
   type ReverseTransaction,
   type AmendTransaction,
@@ -129,20 +130,21 @@ const correctBody = z
   .strict();
 
 /** `GET /transactions` (api-design.md §30.1): filters and page; unknown parameters are refused. */
+/** A comma-separated list of known values, any of them (`status`, `provenance`). */
+const anyOf = <T extends string>(values: readonly T[]) =>
+  z.string().transform((value, ctx) => {
+    const items = value.split(',').map((s) => s.trim());
+    if (items.some((s) => !(values as readonly string[]).includes(s))) {
+      ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
+      return z.NEVER;
+    }
+    return items as T[];
+  });
+
 const listFields = z.object({
     financialAccountId: z.string().regex(RESOURCE_ID).optional(),
-    // Comma-separated, any of them.
-    status: z
-      .string()
-      .transform((value, ctx) => {
-        const statuses = value.split(',').map((s) => s.trim());
-        if (statuses.some((s) => !(TRANSACTION_STATUSES as readonly string[]).includes(s))) {
-          ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
-          return z.NEVER;
-        }
-        return statuses as TransactionStatus[];
-      })
-      .optional(),
+    status: anyOf(TRANSACTION_STATUSES).optional(),
+    provenance: anyOf(PROVENANCES).optional(),
     reviewable: z.enum(['true']).optional(),
     current: z.enum(['true']).optional(),
     propertyReferenceId: z.string().regex(RESOURCE_ID).optional(),
@@ -172,6 +174,7 @@ function listFilter(q: Omit<ListQuery, 'propertyReferenceId'> & { propertyRefere
   return {
     ...(q.financialAccountId === undefined ? {} : { financialAccountId: q.financialAccountId.toLowerCase() }),
     ...(statuses === undefined ? {} : { statuses }),
+    ...(q.provenance === undefined ? {} : { provenances: q.provenance }),
     ...(q.propertyReferenceId === undefined ? {} : { propertyReferenceId: q.propertyReferenceId.toLowerCase() }),
     ...(q.financialCategoryCode === undefined ? {} : { financialCategoryCode: q.financialCategoryCode }),
     ...(q.bookingDateFrom === undefined ? {} : { bookingDateFrom: q.bookingDateFrom }),
