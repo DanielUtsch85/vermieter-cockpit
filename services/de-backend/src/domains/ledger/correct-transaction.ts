@@ -137,6 +137,19 @@ export function planCorrection(
   return { kind: 'CORRECT', replacement };
 }
 
+/** Which part of a replacement leaves the target account's currency: its amount, and splits by position (1-based). */
+export interface CurrencyMismatch {
+  readonly amount: boolean;
+  readonly positions: readonly number[];
+}
+
+/** No FX (data-model.md §17.7): the replacement's amount and every split must be in the target account's currency. */
+export function currencyMismatch(replacement: Pick<PlannedReplacement, 'amount' | 'splits'>, currency: string): CurrencyMismatch | undefined {
+  const amount = replacement.amount.currency !== currency;
+  const positions = replacement.splits.flatMap((split, i) => (split.amount.currency === currency ? [] : [i + 1]));
+  return amount || positions.length > 0 ? { amount, positions } : undefined;
+}
+
 /** Opposite direction: a reversal negates the original with the same non-negative amount (data-model.md §17.4). */
 export function opposite(direction: Direction): Direction {
   return direction === 'INFLOW' ? 'OUTFLOW' : 'INFLOW';
@@ -178,8 +191,8 @@ export type CorrectOutcome =
   | { readonly kind: 'ACCOUNT_NOT_FOUND'; readonly financialAccountId: string }
   /** Moving to a different, closed account (→ 409); the original's own closed account is fine (§35.2). */
   | { readonly kind: 'ACCOUNT_CLOSED'; readonly financialAccountId: string }
-  /** Replacement amount or splits not in the target account's currency (no FX, §17.7). */
-  | { readonly kind: 'CURRENCY_MISMATCH' }
+  /** Replacement amount or splits not in the target account's currency (no FX, §17.7); see `currencyMismatch`. */
+  | ({ readonly kind: 'CURRENCY_MISMATCH' } & CurrencyMismatch)
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceIds: readonly string[] }
   /** Requested split categories unknown or inactive (→ 400, as §33). */
   | { readonly kind: 'UNKNOWN_CATEGORY'; readonly codes: readonly string[] }

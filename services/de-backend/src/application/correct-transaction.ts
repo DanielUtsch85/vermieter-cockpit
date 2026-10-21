@@ -112,7 +112,10 @@ async function run(
     case 'ACCOUNT_CLOSED':
       throw new FinancialAccountClosedError(outcome.financialAccountId);
     case 'CURRENCY_MISMATCH':
-      throw new CurrencyMismatchError('Replacement currency differs from the account currency');
+      throw new CurrencyMismatchError('Replacement currency differs from the account currency', {
+        amount: outcome.amount,
+        splitPositions: outcome.positions,
+      });
     case 'PROPERTY_REFERENCE_NOT_FOUND':
       throw new PropertyReferenceNotFoundError(outcome.propertyReferenceIds[0] ?? '');
     case 'UNKNOWN_CATEGORY':

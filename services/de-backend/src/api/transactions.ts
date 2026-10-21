@@ -178,6 +178,20 @@ function listFilter(q: Omit<ListQuery, 'propertyReferenceId'> & { propertyRefere
   };
 }
 
+/**
+ * The fields a replacement's currency mismatch points at (backlog VC-X-18): a requested amount or split by its
+ * path; a copied one by the changed `financialAccountId`, whose currency it no longer matches.
+ */
+function replacementCurrencyFields(error: CurrencyMismatchError, body: { readonly amount?: unknown; readonly splits?: unknown }) {
+  const fields = [
+    ...(error.where.amount ? [body.amount === undefined ? 'replacement.financialAccountId' : 'replacement.amount.currency'] : []),
+    ...error.where.splitPositions.map((p) =>
+      body.splits === undefined ? 'replacement.financialAccountId' : `replacement.splits.${p - 1}.amount.currency`,
+    ),
+  ];
+  return [...new Set(fields)].map((field) => ({ field, code: 'CURRENCY_MISMATCH' }));
+}
+
 function sendPage(res: Response, result: TransactionPage): void {
   res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
 }
@@ -260,7 +274,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       .then((result) => sendPage(res, result))
       .catch((error: unknown) => {
         if (error instanceof PropertyReferenceNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId });
+          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: propertyReferenceId.toLowerCase() });
         } else {
           next(error);
         }
@@ -382,7 +396,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             ),
           );
         } else if (error instanceof CurrencyMismatchError) {
-          sendValidationError(res, [{ field: 'splits', code: 'CURRENCY_MISMATCH' }]);
+          const fields = error.where.splitPositions.map((p) => ({ field: `splits.${p - 1}.amount.currency`, code: 'CURRENCY_MISMATCH' }));
+          sendValidationError(res, fields.length > 0 ? fields : [{ field: 'splits', code: 'CURRENCY_MISMATCH' }]);
         } else if (error instanceof TransactionFrozenError) {
           sendError(res, 409, 'CONFLICT', `Transaction is ${error.status}; its splits cannot change.`, {
             reason: 'TRANSACTION_FROZEN',
@@ -531,7 +546,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             financialAccountId: error.financialAccountId,
           });
         } else if (error instanceof CurrencyMismatchError) {
-          sendValidationError(res, [{ field: 'replacement.amount.currency', code: 'CURRENCY_MISMATCH' }]);
+          sendValidationError(res, replacementCurrencyFields(error, body));
         } else if (error instanceof FinancialCategoryNotFoundError) {
           const splits = replacement.splits ?? [];
           sendValidationError(

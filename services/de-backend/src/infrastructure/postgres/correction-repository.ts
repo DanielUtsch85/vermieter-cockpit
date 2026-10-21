@@ -1,6 +1,7 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
   checkVersion,
+  currencyMismatch,
   opposite,
   planCorrection,
   type CorrectionRepository,
@@ -188,9 +189,8 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
       throw new Rejected({ kind: 'ACCOUNT_CLOSED', financialAccountId: target.id });
     }
     const currency = target.currency;
-    if (replacement.amount.currency !== currency || replacement.splits.some((s) => s.amount.currency !== currency)) {
-      throw new Rejected({ kind: 'CURRENCY_MISMATCH' });
-    }
+    const mismatch = currencyMismatch(replacement, currency);
+    if (mismatch !== undefined) throw new Rejected({ kind: 'CURRENCY_MISMATCH', ...mismatch });
     const actual = Money.sum(
       replacement.splits.map((s) => s.amount),
       currency,
