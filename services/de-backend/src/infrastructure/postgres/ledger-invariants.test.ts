@@ -139,11 +139,13 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
           [id, REALM, await category('OTHER')],
         );
         // ... session B confirms: it must wait for A instead of summing only the committed splits.
-        const confirming = confirmBySql(id);
+        // The expectation is attached at once: the refusal can arrive before the COMMIT below resolves,
+        // and a rejection without a handler for that moment fails the run even though the test passes.
+        // READ COMMITTED re-reads the splits and refuses; REPEATABLE READ refuses with a serialization error.
+        const confirming = expect(confirmBySql(id)).rejects.toThrow(/sum 150.*amount 100|could not serialize/);
         await waitUntil(lockWait("SET status = 'CONFIRMED'"));
         await writer.query('COMMIT');
-        // READ COMMITTED re-reads the splits and refuses; REPEATABLE READ refuses with a serialization error.
-        await expect(confirming).rejects.toThrow(/sum 150.*amount 100|could not serialize/);
+        await confirming;
         const row = await pool.query(`SELECT status FROM ledger_transaction WHERE id = $1`, [id]);
         expect(row.rows).toEqual([{ status: 'UNREVIEWED' }]);
       } finally {
@@ -161,10 +163,11 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
           `UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`,
           [id],
         );
-        const adding = addSplit(id, 2, '50.00');
+        // Expectation attached at once, as above.
+        const adding = expect(addSplit(id, 2, '50.00')).rejects.toThrow(/frozen|could not serialize/);
         await waitUntil(lockWait('INSERT INTO transaction_split'));
         await confirmer.query('COMMIT');
-        await expect(adding).rejects.toThrow(/frozen|could not serialize/);
+        await adding;
         const splits = await pool.query(`SELECT sum(amount)::text AS total FROM transaction_split WHERE transaction_id = $1`, [id]);
         expect(splits.rows).toEqual([{ total: '100.00' }]);
       } finally {
