@@ -188,6 +188,11 @@ expect "replacement confirmed" "$(echo "$correct_body" | jq -r .replacement.stat
 correct '{"reason":"Smoke: nochmal","replacement":{"bookingDate":"2026-09-04"}}'
 expect "second correction refused" "$correct_status" 409
 expect "names the first" "$(echo "$correct_body" | jq -r .error.details.reason)" ALREADY_CORRECTED
+# VC-X-21: read it back, with its version as ETag; the list finds it on its account.
+read_out=$(curl -s -D - "$DE/transactions/$transaction_id" -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id")
+expect "read corrected" "$(echo "$read_out" | sed '1,/^\r$/d' | jq -r .status)" CORRECTED
+expect "read etag" "$(echo "$read_out" | grep -i '^etag:' | tr -d '\r' | cut -d' ' -f2)" "\"$(echo "$read_out" | sed '1,/^\r$/d' | jq -r .version)\""
+expect "list on account" "$(curl -s "$DE/transactions?financialAccountId=$ledger_account&status=CORRECTED" -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" | jq -r '[.items[].transactionId] | index("'"$transaction_id"'") != null')" true
 
 # VC-X-16: amend an unconfirmed Transaction, ignore it and restore it; the corrected one is not amendable.
 on_transaction() { # id action [body] — POST /transactions/<id>/<action>; sets on_status and on_body

@@ -7,6 +7,8 @@ import {
   closeFinancialAccount,
   confirmTransaction,
   correctTransaction,
+  getTransaction,
+  listTransactions,
   amendTransaction,
   ignoreTransaction,
   restoreTransaction,
@@ -28,6 +30,7 @@ import {
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
+  PostgresTransactionQueries,
   PostgresUnconfirmedTransactionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
@@ -98,6 +101,8 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       createManualTransaction: createManualTransaction({ repository: transactions }),
       confirmTransaction: confirmTransaction({ repository: transactions }),
       correctTransaction: correctTransaction({ repository: new PostgresCorrectionRepository(db) }),
+      getTransaction: getTransaction({ queries: new PostgresTransactionQueries(db) }),
+      listTransactions: listTransactions({ queries: new PostgresTransactionQueries(db) }),
       amendTransaction: amendTransaction({ repository: unconfirmed }),
       ignoreTransaction: ignoreTransaction({ repository: unconfirmed }),
       restoreTransaction: restoreTransaction({ repository: unconfirmed }),
@@ -265,6 +270,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       ['POST', `/transactions/${rentId}/amend`, { description: 'x' }],
       ['POST', `/transactions/${rentId}/ignore`, { reason: 'x' }],
       ['POST', `/transactions/${rentId}/restore`],
+      ['GET', `/transactions/${rentId}`],
       ['GET', `/imports/${first.importBatchId}`],
       ['GET', `/imports/${review.importBatchId}/review-items`],
       ['POST', `/imports/${review.importBatchId}/review-items/${itemId}/resolve`, { resolution: 'SKIP' }],
@@ -273,6 +279,16 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       expect((await call(REALM_B, method, path, body)).status, `${method} ${path}`).toBe(404);
     }
     expect((await upload(REALM_B, account.financialAccountId, september)).status).toBe(404);
+    expect(await json(await call(REALM_B, 'GET', `/transactions?financialAccountId=${account.financialAccountId}`), 200)).toMatchObject({
+      items: [],
+      total: 0,
+    });
+    // Realm A reads its confirmed rent with the current version as ETag (VC-X-21).
+    const read = await call(REALM_A, 'GET', `/transactions/${rentId}`);
+    expect(read.status).toBe(200);
+    const body = (await read.json()) as { status: string; version: number; splits: unknown[] };
+    expect(body).toMatchObject({ status: 'CONFIRMED', splits: [{ financialCategoryCode: 'RENT_BASE' }, { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' }] });
+    expect(read.headers.get('etag')).toBe(`"${body.version}"`);
     expect((await pool.query(`SELECT count(*) FROM audit_record`)).rows).toEqual(before.rows);
   });
 

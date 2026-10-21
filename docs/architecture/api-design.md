@@ -405,7 +405,8 @@ Conflict should return `VERSION_CONFLICT`: `412 Precondition Failed` when the ve
   - The responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`.
   - `correct` returns three Transactions, each with its `version` in the body.
   - A **replayed** create (`Idempotency-Key`, §15) answers with the snapshot recorded then, its `ETag` included. That version is stale if the Transaction changed since; it is the original answer, not the current state.
-- **Reading the current version:** there is no `GET /transactions/{id}` yet (backlog VC-X-21). After a `412` a client must not simply retry with `details.currentVersion`, because that would defeat the check. It has to read the Transaction again first.
+- **Reading the current version:** `GET /transactions/{id}` (§30.1) answers with the current `ETag`. After a `412` a client must not simply retry with `details.currentVersion`, because that would defeat the check. It reads the Transaction again, shows what changed, and only then retries.
+- **Parsing (RFC 9110 §5.6.1, §8.8.3):** the list is read tag by tag, so a tag may contain a comma, and empty list elements are allowed (`"3", , "4"`). A header without any tag (`,`) is `400`.
 - **Optional for now:** there is no UI yet. A client that lets people edit should always send `If-Match`. Making it required (`428 Precondition Required`) is a later decision, and it applies to **all** changing commands at once, not per endpoint.
 
 ---
@@ -761,6 +762,25 @@ Useful filters:
 - source
 - unreconciled
 - needs review
+
+## 30.1 Implementation (VC-X-21)
+
+- **`GET /api/v1/transactions/{id}`:** `200` with the Transaction (§31.2 plus the confirmation and correction fields) and its `splits` (as §33.2, in position order), with `ETag: "<version>"` for the next `If-Match` (§16.1). Both are read in one snapshot. Unknown or foreign → `404`, a malformed id → `400`.
+- **`GET /api/v1/transactions`:** `200` with `{ items, page, pageSize, total }` (§11), newest booking first (then creation, then id). `items` are Transactions without their splits. Filters, all optional and combined with AND:
+  - `financialAccountId`;
+  - `status`: a comma-separated list, any of them;
+  - `reviewable=true`: `IMPORTED` or `UNREVIEWED`, and together with `status` both must hold;
+  - `propertyReferenceId`: the Transaction's own **or** one of its splits';
+  - `bookingDateFrom` / `bookingDateTo`: inclusive, `400 INVALID_RANGE` when inverted.
+- **Paging:** `page` starts at 1. `pageSize` is 1–200, default 50. `total` and `items` come from the same snapshot.
+- **Refusals:** unknown parameters are `400`.
+- **Realm:** only the caller's Realm is ever read; another Realm's ids simply match nothing.
+- **No match possible:** `status` together with `reviewable=true` without a common status (e.g. `status=CONFIRMED&reviewable=true`) is an empty page, not an error.
+- **Raw list:** without `status` the list also holds `CORRECTED` originals, reversals and `IGNORED` Transactions.
+- **Not yet:**
+  - A `current=true` filter for a UI: `CONFIRMED`/`RECONCILED` without reversals, the current Transactions of §35.3.
+  - The filters for financial category, counterparty, source, unreconciled and needs review.
+  - The alias `GET /property-references/{id}/transactions` (use `?propertyReferenceId=`).
 
 ---
 

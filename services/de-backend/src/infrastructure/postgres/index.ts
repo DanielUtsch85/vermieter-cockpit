@@ -15,3 +15,4 @@ export { PostgresTransactionSplitRepository } from './transaction-split-reposito
 export { PostgresFinancialCategoryRepository } from './financial-category-repository.js';
 export { PostgresCorrectionRepository } from './correction-repository.js';
 export { PostgresUnconfirmedTransactionRepository } from './unconfirmed-transaction-repository.js';
+export { PostgresTransactionQueries } from './transaction-query-repository.js';

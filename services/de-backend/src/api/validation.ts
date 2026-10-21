@@ -43,9 +43,42 @@ export function readIdempotencyKey(req: Request, res: Response): { key: string |
   return undefined;
 }
 
-/** One entity tag of `If-Match` (RFC 9110 §8.8.3): `"…"`, optionally weak (`W/"…"`). */
-const ENTITY_TAG = /^(W\/)?"([\x21\x23-\x7e]*)"$/;
 const VERSION_TAG = /^\d{1,9}$/;
+
+/**
+ * The entity tags of an `If-Match` list (RFC 9110 §8.8.3, §5.6.1): `"…"`, optionally weak (`W/"…"`), separated by
+ * commas, with empty elements allowed. Read character by character, since a tag may itself contain a comma.
+ * Undefined when the header is not such a list.
+ */
+function entityTags(header: string): { readonly weak: boolean; readonly opaque: string }[] | undefined {
+  const tags: { weak: boolean; opaque: string }[] = [];
+  let i = 0;
+  const skipSpace = () => {
+    while (header[i] === ' ' || header[i] === '\t') i++;
+  };
+  for (;;) {
+    skipSpace();
+    if (i === header.length) return tags;
+    if (header[i] === ',') {
+      i++; // an empty list element
+      continue;
+    }
+    const weak = header.startsWith('W/', i);
+    if (weak) i += 2;
+    if (header[i] !== '"') return undefined;
+    const end = header.indexOf('"', i + 1);
+    if (end === -1) return undefined;
+    const opaque = header.slice(i + 1, end);
+    // etagc: %x21 / %x23-7E / obs-text — no control characters, no DEL.
+    if (!/^[\x21\x23-\x7e\x80-\xff]*$/.test(opaque)) return undefined;
+    tags.push({ weak, opaque });
+    i = end + 1;
+    skipSpace();
+    if (i === header.length) return tags;
+    if (header[i] !== ',') return undefined;
+    i++;
+  }
+}
 
 /**
  * The optional `If-Match` header (api-design.md §16.1, RFC 9110 §13.1.1) as the versions it names: `{ versions }`,
@@ -56,17 +89,12 @@ const VERSION_TAG = /^\d{1,9}$/;
 export function readIfMatch(req: Request, res: Response): { versions: readonly number[] | undefined } | undefined {
   const header = req.headers['if-match'];
   if (header === undefined || header.trim() === '*') return { versions: undefined };
-  const versions: number[] = [];
-  for (const entry of header.split(',')) {
-    const tag = ENTITY_TAG.exec(entry.trim());
-    if (tag === null) {
-      sendValidationError(res, [{ field: 'If-Match', code: 'INVALID_FORMAT' }]);
-      return undefined;
-    }
-    const [, weak, opaque = ''] = tag;
-    if (weak === undefined && VERSION_TAG.test(opaque)) versions.push(Number(opaque));
+  const tags = entityTags(header);
+  if (tags === undefined || tags.length === 0) {
+    sendValidationError(res, [{ field: 'If-Match', code: 'INVALID_FORMAT' }]);
+    return undefined;
   }
-  return { versions };
+  return { versions: tags.filter((t) => !t.weak && VERSION_TAG.test(t.opaque)).map((t) => Number(t.opaque)) };
 }
 
 /** Field codes for amounts (api-design.md §31.1: 400 for each). */
