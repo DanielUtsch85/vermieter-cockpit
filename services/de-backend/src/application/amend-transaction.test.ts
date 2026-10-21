@@ -33,13 +33,14 @@ const actor = { actorType: 'USER', actorId: 'anna@example.com' };
 describe('amend / ignore / restore use cases (api-design.md §31.3–31.4)', () => {
   it('pass Realm and actor; return the Transaction', async () => {
     const { repo, calls } = repository({
-      amend: { kind: 'AMENDED', transaction, changed: true },
+      amend: { kind: 'AMENDED', transaction, changed: true, splitsDropped: false },
       ignore: { kind: 'IGNORED', transaction, replayed: true },
       restore: { kind: 'RESTORED', transaction },
     });
     expect(await amendTransaction({ repository: repo })({ principal, transactionId: 't1', changes: { description: 'x' } })).toEqual({
       transaction,
       changed: true,
+      splitsDropped: false,
     });
     expect(await ignoreTransaction({ repository: repo })({ principal, transactionId: 't1', reason: 'r' })).toEqual({ transaction, replayed: true });
     expect(await restoreTransaction({ repository: repo })({ principal, transactionId: 't1' })).toEqual({ transaction });

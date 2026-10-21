@@ -469,12 +469,12 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
     const base = await startWith({
       amendTransaction: async (input) => {
         seen.push(input);
-        return { transaction, changed: true };
+        return { transaction, changed: true, splitsDropped: true };
       },
     });
     const res = await postTo(base, 'amend', { valueDate: null, description: '', propertyReferenceId: PROPERTY.toUpperCase(), amount: { amount: '1200', currency: 'EUR' } });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ transactionId: transaction.id });
+    expect(await res.json()).toMatchObject({ transactionId: transaction.id, splitsDropped: true });
     expect(seen[0]?.changes).toEqual({ valueDate: null, description: null, propertyReferenceId: PROPERTY, amount: Money.of('1200', 'EUR') });
   });
 

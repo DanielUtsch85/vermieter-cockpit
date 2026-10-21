@@ -134,11 +134,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
 
     it('a changed amount drops the split set and returns a CLASSIFIED Transaction to UNREVIEWED; other changes keep it', async () => {
       const kept = await classified();
-      expect(await unconfirmed.amend(kept, REALM, { description: 'Kaltmiete + NK' }, actor)).toMatchObject({ transaction: { status: 'CLASSIFIED' } });
+      expect(await unconfirmed.amend(kept, REALM, { description: 'Kaltmiete + NK' }, actor)).toMatchObject({
+        splitsDropped: false,
+        transaction: { status: 'CLASSIFIED' },
+      });
       expect(await splitCount(kept)).toBe(2);
 
       const dropped = await classified();
-      expect(await unconfirmed.amend(dropped, REALM, { amount: eur('1200.00') }, actor)).toMatchObject({ transaction: { status: 'UNREVIEWED' } });
+      expect(await unconfirmed.amend(dropped, REALM, { amount: eur('1200.00') }, actor)).toMatchObject({
+        splitsDropped: true,
+        transaction: { status: 'UNREVIEWED' },
+      });
       expect(await splitCount(dropped)).toBe(0);
       expect((await audits(dropped)).at(-1)?.metadata).toMatchObject({ splitsDropped: true, previousStatus: 'CLASSIFIED', status: 'UNREVIEWED' });
       // It can be split again for the new amount and confirmed.
@@ -152,17 +158,29 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
       expect((await transactions.confirm(dropped, REALM, actor)).kind).toBe('CONFIRMED');
     });
 
-    it('an imported Transaction keeps the statement’s cash fields', async () => {
+    it('an imported Transaction keeps the values of its bank row, the Verwendungszweck included (review on #23)', async () => {
       const id = await manual();
       await pool.query(`UPDATE ledger_transaction SET provenance = 'BANK_CSV', status = 'IMPORTED' WHERE id = $1`, [id]);
       expect(await unconfirmed.amend(id, REALM, { amount: eur('1.00'), direction: 'OUTFLOW' }, actor)).toEqual({
         kind: 'IMPORTED_FIELDS_FIXED',
         fields: ['amount', 'direction'],
       });
-      expect(await unconfirmed.amend(id, REALM, { description: 'Miete Whg. 3' }, actor)).toMatchObject({
-        kind: 'AMENDED',
-        transaction: { description: 'Miete Whg. 3', status: 'IMPORTED', provenance: 'BANK_CSV' },
+      expect(await unconfirmed.amend(id, REALM, { description: 'Miete Whg. 3' }, actor)).toEqual({
+        kind: 'IMPORTED_FIELDS_FIXED',
+        fields: ['description'],
       });
+      const reference = (
+        await properties.linkOnce(
+          { mreRealmId: REALM, mrePropertyId: '64b0c0ffee00000000000d02', displayName: null, cachedAddress: null, cachedSurface: null, refreshedAt: new Date() },
+          actor,
+        )
+      ).reference.id;
+      expect(await unconfirmed.amend(id, REALM, { propertyReferenceId: reference }, actor)).toMatchObject({
+        kind: 'AMENDED',
+        transaction: { propertyReferenceId: reference, status: 'IMPORTED', provenance: 'BANK_CSV' },
+      });
+      // The bank text is untouched.
+      expect((await pool.query(`SELECT description FROM ledger_transaction WHERE id = $1`, [id])).rows).toEqual([{ description: 'Miete September' }]);
     });
 
     it('moves to another open account of the Realm; refuses a different closed one, a foreign one and a confirmed Transaction', async () => {

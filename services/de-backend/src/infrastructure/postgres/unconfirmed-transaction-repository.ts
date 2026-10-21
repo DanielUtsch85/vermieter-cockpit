@@ -44,7 +44,7 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
           const transaction = await lockAndRead(trx, id, mreRealmId);
           if (transaction === undefined) return { kind: 'NOT_FOUND' };
           const plan = planAmend(transaction, changes);
-          if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', transaction, changed: false };
+          if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', transaction, changed: false, splitsDropped: false };
           if (plan.kind !== 'AMEND') return plan;
           const { values } = plan;
 
@@ -91,7 +91,7 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
               ...(plan.dropSplits ? { splitsDropped: true, previousStatus: transaction.status, status: amended.status } : {}),
             },
           });
-          return { kind: 'AMENDED', transaction: amended, changed: true };
+          return { kind: 'AMENDED', transaction: amended, changed: true, splitsDropped: plan.dropSplits };
         });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;

@@ -11,9 +11,12 @@ import type { BusinessDate, Direction, Provenance, Transaction, TransactionStatu
 /** States that may still change (the same as the splittable ones). */
 export const AMENDABLE_STATUSES = ['IMPORTED', 'UNREVIEWED', 'CLASSIFIED'] as const satisfies readonly TransactionStatus[];
 
-/** Fields of the bank row: fixed on imported Transactions, which keep the statement's values (§31.3). */
-export const CASH_FIELDS = ['financialAccountId', 'amount', 'direction', 'bookingDate', 'valueDate'] as const;
-export type CashField = (typeof CASH_FIELDS)[number];
+/**
+ * Fields an imported Transaction takes from its bank row: fixed there, it keeps the statement's values (§31.3).
+ * `description` is the bank's Verwendungszweck — its only copy, which review items compare and rent matching reads.
+ */
+export const SOURCE_FIELDS = ['financialAccountId', 'amount', 'direction', 'bookingDate', 'valueDate', 'description'] as const;
+export type SourceField = (typeof SOURCE_FIELDS)[number];
 
 /** The fields to change; `undefined` = keep, `null` clears an optional one. */
 export interface TransactionChanges {
@@ -26,7 +29,7 @@ export interface TransactionChanges {
   readonly propertyReferenceId?: string | null;
 }
 
-export type AmendedField = CashField | 'description' | 'propertyReferenceId';
+export type AmendedField = SourceField | 'propertyReferenceId';
 
 /** The values after the amendment. */
 export interface AmendedValues {
@@ -51,7 +54,7 @@ export type AmendPlan =
   /** Every given value equals the current one: a 200 no-op (naturally idempotent). */
   | { readonly kind: 'UNCHANGED' }
   | { readonly kind: 'NOT_AMENDABLE'; readonly status: TransactionStatus }
-  | { readonly kind: 'IMPORTED_FIELDS_FIXED'; readonly fields: readonly CashField[] };
+  | { readonly kind: 'IMPORTED_FIELDS_FIXED'; readonly fields: readonly SourceField[] };
 
 /** Where an unconfirmed Transaction starts (domain-model.md §21): IMPORTED from a source, UNREVIEWED by hand. */
 export function entryStatus(provenance: Provenance): 'IMPORTED' | 'UNREVIEWED' {
@@ -83,7 +86,7 @@ export function planAmend(transaction: Transaction, changes: TransactionChanges)
   if (changed.length === 0) return { kind: 'UNCHANGED' };
 
   if (transaction.provenance !== 'MANUAL') {
-    const fixed = changed.filter((f): f is CashField => (CASH_FIELDS as readonly string[]).includes(f));
+    const fixed = changed.filter((f): f is SourceField => (SOURCE_FIELDS as readonly string[]).includes(f));
     if (fixed.length > 0) return { kind: 'IMPORTED_FIELDS_FIXED', fields: fixed };
   }
   const dropSplits = amountChanged && transaction.status === 'CLASSIFIED';
@@ -115,7 +118,8 @@ export function planRestore(transaction: Pick<Transaction, 'status' | 'provenanc
 }
 
 export type AmendOutcome =
-  | { readonly kind: 'AMENDED'; readonly transaction: Transaction; readonly changed: boolean }
+  /** `splitsDropped`: a changed amount discarded the split set (also in the response, §31.3). */
+  | { readonly kind: 'AMENDED'; readonly transaction: Transaction; readonly changed: boolean; readonly splitsDropped: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | Exclude<AmendPlan, { kind: 'AMEND' } | { kind: 'UNCHANGED' }>
   | { readonly kind: 'ACCOUNT_NOT_FOUND'; readonly financialAccountId: string }

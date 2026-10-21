@@ -800,15 +800,21 @@ An explicit command, not a `PATCH` (§3). A confirmed Transaction is never amend
 
 - **Body:** only the fields to change, at least one. The fields are `financialAccountId`, `amount`, `direction`, `bookingDate`, `valueDate`, `description` and `propertyReferenceId`, with the rules of §31.2. An explicit `null` clears `valueDate`, `description` or `propertyReferenceId`. Unknown keys and an empty body are `400`.
 - **Amendable:** `IMPORTED`, `UNREVIEWED`, `CLASSIFIED`. Otherwise `409 CONFLICT` with `reason = "NOT_AMENDABLE"` and the `status`. For a confirmed Transaction use `correct`; for an `IGNORED` one, `restore` it first.
-- **Imported Transactions** (`provenance` not `MANUAL`) keep the bank statement's values. Account, amount, direction and dates are `409 CONFLICT` with `reason = "IMPORTED_FIELDS_FIXED"` and `fields`. Only `description` and `propertyReferenceId` change. A wrong bank row is ignored, or corrected after confirmation, which keeps its import identity (§35.3).
+- **Imported Transactions** (`provenance` not `MANUAL`) keep the values of their bank row: account, amount, direction, dates **and `description`**.
+  - Changing any of them is `409 CONFLICT` with `reason = "IMPORTED_FIELDS_FIXED"` and `fields`. Only `propertyReferenceId` changes. Repeating a current value is fine.
+  - `description` is the bank's Verwendungszweck, and its only copy (AGENTS.md §22: source information is not destroyed). Review items compare it side by side (§32.3), and rent matching reads it (§38).
+  - A note of the user's own comes later as a separate field.
+  - A wrong bank row is ignored, or corrected after confirmation, which keeps the original and its import identity (§35.3).
 - **Account:**
   - The target must be in the Realm (`404`) and in the amount's currency (`400 CURRENCY_MISMATCH`).
   - Moving to a **different, closed** account is `409 ACCOUNT_CLOSED`. The Transaction's own account may have been closed since, as in §35.2.
   - The account is locked `FOR SHARE` after the Transaction (lock order §35.5).
 - **Splits:**
-  - A changed amount invalidates the split set of a `CLASSIFIED` Transaction. The set is dropped, and the Transaction returns to `UNREVIEWED`, or to `IMPORTED` if it came from an import. The response shows the new `status`, and the AuditRecord carries `splitsDropped`.
+  - A changed amount invalidates the split set of a `CLASSIFIED` Transaction. The set is dropped, and the Transaction returns to `UNREVIEWED` (only manual Transactions can change their amount).
+  - The response carries `splitsDropped: true` next to the Transaction's fields and the new `status`, and the AuditRecord carries `splitsDropped` too. Otherwise the response has `splitsDropped: false`.
   - Other changes keep the split set, and with it `CLASSIFIED`.
-- **`200`** with the Transaction (version + 1, AuditRecord `AMENDED` with each changed field's old and new value). Values equal to the current ones are a `200` no-op without a new version or AuditRecord (naturally idempotent, like §33).
+- **`200`** with the Transaction (version + 1, AuditRecord `AMENDED` with each changed field's old and new value) and `splitsDropped`. Values equal to the current ones are a `200` no-op without a new version or AuditRecord (naturally idempotent, like §33).
+- **Concurrency:** the row lock serializes two amendments, but there is no version check yet: the later one wins ("last write wins"). `If-Match: <version>` → `409 VERSION_CONFLICT` (§16) is backlog VC-X-20.
 
 ## 31.4 Ignore and restore (VC-X-16)
 
@@ -818,7 +824,8 @@ POST /api/v1/transactions/{id}/restore
 ```
 
 - **`ignore`:**
-  - Takes an `IMPORTED`, `UNREVIEWED` or `CLASSIFIED` Transaction to `IGNORED` (domain-model §21). It is then excluded from ledger totals, not confirmable and not amendable, and its splits are frozen but kept.
+  - Takes an `IMPORTED`, `UNREVIEWED` or `CLASSIFIED` Transaction to `IGNORED` (domain-model §21). It is then excluded from ledger totals, not confirmable and not amendable. Its splits are kept and cannot be replaced through the API (§33 refuses `IGNORED`).
+  - That freeze is enforced by the application, not the database: `transaction_split_frozen` (0009) covers only the confirmed states. `restore` therefore relies on the splits being unchanged, and a later confirmation still re-checks the sum (0010).
   - `reason` is required (trimmed, 1–500) and goes into the AuditRecord `IGNORED`.
   - Already `IGNORED` is a `200` no-op with `Idempotent-Replayed: true`.
   - A confirmed Transaction is `409 CONFLICT` with `reason = "NOT_IGNORABLE"`: it is corrected, not ignored.
@@ -827,6 +834,7 @@ POST /api/v1/transactions/{id}/restore
   - Takes an `IGNORED` Transaction back to `CLASSIFIED` if it kept a split set. Those splits still cover its amount, which cannot change while ignored.
   - Otherwise it goes back to its entry status (`UNREVIEWED` for manual Transactions, `IMPORTED` for imported ones).
   - Writes the AuditRecord `RESTORED`. Anything not `IGNORED` is `409 CONFLICT` with `reason = "NOT_IGNORED"` and the `status`.
+  - **Retry:** unlike `ignore`, a repeated `restore` is not a `200` no-op, because the target state is not known from the request alone. A client whose first answer was lost gets `409 NOT_IGNORED`. The `status` there is the state the first `restore` reached, so `NOT_IGNORED` with an unconfirmed `status` means "already restored".
 - Both take the Transaction's row lock (§34.2) and answer `404` for an unknown or foreign Transaction.
 
 ---

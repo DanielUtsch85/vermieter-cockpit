@@ -1,5 +1,5 @@
 import type {
-  CashField,
+  SourceField,
   Transaction,
   TransactionChanges,
   TransactionStatus,
@@ -32,7 +32,7 @@ export class TransactionNotAmendableError extends Error {
 export class ImportedFieldsFixedError extends Error {
   override readonly name = 'ImportedFieldsFixedError';
 
-  constructor(readonly fields: readonly CashField[]) {
+  constructor(readonly fields: readonly SourceField[]) {
     super(`Fields of an imported Transaction cannot be amended: ${fields.join(', ')}`);
   }
 }
@@ -67,14 +67,14 @@ export type AmendTransaction = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
   readonly changes: TransactionChanges;
-}) => Promise<{ readonly transaction: Transaction; readonly changed: boolean }>;
+}) => Promise<{ readonly transaction: Transaction; readonly changed: boolean; readonly splitsDropped: boolean }>;
 
 export function amendTransaction(deps: { readonly repository: UnconfirmedTransactionRepository }): AmendTransaction {
   return async ({ principal, transactionId, changes }) => {
     const outcome = await deps.repository.amend(transactionId, principal.mreRealmId, changes, actorOf(principal));
     switch (outcome.kind) {
       case 'AMENDED':
-        return { transaction: outcome.transaction, changed: outcome.changed };
+        return { transaction: outcome.transaction, changed: outcome.changed, splitsDropped: outcome.splitsDropped };
       case 'NOT_FOUND':
         throw new TransactionNotFoundError(transactionId);
       case 'NOT_AMENDABLE':

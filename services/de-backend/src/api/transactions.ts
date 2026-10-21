@@ -430,8 +430,9 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     };
     commands
       .amend({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), changes })
-      .then(({ transaction }) => {
-        res.json(toDto(transaction));
+      .then(({ transaction, splitsDropped }) => {
+        // The Transaction plus whether a changed amount discarded its split set (§31.3).
+        res.json({ ...toDto(transaction), splitsDropped });
       })
       .catch((error: unknown) => {
         if (error instanceof TransactionNotFoundError) {
@@ -446,7 +447,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             status: error.status,
           });
         } else if (error instanceof ImportedFieldsFixedError) {
-          sendError(res, 409, 'CONFLICT', 'An imported Transaction keeps the bank statement’s values.', {
+          sendError(res, 409, 'CONFLICT', 'An imported Transaction keeps the values of its bank row.', {
             reason: 'IMPORTED_FIELDS_FIXED',
             fields: error.fields,
           });

@@ -57,15 +57,17 @@ describe('planAmend (api-design.md §31.3)', () => {
     expect(planAmend(tx('UNREVIEWED'), { amount: eur('1200.00') })).toMatchObject({ dropSplits: false, nextStatus: 'UNREVIEWED' });
   });
 
-  it('an imported Transaction keeps the statement’s cash fields; description and PropertyReference may change', () => {
+  it('an imported Transaction keeps the values of its bank row, the Verwendungszweck included; only its PropertyReference may change', () => {
     expect(planAmend(tx('IMPORTED', 'BANK_CSV'), { amount: eur('1.00'), bookingDate: '2026-09-03' as BusinessDate })).toEqual({
       kind: 'IMPORTED_FIELDS_FIXED',
       fields: ['amount', 'bookingDate'],
     });
-    // Repeating a cash field's current value is fine.
-    expect(planAmend(tx('CLASSIFIED', 'BANK_CSV'), { amount: eur('1250.00'), description: 'Kaltmiete' })).toMatchObject({
+    expect(planAmend(tx('IMPORTED', 'BANK_CSV'), { description: 'Kaltmiete' })).toEqual({ kind: 'IMPORTED_FIELDS_FIXED', fields: ['description'] });
+    expect(planAmend(tx('IMPORTED', 'BANK_CSV'), { description: null })).toEqual({ kind: 'IMPORTED_FIELDS_FIXED', fields: ['description'] });
+    // Repeating a bank value is fine.
+    expect(planAmend(tx('CLASSIFIED', 'BANK_CSV'), { amount: eur('1250.00'), description: 'Miete', propertyReferenceId: 'p2' })).toMatchObject({
       kind: 'AMEND',
-      changed: ['description'],
+      changed: ['propertyReferenceId'],
       nextStatus: 'CLASSIFIED',
     });
   });

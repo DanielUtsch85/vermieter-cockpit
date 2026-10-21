@@ -91,12 +91,12 @@ export type {
   PlannedReplacement,
   ReplacementInput,
 } from './correct-transaction.js';
-export { AMENDABLE_STATUSES, CASH_FIELDS, entryStatus, planAmend, planIgnore, planRestore } from './amend-transaction.js';
+export { AMENDABLE_STATUSES, SOURCE_FIELDS, entryStatus, planAmend, planIgnore, planRestore } from './amend-transaction.js';
 export type {
   AmendedField,
   AmendOutcome,
   AmendPlan,
-  CashField,
+  SourceField,
   IgnoreOutcome,
   RestoreOutcome,
   TransactionChanges,
