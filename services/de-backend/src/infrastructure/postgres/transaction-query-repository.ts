@@ -67,6 +67,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
       let query = db.selectFrom('ledger_transaction').where('ledger_transaction.mre_realm_id', '=', mreRealmId);
       if (filter.financialAccountId !== undefined) query = query.where('financial_account_id', '=', filter.financialAccountId);
       if (filter.statuses !== undefined) query = query.where('status', 'in', filter.statuses);
+      if (filter.provenances !== undefined) query = query.where('provenance', 'in', filter.provenances);
       if (filter.bookingDateFrom !== undefined) query = query.where('booking_date', '>=', filter.bookingDateFrom);
       if (filter.bookingDateTo !== undefined) query = query.where('booking_date', '<=', filter.bookingDateTo);
       if (filter.financialCategoryCode !== undefined) {
