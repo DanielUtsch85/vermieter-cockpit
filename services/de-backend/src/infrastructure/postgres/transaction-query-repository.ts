@@ -59,46 +59,53 @@ export class PostgresTransactionQueries implements TransactionQueries {
     const empty: TransactionPage = { items: [], page: page.page, pageSize: page.pageSize, total: 0 };
     // No status can match (e.g. `status` and `reviewable` without overlap); `IN ()` would be a syntax error.
     if (filter.statuses?.length === 0) return empty;
-    let query = this.db.selectFrom('ledger_transaction').where('ledger_transaction.mre_realm_id', '=', mreRealmId);
-    if (filter.financialAccountId !== undefined) {
-      if (!UUID.test(filter.financialAccountId)) return empty;
-      query = query.where('financial_account_id', '=', filter.financialAccountId);
-    }
-    if (filter.statuses !== undefined) query = query.where('status', 'in', filter.statuses);
-    if (filter.bookingDateFrom !== undefined) query = query.where('booking_date', '>=', filter.bookingDateFrom);
-    if (filter.bookingDateTo !== undefined) query = query.where('booking_date', '<=', filter.bookingDateTo);
-    if (filter.propertyReferenceId !== undefined) {
-      const reference = filter.propertyReferenceId;
-      if (!UUID.test(reference)) return empty;
-      query = query.where((eb) =>
-        eb.or([
-          eb('ledger_transaction.property_reference_id', '=', reference),
-          eb.exists(
-            eb
-              .selectFrom('transaction_split')
-              .select('transaction_split.id')
-              .whereRef('transaction_split.transaction_id', '=', 'ledger_transaction.id')
-              .where('transaction_split.property_reference_id', '=', reference),
-          ),
-        ]),
-      );
-    }
+    if (filter.financialAccountId !== undefined && !UUID.test(filter.financialAccountId)) return empty;
+    if (filter.propertyReferenceId !== undefined && !UUID.test(filter.propertyReferenceId)) return empty;
+    // Built on the transaction below, so count and page run in its snapshot.
+    const filtered = (db: Kysely<Database>) => {
+      let query = db.selectFrom('ledger_transaction').where('ledger_transaction.mre_realm_id', '=', mreRealmId);
+      if (filter.financialAccountId !== undefined) query = query.where('financial_account_id', '=', filter.financialAccountId);
+      if (filter.statuses !== undefined) query = query.where('status', 'in', filter.statuses);
+      if (filter.bookingDateFrom !== undefined) query = query.where('booking_date', '>=', filter.bookingDateFrom);
+      if (filter.bookingDateTo !== undefined) query = query.where('booking_date', '<=', filter.bookingDateTo);
+      if (filter.propertyReferenceId !== undefined) {
+        const reference = filter.propertyReferenceId;
+        query = query.where((eb) =>
+          eb.or([
+            eb('ledger_transaction.property_reference_id', '=', reference),
+            eb.exists(
+              eb
+                .selectFrom('transaction_split')
+                .select('transaction_split.id')
+                .whereRef('transaction_split.transaction_id', '=', 'ledger_transaction.id')
+                .where('transaction_split.property_reference_id', '=', reference),
+            ),
+          ]),
+        );
+      }
+      return query;
+    };
     // Count and page in one snapshot, so `total` and `items` agree.
     return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const { n } = await trx
-        .selectFrom(query.select('ledger_transaction.id').as('filtered'))
+      const { n } = await filtered(trx)
         .select((eb) => eb.fn.countAll<string>().as('n'))
         .executeTakeFirstOrThrow();
       const total = Number(n);
-      const rows = await trx
-        .selectFrom('ledger_transaction')
-        .select(COLUMNS)
-        .where('ledger_transaction.id', 'in', query.select('ledger_transaction.id'))
-        .orderBy('ledger_transaction.booking_date', 'desc')
-        .orderBy('ledger_transaction.created_at', 'desc')
-        .orderBy('ledger_transaction.id', 'desc')
+      // First the page's ids, read in order from `ledger_transaction_realm_page_idx` and stopping at the limit; then
+      // the DTO for those rows only. The link subqueries of COLUMNS would otherwise also run for every row the
+      // offset skips (VC-X-19).
+      const newestFirst = <Q extends ReturnType<typeof filtered>>(query: Q) =>
+        query
+          .orderBy('ledger_transaction.booking_date', 'desc')
+          .orderBy('ledger_transaction.created_at', 'desc')
+          .orderBy('ledger_transaction.id', 'desc');
+      const pageIds = newestFirst(filtered(trx))
+        .select('ledger_transaction.id')
         .limit(page.pageSize)
-        .offset((page.page - 1) * page.pageSize)
+        .offset((page.page - 1) * page.pageSize);
+      const rows = await newestFirst(trx.selectFrom('ledger_transaction'))
+        .select(COLUMNS)
+        .where('ledger_transaction.id', 'in', pageIds)
         .execute();
       return { items: rows.map(toDomain), page: page.page, pageSize: page.pageSize, total };
     });

@@ -775,6 +775,7 @@ Useful filters:
   - `propertyReferenceId`: the Transaction's own **or** one of its splits';
   - `bookingDateFrom` / `bookingDateTo`: inclusive, `400 INVALID_RANGE` when inverted.
 - **Paging:** `page` starts at 1. `pageSize` is 1–200, default 50. `total` and `items` come from the same snapshot.
+- **Query plan (VC-X-19, migration 0015):** the page's ids are read in list order from the index `(mre_realm_id, booking_date DESC, created_at DESC, id DESC)`, and the scan stops at offset + limit. Only then is the DTO read for those rows, so the two link subqueries (`reversalTransactionId`, `replacementTransactionId`) run once per row of the page, each an index probe, and never for the rows the offset skips. A plan test (`EXPLAIN`) holds this. A deep page still walks its offset in the index; keyset paging is a later choice.
 - **Refusals:** unknown parameters are `400`.
 - **Realm:** only the caller's Realm is ever read; another Realm's ids simply match nothing.
 - **No match possible:** `status` together with `reviewable=true` without a common status (e.g. `status=CONFIRMED&reviewable=true`) is an empty page, not an error.
