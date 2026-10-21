@@ -90,6 +90,8 @@ service; also run locally with `default_transaction_isolation = repeatable read`
 
 TR confirm "the database keeps a confirmed Transaction and its splits immutable (ADR-037)", "the status of a confirmed Transaction only moves forward; CORRECTED is terminal"; SR "a replacement waiting on a confirm in progress finds the Transaction frozen"; ACC (splits refused after confirm).
 
+`version` (the `ETag`, API §16.1) and `updated_at` change only with a status step, which raises `version` by exactly one (VC-X-22, migration 0013): INV "without a status step, version and updated_at stay; a no-op write is fine", "a status step raises version by exactly one …".
+
 ## 7. Correction chain (VC-1-11)
 
 Specified in API §35.6 and data-model §17.8.
