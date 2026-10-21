@@ -12,6 +12,7 @@ import * as m0010 from './0010_confirm_split_invariant.js';
 import * as m0011 from './0011_correct_transaction.js';
 import * as m0012 from './0012_reverse_transaction.js';
 import * as m0013 from './0013_freeze_transaction_version.js';
+import * as m0014 from './0014_reversal_mirrors_splits.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -33,4 +34,5 @@ export const migrations: Record<string, Migration> = {
   '0011_correct_transaction': m0011,
   '0012_reverse_transaction': m0012,
   '0013_freeze_transaction_version': m0013,
+  '0014_reversal_mirrors_splits': m0014,
 };

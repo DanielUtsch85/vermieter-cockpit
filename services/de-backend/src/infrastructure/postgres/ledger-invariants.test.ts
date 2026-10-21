@@ -291,6 +291,8 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       readonly amount?: string;
       readonly sameDirection?: boolean;
       readonly confirm?: boolean;
+      /** Its splits; default one split of `amount` in OTHER. */
+      readonly splits?: readonly { readonly amount: string; readonly code?: string; readonly propertyReferenceId?: string; readonly description?: string }[];
     }
     /** A reversal or replacement of `originalId` (a copy of it, opposite direction for a reversal), confirmed by default. */
     async function insertLinked(client: pg.PoolClient, originalId: string, linked: Linked): Promise<string> {
@@ -306,11 +308,14 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
         [originalId, linked.role, amount, flip],
       );
       const id = rows[0].id as string;
-      await client.query(
-        `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, created_by)
-         VALUES ($1, $2, 1, $3, 'EUR', $4, 'x')`,
-        [id, REALM, amount, await category('OTHER')],
-      );
+      for (const [i, split] of (linked.splits ?? [{ amount }]).entries()) {
+        await client.query(
+          `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, property_reference_id,
+             description, created_by)
+           VALUES ($1, $2, $3, $4, 'EUR', $5, $6, $7, 'x')`,
+          [id, REALM, i + 1, split.amount, await category(split.code ?? 'OTHER'), split.propertyReferenceId ?? null, split.description ?? null],
+        );
+      }
       if (linked.confirm !== false) {
         await client.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [id]);
       }
@@ -522,6 +527,49 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
           await markCorrected(c, unconfirmed);
         }),
       ).rejects.toThrow(/not confirmed/);
+    });
+
+    it('a reversal mirrors the splits of its original: category, PropertyReference and amount, as a multiset (VC-X-17)', async () => {
+      const reference = await property(REALM, '64b0c0ffee00000000000c17');
+      const original = await transaction();
+      await addSplit(original, 1, '700.00');
+      await pool.query(
+        `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, property_reference_id, created_by)
+         VALUES ($1, $2, 2, 500.00, 'EUR', $3, $4, 'x')`,
+        [original, REALM, await category('RENT_BASE'), reference],
+      );
+      await confirmBySql(original);
+      const reverse = (splits: NonNullable<Linked['splits']>) =>
+        inTransaction(async (c) => {
+          await insertLinked(c, original, { role: 'REVERSAL', splits });
+          await markCorrected(c, original);
+        });
+      // The header matches in each case; only the splits differ.
+      for (const splits of [
+        [{ amount: '1200.00' }],
+        [{ amount: '700.00' }, { amount: '500.00', code: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: reference }],
+        [{ amount: '700.00' }, { amount: '500.00', code: 'RENT_BASE' }],
+        [{ amount: '600.00' }, { amount: '100.00' }, { amount: '500.00', code: 'RENT_BASE', propertyReferenceId: reference }],
+      ]) {
+        await expect(reverse(splits), JSON.stringify(splits)).rejects.toThrow(/does not mirror the splits/);
+      }
+      // Another order of the same splits, with other descriptions, mirrors them.
+      await reverse([{ amount: '500', code: 'RENT_BASE', propertyReferenceId: reference, description: 'Storno' }, { amount: '700.00' }]);
+      const { rows } = await pool.query(`SELECT status FROM ledger_transaction WHERE id = $1`, [original]);
+      expect(rows[0].status).toBe('CORRECTED');
+    });
+
+    it('the mirror is checked at commit: splits may follow the reversal row', async () => {
+      const original = await confirmed();
+      await expect(
+        inTransaction(async (c) => {
+          const reversal = await insertLinked(c, original, { role: 'REVERSAL', confirm: false, splits: [{ amount: '600.00' }, { amount: '600.00' }] });
+          await c.query(`DELETE FROM transaction_split WHERE transaction_id = $1 AND position = 2`, [reversal]);
+          await c.query(`UPDATE transaction_split SET amount = 1200.00 WHERE transaction_id = $1 AND position = 1`, [reversal]);
+          await c.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [reversal]);
+          await markCorrected(c, original);
+        }),
+      ).resolves.toBeUndefined();
     });
 
     it('no correction links to a reversal', async () => {
