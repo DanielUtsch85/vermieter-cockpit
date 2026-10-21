@@ -1,7 +1,8 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { BusinessDate, FinancialAccountId } from '../../domains/ledger/index.js';
+import type { BusinessDate, FinancialAccountId, TransactionStatus } from '../../domains/ledger/index.js';
 import { Money } from '../../shared/index.js';
+import { PostgresCorrectionRepository } from './correction-repository.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { migrateToLatest } from './migrate.js';
@@ -27,6 +28,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
   let splits: PostgresTransactionSplitRepository;
   let accounts: PostgresFinancialAccountRepository;
   let properties: PostgresPropertyReferenceRepository;
+  let corrections: PostgresCorrectionRepository;
 
   beforeAll(async () => {
     const admin = new pg.Client({ connectionString: databaseUrl });
@@ -41,6 +43,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     splits = new PostgresTransactionSplitRepository(db);
     accounts = new PostgresFinancialAccountRepository(db);
     properties = new PostgresPropertyReferenceRepository(db);
+    corrections = new PostgresCorrectionRepository(db);
   });
 
   afterAll(async () => {
@@ -144,5 +147,46 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     const page = await queries.list(REALM, { propertyReferenceId: reference }, { page: 1, pageSize: 50 });
     expect(page.items.map((t) => t.id)).toEqual([viaSplit, own]);
     expect(page.total).toBe(2);
+  });
+
+  it('list current=true: confirmed or reconciled and not a reversal, so a chain shows only its current member (§35.3)', async () => {
+    const account = await openAccount();
+    const confirmed = async (day: string) => {
+      const id = await book(account, `2026-06-${day}`);
+      await splits.replaceSplits(id, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, description: null }], actor);
+      await transactions.confirm(id, REALM, actor);
+      return id;
+    };
+    const plain = await confirmed('01');
+    const corrected = await confirmed('02');
+    const correction = await corrections.correct(
+      corrected,
+      REALM,
+      {
+        reason: 'Betrag',
+        replacement: {
+          amount: eur('12.00'),
+          splits: [{ amount: eur('12.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, description: null }],
+        },
+      },
+      actor,
+    );
+    if (correction.kind !== 'CORRECTED' || correction.result.replacement === null) throw new Error(correction.kind);
+    const reversed = await confirmed('03');
+    expect((await corrections.correct(reversed, REALM, { reason: 'Doppelt', replacement: null }, actor)).kind).toBe('CORRECTED');
+    const reconciled = await confirmed('04');
+    await pool.query(`UPDATE ledger_transaction SET status = 'RECONCILED', version = version + 1 WHERE id = $1`, [reconciled]);
+    await book(account, '2026-06-05');
+
+    const current = await queries.list(REALM, { financialAccountId: account, current: true }, { page: 1, pageSize: 50 });
+    expect(current.items.map((t) => t.id)).toEqual([reconciled, correction.result.replacement.id, plain]);
+    expect(current.total).toBe(3);
+    // The raw list holds all eight: the chain stays visible (§30.1).
+    expect((await queries.list(REALM, { financialAccountId: account }, { page: 1, pageSize: 50 })).total).toBe(8);
+    // Combined with status like any filter.
+    const currentWith = (statuses: TransactionStatus[]) =>
+      queries.list(REALM, { financialAccountId: account, current: true, statuses }, { page: 1, pageSize: 50 });
+    expect((await currentWith(['RECONCILED'])).items.map((t) => t.id)).toEqual([reconciled]);
+    expect((await currentWith(['CORRECTED', 'UNREVIEWED'])).total).toBe(0);
   });
 });

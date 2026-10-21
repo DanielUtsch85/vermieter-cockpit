@@ -104,5 +104,5 @@ export type {
   TransactionChanges,
   UnconfirmedTransactionRepository,
 } from './amend-transaction.js';
-export { REVIEWABLE_STATUSES } from './transaction-query.js';
+export { CURRENT_STATUSES, REVIEWABLE_STATUSES } from './transaction-query.js';
 export type { PageRequest, TransactionFilter, TransactionPage, TransactionQueries } from './transaction-query.js';

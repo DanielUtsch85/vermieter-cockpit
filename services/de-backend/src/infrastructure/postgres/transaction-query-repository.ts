@@ -1,11 +1,12 @@
 import type { Kysely } from 'kysely';
-import type {
-  PageRequest,
-  Transaction,
-  TransactionFilter,
-  TransactionPage,
-  TransactionQueries,
-  TransactionSplit,
+import {
+  CURRENT_STATUSES,
+  type PageRequest,
+  type Transaction,
+  type TransactionFilter,
+  type TransactionPage,
+  type TransactionQueries,
+  type TransactionSplit,
 } from '../../domains/ledger/index.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
@@ -68,6 +69,11 @@ export class PostgresTransactionQueries implements TransactionQueries {
       if (filter.statuses !== undefined) query = query.where('status', 'in', filter.statuses);
       if (filter.bookingDateFrom !== undefined) query = query.where('booking_date', '>=', filter.bookingDateFrom);
       if (filter.bookingDateTo !== undefined) query = query.where('booking_date', '<=', filter.bookingDateTo);
+      if (filter.current === true) {
+        query = query
+          .where('status', 'in', CURRENT_STATUSES)
+          .where((eb) => eb.or([eb('correction_role', 'is', null), eb('correction_role', '<>', 'REVERSAL')]));
+      }
       if (filter.propertyReferenceId !== undefined) {
         const reference = filter.propertyReferenceId;
         query = query.where((eb) =>
