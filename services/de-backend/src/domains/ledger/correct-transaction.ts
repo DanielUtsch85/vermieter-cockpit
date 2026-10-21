@@ -30,7 +30,8 @@ export interface ReplacementInput {
 
 export interface CorrectionRequest {
   readonly reason: string;
-  readonly replacement: ReplacementInput;
+  /** `null`: reverse only, without a replacement (`reverse`, §35.9, VC-X-15). */
+  readonly replacement: ReplacementInput | null;
 }
 
 /** The replacement as it will be written: the original overlaid with the request. */
@@ -64,9 +65,15 @@ export type CorrectionOriginal = Pick<
 >;
 
 export type CorrectionPlan =
-  | { readonly kind: 'CORRECT'; readonly replacement: PlannedReplacement }
+  /** `replacement` null: the original is reversed only (§35.9). */
+  | { readonly kind: 'CORRECT'; readonly replacement: PlannedReplacement | null }
   /** Already CORRECTED: the ids of the existing correction, so a client that lost the answer finds it (§35.5). */
-  | { readonly kind: 'ALREADY_CORRECTED'; readonly reversalTransactionId: TransactionId; readonly replacementTransactionId: TransactionId }
+  | {
+      readonly kind: 'ALREADY_CORRECTED';
+      readonly reversalTransactionId: TransactionId;
+      /** Null when the original was reversed without a replacement (§35.9). */
+      readonly replacementTransactionId: TransactionId | null;
+    }
   /** Not confirmed, IGNORED, RECONCILED (until Phase 4), or a reversal (`correctionRole`). */
   | { readonly kind: 'NOT_CORRECTABLE'; readonly status: TransactionStatus; readonly correctionRole?: 'REVERSAL' }
   /** The replacement would equal the original in every field and split (§35.2). */
@@ -81,12 +88,12 @@ export type CorrectionPlan =
 export function planCorrection(
   original: CorrectionOriginal,
   originalSplits: readonly SplitInput[],
-  request: ReplacementInput,
+  request: ReplacementInput | null,
 ): CorrectionPlan {
   switch (original.status) {
     case 'CORRECTED':
-      if (original.reversalTransactionId === null || original.replacementTransactionId === null) {
-        throw new Error('a CORRECTED Transaction without its reversal and replacement (api-design §35.6)');
+      if (original.reversalTransactionId === null) {
+        throw new Error('a CORRECTED Transaction without its reversal (api-design §35.6)');
       }
       return {
         kind: 'ALREADY_CORRECTED',
@@ -103,6 +110,8 @@ export function planCorrection(
     case 'RECONCILED':
       return { kind: 'NOT_CORRECTABLE', status: original.status };
   }
+  // Reverse only: nothing to overlay, and the reversal itself is the change.
+  if (request === null) return { kind: 'CORRECT', replacement: null };
 
   const replacement: PlannedReplacement = {
     financialAccountId: request.financialAccountId ?? original.financialAccountId,
@@ -136,6 +145,7 @@ export function opposite(direction: Direction): Direction {
 /** Identity of a correct request for `Idempotency-Key` replays: the original and the normalized request (§35.5). */
 export function correctionFingerprint(originalId: string, request: CorrectionRequest): string {
   const r = request.replacement;
+  if (r === null) return JSON.stringify([originalId.toLowerCase(), request.reason, 'reverse-only']);
   return JSON.stringify([
     originalId.toLowerCase(),
     request.reason,
@@ -154,7 +164,8 @@ export function correctionFingerprint(originalId: string, request: CorrectionReq
 export interface CorrectionResult {
   readonly original: Transaction;
   readonly reversal: Transaction;
-  readonly replacement: Transaction;
+  /** Null when reversed only (§35.9). */
+  readonly replacement: Transaction | null;
 }
 
 export type CorrectOutcome =

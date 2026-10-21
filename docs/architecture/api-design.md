@@ -1186,7 +1186,8 @@ Example request:
 - `correction_role` and `correction_of_transaction_id` are both set or both `NULL`, and `provenance = 'CORRECTION'` exactly when they are set.
 - At most one `REVERSAL` and one `REPLACEMENT` per original (unique index).
 - A reversal matches its original: same Realm, account, currency, amount, booking and value date, and opposite direction.
-- A Transaction is `CORRECTED` exactly when its reversal and replacement exist. This is checked by a deferred constraint trigger at commit, so the three writes of §35.1 can happen in any order inside the transaction.
+- A Transaction is `CORRECTED` exactly when its reversal exists. The replacement is there for `correct` and absent for `reverse` (§35.9, migration 0012). This is checked by a deferred constraint trigger at commit, so the reversal may be written before or after the original's status change.
+- A replacement can only be **inserted while its original is not yet `CORRECTED`** (migration 0012, checked at the insert). It therefore comes before the status change, and a reversed Transaction never gets one later. The check locks the original `FOR SHARE`, so it also waits for, and then sees, a concurrent reversal.
 - `CORRECTED` is reached only from `CONFIRMED` or `RECONCILED`, never from an unconfirmed status, and no row is inserted as `CORRECTED`. Before migration 0011 a `CLASSIFIED` row whose splits covered it could be updated straight to `CORRECTED`; 0011 closes that.
 - The target of a correction link is never a reversal.
 - On a confirmed Transaction `propertyReferenceId`, `description` and the correction link are frozen too (extends the 0009 list, §34.2).
@@ -1194,7 +1195,7 @@ Example request:
 
 ## 35.7 Out of scope for VC-1-11
 
-- **A reversal without replacement** ("this confirmed Transaction should not exist", e.g. a duplicate manual entry). It needs its own rule for the net effect, so it is backlog VC-X-15 and not a `replacement: null` here.
+- **A reversal without replacement:** done since as `reverse` (§35.9, VC-X-15).
 - Correction of `RECONCILED` Transactions (Phase 4, see §35.4).
 - Bulk corrections.
 - **Closed periods:** the reversal takes the original's dates, so it changes the totals of the original's period. Phase 1 has no period close. When tax years or reports get closed (Phase 7/9), those phases decide how a correction into a closed period is handled (refused, or reversal dated in the open period).
@@ -1217,6 +1218,22 @@ Example request:
   - Unknown or inactive categories in requested `splits` are `400 VALIDATION_ERROR` with `replacement.splits.<i>.financialCategoryCode` / `UNKNOWN_CATEGORY`, as §33. An inactive category in the *copied* splits is `422 INACTIVE_CATEGORY`.
   - A replacement amount in another currency than the target account is `400` with `replacement.amount.currency` / `CURRENCY_MISMATCH`.
 - **Version:** reversal and replacement start at `version 1` and stay there; their confirmation is part of their creation.
+
+## 35.9 Reverse without a replacement (VC-X-15)
+
+```text
+POST /api/v1/transactions/{id}/reverse     { "reason": "Duplicate manual entry" }
+```
+
+For a confirmed Transaction that should not exist at all, e.g. a duplicate manual entry or a payment booked to the wrong ledger. It is `correct` without a replacement: the same step, the same records and the same rules, except as listed here.
+
+- **Effect:** in one transaction the command writes the confirmed **reversal** (§35.3: same account, amount and dates, opposite direction, mirrored splits; the original's closed account is fine) and moves the original to `CORRECTED`. There is **no replacement**: the original's `replacementTransactionId` stays `null`.
+- **Net effect:** the rule of §35.3 holds unchanged, and needs no new one. The original and its reversal cancel exactly, and there is no current Transaction left, so both the chain's sum and the current sum are zero. Reversing the current replacement of a chain ends the chain the same way.
+- **Final:** a reversed Transaction never gets a replacement later; reinstating it is a new Transaction. The database checks this (§35.6): a replacement can only be inserted while its original is not yet `CORRECTED`. The rule rests on the order of the writes, so neither a touched `updated_at` nor a savepoint changes it.
+- **Request:** `reason` is required (trimmed, 1–500 characters). Nothing else, and unknown keys are `400`. `Idempotency-Key` (§15, own scope `transaction.reverse`) and `If-Match` (§16.1) work as for `correct`.
+- **`201`:** `{ "original": …, "reversal": …, "replacement": null }`. AuditRecord **`REVERSED`** on the original, with `reason`, `previousStatus` and the reversal's id (§35.4: no record of its own for the reversal).
+- **Refusals:** as `correct`: `404`; `409 ALREADY_CORRECTED`, where `replacementTransactionId` is `null` for a reversed original; `409 NOT_CORRECTABLE` (unconfirmed, `IGNORED`, `RECONCILED`, or a reversal itself); `412 VERSION_CONFLICT`. A reversed Transaction also answers `ALREADY_CORRECTED` to a later `correct`.
+- **Not for unconfirmed Transactions:** use `ignore` there (§31.4); nothing was confirmed that needs reversing.
 
 ---
 

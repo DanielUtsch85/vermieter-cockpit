@@ -79,6 +79,14 @@ describe('planCorrection (api-design.md §35)', () => {
     );
   });
 
+  it('reverse only (null replacement): CORRECT without a replacement, never NO_CHANGE; still refused when not correctable', () => {
+    expect(planCorrection(original(), splits, null)).toEqual({ kind: 'CORRECT', replacement: null });
+    expect(planCorrection(original({ status: 'RECONCILED' }), splits, null)).toEqual({ kind: 'NOT_CORRECTABLE', status: 'RECONCILED' });
+    const reversed = original({ status: 'CORRECTED', reversalTransactionId: 'r' as TransactionId });
+    expect(planCorrection(reversed, splits, null)).toEqual({ kind: 'ALREADY_CORRECTED', reversalTransactionId: 'r', replacementTransactionId: null });
+    expect(correctionFingerprint('a', { reason: 'r', replacement: null })).not.toBe(correctionFingerprint('a', { reason: 'r', replacement: {} }));
+  });
+
   it('a reversal has the opposite direction', () => {
     expect(opposite('INFLOW')).toBe('OUTFLOW');
     expect(opposite('OUTFLOW')).toBe('INFLOW');

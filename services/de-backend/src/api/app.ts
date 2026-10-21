@@ -4,6 +4,7 @@ import type {
   CreateFinancialAccount,
   ConfirmTransaction,
   CorrectTransaction,
+  ReverseTransaction,
   GetTransaction,
   ListTransactions,
   AmendTransaction,
@@ -52,6 +53,8 @@ export interface AppDependencies {
   readonly confirmTransaction: ConfirmTransaction;
   /** Correct a confirmed Transaction (VC-1-11). */
   readonly correctTransaction: CorrectTransaction;
+  /** Reverse without a replacement (VC-X-15). */
+  readonly reverseTransaction: ReverseTransaction;
   /** Read Transactions (VC-X-21). */
   readonly getTransaction: GetTransaction;
   readonly listTransactions: ListTransactions;
@@ -105,6 +108,7 @@ export function createApp(deps: AppDependencies): Express {
       setSplits: deps.setTransactionSplits,
       confirm: deps.confirmTransaction,
       correct: deps.correctTransaction,
+      reverse: deps.reverseTransaction,
       get: deps.getTransaction,
       list: deps.listTransactions,
       amend: deps.amendTransaction,

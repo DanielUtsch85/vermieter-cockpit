@@ -3,7 +3,7 @@
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
-# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it; VC-1-08: confirm it; VC-1-11: correct it; VC-X-16: amend, ignore and restore a draft;
+# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it; VC-1-08: confirm it; VC-1-11: correct it; VC-X-16: amend, ignore and restore a draft; VC-X-15: reverse one;
 # VC-1-05/06: import a bank CSV, re-import it as duplicates; VC-1-06a: review and resolve a reordered file.
 set -euo pipefail
 
@@ -214,6 +214,19 @@ on_transaction "$draft_id" restore
 expect "restore draft" "$(echo "$on_body" | jq -r .status)" UNREVIEWED
 on_transaction "$transaction_id" amend '{"description":"x"}'
 expect "corrected transaction not amendable" "$on_status" 409
+# VC-X-15: reverse a confirmed Transaction without a replacement.
+tx -d "{\"financialAccountId\":\"$ledger_account\",\"amount\":{\"amount\":\"40.00\",\"currency\":\"EUR\"},\"direction\":\"OUTFLOW\",\"bookingDate\":\"2026-09-06\"}"
+reverse_id=$(echo "$tx_body" | jq -r .transactionId)
+reverse_split=$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$DE/transactions/$reverse_id/splits" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' \
+  -d '{"splits":[{"amount":{"amount":"40.00","currency":"EUR"},"financialCategoryCode":"OTHER"}]}')
+expect "split for reverse" "$reverse_split" 200
+on_transaction "$reverse_id" confirm
+expect "confirm for reverse" "$on_status" 200
+on_transaction "$reverse_id" reverse '{"reason":"Smoke: doppelt erfasst"}'
+expect "reverse" "$on_status" 201
+expect "reverse: original corrected" "$(echo "$on_body" | jq -r .original.status)" CORRECTED
+expect "reverse: no replacement" "$(echo "$on_body" | jq -r .replacement)" null
 
 # VC-1-05/06: bank CSV import (multipart); the identical file again is all duplicates.
 statement_file=$(mktemp)

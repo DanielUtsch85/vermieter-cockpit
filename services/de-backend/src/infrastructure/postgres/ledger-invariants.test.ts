@@ -319,29 +319,33 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
     const markCorrected = (client: pg.PoolClient, id: string) =>
       client.query(`UPDATE ledger_transaction SET status = 'CORRECTED' WHERE id = $1`, [id]);
 
-    it('a complete chain commits, in any order of its writes', async () => {
+    it('a complete chain commits; the reversal may come before or after the status change, the replacement before it', async () => {
       const original = await confirmed();
       await inTransaction(async (c) => {
-        await markCorrected(c, original);
         await insertLinked(c, original, { role: 'REPLACEMENT', amount: '1100.00' });
+        await markCorrected(c, original);
         await insertLinked(c, original, { role: 'REVERSAL' });
       });
       const { rows } = await pool.query(`SELECT status FROM ledger_transaction WHERE id = $1`, [original]);
       expect(rows[0].status).toBe('CORRECTED');
     });
 
-    it('CORRECTED exactly when reversal and replacement exist, checked at commit', async () => {
+    it('CORRECTED exactly when its reversal exists (the replacement is optional, VC-X-15), checked at commit', async () => {
       const alone = await confirmed();
-      await expect(inTransaction((c) => markCorrected(c, alone).then(() => undefined))).rejects.toThrow(
-        /without its reversal and replacement/,
-      );
-      const halfway = await confirmed();
+      await expect(inTransaction((c) => markCorrected(c, alone).then(() => undefined))).rejects.toThrow(/without its reversal/);
+      const replacementOnly = await confirmed();
       await expect(
         inTransaction(async (c) => {
-          await insertLinked(c, halfway, { role: 'REVERSAL' });
-          await markCorrected(c, halfway);
+          await insertLinked(c, replacementOnly, { role: 'REPLACEMENT', amount: '1100.00' });
+          await markCorrected(c, replacementOnly);
         }),
-      ).rejects.toThrow(/without its reversal and replacement/);
+      ).rejects.toThrow(/without its reversal/);
+      // Reverse only: the original and its reversal cancel, nothing replaces it (api-design §35.9).
+      const reversed = await confirmed();
+      await inTransaction(async (c) => {
+        await insertLinked(c, reversed, { role: 'REVERSAL' });
+        await markCorrected(c, reversed);
+      });
       // Linked records without the original becoming CORRECTED.
       const untouched = await confirmed();
       await expect(
@@ -350,6 +354,91 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
           await insertLinked(c, untouched, { role: 'REPLACEMENT', amount: '1100.00' });
         }),
       ).rejects.toThrow(/not CORRECTED/);
+    });
+
+    it('a reversed Transaction never gets a replacement later; it is written only with its correction (VC-X-15)', async () => {
+      const reversed = await confirmed();
+      await inTransaction(async (c) => {
+        await insertLinked(c, reversed, { role: 'REVERSAL' });
+        await markCorrected(c, reversed);
+      });
+      await expect(inTransaction((c) => insertLinked(c, reversed, { role: 'REPLACEMENT', amount: '1100.00' }).then(() => undefined))).rejects.toThrow(
+        /already CORRECTED/,
+      );
+      // Touching the original first does not open a gap (review on #27, case B): the rule is the order, not the writer.
+      await expect(
+        inTransaction(async (c) => {
+          await c.query(`UPDATE ledger_transaction SET updated_at = now() WHERE id = $1`, [reversed]);
+          await insertLinked(c, reversed, { role: 'REPLACEMENT', amount: '1100.00' });
+        }),
+      ).rejects.toThrow(/already CORRECTED/);
+      // Nor within the correcting transaction itself, once the original is CORRECTED.
+      const late = await confirmed();
+      await expect(
+        inTransaction(async (c) => {
+          await insertLinked(c, late, { role: 'REVERSAL' });
+          await markCorrected(c, late);
+          await insertLinked(c, late, { role: 'REPLACEMENT', amount: '1100.00' });
+        }),
+      ).rejects.toThrow(/already CORRECTED/);
+      // A replacement of an original corrected with one is still part of the chain later: its own correction works.
+      const original = await confirmed();
+      let replacement = '';
+      await inTransaction(async (c) => {
+        await insertLinked(c, original, { role: 'REVERSAL' });
+        replacement = await insertLinked(c, original, { role: 'REPLACEMENT', amount: '1200.00' });
+        await markCorrected(c, original);
+      });
+      await inTransaction(async (c) => {
+        await insertLinked(c, replacement, { role: 'REVERSAL' });
+        await markCorrected(c, replacement);
+      });
+    });
+
+    it('a correction inside a savepoint commits like any other (review on #27, case C)', async () => {
+      const original = await confirmed();
+      await inTransaction(async (c) => {
+        await c.query('SAVEPOINT correction');
+        await insertLinked(c, original, { role: 'REVERSAL' });
+        await insertLinked(c, original, { role: 'REPLACEMENT', amount: '1100.00' });
+        await markCorrected(c, original);
+        await c.query('RELEASE SAVEPOINT correction');
+      });
+      const { rows } = await pool.query(`SELECT count(*) FROM ledger_transaction WHERE correction_of_transaction_id = $1`, [original]);
+      expect(rows).toEqual([{ count: '2' }]);
+    });
+
+    it('a replacement racing a reversal waits for it and is then refused', async () => {
+      const original = await confirmed();
+      const reverser = await pool.connect();
+      const replacer = await pool.connect();
+      try {
+        await reverser.query('BEGIN');
+        await insertLinked(reverser, original, { role: 'REVERSAL' });
+        await markCorrected(reverser, original);
+        await replacer.query('BEGIN');
+        // The expectation is attached at once (see the two-writer tests above).
+        const replacing = expect(insertLinked(replacer, original, { role: 'REPLACEMENT', amount: '1100.00' })).rejects.toThrow(
+          /already CORRECTED|could not serialize/,
+        );
+        // The replacer's INSERT waits in its trigger's FOR SHARE on the reverser's uncommitted status change.
+        await waitUntil(async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+                 AND query LIKE 'INSERT INTO ledger_transaction%'`,
+              )
+            ).rows[0].count,
+          ) === 1,
+        );
+        await reverser.query('COMMIT');
+        await replacing;
+        await replacer.query('ROLLBACK');
+      } finally {
+        reverser.release();
+        replacer.release();
+      }
     });
 
     it('CORRECTED only from CONFIRMED/RECONCILED: a covered CLASSIFIED row cannot jump to it (review counterexample on #21)', async () => {

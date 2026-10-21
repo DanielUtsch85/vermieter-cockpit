@@ -6,6 +6,7 @@ import {
   type CorrectionRequest,
   type CorrectionResult,
   type FinancialAccountId,
+  type Transaction,
   type SplitInput,
 } from '../../domains/ledger/index.js';
 import { Money } from '../../shared/index.js';
@@ -113,10 +114,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
     if (confirmed.kind !== 'CONFIRMED') throw new Error(confirmed.kind);
     return id;
   }
-  async function correctOk(id: string, request: CorrectionRequest, mreRealmId = REALM): Promise<CorrectionResult> {
+  /** A correction with a replacement (`correct`, not `reverse`): its replacement is always there. */
+  async function correctOk(id: string, request: CorrectionRequest, mreRealmId = REALM): Promise<CorrectionResult & { replacement: Transaction }> {
     const outcome = await corrections.correct(id, mreRealmId, request, actor);
-    if (outcome.kind !== 'CORRECTED') throw new Error(JSON.stringify(outcome));
-    return outcome.result;
+    if (outcome.kind !== 'CORRECTED' || outcome.result.replacement === null) throw new Error(JSON.stringify(outcome));
+    return { ...outcome.result, replacement: outcome.result.replacement };
   }
   const splitRows = async (transactionId: string) =>
     (
@@ -451,7 +453,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
       expect(outcomes.find((o) => o.kind !== 'CORRECTED')).toEqual({
         kind: 'ALREADY_CORRECTED',
         reversalTransactionId: winner.result.reversal.id,
-        replacementTransactionId: winner.result.replacement.id,
+        replacementTransactionId: winner.result.replacement?.id,
       });
     } finally {
       holder.release();
@@ -465,5 +467,75 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
     expect(outcome).toEqual({ kind: 'FROZEN', status: 'CONFIRMED' });
     await correctOk(id, { reason: 'Datum', replacement: { bookingDate: date('2026-09-04') } });
     expect(await splits.replaceSplits(id, REALM, [split('1250.00', 'RENT_BASE')], actor)).toEqual({ kind: 'FROZEN', status: 'CORRECTED' });
+  });
+
+  describe('reverse without a replacement (VC-X-15, api-design §35.9)', () => {
+    const reverse = (id: string, reason = 'Doppelt erfasst', key?: string) =>
+      corrections.correct(
+        id,
+        REALM,
+        { reason, replacement: null },
+        actor,
+        key === undefined ? undefined : { key, fingerprint: correctionFingerprint(id, { reason, replacement: null }) },
+      );
+
+    it('writes only the confirmed reversal; the original is CORRECTED; one AuditRecord REVERSED; the net effect is zero', async () => {
+      const accountId = await openAccount();
+      const id = await confirmedRent({ accountId });
+      const outcome = await reverse(id);
+      if (outcome.kind !== 'CORRECTED') throw new Error(outcome.kind);
+      const { original, reversal, replacement } = outcome.result;
+      expect(replacement).toBeNull();
+      expect(original).toMatchObject({ status: 'CORRECTED', reversalTransactionId: reversal.id, replacementTransactionId: null });
+      expect(reversal).toMatchObject({ direction: 'OUTFLOW', status: 'CONFIRMED', correctionRole: 'REVERSAL', correctionOfTransactionId: id });
+      expect(await splitRows(reversal.id)).toEqual(await splitRows(id));
+      expect((await audits(id)).at(-1)).toMatchObject({
+        action: 'REVERSED',
+        metadata: { reason: 'Doppelt erfasst', previousStatus: 'CONFIRMED', reversalTransactionId: reversal.id },
+      });
+      expect((await audits(id)).at(-1)?.metadata).not.toHaveProperty('replacementTransactionId');
+      const net = await pool.query(
+        `SELECT coalesce(sum(CASE direction WHEN 'INFLOW' THEN amount ELSE -amount END), 0)::text AS total
+         FROM ledger_transaction WHERE financial_account_id = $1 AND status IN ('CONFIRMED', 'RECONCILED', 'CORRECTED')`,
+        [accountId],
+      );
+      expect(net.rows).toEqual([{ total: '0.00' }]);
+    });
+
+    it('a second reverse or correct names the reversal; a reversal itself cannot be reversed; a closed account is fine', async () => {
+      const accountId = await openAccount();
+      const id = await confirmedRent({ accountId });
+      await accounts.close(accountId as FinancialAccountId, REALM, new Date(), actor);
+      const first = await reverse(id);
+      if (first.kind !== 'CORRECTED') throw new Error(first.kind);
+      const already = { kind: 'ALREADY_CORRECTED', reversalTransactionId: first.result.reversal.id, replacementTransactionId: null };
+      expect(await reverse(id)).toEqual(already);
+      expect(await corrections.correct(id, REALM, { reason: 'x', replacement: { bookingDate: date('2026-09-04') } }, actor)).toEqual(already);
+      expect(await reverse(first.result.reversal.id)).toEqual({ kind: 'NOT_CORRECTABLE', status: 'CONFIRMED', correctionRole: 'REVERSAL' });
+    });
+
+    it('ends a correction chain: reversing the current replacement leaves nothing current', async () => {
+      const id = await confirmedRent();
+      const { replacement } = await correctOk(id, { reason: 'Datum', replacement: { bookingDate: date('2026-09-04') } });
+      const outcome = await reverse(replacement.id, 'Miete storniert');
+      expect(outcome).toMatchObject({ kind: 'CORRECTED', result: { original: { id: replacement.id, status: 'CORRECTED' }, replacement: null } });
+      const current = await pool.query(
+        `SELECT count(*) FROM ledger_transaction WHERE id = ANY($1) AND status IN ('CONFIRMED', 'RECONCILED') AND correction_role IS DISTINCT FROM 'REVERSAL'`,
+        [[id, replacement.id]],
+      );
+      expect(current.rows).toEqual([{ count: '0' }]);
+    });
+
+    it('Idempotency-Key: a replay answers as recorded; the same key on correct is another scope', async () => {
+      const id = await confirmedRent();
+      const first = await reverse(id, 'Doppelt', 'k-rev-1');
+      expect(first).toMatchObject({ kind: 'CORRECTED', replayed: false });
+      expect(await reverse(id, 'Doppelt', 'k-rev-1')).toEqual({ ...first, replayed: true });
+      // The same key on `correct` is unrelated (own scope); that request then finds the original already reversed.
+      const request = { reason: 'Doppelt', replacement: { bookingDate: date('2026-09-04') } };
+      expect(await corrections.correct(id, REALM, request, actor, { key: 'k-rev-1', fingerprint: correctionFingerprint(id, request) })).toMatchObject({
+        kind: 'ALREADY_CORRECTED',
+      });
+    });
   });
 });

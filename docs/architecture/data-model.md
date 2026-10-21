@@ -951,7 +951,7 @@ Generated schedules, forecasts and non-cash projections must never create Ledger
 Contract: API §35.
 
 - `correctionOfTransactionId` and `correctionRole` (`REVERSAL` | `REPLACEMENT`) are both set or both empty. They are set exactly on Transactions with `provenance = CORRECTION`. The link points to a Transaction of the same Realm.
-- An original has at most one reversal and one replacement. It is `CORRECTED` exactly when both exist, and only from `CONFIRMED`/`RECONCILED`. A correction link never targets a reversal.
+- An original has at most one reversal and one replacement. It is `CORRECTED` exactly when its reversal exists, and only from `CONFIRMED`/`RECONCILED`. The replacement is present for a correction and absent for a reversal without replacement (API §35.9). In that case it is never added later. A correction link never targets a reversal.
 - A reversal has the original's account, currency, amount, booking and value date, the opposite `direction`, and mirrored splits. A reversal is never corrected itself.
 - Reversal and replacement carry no import identity; the original keeps its own, so re-imports still deduplicate against it (§70).
 - **Net effect:** per account, period (booking date), split category and split PropertyReference, the signed sum over `CONFIRMED`, `RECONCILED` and `CORRECTED` Transactions equals the signed sum over the current ones (`CONFIRMED`/`RECONCILED`, not a reversal).
