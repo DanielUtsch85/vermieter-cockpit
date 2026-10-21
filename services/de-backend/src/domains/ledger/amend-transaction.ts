@@ -1,5 +1,5 @@
 import type { AuditActor, Money } from '../../shared/index.js';
-import type { BusinessDate, Direction, Provenance, Transaction, TransactionStatus } from './transaction.js';
+import type { BusinessDate, Direction, Provenance, Transaction, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
  * Changing an unconfirmed Transaction (api-design.md §31.3–31.4, backlog
@@ -121,6 +121,7 @@ export type AmendOutcome =
   /** `splitsDropped`: a changed amount discarded the split set (also in the response, §31.3). */
   | { readonly kind: 'AMENDED'; readonly transaction: Transaction; readonly changed: boolean; readonly splitsDropped: boolean }
   | { readonly kind: 'NOT_FOUND' }
+  | VersionConflict
   | Exclude<AmendPlan, { kind: 'AMEND' } | { kind: 'UNCHANGED' }>
   | { readonly kind: 'ACCOUNT_NOT_FOUND'; readonly financialAccountId: string }
   /** Moving to a different, closed account; its own closed account is fine (§31.3). */
@@ -131,11 +132,13 @@ export type AmendOutcome =
 export type IgnoreOutcome =
   | { readonly kind: 'IGNORED'; readonly transaction: Transaction; readonly replayed: boolean }
   | { readonly kind: 'NOT_FOUND' }
+  | VersionConflict
   | Extract<IgnorePlan, { kind: 'NOT_IGNORABLE' }>;
 
 export type RestoreOutcome =
   | { readonly kind: 'RESTORED'; readonly transaction: Transaction }
   | { readonly kind: 'NOT_FOUND' }
+  | VersionConflict
   | Extract<RestorePlan, { kind: 'NOT_IGNORED' }>;
 
 /** Persistence port, implemented in infrastructure/postgres. */
@@ -145,9 +148,9 @@ export interface UnconfirmedTransactionRepository {
    * and the reference checks, writes the values, drops an invalidated split set, bumps the version and writes
    * the AuditRecord `AMENDED`. UNCHANGED answers the current state without a write.
    */
-  amend(id: string, mreRealmId: string, changes: TransactionChanges, actor: AuditActor): Promise<AmendOutcome>;
+  amend(id: string, mreRealmId: string, changes: TransactionChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendOutcome>;
   /** Under the row lock: IGNORED with an AuditRecord carrying the reason; already IGNORED is a no-op. */
-  ignore(id: string, mreRealmId: string, reason: string, actor: AuditActor): Promise<IgnoreOutcome>;
+  ignore(id: string, mreRealmId: string, reason: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<IgnoreOutcome>;
   /** Under the row lock: back from IGNORED per `planRestore`, with an AuditRecord. */
-  restore(id: string, mreRealmId: string, actor: AuditActor): Promise<RestoreOutcome>;
+  restore(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RestoreOutcome>;
 }

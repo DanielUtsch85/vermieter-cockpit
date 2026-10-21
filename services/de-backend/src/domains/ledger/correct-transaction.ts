@@ -1,6 +1,6 @@
 import type { AuditActor, Money } from '../../shared/index.js';
 import { sameSplits, type SplitInput } from './transaction-split.js';
-import type { BusinessDate, Direction, Transaction, TransactionId, TransactionStatus } from './transaction.js';
+import type { BusinessDate, Direction, Transaction, TransactionId, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
  * Correcting a confirmed Transaction (api-design.md §35, ADR-037): in one step
@@ -160,6 +160,7 @@ export interface CorrectionResult {
 export type CorrectOutcome =
   | { readonly kind: 'CORRECTED'; readonly result: CorrectionResult; readonly replayed: boolean }
   | { readonly kind: 'NOT_FOUND' }
+  | VersionConflict
   | { readonly kind: 'IDEMPOTENCY_CONFLICT' }
   | Exclude<CorrectionPlan, { kind: 'CORRECT' }>
   /** The target account (a changed `financialAccountId`) is unknown or of another Realm (→ 404). */
@@ -191,5 +192,6 @@ export interface CorrectionRepository {
     request: CorrectionRequest,
     actor: AuditActor,
     idempotency?: { readonly key: string; readonly fingerprint: string },
+    expectedVersions?: readonly number[],
   ): Promise<CorrectOutcome>;
 }

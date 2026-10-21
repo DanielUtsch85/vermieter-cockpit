@@ -43,6 +43,32 @@ export function readIdempotencyKey(req: Request, res: Response): { key: string |
   return undefined;
 }
 
+/** One entity tag of `If-Match` (RFC 9110 §8.8.3): `"…"`, optionally weak (`W/"…"`). */
+const ENTITY_TAG = /^(W\/)?"([\x21\x23-\x7e]*)"$/;
+const VERSION_TAG = /^\d{1,9}$/;
+
+/**
+ * The optional `If-Match` header (api-design.md §16.1, RFC 9110 §13.1.1) as the versions it names: `{ versions }`,
+ * undefined when absent or `*`. A list matches if any of its tags does; `If-Match` compares strongly, so weak tags and
+ * tags that are not a version never match and add nothing (an empty list then fails the check). Answers 400 and
+ * returns `undefined` for a header that is not a list of entity tags.
+ */
+export function readIfMatch(req: Request, res: Response): { versions: readonly number[] | undefined } | undefined {
+  const header = req.headers['if-match'];
+  if (header === undefined || header.trim() === '*') return { versions: undefined };
+  const versions: number[] = [];
+  for (const entry of header.split(',')) {
+    const tag = ENTITY_TAG.exec(entry.trim());
+    if (tag === null) {
+      sendValidationError(res, [{ field: 'If-Match', code: 'INVALID_FORMAT' }]);
+      return undefined;
+    }
+    const [, weak, opaque = ''] = tag;
+    if (weak === undefined && VERSION_TAG.test(opaque)) versions.push(Number(opaque));
+  }
+  return { versions };
+}
+
 /** Field codes for amounts (api-design.md §31.1: 400 for each). */
 const MONEY_CODES: Record<MoneyError['code'], string> = {
   INVALID_AMOUNT: 'INVALID_FORMAT',

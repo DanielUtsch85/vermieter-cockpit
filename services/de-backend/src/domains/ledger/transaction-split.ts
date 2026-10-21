@@ -1,5 +1,5 @@
 import { Money, type AuditActor } from '../../shared/index.js';
-import type { Direction, TransactionId, TransactionStatus } from './transaction.js';
+import type { Direction, TransactionId, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
  * TransactionSplit (data-model.md §18, api-design.md §33): the economically
@@ -91,6 +91,7 @@ export type ReplaceSplitsOutcome =
       readonly changed: boolean;
     }
   | { readonly kind: 'NOT_FOUND' }
+  | VersionConflict
   | Exclude<SplitPlan, { kind: 'APPLY' }>
   /** Unknown or inactive category codes. */
   | { readonly kind: 'UNKNOWN_CATEGORY'; readonly codes: readonly string[] }
@@ -103,5 +104,11 @@ export interface TransactionSplitRepository {
    * resolves categories and PropertyReferences in the Realm, replaces the split
    * set atomically, sets the status and version and writes the AuditRecord.
    */
-  replaceSplits(transactionId: string, mreRealmId: string, splits: readonly SplitInput[], actor: AuditActor): Promise<ReplaceSplitsOutcome>;
+  replaceSplits(
+    transactionId: string,
+    mreRealmId: string,
+    splits: readonly SplitInput[],
+    actor: AuditActor,
+    expectedVersions?: readonly number[],
+  ): Promise<ReplaceSplitsOutcome>;
 }

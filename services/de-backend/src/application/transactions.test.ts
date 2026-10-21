@@ -19,6 +19,7 @@ import {
   InactiveCategoryError,
   SplitsMissingError,
   TransactionNotConfirmableError,
+  VersionConflictError,
   confirmTransaction,
   createManualTransaction,
 } from './transactions.js';
@@ -114,7 +115,7 @@ describe('confirmTransaction', () => {
       transaction: confirmed,
       replayed: true,
     });
-    expect(calls).toEqual([['t-1', REALM, { actorType: 'USER', actorId: 'anna@example.com' }]]);
+    expect(calls).toEqual([['t-1', REALM, { actorType: 'USER', actorId: 'anna@example.com' }, undefined]]);
   });
 
   it.each([
@@ -123,6 +124,7 @@ describe('confirmTransaction', () => {
     [{ kind: 'SPLITS_MISSING' }, SplitsMissingError],
     [{ kind: 'SUM_MISMATCH', expected: Money.of('2', 'EUR'), actual: Money.of('1', 'EUR') }, SplitSumMismatchError],
     [{ kind: 'INACTIVE_CATEGORY', codes: ['OLD'] }, InactiveCategoryError],
+    [{ kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 3 }, VersionConflictError],
   ] as const)('maps %o', async (outcome, error) => {
     const { repository } = answering(outcome as ConfirmOutcome);
     await expect(confirmTransaction({ repository })({ principal, transactionId: 't-1' })).rejects.toBeInstanceOf(error);

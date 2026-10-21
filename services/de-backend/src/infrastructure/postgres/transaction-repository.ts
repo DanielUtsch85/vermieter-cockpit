@@ -1,6 +1,7 @@
 import { sql, type Kysely, type Transaction as Trx } from 'kysely';
 import {
   checkPosting,
+  checkVersion,
   planConfirm,
   type ConfirmOutcome,
   type CorrectionRole,
@@ -176,7 +177,7 @@ export class PostgresTransactionRepository implements TransactionRepository {
     }
   }
 
-  confirm(id: string, mreRealmId: string, actor: AuditActor): Promise<ConfirmOutcome> {
+  confirm(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmOutcome> {
     if (!UUID.test(id)) return Promise.resolve({ kind: 'NOT_FOUND' });
     return this.db
       .transaction()
@@ -210,6 +211,8 @@ export class PostgresTransactionRepository implements TransactionRepository {
           default:
             return plan;
         }
+        const conflict = checkVersion(transaction.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
         const confirmed = await trx
           .updateTable('ledger_transaction')
           .set((eb) => ({

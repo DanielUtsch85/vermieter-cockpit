@@ -1,5 +1,6 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
+  checkVersion,
   planSplits,
   sameSplits,
   type Direction,
@@ -32,6 +33,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
     mreRealmId: string,
     splits: readonly SplitInput[],
     actor: AuditActor,
+    expectedVersions?: readonly number[],
   ): Promise<ReplaceSplitsOutcome> {
     if (!UUID.test(transactionId)) return Promise.resolve({ kind: 'NOT_FOUND' });
     return this.db
@@ -60,6 +62,8 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
 
         const plan = planSplits(transaction, splits);
         if (plan.kind !== 'APPLY') return plan;
+        const conflict = checkVersion(transaction.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
 
         const codes = [...new Set(splits.map((s) => s.financialCategoryCode))];
         const categories = await trx
