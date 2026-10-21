@@ -15,6 +15,11 @@ export interface TransactionFilter {
   /** Inclusive booking-date range. */
   readonly bookingDateFrom?: BusinessDate;
   readonly bookingDateTo?: BusinessDate;
+  /**
+   * Only the current Transactions of api-design §35.3: `CONFIRMED` or `RECONCILED` and not a reversal, so neither a
+   * `CORRECTED` original nor its reversal. Combined with `statuses` like any other filter (AND).
+   */
+  readonly current?: true;
 }
 
 export interface PageRequest {
@@ -32,6 +37,9 @@ export interface TransactionPage {
 
 /** `reviewable` of §30: the pre-classification states. */
 export const REVIEWABLE_STATUSES = ['IMPORTED', 'UNREVIEWED'] as const satisfies readonly TransactionStatus[];
+
+/** `current` of §30.1: the statuses a current Transaction can have (§35.3); a reversal among them is still not current. */
+export const CURRENT_STATUSES = ['CONFIRMED', 'RECONCILED'] as const satisfies readonly TransactionStatus[];
 
 /** Read port, implemented in infrastructure/postgres. */
 export interface TransactionQueries {

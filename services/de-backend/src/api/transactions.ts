@@ -142,6 +142,7 @@ const listQuery = z
       })
       .optional(),
     reviewable: z.enum(['true']).optional(),
+    current: z.enum(['true']).optional(),
     propertyReferenceId: z.string().regex(RESOURCE_ID).optional(),
     bookingDateFrom: businessDate.optional(),
     bookingDateTo: businessDate.optional(),
@@ -216,6 +217,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           ...(q.propertyReferenceId === undefined ? {} : { propertyReferenceId: q.propertyReferenceId.toLowerCase() }),
           ...(q.bookingDateFrom === undefined ? {} : { bookingDateFrom: q.bookingDateFrom }),
           ...(q.bookingDateTo === undefined ? {} : { bookingDateTo: q.bookingDateTo }),
+          ...(q.current === 'true' ? { current: true as const } : {}),
         },
         page: { page: q.page, pageSize: q.pageSize },
       })

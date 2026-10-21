@@ -688,11 +688,14 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     // No overlap: the filter matches nothing (the repository answers an empty page, review on #26).
     expect((await get(base, '/transactions?reviewable=true&status=CONFIRMED')).status).toBe(200);
     expect(seen[3]?.filter).toEqual({ statuses: [] });
+    // current=true is passed as such; the repository applies it together with status.
+    await get(base, '/transactions?current=true&status=RECONCILED');
+    expect(seen[4]?.filter).toEqual({ statuses: ['RECONCILED'], current: true });
   });
 
   it('400 for unknown parameters, bad values and an inverted date range', async () => {
     const base = await startWith({ listTransactions: () => Promise.reject(new Error('unused')) });
-    for (const query of ['foo=1', 'status=DONE', 'pageSize=201', 'page=0', 'bookingDateFrom=2026-13-01', 'reviewable=yes', 'financialAccountId=x', 'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01']) {
+    for (const query of ['foo=1', 'status=DONE', 'pageSize=201', 'page=0', 'bookingDateFrom=2026-13-01', 'reviewable=yes', 'current=false', 'financialAccountId=x', 'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01']) {
       expect((await get(base, `/transactions?${query}`)).status, query).toBe(400);
     }
     const inverted = await get(base, '/transactions?bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01');

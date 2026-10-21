@@ -773,15 +773,15 @@ Useful filters:
   - `status`: a comma-separated list, any of them;
   - `reviewable=true`: `IMPORTED` or `UNREVIEWED`, and together with `status` both must hold;
   - `propertyReferenceId`: the Transaction's own **or** one of its splits';
-  - `bookingDateFrom` / `bookingDateTo`: inclusive, `400 INVALID_RANGE` when inverted.
+  - `bookingDateFrom` / `bookingDateTo`: inclusive, `400 INVALID_RANGE` when inverted;
+  - `current=true`: only the current Transactions of §35.3, i.e. `CONFIRMED` or `RECONCILED` and not a reversal. A chain shows only its last member: neither the `CORRECTED` originals nor their reversals. Combined with `status` like the other filters, so `current=true&status=RECONCILED` lists the reconciled ones and `current=true&status=CORRECTED` lists nothing. Summing a `current=true` list gives the net effect of §35.3.
 - **Paging:** `page` starts at 1. `pageSize` is 1–200, default 50. `total` and `items` come from the same snapshot.
 - **Query plan (VC-X-19, migration 0015):** the page's ids are read in list order from the index `(mre_realm_id, booking_date DESC, created_at DESC, id DESC)`, and the scan stops at offset + limit. Only then is the DTO read for those rows, so the two link subqueries (`reversalTransactionId`, `replacementTransactionId`) run once per row of the page, each an index probe, and never for the rows the offset skips. A plan test (`EXPLAIN`) holds this. A deep page still walks its offset in the index; keyset paging is a later choice.
 - **Refusals:** unknown parameters are `400`.
 - **Realm:** only the caller's Realm is ever read; another Realm's ids simply match nothing.
 - **No match possible:** `status` together with `reviewable=true` without a common status (e.g. `status=CONFIRMED&reviewable=true`) is an empty page, not an error.
-- **Raw list:** without `status` the list also holds `CORRECTED` originals, reversals and `IGNORED` Transactions.
+- **Raw list:** without `status` or `current` the list also holds `CORRECTED` originals, reversals and `IGNORED` Transactions.
 - **Not yet:**
-  - A `current=true` filter for a UI: `CONFIRMED`/`RECONCILED` without reversals, the current Transactions of §35.3.
   - The filters for financial category, counterparty, source, unreconciled and needs review.
   - The alias `GET /property-references/{id}/transactions` (use `?propertyReferenceId=`).
 
