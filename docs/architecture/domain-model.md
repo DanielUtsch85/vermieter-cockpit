@@ -624,7 +624,8 @@ Minimal allowed transitions for Phase 1:
 
 - entry at `IMPORTED` (import) or `UNREVIEWED` (manual entry);
 - `IMPORTED` / `UNREVIEWED` → `CLASSIFIED` → `CONFIRMED`;
-- before `CONFIRMED`, any state may move to `IGNORED`;
+- before `CONFIRMED`, any state may move to `IGNORED`, and back (`restore`) to `CLASSIFIED` if it kept its splits, else to its entry state (API §31.4);
+- before `CONFIRMED`, fields may be amended (API §31.3); a changed amount drops the splits and returns a `CLASSIFIED` Transaction to its entry state; an imported Transaction keeps the values of its bank row, its description (Verwendungszweck) included;
 - `confirm` requires a valid `amount` / `direction` (`data-model.md` §17.4) and complete split coverage (§24);
 - `CONFIRMED` cash fields are never edited in place — a correction produces a reversal + replacement and moves the original to `CORRECTED` (ADR-037).
 

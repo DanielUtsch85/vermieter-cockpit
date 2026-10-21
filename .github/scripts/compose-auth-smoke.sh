@@ -3,7 +3,7 @@
 # §47.1) against the real pinned MRE images of the compose stack, not a fake:
 # signup → signin → create Realm in MRE, then call DE /api/v1/health; then
 # VC-1-01/02: create an MRE Property, link it to a DE PropertyReference and refresh it;
-# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it; VC-1-08: confirm it; VC-1-11: correct it;
+# VC-1-03: create and close a FinancialAccount; VC-1-04: book a manual Transaction; VC-1-07: split it; VC-1-08: confirm it; VC-1-11: correct it; VC-X-16: amend, ignore and restore a draft;
 # VC-1-05/06: import a bank CSV, re-import it as duplicates; VC-1-06a: review and resolve a reordered file.
 set -euo pipefail
 
@@ -188,6 +188,27 @@ expect "replacement confirmed" "$(echo "$correct_body" | jq -r .replacement.stat
 correct '{"reason":"Smoke: nochmal","replacement":{"bookingDate":"2026-09-04"}}'
 expect "second correction refused" "$correct_status" 409
 expect "names the first" "$(echo "$correct_body" | jq -r .error.details.reason)" ALREADY_CORRECTED
+
+# VC-X-16: amend an unconfirmed Transaction, ignore it and restore it; the corrected one is not amendable.
+on_transaction() { # id action [body] — POST /transactions/<id>/<action>; sets on_status and on_body
+  local out data=()
+  [ $# -ge 3 ] && data=(-d "$3")
+  out=$(curl -s -w '\n%{http_code}' -X POST "$DE/transactions/$1/$2" \
+    -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' "${data[@]}")
+  on_status=$(echo "$out" | tail -n1)
+  on_body=$(echo "$out" | sed '$d')
+}
+tx -d "{\"financialAccountId\":\"$ledger_account\",\"amount\":{\"amount\":\"80.00\",\"currency\":\"EUR\"},\"direction\":\"OUTFLOW\",\"bookingDate\":\"2026-09-05\"}"
+draft_id=$(echo "$tx_body" | jq -r .transactionId)
+on_transaction "$draft_id" amend '{"amount":{"amount":"85.00","currency":"EUR"},"description":"Hausmeister"}'
+expect "amend draft" "$on_status" 200
+expect "amended amount" "$(echo "$on_body" | jq -r .amount.amount)" "85.00"
+on_transaction "$draft_id" ignore '{"reason":"Smoke: doppelt"}'
+expect "ignore draft" "$(echo "$on_body" | jq -r .status)" IGNORED
+on_transaction "$draft_id" restore
+expect "restore draft" "$(echo "$on_body" | jq -r .status)" UNREVIEWED
+on_transaction "$transaction_id" amend '{"description":"x"}'
+expect "corrected transaction not amendable" "$on_status" 409
 
 # VC-1-05/06: bank CSV import (multipart); the identical file again is all duplicates.
 statement_file=$(mktemp)

@@ -3,6 +3,10 @@ import { z } from 'zod';
 import {
   CATEGORY_CODE,
   CorrectionNoChangeError,
+  ImportedFieldsFixedError,
+  TransactionNotAmendableError,
+  TransactionNotIgnorableError,
+  TransactionNotIgnoredError,
   CurrencyMismatchError,
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
@@ -21,6 +25,10 @@ import {
   checkBusinessDate,
   type ConfirmTransaction,
   type CorrectTransaction,
+  type AmendTransaction,
+  type IgnoreTransaction,
+  type RestoreTransaction,
+  type TransactionChanges,
   type ReplacementInput,
   type CreateManualTransaction,
   type RealmPrincipal,
@@ -110,6 +118,22 @@ const correctBody = z
   })
   .strict();
 
+/** `amend` (api-design.md §31.3): only the fields to change, at least one; null clears an optional one. */
+const amendBody = z
+  .object({
+    financialAccountId: z.string().regex(RESOURCE_ID).optional(),
+    amount: money.optional(),
+    direction: z.enum(DIRECTIONS).optional(),
+    bookingDate: businessDate.optional(),
+    valueDate: businessDate.nullable().optional(),
+    description: z.string().trim().max(500).nullable().optional(),
+    propertyReferenceId: z.string().regex(RESOURCE_ID).nullable().optional(),
+  })
+  .strict()
+  .refine((body) => Object.keys(body).length > 0, { message: 'no field to change', params: { code: 'REQUIRED' } });
+
+const ignoreBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+
 /** `splits.0.direction` → NOT_ALLOWED, `splits.0.loanId` → NOT_SUPPORTED. */
 function splitFieldCode(field: string, code: string): string {
   const key = field.split('.').at(-1) ?? '';
@@ -122,6 +146,9 @@ export interface TransactionCommands {
   readonly setSplits: SetTransactionSplits;
   readonly confirm: ConfirmTransaction;
   readonly correct: CorrectTransaction;
+  readonly amend: AmendTransaction;
+  readonly ignore: IgnoreTransaction;
+  readonly restore: RestoreTransaction;
 }
 
 /** Transaction API (api-design.md §30–31). */
@@ -373,6 +400,117 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           });
         } else if (error instanceof IdempotencyKeyConflictError) {
           sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
+        } else {
+          next(error);
+        }
+      });
+  });
+
+  router.post('/transactions/:transactionId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    const parsed = amendBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const body = parsed.data;
+    // Omitted keys stay undefined (keep the value); explicit null clears it.
+    const changes: TransactionChanges = {
+      ...(body.financialAccountId === undefined ? {} : { financialAccountId: body.financialAccountId.toLowerCase() }),
+      ...(body.amount === undefined ? {} : { amount: body.amount }),
+      ...(body.direction === undefined ? {} : { direction: body.direction }),
+      ...(body.bookingDate === undefined ? {} : { bookingDate: body.bookingDate }),
+      ...(body.valueDate === undefined ? {} : { valueDate: body.valueDate }),
+      ...(body.description === undefined ? {} : { description: body.description === '' ? null : body.description }),
+      ...(body.propertyReferenceId === undefined ? {} : { propertyReferenceId: body.propertyReferenceId?.toLowerCase() ?? null }),
+    };
+    commands
+      .amend({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), changes })
+      .then(({ transaction, splitsDropped }) => {
+        // The Transaction plus whether a changed amount discarded its split set (§31.3).
+        res.json({ ...toDto(transaction), splitsDropped });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else if (error instanceof FinancialAccountNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'FinancialAccount not found.', { financialAccountId: error.financialAccountId });
+        } else if (error instanceof PropertyReferenceNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
+        } else if (error instanceof TransactionNotAmendableError) {
+          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status} and cannot be amended.`, {
+            reason: 'NOT_AMENDABLE',
+            status: error.status,
+          });
+        } else if (error instanceof ImportedFieldsFixedError) {
+          sendError(res, 409, 'CONFLICT', 'An imported Transaction keeps the values of its bank row.', {
+            reason: 'IMPORTED_FIELDS_FIXED',
+            fields: error.fields,
+          });
+        } else if (error instanceof FinancialAccountClosedError) {
+          sendError(res, 409, 'CONFLICT', 'The target FinancialAccount is closed.', {
+            reason: 'ACCOUNT_CLOSED',
+            financialAccountId: error.financialAccountId,
+          });
+        } else if (error instanceof CurrencyMismatchError) {
+          sendValidationError(res, [{ field: 'amount.currency', code: 'CURRENCY_MISMATCH' }]);
+        } else {
+          next(error);
+        }
+      });
+  });
+
+  router.post('/transactions/:transactionId/ignore', express.json({ limit: '16kb' }), (req, res, next) => {
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    const parsed = ignoreBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .ignore({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), reason: parsed.data.reason })
+      .then(({ transaction, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        res.json(toDto(transaction));
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else if (error instanceof TransactionNotIgnorableError) {
+          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status} and cannot be ignored; correct it instead.`, {
+            reason: 'NOT_IGNORABLE',
+            status: error.status,
+          });
+        } else {
+          next(error);
+        }
+      });
+  });
+
+  router.post('/transactions/:transactionId/restore', (req, res, next) => {
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    commands
+      .restore({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase() })
+      .then(({ transaction }) => {
+        res.json(toDto(transaction));
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else if (error instanceof TransactionNotIgnoredError) {
+          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status}, not IGNORED.`, { reason: 'NOT_IGNORED', status: error.status });
         } else {
           next(error);
         }

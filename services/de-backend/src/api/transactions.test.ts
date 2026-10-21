@@ -9,6 +9,13 @@ import {
   TransactionNotConfirmableError,
   TransactionNotFoundError,
   CorrectionNoChangeError,
+  ImportedFieldsFixedError,
+  TransactionNotAmendableError,
+  TransactionNotIgnorableError,
+  TransactionNotIgnoredError,
+  type AmendTransaction,
+  type IgnoreTransaction,
+  type RestoreTransaction,
   FinancialCategoryNotFoundError,
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
@@ -433,5 +440,101 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
     expect(((await res.json()) as { error: { details: unknown } }).error.details).toEqual({
       fields: [{ field: 'replacement.splits.0.financialCategoryCode', code: 'UNKNOWN_CATEGORY' }],
     });
+  });
+});
+
+describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', () => {
+  async function startWith(commands: {
+    amendTransaction?: AmendTransaction;
+    ignoreTransaction?: IgnoreTransaction;
+    restoreTransaction?: RestoreTransaction;
+  }): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const stop = () =>
+    new Promise<void>((resolve) => server?.close(() => resolve())).then(() => {
+      server = undefined;
+    });
+  const postTo = (base: string, action: string, body?: unknown, id: string = transaction.id) =>
+    fetch(`${base}/api/v1/transactions/${id}/${action}`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  it('amend: 200 with the Transaction; omitted keys stay omitted, null clears, ids lower-cased', async () => {
+    const seen: Parameters<AmendTransaction>[0][] = [];
+    const base = await startWith({
+      amendTransaction: async (input) => {
+        seen.push(input);
+        return { transaction, changed: true, splitsDropped: true };
+      },
+    });
+    const res = await postTo(base, 'amend', { valueDate: null, description: '', propertyReferenceId: PROPERTY.toUpperCase(), amount: { amount: '1200', currency: 'EUR' } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ transactionId: transaction.id, splitsDropped: true });
+    expect(seen[0]?.changes).toEqual({ valueDate: null, description: null, propertyReferenceId: PROPERTY, amount: Money.of('1200', 'EUR') });
+  });
+
+  it('amend: 400 for an empty or unknown body, 404/409 refusals', async () => {
+    const base0 = await startWith({ amendTransaction: () => Promise.reject(new Error('unused')) });
+    const fields = async (body: unknown) =>
+      ((await (await postTo(base0, 'amend', body)).json()) as { error: { details: { fields: unknown[] } } }).error.details.fields;
+    expect(await fields({})).toEqual([{ field: '(body)', code: 'REQUIRED' }]);
+    expect(await fields({ status: 'CONFIRMED' })).toContainEqual({ field: '(body)', code: 'INVALID_FORMAT' });
+    expect((await postTo(base0, 'amend', { description: 'x' }, 'nope')).status).toBe(400);
+    await stop();
+
+    const cases = [
+      [new TransactionNotFoundError(transaction.id), 404, { code: 'NOT_FOUND' }],
+      [new TransactionNotAmendableError(transaction.id, 'CONFIRMED'), 409, { code: 'CONFLICT', details: { reason: 'NOT_AMENDABLE', status: 'CONFIRMED' } }],
+      [new ImportedFieldsFixedError(['amount']), 409, { code: 'CONFLICT', details: { reason: 'IMPORTED_FIELDS_FIXED', fields: ['amount'] } }],
+      [new FinancialAccountClosedError(ACCOUNT), 409, { code: 'CONFLICT', details: { reason: 'ACCOUNT_CLOSED' } }],
+      [new FinancialAccountNotFoundError(ACCOUNT), 404, { code: 'NOT_FOUND', details: { financialAccountId: ACCOUNT } }],
+      [new PropertyReferenceNotFoundError(PROPERTY), 404, { code: 'NOT_FOUND', details: { propertyReferenceId: PROPERTY } }],
+      [new CurrencyMismatchError('x'), 400, { code: 'VALIDATION_ERROR' }],
+    ] as const;
+    for (const [error, status, body] of cases) {
+      const base = await startWith({ amendTransaction: () => Promise.reject(error) });
+      const res = await postTo(base, 'amend', { description: 'x' });
+      expect(res.status, error.name).toBe(status);
+      expect(((await res.json()) as { error: unknown }).error, error.name).toMatchObject(body);
+      await stop();
+    }
+  });
+
+  it('ignore needs a reason; a repeat is marked replayed; confirmed is 409', async () => {
+    let replayed = false;
+    const base = await startWith({
+      ignoreTransaction: async ({ reason }) => {
+        expect(reason).toBe('Doppelt');
+        const answer = { transaction, replayed };
+        replayed = true;
+        return answer;
+      },
+    });
+    expect((await postTo(base, 'ignore', {})).status).toBe(400);
+    const first = await postTo(base, 'ignore', { reason: ' Doppelt ' });
+    expect(first.status).toBe(200);
+    expect(first.headers.get('idempotent-replayed')).toBeNull();
+    expect((await postTo(base, 'ignore', { reason: 'Doppelt' })).headers.get('idempotent-replayed')).toBe('true');
+    await stop();
+
+    const refused = await startWith({ ignoreTransaction: () => Promise.reject(new TransactionNotIgnorableError(transaction.id, 'CONFIRMED')) });
+    const res = await postTo(refused, 'ignore', { reason: 'x' });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'NOT_IGNORABLE', status: 'CONFIRMED' } });
+  });
+
+  it('restore: 200, or 409 when not ignored', async () => {
+    const base = await startWith({ restoreTransaction: async () => ({ transaction }) });
+    expect((await postTo(base, 'restore')).status).toBe(200);
+    await stop();
+    const refused = await startWith({ restoreTransaction: () => Promise.reject(new TransactionNotIgnoredError(transaction.id, 'CLASSIFIED')) });
+    const res = await postTo(refused, 'restore');
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'NOT_IGNORED', status: 'CLASSIFIED' } });
   });
 });
