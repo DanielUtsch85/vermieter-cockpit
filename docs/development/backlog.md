@@ -114,6 +114,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-19 | infra | The Transaction DTO reads its reversal/replacement ids by two subqueries (`ledger_transaction_correction_key`). Check list endpoints with `EXPLAIN` once they exist (review note on #22). Now relevant: every row of `GET /transactions` runs both subqueries, 400 index lookups at `pageSize = 200` (review note on #26) |
 | VC-X-20 | api | **done** (api-design §16.1) · Optimistic concurrency for field edits (api-design §16, review note on #23): `amend` is the first real field edit and is "last write wins" under the row lock. Accept `If-Match: <version>` (or `expectedVersion`) and answer `409 VERSION_CONFLICT` when it is stale, before a UI lets two people edit one draft |
 | VC-X-21 | api | **done** (api-design §30.1; still open: `current=true`, the other §30 filters, the property-reference alias) · Read a Transaction: `GET /api/v1/transactions/{id}` (and the list of api-design §30) with `ETag`, so a client can reload the current version after a `412 VERSION_CONFLICT` instead of retrying blindly with `details.currentVersion` (review note on #25) |
+| VC-X-22 | infra | Freeze `updated_at` and `version` of a confirmed Transaction too (review note on #27): today 0009/0011 leave them writable, and `version` is the `ETag` of §16.1, so a direct SQL update can fake or hide a version conflict. Rule: on a confirmed row `version` changes only with a status step (`RECONCILED`/`CORRECTED`) |
 
 ---
 

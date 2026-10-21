@@ -100,8 +100,9 @@ Specified in API §35.6 and data-model §17.8.
 | The link stays within the Realm | INV "a correction links only within its Realm" |
 | At most one reversal and one replacement per original | INV "at most one reversal and one replacement per original" |
 | A reversal matches its original (amount, account, dates; opposite direction), both records confirmed | INV "a reversal matches its original …"; CR "writes a confirmed reversal and replacement …" |
-| `CORRECTED` exactly when its reversal exists (replacement optional, VC-X-15), checked at commit | INV "CORRECTED exactly when its reversal exists …", "a complete chain commits, in any order of its writes" |
-| A reversed Transaction never gets a replacement later (VC-X-15) | INV "a reversed Transaction never gets a replacement later …" |
+| `CORRECTED` exactly when its reversal exists (replacement optional, VC-X-15), checked at commit | INV "CORRECTED exactly when its reversal exists …", "a complete chain commits; the reversal may come before or after …" |
+| A replacement only while its original is not yet `CORRECTED`, so a reversed Transaction never gets one later (VC-X-15), also after a touched `updated_at`, also against a concurrent reversal | INV "a reversed Transaction never gets a replacement later …", "a replacement racing a reversal waits for it and is then refused" |
+| A correction inside a savepoint commits like any other | INV "a correction inside a savepoint commits like any other" |
 | Reverse without a replacement: net effect zero, ends a chain, final | CR "reverse without a replacement …" |
 | `CORRECTED` only from `CONFIRMED`/`RECONCILED` (review counterexample on #21) | INV "CORRECTED only from CONFIRMED/RECONCILED …"; TR "the status of a confirmed Transaction only moves forward" |
 | No correction links to a reversal | INV "no correction links to a reversal"; CC, CR (`NOT_CORRECTABLE` with `correctionRole`) |
