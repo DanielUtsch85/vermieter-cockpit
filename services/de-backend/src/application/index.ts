@@ -40,6 +40,7 @@ export {
   InactiveCategoryError,
   SplitsMissingError,
   TransactionNotConfirmableError,
+  VersionConflictError,
   confirmTransaction,
   createManualTransaction,
 } from './transactions.js';

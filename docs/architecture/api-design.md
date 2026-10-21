@@ -386,6 +386,18 @@ or equivalent request field.
 
 Conflict should return `409 VERSION_CONFLICT`.
 
+## 16.1 Implementation for Transactions (VC-X-20)
+
+- **Where:** every command that changes a Transaction takes an optional `If-Match` header: `amend`, `PUT …/splits`, `confirm`, `ignore`, `restore` and `correct` (for `correct`, the original's version).
+- **Format:** `If-Match: "3"` (quotes optional). `*` or no header means no check. A weak tag (`W/"3"`), several tags or anything else is `400 VALIDATION_ERROR` with `field = "If-Match"`.
+- **Check:** under the Transaction's row lock, after reading it in a new statement, so a command that waited sees the version the other one wrote. A different current version is `409 VERSION_CONFLICT` with `details.expectedVersion` and `details.currentVersion`, and nothing is written. For `correct` the `Idempotency-Key` claim is rolled back too.
+- **Order:**
+  - Domain refusals come first. A stale version on a confirmed Transaction still answers `NOT_AMENDABLE`.
+  - A command that would change nothing is answered as before, whatever the version: an amend with the current values, the same split set, a repeated `confirm` or `ignore`. It cannot lose an update, and a retry after a lost answer stays a retry.
+  - An idempotent replay of `correct` (§15) answers before the lock.
+- **`ETag`:** the responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`. `correct` returns three Transactions, each with its `version` in the body.
+- **Optional for now:** there is no UI yet. A client that lets people edit should always send `If-Match`. Making it required is a later decision (`428 Precondition Required`).
+
 ---
 
 # 17. Audit Context
@@ -814,7 +826,7 @@ An explicit command, not a `PATCH` (§3). A confirmed Transaction is never amend
   - The response carries `splitsDropped: true` next to the Transaction's fields and the new `status`, and the AuditRecord carries `splitsDropped` too. Otherwise the response has `splitsDropped: false`.
   - Other changes keep the split set, and with it `CLASSIFIED`.
 - **`200`** with the Transaction (version + 1, AuditRecord `AMENDED` with each changed field's old and new value) and `splitsDropped`. Values equal to the current ones are a `200` no-op without a new version or AuditRecord (naturally idempotent, like §33).
-- **Concurrency:** the row lock serializes two amendments, but there is no version check yet: the later one wins ("last write wins"). `If-Match: <version>` → `409 VERSION_CONFLICT` (§16) is backlog VC-X-20.
+- **Concurrency:** the row lock serializes two amendments. With `If-Match` (§16.1) the second of two edits based on the same version gets `409 VERSION_CONFLICT` instead of silently overwriting the first; without it, the later one wins.
 
 ## 31.4 Ignore and restore (VC-X-16)
 

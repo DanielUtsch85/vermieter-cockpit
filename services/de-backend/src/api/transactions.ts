@@ -1,4 +1,4 @@
-import express, { type Router } from 'express';
+import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   CATEGORY_CODE,
@@ -14,6 +14,7 @@ import {
   InactiveCategoryError,
   SplitsMissingError,
   TransactionNotConfirmableError,
+  VersionConflictError,
   SplitSumMismatchError,
   TransactionFrozenError,
   TransactionNotFoundError,
@@ -38,7 +39,7 @@ import {
   type TransactionSplit,
 } from '../application/index.js';
 import { sendError } from './errors.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, sendValidationError } from './validation.js';
+import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 /** `YYYY-MM-DD` within 1900–2100 (api-design.md §88): INVALID_FORMAT or OUT_OF_RANGE. */
 const businessDate = z.string().transform((value, ctx) => {
@@ -182,6 +183,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       })
       .then(({ transaction, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        setVersionTag(res, transaction.version);
         res.status(201).json(toDto(transaction));
       })
       .catch((error: unknown) => {
@@ -210,6 +212,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
     const parsed = splitsBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(
@@ -221,8 +225,14 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     const splits = parsed.data.splits.map(toSplitInput);
 
     commands
-      .setSplits({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), splits })
+      .setSplits({
+        principal: res.locals['principal'] as RealmPrincipal,
+        transactionId: id.toLowerCase(),
+        splits,
+        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+      })
       .then(({ transaction, splits: stored }) => {
+        setVersionTag(res, transaction.version);
         res.json(toSplitsDto(transaction, stored));
       })
       .catch((error: unknown) => {
@@ -253,6 +263,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             actual: error.actual.toJSON(),
             difference: error.expected.subtract(error.actual).toJSON(),
           });
+        } else if (error instanceof VersionConflictError) {
+          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -265,10 +277,17 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
     commands
-      .confirm({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase() })
+      .confirm({
+        principal: res.locals['principal'] as RealmPrincipal,
+        transactionId: id.toLowerCase(),
+        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+      })
       .then(({ transaction, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        setVersionTag(res, transaction.version);
         res.json(toDto(transaction));
       })
       .catch((error: unknown) => {
@@ -295,6 +314,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             reason: 'INACTIVE_CATEGORY',
             financialCategoryCodes: error.codes,
           });
+        } else if (error instanceof VersionConflictError) {
+          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -309,6 +330,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
     const parsed = correctBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(
@@ -339,6 +362,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         reason: parsed.data.reason,
         replacement,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
+        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
       })
       .then(({ original, reversal, replacement: corrected, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
@@ -400,6 +424,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           });
         } else if (error instanceof IdempotencyKeyConflictError) {
           sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
+        } else if (error instanceof VersionConflictError) {
+          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -412,6 +438,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -429,9 +457,15 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       ...(body.propertyReferenceId === undefined ? {} : { propertyReferenceId: body.propertyReferenceId?.toLowerCase() ?? null }),
     };
     commands
-      .amend({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), changes })
+      .amend({
+        principal: res.locals['principal'] as RealmPrincipal,
+        transactionId: id.toLowerCase(),
+        changes,
+        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+      })
       .then(({ transaction, splitsDropped }) => {
         // The Transaction plus whether a changed amount discarded its split set (§31.3).
+        setVersionTag(res, transaction.version);
         res.json({ ...toDto(transaction), splitsDropped });
       })
       .catch((error: unknown) => {
@@ -458,6 +492,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           });
         } else if (error instanceof CurrencyMismatchError) {
           sendValidationError(res, [{ field: 'amount.currency', code: 'CURRENCY_MISMATCH' }]);
+        } else if (error instanceof VersionConflictError) {
+          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -470,15 +506,23 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
     const parsed = ignoreBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
       return;
     }
     commands
-      .ignore({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase(), reason: parsed.data.reason })
+      .ignore({
+        principal: res.locals['principal'] as RealmPrincipal,
+        transactionId: id.toLowerCase(),
+        reason: parsed.data.reason,
+        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+      })
       .then(({ transaction, replayed }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        setVersionTag(res, transaction.version);
         res.json(toDto(transaction));
       })
       .catch((error: unknown) => {
@@ -489,6 +533,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             reason: 'NOT_IGNORABLE',
             status: error.status,
           });
+        } else if (error instanceof VersionConflictError) {
+          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -501,9 +547,16 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
     commands
-      .restore({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase() })
+      .restore({
+        principal: res.locals['principal'] as RealmPrincipal,
+        transactionId: id.toLowerCase(),
+        ...(ifMatch.version === undefined ? {} : { expectedVersion: ifMatch.version }),
+      })
       .then(({ transaction }) => {
+        setVersionTag(res, transaction.version);
         res.json(toDto(transaction));
       })
       .catch((error: unknown) => {
@@ -511,6 +564,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
         } else if (error instanceof TransactionNotIgnoredError) {
           sendError(res, 409, 'CONFLICT', `Transaction is ${error.status}, not IGNORED.`, { reason: 'NOT_IGNORED', status: error.status });
+        } else if (error instanceof VersionConflictError) {
+          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -518,6 +573,18 @@ export function transactionRoutes(commands: TransactionCommands): Router {
   });
 
   return router;
+}
+
+/** The Transaction's version as entity tag, for a later `If-Match` (api-design.md §16). */
+function setVersionTag(res: Response, version: number): void {
+  res.setHeader('ETag', `"${version}"`);
+}
+
+function sendVersionConflict(res: Response, error: VersionConflictError): void {
+  sendError(res, 409, 'VERSION_CONFLICT', 'The Transaction changed since the version given in If-Match.', {
+    expectedVersion: error.expectedVersion,
+    currentVersion: error.currentVersion,
+  });
 }
 
 function toSplitsDto(transaction: SplitTransaction, splits: readonly TransactionSplit[]) {

@@ -1,5 +1,5 @@
 import { Money } from '../../shared/index.js';
-import type { Transaction, TransactionStatus } from './transaction.js';
+import type { Transaction, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
  * Confirming a Transaction (api-design.md §34, domain-model.md §21, §24):
@@ -62,4 +62,5 @@ export function planConfirm(transaction: Pick<Transaction, 'amount' | 'status'>,
 export type ConfirmOutcome =
   | { readonly kind: 'CONFIRMED'; readonly transaction: Transaction; readonly replayed: boolean }
   | { readonly kind: 'NOT_FOUND' }
+  | VersionConflict
   | Exclude<ConfirmPlan, { kind: 'CONFIRM' } | { kind: 'ALREADY_CONFIRMED' }>;

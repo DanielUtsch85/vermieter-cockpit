@@ -13,6 +13,7 @@ import {
   TransactionNotAmendableError,
   TransactionNotIgnorableError,
   TransactionNotIgnoredError,
+  VersionConflictError,
   type AmendTransaction,
   type IgnoreTransaction,
   type RestoreTransaction,
@@ -536,5 +537,83 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
     const res = await postTo(refused, 'restore');
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'NOT_IGNORED', status: 'CLASSIFIED' } });
+  });
+});
+
+describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
+  async function startWith(commands: Partial<Parameters<typeof createApp>[0]>): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const amendWith = (base: string, ifMatch?: string) =>
+    fetch(`${base}/api/v1/transactions/${transaction.id}/amend`, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer a.b.c',
+        organizationid: REALM,
+        'content-type': 'application/json',
+        ...(ifMatch === undefined ? {} : { 'if-match': ifMatch }),
+      },
+      body: JSON.stringify({ description: 'x' }),
+    });
+
+  it('passes the version from If-Match (quoted or bare), none for * or no header; answers with an ETag', async () => {
+    const seen: (number | undefined)[] = [];
+    const base = await startWith({
+      amendTransaction: async (input) => {
+        seen.push(input.expectedVersion);
+        return { transaction: { ...transaction, version: 4 } as Transaction, changed: true, splitsDropped: false };
+      },
+    });
+    for (const header of ['"3"', '3', '*', undefined]) {
+      const res = await amendWith(base, header);
+      expect(res.status, String(header)).toBe(200);
+      expect(res.headers.get('etag')).toBe('"4"');
+    }
+    expect(seen).toEqual([3, 3, undefined, undefined]);
+  });
+
+  it('400 for a malformed If-Match; 409 VERSION_CONFLICT names both versions', async () => {
+    const base0 = await startWith({ amendTransaction: () => Promise.reject(new Error('unused')) });
+    for (const header of ['W/"3"', '"3", "4"', 'abc', '"3']) {
+      const res = await amendWith(base0, header);
+      expect(res.status, header).toBe(400);
+      expect(((await res.json()) as { error: { details: unknown } }).error.details).toEqual({ fields: [{ field: 'If-Match', code: 'INVALID_FORMAT' }] });
+    }
+    await new Promise<void>((resolve) => server?.close(() => resolve()));
+    server = undefined;
+
+    const error = new VersionConflictError(3, 5);
+    const cases: [string, Partial<Parameters<typeof createApp>[0]>, string, unknown][] = [
+      ['amend', { amendTransaction: () => Promise.reject(error) }, 'amend', { description: 'x' }],
+      ['ignore', { ignoreTransaction: () => Promise.reject(error) }, 'ignore', { reason: 'x' }],
+      ['restore', { restoreTransaction: () => Promise.reject(error) }, 'restore', undefined],
+      ['confirm', { confirmTransaction: () => Promise.reject(error) }, 'confirm', undefined],
+      ['correct', { correctTransaction: () => Promise.reject(error) }, 'correct', { reason: 'x', replacement: { bookingDate: '2026-09-03' } }],
+    ];
+    for (const [name, commands, action, body] of cases) {
+      const base = await startWith(commands);
+      const res = await fetch(`${base}/api/v1/transactions/${transaction.id}/${action}`, {
+        method: 'POST',
+        headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', 'if-match': '"3"' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      expect(res.status, name).toBe(409);
+      expect(((await res.json()) as { error: unknown }).error, name).toMatchObject({
+        code: 'VERSION_CONFLICT',
+        details: { expectedVersion: 3, currentVersion: 5 },
+      });
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      server = undefined;
+    }
+    const base = await startWith({ setTransactionSplits: () => Promise.reject(error) });
+    const res = await fetch(`${base}/api/v1/transactions/${transaction.id}/splits`, {
+      method: 'PUT',
+      headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', 'if-match': '3' },
+      body: JSON.stringify({ splits: [{ amount: { amount: '1250.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' }] }),
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VERSION_CONFLICT');
   });
 });

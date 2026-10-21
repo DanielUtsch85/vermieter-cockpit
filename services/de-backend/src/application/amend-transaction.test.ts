@@ -45,9 +45,9 @@ describe('amend / ignore / restore use cases (api-design.md §31.3–31.4)', () 
     expect(await ignoreTransaction({ repository: repo })({ principal, transactionId: 't1', reason: 'r' })).toEqual({ transaction, replayed: true });
     expect(await restoreTransaction({ repository: repo })({ principal, transactionId: 't1' })).toEqual({ transaction });
     expect(calls).toEqual([
-      ['t1', REALM, { description: 'x' }, actor],
-      ['t1', REALM, 'r', actor],
-      ['t1', REALM, actor],
+      ['t1', REALM, { description: 'x' }, actor, undefined],
+      ['t1', REALM, 'r', actor, undefined],
+      ['t1', REALM, actor, undefined],
     ]);
   });
 

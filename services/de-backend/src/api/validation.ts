@@ -43,6 +43,22 @@ export function readIdempotencyKey(req: Request, res: Response): { key: string |
   return undefined;
 }
 
+/** `If-Match: "<version>"` (quotes optional), or `*` for any version (api-design.md §16). */
+const IF_MATCH = /^(?:"(\d{1,9})"|(\d{1,9}))$/;
+
+/**
+ * The optional `If-Match` header as the expected version: `{ version }` (undefined when absent or `*`), or
+ * `undefined` after answering 400 for a malformed one (a weak or several entity tags included).
+ */
+export function readIfMatch(req: Request, res: Response): { version: number | undefined } | undefined {
+  const header = req.headers['if-match'];
+  if (header === undefined || header.trim() === '*') return { version: undefined };
+  const match = IF_MATCH.exec(header.trim());
+  if (match !== null) return { version: Number(match[1] ?? match[2]) };
+  sendValidationError(res, [{ field: 'If-Match', code: 'INVALID_FORMAT' }]);
+  return undefined;
+}
+
 /** Field codes for amounts (api-design.md §31.1: 400 for each). */
 const MONEY_CODES: Record<MoneyError['code'], string> = {
   INVALID_AMOUNT: 'INVALID_FORMAT',

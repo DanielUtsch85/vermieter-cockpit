@@ -9,7 +9,7 @@ import type { RealmPrincipal } from './access.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { TransactionNotFoundError } from './transaction-splits.js';
-import { CurrencyMismatchError, FinancialAccountClosedError } from './transactions.js';
+import { CurrencyMismatchError, FinancialAccountClosedError, VersionConflictError } from './transactions.js';
 
 /**
  * Amend, ignore and restore an unconfirmed Transaction (api-design.md §31.3–31.4, backlog VC-X-16). A confirmed
@@ -67,11 +67,13 @@ export type AmendTransaction = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
   readonly changes: TransactionChanges;
+  /** From `If-Match` (api-design §16); omitted = no version check. */
+  readonly expectedVersion?: number;
 }) => Promise<{ readonly transaction: Transaction; readonly changed: boolean; readonly splitsDropped: boolean }>;
 
 export function amendTransaction(deps: { readonly repository: UnconfirmedTransactionRepository }): AmendTransaction {
-  return async ({ principal, transactionId, changes }) => {
-    const outcome = await deps.repository.amend(transactionId, principal.mreRealmId, changes, actorOf(principal));
+  return async ({ principal, transactionId, changes, expectedVersion }) => {
+    const outcome = await deps.repository.amend(transactionId, principal.mreRealmId, changes, actorOf(principal), expectedVersion);
     switch (outcome.kind) {
       case 'AMENDED':
         return { transaction: outcome.transaction, changed: outcome.changed, splitsDropped: outcome.splitsDropped };
@@ -89,6 +91,8 @@ export function amendTransaction(deps: { readonly repository: UnconfirmedTransac
         throw new CurrencyMismatchError('Transaction currency differs from the account currency');
       case 'PROPERTY_REFERENCE_NOT_FOUND':
         throw new PropertyReferenceNotFoundError(outcome.propertyReferenceId);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
     }
   };
 }
@@ -97,11 +101,12 @@ export type IgnoreTransaction = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
   readonly reason: string;
+  readonly expectedVersion?: number;
 }) => Promise<{ readonly transaction: Transaction; readonly replayed: boolean }>;
 
 export function ignoreTransaction(deps: { readonly repository: UnconfirmedTransactionRepository }): IgnoreTransaction {
-  return async ({ principal, transactionId, reason }) => {
-    const outcome = await deps.repository.ignore(transactionId, principal.mreRealmId, reason, actorOf(principal));
+  return async ({ principal, transactionId, reason, expectedVersion }) => {
+    const outcome = await deps.repository.ignore(transactionId, principal.mreRealmId, reason, actorOf(principal), expectedVersion);
     switch (outcome.kind) {
       case 'IGNORED':
         return { transaction: outcome.transaction, replayed: outcome.replayed };
@@ -109,6 +114,8 @@ export function ignoreTransaction(deps: { readonly repository: UnconfirmedTransa
         throw new TransactionNotFoundError(transactionId);
       case 'NOT_IGNORABLE':
         throw new TransactionNotIgnorableError(transactionId, outcome.status);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
     }
   };
 }
@@ -116,11 +123,12 @@ export function ignoreTransaction(deps: { readonly repository: UnconfirmedTransa
 export type RestoreTransaction = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
+  readonly expectedVersion?: number;
 }) => Promise<{ readonly transaction: Transaction }>;
 
 export function restoreTransaction(deps: { readonly repository: UnconfirmedTransactionRepository }): RestoreTransaction {
-  return async ({ principal, transactionId }) => {
-    const outcome = await deps.repository.restore(transactionId, principal.mreRealmId, actorOf(principal));
+  return async ({ principal, transactionId, expectedVersion }) => {
+    const outcome = await deps.repository.restore(transactionId, principal.mreRealmId, actorOf(principal), expectedVersion);
     switch (outcome.kind) {
       case 'RESTORED':
         return { transaction: outcome.transaction };
@@ -128,6 +136,8 @@ export function restoreTransaction(deps: { readonly repository: UnconfirmedTrans
         throw new TransactionNotFoundError(transactionId);
       case 'NOT_IGNORED':
         throw new TransactionNotIgnoredError(transactionId, outcome.status);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
     }
   };
 }

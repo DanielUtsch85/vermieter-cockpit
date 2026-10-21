@@ -9,7 +9,7 @@ import type { RealmPrincipal } from './access.js';
 import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { FinancialCategoryNotFoundError, SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
-import { CurrencyMismatchError, FinancialAccountClosedError, InactiveCategoryError } from './transactions.js';
+import { CurrencyMismatchError, FinancialAccountClosedError, InactiveCategoryError, VersionConflictError } from './transactions.js';
 
 /**
  * Correct Transaction (api-design.md §35, backlog VC-1-11): a confirmed
@@ -55,6 +55,8 @@ export interface CorrectTransactionInput {
   readonly reason: string;
   readonly replacement: ReplacementInput;
   readonly idempotencyKey?: string;
+  /** From `If-Match` (api-design §16); omitted = no version check. */
+  readonly expectedVersion?: number;
 }
 
 export interface CorrectTransactionResult extends CorrectionResult {
@@ -65,7 +67,7 @@ export interface CorrectTransactionResult extends CorrectionResult {
 export type CorrectTransaction = (input: CorrectTransactionInput) => Promise<CorrectTransactionResult>;
 
 export function correctTransaction(deps: { readonly repository: CorrectionRepository }): CorrectTransaction {
-  return async ({ principal, transactionId, reason, replacement, idempotencyKey }) => {
+  return async ({ principal, transactionId, reason, replacement, idempotencyKey, expectedVersion }) => {
     const request = { reason, replacement };
     const outcome = await deps.repository.correct(
       transactionId,
@@ -73,6 +75,7 @@ export function correctTransaction(deps: { readonly repository: CorrectionReposi
       request,
       { actorType: 'USER', actorId: principal.email },
       idempotencyKey === undefined ? undefined : { key: idempotencyKey, fingerprint: correctionFingerprint(transactionId, request) },
+      expectedVersion,
     );
     switch (outcome.kind) {
       case 'CORRECTED':
@@ -101,6 +104,8 @@ export function correctTransaction(deps: { readonly repository: CorrectionReposi
         throw new InactiveCategoryError(outcome.codes);
       case 'SUM_MISMATCH':
         throw new SplitSumMismatchError(outcome.expected, outcome.actual);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
     }
   };
 }

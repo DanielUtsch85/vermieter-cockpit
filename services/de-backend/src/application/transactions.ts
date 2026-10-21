@@ -82,6 +82,18 @@ export function createManualTransaction(deps: { readonly repository: Transaction
   };
 }
 
+/** `If-Match` named a version that is no longer the current one (→ 409 VERSION_CONFLICT, api-design §16). */
+export class VersionConflictError extends Error {
+  override readonly name = 'VersionConflictError';
+
+  constructor(
+    readonly expectedVersion: number,
+    readonly currentVersion: number,
+  ) {
+    super(`Expected version ${expectedVersion}, the current version is ${currentVersion}`);
+  }
+}
+
 /** CORRECTED or IGNORED: not confirmable (→ 409). */
 export class TransactionNotConfirmableError extends Error {
   override readonly name = 'TransactionNotConfirmableError';
@@ -121,12 +133,19 @@ export interface ConfirmTransactionResult {
 export type ConfirmTransaction = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
+  /** From `If-Match` (api-design §16); omitted = no version check. */
+  readonly expectedVersion?: number;
 }) => Promise<ConfirmTransactionResult>;
 
 /** Confirm Transaction (api-design.md §34, backlog VC-1-08). */
 export function confirmTransaction(deps: { readonly repository: TransactionRepository }): ConfirmTransaction {
-  return async ({ principal, transactionId }) => {
-    const outcome = await deps.repository.confirm(transactionId, principal.mreRealmId, { actorType: 'USER', actorId: principal.email });
+  return async ({ principal, transactionId, expectedVersion }) => {
+    const outcome = await deps.repository.confirm(
+      transactionId,
+      principal.mreRealmId,
+      { actorType: 'USER', actorId: principal.email },
+      expectedVersion,
+    );
     switch (outcome.kind) {
       case 'CONFIRMED':
         return { transaction: outcome.transaction, replayed: outcome.replayed };
@@ -134,6 +153,8 @@ export function confirmTransaction(deps: { readonly repository: TransactionRepos
         throw new TransactionNotFoundError(transactionId);
       case 'NOT_CONFIRMABLE':
         throw new TransactionNotConfirmableError(transactionId, outcome.status);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
       case 'SPLITS_MISSING':
         throw new SplitsMissingError(transactionId);
       case 'SUM_MISMATCH':

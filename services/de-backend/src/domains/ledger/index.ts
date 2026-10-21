@@ -21,6 +21,7 @@ export {
   TRANSACTION_STATUSES,
   checkBusinessDate,
   checkPosting,
+  checkVersion,
   manualTransactionFingerprint,
   parseBusinessDate,
 } from './transaction.js';
@@ -36,6 +37,7 @@ export type {
   TransactionId,
   TransactionRepository,
   TransactionStatus,
+  VersionConflict,
 } from './transaction.js';
 export { contentFingerprintFieldsV1 } from './bank-statement.js';
 export type {

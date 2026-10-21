@@ -3,6 +3,7 @@ import { Money } from '../../shared/index.js';
 import {
   checkBusinessDate,
   checkPosting,
+  checkVersion,
   manualTransactionFingerprint,
   parseBusinessDate,
   type BusinessDate,
@@ -97,5 +98,14 @@ describe('manualTransactionFingerprint', () => {
     ]) {
       expect(manualTransactionFingerprint({ ...rent, ...change })).not.toBe(base);
     }
+  });
+});
+
+describe('checkVersion (api-design.md §16)', () => {
+  it('no expected version, or the current one, passes; another one is a conflict naming both', () => {
+    expect(checkVersion(3, undefined)).toBeUndefined();
+    expect(checkVersion(3, 3)).toBeUndefined();
+    expect(checkVersion(3, 2)).toEqual({ kind: 'VERSION_CONFLICT', expectedVersion: 2, currentVersion: 3 });
+    expect(checkVersion(3, 4)).toEqual({ kind: 'VERSION_CONFLICT', expectedVersion: 4, currentVersion: 3 });
   });
 });

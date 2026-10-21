@@ -10,7 +10,7 @@ import type {
 import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
-import { CurrencyMismatchError } from './transactions.js';
+import { CurrencyMismatchError, VersionConflictError } from './transactions.js';
 
 /**
  * Set Transaction splits (api-design.md §33, backlog VC-1-07): replaces the
@@ -67,14 +67,19 @@ export type SetTransactionSplits = (input: {
   readonly principal: RealmPrincipal;
   readonly transactionId: string;
   readonly splits: readonly SplitInput[];
+  /** From `If-Match` (api-design §16); omitted = no version check. */
+  readonly expectedVersion?: number;
 }) => Promise<SetTransactionSplitsResult>;
 
 export function setTransactionSplits(deps: { readonly repository: TransactionSplitRepository }): SetTransactionSplits {
-  return async ({ principal, transactionId, splits }) => {
-    const outcome = await deps.repository.replaceSplits(transactionId, principal.mreRealmId, splits, {
-      actorType: 'USER',
-      actorId: principal.email,
-    });
+  return async ({ principal, transactionId, splits, expectedVersion }) => {
+    const outcome = await deps.repository.replaceSplits(
+      transactionId,
+      principal.mreRealmId,
+      splits,
+      { actorType: 'USER', actorId: principal.email },
+      expectedVersion,
+    );
     switch (outcome.kind) {
       case 'REPLACED':
         return { transaction: outcome.transaction, splits: outcome.splits };
@@ -90,6 +95,8 @@ export function setTransactionSplits(deps: { readonly repository: TransactionSpl
         throw new FinancialCategoryNotFoundError(outcome.codes);
       case 'PROPERTY_REFERENCE_NOT_FOUND':
         throw new PropertyReferenceNotFoundError(outcome.propertyReferenceIds[0] ?? '');
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersion, outcome.currentVersion);
     }
   };
 }

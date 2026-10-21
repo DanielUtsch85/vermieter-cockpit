@@ -86,6 +86,24 @@ export interface Transaction {
   readonly replacementTransactionId: TransactionId | null;
 }
 
+/**
+ * Optimistic concurrency (api-design.md §16, backlog VC-X-20): a command that would change a Transaction may name
+ * the version it was based on (`If-Match`). A stale one is refused, so two people editing one draft do not
+ * overwrite each other unseen. A command that changes nothing (a repeat, the same values) is answered as a no-op
+ * without the check: it cannot lose an update, and a retry stays a retry.
+ */
+export interface VersionConflict {
+  readonly kind: 'VERSION_CONFLICT';
+  readonly expectedVersion: number;
+  readonly currentVersion: number;
+}
+
+/** The conflict when `expectedVersion` is given and not the current one. */
+export function checkVersion(currentVersion: number, expectedVersion: number | undefined): VersionConflict | undefined {
+  if (expectedVersion === undefined || expectedVersion === currentVersion) return undefined;
+  return { kind: 'VERSION_CONFLICT', expectedVersion, currentVersion };
+}
+
 /** A validated manual Transaction about to be created (api-design.md §31). */
 export interface NewManualTransaction {
   readonly mreRealmId: string;
@@ -160,5 +178,5 @@ export interface TransactionRepository {
    * applies `planConfirm` and, if confirmable, sets CONFIRMED with
    * `confirmedAt`/`confirmedBy`, bumps the version and writes the AuditRecord.
    */
-  confirm(id: string, mreRealmId: string, actor: AuditActor): Promise<ConfirmOutcome>;
+  confirm(id: string, mreRealmId: string, actor: AuditActor, expectedVersion?: number): Promise<ConfirmOutcome>;
 }

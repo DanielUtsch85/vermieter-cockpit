@@ -1,5 +1,6 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
+  checkVersion,
   planAmend,
   planIgnore,
   planRestore,
@@ -34,7 +35,7 @@ class Rejected extends Error {
 export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTransactionRepository {
   constructor(private readonly db: Kysely<Database>) {}
 
-  async amend(id: string, mreRealmId: string, changes: TransactionChanges, actor: AuditActor): Promise<AmendOutcome> {
+  async amend(id: string, mreRealmId: string, changes: TransactionChanges, actor: AuditActor, expectedVersion?: number): Promise<AmendOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
     try {
       return await this.db
@@ -46,6 +47,8 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
           const plan = planAmend(transaction, changes);
           if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', transaction, changed: false, splitsDropped: false };
           if (plan.kind !== 'AMEND') return plan;
+          const conflict = checkVersion(transaction.version, expectedVersion);
+          if (conflict !== undefined) return conflict;
           const { values } = plan;
 
           if (plan.changed.includes('financialAccountId') || plan.changed.includes('amount')) {
@@ -99,7 +102,7 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
     }
   }
 
-  ignore(id: string, mreRealmId: string, reason: string, actor: AuditActor): Promise<IgnoreOutcome> {
+  ignore(id: string, mreRealmId: string, reason: string, actor: AuditActor, expectedVersion?: number): Promise<IgnoreOutcome> {
     if (!UUID.test(id)) return Promise.resolve({ kind: 'NOT_FOUND' });
     return this.db
       .transaction()
@@ -110,6 +113,8 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
         const plan = planIgnore(transaction.status);
         if (plan.kind === 'ALREADY_IGNORED') return { kind: 'IGNORED', transaction, replayed: true };
         if (plan.kind === 'NOT_IGNORABLE') return plan;
+        const conflict = checkVersion(transaction.version, expectedVersion);
+        if (conflict !== undefined) return conflict;
         const ignored = toDomain(await setStatus(trx, id, 'IGNORED'));
         await writeAudit(trx, { type: ENTITY_TYPE, id }, 'IGNORED', actor, {
           previousVersion: transaction.version,
@@ -120,7 +125,7 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
       });
   }
 
-  restore(id: string, mreRealmId: string, actor: AuditActor): Promise<RestoreOutcome> {
+  restore(id: string, mreRealmId: string, actor: AuditActor, expectedVersion?: number): Promise<RestoreOutcome> {
     if (!UUID.test(id)) return Promise.resolve({ kind: 'NOT_FOUND' });
     return this.db
       .transaction()
@@ -131,6 +136,8 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
         const split = await trx.selectFrom('transaction_split').select('id').where('transaction_id', '=', id).limit(1).executeTakeFirst();
         const plan = planRestore(transaction, split !== undefined);
         if (plan.kind === 'NOT_IGNORED') return plan;
+        const conflict = checkVersion(transaction.version, expectedVersion);
+        if (conflict !== undefined) return conflict;
         const restored = toDomain(await setStatus(trx, id, plan.nextStatus));
         await writeAudit(trx, { type: ENTITY_TYPE, id }, 'RESTORED', actor, {
           previousVersion: transaction.version,
