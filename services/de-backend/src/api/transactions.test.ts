@@ -22,6 +22,7 @@ import {
   TransactionNotCorrectableError,
   type ConfirmTransaction,
   type CorrectTransaction,
+  type ListTransactions,
   type CorrectTransactionInput,
   FinancialAccountClosedError,
   FinancialAccountNotFoundError,
@@ -566,17 +567,18 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
         return { transaction: { ...transaction, version: 4 } as Transaction, changed: true, splitsDropped: false };
       },
     });
-    for (const header of ['"3"', '"3", "4"', 'W/"3"', '"abc", W/"4", "5"', '*', undefined]) {
+    for (const header of ['"3"', '"3", "4"', 'W/"3"', '"abc", W/"4", "5"', '"3", , "4",', '"a,b", "5"', '*', undefined]) {
       const res = await amendWith(base, header);
       expect(res.status, String(header)).toBe(200);
       expect(res.headers.get('etag')).toBe('"4"');
     }
-    expect(seen).toEqual([[3], [3, 4], [], [5], undefined, undefined]);
+    // Empty list elements are allowed and a tag may contain a comma (RFC 9110 §5.6.1, §8.8.3; review on #25).
+    expect(seen).toEqual([[3], [3, 4], [], [5], [3, 4], [5], undefined, undefined]);
   });
 
   it('400 for an If-Match that is not a list of entity tags; 412 VERSION_CONFLICT names the versions', async () => {
     const base0 = await startWith({ amendTransaction: () => Promise.reject(new Error('unused')) });
-    for (const header of ['3', 'abc', '"3', '"3",', 'W/3']) {
+    for (const header of ['3', 'abc', '"3', 'W/3', ',', '"3" "4"', '"3"x']) {
       const res = await amendWith(base0, header);
       expect(res.status, header).toBe(400);
       expect(((await res.json()) as { error: { details: unknown } }).error.details).toEqual({ fields: [{ field: 'If-Match', code: 'INVALID_FORMAT' }] });
@@ -615,5 +617,81 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
     });
     expect(res.status).toBe(412);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VERSION_CONFLICT');
+  });
+});
+
+describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
+  async function startWith(commands: Partial<Parameters<typeof createApp>[0]>): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
+    return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  }
+  const get = (base: string, path: string) =>
+    fetch(`${base}/api/v1${path}`, { headers: { authorization: 'Bearer a.b.c', organizationid: REALM } });
+
+  it('one Transaction with its splits and an ETag; 404 unknown, 400 malformed id', async () => {
+    const split = {
+      id: 's1',
+      position: 1,
+      amount: Money.of('1250.00', 'EUR'),
+      financialCategoryCode: 'RENT_BASE',
+      propertyReferenceId: null,
+      description: null,
+    };
+    const base = await startWith({
+      getTransaction: async ({ transactionId }) => {
+        if (transactionId !== transaction.id) throw new TransactionNotFoundError(transactionId);
+        return { transaction: { ...transaction, version: 3 } as Transaction, splits: [split] };
+      },
+    });
+    const res = await get(base, `/transactions/${transaction.id.toUpperCase()}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('etag')).toBe('"3"');
+    expect(await res.json()).toMatchObject({
+      transactionId: transaction.id,
+      version: 3,
+      splits: [{ splitId: 's1', position: 1, amount: { amount: '1250.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' }],
+    });
+    expect((await get(base, '/transactions/0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b')).status).toBe(404);
+    expect((await get(base, '/transactions/nope')).status).toBe(400);
+  });
+
+  it('a page with the filters as given; reviewable is IMPORTED + UNREVIEWED and narrows status; defaults page 1 / 50', async () => {
+    const seen: Parameters<ListTransactions>[0][] = [];
+    const base = await startWith({
+      listTransactions: async (input) => {
+        seen.push(input);
+        return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 7 };
+      },
+    });
+    const res = await get(
+      base,
+      `/transactions?financialAccountId=${ACCOUNT.toUpperCase()}&status=IMPORTED,CONFIRMED&propertyReferenceId=${PROPERTY}&bookingDateFrom=2026-09-01&bookingDateTo=2026-09-30&page=2&pageSize=5`,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ items: [{ transactionId: transaction.id }], page: 2, pageSize: 5, total: 7 });
+    expect(seen[0]).toMatchObject({
+      filter: {
+        financialAccountId: ACCOUNT,
+        statuses: ['IMPORTED', 'CONFIRMED'],
+        propertyReferenceId: PROPERTY,
+        bookingDateFrom: '2026-09-01',
+        bookingDateTo: '2026-09-30',
+      },
+      page: { page: 2, pageSize: 5 },
+    });
+    await get(base, '/transactions?reviewable=true');
+    await get(base, '/transactions?reviewable=true&status=IMPORTED,CONFIRMED');
+    expect(seen[1]).toMatchObject({ filter: { statuses: ['IMPORTED', 'UNREVIEWED'] }, page: { page: 1, pageSize: 50 } });
+    expect(seen[2]?.filter).toEqual({ statuses: ['IMPORTED'] });
+  });
+
+  it('400 for unknown parameters, bad values and an inverted date range', async () => {
+    const base = await startWith({ listTransactions: () => Promise.reject(new Error('unused')) });
+    for (const query of ['foo=1', 'status=DONE', 'pageSize=201', 'page=0', 'bookingDateFrom=2026-13-01', 'reviewable=yes', 'financialAccountId=x', 'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01']) {
+      expect((await get(base, `/transactions?${query}`)).status, query).toBe(400);
+    }
+    const inverted = await get(base, '/transactions?bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01');
+    expect(((await inverted.json()) as { error: { details: unknown } }).error.details).toEqual({ fields: [{ field: 'bookingDateTo', code: 'INVALID_RANGE' }] });
   });
 });

@@ -25,6 +25,11 @@ import {
   PropertyReferenceNotFoundError,
   checkBusinessDate,
   type ConfirmTransaction,
+  type GetTransaction,
+  type ListTransactions,
+  type TransactionStatus,
+  REVIEWABLE_STATUSES,
+  TRANSACTION_STATUSES,
   type CorrectTransaction,
   type AmendTransaction,
   type IgnoreTransaction,
@@ -119,6 +124,35 @@ const correctBody = z
   })
   .strict();
 
+/** `GET /transactions` (api-design.md §30.1): filters and page; unknown parameters are refused. */
+const listQuery = z
+  .object({
+    financialAccountId: z.string().regex(RESOURCE_ID).optional(),
+    // Comma-separated, any of them.
+    status: z
+      .string()
+      .transform((value, ctx) => {
+        const statuses = value.split(',').map((s) => s.trim());
+        if (statuses.some((s) => !(TRANSACTION_STATUSES as readonly string[]).includes(s))) {
+          ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
+          return z.NEVER;
+        }
+        return statuses as TransactionStatus[];
+      })
+      .optional(),
+    reviewable: z.enum(['true']).optional(),
+    propertyReferenceId: z.string().regex(RESOURCE_ID).optional(),
+    bookingDateFrom: businessDate.optional(),
+    bookingDateTo: businessDate.optional(),
+    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .strict()
+  .refine((q) => q.bookingDateFrom === undefined || q.bookingDateTo === undefined || q.bookingDateFrom <= q.bookingDateTo, {
+    path: ['bookingDateTo'],
+    params: { code: 'INVALID_RANGE' },
+  });
+
 /** `amend` (api-design.md §31.3): only the fields to change, at least one; null clears an optional one. */
 const amendBody = z
   .object({
@@ -147,6 +181,8 @@ export interface TransactionCommands {
   readonly setSplits: SetTransactionSplits;
   readonly confirm: ConfirmTransaction;
   readonly correct: CorrectTransaction;
+  readonly get: GetTransaction;
+  readonly list: ListTransactions;
   readonly amend: AmendTransaction;
   readonly ignore: IgnoreTransaction;
   readonly restore: RestoreTransaction;
@@ -155,6 +191,56 @@ export interface TransactionCommands {
 /** Transaction API (api-design.md §30–31). */
 export function transactionRoutes(commands: TransactionCommands): Router {
   const router = express.Router();
+
+  router.get('/transactions', (req, res, next) => {
+    const parsed = listQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const q = parsed.data;
+    // `reviewable=true` is the statuses IMPORTED and UNREVIEWED; with `status` too, both must hold.
+    const reviewable: readonly TransactionStatus[] | undefined = q.reviewable === 'true' ? REVIEWABLE_STATUSES : undefined;
+    const statuses =
+      q.status !== undefined && reviewable !== undefined ? q.status.filter((s) => reviewable.includes(s)) : (q.status ?? reviewable);
+    commands
+      .list({
+        principal: res.locals['principal'] as RealmPrincipal,
+        filter: {
+          ...(q.financialAccountId === undefined ? {} : { financialAccountId: q.financialAccountId.toLowerCase() }),
+          ...(statuses === undefined ? {} : { statuses }),
+          ...(q.propertyReferenceId === undefined ? {} : { propertyReferenceId: q.propertyReferenceId.toLowerCase() }),
+          ...(q.bookingDateFrom === undefined ? {} : { bookingDateFrom: q.bookingDateFrom }),
+          ...(q.bookingDateTo === undefined ? {} : { bookingDateTo: q.bookingDateTo }),
+        },
+        page: { page: q.page, pageSize: q.pageSize },
+      })
+      .then((result) => {
+        res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
+      })
+      .catch(next);
+  });
+
+  router.get('/transactions/:transactionId', (req, res, next) => {
+    const id = req.params['transactionId'] ?? '';
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    commands
+      .get({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase() })
+      .then(({ transaction, splits }) => {
+        setVersionTag(res, transaction.version);
+        res.json({ ...toDto(transaction), splits: splits.map(toSplitDto) });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof TransactionNotFoundError) {
+          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+        } else {
+          next(error);
+        }
+      });
+  });
 
   router.post('/transactions', express.json({ limit: '16kb' }), (req, res, next) => {
     const idempotency = readIdempotencyKey(req, res);
@@ -595,14 +681,18 @@ function toSplitsDto(transaction: SplitTransaction, splits: readonly Transaction
     direction: transaction.direction,
     status: transaction.status,
     version: transaction.version,
-    splits: splits.map((s) => ({
-      splitId: s.id,
-      position: s.position,
-      amount: s.amount.toJSON(),
-      financialCategoryCode: s.financialCategoryCode,
-      propertyReferenceId: s.propertyReferenceId,
-      description: s.description,
-    })),
+    splits: splits.map(toSplitDto),
+  };
+}
+
+function toSplitDto(s: TransactionSplit) {
+  return {
+    splitId: s.id,
+    position: s.position,
+    amount: s.amount.toJSON(),
+    financialCategoryCode: s.financialCategoryCode,
+    propertyReferenceId: s.propertyReferenceId,
+    description: s.description,
   };
 }
 
