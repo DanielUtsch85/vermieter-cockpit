@@ -23,12 +23,18 @@ import type {
   RefreshPropertyReference,
   ResolveReviewItem,
   SetTransactionSplits,
+  AmendParty,
+  CreateParty,
+  DeactivateParty,
+  GetParty,
+  ListParties,
 } from '../application/index.js';
 import { requireDeAccess } from './access-middleware.js';
 import { errorHandler } from './errors.js';
 import { financialAccountRoutes } from './financial-accounts.js';
 import { financialCategoryRoutes } from './financial-categories.js';
 import { importRoutes } from './imports.js';
+import { partyRoutes } from './parties.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
 
@@ -45,6 +51,12 @@ export interface AppDependencies {
   readonly linkPropertyReference: LinkPropertyReference;
   /** Refresh command (VC-1-02). */
   readonly refreshPropertyReference: RefreshPropertyReference;
+  /** Party commands and reads (VC-2-01). */
+  readonly createParty: CreateParty;
+  readonly getParty: GetParty;
+  readonly listParties: ListParties;
+  readonly amendParty: AmendParty;
+  readonly deactivateParty: DeactivateParty;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -103,6 +115,15 @@ export function createApp(deps: AppDependencies): Express {
     res.json({ status: 'ok', mreRealmId: principal.mreRealmId });
   });
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));
+  api.use(
+    partyRoutes({
+      create: deps.createParty,
+      get: deps.getParty,
+      list: deps.listParties,
+      amend: deps.amendParty,
+      deactivate: deps.deactivateParty,
+    }),
+  );
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
   api.use(
     transactionRoutes({

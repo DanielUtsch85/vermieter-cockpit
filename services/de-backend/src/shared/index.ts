@@ -8,3 +8,5 @@ export { Money, MoneyError, MAX_INTEGER_DIGITS, currencyScale, isSupportedCurren
 export type { CurrencyCode, MoneyErrorCode, MoneyJson } from './money.js';
 export type { AuditActor } from './audit.js';
 export { normalizeIban } from './iban.js';
+export { checkVersion } from './version.js';
+export type { VersionConflict } from './version.js';

@@ -11,7 +11,12 @@ import {
   amendTransaction,
   ignoreTransaction,
   restoreTransaction,
+  amendParty,
   createFinancialAccount,
+  createParty,
+  deactivateParty,
+  getParty,
+  listParties,
   createManualTransaction,
   getFinancialCategory,
   getImportBatch,
@@ -25,6 +30,7 @@ import {
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
+  PostgresPartyRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
@@ -52,6 +58,7 @@ const propertyReferences = {
   lookupMreProperty: mrePropertyLookup(mreClient),
 };
 const financialAccounts = new PostgresFinancialAccountRepository(db);
+const parties = new PostgresPartyRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -61,6 +68,11 @@ const app = createApp({
   verifyPrincipal: mrePrincipalVerifier(mreClient),
   linkPropertyReference: linkPropertyReference(propertyReferences),
   refreshPropertyReference: refreshPropertyReference(propertyReferences),
+  createParty: createParty({ repository: parties }),
+  getParty: getParty({ repository: parties }),
+  listParties: listParties({ repository: parties }),
+  amendParty: amendParty({ repository: parties }),
+  deactivateParty: deactivateParty({ repository: parties }),
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: transactions }),

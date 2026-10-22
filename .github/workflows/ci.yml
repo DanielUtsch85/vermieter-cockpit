@@ -77,6 +77,7 @@ jobs:
           echo "$applied" | grep -qx '0013_freeze_transaction_version'
           echo "$applied" | grep -qx '0014_reversal_mirrors_splits'
           echo "$applied" | grep -qx '0015_transaction_page_index'
+          echo "$applied" | grep -qx '0016_party'
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
       - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction → splits → confirm → correct → reverse → bank import → review)

@@ -121,3 +121,7 @@ export { getTransaction, listPropertyReferenceTransactions, listTransactions } f
 export type { GetTransaction, ListPropertyReferenceTransactions, ListTransactions } from './read-transactions.js';
 export { PROVENANCES, REVIEWABLE_STATUSES, TRANSACTION_STATUSES } from '../domains/ledger/index.js';
 export type { TransactionFilter, TransactionPage, TransactionStatus } from '../domains/ledger/index.js';
+export { PartyFieldNotAllowedError, PartyNotFoundError, amendParty, createParty, deactivateParty, getParty, listParties } from './parties.js';
+export type { AmendParty, CreateParty, CreatePartyInput, DeactivateParty, GetParty, ListParties } from './parties.js';
+export { ORGANIZATION_FIELDS, PARTY_STATUSES, PARTY_TYPES, PERSON_FIELDS } from '../domains/party/index.js';
+export type { Party, PartyChanges, PartyFilter, PartyPage, PartyStatus, PartyType } from '../domains/party/index.js';
