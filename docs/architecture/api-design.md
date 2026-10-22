@@ -389,7 +389,7 @@ Conflict should return `VERSION_CONFLICT`: `412 Precondition Failed` when the ve
 
 ## 16.1 Implementation for Transactions (VC-X-20)
 
-- **Where:** every command that changes a Transaction takes an optional `If-Match` header: `amend`, `PUT …/splits`, `confirm`, `ignore`, `restore` and `correct` (for `correct`, the original's version). The same rules apply to the Party commands `amend` and `deactivate` (§19.1), and to every later resource whose spec says "`If-Match` as §16.1".
+- **Where:** every command that changes a Transaction takes an optional `If-Match` header: `amend`, `PUT …/splits`, `confirm`, `ignore`, `restore` and `correct` (for `correct`, the original's version). The same rules apply to the Party commands `amend` and `deactivate` (§19.1), to ending an external reference (§20.1), and to every later resource whose spec says "`If-Match` as §16.1".
 - **Format (RFC 9110 §13.1.1):** a list of entity tags, `If-Match: "3"` or `If-Match: "3", "4"`.
   - `*` or no header means no check.
   - `If-Match` compares strongly: a weak tag (`W/"3"`), or a tag that is not a version, never matches. A header with only such tags therefore fails the check.
@@ -462,6 +462,7 @@ POST /api/v1/parties
 POST /api/v1/parties/{partyId}/amend
 POST /api/v1/parties/{partyId}/deactivate
 POST /api/v1/parties/{partyId}/external-references        (VC-2-02, §20)
+POST /api/v1/parties/{partyId}/external-references/{externalReferenceId}/end
 ```
 
 Avoid generic deletion where historical relationships exist.
@@ -507,14 +508,57 @@ Avoid generic deletion where historical relationships exist.
   - `partyType` (the field's name; §19 used to say `type`);
   - `status` (`ACTIVE` | `INACTIVE`);
   - `name`: substring of `displayName`, `legalName`, `firstName` or `lastName` (1–100 characters), matched **literally**: `%`, `_` and `\` in the input are escaped (`LIKE … ESCAPE '\'`), so `name=%` finds "100% Haus GmbH" and not every Party. Case-insensitive by `lower()` on both sides; no accent or `ß`/`ss` folding.
-  - `externalSystem` / `externalId` come with VC-2-02.
+  - `externalSystem` / `externalId`: the Party holding an active external reference (§20.1, VC-2-02).
 - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`.
 
 ---
 
-# 20. MRE Party Mapping API
+# 20. Party External References (VC-2-02)
 
-Superseded by the single external-reference command of §19 (P2-D2): `POST /api/v1/parties/{partyId}/external-references` with `system = MRE`, `entityType = tenant`, `mreRealmId`, `externalId`. Its contract is specified with VC-2-02; there is no separate `mre-mappings` route.
+Replaces the former "MRE Party Mapping API" (P2-D2): there is one external-reference command, no `mre-mappings` route. Data: data-model §8; MRE side: mre-integration §11, §20.1.
+
+```text
+POST /api/v1/parties/{partyId}/external-references
+POST /api/v1/parties/{partyId}/external-references/{externalReferenceId}/end
+GET  /api/v1/parties/{partyId}/external-references
+```
+
+## 20.1 Contract
+
+- **Domain owner:** Shared Identity. **Authorization:** as §19.1; the Party and its references belong to the caller's Realm. An unknown, foreign or malformed `partyId` or `externalReferenceId` is answered as §30.1 (`404` / `400`); a reference of another Party is `404`.
+- **Phase 2 scope:** `system = MRE`, `entityType = tenant` only; any other value is `400`. Owners and landlords have no MRE reference (P2-D2).
+- **Response:** `externalReferenceId`, `partyId`, `system`, `mreRealmId`, `entityType`, `externalId`, `status` (`ACTIVE` | `ENDED`), `endedAt`, `createdAt`, `version`. Single-reference responses carry `ETag: "<version>"` (§16.1).
+- **Active** means not ended (a status, not a period; data-model §8). `(system, mreRealmId, entityType, externalId)` is unique **among active references**, enforced by a partial unique index, so an MRE Tenant resolves to at most one Party. A Party may hold any number of references (one person, several MRE Tenant records over time).
+
+### `POST …/external-references`
+
+- **Body** (strict; unknown keys `400`): `system` (`"MRE"`), `entityType` (`"tenant"`), `mreRealmId` (required; another value than the verified Realm of the `organizationid` header is `403`, as §23.1), `externalId` (the MRE Tenant `_id`, `^[0-9a-f]{24}$`, else `400 INVALID_FORMAT` before MRE is called). `metadata` is not accepted yet.
+- **Order of checks:**
+  1. Party unknown or foreign → `404`.
+  2. The same Party already holds an **active** reference with this key → `200` with that reference, without asking MRE (a documented success repeat, as §23.1; also for an `INACTIVE` Party, which keeps its references).
+  3. Another Party holds it actively → `409 CONFLICT`, `reason = "REFERENCE_IN_USE"`, `details.partyId` (that Party; same Realm, so nothing leaks).
+  4. Party `INACTIVE` → `409 CONFLICT`, `reason = "PARTY_INACTIVE"` (no new reference for an inactive Party, P2-D1).
+  5. MRE: the Tenant is looked up in `GET /tenants` of the Realm, never `GET /tenants/:id` (mre-integration §20.1). Not listed → `404 NOT_FOUND` with `details.externalId`; MRE no longer grants the Realm → `403`; MRE unavailable → `503 EXTERNAL_SYSTEM_ERROR`. Nothing is written on any error (§77).
+- **Success:** `201` with the reference (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` on entity `PartyExternalReference` with the key in its metadata. Nothing is copied from the MRE Tenant into the Party (P2-D1).
+- **Concurrency:** MRE is read outside any lock. The write then runs in one READ COMMITTED transaction that takes the Party's row lock (so it serialises with `deactivate`) and re-checks steps 2–4 under it. Two concurrent claims of one key end in one active reference: the loser re-reads after the unique violation and answers `200` (same Party) or `409 REFERENCE_IN_USE` (another Party). A claim racing a `deactivate` either completes before it or sees `PARTY_INACTIVE`.
+- **Idempotency:** by the natural key (step 2), as §23.1; no `Idempotency-Key`.
+- **Upstream deletion:** a reference stays valid when the MRE Tenant is later deleted (DE records survive upstream deletion, §23.1). There is no refresh of references in Phase 2.
+
+### `POST …/external-references/{externalReferenceId}/end`
+
+- No body. `200` with the reference: `status = ENDED`, `endedAt` set, `version` + 1; AuditRecord `ENDED`. The row is kept.
+- Ending an ended reference is a `200` no-op that keeps the first `endedAt`, without a new version or AuditRecord.
+- `If-Match` as §16.1 (`412 VERSION_CONFLICT`); a no-op answers regardless of the version.
+- Allowed for an `INACTIVE` Party: ending an existing relationship stays allowed (P2-D1).
+- Once ended, the key is free again: the same or another Party may claim it with a new reference.
+
+### `GET …/external-references`
+
+- `{ items, page, pageSize, total }` (§11) of the Party's references, active and ended, ordered by `createdAt`, then `externalReferenceId`; count and page in one snapshot. Filter `status` (`ACTIVE` | `ENDED`); `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`.
+
+### Party list by reference (§19.1)
+
+- `GET /api/v1/parties?externalSystem=MRE&externalId=<MRE Tenant _id>` finds the Party holding that key **actively** in the caller's Realm (at most one, by the unique index); `entityType = tenant` is implied in Phase 2. The two parameters come together (one alone is `400`), and combine with the other filters by AND. Ended references do not match.
 
 ---
 

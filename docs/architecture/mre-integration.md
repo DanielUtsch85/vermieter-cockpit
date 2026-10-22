@@ -248,7 +248,7 @@ Recommended mapping:
 Party
 └── PartyExternalReference
      ├── system = MRE
-     ├── realmId
+     ├── mreRealmId
      ├── entityType = tenant
      └── externalId = MRE Tenant _id
 ```
@@ -431,6 +431,12 @@ DELETE /api/v2/tenants/:ids
 ```
 
 MRE remains canonical for tenant rental operations.
+
+## 20.1 Tenant existence (VC-2-02, baseline `479d0ad`)
+
+- DE reads Tenants only to check that an MRE Tenant exists in the Realm before referencing it from a Party (api-design §20.1). Field read: `_id` (24-hex ObjectId). Nothing else is copied (P2-D1).
+- **Quirk, as for properties (§21.1):** `GET /tenants/:id` answers **500**, not 404, for an id that does not exist in the Realm (`toOccupantData(null)` fails on the missing document), and for a non-ObjectId (`ObjectId(...)` throws). DE therefore decides existence via `GET /tenants` of the Realm, filtered by `_id`, and validates `externalId` against `^[0-9a-f]{24}$` at its API boundary.
+- The headers are the same as for properties (`Authorization: Bearer <landlord token>`, `organizationid`). VC-2-02 pins this in the contract suite (`mre.contract.test.ts`, CI job `compose-smoke`): a created Tenant is listed in its Realm and not in another, and `GET /tenants/:id` with an unknown id is not a 404.
 
 ---
 
