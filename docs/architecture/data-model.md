@@ -366,7 +366,7 @@ Fixed once the Party exists.
 ### `status`
 
 - `ACTIVE`
-- `INACTIVE` — deactivated with a reason; keeps every relationship but takes no new role (P2-D1).
+- `INACTIVE` — deactivated with a reason; keeps every relationship and stays correctable (`amend`), but takes no new role (P2-D1).
 
 The Realm is part of the Party's identity scope (`mreRealmId`); a Party is never shared across Realms.
 
@@ -376,7 +376,7 @@ The Realm is part of the Party's identity scope (`mreRealmId`); a Party is never
 
 - `firstName`
 - `lastName`
-- `dateOfBirth`
+- `dateOfBirth` (not accepted by the API until a use case needs it; data minimization)
 - `email`
 - `phone`
 
