@@ -105,7 +105,9 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
 
 - `status`: `DRAFT` → `CONFIRMED`, and `DRAFT` → `CANCELLED`. A **confirmed Acquisition is final** in Phase 2: it
   cannot be cancelled or changed (corrections after confirmation are a later item). Cancelling a draft keeps its
-  costs and payment links (P2-D7) for audit; Ownerships are never touched by an Acquisition.
+  costs and payment links (P2-D7) readable for audit, but they count **nowhere** any more, like unlinked ones
+  (neither in a cost's paid state nor in a Transaction's Σ links), so the payment can be linked to a new
+  Acquisition; Ownerships are never touched by an Acquisition.
 - The legal milestones are **dates**, not states: `contractDate` (required, the notarial contract),
   `economicTransferDate` (Übergang von Besitz, Nutzen und Lasten; data-model §13.3's `possessionTransferDate` is
   **merged into it**), `landRegistryTransferDate`.
@@ -126,7 +128,8 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
   ledger, works for Transactions confirmed long before (no correction just to tag them) and keeps one source of
   truth.
 - A payment links a **current** Transaction (§35.3: `CONFIRMED`/`RECONCILED`, not a reversal) of the same Realm with
-  `OUTFLOW` direction; `amount > 0`. The payments linked to one Transaction sum to at most its amount (a database
+  `OUTFLOW` direction; `amount > 0`. The live payments (not unlinked, Acquisition not `CANCELLED`) linked to one
+  Transaction sum to at most its amount (a database
   trigger that writes the Transaction's row first, as P2-D4). Split categories are not checked: the link is the
   interpretation (domain-model §13), the split the cash classification.
 - **Installments:** a cost or the price may have several payments. A cost's paid state is **derived**: `EXPECTED`
@@ -173,12 +176,17 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
 - Per owner it returns the weight and its part of: the purchase price, the transaction costs (expected amounts, by
   category and in total), and — when a current allocation exists — `totalAllocableAmount`, `landAmount` and
   `buildingAmount`.
-- **Deterministic cents (F4)**, applied to each amount separately (price, each cost category, total allocable,
-  land): every owner gets `floor(amount × weight)` in cents; the remaining cents (fewer than the number of owners)
-  go one each to the owners with the largest fractional remainders, ties broken by `ownerPartyId` ascending. So the
-  parts are never negative and always sum to the amount. The building part is **derived per owner** as
-  `total_i − land_i`, so `land_i + building_i = total_i` for every owner and the building parts sum to
-  `buildingAmount`. The cost total per owner is the sum of that owner's category parts.
+- **Deterministic cents (F4)**, applied to each amount separately (price, each cost category, land, building):
+  every owner gets `floor(amount × weight)` in cents; the remaining cents (fewer than the number of owners) go one
+  each to the owners with the largest fractional remainders, ties broken by `ownerPartyId` ascending. So the parts
+  are never negative and always sum to the amount.
+- **Totals are derived, never distributed (review F4b):** largest remainder is not monotone in the amount (the
+  Alabama paradox), so distributing a total and one of its parts separately and subtracting can give a negative
+  part. Hence only the components are distributed: `totalAllocable_i = land_i + building_i` and an owner's cost
+  total is the sum of that owner's category parts. All parts stay ≥ 0, every per-owner identity holds by
+  construction and every column sums to its amount; a derived total may differ by at most a cent per component from
+  distributing the total directly, which is intended. VC-2-09 tests the counterexample of the review (weights
+  `3/7, 3/7, 1/7`, land 0.10 €, building 0.01 €: land 4/4/2 ct, building 1/0/0 ct, total 5/4/2 ct).
 - Docs: data-model §61 (rule), api-design §27 (read).
 
 ### P2-D11 Conventions carried over
