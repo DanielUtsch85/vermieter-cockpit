@@ -69,15 +69,34 @@ Reference: `docs/project-brief.md` §7, `api-design.md`.
 
 ---
 
+# 3a. Phase 2 — Party, Ownership & Acquisition
+
+Reference: `docs/roadmap.md` Phase 2, `docs/development/phase-2-plan.md` (decisions P2-D1…D11). Each item starts with a spec PR for its API section (as §35 for VC-1-11) unless the item says otherwise.
+
+| ID | Type | Item | API | Exit |
+|---|---|---|---|---|
+| VC-2-01 | feature | `Party` create, read, list, deactivate (P2-D1) | `POST/GET /api/v1/parties`, `GET /api/v1/parties/{id}`, `POST …/{id}/deactivate` | A person or organization exists once in the Realm; deactivation keeps history; `Idempotency-Key`, `If-Match` |
+| VC-2-02 | feature | MRE tenant reference on a Party (P2-D2) | `POST /api/v1/parties/{id}/external-references` (+ `…/{refId}/end`, list on the Party) | MRE Tenant checked in the caller's Realm; one active (not ended) reference resolves to one Party (`409` otherwise) |
+| VC-2-03 | feature | `Ownership` create, close, void, history and `asOf` read (P2-D3, P2-D4) | `POST /api/v1/ownerships`, `POST …/{id}/close`, `POST …/{id}/void`, `GET /api/v1/property-references/{id}/ownerships[?asOf=]` | Reduced exact fractions; no overlap per Party; Σ ≤ 1 on every day, database-enforced and serialised per PropertyReference (two-connection test, RC and RR); `VOID` counts nowhere; `completeness` derived |
+| VC-2-04 | feature | Atomic ownership change (P2-D5) | `POST /api/v1/property-references/{id}/ownership-changes` | Close + create in one transaction; `422 INVALID_OWNERSHIP` cases; inactive owners may be closed; a complete ownership stays complete; history queryable by date |
+| VC-2-05 | feature | `Acquisition` create, read, list, cancel a draft (P2-D6, P2-D8 `acquiredShare`) | `POST/GET /api/v1/acquisitions`, `GET …/{id}`, `POST …/{id}/cancel`, `GET /api/v1/property-references/{id}/acquisitions` | Draft with price, acquired share, dates, buyers, sellers; not tied to MRE `Property.price` (mre-integration §32) |
+| VC-2-06 | feature | `AcquisitionCost` and payment links (P2-D7) | `POST /api/v1/acquisitions/{id}/costs`; `POST …/{id}/payments`, `POST …/payments/{paymentId}/unlink` | Costs `EXPECTED`/`PARTIALLY_PAID`/`PAID` derived from links to current Transactions; per Transaction Σ links ≤ amount (database-enforced, concurrency test); corrected Transactions stop counting; ledger untouched |
+| VC-2-07 | feature | Acquisition confirmation (P2-D8) | `POST /api/v1/acquisitions/{id}/confirm` | This Acquisition's Ownerships = buyers, sum = `acquiredShare`, from the transfer date; ownership `COMPLETE` then; confirmed is final; its Ownerships can no longer be voided |
+| VC-2-08 | feature | Land/building allocation as entered, versioned (P2-D9) | `POST /api/v1/acquisitions/{id}/land-building-allocation` | `land + building = total` exactly; method + review state; a new one supersedes the old |
+| VC-2-09 | feature | Owner-level allocation read (P2-D10) | `GET /api/v1/acquisitions/{id}/owner-allocation` | Per buyer of this Acquisition: weight, price, costs, land, building; largest-remainder cents per component with a fixed tie-break, totals derived (`total_i = land_i + building_i`), no negative part (review counterexample tested), sums exact (Phase 2 exit) |
+| VC-2-10 | test | Phase-2 invariant suite + acceptance test (Realm isolation, ownership over time, acquisition end to end) | — | `invariant-suite.md` section; ACC test mirrors the Phase 2 exit of `roadmap.md` |
+
+**Phase 2 exit:** `docs/roadmap.md` Phase 2 — VC-2-07 + VC-2-09 + VC-2-04 together.
+
+---
+
 # 4. Later-phase epics (blocked or spec-gated)
 
 Listed for visibility; expand into items when their blocker clears.
 
 | Epic | Phase | Gate |
 |---|---|---|
-| Party + MRE external mappings | 2 | ready after Phase 1 |
-| Temporal Ownership + share invariant | 2 | ready after Phase 1 |
-| Acquisition + acquisition costs + land/building allocation | 2 | ready after Phase 1 |
+| Party, Ownership, Acquisition | 2 | **expanded** into §3a (VC-2-01…10) |
 | Loans + planned vs actual + `LoanAllocation` + remaining debt | 3 | ready (basis: ADR-038) |
 | Rent reconciliation suggest/confirm/write-back | 4 | ready after Phase 1 |
 | Security Deposit domain | 5 | ready (account model: ADR-039) |
