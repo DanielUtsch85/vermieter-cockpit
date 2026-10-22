@@ -662,14 +662,16 @@ Represent the economic acquisition lifecycle of the real-world Property identifi
 
 ## 13.3 Optional Fields
 
-- `economicTransferDate`
-- `possessionTransferDate`
+- `economicTransferDate` (Übergang von Besitz, Nutzen und Lasten; the former `possessionTransferDate` is merged into it, P2-D6)
 - `landRegistryTransferDate`
+- `acquiredShare`: the share of the PropertyReference acquired, an exact fraction (default `1/1`; P2-D8)
 - `sellerPartyIds`
-- `buyerPartyIds`
-- `notarialDocumentId`
+- `buyerPartyIds` (at least one; required to create in VC-2-05)
+- `notarialDocumentId` (not accepted until documents exist)
 - `notes`
 - `sourceReferences`
+
+The **transfer date** is `economicTransferDate`, or `contractDate` while that is unset (P2-D6).
 
 ---
 
@@ -688,13 +690,12 @@ An Acquisition may have:
 
 ---
 
-## 13.5 Suggested Lifecycle
+## 13.5 Lifecycle (P2-D6)
 
-- `PLANNED`
-- `CONTRACTED`
-- `ECONOMICALLY_TRANSFERRED`
-- `COMPLETED`
-- `CANCELLED`
+- `DRAFT` → `CONFIRMED` (final in Phase 2)
+- `DRAFT` → `CANCELLED` (final)
+
+The legal milestones (contract, economic transfer, land registry) are the dates of §13.3, not states.
 
 ---
 
