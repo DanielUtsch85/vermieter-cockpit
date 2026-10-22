@@ -430,7 +430,7 @@ The mapping strategy is decided (ADR-002A, ADR-009; P2-D2): explicit `PartyExter
 # 8. PartyExternalReference
 
 **Domain:** Shared Identity  
-**Stability:** Evolving
+**Stability:** Evolving (Phase 2: `system = MRE`, `entityType = tenant` only; api-design §20.1, P2-D2)
 
 ## Required Fields
 
@@ -439,19 +439,18 @@ The mapping strategy is decided (ADR-002A, ADR-009; P2-D2): explicit `PartyExter
 - `system`
 - `entityType`
 - `externalId`
+- `status`: `ACTIVE` | `ENDED`
 
 ## Optional Fields
 
-- `realmId`
-- `metadata`
-- `validFrom`
-- `validUntil`
+- `mreRealmId` (required for MRE references; the Party's Realm)
+- `endedAt` (set exactly when `status = ENDED`)
 
-For MRE references, `realmId` is required.
+`metadata` and the period fields `validFrom` / `validUntil` are dropped for Phase 2: "active" is a status, not a period (P2-D2). They return with a use case that needs them.
 
 ## Invariant
 
-For MRE, the combination `system + realmId + entityType + externalId` should normally resolve to one Party. Other external systems may define an equivalent stable scope.
+For MRE, `system + mreRealmId + entityType + externalId` resolves to **at most one** Party among active references (database-enforced). Ended references are kept and do not count. A Party may hold several references. Other external systems may define an equivalent stable scope.
 
 ---
 
