@@ -389,7 +389,7 @@ Conflict should return `VERSION_CONFLICT`: `412 Precondition Failed` when the ve
 
 ## 16.1 Implementation for Transactions (VC-X-20)
 
-- **Where:** every command that changes a Transaction takes an optional `If-Match` header: `amend`, `PUT …/splits`, `confirm`, `ignore`, `restore` and `correct` (for `correct`, the original's version).
+- **Where:** every command that changes a Transaction takes an optional `If-Match` header: `amend`, `PUT …/splits`, `confirm`, `ignore`, `restore` and `correct` (for `correct`, the original's version). The same rules apply to the Party commands `amend` and `deactivate` (§19.1), and to every later resource whose spec says "`If-Match` as §16.1".
 - **Format (RFC 9110 §13.1.1):** a list of entity tags, `If-Match: "3"` or `If-Match: "3", "4"`.
   - `*` or no header means no check.
   - `If-Match` compares strongly: a weak tag (`W/"3"`), or a tag that is not a version, never matches. A header with only such tags therefore fails the check.
@@ -402,7 +402,7 @@ Conflict should return `VERSION_CONFLICT`: `412 Precondition Failed` when the ve
   - A command that would change nothing is answered as before, whatever the version: an amend with the current values, the same split set, a repeated `confirm` or `ignore`. This is the 2xx exception of RFC 9110 §13.2.2 (the desired state is already there). It cannot lose an update, and a retry after a lost answer stays a retry.
   - An idempotent replay of `correct` (§15) answers before the lock.
 - **`ETag`:**
-  - The responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`.
+  - The responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`; so do every single-Party response (create, read, `amend`, `deactivate`; §19.1).
   - `correct` returns three Transactions, each with its `version` in the body.
   - A **replayed** create (`Idempotency-Key`, §15) answers with the snapshot recorded then, its `ETag` included. That version is stale if the Transaction changed since; it is the original answer, not the current state.
 - **In the database (VC-X-22, migration 0013):** on a confirmed Transaction (`CONFIRMED`, `RECONCILED`, `CORRECTED`), `version` and `updated_at` change only with a status step, and the step raises `version` by exactly one. A direct SQL write therefore can neither fake a conflict (a raised `version` without a change) nor hide one (a status step without a new `version`). A no-op write passes.
@@ -446,7 +446,7 @@ must not automatically confirm or classify a Transaction.
 
 ## Purpose
 
-Manage canonical shared Party identity.
+Manage canonical shared Party identity (data-model §7, ADR-009; decisions P2-D1/P2-D2 of `docs/development/phase-2-plan.md`).
 
 ### Query
 
@@ -455,42 +455,66 @@ GET /api/v1/parties
 GET /api/v1/parties/{partyId}
 ```
 
-Optional filters:
-
-- `type`
-- `name`
-- `externalSystem`
-- `externalId`
-
 ### Commands
 
 ```text
 POST /api/v1/parties
-POST /api/v1/parties/{partyId}/external-references
+POST /api/v1/parties/{partyId}/amend
 POST /api/v1/parties/{partyId}/deactivate
+POST /api/v1/parties/{partyId}/external-references        (VC-2-02, §20)
 ```
 
 Avoid generic deletion where historical relationships exist.
+
+## 19.1 Contract (VC-2-01)
+
+- **Domain owner:** Shared Identity. **Authorization:** authenticated MRE identity; every Party belongs to the caller's Realm (`mreRealmId`); another Realm's Party is `404`, never visible.
+- **Minimal identity (P2-D1):** DE stores what the user enters. Nothing is synchronised from MRE, and DE never merges or deduplicates Parties automatically: two Parties with the same name are allowed (avoiding duplicates is a review task, data-model §7.7).
+- **Fields** (data-model §7.2–7.4, verbatim names), all strings trimmed; an empty optional string is stored as `null`:
+  - `partyType`: `PERSON` | `ORGANIZATION` (required, fixed after creation; a wrong type is fixed by creating a new Party and deactivating the old one, deliberately).
+  - `displayName`: required, 1–200 characters.
+  - Person only: `firstName`, `lastName` (each ≤ 200).
+  - Organization only: `legalName` (≤ 200), `registrationNumber` (≤ 100).
+  - Not accepted yet, so unknown keys (`400`): `organizationType` (values undefined, data-model §7.4) and `dateOfBirth` (no Phase-2 use case; data minimization, technology.md §37; it comes with the use case that needs it).
+  - Both: `email` (≤ 254, one `@` with text on both sides; no further validation), `phone` (≤ 50, free form).
+  - A field of the other type is `400` with code `NOT_ALLOWED_FOR_TYPE` (e.g. `legalName` on a `PERSON`).
+  - Unknown keys are `400`.
+- **Response:** `partyId`, `mreRealmId`, `partyType`, `displayName`, the person or organization fields of its type (absent ones as `null`), `email`, `phone`, `status` (`ACTIVE` | `INACTIVE`), `deactivatedAt`, `deactivationReason`, `createdAt`, `version`; single-Party responses carry `ETag: "<version>"` (§16.1).
+
+### `POST /api/v1/parties`
+
+- `201` with the Party (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED`.
+- **Idempotency (§15):** `Idempotency-Key` with scope `party.create`, fingerprint of the normalized payload (trimmed, empty → `null`). A replay answers `201` with the recorded body and `Idempotent-Replayed: true`; the same key with another payload is `409`.
+
+### `POST /api/v1/parties/{partyId}/amend`
+
+- Changes the Party's data: the fields to change, at least one; `null` clears an optional field. `partyType` cannot change (`400`).
+- Allowed for `INACTIVE` Parties too: correcting data creates no role (P2-D1), and a deceased owner's misspelt name must stay correctable in historical reports. `amend` never changes `status`.
+- `200` with the Party (`version` + 1; AuditRecord `AMENDED` with each changed field's old and new value). Values equal to the current ones are a `200` no-op without a new version or AuditRecord.
+- `If-Match` as §16.1 (`412 VERSION_CONFLICT`); a no-op answers regardless of the version.
+
+### `POST /api/v1/parties/{partyId}/deactivate`
+
+- Body `{ "reason": "..." }` (required, trimmed, 1–500). `200` with the Party (`status = INACTIVE`, `deactivatedAt`, `deactivationReason`, `version` + 1; AuditRecord `DEACTIVATED` with the reason).
+- Deactivating an inactive Party is a `200` no-op, whatever the `reason`: the first reason and time stay, no new version or AuditRecord.
+- `If-Match` as §16.1, with the same rule as `amend`: a no-op answers `200` regardless of the version (RFC 9110 §13.2.2, as §16.1 "Order").
+- An inactive Party keeps every relationship (data-model §7.7). Later items refuse **new** roles for it (Ownership, buyer, external reference: P2-D1); ending or correcting existing ones stays allowed. Reactivation is not part of VC-2-01.
+
+### `GET /api/v1/parties/{partyId}`, `GET /api/v1/parties`
+
+- One Party with `ETag`; unknown, foreign or malformed id as §30.1 (`404` / `400`).
+- The list: `{ items, page, pageSize, total }` (§11), ordered by `displayName` (case-insensitive), then `partyId`; count and page in one snapshot. Filters, combined with AND:
+  - `partyType` (the field's name; §19 used to say `type`);
+  - `status` (`ACTIVE` | `INACTIVE`);
+  - `name`: substring of `displayName`, `legalName`, `firstName` or `lastName` (1–100 characters), matched **literally**: `%`, `_` and `\` in the input are escaped (`LIKE … ESCAPE '\'`), so `name=%` finds "100% Haus GmbH" and not every Party. Case-insensitive by `lower()` on both sides; no accent or `ß`/`ss` folding.
+  - `externalSystem` / `externalId` come with VC-2-02.
+- `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`.
 
 ---
 
 # 20. MRE Party Mapping API
 
-```text
-POST /api/v1/parties/{partyId}/mre-mappings
-```
-
-Example request:
-
-```json
-{
-  "mreRealmId": "...",
-  "entityType": "tenant",
-  "externalId": "..."
-}
-```
-
-The API must validate that the referenced MRE entity exists where feasible.
+Superseded by the single external-reference command of §19 (P2-D2): `POST /api/v1/parties/{partyId}/external-references` with `system = MRE`, `entityType = tenant`, `mreRealmId`, `externalId`. Its contract is specified with VC-2-02; there is no separate `mre-mappings` route.
 
 ---
 
