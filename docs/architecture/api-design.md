@@ -540,7 +540,9 @@ GET  /api/v1/parties/{partyId}/external-references
   4. Party `INACTIVE` → `409 CONFLICT`, `reason = "PARTY_INACTIVE"` (no new reference for an inactive Party, P2-D1).
   5. MRE: the Tenant is looked up in `GET /tenants` of the Realm, never `GET /tenants/:id` (mre-integration §20.1). Not listed → `404 NOT_FOUND` with `details.externalId`; MRE no longer grants the Realm → `403`; MRE unavailable → `503 EXTERNAL_SYSTEM_ERROR`. Nothing is written on any error (§77).
 - **Success:** `201` with the reference (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` on entity `PartyExternalReference` with the key in its metadata. Nothing is copied from the MRE Tenant into the Party (P2-D1).
-- **Concurrency:** MRE is read outside any lock. The write then runs in one READ COMMITTED transaction that takes the Party's row lock (so it serialises with `deactivate`) and re-checks steps 2–4 under it. Two concurrent claims of one key end in one active reference: the loser re-reads after the unique violation and answers `200` (same Party) or `409 REFERENCE_IN_USE` (another Party). A claim racing a `deactivate` either completes before it or sees `PARTY_INACTIVE`.
+- **Concurrency:** MRE is read outside any lock. The write then runs in one READ COMMITTED transaction that takes the Party's row lock (so it serialises with `deactivate` and with claims for the same Party) and re-checks steps 2–4 under it. A claim racing a `deactivate` either completes before it or sees `PARTY_INACTIVE`.
+  - Claims for **different** Parties are not serialised by that lock; the partial unique index decides. The insert is `INSERT … ON CONFLICT (system, mre_realm_id, entity_type, external_id) WHERE status = 'ACTIVE' DO NOTHING RETURNING …`, its `WHERE` repeating the index predicate exactly so that the index is the arbiter. It never raises a unique violation (which would abort the transaction, `25P02`): under READ COMMITTED it waits for a concurrent inserter and then returns no row. A **new statement** in the same transaction then reads the now committed active reference and answers `200` (same Party) or `409 REFERENCE_IN_USE` (another Party).
+  - Pinned by a two-connection test with two **different** Parties claiming one key: exactly one reference, the other claim `409`.
 - **Idempotency:** by the natural key (step 2), as §23.1; no `Idempotency-Key`.
 - **Upstream deletion:** a reference stays valid when the MRE Tenant is later deleted (DE records survive upstream deletion, §23.1). There is no refresh of references in Phase 2.
 
@@ -559,6 +561,14 @@ GET  /api/v1/parties/{partyId}/external-references
 ### Party list by reference (§19.1)
 
 - `GET /api/v1/parties?externalSystem=MRE&externalId=<MRE Tenant _id>` finds the Party holding that key **actively** in the caller's Realm (at most one, by the unique index); `entityType = tenant` is implied in Phase 2. The two parameters come together (one alone is `400`), and combine with the other filters by AND. Ended references do not match.
+- Validated as the `POST`: `externalSystem` other than `MRE`, or `externalId` not matching `^[0-9a-f]{24}$`, is `400`, so a typo is an error, not an empty page.
+
+### Schema (for the implementation)
+
+- Composite foreign key `(party_id, mre_realm_id) → party (id, mre_realm_id)` (the key 0016 made for it): a reference is always in its Party's Realm.
+- `status` in (`ACTIVE`, `ENDED`) and `CHECK ((status = 'ENDED') = (ended_at IS NOT NULL))`.
+- Partial unique index on `(system, mre_realm_id, entity_type, external_id) WHERE status = 'ACTIVE'`.
+- `ENDED` is final, by trigger: an ended reference never becomes active again, and its key, Party and `endedAt` do not change (claiming again creates a new row).
 
 ---
 
