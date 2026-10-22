@@ -19,9 +19,9 @@ export type {
   RefreshPropertyReferenceDeps,
   RefreshPropertyReferenceInput,
 } from './refresh-property-reference.js';
+export { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 export {
   FinancialAccountNotFoundError,
-  IdempotencyKeyConflictError,
   closeFinancialAccount,
   createFinancialAccount,
 } from './financial-accounts.js';
@@ -40,7 +40,6 @@ export {
   InactiveCategoryError,
   SplitsMissingError,
   TransactionNotConfirmableError,
-  VersionConflictError,
   confirmTransaction,
   createManualTransaction,
 } from './transactions.js';
@@ -125,3 +124,21 @@ export { PartyFieldNotAllowedError, PartyNotFoundError, amendParty, createParty,
 export type { AmendParty, CreateParty, CreatePartyInput, DeactivateParty, GetParty, ListParties } from './parties.js';
 export { ORGANIZATION_FIELDS, PARTY_STATUSES, PARTY_TYPES, PERSON_FIELDS } from '../domains/party/index.js';
 export type { Party, PartyChanges, PartyFilter, PartyPage, PartyStatus, PartyType } from '../domains/party/index.js';
+export {
+  ExternalReferenceInUseError,
+  ExternalReferenceNotFoundError,
+  MreTenantNotFoundError,
+  PartyInactiveError,
+  createExternalReference,
+  endExternalReference,
+  listExternalReferences,
+} from './party-external-references.js';
+export type {
+  CreateExternalReference,
+  CreateExternalReferenceInput,
+  EndExternalReference,
+  ListExternalReferences,
+  MreTenantLookup,
+} from './party-external-references.js';
+export { EXTERNAL_REFERENCE_STATUSES, MRE_EXTERNAL_ID } from '../domains/party/index.js';
+export type { ExternalReferencePage, ExternalReferenceStatus, PartyExternalReference } from '../domains/party/index.js';

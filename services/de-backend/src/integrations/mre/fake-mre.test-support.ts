@@ -11,7 +11,8 @@ import type { AddressInfo } from 'node:net';
  *
  * `GET /api/v2/properties` (account tokens) answers the properties of the Realm
  * in the `organizationid` header; a missing header or a Realm the account is
- * not a member of is a 404, as upstream (mre-integration.md §21.1). Test support only.
+ * not a member of is a 404, as upstream (mre-integration.md §21.1). `GET /api/v2/tenants` does the
+ * same with the Realm's tenants, ignoring any query string as upstream does (§20.1). Test support only.
  */
 
 export const FAKE_SECRET = 'test-access-token-secret';
@@ -41,6 +42,8 @@ export interface FakeRealm {
   applications: { clientId: string; [extra: string]: unknown }[];
   /** Served by GET /properties only, never as part of the realm. */
   properties?: Record<string, unknown>[];
+  /** Served by GET /tenants only, never as part of the realm. */
+  tenants?: Record<string, unknown>[];
   [extra: string]: unknown;
 }
 
@@ -56,14 +59,16 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
     const organizationid = req.headers['organizationid'];
     const realmHeader = typeof organizationid === 'string' ? organizationid : undefined;
     requests.push({ path: req.url ?? '', authorization: req.headers.authorization, organizationid: realmHeader });
-    if (req.url !== '/api/v2/realms' && req.url !== '/api/v2/properties') {
+    // MRE's list routes take no filter: a query string is ignored (mre-integration.md §20.1).
+    const path = (req.url ?? '').split('?')[0];
+    if (path !== '/api/v2/realms' && path !== '/api/v2/properties' && path !== '/api/v2/tenants') {
       res.writeHead(404).end();
       return;
     }
     const token = req.headers.authorization?.split(' ')[1];
     const payload = token === undefined ? undefined : verifyJwt(token);
     const json = (body: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
-    if (req.url === '/api/v2/properties') {
+    if (path === '/api/v2/properties' || path === '/api/v2/tenants') {
       const account = payload?.['account'] as { email?: string } | undefined;
       if (account === undefined) {
         res.writeHead(401).end('Unauthorized');
@@ -74,10 +79,10 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
         res.writeHead(404).end();
         return;
       }
-      json(realm.properties ?? []);
+      json((path === '/api/v2/tenants' ? realm.tenants : realm.properties) ?? []);
       return;
     }
-    const visible = (list: FakeRealm[]) => list.map(({ properties: _properties, ...realm }) => realm);
+    const visible = (list: FakeRealm[]) => list.map(({ properties: _properties, tenants: _tenants, ...realm }) => realm);
     const application = payload?.['application'] as { clientId?: string } | undefined;
     if (application !== undefined) {
       json(visible(realms.filter((r) => r.applications.some((a) => a.clientId === application.clientId))));

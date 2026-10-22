@@ -8,7 +8,8 @@ import {
 } from '../domains/ledger/index.js';
 import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
-import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
+import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
 
@@ -88,18 +89,6 @@ export function createManualTransaction(deps: { readonly repository: Transaction
         }
     }
   };
-}
-
-/** `If-Match` named no version that is the current one (→ 412 VERSION_CONFLICT, api-design §16.1). */
-export class VersionConflictError extends Error {
-  override readonly name = 'VersionConflictError';
-
-  constructor(
-    readonly expectedVersions: readonly number[],
-    readonly currentVersion: number,
-  ) {
-    super(`Expected version ${expectedVersions.join(' or ') || '(none)'}, the current version is ${currentVersion}`);
-  }
 }
 
 /** CORRECTED or IGNORED: not confirmable (→ 409). */

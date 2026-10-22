@@ -523,7 +523,7 @@ POST /api/v1/parties/{partyId}/external-references/{externalReferenceId}/end
 GET  /api/v1/parties/{partyId}/external-references
 ```
 
-## 20.1 Contract
+## 20.1 Contract (VC-2-02, implemented: migration 0017)
 
 - **Domain owner:** Shared Identity. **Authorization:** as §19.1; the Party and its references belong to the caller's Realm. An unknown, foreign or malformed `partyId` or `externalReferenceId` is answered as §30.1 (`404` / `400`); a reference of another Party is `404`.
 - **Phase 2 scope:** `system = MRE`, `entityType = tenant` only; any other value is `400`. Owners and landlords have no MRE reference (P2-D2).

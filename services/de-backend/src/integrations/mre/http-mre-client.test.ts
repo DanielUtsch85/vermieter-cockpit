@@ -27,6 +27,7 @@ async function startStub(status: number, body: string, delayMs = 0): Promise<{ u
 
 const PROPERTY_A = '6512f0c2a1b2c3d4e5f60718';
 const PROPERTY_B = '6512f0c2a1b2c3d4e5f60719';
+const TENANT_A = '6512f0c2a1b2c3d4e5f60a01';
 
 describe('HttpMreClient against a fake MRE', () => {
   let mre: FakeMre;
@@ -53,6 +54,7 @@ describe('HttpMreClient against a fake MRE', () => {
           },
           { _id: PROPERTY_B, name: 'Stellplatz' },
         ],
+        tenants: [{ _id: TENANT_A, name: 'Tina Mieterin', contacts: [{ email: 'tina@example.com' }] }],
       },
       {
         _id: 'realm-b',
@@ -104,6 +106,13 @@ describe('HttpMreClient against a fake MRE', () => {
     await expectCode(client.listProperties(signJwt({ account: { email: 'anna@example.com' } }), 'realm-b'), 'FORBIDDEN');
   });
 
+  it('listTenantIds returns only the Tenants\' _id of the Realm; a foreign Realm is FORBIDDEN', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    expect(await client.listTenantIds(token, 'realm-a')).toEqual([TENANT_A]);
+    expect(mre.requests.at(-1)).toMatchObject({ path: '/api/v2/tenants', organizationid: 'realm-a' });
+    await expectCode(client.listTenantIds(token, 'realm-b'), 'FORBIDDEN');
+  });
+
   it('maps 401 (bad signature or expired) to UNAUTHENTICATED', async () => {
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret')), 'UNAUTHENTICATED');
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, undefined, -1)), 'UNAUTHENTICATED');
@@ -140,6 +149,21 @@ describe('HttpMreClient failure handling', () => {
     const stub = await startStub(200, body);
     try {
       await expectCode(new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listProperties('a.b.c', 'r'), 'UNAVAILABLE');
+    } finally {
+      stub.close();
+    }
+  });
+
+  it.each([
+    ['not an array', '{"tenants":[]}'],
+    ['a tenant without _id', '[{"_id":"6512f0c2a1b2c3d4e5f60a01"},{"name":"Tina"}]'],
+    ['an empty _id', '[{"_id":""}]'],
+  ])('listTenantIds: %s → UNAVAILABLE (never a silent "not found"), without the body in the message', async (_label, body) => {
+    const stub = await startStub(200, body);
+    try {
+      const listing = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listTenantIds('a.b.c', 'r');
+      await expectCode(listing, 'UNAVAILABLE');
+      await expect(listing).rejects.not.toThrow(/Tina/);
     } finally {
       stub.close();
     }

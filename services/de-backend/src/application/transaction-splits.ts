@@ -10,7 +10,8 @@ import type {
 import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
-import { CurrencyMismatchError, VersionConflictError } from './transactions.js';
+import { VersionConflictError } from './errors.js';
+import { CurrencyMismatchError } from './transactions.js';
 
 /**
  * Set Transaction splits (api-design.md §33, backlog VC-1-07): replaces the

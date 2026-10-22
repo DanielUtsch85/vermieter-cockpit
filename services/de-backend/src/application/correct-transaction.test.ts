@@ -17,7 +17,8 @@ import {
   correctTransaction,
   reverseTransaction,
 } from './correct-transaction.js';
-import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
+import { IdempotencyKeyConflictError } from './errors.js';
+import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { FinancialCategoryNotFoundError, SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
 import { CurrencyMismatchError, FinancialAccountClosedError, InactiveCategoryError } from './transactions.js';

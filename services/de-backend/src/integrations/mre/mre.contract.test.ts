@@ -187,4 +187,36 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       expect((await call(`/properties/${propertyId}`, { token: await token() })).status).toBe(404);
     });
   });
+
+  describe('tenants (needed for the Party external reference, VC-2-02)', () => {
+    let tenantId = '';
+
+    beforeAll(async () => {
+      const { status, json } = await call('/tenants', { method: 'POST', token: await token(), realm: realmA, body: { name: 'Mieterin Contract' } });
+      expect(status).toBe(200);
+      tenantId = z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/) }).parse(json)._id;
+    });
+
+    it('GET /tenants lists the Realm\'s Tenants by _id and ignores a filter: every Tenant comes back (mre-integration.md §20.1)', async () => {
+      const { status, json } = await call('/tenants?_id=000000000000000000000000', { token: await token(), realm: realmA });
+      expect(status).toBe(200);
+      expect(z.array(z.object({ _id: z.string() }).passthrough()).parse(json).map((t) => t._id)).toContain(tenantId);
+    });
+
+    it('HttpMreClient.listTenantIds (used by the reference check) finds the Tenant only in its Realm', async () => {
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      const inA = await client.listTenantIds(await token(), realmA);
+      expect(inA).toContain(tenantId);
+      // A valid but unknown id in a Realm WITH Tenants is not in the list: DE answers 404 (§20.1).
+      expect(inA).not.toContain('000000000000000000000000');
+      expect(await client.listTenantIds(await token(), realmB)).not.toContain(tenantId);
+    });
+
+    // Pinned quirk, as for properties: GET /tenants/:id answers no 404 for an unknown id.
+    it('quirk: GET /tenants/:id for an unknown id is not a 404', async () => {
+      const { status } = await call('/tenants/000000000000000000000000', { token: await token(), realm: realmA });
+      expect(status).not.toBe(404);
+      expect(status).toBeGreaterThanOrEqual(500);
+    });
+  });
 });

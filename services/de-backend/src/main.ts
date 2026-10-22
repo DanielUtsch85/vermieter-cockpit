@@ -15,6 +15,9 @@ import {
   createFinancialAccount,
   createParty,
   deactivateParty,
+  createExternalReference,
+  endExternalReference,
+  listExternalReferences,
   getParty,
   listParties,
   createManualTransaction,
@@ -31,6 +34,7 @@ import {
 import {
   PostgresFinancialAccountRepository,
   PostgresPartyRepository,
+  PostgresPartyExternalReferenceRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
@@ -46,7 +50,7 @@ import {
 } from './infrastructure/postgres/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
-import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup, mreTenantLookup } from './wiring.js';
 
 /** Composition root: wires configuration, infrastructure and the HTTP app. */
 const config = loadConfig(process.env);
@@ -59,6 +63,7 @@ const propertyReferences = {
 };
 const financialAccounts = new PostgresFinancialAccountRepository(db);
 const parties = new PostgresPartyRepository(db);
+const externalReferences = new PostgresPartyExternalReferenceRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -73,6 +78,9 @@ const app = createApp({
   listParties: listParties({ repository: parties }),
   amendParty: amendParty({ repository: parties }),
   deactivateParty: deactivateParty({ repository: parties }),
+  createExternalReference: createExternalReference({ repository: externalReferences, lookupMreTenant: mreTenantLookup(mreClient) }),
+  endExternalReference: endExternalReference({ repository: externalReferences }),
+  listExternalReferences: listExternalReferences({ repository: externalReferences }),
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: transactions }),

@@ -65,4 +65,10 @@ export interface MreClient {
    * enforces membership and Realm isolation (mre-integration.md §21.1).
    */
   listProperties(accessToken: string, mreRealmId: string): Promise<readonly MreProperty[]>;
+
+  /**
+   * The `_id`s of one Realm's Tenants, as visible to the bearer of `accessToken`. MRE's list has no filter, so the
+   * caller looks for the id itself (mre-integration.md §20.1); nothing else of a Tenant is read.
+   */
+  listTenantIds(accessToken: string, mreRealmId: string): Promise<readonly string[]>;
 }

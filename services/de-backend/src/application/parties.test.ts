@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createFingerprint, type PartyRepository } from '../domains/party/index.js';
 import type { RealmPrincipal } from './access.js';
-import { IdempotencyKeyConflictError } from './financial-accounts.js';
 import { PartyFieldNotAllowedError, PartyNotFoundError, amendParty, createParty, deactivateParty, getParty } from './parties.js';
-import { VersionConflictError } from './transactions.js';
+import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 
 /** VC-2-01 use cases (api-design.md §19.1): Realm, actor, fingerprint, and each refusal as its error. */
 const REALM = '64b0c0ffee0000000000000a';

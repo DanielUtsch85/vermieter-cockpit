@@ -73,6 +73,21 @@ export interface PartyTable {
   version: Generated<number>;
 }
 
+export interface PartyExternalReferenceTable {
+  id: Generated<string>;
+  party_id: string;
+  mre_realm_id: string;
+  system: string;
+  entity_type: string;
+  external_id: string;
+  status: string;
+  ended_at: Date | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface IdempotencyKeyTable {
   mre_realm_id: string;
   scope: string;
@@ -193,6 +208,7 @@ export interface Database {
   financial_account: FinancialAccountTable;
   idempotency_key: IdempotencyKeyTable;
   party: PartyTable;
+  party_external_reference: PartyExternalReferenceTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;
