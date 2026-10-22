@@ -300,7 +300,7 @@ Separate economic or tax ownership percentages must not be introduced without an
 
 **Type:** VAL
 
-For a fully specified ownership period, active ownership shares for the PropertyReference must reconcile to 100%.
+For a fully specified ownership period, the `VALID` ownership shares of the PropertyReference must reconcile to exactly 1 (`COMPLETE`); they never exceed 1 on any day (api-design §26.1).
 
 Temporary incomplete draft data may remain unconfirmed.
 
@@ -310,7 +310,7 @@ Temporary incomplete draft data may remain unconfirmed.
 
 **Type:** INV
 
-Confirmed Ownership records must not create contradictory overlapping ownership structures for the same PropertyReference and date.
+`VALID` Ownership records (P2-D4; a `VOID` one counts nowhere) must not create contradictory overlapping ownership structures for the same PropertyReference and date: no Party holds two overlapping ones, and no day sums above 1.
 
 ---
 
