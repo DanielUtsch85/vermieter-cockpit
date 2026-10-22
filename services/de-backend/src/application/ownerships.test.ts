@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createFingerprint, type Ownership, type OwnershipRepository } from '../domains/ownership/index.js';
+import { changeFingerprint, createFingerprint, type ChangeResult, type Ownership, type OwnershipChangeRepository, type OwnershipRepository } from '../domains/ownership/index.js';
 import type { BusinessDate } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
@@ -7,8 +7,10 @@ import {
   InvalidOwnershipError,
   OverlappingOwnershipError,
   OwnerInactiveError,
+  OwnershipIncompleteError,
   OwnershipNotFoundError,
   OwnershipTotalExceedsOneError,
+  changeOwnership,
   closeOwnership,
   createOwnership,
   getOwnership,
@@ -86,5 +88,44 @@ describe('Ownership use cases', () => {
     const read = readPropertyOwnerships({ repository: repository({}) });
     await expect(read({ principal, propertyReferenceId: 'pr', asOf: day('2026-08-01') })).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
     await expect(read({ principal, propertyReferenceId: 'pr', page: { page: 1, pageSize: 50 } })).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
+  });
+});
+
+describe('Ownership change use case', () => {
+  const change = { propertyReferenceId: 'pr', effectiveDate: day('2030-01-01'), reason: 'Verkauf', close: ['o1'], create: [] };
+  const result = { propertyReferenceId: 'pr' } as ChangeResult;
+  const changer = (outcome: Awaited<ReturnType<OwnershipChangeRepository['change']>>, calls: unknown[][] = []) =>
+    changeOwnership({
+      repository: {
+        change: async (...args) => {
+          calls.push(args);
+          return outcome;
+        },
+      },
+    });
+
+  it('in the caller Realm with the fingerprint; CREATED, REPLAYED and UNCHANGED as statuses', async () => {
+    const calls: unknown[][] = [];
+    expect(await changer({ kind: 'CHANGED', result, replayed: false }, calls)({ principal, ...change, idempotencyKey: 'k' })).toEqual({ result, status: 'CREATED' });
+    const expected = { mreRealmId: REALM, ...change };
+    expect(calls).toEqual([[expected, { actorType: 'USER', actorId: 'anna@example.com' }, { key: 'k', fingerprint: changeFingerprint(expected) }]]);
+    expect(await changer({ kind: 'CHANGED', result, replayed: true })({ principal, ...change })).toEqual({ result, status: 'REPLAYED' });
+    expect(await changer({ kind: 'UNCHANGED', result })({ principal, ...change })).toEqual({ result, status: 'UNCHANGED' });
+  });
+
+  it('each refusal as its error', async () => {
+    const refused = (outcome: Awaited<ReturnType<OwnershipChangeRepository['change']>>) => changer(outcome)({ principal, ...change });
+    await expect(refused({ kind: 'IDEMPOTENCY_CONFLICT' })).rejects.toBeInstanceOf(IdempotencyKeyConflictError);
+    await expect(refused({ kind: 'PROPERTY_REFERENCE_NOT_FOUND' })).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
+    await expect(refused({ kind: 'INVALID_OWNERSHIP', ownershipId: 'o1', reason: 'NOT_FOUND' })).rejects.toMatchObject({ ownershipId: 'o1', reason: 'NOT_FOUND' });
+    await expect(refused({ kind: 'PARTY_NOT_FOUND', partyId: 'p' })).rejects.toBeInstanceOf(PartyNotFoundError);
+    await expect(refused({ kind: 'PARTY_INACTIVE', partyId: 'p' })).rejects.toBeInstanceOf(OwnerInactiveError);
+    await expect(refused({ kind: 'OVERLAPPING_OWNERSHIP', ownershipId: 'o2' as Ownership['id'], createIndex: 0 })).rejects.toBeInstanceOf(OverlappingOwnershipError);
+    await expect(
+      refused({ kind: 'OWNERSHIP_TOTAL_EXCEEDS_ONE', date: day('2030-01-01'), shareSum: { numerator: 3n, denominator: 2n }, createIndex: 0 }),
+    ).rejects.toBeInstanceOf(OwnershipTotalExceedsOneError);
+    await expect(refused({ kind: 'OWNERSHIP_INCOMPLETE', date: day('2030-01-01'), shareSum: { numerator: 5n, denominator: 6n } })).rejects.toBeInstanceOf(
+      OwnershipIncompleteError,
+    );
   });
 });

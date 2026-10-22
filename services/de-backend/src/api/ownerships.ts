@@ -5,6 +5,7 @@ import {
   InvalidOwnershipError,
   OverlappingOwnershipError,
   OwnerInactiveError,
+  OwnershipIncompleteError,
   OwnershipNotFoundError,
   OwnershipTotalExceedsOneError,
   PartyNotFoundError,
@@ -13,6 +14,8 @@ import {
   checkBusinessDate,
   formatShare,
   parseShare,
+  type ChangeOwnership,
+  type ChangeResult,
   type CloseOwnership,
   type CreateOwnership,
   type GetOwnership,
@@ -67,6 +70,41 @@ const createBody = z
     }
   });
 
+const changeBody = z
+  .object({
+    effectiveDate: businessDate,
+    reason: z.string().trim().min(1).max(500),
+    close: z.array(z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase())).max(50).default([]),
+    create: z
+      .array(
+        z
+          .object({
+            ownerPartyId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()),
+            share,
+            sourceReferences: z.array(optionalText(500)).max(10).optional(),
+            notes: optionalText(2000).nullish(),
+          })
+          .strict(),
+      )
+      .max(50)
+      .default([]),
+    // From VC-2-05 on: the Acquisition the new Ownerships result from (P2-D8). Until then refused.
+    acquisitionId: z.unknown().optional(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (body.acquisitionId !== undefined) ctx.addIssue({ code: 'custom', path: ['acquisitionId'], params: { code: 'NOT_SUPPORTED' } });
+    if (body.close.length === 0 && body.create.length === 0) ctx.addIssue({ code: 'custom', path: ['create'], params: { code: 'REQUIRED' } });
+    body.close.forEach((id, i) => {
+      if (body.close.indexOf(id) !== i) ctx.addIssue({ code: 'custom', path: ['close', i], params: { code: 'DUPLICATE' } });
+    });
+    body.create.forEach((c, i) => {
+      if (body.create.findIndex((other) => other.ownerPartyId === c.ownerPartyId) !== i) {
+        ctx.addIssue({ code: 'custom', path: ['create', i, 'ownerPartyId'], params: { code: 'DUPLICATE' } });
+      }
+    });
+  });
+
 const closeBody = z.object({ validUntil: businessDate }).strict();
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
@@ -89,6 +127,7 @@ export interface OwnershipCommands {
   readonly close: CloseOwnership;
   readonly void: VoidOwnership;
   readonly read: ReadPropertyOwnerships;
+  readonly change: ChangeOwnership;
 }
 
 /** Ownership API (api-design.md §25–26, backlog VC-2-03). */
@@ -183,6 +222,41 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
       });
   });
 
+  router.post('/property-references/:propertyReferenceId/ownership-changes', express.json({ limit: '64kb' }), (req, res, next) => {
+    const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
+    if (propertyReferenceId === undefined) return;
+    const idempotency = readIdempotencyKey(req, res);
+    if (idempotency === undefined) return;
+    const parsed = changeBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const body = parsed.data;
+    commands
+      .change({
+        principal: principalOf(res),
+        propertyReferenceId,
+        effectiveDate: body.effectiveDate,
+        reason: body.reason,
+        close: body.close,
+        create: body.create.map((c) => ({
+          ownerPartyId: c.ownerPartyId,
+          share: c.share,
+          sourceReferences: (c.sourceReferences ?? []).filter((reference): reference is string => reference !== null),
+          notes: c.notes ?? null,
+        })),
+        ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
+      })
+      .then(({ result, status }) => {
+        if (status === 'REPLAYED') res.setHeader('Idempotent-Replayed', 'true');
+        res.status(status === 'UNCHANGED' ? 200 : 201).json(toChangeDto(result));
+      })
+      .catch((error: unknown) => {
+        if (!sendOwnershipError(res, error)) next(error);
+      });
+  });
+
   router.get('/property-references/:propertyReferenceId/ownerships', (req, res, next) => {
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
@@ -248,6 +322,11 @@ function sendOwnershipError(res: Response, error: unknown): boolean {
     });
   } else if (error instanceof OwnershipTotalExceedsOneError) {
     sendError(res, 422, 'OWNERSHIP_TOTAL_EXCEEDS_ONE', 'The shares would sum above 1.', { date: error.date, shareSum: formatShare(error.shareSum) });
+  } else if (error instanceof OwnershipIncompleteError) {
+    sendError(res, 422, 'OWNERSHIP_INCOMPLETE', 'The ownership was complete and would no longer be.', {
+      date: error.date,
+      shareSum: formatShare(error.shareSum),
+    });
   } else if (error instanceof InvalidOwnershipError) {
     sendError(res, 422, 'INVALID_OWNERSHIP', 'The Ownership cannot be closed so.', { ownershipId: error.ownershipId, reason: error.reason });
   } else if (error instanceof VersionConflictError) {
@@ -280,5 +359,17 @@ function toDto(ownership: Ownership) {
     notes: ownership.notes,
     createdAt: ownership.createdAt.toISOString(),
     version: ownership.version,
+  };
+}
+
+function toChangeDto(result: ChangeResult) {
+  return {
+    propertyReferenceId: result.propertyReferenceId,
+    effectiveDate: result.effectiveDate,
+    reason: result.reason,
+    closed: result.closed.map(toDto),
+    created: result.created.map(toDto),
+    completeness: result.completeness,
+    shareSum: formatShare(result.shareSum),
   };
 }

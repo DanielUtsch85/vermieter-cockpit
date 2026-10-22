@@ -147,13 +147,15 @@ export {
   OverlappingOwnershipError,
   OwnerInactiveError,
   OwnershipNotFoundError,
+  OwnershipIncompleteError,
   OwnershipTotalExceedsOneError,
+  changeOwnership,
   closeOwnership,
   createOwnership,
   getOwnership,
   readPropertyOwnerships,
   voidOwnership,
 } from './ownerships.js';
-export type { CloseOwnership, CreateOwnership, CreateOwnershipInput, GetOwnership, ReadPropertyOwnerships, VoidOwnership } from './ownerships.js';
+export type { ChangeOwnership, ChangeOwnershipInput, CloseOwnership, CreateOwnership, CreateOwnershipInput, GetOwnership, ReadPropertyOwnerships, VoidOwnership } from './ownerships.js';
 export { formatShare, parseShare } from '../domains/ownership/index.js';
-export type { Fraction, Ownership, OwnershipDay, OwnershipPage, Share } from '../domains/ownership/index.js';
+export type { ChangeResult, Fraction, Ownership, OwnershipDay, OwnershipPage, Share } from '../domains/ownership/index.js';

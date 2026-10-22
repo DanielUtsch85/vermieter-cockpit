@@ -31,3 +31,12 @@ export function parseBusinessDate(value: string): BusinessDate | undefined {
   return 'date' in result ? result.date : undefined;
 }
 
+
+/** The day `days` after `date` (negative: before), as a business date. */
+export function addDays(date: BusinessDate, days: number): BusinessDate {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const shifted = new Date(0);
+  shifted.setUTCFullYear(y, m - 1, d + days);
+  const pad = (n: number, width: number) => String(n).padStart(width, '0');
+  return `${pad(shifted.getUTCFullYear(), 4)}-${pad(shifted.getUTCMonth() + 1, 2)}-${pad(shifted.getUTCDate(), 2)}` as BusinessDate;
+}

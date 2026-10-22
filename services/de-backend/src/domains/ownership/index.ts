@@ -22,3 +22,5 @@ export type {
   VoidOwnershipOutcome,
   VoidPlan,
 } from './ownership.js';
+export { changeFingerprint, planChange } from './change.js';
+export type { ChangeOwnershipOutcome, ChangePlan, ChangeResult, NewOwner, OwnershipChange, OwnershipChangeRepository } from './change.js';

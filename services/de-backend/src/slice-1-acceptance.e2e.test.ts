@@ -21,6 +21,7 @@ import {
   createExternalReference,
   endExternalReference,
   listExternalReferences,
+  changeOwnership,
   closeOwnership,
   createOwnership,
   getOwnership,
@@ -131,6 +132,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       closeOwnership: closeOwnership({ repository: ownerships }),
       voidOwnership: voidOwnership({ repository: ownerships }),
       readPropertyOwnerships: readPropertyOwnerships({ repository: ownerships }),
+      changeOwnership: changeOwnership({ repository: ownerships }),
       createFinancialAccount: createFinancialAccount({ repository: accounts }),
       closeFinancialAccount: closeFinancialAccount({ repository: accounts }),
       createManualTransaction: createManualTransaction({ repository: transactions }),
@@ -322,7 +324,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       201,
     );
     expect(annasHalf.share).toBe('1/2');
-    await json(await call(REALM_A, 'POST', '/ownerships', half(ben.partyId)), 201);
+    const bensHalf = await json<{ ownershipId: string }>(await call(REALM_A, 'POST', '/ownerships', half(ben.partyId)), 201);
     // A retry with the key replays; Anna's second half overlaps her first.
     expect((await call(REALM_A, 'POST', '/ownerships', half(owner.partyId), { 'idempotency-key': 'own-anna' })).headers.get('idempotent-replayed')).toBe('true');
     const overlapping = await call(REALM_A, 'POST', '/ownerships', { ...half(owner.partyId), validFrom: '2027-01-01' });
@@ -333,6 +335,21 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       shareSum: '1/1',
       items: [{}, {}],
     });
+    // Ben sells his half to Carl from 2031 (VC-2-04): one atomic change, complete before and after.
+    const carl = await json<{ partyId: string }>(await call(REALM_A, 'POST', '/parties', { partyType: 'PERSON', displayName: 'Carl Neu' }), 201);
+    const sale = { effectiveDate: '2031-01-01', reason: 'Verkauf an Carl', close: [bensHalf.ownershipId], create: [{ ownerPartyId: carl.partyId, share: '1/2' }] };
+    expect(await json(await call(REALM_A, 'POST', `/property-references/${property.propertyReferenceId}/ownership-changes`, sale, { 'idempotency-key': 'sale-1' }), 201)).toMatchObject({
+      closed: [{ ownershipId: bensHalf.ownershipId, validUntil: '2030-12-31' }],
+      created: [{ ownerPartyId: carl.partyId, validFrom: '2031-01-01' }],
+      completeness: 'COMPLETE',
+      shareSum: '1/1',
+    });
+    const owners = async (asOf: string) =>
+      (await json<{ items: { ownerPartyId: string }[] }>(await call(REALM_A, 'GET', `/property-references/${property.propertyReferenceId}/ownerships?asOf=${asOf}`), 200)).items
+        .map((o) => o.ownerPartyId)
+        .sort();
+    expect(await owners('2030-12-31')).toEqual([owner.partyId, ben.partyId].sort());
+    expect(await owners('2031-01-01')).toEqual([owner.partyId, carl.partyId].sort());
     const before = await pool.query(`SELECT count(*) FROM audit_record`);
     const fromB: [string, string, unknown?][] = [
       ['GET', `/parties/${owner.partyId}`],
@@ -347,6 +364,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       ['GET', `/property-references/${property.propertyReferenceId}/ownerships`],
       ['GET', `/property-references/${property.propertyReferenceId}/ownerships?asOf=2026-09-01`],
       ['POST', '/ownerships', half(owner.partyId)],
+      ['POST', `/property-references/${property.propertyReferenceId}/ownership-changes`, sale],
       ['POST', `/property-references/${property.propertyReferenceId}/refresh`],
       ['POST', `/financial-accounts/${account.financialAccountId}/close`],
       [

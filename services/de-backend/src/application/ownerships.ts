@@ -1,5 +1,9 @@
 import {
+  changeFingerprint,
   createFingerprint,
+  type ChangeResult,
+  type OwnershipChange,
+  type OwnershipChangeRepository,
   type Fraction,
   type InvalidOwnershipReason,
   type NewOwnership,
@@ -63,9 +67,21 @@ export class InvalidOwnershipError extends Error {
 
   constructor(
     readonly ownershipId: string,
-    readonly reason: InvalidOwnershipReason,
+    readonly reason: InvalidOwnershipReason | 'NOT_FOUND',
   ) {
     super(`Ownership ${ownershipId}: ${reason}`);
+  }
+}
+
+/** The ownership was complete the day before and would not be on `date` (→ 422 OWNERSHIP_INCOMPLETE, §26.2). */
+export class OwnershipIncompleteError extends Error {
+  override readonly name = 'OwnershipIncompleteError';
+
+  constructor(
+    readonly date: BusinessDate,
+    readonly shareSum: Fraction,
+  ) {
+    super(`Ownership on ${date} would sum to ${shareSum.numerator}/${shareSum.denominator}, not 1`);
   }
 }
 
@@ -181,5 +197,46 @@ export function readPropertyOwnerships(deps: { readonly repository: OwnershipRep
     const history = await deps.repository.history(propertyReferenceId, principal.mreRealmId, input.page);
     if (history === undefined) throw new PropertyReferenceNotFoundError(propertyReferenceId);
     return { history };
+  };
+}
+
+export interface ChangeOwnershipInput extends Omit<OwnershipChange, 'mreRealmId'> {
+  readonly principal: RealmPrincipal;
+  readonly idempotencyKey?: string;
+}
+
+/** `status`: `CREATED` (201), `REPLAYED` (201, recorded body) or `UNCHANGED` (200 no-op, §26.2). */
+export type ChangeOwnership = (input: ChangeOwnershipInput) => Promise<{ readonly result: ChangeResult; readonly status: 'CREATED' | 'REPLAYED' | 'UNCHANGED' }>;
+
+export function changeOwnership(deps: { readonly repository: OwnershipChangeRepository }): ChangeOwnership {
+  return async ({ principal, idempotencyKey, ...fields }) => {
+    const change = { mreRealmId: principal.mreRealmId, ...fields };
+    const outcome = await deps.repository.change(
+      change,
+      actorOf(principal),
+      idempotencyKey === undefined ? undefined : { key: idempotencyKey, fingerprint: changeFingerprint(change) },
+    );
+    switch (outcome.kind) {
+      case 'CHANGED':
+        return { result: outcome.result, status: outcome.replayed ? 'REPLAYED' : 'CREATED' };
+      case 'UNCHANGED':
+        return { result: outcome.result, status: 'UNCHANGED' };
+      case 'IDEMPOTENCY_CONFLICT':
+        throw new IdempotencyKeyConflictError('Idempotency-Key was already used with a different payload');
+      case 'PROPERTY_REFERENCE_NOT_FOUND':
+        throw new PropertyReferenceNotFoundError(fields.propertyReferenceId);
+      case 'INVALID_OWNERSHIP':
+        throw new InvalidOwnershipError(outcome.ownershipId, outcome.reason);
+      case 'PARTY_NOT_FOUND':
+        throw new PartyNotFoundError(outcome.partyId);
+      case 'PARTY_INACTIVE':
+        throw new OwnerInactiveError(outcome.partyId);
+      case 'OVERLAPPING_OWNERSHIP':
+        throw new OverlappingOwnershipError(outcome.ownershipId);
+      case 'OWNERSHIP_TOTAL_EXCEEDS_ONE':
+        throw new OwnershipTotalExceedsOneError(outcome.date, outcome.shareSum);
+      case 'OWNERSHIP_INCOMPLETE':
+        throw new OwnershipIncompleteError(outcome.date, outcome.shareSum);
+    }
   };
 }

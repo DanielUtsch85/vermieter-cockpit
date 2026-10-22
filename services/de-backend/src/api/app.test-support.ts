@@ -19,6 +19,7 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   closeOwnership: unused,
   voidOwnership: unused,
   readPropertyOwnerships: unused,
+  changeOwnership: unused,
   createFinancialAccount: unused,
   closeFinancialAccount: unused,
   createManualTransaction: unused,

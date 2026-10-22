@@ -1,13 +1,19 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   checkInvariants,
+  formatShare,
   ownershipOn,
+  planChange,
   planClose,
   planVoid,
+  type ChangeOwnershipOutcome,
+  type ChangeResult,
   type CloseOwnershipOutcome,
   type CreateOwnershipOutcome,
   type NewOwnership,
   type Ownership,
+  type OwnershipChange,
+  type OwnershipChangeRepository,
   type OwnershipDay,
   type OwnershipId,
   type OwnershipPage,
@@ -23,6 +29,7 @@ import type { Database } from './schema.js';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_TYPE = 'Ownership';
 const CREATE_SCOPE = 'ownership.create';
+const CHANGE_SCOPE = 'ownership.change';
 
 /** Every column, the dates as `YYYY-MM-DD` text. */
 const COLUMNS = [
@@ -62,14 +69,14 @@ interface OwnershipRow {
 }
 
 /** Thrown inside the transaction to roll back the key claim and every write together. */
-class Rejected extends Error {
-  constructor(readonly outcome: Exclude<CreateOwnershipOutcome, { kind: 'CREATED' | 'REPLAYED' }>) {
+class Rejected<T extends { readonly kind: string }> extends Error {
+  constructor(readonly outcome: T) {
     super(outcome.kind);
   }
 }
 
-/** PostgreSQL implementation of the Ownership port (api-design.md §26.1). */
-export class PostgresOwnershipRepository implements OwnershipRepository {
+/** PostgreSQL implementation of the Ownership ports (api-design.md §26.1, §26.2). */
+export class PostgresOwnershipRepository implements OwnershipRepository, OwnershipChangeRepository {
   constructor(private readonly db: Kysely<Database>) {}
 
   async create(
@@ -99,7 +106,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository {
           .where('mre_realm_id', '=', ownership.mreRealmId)
           .returning('id')
           .executeTakeFirst();
-        if (touched === undefined) throw new Rejected({ kind: 'PROPERTY_REFERENCE_NOT_FOUND' });
+        if (touched === undefined) throw new Rejected<CreateOwnershipOutcome>({ kind: 'PROPERTY_REFERENCE_NOT_FOUND' });
         // FOR SHARE conflicts with deactivate's FOR UPDATE: the owner cannot turn inactive before this commits.
         const owner = await trx
           .selectFrom('party')
@@ -108,10 +115,10 @@ export class PostgresOwnershipRepository implements OwnershipRepository {
           .where('mre_realm_id', '=', ownership.mreRealmId)
           .forShare()
           .executeTakeFirst();
-        if (owner === undefined) throw new Rejected({ kind: 'PARTY_NOT_FOUND' });
-        if (owner.status !== 'ACTIVE') throw new Rejected({ kind: 'PARTY_INACTIVE' });
+        if (owner === undefined) throw new Rejected<CreateOwnershipOutcome>({ kind: 'PARTY_NOT_FOUND' });
+        if (owner.status !== 'ACTIVE') throw new Rejected<CreateOwnershipOutcome>({ kind: 'PARTY_INACTIVE' });
         const violation = checkInvariants(await ownershipsOf(trx, ownership.propertyReferenceId), ownership);
-        if (violation !== undefined) throw new Rejected(violation);
+        if (violation !== undefined) throw new Rejected<CreateOwnershipOutcome>(violation);
 
         const { id } = await trx
           .insertInto('ownership')
@@ -145,7 +152,132 @@ export class PostgresOwnershipRepository implements OwnershipRepository {
         return { kind: 'CREATED', ownership: created };
       });
     } catch (error) {
-      if (error instanceof Rejected) return error.outcome;
+      if (error instanceof Rejected) return error.outcome as CreateOwnershipOutcome;
+      throw error;
+    }
+  }
+
+  async change(
+    change: OwnershipChange,
+    actor: AuditActor,
+    idempotency?: { readonly key: string; readonly fingerprint: string },
+  ): Promise<ChangeOwnershipOutcome> {
+    try {
+      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ChangeOwnershipOutcome> => {
+        const keyed =
+          idempotency === undefined
+            ? undefined
+            : { ref: { mreRealmId: change.mreRealmId, scope: CHANGE_SCOPE, key: idempotency.key }, fingerprint: idempotency.fingerprint };
+        if (keyed !== undefined) {
+          const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
+          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+          if (claim.kind === 'REPLAY') return { kind: 'CHANGED', result: fromChangeSnapshot(claim.result), replayed: true };
+        }
+        // Locks in the order of every Ownership writer (§26.1): PropertyReference, Parties (id order), Ownerships (id order).
+        const touched = await trx
+          .updateTable('property_reference')
+          .set((eb) => ({ version: eb.ref('version') }))
+          .where('id', '=', change.propertyReferenceId)
+          .where('mre_realm_id', '=', change.mreRealmId)
+          .returning('version')
+          .executeTakeFirst();
+        if (touched === undefined) throw new Rejected<ChangeOwnershipOutcome>({ kind: 'PROPERTY_REFERENCE_NOT_FOUND' });
+        const ownerIds = [...new Set(change.create.map((c) => c.ownerPartyId))].sort();
+        const owners =
+          ownerIds.length === 0
+            ? []
+            : await trx
+                .selectFrom('party')
+                .select(['id', 'status'])
+                .where('id', 'in', ownerIds)
+                .where('mre_realm_id', '=', change.mreRealmId)
+                .orderBy('id')
+                .forShare()
+                .execute();
+        if (change.close.length > 0) {
+          await trx
+            .selectFrom('ownership')
+            .select('id')
+            .where('id', 'in', [...change.close].sort())
+            .where('property_reference_id', '=', change.propertyReferenceId)
+            .orderBy('id')
+            .forUpdate()
+            .execute();
+        }
+        const existing = await ownershipsOf(trx, change.propertyReferenceId);
+
+        // The checks in the order of §26.2: the listed Ownerships come before the new owners.
+        const plan = planChange(existing, change);
+        if (plan.kind === 'INVALID_OWNERSHIP') throw new Rejected<ChangeOwnershipOutcome>(plan);
+        const status = new Map(owners.map((o) => [o.id, o.status]));
+        for (const { ownerPartyId } of change.create) {
+          if (!status.has(ownerPartyId)) throw new Rejected<ChangeOwnershipOutcome>({ kind: 'PARTY_NOT_FOUND', partyId: ownerPartyId });
+          if (status.get(ownerPartyId) !== 'ACTIVE') throw new Rejected<ChangeOwnershipOutcome>({ kind: 'PARTY_INACTIVE', partyId: ownerPartyId });
+        }
+        if (plan.kind === 'UNCHANGED') {
+          // Nothing written; the key claim is rolled back with it, so a retry with the key answers the same no-op.
+          throw new Rejected<ChangeOwnershipOutcome>({ kind: 'UNCHANGED', result: resultOf(change, existing, change.close, []) });
+        }
+        if (plan.kind !== 'CHANGE') throw new Rejected<ChangeOwnershipOutcome>(plan);
+
+        // Closes first, then creates: the invariant trigger checks each statement immediately (§26.2).
+        const metadata = { reason: change.reason, effectiveDate: change.effectiveDate };
+        for (const { ownership, validUntil } of plan.closes) {
+          await trx
+            .updateTable('ownership')
+            .set({ valid_until: validUntil, version: ownership.version + 1, updated_at: new Date() })
+            .where('id', '=', ownership.id)
+            .execute();
+          await writeAudit(trx, { type: ENTITY_TYPE, id: ownership.id }, 'CLOSED', actor, {
+            previousVersion: ownership.version,
+            newVersion: ownership.version + 1,
+            metadata: { ...metadata, validUntil: { from: ownership.validUntil, to: validUntil } },
+          });
+        }
+        const createdIds: string[] = [];
+        for (const create of change.create) {
+          const { id } = await trx
+            .insertInto('ownership')
+            .values({
+              mre_realm_id: change.mreRealmId,
+              property_reference_id: change.propertyReferenceId,
+              owner_party_id: create.ownerPartyId,
+              share_numerator: create.share.numerator,
+              share_denominator: create.share.denominator,
+              valid_from: change.effectiveDate,
+              valid_until: null,
+              status: 'VALID' satisfies OwnershipStatus,
+              source_references: [...create.sourceReferences],
+              notes: create.notes,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          createdIds.push(id);
+          await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
+            newVersion: 1,
+            metadata: {
+              ...metadata,
+              propertyReferenceId: change.propertyReferenceId,
+              ownerPartyId: create.ownerPartyId,
+              share: formatShare(create.share),
+              validFrom: change.effectiveDate,
+              validUntil: null,
+            },
+          });
+        }
+        await writeAudit(trx, { type: 'PropertyReference', id: change.propertyReferenceId }, 'OWNERSHIP_CHANGED', actor, {
+          previousVersion: touched.version,
+          newVersion: touched.version,
+          metadata: { ...metadata, closedOwnershipIds: plan.closes.map((c) => c.ownership.id), createdOwnershipIds: createdIds },
+        });
+
+        const result = resultOf(change, await ownershipsOf(trx, change.propertyReferenceId), change.close, createdIds);
+        if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, change.propertyReferenceId, toChangeSnapshot(result));
+        return { kind: 'CHANGED', result, replayed: false };
+      });
+    } catch (error) {
+      if (error instanceof Rejected) return error.outcome as ChangeOwnershipOutcome;
       throw error;
     }
   }
@@ -334,5 +466,42 @@ function fromSnapshot(result: unknown): Ownership {
     id: snapshot.id as OwnershipId,
     createdAt: new Date(snapshot.createdAt),
     voidedAt: snapshot.voidedAt === null ? null : new Date(snapshot.voidedAt),
+  };
+}
+
+/** The listed and created Ownerships as they are now, in the order given, with the ownership on `effectiveDate`. */
+function resultOf(change: OwnershipChange, ownerships: readonly Ownership[], closedIds: readonly string[], createdIds: readonly string[]): ChangeResult {
+  const byId = new Map(ownerships.map((o) => [o.id as string, o]));
+  const day = ownershipOn(ownerships, change.effectiveDate);
+  return {
+    propertyReferenceId: change.propertyReferenceId,
+    effectiveDate: change.effectiveDate,
+    reason: change.reason,
+    closed: closedIds.map((id) => byId.get(id) as Ownership),
+    created: createdIds.map((id) => byId.get(id) as Ownership),
+    completeness: day.completeness,
+    shareSum: day.shareSum,
+  };
+}
+
+/** The change result as JSON for the idempotency store: Ownerships as their snapshots, the sum as `"n/d"`. */
+type ChangeSnapshot = Omit<ChangeResult, 'closed' | 'created' | 'shareSum'> & {
+  readonly closed: readonly OwnershipSnapshot[];
+  readonly created: readonly OwnershipSnapshot[];
+  readonly shareSum: string;
+};
+
+function toChangeSnapshot(result: ChangeResult): ChangeSnapshot {
+  return { ...result, closed: result.closed.map(toSnapshot), created: result.created.map(toSnapshot), shareSum: formatShare(result.shareSum) };
+}
+
+function fromChangeSnapshot(value: unknown): ChangeResult {
+  const snapshot = value as ChangeSnapshot;
+  const [numerator, denominator] = snapshot.shareSum.split('/').map(BigInt) as [bigint, bigint];
+  return {
+    ...snapshot,
+    closed: snapshot.closed.map(fromSnapshot),
+    created: snapshot.created.map(fromSnapshot),
+    shareSum: { numerator, denominator },
   };
 }

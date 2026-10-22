@@ -6,11 +6,13 @@ import {
   InvalidOwnershipError,
   OverlappingOwnershipError,
   OwnerInactiveError,
+  OwnershipIncompleteError,
   OwnershipNotFoundError,
   OwnershipTotalExceedsOneError,
   PartyNotFoundError,
   PropertyReferenceNotFoundError,
   VersionConflictError,
+  type ChangeOwnershipInput,
   type CreateOwnershipInput,
   type Ownership,
   type PrincipalVerifier,
@@ -232,5 +234,86 @@ describe('GET /api/v1/property-references/{id}/ownerships', () => {
       expect((await call(base, 'GET', `/property-references/${PR}/ownerships?${query}`)).status, query).toBe(400);
     }
     expect((await call(base, 'GET', `/property-references/${ID}/ownerships`)).status).toBe(404);
+  });
+});
+
+describe('POST /api/v1/property-references/{id}/ownership-changes', () => {
+  const changeBody = { effectiveDate: '2030-01-01', reason: ' Verkauf ', close: [ID.toUpperCase()], create: [{ ownerPartyId: PARTY, share: '2/4' }] };
+  const result = {
+    propertyReferenceId: PR,
+    effectiveDate: '2030-01-01',
+    reason: 'Verkauf',
+    closed: [{ ...ownership, validUntil: '2029-12-31' }],
+    created: [ownership],
+    completeness: 'COMPLETE',
+    shareSum: { numerator: 1n, denominator: 1n },
+  } as never;
+
+  it('201 with closed, created, completeness and shareSum; 200 for the no-op; a replay is marked; the body is normalized', async () => {
+    const seen: ChangeOwnershipInput[] = [];
+    const statuses = ['CREATED', 'REPLAYED', 'UNCHANGED'] as const;
+    const base = await start({
+      changeOwnership: async (input) => {
+        seen.push(input);
+        return { result, status: statuses[seen.length - 1] ?? 'CREATED' };
+      },
+    });
+    const res = await call(base, 'POST', `/property-references/${PR}/ownership-changes`, changeBody, { 'idempotency-key': 'c1' });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({
+      propertyReferenceId: PR,
+      effectiveDate: '2030-01-01',
+      reason: 'Verkauf',
+      closed: [expect.objectContaining({ ownershipId: ID, validUntil: '2029-12-31' })],
+      created: [expect.objectContaining({ ownershipId: ID, share: '1/2' })],
+      completeness: 'COMPLETE',
+      shareSum: '1/1',
+    });
+    expect(seen[0]).toMatchObject({
+      propertyReferenceId: PR,
+      reason: 'Verkauf',
+      close: [ID],
+      create: [{ ownerPartyId: PARTY, share: { numerator: 1, denominator: 2 }, sourceReferences: [], notes: null }],
+      idempotencyKey: 'c1',
+    });
+    expect((await call(base, 'POST', `/property-references/${PR}/ownership-changes`, changeBody)).headers.get('idempotent-replayed')).toBe('true');
+    expect((await call(base, 'POST', `/property-references/${PR}/ownership-changes`, changeBody)).status).toBe(200);
+  });
+
+  it('400 with the field codes: nothing to do, duplicates, acquisitionId, bad share or date, unknown keys', async () => {
+    const base = await start({});
+    const fieldsOf = async (payload: unknown) => {
+      const res = await call(base, 'POST', `/property-references/${PR}/ownership-changes`, payload);
+      expect(res.status, JSON.stringify(payload)).toBe(400);
+      return ((await errorOf(res)).details as { fields: unknown[] }).fields;
+    };
+    expect(await fieldsOf({ effectiveDate: '2030-01-01', reason: 'x' })).toEqual([{ field: 'create', code: 'REQUIRED' }]);
+    expect(await fieldsOf({ ...changeBody, close: [ID, ID.toUpperCase()] })).toEqual([{ field: 'close.1', code: 'DUPLICATE' }]);
+    expect(await fieldsOf({ ...changeBody, create: [{ ownerPartyId: PARTY, share: '1/4' }, { ownerPartyId: PARTY, share: '1/4' }] })).toEqual([
+      { field: 'create.1.ownerPartyId', code: 'DUPLICATE' },
+    ]);
+    expect(await fieldsOf({ ...changeBody, acquisitionId: ID })).toEqual([{ field: 'acquisitionId', code: 'NOT_SUPPORTED' }]);
+    expect(await fieldsOf({ ...changeBody, create: [{ ownerPartyId: PARTY, share: '3/2' }] })).toEqual([{ field: 'create.0.share', code: 'OUT_OF_RANGE' }]);
+    for (const bad of [{ ...changeBody, reason: ' ' }, { ...changeBody, effectiveDate: 'x' }, { ...changeBody, create: [{ ownerPartyId: PARTY, share: '1/2', validFrom: '2030-01-01' }] }, { ...changeBody, extra: 1 }]) {
+      await fieldsOf(bad);
+    }
+    expect((await call(base, 'POST', '/property-references/nope/ownership-changes', changeBody)).status).toBe(400);
+  });
+
+  it.each([
+    [new PropertyReferenceNotFoundError(PR), 404, 'NOT_FOUND', { propertyReferenceId: PR }],
+    [new InvalidOwnershipError(ID, 'NOT_FOUND'), 422, 'INVALID_OWNERSHIP', { ownershipId: ID, reason: 'NOT_FOUND' }],
+    [new PartyNotFoundError(PARTY), 404, 'NOT_FOUND', { partyId: PARTY }],
+    [new OwnerInactiveError(PARTY), 422, 'PARTY_INACTIVE', { partyId: PARTY }],
+    [new OverlappingOwnershipError(ID), 422, 'OVERLAPPING_OWNERSHIP', { ownershipId: ID }],
+    [new OwnershipIncompleteError('2030-01-01' as BusinessDate, { numerator: 5n, denominator: 6n }), 422, 'OWNERSHIP_INCOMPLETE', { date: '2030-01-01', shareSum: '5/6' }],
+    [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
+  ])('%s → %i %s', async (error, status, code, details) => {
+    const base = await start({ changeOwnership: async () => Promise.reject(error) });
+    const res = await call(base, 'POST', `/property-references/${PR}/ownership-changes`, changeBody);
+    expect(res.status).toBe(status);
+    const answer = await errorOf(res);
+    expect(answer.code).toBe(code);
+    if (details !== undefined) expect(answer.details).toEqual(details);
   });
 });
