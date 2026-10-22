@@ -723,28 +723,29 @@ A Realm-wide `GET /api/v1/ownerships` (all Ownerships of all PropertyReferences)
 - **An Ownership is a period** (data-model §12, §78): `validFrom` and an optional `validUntil`, both **inclusive** business dates (`YYYY-MM-DD`); the next period starts the day after. `share`, `ownerPartyId`, `propertyReferenceId` and `validFrom` never change.
 - **Share (P2-D3):** a fraction string `"n/d"` with positive integers, `n ≤ d`, `d ≤ 10000`, as in the Grundbuch (`"1/2"`, `"1/3"`, `"7/10"`). Input may be unreduced; it is stored and returned **reduced** (`"2/4"` → `"1/2"`), and fingerprints compare the reduced form. Sums are exact rationals, never decimals: three Ownerships of `"1/3"` are exactly complete.
 - **Status:** `VALID` | `VOID` (P2-D4). Only `VALID` Ownerships count anywhere (sums, overlap, `asOf`, completeness).
-- **Response:** `ownershipId`, `mreRealmId`, `propertyReferenceId`, `ownerPartyId`, `share` (reduced), `validFrom`, `validUntil` (or `null`), `status`, `voidedAt`, `voidReason`, `acquisitionId` (`null` until an Acquisition is confirmed, VC-2-07), `sourceReferences`, `notes`, `createdAt`, `version`. Single-Ownership responses carry `ETag: "<version>"` (§16.1).
+- **Response:** `ownershipId`, `mreRealmId`, `propertyReferenceId`, `ownerPartyId`, `share` (reduced), `validFrom`, `validUntil` (or `null`), `status`, `voidedAt`, `voidReason`, `acquisitionId` (the Acquisition this Ownership results from, or `null`; set at creation, fixed afterwards; P2-D8), `sourceReferences`, `notes`, `createdAt`, `version`. Single-Ownership responses carry `ETag: "<version>"` (§16.1).
 
 ### Invariants checked on every write (P2-D4)
 
 Over the `VALID` Ownerships of one PropertyReference, for every day of the new or changed period:
 
 - **No overlap per owner:** a Party never holds two overlapping Ownerships of the same PropertyReference → `422 OVERLAPPING_OWNERSHIP` with `details.ownershipId` (the one it overlaps).
-- **Σ ≤ 1:** the shares covering a day sum to at most 1 → `422 OWNERSHIP_TOTAL_EXCEEDS_ONE` with `details.date` (the first day above 1) and `details.total` (that day's sum, a reduced fraction). It suffices to check the new period's `validFrom` and every `validFrom` of another `VALID` Ownership inside the new period: a sum only rises where a period starts.
+- **Σ ≤ 1:** the shares covering a day sum to at most 1 → `422 OWNERSHIP_TOTAL_EXCEEDS_ONE` with `details.date` (the first day above 1) and `details.shareSum` (that day's sum of shares, a reduced fraction). It suffices to check the new period's `validFrom` and every `validFrom` of another `VALID` Ownership inside the new period: a sum only rises where a period starts.
 - **Serialisation:** the checks run in a database trigger that first **writes the PropertyReference row** (`UPDATE property_reference SET version = version`, as the split trigger touches its Transaction in 0010). Under READ COMMITTED a second writer of the same PropertyReference waits there, and its trigger then sees the first writer's rows (each statement of the trigger takes a new snapshot). Under REPEATABLE READ it fails with a serialisation error instead of committing Σ > 1. The repository runs READ COMMITTED, touches the PropertyReference first itself and evaluates the same rules to answer the `422`s with their details; the trigger is the guarantee for every other writer.
 - The sum is computed exactly: numerator and denominator as `numeric` integers, added by cross-multiplication and reduced by `gcd`, never `bigint` least common multiples (which overflow with several coprime denominators) and never decimal division.
 
 ### `POST /api/v1/ownerships`
 
-- **Body** (strict; unknown keys, `acquisitionId` included, are `400`):
+- **Body** (strict; unknown keys are `400`):
   - `propertyReferenceId`, `ownerPartyId` (UUIDs);
   - `share` (format above; not a fraction → `INVALID_FORMAT`, `n > d` or `d > 10000` → `OUT_OF_RANGE`);
   - `validFrom` (required), `validUntil` (optional, `≥ validFrom`, else `400` `field = validUntil`, `BEFORE_VALID_FROM`);
+  - `acquisitionId` (optional): the Acquisition this Ownership results from (WF-002, P2-D8; an Acquisition's confirmation checks exactly the Ownerships carrying its id). In VC-2-03 it is **`400 NOT_SUPPORTED`** (Acquisitions do not exist yet), as other references to not-yet-existing entities (§33.2); from VC-2-05 on it is accepted for a `DRAFT` Acquisition of the same Realm and PropertyReference. Fixed after creation.
   - `sourceReferences` (optional; up to 10 strings of 1–500 characters, e.g. "Grundbuch von Mitte Blatt 1234, Abt. I Nr. 2"; data-model §12.3), `notes` (optional, ≤ 2000). Both trimmed, empty → absent.
 - **Order of checks:** `400` → PropertyReference unknown/foreign → `404` (`details.propertyReferenceId`) → Party unknown/foreign → `404` (`details.partyId`) → Party `INACTIVE` → `422 PARTY_INACTIVE` (P2-D5: new owners must be active) → overlap → Σ.
 - **The inactive check holds under concurrency:** the write locks the Party row `FOR SHARE` (which conflicts with `deactivate`'s `FOR UPDATE`) and reads its status under that lock.
 - **Success:** `201` with the Ownership (`status = VALID`, `version = 1`); AuditRecord `CREATED` with share and dates.
-- **Idempotency (§15):** `Idempotency-Key` with scope `ownership.create`, fingerprint of the normalized payload (reduced share, trimmed texts). Replay `201` with the recorded body and `Idempotent-Replayed: true`; the same key with another payload is `409`. Without a key, a repeated create is refused as `OVERLAPPING_OWNERSHIP`, never a duplicate.
+- **Idempotency (§15):** `Idempotency-Key` with scope `ownership.create`, fingerprint of the normalized payload (reduced share, trimmed texts). Replay `201` with the recorded body and `Idempotent-Replayed: true`; the same key with another payload is `409`. Without a key, a repeated create is refused as `OVERLAPPING_OWNERSHIP`, never a duplicate; so a client retrying after a lost answer cannot tell it from a real overlap. **Clients should always send an `Idempotency-Key` on create.**
 
 ### `POST /api/v1/ownerships/{ownershipId}/close`
 
@@ -768,8 +769,8 @@ Over the `VALID` Ownerships of one PropertyReference, for every day of the new o
 ### Reads
 
 - `GET /ownerships/{ownershipId}`: one Ownership with `ETag`.
-- `GET /property-references/{id}/ownerships?asOf=YYYY-MM-DD`: `{ propertyReferenceId, asOf, completeness, total, items }`, the `VALID` Ownerships covering that day, ordered by `validFrom`, then `ownershipId`. Not paged: `completeness` and `total` describe the whole day.
-  - `completeness` (derived, never stored; P2-D4): `COMPLETE` when the shares sum to exactly 1, `INCOMPLETE` when below, `NONE` without Ownerships that day. `total` is the reduced sum (`"0/1"` for `NONE`).
+- `GET /property-references/{id}/ownerships?asOf=YYYY-MM-DD`: `{ propertyReferenceId, asOf, completeness, shareSum, items }`, the `VALID` Ownerships covering that day, ordered by `validFrom`, then `ownershipId`. Not paged: `completeness` and `shareSum` describe the whole day.
+  - `completeness` (derived, never stored; P2-D4): `COMPLETE` when the shares sum to exactly 1, `INCOMPLETE` when below, `NONE` without Ownerships that day. `shareSum` is the reduced sum of shares (`"0/1"` for `NONE`); `total` keeps its §11 meaning (a count) everywhere and is not used here.
 - Without `asOf`: the full history `{ items, page, pageSize, total }` (§11), `VOID` included (marked by `status`), ordered by `validFrom`, then `createdAt`, then `ownershipId`; count and page in one snapshot; `page` from 1, `pageSize` 1–200 (default 50).
 - An unknown or foreign PropertyReference is `404`; unknown parameters and a malformed `asOf` are `400`.
 
@@ -777,7 +778,7 @@ Over the `VALID` Ownerships of one PropertyReference, for every day of the new o
 
 - `CHECK`s: `1 ≤ numerator ≤ denominator ≤ 10000`, `gcd(numerator, denominator) = 1` (stored reduced), `valid_until ≥ valid_from`, and `VOID` exactly with `voided_at` and `void_reason`.
 - Composite foreign keys to `property_reference (id, mre_realm_id)` and `party (id, mre_realm_id)`.
-- A trigger keeps `share`, owner, PropertyReference, `valid_from` and the creation fields fixed, `VOID` final, and lets `valid_until` only be set or moved **earlier**, never later or cleared.
+- A trigger keeps `share`, owner, PropertyReference, `valid_from`, `acquisition_id` (the column and its composite foreign key to a same-Realm Acquisition come with VC-2-05; until then the response field is always `null`) and the creation fields fixed, `VOID` final, and lets `valid_until` only be set or moved **earlier**, never later or cleared.
 - With it, the Party guards of the #39 review (before Ownership relies on `ACTIVE`): `party_type` never changes, and `INACTIVE` is final with its `deactivated_at` and reason (no reactivation), by trigger as the ledger's 0009/0013.
 
 ---

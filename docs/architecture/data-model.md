@@ -605,7 +605,7 @@ Represent legal ownership of the real-world Property identified in DE through a 
 ## 12.3 Optional Fields
 
 - `validUntil`: inclusive business date; only ever set or moved earlier (close), never extended
-- `acquisitionId`: set when an Acquisition is confirmed (VC-2-07), never by the client
+- `acquisitionId`: the Acquisition the Ownership results from; set at creation by WF-002 (`POST /ownerships` or `ownership-changes`), fixed afterwards; the Acquisition's confirmation checks exactly the Ownerships carrying it (P2-D8)
 - `sourceReferences`: free-text evidence such as the Grundbuch entry (up to 10); documents come later
 - `notes`
 - `voidedAt`, `voidReason`: set exactly when `status = VOID`
