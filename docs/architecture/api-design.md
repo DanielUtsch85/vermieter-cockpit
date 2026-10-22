@@ -709,7 +709,7 @@ GET /api/v1/property-references/{propertyReferenceId}/ownerships[?asOf=YYYY-MM-D
 POST /api/v1/ownerships
 POST /api/v1/ownerships/{ownershipId}/close
 POST /api/v1/ownerships/{ownershipId}/void
-POST /api/v1/property-references/{propertyReferenceId}/ownership-changes      (VC-2-04)
+POST /api/v1/property-references/{propertyReferenceId}/ownership-changes      (VC-2-04, §26.2)
 ```
 
 A Realm-wide `GET /api/v1/ownerships` (all Ownerships of all PropertyReferences) is not part of Phase 2; it comes with a use case (an owner's portfolio) that needs it.
@@ -781,6 +781,35 @@ Over the `VALID` Ownerships of one PropertyReference, for every day of the new o
 - Composite foreign keys to `property_reference (id, mre_realm_id)` and `party (id, mre_realm_id)`.
 - A trigger keeps `share`, owner, PropertyReference, `valid_from`, `acquisition_id` (the column and its composite foreign key to a same-Realm Acquisition come with VC-2-05; until then the response field is always `null`) and the creation fields fixed, `VOID` final, and lets `valid_until` only be set or moved **earlier**, never later or cleared.
 - With it, the Party guards of the #39 review (before Ownership relies on `ACTIVE`): `party_type` never changes, and `INACTIVE` is final with its `deactivated_at` and reason (no reactivation), by trigger as the ledger's 0009/0013.
+
+
+## 26.2 Ownership change (VC-2-04)
+
+```text
+POST /api/v1/property-references/{propertyReferenceId}/ownership-changes
+```
+
+A sale, inheritance or transfer as **one atomic command** (P2-D5, BR-OWN-005): the listed Ownerships end on `effectiveDate − 1` and the new ones start on `effectiveDate`, in one transaction. Either everything is written or nothing is.
+
+- **Domain owner:** Ownership. **Authorization:** as §26.1; the PropertyReference, the listed Ownerships and the new owners belong to the caller's Realm.
+- **Body** (strict; unknown keys `400`):
+  - `effectiveDate` (business date, required): the first day of the new ownership.
+  - `reason` (required, trimmed, 1–500): why ownership changes ("Verkauf an B", "Erbfall"); recorded in every AuditRecord of the change.
+  - `close`: the `ownershipId`s that end (UUIDs, no duplicates, up to 50).
+  - `create`: the new Ownerships (up to 50), each `{ ownerPartyId, share, sourceReferences?, notes? }` with the fields as §26.1; `validFrom` is `effectiveDate`, `validUntil` open. One owner at most once (`400` `DUPLICATE` at `create.<i>.ownerPartyId`).
+  - At least one of `close` and `create` is non-empty (`400` `REQUIRED`).
+  - `acquisitionId` (optional): as §26.1, `400 NOT_SUPPORTED` until VC-2-05, then applied to every created Ownership.
+- **Order of checks:** `400` → PropertyReference unknown/foreign → `404` → the listed Ownerships, in the order given → new owners, in the order given → the invariants → completeness. The first refusal answers; nothing is written.
+  - **Listed Ownerships** (P2-D5): each must be `VALID`, belong to **this** PropertyReference, start **before** `effectiveDate` and still be valid on `effectiveDate − 1`. Otherwise `422 INVALID_OWNERSHIP` with `details.ownershipId` and `details.reason`: `NOT_FOUND` (unknown, another Realm or another PropertyReference), `VOID`, `STARTS_ON_OR_AFTER_EFFECTIVE_DATE` (closing would give `validUntil < validFrom`) or `ALREADY_ENDED` (`validUntil < effectiveDate − 1`; history is never moved). A planned later end is shortened to `effectiveDate − 1`; one already ending on that day stays as it is. Owners being closed may be **inactive** (inheritance).
+  - **New owners:** unknown or foreign → `404` (`details.partyId`); inactive → `422 PARTY_INACTIVE` (`details.partyId`).
+  - **Invariants** (§26.1) over the state after the change: `422 OVERLAPPING_OWNERSHIP` (e.g. a new Ownership for an owner whose current one is not closed) or `422 OWNERSHIP_TOTAL_EXCEEDS_ONE`, with their details.
+  - **Completeness:** if the ownership was `COMPLETE` on `effectiveDate − 1`, it must be `COMPLETE` on `effectiveDate` too: a change moves shares, it does not lose them. Otherwise `422 OWNERSHIP_INCOMPLETE` with `details.date` (`effectiveDate`) and `details.shareSum` (that day's sum after the change). An ownership that was not complete before may stay incomplete.
+- **Success:** `201` with `{ propertyReferenceId, effectiveDate, reason, closed: [Ownership…], created: [Ownership…], completeness, shareSum }` (the Ownerships as §26.1, in the order given; `completeness` and `shareSum` for `effectiveDate`).
+  - AuditRecords: `CLOSED` on each closed Ownership (old and new `validUntil`; none for one already ending on `effectiveDate − 1`), `CREATED` on each new one, each with the `reason`; and one `OWNERSHIP_CHANGED` on the PropertyReference with `effectiveDate`, `reason` and the ids, so the change reads as one act.
+- **Idempotency (§15):** `Idempotency-Key` with scope `ownership.change`, fingerprint of the normalized body (shares reduced, the `close` ids sorted). Replay `201` with the recorded body and `Idempotent-Replayed: true`; the same key with another payload is `409`. Without a key a retry is refused (`OVERLAPPING_OWNERSHIP`), never applied twice. Clients should always send one.
+- **No `If-Match`:** the command names several Ownerships and checks each against its state under lock; a stale view of them is refused by the rules above, not silently applied.
+- **Concurrency and locks:** one READ COMMITTED transaction takes the locks in the order of every Ownership writer (§26.1): the PropertyReference first (the no-op write), then the new owners `FOR SHARE` **in `id` order** (review on #42), then the listed Ownerships `FOR UPDATE` in `id` order. It then reads the Ownerships of the PropertyReference and evaluates the rules; the invariant trigger checks each written row again. So a change never deadlocks with a create, close or void of the same PropertyReference, and a concurrent `deactivate` of a new owner either comes first (`PARTY_INACTIVE`) or waits.
+- **Reads:** "queryable over time" is §26.1's `GET …/ownerships?asOf=` (P2-D5); the history shows both the closed and the new Ownerships.
 
 ---
 
