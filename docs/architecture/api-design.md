@@ -783,7 +783,7 @@ Over the `VALID` Ownerships of one PropertyReference, for every day of the new o
 - With it, the Party guards of the #39 review (before Ownership relies on `ACTIVE`): `party_type` never changes, and `INACTIVE` is final with its `deactivated_at` and reason (no reactivation), by trigger as the ledger's 0009/0013.
 
 
-## 26.2 Ownership change (VC-2-04)
+## 26.2 Ownership change (VC-2-04, implemented)
 
 ```text
 POST /api/v1/property-references/{propertyReferenceId}/ownership-changes

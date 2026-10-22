@@ -24,6 +24,7 @@ import type {
   ResolveReviewItem,
   SetTransactionSplits,
   AmendParty,
+  ChangeOwnership,
   CloseOwnership,
   CreateOwnership,
   GetOwnership,
@@ -77,6 +78,8 @@ export interface AppDependencies {
   readonly closeOwnership: CloseOwnership;
   readonly voidOwnership: VoidOwnership;
   readonly readPropertyOwnerships: ReadPropertyOwnerships;
+  /** Ownership change (VC-2-04). */
+  readonly changeOwnership: ChangeOwnership;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -158,6 +161,7 @@ export function createApp(deps: AppDependencies): Express {
       close: deps.closeOwnership,
       void: deps.voidOwnership,
       read: deps.readPropertyOwnerships,
+      change: deps.changeOwnership,
     }),
   );
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
