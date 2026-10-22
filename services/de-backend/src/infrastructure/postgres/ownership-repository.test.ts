@@ -368,6 +368,80 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     expect(holders).toBe(2);
   });
 
+  /** Waits until a session waits for a lock in a statement on `table`. */
+  const waitForLock = (table: string) =>
+    waitUntil(async () =>
+      Number(
+        (
+          await pool.query(
+            `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`,
+            [`%"${table}"%`],
+          )
+        ).rows[0].count,
+      ) >= 1,
+    );
+
+  it('close waits for a concurrent writer of the PropertyReference (one lock order: PropertyReference first), then closes', async () => {
+    const pr = await propertyReference();
+    const [anna, ben] = [await owner('Anna'), await owner('Ben')];
+    const a = await created(draft({ propertyReferenceId: pr, ownerPartyId: anna }));
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      // Ben's create is in flight: its trigger holds the PropertyReference.
+      await holder.query(
+        `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, created_by)
+         VALUES ($1, $2, $3, 1, 2, '2026-08-01', 'VALID', 'x')`,
+        [REALM, pr, ben],
+      );
+      const closing = ownerships.close(a.id, REALM, day('2030-12-31'), actor);
+      await waitForLock('property_reference');
+      // The close waits before it locks Anna's row: that row is still free.
+      const free = await pool.query(`SELECT id FROM ownership WHERE id = $1 FOR UPDATE NOWAIT`, [a.id]);
+      expect(free.rows).toHaveLength(1);
+      await holder.query('COMMIT');
+      expect(await closing).toMatchObject({ kind: 'CLOSED', changed: true, ownership: { validUntil: '2030-12-31' } });
+    } finally {
+      holder.release();
+    }
+  });
+
+  it('void and close of one Ownership serialise: the waiting void sees the close and its If-Match conflicts', async () => {
+    const pr = await propertyReference();
+    const anna = await owner();
+    const o = await created(draft({ propertyReferenceId: pr, ownerPartyId: anna }));
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      // A close past the repository: the trigger touches the PropertyReference, the row is version 2 once committed.
+      await holder.query(`UPDATE ownership SET valid_until = '2030-12-31', version = version + 1 WHERE id = $1`, [o.id]);
+      const voiding = ownerships.void(o.id, REALM, 'Tippfehler', new Date(), actor, [1]);
+      await waitForLock('property_reference');
+      await holder.query('COMMIT');
+      expect(await voiding).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 });
+    } finally {
+      holder.release();
+    }
+    expect(await ownerships.void(o.id, REALM, 'Tippfehler', new Date(), actor, [2])).toMatchObject({ kind: 'VOIDED', ownership: { version: 3 } });
+  });
+
+  it('a void serialises with a create too (past the repository); the create then sees the freed share', async () => {
+    const pr = await propertyReference();
+    const [anna, ben] = [await owner('Anna'), await owner('Ben')];
+    const whole = await created(draft({ propertyReferenceId: pr, ownerPartyId: anna, share: share('1/1') }));
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`UPDATE ownership SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [whole.id]);
+      const creating = ownerships.create(draft({ propertyReferenceId: pr, ownerPartyId: ben, share: share('1/1') }), actor);
+      await waitForLock('property_reference');
+      await holder.query('COMMIT');
+      expect(await creating).toMatchObject({ kind: 'CREATED', ownership: { ownerPartyId: ben } });
+    } finally {
+      holder.release();
+    }
+  });
+
   it('a new owner racing deactivate: once the deactivation commits, the create sees PARTY_INACTIVE', async () => {
     const pr = await propertyReference();
     const anna = await owner();

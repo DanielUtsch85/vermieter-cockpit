@@ -165,6 +165,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository {
   ): Promise<CloseOwnershipOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
     return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CloseOwnershipOutcome> => {
+      await touchPropertyReferenceOf(trx, id, mreRealmId);
       const current = await lockAndRead(trx, id, mreRealmId);
       if (current === undefined) return { kind: 'NOT_FOUND' };
       const plan = planClose(current, validUntil);
@@ -198,6 +199,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository {
   ): Promise<VoidOwnershipOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
     return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidOwnershipOutcome> => {
+      await touchPropertyReferenceOf(trx, id, mreRealmId);
       const current = await lockAndRead(trx, id, mreRealmId);
       if (current === undefined) return { kind: 'NOT_FOUND' };
       const plan = planVoid(current, reason, at);
@@ -270,6 +272,21 @@ async function ownershipsOf(trx: Transaction<Database>, propertyReferenceId: str
 
 async function propertyReferenceExists(trx: Transaction<Database>, id: string, mreRealmId: string): Promise<boolean> {
   return (await trx.selectFrom('property_reference').select('id').where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst()) !== undefined;
+}
+
+/**
+ * The no-op write of the Ownership's PropertyReference that `create` and the trigger do too: every writer takes the
+ * PropertyReference first, then the Party, then the Ownership row, one order on every path, so no two of them can
+ * deadlock (review on #43; `ownership-changes` of VC-2-04 locks both). Nothing happens for an unknown or foreign id.
+ */
+async function touchPropertyReferenceOf(trx: Transaction<Database>, ownershipId: string, mreRealmId: string): Promise<void> {
+  await trx
+    .updateTable('property_reference')
+    .set((eb) => ({ version: eb.ref('version') }))
+    .where('id', '=', (eb) =>
+      eb.selectFrom('ownership').select('property_reference_id').where('id', '=', ownershipId).where('mre_realm_id', '=', mreRealmId),
+    )
+    .execute();
 }
 
 /** Locks the Ownership row, then reads it in that same statement. */

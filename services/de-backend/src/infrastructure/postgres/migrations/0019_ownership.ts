@@ -8,10 +8,12 @@ import { sql, type Kysely } from 'kysely';
  * - `ownership_frozen`: share, owner, PropertyReference, `valid_from` and creation never change; `VOID` is final;
  *   `valid_until` is only set or moved earlier (a close), never later or cleared. `acquisition_id` joins the list
  *   with its column in VC-2-05.
- * - `ownership_invariants`: on every write of a `VALID` row, first a no-op write of the PropertyReference row, so two
- *   writers of one PropertyReference serialise (as 0010 touches the Transaction): under READ COMMITTED the second
- *   waits and its checks (each a new statement, so a new snapshot) see the first's rows; under REPEATABLE READ it
- *   fails with a serialisation error. Then, over `VALID` rows: no overlap per owner, and no day above 1. A day's sum
+ * - `ownership_invariants`: on every write (create, close and void alike), first a no-op write of the PropertyReference
+ *   row, so all writers of one PropertyReference serialise (as 0010 touches the Transaction): under READ COMMITTED
+ *   the second waits and its checks (each a new statement, so a new snapshot) see the first's rows; under REPEATABLE
+ *   READ it fails with a serialisation error. A `void` only lowers sums, but serialises too (review on #43: from
+ *   VC-2-07 on it must not race an Acquisition's confirmation). Then, for a `VALID` row: no overlap per owner, and
+ *   no day above 1. A day's sum
  *   only rises where a period starts, so the row's `valid_from` and the starts inside its period are checked. Sums
  *   are exact: `numeric` numerators and denominators, reduced by `gcd`, never decimal division.
  */
@@ -85,6 +87,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       g numeric;
     BEGIN
       UPDATE property_reference SET version = version WHERE id = NEW.property_reference_id;
+      IF NEW.status <> 'VALID' THEN
+        RETURN NULL;
+      END IF;
 
       SELECT o.id INTO other FROM ownership o
        WHERE o.property_reference_id = NEW.property_reference_id AND o.owner_party_id = NEW.owner_party_id
@@ -125,8 +130,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`
     CREATE TRIGGER ownership_invariants
       AFTER INSERT OR UPDATE ON ownership
-      FOR EACH ROW WHEN (NEW.status = 'VALID')
-      EXECUTE FUNCTION ownership_invariants()
+      FOR EACH ROW EXECUTE FUNCTION ownership_invariants()
   `.execute(db);
 }
 
