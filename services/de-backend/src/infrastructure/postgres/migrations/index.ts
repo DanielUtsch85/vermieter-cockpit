@@ -16,6 +16,8 @@ import * as m0014 from './0014_reversal_mirrors_splits.js';
 import * as m0015 from './0015_transaction_page_index.js';
 import * as m0016 from './0016_party.js';
 import * as m0017 from './0017_party_external_reference.js';
+import * as m0018 from './0018_party_guards.js';
+import * as m0019 from './0019_ownership.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -41,4 +43,6 @@ export const migrations: Record<string, Migration> = {
   '0015_transaction_page_index': m0015,
   '0016_party': m0016,
   '0017_party_external_reference': m0017,
+  '0018_party_guards': m0018,
+  '0019_ownership': m0019,
 };

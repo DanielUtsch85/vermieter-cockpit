@@ -5,8 +5,7 @@ import type {
   PartyExternalReferenceRepository,
 } from '../domains/party/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
-import { VersionConflictError } from './errors.js';
-import { MreUnavailableError } from './link-property-reference.js';
+import { ConcurrentUpdateError, VersionConflictError } from './errors.js';
 import { PartyNotFoundError } from './parties.js';
 
 /**
@@ -89,6 +88,8 @@ export function createExternalReference(deps: {
           throw new ExternalReferenceInUseError(outcome.partyId);
         case 'PARTY_INACTIVE':
           throw new PartyInactiveError(partyId);
+        case 'CONTENDED':
+          throw new ConcurrentUpdateError(`external reference ${externalId}: claimed and ended concurrently on every attempt`);
       }
     };
     // Steps 1–4 from DE alone, so a repeat or a refusal never asks MRE (§20.1).

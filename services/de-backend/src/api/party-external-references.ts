@@ -2,6 +2,7 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   AccessError,
+  ConcurrentUpdateError,
   EXTERNAL_REFERENCE_STATUSES,
   ExternalReferenceInUseError,
   ExternalReferenceNotFoundError,
@@ -148,6 +149,10 @@ function sendReferenceError(res: Response, error: unknown, ids: { partyId: strin
     sendAccessError(res, error.code);
   } else if (error instanceof MreUnavailableError) {
     sendError(res, 503, 'EXTERNAL_SYSTEM_ERROR', 'MRE is unavailable; nothing was written.');
+  } else if (error instanceof ConcurrentUpdateError) {
+    // Not a server fault: concurrent claims kept winning; nothing was written and a retry is safe (review on #41).
+    res.setHeader('Retry-After', '1');
+    sendError(res, 503, 'CONCURRENT_UPDATE', 'The external reference kept changing concurrently; nothing was written. Retry.');
   } else {
     return false;
   }

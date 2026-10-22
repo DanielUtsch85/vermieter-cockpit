@@ -24,6 +24,11 @@ import type {
   ResolveReviewItem,
   SetTransactionSplits,
   AmendParty,
+  CloseOwnership,
+  CreateOwnership,
+  GetOwnership,
+  ReadPropertyOwnerships,
+  VoidOwnership,
   CreateExternalReference,
   EndExternalReference,
   ListExternalReferences,
@@ -39,6 +44,7 @@ import { financialCategoryRoutes } from './financial-categories.js';
 import { importRoutes } from './imports.js';
 import { partyRoutes } from './parties.js';
 import { externalReferenceRoutes } from './party-external-references.js';
+import { ownershipRoutes } from './ownerships.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
 
@@ -65,6 +71,12 @@ export interface AppDependencies {
   readonly createExternalReference: CreateExternalReference;
   readonly endExternalReference: EndExternalReference;
   readonly listExternalReferences: ListExternalReferences;
+  /** Ownership (VC-2-03). */
+  readonly createOwnership: CreateOwnership;
+  readonly getOwnership: GetOwnership;
+  readonly closeOwnership: CloseOwnership;
+  readonly voidOwnership: VoidOwnership;
+  readonly readPropertyOwnerships: ReadPropertyOwnerships;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -137,6 +149,15 @@ export function createApp(deps: AppDependencies): Express {
       create: deps.createExternalReference,
       end: deps.endExternalReference,
       list: deps.listExternalReferences,
+    }),
+  );
+  api.use(
+    ownershipRoutes({
+      create: deps.createOwnership,
+      get: deps.getOwnership,
+      close: deps.closeOwnership,
+      void: deps.voidOwnership,
+      read: deps.readPropertyOwnerships,
     }),
   );
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));

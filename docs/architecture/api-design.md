@@ -540,6 +540,7 @@ GET  /api/v1/parties/{partyId}/external-references
   4. Party `INACTIVE` → `409 CONFLICT`, `reason = "PARTY_INACTIVE"` (no new reference for an inactive Party, P2-D1).
   5. MRE: the Tenant is looked up in `GET /tenants` of the Realm, never `GET /tenants/:id` (mre-integration §20.1). Not listed → `404 NOT_FOUND` with `details.externalId`; MRE no longer grants the Realm → `403`; MRE unavailable → `503 EXTERNAL_SYSTEM_ERROR`. Nothing is written on any error (§77).
 - **Success:** `201` with the reference (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` on entity `PartyExternalReference` with the key in its metadata. Nothing is copied from the MRE Tenant into the Party (P2-D1).
+- **Exhausted retries:** if a claim loses to another Party three times and the winner is ended each time before it can be read, nothing is written and the answer is `503 CONCURRENT_UPDATE` with `Retry-After: 1` (review on #41), not a `500`.
 - **Concurrency:** MRE is read outside any lock. The write then runs in one READ COMMITTED transaction that takes the Party's row lock (so it serialises with `deactivate` and with claims for the same Party) and re-checks steps 2–4 under it. A claim racing a `deactivate` either completes before it or sees `PARTY_INACTIVE`.
   - Claims for **different** Parties are not serialised by that lock; the partial unique index decides. The insert is `INSERT … ON CONFLICT (system, mre_realm_id, entity_type, external_id) WHERE status = 'ACTIVE' DO NOTHING RETURNING …`, its `WHERE` repeating the index predicate exactly so that the index is the arbiter. It never raises a unique violation (which would abort the transaction, `25P02`): under READ COMMITTED it waits for a concurrent inserter and then returns no row. A **new statement** in the same transaction then reads the now committed active reference and answers `200` (same Party) or `409 REFERENCE_IN_USE` (another Party).
   - Pinned by a two-connection test with two **different** Parties claiming one key: exactly one reference, the other claim `409`.
@@ -717,7 +718,7 @@ A Realm-wide `GET /api/v1/ownerships` (all Ownerships of all PropertyReferences)
 
 # 26. Ownership
 
-## 26.1 Contract (VC-2-03)
+## 26.1 Contract (VC-2-03, implemented: migrations 0018, 0019)
 
 - **Domain owner:** Ownership. **Authorization:** as §19.1; every Ownership belongs to the caller's Realm, and so do its PropertyReference and owner Party (composite foreign keys). Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
 - **An Ownership is a period** (data-model §12, §78): `validFrom` and an optional `validUntil`, both **inclusive** business dates (`YYYY-MM-DD`); the next period starts the day after. `share`, `ownerPartyId`, `propertyReferenceId` and `validFrom` never change.

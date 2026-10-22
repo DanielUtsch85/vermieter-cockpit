@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   AccessError,
+  ConcurrentUpdateError,
   ExternalReferenceInUseError,
   ExternalReferenceNotFoundError,
   MreTenantNotFoundError,
@@ -110,6 +111,7 @@ describe('POST /api/v1/parties/{id}/external-references', () => {
     [new PartyInactiveError(PARTY), 409, 'CONFLICT', { reason: 'PARTY_INACTIVE', partyId: PARTY }],
     [new AccessError('FORBIDDEN', 'x'), 403, 'FORBIDDEN', undefined],
     [new MreUnavailableError('x'), 503, 'EXTERNAL_SYSTEM_ERROR', undefined],
+    [new ConcurrentUpdateError('x'), 503, 'CONCURRENT_UPDATE', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
     const base = await start({ createExternalReference: async () => Promise.reject(error) });
     const res = await call(base, 'POST', `/parties/${PARTY}/external-references`, body);

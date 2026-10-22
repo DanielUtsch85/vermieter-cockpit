@@ -77,7 +77,7 @@ export class PostgresPartyExternalReferenceRepository implements PartyExternalRe
         });
         return { kind: 'CREATED', reference: toReference(inserted) };
       }
-      throw new Error(`external reference ${key.externalId}: claimed and ended concurrently ${CLAIM_ATTEMPTS} times`);
+      return { kind: 'CONTENDED' };
     });
   }
 

@@ -88,6 +88,27 @@ export interface PartyExternalReferenceTable {
   version: Generated<number>;
 }
 
+export interface OwnershipTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  property_reference_id: string;
+  owner_party_id: string;
+  share_numerator: number;
+  share_denominator: number;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char` (the pg driver would make them local Dates). */
+  valid_from: string;
+  valid_until: string | null;
+  status: string;
+  voided_at: Date | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface IdempotencyKeyTable {
   mre_realm_id: string;
   scope: string;
@@ -209,6 +230,7 @@ export interface Database {
   idempotency_key: IdempotencyKeyTable;
   party: PartyTable;
   party_external_reference: PartyExternalReferenceTable;
+  ownership: OwnershipTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;

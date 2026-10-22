@@ -69,6 +69,8 @@ export function planEnd(current: PartyExternalReference, at: Date): EndPlan {
 export type ClaimOutcome =
   | { readonly kind: 'CREATED'; readonly reference: PartyExternalReference }
   | { readonly kind: 'NOT_FOUND' }
+  /** Every attempt lost to a claim that was ended again before it could be read: nothing written, retry (→ 503). */
+  | { readonly kind: 'CONTENDED' }
   | Exclude<ClaimPlan, { kind: 'CLAIM' }>;
 
 /** Before MRE is asked: the plan, or `NOT_FOUND` for an unknown or foreign Party. */
