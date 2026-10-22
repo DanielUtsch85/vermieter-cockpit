@@ -219,7 +219,7 @@ Represent a monetary amount together with currency.
 
 Represent rates such as:
 
-- Ownership Share
+- Ownership Share — **no longer**: since P2-D3 an Ownership share is an exact fraction (§12.2), not a Percentage
 - loan interest
 - depreciation rate
 - scenario growth
@@ -596,18 +596,21 @@ Represent legal ownership of the real-world Property identified in DE through a 
 - `id`
 - `propertyReferenceId`
 - `ownerPartyId`
-- `share`
-- `validFrom`
-- `status`
+- `share`: an exact fraction `n/d` (`1 ≤ n ≤ d ≤ 10000`), stored reduced (phase-2-plan P2-D3), not a `Percentage`
+- `validFrom`: inclusive business date
+- `status`: `VALID` | `VOID` (a recording error; counts nowhere, kept for audit; P2-D4)
 
 ---
 
 ## 12.3 Optional Fields
 
-- `validUntil`
-- `acquisitionId`
-- `sourceReferences`
+- `validUntil`: inclusive business date; only ever set or moved earlier (close), never extended
+- `acquisitionId`: set when an Acquisition is confirmed (VC-2-07), never by the client
+- `sourceReferences`: free-text evidence such as the Grundbuch entry (up to 10); documents come later
 - `notes`
+- `voidedAt`, `voidReason`: set exactly when `status = VOID`
+
+"Ownership type" (domain-model §9) and `sourceDocumentId` are not part of Phase 2 (P2-D4).
 
 ---
 
@@ -615,9 +618,9 @@ Represent legal ownership of the real-world Property identified in DE through a 
 
 For a fully modeled Property and a given date:
 
-- active Ownership Shares should sum to 100%
-- a Party must not have overlapping duplicate Ownership records for the same Property
-- historical records must not be overwritten when ownership changes
+- `VALID` Ownership shares sum to **at most 1** on every day (database-enforced); exactly 1 is `COMPLETE`, below is `INCOMPLETE`, none is `NONE` (derived, never stored; P2-D4)
+- a Party must not have overlapping `VALID` Ownership records for the same Property
+- historical records must not be overwritten when ownership changes: a close only sets or shortens `validUntil`; a recording error is voided, not edited
 
 ---
 
@@ -3226,19 +3229,19 @@ Financial fact and tax interpretation remain separate.
 Ownership 1
 Owner A
 Property X
-50%
+1/2
 2026-08-01 → 2035-03-31
 
 Ownership 2
 Owner B
 Property X
-50%
+1/2
 2026-08-01 → 2035-03-31
 
 Ownership 3
 Owner A
 Property X
-100%
+1/1
 2035-04-01 → open
 ```
 
