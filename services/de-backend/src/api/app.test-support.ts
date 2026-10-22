@@ -6,6 +6,11 @@ const unused = () => Promise.reject(new Error('not used in this test'));
 export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'> = {
   linkPropertyReference: unused,
   refreshPropertyReference: unused,
+  createParty: unused,
+  getParty: unused,
+  listParties: unused,
+  amendParty: unused,
+  deactivateParty: unused,
   createFinancialAccount: unused,
   closeFinancialAccount: unused,
   createManualTransaction: unused,

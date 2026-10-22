@@ -53,6 +53,26 @@ export interface FinancialAccountTable {
   version: Generated<number>;
 }
 
+export interface PartyTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  party_type: string;
+  display_name: string;
+  first_name: string | null;
+  last_name: string | null;
+  legal_name: string | null;
+  registration_number: string | null;
+  email: string | null;
+  phone: string | null;
+  status: string;
+  deactivated_at: Date | null;
+  deactivation_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface IdempotencyKeyTable {
   mre_realm_id: string;
   scope: string;
@@ -172,6 +192,7 @@ export interface Database {
   audit_record: AuditRecordTable;
   financial_account: FinancialAccountTable;
   idempotency_key: IdempotencyKeyTable;
+  party: PartyTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;

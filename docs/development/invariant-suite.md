@@ -115,6 +115,16 @@ Specified in API §35.6 and data-model §17.8.
 | A re-import of a corrected original's row stays a duplicate | ACC "corrects a confirmed import …" |
 | Must change something; closed account of the original; idempotency | CC "NO_CHANGE only when …"; CR "a correction must change something …", "the original’s closed account …", "Idempotency-Key …" |
 
+## 8. Party (VC-2-01, api-design §19.1)
+
+| Invariant | Tests |
+|---|---|
+| Type-specific fields only on their type, in the API and the schema | PR "the schema refuses fields of the other type …"; API "400 for … fields of the other type"; Party "fields of the other type are not allowed" |
+| `INACTIVE` exactly with `deactivatedAt` and its reason; deactivation once, a repeat keeps the first reason | PR "deactivate: once, with its reason …", "the schema refuses … inconsistent deactivation" |
+| Realm isolation | PR "creates an ACTIVE Party in the Realm …"; ACC (Realm B gets `404` on read, amend and deactivate, and an empty list) |
+| No automatic deduplication | PR "two Parties with one name are allowed" |
+| Literal name filter (`%`, `_`, `\` match themselves) | PR "list: … a literal name substring" |
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

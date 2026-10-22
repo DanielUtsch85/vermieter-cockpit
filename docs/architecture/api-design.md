@@ -402,7 +402,7 @@ Conflict should return `VERSION_CONFLICT`: `412 Precondition Failed` when the ve
   - A command that would change nothing is answered as before, whatever the version: an amend with the current values, the same split set, a repeated `confirm` or `ignore`. This is the 2xx exception of RFC 9110 §13.2.2 (the desired state is already there). It cannot lose an update, and a retry after a lost answer stays a retry.
   - An idempotent replay of `correct` (§15) answers before the lock.
 - **`ETag`:**
-  - The responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`; so do every single-Party response (create, read, `amend`, `deactivate`; §19.1).
+  - The responses of create, `amend`, `PUT …/splits`, `confirm`, `ignore` and `restore` carry `ETag: "<version>"`, the value for the next `If-Match`; so does every single-Party response (create, read, `amend`, `deactivate`; §19.1).
   - `correct` returns three Transactions, each with its `version` in the body.
   - A **replayed** create (`Idempotency-Key`, §15) answers with the snapshot recorded then, its `ETag` included. That version is stale if the Transaction changed since; it is the original answer, not the current state.
 - **In the database (VC-X-22, migration 0013):** on a confirmed Transaction (`CONFIRMED`, `RECONCILED`, `CORRECTED`), `version` and `updated_at` change only with a status step, and the step raises `version` by exactly one. A direct SQL write therefore can neither fake a conflict (a raised `version` without a change) nor hide one (a status step without a new `version`). A no-op write passes.
@@ -466,7 +466,7 @@ POST /api/v1/parties/{partyId}/external-references        (VC-2-02, §20)
 
 Avoid generic deletion where historical relationships exist.
 
-## 19.1 Contract (VC-2-01)
+## 19.1 Contract (VC-2-01, implemented: migration 0016)
 
 - **Domain owner:** Shared Identity. **Authorization:** authenticated MRE identity; every Party belongs to the caller's Realm (`mreRealmId`); another Realm's Party is `404`, never visible.
 - **Minimal identity (P2-D1):** DE stores what the user enters. Nothing is synchronised from MRE, and DE never merges or deduplicates Parties automatically: two Parties with the same name are allowed (avoiding duplicates is a review task, data-model §7.7).

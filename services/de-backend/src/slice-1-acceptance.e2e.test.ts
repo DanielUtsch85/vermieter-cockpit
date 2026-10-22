@@ -14,7 +14,12 @@ import {
   amendTransaction,
   ignoreTransaction,
   restoreTransaction,
+  amendParty,
   createFinancialAccount,
+  createParty,
+  deactivateParty,
+  getParty,
+  listParties,
   createManualTransaction,
   getFinancialCategory,
   getImportBatch,
@@ -28,6 +33,7 @@ import {
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
+  PostgresPartyRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
@@ -89,6 +95,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     const db = createDatabase(pool);
     const propertyReferences = { repository: new PostgresPropertyReferenceRepository(db), lookupMreProperty: mrePropertyLookup(client) };
     const accounts = new PostgresFinancialAccountRepository(db);
+    const parties = new PostgresPartyRepository(db);
     const transactions = new PostgresTransactionRepository(db);
     const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
     const imports = new PostgresImportRepository(db);
@@ -98,6 +105,11 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       verifyPrincipal: mrePrincipalVerifier(client),
       linkPropertyReference: linkPropertyReference(propertyReferences),
       refreshPropertyReference: refreshPropertyReference(propertyReferences),
+      createParty: createParty({ repository: parties }),
+      getParty: getParty({ repository: parties }),
+      listParties: listParties({ repository: parties }),
+      amendParty: amendParty({ repository: parties }),
+      deactivateParty: deactivateParty({ repository: parties }),
       createFinancialAccount: createFinancialAccount({ repository: accounts }),
       closeFinancialAccount: closeFinancialAccount({ repository: accounts }),
       createManualTransaction: createManualTransaction({ repository: transactions }),
@@ -262,8 +274,16 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       200,
     );
     const itemId = items.items[0]?.reviewItemId ?? '';
+    // A Party of Realm A (VC-2-01), for the isolation checks below.
+    const owner = await json<{ partyId: string }>(
+      await call(REALM_A, 'POST', '/parties', { partyType: 'PERSON', displayName: 'Anna Schmidt', firstName: 'Anna', lastName: 'Schmidt' }),
+      201,
+    );
     const before = await pool.query(`SELECT count(*) FROM audit_record`);
     const fromB: [string, string, unknown?][] = [
+      ['GET', `/parties/${owner.partyId}`],
+      ['POST', `/parties/${owner.partyId}/amend`, { phone: '0171' }],
+      ['POST', `/parties/${owner.partyId}/deactivate`, { reason: 'x' }],
       ['POST', `/property-references/${property.propertyReferenceId}/refresh`],
       ['POST', `/financial-accounts/${account.financialAccountId}/close`],
       [
@@ -292,6 +312,8 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       items: [],
       total: 0,
     });
+    expect(await json(await call(REALM_B, 'GET', '/parties'), 200)).toMatchObject({ items: [], total: 0 });
+    expect(await json(await call(REALM_A, 'GET', '/parties?name=schmidt'), 200)).toMatchObject({ items: [{ partyId: owner.partyId }], total: 1 });
     // Realm A reads its confirmed rent with the current version as ETag (VC-X-21).
     const read = await call(REALM_A, 'GET', `/transactions/${rentId}`);
     expect(read.status).toBe(200);
