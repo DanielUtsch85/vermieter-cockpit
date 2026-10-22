@@ -6,10 +6,11 @@ import {
   type TransactionStatus,
 } from '../domains/ledger/index.js';
 import type { RealmPrincipal } from './access.js';
-import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
+import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { FinancialCategoryNotFoundError, SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
-import { CurrencyMismatchError, FinancialAccountClosedError, InactiveCategoryError, VersionConflictError } from './transactions.js';
+import { CurrencyMismatchError, FinancialAccountClosedError, InactiveCategoryError } from './transactions.js';
 
 /**
  * Correct Transaction (api-design.md §35, backlog VC-1-11): a confirmed

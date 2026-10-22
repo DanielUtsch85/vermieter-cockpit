@@ -11,8 +11,7 @@ import {
   type TypeSpecificField,
 } from '../domains/party/index.js';
 import type { RealmPrincipal } from './access.js';
-import { IdempotencyKeyConflictError } from './financial-accounts.js';
-import { VersionConflictError } from './transactions.js';
+import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 
 /**
  * Party commands and reads (api-design.md §19.1, backlog VC-2-01), in the caller's verified Realm. Input arrives

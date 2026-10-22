@@ -102,6 +102,22 @@ export class PostgresPartyRepository implements PartyRepository {
           ),
         );
       }
+      const reference = filter.externalReference;
+      if (reference !== undefined) {
+        // Active references only (§20.1); entityType tenant is implied in Phase 2.
+        query = query.where(({ exists, selectFrom }) =>
+          exists(
+            selectFrom('party_external_reference as r')
+              .select('r.id')
+              .whereRef('r.party_id', '=', 'party.id')
+              .where('r.mre_realm_id', '=', mreRealmId)
+              .where('r.system', '=', reference.system)
+              .where('r.entity_type', '=', 'tenant')
+              .where('r.external_id', '=', reference.externalId)
+              .where('r.status', '=', 'ACTIVE'),
+          ),
+        );
+      }
       return query;
     };
     // Count and page in one snapshot, so `total` and `items` agree.

@@ -10,7 +10,8 @@ import type {
 } from '../domains/ledger/index.js';
 import { Money, type AuditActor } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
-import { FinancialAccountNotFoundError, IdempotencyKeyConflictError } from './financial-accounts.js';
+import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
 import {
@@ -19,7 +20,6 @@ import {
   InactiveCategoryError,
   SplitsMissingError,
   TransactionNotConfirmableError,
-  VersionConflictError,
   confirmTransaction,
   createManualTransaction,
 } from './transactions.js';

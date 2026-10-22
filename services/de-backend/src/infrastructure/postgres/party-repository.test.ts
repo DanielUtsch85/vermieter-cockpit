@@ -12,6 +12,14 @@ import { testSchemaName } from './test-schema.test-support.js';
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
+async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error('condition not reached');
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 const REALM = '64b0c0ffee0000000000000a';
 const OTHER_REALM = '64b0c0ffee0000000000000b';
 const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
@@ -120,6 +128,36 @@ describe.skipIf(databaseUrl === undefined)('PostgresPartyRepository', () => {
       fields: ['legalName'],
     });
     expect(await repository.amend(party.id, OTHER_REALM, { phone: '0171' }, actor)).toEqual({ kind: 'NOT_FOUND' });
+  });
+
+  it('two people amend the same version at once: one wins, the other gets VERSION_CONFLICT (lost update prevented)', async () => {
+    const party = await created(person({ displayName: 'Lost Update' }));
+    const holder = await pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(`SELECT 1 FROM party WHERE id = $1 FOR UPDATE`, [party.id]);
+      const both = Promise.all([
+        repository.amend(party.id, REALM, { phone: '0171' }, actor, [1]),
+        repository.amend(party.id, REALM, { phone: '0172' }, actor, [1]),
+      ]);
+      await waitUntil(async () =>
+        Number(
+          (
+            await pool.query(
+              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+               AND query LIKE '%from "party"%for update%'`,
+            )
+          ).rows[0].count,
+        ) === 2,
+      );
+      await holder.query('COMMIT');
+      const outcomes = await both;
+      expect(outcomes.map((o) => o.kind).sort()).toEqual(['AMENDED', 'VERSION_CONFLICT']);
+      expect(outcomes.find((o) => o.kind === 'VERSION_CONFLICT')).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 });
+    } finally {
+      holder.release();
+    }
+    expect(await repository.findById(party.id, REALM)).toMatchObject({ version: 2 });
   });
 
   it('deactivate: once, with its reason; a repeat is a no-op keeping the first reason, whatever If-Match says; amend still works', async () => {

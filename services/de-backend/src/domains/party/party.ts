@@ -120,6 +120,8 @@ export interface PartyFilter {
   readonly status?: PartyStatus;
   /** Substring of displayName, legalName, firstName or lastName, matched literally and case-insensitively. */
   readonly name?: string;
+  /** The Party holding this MRE Tenant `_id` in an active reference (api-design.md §20.1). */
+  readonly externalReference?: { readonly system: 'MRE'; readonly externalId: string };
 }
 
 export interface PartyPage {

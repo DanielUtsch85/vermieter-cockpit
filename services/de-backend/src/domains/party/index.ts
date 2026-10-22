@@ -32,3 +32,26 @@ export type {
   PartyType,
   TypeSpecificField,
 } from './party.js';
+export {
+  EXTERNAL_ENTITY_TYPES,
+  EXTERNAL_REFERENCE_STATUSES,
+  EXTERNAL_SYSTEMS,
+  MRE_EXTERNAL_ID,
+  planClaim,
+  planEnd,
+} from './external-reference.js';
+export type {
+  ClaimCheck,
+  ClaimOutcome,
+  ClaimPlan,
+  EndOutcome,
+  EndPlan,
+  ExternalEntityType,
+  ExternalReferenceId,
+  ExternalReferenceKey,
+  ExternalReferencePage,
+  ExternalReferenceStatus,
+  ExternalSystem,
+  PartyExternalReference,
+  PartyExternalReferenceRepository,
+} from './external-reference.js';

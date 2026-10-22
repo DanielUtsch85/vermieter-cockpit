@@ -2,6 +2,7 @@ import {
   AccessError,
   MreUnavailableError,
   type MrePropertyLookup,
+  type MreTenantLookup,
   type PrincipalVerifier,
 } from './application/index.js';
 import { MreAuthError, MreClientError, bearerToken, verifyMrePrincipal, type MreClient } from './integrations/mre/index.js';
@@ -41,16 +42,36 @@ export function mrePropertyLookup(client: MreClient): MrePropertyLookup {
     try {
       properties = await client.listProperties(token, mreRealmId);
     } catch (error) {
-      if (error instanceof MreClientError) {
-        if (error.code === 'UNAUTHENTICATED') throw new AccessError('UNAUTHENTICATED', error.message);
-        if (error.code === 'FORBIDDEN') throw new AccessError('FORBIDDEN', error.message);
-        throw new MreUnavailableError(error.message);
-      }
-      throw error;
+      throw mreError(error);
     }
     const property = properties.find((p) => p.mrePropertyId === mrePropertyId);
     return property === undefined
       ? undefined
       : { mrePropertyId: property.mrePropertyId, name: property.name, address: property.address, surface: property.surface };
   };
+}
+
+/**
+ * Existence is decided client-side from `GET /tenants` (the Realm's full list: MRE has no filter), never from
+ * `GET /tenants/:id`, which answers 500 for unknown ids (mre-integration.md §20.1).
+ */
+export function mreTenantLookup(client: MreClient): MreTenantLookup {
+  return async (authorizationHeader, mreRealmId, mreTenantId) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
+    try {
+      return (await client.listTenantIds(token, mreRealmId)).includes(mreTenantId);
+    } catch (error) {
+      throw mreError(error);
+    }
+  };
+}
+
+function mreError(error: unknown): unknown {
+  if (error instanceof MreClientError) {
+    if (error.code === 'UNAUTHENTICATED') return new AccessError('UNAUTHENTICATED', error.message);
+    if (error.code === 'FORBIDDEN') return new AccessError('FORBIDDEN', error.message);
+    return new MreUnavailableError(error.message);
+  }
+  return error;
 }

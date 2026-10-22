@@ -2,6 +2,7 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   IdempotencyKeyConflictError,
+  MRE_EXTERNAL_ID,
   PARTY_STATUSES,
   PARTY_TYPES,
   PartyFieldNotAllowedError,
@@ -68,10 +69,17 @@ const listQuery = z
     partyType: z.enum(PARTY_TYPES).optional(),
     status: z.enum(PARTY_STATUSES).optional(),
     name: z.string().min(1).max(100).optional(),
+    externalSystem: z.literal('MRE').optional(),
+    externalId: z.string().regex(MRE_EXTERNAL_ID).optional(),
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(50),
   })
-  .strict();
+  .strict()
+  // The two come together (api-design.md §20.1): one alone would silently match nothing or everything.
+  .refine((query) => (query.externalSystem === undefined) === (query.externalId === undefined), {
+    path: ['externalId'],
+    params: { code: 'REQUIRED' },
+  });
 
 export interface PartyCommands {
   readonly create: CreateParty;
@@ -131,6 +139,9 @@ export function partyRoutes(commands: PartyCommands): Router {
           ...(filter.partyType === undefined ? {} : { partyType: filter.partyType }),
           ...(filter.status === undefined ? {} : { status: filter.status }),
           ...(filter.name === undefined ? {} : { name: filter.name }),
+          ...(filter.externalSystem === undefined || filter.externalId === undefined
+            ? {}
+            : { externalReference: { system: filter.externalSystem, externalId: filter.externalId } }),
         },
         page: { page, pageSize },
       })

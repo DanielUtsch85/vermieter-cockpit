@@ -7,6 +7,7 @@ import {
 } from '../domains/ledger/index.js';
 import type { CurrencyCode } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
+import { IdempotencyKeyConflictError } from './errors.js';
 
 /**
  * FinancialAccount commands (api-design.md §29, backlog VC-1-03). The account
@@ -20,11 +21,6 @@ export class FinancialAccountNotFoundError extends Error {
   constructor(readonly financialAccountId: string) {
     super(`FinancialAccount ${financialAccountId} not found`);
   }
-}
-
-/** An `Idempotency-Key` reused with a different payload (api-design.md §29.1 → 409). */
-export class IdempotencyKeyConflictError extends Error {
-  override readonly name = 'IdempotencyKeyConflictError';
 }
 
 export interface CreateFinancialAccountInput {

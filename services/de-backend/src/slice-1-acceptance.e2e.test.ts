@@ -18,6 +18,9 @@ import {
   createFinancialAccount,
   createParty,
   deactivateParty,
+  createExternalReference,
+  endExternalReference,
+  listExternalReferences,
   getParty,
   listParties,
   createManualTransaction,
@@ -34,6 +37,7 @@ import {
 import {
   PostgresFinancialAccountRepository,
   PostgresPartyRepository,
+  PostgresPartyExternalReferenceRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
@@ -49,7 +53,7 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
-import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup, mreTenantLookup } from './wiring.js';
 
 /**
  * VC-1-09: the Slice-1 definition of done (project-brief.md §7) as one
@@ -63,6 +67,7 @@ const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 const REALM_A = '64b0c0ffee0000000000000a';
 const REALM_B = '64b0c0ffee0000000000000b';
 const PROPERTY = '6512f0c2a1b2c3d4e5f60901';
+const TENANT = '6512f0c2a1b2c3d4e5f60a01';
 
 const september = ['Buchungstag;Betrag;Verwendungszweck', '01.09.2026;1.250,00;Miete September', '02.09.2026;-310,40;Hausgeld'].join(
   '\r\n',
@@ -88,7 +93,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
 
     const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
     mre = await startFakeMre([
-      { _id: REALM_A, name: 'A', members: member, applications: [], properties: [{ _id: PROPERTY, name: 'Wohnung 1', surface: 64.5 }] },
+      { _id: REALM_A, name: 'A', members: member, applications: [], properties: [{ _id: PROPERTY, name: 'Wohnung 1', surface: 64.5 }], tenants: [{ _id: TENANT, name: 'Anna Schmidt' }] },
       { _id: REALM_B, name: 'B', members: member, applications: [], properties: [] },
     ]);
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
@@ -96,6 +101,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     const propertyReferences = { repository: new PostgresPropertyReferenceRepository(db), lookupMreProperty: mrePropertyLookup(client) };
     const accounts = new PostgresFinancialAccountRepository(db);
     const parties = new PostgresPartyRepository(db);
+    const externalReferences = new PostgresPartyExternalReferenceRepository(db);
     const transactions = new PostgresTransactionRepository(db);
     const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
     const imports = new PostgresImportRepository(db);
@@ -110,6 +116,9 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       listParties: listParties({ repository: parties }),
       amendParty: amendParty({ repository: parties }),
       deactivateParty: deactivateParty({ repository: parties }),
+      createExternalReference: createExternalReference({ repository: externalReferences, lookupMreTenant: mreTenantLookup(client) }),
+      endExternalReference: endExternalReference({ repository: externalReferences }),
+      listExternalReferences: listExternalReferences({ repository: externalReferences }),
       createFinancialAccount: createFinancialAccount({ repository: accounts }),
       closeFinancialAccount: closeFinancialAccount({ repository: accounts }),
       createManualTransaction: createManualTransaction({ repository: transactions }),
@@ -279,11 +288,28 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       await call(REALM_A, 'POST', '/parties', { partyType: 'PERSON', displayName: 'Anna Schmidt', firstName: 'Anna', lastName: 'Schmidt' }),
       201,
     );
+    // Linked to Realm A's MRE Tenant (VC-2-02): created once, a repeat is the same reference.
+    const tenantRef = { system: 'MRE', entityType: 'tenant', mreRealmId: REALM_A, externalId: TENANT };
+    const reference = await json<{ externalReferenceId: string; status: string }>(
+      await call(REALM_A, 'POST', `/parties/${owner.partyId}/external-references`, tenantRef),
+      201,
+    );
+    expect(reference.status).toBe('ACTIVE');
+    // A valid id MRE does not list in the Realm (which has Tenants) is 404, and nothing is written (§20.1).
+    const unknownTenant = await call(REALM_A, 'POST', `/parties/${owner.partyId}/external-references`, { ...tenantRef, externalId: '6512f0c2a1b2c3d4e5f60aff' });
+    expect(unknownTenant.status).toBe(404);
+    expect(await unknownTenant.json()).toMatchObject({ error: { code: 'NOT_FOUND', details: { externalId: '6512f0c2a1b2c3d4e5f60aff' } } });
+    expect(await json(await call(REALM_A, 'POST', `/parties/${owner.partyId}/external-references`, tenantRef), 200)).toMatchObject({
+      externalReferenceId: reference.externalReferenceId,
+    });
     const before = await pool.query(`SELECT count(*) FROM audit_record`);
     const fromB: [string, string, unknown?][] = [
       ['GET', `/parties/${owner.partyId}`],
       ['POST', `/parties/${owner.partyId}/amend`, { phone: '0171' }],
       ['POST', `/parties/${owner.partyId}/deactivate`, { reason: 'x' }],
+      ['POST', `/parties/${owner.partyId}/external-references`, { ...tenantRef, mreRealmId: REALM_B }],
+      ['POST', `/parties/${owner.partyId}/external-references/${reference.externalReferenceId}/end`],
+      ['GET', `/parties/${owner.partyId}/external-references`],
       ['POST', `/property-references/${property.propertyReferenceId}/refresh`],
       ['POST', `/financial-accounts/${account.financialAccountId}/close`],
       [
@@ -314,6 +340,10 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     });
     expect(await json(await call(REALM_B, 'GET', '/parties'), 200)).toMatchObject({ items: [], total: 0 });
     expect(await json(await call(REALM_A, 'GET', '/parties?name=schmidt'), 200)).toMatchObject({ items: [{ partyId: owner.partyId }], total: 1 });
+    // The MRE Tenant resolves to Realm A's Party there, and to nothing in Realm B.
+    const byTenant = `/parties?externalSystem=MRE&externalId=${TENANT}`;
+    expect(await json(await call(REALM_A, 'GET', byTenant), 200)).toMatchObject({ items: [{ partyId: owner.partyId }], total: 1 });
+    expect(await json(await call(REALM_B, 'GET', byTenant), 200)).toMatchObject({ items: [], total: 0 });
     // Realm A reads its confirmed rent with the current version as ETag (VC-X-21).
     const read = await call(REALM_A, 'GET', `/transactions/${rentId}`);
     expect(read.status).toBe(200);

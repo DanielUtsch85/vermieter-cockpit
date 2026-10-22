@@ -6,10 +6,11 @@ import type {
   UnconfirmedTransactionRepository,
 } from '../domains/ledger/index.js';
 import type { RealmPrincipal } from './access.js';
+import { VersionConflictError } from './errors.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { TransactionNotFoundError } from './transaction-splits.js';
-import { CurrencyMismatchError, FinancialAccountClosedError, VersionConflictError } from './transactions.js';
+import { CurrencyMismatchError, FinancialAccountClosedError } from './transactions.js';
 
 /**
  * Amend, ignore and restore an unconfirmed Transaction (api-design.md §31.3–31.4, backlog VC-X-16). A confirmed

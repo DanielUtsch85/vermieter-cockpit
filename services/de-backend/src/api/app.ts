@@ -24,6 +24,9 @@ import type {
   ResolveReviewItem,
   SetTransactionSplits,
   AmendParty,
+  CreateExternalReference,
+  EndExternalReference,
+  ListExternalReferences,
   CreateParty,
   DeactivateParty,
   GetParty,
@@ -35,6 +38,7 @@ import { financialAccountRoutes } from './financial-accounts.js';
 import { financialCategoryRoutes } from './financial-categories.js';
 import { importRoutes } from './imports.js';
 import { partyRoutes } from './parties.js';
+import { externalReferenceRoutes } from './party-external-references.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
 
@@ -57,6 +61,10 @@ export interface AppDependencies {
   readonly listParties: ListParties;
   readonly amendParty: AmendParty;
   readonly deactivateParty: DeactivateParty;
+  /** Party external references (VC-2-02). */
+  readonly createExternalReference: CreateExternalReference;
+  readonly endExternalReference: EndExternalReference;
+  readonly listExternalReferences: ListExternalReferences;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -122,6 +130,13 @@ export function createApp(deps: AppDependencies): Express {
       list: deps.listParties,
       amend: deps.amendParty,
       deactivate: deps.deactivateParty,
+    }),
+  );
+  api.use(
+    externalReferenceRoutes({
+      create: deps.createExternalReference,
+      end: deps.endExternalReference,
+      list: deps.listExternalReferences,
     }),
   );
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));

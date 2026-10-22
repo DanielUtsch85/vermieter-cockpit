@@ -21,6 +21,9 @@ import {
  *   properties (mre-integration.md §21.1); 404 when the Realm is not the
  *   caller's. `GET /properties/:id` is not used:
  *   it answers 500 instead of 404 for an unknown or foreign id.
+ * - `GET /tenants` with `organizationid` returns every Tenant of that Realm; it
+ *   has no filter (mre-integration.md §20.1). `GET /tenants/:id` is not used
+ *   either: it also answers 500 for an unknown id.
  *
  * Only the fields DE needs are read; the MRE DTO never leaves this file.
  */
@@ -48,6 +51,11 @@ const realmsDto = z.array(realmDto);
  * Display fields are optional cache values; a malformed one is left out.
  */
 const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough());
+/**
+ * Only the `_id` of a Tenant is read; the rest (personal data) is dropped here and never logged
+ * (mre-integration.md §20.1). A Tenant without `_id` rejects the whole response, as for properties.
+ */
+const tenantsDto = z.array(z.object({ _id: z.string().min(1) }));
 const addressPart = z.string().optional().catch(undefined);
 const addressDto = z.object({
   street1: addressPart,
@@ -105,6 +113,16 @@ export class HttpMreClient implements MreClient {
       address: toAddress(property['address']),
       surface: toSurface(property['surface']),
     }));
+  }
+
+  async listTenantIds(accessToken: string, mreRealmId: string): Promise<readonly string[]> {
+    const body = await this.get('/tenants', accessToken, mreRealmId, 'FORBIDDEN');
+    const parsed = tenantsDto.safeParse(body);
+    if (!parsed.success) {
+      // The issue paths only, never the values: the body holds personal data.
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE tenants shape at ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
+    }
+    return parsed.data.map((tenant) => tenant._id);
   }
 
   private async get(
