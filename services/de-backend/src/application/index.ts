@@ -3,7 +3,7 @@
  */
 export { AccessError, DE_ACCESS_ROLES, assertDeAccess } from './access.js';
 export type { AccessErrorCode, PrincipalVerifier, RealmPrincipal } from './access.js';
-export { MrePropertyNotFoundError, MreUnavailableError, linkPropertyReference } from './link-property-reference.js';
+export { MrePropertyNotFoundError, linkPropertyReference } from './link-property-reference.js';
 export type {
   LinkPropertyReference,
   LinkPropertyReferenceDeps,
@@ -19,7 +19,7 @@ export type {
   RefreshPropertyReferenceDeps,
   RefreshPropertyReferenceInput,
 } from './refresh-property-reference.js';
-export { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+export { ConcurrentUpdateError, IdempotencyKeyConflictError, MreUnavailableError, VersionConflictError } from './errors.js';
 export {
   FinancialAccountNotFoundError,
   closeFinancialAccount,
@@ -142,3 +142,18 @@ export type {
 } from './party-external-references.js';
 export { EXTERNAL_REFERENCE_STATUSES, MRE_EXTERNAL_ID } from '../domains/party/index.js';
 export type { ExternalReferencePage, ExternalReferenceStatus, PartyExternalReference } from '../domains/party/index.js';
+export {
+  InvalidOwnershipError,
+  OverlappingOwnershipError,
+  OwnerInactiveError,
+  OwnershipNotFoundError,
+  OwnershipTotalExceedsOneError,
+  closeOwnership,
+  createOwnership,
+  getOwnership,
+  readPropertyOwnerships,
+  voidOwnership,
+} from './ownerships.js';
+export type { CloseOwnership, CreateOwnership, CreateOwnershipInput, GetOwnership, ReadPropertyOwnerships, VoidOwnership } from './ownerships.js';
+export { formatShare, parseShare } from '../domains/ownership/index.js';
+export type { Fraction, Ownership, OwnershipDay, OwnershipPage, Share } from '../domains/ownership/index.js';

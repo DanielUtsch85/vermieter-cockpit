@@ -18,6 +18,11 @@ import {
   createExternalReference,
   endExternalReference,
   listExternalReferences,
+  closeOwnership,
+  createOwnership,
+  getOwnership,
+  readPropertyOwnerships,
+  voidOwnership,
   getParty,
   listParties,
   createManualTransaction,
@@ -35,6 +40,7 @@ import {
   PostgresFinancialAccountRepository,
   PostgresPartyRepository,
   PostgresPartyExternalReferenceRepository,
+  PostgresOwnershipRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
@@ -64,6 +70,7 @@ const propertyReferences = {
 const financialAccounts = new PostgresFinancialAccountRepository(db);
 const parties = new PostgresPartyRepository(db);
 const externalReferences = new PostgresPartyExternalReferenceRepository(db);
+const ownerships = new PostgresOwnershipRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -81,6 +88,11 @@ const app = createApp({
   createExternalReference: createExternalReference({ repository: externalReferences, lookupMreTenant: mreTenantLookup(mreClient) }),
   endExternalReference: endExternalReference({ repository: externalReferences }),
   listExternalReferences: listExternalReferences({ repository: externalReferences }),
+  createOwnership: createOwnership({ repository: ownerships }),
+  getOwnership: getOwnership({ repository: ownerships }),
+  closeOwnership: closeOwnership({ repository: ownerships }),
+  voidOwnership: voidOwnership({ repository: ownerships }),
+  readPropertyOwnerships: readPropertyOwnerships({ repository: ownerships }),
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: transactions }),

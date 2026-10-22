@@ -21,6 +21,11 @@ import {
   createExternalReference,
   endExternalReference,
   listExternalReferences,
+  closeOwnership,
+  createOwnership,
+  getOwnership,
+  readPropertyOwnerships,
+  voidOwnership,
   getParty,
   listParties,
   createManualTransaction,
@@ -38,6 +43,7 @@ import {
   PostgresFinancialAccountRepository,
   PostgresPartyRepository,
   PostgresPartyExternalReferenceRepository,
+  PostgresOwnershipRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
@@ -102,6 +108,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     const accounts = new PostgresFinancialAccountRepository(db);
     const parties = new PostgresPartyRepository(db);
     const externalReferences = new PostgresPartyExternalReferenceRepository(db);
+    const ownerships = new PostgresOwnershipRepository(db);
     const transactions = new PostgresTransactionRepository(db);
     const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
     const imports = new PostgresImportRepository(db);
@@ -119,6 +126,11 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       createExternalReference: createExternalReference({ repository: externalReferences, lookupMreTenant: mreTenantLookup(client) }),
       endExternalReference: endExternalReference({ repository: externalReferences }),
       listExternalReferences: listExternalReferences({ repository: externalReferences }),
+      createOwnership: createOwnership({ repository: ownerships }),
+      getOwnership: getOwnership({ repository: ownerships }),
+      closeOwnership: closeOwnership({ repository: ownerships }),
+      voidOwnership: voidOwnership({ repository: ownerships }),
+      readPropertyOwnerships: readPropertyOwnerships({ repository: ownerships }),
       createFinancialAccount: createFinancialAccount({ repository: accounts }),
       closeFinancialAccount: closeFinancialAccount({ repository: accounts }),
       createManualTransaction: createManualTransaction({ repository: transactions }),
@@ -156,10 +168,10 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     authorization: `Bearer ${signJwt({ account: { email: 'anna@example.com' } })}`,
     organizationid: realm,
   });
-  const call = (realm: string, method: string, path: string, body?: unknown) =>
+  const call = (realm: string, method: string, path: string, body?: unknown, extra: Record<string, string> = {}) =>
     fetch(`${base}/api/v1${path}`, {
       method,
-      headers: { ...headers(realm), 'content-type': 'application/json' },
+      headers: { ...headers(realm), 'content-type': 'application/json', ...extra },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   const upload = (realm: string, financialAccountId: string, file: string) => {
@@ -302,6 +314,25 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     expect(await json(await call(REALM_A, 'POST', `/parties/${owner.partyId}/external-references`, tenantRef), 200)).toMatchObject({
       externalReferenceId: reference.externalReferenceId,
     });
+    // Ownership of the linked property (VC-2-03): Anna and Ben hold 1/2 each, exactly complete; a third share is refused.
+    const ben = await json<{ partyId: string }>(await call(REALM_A, 'POST', '/parties', { partyType: 'PERSON', displayName: 'Ben Keller' }), 201);
+    const half = (partyId: string) => ({ propertyReferenceId: property.propertyReferenceId, ownerPartyId: partyId, share: '2/4', validFrom: '2026-08-01' });
+    const annasHalf = await json<{ ownershipId: string; share: string }>(
+      await call(REALM_A, 'POST', '/ownerships', half(owner.partyId), { 'idempotency-key': 'own-anna' }),
+      201,
+    );
+    expect(annasHalf.share).toBe('1/2');
+    await json(await call(REALM_A, 'POST', '/ownerships', half(ben.partyId)), 201);
+    // A retry with the key replays; Anna's second half overlaps her first.
+    expect((await call(REALM_A, 'POST', '/ownerships', half(owner.partyId), { 'idempotency-key': 'own-anna' })).headers.get('idempotent-replayed')).toBe('true');
+    const overlapping = await call(REALM_A, 'POST', '/ownerships', { ...half(owner.partyId), validFrom: '2027-01-01' });
+    expect(overlapping.status).toBe(422);
+    expect(await overlapping.json()).toMatchObject({ error: { code: 'OVERLAPPING_OWNERSHIP', details: { ownershipId: annasHalf.ownershipId } } });
+    expect(await json(await call(REALM_A, 'GET', `/property-references/${property.propertyReferenceId}/ownerships?asOf=2026-09-01`), 200)).toMatchObject({
+      completeness: 'COMPLETE',
+      shareSum: '1/1',
+      items: [{}, {}],
+    });
     const before = await pool.query(`SELECT count(*) FROM audit_record`);
     const fromB: [string, string, unknown?][] = [
       ['GET', `/parties/${owner.partyId}`],
@@ -310,6 +341,12 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       ['POST', `/parties/${owner.partyId}/external-references`, { ...tenantRef, mreRealmId: REALM_B }],
       ['POST', `/parties/${owner.partyId}/external-references/${reference.externalReferenceId}/end`],
       ['GET', `/parties/${owner.partyId}/external-references`],
+      ['GET', `/ownerships/${annasHalf.ownershipId}`],
+      ['POST', `/ownerships/${annasHalf.ownershipId}/close`, { validUntil: '2030-12-31' }],
+      ['POST', `/ownerships/${annasHalf.ownershipId}/void`, { reason: 'x' }],
+      ['GET', `/property-references/${property.propertyReferenceId}/ownerships`],
+      ['GET', `/property-references/${property.propertyReferenceId}/ownerships?asOf=2026-09-01`],
+      ['POST', '/ownerships', half(owner.partyId)],
       ['POST', `/property-references/${property.propertyReferenceId}/refresh`],
       ['POST', `/financial-accounts/${account.financialAccountId}/close`],
       [

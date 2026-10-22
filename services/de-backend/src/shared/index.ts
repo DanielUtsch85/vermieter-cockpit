@@ -10,3 +10,5 @@ export type { AuditActor } from './audit.js';
 export { normalizeIban } from './iban.js';
 export { checkVersion } from './version.js';
 export type { VersionConflict } from './version.js';
+export { BUSINESS_DATE_MAX_YEAR, BUSINESS_DATE_MIN_YEAR, checkBusinessDate, parseBusinessDate } from './business-date.js';
+export type { BusinessDate, BusinessDateError } from './business-date.js';

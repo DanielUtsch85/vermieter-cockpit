@@ -8,6 +8,19 @@ export class IdempotencyKeyConflictError extends Error {
   override readonly name = 'IdempotencyKeyConflictError';
 }
 
+/** MRE could not be asked (unreachable, timed out, unexpected answer): nothing is written (api-design.md §77 → 503). */
+export class MreUnavailableError extends Error {
+  override readonly name = 'MreUnavailableError';
+}
+
+/**
+ * Concurrent writers kept taking the same resource away (e.g. an external reference claimed and ended again on every
+ * attempt): the command gave up without writing; the client may retry (→ 503, review on #41).
+ */
+export class ConcurrentUpdateError extends Error {
+  override readonly name = 'ConcurrentUpdateError';
+}
+
 /** `If-Match` named no version that is the current one (→ 412 VERSION_CONFLICT, api-design §16.1). */
 export class VersionConflictError extends Error {
   override readonly name = 'VersionConflictError';

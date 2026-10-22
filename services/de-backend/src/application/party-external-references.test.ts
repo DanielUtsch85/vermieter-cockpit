@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ExternalReferenceId, PartyExternalReference, PartyExternalReferenceRepository, PartyId } from '../domains/party/index.js';
 import type { RealmPrincipal } from './access.js';
-import { VersionConflictError } from './errors.js';
+import { ConcurrentUpdateError, VersionConflictError } from './errors.js';
 import {
   ExternalReferenceInUseError,
   ExternalReferenceNotFoundError,
@@ -75,6 +75,12 @@ describe('Party external reference use cases', () => {
       lookupMreTenant: async () => true,
     });
     await expect(raced(input)).rejects.toBeInstanceOf(ExternalReferenceInUseError);
+    // Lost every attempt (claimed and ended concurrently): a retryable refusal, not a server fault (review on #41).
+    const contended = createExternalReference({
+      repository: repository({ checkClaim: async () => ({ kind: 'CLAIM' }), claim: async () => ({ kind: 'CONTENDED' }) }),
+      lookupMreTenant: async () => true,
+    });
+    await expect(contended(input)).rejects.toBeInstanceOf(ConcurrentUpdateError);
   });
 
   it('end and list turn their refusals into errors', async () => {

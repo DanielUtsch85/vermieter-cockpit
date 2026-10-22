@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { ExactDecimal } from '../shared/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
-import { MrePropertyNotFoundError, MreUnavailableError, linkPropertyReference } from './link-property-reference.js';
+import { MreUnavailableError } from './errors.js';
+import { MrePropertyNotFoundError, linkPropertyReference } from './link-property-reference.js';
 import { lookupOf, memoryRepository } from './property-reference.test-support.js';
 
 const REALM = '64b0c0ffee0000000000000a';

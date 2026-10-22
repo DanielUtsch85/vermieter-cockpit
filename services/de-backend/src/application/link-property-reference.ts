@@ -5,6 +5,7 @@ import type {
 } from '../domains/property-reference/index.js';
 import type { ExactDecimal } from '../shared/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
+import { MreUnavailableError } from './errors.js';
 
 /**
  * Link Property command (api-design.md §23, backlog VC-1-01): binds an MRE
@@ -36,10 +37,6 @@ export type MrePropertyLookup = (
   mreRealmId: string,
   mrePropertyId: string,
 ) => Promise<MrePropertySnapshot | undefined>;
-
-export class MreUnavailableError extends Error {
-  override readonly name = 'MreUnavailableError';
-}
 
 export class MrePropertyNotFoundError extends Error {
   override readonly name = 'MrePropertyNotFoundError';
