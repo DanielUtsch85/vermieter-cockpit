@@ -2,8 +2,8 @@
 
 A Germany-focused investment, finance, tax, and condominium-management extension for [MicroRealEstate](https://github.com/microrealestate/microrealestate).
 
-> **Project status:** Phase 0 (scaffold) in progress — specification baseline complete.  
-> The project is not yet intended for production use.
+> **Project status:** Phases 0–1 complete; Phase 2 (Party, Ownership & Acquisition) in progress.  
+> The DE backend implements the cash ledger, Party management and temporal Ownership. Acquisition workflows and a DE cockpit UI are still pending. The project is not yet intended for production use. See [Project Status](#project-status).
 
 ## Vision
 
@@ -30,7 +30,7 @@ The goal is not to build a generic accounting system, tax-advisory product, or r
 
 ## Architecture at a Glance
 
-The system follows a layered extension architecture:
+The target system follows a layered extension architecture; implementation progress is listed under [Project Status](#project-status):
 
 ```text
 ┌─────────────────────────────────────────────┐
@@ -179,7 +179,9 @@ Before implementing significant functionality, read the relevant documents rathe
 | Document | Purpose |
 |---|---|
 | [`docs/development/coding-guidelines.md`](docs/development/coding-guidelines.md) | Implementation conventions and coding rules |
-| [`docs/development/backlog.md`](docs/development/backlog.md) | Implementation backlog |
+| [`docs/development/backlog.md`](docs/development/backlog.md) | Implementation backlog and item status |
+| [`docs/development/phase-2-plan.md`](docs/development/phase-2-plan.md) | Party, Ownership and Acquisition implementation plan |
+| [`docs/development/invariant-suite.md`](docs/development/invariant-suite.md) | Implemented invariants and their test coverage |
 
 All documents now contain at least a first draft. The `docs/germany/*` domain documents are drafted as **versioned domain knowledge with statutory references and explicit `VERIFY` markers**; they are not legal or tax advice and must be verified against current law before implementation.
 
@@ -326,20 +328,35 @@ Historical `InvestmentMetricSnapshot` records may preserve derived results for c
 
 ## Project Status
 
-The project is currently focused on specification, architecture, and implementation planning.
+Phases 0 and 1 are complete. Phase 2 is in progress: Party management, MRE Tenant references and temporal Ownership are implemented (VC-2-01–04); Acquisition workflows and the full Phase-2 acceptance test remain pending. The [implementation backlog](docs/development/backlog.md) tracks individual items, and the [roadmap](docs/roadmap.md) defines phase exits.
 
-The core documentation already defines:
+### Implemented
 
-- product direction
-- project constitution
-- canonical terminology
-- MRE integration semantics
-- domain boundaries
-- logical data model
-- business API
-- major architecture decisions
+| Area | Available behavior |
+|---|---|
+| Backend foundation | Node.js 24, strict TypeScript, Yarn workspaces, PostgreSQL migrations and a Docker Compose stack with MRE |
+| MRE access | Server-side identity and Realm membership verification; DE access for Realm administrators |
+| Property references | Link an MRE Property and refresh its cached, non-authoritative display data |
+| Financial accounts | Create and close accounts; validate and normalize IBANs |
+| Cash ledger | Create, read and filter Transactions; amend, ignore or restore unconfirmed entries; set categorized splits; confirm, correct or reverse confirmed entries |
+| Bank import | Generic CSV adapter, duplicate detection and explicit review of ambiguous rows |
+| Party management | Create, read, list, amend and deactivate persons and organizations; explicitly link and end MRE Tenant references |
+| Ownership | Exact fractional shares, inclusive validity periods, close or void records, history and date-specific reads, and atomic ownership changes |
+| Integrity and audit | Exact Money arithmetic, Realm-scoped references, idempotency and version checks where specified, AuditRecords, and database constraints and triggers for financial and Ownership invariants |
 
-A first draft now also exists for the implementation kickoff (`docs/project-brief.md`), roadmap, backlog, coding guidelines, reports, dashboards, and the German domain rules (taxation, depreciation, WEG, rent & operating costs). The next work is to verify the German rules against current law, resolve the remaining open ADRs (see `docs/architecture/architecture-decisions.md`), and begin implementation with the First Vertical Slice defined in `docs/project-brief.md`.
+The public business API is under `/api/v1`. Its contracts are documented in [API Design](docs/architecture/api-design.md); code is in [`services/de-backend`](services/de-backend).
+
+### Next work and current limits
+
+- **Phase 2:** Acquisition records, costs and payment links, confirmation, land/building allocation and owner-level allocation, followed by a complete Phase-2 acceptance test. See the [Phase-2 plan](docs/development/phase-2-plan.md).
+- **Later domains:** Financing, rent-payment reconciliation, Security Deposit workflows, WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
+- **User interface:** There is no DE cockpit UI yet. General read/list endpoints for FinancialAccounts and PropertyReferences are also pending.
+- **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
+- **German rules:** The `VERIFY` points in [the verification checklist](docs/germany/verification-checklist.md) must be resolved before implementing the affected tax, depreciation and WEG rules.
+
+### Continuous integration
+
+[CI](https://github.com/DanielUtsch85/vermieter-cockpit/actions/workflows/ci.yml) runs build, typecheck and Vitest tests with PostgreSQL. A separate Compose job starts the DE/MRE stack, exercises the integration flow and runs the MRE contract tests against the pinned baseline. The [invariant suite](docs/development/invariant-suite.md) maps business rules to tests, including Realm isolation and concurrent writes. Lint and further migration checks remain open under VC-X-03.
 
 ---
 
@@ -381,6 +398,15 @@ curl http://localhost:8080/health         # MRE gateway
 The secrets in `docker-compose.yml` are development defaults; override them via `.env` and never use them in production. CI starts the same stack (`compose-smoke` job).
 
 Database tests (e.g. the Money ↔ `NUMERIC` round-trip) run when `DE_TEST_DATABASE_URL` points to a PostgreSQL database, e.g. `DE_TEST_DATABASE_URL=postgres://de_test:de_test@localhost:5432/de_test yarn test`; otherwise they are skipped locally. CI always runs them.
+
+MRE contract tests require a running MRE API. With the Compose stack above:
+
+```bash
+MRE_CONTRACT_API_URL=http://localhost:8080/api/v2 REQUIRE_MRE_CONTRACT=1 \
+  yarn workspace @vermieter-cockpit/de-backend vitest run src/integrations/mre/mre.contract.test.ts
+```
+
+They run separately in CI's Compose job; the regular test job skips them.
 
 The DE backend lives in `services/de-backend` (modular monolith, see `docs/development/coding-guidelines.md` §2–3).
 
