@@ -361,6 +361,15 @@ Allowed conceptual values:
 - `PERSON`
 - `ORGANIZATION`
 
+Fixed once the Party exists.
+
+### `status`
+
+- `ACTIVE`
+- `INACTIVE` — deactivated with a reason; keeps every relationship but takes no new role (P2-D1).
+
+The Realm is part of the Party's identity scope (`mreRealmId`); a Party is never shared across Realms.
+
 ---
 
 ## 7.3 Optional Person Fields
@@ -376,7 +385,7 @@ Allowed conceptual values:
 ## 7.4 Optional Organization Fields
 
 - `legalName`
-- `organizationType`
+- `organizationType` (values not defined yet; not accepted by the API until they are)
 - `registrationNumber`
 - `email`
 - `phone`
@@ -406,13 +415,13 @@ Example:
 - `entityType = tenant`
 - `externalId = ...`
 
-Exact mapping strategy remains subject to ADR-OPEN-003.
+The mapping strategy is decided (ADR-002A, ADR-009; P2-D2): explicit `PartyExternalReference` records (§8), never synchronised data.
 
 ---
 
 ## 7.7 Invariants
 
-- One real person or organization should not intentionally exist as multiple active Parties.
+- One real person or organization should not intentionally exist as multiple active Parties. This is kept by review; DE never matches or merges Parties automatically (P2-D1).
 - External system identifiers must be mapped, not used as canonical identity.
 - Deactivating a Party must not destroy historical relationships.
 

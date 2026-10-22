@@ -446,7 +446,7 @@ must not automatically confirm or classify a Transaction.
 
 ## Purpose
 
-Manage canonical shared Party identity.
+Manage canonical shared Party identity (data-model §7, ADR-009; decisions P2-D1/P2-D2 of `docs/development/phase-2-plan.md`).
 
 ### Query
 
@@ -455,42 +455,63 @@ GET /api/v1/parties
 GET /api/v1/parties/{partyId}
 ```
 
-Optional filters:
-
-- `type`
-- `name`
-- `externalSystem`
-- `externalId`
-
 ### Commands
 
 ```text
 POST /api/v1/parties
-POST /api/v1/parties/{partyId}/external-references
+POST /api/v1/parties/{partyId}/amend
 POST /api/v1/parties/{partyId}/deactivate
+POST /api/v1/parties/{partyId}/external-references        (VC-2-02, §20)
 ```
 
 Avoid generic deletion where historical relationships exist.
+
+## 19.1 Contract (VC-2-01)
+
+- **Domain owner:** Shared Identity. **Authorization:** authenticated MRE identity; every Party belongs to the caller's Realm (`mreRealmId`); another Realm's Party is `404`, never visible.
+- **Minimal identity (P2-D1):** DE stores what the user enters. Nothing is synchronised from MRE, and DE never merges or deduplicates Parties automatically: two Parties with the same name are allowed (avoiding duplicates is a review task, data-model §7.7).
+- **Fields** (data-model §7.2–7.4, verbatim names), all strings trimmed; an empty optional string is stored as `null`:
+  - `partyType`: `PERSON` | `ORGANIZATION` (required, fixed after creation).
+  - `displayName`: required, 1–200 characters.
+  - Person only: `firstName`, `lastName` (each ≤ 200), `dateOfBirth` (`YYYY-MM-DD`, a business date as §88, not in the future).
+  - Organization only: `legalName` (≤ 200), `registrationNumber` (≤ 100). `organizationType` is not supported yet: its values are undefined (data-model §7.4), so it is an unknown key (`400`).
+  - Both: `email` (≤ 254, one `@` with text on both sides; no further validation), `phone` (≤ 50, free form).
+  - A field of the other type is `400` with code `NOT_ALLOWED_FOR_TYPE` (e.g. `legalName` on a `PERSON`).
+  - Unknown keys are `400`.
+- **Response:** `partyId`, `mreRealmId`, `partyType`, `displayName`, the person or organization fields of its type (absent ones as `null`), `email`, `phone`, `status` (`ACTIVE` | `INACTIVE`), `deactivatedAt`, `createdAt`, `version`; single-Party responses carry `ETag: "<version>"` (§16.1).
+
+### `POST /api/v1/parties`
+
+- `201` with the Party (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED`.
+- **Idempotency (§15):** `Idempotency-Key` with scope `party.create`, fingerprint of the normalized payload (trimmed, empty → `null`). A replay answers `201` with the recorded body and `Idempotent-Replayed: true`; the same key with another payload is `409`.
+
+### `POST /api/v1/parties/{partyId}/amend`
+
+- Changes contact data: the fields to change, at least one; `null` clears an optional field. `partyType` cannot change (`400`); neither can an `INACTIVE` Party (`409 CONFLICT`, `reason = PARTY_INACTIVE`).
+- `200` with the Party (`version` + 1; AuditRecord `AMENDED` with each changed field's old and new value). Values equal to the current ones are a `200` no-op without a new version or AuditRecord.
+- `If-Match` as §16.1 (`412 VERSION_CONFLICT`); a no-op answers regardless of the version.
+
+### `POST /api/v1/parties/{partyId}/deactivate`
+
+- Body `{ "reason": "..." }` (required, trimmed, 1–500). `200` with the Party (`status = INACTIVE`, `deactivatedAt`, `version` + 1; AuditRecord `DEACTIVATED` with the reason).
+- Deactivating an inactive Party is a `200` no-op. `If-Match` as §16.1.
+- An inactive Party keeps every relationship (data-model §7.7). Later items refuse **new** roles for it (Ownership, buyer, external reference: P2-D1); ending or correcting existing ones stays allowed. Reactivation is not part of VC-2-01.
+
+### `GET /api/v1/parties/{partyId}`, `GET /api/v1/parties`
+
+- One Party with `ETag`; unknown, foreign or malformed id as §30.1 (`404` / `400`).
+- The list: `{ items, page, pageSize, total }` (§11), ordered by `displayName` (case-insensitive), then `partyId`; count and page in one snapshot. Filters, combined with AND:
+  - `partyType` (the field's name; §19 used to say `type`);
+  - `status` (`ACTIVE` | `INACTIVE`);
+  - `name`: case-insensitive substring of `displayName`, `legalName`, `firstName` or `lastName` (1–100 characters).
+  - `externalSystem` / `externalId` come with VC-2-02.
+- `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`.
 
 ---
 
 # 20. MRE Party Mapping API
 
-```text
-POST /api/v1/parties/{partyId}/mre-mappings
-```
-
-Example request:
-
-```json
-{
-  "mreRealmId": "...",
-  "entityType": "tenant",
-  "externalId": "..."
-}
-```
-
-The API must validate that the referenced MRE entity exists where feasible.
+Superseded by the single external-reference command of §19 (P2-D2): `POST /api/v1/parties/{partyId}/external-references` with `system = MRE`, `entityType = tenant`, `mreRealmId`, `externalId`. Its contract is specified with VC-2-02; there is no separate `mre-mappings` route.
 
 ---
 
