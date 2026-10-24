@@ -817,11 +817,13 @@ A sale, inheritance or transfer as **one atomic command** (P2-D5, BR-OWN-005): t
 
 # 27. Acquisition API
 
+Decisions P2-D6 (status vs. legal dates), P2-D7 (price once, payments link Transactions) and P2-D8 (confirmation, partial acquisitions) of `docs/development/phase-2-plan.md`.
+
 ### Queries
 
 ```text
 GET /api/v1/acquisitions
-GET /api/v1/acquisitions/{id}
+GET /api/v1/acquisitions/{acquisitionId}
 GET /api/v1/property-references/{propertyReferenceId}/acquisitions
 ```
 
@@ -829,10 +831,73 @@ GET /api/v1/property-references/{propertyReferenceId}/acquisitions
 
 ```text
 POST /api/v1/acquisitions
-POST /api/v1/acquisitions/{id}/costs
-POST /api/v1/acquisitions/{id}/confirm
-POST /api/v1/acquisitions/{id}/land-building-allocation
+POST /api/v1/acquisitions/{acquisitionId}/cancel
+POST /api/v1/acquisitions/{acquisitionId}/costs                     (VC-2-06)
+POST /api/v1/acquisitions/{acquisitionId}/payments                  (VC-2-06)
+POST /api/v1/acquisitions/{acquisitionId}/confirm                   (VC-2-07, §28)
+POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08)
 ```
+
+## 27.1 Contract (VC-2-05)
+
+- **Domain owner:** Acquisition. **Authorization:** as §19.1; an Acquisition belongs to the caller's Realm, and so do its PropertyReference, buyers and sellers. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **What it is:** the purchase of a **share** of a PropertyReference (`acquiredShare`, P2-D8): "B buys A's half" is an Acquisition with `acquiredShare = 1/2` and buyer B. It is not tied to MRE `Property.price` (mre-integration §32), and it never creates or changes Ownerships itself: WF-002 creates them with the Acquisition's id (§26.1, §26.2).
+- **Status (P2-D6):** `DRAFT` → `CONFIRMED` (VC-2-07) and `DRAFT` → `CANCELLED`. Confirmed and cancelled are final in Phase 2. The legal milestones are **dates**, not states.
+- **Response:**
+  - `acquisitionId`, `mreRealmId`, `propertyReferenceId`, `status`;
+  - `purchasePrice` (Money as §31), `acquiredShare` (reduced fraction, §26.1);
+  - `contractDate`, `economicTransferDate`, `landRegistryTransferDate` and the derived `transferDate` (`economicTransferDate`, or `contractDate` while that is unset; P2-D6);
+  - `buyerPartyIds`, `sellerPartyIds` (in the order given);
+  - `sourceReferences`, `notes`;
+  - `cancelledAt`, `cancellationReason`, `confirmedAt` (`null` until VC-2-07);
+  - `createdAt`, `version`.
+  - Single-Acquisition responses carry `ETag: "<version>"` (§16.1).
+
+### `POST /api/v1/acquisitions`
+
+- **Body** (strict; unknown keys `400`):
+  - `propertyReferenceId` (UUID, required).
+  - `purchasePrice` (Money as §31, required): the agreed price, **> 0** (`400` `NOT_POSITIVE`), in the Realm's currency (EUR in Phase 2). It is entered once here; there is no `PURCHASE_PRICE` cost (P2-D7).
+  - `acquiredShare` (fraction as §26.1, optional, default `"1/1"`).
+  - `contractDate` (business date, required; the notarial contract, UC-003's "acquisition date"); `economicTransferDate` and `landRegistryTransferDate` (optional; not before `contractDate`, else `400` `BEFORE_CONTRACT_DATE`). data-model §13.3's `possessionTransferDate` is merged into `economicTransferDate` and is an unknown key.
+  - `buyerPartyIds` (1–20 UUIDs, required), `sellerPartyIds` (0–20 UUIDs). No duplicates within a list (`DUPLICATE`), and no Party is both buyer and seller (`400` `BUYER_IS_SELLER` at the seller's position).
+  - `sourceReferences` (up to 10 strings of 1–500), `notes` (≤ 2000), trimmed as §26.1.
+  - `notarialDocumentId`: `400 NOT_SUPPORTED` until documents exist (as §33.2).
+- **Order of checks:** `400` → PropertyReference unknown or foreign → `404` (`details.propertyReferenceId`) → each buyer, then each seller, in the order given: unknown or foreign → `404` (`details.partyId`) → a buyer `INACTIVE` → `422 PARTY_INACTIVE` (`details.partyId`; P2-D1: no new buyer role for an inactive Party). A seller may be inactive (selling ends a relationship).
+- **Success:** `201` with the Acquisition (`status = DRAFT`, `version = 1`); AuditRecord `CREATED` with the price, share, dates and parties.
+- Several drafts of one PropertyReference may exist (alternatives under negotiation); nothing is unique.
+- **Idempotency (§15):** `Idempotency-Key` with scope `acquisition.create`, fingerprint of the normalized body (share reduced, texts trimmed, party lists as given). Replay `201` with the recorded body and `Idempotent-Replayed: true`; another payload with the same key is `409`. Without a key a retry creates a second draft, so clients should always send one.
+- **Changing a draft:** there is no `amend` in VC-2-05; a wrong draft is cancelled and created again. An `amend` of drafts comes with the use case that needs it.
+
+### `POST /api/v1/acquisitions/{acquisitionId}/cancel`
+
+- Body `{ "reason": "..." }` (required, trimmed, 1–500). `200` with the Acquisition (`status = CANCELLED`, `cancelledAt`, `cancellationReason`, `version` + 1); AuditRecord `CANCELLED` with the reason.
+- Cancelling a cancelled Acquisition is a `200` no-op keeping the first reason and time. A `CONFIRMED` one is final: `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"`.
+- `If-Match` as §16.1; a no-op answers regardless of the version.
+- Ownerships carrying the id are not touched (an Acquisition never changes Ownerships); they stay as recorded and can be voided (§26.1) if they were wrong. From VC-2-06 on, its costs and payment links stay readable but count nowhere (P2-D6), and cancel serialises with payment writes (P2-D7).
+
+### Reads
+
+- `GET /acquisitions/{id}`: one Acquisition with `ETag`.
+- `GET /acquisitions` and `GET /property-references/{id}/acquisitions` (the latter `404` for an unknown or foreign PropertyReference): `{ items, page, pageSize, total }` (§11), ordered by `contractDate` (newest first), then `createdAt`, then `acquisitionId`; count and page in one snapshot. Filters: `status`; on `/acquisitions` also `propertyReferenceId` and `partyId` (buyer or seller). `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`.
+
+### `acquisitionId` on Ownerships (lifting §26.1's `NOT_SUPPORTED`; review on #42)
+
+- `POST /ownerships` and `POST …/ownership-changes` accept `acquisitionId` (UUID). It must name an Acquisition of the same Realm and the **same PropertyReference** (`404` with `details.acquisitionId` otherwise, also for another PropertyReference) whose status is `DRAFT` (`422 ACQUISITION_NOT_DRAFT` with `details.acquisitionId` and `details.status`). In `ownership-changes` it applies to every created Ownership.
+- The Acquisition is read under `FOR SHARE`, so a concurrent cancel (which takes it `FOR UPDATE`) either comes first and is seen, or waits. Lock order on every path: PropertyReference, Parties, Acquisition, Ownerships.
+- The response's `acquisitionId` is the stored value; it never changes afterwards (frozen-fields trigger).
+
+### In the database (VC-2-05)
+
+- `acquisition`:
+  - composite foreign key to `property_reference (id, mre_realm_id)`, and `UNIQUE (id, mre_realm_id, property_reference_id)` for the Ownership link;
+  - `status` in (`DRAFT`, `CONFIRMED`, `CANCELLED`); `CANCELLED` exactly with `cancelled_at` and `cancellation_reason`, `CONFIRMED` exactly with `confirmed_at`;
+  - price `numeric` with `scale ≤ 2` and `> 0`, `currency` EUR (as the ledger's amounts);
+  - `acquired_share` numerator and denominator reduced as `ownership`'s;
+  - the transfer dates not before `contract_date`.
+- `acquisition_party (acquisition_id, party_id, role, position)`: `role` `BUYER` | `SELLER`; composite foreign keys to the Acquisition and to `party (id, mre_realm_id)`; `UNIQUE (acquisition_id, party_id)` (nobody both buyer and seller).
+- A trigger keeps an Acquisition's fields fixed after creation and lets `status` only go `DRAFT` → `CANCELLED` / `CONFIRMED` (final after); its parties are written only with the Acquisition and never changed.
+- `ownership.acquisition_id`: a composite foreign key `(acquisition_id, mre_realm_id, property_reference_id)` to `acquisition`, so the link is in the Ownership's Realm and PropertyReference; added to `ownership_frozen`'s fixed fields. With it, the `0019` trigger message shows sums as `n/d` integers instead of `numeric` decimals (review on #45).
 
 ---
 
