@@ -23,7 +23,7 @@ export interface Ownership {
   readonly status: OwnershipStatus;
   readonly voidedAt: Date | null;
   readonly voidReason: string | null;
-  /** The Acquisition the Ownership results from (P2-D8); always null until VC-2-05. */
+  /** The Acquisition the Ownership results from (P2-D8); set at creation, fixed afterwards. */
   readonly acquisitionId: string | null;
   readonly sourceReferences: readonly string[];
   readonly notes: string | null;
@@ -39,6 +39,8 @@ export interface NewOwnership {
   readonly share: Share;
   readonly validFrom: BusinessDate;
   readonly validUntil: BusinessDate | null;
+  /** A `DRAFT` Acquisition of the same Realm and PropertyReference, or null (§27.1). */
+  readonly acquisitionId: string | null;
   readonly sourceReferences: readonly string[];
   readonly notes: string | null;
 }
@@ -52,6 +54,7 @@ export function createFingerprint(ownership: NewOwnership): string {
     ownership.share.denominator,
     ownership.validFrom,
     ownership.validUntil,
+    ownership.acquisitionId,
     ownership.sourceReferences,
     ownership.notes,
   ]);
@@ -147,7 +150,13 @@ export type CreateOwnershipOutcome =
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND' }
   | { readonly kind: 'PARTY_NOT_FOUND' }
   | { readonly kind: 'PARTY_INACTIVE' }
+  | AcquisitionRefusal
   | InvariantViolation;
+
+/** The `acquisitionId` of a create or change names no Acquisition of this PropertyReference, or no draft (§27.1). */
+export type AcquisitionRefusal =
+  | { readonly kind: 'ACQUISITION_NOT_FOUND'; readonly acquisitionId: string }
+  | { readonly kind: 'ACQUISITION_NOT_DRAFT'; readonly acquisitionId: string; readonly status: string };
 
 export type CloseOwnershipOutcome =
   | { readonly kind: 'CLOSED'; readonly ownership: Ownership; readonly changed: boolean }

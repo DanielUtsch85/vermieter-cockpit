@@ -143,6 +143,8 @@ export type {
 export { EXTERNAL_REFERENCE_STATUSES, MRE_EXTERNAL_ID } from '../domains/party/index.js';
 export type { ExternalReferencePage, ExternalReferenceStatus, PartyExternalReference } from '../domains/party/index.js';
 export {
+  AcquisitionNotDraftError,
+  AcquisitionNotFoundError,
   InvalidOwnershipError,
   OverlappingOwnershipError,
   OwnerInactiveError,
@@ -159,3 +161,22 @@ export {
 export type { ChangeOwnership, ChangeOwnershipInput, CloseOwnership, CreateOwnership, CreateOwnershipInput, GetOwnership, ReadPropertyOwnerships, VoidOwnership } from './ownerships.js';
 export { formatShare, parseShare } from '../domains/ownership/index.js';
 export type { ChangeResult, Fraction, Ownership, OwnershipDay, OwnershipPage, Share } from '../domains/ownership/index.js';
+export {
+  AcquisitionConfirmedError,
+  AcquisitionHasValidOwnershipsError,
+  cancelAcquisition,
+  createAcquisition,
+  getAcquisition,
+  listAcquisitions,
+  listPropertyAcquisitions,
+} from './acquisitions.js';
+export type {
+  CancelAcquisition,
+  CreateAcquisition,
+  CreateAcquisitionInput,
+  GetAcquisition,
+  ListAcquisitions,
+  ListPropertyAcquisitions,
+} from './acquisitions.js';
+export { ACQUISITION_STATUSES, transferDate } from '../domains/acquisition/index.js';
+export type { Acquisition, AcquisitionFilter, AcquisitionPage, AcquisitionStatus } from '../domains/acquisition/index.js';

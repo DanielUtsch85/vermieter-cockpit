@@ -6,6 +6,7 @@ import {
   planChange,
   planClose,
   planVoid,
+  type AcquisitionRefusal,
   type ChangeOwnershipOutcome,
   type ChangeResult,
   type CloseOwnershipOutcome,
@@ -45,6 +46,7 @@ const COLUMNS = [
   'voided_at',
   'void_reason',
   'source_references',
+  'acquisition_id',
   'notes',
   'created_at',
   'version',
@@ -62,6 +64,7 @@ interface OwnershipRow {
   status: string;
   voided_at: Date | null;
   void_reason: string | null;
+  acquisition_id: string | null;
   source_references: string[];
   notes: string | null;
   created_at: Date;
@@ -117,6 +120,8 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
           .executeTakeFirst();
         if (owner === undefined) throw new Rejected<CreateOwnershipOutcome>({ kind: 'PARTY_NOT_FOUND' });
         if (owner.status !== 'ACTIVE') throw new Rejected<CreateOwnershipOutcome>({ kind: 'PARTY_INACTIVE' });
+        const acquisitionRefusal = await checkAcquisition(trx, ownership.acquisitionId, ownership.mreRealmId, ownership.propertyReferenceId);
+        if (acquisitionRefusal !== undefined) throw new Rejected<CreateOwnershipOutcome>(acquisitionRefusal);
         const violation = checkInvariants(await ownershipsOf(trx, ownership.propertyReferenceId), ownership);
         if (violation !== undefined) throw new Rejected<CreateOwnershipOutcome>(violation);
 
@@ -131,6 +136,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
             valid_from: ownership.validFrom,
             valid_until: ownership.validUntil,
             status: 'VALID' satisfies OwnershipStatus,
+            acquisition_id: ownership.acquisitionId,
             source_references: [...ownership.sourceReferences],
             notes: ownership.notes,
             created_by: actor.actorId,
@@ -147,6 +153,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
             share: `${created.share.numerator}/${created.share.denominator}`,
             validFrom: created.validFrom,
             validUntil: created.validUntil,
+            acquisitionId: created.acquisitionId,
           },
         });
         return { kind: 'CREATED', ownership: created };
@@ -214,6 +221,8 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
           if (!status.has(ownerPartyId)) throw new Rejected<ChangeOwnershipOutcome>({ kind: 'PARTY_NOT_FOUND', partyId: ownerPartyId });
           if (status.get(ownerPartyId) !== 'ACTIVE') throw new Rejected<ChangeOwnershipOutcome>({ kind: 'PARTY_INACTIVE', partyId: ownerPartyId });
         }
+        const acquisitionRefusal = await checkAcquisition(trx, change.acquisitionId, change.mreRealmId, change.propertyReferenceId);
+        if (acquisitionRefusal !== undefined) throw new Rejected<ChangeOwnershipOutcome>(acquisitionRefusal);
         if (plan.kind === 'UNCHANGED') {
           // Nothing written; the key claim is rolled back with it, so a retry with the key answers the same no-op.
           throw new Rejected<ChangeOwnershipOutcome>({ kind: 'UNCHANGED', result: resultOf(change, existing, change.close, []) });
@@ -247,6 +256,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
               valid_from: change.effectiveDate,
               valid_until: null,
               status: 'VALID' satisfies OwnershipStatus,
+              acquisition_id: change.acquisitionId,
               source_references: [...create.sourceReferences],
               notes: create.notes,
               created_by: actor.actorId,
@@ -263,6 +273,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
               share: formatShare(create.share),
               validFrom: change.effectiveDate,
               validUntil: null,
+              acquisitionId: change.acquisitionId,
             },
           });
         }
@@ -397,6 +408,31 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
   }
 }
 
+/**
+ * The Acquisition an Ownership is to link (§27.1): of this Realm and PropertyReference, and a `DRAFT`. Read `FOR SHARE`
+ * after the PropertyReference and the Parties (the lock order of every writer), so a concurrent cancel, which takes it
+ * `FOR UPDATE`, either commits first and is seen here, or waits for this transaction.
+ */
+async function checkAcquisition(
+  trx: Transaction<Database>,
+  acquisitionId: string | null,
+  mreRealmId: string,
+  propertyReferenceId: string,
+): Promise<AcquisitionRefusal | undefined> {
+  if (acquisitionId === null) return undefined;
+  const acquisition = await trx
+    .selectFrom('acquisition')
+    .select('status')
+    .where('id', '=', acquisitionId)
+    .where('mre_realm_id', '=', mreRealmId)
+    .where('property_reference_id', '=', propertyReferenceId)
+    .forShare()
+    .executeTakeFirst();
+  if (acquisition === undefined) return { kind: 'ACQUISITION_NOT_FOUND', acquisitionId };
+  if (acquisition.status !== 'DRAFT') return { kind: 'ACQUISITION_NOT_DRAFT', acquisitionId, status: acquisition.status };
+  return undefined;
+}
+
 /** The PropertyReference's Ownerships, `VOID` ones included (the domain ignores them); a new statement each call. */
 async function ownershipsOf(trx: Transaction<Database>, propertyReferenceId: string): Promise<Ownership[]> {
   return (await trx.selectFrom('ownership').select(COLUMNS).where('property_reference_id', '=', propertyReferenceId).execute()).map(toOwnership);
@@ -443,7 +479,7 @@ function toOwnership(row: OwnershipRow): Ownership {
     status: row.status as OwnershipStatus,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,
-    acquisitionId: null,
+    acquisitionId: row.acquisition_id,
     sourceReferences: row.source_references,
     notes: row.notes,
     createdAt: row.created_at,

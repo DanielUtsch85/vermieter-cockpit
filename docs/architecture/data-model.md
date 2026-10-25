@@ -679,9 +679,9 @@ The **transfer date** is `economicTransferDate`, or `contractDate` while that is
 
 An Acquisition may have:
 
-- one Property
+- one PropertyReference (the Property identity stays in MRE)
 - one or more Buyers
-- one or more Sellers
+- zero or more Sellers (a seller need not be recorded as a Party)
 - multiple Acquisition Costs
 - multiple Loans
 - one LandBuildingAllocation

@@ -1,5 +1,5 @@
 import { addDays, type AuditActor, type BusinessDate } from '../../shared/index.js';
-import { checkInvariants, ownershipOn, type Completeness, type InvalidOwnershipReason, type InvariantViolation, type Ownership } from './ownership.js';
+import { checkInvariants, ownershipOn, type AcquisitionRefusal, type Completeness, type InvalidOwnershipReason, type InvariantViolation, type Ownership } from './ownership.js';
 import type { Fraction, Share } from './share.js';
 
 /**
@@ -23,6 +23,8 @@ export interface OwnershipChange {
   readonly close: readonly string[];
   /** One entry per owner at most. */
   readonly create: readonly NewOwner[];
+  /** A `DRAFT` Acquisition of the same Realm and PropertyReference for every created Ownership, or null (§27.1). */
+  readonly acquisitionId: string | null;
 }
 
 /** Identity of a change request for `Idempotency-Key` replays: the normalized body, `close` sorted. */
@@ -33,6 +35,7 @@ export function changeFingerprint(change: OwnershipChange): string {
     change.reason,
     [...change.close].sort(),
     change.create.map((c) => [c.ownerPartyId, c.share.numerator, c.share.denominator, c.sourceReferences, c.notes]),
+    change.acquisitionId,
   ]);
 }
 
@@ -104,6 +107,7 @@ export type ChangeOwnershipOutcome =
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND' }
   | { readonly kind: 'PARTY_NOT_FOUND'; readonly partyId: string }
   | { readonly kind: 'PARTY_INACTIVE'; readonly partyId: string }
+  | AcquisitionRefusal
   | Exclude<ChangePlan, { kind: 'CHANGE' | 'UNCHANGED' }>;
 
 /** Persistence port for the change, implemented in infrastructure/postgres. */

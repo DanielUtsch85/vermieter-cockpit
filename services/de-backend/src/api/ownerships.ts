@@ -5,6 +5,8 @@ import {
   InvalidOwnershipError,
   OverlappingOwnershipError,
   OwnerInactiveError,
+  AcquisitionNotDraftError,
+  AcquisitionNotFoundError,
   OwnershipIncompleteError,
   OwnershipNotFoundError,
   OwnershipTotalExceedsOneError,
@@ -57,14 +59,13 @@ const createBody = z
     share,
     validFrom: businessDate,
     validUntil: businessDate.nullish(),
-    // From VC-2-05 on: the Acquisition this Ownership results from (P2-D8). Until then refused, never stored unchecked.
-    acquisitionId: z.unknown().optional(),
+    // The Acquisition this Ownership results from (P2-D8, §27.1): a DRAFT of the same Realm and PropertyReference.
+    acquisitionId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()).nullish(),
     sourceReferences: z.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {
-    if (body.acquisitionId !== undefined) ctx.addIssue({ code: 'custom', path: ['acquisitionId'], params: { code: 'NOT_SUPPORTED' } });
     if (body.validUntil != null && body.validUntil < body.validFrom) {
       ctx.addIssue({ code: 'custom', path: ['validUntil'], params: { code: 'BEFORE_VALID_FROM' } });
     }
@@ -88,12 +89,11 @@ const changeBody = z
       )
       .max(50)
       .default([]),
-    // From VC-2-05 on: the Acquisition the new Ownerships result from (P2-D8). Until then refused.
-    acquisitionId: z.unknown().optional(),
+    // The Acquisition every created Ownership results from (P2-D8, §27.1).
+    acquisitionId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()).nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {
-    if (body.acquisitionId !== undefined) ctx.addIssue({ code: 'custom', path: ['acquisitionId'], params: { code: 'NOT_SUPPORTED' } });
     if (body.close.length === 0 && body.create.length === 0) ctx.addIssue({ code: 'custom', path: ['create'], params: { code: 'REQUIRED' } });
     body.close.forEach((id, i) => {
       if (body.close.indexOf(id) !== i) ctx.addIssue({ code: 'custom', path: ['close', i], params: { code: 'DUPLICATE' } });
@@ -152,6 +152,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
         share: body.share,
         validFrom: body.validFrom,
         validUntil: body.validUntil ?? null,
+        acquisitionId: body.acquisitionId ?? null,
         sourceReferences: (body.sourceReferences ?? []).filter((reference): reference is string => reference !== null),
         notes: body.notes ?? null,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
@@ -240,6 +241,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
         effectiveDate: body.effectiveDate,
         reason: body.reason,
         close: body.close,
+        acquisitionId: body.acquisitionId ?? null,
         create: body.create.map((c) => ({
           ownerPartyId: c.ownerPartyId,
           share: c.share,
@@ -322,6 +324,13 @@ function sendOwnershipError(res: Response, error: unknown): boolean {
     });
   } else if (error instanceof OwnershipTotalExceedsOneError) {
     sendError(res, 422, 'OWNERSHIP_TOTAL_EXCEEDS_ONE', 'The shares would sum above 1.', { date: error.date, shareSum: formatShare(error.shareSum) });
+  } else if (error instanceof AcquisitionNotFoundError) {
+    sendError(res, 404, 'NOT_FOUND', 'Acquisition not found for this PropertyReference.', { acquisitionId: error.acquisitionId });
+  } else if (error instanceof AcquisitionNotDraftError) {
+    sendError(res, 422, 'ACQUISITION_NOT_DRAFT', 'Only a DRAFT Acquisition takes new Ownerships.', {
+      acquisitionId: error.acquisitionId,
+      status: error.status,
+    });
   } else if (error instanceof OwnershipIncompleteError) {
     sendError(res, 422, 'OWNERSHIP_INCOMPLETE', 'The ownership was complete and would no longer be.', {
       date: error.date,

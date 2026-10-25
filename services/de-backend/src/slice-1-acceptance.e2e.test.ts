@@ -22,6 +22,11 @@ import {
   endExternalReference,
   listExternalReferences,
   changeOwnership,
+  cancelAcquisition,
+  createAcquisition,
+  getAcquisition,
+  listAcquisitions,
+  listPropertyAcquisitions,
   closeOwnership,
   createOwnership,
   getOwnership,
@@ -45,6 +50,7 @@ import {
   PostgresPartyRepository,
   PostgresPartyExternalReferenceRepository,
   PostgresOwnershipRepository,
+  PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
   PostgresPropertyReferenceRepository,
@@ -110,6 +116,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     const parties = new PostgresPartyRepository(db);
     const externalReferences = new PostgresPartyExternalReferenceRepository(db);
     const ownerships = new PostgresOwnershipRepository(db);
+    const acquisitions = new PostgresAcquisitionRepository(db);
     const transactions = new PostgresTransactionRepository(db);
     const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
     const imports = new PostgresImportRepository(db);
@@ -133,6 +140,11 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       voidOwnership: voidOwnership({ repository: ownerships }),
       readPropertyOwnerships: readPropertyOwnerships({ repository: ownerships }),
       changeOwnership: changeOwnership({ repository: ownerships }),
+      createAcquisition: createAcquisition({ repository: acquisitions }),
+      getAcquisition: getAcquisition({ repository: acquisitions }),
+      listAcquisitions: listAcquisitions({ repository: acquisitions }),
+      listPropertyAcquisitions: listPropertyAcquisitions({ repository: acquisitions, propertyReferences: propertyReferences.repository }),
+      cancelAcquisition: cancelAcquisition({ repository: acquisitions }),
       createFinancialAccount: createFinancialAccount({ repository: accounts }),
       closeFinancialAccount: closeFinancialAccount({ repository: accounts }),
       createManualTransaction: createManualTransaction({ repository: transactions }),
@@ -350,6 +362,17 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         .sort();
     expect(await owners('2030-12-31')).toEqual([owner.partyId, ben.partyId].sort());
     expect(await owners('2031-01-01')).toEqual([owner.partyId, carl.partyId].sort());
+    // The purchase behind Carl's half as an Acquisition draft (VC-2-05): read, listed on the property, then cancelled.
+    const purchase = { propertyReferenceId: property.propertyReferenceId, purchasePrice: { amount: '175000.00', currency: 'EUR' }, acquiredShare: '1/2', contractDate: '2030-11-01', economicTransferDate: '2031-01-01', buyerPartyIds: [carl.partyId], sellerPartyIds: [ben.partyId] };
+    const draftPurchase = await json<{ acquisitionId: string; transferDate: string; status: string }>(
+      await call(REALM_A, 'POST', '/acquisitions', purchase, { 'idempotency-key': 'acq-carl' }),
+      201,
+    );
+    expect(draftPurchase).toMatchObject({ status: 'DRAFT', transferDate: '2031-01-01' });
+    expect(await json(await call(REALM_A, 'GET', `/property-references/${property.propertyReferenceId}/acquisitions`), 200)).toMatchObject({
+      items: [{ acquisitionId: draftPurchase.acquisitionId }],
+      total: 1,
+    });
     const before = await pool.query(`SELECT count(*) FROM audit_record`);
     const fromB: [string, string, unknown?][] = [
       ['GET', `/parties/${owner.partyId}`],
@@ -365,6 +388,10 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       ['GET', `/property-references/${property.propertyReferenceId}/ownerships?asOf=2026-09-01`],
       ['POST', '/ownerships', half(owner.partyId)],
       ['POST', `/property-references/${property.propertyReferenceId}/ownership-changes`, sale],
+      ['POST', '/acquisitions', { ...purchase, buyerPartyIds: [owner.partyId] }],
+      ['GET', `/acquisitions/${draftPurchase.acquisitionId}`],
+      ['POST', `/acquisitions/${draftPurchase.acquisitionId}/cancel`, { reason: 'x' }],
+      ['GET', `/property-references/${property.propertyReferenceId}/acquisitions`],
       ['POST', `/property-references/${property.propertyReferenceId}/refresh`],
       ['POST', `/financial-accounts/${account.financialAccountId}/close`],
       [
@@ -394,6 +421,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       total: 0,
     });
     expect(await json(await call(REALM_B, 'GET', '/parties'), 200)).toMatchObject({ items: [], total: 0 });
+    expect(await json(await call(REALM_B, 'GET', '/acquisitions'), 200)).toMatchObject({ items: [], total: 0 });
     expect(await json(await call(REALM_A, 'GET', '/parties?name=schmidt'), 200)).toMatchObject({ items: [{ partyId: owner.partyId }], total: 1 });
     // The MRE Tenant resolves to Realm A's Party there, and to nothing in Realm B.
     const byTenant = `/parties?externalSystem=MRE&externalId=${TENANT}`;
@@ -406,6 +434,11 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     expect(body).toMatchObject({ status: 'CONFIRMED', splits: [{ financialCategoryCode: 'RENT_BASE' }, { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' }] });
     expect(read.headers.get('etag')).toBe(`"${body.version}"`);
     expect((await pool.query(`SELECT count(*) FROM audit_record`)).rows).toEqual(before.rows);
+    // Realm A cancels its draft (no VALID Ownership carries it); a repeat keeps the first reason.
+    expect(await json(await call(REALM_A, 'POST', `/acquisitions/${draftPurchase.acquisitionId}/cancel`, { reason: 'Kauf geplatzt' }), 200)).toMatchObject({
+      status: 'CANCELLED',
+      cancellationReason: 'Kauf geplatzt',
+    });
   });
 
   it('corrects a confirmed import by reversal + replacement; a re-import still finds the original (VC-1-11)', async () => {

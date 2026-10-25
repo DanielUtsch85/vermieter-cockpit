@@ -6,6 +6,7 @@ export { MAX_SHARE_DENOMINATOR, ZERO, compareToOne, formatShare, parseShare, sum
 export type { Fraction, Share, ShareError } from './share.js';
 export { OWNERSHIP_STATUSES, checkInvariants, createFingerprint, ownershipOn, planClose, planVoid } from './ownership.js';
 export type {
+  AcquisitionRefusal,
   ClosePlan,
   CloseOwnershipOutcome,
   Completeness,
