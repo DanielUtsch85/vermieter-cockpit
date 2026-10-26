@@ -65,6 +65,25 @@ describe('largestRemainder', () => {
     expect(largestRemainder(1n, weights)).toEqual(new Map([['a', 0n], ['b', 0n], ['c', 1n]]));
   });
 
+  it('stays exact above 2^53 cents, where a floating-point variant is off by one (review on #55)', () => {
+    // Number(9007199254740995n) is 9007199254740996: any float step would overshoot here.
+    expect(largestRemainder(9_007_199_254_740_995n, [{ key: 'a', weight: { numerator: 1n, denominator: 1n } }])).toEqual(new Map([['a', 9_007_199_254_740_995n]]));
+    const third = { numerator: 1n, denominator: 3n };
+    const parts = largestRemainder(99_999_999_999_999_999_999n, [
+      { key: 'a', weight: third },
+      { key: 'b', weight: third },
+      { key: 'c', weight: third },
+    ]);
+    expect([...parts.values()]).toEqual([33_333_333_333_333_333_333n, 33_333_333_333_333_333_333n, 33_333_333_333_333_333_333n]);
+    const odd = largestRemainder(9_007_199_254_740_995n, [
+      { key: 'a', weight: third },
+      { key: 'b', weight: third },
+      { key: 'c', weight: third },
+    ]);
+    expect([...odd.values()]).toEqual([3_002_399_751_580_332n, 3_002_399_751_580_332n, 3_002_399_751_580_331n]);
+    expect([...odd.values()].reduce((x, y) => x + y, 0n)).toBe(9_007_199_254_740_995n);
+  });
+
   it('cents round-trip exactly', () => {
     for (const amount of ['0.00', '0.01', '0.10', '12.34', '999999999999999.99']) expect(fromCents(toCents(eur(amount)), 'EUR').amount).toBe(amount);
   });
@@ -142,7 +161,9 @@ describe('planOwnerAllocation', () => {
         })(n, denominator);
         return own(`o${i}`, `p${String(i).padStart(2, '0')}`, n / g, denominator / g);
       });
-      const cents = () => BigInt(random(1_000_000)) * BigInt(random(1_000_000_000) + 1);
+      // Up to just under 10^19 cents, far above 2^53 (≈ 9·10^15), so a floating-point step would show (review on #55);
+      // bounded so that the sums of up to four categories stay within Money's 18 integer digits.
+      const cents = () => (BigInt(random(100_000_000)) * 100_000_000_000n + BigInt(random(1_000_000_000)) * 100n + BigInt(random(100))) % 10_000_000_000_000_000_000n;
       const amount = (c: bigint) => fromCents(c, 'EUR');
       const priceCents = cents() + 1n;
       const costs = new Map<CostCategory, Money>(categories.slice(0, random(5)).map((c) => [c, amount(cents())]));
