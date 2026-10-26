@@ -243,7 +243,7 @@ Specified in API §35.6 and data-model §17.8.
 | `CONFIRMED` answers; a `DRAFT` only as `PROVISIONAL` with requirements 2–5 of §28.1 (the confirmation's own `structureViolations`), else `409` with the violations; `CANCELLED` is `409` | OA "status: …"; OS "the status answers …" |
 | Realm isolation | OS (another Realm is not found) |
 
-## 15. Phase 2 exit (VC-2-10, roadmap Phase 2)
+## 15. Phase 2 exit (VC-2-10, roadmap Phase 2; implemented)
 
 The exit of `docs/roadmap.md` Phase 2, claim by claim, each shown **end to end through the HTTP API** by **ACC2** (one
 scenario against PostgreSQL and the fake MRE, as ACC does for Slice 1), and backed by the sections above.
@@ -252,12 +252,14 @@ scenario against PostgreSQL and the fake MRE, as ACC does for Slice 1), and back
 |---|---|---|
 | An acquisition with **purchase price** + **transaction costs** + **land/building split** exists | A draft (price 300,000.00, buyers Anna and Ben, seller Sven, transfer date 2026-08-01); costs (transfer tax, notary, broker; a wrong one voided); a confirmed bank Transaction linked to the price and the tax; the allocation entered, then corrected (supersede) | §10, §11, §13 |
 | It **drives owner-level allocation** | The confirmed Acquisition's `owner-allocation`: Anna and Ben 1/2 each, every column exact to the cent (an odd cost amount, e.g. notary 1,234.57, so a column has an odd cent, which goes by `ownerPartyId`), per-owner totals equal to their parts; the corrected allocation is the one used; a `DRAFT` without its structure is `409` | §12, §14 |
-| **Ownership changes over time are queryable** | Sven 1/1 since 2020; the atomic change on the transfer date (Sven closed, Anna and Ben created with the `acquisitionId`); `asOf` before, on and after the date, and the history | §9, §9a |
+| **Ownership changes over time are queryable** | Sven 1/1 since 2020; the atomic change on the transfer date (Sven closed, Anna and Ben created with the `acquisitionId`); `asOf` before (`NONE` before 2020, Sven 1/1 on the eve), on and after the date (Anna and Ben 1/2, `COMPLETE`), and the history (three periods) | §9, §9a |
 | **Ownership shares validated** | An extra 1/2 for Carl from the transfer date is `422 OWNERSHIP_TOTAL_EXCEEDS_ONE` with `details.date = 2026-08-01` and `details.shareSum = 3/2` (§26.1); a confirm before the change is `422 CONFIRMATION_BLOCKED` with the violations; after confirmation Anna's Ownership cannot be voided (`409 ACQUISITION_CONFIRMED`) but closes | §9, §12 |
-| **Realm isolation** across Phase 2 | Realm B gets `404` on **every route of api-design §19–§28** called with an id of Realm A (reads and commands, each a row of one table in ACC2 that the test iterates, so a forgotten route shows as a missing row) and empty lists of its own | §4, §8–§14 |
+| **Realm isolation** across Phase 2 | Realm B gets `404` on **every route of api-design §19–§28** called with an id of Realm A (reads and commands, each a row of one table in ACC2 that the test iterates) and empty lists of its own; nothing is written. The table is compared with the routes the app serves (Express' router stack, filtered to the Phase-2 paths), so a new route without a row turns ACC2 red. `POST /parties` takes no id: what it creates belongs to Realm B and is `404` for Realm A | §4, §8–§14 |
 
 ACC2 also checks the traceability that every write promises: AuditRecords for the acquisition's steps (`CREATED`,
-`CONFIRMED`), the costs (`CREATED`, `VOIDED`), the payments (`LINKED`) and the allocations (`CREATED`, `SUPERSEDED`).
+`CONFIRMED`), the costs (`CREATED`, `VOIDED`), the payments (`LINKED`) and the allocations (`CREATED`, `SUPERSEDED`),
+exactly these and with their entity ids. Counter-checked: the tie-break reversed, an extra route, the Realm filter
+dropped from the Acquisition read, and a missing `VOIDED` record each turn ACC2 red.
 
 ## Keeping this current
 
