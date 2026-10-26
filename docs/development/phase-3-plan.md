@@ -64,6 +64,10 @@ flows into the ledger via `TransactionSplit`; remaining debt is derived, never s
   only, principal at maturity). Linear repayment (Tilgungsdarlehen) is a later item.
 - **The rate is entered as on the contract**, not computed from `initialRepaymentRate`. Banks round the rate in
   their own ways, so DE does not guess a rule.
+- **An annuity must repay (review on #58):** for `ANNUITY`, `scheduledPayment` must exceed the first period's
+  interest on the balance at the start of the period. Otherwise principal would be ≤ 0, the balance would never fall,
+  and the plan would run to the 50-year cap. Such terms are refused with
+  `422 PAYMENT_DOES_NOT_COVER_INTEREST` and `details.firstInterest`.
 - Periods do not overlap and are **appended**, never overwritten. A follow-up rate (Anschlussfinanzierung) with
   the same lender is a new period. The first period starts on or after `disbursementDate`.
 - **Append-only:**
@@ -113,10 +117,26 @@ flows into the ledger via `TransactionSplit`; remaining debt is derived, never s
 - **Rules for a split with `loanId`** (lifting §33.2's `NOT_SUPPORTED`):
   - the Loan is of the Realm and not `VOID`;
   - the category is `LOAN_INTEREST` or `LOAN_PRINCIPAL`, else `422 INVALID_LOAN_SPLIT`;
-  - the Transaction is `OUTFLOW`;
+  - the Transaction is `OUTFLOW`, unless it is a **reversal** (`correctionRole = REVERSAL`, review on #58). A
+    reversal has the opposite direction and mirrors the original's splits (§35.3, 0014), and it never counts
+    (it is not current). Originals and replacements are `OUTFLOW`;
   - there is no `propertyReferenceId`: a Loan's property attribution comes only from its allocation (BR-FIN-002,
     BR-FIN-007), so it cannot be attributed twice. A `LOAN_*` split **without** `loanId` stays allowed and counts
     for no Loan.
+  - **Consequence for property reports:** per-property figures (§35.3's net effect per PropertyReference, Phase 7
+    tax, Phase 9 reports) must attribute splits with `loanId` through the Loan's allocation valid on their booking
+    date (P3-D3). Otherwise a property's interest would be missing. VC-3-06's derived reads do exactly that and are
+    the source those phases use.
+- **Corrections of a payment (review on #58):**
+  - a reversal **mirrors `loanId`** together with category, PropertyReference and amount. 0014's comparison
+    (the multiset of mirrored splits) gains `loan_id`, so a reversal cannot drop or change it, and each Loan's
+    history stays complete;
+  - a replacement carries its own splits, with or without `loanId`, under the rules above. This is how a
+    forgotten `loanId` is added, or a wrong Loan or a wrong interest/principal split is fixed;
+  - **closing date (P3-D7):** a reversal takes the original's booking date (§35.3), so it is allowed whenever the
+    original was, also after the Loan was closed. A replacement whose booking date is after `closingDate` is
+    refused like any new split;
+  - VC-3-05 tests both: `correct` and `reverse` of a payment with `loanId`, and the counts before and after.
 - **What counts:** splits of current Transactions (§35.3: `CONFIRMED` or `RECONCILED`, and not a reversal), by
   booking date. A correction replaces them through the replacement's splits. Unconfirmed Transactions do not count.
 - **Proposal, not booking:** `GET /loans/{id}/payment-proposal?transactionId=` proposes the two splits for an
@@ -184,7 +204,19 @@ flows into the ledger via `TransactionSplit`; remaining debt is derived, never s
   - P3-D4: the split rules;
   - P3-D7: no split after `closingDate`.
 - Each trigger is written the way 0009–0014 guard the ledger, with a concurrency test under RC and RR.
-- **Lock order:** Loan before the Transaction it is checked against, as Acquisition before Transaction (§27.2).
+- **Lock order: Transaction → Loan (review on #58).** P3-D4 writes `loanId` through the ledger's own path
+  (`PUT /transactions/{id}/splits`, confirm, `correct`, `reverse`). That path locks the Transaction first (§34.2,
+  §35.5), so the split guard takes the Loan **after** it. With several Loans in one Transaction it takes them in
+  id order.
+  - **The guard writes the Loan row** with the no-op `UPDATE … SET version = version`, as 0022 does for the
+    Acquisition (lesson of #50), rather than reading it `FOR SHARE`. Under REPEATABLE READ a share lock would not
+    abort a stale `close` or `void`; the write gives `40001`. The Loan's frozen-fields trigger allows that no-op.
+  - **Loan writers never lock a Transaction** (void, close, terms, allocations, statements). They lock the Loan row
+    and only read splits and Transactions, so no cycle can arise.
+  - A `void` or `close` and a split write therefore serialise on the Loan row. Whichever waits sees the other's
+    result (READ COMMITTED) or fails to serialise (REPEATABLE READ).
+  - This is the reverse of §27.2's Acquisition → Transaction, because there the link is written from the
+    Acquisition side.
 - Reads use one `REPEATABLE READ READ ONLY` snapshot.
 
 ---
