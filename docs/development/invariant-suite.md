@@ -229,6 +229,19 @@ Specified in API §35.6 and data-model §17.8.
 | Allocations serialise on the Acquisition row with each other and with cancel (RC: the waiter sees the other; RR: `40001`) | LA "concurrency …" |
 | Realm isolation | LA ("the order of checks": foreign Acquisition and advisor not found; "list": foreign is `undefined`) |
 
+## 14. Owner-level allocation (VC-2-09, api-design §27.4)
+
+`OA` = `domains/acquisition/owner-allocation.test.ts`, `OS` = `owner-allocation-source.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Split among the Acquisition's own buyers by weight = share / `acquiredShare` (a partial acquisition's buyer carries everything); a closed Ownership still counts | OA "a partial acquisition …"; OS "reads one snapshot …" |
+| Cents by largest remainder per amount, ties by `ownerPartyId`; parts ≥ 0, every column exact, every part within a cent of `A·w` | OA "largestRemainder", "property: …" (400 random cases, up to 20 owners, denominators up to 10 000) |
+| Totals derived from the parts, never distributed (F4b; the review counterexample 3/7, 3/7, 1/7 → 5/4/2) | OA "the review counterexample …", "property: …" |
+| Price, each cost category over `ACTIVE` costs, and the current allocation's land and building, from one snapshot | OS "reads one snapshot …" |
+| `CONFIRMED` answers; a `DRAFT` only as `PROVISIONAL` with requirements 2–5 of §28.1 (the confirmation's own `structureViolations`), else `409` with the violations; `CANCELLED` is `409` | OA "status: …"; OS "the status answers …" |
+| Realm isolation | OS (another Realm is not found) |
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

@@ -321,7 +321,7 @@ function toDto(a: Acquisition) {
 }
 
 /** Fractions as reduced `n/d` strings (§26.1). */
-function violationDto(v: ConfirmationViolation) {
+export function violationDto(v: ConfirmationViolation) {
   switch (v.code) {
     case 'SHARE_SUM_MISMATCH':
       return { code: v.code, expected: formatShare(v.expected), actual: formatShare(v.actual) };
