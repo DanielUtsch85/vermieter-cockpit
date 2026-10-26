@@ -247,6 +247,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     });
   });
 
+  // This pins the lock order (PropertyReference first): without the cancel's PropertyReference write it would wait on the
+  // Acquisition's FOR UPDATE instead and still see the Ownership, so the test would then fail by the waitUntil timeout,
+  // not by a wrong outcome (review on #47).
   it('a cancel racing an Ownership create for the draft: the create holds the Acquisition FOR SHARE, the cancel then sees its Ownership', async () => {
     const pr = await propertyReference();
     const anna = await party('Anna');
@@ -345,6 +348,32 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     await expect(
       pool.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'SELLER', 1)`, [b.id, OTHER_REALM, ben]),
     ).rejects.toThrow(/acquisition_party_acquisition_fk/);
+  });
+
+  it('the database keeps both directions past the repository: no new Ownership on a non-DRAFT, no cancel while VALID Ownerships carry it', async () => {
+    const pr = await propertyReference();
+    const [anna, ben] = [await party('Anna'), await party('Ben')];
+    const insertOwnership = (owner: string, acquisitionId: string) =>
+      pool.query(
+        `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
+         VALUES ($1, $2, $3, 1, 2, '2026-08-01', 'VALID', $4, 'x')`,
+        [REALM, pr, owner, acquisitionId],
+      );
+    const cancelled = await created(draft(pr, [anna]));
+    await acquisitions.cancel(cancelled.id, REALM, 'x', new Date(), actor);
+    await expect(insertOwnership(anna, cancelled.id)).rejects.toThrow(/is CANCELLED, only a DRAFT takes new Ownerships \(ACQUISITION_NOT_DRAFT\)/);
+    const confirmed = await created(draft(pr, [anna]));
+    await pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = 2 WHERE id = $1`, [confirmed.id]);
+    await expect(insertOwnership(anna, confirmed.id)).rejects.toThrow(/ACQUISITION_NOT_DRAFT/);
+
+    const carried = await created(draft(pr, [ben]));
+    await insertOwnership(ben, carried.id);
+    const cancel = () =>
+      pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = 2 WHERE id = $1`, [carried.id]);
+    await expect(cancel()).rejects.toThrow(/ACQUISITION_HAS_VALID_OWNERSHIPS/);
+    // Once voided, the Ownership no longer counts: the cancel goes through.
+    await pool.query(`UPDATE ownership SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE acquisition_id = $1`, [carried.id]);
+    await cancel();
   });
 
   it('the invariant trigger message shows the sum as integers (review on #45)', async () => {

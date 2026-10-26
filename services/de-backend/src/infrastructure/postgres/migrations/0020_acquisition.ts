@@ -13,7 +13,12 @@ import { sql, type Kysely } from 'kysely';
  *   `updated_at` move with it. Parties are written with the Acquisition only: no change or delete, and no new row once
  *   it left `DRAFT`.
  * - `ownership.acquisition_id`: composite FK to `(id, mre_realm_id, property_reference_id)`, so an Ownership links an
- *   Acquisition of its own Realm and PropertyReference; fixed after creation (`ownership_frozen`). With it the
+ *   Acquisition of its own Realm and PropertyReference; fixed after creation (`ownership_frozen`).
+ * - Both directions of "a `VALID` Ownership never hangs on a purchase that did not happen" hold in the database too
+ *   (review on #47): `ownership_acquisition_draft` lets a new Ownership link only a `DRAFT` (its status read
+ *   `FOR SHARE`, so a running cancel is waited for and its result seen), and `acquisition_frozen` refuses
+ *   `DRAFT` → `CANCELLED` while a `VALID` Ownership carries the id (a fresh snapshot per statement under READ
+ *   COMMITTED, so an Ownership insert holding the Acquisition `FOR SHARE` is waited for and seen). With it the
  *   invariant trigger reduces sums with `div`, so its message shows `n/d` integers (review on #45).
  */
 const ownershipFrozen = (withAcquisition: boolean) =>
@@ -163,6 +168,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       IF OLD.status <> 'DRAFT' AND NEW IS DISTINCT FROM OLD THEN
         RAISE EXCEPTION 'Acquisition %: % is final (api-design §27.1)', OLD.id, OLD.status USING ERRCODE = 'integrity_constraint_violation';
       END IF;
+      IF OLD.status = 'DRAFT' AND NEW.status = 'CANCELLED'
+         AND EXISTS (SELECT 1 FROM ownership WHERE acquisition_id = OLD.id AND status = 'VALID') THEN
+        RAISE EXCEPTION 'Acquisition %: VALID Ownerships carry it; void them first (ACQUISITION_HAS_VALID_OWNERSHIPS)', OLD.id
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
       IF NEW.status = 'DRAFT' AND (NEW.version, NEW.updated_at) IS DISTINCT FROM (OLD.version, OLD.updated_at) THEN
         RAISE EXCEPTION 'Acquisition %: version and updated_at change only with a status transition (api-design §27.1)', OLD.id
           USING ERRCODE = 'integrity_constraint_violation';
@@ -197,6 +207,24 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       REFERENCES acquisition (id, mre_realm_id, property_reference_id)
   `.execute(db);
   await sql`CREATE INDEX ownership_acquisition_idx ON ownership (acquisition_id) WHERE acquisition_id IS NOT NULL`.execute(db);
+  await sql`
+    CREATE FUNCTION ownership_acquisition_draft() RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE
+      acquisition_status text;
+    BEGIN
+      SELECT status INTO acquisition_status FROM acquisition WHERE id = NEW.acquisition_id FOR SHARE;
+      -- An unknown id is left to the foreign key.
+      IF acquisition_status IS DISTINCT FROM 'DRAFT' AND acquisition_status IS NOT NULL THEN
+        RAISE EXCEPTION 'Ownership: Acquisition % is %, only a DRAFT takes new Ownerships (ACQUISITION_NOT_DRAFT)', NEW.acquisition_id, acquisition_status
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      RETURN NEW;
+    END $$
+  `.execute(db);
+  await sql`
+    CREATE TRIGGER ownership_acquisition_draft BEFORE INSERT ON ownership
+      FOR EACH ROW WHEN (NEW.acquisition_id IS NOT NULL) EXECUTE FUNCTION ownership_acquisition_draft()
+  `.execute(db);
   await sql`${ownershipFrozen(true)}`.execute(db);
   await sql`${ownershipInvariants(true)}`.execute(db);
 }
@@ -204,6 +232,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`${ownershipInvariants(false)}`.execute(db);
   await sql`${ownershipFrozen(false)}`.execute(db);
+  await sql`DROP TRIGGER ownership_acquisition_draft ON ownership`.execute(db);
+  await sql`DROP FUNCTION ownership_acquisition_draft()`.execute(db);
   await sql`ALTER TABLE ownership DROP COLUMN acquisition_id`.execute(db);
   await sql`DROP TABLE acquisition_party`.execute(db);
   await sql`DROP FUNCTION acquisition_party_frozen()`.execute(db);
