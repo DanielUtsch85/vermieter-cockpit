@@ -76,6 +76,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     share: share('1/2'),
     validFrom: day('2026-08-01'),
     validUntil: null,
+    acquisitionId: null,
     sourceReferences: [],
     notes: null,
     ...overrides,
@@ -111,7 +112,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     expect((await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'Ownership' AND entity_id = $1`, [ownership.id])).rows).toEqual([
       {
         action: 'CREATED',
-        metadata: { propertyReferenceId: pr, ownerPartyId: anna, share: '1/2', validFrom: '2026-08-01', validUntil: '2035-03-31' },
+        metadata: { propertyReferenceId: pr, ownerPartyId: anna, share: '1/2', validFrom: '2026-08-01', validUntil: '2035-03-31', acquisitionId: null },
       },
     ]);
   });

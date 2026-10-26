@@ -173,6 +173,19 @@ Specified in API §35.6 and data-model §17.8.
 | One lock order with every Ownership writer (PropertyReference, Parties, Ownerships): a concurrent close is waited for and seen | OC "serialises with a concurrent close …" |
 | Realm isolation | OC (another Realm's PropertyReference `PROPERTY_REFERENCE_NOT_FOUND`); ACC (Realm B gets `404`) |
 
+## 10. Acquisition (VC-2-05, api-design §27.1)
+
+`AR` = `acquisition-repository.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| A draft with price > 0 (EUR, ≤ 2 decimals), a reduced share, transfer dates not before the contract, buyers active, parties in their order; a refusal writes nothing | AR "create: …", "create: the order of checks …", "the schema: …" |
+| Data fixed after creation; status only `DRAFT` → `CANCELLED`/`CONFIRMED`, then final; parties never change (also past the repository) | AR "the schema: …" |
+| Cancel once; a repeat keeps the first reason; confirmed is final; refused while `VALID` Ownerships carry it (review on #46), also past the repository by `acquisition_frozen` (review on #47) | AR "cancel: …", "the database keeps both directions past the repository …" |
+| An Ownership links only an Acquisition of its own Realm and PropertyReference (composite FK) that is a `DRAFT` (repository, and past it by `ownership_acquisition_draft`, review on #47), fixed afterwards; also via `ownership-changes` | AR "the Ownership link: …", "the database keeps both directions past the repository …" |
+| Cancel and an Ownership create for the draft serialise (PropertyReference, then Acquisition): the cancel sees the new Ownership | AR "a cancel racing an Ownership create …" |
+| Realm isolation | AR (`findById`, `cancel` other Realm); ACC (Realm B gets `404` on create, read, cancel and the PropertyReference list; its list is empty) |
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

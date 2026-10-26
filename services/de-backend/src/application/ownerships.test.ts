@@ -30,6 +30,7 @@ const fields = {
   share: { numerator: 1, denominator: 2 },
   validFrom: day('2026-08-01'),
   validUntil: null,
+  acquisitionId: null,
   sourceReferences: [],
   notes: null,
 };
@@ -92,7 +93,7 @@ describe('Ownership use cases', () => {
 });
 
 describe('Ownership change use case', () => {
-  const change = { propertyReferenceId: 'pr', effectiveDate: day('2030-01-01'), reason: 'Verkauf', close: ['o1'], create: [] };
+  const change = { propertyReferenceId: 'pr', effectiveDate: day('2030-01-01'), reason: 'Verkauf', close: ['o1'], create: [], acquisitionId: null };
   const result = { propertyReferenceId: 'pr' } as ChangeResult;
   const changer = (outcome: Awaited<ReturnType<OwnershipChangeRepository['change']>>, calls: unknown[][] = []) =>
     changeOwnership({

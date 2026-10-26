@@ -74,7 +74,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
   }
   async function holding(pr: string, ownerPartyId: string, text = '1/2', from = '2026-08-01', until: string | null = null) {
     const outcome = await ownerships.create(
-      { mreRealmId: REALM, propertyReferenceId: pr, ownerPartyId, share: share(text), validFrom: day(from), validUntil: until === null ? null : day(until), sourceReferences: [], notes: null },
+      { mreRealmId: REALM, propertyReferenceId: pr, ownerPartyId, share: share(text), validFrom: day(from), validUntil: until === null ? null : day(until), acquisitionId: null, sourceReferences: [], notes: null },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -87,6 +87,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
     reason: 'Verkauf',
     close,
     create,
+    acquisitionId: null,
     ...overrides,
   });
   /** A complete 50/50 ownership of Anna and Ben. */

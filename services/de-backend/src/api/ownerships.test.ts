@@ -2,6 +2,8 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AcquisitionNotDraftError,
+  AcquisitionNotFoundError,
   IdempotencyKeyConflictError,
   InvalidOwnershipError,
   OverlappingOwnershipError,
@@ -109,12 +111,13 @@ describe('POST /api/v1/ownerships', () => {
       validUntil: null,
       sourceReferences: ['Grundbuch Blatt 1234'],
       notes: null,
+      acquisitionId: null,
       idempotencyKey: 'k1',
     });
     expect((await call(base, 'POST', '/ownerships', body, { 'idempotency-key': 'k1' })).headers.get('idempotent-replayed')).toBe('true');
   });
 
-  it('400 with the field codes: share format and range, dates, validUntil before validFrom, acquisitionId NOT_SUPPORTED, unknown keys', async () => {
+  it('400 with the field codes: share format and range, dates, validUntil before validFrom, a malformed acquisitionId, unknown keys', async () => {
     const base = await start({});
     const fieldsOf = async (payload: unknown) => {
       const res = await call(base, 'POST', '/ownerships', payload);
@@ -126,7 +129,7 @@ describe('POST /api/v1/ownerships', () => {
     expect(await fieldsOf({ ...body, share: '1/10001' })).toEqual([{ field: 'share', code: 'OUT_OF_RANGE' }]);
     expect(await fieldsOf({ ...body, validFrom: '2026-02-30' })).toEqual([{ field: 'validFrom', code: 'INVALID_FORMAT' }]);
     expect(await fieldsOf({ ...body, validUntil: '2026-07-31' })).toEqual([{ field: 'validUntil', code: 'BEFORE_VALID_FROM' }]);
-    expect(await fieldsOf({ ...body, acquisitionId: PR })).toEqual([{ field: 'acquisitionId', code: 'NOT_SUPPORTED' }]);
+    expect(await fieldsOf({ ...body, acquisitionId: 'x' })).toEqual([{ field: 'acquisitionId', code: 'INVALID_FORMAT' }]);
     for (const bad of [{ ...body, ownershipType: 'x' }, { ...body, sourceDocumentId: PR }, { ...body, ownerPartyId: 'x' }, { ...body, sourceReferences: Array(11).fill('x') }]) {
       await fieldsOf(bad);
     }
@@ -138,6 +141,8 @@ describe('POST /api/v1/ownerships', () => {
     [new OwnerInactiveError(PARTY), 422, 'PARTY_INACTIVE', { partyId: PARTY }],
     [new OverlappingOwnershipError(ID), 422, 'OVERLAPPING_OWNERSHIP', { ownershipId: ID }],
     [new OwnershipTotalExceedsOneError('2027-01-01' as BusinessDate, { numerator: 13n, denominator: 12n }), 422, 'OWNERSHIP_TOTAL_EXCEEDS_ONE', { date: '2027-01-01', shareSum: '13/12' }],
+    [new AcquisitionNotFoundError(ID), 404, 'NOT_FOUND', { acquisitionId: ID }],
+    [new AcquisitionNotDraftError(ID, 'CANCELLED'), 422, 'ACQUISITION_NOT_DRAFT', { acquisitionId: ID, status: 'CANCELLED' }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
     const base = await start({ createOwnership: async () => Promise.reject(error) });
@@ -280,7 +285,7 @@ describe('POST /api/v1/property-references/{id}/ownership-changes', () => {
     expect((await call(base, 'POST', `/property-references/${PR}/ownership-changes`, changeBody)).status).toBe(200);
   });
 
-  it('400 with the field codes: nothing to do, duplicates, acquisitionId, bad share or date, unknown keys', async () => {
+  it('400 with the field codes: nothing to do, duplicates, a malformed acquisitionId, bad share or date, unknown keys', async () => {
     const base = await start({});
     const fieldsOf = async (payload: unknown) => {
       const res = await call(base, 'POST', `/property-references/${PR}/ownership-changes`, payload);
@@ -292,8 +297,10 @@ describe('POST /api/v1/property-references/{id}/ownership-changes', () => {
     expect(await fieldsOf({ ...changeBody, create: [{ ownerPartyId: PARTY, share: '1/4' }, { ownerPartyId: PARTY, share: '1/4' }] })).toEqual([
       { field: 'create.1.ownerPartyId', code: 'DUPLICATE' },
     ]);
-    expect(await fieldsOf({ ...changeBody, acquisitionId: ID })).toEqual([{ field: 'acquisitionId', code: 'NOT_SUPPORTED' }]);
+    expect(await fieldsOf({ ...changeBody, acquisitionId: 'x' })).toEqual([{ field: 'acquisitionId', code: 'INVALID_FORMAT' }]);
     expect(await fieldsOf({ ...changeBody, create: [{ ownerPartyId: PARTY, share: '3/2' }] })).toEqual([{ field: 'create.0.share', code: 'OUT_OF_RANGE' }]);
+    // Wrong types do not crash the refinements (400, never 500).
+    for (const bad of [{ ...changeBody, close: 'x' }, { ...changeBody, create: 'x' }, { ...changeBody, create: [null] }]) await fieldsOf(bad);
     for (const bad of [{ ...changeBody, reason: ' ' }, { ...changeBody, effectiveDate: 'x' }, { ...changeBody, create: [{ ownerPartyId: PARTY, share: '1/2', validFrom: '2030-01-01' }] }, { ...changeBody, extra: 1 }]) {
       await fieldsOf(bad);
     }

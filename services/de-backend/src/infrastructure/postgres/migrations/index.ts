@@ -18,6 +18,7 @@ import * as m0016 from './0016_party.js';
 import * as m0017 from './0017_party_external_reference.js';
 import * as m0018 from './0018_party_guards.js';
 import * as m0019 from './0019_ownership.js';
+import * as m0020 from './0020_acquisition.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -45,4 +46,5 @@ export const migrations: Record<string, Migration> = {
   '0017_party_external_reference': m0017,
   '0018_party_guards': m0018,
   '0019_ownership': m0019,
+  '0020_acquisition': m0020,
 };

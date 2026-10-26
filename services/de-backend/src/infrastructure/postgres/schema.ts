@@ -100,6 +100,7 @@ export interface OwnershipTable {
   valid_until: string | null;
   status: string;
   voided_at: Date | null;
+  acquisition_id: string | null;
   void_reason: string | null;
   source_references: Generated<string[]>;
   notes: string | null;
@@ -107,6 +108,38 @@ export interface OwnershipTable {
   created_by: string;
   updated_at: Generated<Date>;
   version: Generated<number>;
+}
+
+export interface AcquisitionTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  property_reference_id: string;
+  status: string;
+  purchase_price: string;
+  currency: string;
+  acquired_share_numerator: number;
+  acquired_share_denominator: number;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  contract_date: string;
+  economic_transfer_date: string | null;
+  land_registry_transfer_date: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  cancelled_at: Date | null;
+  cancellation_reason: string | null;
+  confirmed_at: Date | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface AcquisitionPartyTable {
+  acquisition_id: string;
+  mre_realm_id: string;
+  party_id: string;
+  role: string;
+  position: number;
 }
 
 export interface IdempotencyKeyTable {
@@ -231,6 +264,8 @@ export interface Database {
   party: PartyTable;
   party_external_reference: PartyExternalReferenceTable;
   ownership: OwnershipTable;
+  acquisition: AcquisitionTable;
+  acquisition_party: AcquisitionPartyTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;

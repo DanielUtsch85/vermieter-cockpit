@@ -24,6 +24,11 @@ import type {
   ResolveReviewItem,
   SetTransactionSplits,
   AmendParty,
+  CancelAcquisition,
+  CreateAcquisition,
+  GetAcquisition,
+  ListAcquisitions,
+  ListPropertyAcquisitions,
   ChangeOwnership,
   CloseOwnership,
   CreateOwnership,
@@ -46,6 +51,7 @@ import { importRoutes } from './imports.js';
 import { partyRoutes } from './parties.js';
 import { externalReferenceRoutes } from './party-external-references.js';
 import { ownershipRoutes } from './ownerships.js';
+import { acquisitionRoutes } from './acquisitions.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
 
@@ -80,6 +86,12 @@ export interface AppDependencies {
   readonly readPropertyOwnerships: ReadPropertyOwnerships;
   /** Ownership change (VC-2-04). */
   readonly changeOwnership: ChangeOwnership;
+  /** Acquisition (VC-2-05). */
+  readonly createAcquisition: CreateAcquisition;
+  readonly getAcquisition: GetAcquisition;
+  readonly listAcquisitions: ListAcquisitions;
+  readonly listPropertyAcquisitions: ListPropertyAcquisitions;
+  readonly cancelAcquisition: CancelAcquisition;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -162,6 +174,15 @@ export function createApp(deps: AppDependencies): Express {
       void: deps.voidOwnership,
       read: deps.readPropertyOwnerships,
       change: deps.changeOwnership,
+    }),
+  );
+  api.use(
+    acquisitionRoutes({
+      create: deps.createAcquisition,
+      get: deps.getAcquisition,
+      list: deps.listAcquisitions,
+      listForPropertyReference: deps.listPropertyAcquisitions,
+      cancel: deps.cancelAcquisition,
     }),
   );
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));

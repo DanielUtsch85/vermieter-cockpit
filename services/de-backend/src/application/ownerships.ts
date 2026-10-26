@@ -85,6 +85,27 @@ export class OwnershipIncompleteError extends Error {
   }
 }
 
+/** The `acquisitionId` names no Acquisition of this Realm and PropertyReference (→ 404, §27.1). */
+export class AcquisitionNotFoundError extends Error {
+  override readonly name = 'AcquisitionNotFoundError';
+
+  constructor(readonly acquisitionId: string) {
+    super(`Acquisition ${acquisitionId} not found`);
+  }
+}
+
+/** The Acquisition is no longer a draft (→ 422 ACQUISITION_NOT_DRAFT, §27.1). */
+export class AcquisitionNotDraftError extends Error {
+  override readonly name = 'AcquisitionNotDraftError';
+
+  constructor(
+    readonly acquisitionId: string,
+    readonly status: string,
+  ) {
+    super(`Acquisition ${acquisitionId} is ${status}`);
+  }
+}
+
 const actorOf = (principal: RealmPrincipal) => ({ actorType: 'USER', actorId: principal.email }) as const;
 
 export interface CreateOwnershipInput extends Omit<NewOwnership, 'mreRealmId'> {
@@ -119,6 +140,10 @@ export function createOwnership(deps: { readonly repository: OwnershipRepository
         throw new OverlappingOwnershipError(outcome.ownershipId);
       case 'OWNERSHIP_TOTAL_EXCEEDS_ONE':
         throw new OwnershipTotalExceedsOneError(outcome.date, outcome.shareSum);
+      case 'ACQUISITION_NOT_FOUND':
+        throw new AcquisitionNotFoundError(outcome.acquisitionId);
+      case 'ACQUISITION_NOT_DRAFT':
+        throw new AcquisitionNotDraftError(outcome.acquisitionId, outcome.status);
     }
   };
 }
@@ -237,6 +262,10 @@ export function changeOwnership(deps: { readonly repository: OwnershipChangeRepo
         throw new OwnershipTotalExceedsOneError(outcome.date, outcome.shareSum);
       case 'OWNERSHIP_INCOMPLETE':
         throw new OwnershipIncompleteError(outcome.date, outcome.shareSum);
+      case 'ACQUISITION_NOT_FOUND':
+        throw new AcquisitionNotFoundError(outcome.acquisitionId);
+      case 'ACQUISITION_NOT_DRAFT':
+        throw new AcquisitionNotDraftError(outcome.acquisitionId, outcome.status);
     }
   };
 }

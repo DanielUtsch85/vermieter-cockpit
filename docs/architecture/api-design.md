@@ -838,7 +838,7 @@ POST /api/v1/acquisitions/{acquisitionId}/confirm                   (VC-2-07, §
 POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08)
 ```
 
-## 27.1 Contract (VC-2-05)
+## 27.1 Contract (VC-2-05, implemented: migration 0020)
 
 - **Domain owner:** Acquisition. **Authorization:** as §19.1; an Acquisition belongs to the caller's Realm, and so do its PropertyReference, buyers and sellers. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
 - **What it is:** the purchase of a **share** of a PropertyReference (`acquiredShare`, P2-D8): "B buys A's half" is an Acquisition with `acquiredShare = 1/2` and buyer B. It is not tied to MRE `Property.price` (mre-integration §32), and it never creates or changes Ownerships itself: WF-002 creates them with the Acquisition's id (§26.1, §26.2).
@@ -873,8 +873,10 @@ POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08)
 
 - Body `{ "reason": "..." }` (required, trimmed, 1–500). `200` with the Acquisition (`status = CANCELLED`, `cancelledAt`, `cancellationReason`, `version` + 1); AuditRecord `CANCELLED` with the reason.
 - Cancelling a cancelled Acquisition is a `200` no-op keeping the first reason and time. A `CONFIRMED` one is final: `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"`.
+- While `VALID` Ownerships carry its id, cancel is `409 CONFLICT` with `reason = "ACQUISITION_HAS_VALID_OWNERSHIPS"` and `details.ownershipIds` (review on #46): a share from a purchase that never happened must not keep counting. Void them first (§26.1), then cancel.
+- **Locks:** the PropertyReference first (the no-op write of every Ownership writer), then the Acquisition `FOR UPDATE`, then its Ownerships are read. That is the order PropertyReference → Parties → Acquisition → Ownerships of every path, so cancel serialises with an Ownership create for the draft (which reads the Acquisition `FOR SHARE`) and with VC-2-06/VC-2-07, without a lock cycle.
 - `If-Match` as §16.1; a no-op answers regardless of the version.
-- Ownerships carrying the id are not touched (an Acquisition never changes Ownerships); they stay as recorded and can be voided (§26.1) if they were wrong. From VC-2-06 on, its costs and payment links stay readable but count nowhere (P2-D6), and cancel serialises with payment writes (P2-D7).
+- Ownerships are never touched by an Acquisition (P2-D6); `VOID` ones keep the id, for the record. From VC-2-06 on, its costs and payment links stay readable but count nowhere (P2-D6), and cancel serialises with payment writes (P2-D7).
 
 ### Reads
 
@@ -896,8 +898,8 @@ POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08)
   - `acquired_share` numerator and denominator reduced as `ownership`'s;
   - the transfer dates not before `contract_date`.
 - `acquisition_party (acquisition_id, party_id, role, position)`: `role` `BUYER` | `SELLER`; composite foreign keys to the Acquisition and to `party (id, mre_realm_id)`; `UNIQUE (acquisition_id, party_id)` (nobody both buyer and seller).
-- A trigger keeps an Acquisition's fields fixed after creation and lets `status` only go `DRAFT` → `CANCELLED` / `CONFIRMED` (final after); its parties are written only with the Acquisition and never changed.
-- `ownership.acquisition_id`: a composite foreign key `(acquisition_id, mre_realm_id, property_reference_id)` to `acquisition`, so the link is in the Ownership's Realm and PropertyReference; added to `ownership_frozen`'s fixed fields. With it, the `0019` trigger message shows sums as `n/d` integers instead of `numeric` decimals (review on #45).
+- A trigger keeps an Acquisition's data fixed after creation: id, Realm, PropertyReference, price and currency, share, the three dates, `source_references`, `notes`, `created_at`, `created_by`. The status columns (`status`, `cancelled_at`, `cancellation_reason`, `confirmed_at`) change only with the transition out of `DRAFT`, and `version`/`updated_at` with it; after it the row is final. Its parties are written only with the draft and never changed or deleted.
+- `ownership.acquisition_id`: a composite foreign key `(acquisition_id, mre_realm_id, property_reference_id)` to `acquisition`, so the link is in the Ownership's Realm and PropertyReference; added to `ownership_frozen`'s fixed fields. Both rules between the two hold past the repository too (review on #47): a trigger lets a new Ownership link only a `DRAFT` (status read `FOR SHARE`), and `acquisition_frozen` refuses `DRAFT` → `CANCELLED` while a `VALID` Ownership carries the id. With it, the `0019` trigger message shows sums as `n/d` integers instead of `numeric` decimals (review on #45).
 
 ---
 

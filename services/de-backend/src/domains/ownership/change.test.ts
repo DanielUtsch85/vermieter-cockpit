@@ -82,7 +82,7 @@ describe('planChange', () => {
   });
 
   it('the fingerprint ignores the order of close', () => {
-    const change: OwnershipChange = { mreRealmId: 'r', propertyReferenceId: 'pr', effectiveDate, reason: 'Verkauf', close: ['a', 'b'], create: [half('dora')] };
+    const change: OwnershipChange = { mreRealmId: 'r', propertyReferenceId: 'pr', effectiveDate, reason: 'Verkauf', close: ['a', 'b'], create: [half('dora')], acquisitionId: null };
     expect(changeFingerprint(change)).toBe(changeFingerprint({ ...change, close: ['b', 'a'] }));
     expect(changeFingerprint(change)).not.toBe(changeFingerprint({ ...change, reason: 'Erbfall' }));
   });
