@@ -82,6 +82,7 @@ jobs:
           echo "$applied" | grep -qx '0018_party_guards'
           echo "$applied" | grep -qx '0019_ownership'
           echo "$applied" | grep -qx '0020_acquisition'
+          echo "$applied" | grep -qx '0021_acquisition_cost'
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
       - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction → splits → confirm → correct → reverse → bank import → review)

@@ -25,6 +25,12 @@ import type {
   SetTransactionSplits,
   AmendParty,
   CancelAcquisition,
+  CreateAcquisitionCost,
+  VoidAcquisitionCost,
+  ListAcquisitionCosts,
+  LinkAcquisitionPayment,
+  UnlinkAcquisitionPayment,
+  ListAcquisitionPayments,
   CreateAcquisition,
   GetAcquisition,
   ListAcquisitions,
@@ -51,6 +57,7 @@ import { importRoutes } from './imports.js';
 import { partyRoutes } from './parties.js';
 import { externalReferenceRoutes } from './party-external-references.js';
 import { ownershipRoutes } from './ownerships.js';
+import { acquisitionCostRoutes } from './acquisition-costs.js';
 import { acquisitionRoutes } from './acquisitions.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
@@ -92,6 +99,13 @@ export interface AppDependencies {
   readonly listAcquisitions: ListAcquisitions;
   readonly listPropertyAcquisitions: ListPropertyAcquisitions;
   readonly cancelAcquisition: CancelAcquisition;
+  /** Acquisition costs and payment links (VC-2-06). */
+  readonly createAcquisitionCost: CreateAcquisitionCost;
+  readonly voidAcquisitionCost: VoidAcquisitionCost;
+  readonly listAcquisitionCosts: ListAcquisitionCosts;
+  readonly linkAcquisitionPayment: LinkAcquisitionPayment;
+  readonly unlinkAcquisitionPayment: UnlinkAcquisitionPayment;
+  readonly listAcquisitionPayments: ListAcquisitionPayments;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -183,6 +197,16 @@ export function createApp(deps: AppDependencies): Express {
       list: deps.listAcquisitions,
       listForPropertyReference: deps.listPropertyAcquisitions,
       cancel: deps.cancelAcquisition,
+    }),
+  );
+  api.use(
+    acquisitionCostRoutes({
+      createCost: deps.createAcquisitionCost,
+      voidCost: deps.voidAcquisitionCost,
+      listCosts: deps.listAcquisitionCosts,
+      linkPayment: deps.linkAcquisitionPayment,
+      unlinkPayment: deps.unlinkAcquisitionPayment,
+      listPayments: deps.listAcquisitionPayments,
     }),
   );
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));

@@ -180,3 +180,26 @@ export type {
 } from './acquisitions.js';
 export { ACQUISITION_STATUSES, transferDate } from '../domains/acquisition/index.js';
 export type { Acquisition, AcquisitionFilter, AcquisitionPage, AcquisitionStatus } from '../domains/acquisition/index.js';
+export {
+  AcquisitionCancelledError,
+  AcquisitionCostNotFoundError,
+  AcquisitionPaymentNotFoundError,
+  CostHasPaymentsError,
+  PaymentRefusedError,
+  createAcquisitionCost,
+  linkAcquisitionPayment,
+  listAcquisitionCosts,
+  listAcquisitionPayments,
+  unlinkAcquisitionPayment,
+  voidAcquisitionCost,
+} from './acquisition-costs.js';
+export type {
+  CreateAcquisitionCost,
+  LinkAcquisitionPayment,
+  ListAcquisitionCosts,
+  ListAcquisitionPayments,
+  UnlinkAcquisitionPayment,
+  VoidAcquisitionCost,
+} from './acquisition-costs.js';
+export { COST_CATEGORIES, COST_STATUSES } from '../domains/acquisition/index.js';
+export type { AcquisitionCost, AcquisitionPayment, LinkRefusal, PurchasePricePayments } from '../domains/acquisition/index.js';

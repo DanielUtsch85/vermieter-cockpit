@@ -186,6 +186,21 @@ Specified in API §35.6 and data-model §17.8.
 | Cancel and an Ownership create for the draft serialise (PropertyReference, then Acquisition): the cancel sees the new Ownership | AR "a cancel racing an Ownership create …" |
 | Realm isolation | AR (`findById`, `cancel` other Realm); ACC (Realm B gets `404` on create, read, cancel and the PropertyReference list; its list is empty) |
 
+## 11. Acquisition costs and payments (VC-2-06, api-design §27.2)
+
+`CR` = `acquisition-cost-repository.test.ts`, `CD` = `domains/acquisition/cost.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| A cost is > 0, of a category of P2-D7 (no `PURCHASE_PRICE`), with a counterparty of the Realm; data fixed, `ACTIVE` → `VOID` final, never deleted (also past the repository) | CR "create: …", "void: …", "keeps data fixed and rows undeleted …"; API "400 for a bad body …" |
+| A payment links a current `OUTFLOW` Transaction of the Realm, in its currency, to the price or a cost of the same Acquisition (composite keys); data fixed, the unlink final | CR "link: the order of checks …", "keeps the links in the Realm …", "refuses what the repository refuses …"; CD "checkLink" |
+| Per Transaction the live payments ≤ its amount; per cost and price the counting ones ≤ the amount; the paid state is derived | CR "installments: …", "link: …", "refuses what the repository refuses …"; CD "the derived paid state" |
+| A corrected Transaction stops counting, the payment names the direct replacement, re-linking is explicit; the ledger is never written | CR "a ledger correction: …" |
+| A `CANCELLED` Acquisition takes no cost or payment write and counts nowhere; its payments free the Transaction | CR "cancel: …", "refuses what the repository refuses …" |
+| A cost is voided only without linked payments | CR "void: …", "refuses what the repository refuses …" |
+| Every cost and payment write serialises on the Acquisition row (with each other and with cancel), a link also on the Transaction row (with other links and with `correct`); RC sees the other's commit, RR fails to serialise (review on #37, #48) | CR "concurrency (READ COMMITTED …)", "concurrency (REPEATABLE READ …)" |
+| Realm isolation | CR (foreign Acquisition, Transaction and counterparty are not found; reads `undefined`) |
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a
