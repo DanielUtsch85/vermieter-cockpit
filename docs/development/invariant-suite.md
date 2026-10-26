@@ -20,6 +20,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **CT** | `domains/ledger/confirm-transaction.test.ts` |
 | **CR** | `infrastructure/postgres/correction-repository.test.ts` (VC-1-11) |
 | **CC** | `domains/ledger/correct-transaction.test.ts` (VC-1-11) |
+| **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) |
 
 Database tests run against `DE_TEST_DATABASE_URL` (CI: a PostgreSQL 16
 service; also run locally with `default_transaction_isolation = repeatable read`).
@@ -241,6 +242,22 @@ Specified in API §35.6 and data-model §17.8.
 | Price, each cost category over `ACTIVE` costs, and the current allocation's land and building, from one snapshot | OS "reads one snapshot …" |
 | `CONFIRMED` answers; a `DRAFT` only as `PROVISIONAL` with requirements 2–5 of §28.1 (the confirmation's own `structureViolations`), else `409` with the violations; `CANCELLED` is `409` | OA "status: …"; OS "the status answers …" |
 | Realm isolation | OS (another Realm is not found) |
+
+## 15. Phase 2 exit (VC-2-10, roadmap Phase 2)
+
+The exit of `docs/roadmap.md` Phase 2, claim by claim, each shown **end to end through the HTTP API** by **ACC2** (one
+scenario against PostgreSQL and the fake MRE, as ACC does for Slice 1), and backed by the sections above.
+
+| Exit claim | ACC2 step | Backed by |
+|---|---|---|
+| An acquisition with **purchase price** + **transaction costs** + **land/building split** exists | A draft (price 300,000.00, buyers Anna and Ben, seller Sven, transfer date 2026-08-01); costs (transfer tax, notary, broker; a wrong one voided); a confirmed bank Transaction linked to the price and the tax; the allocation entered, then corrected (supersede) | §10, §11, §13 |
+| It **drives owner-level allocation** | The confirmed Acquisition's `owner-allocation`: Anna and Ben 1/2 each, every column exact to the cent (an odd cost amount, e.g. notary 1,234.57, so a column has an odd cent, which goes by `ownerPartyId`), per-owner totals equal to their parts; the corrected allocation is the one used; a `DRAFT` without its structure is `409` | §12, §14 |
+| **Ownership changes over time are queryable** | Sven 1/1 since 2020; the atomic change on the transfer date (Sven closed, Anna and Ben created with the `acquisitionId`); `asOf` before, on and after the date, and the history | §9, §9a |
+| **Ownership shares validated** | An extra 1/2 for Carl from the transfer date is `422 OWNERSHIP_TOTAL_EXCEEDS_ONE` with `details.date = 2026-08-01` and `details.shareSum = 3/2` (§26.1); a confirm before the change is `422 CONFIRMATION_BLOCKED` with the violations; after confirmation Anna's Ownership cannot be voided (`409 ACQUISITION_CONFIRMED`) but closes | §9, §12 |
+| **Realm isolation** across Phase 2 | Realm B gets `404` on **every route of api-design §19–§28** called with an id of Realm A (reads and commands, each a row of one table in ACC2 that the test iterates, so a forgotten route shows as a missing row) and empty lists of its own | §4, §8–§14 |
+
+ACC2 also checks the traceability that every write promises: AuditRecords for the acquisition's steps (`CREATED`,
+`CONFIRMED`), the costs (`CREATED`, `VOIDED`), the payments (`LINKED`) and the allocations (`CREATED`, `SUPERSEDED`).
 
 ## Keeping this current
 
