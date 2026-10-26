@@ -98,7 +98,11 @@ const TENANT = '6512f0c2a1b2c3d4e5f60a01';
 /** The Phase-2 routes (api-design §19–§28) under `/api/v1`, as `METHOD /path/:param`. */
 const PHASE_2 = /^[A-Z]+ \/(parties|ownerships|acquisitions)\b|^[A-Z]+ \/property-references\/:propertyReferenceId\/(ownerships|ownership-changes|acquisitions)$/;
 
-/** Every route the app serves, from Express' router stack (Express 4), relative to its mount point. */
+/**
+ * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 4
+ * internals (`app._router.stack`); on Express 5 it finds no routes and the comparison below fails loudly, which
+ * is the intended direction: adapt it then rather than let the table go unchecked.
+ */
 function routesOf(app: Express): string[] {
   type Layer = { route?: { path: string; methods: Record<string, boolean> }; name?: string; handle: { stack?: Layer[] } };
   const walk = (stack: readonly Layer[]): string[] =>
@@ -526,6 +530,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
     // The table is the app's Phase-2 routes, no more and no fewer: a new route without a row turns this red.
     expect(Object.keys(routes).sort()).toEqual(routesOf(app).filter((route) => PHASE_2.test(route)).sort());
 
+    // "Writes nothing" is checked by the AuditRecord count: every write writes one (P2-D11), so a write slipping
+    // through for Realm B would raise it.
     const auditBefore = await pool.query(`SELECT count(*) FROM audit_record`);
     const own: string[] = [];
     // Creating rows last, so Realm B's own lists are still empty when read.
