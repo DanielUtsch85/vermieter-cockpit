@@ -692,7 +692,7 @@ An Acquisition may have:
 
 ## 13.5 Lifecycle (P2-D6)
 
-- `DRAFT` → `CONFIRMED` (final in Phase 2)
+- `DRAFT` → `CONFIRMED` (final in Phase 2; requirements of P2-D8, api-design §28.1; its Ownerships can then be closed but no longer voided)
 - `DRAFT` → `CANCELLED` (final)
 
 The legal milestones (contract, economic transfer, land registry) are the dates of §13.3, not states.

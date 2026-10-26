@@ -764,7 +764,7 @@ Over the `VALID` Ownerships of one PropertyReference, for every day of the new o
 
 - Body `{ "reason": "..." }` (required, trimmed, 1–500): a recording error ("1/3 entered instead of 1/2"; P2-D4). `200` with the Ownership: `status = VOID`, `voidedAt`, `voidReason`, `version` + 1; AuditRecord `VOIDED` with the reason. The record is kept and counts nowhere; the correct one is then created with the original dates.
 - Voiding a `VOID` Ownership is a `200` no-op keeping the first reason and time.
-- Allowed for an inactive owner. From VC-2-07 on, an Ownership referenced by a `CONFIRMED` Acquisition cannot be voided (`409`); nothing references Ownerships before that.
+- Allowed for an inactive owner. From VC-2-07 on, an Ownership referenced by a `CONFIRMED` Acquisition cannot be voided: `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"` and `details.acquisitionId` (§28.1); closing it stays allowed.
 - `If-Match` as §16.1; a no-op answers regardless of the version.
 
 ### Reads
@@ -983,6 +983,37 @@ Confirmation should validate:
 - ownership data is consistent
 - required acquisition data is complete
 - any configured review requirements are satisfied
+
+## 28.1 `POST /api/v1/acquisitions/{acquisitionId}/confirm` (VC-2-07, contract)
+
+Decision P2-D8 of `docs/development/phase-2-plan.md`, with P2-D6 (status) and P2-D4 (completeness). The list above maps to it as: the PropertyReference and the price exist by construction (§27.1: foreign key, price > 0, both fixed); buyers exist and are active; the ownership data is the Ownership set below; Phase 2 has no further required data and no configured review requirements (a land/building allocation is **not** required, P2-D8).
+
+- **Request:** no body (an empty object `{}` is accepted; any key is `400`). `If-Match` as §16.1 on the Acquisition's version; a no-op answers regardless of the version.
+- **Domain owner:** Acquisition. **Authorization:** as §27.1.
+- **Status:**
+  - `DRAFT` → `CONFIRMED`: `200` with the Acquisition (§27.1: `status = CONFIRMED`, `confirmedAt`, `version` + 1); AuditRecord `CONFIRMED` with the transfer date and the ids of the Ownerships it confirms.
+  - Already `CONFIRMED`: `200` with the Acquisition unchanged, `Idempotent-Replayed: true`, no new version or AuditRecord (as §34.2).
+  - `CANCELLED`: `409 CONFLICT` with `reason = "ACQUISITION_CANCELLED"`.
+- **Requirements** (P2-D8), evaluated on the transfer date `d` (P2-D6) over the `VALID` Ownerships that carry this `acquisitionId` ("its Ownerships"); every one that fails is reported, in this order, as `422 CONFIRMATION_BLOCKED` with `details.violations` (a list of `{ code, … }`):
+  1. `BUYER_INACTIVE` (`partyId`): each buyer must be an active Party (P2-D1);
+  2. `OWNERSHIP_NOT_FROM_TRANSFER_DATE` (`ownershipId`, `validFrom`, `transferDate`): each of its Ownerships starts on `d`;
+  3. `OWNER_NOT_A_BUYER` (`ownershipId`, `ownerPartyId`): each is held by a buyer;
+  4. `BUYER_WITHOUT_OWNERSHIP` (`partyId`): every buyer holds one (also when it has none at all);
+  5. `SHARE_SUM_MISMATCH` (`expected`, `actual`, reduced fractions as §26.1): their shares sum to exactly `acquiredShare`;
+  6. `OWNERSHIP_INCOMPLETE` (`date`, `shareSum`): the PropertyReference's ownership is `COMPLETE` on `d` (§26.1, P2-D4), counting **all** its `VALID` Ownerships on that day, also those of other owners.
+  Sellers are not checked: a seller's Ownership is closed or changed by WF-002 (§26.2), and requirement 6 catches a sum above or below one.
+- **Effect:** status only. Confirmation never creates, closes or changes Ownerships (P2-D8); costs and payments stay writable (§27.2).
+- **After confirmation:**
+  - The Acquisition is final (P2-D6): cancel answers `409 ACQUISITION_CONFIRMED` (§27.1).
+  - Its Ownerships can no longer be **voided**: `POST /ownerships/{id}/void` answers `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"` and `details.acquisitionId` (§26.1). They can still be **closed**, directly or by an ownership change (§26.2): a later sale ends them, it does not undo the purchase.
+  - New Ownerships cannot carry its id (`422 ACQUISITION_NOT_DRAFT`, §27.1).
+  - Confirmation checks completeness at the time of confirming. A later void of **another** owner's recording error on the PropertyReference is not blocked (that Ownership belongs to no confirmed purchase); the read then shows `INCOMPLETE` as for any gap.
+- **Concurrency and locks** (one READ COMMITTED transaction, in the order of every path, §27.1): the PropertyReference first (the no-op write of every Ownership writer), then the buyers `FOR SHARE` in id order (a concurrent `deactivate` comes first and is seen, or waits), then the Acquisition `FOR UPDATE`, then its Ownerships and the PropertyReference's Ownerships on `d` are read. So confirm serialises with every Ownership create, close, void and change of the PropertyReference (they take it first), with cancel (same Acquisition lock, same order) and with cost and payment writes (they write the Acquisition row, §27.2). A void of one of its Ownerships takes PropertyReference → Acquisition `FOR SHARE` → Ownership `FOR UPDATE` and so sees a committed confirmation.
+- **In the database (migration 0022):**
+  - `acquisition_frozen` checks requirements 1–6 again on `DRAFT` → `CONFIRMED` (buyers read `FOR SHARE`), so a confirmation past the repository is held to the same rules; an Acquisition is only **inserted** as `DRAFT`, so the check cannot be bypassed by inserting a confirmed row (as 0011 refuses inserting `CORRECTED`).
+  - `ownership_frozen` refuses `VALID` → `VOID` while the Ownership's Acquisition is `CONFIRMED` (its status read `FOR SHARE`).
+  - From the review on #49: every status step raises `version` by exactly one (Acquisition cancel and confirm, cost void, payment unlink; as 0013 for Transactions), and a cost is only inserted `ACTIVE`, a payment only not unlinked.
+- Concurrency tests (two connections, RC and RR): confirm against an Ownership create, close and void on the same PropertyReference; confirm against `deactivate` of a buyer; confirm against cancel; confirm against a payment link; a void of its Ownership against confirm; each lock counter-checked.
 
 ---
 
