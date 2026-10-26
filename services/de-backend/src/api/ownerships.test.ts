@@ -10,6 +10,7 @@ import {
   OwnerInactiveError,
   OwnershipIncompleteError,
   OwnershipNotFoundError,
+  OwnershipOfConfirmedAcquisitionError,
   OwnershipTotalExceedsOneError,
   PartyNotFoundError,
   PropertyReferenceNotFoundError,
@@ -196,6 +197,7 @@ describe('GET /api/v1/ownerships/{id}, close and void', () => {
       voidOwnership: async (input) => {
         seen.push(input);
         if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
+        if (input.reason === 'confirmed') throw new OwnershipOfConfirmedAcquisitionError(ID, PR);
         if (input.ownershipId !== ID) throw new OwnershipNotFoundError(input.ownershipId);
         return { ownership: { ...ownership, status: 'VOID', voidReason: input.reason, voidedAt: new Date('2026-10-22T09:00:00Z') }, changed: true };
       },
@@ -208,6 +210,8 @@ describe('GET /api/v1/ownerships/{id}, close and void', () => {
     }
     expect((await call(base, 'POST', `/ownerships/${PR}/void`, { reason: 'x' })).status).toBe(404);
     expect((await call(base, 'POST', `/ownerships/${ID}/void`, { reason: 'x' }, { 'if-match': '"1"' })).status).toBe(412);
+    const confirmed = await call(base, 'POST', `/ownerships/${ID}/void`, { reason: 'confirmed' });
+    expect([confirmed.status, await errorOf(confirmed)]).toMatchObject([409, { code: 'CONFLICT', details: { reason: 'ACQUISITION_CONFIRMED', acquisitionId: PR } }]);
   });
 });
 

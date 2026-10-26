@@ -167,6 +167,8 @@ export type CloseOwnershipOutcome =
 export type VoidOwnershipOutcome =
   | { readonly kind: 'VOIDED'; readonly ownership: Ownership; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
+  /** It carries a `CONFIRMED` Acquisition: close it instead (→ 409 ACQUISITION_CONFIRMED, §28.1). */
+  | { readonly kind: 'ACQUISITION_CONFIRMED'; readonly acquisitionId: string }
   | VersionConflict;
 
 export interface OwnershipPage {

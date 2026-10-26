@@ -8,6 +8,7 @@ import {
   AcquisitionNotDraftError,
   AcquisitionNotFoundError,
   OwnershipIncompleteError,
+  OwnershipOfConfirmedAcquisitionError,
   OwnershipNotFoundError,
   OwnershipTotalExceedsOneError,
   PartyNotFoundError,
@@ -326,6 +327,11 @@ function sendOwnershipError(res: Response, error: unknown): boolean {
     sendError(res, 422, 'OWNERSHIP_TOTAL_EXCEEDS_ONE', 'The shares would sum above 1.', { date: error.date, shareSum: formatShare(error.shareSum) });
   } else if (error instanceof AcquisitionNotFoundError) {
     sendError(res, 404, 'NOT_FOUND', 'Acquisition not found for this PropertyReference.', { acquisitionId: error.acquisitionId });
+  } else if (error instanceof OwnershipOfConfirmedAcquisitionError) {
+    sendError(res, 409, 'CONFLICT', 'The Ownership carries a confirmed Acquisition; close it instead of voiding it.', {
+      reason: 'ACQUISITION_CONFIRMED',
+      acquisitionId: error.acquisitionId,
+    });
   } else if (error instanceof AcquisitionNotDraftError) {
     sendError(res, 422, 'ACQUISITION_NOT_DRAFT', 'Only a DRAFT Acquisition takes new Ownerships.', {
       acquisitionId: error.acquisitionId,

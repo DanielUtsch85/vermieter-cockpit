@@ -2,9 +2,11 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   ACQUISITION_STATUSES,
+  AcquisitionCancelledError,
   AcquisitionConfirmedError,
   AcquisitionHasValidOwnershipsError,
   AcquisitionNotFoundError,
+  ConfirmationBlockedError,
   IdempotencyKeyConflictError,
   OwnerInactiveError,
   PartyNotFoundError,
@@ -16,6 +18,8 @@ import {
   transferDate,
   type Acquisition,
   type CancelAcquisition,
+  type ConfirmAcquisition,
+  type ConfirmationViolation,
   type CreateAcquisition,
   type GetAcquisition,
   type ListAcquisitions,
@@ -87,6 +91,7 @@ const createBody = z
   });
 
 const cancelBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+const confirmBody = z.object({}).strict();
 
 const paging = {
   status: z.enum(ACQUISITION_STATUSES).optional(),
@@ -108,6 +113,7 @@ export interface AcquisitionCommands {
   readonly list: ListAcquisitions;
   readonly listForPropertyReference: ListPropertyAcquisitions;
   readonly cancel: CancelAcquisition;
+  readonly confirm: ConfirmAcquisition;
 }
 
 /** Acquisition API (api-design.md §27.1, backlog VC-2-05). */
@@ -195,6 +201,28 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
       });
   });
 
+  router.post('/acquisitions/:acquisitionId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
+    const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
+    if (acquisitionId === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    // No body, or an empty object (§28.1).
+    const parsed = confirmBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .confirm({ principal: principalOf(res), acquisitionId, ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }) })
+      .then(({ acquisition, changed }) => {
+        if (!changed) res.setHeader('Idempotent-Replayed', 'true');
+        sendAcquisition(res, acquisition);
+      })
+      .catch((error: unknown) => {
+        if (!sendAcquisitionError(res, error)) next(error);
+      });
+  });
+
   router.get('/property-references/:propertyReferenceId/acquisitions', (req, res, next) => {
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
@@ -249,6 +277,12 @@ function sendAcquisitionError(res: Response, error: unknown): boolean {
       reason: 'ACQUISITION_HAS_VALID_OWNERSHIPS',
       ownershipIds: error.ownershipIds,
     });
+  } else if (error instanceof AcquisitionCancelledError) {
+    sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition is final.', { reason: 'ACQUISITION_CANCELLED', acquisitionId: error.acquisitionId });
+  } else if (error instanceof ConfirmationBlockedError) {
+    sendError(res, 422, 'CONFIRMATION_BLOCKED', 'The Acquisition does not meet the requirements of confirmation.', {
+      violations: error.violations.map(violationDto),
+    });
   } else if (error instanceof VersionConflictError) {
     sendError(res, 412, 'VERSION_CONFLICT', 'The Acquisition changed since the version given in If-Match.', {
       expectedVersions: error.expectedVersions,
@@ -284,4 +318,16 @@ function toDto(a: Acquisition) {
     createdAt: a.createdAt.toISOString(),
     version: a.version,
   };
+}
+
+/** Fractions as reduced `n/d` strings (§26.1). */
+function violationDto(v: ConfirmationViolation) {
+  switch (v.code) {
+    case 'SHARE_SUM_MISMATCH':
+      return { code: v.code, expected: formatShare(v.expected), actual: formatShare(v.actual) };
+    case 'OWNERSHIP_INCOMPLETE':
+      return { code: v.code, date: v.date, shareSum: formatShare(v.shareSum) };
+    default:
+      return v;
+  }
 }

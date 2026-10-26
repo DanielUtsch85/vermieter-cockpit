@@ -251,6 +251,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
 
     it('create on a CONFIRMED Acquisition is allowed (invoices come after the transfer, P2-D6)', async () => {
       const a = await acquisition();
+      // Confirmed directly: its buyer holds the whole share from the transfer date (§28.1).
+      await pool.query(
+        `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
+         SELECT a.mre_realm_id, a.property_reference_id, ap.party_id, 1, 1, a.contract_date, 'VALID', a.id, 'x'
+           FROM acquisition a JOIN acquisition_party ap ON ap.acquisition_id = a.id AND ap.role = 'BUYER' WHERE a.id = $1`,
+        [a],
+      );
       await pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = version + 1 WHERE id = $1`, [a]);
       expect(await costs.createCost(newCost(a, '1500.00', { category: 'LAND_REGISTRY' }), actor)).toMatchObject({ kind: 'CREATED' });
     });
@@ -480,7 +487,50 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
     });
   });
 
+  describe('the database past the repository: one step, by exactly one version (review on #49)', () => {
+    it('refuses a void or unlink that does not raise version by one, and an insert past the initial state', async () => {
+      const a = await acquisition();
+      const c = await cost(a, '10.00');
+      const p = await link(a, await transaction('10.00'), '5.00', c);
+      await expect(pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x' WHERE id = $1`, [p])).rejects.toThrow(/must raise version/);
+      await expect(pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = version + 2 WHERE id = $1`, [p])).rejects.toThrow(
+        /must raise version/,
+      );
+      await pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = version + 1 WHERE id = $1`, [p]);
+      await expect(pool.query(`UPDATE acquisition_cost SET status = 'VOID', voided_at = now(), void_reason = 'x' WHERE id = $1`, [c])).rejects.toThrow(/must raise version/);
+      await rawVoid(pool, c);
+      await expect(
+        pool.query(
+          `INSERT INTO acquisition_cost (mre_realm_id, acquisition_id, category, amount, currency, status, voided_at, void_reason, created_by)
+           VALUES ($1, $2, 'OTHER', 1, 'EUR', 'VOID', now(), 'x', 'x')`,
+          [REALM, a],
+        ),
+      ).rejects.toThrow(/only inserted ACTIVE/);
+      await expect(
+        pool.query(
+          `INSERT INTO acquisition_payment (mre_realm_id, acquisition_id, transaction_id, amount, currency, unlinked_at, unlink_reason, created_by)
+           VALUES ($1, $2, $3, 1, 'EUR', now(), 'x', 'x')`,
+          [REALM, a, await transaction('1.00')],
+        ),
+      ).rejects.toThrow(/never inserted unlinked/);
+    });
+  });
+
   describe('concurrency (READ COMMITTED through the repository: the waiter sees the holder’s commit)', () => {
+    it('a confirm waits for a payment link in flight on the Acquisition row, then confirms (payments stay allowed, §28.1)', async () => {
+      const a = await acquisition();
+      await pool.query(
+        `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
+         SELECT a.mre_realm_id, a.property_reference_id, ap.party_id, 1, 1, a.contract_date, 'VALID', a.id, 'x'
+           FROM acquisition a JOIN acquisition_party ap ON ap.acquisition_id = a.id AND ap.role = 'BUYER' WHERE a.id = $1`,
+        [a],
+      );
+      const t = await transaction('10.00');
+      const confirmed = await whileHeld((h) => insertPayment(h, a, t, '10.00'), () => acquisitions.confirm(a, REALM, AT, actor), '"acquisition"');
+      expect(confirmed.kind).toBe('CONFIRMED');
+      expect((await costs.listPayments(a, REALM, {}))?.purchasePrice.paidAmount.amount).toBe('10.00');
+    });
+
     it('two links of one Transaction from two Acquisitions serialise on the Transaction row', async () => {
       const [a, b] = [await acquisition(), await acquisition()];
       const t = await transaction('100.00');

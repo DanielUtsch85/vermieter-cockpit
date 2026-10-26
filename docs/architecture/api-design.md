@@ -984,7 +984,7 @@ Confirmation should validate:
 - required acquisition data is complete
 - any configured review requirements are satisfied
 
-## 28.1 `POST /api/v1/acquisitions/{acquisitionId}/confirm` (VC-2-07, contract)
+## 28.1 `POST /api/v1/acquisitions/{acquisitionId}/confirm` (VC-2-07, implemented: migration 0022)
 
 Decision P2-D8 of `docs/development/phase-2-plan.md`, with P2-D6 (status) and P2-D4 (completeness). The list above maps to it as: the PropertyReference and the price exist by construction (§27.1: foreign key, price > 0, both fixed); buyers exist and are active; the ownership data is the Ownership set below; Phase 2 has no further required data and no configured review requirements (a land/building allocation is **not** required, P2-D8).
 
