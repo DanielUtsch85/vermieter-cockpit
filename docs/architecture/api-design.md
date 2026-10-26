@@ -828,6 +828,7 @@ GET /api/v1/property-references/{propertyReferenceId}/acquisitions
 GET /api/v1/acquisitions/{acquisitionId}/costs                      (VC-2-06)
 GET /api/v1/acquisitions/{acquisitionId}/payments                   (VC-2-06)
 GET /api/v1/acquisitions/{acquisitionId}/land-building-allocations  (VC-2-08, §27.3)
+GET /api/v1/acquisitions/{acquisitionId}/owner-allocation           (VC-2-09, §27.4)
 ```
 
 ### Commands
@@ -1020,6 +1021,46 @@ GET  /api/v1/acquisitions/{acquisitionId}/land-building-allocations
 - Tests:
   - **Past the repository**, each with a counter-check: the sum CHECK; a second current row; a supersede without a successor and a successor naming a current row (both at commit); a successor in another Acquisition; a change of data; a delete; an insert on a `CANCELLED` Acquisition; an insert already superseded.
   - **Concurrency:** two allocations of one Acquisition (RC: the second is `CURRENT_ALLOCATION_CHANGED`; RR past the repository: `40001`); an allocation against a cancel (both orders).
+
+## 27.4 Owner-level allocation (VC-2-09, contract)
+
+Decision P2-D10 of `docs/development/phase-2-plan.md`, with the rule of data-model §61. A read: it stores nothing and changes nothing.
+
+```text
+GET /api/v1/acquisitions/{acquisitionId}/owner-allocation
+```
+
+- **Authorization:** as §27.1. Unknown or foreign `404`, malformed `400`, unknown query parameters `400`.
+- **Basis (P2-D10):** the Acquisition is split among **its own buyers**, not among all owners of the PropertyReference. The basis is the `VALID` Ownerships carrying its `acquisitionId` (P2-D8). An Ownership closed since still counts: closing ends it later, it does not undo the purchase. Each owner's **weight** is its share divided by `acquiredShare`, an exact reduced fraction (`"n/d"`, §26.1). In a partial acquisition the buyer of `1/2` has weight `1/1` and carries 100 % of price and costs.
+- **When it answers:**
+  - `CONFIRMED`: `basis = "CONFIRMED"`. P2-D8 guarantees one Ownership per buyer from the transfer date, with shares summing to `acquiredShare`, so the weights sum to exactly `1`.
+  - `DRAFT`: `basis = "PROVISIONAL"` only when its Ownerships already have the **structure** confirmation requires, that is requirements 2–5 of §28.1 (all start on the transfer date, held only by buyers, every buyer holds one, shares sum to exactly `acquiredShare`). This is a preview while WF-002 is under way, and it never feeds anything; only `CONFIRMED` does (Phase 7/8). Requirements 1 (buyers active) and 6 (the PropertyReference `COMPLETE`) are not needed for a split among the buyers. Otherwise the answer is `409 CONFLICT` with `reason = "OWNERSHIP_BASIS_INCOMPLETE"` and `details.violations` in the format of `CONFIRMATION_BLOCKED` (§28.1, codes 2–5). So a non-buyer never receives a part, and every owner appears once (review on #54): a buyer with a second Ownership carrying the id fails requirement 2, since two of one owner cannot both start on the transfer date (no overlap, P2-D4).
+  - `CANCELLED`: `409 CONFLICT` with `reason = "ACQUISITION_CANCELLED"`.
+- **Amounts distributed** (each separately, P2-D10):
+  - the purchase price;
+  - the expected amount of each cost **category**: the sum of its `ACTIVE` costs (§27.2); `VOID` costs count nowhere; categories without costs are left out;
+  - when a current land/building allocation exists (§27.3): `landAmount` and `buildingAmount`. Paid amounts are not distributed: the read is about the acquisition's economics, not the cash.
+- **Deterministic cents (P2-D10, F4):** for an amount of `A` cents and weights `w_i`, every owner first gets `floor(A × w_i)` cents. The remaining `A − Σ floor(A × w_i)` cents (fewer than the number of owners) go one each to the owners with the largest fractional remainder `A × w_i − floor(A × w_i)`, ties broken by `ownerPartyId` ascending. All of it is computed exactly (integers and fractions, no floating point). So every part is ≥ 0 and every column sums to its amount.
+- **Totals are derived, never distributed (F4b):** an owner's `costsTotal` is the sum of their category parts, their `totalAllocableAmount` is `land_i + building_i`. Largest remainder is not monotone (Alabama paradox), so distributing a total separately could give a negative difference. This way every per-owner identity holds by construction. A derived total may differ by at most one cent per component from distributing the total directly; that is intended.
+- **Response:**
+  - `acquisitionId`, `status`, `basis`, `acquiredShare`, `allocationId` (the current land/building allocation, or `null`);
+  - `owners` in `ownerPartyId` order, each with:
+    - `ownerPartyId`, `ownershipId`, `share`, `weight`;
+    - `purchasePrice` (Money);
+    - `costs` (`{ category: Money }` for the categories present) and `costsTotal`;
+    - `landAmount`, `buildingAmount`, `totalAllocableAmount` (all `null` without an allocation);
+  - `totals`: the undistributed amounts, the same shape, for the reader's check; every column of `owners` sums to them.
+- **Snapshot:** one `REPEATABLE READ READ ONLY` transaction reads the Acquisition, its Ownerships, its costs and its current allocation, so the parts always come from one state.
+- **Tests:**
+  - the review counterexample: weights `3/7, 3/7, 1/7`, land 0.10 €, building 0.01 € → land 4/4/2 ct, building 1/0/0 ct, total 5/4/2 ct;
+  - ties broken by `ownerPartyId`;
+  - a single buyer gets everything;
+  - a partial acquisition (weight `1/1` for a share of `1/2`);
+  - `VOID` costs left out;
+  - no allocation gives `null` parts;
+  - the three status answers, and a `DRAFT` refused as `OWNERSHIP_BASIS_INCOMPLETE` for a non-buyer holding an Ownership with the id and for a buyer holding two (one from the transfer date, one later);
+  - a **property test** over random fractions (up to 20 owners, denominators up to 10 000) and random amounts (0 to 10¹⁵ cents): every part ≥ 0, every column sums exactly, each per-owner total equals its parts, and every part is within one cent of `A × w_i`.
+- Docs: data-model §61 names this read as the acquisition-side application of its rule.
 
 # 28. Acquisition Confirmation
 
