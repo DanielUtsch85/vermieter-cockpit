@@ -2,7 +2,7 @@
  * Acquisition domain: the purchase of a share of a PropertyReference (data-model.md §13, api-design.md §27.1).
  * See docs/development/coding-guidelines.md §3.
  */
-export { ACQUISITION_STATUSES, createFingerprint, planCancel, planConfirm, sumOf, transferDate } from './acquisition.js';
+export { ACQUISITION_STATUSES, createFingerprint, planCancel, planConfirm, structureViolations, sumOf, transferDate } from './acquisition.js';
 export type {
   AcquiredShare,
   Acquisition,
@@ -70,3 +70,5 @@ export type {
   LandBuildingAllocationRepository,
   NewAllocation,
 } from './allocation.js';
+export { fromCents, largestRemainder, planOwnerAllocation, toCents } from './owner-allocation.js';
+export type { AllocationBasis, AllocationTotals, OwnerAllocationInput, OwnerAllocationPlan, OwnerAllocationSource, OwnerPart } from './owner-allocation.js';

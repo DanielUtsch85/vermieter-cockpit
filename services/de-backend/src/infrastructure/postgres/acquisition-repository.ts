@@ -321,6 +321,13 @@ function toConfirmationOwnership(row: { id: string; owner_party_id: string; shar
   };
 }
 
+/** One Acquisition of the Realm with its parties, inside the caller's transaction (for reads that need one snapshot). */
+export async function readAcquisitionIn(trx: Transaction<Database>, id: string, mreRealmId: string): Promise<Acquisition | undefined> {
+  if (!UUID.test(id)) return undefined;
+  const row = await trx.selectFrom('acquisition').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+  return row === undefined ? undefined : (await withParties(trx, [row]))[0];
+}
+
 async function readOne(trx: Transaction<Database>, id: string): Promise<Acquisition> {
   const row = await trx.selectFrom('acquisition').select(COLUMNS).where('id', '=', id).executeTakeFirstOrThrow();
   return (await withParties(trx, [row]))[0] as Acquisition;

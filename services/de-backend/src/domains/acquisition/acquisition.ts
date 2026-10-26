@@ -149,29 +149,41 @@ export function planConfirm(current: Acquisition, input: ConfirmationInput, at: 
   if (current.status === 'CONFIRMED') return { kind: 'UNCHANGED' };
   if (current.status === 'CANCELLED') return { kind: 'ACQUISITION_CANCELLED' };
   const d = transferDate(current);
-  const buyers = new Set(current.buyerPartyIds);
-  const byId = <T extends { readonly id: string }>(items: readonly T[]) => [...items].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
   const violations: ConfirmationViolation[] = [];
   for (const partyId of [...current.buyerPartyIds].sort()) {
     if (input.buyerStatuses.get(partyId) !== 'ACTIVE') violations.push({ code: 'BUYER_INACTIVE', partyId });
   }
-  for (const o of byId(input.own)) {
-    if (o.validFrom !== d) violations.push({ code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: o.id, validFrom: o.validFrom, transferDate: d });
-  }
-  for (const o of byId(input.own)) {
-    if (!buyers.has(o.ownerPartyId)) violations.push({ code: 'OWNER_NOT_A_BUYER', ownershipId: o.id, ownerPartyId: o.ownerPartyId });
-  }
-  const holders = new Set(input.own.map((o) => o.ownerPartyId));
-  for (const partyId of [...current.buyerPartyIds].sort()) {
-    if (!holders.has(partyId)) violations.push({ code: 'BUYER_WITHOUT_OWNERSHIP', partyId });
-  }
-  const actual = sumOf(input.own.map((o) => o.share));
-  const expected = { numerator: BigInt(current.acquiredShare.numerator), denominator: BigInt(current.acquiredShare.denominator) };
-  if (actual.numerator !== expected.numerator || actual.denominator !== expected.denominator) violations.push({ code: 'SHARE_SUM_MISMATCH', expected, actual });
+  violations.push(...structureViolations(current, input.own));
   const total = sumOf(input.onTransferDate.map((o) => o.share));
   if (total.numerator !== total.denominator) violations.push({ code: 'OWNERSHIP_INCOMPLETE', date: d, shareSum: total });
   if (violations.length > 0) return { kind: 'CONFIRMATION_BLOCKED', violations };
   return { kind: 'CONFIRM', next: { ...current, status: 'CONFIRMED', confirmedAt: at, version: current.version + 1 } };
+}
+
+/**
+ * Requirements 2–5 of §28.1, the structure of an Acquisition's own Ownerships: all from the transfer date, held only
+ * by buyers, every buyer holds one, the shares sum to exactly `acquiredShare`. Confirmation adds 1 and 6; the
+ * owner-level allocation (§27.4) needs exactly these four for a `PROVISIONAL` answer.
+ */
+export function structureViolations(current: Acquisition, own: readonly ConfirmationOwnership[]): ConfirmationViolation[] {
+  const d = transferDate(current);
+  const buyers = new Set(current.buyerPartyIds);
+  const byId = [...own].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  const violations: ConfirmationViolation[] = [];
+  for (const o of byId) {
+    if (o.validFrom !== d) violations.push({ code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: o.id, validFrom: o.validFrom, transferDate: d });
+  }
+  for (const o of byId) {
+    if (!buyers.has(o.ownerPartyId)) violations.push({ code: 'OWNER_NOT_A_BUYER', ownershipId: o.id, ownerPartyId: o.ownerPartyId });
+  }
+  const holders = new Set(own.map((o) => o.ownerPartyId));
+  for (const partyId of [...current.buyerPartyIds].sort()) {
+    if (!holders.has(partyId)) violations.push({ code: 'BUYER_WITHOUT_OWNERSHIP', partyId });
+  }
+  const actual = sumOf(own.map((o) => o.share));
+  const expected = { numerator: BigInt(current.acquiredShare.numerator), denominator: BigInt(current.acquiredShare.denominator) };
+  if (actual.numerator !== expected.numerator || actual.denominator !== expected.denominator) violations.push({ code: 'SHARE_SUM_MISMATCH', expected, actual });
+  return violations;
 }
 
 export type ConfirmAcquisitionOutcome =

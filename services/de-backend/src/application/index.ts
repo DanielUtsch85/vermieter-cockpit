@@ -211,3 +211,6 @@ export { CurrentAllocationChangedError, createLandBuildingAllocation, listLandBu
 export type { CreateLandBuildingAllocation, ListLandBuildingAllocations } from './land-building-allocations.js';
 export { ALLOCATION_METHODS, ALLOCATION_REVIEW_STATES, shareOf } from '../domains/acquisition/index.js';
 export type { LandBuildingAllocation } from '../domains/acquisition/index.js';
+export { OwnershipBasisIncompleteError, getOwnerAllocation } from './owner-allocation.js';
+export type { GetOwnerAllocation } from './owner-allocation.js';
+export type { OwnerAllocationPlan, OwnerPart } from '../domains/acquisition/index.js';

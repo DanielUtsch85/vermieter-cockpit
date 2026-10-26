@@ -1022,7 +1022,7 @@ GET  /api/v1/acquisitions/{acquisitionId}/land-building-allocations
   - **Past the repository**, each with a counter-check: the sum CHECK; a second current row; a supersede without a successor and a successor naming a current row (both at commit); a successor in another Acquisition; a change of data; a delete; an insert on a `CANCELLED` Acquisition; an insert already superseded.
   - **Concurrency:** two allocations of one Acquisition (RC: the second is `CURRENT_ALLOCATION_CHANGED`; RR past the repository: `40001`); an allocation against a cancel (both orders).
 
-## 27.4 Owner-level allocation (VC-2-09, contract)
+## 27.4 Owner-level allocation (VC-2-09, implemented; a read, no migration)
 
 Decision P2-D10 of `docs/development/phase-2-plan.md`, with the rule of data-model §61. A read: it stores nothing and changes nothing.
 
