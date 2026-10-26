@@ -105,7 +105,7 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
 
 - `status`: `DRAFT` → `CONFIRMED`, and `DRAFT` → `CANCELLED`. A **confirmed Acquisition is final** in Phase 2: it
   cannot be cancelled or changed (corrections after confirmation are a later item). Its costs and payment links
-  (P2-D7) stay writable on a `CONFIRMED` Acquisition, since invoices, the tax assessment and their payments come
+  (P2-D7) and its land/building allocation (P2-D9) stay writable on a `CONFIRMED` Acquisition, since invoices, the tax assessment and their payments come
   after the transfer; only `CANCELLED` closes them (review on #48). Cancelling a draft keeps its
   costs and payment links (P2-D7) readable for audit, but they count **nowhere** any more, like unlinked ones
   (neither in a cost's paid state nor in a Transaction's Σ links), so the payment can be linked to a new
@@ -169,6 +169,9 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
   costs: which costs enter it is a tax rule (`germany/taxation.md`, VERIFY, Phase 7).
 - `method`: `PURCHASE_CONTRACT` | `BMF_TOOL` | `APPRAISAL` | `ADVISOR` | `OTHER`; `reviewState` per data-model §6.7.
 - A new allocation **supersedes** the previous one (kept, with `supersededAt`); at most one is current.
+- Allocations are written on `DRAFT` and `CONFIRMED` Acquisitions alike, like costs and payments (P2-D6, P2-D7): an
+  appraisal or the advisor often comes after the transfer. Only `CANCELLED` closes them. A new allocation on a
+  confirmed Acquisition changes VC-2-09's owner-level allocation, which is derived and never stored (review on #52).
 - Docs: data-model §15, §74; api-design §27.
 
 ### P2-D10 Owner-level allocation read (resolves the "drives owner-level allocation" exit; review F3, F4)

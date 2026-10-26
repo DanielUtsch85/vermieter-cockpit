@@ -797,7 +797,7 @@ Represent allocation of relevant Acquisition cost between land and building.
 - source and method must remain traceable
 - only confirmed allocation should feed canonical depreciation calculations
 
-**Phase 2 (P2-D9, api-design §27.3):** recorded as entered, never computed. `landAmount + buildingAmount = totalAllocableAmount` exactly; the percentages are derived (`landShare`, `buildingShare`), not stored. `effectiveDate` defaults to the Acquisition's transfer date. A correction is a new allocation that supersedes the current one (`supersedesId`; the old one keeps its data and gets `supersededAt`/`supersededById`); at most one is current per Acquisition. `documentIds` wait for documents; `advisorPartyId` is a Party of the Realm.
+**Phase 2 (P2-D9, api-design §27.3):** recorded as entered, never computed. `landAmount + buildingAmount = totalAllocableAmount` exactly; the percentages are derived (`landShare`, `buildingShare`), not stored. `effectiveDate` defaults to the Acquisition's transfer date. A correction is a new allocation that supersedes the current one (`supersedesId` on the new one; the old one keeps its data and gets `supersededAt`, its successor is derived); at most one is current per Acquisition. `documentIds` wait for documents; `advisorPartyId` is a Party of the Realm.
 
 ---
 
@@ -3138,21 +3138,21 @@ Taxation and Tenant Recoverability may add separate interpretations to the relev
 
 ```text
 Acquisition
-purchasePrice = 300,000 EUR
+purchasePrice = 300,000 EUR            (entered once, on the Acquisition; P2-D7)
 
-Acquisition Costs
-- Purchase Price          300,000
-- Transfer Tax             15,000
-- Notary                    4,000
-- Land Registry             1,500
-- Broker                   10,000
+Acquisition Costs (expected; no PURCHASE_PRICE, P2-D7)
+- REAL_ESTATE_TRANSFER_TAX 15,000
+- NOTARY                    4,000
+- LAND_REGISTRY             1,500
+- BROKER                   10,000
 
-Relevant allocable acquisition basis
-= defined by applicable tax interpretation
+Payments link ledger Transactions to the price or a cost (AcquisitionPayment, §14)
 
-LandBuildingAllocation
-land     = ...
-building = ...
+LandBuildingAllocation (as entered, P2-D9; not computed from price and costs)
+totalAllocableAmount = 330,500
+land     =  66,100
+building = 264,400                     (land + building = total exactly)
+method = BMF_TOOL, reviewState = ADVISOR_CONFIRMED
 
 DepreciationAsset
 basis = building allocation

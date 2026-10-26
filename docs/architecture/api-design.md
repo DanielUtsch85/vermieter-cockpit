@@ -827,6 +827,7 @@ GET /api/v1/acquisitions/{acquisitionId}
 GET /api/v1/property-references/{propertyReferenceId}/acquisitions
 GET /api/v1/acquisitions/{acquisitionId}/costs                      (VC-2-06)
 GET /api/v1/acquisitions/{acquisitionId}/payments                   (VC-2-06)
+GET /api/v1/acquisitions/{acquisitionId}/land-building-allocations  (VC-2-08, §27.3)
 ```
 
 ### Commands
@@ -995,28 +996,29 @@ GET  /api/v1/acquisitions/{acquisitionId}/land-building-allocations
   - `advisorPartyId` (UUID, optional; a Party of the Realm, any status), `sourceReferences`, `notes` as §27.1; `documentIds`: `400 NOT_SUPPORTED` (as §33.2). Percentages are not accepted (they are derived).
   - `supersedes` (UUID or `null`): the id of the current allocation this one replaces, `null` for the first. It is the optimistic check of this command, since allocations are never changed, only superseded (no `If-Match`).
 - **Order of checks:** `400` → Acquisition unknown or foreign `404` → advisor unknown or foreign `404` (`details.partyId`) → `CANCELLED` `409` → `supersedes` is not the current allocation's id (or not `null` when there is none) `409 CONFLICT` with `reason = "CURRENT_ALLOCATION_CHANGED"` and `details.currentAllocationId` (the id or `null`).
-- **Success:** `201` with the allocation; the previous current one gets `supersededAt` and `supersededById`. AuditRecords: `CREATED` on the new allocation (amounts, method, review state, `supersedes`), `SUPERSEDED` on the old one.
+- **Success:** `201` with the allocation; the previous current one gets `supersededAt` (its `supersededById` is derived, see below). AuditRecords: `CREATED` on the new allocation (amounts, method, review state, `supersedes`), `SUPERSEDED` on the old one.
 - **Idempotency** as §15, scope `acquisition.allocation.create`, fingerprint of the Acquisition id and the normalized body. Without a key a retry is safe anyway: after the first success `supersedes` no longer names the current allocation and the retry is `409 CURRENT_ALLOCATION_CHANGED`.
 - **A correction** (other amounts, another review state, an advisor's confirmation) is a new allocation that supersedes the current one; nothing is edited in place, and the history stays readable.
 
 ### Response and read
 
-- **Allocation:** `allocationId`, `acquisitionId`, the three amounts (Money), `method`, `reviewState`, `effectiveDate`, `advisorPartyId`, `sourceReferences`, `notes`, `supersedesId`, `supersededAt`, `supersededById`, `current` (boolean), `createdAt`, and the derived `landShare` and `buildingShare` (§87 decimal strings, `land / total` and `building / total` rounded half-even to four places, for display only: they need not add to exactly `1.0000`; the amounts are the record).
+- **Allocation:** `allocationId`, `acquisitionId`, the three amounts (Money), `method`, `reviewState`, `effectiveDate`, `advisorPartyId`, `sourceReferences`, `notes`, `supersedesId`, `supersededAt`, `supersededById` (derived: the id of the allocation whose `supersedesId` names this one, `null` while current), `current` (boolean), `createdAt`, and the derived `landShare` and `buildingShare` (§87 decimal strings, `land / total` and `building / total` rounded half-even to four places, for display only: they need not add to exactly `1.0000`; the amounts are the record).
 - `GET …/land-building-allocations`: `{ current, items }`: the current allocation or `null`, and the whole history newest first (`createdAt`, then id), in one `REPEATABLE READ READ ONLY` transaction; unpaged (a handful per Acquisition); unknown parameters are `400`.
 
 ### Concurrency and locks
 
-- One READ COMMITTED transaction: claim the key → write the Acquisition row (the no-op of §27.2, so it serialises with cancel, confirm and cost or payment writes) → read the current allocation → check `supersedes` → set the old one's `supersededAt`/`supersededById` → insert the new one → AuditRecords → record the key. Two concurrent allocations of one Acquisition therefore run one after the other, and the second gets `409 CURRENT_ALLOCATION_CHANGED` (it names the replaced one); a cancel that comes first is seen.
+- One READ COMMITTED transaction: claim the key → write the Acquisition row (the no-op of §27.2, so it serialises with cancel, confirm and cost or payment writes) → read the current allocation → check `supersedes` → set the old one's `supersededAt` → insert the new one with `supersedes_id` → AuditRecords → record the key. Two concurrent allocations of one Acquisition therefore run one after the other, and the second gets `409 CURRENT_ALLOCATION_CHANGED` (it names the replaced one); a cancel that comes first is seen.
 - Lock order: Acquisition only (the advisor is read without a lock: an inactive advisor is allowed).
 
 ### In the database (migration 0023)
 
 - `land_building_allocation`: composite foreign keys `(acquisition_id, mre_realm_id)` to `acquisition` and `(advisor_party_id, mre_realm_id)` to `party`; amounts `numeric`, scale ≤ 2, total `> 0`, land and building `≥ 0`, `land + building = total` (CHECK), EUR; `method` and `review_state` CHECKs; `effective_date` not null.
 - At most one current allocation per Acquisition: a unique index on `acquisition_id` where `superseded_at IS NULL`.
-- The chain stays in one Acquisition and is consistent: `supersedes_id` references `(id, acquisition_id)` of the same Acquisition and is unique (one successor at most); `superseded_by_id` and `superseded_at` are set together, once, and only to the row whose `supersedes_id` names this one; a deferred constraint trigger checks at commit that every superseded row has that successor, so no allocation is superseded without one.
-- Frozen: data never changes, rows are never deleted; the only step is setting `superseded_at`/`superseded_by_id`. A new row is inserted only current (not superseded), and only for an Acquisition that is not `CANCELLED` (its row written first, `acquisition_touch_open` of 0021).
+- **Write order (review on #52):** the old row's `superseded_at` is set **first**, then the new row is inserted with `supersedes_id`. The other order cannot work: the partial unique index cannot be `DEFERRABLE`, so inserting a second current row first fails at once (`23505`). There is therefore **no stored back-pointer**: a `superseded_by_id` would name a row that does not exist yet at the update. The successor is derived from its `supersedes_id`, so the rows form no cycle and need no deferred foreign key.
+- The chain stays in one Acquisition and is consistent: `supersedes_id` references `(id, acquisition_id)` of the same Acquisition (composite foreign key, immediate: the row it names exists) and is unique (one successor at most). A **deferred constraint trigger** checks at commit, for every row written in the transaction, both directions: a row with `superseded_at` has a successor whose `supersedes_id` names it, and a row with `supersedes_id` names a row with `superseded_at` set. So no allocation is superseded without a successor, and none supersedes a row that is still current.
+- Frozen: data never changes, rows are never deleted; the only step is setting `superseded_at`, once. A new row is inserted only current (not superseded), and only for an Acquisition that is not `CANCELLED` (its row written first, `acquisition_touch_open` of 0021).
 - Tests:
-  - **Past the repository**, each with a counter-check: the sum CHECK; a second current row; a supersede without a successor (deferred); a successor in another Acquisition; a change of data; a delete; an insert on a `CANCELLED` Acquisition; an insert already superseded.
+  - **Past the repository**, each with a counter-check: the sum CHECK; a second current row; a supersede without a successor and a successor naming a current row (both at commit); a successor in another Acquisition; a change of data; a delete; an insert on a `CANCELLED` Acquisition; an insert already superseded.
   - **Concurrency:** two allocations of one Acquisition (RC: the second is `CURRENT_ALLOCATION_CHANGED`; RR past the repository: `40001`); an allocation against a cancel (both orders).
 
 # 28. Acquisition Confirmation
