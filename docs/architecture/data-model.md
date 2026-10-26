@@ -708,58 +708,50 @@ The legal milestones (contract, economic transfer, land registry) are the dates 
 
 ---
 
-# 14. AcquisitionCost
+# 14. AcquisitionCost and AcquisitionPayment (P2-D7)
 
 **Domain:** Acquisition / Taxation  
 **Stability:** Stable
 
 ## Purpose
 
-Represent the classified economic role of an acquisition-related cost.
+An AcquisitionCost is an expected transaction cost of an Acquisition; an AcquisitionPayment links part of a ledger
+Transaction to a cost or to the purchase price. Contract: api-design §27.2.
 
 ---
 
-## Required Fields
+## AcquisitionCost
 
-- `id`
-- `acquisitionId`
-- `category`
-- `amount`
-- `status`
-
----
-
-## Optional Fields
-
-- `transactionSplitId`
-- `documentId`
-- `counterpartyPartyId`
-- `incurredDate`
-- `sourceReferences`
-- `taxClassificationId`
+- Required: `id`, `acquisitionId`, `category`, `amount` (expected, > 0), `status` (`ACTIVE` | `VOID`).
+- Optional: `incurredDate`, `counterpartyPartyId`, `sourceReferences`, `notes`; `documentId` and
+  `taxClassificationId` once those entities exist.
+- Derived, never stored: `paidAmount` and `paymentStatus` (`EXPECTED` | `PARTIALLY_PAID` | `PAID`) from the counting
+  payments.
+- Categories: `REAL_ESTATE_TRANSFER_TAX`, `NOTARY`, `LAND_REGISTRY`, `BROKER`, `FINANCING_RELATED`, `OTHER`.
+  There is **no** `PURCHASE_PRICE`: the price is `Acquisition.purchasePrice`, entered once. Categories must remain
+  extensible.
+- The former `transactionSplitId` is replaced by AcquisitionPayment.
 
 ---
 
-## Suggested Categories
+## AcquisitionPayment
 
-- `PURCHASE_PRICE`
-- `REAL_ESTATE_TRANSFER_TAX`
-- `NOTARY`
-- `LAND_REGISTRY`
-- `BROKER`
-- `FINANCING_RELATED`
-- `OTHER`
-
-Categories must remain extensible.
+- Required: `id`, `acquisitionId`, `transactionId`, `amount` (> 0); `acquisitionCostId` (`null` = a payment of the
+  price).
+- Optional: `unlinkedAt`, `unlinkReason` (set together, once).
+- The Transaction is a current one (`CONFIRMED`/`RECONCILED`, not a reversal) with direction `OUTFLOW`, of the same
+  Realm and currency, when the payment is created.
 
 ---
 
 ## Invariants
 
-Where an Acquisition Cost results from a cash payment:
-
-- it should reference a Transaction or Transaction Split
-- it must not duplicate the cash value as a second financial fact
+- Cash is never duplicated: a cost's paid state is derived from links to Transactions, which stay in the ledger
+  untouched.
+- Per Transaction, the live payments (not unlinked, Acquisition not `CANCELLED`) sum to at most its amount.
+- Per cost and for the price, the counting payments (live, Transaction current) sum to at most its amount.
+- A payment whose Transaction is corrected stops counting and is re-linked explicitly; nothing moves silently.
+- All of this is database-enforced (api-design §27.2).
 
 ---
 
@@ -1119,6 +1111,8 @@ Represent economic classification independent from tax treatment.
 - `WEG_RESERVE_CONTRIBUTION`
 - `MAINTENANCE`
 - `ADMINISTRATION`
+- `ACQUISITION` (`CAPITAL_MOVEMENT`, seeded by migration 0008): the purchase price's cash; transaction costs use
+  their own categories (P2-D7)
 
 ---
 
