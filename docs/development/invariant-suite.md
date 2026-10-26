@@ -215,6 +215,20 @@ Specified in API §35.6 and data-model §17.8.
 | Confirm serialises with Ownership create, close and void, `deactivate`, cancel and payment writes (RC); a raw confirm fails to serialise against a void of its Ownership, an insert carrying its id and a `deactivate`, and commits beside a close of another owner (RR, review on #50) | CF "concurrency through the repository …", "concurrency past the repository …" |
 | Realm isolation | CF ("the order of checks": another Realm is `NOT_FOUND`) |
 
+## 13. Land/building allocation (VC-2-08, api-design §27.3)
+
+`LA` = `land-building-allocation-repository.test.ts`, `LD` = `domains/acquisition/allocation.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| As entered: total > 0, land and building ≥ 0, `land + building = total` exactly (also past the repository); the shares are derived display values | LA "the first allocation: …", "refuses a wrong sum …"; LD "shares are display values …"; API "400: the exact sum …" |
+| A correction supersedes the current one, which keeps its data; the history is readable; at most one current per Acquisition | LA "a correction supersedes …", "refuses … a second current row …" |
+| The optimistic check: `supersedes` names the current allocation (`null` only while there is none); a retry without a key is refused | LA "the optimistic check …", "with an Idempotency-Key …"; LD "checkAllocation …" |
+| The chain is consistent and in one Acquisition: no supersede without a successor (at commit), no successor elsewhere or of a current row, one successor at most | LA "keeps the chain consistent …" |
+| Data fixed, rows undeleted, superseded final; inserted only current and never on a `CANCELLED` Acquisition | LA "keeps data fixed …", "refuses … an insert already superseded, an insert on a CANCELLED Acquisition" |
+| Allocations serialise on the Acquisition row with each other and with cancel (RC: the waiter sees the other; RR: `40001`) | LA "concurrency …" |
+| Realm isolation | LA ("the order of checks": foreign Acquisition and advisor not found; "list": foreign is `undefined`) |
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

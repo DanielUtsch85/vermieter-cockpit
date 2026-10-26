@@ -26,6 +26,8 @@ import type {
   AmendParty,
   CancelAcquisition,
   ConfirmAcquisition,
+  CreateLandBuildingAllocation,
+  ListLandBuildingAllocations,
   CreateAcquisitionCost,
   VoidAcquisitionCost,
   ListAcquisitionCosts,
@@ -60,6 +62,7 @@ import { externalReferenceRoutes } from './party-external-references.js';
 import { ownershipRoutes } from './ownerships.js';
 import { acquisitionCostRoutes } from './acquisition-costs.js';
 import { acquisitionRoutes } from './acquisitions.js';
+import { landBuildingAllocationRoutes } from './land-building-allocations.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
 
@@ -101,6 +104,9 @@ export interface AppDependencies {
   readonly listPropertyAcquisitions: ListPropertyAcquisitions;
   readonly cancelAcquisition: CancelAcquisition;
   readonly confirmAcquisition: ConfirmAcquisition;
+  /** Land/building allocation (VC-2-08). */
+  readonly createLandBuildingAllocation: CreateLandBuildingAllocation;
+  readonly listLandBuildingAllocations: ListLandBuildingAllocations;
   /** Acquisition costs and payment links (VC-2-06). */
   readonly createAcquisitionCost: CreateAcquisitionCost;
   readonly voidAcquisitionCost: VoidAcquisitionCost;
@@ -202,6 +208,7 @@ export function createApp(deps: AppDependencies): Express {
       confirm: deps.confirmAcquisition,
     }),
   );
+  api.use(landBuildingAllocationRoutes({ create: deps.createLandBuildingAllocation, list: deps.listLandBuildingAllocations }));
   api.use(
     acquisitionCostRoutes({
       createCost: deps.createAcquisitionCost,

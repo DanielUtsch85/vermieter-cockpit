@@ -974,7 +974,7 @@ Decision P2-D7 of `docs/development/phase-2-plan.md`, with P2-D6 for cancelled A
 
 ---
 
-## 27.3 Land/building allocation (VC-2-08, contract)
+## 27.3 Land/building allocation (VC-2-08, implemented: migration 0023)
 
 Decision P2-D9 of `docs/development/phase-2-plan.md`. The allocation is recorded **as entered** (contract figure, BMF Arbeitshilfe, appraisal or advisor); Phase 2 does not compute the allocable basis from price and costs, since which costs enter it is a tax rule (`germany/taxation.md`, VERIFY, Phase 7). VC-2-09 distributes the current one among the buyers; depreciation (Phase 8) decides which review states it accepts.
 

@@ -59,3 +59,14 @@ export type {
   VoidCostOutcome,
   VoidCostPlan,
 } from './cost.js';
+export { ALLOCATION_METHODS, ALLOCATION_REVIEW_STATES, allocationFingerprint, checkAllocation, shareOf } from './allocation.js';
+export type {
+  AllocationData,
+  AllocationMethod,
+  AllocationRefusal,
+  AllocationReviewState,
+  CreateAllocationOutcome,
+  LandBuildingAllocation,
+  LandBuildingAllocationRepository,
+  NewAllocation,
+} from './allocation.js';

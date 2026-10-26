@@ -179,6 +179,27 @@ export interface AcquisitionPaymentTable {
   version: Generated<number>;
 }
 
+export interface LandBuildingAllocationTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  acquisition_id: string;
+  total_allocable_amount: string;
+  land_amount: string;
+  building_amount: string;
+  currency: string;
+  method: string;
+  review_state: string;
+  /** `date` column: written as `YYYY-MM-DD`, read through `to_char`. */
+  effective_date: string;
+  advisor_party_id: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  supersedes_id: string | null;
+  superseded_at: Date | null;
+  created_at: Generated<Date>;
+  created_by: string;
+}
+
 export interface IdempotencyKeyTable {
   mre_realm_id: string;
   scope: string;
@@ -305,6 +326,7 @@ export interface Database {
   acquisition_party: AcquisitionPartyTable;
   acquisition_cost: AcquisitionCostTable;
   acquisition_payment: AcquisitionPaymentTable;
+  land_building_allocation: LandBuildingAllocationTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;
