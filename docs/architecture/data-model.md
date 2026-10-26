@@ -2836,6 +2836,10 @@ Then, unless a future accepted override mechanism exists:
 - equity owner view → 80 / 20
 - property-level investment result → 80 / 20
 
+For an Acquisition (P2-D10, api-design §27.4) the share is taken relative to the acquired share, over the buyers' own
+Ownerships of that Acquisition, and money is split into cents by largest remainder per amount, with totals derived
+from the parts.
+
 ---
 
 # 62. Cash Ledger Boundary
