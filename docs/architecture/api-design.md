@@ -989,6 +989,7 @@ Confirmation should validate:
 Decision P2-D8 of `docs/development/phase-2-plan.md`, with P2-D6 (status) and P2-D4 (completeness). The list above maps to it as: the PropertyReference and the price exist by construction (§27.1: foreign key, price > 0, both fixed); buyers exist and are active; the ownership data is the Ownership set below; Phase 2 has no further required data and no configured review requirements (a land/building allocation is **not** required, P2-D8).
 
 - **Request:** no body (an empty object `{}` is accepted; any key is `400`). `If-Match` as §16.1 on the Acquisition's version; a no-op answers regardless of the version.
+- **Order of checks** (as §27.2): `400` → unknown or foreign `404` → already `CONFIRMED`: `200` no-op, without a version check → `CANCELLED`: `409`, also with a stale `If-Match` (a final status answers before the version, as cancel in §27.1) → `If-Match` `412` → `422 CONFIRMATION_BLOCKED`.
 - **Domain owner:** Acquisition. **Authorization:** as §27.1.
 - **Status:**
   - `DRAFT` → `CONFIRMED`: `200` with the Acquisition (§27.1: `status = CONFIRMED`, `confirmedAt`, `version` + 1); AuditRecord `CONFIRMED` with the transfer date and the ids of the Ownerships it confirms.
@@ -1008,12 +1009,29 @@ Decision P2-D8 of `docs/development/phase-2-plan.md`, with P2-D6 (status) and P2
   - Its Ownerships can no longer be **voided**: `POST /ownerships/{id}/void` answers `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"` and `details.acquisitionId` (§26.1). They can still be **closed**, directly or by an ownership change (§26.2): a later sale ends them, it does not undo the purchase.
   - New Ownerships cannot carry its id (`422 ACQUISITION_NOT_DRAFT`, §27.1).
   - Confirmation checks completeness at the time of confirming. A later void of **another** owner's recording error on the PropertyReference is not blocked (that Ownership belongs to no confirmed purchase); the read then shows `INCOMPLETE` as for any gap.
-- **Concurrency and locks** (one READ COMMITTED transaction, in the order of every path, §27.1): the PropertyReference first (the no-op write of every Ownership writer), then the buyers `FOR SHARE` in id order (a concurrent `deactivate` comes first and is seen, or waits), then the Acquisition `FOR UPDATE`, then its Ownerships and the PropertyReference's Ownerships on `d` are read. So confirm serialises with every Ownership create, close, void and change of the PropertyReference (they take it first), with cancel (same Acquisition lock, same order) and with cost and payment writes (they write the Acquisition row, §27.2). A void of one of its Ownerships takes PropertyReference → Acquisition `FOR SHARE` → Ownership `FOR UPDATE` and so sees a committed confirmation.
+- **Concurrency and locks** (one READ COMMITTED transaction, in the order of every path, §27.1): the PropertyReference first (the no-op write of every Ownership writer), then the buyers `FOR SHARE` in id order (a concurrent `deactivate` comes first and is seen, or waits), then the Acquisition `FOR UPDATE`, then its Ownerships and the PropertyReference's Ownerships on `d` are read. So confirm serialises with every Ownership create, close, void and change of the PropertyReference (they take it first), with cancel (same Acquisition lock, same order) and with cost and payment writes (they write the Acquisition row, §27.2). A void of one of its Ownerships takes PropertyReference → Acquisition → Ownership `FOR UPDATE` and so sees a committed confirmation.
 - **In the database (migration 0022):**
-  - `acquisition_frozen` checks requirements 1–6 again on `DRAFT` → `CONFIRMED` (buyers read `FOR SHARE`), so a confirmation past the repository is held to the same rules; an Acquisition is only **inserted** as `DRAFT`, so the check cannot be bypassed by inserting a confirmed row (as 0011 refuses inserting `CORRECTED`).
-  - `ownership_frozen` refuses `VALID` → `VOID` while the Ownership's Acquisition is `CONFIRMED` (its status read `FOR SHARE`).
+  - `acquisition_frozen` checks requirements 1–6 again on `DRAFT` → `CONFIRMED`, so a confirmation past the repository is held to the same rules; an Acquisition is only **inserted** as `DRAFT`, so the check cannot be bypassed by inserting a confirmed row (as 0011 refuses inserting `CORRECTED`).
+  - `ownership_frozen` refuses `VALID` → `VOID` while the Ownership's Acquisition is `CONFIRMED`.
+  - **Which locks the guards take (review on #50).** The confirm check does **not** write the PropertyReference. It holds the Acquisition row (the `UPDATE` locks it) and reads the buyers `FOR SHARE` and the Ownerships. This is enough because every concurrent write that confirmation would forbid already meets it on the Acquisition row. The others need no lock:
+    - **Writes on the Acquisition row:** a new Ownership carrying the id, a void of one carrying it, a cancel. From 0022 the two Ownership triggers (`ownership_acquisition_draft` of 0020, and the void guard) write the Acquisition row with the no-op `UPDATE … SET version = version` instead of reading it `FOR SHARE`. The repository's own read of the Acquisition in §26.1/§27.1 becomes the same write, so it never upgrades a share lock. A `deactivate` of a buyer meets the buyers' `FOR SHARE`. So the confirm sees each of these (READ COMMITTED), or the later of the two fails to serialise (`40001`, REPEATABLE READ: a share lock alone would not abort a stale snapshot, a write does).
+    - **Writes that need no lock:** a close of any Ownership, a void of another owner's, a create for another owner within Σ ≤ 1. They stay allowed after confirmation, so a confirm that misses one is equivalent to the serial order "confirm, then that write". Under REPEATABLE READ a raw confirm and a raw close of another owner both commit, and that is correct, not `40001`.
+    - **No deadlock from the reverse order:** past the repository the trigger takes Acquisition → buyers `FOR SHARE`, the reverse of an Ownership create's Parties → Acquisition. Share locks on Parties do not conflict with each other, and the only exclusive Party lock (`deactivate`, `FOR UPDATE`) never takes an Acquisition. So this order cannot close a cycle. The repository path holds the buyers before the Acquisition anyway.
   - From the review on #49: every status step raises `version` by exactly one (Acquisition cancel and confirm, cost void, payment unlink; as 0013 for Transactions), and a cost is only inserted `ACTIVE`, a payment only not unlinked.
-- Concurrency tests (two connections, RC and RR): confirm against an Ownership create, close and void on the same PropertyReference; confirm against `deactivate` of a buyer; confirm against cancel; confirm against a payment link; a void of its Ownership against confirm; each lock counter-checked.
+- **Schema tests past the repository** (as #47 and §27.2), each with a counter-check (the guard neutralised, the test red):
+  - one raw `DRAFT` → `CONFIRMED` per requirement 1–6, refused with its code;
+  - an insert as `CONFIRMED` or `CANCELLED`, refused;
+  - a raw void of an Ownership of a `CONFIRMED` Acquisition, refused; a raw close of it, allowed;
+  - from #49:
+    - a status step whose `version` ≠ `OLD.version + 1` (cancel, confirm, cost void, unlink), refused;
+    - an insert of a cost as `VOID`, refused;
+    - an insert of a payment already unlinked, refused.
+- **Concurrency tests:**
+  - Through the repository (RC): confirm against an Ownership create, close and void on the same PropertyReference; confirm against `deactivate` of a buyer; confirm against cancel; confirm against a payment link; a void of its Ownership against confirm.
+  - Past the repository (RR):
+    - a raw confirm against a raw void of its Ownership, a raw insert carrying its id, and a raw `deactivate` of a buyer: `40001`;
+    - a raw confirm against a raw close of another owner: both commit.
+  - Each lock is counter-checked.
 
 ---
 
