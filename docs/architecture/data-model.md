@@ -3149,7 +3149,7 @@ Acquisition Costs (expected; no PURCHASE_PRICE, P2-D7)
 Payments link ledger Transactions to the price or a cost (AcquisitionPayment, §14)
 
 LandBuildingAllocation (as entered, P2-D9; not computed from price and costs)
-totalAllocableAmount = 330,500
+totalAllocableAmount = 330,500          (as entered by the advisor; which costs enter it is a tax rule, Phase 7)
 land     =  66,100
 building = 264,400                     (land + building = total exactly)
 method = BMF_TOOL, reviewState = ADVISOR_CONFIRMED

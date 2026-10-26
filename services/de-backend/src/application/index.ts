@@ -207,3 +207,7 @@ export type {
 } from './acquisition-costs.js';
 export { COST_CATEGORIES, COST_STATUSES } from '../domains/acquisition/index.js';
 export type { AcquisitionCost, AcquisitionPayment, LinkRefusal, PurchasePricePayments } from '../domains/acquisition/index.js';
+export { CurrentAllocationChangedError, createLandBuildingAllocation, listLandBuildingAllocations } from './land-building-allocations.js';
+export type { CreateLandBuildingAllocation, ListLandBuildingAllocations } from './land-building-allocations.js';
+export { ALLOCATION_METHODS, ALLOCATION_REVIEW_STATES, shareOf } from '../domains/acquisition/index.js';
+export type { LandBuildingAllocation } from '../domains/acquisition/index.js';
