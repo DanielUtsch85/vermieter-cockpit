@@ -404,6 +404,10 @@ Independent manually duplicated purchase cost
 
 whenever the cost originates from an actual payment.
 
+In Phase 2 (P2-D7, api-design §27.2) the purchase price is entered once on the Acquisition, the costs are expected
+amounts, and an AcquisitionPayment links a Transaction (or part of it) to the price or a cost. The paid state is
+derived from these links; the link is the interpretation, the split stays the cash classification.
+
 ---
 
 # 14. Land and Building Allocation

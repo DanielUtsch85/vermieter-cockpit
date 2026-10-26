@@ -825,6 +825,8 @@ Decisions P2-D6 (status vs. legal dates), P2-D7 (price once, payments link Trans
 GET /api/v1/acquisitions
 GET /api/v1/acquisitions/{acquisitionId}
 GET /api/v1/property-references/{propertyReferenceId}/acquisitions
+GET /api/v1/acquisitions/{acquisitionId}/costs                      (VC-2-06)
+GET /api/v1/acquisitions/{acquisitionId}/payments                   (VC-2-06)
 ```
 
 ### Commands
@@ -833,7 +835,9 @@ GET /api/v1/property-references/{propertyReferenceId}/acquisitions
 POST /api/v1/acquisitions
 POST /api/v1/acquisitions/{acquisitionId}/cancel
 POST /api/v1/acquisitions/{acquisitionId}/costs                     (VC-2-06)
+POST /api/v1/acquisitions/{acquisitionId}/costs/{costId}/void       (VC-2-06)
 POST /api/v1/acquisitions/{acquisitionId}/payments                  (VC-2-06)
+POST /api/v1/acquisitions/{acquisitionId}/payments/{paymentId}/unlink (VC-2-06)
 POST /api/v1/acquisitions/{acquisitionId}/confirm                   (VC-2-07, §28)
 POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08)
 ```
@@ -900,6 +904,72 @@ POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08)
 - `acquisition_party (acquisition_id, party_id, role, position)`: `role` `BUYER` | `SELLER`; composite foreign keys to the Acquisition and to `party (id, mre_realm_id)`; `UNIQUE (acquisition_id, party_id)` (nobody both buyer and seller).
 - A trigger keeps an Acquisition's data fixed after creation: id, Realm, PropertyReference, price and currency, share, the three dates, `source_references`, `notes`, `created_at`, `created_by`. The status columns (`status`, `cancelled_at`, `cancellation_reason`, `confirmed_at`) change only with the transition out of `DRAFT`, and `version`/`updated_at` with it; after it the row is final. Its parties are written only with the draft and never changed or deleted.
 - `ownership.acquisition_id`: a composite foreign key `(acquisition_id, mre_realm_id, property_reference_id)` to `acquisition`, so the link is in the Ownership's Realm and PropertyReference; added to `ownership_frozen`'s fixed fields. Both rules between the two hold past the repository too (review on #47): a trigger lets a new Ownership link only a `DRAFT` (status read `FOR SHARE`), and `acquisition_frozen` refuses `DRAFT` → `CANCELLED` while a `VALID` Ownership carries the id. With it, the `0019` trigger message shows sums as `n/d` integers instead of `numeric` decimals (review on #45).
+
+## 27.2 Costs and payments (VC-2-06, contract)
+
+Decision P2-D7 of `docs/development/phase-2-plan.md`, with P2-D6 for cancelled Acquisitions.
+
+- **What it is:** the purchase price is entered once, on the Acquisition (§27.1). An **AcquisitionCost** is an expected transaction cost (`REAL_ESTATE_TRANSFER_TAX`, `NOTARY`, `LAND_REGISTRY`, `BROKER`, `FINANCING_RELATED`, `OTHER`; there is no `PURCHASE_PRICE`). An **AcquisitionPayment** links a part of a ledger Transaction to the price (`acquisitionCostId = null`) or to one cost. Cash stays in the ledger untouched (ADR-001, ADR-037): no Transaction or split is written by these commands, and there is no `acquisitionId` on splits (§33.2 keeps its `NOT_SUPPORTED`).
+- **Authorization:** as §27.1; costs and payments belong to their Acquisition's Realm, and so do the linked Transaction and the counterparty Party. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`); a cost or payment of another Acquisition is `404` too.
+- **Which Acquisitions take writes:** `DRAFT` and `CONFIRMED`. Bills and payments typically arrive after the contract and after the transfer (the tax assessment, the notary's and the land registry's invoices), so confirmation does not close them; "confirmed is final" (P2-D6) is about the Acquisition's own data and its Ownerships. A `CANCELLED` Acquisition takes none: every cost or payment write on it is `409 CONFLICT` with `reason = "ACQUISITION_CANCELLED"`. Its costs and payments stay readable and count nowhere (P2-D6).
+
+### Costs
+
+- **`POST /acquisitions/{id}/costs`**, body (strict):
+  - `category` (one of the six above, required);
+  - `amount` (Money as §31, required, **> 0** `NOT_POSITIVE`, EUR): the expected amount;
+  - `incurredDate` (business date, optional), `counterpartyPartyId` (UUID, optional; a Party of the Realm, any status: the notary need not be active);
+  - `sourceReferences`, `notes` as §27.1;
+  - `documentId`, `taxClassificationId`: `400 NOT_SUPPORTED` (as §33.2); data-model §14's `transactionSplitId` is replaced by payments and is an unknown key.
+- **Order of checks:** `400` → Acquisition unknown or foreign `404` → counterparty `404` (`details.partyId`) → Acquisition `CANCELLED` `409`.
+- **Success:** `201` with the cost (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` on the cost. **Idempotency** as §15, scope `acquisition.cost.create`, fingerprint of the Acquisition id and the normalized body; without a key a retry creates a second cost.
+- **`POST /acquisitions/{id}/costs/{costId}/void`**, body `{ "reason": "..." }` (1–500, trimmed): a wrong expected amount is voided and entered again; there is no `amend`. `200` with the cost (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1); AuditRecord `VOIDED`. Voiding a `VOID` cost is a `200` no-op. While payments are linked to it and not unlinked, void is `409 CONFLICT` with `reason = "COST_HAS_PAYMENTS"` and `details.paymentIds`: unlink them first. A `VOID` cost counts nowhere (VC-2-09 leaves it out). `If-Match` on the cost's version as §16.1; a no-op answers regardless.
+- **Response:** `costId`, `acquisitionId`, `category`, `amount`, `incurredDate`, `counterpartyPartyId`, `sourceReferences`, `notes`, `status` (`ACTIVE` | `VOID`), `voidedAt`, `voidReason`, the derived `paidAmount` and `paymentStatus`, `createdAt`, `version`; single-cost responses carry `ETag`.
+
+### Payments
+
+- **`POST /acquisitions/{id}/payments`**, body (strict): `transactionId` (UUID, required), `acquisitionCostId` (UUID or `null`, optional; absent or `null` = a payment of the price), `amount` (Money as §31, required, **> 0**, EUR). Installments are several payments; one Transaction may pay several costs (one payment each), and its remainder may stay unlinked.
+- **Order of checks:**
+  1. `400`;
+  2. Acquisition unknown or foreign → `404`; the cost unknown or of another Acquisition → `404` (`details.acquisitionCostId`); the Transaction unknown or foreign → `404` (`details.transactionId`);
+  3. Acquisition `CANCELLED` → `409 CONFLICT` `ACQUISITION_CANCELLED`; the cost `VOID` → `409 CONFLICT` `COST_VOID`;
+  4. the Transaction not current (§35.3: `CONFIRMED` or `RECONCILED`, and not a reversal) → `422 TRANSACTION_NOT_CURRENT` with `details.status` and `details.correctionRole`; not `OUTFLOW` → `422 NOT_OUTFLOW`; another currency than the Acquisition's → `422 CURRENCY_MISMATCH`;
+  5. the live payments of the Transaction plus this one above its amount → `409 INVARIANT_VIOLATION` with `reason = "PAYMENT_EXCEEDS_TRANSACTION"`, `transactionAmount`, `linkedAmount`, `available` (Money);
+  6. the counting payments of the cost (or the price) plus this one above its amount → `409 INVARIANT_VIOLATION` with `reason = "PAYMENT_EXCEEDS_COST"` (or `"PAYMENT_EXCEEDS_PRICE"`), `expected`, `paid`, `remaining`.
+- **Success:** `201` with the payment, AuditRecord `LINKED` on the payment. **Idempotency** as §15, scope `acquisition.payment.create`; a replay answers the recorded body. Without a key a retry links a second time if the caps allow it, so clients should always send one.
+- **`POST /acquisitions/{id}/payments/{paymentId}/unlink`**, body `{ "reason": "..." }` (1–500): `200` with the payment (`unlinkedAt`, `unlinkReason`, `version` + 1); AuditRecord `UNLINKED`. Unlinking an unlinked payment is a `200` no-op. `If-Match` as for void. Allowed on a `DRAFT` or `CONFIRMED` Acquisition, also when the Transaction is no longer current (that is how the user cleans up after a ledger correction).
+- **Response:** `paymentId`, `acquisitionId`, `acquisitionCostId`, `transactionId`, `amount`, `counting` (boolean), `notCountingReason` (`null`, or the first of `UNLINKED`, `ACQUISITION_CANCELLED`, `TRANSACTION_CORRECTED`), `transactionStatus`, `replacementTransactionId` (the Transaction's **direct** replacement when corrected, which may itself be corrected since: follow the chain of §35.3 to its current end; `null` after a `reverse`, §35.9), `unlinkedAt`, `unlinkReason`, `createdAt`, `version`; single-payment responses carry `ETag`.
+
+### What counts (derived, never stored)
+
+- A payment is **live** while it is not unlinked and its Acquisition is not `CANCELLED`; it is **counting** while it is live and its Transaction is current (§35.3).
+- **Per Transaction:** the live payments sum to at most its amount. A payment of a Transaction corrected since still holds its part until it is unlinked, so the original cannot be linked twice over; the replacement is a new Transaction with its own amount.
+- **Per cost and for the price:** `paidAmount` is the sum of the counting payments; `paymentStatus` is `EXPECTED` (no counting payment), `PARTIALLY_PAID` (below the amount) or `PAID` (equal). A sum above the amount is refused (step 6), so `OVERPAID` does not exist. A ledger correction lowers it silently in the ledger's terms but visibly here: the payment reads `TRANSACTION_CORRECTED` with the replacement's id, and the user re-links explicitly (unlink, then link the replacement). Nothing is moved by DE.
+- On a `CANCELLED` Acquisition nothing counts: `paidAmount` is `0.00` and `paymentStatus` is `null` for its costs and its price. A `VOID` cost has `paymentStatus = null` too.
+
+### Reads
+
+- `GET /acquisitions/{id}/costs`: `{ items }` in `createdAt`, then `costId` order, `VOID` included; with `?status=ACTIVE|VOID`.
+- `GET /acquisitions/{id}/payments`: `{ purchasePrice: { amount, paidAmount, paymentStatus }, items }` in `createdAt`, then `paymentId` order, unlinked included; with `?acquisitionCostId=` (a UUID, or the literal `null` for the price; an empty value is `400`) and `?counting=true|false`.
+- Both are unpaged (an Acquisition has a handful of costs and payments) and read in one `REPEATABLE READ READ ONLY` transaction (as `transaction-query-repository.ts`), so the Acquisition, its costs, payments and the Transactions' statuses come from one snapshot. Unknown parameters are `400`.
+
+### Concurrency and locks
+
+- **One serialising path per Acquisition:** every cost or payment write (create, void, link, unlink) first writes the Acquisition's row (the no-op `UPDATE … SET version = version` that §26.1 uses for the PropertyReference), then reads it. Cancel takes the same row `FOR UPDATE` (§27.1), so cancel and every cost or payment write serialise: whichever waits sees the other's result (READ COMMITTED) or is aborted with a serialization failure (REPEATABLE READ), never acts on a stale status. The same holds for two payments of one cost or of the price.
+- **Per Transaction:** a link then writes the Transaction's row the same way (the split trigger's touch of §34.2, which 0013 allows on a confirmed Transaction: no field, `version` or `updated_at` changes), and only then sums its live payments. So two links of one Transaction from two Acquisitions serialise, and so does a link with a `correct` or `reverse` of the Transaction (§35.5 locks it `FOR UPDATE`): a link that waited sees the Transaction `CORRECTED` and is refused; a correction that waited leaves the committed payment, which then stops counting.
+- **Lock order:** Acquisition, then Transaction. Ownership writers take PropertyReference → Parties → Acquisition (`FOR SHARE`) and never a Transaction; the ledger takes Transaction → accounts and never an Acquisition; cancel and VC-2-07's confirm take PropertyReference → Acquisition. No path takes them the other way round, so there is no lock cycle.
+- Each write runs in one READ COMMITTED transaction: claim the `Idempotency-Key` → lock and re-read the Acquisition (and the cost) → lock and read the Transaction → check → write → AuditRecord → record the key. A refusal rolls back the claim (§15).
+
+### In the database (VC-2-06, migration 0021)
+
+- `acquisition_cost`: composite foreign key `(acquisition_id, mre_realm_id)` to `acquisition`, `(counterparty_party_id, mre_realm_id)` to `party`; `UNIQUE (id, acquisition_id)` for the payment link; `category` CHECK; amount `numeric`, scale ≤ 2, `> 0`, `currency` EUR; `status` `ACTIVE` | `VOID`, `VOID` exactly with `voided_at` and `void_reason`.
+- `acquisition_payment`: composite foreign keys `(acquisition_id, mre_realm_id)` to `acquisition`, `(acquisition_cost_id, acquisition_id)` to `acquisition_cost` (so the cost is of the same Acquisition), and `(transaction_id, mre_realm_id, currency)` to `ledger_transaction`'s existing `(id, mre_realm_id, currency)` key (so the Transaction is of the Realm and in the payment's currency); the ledger's tables are not altered. Amount as the cost's; unlinked exactly with `unlinked_at` and `unlink_reason`.
+- **Frozen:** a cost's data never changes, its only step is `ACTIVE` → `VOID`; a payment's never changes, its only step is the unlink; `version`/`updated_at` move only with that step; neither is deleted.
+- **Guards past the repository** (P2-D11), in triggers that take the locks above themselves:
+  - every insert or step of a cost or payment writes the Acquisition's row first and refuses a `CANCELLED` one (`ACQUISITION_CANCELLED`);
+  - a payment insert refuses a `VOID` cost, writes the Transaction's row and refuses a Transaction that is not current or not `OUTFLOW`, then checks both caps (per Transaction over the live payments, per cost or price over the counting ones);
+  - a cost's void is refused while payments not unlinked are linked to it.
+- Concurrency tests (two connections, RC and RR) per guard: two links exceeding one Transaction; two links exceeding one cost and the price; link against `cancel`; `unlink` and void against `cancel` (review on #37); link against `void` of the same cost (review on #48: without the Acquisition touch the void would not see the uncommitted payment, and the link's foreign key takes only `KEY SHARE` on the cost); link against a `correct` of the Transaction; and a counter-check that removes each lock and sees its test fail.
 
 ---
 
@@ -1269,7 +1339,7 @@ The command replaces the current unconfirmed split proposal atomically.
 - **`400`:**
   - Per field: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED`, `INVALID_FORMAT` (also a JSON number as amount).
   - `NOT_ALLOWED` for a `direction` on a split.
-  - `NOT_SUPPORTED` for references whose entities do not exist yet (`loanId`, `wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `securityDepositId`, `taxClassificationId`): refused rather than stored unchecked.
+  - `NOT_SUPPORTED` for references whose entities do not exist yet (`loanId`, `wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `securityDepositId`, `taxClassificationId`): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits.
   - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` for a split currency other than the Transaction's, with the split's path (`splits.<i>.amount.currency`, VC-X-18).
 - **`404`:** unknown or foreign Transaction; a `propertyReferenceId` not in the caller's Realm.
 - **`409 INVARIANT_VIOLATION`**, `details.reason = "SPLIT_SUM_MISMATCH"`, with `expected`, `actual` and `difference` as Money: the sum differs from the Transaction amount by any amount, one cent included.
