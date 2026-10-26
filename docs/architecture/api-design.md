@@ -839,7 +839,7 @@ POST /api/v1/acquisitions/{acquisitionId}/costs/{costId}/void       (VC-2-06)
 POST /api/v1/acquisitions/{acquisitionId}/payments                  (VC-2-06)
 POST /api/v1/acquisitions/{acquisitionId}/payments/{paymentId}/unlink (VC-2-06)
 POST /api/v1/acquisitions/{acquisitionId}/confirm                   (VC-2-07, §28)
-POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08)
+POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation  (VC-2-08, §27.3)
 ```
 
 ## 27.1 Contract (VC-2-05, implemented: migration 0020)
@@ -972,6 +972,52 @@ Decision P2-D7 of `docs/development/phase-2-plan.md`, with P2-D6 for cancelled A
 - Concurrency tests (two connections, RC and RR) per guard: two links exceeding one Transaction; two links exceeding one cost and the price; link against `cancel`; `unlink` and void against `cancel` (review on #37); link against `void` of the same cost (review on #48: without the Acquisition touch the void would not see the uncommitted payment, and the link's foreign key takes only `KEY SHARE` on the cost); link against a `correct` of the Transaction; and a counter-check that removes each lock and sees its test fail.
 
 ---
+
+## 27.3 Land/building allocation (VC-2-08, contract)
+
+Decision P2-D9 of `docs/development/phase-2-plan.md`. The allocation is recorded **as entered** (contract figure, BMF Arbeitshilfe, appraisal or advisor); Phase 2 does not compute the allocable basis from price and costs, since which costs enter it is a tax rule (`germany/taxation.md`, VERIFY, Phase 7). VC-2-09 distributes the current one among the buyers; depreciation (Phase 8) decides which review states it accepts.
+
+```text
+POST /api/v1/acquisitions/{acquisitionId}/land-building-allocation
+GET  /api/v1/acquisitions/{acquisitionId}/land-building-allocations
+```
+
+- **Authorization:** as §27.1; the allocation and its advisor belong to the Acquisition's Realm.
+- **Which Acquisitions take one:** `DRAFT` and `CONFIRMED`, since an allocation is not required to confirm (P2-D8) and often arrives later (an appraisal, the advisor); a `CANCELLED` one is `409 CONFLICT` with `reason = "ACQUISITION_CANCELLED"` (as §27.2).
+
+### `POST …/land-building-allocation`
+
+- **Body** (strict):
+  - `totalAllocableAmount` (Money as §31, **> 0**), `landAmount` and `buildingAmount` (Money, **≥ 0**; a zero land part is an Erbbaurecht, a zero building part undeveloped land), all EUR. `landAmount + buildingAmount = totalAllocableAmount` **exactly**, else `400` with `ALLOCATION_SUM_MISMATCH` at `totalAllocableAmount` (no rounding tolerance, P2-D9).
+  - `method`: `PURCHASE_CONTRACT` | `BMF_TOOL` | `APPRAISAL` | `ADVISOR` | `OTHER`.
+  - `reviewState` (data-model §6.7, optional, default `UNREVIEWED`): `UNREVIEWED` | `NEEDS_REVIEW` | `CONFIRMED` | `ADVISOR_CONFIRMED`. `SUGGESTED` is reserved for machine suggestions and is `400`.
+  - `effectiveDate` (business date, optional, default the Acquisition's transfer date, P2-D6).
+  - `advisorPartyId` (UUID, optional; a Party of the Realm, any status), `sourceReferences`, `notes` as §27.1; `documentIds`: `400 NOT_SUPPORTED` (as §33.2). Percentages are not accepted (they are derived).
+  - `supersedes` (UUID or `null`): the id of the current allocation this one replaces, `null` for the first. It is the optimistic check of this command, since allocations are never changed, only superseded (no `If-Match`).
+- **Order of checks:** `400` → Acquisition unknown or foreign `404` → advisor unknown or foreign `404` (`details.partyId`) → `CANCELLED` `409` → `supersedes` is not the current allocation's id (or not `null` when there is none) `409 CONFLICT` with `reason = "CURRENT_ALLOCATION_CHANGED"` and `details.currentAllocationId` (the id or `null`).
+- **Success:** `201` with the allocation; the previous current one gets `supersededAt` and `supersededById`. AuditRecords: `CREATED` on the new allocation (amounts, method, review state, `supersedes`), `SUPERSEDED` on the old one.
+- **Idempotency** as §15, scope `acquisition.allocation.create`, fingerprint of the Acquisition id and the normalized body. Without a key a retry is safe anyway: after the first success `supersedes` no longer names the current allocation and the retry is `409 CURRENT_ALLOCATION_CHANGED`.
+- **A correction** (other amounts, another review state, an advisor's confirmation) is a new allocation that supersedes the current one; nothing is edited in place, and the history stays readable.
+
+### Response and read
+
+- **Allocation:** `allocationId`, `acquisitionId`, the three amounts (Money), `method`, `reviewState`, `effectiveDate`, `advisorPartyId`, `sourceReferences`, `notes`, `supersedesId`, `supersededAt`, `supersededById`, `current` (boolean), `createdAt`, and the derived `landShare` and `buildingShare` (§87 decimal strings, `land / total` and `building / total` rounded half-even to four places, for display only: they need not add to exactly `1.0000`; the amounts are the record).
+- `GET …/land-building-allocations`: `{ current, items }`: the current allocation or `null`, and the whole history newest first (`createdAt`, then id), in one `REPEATABLE READ READ ONLY` transaction; unpaged (a handful per Acquisition); unknown parameters are `400`.
+
+### Concurrency and locks
+
+- One READ COMMITTED transaction: claim the key → write the Acquisition row (the no-op of §27.2, so it serialises with cancel, confirm and cost or payment writes) → read the current allocation → check `supersedes` → set the old one's `supersededAt`/`supersededById` → insert the new one → AuditRecords → record the key. Two concurrent allocations of one Acquisition therefore run one after the other, and the second gets `409 CURRENT_ALLOCATION_CHANGED` (it names the replaced one); a cancel that comes first is seen.
+- Lock order: Acquisition only (the advisor is read without a lock: an inactive advisor is allowed).
+
+### In the database (migration 0023)
+
+- `land_building_allocation`: composite foreign keys `(acquisition_id, mre_realm_id)` to `acquisition` and `(advisor_party_id, mre_realm_id)` to `party`; amounts `numeric`, scale ≤ 2, total `> 0`, land and building `≥ 0`, `land + building = total` (CHECK), EUR; `method` and `review_state` CHECKs; `effective_date` not null.
+- At most one current allocation per Acquisition: a unique index on `acquisition_id` where `superseded_at IS NULL`.
+- The chain stays in one Acquisition and is consistent: `supersedes_id` references `(id, acquisition_id)` of the same Acquisition and is unique (one successor at most); `superseded_by_id` and `superseded_at` are set together, once, and only to the row whose `supersedes_id` names this one; a deferred constraint trigger checks at commit that every superseded row has that successor, so no allocation is superseded without one.
+- Frozen: data never changes, rows are never deleted; the only step is setting `superseded_at`/`superseded_by_id`. A new row is inserted only current (not superseded), and only for an Acquisition that is not `CANCELLED` (its row written first, `acquisition_touch_open` of 0021).
+- Tests:
+  - **Past the repository**, each with a counter-check: the sum CHECK; a second current row; a supersede without a successor (deferred); a successor in another Acquisition; a change of data; a delete; an insert on a `CANCELLED` Acquisition; an insert already superseded.
+  - **Concurrency:** two allocations of one Acquisition (RC: the second is `CURRENT_ALLOCATION_CHANGED`; RR past the repository: `40001`); an allocation against a cancel (both orders).
 
 # 28. Acquisition Confirmation
 

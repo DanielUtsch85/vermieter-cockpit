@@ -797,6 +797,8 @@ Represent allocation of relevant Acquisition cost between land and building.
 - source and method must remain traceable
 - only confirmed allocation should feed canonical depreciation calculations
 
+**Phase 2 (P2-D9, api-design §27.3):** recorded as entered, never computed. `landAmount + buildingAmount = totalAllocableAmount` exactly; the percentages are derived (`landShare`, `buildingShare`), not stored. `effectiveDate` defaults to the Acquisition's transfer date. A correction is a new allocation that supersedes the current one (`supersedesId`; the old one keeps its data and gets `supersededAt`/`supersededById`); at most one is current per Acquisition. `documentIds` wait for documents; `advisorPartyId` is a Party of the Realm.
+
 ---
 
 # 16. FinancialAccount
