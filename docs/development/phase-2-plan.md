@@ -194,6 +194,10 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
   construction and every column sums to its amount; a derived total may differ by at most a cent per component from
   distributing the total directly, which is intended. VC-2-09 tests the counterexample of the review (weights
   `3/7, 3/7, 1/7`, land 0.10 €, building 0.01 €: land 4/4/2 ct, building 1/0/0 ct, total 5/4/2 ct).
+- **Which Acquisitions answer (review on #54):** a `CONFIRMED` one. A `DRAFT` answers only as a labelled preview
+  (`PROVISIONAL`), and only when its Ownerships already meet requirements 2–5 of P2-D8's confirmation (from the
+  transfer date, buyers only, one each, shares summing to `acquiredShare`); otherwise, and for a `CANCELLED` one, it is
+  `409`. A preview never feeds anything; tax and depreciation (Phase 7/8) read only confirmed Acquisitions.
 - Docs: data-model §61 (rule), api-design §27 (read).
 
 ### P2-D11 Conventions carried over

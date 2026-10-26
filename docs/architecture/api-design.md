@@ -1034,7 +1034,7 @@ GET /api/v1/acquisitions/{acquisitionId}/owner-allocation
 - **Basis (P2-D10):** the Acquisition is split among **its own buyers**, not among all owners of the PropertyReference. The basis is the `VALID` Ownerships carrying its `acquisitionId` (P2-D8). An Ownership closed since still counts: closing ends it later, it does not undo the purchase. Each owner's **weight** is its share divided by `acquiredShare`, an exact reduced fraction (`"n/d"`, §26.1). In a partial acquisition the buyer of `1/2` has weight `1/1` and carries 100 % of price and costs.
 - **When it answers:**
   - `CONFIRMED`: `basis = "CONFIRMED"`. P2-D8 guarantees one Ownership per buyer from the transfer date, with shares summing to `acquiredShare`, so the weights sum to exactly `1`.
-  - `DRAFT`: `basis = "PROVISIONAL"` when the shares of its Ownerships already sum to exactly `acquiredShare` (a preview while WF-002 is under way). Otherwise `409 CONFLICT` with `reason = "OWNERSHIP_BASIS_INCOMPLETE"`, `expected` (`acquiredShare`) and `actual` (the sum, `"0/1"` with none). A provisional answer never feeds anything; only `CONFIRMED` does (Phase 7/8).
+  - `DRAFT`: `basis = "PROVISIONAL"` only when its Ownerships already have the **structure** confirmation requires, that is requirements 2–5 of §28.1 (all start on the transfer date, held only by buyers, every buyer holds one, shares sum to exactly `acquiredShare`). This is a preview while WF-002 is under way, and it never feeds anything; only `CONFIRMED` does (Phase 7/8). Requirements 1 (buyers active) and 6 (the PropertyReference `COMPLETE`) are not needed for a split among the buyers. Otherwise the answer is `409 CONFLICT` with `reason = "OWNERSHIP_BASIS_INCOMPLETE"` and `details.violations` in the format of `CONFIRMATION_BLOCKED` (§28.1, codes 2–5). So a non-buyer never receives a part, and every owner appears once (review on #54): a buyer with a second Ownership carrying the id fails requirement 2, since two of one owner cannot both start on the transfer date (no overlap, P2-D4).
   - `CANCELLED`: `409 CONFLICT` with `reason = "ACQUISITION_CANCELLED"`.
 - **Amounts distributed** (each separately, P2-D10):
   - the purchase price;
@@ -1058,7 +1058,7 @@ GET /api/v1/acquisitions/{acquisitionId}/owner-allocation
   - a partial acquisition (weight `1/1` for a share of `1/2`);
   - `VOID` costs left out;
   - no allocation gives `null` parts;
-  - the three status answers;
+  - the three status answers, and a `DRAFT` refused as `OWNERSHIP_BASIS_INCOMPLETE` for a non-buyer holding an Ownership with the id and for a buyer holding two (one from the transfer date, one later);
   - a **property test** over random fractions (up to 20 owners, denominators up to 10 000) and random amounts (0 to 10¹⁵ cents): every part ≥ 0, every column sums exactly, each per-owner total equals its parts, and every part is within one cent of `A × w_i`.
 - Docs: data-model §61 names this read as the acquisition-side application of its rule.
 
