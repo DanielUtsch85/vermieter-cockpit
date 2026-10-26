@@ -26,7 +26,7 @@ import { Money } from '../shared/index.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
-const businessDate = z.string().transform((value, ctx) => {
+export const businessDate = z.string().transform((value, ctx) => {
   const result = checkBusinessDate(value);
   if ('date' in result) return result.date;
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
@@ -40,7 +40,7 @@ const share = z.string().transform((value, ctx) => {
   return z.NEVER;
 });
 
-const optionalText = (max: number) =>
+export const optionalText = (max: number) =>
   z
     .string()
     .trim()
@@ -216,11 +216,11 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
 }
 
 /** Leaves out the filters that were not given (exactOptionalPropertyTypes). */
-function definedOnly<T extends Record<string, unknown>>(filter: T): { [K in keyof T]: Exclude<T[K], undefined> } {
+export function definedOnly<T extends Record<string, unknown>>(filter: T): { [K in keyof T]: Exclude<T[K], undefined> } {
   return Object.fromEntries(Object.entries(filter).filter(([, value]) => value !== undefined)) as { [K in keyof T]: Exclude<T[K], undefined> };
 }
 
-function readId(value: string | undefined, field: string, res: Response): string | undefined {
+export function readId(value: string | undefined, field: string, res: Response): string | undefined {
   if (value !== undefined && RESOURCE_ID.test(value)) return value.toLowerCase();
   sendValidationError(res, [{ field, code: 'INVALID_FORMAT' }]);
   return undefined;

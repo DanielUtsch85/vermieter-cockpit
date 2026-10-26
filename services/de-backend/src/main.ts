@@ -20,6 +20,12 @@ import {
   listExternalReferences,
   changeOwnership,
   cancelAcquisition,
+  createAcquisitionCost,
+  voidAcquisitionCost,
+  listAcquisitionCosts,
+  linkAcquisitionPayment,
+  unlinkAcquisitionPayment,
+  listAcquisitionPayments,
   createAcquisition,
   getAcquisition,
   listAcquisitions,
@@ -47,6 +53,7 @@ import {
   PostgresPartyRepository,
   PostgresPartyExternalReferenceRepository,
   PostgresOwnershipRepository,
+  PostgresAcquisitionCostRepository,
   PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
   PostgresImportRepository,
@@ -79,6 +86,7 @@ const parties = new PostgresPartyRepository(db);
 const externalReferences = new PostgresPartyExternalReferenceRepository(db);
 const ownerships = new PostgresOwnershipRepository(db);
 const acquisitions = new PostgresAcquisitionRepository(db);
+const acquisitionCosts = new PostgresAcquisitionCostRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -107,6 +115,12 @@ const app = createApp({
   listAcquisitions: listAcquisitions({ repository: acquisitions }),
   listPropertyAcquisitions: listPropertyAcquisitions({ repository: acquisitions, propertyReferences: propertyReferences.repository }),
   cancelAcquisition: cancelAcquisition({ repository: acquisitions }),
+  createAcquisitionCost: createAcquisitionCost({ repository: acquisitionCosts }),
+  voidAcquisitionCost: voidAcquisitionCost({ repository: acquisitionCosts }),
+  listAcquisitionCosts: listAcquisitionCosts({ repository: acquisitionCosts }),
+  linkAcquisitionPayment: linkAcquisitionPayment({ repository: acquisitionCosts }),
+  unlinkAcquisitionPayment: unlinkAcquisitionPayment({ repository: acquisitionCosts }),
+  listAcquisitionPayments: listAcquisitionPayments({ repository: acquisitionCosts }),
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: transactions }),

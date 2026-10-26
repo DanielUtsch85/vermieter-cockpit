@@ -142,6 +142,43 @@ export interface AcquisitionPartyTable {
   position: number;
 }
 
+export interface AcquisitionCostTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  acquisition_id: string;
+  category: string;
+  amount: string;
+  currency: string;
+  /** `date` column: written as `YYYY-MM-DD`, read through `to_char`. */
+  incurred_date: string | null;
+  counterparty_party_id: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  status: string;
+  voided_at: Date | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface AcquisitionPaymentTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  acquisition_id: string;
+  acquisition_cost_id: string | null;
+  transaction_id: string;
+  amount: string;
+  currency: string;
+  unlinked_at: Date | null;
+  unlink_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface IdempotencyKeyTable {
   mre_realm_id: string;
   scope: string;
@@ -266,6 +303,8 @@ export interface Database {
   ownership: OwnershipTable;
   acquisition: AcquisitionTable;
   acquisition_party: AcquisitionPartyTable;
+  acquisition_cost: AcquisitionCostTable;
+  acquisition_payment: AcquisitionPaymentTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;
