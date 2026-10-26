@@ -990,11 +990,13 @@ Represent one economically distinct component of a Transaction.
 - `loanId`
 - `wegId`
 - `maintenanceProjectId`
-- `acquisitionId`
 - `securityDepositId`
 - `description`
 - `taxClassificationId`
 - `sourceReferences`
+
+There is **no** `acquisitionId` on a split: an Acquisition's payments link Transactions from the acquisition side
+(§14, api-design §27.2, P2-D7), and API §33.2 refuses the key for good.
 
 ---
 

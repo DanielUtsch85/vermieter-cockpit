@@ -938,7 +938,7 @@ Decision P2-D7 of `docs/development/phase-2-plan.md`, with P2-D6 for cancelled A
   6. the counting payments of the cost (or the price) plus this one above its amount → `409 INVARIANT_VIOLATION` with `reason = "PAYMENT_EXCEEDS_COST"` (or `"PAYMENT_EXCEEDS_PRICE"`), `expected`, `paid`, `remaining`.
 - **Success:** `201` with the payment, AuditRecord `LINKED` on the payment. **Idempotency** as §15, scope `acquisition.payment.create`; a replay answers the recorded body. Without a key a retry links a second time if the caps allow it, so clients should always send one.
 - **`POST /acquisitions/{id}/payments/{paymentId}/unlink`**, body `{ "reason": "..." }` (1–500): `200` with the payment (`unlinkedAt`, `unlinkReason`, `version` + 1); AuditRecord `UNLINKED`. Unlinking an unlinked payment is a `200` no-op. `If-Match` as for void. Allowed on a `DRAFT` or `CONFIRMED` Acquisition, also when the Transaction is no longer current (that is how the user cleans up after a ledger correction).
-- **Response:** `paymentId`, `acquisitionId`, `acquisitionCostId`, `transactionId`, `amount`, `counting` (boolean), `notCountingReason` (`null`, or the first of `UNLINKED`, `ACQUISITION_CANCELLED`, `TRANSACTION_CORRECTED`), `transactionStatus`, `replacementTransactionId` (the Transaction's, when corrected; `null` after a `reverse`, §35.9), `unlinkedAt`, `unlinkReason`, `createdAt`, `version`; single-payment responses carry `ETag`.
+- **Response:** `paymentId`, `acquisitionId`, `acquisitionCostId`, `transactionId`, `amount`, `counting` (boolean), `notCountingReason` (`null`, or the first of `UNLINKED`, `ACQUISITION_CANCELLED`, `TRANSACTION_CORRECTED`), `transactionStatus`, `replacementTransactionId` (the Transaction's **direct** replacement when corrected, which may itself be corrected since: follow the chain of §35.3 to its current end; `null` after a `reverse`, §35.9), `unlinkedAt`, `unlinkReason`, `createdAt`, `version`; single-payment responses carry `ETag`.
 
 ### What counts (derived, never stored)
 
@@ -950,8 +950,8 @@ Decision P2-D7 of `docs/development/phase-2-plan.md`, with P2-D6 for cancelled A
 ### Reads
 
 - `GET /acquisitions/{id}/costs`: `{ items }` in `createdAt`, then `costId` order, `VOID` included; with `?status=ACTIVE|VOID`.
-- `GET /acquisitions/{id}/payments`: `{ purchasePrice: { amount, paidAmount, paymentStatus }, items }` in `createdAt`, then `paymentId` order, unlinked included; with `?acquisitionCostId=` (`null` for the price) and `?counting=true|false`.
-- Both are unpaged (an Acquisition has a handful of costs and payments) and read in one snapshot with the Transactions' statuses. Unknown parameters are `400`.
+- `GET /acquisitions/{id}/payments`: `{ purchasePrice: { amount, paidAmount, paymentStatus }, items }` in `createdAt`, then `paymentId` order, unlinked included; with `?acquisitionCostId=` (a UUID, or the literal `null` for the price; an empty value is `400`) and `?counting=true|false`.
+- Both are unpaged (an Acquisition has a handful of costs and payments) and read in one `REPEATABLE READ READ ONLY` transaction (as `transaction-query-repository.ts`), so the Acquisition, its costs, payments and the Transactions' statuses come from one snapshot. Unknown parameters are `400`.
 
 ### Concurrency and locks
 
@@ -969,7 +969,7 @@ Decision P2-D7 of `docs/development/phase-2-plan.md`, with P2-D6 for cancelled A
   - every insert or step of a cost or payment writes the Acquisition's row first and refuses a `CANCELLED` one (`ACQUISITION_CANCELLED`);
   - a payment insert refuses a `VOID` cost, writes the Transaction's row and refuses a Transaction that is not current or not `OUTFLOW`, then checks both caps (per Transaction over the live payments, per cost or price over the counting ones);
   - a cost's void is refused while payments not unlinked are linked to it.
-- Concurrency tests (two connections, RC and RR) per guard: two links exceeding one Transaction; two links exceeding one cost and the price; link against `cancel`; `unlink` and void against `cancel` (review on #37); link against a `correct` of the Transaction; and a counter-check that removes each lock and sees its test fail.
+- Concurrency tests (two connections, RC and RR) per guard: two links exceeding one Transaction; two links exceeding one cost and the price; link against `cancel`; `unlink` and void against `cancel` (review on #37); link against `void` of the same cost (review on #48: without the Acquisition touch the void would not see the uncommitted payment, and the link's foreign key takes only `KEY SHARE` on the cost); link against a `correct` of the Transaction; and a counter-check that removes each lock and sees its test fail.
 
 ---
 

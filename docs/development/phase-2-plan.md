@@ -104,7 +104,9 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
 ### P2-D6 Acquisition: workflow status vs. legal dates (resolves data-model §13.5 vs. WF-002 vs. API §28)
 
 - `status`: `DRAFT` → `CONFIRMED`, and `DRAFT` → `CANCELLED`. A **confirmed Acquisition is final** in Phase 2: it
-  cannot be cancelled or changed (corrections after confirmation are a later item). Cancelling a draft keeps its
+  cannot be cancelled or changed (corrections after confirmation are a later item). Its costs and payment links
+  (P2-D7) stay writable on a `CONFIRMED` Acquisition, since invoices, the tax assessment and their payments come
+  after the transfer; only `CANCELLED` closes them (review on #48). Cancelling a draft keeps its
   costs and payment links (P2-D7) readable for audit, but they count **nowhere** any more, like unlinked ones
   (neither in a cost's paid state nor in a Transaction's Σ links), so the payment can be linked to a new
   Acquisition; Ownerships are never touched by an Acquisition.
@@ -141,6 +143,8 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
   Nothing is moved silently.
 - The price is booked on the seeded category `ACQUISITION` (`CAPITAL_MOVEMENT`, migration 0008), which data-model §19
   does not list yet; VC-2-06 adds it there. Transaction costs use their own categories.
+- Costs and payments are written on `DRAFT` and `CONFIRMED` Acquisitions alike (P2-D6); a voided cost or an unlinked
+  payment changes VC-2-09's allocation, which is derived and never stored.
 - Docs: data-model §14 (links, statuses), §18–19; api-design §27, §33.2 (refusal reason); domain-model §13.
 
 ### P2-D8 Acquisition confirmation; partial acquisitions (resolves API §28; review F3)
