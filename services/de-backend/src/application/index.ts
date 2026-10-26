@@ -150,6 +150,7 @@ export {
   OwnerInactiveError,
   OwnershipNotFoundError,
   OwnershipIncompleteError,
+  OwnershipOfConfirmedAcquisitionError,
   OwnershipTotalExceedsOneError,
   changeOwnership,
   closeOwnership,
@@ -164,7 +165,9 @@ export type { ChangeResult, Fraction, Ownership, OwnershipDay, OwnershipPage, Sh
 export {
   AcquisitionConfirmedError,
   AcquisitionHasValidOwnershipsError,
+  ConfirmationBlockedError,
   cancelAcquisition,
+  confirmAcquisition,
   createAcquisition,
   getAcquisition,
   listAcquisitions,
@@ -172,6 +175,7 @@ export {
 } from './acquisitions.js';
 export type {
   CancelAcquisition,
+  ConfirmAcquisition,
   CreateAcquisition,
   CreateAcquisitionInput,
   GetAcquisition,
@@ -179,7 +183,7 @@ export type {
   ListPropertyAcquisitions,
 } from './acquisitions.js';
 export { ACQUISITION_STATUSES, transferDate } from '../domains/acquisition/index.js';
-export type { Acquisition, AcquisitionFilter, AcquisitionPage, AcquisitionStatus } from '../domains/acquisition/index.js';
+export type { Acquisition, AcquisitionFilter, AcquisitionPage, AcquisitionStatus, ConfirmationViolation } from '../domains/acquisition/index.js';
 export {
   AcquisitionCancelledError,
   AcquisitionCostNotFoundError,

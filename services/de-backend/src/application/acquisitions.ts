@@ -5,7 +5,9 @@ import {
   type AcquisitionFilter,
   type AcquisitionPage,
   type AcquisitionRepository,
+  type ConfirmationViolation,
 } from '../domains/acquisition/index.js';
+import { AcquisitionCancelledError } from './acquisition-costs.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { AcquisitionNotFoundError, OwnerInactiveError } from './ownerships.js';
@@ -132,6 +134,43 @@ export function cancelAcquisition(deps: { readonly repository: AcquisitionReposi
         throw new AcquisitionConfirmedError(acquisitionId);
       case 'ACQUISITION_HAS_VALID_OWNERSHIPS':
         throw new AcquisitionHasValidOwnershipsError(acquisitionId, outcome.ownershipIds);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+    }
+  };
+}
+
+/** Requirements of §28.1 failed; all of them, in their order (→ 422 CONFIRMATION_BLOCKED). */
+export class ConfirmationBlockedError extends Error {
+  override readonly name = 'ConfirmationBlockedError';
+
+  constructor(
+    readonly acquisitionId: string,
+    readonly violations: readonly ConfirmationViolation[],
+  ) {
+    super(`Acquisition ${acquisitionId} cannot be confirmed: ${violations.map((v) => v.code).join(', ')}`);
+  }
+}
+
+export type ConfirmAcquisition = (input: {
+  readonly principal: RealmPrincipal;
+  readonly acquisitionId: string;
+  readonly expectedVersions?: readonly number[];
+}) => Promise<{ readonly acquisition: Acquisition; readonly changed: boolean }>;
+
+export function confirmAcquisition(deps: { readonly repository: AcquisitionRepository; readonly now?: () => Date }): ConfirmAcquisition {
+  const now = deps.now ?? (() => new Date());
+  return async ({ principal, acquisitionId, expectedVersions }) => {
+    const outcome = await deps.repository.confirm(acquisitionId, principal.mreRealmId, now(), actorOf(principal), expectedVersions);
+    switch (outcome.kind) {
+      case 'CONFIRMED':
+        return { acquisition: outcome.acquisition, changed: outcome.changed };
+      case 'NOT_FOUND':
+        throw new AcquisitionNotFoundError(acquisitionId);
+      case 'ACQUISITION_CANCELLED':
+        throw new AcquisitionCancelledError(acquisitionId);
+      case 'CONFIRMATION_BLOCKED':
+        throw new ConfirmationBlockedError(acquisitionId, outcome.violations);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

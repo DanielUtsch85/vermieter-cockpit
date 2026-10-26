@@ -25,6 +25,7 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   listAcquisitions: unused,
   listPropertyAcquisitions: unused,
   cancelAcquisition: unused,
+  confirmAcquisition: unused,
   createAcquisitionCost: unused,
   voidAcquisitionCost: unused,
   listAcquisitionCosts: unused,

@@ -89,6 +89,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
     return outcome.acquisition;
   }
+  /** Confirms a draft directly (past the repository): its buyer gets the whole share from the transfer date first (§28.1). */
+  async function confirmDirectly(acquisitionId: string): Promise<void> {
+    await pool.query(
+      `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
+       SELECT a.mre_realm_id, a.property_reference_id, ap.party_id, a.acquired_share_numerator, a.acquired_share_denominator,
+              coalesce(a.economic_transfer_date, a.contract_date), 'VALID', a.id, 'x'
+         FROM acquisition a JOIN acquisition_party ap ON ap.acquisition_id = a.id AND ap.role = 'BUYER' WHERE a.id = $1`,
+      [acquisitionId],
+    );
+    await pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = version + 1 WHERE id = $1`, [acquisitionId]);
+  }
   const ownership = (pr: string, owner: string, acquisitionId: string | null, overrides: Partial<NewOwnership> = {}): NewOwnership => ({
     mreRealmId: REALM,
     propertyReferenceId: pr,
@@ -197,9 +208,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
       action: 'CANCELLED',
       metadata: { reason: 'geplatzt' },
     });
-    // Confirmation comes with VC-2-07; a confirmed row (written directly) is final for cancel.
-    const confirmed = await created(draft(pr, [anna]));
-    await pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = 2 WHERE id = $1`, [confirmed.id]);
+    // A confirmed one (here written directly) is final for cancel.
+    const confirmed = await created(draft(await propertyReference(), [anna]));
+    await confirmDirectly(confirmed.id);
     expect(await acquisitions.cancel(confirmed.id, REALM, 'x', at, actor)).toEqual({ kind: 'ACQUISITION_CONFIRMED' });
     expect(await acquisitions.cancel(confirmed.id, OTHER_REALM, 'x', at, actor)).toEqual({ kind: 'NOT_FOUND' });
     expect(await acquisitions.cancel('nope', REALM, 'x', at, actor)).toEqual({ kind: 'NOT_FOUND' });
@@ -325,8 +336,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     await expect(insert({ acquired_share_numerator: '2', acquired_share_denominator: '4' })).rejects.toThrow(/acquisition_share/);
     await expect(insert({ economic_transfer_date: `'2026-06-14'` })).rejects.toThrow(/acquisition_transfer_dates/);
     await expect(insert({ land_registry_transfer_date: `'2026-06-14'` })).rejects.toThrow(/acquisition_transfer_dates/);
-    await expect(insert({ status: `'CANCELLED'` })).rejects.toThrow(/acquisition_status_fields/);
-    await expect(insert({ status: `'CONFIRMED'` })).rejects.toThrow(/acquisition_status_fields/);
+    await expect(insert({ cancelled_at: 'now()' })).rejects.toThrow(/acquisition_status_fields/);
+    await expect(insert({ confirmed_at: 'now()' })).rejects.toThrow(/acquisition_status_fields/);
+    // Only a DRAFT is inserted (0022, §28.1).
+    await expect(insert({ status: `'CANCELLED'`, cancelled_at: 'now()', cancellation_reason: `'x'` })).rejects.toThrow(/only a DRAFT is inserted/);
+    await expect(insert({ status: `'CONFIRMED'`, confirmed_at: 'now()' })).rejects.toThrow(/only a DRAFT is inserted/);
 
     const a = await created(draft(pr, [anna]));
     const update = (set: string) => pool.query(`UPDATE acquisition SET ${set} WHERE id = $1`, [a.id]);
@@ -362,8 +376,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     const cancelled = await created(draft(pr, [anna]));
     await acquisitions.cancel(cancelled.id, REALM, 'x', new Date(), actor);
     await expect(insertOwnership(anna, cancelled.id)).rejects.toThrow(/is CANCELLED, only a DRAFT takes new Ownerships \(ACQUISITION_NOT_DRAFT\)/);
-    const confirmed = await created(draft(pr, [anna]));
-    await pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = 2 WHERE id = $1`, [confirmed.id]);
+    const confirmed = await created(draft(await propertyReference(), [anna]));
+    await confirmDirectly(confirmed.id);
     await expect(insertOwnership(anna, confirmed.id)).rejects.toThrow(/ACQUISITION_NOT_DRAFT/);
 
     const carried = await created(draft(pr, [ben]));

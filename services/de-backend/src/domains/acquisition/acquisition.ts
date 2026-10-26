@@ -86,6 +86,100 @@ export function planCancel(current: Acquisition, reason: string, at: Date, valid
   return { kind: 'CANCEL', next: { ...current, status: 'CANCELLED', cancelledAt: at, cancellationReason: reason, version: current.version + 1 } };
 }
 
+/** An exact fraction (reduced), as an Ownership share sum. */
+export interface ExactFraction {
+  readonly numerator: bigint;
+  readonly denominator: bigint;
+}
+
+/** An Ownership as the confirmation reads it (§28.1). */
+export interface ConfirmationOwnership {
+  readonly id: string;
+  readonly ownerPartyId: string;
+  readonly share: AcquiredShare;
+  readonly validFrom: BusinessDate;
+}
+
+/** A failed requirement of §28.1, in the order they are reported. */
+export type ConfirmationViolation =
+  | { readonly code: 'BUYER_INACTIVE'; readonly partyId: string }
+  | { readonly code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE'; readonly ownershipId: string; readonly validFrom: BusinessDate; readonly transferDate: BusinessDate }
+  | { readonly code: 'OWNER_NOT_A_BUYER'; readonly ownershipId: string; readonly ownerPartyId: string }
+  | { readonly code: 'BUYER_WITHOUT_OWNERSHIP'; readonly partyId: string }
+  | { readonly code: 'SHARE_SUM_MISMATCH'; readonly expected: ExactFraction; readonly actual: ExactFraction }
+  | { readonly code: 'OWNERSHIP_INCOMPLETE'; readonly date: BusinessDate; readonly shareSum: ExactFraction };
+
+export interface ConfirmationInput {
+  /** Status of each buyer, read under `FOR SHARE`. */
+  readonly buyerStatuses: ReadonlyMap<string, string>;
+  /** The `VALID` Ownerships carrying this Acquisition's id. */
+  readonly own: readonly ConfirmationOwnership[];
+  /** All `VALID` Ownerships of the PropertyReference covering the transfer date. */
+  readonly onTransferDate: readonly ConfirmationOwnership[];
+}
+
+export type ConfirmPlan =
+  | { readonly kind: 'CONFIRM'; readonly next: Acquisition }
+  /** Already confirmed: a 200 no-op whatever the version. */
+  | { readonly kind: 'UNCHANGED' }
+  | { readonly kind: 'ACQUISITION_CANCELLED' }
+  | { readonly kind: 'CONFIRMATION_BLOCKED'; readonly violations: readonly ConfirmationViolation[] };
+
+const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? (a < 0n ? -a : a) : gcd(b, a % b));
+
+/** The exact, reduced sum of shares. */
+export function sumOf(shares: readonly AcquiredShare[]): ExactFraction {
+  let numerator = 0n;
+  let denominator = 1n;
+  for (const share of shares) {
+    numerator = numerator * BigInt(share.denominator) + BigInt(share.numerator) * denominator;
+    denominator *= BigInt(share.denominator);
+    const g = gcd(numerator, denominator);
+    numerator /= g;
+    denominator /= g;
+  }
+  return { numerator, denominator };
+}
+
+/**
+ * Status first (a no-op before a cancelled one), then requirements 1–6 of §28.1, all of them reported. The version is
+ * checked by the caller between `ACQUISITION_CANCELLED` and the requirements.
+ */
+export function planConfirm(current: Acquisition, input: ConfirmationInput, at: Date): ConfirmPlan {
+  if (current.status === 'CONFIRMED') return { kind: 'UNCHANGED' };
+  if (current.status === 'CANCELLED') return { kind: 'ACQUISITION_CANCELLED' };
+  const d = transferDate(current);
+  const buyers = new Set(current.buyerPartyIds);
+  const byId = <T extends { readonly id: string }>(items: readonly T[]) => [...items].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
+  const violations: ConfirmationViolation[] = [];
+  for (const partyId of [...current.buyerPartyIds].sort()) {
+    if (input.buyerStatuses.get(partyId) !== 'ACTIVE') violations.push({ code: 'BUYER_INACTIVE', partyId });
+  }
+  for (const o of byId(input.own)) {
+    if (o.validFrom !== d) violations.push({ code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: o.id, validFrom: o.validFrom, transferDate: d });
+  }
+  for (const o of byId(input.own)) {
+    if (!buyers.has(o.ownerPartyId)) violations.push({ code: 'OWNER_NOT_A_BUYER', ownershipId: o.id, ownerPartyId: o.ownerPartyId });
+  }
+  const holders = new Set(input.own.map((o) => o.ownerPartyId));
+  for (const partyId of [...current.buyerPartyIds].sort()) {
+    if (!holders.has(partyId)) violations.push({ code: 'BUYER_WITHOUT_OWNERSHIP', partyId });
+  }
+  const actual = sumOf(input.own.map((o) => o.share));
+  const expected = { numerator: BigInt(current.acquiredShare.numerator), denominator: BigInt(current.acquiredShare.denominator) };
+  if (actual.numerator !== expected.numerator || actual.denominator !== expected.denominator) violations.push({ code: 'SHARE_SUM_MISMATCH', expected, actual });
+  const total = sumOf(input.onTransferDate.map((o) => o.share));
+  if (total.numerator !== total.denominator) violations.push({ code: 'OWNERSHIP_INCOMPLETE', date: d, shareSum: total });
+  if (violations.length > 0) return { kind: 'CONFIRMATION_BLOCKED', violations };
+  return { kind: 'CONFIRM', next: { ...current, status: 'CONFIRMED', confirmedAt: at, version: current.version + 1 } };
+}
+
+export type ConfirmAcquisitionOutcome =
+  | { readonly kind: 'CONFIRMED'; readonly acquisition: Acquisition; readonly changed: boolean; readonly ownershipIds: readonly string[] }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<ConfirmPlan, { kind: 'CONFIRM' | 'UNCHANGED' }>
+  | VersionConflict;
+
 export type CreateAcquisitionOutcome =
   | { readonly kind: 'CREATED'; readonly acquisition: Acquisition }
   | { readonly kind: 'REPLAYED'; readonly acquisition: Acquisition }
@@ -140,4 +234,9 @@ export interface AcquisitionRepository {
     actor: AuditActor,
     expectedVersions?: readonly number[],
   ): Promise<CancelAcquisitionOutcome>;
+  /**
+   * Locks PropertyReference (no-op write) → buyers `FOR SHARE` in id order → the Acquisition `FOR UPDATE`, then reads
+   * its Ownerships and those of the PropertyReference on the transfer date, and applies `planConfirm` (§28.1).
+   */
+  confirm(id: string, mreRealmId: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmAcquisitionOutcome>;
 }

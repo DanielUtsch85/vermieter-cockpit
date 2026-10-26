@@ -201,6 +201,20 @@ Specified in API §35.6 and data-model §17.8.
 | Every cost and payment write serialises on the Acquisition row (with each other and with cancel), a link also on the Transaction row (with other links and with `correct`); RC sees the other's commit, RR fails to serialise (review on #37, #48) | CR "concurrency (READ COMMITTED …)", "concurrency (REPEATABLE READ …)" |
 | Realm isolation | CR (foreign Acquisition, Transaction and counterparty are not found; reads `undefined`) |
 
+## 12. Acquisition confirmation (VC-2-07, api-design §28.1)
+
+`CF` = `acquisition-confirm-repository.test.ts`, `AD` = `domains/acquisition/acquisition.test.ts`, `CR` as §11.
+
+| Invariant | Tests |
+|---|---|
+| Confirm only a `DRAFT`: buyers active; its `VALID` Ownerships start on the transfer date, are held by exactly the buyers and sum to `acquiredShare`; the PropertyReference is `COMPLETE` that day; every failure reported, in order | CF "reports every failed requirement at once …", "a partial acquisition …"; AD "planConfirm (§28.1)" |
+| A repeat is a no-op, `CANCELLED` answers before `If-Match`, `If-Match` before the requirements | CF "confirms: …", "the order of checks …" |
+| The same six requirements hold past the repository; an Acquisition is only inserted `DRAFT` | CF "refuses a raw confirmation for each requirement 1–6 …"; AR "the schema: …" |
+| After confirmation its Ownerships close but do not void (also past the repository); cancel is refused; costs and payments stay writable | CF "after confirmation: …", "a status step raises version …"; CR "a confirm waits for a payment link …" |
+| Every status step raises `version` by exactly one (Acquisition, cost, payment); a cost is only inserted `ACTIVE`, a payment only not unlinked (review on #49) | CF "a status step raises version …"; CR "refuses a void or unlink that does not raise version by one …" |
+| Confirm serialises with Ownership create, close and void, `deactivate`, cancel and payment writes (RC); a raw confirm fails to serialise against a void of its Ownership, an insert carrying its id and a `deactivate`, and commits beside a close of another owner (RR, review on #50) | CF "concurrency through the repository …", "concurrency past the repository …" |
+| Realm isolation | CF ("the order of checks": another Realm is `NOT_FOUND`) |
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

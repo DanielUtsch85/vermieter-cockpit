@@ -2,7 +2,9 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AcquisitionCancelledError,
   AcquisitionConfirmedError,
+  ConfirmationBlockedError,
   AcquisitionHasValidOwnershipsError,
   AcquisitionNotFoundError,
   IdempotencyKeyConflictError,
@@ -146,6 +148,52 @@ describe('POST /api/v1/acquisitions', () => {
     const answer = await errorOf(res);
     expect(answer.code).toBe(code);
     if (details !== undefined) expect(answer.details).toEqual(details);
+  });
+});
+
+describe('POST /api/v1/acquisitions/{id}/confirm', () => {
+  it('200 with the confirmed Acquisition and its ETag; a no-op is marked; If-Match passed on; 409, 422 with the violations, 400', async () => {
+    const seen: unknown[] = [];
+    const outcomes: unknown[] = [
+      { acquisition: { ...acquisition, status: 'CONFIRMED', confirmedAt: new Date('2026-10-26T10:00:00Z'), version: 2 }, changed: true },
+      { acquisition: { ...acquisition, status: 'CONFIRMED', version: 2 }, changed: false },
+      new AcquisitionCancelledError(ID),
+      new ConfirmationBlockedError(ID, [
+        { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: BUYER },
+        { code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 2n }, actual: { numerator: 3n, denominator: 8n } },
+        { code: 'OWNERSHIP_INCOMPLETE', date: '2026-08-01' as never, shareSum: { numerator: 1n, denominator: 8n } },
+      ]),
+      new VersionConflictError([1], 2),
+    ];
+    const base = await start({
+      confirmAcquisition: async (input) => {
+        seen.push(input);
+        const next = outcomes.shift();
+        if (next instanceof Error) throw next;
+        return next as never;
+      },
+    });
+    const ok = await call(base, 'POST', `/acquisitions/${ID}/confirm`, undefined, { 'if-match': '"1"' });
+    expect([ok.status, ok.headers.get('etag'), ok.headers.get('idempotent-replayed')]).toEqual([200, '"2"', null]);
+    expect(await ok.json()).toMatchObject({ status: 'CONFIRMED', confirmedAt: '2026-10-26T10:00:00.000Z' });
+    expect(seen[0]).toEqual({ principal: expect.anything(), acquisitionId: ID, expectedVersions: [1] });
+    expect((await call(base, 'POST', `/acquisitions/${ID}/confirm`, {})).headers.get('idempotent-replayed')).toBe('true');
+    expect(await errorOf(await call(base, 'POST', `/acquisitions/${ID}/confirm`))).toMatchObject({ code: 'CONFLICT', details: { reason: 'ACQUISITION_CANCELLED' } });
+    const blocked = await call(base, 'POST', `/acquisitions/${ID}/confirm`);
+    expect(blocked.status).toBe(422);
+    expect(await errorOf(blocked)).toEqual({
+      code: 'CONFIRMATION_BLOCKED',
+      message: 'The Acquisition does not meet the requirements of confirmation.',
+      details: {
+        violations: [
+          { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: BUYER },
+          { code: 'SHARE_SUM_MISMATCH', expected: '1/2', actual: '3/8' },
+          { code: 'OWNERSHIP_INCOMPLETE', date: '2026-08-01', shareSum: '1/8' },
+        ],
+      },
+    });
+    expect((await call(base, 'POST', `/acquisitions/${ID}/confirm`)).status).toBe(412);
+    expect((await call(base, 'POST', `/acquisitions/${ID}/confirm`, { force: true })).status).toBe(400);
   });
 });
 

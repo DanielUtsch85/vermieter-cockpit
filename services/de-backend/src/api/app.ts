@@ -25,6 +25,7 @@ import type {
   SetTransactionSplits,
   AmendParty,
   CancelAcquisition,
+  ConfirmAcquisition,
   CreateAcquisitionCost,
   VoidAcquisitionCost,
   ListAcquisitionCosts,
@@ -99,6 +100,7 @@ export interface AppDependencies {
   readonly listAcquisitions: ListAcquisitions;
   readonly listPropertyAcquisitions: ListPropertyAcquisitions;
   readonly cancelAcquisition: CancelAcquisition;
+  readonly confirmAcquisition: ConfirmAcquisition;
   /** Acquisition costs and payment links (VC-2-06). */
   readonly createAcquisitionCost: CreateAcquisitionCost;
   readonly voidAcquisitionCost: VoidAcquisitionCost;
@@ -197,6 +199,7 @@ export function createApp(deps: AppDependencies): Express {
       list: deps.listAcquisitions,
       listForPropertyReference: deps.listPropertyAcquisitions,
       cancel: deps.cancelAcquisition,
+      confirm: deps.confirmAcquisition,
     }),
   );
   api.use(

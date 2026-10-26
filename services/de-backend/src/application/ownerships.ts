@@ -94,6 +94,18 @@ export class AcquisitionNotFoundError extends Error {
   }
 }
 
+/** The Ownership carries a `CONFIRMED` Acquisition: it can be closed, not voided (→ 409 ACQUISITION_CONFIRMED, §28.1). */
+export class OwnershipOfConfirmedAcquisitionError extends Error {
+  override readonly name = 'OwnershipOfConfirmedAcquisitionError';
+
+  constructor(
+    readonly ownershipId: string,
+    readonly acquisitionId: string,
+  ) {
+    super(`Ownership ${ownershipId} carries the confirmed Acquisition ${acquisitionId}`);
+  }
+}
+
 /** The Acquisition is no longer a draft (→ 422 ACQUISITION_NOT_DRAFT, §27.1). */
 export class AcquisitionNotDraftError extends Error {
   override readonly name = 'AcquisitionNotDraftError';
@@ -197,6 +209,8 @@ export function voidOwnership(deps: { readonly repository: OwnershipRepository; 
         return { ownership: outcome.ownership, changed: outcome.changed };
       case 'NOT_FOUND':
         throw new OwnershipNotFoundError(ownershipId);
+      case 'ACQUISITION_CONFIRMED':
+        throw new OwnershipOfConfirmedAcquisitionError(ownershipId, outcome.acquisitionId);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

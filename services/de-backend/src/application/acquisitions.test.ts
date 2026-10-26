@@ -5,11 +5,14 @@ import type { RealmPrincipal } from './access.js';
 import {
   AcquisitionConfirmedError,
   AcquisitionHasValidOwnershipsError,
+  ConfirmationBlockedError,
   cancelAcquisition,
+  confirmAcquisition,
   createAcquisition,
   getAcquisition,
   listPropertyAcquisitions,
 } from './acquisitions.js';
+import { AcquisitionCancelledError } from './acquisition-costs.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { AcquisitionNotFoundError, OwnerInactiveError } from './ownerships.js';
 import { PartyNotFoundError } from './parties.js';
@@ -36,6 +39,7 @@ const repository = (overrides: Partial<AcquisitionRepository>): AcquisitionRepos
   findById: async () => undefined,
   list: async () => ({ items: [], page: 1, pageSize: 50, total: 0 }),
   cancel: () => Promise.reject(new Error('unused')),
+  confirm: () => Promise.reject(new Error('unused')),
   ...overrides,
 });
 
@@ -74,5 +78,35 @@ describe('Acquisition use cases', () => {
     await expect(cancel({ kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 })).rejects.toBeInstanceOf(VersionConflictError);
     const list = listPropertyAcquisitions({ repository: repository({}), propertyReferences: { findById: async () => undefined } });
     await expect(list({ principal, propertyReferenceId: 'pr', filter: {}, page: { page: 1, pageSize: 50 } })).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
+  });
+});
+
+describe('confirmAcquisition', () => {
+  it('passes the Realm, actor and If-Match; maps each refusal', async () => {
+    const calls: unknown[] = [];
+    const outcomes = [
+      { kind: 'CONFIRMED', acquisition, changed: true, ownershipIds: ['o'] },
+      { kind: 'NOT_FOUND' },
+      { kind: 'ACQUISITION_CANCELLED' },
+      { kind: 'CONFIRMATION_BLOCKED', violations: [{ code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'b' }] },
+      { kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 },
+    ] as const;
+    let i = 0;
+    const at = new Date('2026-10-26T10:00:00Z');
+    const confirm = confirmAcquisition({
+      repository: repository({
+        confirm: async (...args) => {
+          calls.push(args);
+          return outcomes[i++] ?? { kind: 'NOT_FOUND' };
+        },
+      }),
+      now: () => at,
+    });
+    expect(await confirm({ principal, acquisitionId: 'a1', expectedVersions: [1] })).toEqual({ acquisition, changed: true });
+    expect(calls[0]).toEqual(['a1', REALM, at, { actorType: 'USER', actorId: 'anna@example.com' }, [1]]);
+    await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toBeInstanceOf(AcquisitionNotFoundError);
+    await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toBeInstanceOf(AcquisitionCancelledError);
+    await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toEqual(new ConfirmationBlockedError('a1', [{ code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'b' }]));
+    await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toBeInstanceOf(VersionConflictError);
   });
 });

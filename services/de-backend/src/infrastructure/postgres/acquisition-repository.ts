@@ -1,6 +1,8 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   planCancel,
+  planConfirm,
+  transferDate,
   type Acquisition,
   type AcquisitionFilter,
   type AcquisitionId,
@@ -8,6 +10,8 @@ import {
   type AcquisitionRepository,
   type AcquisitionStatus,
   type CancelAcquisitionOutcome,
+  type ConfirmAcquisitionOutcome,
+  type ConfirmationOwnership,
   type CreateAcquisitionOutcome,
   type NewAcquisition,
 } from '../../domains/acquisition/index.js';
@@ -251,6 +255,70 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
       return { kind: 'CANCELLED', acquisition: cancelled, changed: true };
     });
   }
+
+  async confirm(id: string, mreRealmId: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmAcquisitionOutcome> {
+    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
+    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ConfirmAcquisitionOutcome> => {
+      // Lock order of every path (§28.1): PropertyReference (no-op write), buyers FOR SHARE in id order, the Acquisition.
+      await trx
+        .updateTable('property_reference')
+        .set((eb) => ({ version: eb.ref('version') }))
+        .where('id', '=', (eb) => eb.selectFrom('acquisition').select('property_reference_id').where('id', '=', id).where('mre_realm_id', '=', mreRealmId))
+        .execute();
+      const buyers = await trx
+        .selectFrom('party')
+        .select(['id', 'status'])
+        .where('id', 'in', (eb) => eb.selectFrom('acquisition_party').select('party_id').where('acquisition_id', '=', id).where('role', '=', 'BUYER'))
+        .orderBy('id')
+        .forShare()
+        .execute();
+      const row = await trx.selectFrom('acquisition').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
+      if (row === undefined) return { kind: 'NOT_FOUND' };
+      const [current] = await withParties(trx, [row]);
+      if (current === undefined) return { kind: 'NOT_FOUND' };
+      const d = transferDate(current);
+      const ownerships = (query: (q: ReturnType<typeof ownershipQuery>) => ReturnType<typeof ownershipQuery>) => query(ownershipQuery(trx)).execute();
+      const own = await ownerships((q) => q.where('acquisition_id', '=', id));
+      const onTransferDate = await ownerships((q) =>
+        q
+          .where('property_reference_id', '=', current.propertyReferenceId)
+          .where('valid_from', '<=', d)
+          .where((eb) => eb.or([eb('valid_until', 'is', null), eb('valid_until', '>=', d)])),
+      );
+      const plan = planConfirm(current, { buyerStatuses: new Map(buyers.map((b) => [b.id, b.status])), own: own.map(toConfirmationOwnership), onTransferDate: onTransferDate.map(toConfirmationOwnership) }, at);
+      if (plan.kind === 'UNCHANGED') return { kind: 'CONFIRMED', acquisition: current, changed: false, ownershipIds: [] };
+      if (plan.kind === 'ACQUISITION_CANCELLED') return plan;
+      const conflict = checkVersion(current.version, expectedVersions);
+      if (conflict !== undefined) return conflict;
+      if (plan.kind === 'CONFIRMATION_BLOCKED') return plan;
+      await trx.updateTable('acquisition').set({ status: plan.next.status, confirmed_at: at, version: plan.next.version, updated_at: at }).where('id', '=', id).execute();
+      const confirmed = await readOne(trx, id);
+      const ownershipIds = own.map((o) => o.id).sort();
+      await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CONFIRMED', actor, {
+        previousVersion: current.version,
+        newVersion: confirmed.version,
+        metadata: { transferDate: d, ownershipIds },
+      });
+      return { kind: 'CONFIRMED', acquisition: confirmed, changed: true, ownershipIds };
+    });
+  }
+}
+
+/** `VALID` Ownerships with the columns the confirmation reads; the date as `YYYY-MM-DD` text. */
+function ownershipQuery(trx: Transaction<Database>) {
+  return trx
+    .selectFrom('ownership')
+    .select(['id', 'owner_party_id', 'share_numerator', 'share_denominator', sql<string>`to_char(valid_from, 'YYYY-MM-DD')`.as('valid_from')])
+    .where('status', '=', 'VALID');
+}
+
+function toConfirmationOwnership(row: { id: string; owner_party_id: string; share_numerator: number; share_denominator: number; valid_from: string }): ConfirmationOwnership {
+  return {
+    id: row.id,
+    ownerPartyId: row.owner_party_id,
+    share: { numerator: row.share_numerator, denominator: row.share_denominator },
+    validFrom: row.valid_from as BusinessDate,
+  };
 }
 
 async function readOne(trx: Transaction<Database>, id: string): Promise<Acquisition> {

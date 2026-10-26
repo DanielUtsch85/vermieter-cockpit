@@ -343,10 +343,19 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
     return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidOwnershipOutcome> => {
       await touchPropertyReferenceOf(trx, id, mreRealmId);
+      // Lock order PropertyReference → Acquisition → Ownership (§28.1): its Acquisition is written (a no-op) before the
+      // row is locked, so a running confirm is waited for and seen; its id never changes, so reading it first is safe.
+      const linked = await trx.selectFrom('ownership').select('acquisition_id').where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+      const acquisitionId = linked?.acquisition_id ?? null;
+      const acquisition =
+        acquisitionId === null
+          ? undefined
+          : await trx.updateTable('acquisition').set((eb) => ({ version: eb.ref('version') })).where('id', '=', acquisitionId).returning('status').executeTakeFirst();
       const current = await lockAndRead(trx, id, mreRealmId);
       if (current === undefined) return { kind: 'NOT_FOUND' };
       const plan = planVoid(current, reason, at);
       if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', ownership: current, changed: false };
+      if (acquisitionId !== null && acquisition?.status === 'CONFIRMED') return { kind: 'ACQUISITION_CONFIRMED', acquisitionId };
       const conflict = checkVersion(current.version, expectedVersions);
       if (conflict !== undefined) return conflict;
       await trx
@@ -409,9 +418,11 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
 }
 
 /**
- * The Acquisition an Ownership is to link (§27.1): of this Realm and PropertyReference, and a `DRAFT`. Read `FOR SHARE`
- * after the PropertyReference and the Parties (the lock order of every writer), so a concurrent cancel, which takes it
- * `FOR UPDATE`, either commits first and is seen here, or waits for this transaction.
+ * The Acquisition an Ownership is to link (§27.1): of this Realm and PropertyReference, and a `DRAFT`. Written (a no-op)
+ * after the PropertyReference and the Parties (the lock order of every writer), so a concurrent cancel or confirm, which
+ * takes it `FOR UPDATE`, either commits first and is seen here, or waits for this transaction; a write rather than
+ * `FOR SHARE`, as the trigger does from 0022, so no lock is upgraded and a stale REPEATABLE READ confirm fails to
+ * serialise (review on #50).
  */
 async function checkAcquisition(
   trx: Transaction<Database>,
@@ -421,12 +432,12 @@ async function checkAcquisition(
 ): Promise<AcquisitionRefusal | undefined> {
   if (acquisitionId === null) return undefined;
   const acquisition = await trx
-    .selectFrom('acquisition')
-    .select('status')
+    .updateTable('acquisition')
+    .set((eb) => ({ version: eb.ref('version') }))
     .where('id', '=', acquisitionId)
     .where('mre_realm_id', '=', mreRealmId)
     .where('property_reference_id', '=', propertyReferenceId)
-    .forShare()
+    .returning('status')
     .executeTakeFirst();
   if (acquisition === undefined) return { kind: 'ACQUISITION_NOT_FOUND', acquisitionId };
   if (acquisition.status !== 'DRAFT') return { kind: 'ACQUISITION_NOT_DRAFT', acquisitionId, status: acquisition.status };
