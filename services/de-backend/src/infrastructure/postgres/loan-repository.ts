@@ -271,6 +271,13 @@ function toColumn(value: unknown): unknown {
   return Array.isArray(value) ? [...(value as unknown[])] : value;
 }
 
+/** One Loan of the Realm inside the caller's transaction (for writers that locked it first). */
+export async function readLoanIn(trx: Transaction<Database>, id: string, mreRealmId: string): Promise<Loan | undefined> {
+  if (!UUID.test(id)) return undefined;
+  const row = await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+  return row === undefined ? undefined : toLoan(row);
+}
+
 async function readOne(trx: Transaction<Database>, id: string): Promise<Loan> {
   return toLoan(await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).executeTakeFirstOrThrow());
 }

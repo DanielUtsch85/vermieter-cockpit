@@ -203,6 +203,31 @@ export interface LoanTable {
   version: Generated<number>;
 }
 
+export interface LoanTermsTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  loan_id: string;
+  status: string;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  valid_from: string;
+  interest_rate: string;
+  repayment_model: string;
+  scheduled_payment: string | null;
+  first_payment_date: string;
+  principal_at_start: string | null;
+  fixed_rate_until: string | null;
+  initial_repayment_rate: string | null;
+  special_repayment_limit: string | null;
+  currency: string;
+  notes: string | null;
+  voided_at: Date | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface LandBuildingAllocationTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -352,6 +377,7 @@ export interface Database {
   acquisition_payment: AcquisitionPaymentTable;
   land_building_allocation: LandBuildingAllocationTable;
   loan: LoanTable;
+  loan_terms: LoanTermsTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;
