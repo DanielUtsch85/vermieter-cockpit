@@ -15,6 +15,7 @@ export { PostgresOwnershipRepository } from './ownership-repository.js';
 export { PostgresAcquisitionRepository } from './acquisition-repository.js';
 export { PostgresAcquisitionCostRepository } from './acquisition-cost-repository.js';
 export { PostgresLandBuildingAllocationRepository } from './land-building-allocation-repository.js';
+export { PostgresLoanRepository } from './loan-repository.js';
 export { PostgresOwnerAllocationSource } from './owner-allocation-source.js';
 export { PostgresTransactionRepository } from './transaction-repository.js';
 export { PostgresImportRepository } from './import-repository.js';

@@ -35,6 +35,11 @@ import type {
   LinkAcquisitionPayment,
   UnlinkAcquisitionPayment,
   ListAcquisitionPayments,
+  AmendLoan,
+  CreateLoan,
+  GetLoan,
+  ListLoans,
+  VoidLoan,
   CreateAcquisition,
   GetAcquisition,
   ListAcquisitions,
@@ -64,6 +69,7 @@ import { ownershipRoutes } from './ownerships.js';
 import { acquisitionCostRoutes } from './acquisition-costs.js';
 import { acquisitionRoutes } from './acquisitions.js';
 import { landBuildingAllocationRoutes } from './land-building-allocations.js';
+import { loanRoutes } from './loans.js';
 import { ownerAllocationRoutes } from './owner-allocation.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
@@ -118,6 +124,12 @@ export interface AppDependencies {
   readonly linkAcquisitionPayment: LinkAcquisitionPayment;
   readonly unlinkAcquisitionPayment: UnlinkAcquisitionPayment;
   readonly listAcquisitionPayments: ListAcquisitionPayments;
+  /** Loan (VC-3-01). */
+  readonly createLoan: CreateLoan;
+  readonly getLoan: GetLoan;
+  readonly listLoans: ListLoans;
+  readonly amendLoan: AmendLoan;
+  readonly voidLoan: VoidLoan;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -224,6 +236,7 @@ export function createApp(deps: AppDependencies): Express {
       listPayments: deps.listAcquisitionPayments,
     }),
   );
+  api.use(loanRoutes({ create: deps.createLoan, get: deps.getLoan, list: deps.listLoans, amend: deps.amendLoan, void: deps.voidLoan }));
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
   api.use(
     transactionRoutes({

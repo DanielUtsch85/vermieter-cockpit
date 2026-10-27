@@ -21,6 +21,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **CR** | `infrastructure/postgres/correction-repository.test.ts` (VC-1-11) |
 | **CC** | `domains/ledger/correct-transaction.test.ts` (VC-1-11) |
 | **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) |
+| **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
 
 Database tests run against `DE_TEST_DATABASE_URL` (CI: a PostgreSQL 16
 service; also run locally with `default_transaction_isolation = repeatable read`).
@@ -260,6 +261,22 @@ ACC2 also checks the traceability that every write promises: AuditRecords for th
 `CONFIRMED`), the costs (`CREATED`, `VOIDED`), the payments (`LINKED`) and the allocations (`CREATED`, `SUPERSEDED`),
 exactly these and with their entity ids. Counter-checked: the tie-break reversed, an extra route, the Realm filter
 dropped from the Acquisition read, and a missing `VOIDED` record each turn ACC2 red.
+
+## 16. Loan (VC-3-01, api-design §41.1)
+
+`LN` = `domains/financing/loan.test.ts`, `LR` = `infrastructure/postgres/loan-repository.test.ts`, `LA` = `api/loans.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| One canonical Loan: lender and borrowers active Parties of the Realm, checked lender first, then borrowers in order, then the Acquisition, then inactive | LR "order of checks …", "links an Acquisition …"; LA "400 with the field codes" |
+| Principal, contract dates and Acquisition fixed (`NOT_AMENDABLE`); every other change is `version` + 1 out of `ACTIVE`; `VOID`/`CLOSED` final; inserted only `ACTIVE` with version 1; never deleted; P3-D8's no-op write passes | LR "fixed fields never change …", "a Loan is only inserted ACTIVE …"; LA "400: fixed fields NOT_AMENDABLE …" |
+| Borrowers a column of the Loan (review on #59): 1–20, no duplicate, no `NULL` element (the CHECK alone), the lender never one in both directions, a swap passes, Realm and existence by trigger, a named Party never deleted | LR "borrowers: the lender never one …", "a newly named Party must be ACTIVE …"; LN "fieldErrors" |
+| Amend: `409 LOAN_NOT_ACTIVE` before anything about Parties, a no-op included; merged rules (`LENDER_IS_BORROWER`, `NOT_AFTER_DISBURSEMENT`); only newly named Parties must be active; no-op `200` whatever the version | LN "planAmend"; LR "amend …" |
+| Void: once, a repeat keeps the first reason; `CLOSED` final; refused while splits reference the Loan (from VC-3-05) | LN "planVoid"; LR "void …" |
+| Lock order Parties → Loan: `deactivate` racing create (RC) and past the repository (RR, `40001`); amend racing void | LR "concurrency" |
+| Realm isolation of every read and command | LR "reads: …", "void …" (another Realm is not found) |
+
+Counter-checked: each trigger branch and CHECK above, the repository's Party lock and the amend order were neutralised in turn, and a test went red each time.
 
 ## Keeping this current
 

@@ -179,6 +179,30 @@ export interface AcquisitionPaymentTable {
   version: Generated<number>;
 }
 
+export interface LoanTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  status: string;
+  lender_party_id: string;
+  borrower_party_ids: string[];
+  principal_original: string;
+  currency: string;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  start_date: string;
+  disbursement_date: string | null;
+  maturity_date: string | null;
+  contract_number: string | null;
+  acquisition_id: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  voided_at: Date | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface LandBuildingAllocationTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -327,6 +351,7 @@ export interface Database {
   acquisition_cost: AcquisitionCostTable;
   acquisition_payment: AcquisitionPaymentTable;
   land_building_allocation: LandBuildingAllocationTable;
+  loan: LoanTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;
