@@ -362,6 +362,53 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
     });
   });
 
+  describe('concurrency of corrections (review on #68)', () => {
+    /** Two confirmed payments naming the two Loans in opposite position order, `low` < `high`. */
+    async function crossedPayments() {
+      const [x, y] = [await loan(), await loan()];
+      const [low = '', high = ''] = [x.id as string, y.id as string].sort();
+      const confirmedWith = async (first: string, second: string) => {
+        const id = await transaction({ amount: '2.00' });
+        await replaced(id, [split('1.00', 'LOAN_INTEREST', first), split('1.00', 'LOAN_PRINCIPAL', second)]);
+        const confirmed = await transactions.confirm(id, REALM, actor);
+        if (confirmed.kind !== 'CONFIRMED') throw new Error(confirmed.kind);
+        return id;
+      };
+      return { low, high, lowFirst: await confirmedWith(low, high), highFirst: await confirmedWith(high, low) };
+    }
+    /** As the splits test: a blocker holds `high`; the high-first correction queues on it first, then the low-first one. */
+    async function crossed(replacement: (low: string, high: string) => Parameters<PostgresCorrectionRepository['correct']>[2]['replacement']) {
+      const { low, high, lowFirst, highFirst } = await crossedPayments();
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query(`SELECT id FROM loan WHERE id = $1 FOR UPDATE`, [high]);
+        const first = corrections.correct(highFirst, REALM, { reason: 'x', replacement: replacement(low, high) }, actor).then(
+          (o) => o.kind,
+          (error: { code?: string }) => error.code,
+        );
+        await waitForLocks(pool, 1);
+        const second = corrections.correct(lowFirst, REALM, { reason: 'x', replacement: replacement(low, high) }, actor).then(
+          (o) => o.kind,
+          (error: { code?: string }) => error.code,
+        );
+        await waitForLocks(pool, 2);
+        await holder.query('COMMIT');
+        return [await first, await second];
+      } finally {
+        holder.release();
+      }
+    }
+
+    it('two reverses of payments naming two Loans in opposite order: the id-ordered lock of the original’s Loans avoids a deadlock', async () => {
+      expect(await crossed(() => null)).toEqual(['CORRECTED', 'CORRECTED']);
+    });
+
+    it('the same for correct with a replacement without a Loan', async () => {
+      expect(await crossed(() => ({ splits: [split('2.00', 'OTHER')] }))).toEqual(['CORRECTED', 'CORRECTED']);
+    });
+  });
+
   describe('the proposal’s inputs', () => {
     it('the Loan, its VALID periods and the Transaction of the Realm, in one snapshot', async () => {
       const l = await loan();

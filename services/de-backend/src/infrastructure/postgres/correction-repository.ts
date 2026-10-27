@@ -96,8 +96,12 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
         const conflict = checkVersion(original.version, expectedVersions);
         if (conflict !== undefined) throw new Rejected(conflict);
         const replacement = plan.replacement;
+        // §41.5, P3-D8: every Loan the correction writes, the original's (the reversal mirrors them) and the
+        // replacement's, locked FOR UPDATE in id order after the original, before any split is inserted. The split
+        // trigger writes them again in position order, which is then a no-op on rows already held (review on #68).
+        const loans = await lockLoansOf(trx, mreRealmId, [...loanIdsOf(originalSplits), ...(replacement === null ? [] : loanIdsOf(replacement.splits))]);
         // Reverse only (§35.9): no replacement to check; the reversal goes to the original's account, closed or not.
-        const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement);
+        const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement, loans);
 
         const reversalId = await insertCorrection(trx, actor, original, 'REVERSAL', {
           financialAccountId: original.financialAccountId,
@@ -167,16 +171,14 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     mreRealmId: string,
     original: Transaction,
     replacement: PlannedReplacement,
+    loans: ReadonlyMap<string, string>,
   ): Promise<Map<string, string>> {
     await this.check(trx, mreRealmId, original, replacement);
     const categoryIds = await this.categoryIds(trx, replacement);
-    // §41.5: the replacement's Loans after the original's lock, in id order (P3-D8). The reversal mirrors the
-    // original's splits and needs no check here: a Loan with splits is never VOID (loan_void_unreferenced).
-    const loanIds = replacement.splits.flatMap((s) => (s.loanId === null ? [] : [s.loanId]));
-    if (loanIds.length > 0) {
-      const refusal = checkLoanSplits({ direction: replacement.direction, reversal: false }, replacement.splits, await lockLoansOf(trx, mreRealmId, loanIds));
-      if (refusal !== undefined) throw new Rejected(refusal);
-    }
+    // §41.5: the replacement's splits with loanId, against the Loans locked in `correct`. The reversal mirrors the
+    // original's splits and needs no check: a Loan with splits is never VOID (loan_void_unreferenced).
+    const refusal = checkLoanSplits({ direction: replacement.direction, reversal: false }, replacement.splits, loans);
+    if (refusal !== undefined) throw new Rejected(refusal);
     return categoryIds;
   }
 
@@ -300,6 +302,8 @@ async function insertCorrection(
     .execute();
   return id;
 }
+
+const loanIdsOf = (splits: readonly SplitInput[]) => splits.flatMap((s) => (s.loanId === null ? [] : [s.loanId]));
 
 async function storedSplits(trx: Trx<Database>, transactionId: string): Promise<StoredSplit[]> {
   const rows = await trx
