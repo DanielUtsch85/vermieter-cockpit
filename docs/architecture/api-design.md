@@ -1768,43 +1768,142 @@ Responsibilities:
 
 # 41. Loan API
 
+Decisions: `docs/development/phase-3-plan.md` (P3-D1…D8). Data: data-model §21–24. Items: backlog §3b.
+
 ### Queries
 
 ```text
-GET /api/v1/loans
-GET /api/v1/loans/{id}
-GET /api/v1/property-references/{propertyReferenceId}/loans
+GET /api/v1/loans                                                  (VC-3-01, §41.1)
+GET /api/v1/loans/{loanId}                                         (VC-3-01, §41.1)
+GET /api/v1/loans/{loanId}/terms                                   (VC-3-02)
+GET /api/v1/loans/{loanId}/allocations[?asOf=]                     (VC-3-03)
+GET /api/v1/property-references/{propertyReferenceId}/loans        (VC-3-03)
+GET /api/v1/loans/{loanId}/schedule[?from=&to=]                    (VC-3-04)
+GET /api/v1/loans/{loanId}/payment-proposal?transactionId=         (VC-3-05)
+GET /api/v1/loans/{loanId}/remaining-debt[?asOf=]                  (VC-3-06)
 ```
 
 ### Commands
 
 ```text
-POST /api/v1/loans
-POST /api/v1/loans/{id}/terms
-POST /api/v1/loans/{id}/allocations
-POST /api/v1/loans/{id}/recalculate-schedule
-POST /api/v1/loans/{id}/reconcile-payment
-POST /api/v1/loans/{id}/refinance
+POST /api/v1/loans                                                 (VC-3-01, §41.1)
+POST /api/v1/loans/{loanId}/amend                                  (VC-3-01, §41.1)
+POST /api/v1/loans/{loanId}/void                                   (VC-3-01, §41.1)
+POST /api/v1/loans/{loanId}/terms                                  (VC-3-02)
+POST /api/v1/loans/{loanId}/allocations                            (VC-3-03)
+POST /api/v1/loans/{loanId}/balance-statements                     (VC-3-06)
+POST /api/v1/loans/{loanId}/close                                  (VC-3-07)
 ```
 
----
+The former `recalculate-schedule`, `reconcile-payment` and `refinance` commands are dropped:
+- the schedule is derived on read (P3-D5);
+- a payment is a split carrying `loanId` (P3-D4);
+- refinancing is a new Loan plus `close` (P3-D7).
+
+## 41.1 Contract (VC-3-01)
+
+- **Domain owner:** Financing. **Authorization:** as §19.1. A Loan belongs to the caller's Realm, and so do its lender, its borrowers and its Acquisition. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **What it is (P3-D1):** one canonical financing contract. It is never duplicated per property: properties come only through allocations (VC-3-03). Full disbursement is assumed: `principalOriginal` is owed from the disbursement date (staged disbursement is a later item).
+- **Status:**
+  - `ACTIVE` → `VOID` (here);
+  - `ACTIVE` → `CLOSED` (VC-3-07).
+  - Both are final.
+- **Response:**
+  - `loanId`, `mreRealmId`, `status`;
+  - `lenderPartyId`, `borrowerPartyIds` (in the order given);
+  - `principalOriginal` (Money as §31);
+  - `startDate`, `disbursementDate` (as stored, may be `null`), and the derived `debtFrom` (`disbursementDate`, or `startDate` while that is unset); `maturityDate`;
+  - `contractNumber`, `acquisitionId`, `sourceReferences`, `notes`;
+  - `voidedAt`, `voidReason`;
+  - `closingDate`, `closingReason`, `refinancedByLoanId` (`null` until VC-3-07);
+  - `createdAt`, `version`.
+  - Single-Loan responses carry `ETag: "<version>"` (§16.1).
+
+### `POST /api/v1/loans`
+
+- **Body** (strict; unknown keys `400`):
+  - `lenderPartyId` (UUID, required).
+  - `borrowerPartyIds` (1–20 UUIDs, required). No duplicates (`DUPLICATE`). The lender is not a borrower (`400` `LENDER_IS_BORROWER` at the borrower's position). Borrowers are not checked against Ownership: a borrower need not be an owner (P3-D1).
+  - `principalOriginal` (Money as §31, required): **> 0** (`400` `NOT_POSITIVE`), EUR.
+  - `startDate` (business date, required): the contract date.
+  - `disbursementDate` (optional): not before `startDate` (`400` `BEFORE_START_DATE`).
+  - `maturityDate` (optional): after `disbursementDate`, or after `startDate` while that is unset (`400` `NOT_AFTER_DISBURSEMENT`).
+  - `contractNumber` (≤ 100), `sourceReferences` (up to 10 strings of 1–500) and `notes` (≤ 2000), trimmed as §26.1.
+  - `acquisitionId` (UUID, optional): an Acquisition of the Realm that the Loan finances, in any status. It is informational and has no effect on the Acquisition.
+  - `documentIds`: `400 NOT_SUPPORTED` until documents exist (as §33.2). Data-model §21's `repaymentType`, `paymentFrequency` and `currentTermsId` belong to the terms (P3-D2) and are unknown keys here.
+- **Order of checks:**
+  1. `400`;
+  2. the lender, then each borrower in the order given: unknown or foreign → `404` (`details.partyId`);
+  3. the Acquisition: unknown or foreign → `404` (`details.acquisitionId`);
+  4. the lender, then each borrower: `INACTIVE` → `422 PARTY_INACTIVE` (`details.partyId`; P2-D1: no new role for an inactive Party).
+- **Success:** `201` with the Loan (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` with the principal, the dates and the parties. Nothing is unique: two Loans may share a contract number, e.g. at different lenders.
+- **Idempotency (§15):** `Idempotency-Key` with scope `loan.create`, fingerprint of the normalized body. A replay answers `201` with the recorded body and `Idempotent-Replayed: true`; the same key with another payload is `409`.
+
+### `POST /api/v1/loans/{loanId}/amend`
+
+- **Body:** the fields to change, at least one; `null` clears an optional field. Amendable fields:
+  - `lenderPartyId`;
+  - `borrowerPartyIds` (the whole list, replaced; same rules as on create);
+  - `maturityDate` (same rule as on create);
+  - `contractNumber`, `sourceReferences`, `notes`.
+- The fixed fields (`principalOriginal`, `startDate`, `disbursementDate`, `acquisitionId`) are `400` with code `NOT_AMENDABLE`. A wrong one is voided and entered again (P3-D1).
+- **Order of checks:** `400` → Loan unknown or foreign `404` → a Party newly named (a new lender, or a borrower not in the current list): unknown or foreign `404`, then `INACTIVE` `422 PARTY_INACTIVE`. A borrower who stays in the list may have become inactive since: that is an existing role (P2-D1).
+  - Then: the Loan not `ACTIVE` → `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.status`;
+  - then `If-Match` → `412`.
+- **Success:** `200` with the Loan (`version` + 1; AuditRecord `AMENDED` with each changed field's old and new value). Values equal to the current ones are a `200` no-op without a new version or AuditRecord, answered regardless of `If-Match` (as §19.1).
+
+### `POST /api/v1/loans/{loanId}/void`
+
+- **Body:** `{ "reason": "..." }` (required, trimmed, 1–500).
+- **Success:** `200` with the Loan (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1); AuditRecord `VOIDED` with the reason.
+- Voiding a `VOID` Loan is a `200` no-op keeping the first reason and time. A `CLOSED` one is final: `409 CONFLICT` with `reason = "LOAN_CLOSED"`.
+- While a split references the Loan, void is `409 CONFLICT` with `reason = "LOAN_HAS_SPLITS"` and `details.transactionIds` (from VC-3-05; before it, no split can). A reversal's splits count, so the Loan's history stays complete. Its terms, allocations and statements (VC-3-02, -03, -06) do not block a void: they count nowhere once the Loan is `VOID`.
+- `If-Match` as §16.1; a no-op answers regardless of the version.
+- **Locks (P3-D8):** the Loan `FOR UPDATE`, then its splits are read; no Transaction is locked. From VC-3-05 the split guard writes the Loan row after its Transaction lock, so a split write and a void serialise on the Loan row: whichever waits sees the other's result (READ COMMITTED) or fails to serialise (REPEATABLE READ).
+
+### Reads
+
+- `GET /loans/{loanId}`: one Loan with `ETag`.
+- `GET /loans`: `{ items, page, pageSize, total }` (§11), ordered by `startDate` (newest first), then `createdAt`, then `loanId`; count and page in one snapshot.
+  - Filters: `status`; `partyId` (lender or borrower); `acquisitionId`.
+  - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`.
+  - `propertyReferenceId` is not a filter here: a Loan reaches a property only through allocations, so `GET /property-references/{id}/loans` comes with VC-3-03.
+
+### In the database (VC-3-01)
+
+- **`loan`:**
+  - `lender_party_id` with a composite foreign key to `party (id, mre_realm_id)`;
+  - `principal_original` `numeric` with `scale ≤ 2`, `> 0` and `< 1e18`; `currency` EUR (as the ledger's amounts);
+  - the date order as above (CHECK);
+  - `acquisition_id` with a composite foreign key to `acquisition (id, mre_realm_id)`;
+  - `status` in (`ACTIVE`, `VOID`, `CLOSED`): `VOID` exactly with `voided_at` and `void_reason`. The closing columns are added by VC-3-07.
+- **`loan_borrower`** `(loan_id, party_id, position)`: composite foreign keys to the Loan and to `party (id, mre_realm_id)`; `UNIQUE (loan_id, party_id)`. The lender is never a borrower: a trigger, since the lender is a column of another table.
+- **`loan_frozen` trigger:**
+  - keeps `id`, Realm, principal, currency, `start_date`, `disbursement_date`, `acquisition_id`, `created_at` and `created_by` fixed;
+  - allows the amendable fields to change only while `ACTIVE`, each change with `version` + 1;
+  - allows the status to change only out of `ACTIVE`, with `version` + 1 exactly (as 0022);
+  - makes `VOID` and `CLOSED` final;
+  - lets the no-op `UPDATE … SET version = version` of P3-D8 through.
+  - A Loan is only inserted `ACTIVE`, and never deleted.
+- **Borrowers** are inserted or deleted only while the Loan is `ACTIVE` (the amend's replacement), and only together with a version step of the Loan in the same transaction.
+- **Active Parties past the repository** (as 0020 for buyers): a trigger refuses linking an `INACTIVE` Party as a new lender or borrower. It reads the Party `FOR SHARE`, and the repository locks the newly named Parties `FOR SHARE` in id order before the Loan, so a concurrent `deactivate` comes first and is seen, or waits.
+- **Lock order:** Parties → Loan, as Parties → Acquisition (§27.1).
+
+### Tests (VC-3-01)
+
+- **API:** every `400` code above; `404` for each kind of reference; `PARTY_INACTIVE` for a lender and a borrower; idempotent replay and conflict; amend no-op, `412` and `NOT_AMENDABLE`; amend and void of a `VOID` Loan; the list filters and order.
+- **Repository:** Realm isolation of every read and command; `deactivate` of a borrower racing a create (RC and RR); amend against void.
+- **Schema tests past the repository**, each with a counter-check (the guard neutralised, the test red):
+  - a fixed field changed;
+  - a status step without `version` + 1, or out of `VOID`;
+  - an insert as `VOID`;
+  - a borrower changed on a `VOID` Loan;
+  - the lender as a borrower;
+  - an `INACTIVE` Party linked.
 
 # 42. Create Loan
 
-Example:
-
-```json
-{
-  "lenderPartyId": "...",
-  "borrowerPartyIds": ["..."],
-  "principalOriginal": {
-    "amount": "250000.00",
-    "currency": "EUR"
-  },
-  "startDate": "2026-09-01",
-  "acquisitionId": "..."
-}
-```
+Superseded by §41.1 (`POST /api/v1/loans`).
 
 ---
 

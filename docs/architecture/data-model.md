@@ -1260,6 +1260,17 @@ Represent one canonical financing contract.
 
 ---
 
+## 21.3a Status and fixed fields (P3-D1, api-design §41.1)
+
+- `status`: `ACTIVE` → `VOID` (a recording error, only while no split references the Loan) and `ACTIVE` → `CLOSED`
+  (`REPAID`, `REFINANCED`, `OTHER`; VC-3-07); both final.
+- Fixed after creation: `principalOriginal`, `currency`, `startDate`, `disbursementDate`, `acquisitionId`. Amendable
+  while `ACTIVE`: lender, borrowers, `maturityDate`, `contractNumber`, `sourceReferences`, `notes`.
+- `repaymentType`, `paymentFrequency` and `currentTermsId` belong to LoanTerms (§22, P3-D2), not to the Loan.
+- Full disbursement is assumed: `principalOriginal` is owed from `disbursementDate` (or `startDate` while unset).
+
+---
+
 ## 21.4 Relationships
 
 A Loan may relate to:
