@@ -1915,6 +1915,79 @@ This list is complete for Phase 3; ACC3 (VC-3-08) compares it with the app's rou
   - a duplicate borrower; a borrower of another Realm or unknown; deleting a Party a Loan names;
   - an `INACTIVE` Party linked.
 
+## 41.2 Loan terms (VC-3-02)
+
+Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's conditions over time: periods, appended, never overwritten. A follow-up rate with the same lender (Anschlussfinanzierung) is a new period; refinancing with another lender is a new Loan (P3-D7).
+
+- **Domain owner:** Financing. **Authorization:** as §41.1; the terms belong to the Loan's Realm. An unknown or foreign Loan or terms id is `404`.
+- **Response** (one period):
+  - `termsId`, `loanId`, `status` (`VALID` | `VOID`);
+  - `validFrom`, and the derived `validUntil`: the day before the next `VALID` period's `validFrom`, or `null` for the last;
+  - `interestRate`: nominal percent p.a. as an exact decimal string with three decimals, e.g. `"3.450"`;
+  - `repaymentModel` (`ANNUITY` | `INTEREST_ONLY`);
+  - `scheduledPayment` (Money as §31, or `null` for `INTEREST_ONLY`), `firstPaymentDate`;
+  - `principalAtStart` (Money or `null`);
+  - `fixedRateUntil`, `initialRepaymentRate` (decimal string or `null`), `specialRepaymentLimit` (Money per calendar year, or `null`), `notes`;
+  - `voidedAt`, `voidReason`, `createdAt`, `version`.
+  - Single-period responses carry `ETag: "<version>"`.
+
+### `POST /api/v1/loans/{loanId}/terms`
+
+- **Body** (strict; unknown keys `400`):
+  - `validFrom` (business date, required).
+  - `interestRate` (string, required): a decimal with at most three decimals, `0 ≤ rate < 100` (`400` `INVALID_FORMAT` / `OUT_OF_RANGE`). `0` is allowed (an interest-free loan, e.g. within a family). A JSON number is `400`, as for Money (no float in transit).
+  - `repaymentModel` (required): `ANNUITY` or `INTEREST_ONLY`. Linear repayment is a later item (P3-D2) and is `400` `INVALID_FORMAT`.
+  - `scheduledPayment` (Money, > 0, EUR): **required** for `ANNUITY` (`400` `REQUIRED`), **not allowed** for `INTEREST_ONLY` (`400` `NOT_ALLOWED_FOR_MODEL`), whose payment is the period's interest. Entered as on the contract; DE does not compute it from `initialRepaymentRate` (P3-D2).
+  - `firstPaymentDate` (business date, required): not before `validFrom` (`400` `BEFORE_VALID_FROM`). Later payments fall on the same day of each following month (VC-3-04 defines the month-end rule).
+  - `principalAtStart` (Money, > 0, optional): the balance this period starts from, as the follow-up contract states it (e.g. after special repayments). Not on a Loan's first period, which starts from `principalOriginal` (`422` `PRINCIPAL_AT_START_ON_FIRST_TERMS`); never above `principalOriginal` (`422` `PRINCIPAL_AT_START_EXCEEDS_ORIGINAL`, since Phase 3 has no further disbursement, P3-D1).
+  - `fixedRateUntil` (business date, optional; not before `validFrom`, `400` `BEFORE_VALID_FROM`), `initialRepaymentRate` (decimal string as `interestRate`, optional), `specialRepaymentLimit` (Money ≥ 0, optional), `notes` (≤ 2000, trimmed): informational only, they change nothing in the schedule.
+  - `paymentFrequency`: unknown key; Phase 3 is monthly only (P3-D2).
+- **Order of checks:**
+  1. `400`;
+  2. Loan unknown or foreign → `404`;
+  3. Loan not `ACTIVE` → `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.status`;
+  4. `validFrom` before the Loan's `debtFrom` → `422 TERMS_BEFORE_DEBT` with `details.debtFrom`;
+  5. `validFrom` not after the last `VALID` period's `validFrom` → `422 TERMS_NOT_APPENDED` with `details.lastValidFrom` (periods are only appended, P3-D2);
+  6. `principalAtStart` as above → `422`;
+  7. **an annuity must repay (review on #58):** for `ANNUITY`, `scheduledPayment` must exceed the first period's interest, `round_half_up(balance × rate / 100 / 12)` to the cent, on the balance the period starts from: `principalAtStart`, or else the planned balance carried over from the previous periods on `validFrom` (P3-D5; for the first period `principalOriginal`). Otherwise `422 PAYMENT_DOES_NOT_COVER_INTEREST` with `details.firstInterest` and `details.balance`. So VC-3-02 already implements P3-D5's derivation as a domain function; VC-3-04 exposes it as a read.
+- **Success:** `201` with the period (`status = VALID`, `version = 1`); AuditRecord `CREATED` on `LoanTerms` with the fields. **Idempotency (§15):** scope `loan.terms.create`, fingerprint of the Loan id and the normalized body.
+
+### `POST /api/v1/loans/{loanId}/terms/{termsId}/void`
+
+- Body `{ "reason": "..." }` (1–500, trimmed). `200` with the period (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1); AuditRecord `VOIDED`. A `VOID` period counts nowhere: not in `validUntil`, the append rule or the schedule.
+- **Order of checks:** `400` → Loan or terms unknown or foreign → `404` → already `VOID`: `200` no-op keeping the first reason → Loan not `ACTIVE` → `409 LOAN_NOT_ACTIVE` → a later `VALID` period exists → `409 CONFLICT` with `reason = "TERMS_NOT_LAST"` and `details.laterTermsId` (only the last period is voidable, P3-D2) → `If-Match` → `412`.
+- Correcting a wrong period: void it while it is the last one, then append the right one.
+
+### `GET /api/v1/loans/{loanId}/terms`
+
+- `{ items }`, ordered by `validFrom`, then `createdAt`; `VOID` periods included, each with its `validUntil` derived over the `VALID` ones only. `?status=VALID|VOID`. Unpaged (a Loan has a handful of periods); one snapshot (`REPEATABLE READ READ ONLY`). Unknown parameters are `400`.
+
+### Concurrency and locks (P3-D8)
+
+- Every terms write (create, void) first locks the **Loan row** `FOR UPDATE`, then reads its periods. Two appends to one Loan therefore serialise, and so do an append and a void or close of the Loan. No Transaction is locked (Loan writers never do, P3-D8).
+- Past the repository the insert trigger writes the Loan row with the no-op of P3-D8 before it reads the periods, so under REPEATABLE READ a concurrent append fails to serialise (`40001`) instead of reading a stale last period.
+
+### In the database (VC-3-02)
+
+- `loan_terms`:
+  - composite foreign key `(loan_id, mre_realm_id)` to `loan`;
+  - `interest_rate numeric` with `scale ≤ 3`, `≥ 0` and `< 100`; `initial_repayment_rate` likewise;
+  - `repayment_model` in (`ANNUITY`, `INTEREST_ONLY`); `scheduled_payment` present exactly for `ANNUITY` (CHECK), `> 0`, scale ≤ 2, EUR;
+  - `first_payment_date ≥ valid_from`, `fixed_rate_until ≥ valid_from`; `principal_at_start > 0`; `special_repayment_limit ≥ 0`;
+  - `status` in (`VALID`, `VOID`), `VOID` exactly with `voided_at` and `void_reason`;
+  - a unique index on `(loan_id, valid_from) WHERE status = 'VALID'`.
+- `loan_terms_append` (before insert): writes the Loan row (P3-D8's no-op), then refuses a period on a Loan that is not `ACTIVE`, before its `debtFrom`, or not after the last `VALID` period; only inserted `VALID` with version 1.
+- `loan_terms_frozen` (before update or delete): the data never changes; the only step is `VALID` → `VOID` with `version` + 1 exactly, and only while no later `VALID` period exists; never deleted.
+- Not in the database: the annuity check (it needs the schedule's derivation) and the `principalAtStart` rules against the Loan (a cross-row comparison the repository makes under the Loan lock).
+
+### Tests (VC-3-02)
+
+- **Domain:** the first interest and the carried-over balance (hand-computed, including `round_half_up` at half a cent); `PAYMENT_DOES_NOT_COVER_INTEREST` at equality and one cent above; rate `0`.
+- **API:** every `400` code above; `NOT_ALLOWED_FOR_MODEL`; a JSON number as rate; the error mapping.
+- **Repository:** order of checks; append and void with their refusals; `validUntil` derived over `VALID` periods only; idempotency; Realm isolation.
+- **Concurrency:** two appends to one Loan (RC: the second sees the first and is `TERMS_NOT_APPENDED`; RR past the repository: `40001`); an append against a void of the Loan.
+- **Schema past the repository**, each with a counter-check: an insert before the last period, on a `VOID` Loan, before `debtFrom`, as `VOID`; a changed field; a void of a period that is not the last; a step without `version` + 1; a delete; `scheduled_payment` with `INTEREST_ONLY` or without it for `ANNUITY`.
+
 # 42. Create Loan
 
 Superseded by §41.1 (`POST /api/v1/loans`).
@@ -1923,11 +1996,7 @@ Superseded by §41.1 (`POST /api/v1/loans`).
 
 # 43. Loan Terms
 
-```text
-POST /api/v1/loans/{id}/terms
-```
-
-A new terms period should not overwrite historical terms.
+Superseded by §41.2.
 
 ---
 

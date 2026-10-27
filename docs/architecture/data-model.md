@@ -1332,6 +1332,15 @@ Represent a temporally valid set of Loan conditions.
 - active LoanTerms periods must not overlap for the same Loan unless explicitly supported
 - historical terms must not be overwritten when refinancing occurs
 
+## Periods (P3-D2, api-design §41.2)
+
+- A period has `validFrom`; `validUntil` is derived (the next `VALID` period's `validFrom` minus one day), not
+  stored. Periods are appended after the last one and never edited; only the last one can be voided.
+- `repaymentModel`: `ANNUITY` (with `scheduledPayment`, as on the contract) or `INTEREST_ONLY` (no
+  `scheduledPayment`; the payment is the interest). `paymentFrequency` is `MONTHLY` in Phase 3 and not stored.
+- `interestRate` and `initialRepaymentRate` are exact decimals (percent p.a., at most three decimals).
+- `principalAtStart` (optional, not on the first period, never above `principalOriginal`) restarts the plan's balance.
+
 ---
 
 # 23. LoanAllocation
