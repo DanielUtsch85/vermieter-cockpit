@@ -36,6 +36,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
           'transaction_split.amount',
           'transaction_split.currency',
           'transaction_split.property_reference_id',
+          'transaction_split.loan_id',
           'transaction_split.description',
           'financial_category.code',
         ])
@@ -50,6 +51,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
           amount: fromNumericAmount(s.amount, s.currency),
           financialCategoryCode: s.code,
           propertyReferenceId: s.property_reference_id,
+          loanId: s.loan_id,
           description: s.description,
         })),
       };

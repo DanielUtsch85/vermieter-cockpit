@@ -195,6 +195,43 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
     });
   }
 
+  async proposalInputs(loanId: string, transactionId: string, mreRealmId: string): ReturnType<LoanTermsRepository['proposalInputs']> {
+    if (!UUID.test(loanId)) return { kind: 'LOAN_NOT_FOUND' };
+    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
+      const loan = await readLoanIn(trx, loanId, mreRealmId);
+      if (loan === undefined) return { kind: 'LOAN_NOT_FOUND' as const };
+      const row = UUID.test(transactionId)
+        ? await trx
+            .selectFrom('ledger_transaction')
+            .select([
+              'id',
+              sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'),
+              sql<string>`(amount * 100)::bigint::text`.as('cents'),
+              'direction',
+              'status',
+              (eb) => eb.selectFrom('transaction_split').select(eb.fn.countAll<string>().as('n')).whereRef('transaction_split.transaction_id', '=', 'ledger_transaction.id').as('split_count'),
+            ])
+            .where('id', '=', transactionId)
+            .where('mre_realm_id', '=', mreRealmId)
+            .executeTakeFirst()
+        : undefined;
+      if (row === undefined) return { kind: 'TRANSACTION_NOT_FOUND' as const };
+      return {
+        kind: 'FOUND' as const,
+        loan,
+        periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID'),
+        transaction: {
+          id: row.id,
+          bookingDate: row.booking_date as BusinessDate,
+          amount: BigInt(row.cents),
+          direction: row.direction,
+          status: row.status,
+          splitCount: Number(row.split_count ?? 0),
+        },
+      };
+    });
+  }
+
   async scheduleInputs(loanId: string, mreRealmId: string): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[] } | undefined> {
     if (!UUID.test(loanId)) return undefined;
     return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {

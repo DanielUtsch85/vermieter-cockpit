@@ -44,6 +44,7 @@ import type {
   ListLoanTerms,
   VoidLoanTerms,
   GetLoanSchedule,
+  GetPaymentProposal,
   CreateLoanAllocation,
   GetLoanAllocationOn,
   ListLoanAllocations,
@@ -147,6 +148,8 @@ export interface AppDependencies {
   readonly listLoanTerms: ListLoanTerms;
   /** Loan schedule, derived (VC-3-04). */
   readonly getLoanSchedule: GetLoanSchedule;
+  /** Loan payment proposal (VC-3-05). */
+  readonly getPaymentProposal: GetPaymentProposal;
   /** Loan allocation sets (VC-3-03). */
   readonly createLoanAllocation: CreateLoanAllocation;
   readonly voidLoanAllocation: VoidLoanAllocation;
@@ -260,7 +263,7 @@ export function createApp(deps: AppDependencies): Express {
     }),
   );
   api.use(loanRoutes({ create: deps.createLoan, get: deps.getLoan, list: deps.listLoans, amend: deps.amendLoan, void: deps.voidLoan }));
-  api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule }));
+  api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule, proposal: deps.getPaymentProposal }));
   api.use(
     loanAllocationRoutes({
       create: deps.createLoanAllocation,

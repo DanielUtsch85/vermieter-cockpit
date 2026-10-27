@@ -1,16 +1,19 @@
 import type {
   FinancialCategory,
   FinancialCategoryRepository,
+  LoanSplitRefusal,
   SplitInput,
   SplitTransaction,
   TransactionSplit,
   TransactionSplitRepository,
   TransactionStatus,
 } from '../domains/ledger/index.js';
+import type { LoanStatus } from '../domains/financing/index.js';
 import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { VersionConflictError } from './errors.js';
+import { LoanNotActiveError, LoanNotFoundError } from './loans.js';
 import { CurrencyMismatchError } from './transactions.js';
 
 /**
@@ -59,6 +62,30 @@ export class FinancialCategoryNotFoundError extends Error {
   }
 }
 
+/** A split with `loanId` breaks a rule of §41.5 (→ 422 INVALID_LOAN_SPLIT). */
+export class InvalidLoanSplitError extends Error {
+  override readonly name = 'InvalidLoanSplitError';
+
+  constructor(
+    readonly position: number,
+    readonly reason: 'CATEGORY' | 'DIRECTION',
+  ) {
+    super(`Split ${position}: a split with a Loan is LOAN_INTEREST or LOAN_PRINCIPAL of an OUTFLOW (${reason})`);
+  }
+}
+
+/** The refusals of §41.5 as errors, shared by the splits command and `correct`. */
+export function throwLoanSplitRefusal(refusal: LoanSplitRefusal): never {
+  switch (refusal.kind) {
+    case 'LOAN_NOT_FOUND':
+      throw new LoanNotFoundError(refusal.loanId);
+    case 'INVALID_LOAN_SPLIT':
+      throw new InvalidLoanSplitError(refusal.position, refusal.reason);
+    case 'LOAN_NOT_ACTIVE':
+      throw new LoanNotActiveError(refusal.loanId, refusal.status as LoanStatus);
+  }
+}
+
 export interface SetTransactionSplitsResult {
   readonly transaction: SplitTransaction;
   readonly splits: readonly TransactionSplit[];
@@ -101,6 +128,8 @@ export function setTransactionSplits(deps: { readonly repository: TransactionSpl
         throw new PropertyReferenceNotFoundError(outcome.propertyReferenceIds[0] ?? '');
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+      default:
+        return throwLoanSplitRefusal(outcome);
     }
   };
 }

@@ -24,6 +24,7 @@ const split = (amount: string, financialCategoryCode = 'RENT_BASE'): SplitInput 
   amount: eur(amount),
   financialCategoryCode,
   propertyReferenceId: null,
+  loanId: null,
   description: null,
 });
 

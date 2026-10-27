@@ -2155,7 +2155,7 @@ Decision P3-D5 of `docs/development/phase-3-plan.md`, ADR-015. The schedule is t
   - in the domain: `round_half_up` replaced by truncation, the cap on the last principal, the carry-over, `principalAtStart`, the stop at the next period and at `maturityDate`, and the clamping;
   - the property test must fail for each of them.
 
-## 41.5 Loan payments (VC-3-05)
+## 41.5 Loan payments (VC-3-05, implemented: migration 0027)
 
 Decision P3-D4 of `docs/development/phase-3-plan.md`, ADR-015, BR-FIN-004/005. An actual payment is ledger cash only. Its interest and principal are separate `TransactionSplit`s with the seeded categories `LOAN_INTEREST` and `LOAN_PRINCIPAL` (migration 0008, data-model §72), each carrying the Loan's `loanId`. The split is the link: data-model §25's `LoanPaymentReconciliation` and §46's `reconcile-payment` are dropped. Deviations from the plan are derived (P3-D5, VC-3-06).
 
@@ -2235,6 +2235,7 @@ A read, never a write (ADR-015: the plan never becomes cash). The client applies
   - it refuses a category other than `LOAN_INTEREST` and `LOAN_PRINCIPAL`;
   - it refuses a Transaction that is not `OUTFLOW`, unless the Transaction's `correction_role` is `REVERSAL`.
   - The frozen-splits rules (0009/0010) and the split trigger's own Transaction write are unchanged.
+  - **Trigger order (review on #67):** it fires after `transaction_split_frozen`, since BEFORE triggers fire in name order. So past the repository the Transaction row is written before the Loan row, and raw writers keep P3-D8's Transaction → Loan. A test checks the order in `pg_trigger`; a renamed trigger that sorted first would turn it red.
   - VC-3-07 adds the `closingDate` check here.
 - **`loan_void_unreferenced`** (before update of `loan`): a step to `VOID` is refused while a split references the Loan, a reversal's included. With the guard's Loan write, a void and a split cannot both commit past the repository either.
 - **0014's mirror** compares `(category, PropertyReference, loan_id, amount, currency)`.

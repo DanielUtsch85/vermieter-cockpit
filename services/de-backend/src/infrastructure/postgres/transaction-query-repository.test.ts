@@ -87,8 +87,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
       id,
       REALM,
       [
-        { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, description: 'Kalt' },
-        { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: null, description: null },
+        { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: 'Kalt' },
+        { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: null, loanId: null, description: null },
       ],
       actor,
     );
@@ -142,7 +142,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     const reference = await property('64b0c0ffee00000000000e01');
     const own = await book(account, '2026-07-01', '10.00', reference);
     const viaSplit = await book(account, '2026-07-02', '10.00');
-    await splits.replaceSplits(viaSplit, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: reference, description: null }], actor);
+    await splits.replaceSplits(viaSplit, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: reference, loanId: null, description: null }], actor);
     await book(account, '2026-07-03');
     const page = await queries.list(REALM, { propertyReferenceId: reference }, { page: 1, pageSize: 50 });
     expect(page.items.map((t) => t.id)).toEqual([viaSplit, own]);
@@ -151,7 +151,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
 
   it('list by financial category: Transactions with at least one split of that code; an unknown code matches nothing', async () => {
     const account = await openAccount();
-    const split = (amount: string, financialCategoryCode: string) => ({ amount: eur(amount), financialCategoryCode, propertyReferenceId: null, description: null });
+    const split = (amount: string, financialCategoryCode: string) => ({ amount: eur(amount), financialCategoryCode, propertyReferenceId: null, loanId: null, description: null });
     const rent = await book(account, '2026-05-01', '1250.00');
     await splits.replaceSplits(rent, REALM, [split('1000.00', 'RENT_BASE'), split('250.00', 'RENT_OPERATING_COST_ADVANCE')], actor);
     const other = await book(account, '2026-05-02', '10.00');
@@ -167,7 +167,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
   it('list by provenance: any of the given sources', async () => {
     const account = await openAccount();
     const original = await book(account, '2026-04-01');
-    await splits.replaceSplits(original, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, description: null }], actor);
+    await splits.replaceSplits(original, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }], actor);
     await transactions.confirm(original, REALM, actor);
     const reversed = await corrections.correct(original, REALM, { reason: 'Doppelt', replacement: null }, actor);
     if (reversed.kind !== 'CORRECTED') throw new Error(reversed.kind);
@@ -183,7 +183,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     const account = await openAccount();
     const confirmed = async (day: string) => {
       const id = await book(account, `2026-06-${day}`);
-      await splits.replaceSplits(id, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, description: null }], actor);
+      await splits.replaceSplits(id, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }], actor);
       await transactions.confirm(id, REALM, actor);
       return id;
     };
@@ -196,7 +196,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
         reason: 'Betrag',
         replacement: {
           amount: eur('12.00'),
-          splits: [{ amount: eur('12.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, description: null }],
+          splits: [{ amount: eur('12.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }],
         },
       },
       actor,

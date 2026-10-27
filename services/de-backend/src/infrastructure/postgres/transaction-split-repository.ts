@@ -1,5 +1,6 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
+  checkLoanSplits,
   checkVersion,
   planSplits,
   sameSplits,
@@ -14,6 +15,7 @@ import {
 } from '../../domains/ledger/index.js';
 import type { AuditActor } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
+import { lockLoansOf } from './loan-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -96,6 +98,13 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
           if (missing.length > 0) return { kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceIds: missing };
         }
 
+        // §41.5: the Loans after the Transaction lock, in id order (P3-D8). A split write never reverses a Transaction.
+        const loanIds = splits.flatMap((s) => (s.loanId === null ? [] : [s.loanId]));
+        if (loanIds.length > 0) {
+          const refusal = checkLoanSplits({ direction: transaction.direction, reversal: false }, splits, await lockLoansOf(trx, mreRealmId, loanIds));
+          if (refusal !== undefined) return refusal;
+        }
+
         await trx.deleteFrom('transaction_split').where('transaction_id', '=', transaction.id).execute();
         const inserted = await trx
           .insertInto('transaction_split')
@@ -108,6 +117,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
               currency: split.amount.currency,
               financial_category_id: categoryIds.get(split.financialCategoryCode) as string,
               property_reference_id: split.propertyReferenceId,
+              loan_id: split.loanId,
               description: split.description,
               created_by: actor.actorId,
             })),
@@ -132,6 +142,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
               amount: s.amount.toJSON(),
               financialCategoryCode: s.financialCategoryCode,
               ...(s.propertyReferenceId === null ? {} : { propertyReferenceId: s.propertyReferenceId }),
+              ...(s.loanId === null ? {} : { loanId: s.loanId }),
             })),
           },
         });
@@ -155,6 +166,7 @@ async function currentSplits(trx: Trx<Database>, transactionId: string): Promise
       'transaction_split.amount',
       'transaction_split.currency',
       'transaction_split.property_reference_id',
+      'transaction_split.loan_id',
       'transaction_split.description',
       'financial_category.code',
     ])
@@ -167,6 +179,7 @@ async function currentSplits(trx: Trx<Database>, transactionId: string): Promise
     amount: fromNumericAmount(r.amount, r.currency),
     financialCategoryCode: r.code,
     propertyReferenceId: r.property_reference_id,
+    loanId: r.loan_id,
     description: r.description,
   }));
 }

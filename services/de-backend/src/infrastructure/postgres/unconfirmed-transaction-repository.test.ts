@@ -76,8 +76,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
       id,
       REALM,
       [
-        { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, description: null },
-        { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: null, description: null },
+        { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: null },
+        { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: null, loanId: null, description: null },
       ],
       actor,
     );
@@ -151,7 +151,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
       const resplit = await splits.replaceSplits(
         dropped,
         REALM,
-        [{ amount: eur('1200.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, description: null }],
+        [{ amount: eur('1200.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: null }],
         actor,
       );
       expect(resplit.kind).toBe('REPLACED');
@@ -223,7 +223,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
       expect(await transactions.confirm(id, REALM, actor)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'IGNORED' });
       expect(await unconfirmed.amend(id, REALM, { description: 'x' }, actor)).toEqual({ kind: 'NOT_AMENDABLE', status: 'IGNORED' });
       expect(
-        await splits.replaceSplits(id, REALM, [{ amount: eur('1250.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, description: null }], actor),
+        await splits.replaceSplits(id, REALM, [{ amount: eur('1250.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }], actor),
       ).toEqual({ kind: 'FROZEN', status: 'IGNORED' });
 
       expect(await unconfirmed.restore(id, REALM, actor)).toMatchObject({ kind: 'RESTORED', transaction: { status: 'CLASSIFIED', version: 4 } });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
-import { planSplits, sameSplits, type SplitInput } from './transaction-split.js';
+import { checkLoanSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
 import type { TransactionStatus } from './transaction.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
@@ -8,6 +8,7 @@ const split = (amount: string, financialCategoryCode = 'LOAN_INTEREST', extra: P
   amount: eur(amount),
   financialCategoryCode,
   propertyReferenceId: null,
+  loanId: null,
   description: null,
   ...extra,
 });
@@ -50,6 +51,38 @@ describe('sameSplits', () => {
     expect(sameSplits(current, [split('600', 'LOAN_PRINCIPAL'), split('600')])).toBe(false);
     expect(sameSplits(current, [split('600'), split('600', 'LOAN_PRINCIPAL', { description: 'Rate 10' })])).toBe(false);
     expect(sameSplits(current, [split('1200')])).toBe(false);
+    // loanId is part of the set (§41.5): changing only it is a change.
+    expect(sameSplits(current, [split('600', 'LOAN_INTEREST', { loanId: 'l1' }), split('600', 'LOAN_PRINCIPAL')])).toBe(false);
     expect(sameSplits([], [])).toBe(true);
+  });
+});
+
+describe('checkLoanSplits (api-design §41.5)', () => {
+  const outflow = { direction: 'OUTFLOW' as const, reversal: false };
+  const loans = new Map([
+    ['l1', 'ACTIVE'],
+    ['l2', 'VOID'],
+  ]);
+  const withLoan = (loanId: string, code = 'LOAN_INTEREST') => split('1.00', code, { loanId });
+
+  it('passes LOAN_INTEREST and LOAN_PRINCIPAL of an OUTFLOW for an ACTIVE Loan, and splits without a Loan', () => {
+    expect(checkLoanSplits(outflow, [withLoan('l1'), withLoan('l1', 'LOAN_PRINCIPAL'), split('1.00', 'OTHER')], loans)).toBeUndefined();
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, [split('1.00', 'LOAN_INTEREST')], loans)).toBeUndefined();
+  });
+
+  it('in the order of §41.5: an unknown Loan, then the category, then the direction, then a VOID Loan, each first by position', () => {
+    const all = [withLoan('l2'), withLoan('l1', 'OTHER'), withLoan('nope'), withLoan('gone')];
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, all, loans)).toEqual({ kind: 'LOAN_NOT_FOUND', loanId: 'nope' });
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, all.slice(0, 2), loans)).toEqual({ kind: 'INVALID_LOAN_SPLIT', position: 2, reason: 'CATEGORY' });
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, [split('1.00', 'OTHER'), withLoan('l2')], loans)).toEqual({
+      kind: 'INVALID_LOAN_SPLIT',
+      position: 2,
+      reason: 'DIRECTION',
+    });
+    expect(checkLoanSplits(outflow, [withLoan('l1'), withLoan('l2')], loans)).toEqual({ kind: 'LOAN_NOT_ACTIVE', loanId: 'l2', status: 'VOID' });
+  });
+
+  it('a reversal is exempt from the direction (review on #58)', () => {
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: true }, [withLoan('l1')], loans)).toBeUndefined();
   });
 });

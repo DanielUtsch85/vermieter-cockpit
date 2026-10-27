@@ -386,6 +386,8 @@ export interface TransactionSplitTable {
   currency: string;
   financial_category_id: string;
   property_reference_id: string | null;
+  /** VC-3-05; optional on insert (NULL: no Loan). */
+  loan_id: Generated<string | null>;
   description: string | null;
   created_at: Generated<Date>;
   created_by: string;

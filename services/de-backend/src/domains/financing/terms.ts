@@ -1,5 +1,6 @@
 import { addDays, addMonths, type AuditActor, type BusinessDate, type Money, type VersionConflict } from '../../shared/index.js';
 import { debtFrom, type Loan, type LoanStatus } from './loan.js';
+import type { ProposalTransaction } from './payment-proposal.js';
 
 /**
  * Loan terms (data-model.md §22, api-design.md §41.2, backlog VC-3-02): the Loan's conditions as periods, appended
@@ -322,4 +323,14 @@ export interface LoanTermsRepository {
   list(loanId: string, mreRealmId: string, status?: TermsStatus): Promise<readonly LoanTermsView[] | undefined>;
   /** The Loan and its `VALID` periods in `validFrom` order, in one snapshot (§41.4); undefined for an unknown or foreign Loan. */
   scheduleInputs(loanId: string, mreRealmId: string): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[] } | undefined>;
+  /** As `scheduleInputs`, with the Transaction of the Realm, in one snapshot (§41.5's proposal). */
+  proposalInputs(
+    loanId: string,
+    transactionId: string,
+    mreRealmId: string,
+  ): Promise<
+    | { readonly kind: 'FOUND'; readonly loan: Loan; readonly periods: readonly LoanTerms[]; readonly transaction: ProposalTransaction }
+    | { readonly kind: 'LOAN_NOT_FOUND' }
+    | { readonly kind: 'TRANSACTION_NOT_FOUND' }
+  >;
 }

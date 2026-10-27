@@ -10,6 +10,7 @@ const split = (amount: string, code = 'RENT_BASE'): SplitInput => ({
   amount: eur(amount),
   financialCategoryCode: code,
   propertyReferenceId: null,
+  loanId: null,
   description: null,
 });
 const original = (overrides: Partial<CorrectionOriginal> = {}): CorrectionOriginal => ({

@@ -240,8 +240,10 @@ export class PostgresLoanRepository implements LoanRepository {
       const row = await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
       if (row === undefined) return { kind: 'NOT_FOUND' };
       const current = toLoan(row);
-      // No split can carry a loanId before VC-3-05 adds the column; then its Transactions are read here, unlocked (P3-D8).
-      const plan = planVoid(current, reason, at, []);
+      // The splits naming the Loan, reversals included, read after the Loan lock and unlocked (P3-D8): a split write
+      // takes the Loan row after its Transaction, so it either committed before this lock (and is seen) or waits.
+      const splits = await trx.selectFrom('transaction_split').select('transaction_id').distinct().where('loan_id', '=', id).execute();
+      const plan = planVoid(current, reason, at, splits.map((s) => s.transaction_id));
       if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', loan: current, changed: false };
       if (plan.kind !== 'VOID') return plan;
       const conflict = checkVersion(current.version, expectedVersions);
@@ -282,6 +284,18 @@ export async function readLoanIn(trx: Transaction<Database>, id: string, mreReal
 export async function lockLoan(trx: Transaction<Database>, loanId: string, mreRealmId: string): Promise<Loan | undefined> {
   const row = await trx.selectFrom('loan').select('id').where('id', '=', loanId).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
   return row === undefined ? undefined : readLoanIn(trx, loanId, mreRealmId);
+}
+
+/**
+ * The status of each named Loan of the Realm, locked `FOR UPDATE` in id order (§41.5, P3-D8): a split write takes
+ * them after its Transaction lock, so two writers with the same Loans never wait on each other crosswise. Unknown,
+ * foreign and malformed ids are simply absent.
+ */
+export async function lockLoansOf(trx: Transaction<Database>, mreRealmId: string, loanIds: readonly string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(loanIds)].filter((id) => UUID.test(id)).sort();
+  if (ids.length === 0) return new Map();
+  const rows = await trx.selectFrom('loan').select(['id', 'status']).where('id', 'in', ids).where('mre_realm_id', '=', mreRealmId).orderBy('id').forUpdate().execute();
+  return new Map(rows.map((r) => [r.id, r.status]));
 }
 
 async function readOne(trx: Transaction<Database>, id: string): Promise<Loan> {

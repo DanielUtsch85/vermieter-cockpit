@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   CurrencyMismatchError,
   InactiveCategoryError,
+  InvalidLoanSplitError,
+  LoanNotActiveError,
+  LoanNotFoundError,
   SplitSumMismatchError,
   SplitsMissingError,
   TransactionNotConfirmableError,
@@ -426,6 +429,10 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
       [new IdempotencyKeyConflictError('x'), 409, { code: 'CONFLICT' }],
       [new InactiveCategoryError(['OLD']), 422, { code: 'REVIEW_REQUIRED', details: { reason: 'INACTIVE_CATEGORY', financialCategoryCodes: ['OLD'] } }],
       [new CurrencyMismatchError('x'), 400, { code: 'VALIDATION_ERROR' }],
+      // §41.5: the replacement's splits with loanId.
+      [new LoanNotFoundError(ACCOUNT), 404, { code: 'NOT_FOUND', details: { loanId: ACCOUNT } }],
+      [new InvalidLoanSplitError(1, 'DIRECTION'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 1, reason: 'DIRECTION' } }],
+      [new LoanNotActiveError(ACCOUNT, 'VOID'), 409, { code: 'CONFLICT', details: { reason: 'LOAN_NOT_ACTIVE', loanId: ACCOUNT, status: 'VOID' } }],
     ] as const;
     for (const [error, status, body] of cases) {
       const base = await startCorrect(() => Promise.reject(error));
@@ -676,6 +683,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
       amount: Money.of('1250.00', 'EUR'),
       financialCategoryCode: 'RENT_BASE',
       propertyReferenceId: null,
+      loanId: null,
       description: null,
     };
     const base = await startWith({

@@ -1,5 +1,5 @@
 import type { AuditActor, Money } from '../../shared/index.js';
-import { sameSplits, type SplitInput } from './transaction-split.js';
+import { sameSplits, type LoanSplitRefusal, type SplitInput } from './transaction-split.js';
 import type { BusinessDate, Direction, Transaction, TransactionId, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
@@ -169,8 +169,15 @@ export function correctionFingerprint(originalId: string, request: CorrectionReq
     r.valueDate === undefined ? '-' : r.valueDate,
     r.description === undefined ? '-' : r.description,
     r.propertyReferenceId === undefined ? '-' : (r.propertyReferenceId?.toLowerCase() ?? null),
-    r.splits?.map((s) => [s.amount.amount, s.amount.currency, s.financialCategoryCode, s.propertyReferenceId?.toLowerCase() ?? null, s.description]) ??
-      '-',
+    // `loanId` only when set, so keys recorded before VC-3-05 keep their fingerprint.
+    r.splits?.map((s) => [
+      s.amount.amount,
+      s.amount.currency,
+      s.financialCategoryCode,
+      s.propertyReferenceId?.toLowerCase() ?? null,
+      s.description,
+      ...(s.loanId === null ? [] : [s.loanId.toLowerCase()]),
+    ]) ?? '-',
   ]);
 }
 
@@ -198,7 +205,9 @@ export type CorrectOutcome =
   | { readonly kind: 'UNKNOWN_CATEGORY'; readonly codes: readonly string[] }
   /** Copied split categories deactivated since (→ 422, as §34.2). */
   | { readonly kind: 'INACTIVE_CATEGORY'; readonly codes: readonly string[] }
-  | { readonly kind: 'SUM_MISMATCH'; readonly expected: Money; readonly actual: Money };
+  | { readonly kind: 'SUM_MISMATCH'; readonly expected: Money; readonly actual: Money }
+  /** The replacement's splits with `loanId` (§41.5); the reversal mirrors the original's and is exempt. */
+  | LoanSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface CorrectionRepository {
