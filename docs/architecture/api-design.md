@@ -2290,6 +2290,7 @@ Decision P3-D6 of `docs/development/phase-3-plan.md`, ADR-016, BR-FIN-006. Remai
 - **Principal paid** on `d` = Σ `LOAN_PRINCIPAL` splits with this `loanId` that count (§41.5: of current Transactions, `CONFIRMED` or `RECONCILED` and not a reversal), with booking date ≤ `d`.
 - **Actual remaining debt** = `principalOriginal` − principal paid. It is negative when more principal has been paid than was lent (a booking error, or a payment of another Loan); the read shows that rather than hiding it.
 - **Planned remaining debt** = the plan's balance after its last payment on or before `d` (§41.4). Before the first payment it is the balance the period in effect starts from (`principalOriginal`, or its `principalAtStart`). With `NO_TERMS` there is no plan, and the planned values are `null`.
+- **Maturity (review on #69):** with `endReason = MATURITY` the plan's `balanceDue` is due on `maturityDate` (§41.4, P3-D2). So from `maturityDate` on, inclusive, `planned` is **0**: the balance due counts as repaid as planned on that day. A bullet repayment paid on time then shows a difference of 0, and an overdue one shows the full balance as a positive difference. With `PAID_OFF`, `planned` is 0 after the last payment anyway. With `PAYMENT_CAP` there is no due date, and `planned` stays at `balanceDue`.
 - **Difference** = actual − planned, signed. Special repayments, missed or late payments, and cents of rounding show up here.
 - **VC-3-07** makes both 0 after a `CLOSED` Loan's `closingDate`.
 
@@ -2371,6 +2372,7 @@ A balance the lender reports on a date, e.g. from the annual account statement (
 
 - **Domain:**
   - actual, planned and difference on days before `debtFrom`, before the first payment, on a payment date and between payments;
+  - `MATURITY` (review on #69): `planned` the day before and on `maturityDate`; the difference for a bullet repayment paid on `maturityDate` (0) and for one not paid (the full balance), also per property; `PAYMENT_CAP` keeping `balanceDue`; a counter-check with the old rule (the balance due kept after `maturityDate`), which must turn these tests red;
   - a special repayment (actual below planned);
   - a missed payment (above);
   - a principal paid beyond the original (negative);
