@@ -1775,9 +1775,9 @@ Decisions: `docs/development/phase-3-plan.md` (P3-D1…D8). Data: data-model §2
 ```text
 GET /api/v1/loans                                                  (VC-3-01, §41.1)
 GET /api/v1/loans/{loanId}                                         (VC-3-01, §41.1)
-GET /api/v1/loans/{loanId}/terms                                   (VC-3-02)
-GET /api/v1/loans/{loanId}/allocations[?asOf=]                     (VC-3-03)
-GET /api/v1/property-references/{propertyReferenceId}/loans        (VC-3-03)
+GET /api/v1/loans/{loanId}/terms                                   (VC-3-02, §41.2)
+GET /api/v1/loans/{loanId}/allocations[?asOf=|?status=]            (VC-3-03, §41.3)
+GET /api/v1/property-references/{propertyReferenceId}/loans[?asOf=] (VC-3-03, §41.3)
 GET /api/v1/loans/{loanId}/schedule[?from=&to=]                    (VC-3-04)
 GET /api/v1/loans/{loanId}/payment-proposal?transactionId=         (VC-3-05)
 GET /api/v1/loans/{loanId}/remaining-debt[?asOf=]                  (VC-3-06)
@@ -1790,9 +1790,10 @@ GET /api/v1/loans/{loanId}/balance-statements                      (VC-3-06)
 POST /api/v1/loans                                                 (VC-3-01, §41.1)
 POST /api/v1/loans/{loanId}/amend                                  (VC-3-01, §41.1)
 POST /api/v1/loans/{loanId}/void                                   (VC-3-01, §41.1)
-POST /api/v1/loans/{loanId}/terms                                  (VC-3-02)
-POST /api/v1/loans/{loanId}/terms/{termsId}/void                   (VC-3-02)
-POST /api/v1/loans/{loanId}/allocations                            (VC-3-03)
+POST /api/v1/loans/{loanId}/terms                                  (VC-3-02, §41.2)
+POST /api/v1/loans/{loanId}/terms/{termsId}/void                   (VC-3-02, §41.2)
+POST /api/v1/loans/{loanId}/allocations                            (VC-3-03, §41.3)
+POST /api/v1/loans/{loanId}/allocations/{allocationSetId}/void     (VC-3-03, §41.3)
 POST /api/v1/loans/{loanId}/balance-statements                     (VC-3-06)
 POST /api/v1/loans/{loanId}/balance-statements/{statementId}/void  (VC-3-06)
 POST /api/v1/loans/{loanId}/close                                  (VC-3-07)
@@ -1989,6 +1990,97 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
 - **Concurrency:** two appends to one Loan (RC: the second sees the first and is `TERMS_NOT_APPENDED`; RR past the repository: `40001`); an append against a void of the Loan; **a void of the last period against an append behind it, past the repository** (RC: the void waits on the Loan row and is refused; RR: `40001`), with a counter-check (the Loan write in `loan_terms_frozen` removed, the test red).
 - **Schema past the repository**, each with a counter-check: an insert before the last period, an insert not after the last period's `firstPaymentDate`, on a `VOID` Loan, before `debtFrom`, as `VOID`; a changed field; a void of a period that is not the last; a step without `version` + 1; a delete; `scheduled_payment` with `INTEREST_ONLY` or without it for `ANNUITY`.
 
+## 41.3 Loan allocation (VC-3-03)
+
+Decision P3-D3 of `docs/development/phase-3-plan.md`, ADR-038. One Loan is never duplicated per property (ADR-014, BR-FIN-002). It reaches its PropertyReferences through **allocation sets**: one exact fraction per property, summing to exactly `1/1`, valid from a date. One basis for principal, interest and remaining debt (ADR-038). The allocated amounts are derived by VC-3-06 (largest remainder, ties by `propertyReferenceId`) and never stored.
+
+- **Domain owner:** Financing. **Authorization:** as §41.1; the set, its PropertyReferences and its Acquisitions belong to the Loan's Realm. Unknown, foreign or malformed ids are answered as §30.1.
+- **Sets, like terms (§41.2):** appended after the last one, never edited, only the last one voidable. A set's `validUntil` is derived: the day before the next `VALID` set's `validFrom`, or `null` for the last. Before the first set the Loan is **unallocated** (P3-D3, BR-FIN-009).
+- **Response** (one set):
+  - `allocationSetId`, `loanId`, `status` (`VALID` | `VOID`), `validFrom`, derived `validUntil`;
+  - `basis` (`MANUAL` | `PURCHASE_PRICE`);
+  - `allocations`: `[{ propertyReferenceId, share, acquisitionId }]` in the order given, `share` a reduced fraction `"n/d"` (§26.1's notation), `acquisitionId` only for `PURCHASE_PRICE` (else `null`);
+  - `notes`, `voidedAt`, `voidReason`, `createdAt`, `version`; single-set responses carry `ETag`.
+
+### `POST /api/v1/loans/{loanId}/allocations`
+
+- **Body** (strict):
+  - `validFrom` (business date, required).
+  - `basis` (`MANUAL` | `PURCHASE_PRICE`, default `MANUAL`).
+  - `allocations` (1–50 entries, required), one per PropertyReference (`DUPLICATE` at the later position):
+    - `MANUAL`: `{ propertyReferenceId, share }`. `share` as §26.1 (`"n/d"`, `0 < n ≤ d ≤ 10000`, input may be unreduced, stored reduced). The shares sum to exactly `1/1`, else `400` with field `allocations` and code `SHARE_SUM_NOT_ONE`. An `acquisitionId` is `400` `NOT_ALLOWED_FOR_BASIS`.
+    - `PURCHASE_PRICE`: `{ propertyReferenceId, acquisitionId }`, the default of ADR-038 ("defaulted from the financed purchase amount"). DE derives `share_i = price_i / Σ price` exactly and reduced, from those Acquisitions' `purchasePrice` in cents. The denominator may then exceed 10 000; it is stored and returned exactly. A `share` is `400` `NOT_ALLOWED_FOR_BASIS`; the same Acquisition twice is `DUPLICATE`.
+    - A single-property Loan is a set with one entry: `"1/1"`, or one Acquisition.
+  - `notes` (≤ 2000, trimmed).
+- **Order of checks** (as §41.2):
+  1. `400`;
+  2. Loan unknown or foreign → `404`;
+  3. Loan not `ACTIVE` → `409 LOAN_NOT_ACTIVE` with `details.status`;
+  4. `validFrom` before the Loan's `debtFrom` → `422 ALLOCATION_BEFORE_DEBT` with `details.debtFrom`;
+  5. `validFrom` not after the last `VALID` set's `validFrom` → `422 ALLOCATION_NOT_APPENDED` with `details.lastValidFrom`;
+  6. each PropertyReference, in the order given: unknown or foreign → `404` (`details.propertyReferenceId`);
+  7. `PURCHASE_PRICE` only, each Acquisition in the order given: unknown, foreign, or of another PropertyReference than its entry → `404` (`details.acquisitionId`); `CANCELLED` → `422 ACQUISITION_CANCELLED` (`details.acquisitionId`; P3-D3 takes `CONFIRMED` and `DRAFT` ones).
+- **Success:** `201` with the set (`status = VALID`, `version = 1`); AuditRecord `CREATED` on `LoanAllocationSet` with the basis, `validFrom` and every entry. **Idempotency (§15):** scope `loan.allocation.create`, fingerprint of the Loan id and the normalized body (shares reduced). The fractions of a `PURCHASE_PRICE` set are fixed when it is written: a later cancel of one of its Acquisitions does not change it (prices themselves never change, §27.1). To follow a change, append a new set.
+
+### `POST /api/v1/loans/{loanId}/allocations/{allocationSetId}/void`
+
+- Body `{ "reason": "..." }`. As §41.2's terms void: `404` → already `VOID` `200` no-op → `409 LOAN_NOT_ACTIVE` → a later `VALID` set exists → `409 CONFLICT` with `reason = "ALLOCATION_NOT_LAST"` and `details.laterAllocationSetId` → `412`. AuditRecord `VOIDED`. A `VOID` set counts nowhere.
+
+### Reads
+
+- `GET /api/v1/loans/{loanId}/allocations`: `{ items }`, every set in `validFrom`, then `createdAt` order, `VOID` included, with `validUntil` over the `VALID` ones. `?status=`.
+- `GET /api/v1/loans/{loanId}/allocations?asOf=d`: `{ asOf, set }`, the `VALID` set covering `d`, or `set: null` while the Loan is unallocated on `d`. `status` and `asOf` cannot be combined (`400`). The property-level amounts that need a set (VC-3-06) answer `409 LOAN_NOT_ALLOCATED` instead of inventing one (BR-FIN-009).
+- `GET /api/v1/property-references/{propertyReferenceId}/loans[?asOf=d]` (`404` for an unknown or foreign PropertyReference): the Loans allocated to it, `VOID` Loans left out (they count nowhere). Each item:
+  - `loanId`, `status`, `lenderPartyId`, `principalOriginal`;
+  - `allocationSetId`, `validFrom`, `validUntil`, `basis`, `share`: the property's entry in one set.
+  - Without `asOf`, one item per `VALID` set that contains the property, as a history. With `asOf`, only the sets covering `d`, so at most one item per Loan.
+  - Ordered by `validFrom` (newest first), then `loanId`. Unpaged; a property has few Loans.
+- All reads in one `REPEATABLE READ READ ONLY` snapshot; unknown parameters are `400`.
+
+### Concurrency and locks (P3-D8)
+
+- A set write (create, void) locks the **Loan row** `FOR UPDATE` first, then reads its sets. PropertyReferences and Acquisitions are only read: their ids, Realm and prices never change, and a cancel racing a `PURCHASE_PRICE` set is equivalent to "set, then cancel" (the fractions stay, as above). No Transaction is locked.
+- Past the repository both triggers write the Loan row first (P3-D8's no-op), as `loan_terms_append` and `loan_terms_frozen` do (§41.2): two raw appends serialise, and a raw void of the last set meets a raw append behind it on the Loan row.
+
+### In the database (VC-3-03)
+
+- `loan_allocation_set`:
+  - composite foreign key `(loan_id, mre_realm_id)` to `loan`; `UNIQUE (id, mre_realm_id)`;
+  - `basis` in (`MANUAL`, `PURCHASE_PRICE`); status fields as `loan_terms`;
+  - a unique index on `(loan_id, valid_from) WHERE status = 'VALID'`.
+- `loan_allocation` `(set_id, mre_realm_id, position, property_reference_id, share_numerator, share_denominator, acquisition_id)`:
+  - composite foreign keys to the set `(set_id, mre_realm_id)` and to `property_reference (id, mre_realm_id)`;
+  - `acquisition_id` with a composite foreign key to `acquisition (id, mre_realm_id, property_reference_id)` (0020's key), so an Acquisition of another property cannot be named;
+  - `share_numerator`, `share_denominator` as `numeric` integers (scale 0): `0 < n ≤ d`, `gcd(n, d) = 1`;
+  - `UNIQUE (set_id, property_reference_id)`;
+  - rows are never updated or deleted.
+- `loan_allocation_set_append` (before insert): writes the Loan row (P3-D8), then refuses a set on a Loan that is not `ACTIVE`, before `debtFrom`, or not after the last `VALID` set's `validFrom`; only inserted `VALID` with version 1.
+- `loan_allocation_set_frozen` (before update or delete): data never changes; the only step is `VALID` → `VOID` with `version` + 1, for the last `VALID` set only, writing the Loan row before looking for a later set; never deleted.
+- **The sum is exactly one, at commit:** a **deferred** constraint trigger on `loan_allocation_set` (insert) and `loan_allocation` (insert) sums the set's fractions exactly in integer arithmetic (as 0019's share sums) and refuses anything but `1/1`. Rows are only ever added, every share is positive, and a set of sum one cannot take another row without exceeding it. So a committed set is never changed by adding rows past the repository, and a set without rows is refused.
+- `basis = MANUAL` rows have no `acquisition_id`, and `PURCHASE_PRICE` rows have one: a CHECK through the set is not possible, so the deferred trigger checks it with the sum.
+
+### Tests (VC-3-03)
+
+- **Domain:**
+  - the derivation from prices, exact and reduced (e.g. 300 000.00 and 175 000.00 → `12/19`, `7/19`), with a denominator above 10 000;
+  - the manual sum, `1/3 + 1/3 + 1/3` exactly one, `1/3 + 2/3 + 1/10000` not;
+  - the set covering a day, and `validUntil`.
+- **API:** every `400` code (`SHARE_SUM_NOT_ONE`, `NOT_ALLOWED_FOR_BASIS`, `DUPLICATE`, the share format); the error mapping; `asOf` with `status`.
+- **Repository:**
+  - order of checks;
+  - an Acquisition of another property, which is `404`;
+  - a `CANCELLED` Acquisition;
+  - idempotency; void only of the last set;
+  - the three reads with `asOf` before, on and after a change of set, and `null` before the first;
+  - a `VOID` Loan left out of the property list; Realm isolation.
+- **Concurrency:** two appends (RC sees the first; RR `40001`); an append against a void of the Loan; a raw void of the last set against a raw append behind it (RC refused; RR `40001`).
+- **Schema past the repository**, each with a counter-check:
+  - a set whose shares sum below or above one, or that has no rows;
+  - a row added to a committed set;
+  - a row updated or deleted; a set edited or deleted;
+  - an append not after the last set; a void that is not of the last set;
+  - an Acquisition of another property; the basis and `acquisition_id` disagreeing.
+
 # 42. Create Loan
 
 Superseded by §41.1 (`POST /api/v1/loans`).
@@ -2003,32 +2095,7 @@ Superseded by §41.2.
 
 # 44. Loan Allocation
 
-```text
-PUT /api/v1/loans/{id}/allocations
-```
-
-Request:
-
-```json
-{
-  "allocations": [
-    {
-      "propertyReferenceId": "...",
-      "share": "0.60"
-    },
-    {
-      "propertyReferenceId": "...",
-      "share": "0.40"
-    }
-  ]
-}
-```
-
-Validation:
-
-`sum(shares) = 100%`
-
-for a fully allocated Loan.
+Superseded by §41.3 (`POST /api/v1/loans/{id}/allocations`, a new dated set; the former `PUT` is gone, since sets are never overwritten).
 
 ---
 
