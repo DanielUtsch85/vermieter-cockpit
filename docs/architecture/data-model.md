@@ -1427,6 +1427,15 @@ Represent expected financing behavior for a scheduled period.
 
 LoanScheduleEntry is Plan/Forecast data, not Actual cash movement.
 
+## Derived, never stored (P3-D5, api-design §41.4)
+
+- No table: entries are derived on read from the Loan and its `VALID` terms periods. The same terms always give the
+  same entries, so `id`, `scheduleVersion` and `generatedAt` are dropped.
+- An entry is one monthly payment: `number`, `paymentDate` (in place of `periodStart`/`periodEnd`), `loanTermsId`,
+  `balanceBefore`, `scheduledInterest`, `scheduledPrincipal`, `scheduledPayment` and `expectedRemainingDebt` (the
+  balance after it), exact in cents. The plan ends paid off, at `maturityDate` with a balance due, or after 600
+  payments.
+
 ---
 
 # 25. LoanPaymentReconciliation
