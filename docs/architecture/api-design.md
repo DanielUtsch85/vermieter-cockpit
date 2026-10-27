@@ -90,7 +90,7 @@ POST /transactions/{id}/confirm
 POST /transactions/{id}/split
 POST /rent-reconciliations/{id}/confirm
 POST /tax-classifications/{id}/confirm
-POST /loans/{id}/recalculate-schedule
+POST /loans/{id}/terms/{termsId}/void
 ```
 
 Discouraged:
@@ -191,7 +191,7 @@ Examples:
 ```text
 /transactions/{id}/confirm
 /transactions/{id}/correct
-/loans/{id}/recalculate-schedule
+/loans/{id}/terms/{termsId}/void
 ```
 
 ---
@@ -1778,7 +1778,7 @@ GET /api/v1/loans/{loanId}                                         (VC-3-01, §4
 GET /api/v1/loans/{loanId}/terms                                   (VC-3-02, §41.2)
 GET /api/v1/loans/{loanId}/allocations[?asOf=|?status=]            (VC-3-03, §41.3)
 GET /api/v1/property-references/{propertyReferenceId}/loans[?asOf=] (VC-3-03, §41.3)
-GET /api/v1/loans/{loanId}/schedule[?from=&to=]                    (VC-3-04)
+GET /api/v1/loans/{loanId}/schedule[?from=&to=]                    (VC-3-04, §41.4)
 GET /api/v1/loans/{loanId}/payment-proposal?transactionId=         (VC-3-05)
 GET /api/v1/loans/{loanId}/remaining-debt[?asOf=]                  (VC-3-06)
 GET /api/v1/loans/{loanId}/balance-statements                      (VC-3-06)
@@ -2082,6 +2082,77 @@ Decision P3-D3 of `docs/development/phase-3-plan.md`, ADR-038. One Loan is never
   - an append not after the last set; a void that is not of the last set;
   - an Acquisition of another property; the basis and `acquisition_id` disagreeing.
 
+## 41.4 Loan schedule (VC-3-04)
+
+Decision P3-D5 of `docs/development/phase-3-plan.md`, ADR-015. The schedule is the **plan**: derived on read from the Loan and its `VALID` terms periods (§41.2), never stored, never cash. The same Loan and terms always give the same schedule, so there is no `scheduleVersion` and no recalculate command. VC-3-02 already implements the derivation (`deriveSchedule`), since the annuity check needs the carried-over balance; VC-3-04 exposes it.
+
+- **Domain owner:** Financing. **Authorization:** as §41.1. An unknown or foreign Loan is `404`.
+- **Status:** a schedule is read for a Loan in any status. A `VOID` Loan's plan is shown as its terms state it, and it counts nowhere (§41.1). VC-3-07 ends a `CLOSED` Loan's plan at its `closingDate`.
+
+### `GET /api/v1/loans/{loanId}/schedule[?from=&to=]`
+
+- **Query** (strict; unknown parameters are `400`):
+  - `from`, `to`: business dates, both optional and inclusive, applied to `paymentDate`;
+  - `to` before `from` → `400` with field `to` and code `BEFORE_FROM`.
+  - The window only filters `items`. Balances are always derived from the Loan's start, and `summary` always covers the whole plan.
+- **Derivation** (P3-D5), periods in `validFrom` order, `VOID` periods ignored:
+  - **Payment dates:** monthly from each period's `firstPaymentDate`, on the same day of each following month, clamped to the month's last day and always counted from `firstPaymentDate` (31 Jan → 28 Feb → 31 Mar → 30 Apr).
+  - **Where a period's payments stop:** before the next `VALID` period's `validFrom`; never after the Loan's `maturityDate`; once the balance is 0; and at 600 payments in all (50 years).
+  - **Balance:** the first period starts from `principalOriginal`. A later period starts from its `principalAtStart` when it states one, else from the balance carried over.
+  - **Interest:** `round_half_up(balanceBefore × rate / 100 / 12)` to the cent, a 30/360 convention, in integer arithmetic (cents as bigint, the rate in thousandths of a percent). A lender's own schedule may differ by cents; the plan is a plan, and the ledger is the truth.
+  - **Principal:**
+    - `ANNUITY`: `min(scheduledPayment − interest, balanceBefore)`. So the last payment is smaller, and the balance never falls below 0;
+    - `INTEREST_ONLY`: 0.
+  - `payment = interest + principal`; `balanceAfter = balanceBefore − principal`.
+- **Response** `200`:
+  - `loanId`, `from`, `to` (as given, or `null`).
+  - `items`: `[{ number, paymentDate, termsId, balanceBefore, interest, principal, payment, balanceAfter }]` in `paymentDate` order. `number` is the payment's position in the whole plan, starting at 1, so a window keeps the numbers. Amounts are Money (§31, EUR).
+  - `summary`, over the whole plan:
+    - `payments` (count), `firstPaymentDate`, `lastPaymentDate` (`null` without payments);
+    - `totalInterest`, `totalPrincipal`;
+    - `balanceDue`: the balance after the last payment;
+    - `endReason`, one of:
+      - `PAID_OFF`: the balance reached 0, so `balanceDue` is 0;
+      - `MATURITY`: the next payment would fall after `maturityDate`, and `balanceDue` is due on `maturityDate`. This is how an `INTEREST_ONLY` plan ends (P3-D5), and an annuity that has not repaid by then;
+      - `PAYMENT_CAP`: 600 payments were reached, e.g. `INTEREST_ONLY` without `maturityDate`;
+      - `NO_TERMS`: no `VALID` period, so no payments, and `balanceDue` is `principalOriginal`. A Loan without terms has no plan, which is not an error.
+  - Unpaged: at most 600 items. One snapshot (`REPEATABLE READ READ ONLY`) of the Loan and its periods.
+- **Example** (hand-computed; the reference for the tests):
+  - The Loan: `principalOriginal` 1 000.00, one `ANNUITY` period at `"6.000"` with payment 300.00, `firstPaymentDate` 2027-01-31, no `maturityDate`. A monthly rate of 0.5 %.
+
+    | # | paymentDate | balanceBefore | interest | principal | payment | balanceAfter |
+    |---|---|---|---|---|---|---|
+    | 1 | 2027-01-31 | 1 000.00 | 5.00 | 295.00 | 300.00 | 705.00 |
+    | 2 | 2027-02-28 | 705.00 | 3.53 (3.525 rounds up) | 296.47 | 300.00 | 408.53 |
+    | 3 | 2027-03-31 | 408.53 | 2.04 (2.04265) | 297.96 | 300.00 | 110.57 |
+    | 4 | 2027-04-30 | 110.57 | 0.55 (0.55285) | 110.57 | 111.12 | 0.00 |
+
+  - `summary`: 4 payments, `totalInterest` 11.12, `totalPrincipal` 1 000.00, `balanceDue` 0.00, `endReason = PAID_OFF`.
+- **Not here:** the actual remaining debt from the ledger and the planned-vs-actual comparison are VC-3-06 (P3-D6). The payment proposal for a Transaction is VC-3-05 (P3-D4). Property-level amounts are VC-3-06.
+
+### Tests (VC-3-04)
+
+- **Domain:**
+  - the example above, row for row;
+  - a carry-over into a follow-up period, and a `principalAtStart` that restarts the balance;
+  - `INTEREST_ONLY` up to `maturityDate` (`MATURITY`, the principal as `balanceDue`), and without a `maturityDate` (`PAYMENT_CAP` at 600);
+  - an annuity cut by `maturityDate` with a `balanceDue`;
+  - month-end clamping; `NO_TERMS`.
+- **Property test** (seeded, deterministic, no new dependency), over a few hundred random full annuities (principal, rate, a payment above the first interest, no `maturityDate`):
+  - Σ principal = `principalOriginal` exactly, and `endReason = PAID_OFF`;
+  - every row has `payment = interest + principal` and `balanceAfter = balanceBefore − principal`, and each row's `balanceBefore` is the previous row's `balanceAfter`;
+  - only the last payment is below `scheduledPayment`.
+- **API:**
+  - the response shape and Money format;
+  - `from`/`to`: the window keeps the numbers and the summary;
+  - `BEFORE_FROM`; unknown parameters; `404`; the error mapping.
+- **Repository:**
+  - the Loan's `VALID` periods only, a `VOID` period ignored;
+  - Realm isolation; one snapshot.
+- **Counter-checks:**
+  - in the domain: `round_half_up` replaced by truncation, the cap on the last principal, the carry-over, `principalAtStart`, the stop at the next period and at `maturityDate`, and the clamping;
+  - the property test must fail for each of them.
+
 # 42. Create Loan
 
 Superseded by §41.1 (`POST /api/v1/loans`).
@@ -2102,17 +2173,7 @@ Superseded by §41.3 (`POST /api/v1/loans/{id}/allocations`, a new dated set; th
 
 # 45. Loan Schedule Query
 
-```text
-GET /api/v1/loans/{id}/schedule
-```
-
-Optional query:
-
-- `from`
-- `to`
-- `version`
-
-Schedule is read-only derived Plan/Forecast data.
+Superseded by §41.4 (`GET /api/v1/loans/{id}/schedule[?from=&to=]`, derived on read; `version` is gone, since nothing is stored, P3-D5).
 
 ---
 
