@@ -24,6 +24,7 @@ import * as m0022 from './0022_acquisition_confirm.js';
 import * as m0023 from './0023_land_building_allocation.js';
 import * as m0024 from './0024_loan.js';
 import * as m0025 from './0025_loan_terms.js';
+import * as m0026 from './0026_loan_allocation.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -57,4 +58,5 @@ export const migrations: Record<string, Migration> = {
   '0023_land_building_allocation': m0023,
   '0024_loan': m0024,
   '0025_loan_terms': m0025,
+  '0026_loan_allocation': m0026,
 };

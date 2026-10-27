@@ -43,6 +43,11 @@ import type {
   CreateLoanTerms,
   ListLoanTerms,
   VoidLoanTerms,
+  CreateLoanAllocation,
+  GetLoanAllocationOn,
+  ListLoanAllocations,
+  ListPropertyLoans,
+  VoidLoanAllocation,
   CreateAcquisition,
   GetAcquisition,
   ListAcquisitions,
@@ -72,6 +77,7 @@ import { ownershipRoutes } from './ownerships.js';
 import { acquisitionCostRoutes } from './acquisition-costs.js';
 import { acquisitionRoutes } from './acquisitions.js';
 import { landBuildingAllocationRoutes } from './land-building-allocations.js';
+import { loanAllocationRoutes } from './loan-allocations.js';
 import { loanTermsRoutes } from './loan-terms.js';
 import { loanRoutes } from './loans.js';
 import { ownerAllocationRoutes } from './owner-allocation.js';
@@ -138,6 +144,12 @@ export interface AppDependencies {
   readonly createLoanTerms: CreateLoanTerms;
   readonly voidLoanTerms: VoidLoanTerms;
   readonly listLoanTerms: ListLoanTerms;
+  /** Loan allocation sets (VC-3-03). */
+  readonly createLoanAllocation: CreateLoanAllocation;
+  readonly voidLoanAllocation: VoidLoanAllocation;
+  readonly listLoanAllocations: ListLoanAllocations;
+  readonly getLoanAllocationOn: GetLoanAllocationOn;
+  readonly listPropertyLoans: ListPropertyLoans;
   /** FinancialAccount commands (VC-1-03). */
   readonly createFinancialAccount: CreateFinancialAccount;
   readonly closeFinancialAccount: CloseFinancialAccount;
@@ -246,6 +258,15 @@ export function createApp(deps: AppDependencies): Express {
   );
   api.use(loanRoutes({ create: deps.createLoan, get: deps.getLoan, list: deps.listLoans, amend: deps.amendLoan, void: deps.voidLoan }));
   api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms }));
+  api.use(
+    loanAllocationRoutes({
+      create: deps.createLoanAllocation,
+      void: deps.voidLoanAllocation,
+      list: deps.listLoanAllocations,
+      on: deps.getLoanAllocationOn,
+      propertyLoans: deps.listPropertyLoans,
+    }),
+  );
   api.use(financialAccountRoutes({ create: deps.createFinancialAccount, close: deps.closeFinancialAccount }));
   api.use(
     transactionRoutes({

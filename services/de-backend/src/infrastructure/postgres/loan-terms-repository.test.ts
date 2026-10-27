@@ -118,6 +118,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     expect(await terms.list(l.id, OTHER_REALM)).toBeUndefined();
     const audit = await pool.query(`SELECT action, metadata->>'interestRate' AS rate FROM audit_record WHERE entity_type = 'LoanTerms' AND entity_id = $1`, [second.id]);
     expect(audit.rows).toEqual([{ action: 'CREATED', rate: '2.450' }]);
+    const informational = await pool.query(
+      `SELECT metadata->>'fixedRateUntil' AS until, metadata->>'initialRepaymentRate' AS repayment, metadata->'specialRepaymentLimit'->>'amount' AS limit, metadata->'notes' AS notes
+         FROM audit_record WHERE entity_type = 'LoanTerms' AND entity_id = $1`,
+      [first.id],
+    );
+    expect(informational.rows).toEqual([{ until: '2036-08-31', repayment: '3.000', limit: '5000.00', notes: null }]);
   });
 
   it('order of checks: Loan unknown or foreign, not ACTIVE, before the debt, not appended, before the previous first payment, principalAtStart, annuity', async () => {

@@ -143,8 +143,11 @@ export function plannedBalanceOn(principalOriginal: Money, maturityDate: Busines
 const minBig = (x: bigint, y: bigint) => (x < y ? x : y);
 const maxBig = (x: bigint, y: bigint) => (x > y ? x : y);
 
-/** The derived `validUntil` of each period, over the `VALID` ones only; `VOID` ones get the end they would have. */
-export function withValidUntil(items: readonly LoanTerms[]): LoanTermsView[] {
+/**
+ * The derived `validUntil` of each period (or allocation set, §41.3), over the `VALID` ones only; `VOID` ones get the
+ * end they would have.
+ */
+export function withValidUntil<T extends { readonly status: TermsStatus; readonly validFrom: BusinessDate }>(items: readonly T[]): (T & { readonly validUntil: BusinessDate | null })[] {
   const valid = items.filter((t) => t.status === 'VALID').map((t) => t.validFrom).sort();
   return items.map((t) => {
     const next = valid.find((from) => from > t.validFrom);

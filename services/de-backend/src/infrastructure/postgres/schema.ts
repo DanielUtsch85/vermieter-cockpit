@@ -228,6 +228,34 @@ export interface LoanTermsTable {
   version: Generated<number>;
 }
 
+export interface LoanAllocationSetTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  loan_id: string;
+  status: string;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  valid_from: string;
+  basis: string;
+  notes: string | null;
+  voided_at: Date | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface LoanAllocationTable {
+  set_id: string;
+  mre_realm_id: string;
+  position: number;
+  property_reference_id: string;
+  /** `numeric` integers: written and read as text (exact, unbounded). */
+  share_numerator: string;
+  share_denominator: string;
+  acquisition_id: string | null;
+}
+
 export interface LandBuildingAllocationTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -378,6 +406,8 @@ export interface Database {
   land_building_allocation: LandBuildingAllocationTable;
   loan: LoanTable;
   loan_terms: LoanTermsTable;
+  loan_allocation_set: LoanAllocationSetTable;
+  loan_allocation: LoanAllocationTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;
