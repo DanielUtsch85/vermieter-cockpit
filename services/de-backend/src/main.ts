@@ -35,6 +35,9 @@ import {
   getLoan,
   listLoans,
   voidLoan,
+  createLoanTerms,
+  listLoanTerms,
+  voidLoanTerms,
   createAcquisition,
   getAcquisition,
   listAcquisitions,
@@ -65,6 +68,7 @@ import {
   PostgresAcquisitionCostRepository,
   PostgresLandBuildingAllocationRepository,
   PostgresLoanRepository,
+  PostgresLoanTermsRepository,
   PostgresOwnerAllocationSource,
   PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
@@ -100,6 +104,7 @@ const ownerships = new PostgresOwnershipRepository(db);
 const acquisitions = new PostgresAcquisitionRepository(db);
 const acquisitionCosts = new PostgresAcquisitionCostRepository(db);
 const loans = new PostgresLoanRepository(db);
+const loanTerms = new PostgresLoanTermsRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -143,6 +148,9 @@ const app = createApp({
   listLoans: listLoans({ repository: loans }),
   amendLoan: amendLoan({ repository: loans }),
   voidLoan: voidLoan({ repository: loans }),
+  createLoanTerms: createLoanTerms({ repository: loanTerms }),
+  voidLoanTerms: voidLoanTerms({ repository: loanTerms }),
+  listLoanTerms: listLoanTerms({ repository: loanTerms }),
   createFinancialAccount: createFinancialAccount({ repository: financialAccounts }),
   closeFinancialAccount: closeFinancialAccount({ repository: financialAccounts }),
   createManualTransaction: createManualTransaction({ repository: transactions }),

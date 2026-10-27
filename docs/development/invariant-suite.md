@@ -22,6 +22,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **CC** | `domains/ledger/correct-transaction.test.ts` (VC-1-11) |
 | **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) |
 | **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
+| **TM / TR2 / TA** | the Loan terms' domain, repository and API tests (VC-3-02, §17) |
 
 Database tests run against `DE_TEST_DATABASE_URL` (CI: a PostgreSQL 16
 service; also run locally with `default_transaction_isolation = repeatable read`).
@@ -277,6 +278,23 @@ dropped from the Acquisition read, and a missing `VOIDED` record each turn ACC2 
 | Realm isolation of every read and command | LR "reads: …", "void …" (another Realm is not found) |
 
 Counter-checked: each trigger branch and CHECK above, the repository's Party lock and the amend order were neutralised in turn, and a test went red each time.
+
+## 17. Loan terms (VC-3-02, api-design §41.2)
+
+`TM` = `domains/financing/terms.test.ts`, `TR2` = `infrastructure/postgres/loan-terms-repository.test.ts`, `TA` = `api/loan-terms.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Rate exact: a decimal string with at most three decimals in `[0, 100)`, never a JSON number; stored with scale ≤ 3 | TM "rates"; TA "400 with the field codes"; TR2 "the payment matches the model …" |
+| Interest `round_half_up(balance × rate / 100 / 12)` in cents, exactly half a cent rounds up; monthly payments from `firstPaymentDate`, clamped to the month end | TM "monthlyInterest", "addMonths", "deriveSchedule" |
+| Periods only appended: not before the debt, after the last start and after its first payment (review on #61); only the last one voidable; `validUntil` derived over `VALID` periods | TM "checkAppend …", "planVoidTerms and withValidUntil"; TR2 "order of checks …", "void: …"; TR2 schema "inserts: …", "updates: …" |
+| `principalAtStart` not on the first period, never above `principalOriginal`; restarts the carried-over balance | TM "plannedBalanceOn", "checkAppend …" |
+| An annuity must exceed the first interest on the balance it starts from (equal refused, one cent above passes; review on #58) | TM "an annuity must exceed …"; TR2 "order of checks …" (carried-over 99 499.38 → 248.75) |
+| `scheduledPayment` exactly for `ANNUITY`; data never edited; `VALID` → `VOID` with `version` + 1 only; never deleted | TR2 schema; TA "400 with the field codes" |
+| Lock order: the Loan row first, in the repository and in both triggers (review on #61): two appends (RC sees the first, RR `40001`), append against a void of the Loan, a raw void of the last period against a raw append behind it (RC refused, RR `40001`) | TR2 "concurrency …" |
+| Realm isolation | TR2 "order of checks …", "void: …" |
+
+Counter-checked: each trigger branch and CHECK, both Loan writes in the triggers, the repository's Loan lock, and in the domain the strict annuity bound, `round_half_up`, the carry-over boundary and the first-payment rule were neutralised in turn; a test went red each time.
 
 ## Keeping this current
 

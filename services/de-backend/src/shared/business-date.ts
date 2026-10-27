@@ -40,3 +40,19 @@ export function addDays(date: BusinessDate, days: number): BusinessDate {
   const pad = (n: number, width: number) => String(n).padStart(width, '0');
   return `${pad(shifted.getUTCFullYear(), 4)}-${pad(shifted.getUTCMonth() + 1, 2)}-${pad(shifted.getUTCDate(), 2)}` as BusinessDate;
 }
+
+/**
+ * The same day `months` later, clamped to the month's last day (31 Jan + 1 month = 28/29 Feb). Always counted from
+ * the original date, so a series from the 31st keeps the 31st where the month has it.
+ */
+export function addMonths(date: BusinessDate, months: number): BusinessDate {
+  const [y, m, d] = date.split('-').map(Number) as [number, number, number];
+  const index = y * 12 + (m - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = index - year * 12;
+  const last = new Date(Date.UTC(2000, month + 1, 0)).getUTCDate();
+  const leap = month === 1 && (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0));
+  const day = Math.min(d, month === 1 ? (leap ? 29 : 28) : last);
+  const pad = (n: number, width: number) => String(n).padStart(width, '0');
+  return `${pad(year, 4)}-${pad(month + 1, 2)}-${pad(day, 2)}` as BusinessDate;
+}

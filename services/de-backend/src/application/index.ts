@@ -229,3 +229,7 @@ export {
 export type { AmendLoan, CreateLoan, CreateLoanInput, GetLoan, ListLoans, VoidLoan } from './loans.js';
 export { LOAN_STATUSES, debtFrom, fieldErrors as loanFieldErrors } from '../domains/financing/index.js';
 export type { Loan, LoanChanges, LoanFilter, LoanPage, LoanStatus } from '../domains/financing/index.js';
+export { LoanTermsNotFoundError, TermsNotLastError, TermsRefusedError, createLoanTerms, listLoanTerms, voidLoanTerms } from './loan-terms.js';
+export type { CreateLoanTerms, CreateLoanTermsInput, ListLoanTerms, VoidLoanTerms } from './loan-terms.js';
+export { REPAYMENT_MODELS, TERMS_STATUSES, formatRate, parseRate } from '../domains/financing/index.js';
+export type { LoanTermsView, RepaymentModel, TermsStatus } from '../domains/financing/index.js';

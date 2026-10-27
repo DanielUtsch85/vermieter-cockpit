@@ -1915,7 +1915,7 @@ This list is complete for Phase 3; ACC3 (VC-3-08) compares it with the app's rou
   - a duplicate borrower; a borrower of another Realm or unknown; deleting a Party a Loan names;
   - an `INACTIVE` Party linked.
 
-## 41.2 Loan terms (VC-3-02)
+## 41.2 Loan terms (VC-3-02, implemented: migration 0025)
 
 Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's conditions over time: periods, appended, never overwritten. A follow-up rate with the same lender (Anschlussfinanzierung) is a new period; refinancing with another lender is a new Loan (P3-D7).
 
@@ -1938,7 +1938,7 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
   - `interestRate` (string, required): a decimal with at most three decimals, `0 ≤ rate < 100` (`400` `INVALID_FORMAT` / `OUT_OF_RANGE`). `0` is allowed (an interest-free loan, e.g. within a family). A JSON number is `400`, as for Money (no float in transit).
   - `repaymentModel` (required): `ANNUITY` or `INTEREST_ONLY`. Linear repayment is a later item (P3-D2) and is `400` `INVALID_FORMAT`.
   - `scheduledPayment` (Money, > 0, EUR): **required** for `ANNUITY` (`400` `REQUIRED`), **not allowed** for `INTEREST_ONLY` (`400` `NOT_ALLOWED_FOR_MODEL`), whose payment is the period's interest. Entered as on the contract; DE does not compute it from `initialRepaymentRate` (P3-D2).
-  - `firstPaymentDate` (business date, required): not before `validFrom` (`400` `BEFORE_VALID_FROM`). Later payments fall on the same day of each following month (VC-3-04 defines the month-end rule).
+  - `firstPaymentDate` (business date, required): not before `validFrom` (`400` `BEFORE_VALID_FROM`). Later payments fall on the same day of each following month, clamped to the month's last day and always counted from `firstPaymentDate` (31 Jan → 28/29 Feb → 31 Mar). VC-3-02 implements this already, since the annuity check needs the carried-over balance; VC-3-04 exposes the schedule.
   - `principalAtStart` (Money, > 0, optional): the balance this period starts from, as the follow-up contract states it (e.g. after special repayments). Not on a Loan's first period, which starts from `principalOriginal` (`422` `PRINCIPAL_AT_START_ON_FIRST_TERMS`); never above `principalOriginal` (`422` `PRINCIPAL_AT_START_EXCEEDS_ORIGINAL`, since Phase 3 has no further disbursement, P3-D1).
   - `fixedRateUntil` (business date, optional; not before `validFrom`, `400` `BEFORE_VALID_FROM`), `initialRepaymentRate` (decimal string as `interestRate`, optional), `specialRepaymentLimit` (Money ≥ 0, optional), `notes` (≤ 2000, trimmed): informational only, they change nothing in the schedule.
   - `paymentFrequency`: unknown key; Phase 3 is monthly only (P3-D2).
