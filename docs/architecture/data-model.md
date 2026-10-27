@@ -1017,6 +1017,11 @@ A split belongs to exactly one Transaction.
 
 **Implementation (VC-1-07):** table `transaction_split`, ordered by `position`. In Phase 1 the only optional reference stored is `propertyReferenceId` (plus `description`); the other references are refused until their entities exist. The category is referenced by `financialCategoryId` and addressed by its `code` in the API (§19, API §33.2).
 
+**`loanId` (P3-D4, VC-3-05, API §41.5):** only on a `LOAN_INTEREST` or `LOAN_PRINCIPAL` split of an `OUTFLOW`
+Transaction (a reversal mirrors its original's, whatever its direction), of a Loan of the same Realm that is not
+`VOID`, and never together with `propertyReferenceId`: a Loan reaches its properties through its allocation (§23).
+The split is the link between cash and Loan; a reversal mirrors `loanId` (0014). Database-enforced.
+
 ---
 
 # 18A. RentPaymentReconciliation
@@ -1442,6 +1447,9 @@ LoanScheduleEntry is Plan/Forecast data, not Actual cash movement.
 
 **Domain:** Financing  
 **Stability:** Evolving
+
+**Dropped (P3-D4, API §41.5):** the split's `loanId` is the link between a payment and its Loan, and deviations
+from the schedule are derived on read (VC-3-06). Nothing below is stored.
 
 ## Purpose
 
