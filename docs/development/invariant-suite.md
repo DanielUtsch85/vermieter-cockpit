@@ -379,11 +379,11 @@ Counter-checked (38 mutants, each red): in 0028 the append trigger's Loan write 
 | Statements up to the date, later `STATEMENT_AFTER_CLOSING`; terms and allocations refused | CL "statements …"; LC "statements up to the date …"; LC schema "the split guard …" |
 | A successor is never voided: `LOAN_REFINANCES` after the close, in the repository and past it; allowed before it, and a close naming it then `REFINANCING_LOAN_NOT_ACTIVE` (review on #71) | CL "void of a successor …"; LC "a successor is never voided …"; LA "void of a successor …" |
 | P3-D8: close against a split write and against a booking-date amend (RC sees the other's result, RR `40001`, both orders); `REFINANCED` against a void of the named Loan (RC both orders, RR `40001`); two booking-date amends naming two Loans in opposite order do not deadlock (id order) | LC "concurrency (P3-D8)" |
-| The schema: the closing fields only with `CLOSED`, `REFINANCED` ↔ its Loan, `OTHER` with a note, not itself, not before the debt, the Realm, the note trimmed, final after the close; `loan_close_guard`'s three refusals | LC "the schema past the repository …" |
+| The schema: the closing fields only with `CLOSED`, `REFINANCED` ↔ its Loan, `OTHER` with a note, not itself, not before the debt, the Realm, the note trimmed, final after the close; `loan_close_guard`'s three refusals, an `IGNORED` split after the date included | LC "the schema past the repository …" |
 
-Counter-checked (38 mutants, each red):
+Counter-checked (39 mutants, each red):
 - **in 0029:**
-  - `loan_close_guard` counting every status, without its split check, its `REPAID` check or its successor check, and with its successor write replaced by `FOR SHARE` (the RR void test);
+  - `loan_close_guard` counting every status or leaving out `IGNORED` (the raw schema test, review on #72), without its split check, its `REPAID` check or its successor check, and with its successor write replaced by `FOR SHARE` (the RR void test);
   - the split guard's Loan write replaced by `FOR SHARE` (the RR test, split first), without its closing rule or its reversal exemption;
   - the booking-date trigger in position order (the deadlock test, `40P01`), without its rule, or reading instead of writing (the RR test);
   - `loan_void_unreferenced` without `LOAN_REFINANCES`; the statement rule;
@@ -393,7 +393,7 @@ Counter-checked (38 mutants, each red):
 - **in the application:** the proposal without `LOAN_CLOSED`;
 - **at the API:** the self reference, `refinancedByLoanId` and the note for `OTHER` not required.
 
-## 23. Phase 3 exit (VC-3-08, roadmap Phase 3)
+## 23. Phase 3 exit (VC-3-08, roadmap Phase 3; implemented)
 
 The exit of `docs/roadmap.md` Phase 3, claim by claim. Each claim is shown **end to end through the HTTP API** by
 **ACC3**, one scenario against PostgreSQL and the fake MRE as ACC2 does for Phase 2, and is backed by the sections
@@ -416,19 +416,21 @@ above. The scenario's figures are hand-computed and stated here, so the test che
 |---|---|---|
 | **A shared loan allocates to properties without duplication** | <ul><li>A `PURCHASE_PRICE` set from 2027-01-01 gives P1 2/3 and P2 1/3.</li><li>A `MANUAL` override from 2027-04-01 gives 1/2 and 1/2.</li><li>`GET /property-references/{id}/loans` lists L1 once per set for each property, with its share. There is one Loan, never one per property.</li><li>An override set not summing to 1/1 is `400 SHARE_SUM_NOT_ONE`. Before the first set, a per-property read is `409 LOAN_NOT_ALLOCATED`.</li></ul> | §16, §18 |
 | **Interest/principal split flows into the ledger via `TransactionSplit`** | <ul><li>A bank CSV import brings four `OUTFLOW` rows: 1,200.00 on 2027-01-31, 2027-02-28 and 2027-03-31, and a special repayment of 5,000.00 on 2027-03-15.</li><li>For each regular row the payment proposal (§41.5) gives the plan's interest and principal. They are applied through `PUT …/splits` with `loanId`, and the Transaction is confirmed. The special repayment is split as all principal.</li><li>**A correction is re-counted.** February is first confirmed with interest and principal swapped (601.50 / 598.50). The remaining debt then shows 3.00 more owed. A `correct` with the right splits brings it back to the plan.</li><li>A split with `loanId` on an `INFLOW` is `422 INVALID_LOAN_SPLIT`.</li></ul> | §20 |
-| **Remaining debt is derived, never stored as truth** | <ul><li>`remaining-debt?asOf=2027-03-31`: `principalPaid` 6,804.50, `actual` 233,195.50, `planned` 238,195.50, `difference` −5,000.00 (the special repayment).</li><li>With `perProperty=true` (the 2/3 : 1/3 set):<ul><li>`actual` 155,463.67 and 77,731.83 (the odd cent goes by largest remainder);</li><li>`planned` 158,797.00 and 79,398.50;</li><li>each `difference` derived: −3,333.33 and −1,666.67.</li></ul>Every column sums exactly to its total.</li><li>`payments?year=2027&perProperty=true`: interest and principal per property; each split goes by the set of its booking date.</li><li>A lender statement of 233,195.49 on 2027-03-31 compares at −0.01. It is shown and never replaces the derived value: after it the read still answers 233,195.50.</li><li>No table stores a remaining debt: ACC3 checks that the database has no column holding one for L1. The value follows the ledger: the February correction moves it.</li></ul> | §19, §21 |
+| **Remaining debt is derived, never stored as truth** | <ul><li>`remaining-debt?asOf=2027-03-31`: `principalPaid` 6,804.50, `actual` 233,195.50, `planned` 238,195.50, `difference` −5,000.00 (the special repayment).</li><li>With `perProperty=true` (the 2/3 : 1/3 set):<ul><li>`actual` 155,463.67 and 77,731.83 (the odd cent goes by largest remainder);</li><li>`planned` 158,797.00 and 79,398.50;</li><li>each `difference` derived: −3,333.33 and −1,666.67.</li></ul>Every column sums exactly to its total.</li><li>`payments?year=2027&perProperty=true`: interest 1,795.50 and principal 6,804.50 from 4 payments. P1 gets 1,197.00 and 4,536.33, P2 598.50 and 2,268.17 (the special repayment's odd cent goes to the larger remainder, ⅓). Each split goes by the set of its booking date, so the figures stay the same after the override from 2027-04-01.</li><li>A lender statement of 233,195.49 on 2027-03-31 compares at −0.01. It is shown and never replaces the derived value: after it the read still answers 233,195.50.</li><li>No table stores a remaining debt: `information_schema.columns` holds no column named like `remaining`, `outstanding` or `debt`. `loan_balance_statement.balance` is evidence (ADR-016), not a stored remaining debt. The value follows the ledger: the February correction moves it.</li></ul> | §19, §21 |
 | **Refinancing and closing** (P3-D7; the end of the Loan's life in Phase 3) | <ul><li>Loan L2 from Bank2, principal 233,195.50 from 2027-04-01.</li><li>L1 is closed on 2027-03-31 as `REFINANCED` by L2. The AuditRecord's `settledAmount` is 233,195.50.</li><li>Afterwards:<ul><li>L1's remaining debt on 2027-04-01 is 0, and its `closing` names L2;</li><li>a split naming L1 on 2027-04-30 is `409 LOAN_CLOSED`;</li><li>a void of L2 is `409 LOAN_REFINANCES`;</li><li>L1's schedule ends with `endReason = CLOSED`.</li></ul></li></ul> | §22 |
 | **Realm isolation** across Phase 3 | <ul><li>Realm B gets `404` on **every route of api-design §41** called with an id of Realm A, reads and commands. Each route is a row of one table that ACC3 iterates. Realm B's own lists are empty, and nothing is written.</li><li>The table is compared with the routes the app serves (Express' router stack, filtered to `/loans` and `/property-references/{id}/loans`). A new route without a row turns ACC3 red.</li><li>`POST /loans` from Realm B naming Realm A's Parties is `404`.</li></ul> | §16–§22 |
 
-ACC3 also checks the traceability every write promises. It expects exactly these AuditRecords, each with its entity id:
+**Order of the steps:** the `MANUAL` override from 2027-04-01 is recorded before L1 is closed on 2027-03-31, since a `CLOSED` Loan takes no new set (§41.7).
+
+ACC3 also checks the traceability every write promises. On the Loan aggregates (`Loan`, `LoanTerms`, `LoanAllocationSet`, `LoanBalanceStatement`) it expects exactly these AuditRecords, each with its entity id, and on the February Transaction its correction:
 - L1 and L2: `CREATED`; L1: `CLOSED` with `settledAmount`;
 - the terms: `CREATED`;
 - the two allocation sets: `CREATED`;
 - the statement: `CREATED`;
 - the February Transaction: its correction.
 
-**Counter-checks**, each of which must turn ACC3 red:
-- the derived difference distributed directly;
+**Counter-checks**, each of which turns ACC3 red:
+- the year's payments attributed by the set of the year's last day instead of each booking date. This replaces the counter-check planned in #73, the derived difference distributed directly: ACC3's planned parts are exact (238,195.50 is divisible by 3), so there the direct and the derived difference coincide. F4b stays counter-checked by §21's 3/7, 3/7, 1/7 counterexample;
 - reversals counted as payments;
 - the split guard's closing rule removed;
 - the Realm filter dropped from the remaining-debt read;

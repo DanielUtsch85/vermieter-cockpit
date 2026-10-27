@@ -455,10 +455,14 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       expect(await update(l.id, `closing_date = '2027-07-31'`)).toBe('is final');
     });
 
-    it('loan_close_guard: a split after the date, REPAID with a rest, REFINANCED by a Loan not ACTIVE', async () => {
-      const [l, repaid, refinanced, voided] = [await loan(), await loan(), await loan(), await loan()];
+    it('loan_close_guard: a split after the date (an IGNORED one too), REPAID with a rest, REFINANCED by a Loan not ACTIVE', async () => {
+      const [l, ignoredOnly, repaid, refinanced, voided] = [await loan(), await loan(), await loan(), await loan(), await loan()];
       await pay(l.id, '2027-07-01', '1.00', false);
       expect(await pool.query(rawClose(l.id)).then(() => 'accepted', reasonOf)).toBe('(SPLITS_AFTER_CLOSING)');
+      // `restore` brings an IGNORED Transaction back, so past the repository it counts as open too (review on #72).
+      const ignored = await pay(ignoredOnly.id, '2027-07-01', '1.00', false);
+      expect((await unconfirmed.ignore(ignored, REALM, 'doppelt', actor)).kind).toBe('IGNORED');
+      expect(await pool.query(rawClose(ignoredOnly.id)).then(() => 'accepted', reasonOf)).toBe('(SPLITS_AFTER_CLOSING)');
       await pay(repaid.id, '2027-01-31', '999.99');
       expect(await pool.query(rawClose(repaid.id, '2027-06-30', `closing_reason = 'REPAID'`)).then(() => 'accepted', reasonOf)).toBe('(REMAINING_DEBT_NOT_ZERO)');
       await loans.void(voided.id, REALM, 'x', new Date(), actor);
