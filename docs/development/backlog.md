@@ -90,6 +90,25 @@ Reference: `docs/roadmap.md` Phase 2, `docs/development/phase-2-plan.md` (decisi
 
 ---
 
+# 3b. Phase 3 — Financing
+
+Reference: `docs/roadmap.md` Phase 3, `docs/development/phase-3-plan.md` (decisions P3-D1…D8). Each item starts with a spec PR for its API section, as in Phase 2.
+
+| ID | Type | Item | API | Exit |
+|---|---|---|---|---|
+| VC-3-01 | feature | `Loan` create, read, list, amend, void (P3-D1) | `POST/GET /api/v1/loans`, `GET …/{id}`, `POST …/{id}/amend`, `POST …/{id}/void` | One canonical Loan with lender, borrowers (active Parties of the Realm), `principalOriginal`, dates, optional `acquisitionId`; fixed fields stay fixed; void only while no split references it; `Idempotency-Key`, `If-Match`, AuditRecords |
+| VC-3-02 | feature | `LoanTerms` periods (P3-D2) | `POST /api/v1/loans/{id}/terms`, `POST …/terms/{termsId}/void`, `GET …/{id}/terms` | `ANNUITY` / `INTEREST_ONLY`, rate as exact decimal, payment as on the contract, monthly; an annuity that does not cover the first interest refused (`422 PAYMENT_DOES_NOT_COVER_INTEREST`); appended after the last period, never overwritten, no overlap (database-enforced, concurrency test); the last period voidable |
+| VC-3-03 | feature | `LoanAllocation` sets (P3-D3, ADR-038) | `POST /api/v1/loans/{id}/allocations`, `GET …/{id}/allocations[?asOf=]`, `GET /api/v1/property-references/{id}/loans[?asOf=]` | A set of exact fractions summing to `1/1`, valid from a date, the previous set ended the day before; `basis = PURCHASE_PRICE` derives the fractions exactly from the Acquisitions' prices, `MANUAL` overrides; the Loan stays one (no duplicate per property); sums database-enforced; `asOf` and history |
+| VC-3-04 | feature | Schedule read, derived (P3-D5, ADR-015) | `GET /api/v1/loans/{id}/schedule[?from=&to=]` | Monthly periods from `firstPaymentDate`; interest `round_half_up(balance × rate / 12)` exact in cents; annuity and interest-only; carry-over and `principalAtStart` across terms; last period capped; never stored; tested against a hand-computed contract example and a property test (Σ principal = principal at start for a full annuity) |
+| VC-3-05 | feature | Loan splits: `loanId` on `TransactionSplit` + payment proposal (P3-D4) | `PUT /api/v1/transactions/{id}/splits` (`loanId` accepted), `GET /api/v1/loans/{id}/payment-proposal?transactionId=` | §33.2's `NOT_SUPPORTED` lifted: `loanId` only on `LOAN_INTEREST` / `LOAN_PRINCIPAL` splits of an `OUTFLOW` Transaction, no `propertyReferenceId` with it, Loan of the Realm and not `VOID`; a reversal exempt from `OUTFLOW` and mirroring `loanId` (0014's comparison gains `loan_id`); no replacement after `closingDate` (database-enforced; Transaction → Loan, the guard writing the Loan row; concurrency tests against void and close, RC and RR); `correct` and `reverse` of a payment tested; the proposal from the schedule, never written by DE |
+| VC-3-06 | feature | Remaining debt and lender statements (P3-D6, ADR-016) | `GET /api/v1/loans/{id}/remaining-debt[?asOf=]` (actual, planned, difference, per property), `POST /api/v1/loans/{id}/balance-statements`, `POST …/balance-statements/{id}/void` | Actual = `principalOriginal` − Σ counted `LOAN_PRINCIPAL` splits up to the date; planned from the schedule; per property by the set valid that day (largest remainder, ties by `propertyReferenceId`), `409 LOAN_NOT_ALLOCATED` before the first set; statements compared, never replacing; interest paid per year as a derived read; one snapshot |
+| VC-3-07 | feature | Close a Loan; refinancing (P3-D7) | `POST /api/v1/loans/{id}/close` | `REPAID` only at actual remaining debt 0 (`409 REMAINING_DEBT_NOT_ZERO`), `REFINANCED` names the new Loan and settles the rest, `OTHER` with a note; no split after `closingDate` (database-enforced, concurrency test); remaining debt 0 after it |
+| VC-3-08 | test | Phase-3 invariant suite + acceptance test (ACC3) | — | `invariant-suite.md` maps each exit claim to an ACC3 step: a shared Loan over two properties allocated without duplication (purchase-price default, then a manual override from a date); imported bank payments split into interest and principal with `loanId` and confirmed; remaining debt derived (actual vs planned, a special repayment, a lender statement compared), per property exact to the cent; a correction re-counted; Realm isolation on every Phase-3 route, compared with the app's routes; AuditRecords |
+
+**Phase 3 exit:** `docs/roadmap.md` Phase 3 — VC-3-03 + VC-3-05 + VC-3-06 together, shown end to end by ACC3 (VC-3-08).
+
+---
+
 # 4. Later-phase epics (blocked or spec-gated)
 
 Listed for visibility; expand into items when their blocker clears.
@@ -97,7 +116,7 @@ Listed for visibility; expand into items when their blocker clears.
 | Epic | Phase | Gate |
 |---|---|---|
 | Party, Ownership, Acquisition | 2 | **expanded** into §3a (VC-2-01…10) |
-| Loans + planned vs actual + `LoanAllocation` + remaining debt | 3 | ready (basis: ADR-038) |
+| Loans + planned vs actual + `LoanAllocation` + remaining debt | 3 | **expanded** into §3b (VC-3-01…08, `phase-3-plan.md`) |
 | Rent reconciliation suggest/confirm/write-back | 4 | ready after Phase 1 |
 | Security Deposit domain | 5 | ready (account model: ADR-039) |
 | WEG (Wirtschaftsplan, Jahresabrechnung, Rücklage, Sonderumlage) | 6 | verify `germany/weg.md` |
