@@ -4,14 +4,12 @@ import {
   compareStatement,
   planVoidStatement,
   withValidUntil,
-  type CountedSplit,
   type CreateStatementOutcome,
   type DebtInputs,
   type Loan,
   type LoanBalanceStatement,
   type LoanBalanceStatementId,
   type LoanDebtRepository,
-  type LoanSplitCategory,
   type StatementData,
   type StatementStatus,
   type VoidStatementOutcome,
@@ -20,7 +18,7 @@ import { checkVersion, type AuditActor, type BusinessDate } from '../../shared/i
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { setsOf } from './loan-allocation-repository.js';
-import { lockLoan, readLoanIn } from './loan-repository.js';
+import { countedSplitsOf, lockLoan, readLoanIn } from './loan-repository.js';
 import { periodsOf } from './loan-terms-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
@@ -184,31 +182,6 @@ async function inputsIn(trx: Transaction<Database>, loan: Loan): Promise<DebtInp
       toStatement,
     ),
   };
-}
-
-/**
- * The splits that count for the Loan (§41.5): with its `loanId`, of a current Transaction (`CONFIRMED` or
- * `RECONCILED`), not a reversal; by booking date, then Transaction and position.
- */
-export async function countedSplitsOf(trx: Transaction<Database>, loanId: string): Promise<CountedSplit[]> {
-  const rows = await trx
-    .selectFrom('transaction_split as s')
-    .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
-    .innerJoin('financial_category as c', 'c.id', 's.financial_category_id')
-    .select([
-      's.transaction_id',
-      sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date'),
-      'c.code',
-      sql<string>`(s.amount * 100)::bigint::text`.as('cents'),
-    ])
-    .where('s.loan_id', '=', loanId)
-    .where('t.status', 'in', ['CONFIRMED', 'RECONCILED'])
-    .where((eb) => eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]))
-    .orderBy('t.booking_date')
-    .orderBy('s.transaction_id')
-    .orderBy('s.position')
-    .execute();
-  return rows.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate, category: r.code as LoanSplitCategory, amount: BigInt(r.cents) }));
 }
 
 async function readStatement(trx: Transaction<Database>, id: string): Promise<LoanBalanceStatement> {

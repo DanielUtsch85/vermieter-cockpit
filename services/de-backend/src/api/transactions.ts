@@ -13,6 +13,7 @@ import {
   FinancialCategoryNotFoundError,
   InactiveCategoryError,
   InvalidLoanSplitError,
+  LoanClosedOnError,
   LoanNotActiveError,
   LoanNotFoundError,
   SplitsMissingError,
@@ -713,6 +714,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           });
         } else if (error instanceof CurrencyMismatchError) {
           sendValidationError(res, [{ field: 'amount.currency', code: 'CURRENCY_MISMATCH' }]);
+        } else if (error instanceof LoanClosedOnError) {
+          sendLoanClosed(res, error);
         } else if (error instanceof VersionConflictError) {
           sendVersionConflict(res, error);
         } else {
@@ -832,6 +835,15 @@ function toSplitDto(s: TransactionSplit) {
   };
 }
 
+/** §41.7: a split, or a booking date, after a `CLOSED` Loan's closing date. */
+function sendLoanClosed(res: Response, error: LoanClosedOnError): void {
+  sendError(res, 409, 'CONFLICT', `The Loan was closed on ${error.closingDate}; nothing after it can name it.`, {
+    reason: 'LOAN_CLOSED',
+    loanId: error.loanId,
+    closingDate: error.closingDate,
+  });
+}
+
 /** The refusals of §41.5 on a split with `loanId` (splits and `correct`); false for anything else. */
 function sendLoanSplitError(res: Response, error: unknown): boolean {
   if (error instanceof LoanNotFoundError) {
@@ -843,6 +855,8 @@ function sendLoanSplitError(res: Response, error: unknown): boolean {
     });
   } else if (error instanceof LoanNotActiveError) {
     sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; no split can name it.`, { reason: 'LOAN_NOT_ACTIVE', loanId: error.loanId, status: error.status });
+  } else if (error instanceof LoanClosedOnError) {
+    sendLoanClosed(res, error);
   } else {
     return false;
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Money } from '../../shared/index.js';
+import { Money, type BusinessDate } from '../../shared/index.js';
 import { checkLoanSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
 import type { TransactionStatus } from './transaction.js';
 
@@ -58,23 +58,26 @@ describe('sameSplits', () => {
 });
 
 describe('checkLoanSplits (api-design §41.5)', () => {
-  const outflow = { direction: 'OUTFLOW' as const, reversal: false };
+  const bookingDate = '2027-03-01' as BusinessDate;
+  const outflow = { direction: 'OUTFLOW' as const, reversal: false, bookingDate };
   const loans = new Map([
-    ['l1', 'ACTIVE'],
-    ['l2', 'VOID'],
+    ['l1', { status: 'ACTIVE', closingDate: null }],
+    ['l2', { status: 'VOID', closingDate: null }],
+    ['l3', { status: 'CLOSED', closingDate: '2027-02-28' as BusinessDate }],
+    ['l4', { status: 'CLOSED', closingDate: '2027-03-01' as BusinessDate }],
   ]);
   const withLoan = (loanId: string, code = 'LOAN_INTEREST') => split('1.00', code, { loanId });
 
   it('passes LOAN_INTEREST and LOAN_PRINCIPAL of an OUTFLOW for an ACTIVE Loan, and splits without a Loan', () => {
     expect(checkLoanSplits(outflow, [withLoan('l1'), withLoan('l1', 'LOAN_PRINCIPAL'), split('1.00', 'OTHER')], loans)).toBeUndefined();
-    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, [split('1.00', 'LOAN_INTEREST')], loans)).toBeUndefined();
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, [split('1.00', 'LOAN_INTEREST')], loans)).toBeUndefined();
   });
 
   it('in the order of §41.5: an unknown Loan, then the category, then the direction, then a VOID Loan, each first by position', () => {
     const all = [withLoan('l2'), withLoan('l1', 'OTHER'), withLoan('nope'), withLoan('gone')];
-    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, all, loans)).toEqual({ kind: 'LOAN_NOT_FOUND', loanId: 'nope' });
-    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, all.slice(0, 2), loans)).toEqual({ kind: 'INVALID_LOAN_SPLIT', position: 2, reason: 'CATEGORY' });
-    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false }, [split('1.00', 'OTHER'), withLoan('l2')], loans)).toEqual({
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, all, loans)).toEqual({ kind: 'LOAN_NOT_FOUND', loanId: 'nope' });
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, all.slice(0, 2), loans)).toEqual({ kind: 'INVALID_LOAN_SPLIT', position: 2, reason: 'CATEGORY' });
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, [split('1.00', 'OTHER'), withLoan('l2')], loans)).toEqual({
       kind: 'INVALID_LOAN_SPLIT',
       position: 2,
       reason: 'DIRECTION',
@@ -83,6 +86,13 @@ describe('checkLoanSplits (api-design §41.5)', () => {
   });
 
   it('a reversal is exempt from the direction (review on #58)', () => {
-    expect(checkLoanSplits({ direction: 'INFLOW', reversal: true }, [withLoan('l1')], loans)).toBeUndefined();
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: true, bookingDate }, [withLoan('l1')], loans)).toBeUndefined();
+  });
+
+  it('a CLOSED Loan (§41.7): refused after its closing date, allowed on it; after the VOID check; a reversal exempt', () => {
+    expect(checkLoanSplits(outflow, [withLoan('l4'), withLoan('l3')], loans)).toEqual({ kind: 'LOAN_CLOSED', loanId: 'l3', closingDate: '2027-02-28' });
+    expect(checkLoanSplits(outflow, [withLoan('l4')], loans)).toBeUndefined();
+    expect(checkLoanSplits(outflow, [withLoan('l3'), withLoan('l2')], loans)).toEqual({ kind: 'LOAN_NOT_ACTIVE', loanId: 'l2', status: 'VOID' });
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: true, bookingDate }, [withLoan('l3')], loans)).toBeUndefined();
   });
 });

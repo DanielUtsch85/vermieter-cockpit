@@ -36,6 +36,7 @@ import type {
   UnlinkAcquisitionPayment,
   ListAcquisitionPayments,
   AmendLoan,
+  CloseLoan,
   CreateLoan,
   GetLoan,
   ListLoans,
@@ -148,6 +149,8 @@ export interface AppDependencies {
   readonly listLoans: ListLoans;
   readonly amendLoan: AmendLoan;
   readonly voidLoan: VoidLoan;
+  /** Close a Loan (VC-3-07). */
+  readonly closeLoan: CloseLoan;
   /** Loan terms (VC-3-02). */
   readonly createLoanTerms: CreateLoanTerms;
   readonly voidLoanTerms: VoidLoanTerms;
@@ -274,7 +277,7 @@ export function createApp(deps: AppDependencies): Express {
       listPayments: deps.listAcquisitionPayments,
     }),
   );
-  api.use(loanRoutes({ create: deps.createLoan, get: deps.getLoan, list: deps.listLoans, amend: deps.amendLoan, void: deps.voidLoan }));
+  api.use(loanRoutes({ create: deps.createLoan, get: deps.getLoan, list: deps.listLoans, amend: deps.amendLoan, void: deps.voidLoan, close: deps.closeLoan }));
   api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule, proposal: deps.getPaymentProposal }));
   api.use(
     loanDebtRoutes({

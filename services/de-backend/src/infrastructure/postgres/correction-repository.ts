@@ -1,6 +1,7 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
   checkLoanSplits,
+  type SplitLoan,
   checkVersion,
   currencyMismatch,
   opposite,
@@ -171,13 +172,13 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     mreRealmId: string,
     original: Transaction,
     replacement: PlannedReplacement,
-    loans: ReadonlyMap<string, string>,
+    loans: ReadonlyMap<string, SplitLoan>,
   ): Promise<Map<string, string>> {
     await this.check(trx, mreRealmId, original, replacement);
     const categoryIds = await this.categoryIds(trx, replacement);
     // §41.5: the replacement's splits with loanId, against the Loans locked in `correct`. The reversal mirrors the
     // original's splits and needs no check: a Loan with splits is never VOID (loan_void_unreferenced).
-    const refusal = checkLoanSplits({ direction: replacement.direction, reversal: false }, replacement.splits, loans);
+    const refusal = checkLoanSplits({ direction: replacement.direction, reversal: false, bookingDate: replacement.bookingDate }, replacement.splits, loans);
     if (refusal !== undefined) throw new Rejected(refusal);
     return categoryIds;
   }

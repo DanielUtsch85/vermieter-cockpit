@@ -251,7 +251,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     expect(await allocations.void(l.id, first.id, OTHER_REALM, 'x', at, actor)).toEqual({ kind: 'NOT_FOUND' });
     const closedLoan = await loan();
     const closedSet = await appended(closedLoan.id, manual('2026-09-01', [[p, 1n, 1n]]));
-    await pool.query(`UPDATE loan SET status = 'CLOSED', version = version + 1 WHERE id = $1`, [closedLoan.id]);
+    await pool.query(`UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`, [closedLoan.id]);
     expect(await allocations.void(closedLoan.id, closedSet.id, REALM, 'x', at, actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'CLOSED' });
     const audit = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'LoanAllocationSet' AND entity_id = $1 ORDER BY occurred_at`, [second.id]);
     expect(audit.rows.map((r) => r.action)).toEqual(['CREATED', 'VOIDED']);

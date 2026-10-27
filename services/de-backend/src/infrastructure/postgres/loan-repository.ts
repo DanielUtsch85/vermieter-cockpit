@@ -1,8 +1,14 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   planAmend,
+  planClose,
   planVoid,
+  type CloseLoanOutcome,
+  type CloseRequest,
+  type CountedSplit,
+  type LoanSplitCategory,
   type AmendLoanOutcome,
+  type ClosingReason,
   type CreateLoanOutcome,
   type Loan,
   type LoanChanges,
@@ -42,6 +48,10 @@ const COLUMNS = [
   'notes',
   'voided_at',
   'void_reason',
+  sql<string | null>`to_char(closing_date, 'YYYY-MM-DD')`.as('closing_date'),
+  'closing_reason',
+  'refinanced_by_loan_id',
+  'closing_note',
   'created_at',
   'version',
 ] as const;
@@ -63,6 +73,10 @@ interface LoanRow {
   notes: string | null;
   voided_at: Date | null;
   void_reason: string | null;
+  closing_date: string | null;
+  closing_reason: string | null;
+  refinanced_by_loan_id: string | null;
+  closing_note: string | null;
   created_at: Date;
   version: number;
 }
@@ -234,6 +248,68 @@ export class PostgresLoanRepository implements LoanRepository {
     });
   }
 
+  async close(id: string, mreRealmId: string, request: CloseRequest, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseLoanOutcome> {
+    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
+    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CloseLoanOutcome> => {
+      // P3-D8: the Loan and the named one in id order, so two closes naming each other cannot deadlock.
+      const locked = await lockLoansOf(trx, mreRealmId, [id, ...(request.refinancedByLoanId === null ? [] : [request.refinancedByLoanId])]);
+      if (!locked.has(id)) return { kind: 'NOT_FOUND' };
+      const current = (await readLoanIn(trx, id, mreRealmId)) as Loan;
+      const refinancing =
+        request.reason === 'REFINANCED' && request.refinancedByLoanId !== null && locked.has(request.refinancedByLoanId)
+          ? await readLoanIn(trx, request.refinancedByLoanId, mreRealmId)
+          : undefined;
+      // Read after the Loan lock and unlocked: a split write takes the Loan row after its Transaction (P3-D8).
+      const after = await trx
+        .selectFrom('transaction_split as s')
+        .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
+        .select(['s.transaction_id', sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date')])
+        .where('s.loan_id', '=', id)
+        .where(sql<boolean>`t.booking_date > ${request.closingDate}::date`)
+        .where('t.status', '<>', 'CORRECTED')
+        .where((eb) => eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]))
+        .execute();
+      const plan = planClose(
+        current,
+        request,
+        refinancing,
+        after.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate })),
+        await countedSplitsOf(trx, id),
+      );
+      if (plan.kind === 'UNCHANGED') return { kind: 'CLOSED', loan: current, changed: false };
+      if (plan.kind !== 'CLOSE') return plan;
+      const conflict = checkVersion(current.version, expectedVersions);
+      if (conflict !== undefined) return conflict;
+      const at = new Date();
+      await trx
+        .updateTable('loan')
+        .set({
+          status: 'CLOSED' satisfies LoanStatus,
+          closing_date: request.closingDate,
+          closing_reason: request.reason,
+          refinanced_by_loan_id: request.refinancedByLoanId,
+          closing_note: request.closingNote,
+          version: plan.next.version,
+          updated_at: at,
+        })
+        .where('id', '=', id)
+        .execute();
+      const closed = await readOne(trx, id);
+      await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CLOSED', actor, {
+        previousVersion: current.version,
+        newVersion: closed.version,
+        metadata: {
+          closingDate: request.closingDate,
+          reason: request.reason,
+          refinancedByLoanId: request.refinancedByLoanId,
+          closingNote: request.closingNote,
+          settledAmount: signedAmount(plan.settledAmount, closed.principalOriginal.currency),
+        },
+      });
+      return { kind: 'CLOSED', loan: closed, changed: true };
+    });
+  }
+
   async void(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidLoanOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
     return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidLoanOutcome> => {
@@ -243,7 +319,15 @@ export class PostgresLoanRepository implements LoanRepository {
       // The splits naming the Loan, reversals included, read after the Loan lock and unlocked (P3-D8): a split write
       // takes the Loan row after its Transaction, so it either committed before this lock (and is seen) or waits.
       const splits = await trx.selectFrom('transaction_split').select('transaction_id').distinct().where('loan_id', '=', id).execute();
-      const plan = planVoid(current, reason, at, splits.map((s) => s.transaction_id));
+      // A Loan that took over another is never voided (§41.7, review on #71); a close naming it writes this row.
+      const refinanced = await trx.selectFrom('loan').select('id').where('refinanced_by_loan_id', '=', id).where('status', '=', 'CLOSED').execute();
+      const plan = planVoid(
+        current,
+        reason,
+        at,
+        splits.map((s) => s.transaction_id),
+        refinanced.map((l) => l.id),
+      );
       if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', loan: current, changed: false };
       if (plan.kind !== 'VOID') return plan;
       const conflict = checkVersion(current.version, expectedVersions);
@@ -258,6 +342,12 @@ export class PostgresLoanRepository implements LoanRepository {
       return { kind: 'VOIDED', loan: voided, changed: true };
     });
   }
+}
+
+/** Signed cents as `{ amount, currency }` for an AuditRecord. */
+function signedAmount(cents: bigint, currency: string): { readonly amount: string; readonly currency: string } {
+  const abs = cents < 0n ? -cents : cents;
+  return { amount: `${cents < 0n ? '-' : ''}${abs / 100n}.${(abs % 100n).toString().padStart(2, '0')}`, currency };
 }
 
 /** The Parties of the Realm among `ids`, locked `FOR SHARE` in id order, with their status. */
@@ -291,11 +381,49 @@ export async function lockLoan(trx: Transaction<Database>, loanId: string, mreRe
  * them after its Transaction lock, so two writers with the same Loans never wait on each other crosswise. Unknown,
  * foreign and malformed ids are simply absent.
  */
-export async function lockLoansOf(trx: Transaction<Database>, mreRealmId: string, loanIds: readonly string[]): Promise<Map<string, string>> {
+export async function lockLoansOf(trx: Transaction<Database>, mreRealmId: string, loanIds: readonly string[]): Promise<Map<string, LockedLoan>> {
   const ids = [...new Set(loanIds)].filter((id) => UUID.test(id)).sort();
   if (ids.length === 0) return new Map();
-  const rows = await trx.selectFrom('loan').select(['id', 'status']).where('id', 'in', ids).where('mre_realm_id', '=', mreRealmId).orderBy('id').forUpdate().execute();
-  return new Map(rows.map((r) => [r.id, r.status]));
+  const rows = await trx
+    .selectFrom('loan')
+    .select(['id', 'status', sql<string | null>`to_char(closing_date, 'YYYY-MM-DD')`.as('closing_date')])
+    .where('id', 'in', ids)
+    .where('mre_realm_id', '=', mreRealmId)
+    .orderBy('id')
+    .forUpdate()
+    .execute();
+  return new Map(rows.map((r) => [r.id, { status: r.status, closingDate: r.closing_date as BusinessDate | null }]));
+}
+
+/** A Loan as a split write checks it (§41.5, §41.7). */
+export interface LockedLoan {
+  readonly status: string;
+  readonly closingDate: BusinessDate | null;
+}
+
+/**
+ * The splits that count for the Loan (§41.5): with its `loanId`, of a current Transaction (`CONFIRMED` or
+ * `RECONCILED`), not a reversal; by booking date, then Transaction and position.
+ */
+export async function countedSplitsOf(trx: Transaction<Database>, loanId: string): Promise<CountedSplit[]> {
+  const rows = await trx
+    .selectFrom('transaction_split as s')
+    .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
+    .innerJoin('financial_category as c', 'c.id', 's.financial_category_id')
+    .select([
+      's.transaction_id',
+      sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date'),
+      'c.code',
+      sql<string>`(s.amount * 100)::bigint::text`.as('cents'),
+    ])
+    .where('s.loan_id', '=', loanId)
+    .where('t.status', 'in', ['CONFIRMED', 'RECONCILED'])
+    .where((eb) => eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]))
+    .orderBy('t.booking_date')
+    .orderBy('s.transaction_id')
+    .orderBy('s.position')
+    .execute();
+  return rows.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate, category: r.code as LoanSplitCategory, amount: BigInt(r.cents) }));
 }
 
 async function readOne(trx: Transaction<Database>, id: string): Promise<Loan> {
@@ -319,6 +447,10 @@ function toLoan(row: LoanRow): Loan {
     notes: row.notes,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,
+    closingDate: row.closing_date as BusinessDate | null,
+    closingReason: row.closing_reason as ClosingReason | null,
+    refinancedByLoanId: row.refinanced_by_loan_id,
+    closingNote: row.closing_note,
     createdAt: row.created_at,
     version: row.version,
   };

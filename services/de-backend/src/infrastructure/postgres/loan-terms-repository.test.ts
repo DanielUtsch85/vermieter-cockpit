@@ -193,7 +193,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     await loans.void(other.id, REALM, 'x', new Date(), actor);
     const closedLoan = await loan();
     const closedTerms = await appended(closedLoan.id, data());
-    await pool.query(`UPDATE loan SET status = 'CLOSED', version = version + 1 WHERE id = $1`, [closedLoan.id]);
+    await pool.query(`UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`, [closedLoan.id]);
     expect(await terms.void(closedLoan.id, closedTerms.id, REALM, 'x', at, actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'CLOSED' });
     const audit = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'LoanTerms' AND entity_id = $1 ORDER BY occurred_at`, [second.id]);
     expect(audit.rows.map((r) => r.action)).toEqual(['CREATED', 'VOIDED']);

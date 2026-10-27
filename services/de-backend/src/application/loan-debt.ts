@@ -44,6 +44,15 @@ export class StatementBeforeDebtError extends Error {
   }
 }
 
+/** The statement date is after a `CLOSED` Loan's closing date (→ 422 STATEMENT_AFTER_CLOSING, §41.7). */
+export class StatementAfterClosingError extends Error {
+  override readonly name = 'StatementAfterClosingError';
+
+  constructor(readonly closingDate: BusinessDate) {
+    super(`The statement is after the closing date ${closingDate}`);
+  }
+}
+
 export class LoanBalanceStatementNotFoundError extends Error {
   override readonly name = 'LoanBalanceStatementNotFoundError';
 
@@ -137,6 +146,8 @@ export function createBalanceStatement(deps: Deps): CreateBalanceStatement {
         throw new LoanNotActiveError(loanId, outcome.status);
       case 'STATEMENT_BEFORE_DEBT':
         throw new StatementBeforeDebtError(outcome.debtFrom);
+      case 'STATEMENT_AFTER_CLOSING':
+        throw new StatementAfterClosingError(outcome.closingDate);
     }
   };
 }

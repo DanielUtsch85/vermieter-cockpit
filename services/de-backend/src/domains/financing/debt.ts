@@ -2,8 +2,8 @@ import { addDays, type AuditActor, type BusinessDate, type Money, type VersionCo
 import { largestRemainder } from '../acquisition/index.js';
 import type { Fraction } from '../ownership/index.js';
 import { setOn, type LoanAllocationSetView } from './allocation.js';
-import { debtFrom, type Loan, type LoanStatus } from './loan.js';
-import { plannedBalanceOn, scheduleOf, toCents, type ScheduleEndReason, type SchedulePeriod } from './terms.js';
+import { debtFrom, type ClosingReason, type Loan, type LoanStatus } from './loan.js';
+import { loanSchedule, plannedBalanceOn, scheduleOf, toCents, type ScheduleEndReason, type SchedulePeriod } from './terms.js';
 
 /**
  * Remaining debt, payments and lender statements (api-design.md §41.6, backlog VC-3-06, phase-3-plan P3-D6, ADR-016).
@@ -47,9 +47,15 @@ export function principalPaidOn(splits: readonly CountedSplit[], day: BusinessDa
   return splits.reduce((sum, s) => (s.category === 'LOAN_PRINCIPAL' && s.bookingDate <= day ? sum + s.amount : sum), 0n);
 }
 
-/** `principalOriginal` − principal paid on `day`; 0 before `debtFrom`; negative when more was paid than lent. */
+/** Whether `day` is after a `CLOSED` Loan's closing date (§41.7). */
+const closedBefore = (loan: Loan, day: BusinessDate) => loan.status === 'CLOSED' && loan.closingDate !== null && day > loan.closingDate;
+
+/**
+ * `principalOriginal` − principal paid on `day`; 0 before `debtFrom` and after a `CLOSED` Loan's closing date (§41.7);
+ * negative when more was paid than lent.
+ */
 export function actualOn(loan: Loan, splits: readonly CountedSplit[], day: BusinessDate): bigint {
-  if (day < debtFrom(loan)) return 0n;
+  if (day < debtFrom(loan) || closedBefore(loan, day)) return 0n;
   return toCents(loan.principalOriginal) - principalPaidOn(splits, day);
 }
 
@@ -60,17 +66,23 @@ export function actualOn(loan: Loan, splits: readonly CountedSplit[], day: Busin
  */
 export function debtOn(loan: Loan, periods: readonly SchedulePeriod[], splits: readonly CountedSplit[], day: BusinessDate): DebtOnDay {
   const { endReason } = scheduleOf(loan.principalOriginal, loan.maturityDate, periods).summary;
+  const planEndReason = loanSchedule(loan, periods).summary.endReason;
   if (day < debtFrom(loan)) {
     const zero = endReason === 'NO_TERMS' ? null : 0n;
-    return { principalPaid: 0n, actual: 0n, planned: zero, difference: zero, planEndReason: endReason };
+    return { principalPaid: 0n, actual: 0n, planned: zero, difference: zero, planEndReason };
   }
   const principalPaid = principalPaidOn(splits, day);
+  if (closedBefore(loan, day)) {
+    // §41.7: after the closing date nothing is owed; principalPaid stays what was paid.
+    const zero = endReason === 'NO_TERMS' ? null : 0n;
+    return { principalPaid, actual: 0n, planned: zero, difference: zero, planEndReason };
+  }
   const actual = toCents(loan.principalOriginal) - principalPaid;
-  if (endReason === 'NO_TERMS') return { principalPaid, actual, planned: null, difference: null, planEndReason: endReason };
+  if (endReason === 'NO_TERMS') return { principalPaid, actual, planned: null, difference: null, planEndReason };
   const matured = endReason === 'MATURITY' && loan.maturityDate !== null && day >= loan.maturityDate;
   // plannedBalanceOn(d + 1): the balance after every payment on or before d, restarts of periods from d included.
   const planned = matured ? 0n : plannedBalanceOn(loan.principalOriginal, loan.maturityDate, periods, addDays(day, 1));
-  return { principalPaid, actual, planned, difference: actual - planned, planEndReason: endReason };
+  return { principalPaid, actual, planned, difference: actual - planned, planEndReason };
 }
 
 /**
@@ -114,11 +126,20 @@ export function debtPerProperty(debt: DebtOnDay, set: LoanAllocationSetView): Pr
   });
 }
 
+/** A `CLOSED` Loan's closing (§41.7); `actualOnClosingDate` is derived now, so a later correction shows here. */
+export interface Closing {
+  readonly closingDate: BusinessDate;
+  readonly reason: ClosingReason;
+  readonly refinancedByLoanId: string | null;
+  readonly actualOnClosingDate: bigint;
+}
+
 export type RemainingDebt = DebtOnDay & {
   readonly asOf: BusinessDate;
   readonly debtFrom: BusinessDate;
   readonly principalOriginal: Money;
   readonly latestStatement: StatementView | null;
+  readonly closing: Closing | null;
 };
 
 export type RemainingDebtPerProperty = RemainingDebt & { readonly allocationSetId: string; readonly items: readonly PropertyDebt[] };
@@ -140,6 +161,10 @@ export function remainingDebt(inputs: DebtInputs, asOf: BusinessDate, perPropert
     debtFrom: debtFrom(loan),
     principalOriginal: loan.principalOriginal,
     latestStatement: latest === null ? null : compareStatement(loan, splits, latest),
+    closing:
+      loan.status === 'CLOSED' && loan.closingDate !== null && loan.closingReason !== null
+        ? { closingDate: loan.closingDate, reason: loan.closingReason, refinancedByLoanId: loan.refinancedByLoanId, actualOnClosingDate: actualOn(loan, splits, loan.closingDate) }
+        : null,
   };
   if (!perProperty) return { kind: 'LOAN_LEVEL', debt };
   const set = setOn(sets, asOf);
@@ -263,13 +288,15 @@ export function statementFingerprint(loanId: string, data: StatementData): strin
 
 export type StatementRefusal =
   | { readonly kind: 'LOAN_NOT_ACTIVE'; readonly status: LoanStatus }
-  | { readonly kind: 'STATEMENT_BEFORE_DEBT'; readonly debtFrom: BusinessDate };
+  | { readonly kind: 'STATEMENT_BEFORE_DEBT'; readonly debtFrom: BusinessDate }
+  | { readonly kind: 'STATEMENT_AFTER_CLOSING'; readonly closingDate: BusinessDate };
 
-/** Checks 3 and 4 of §41.6's create; undefined when the statement may be recorded (VC-3-07 adds `CLOSED`). */
+/** Checks 3 and 4 of §41.6's create, then a `CLOSED` Loan's closing date (§41.7); undefined when it may be recorded. */
 export function checkStatement(loan: Loan, statementDate: BusinessDate): StatementRefusal | undefined {
   if (loan.status === 'VOID') return { kind: 'LOAN_NOT_ACTIVE', status: loan.status };
   const from = debtFrom(loan);
   if (statementDate < from) return { kind: 'STATEMENT_BEFORE_DEBT', debtFrom: from };
+  if (loan.status === 'CLOSED' && loan.closingDate !== null && statementDate > loan.closingDate) return { kind: 'STATEMENT_AFTER_CLOSING', closingDate: loan.closingDate };
   return undefined;
 }
 

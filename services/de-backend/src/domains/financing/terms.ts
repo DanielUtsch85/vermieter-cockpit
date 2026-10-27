@@ -139,8 +139,11 @@ function walkSchedule(
   return { entries, balance, nextPaymentDate };
 }
 
-/** How a plan ends (api-design §41.4); on a tie `PAID_OFF` before `MATURITY` before `PAYMENT_CAP` (review on #65). */
-export const SCHEDULE_END_REASONS = ['PAID_OFF', 'MATURITY', 'PAYMENT_CAP', 'NO_TERMS'] as const;
+/**
+ * How a plan ends (api-design §41.4); on a tie `PAID_OFF` before `MATURITY` before `PAYMENT_CAP` (review on #65).
+ * `CLOSED`: a `CLOSED` Loan's plan cut at its closing date (§41.7).
+ */
+export const SCHEDULE_END_REASONS = ['PAID_OFF', 'MATURITY', 'PAYMENT_CAP', 'CLOSED', 'NO_TERMS'] as const;
 export type ScheduleEndReason = (typeof SCHEDULE_END_REASONS)[number];
 
 /** An entry with its position in the whole plan, from 1, kept in a window. */
@@ -191,6 +194,34 @@ export function scheduleOf(principalOriginal: Money, maturityDate: BusinessDate 
       endReason,
     },
   };
+}
+
+/**
+ * A `CLOSED` Loan's plan (§41.7): the entries after `closingDate` omitted, the summary over the rest, `endReason =
+ * CLOSED` when an entry was omitted; a plan that ended on or before the closing keeps its reason.
+ */
+export function closedSchedule(schedule: Schedule, closingDate: BusinessDate): Schedule {
+  const kept = schedule.entries.filter((e) => e.paymentDate <= closingDate);
+  const omitted = schedule.entries[kept.length];
+  if (omitted === undefined) return schedule;
+  return {
+    entries: kept,
+    summary: {
+      payments: kept.length,
+      firstPaymentDate: kept[0]?.paymentDate ?? null,
+      lastPaymentDate: kept.at(-1)?.paymentDate ?? null,
+      totalInterest: kept.reduce((sum, e) => sum + e.interest, 0n),
+      totalPrincipal: kept.reduce((sum, e) => sum + e.principal, 0n),
+      balanceDue: omitted.balanceBefore,
+      endReason: 'CLOSED',
+    },
+  };
+}
+
+/** The Loan's plan as §41.4 answers it: `scheduleOf`, cut at the closing date of a `CLOSED` Loan (§41.7). */
+export function loanSchedule(loan: Pick<Loan, 'principalOriginal' | 'maturityDate' | 'status' | 'closingDate'>, periods: readonly SchedulePeriod[]): Schedule {
+  const schedule = scheduleOf(loan.principalOriginal, loan.maturityDate, periods);
+  return loan.status === 'CLOSED' && loan.closingDate !== null ? closedSchedule(schedule, loan.closingDate) : schedule;
 }
 
 /** The entries with `paymentDate` in `[from, to]`, both optional and inclusive; numbers and summary unchanged. */

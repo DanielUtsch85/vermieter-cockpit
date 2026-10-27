@@ -7,6 +7,7 @@ import {
   LoanNotActiveError,
   LoanNotAllocatedError,
   LoanNotFoundError,
+  StatementAfterClosingError,
   StatementBeforeDebtError,
   VersionConflictError,
   type CreateBalanceStatementInput,
@@ -48,6 +49,7 @@ const debt = {
   difference: -50_853n,
   planEndReason: 'PAID_OFF',
   latestStatement: null,
+  closing: null,
 } as unknown as RemainingDebt;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
@@ -92,6 +94,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
       difference: { amount: '-508.53', currency: 'EUR' },
       planEndReason: 'PAID_OFF',
       latestStatement: null,
+      closing: null,
     });
     await call(base, 'GET', `/loans/${LOAN}/remaining-debt`);
     expect(seen).toEqual([
@@ -108,6 +111,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
       difference: null,
       planEndReason: 'NO_TERMS',
       latestStatement: statementView,
+      closing: { closingDate: '2027-02-28', reason: 'REFINANCED', refinancedByLoanId: 'new', actualOnClosingDate: -1n },
       allocationSetId: 'set',
       items: [
         { propertyReferenceId: 'p-a', share: { numerator: 2n, denominator: 3n }, actual: -1n, planned: null, difference: null },
@@ -126,6 +130,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
         { propertyReferenceId: 'p-b', share: '1/3', actual: { amount: '0.00', currency: 'EUR' }, planned: null, difference: null },
       ],
       latestStatement: { statementId: STATEMENT, comparison: { actualOnDate: { amount: '408.53', currency: 'EUR' }, difference: { amount: '-0.53', currency: 'EUR' } } },
+      closing: { closingDate: '2027-02-28', reason: 'REFINANCED', refinancedByLoanId: 'new', actualOnClosingDate: { amount: '-0.01', currency: 'EUR' } },
     });
   });
 
@@ -232,6 +237,7 @@ describe('balance statements', () => {
     [new LoanNotFoundError(LOAN), 404, 'NOT_FOUND', { loanId: LOAN }],
     [new LoanNotActiveError(LOAN, 'VOID'), 409, 'CONFLICT', { reason: 'LOAN_NOT_ACTIVE', status: 'VOID' }],
     [new StatementBeforeDebtError('2027-02-01' as never), 422, 'STATEMENT_BEFORE_DEBT', { debtFrom: '2027-02-01' }],
+    [new StatementAfterClosingError('2027-06-30' as never), 422, 'STATEMENT_AFTER_CLOSING', { closingDate: '2027-06-30' }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('POST maps %s', async (error, status, code, details) => {
     const base = await start({ createBalanceStatement: async () => Promise.reject(error) });

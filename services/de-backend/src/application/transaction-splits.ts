@@ -13,7 +13,7 @@ import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { VersionConflictError } from './errors.js';
-import { LoanNotActiveError, LoanNotFoundError } from './loans.js';
+import { LoanClosedOnError, LoanNotActiveError, LoanNotFoundError } from './loans.js';
 import { CurrencyMismatchError } from './transactions.js';
 
 /**
@@ -83,6 +83,8 @@ export function throwLoanSplitRefusal(refusal: LoanSplitRefusal): never {
       throw new InvalidLoanSplitError(refusal.position, refusal.reason);
     case 'LOAN_NOT_ACTIVE':
       throw new LoanNotActiveError(refusal.loanId, refusal.status as LoanStatus);
+    case 'LOAN_CLOSED':
+      throw new LoanClosedOnError(refusal.loanId, refusal.closingDate);
   }
 }
 

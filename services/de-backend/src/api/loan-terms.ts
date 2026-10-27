@@ -2,6 +2,7 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   IdempotencyKeyConflictError,
+  LoanClosedOnError,
   LoanNotActiveError,
   LoanNotFoundError,
   LoanTermsNotFoundError,
@@ -274,6 +275,8 @@ function sendTermsError(res: Response, error: unknown): boolean {
     sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
   } else if (error instanceof PaymentNotProposableError) {
     sendError(res, 409, 'CONFLICT', 'Only an unconfirmed OUTFLOW gets a payment proposal.', { reason: 'NOT_PROPOSABLE', direction: error.direction, status: error.status });
+  } else if (error instanceof LoanClosedOnError) {
+    sendError(res, 409, 'CONFLICT', `The Loan was closed on ${error.closingDate}.`, { reason: 'LOAN_CLOSED', closingDate: error.closingDate });
   } else if (error instanceof NoScheduleError) {
     sendError(res, 409, 'CONFLICT', 'The Loan has no planned payment.', { reason: 'NO_SCHEDULE', endReason: error.endReason });
   } else if (error instanceof LoanTermsNotFoundError) {

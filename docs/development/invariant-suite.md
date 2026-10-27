@@ -365,6 +365,33 @@ Counter-checked (32 mutants, each red): in 0027 the guard's Loan write replaced 
 
 Counter-checked (38 mutants, each red): in 0028 the append trigger's Loan write replaced by `FOR SHARE` (the RR test, statement first) or a plain read (the RC test), each refusal of the append trigger, the frozen trigger allowing an edit, a delete or any step, or without its Loan write, the `balance` and `source` CHECKs, the foreign key without the Realm; in the repository the counted splits without the status or the reversal filter, the create without the Loan lock, the inputs read in READ COMMITTED, the void without the version check, the replay with a stale comparison; in the domain the old maturity rule, `maturityDate` exclusive, the difference distributed directly, a negative total not by its absolute value, interest counted, the booking date exclusive, no `debtFrom` guard, the plan read before the day's payment, the latest statement ignoring `VOID` or the creation order on a tie, a year attributed by its last day's set, splits counted as payments, the statement checks swapped, the void's no-op after the Loan check, a `VOID` Loan read; in the application the `VOID` list and `asOf` in UTC; at the API an unsigned `actual`, `perProperty` defaulting to true and the year's range.
 
+## 22. Closing a Loan and refinancing (VC-3-07, api-design §41.7)
+
+`LC` = `infrastructure/postgres/loan-close-repository.test.ts`, `CL` = `domains/financing/close.test.ts`, `TS` = `domains/ledger/transaction-split.test.ts`, `PA` = `application/payment-proposal.test.ts`, `LA` = `api/loans.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Close's order of checks: `404`, `VOID`/`CLOSED` with other values `LOAN_NOT_ACTIVE`, before the debt, the refinancing Loan (unknown, foreign, `VOID`, `CLOSED`), `SPLITS_AFTER_CLOSING`, `REPAID` only at 0 (a rest and an overpayment signed); a repeat a no-op; `If-Match`; the AuditRecord with `settledAmount` | CL "planClose …"; LC "close: the order of checks"; LA "POST …/close" |
+| `SPLITS_AFTER_CLOSING` counts current, open and `IGNORED` splits (`ignore` → `close` → `restore` cannot carry one past the date), not a `CORRECTED` original and its reversal: the refinancing scenario passes after the correction (review on #71) | LC "SPLITS_AFTER_CLOSING …", "the refinancing scenario …" |
+| After the close no split names the Loan on a later booking date, through the splits command, `correct` and an amend of the booking date, in the repository and past it; on the date allowed; a reversal exempt | TS "a CLOSED Loan …"; LC "after closing", schema "the split guard …" |
+| The reads: remaining debt 0 after the date (`principalPaid` kept, `NO_TERMS` `null`, per property zeros), `closing` with `actualOnClosingDate` following a later correction; the schedule cut with `endReason = CLOSED`, a plan ended before keeping its reason; the proposal `LOAN_CLOSED` after the date | CL "effects of CLOSED"; LC "the remaining debt …"; PA "a CLOSED Loan …", "getLoanSchedule …" |
+| Statements up to the date, later `STATEMENT_AFTER_CLOSING`; terms and allocations refused | CL "statements …"; LC "statements up to the date …"; LC schema "the split guard …" |
+| A successor is never voided: `LOAN_REFINANCES` after the close, in the repository and past it; allowed before it, and a close naming it then `REFINANCING_LOAN_NOT_ACTIVE` (review on #71) | CL "void of a successor …"; LC "a successor is never voided …"; LA "void of a successor …" |
+| P3-D8: close against a split write and against a booking-date amend (RC sees the other's result, RR `40001`, both orders); `REFINANCED` against a void of the named Loan (RC both orders, RR `40001`); two booking-date amends naming two Loans in opposite order do not deadlock (id order) | LC "concurrency (P3-D8)" |
+| The schema: the closing fields only with `CLOSED`, `REFINANCED` ↔ its Loan, `OTHER` with a note, not itself, not before the debt, the Realm, the note trimmed, final after the close; `loan_close_guard`'s three refusals | LC "the schema past the repository …" |
+
+Counter-checked (38 mutants, each red):
+- **in 0029:**
+  - `loan_close_guard` counting every status, without its split check, its `REPAID` check or its successor check, and with its successor write replaced by `FOR SHARE` (the RR void test);
+  - the split guard's Loan write replaced by `FOR SHARE` (the RR test, split first), without its closing rule or its reversal exemption;
+  - the booking-date trigger in position order (the deadlock test, `40P01`), without its rule, or reading instead of writing (the RR test);
+  - `loan_void_unreferenced` without `LOAN_REFINANCES`; the statement rule;
+  - the CHECKs for `OTHER`, `REFINANCED`, the self reference and the debt; the foreign key without the Realm;
+- **in the repositories:** close counting every status or not locking the successor; void ignoring the successors; amend without its closing check; `lockLoansOf` without the closing date;
+- **in the domain:** `REPAID` checked before the splits; the no-op; the successor's status; the split rule without the reversal exemption, refusing on the date, or removed; the remaining debt without the closing rule; the schedule keeping its end reason or not cut; `planVoid` ignoring successors; statements after the date;
+- **in the application:** the proposal without `LOAN_CLOSED`;
+- **at the API:** the self reference, `refinancedByLoanId` and the note for `OTHER` not required.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

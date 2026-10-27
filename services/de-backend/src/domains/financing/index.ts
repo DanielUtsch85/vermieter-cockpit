@@ -2,11 +2,12 @@
  * Financing domain: loans, planned vs actual, LoanAllocation (phase-3-plan.md, api-design.md §41).
  * See docs/development/coding-guidelines.md §3.
  */
-export { AMENDABLE_FIELDS, LOAN_STATUSES, createFingerprint, debtFrom, fieldErrors, planAmend, planVoid } from './loan.js';
+export { AMENDABLE_FIELDS, CLOSING_REASONS, LOAN_STATUSES, createFingerprint, debtFrom, fieldErrors, planAmend, planVoid } from './loan.js';
 export type {
   AmendableField,
   AmendLoanOutcome,
   AmendPlan,
+  ClosingReason,
   CreateLoanOutcome,
   Loan,
   LoanAmendable,
@@ -28,8 +29,10 @@ export {
   SCHEDULE_END_REASONS,
   TERMS_STATUSES,
   checkAppend,
+  closedSchedule,
   deriveSchedule,
   formatRate,
+  loanSchedule,
   monthlyInterest,
   parseRate,
   planVoidTerms,
@@ -108,6 +111,7 @@ export {
   statementViews,
 } from './debt.js';
 export type {
+  Closing,
   CountedSplit,
   CreateStatementOutcome,
   DebtInputs,
@@ -130,3 +134,5 @@ export type {
   YearPayments,
   YearPaymentsOutcome,
 } from './debt.js';
+export { planClose } from './close.js';
+export type { CloseLoanOutcome, ClosePlan, CloseRequest, SplitAfterClosing } from './close.js';

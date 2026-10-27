@@ -3,6 +3,7 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   IdempotencyKeyConflictError,
+  LoanClosedOnError,
   LoanNotActiveError,
   LoanNotFoundError,
   LoanTermsNotFoundError,
@@ -354,6 +355,7 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
     [new LoanNotActiveError(LOAN, 'VOID'), 409, 'CONFLICT', { reason: 'LOAN_NOT_ACTIVE', status: 'VOID' }],
     [new PaymentNotProposableError(TERMS, 'INFLOW', 'CONFIRMED'), 409, 'CONFLICT', { reason: 'NOT_PROPOSABLE', direction: 'INFLOW', status: 'CONFIRMED' }],
     [new NoScheduleError(LOAN, 'NO_TERMS'), 409, 'CONFLICT', { reason: 'NO_SCHEDULE', endReason: 'NO_TERMS' }],
+    [new LoanClosedOnError(LOAN, '2027-06-30' as never), 409, 'CONFLICT', { reason: 'LOAN_CLOSED', closingDate: '2027-06-30' }],
   ])('%s → %i %s', async (error, status, code, details) => {
     const base = await start({ getPaymentProposal: async () => Promise.reject(error) });
     const res = await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TERMS}`);

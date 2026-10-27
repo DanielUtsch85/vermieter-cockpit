@@ -127,6 +127,8 @@ export type AmendOutcome =
   /** Moving to a different, closed account; its own closed account is fine (§31.3). */
   | { readonly kind: 'ACCOUNT_CLOSED'; readonly financialAccountId: string }
   | { readonly kind: 'CURRENCY_MISMATCH' }
+  /** A split names a `CLOSED` Loan whose closing date is before the new booking date (§41.7). */
+  | { readonly kind: 'LOAN_CLOSED'; readonly loanId: string; readonly closingDate: BusinessDate }
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceId: string };
 
 export type IgnoreOutcome =

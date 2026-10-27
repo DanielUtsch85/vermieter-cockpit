@@ -216,20 +216,28 @@ export { OwnershipBasisIncompleteError, getOwnerAllocation } from './owner-alloc
 export type { GetOwnerAllocation } from './owner-allocation.js';
 export type { OwnerAllocationPlan, OwnerPart } from '../domains/acquisition/index.js';
 export {
+  ClosingBeforeDebtError,
   LoanClosedError,
+  LoanClosedOnError,
   LoanFieldsInvalidError,
   LoanHasSplitsError,
   LoanNotActiveError,
   LoanNotFoundError,
+  LoanRefinancesError,
+  RefinancingLoanNotActiveError,
+  RefinancingLoanNotFoundError,
+  RemainingDebtNotZeroError,
+  SplitsAfterClosingError,
   amendLoan,
+  closeLoan,
   createLoan,
   getLoan,
   listLoans,
   voidLoan,
 } from './loans.js';
-export type { AmendLoan, CreateLoan, CreateLoanInput, GetLoan, ListLoans, VoidLoan } from './loans.js';
-export { LOAN_STATUSES, debtFrom, fieldErrors as loanFieldErrors } from '../domains/financing/index.js';
-export type { Loan, LoanChanges, LoanFilter, LoanPage, LoanStatus } from '../domains/financing/index.js';
+export type { AmendLoan, CloseLoan, CreateLoan, CreateLoanInput, GetLoan, ListLoans, VoidLoan } from './loans.js';
+export { CLOSING_REASONS, LOAN_STATUSES, debtFrom, fieldErrors as loanFieldErrors } from '../domains/financing/index.js';
+export type { ClosingReason, Loan, LoanChanges, LoanFilter, LoanPage, LoanStatus } from '../domains/financing/index.js';
 export {
   LoanTermsNotFoundError,
   NoScheduleError,
@@ -249,6 +257,7 @@ export type { LoanTermsView, NumberedScheduleEntry, RepaymentModel, Schedule, Sc
 export {
   LoanBalanceStatementNotFoundError,
   LoanNotAllocatedError,
+  StatementAfterClosingError,
   StatementBeforeDebtError,
   createBalanceStatement,
   getLoanPayments,

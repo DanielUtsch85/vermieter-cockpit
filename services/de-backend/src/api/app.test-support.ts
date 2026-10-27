@@ -40,6 +40,7 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   listLoans: unused,
   amendLoan: unused,
   voidLoan: unused,
+  closeLoan: unused,
   createLoanTerms: unused,
   voidLoanTerms: unused,
   listLoanTerms: unused,

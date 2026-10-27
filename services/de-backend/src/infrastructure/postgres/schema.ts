@@ -197,6 +197,10 @@ export interface LoanTable {
   notes: string | null;
   voided_at: Date | null;
   void_reason: string | null;
+  closing_date: string | null;
+  closing_reason: string | null;
+  refinanced_by_loan_id: string | null;
+  closing_note: string | null;
   created_at: Generated<Date>;
   created_by: string;
   updated_at: Generated<Date>;

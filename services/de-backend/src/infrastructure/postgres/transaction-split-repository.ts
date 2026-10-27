@@ -1,4 +1,4 @@
-import type { Kysely, Transaction as Trx } from 'kysely';
+import { sql, type Kysely, type Transaction as Trx } from 'kysely';
 import {
   checkLoanSplits,
   checkVersion,
@@ -13,7 +13,7 @@ import {
   type TransactionSplitRepository,
   type TransactionStatus,
 } from '../../domains/ledger/index.js';
-import type { AuditActor } from '../../shared/index.js';
+import type { AuditActor, BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { lockLoansOf } from './loan-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
@@ -44,7 +44,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
       .execute(async (trx): Promise<ReplaceSplitsOutcome> => {
         const row = await trx
           .selectFrom('ledger_transaction')
-          .select(['id', 'amount', 'currency', 'direction', 'status', 'version'])
+          .select(['id', 'amount', 'currency', 'direction', 'status', 'version', sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date')])
           .where('id', '=', transactionId)
           .where('mre_realm_id', '=', mreRealmId)
           .forUpdate()
@@ -101,7 +101,11 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
         // §41.5: the Loans after the Transaction lock, in id order (P3-D8). A split write never reverses a Transaction.
         const loanIds = splits.flatMap((s) => (s.loanId === null ? [] : [s.loanId]));
         if (loanIds.length > 0) {
-          const refusal = checkLoanSplits({ direction: transaction.direction, reversal: false }, splits, await lockLoansOf(trx, mreRealmId, loanIds));
+          const refusal = checkLoanSplits(
+            { direction: transaction.direction, reversal: false, bookingDate: row.booking_date as BusinessDate },
+            splits,
+            await lockLoansOf(trx, mreRealmId, loanIds),
+          );
           if (refusal !== undefined) return refusal;
         }
 

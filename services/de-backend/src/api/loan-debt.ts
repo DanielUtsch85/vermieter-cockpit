@@ -7,6 +7,7 @@ import {
   LoanNotAllocatedError,
   LoanNotFoundError,
   STATEMENT_STATUSES,
+  StatementAfterClosingError,
   StatementBeforeDebtError,
   VersionConflictError,
   formatShare,
@@ -200,6 +201,15 @@ function toDebtDto(loanId: string, d: RemainingDebt | RemainingDebtPerProperty) 
     difference: signedOrNull(d.difference),
     planEndReason: d.planEndReason,
     latestStatement: d.latestStatement === null ? null : toStatementDto(d.latestStatement),
+    closing:
+      d.closing === null
+        ? null
+        : {
+            closingDate: d.closing.closingDate,
+            reason: d.closing.reason,
+            refinancedByLoanId: d.closing.refinancedByLoanId,
+            actualOnClosingDate: signedEurCents(d.closing.actualOnClosingDate),
+          },
     ...('items' in d
       ? {
           allocationSetId: d.allocationSetId,
@@ -249,6 +259,8 @@ function sendDebtError(res: Response, error: unknown): boolean {
     sendError(res, 409, 'CONFLICT', 'No allocation set covers the day.', { reason: 'LOAN_NOT_ALLOCATED', ...error.details });
   } else if (error instanceof StatementBeforeDebtError) {
     sendError(res, 422, 'STATEMENT_BEFORE_DEBT', 'The statement is before the debt starts.', { debtFrom: error.debtFrom });
+  } else if (error instanceof StatementAfterClosingError) {
+    sendError(res, 422, 'STATEMENT_AFTER_CLOSING', 'The statement is after the Loan was closed.', { closingDate: error.closingDate });
   } else if (error instanceof VersionConflictError) {
     sendError(res, 412, 'VERSION_CONFLICT', 'The statement changed since the version given in If-Match.', {
       expectedVersions: error.expectedVersions,

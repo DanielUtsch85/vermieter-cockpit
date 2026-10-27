@@ -27,6 +27,7 @@ import * as m0025 from './0025_loan_terms.js';
 import * as m0026 from './0026_loan_allocation.js';
 import * as m0027 from './0027_loan_payment.js';
 import * as m0028 from './0028_loan_balance_statement.js';
+import * as m0029 from './0029_loan_close.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -63,4 +64,5 @@ export const migrations: Record<string, Migration> = {
   '0026_loan_allocation': m0026,
   '0027_loan_payment': m0027,
   '0028_loan_balance_statement': m0028,
+  '0029_loan_close': m0029,
 };
