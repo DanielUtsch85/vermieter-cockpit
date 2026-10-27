@@ -5,6 +5,7 @@ import {
   CurrencyMismatchError,
   FinancialCategoryNotFoundError,
   InvalidLoanSplitError,
+  LoanClosedOnError,
   LoanNotActiveError,
   LoanNotFoundError,
   PropertyReferenceNotFoundError,
@@ -140,6 +141,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
       [new InvalidLoanSplitError(2, 'CATEGORY'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 2, reason: 'CATEGORY' } }],
       [new InvalidLoanSplitError(1, 'DIRECTION'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 1, reason: 'DIRECTION' } }],
       [new LoanNotActiveError(LOAN, 'VOID'), 409, { code: 'CONFLICT', details: { reason: 'LOAN_NOT_ACTIVE', loanId: LOAN, status: 'VOID' } }],
+      [new LoanClosedOnError(LOAN, '2027-06-30' as never), 409, { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: LOAN, closingDate: '2027-06-30' } }],
       [new TransactionNotFoundError(TX), 404, { code: 'NOT_FOUND' }],
       [new PropertyReferenceNotFoundError(PROPERTY), 404, { code: 'NOT_FOUND', details: { propertyReferenceId: PROPERTY } }],
       [

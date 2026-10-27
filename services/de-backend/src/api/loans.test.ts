@@ -3,14 +3,20 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   AcquisitionNotFoundError,
+  ClosingBeforeDebtError,
   IdempotencyKeyConflictError,
   LoanClosedError,
   LoanFieldsInvalidError,
   LoanHasSplitsError,
   LoanNotActiveError,
   LoanNotFoundError,
+  LoanRefinancesError,
   OwnerInactiveError,
   PartyNotFoundError,
+  RefinancingLoanNotActiveError,
+  RefinancingLoanNotFoundError,
+  RemainingDebtNotZeroError,
+  SplitsAfterClosingError,
   VersionConflictError,
   type CreateLoanInput,
   type Loan,
@@ -43,6 +49,10 @@ const loan = {
   notes: null,
   voidedAt: null,
   voidReason: null,
+  closingDate: null,
+  closingReason: null,
+  refinancedByLoanId: null,
+  closingNote: null,
   createdAt: new Date('2026-08-15T10:00:00Z'),
   version: 1,
 } as unknown as Loan;
@@ -108,6 +118,7 @@ describe('POST /api/v1/loans', () => {
       closingDate: null,
       closingReason: null,
       refinancedByLoanId: null,
+      closingNote: null,
       createdAt: '2026-08-15T10:00:00.000Z',
       version: 1,
     });
@@ -224,6 +235,64 @@ describe('POST /api/v1/loans/{id}/void', () => {
     const res = await call(base, 'POST', `/loans/${ID}/void`, { reason: 'x' });
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
+  });
+});
+
+describe('POST /api/v1/loans/{id}/close (§41.7)', () => {
+  const body = { closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: BEN.toUpperCase() };
+
+  it('200 with the closed Loan and ETag; the request reaches the command normalized; If-Match passed', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      closeLoan: async (input) => {
+        seen.push(input);
+        return {
+          loan: { ...loan, status: 'CLOSED', closingDate: '2027-06-30', closingReason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null, version: 2 } as unknown as Loan,
+          changed: true,
+        };
+      },
+    });
+    const res = await call(base, 'POST', `/loans/${ID}/close`, body, { 'if-match': '"1"' });
+    expect([res.status, res.headers.get('etag')]).toEqual([200, '"2"']);
+    expect(await res.json()).toMatchObject({ status: 'CLOSED', closingDate: '2027-06-30', closingReason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null });
+    expect(seen[0]).toMatchObject({ loanId: ID, closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null, expectedVersions: [1] });
+    await call(base, 'POST', `/loans/${ID}/close`, { closingDate: '2027-06-30', reason: 'OTHER', closingNote: ' Vergleich ' });
+    expect(seen[1]).toMatchObject({ reason: 'OTHER', refinancedByLoanId: null, closingNote: 'Vergleich' });
+  });
+
+  it('400: strict body, the reason, refinancedByLoanId required exactly for REFINANCED and not the Loan itself, a note for OTHER', async () => {
+    const base = await start({});
+    const fields = async (b: unknown) => ((await errorOf(await call(base, 'POST', `/loans/${ID}/close`, b))).details as { fields: unknown[] }).fields;
+    expect(await fields({ ...body, extra: 1 })).toHaveLength(1);
+    expect(await fields({ closingDate: '2027-06-30', reason: 'SOLD' })).toEqual([{ field: 'reason', code: 'INVALID_FORMAT' }]);
+    expect(await fields({ closingDate: '2027-06-30', reason: 'REFINANCED' })).toEqual([{ field: 'refinancedByLoanId', code: 'REQUIRED' }]);
+    expect(await fields({ closingDate: '2027-06-30', reason: 'REPAID', refinancedByLoanId: BEN })).toEqual([{ field: 'refinancedByLoanId', code: 'NOT_ALLOWED_FOR_REASON' }]);
+    expect(await fields({ closingDate: '2027-06-30', reason: 'OTHER', closingNote: '  ' })).toEqual([{ field: 'closingNote', code: 'REQUIRED' }]);
+    expect(await fields({ closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: ID.toUpperCase() })).toEqual([{ field: 'refinancedByLoanId', code: 'SELF_REFERENCE' }]);
+    expect((await fields({ reason: 'REPAID' }))[0]).toMatchObject({ field: 'closingDate' });
+  });
+
+  it.each([
+    [new LoanNotFoundError(ID), 404, 'NOT_FOUND', { loanId: ID }],
+    [new LoanNotActiveError(ID, 'CLOSED'), 409, 'CONFLICT', { reason: 'LOAN_NOT_ACTIVE', status: 'CLOSED' }],
+    [new ClosingBeforeDebtError('2027-01-01' as never), 422, 'CLOSING_BEFORE_DEBT', { debtFrom: '2027-01-01' }],
+    [new RefinancingLoanNotFoundError(BEN), 404, 'NOT_FOUND', { refinancedByLoanId: BEN }],
+    [new RefinancingLoanNotActiveError('VOID'), 422, 'REFINANCING_LOAN_NOT_ACTIVE', { status: 'VOID' }],
+    [new SplitsAfterClosingError([BANK]), 409, 'CONFLICT', { reason: 'SPLITS_AFTER_CLOSING', transactionIds: [BANK] }],
+    [new RemainingDebtNotZeroError(-1n), 409, 'CONFLICT', { reason: 'REMAINING_DEBT_NOT_ZERO', actual: { amount: '-0.01', currency: 'EUR' } }],
+    [new RemainingDebtNotZeroError(12_345n), 409, 'CONFLICT', { reason: 'REMAINING_DEBT_NOT_ZERO', actual: { amount: '123.45', currency: 'EUR' } }],
+    [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', { currentVersion: 2 }],
+  ])('%s → %i %s', async (error, status, code, details) => {
+    const base = await start({ closeLoan: async () => Promise.reject(error) });
+    const res = await call(base, 'POST', `/loans/${ID}/close`, body);
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject({ code, details });
+  });
+
+  it('void of a successor: 409 LOAN_REFINANCES', async () => {
+    const base = await start({ voidLoan: async () => Promise.reject(new LoanRefinancesError(ID, [BEN])) });
+    const res = await call(base, 'POST', `/loans/${ID}/void`, { reason: 'x' });
+    expect([res.status, await errorOf(res)]).toMatchObject([409, { code: 'CONFLICT', details: { reason: 'LOAN_REFINANCES', loanIds: [BEN] } }]);
   });
 });
 

@@ -14,6 +14,7 @@ import {
 import type { AuditActor } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { toFinancialAccount } from './financial-account-repository.js';
+import { lockLoansOf } from './loan-repository.js';
 import { toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { COLUMNS, UUID, toDomain } from './transaction-repository.js';
@@ -67,6 +68,20 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
           }
 
           if (plan.dropSplits) await trx.deleteFrom('transaction_split').where('transaction_id', '=', id).execute();
+          else if (plan.changed.includes('bookingDate')) {
+            // §41.7: after the Transaction lock, the Loans its splits name in id order (P3-D8); none may be closed before the new date.
+            const named = await trx.selectFrom('transaction_split').select('loan_id').where('transaction_id', '=', id).where('loan_id', 'is not', null).execute();
+            const loans = await lockLoansOf(
+              trx,
+              mreRealmId,
+              named.map((n) => n.loan_id as string),
+            );
+            for (const [loanId, loan] of loans) {
+              if (loan.status === 'CLOSED' && loan.closingDate !== null && values.bookingDate > loan.closingDate) {
+                throw new Rejected({ kind: 'LOAN_CLOSED', loanId, closingDate: loan.closingDate });
+              }
+            }
+          }
           const updated = await trx
             .updateTable('ledger_transaction')
             .set((eb) => ({

@@ -2397,7 +2397,7 @@ A balance the lender reports on a date, e.g. from the annual account statement (
   - the schema past the repository (a `VOID` Loan, before the debt, inserted as `VOID`, an edit, a delete), each with a counter-check.
 - **API:** every `400`, the error mapping, `perProperty`, the Money format of signed values.
 
-## 41.7 Closing a Loan and refinancing (VC-3-07)
+## 41.7 Closing a Loan and refinancing (VC-3-07, implemented: migration 0029)
 
 Decision P3-D7 of `docs/development/phase-3-plan.md`. A Loan ends by `close`: repaid, taken over by another Loan, or for another reason. Refinancing with another lender (Umschuldung) is a new Loan (§41.1) plus closing the old one as `REFINANCED`. With the same lender (Anschlussfinanzierung) it is a new terms period (§41.2). There is no `refinance` command.
 
@@ -2469,11 +2469,11 @@ Decision P3-D7 of `docs/development/phase-3-plan.md`. A Loan ends by `close`: re
   - `closing_reason <> 'OTHER' OR closing_note IS NOT NULL`;
   - `refinanced_by_loan_id <> id`;
   - `closing_date >= coalesce(disbursement_date, start_date)`.
-- **`loan_frozen`:** the closing columns are set only in the step `ACTIVE` → `CLOSED`, and fixed after it. The step's `version` + 1 rule is unchanged.
+- **`loan_frozen`:** the closing columns are set only in the step `ACTIVE` → `CLOSED`, and fixed after it. 0024's trigger already gives this together with the CHECKs: the CHECKs allow the columns only on a `CLOSED` row, and a `CLOSED` row is final. The step's `version` + 1 rule is unchanged.
 - **`loan_close_guard`** (before update, `WHEN (OLD.status <> 'CLOSED' AND NEW.status = 'CLOSED')`):
   - refuses a split of the Loan on a Transaction booked after `closing_date` whose status is not `CORRECTED` and whose `correction_role` is not `REVERSAL` (`SPLITS_AFTER_CLOSING`, the rule of check 6);
   - for `REPAID`, refuses a counted `LOAN_PRINCIPAL` sum up to `closing_date` other than `principal_original` (`REMAINING_DEBT_NOT_ZERO`);
-  - for `REFINANCED`, writes the named Loan's row (P3-D8's no-op, `RETURNING status`) and refuses one not `ACTIVE`. A concurrent void of that Loan then serialises with the close.
+  - for `REFINANCED`, writes the named Loan's row (P3-D8's no-op, `RETURNING status`) and refuses one not `ACTIVE`. A concurrent void of that Loan then serialises with the close. A missing or self reference is left to the CHECKs, since BEFORE triggers fire before them.
 - **`transaction_split_loan` (0027):**
   - after the `VOID` refusal, refuses a `CLOSED` Loan when the Transaction's `booking_date` is after `closing_date` and its `correction_role` is not `REVERSAL` (`LOAN_CLOSED`);
   - it still writes the Loan row first, so a close and a split write serialise on it;

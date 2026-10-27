@@ -247,7 +247,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       expect((await audit(loan.id)).map((r) => r.action)).toEqual(['CREATED', 'VOIDED']);
       const closed = await created(newLoan(bank, [anna]));
       // VC-3-07 brings close; past the repository a status step out of ACTIVE is allowed with version + 1.
-      await pool.query(`UPDATE loan SET status = 'CLOSED', version = version + 1 WHERE id = $1`, [closed.id]);
+      await pool.query(`UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`, [closed.id]);
       expect(await loans.void(closed.id, REALM, 'x', new Date(), actor)).toEqual({ kind: 'LOAN_CLOSED' });
       expect(await loans.void(loan.id, OTHER_REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_FOUND' });
     });

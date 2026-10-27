@@ -71,6 +71,7 @@ export type {
 export { LOAN_SPLIT_CATEGORIES, SPLITTABLE_STATUSES, checkLoanSplits, planSplits, sameSplits } from './transaction-split.js';
 export type {
   LoanSplitRefusal,
+  SplitLoan,
   ReplaceSplitsOutcome,
   SplitInput,
   SplitPlan,

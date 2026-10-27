@@ -1,4 +1,4 @@
-import { Money, type AuditActor } from '../../shared/index.js';
+import { Money, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import type { Direction, TransactionId, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
@@ -79,21 +79,32 @@ export function sameSplits(current: readonly SplitInput[], next: readonly SplitI
 /** The categories a split with `loanId` may carry (§41.5, data-model §72). */
 export const LOAN_SPLIT_CATEGORIES = ['LOAN_INTEREST', 'LOAN_PRINCIPAL'] as const;
 
-/** Why a split set's Loans refuse it (api-design §41.5): 404, 422 INVALID_LOAN_SPLIT, 409 LOAN_NOT_ACTIVE. */
+/**
+ * Why a split set's Loans refuse it (api-design §41.5, §41.7): 404, 422 INVALID_LOAN_SPLIT, 409 LOAN_NOT_ACTIVE,
+ * 409 LOAN_CLOSED.
+ */
 export type LoanSplitRefusal =
   | { readonly kind: 'LOAN_NOT_FOUND'; readonly loanId: string }
   | { readonly kind: 'INVALID_LOAN_SPLIT'; readonly position: number; readonly reason: 'CATEGORY' | 'DIRECTION' }
-  | { readonly kind: 'LOAN_NOT_ACTIVE'; readonly loanId: string; readonly status: string };
+  | { readonly kind: 'LOAN_NOT_ACTIVE'; readonly loanId: string; readonly status: string }
+  | { readonly kind: 'LOAN_CLOSED'; readonly loanId: string; readonly closingDate: BusinessDate };
+
+/** A Loan as the split rules read it: its status and, while `CLOSED`, its closing date. */
+export interface SplitLoan {
+  readonly status: string;
+  readonly closingDate: BusinessDate | null;
+}
 
 /**
  * The rules of §41.5 for the splits with `loanId`, in its order: every unknown or foreign Loan first, then the
- * category, then the direction (a reversal is exempt), then a `VOID` Loan; each for the first split in position
- * order. `loans` holds the status of the Loans found in the Realm.
+ * category, then the direction (a reversal is exempt), then a `VOID` Loan, then a `CLOSED` one whose closing date is
+ * before the booking date (§41.7, a reversal exempt); each for the first split in position order. `loans` holds the
+ * Loans found in the Realm.
  */
 export function checkLoanSplits(
-  transaction: { readonly direction: Direction; readonly reversal: boolean },
+  transaction: { readonly direction: Direction; readonly reversal: boolean; readonly bookingDate: BusinessDate },
   splits: readonly SplitInput[],
-  loans: ReadonlyMap<string, string>,
+  loans: ReadonlyMap<string, SplitLoan>,
 ): LoanSplitRefusal | undefined {
   const withLoan = splits.flatMap((split, i) => (split.loanId === null ? [] : [{ split, loanId: split.loanId, position: i + 1 }]));
   const unknown = withLoan.find((s) => !loans.has(s.loanId));
@@ -103,8 +114,15 @@ export function checkLoanSplits(
   if (withLoan.length > 0 && transaction.direction !== 'OUTFLOW' && !transaction.reversal) {
     return { kind: 'INVALID_LOAN_SPLIT', position: (withLoan[0] as (typeof withLoan)[number]).position, reason: 'DIRECTION' };
   }
-  const inactive = withLoan.find((s) => loans.get(s.loanId) === 'VOID');
+  const inactive = withLoan.find((s) => loans.get(s.loanId)?.status === 'VOID');
   if (inactive !== undefined) return { kind: 'LOAN_NOT_ACTIVE', loanId: inactive.loanId, status: 'VOID' };
+  if (transaction.reversal) return undefined;
+  for (const s of withLoan) {
+    const loan = loans.get(s.loanId);
+    if (loan?.status === 'CLOSED' && loan.closingDate !== null && transaction.bookingDate > loan.closingDate) {
+      return { kind: 'LOAN_CLOSED', loanId: s.loanId, closingDate: loan.closingDate };
+    }
+  }
   return undefined;
 }
 

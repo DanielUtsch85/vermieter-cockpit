@@ -5,6 +5,7 @@ import {
   CurrencyMismatchError,
   InactiveCategoryError,
   InvalidLoanSplitError,
+  LoanClosedOnError,
   LoanNotActiveError,
   LoanNotFoundError,
   SplitSumMismatchError,
@@ -429,10 +430,12 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
       [new IdempotencyKeyConflictError('x'), 409, { code: 'CONFLICT' }],
       [new InactiveCategoryError(['OLD']), 422, { code: 'REVIEW_REQUIRED', details: { reason: 'INACTIVE_CATEGORY', financialCategoryCodes: ['OLD'] } }],
       [new CurrencyMismatchError('x'), 400, { code: 'VALIDATION_ERROR' }],
+      [new LoanClosedOnError(ACCOUNT, '2027-06-30' as never), 409, { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: ACCOUNT, closingDate: '2027-06-30' } }],
       // §41.5: the replacement's splits with loanId.
       [new LoanNotFoundError(ACCOUNT), 404, { code: 'NOT_FOUND', details: { loanId: ACCOUNT } }],
       [new InvalidLoanSplitError(1, 'DIRECTION'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 1, reason: 'DIRECTION' } }],
       [new LoanNotActiveError(ACCOUNT, 'VOID'), 409, { code: 'CONFLICT', details: { reason: 'LOAN_NOT_ACTIVE', loanId: ACCOUNT, status: 'VOID' } }],
+      [new LoanClosedOnError(ACCOUNT, '2027-06-30' as never), 409, { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: ACCOUNT, closingDate: '2027-06-30' } }],
     ] as const;
     for (const [error, status, body] of cases) {
       const base = await startCorrect(() => Promise.reject(error));

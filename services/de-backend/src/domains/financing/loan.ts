@@ -1,4 +1,5 @@
 import type { AuditActor, BusinessDate, Money, VersionConflict } from '../../shared/index.js';
+import type { CloseLoanOutcome, CloseRequest } from './close.js';
 
 /**
  * Loan (data-model.md §21, api-design.md §41.1, backlog VC-3-01): one canonical financing contract (phase-3-plan
@@ -33,12 +34,22 @@ export interface LoanData extends LoanAmendable {
   readonly acquisitionId: string | null;
 }
 
+/** Why a Loan was closed (P3-D7, api-design §41.7). */
+export const CLOSING_REASONS = ['REPAID', 'REFINANCED', 'OTHER'] as const;
+export type ClosingReason = (typeof CLOSING_REASONS)[number];
+
 export interface Loan extends LoanData {
   readonly id: LoanId;
   readonly mreRealmId: string;
   readonly status: LoanStatus;
   readonly voidedAt: Date | null;
   readonly voidReason: string | null;
+  /** Set exactly while `CLOSED` (§41.7). */
+  readonly closingDate: BusinessDate | null;
+  readonly closingReason: ClosingReason | null;
+  /** The Loan that took the debt over, exactly for `REFINANCED`. */
+  readonly refinancedByLoanId: string | null;
+  readonly closingNote: string | null;
   readonly createdAt: Date;
   readonly version: number;
 }
@@ -132,12 +143,16 @@ export type VoidPlan =
   /** Closed is final (→ 409 LOAN_CLOSED). */
   | { readonly kind: 'LOAN_CLOSED' }
   /** Splits reference the Loan, reversals included (→ 409 LOAN_HAS_SPLITS; from VC-3-05). */
-  | { readonly kind: 'LOAN_HAS_SPLITS'; readonly transactionIds: readonly string[] };
+  | { readonly kind: 'LOAN_HAS_SPLITS'; readonly transactionIds: readonly string[] }
+  /** `CLOSED` Loans name it as their refinancing (→ 409 LOAN_REFINANCES; §41.7, review on #71). */
+  | { readonly kind: 'LOAN_REFINANCES'; readonly loanIds: readonly string[] };
 
-export function planVoid(current: Loan, reason: string, at: Date, splitTransactionIds: readonly string[]): VoidPlan {
+/** `refinancedLoanIds`: the `CLOSED` Loans naming this one as `refinancedByLoanId`. */
+export function planVoid(current: Loan, reason: string, at: Date, splitTransactionIds: readonly string[], refinancedLoanIds: readonly string[] = []): VoidPlan {
   if (current.status === 'VOID') return { kind: 'UNCHANGED' };
   if (current.status === 'CLOSED') return { kind: 'LOAN_CLOSED' };
   if (splitTransactionIds.length > 0) return { kind: 'LOAN_HAS_SPLITS', transactionIds: [...new Set(splitTransactionIds)].sort() };
+  if (refinancedLoanIds.length > 0) return { kind: 'LOAN_REFINANCES', loanIds: [...new Set(refinancedLoanIds)].sort() };
   return { kind: 'VOID', next: { ...current, status: 'VOID', voidedAt: at, voidReason: reason, version: current.version + 1 } };
 }
 
@@ -189,6 +204,11 @@ export interface LoanRepository {
   list(mreRealmId: string, filter: LoanFilter, page: { readonly page: number; readonly pageSize: number }): Promise<LoanPage>;
   /** Parties named in the changes `FOR SHARE` in id order, then the Loan `FOR UPDATE` (Parties → Loan), then `planAmend`. */
   amend(id: string, mreRealmId: string, changes: LoanChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendLoanOutcome>;
-  /** The Loan `FOR UPDATE`, then its splits are read; no Transaction is locked (P3-D8). */
+  /**
+   * The Loan and, for `REFINANCED`, the named Loan `FOR UPDATE` in id order, then the splits and their Transactions are
+   * read, then `planClose` (§41.7); no Transaction is locked (P3-D8).
+   */
+  close(id: string, mreRealmId: string, request: CloseRequest, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseLoanOutcome>;
+  /** The Loan `FOR UPDATE`, then its splits and the `CLOSED` Loans naming it are read; no Transaction is locked (P3-D8). */
   void(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidLoanOutcome>;
 }

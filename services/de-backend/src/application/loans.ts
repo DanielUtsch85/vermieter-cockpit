@@ -1,5 +1,6 @@
 import {
   createFingerprint,
+  type CloseRequest,
   type Loan,
   type LoanChanges,
   type LoanData,
@@ -9,6 +10,7 @@ import {
   type LoanRepository,
   type LoanStatus,
 } from '../domains/financing/index.js';
+import type { BusinessDate } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { AcquisitionNotFoundError, OwnerInactiveError } from './ownerships.js';
@@ -57,6 +59,76 @@ export class LoanHasSplitsError extends Error {
     readonly transactionIds: readonly string[],
   ) {
     super(`Loan ${loanId} is referenced by splits of ${transactionIds.join(', ')}`);
+  }
+}
+
+/** A `CLOSED` Loan names this one as its refinancing (→ 409 LOAN_REFINANCES; §41.7, review on #71). */
+export class LoanRefinancesError extends Error {
+  override readonly name = 'LoanRefinancesError';
+
+  constructor(
+    readonly loanId: string,
+    readonly loanIds: readonly string[],
+  ) {
+    super(`Loan ${loanId} took over ${loanIds.join(', ')}`);
+  }
+}
+
+/** A split or a booking date after a `CLOSED` Loan's closing date (→ 409 LOAN_CLOSED; §41.7). */
+export class LoanClosedOnError extends Error {
+  override readonly name = 'LoanClosedOnError';
+
+  constructor(
+    readonly loanId: string,
+    readonly closingDate: BusinessDate,
+  ) {
+    super(`Loan ${loanId} was closed on ${closingDate}`);
+  }
+}
+
+/** The closing date is before the debt starts (→ 422 CLOSING_BEFORE_DEBT). */
+export class ClosingBeforeDebtError extends Error {
+  override readonly name = 'ClosingBeforeDebtError';
+
+  constructor(readonly debtFrom: BusinessDate) {
+    super(`The closing date is before the debt starts on ${debtFrom}`);
+  }
+}
+
+/** The named refinancing Loan is unknown or of another Realm (→ 404 with `details.refinancedByLoanId`). */
+export class RefinancingLoanNotFoundError extends Error {
+  override readonly name = 'RefinancingLoanNotFoundError';
+
+  constructor(readonly refinancedByLoanId: string) {
+    super(`Loan ${refinancedByLoanId} not found`);
+  }
+}
+
+/** The named refinancing Loan is not `ACTIVE` (→ 422 REFINANCING_LOAN_NOT_ACTIVE). */
+export class RefinancingLoanNotActiveError extends Error {
+  override readonly name = 'RefinancingLoanNotActiveError';
+
+  constructor(readonly status: LoanStatus) {
+    super(`The refinancing Loan is ${status}`);
+  }
+}
+
+/** Splits that could still count lie after the closing date (→ 409 SPLITS_AFTER_CLOSING). */
+export class SplitsAfterClosingError extends Error {
+  override readonly name = 'SplitsAfterClosingError';
+
+  constructor(readonly transactionIds: readonly string[]) {
+    super(`Transactions ${transactionIds.join(', ')} are booked after the closing date`);
+  }
+}
+
+/** `REPAID` while the actual remaining debt on the closing date is not 0 (→ 409 REMAINING_DEBT_NOT_ZERO). */
+export class RemainingDebtNotZeroError extends Error {
+  override readonly name = 'RemainingDebtNotZeroError';
+
+  /** `actual`: signed cents. */
+  constructor(readonly actual: bigint) {
+    super(`The remaining debt on the closing date is ${actual} cents, not 0`);
   }
 }
 
@@ -173,6 +245,40 @@ export function voidLoan(deps: { readonly repository: LoanRepository; readonly n
         throw new LoanClosedError(loanId);
       case 'LOAN_HAS_SPLITS':
         throw new LoanHasSplitsError(loanId, outcome.transactionIds);
+      case 'LOAN_REFINANCES':
+        throw new LoanRefinancesError(loanId, outcome.loanIds);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+    }
+  };
+}
+
+export type CloseLoan = (input: CloseRequest & { readonly principal: RealmPrincipal; readonly loanId: string; readonly expectedVersions?: readonly number[] }) => Promise<{
+  readonly loan: Loan;
+  readonly changed: boolean;
+}>;
+
+/** §41.7's close; a repeat with the same values is a no-op. */
+export function closeLoan(deps: { readonly repository: LoanRepository }): CloseLoan {
+  return async ({ principal, loanId, expectedVersions, ...request }) => {
+    const outcome = await deps.repository.close(loanId, principal.mreRealmId, request, actorOf(principal), expectedVersions);
+    switch (outcome.kind) {
+      case 'CLOSED':
+        return { loan: outcome.loan, changed: outcome.changed };
+      case 'NOT_FOUND':
+        throw new LoanNotFoundError(loanId);
+      case 'LOAN_NOT_ACTIVE':
+        throw new LoanNotActiveError(loanId, outcome.status);
+      case 'CLOSING_BEFORE_DEBT':
+        throw new ClosingBeforeDebtError(outcome.debtFrom);
+      case 'REFINANCING_LOAN_NOT_FOUND':
+        throw new RefinancingLoanNotFoundError(outcome.refinancedByLoanId);
+      case 'REFINANCING_LOAN_NOT_ACTIVE':
+        throw new RefinancingLoanNotActiveError(outcome.status);
+      case 'SPLITS_AFTER_CLOSING':
+        throw new SplitsAfterClosingError(outcome.transactionIds);
+      case 'REMAINING_DEBT_NOT_ZERO':
+        throw new RemainingDebtNotZeroError(outcome.actual);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

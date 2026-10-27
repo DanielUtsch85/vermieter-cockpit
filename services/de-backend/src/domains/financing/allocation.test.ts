@@ -35,6 +35,10 @@ const loan: Loan = {
   notes: null,
   voidedAt: null,
   voidReason: null,
+  closingDate: null,
+  closingReason: null,
+  refinancedByLoanId: null,
+  closingNote: null,
   createdAt: new Date('2026-08-15T00:00:00Z'),
   version: 1,
 } as Loan;

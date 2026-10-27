@@ -1,6 +1,6 @@
 import {
   proposePayment,
-  scheduleOf,
+  loanSchedule,
   scheduleWindow,
   termsFingerprint,
   type PaymentProposal,
@@ -15,7 +15,7 @@ import {
 import type { BusinessDate } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
-import { LoanNotActiveError, LoanNotFoundError } from './loans.js';
+import { LoanClosedOnError, LoanNotActiveError, LoanNotFoundError } from './loans.js';
 
 /**
  * Loan terms commands and reads (api-design.md §41.2, backlog VC-3-02), in the caller's verified Realm. Input arrives
@@ -136,7 +136,7 @@ export function getLoanSchedule(deps: { readonly repository: LoanTermsRepository
   return async ({ principal, loanId, from, to }) => {
     const inputs = await deps.repository.scheduleInputs(loanId, principal.mreRealmId);
     if (inputs === undefined) throw new LoanNotFoundError(loanId);
-    return scheduleWindow(scheduleOf(inputs.loan.principalOriginal, inputs.loan.maturityDate, inputs.periods), from, to);
+    return scheduleWindow(loanSchedule(inputs.loan, inputs.periods), from, to);
   };
 }
 
@@ -191,8 +191,10 @@ export function getPaymentProposal(deps: { readonly repository: LoanTermsReposit
     if (inputs.kind === 'TRANSACTION_NOT_FOUND') throw new ProposalTransactionNotFoundError(transactionId);
     const { loan, periods, transaction } = inputs;
     if (loan.status === 'VOID') throw new LoanNotActiveError(loanId, loan.status);
+    // §41.7: its splits would be refused after the closing date.
+    if (loan.status === 'CLOSED' && loan.closingDate !== null && transaction.bookingDate > loan.closingDate) throw new LoanClosedOnError(loanId, loan.closingDate);
     const models = new Map(periods.map((p) => [p.id as string, p.repaymentModel]));
-    const proposal = proposePayment(scheduleOf(loan.principalOriginal, loan.maturityDate, periods), transaction, (id) => models.get(id) ?? 'ANNUITY');
+    const proposal = proposePayment(loanSchedule(loan, periods), transaction, (id) => models.get(id) ?? 'ANNUITY');
     if (proposal.kind === 'NOT_PROPOSABLE') throw new PaymentNotProposableError(transactionId, proposal.direction, proposal.status);
     if (proposal.kind === 'NO_SCHEDULE') throw new NoScheduleError(loanId, proposal.endReason);
     return { ...proposal, loanId, transactionId: transaction.id, bookingDate: transaction.bookingDate, amount: transaction.amount };

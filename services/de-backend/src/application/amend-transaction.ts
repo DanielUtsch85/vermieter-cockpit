@@ -8,6 +8,7 @@ import type {
 import type { RealmPrincipal } from './access.js';
 import { VersionConflictError } from './errors.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
+import { LoanClosedOnError } from './loans.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { TransactionNotFoundError } from './transaction-splits.js';
 import { CurrencyMismatchError, FinancialAccountClosedError } from './transactions.js';
@@ -92,6 +93,8 @@ export function amendTransaction(deps: { readonly repository: UnconfirmedTransac
         throw new CurrencyMismatchError('Transaction currency differs from the account currency');
       case 'PROPERTY_REFERENCE_NOT_FOUND':
         throw new PropertyReferenceNotFoundError(outcome.propertyReferenceId);
+      case 'LOAN_CLOSED':
+        throw new LoanClosedOnError(outcome.loanId, outcome.closingDate);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

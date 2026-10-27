@@ -2,6 +2,8 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   AcquisitionNotFoundError,
+  CLOSING_REASONS,
+  ClosingBeforeDebtError,
   IdempotencyKeyConflictError,
   LOAN_STATUSES,
   LoanClosedError,
@@ -9,12 +11,18 @@ import {
   LoanHasSplitsError,
   LoanNotActiveError,
   LoanNotFoundError,
+  LoanRefinancesError,
   OwnerInactiveError,
   PartyNotFoundError,
+  RefinancingLoanNotActiveError,
+  RefinancingLoanNotFoundError,
+  RemainingDebtNotZeroError,
+  SplitsAfterClosingError,
   VersionConflictError,
   debtFrom,
   loanFieldErrors,
   type AmendLoan,
+  type CloseLoan,
   type CreateLoan,
   type GetLoan,
   type ListLoans,
@@ -105,6 +113,24 @@ const amendBody = z
 
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
+const closeBody = z
+  .object({
+    closingDate: businessDate,
+    reason: z.enum(CLOSING_REASONS),
+    refinancedByLoanId: uuid.nullish(),
+    closingNote: optionalText(500).nullish(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    // Refinements run even after a field failed to parse: only check what parsed.
+    const refinanced = body.reason === 'REFINANCED';
+    if (refinanced && (body.refinancedByLoanId ?? null) === null) ctx.addIssue({ code: 'custom', path: ['refinancedByLoanId'], params: { code: 'REQUIRED' } });
+    if (!refinanced && typeof body.reason === 'string' && (body.refinancedByLoanId ?? null) !== null) {
+      ctx.addIssue({ code: 'custom', path: ['refinancedByLoanId'], params: { code: 'NOT_ALLOWED_FOR_REASON' } });
+    }
+    if (body.reason === 'OTHER' && (body.closingNote ?? null) === null) ctx.addIssue({ code: 'custom', path: ['closingNote'], params: { code: 'REQUIRED' } });
+  });
+
 const listQuery = z
   .object({
     status: z.enum(LOAN_STATUSES).optional(),
@@ -121,6 +147,7 @@ export interface LoanCommands {
   readonly list: ListLoans;
   readonly amend: AmendLoan;
   readonly void: VoidLoan;
+  readonly close: CloseLoan;
 }
 
 /** Loan API (api-design.md §41.1, backlog VC-3-01). */
@@ -230,7 +257,42 @@ export function loanRoutes(commands: LoanCommands): Router {
       .catch(fail(res, next));
   });
 
+  router.post('/loans/:loanId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+    const loanId = readId(req.params['loanId'], 'loanId', res);
+    if (loanId === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = closeBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const body = parsed.data;
+    if (body.refinancedByLoanId === loanId) {
+      sendValidationError(res, [{ field: 'refinancedByLoanId', code: 'SELF_REFERENCE' }]);
+      return;
+    }
+    commands
+      .close({
+        principal: principalOf(res),
+        loanId,
+        closingDate: body.closingDate,
+        reason: body.reason,
+        refinancedByLoanId: body.refinancedByLoanId ?? null,
+        closingNote: body.closingNote ?? null,
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+      })
+      .then(({ loan }) => sendLoan(res, loan))
+      .catch(fail(res, next));
+  });
+
   return router;
+}
+
+/** Signed cents as Money (a remaining debt may be negative). */
+function signedEurCents(cents: bigint) {
+  const abs = cents < 0n ? -cents : cents;
+  return { amount: `${cents < 0n ? '-' : ''}${abs / 100n}.${(abs % 100n).toString().padStart(2, '0')}`, currency: 'EUR' };
 }
 
 /** A single Loan with its version as `ETag` for the next `If-Match` (api-design.md §16.1). */
@@ -250,11 +312,23 @@ function sendLoanError(res: Response, error: unknown): boolean {
   } else if (error instanceof OwnerInactiveError) {
     sendError(res, 422, 'PARTY_INACTIVE', 'A new lender or borrower must be an active Party.', { partyId: error.partyId });
   } else if (error instanceof LoanNotActiveError) {
-    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; it cannot be amended.`, { reason: 'LOAN_NOT_ACTIVE', status: error.status });
+    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; it cannot change.`, { reason: 'LOAN_NOT_ACTIVE', status: error.status });
   } else if (error instanceof LoanClosedError) {
     sendError(res, 409, 'CONFLICT', 'A closed Loan is final.', { reason: 'LOAN_CLOSED', loanId: error.loanId });
   } else if (error instanceof LoanHasSplitsError) {
     sendError(res, 409, 'CONFLICT', 'Splits reference the Loan.', { reason: 'LOAN_HAS_SPLITS', transactionIds: error.transactionIds });
+  } else if (error instanceof LoanRefinancesError) {
+    sendError(res, 409, 'CONFLICT', 'A closed Loan names this one as its refinancing.', { reason: 'LOAN_REFINANCES', loanIds: error.loanIds });
+  } else if (error instanceof ClosingBeforeDebtError) {
+    sendError(res, 422, 'CLOSING_BEFORE_DEBT', 'The closing date is before the debt starts.', { debtFrom: error.debtFrom });
+  } else if (error instanceof RefinancingLoanNotFoundError) {
+    sendError(res, 404, 'NOT_FOUND', 'Refinancing Loan not found.', { refinancedByLoanId: error.refinancedByLoanId });
+  } else if (error instanceof RefinancingLoanNotActiveError) {
+    sendError(res, 422, 'REFINANCING_LOAN_NOT_ACTIVE', 'The refinancing Loan must be ACTIVE.', { status: error.status });
+  } else if (error instanceof SplitsAfterClosingError) {
+    sendError(res, 409, 'CONFLICT', 'Splits name the Loan after the closing date.', { reason: 'SPLITS_AFTER_CLOSING', transactionIds: error.transactionIds });
+  } else if (error instanceof RemainingDebtNotZeroError) {
+    sendError(res, 409, 'CONFLICT', 'The remaining debt on the closing date is not 0.', { reason: 'REMAINING_DEBT_NOT_ZERO', actual: signedEurCents(error.actual) });
   } else if (error instanceof LoanFieldsInvalidError) {
     sendValidationError(res, error.errors);
   } else if (error instanceof VersionConflictError) {
@@ -288,10 +362,10 @@ function toDto(loan: Loan) {
     notes: loan.notes,
     voidedAt: loan.voidedAt?.toISOString() ?? null,
     voidReason: loan.voidReason,
-    // Set by VC-3-07 (close).
-    closingDate: null,
-    closingReason: null,
-    refinancedByLoanId: null,
+    closingDate: loan.closingDate,
+    closingReason: loan.closingReason,
+    refinancedByLoanId: loan.refinancedByLoanId,
+    closingNote: loan.closingNote,
     createdAt: loan.createdAt.toISOString(),
     version: loan.version,
   };
