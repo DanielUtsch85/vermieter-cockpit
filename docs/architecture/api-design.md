@@ -2276,7 +2276,7 @@ A read, never a write (ADR-015: the plan never becomes cash). The client applies
   - a reversal whose splits drop or change `loan_id`;
   - a `VOID` step of a Loan with splits.
 
-## 41.6 Remaining debt, payments and lender statements (VC-3-06)
+## 41.6 Remaining debt, payments and lender statements (VC-3-06, implemented: migration 0028)
 
 Decision P3-D6 of `docs/development/phase-3-plan.md`, ADR-016, BR-FIN-006. Remaining debt is **derived**: from the contract (§41.1), the ledger (the payments that count, §41.5) and the plan (§41.4). It is never stored and never taken from a bank balance. A lender's statement is evidence that is compared with the derived value; it never replaces it.
 
@@ -2286,7 +2286,7 @@ Decision P3-D6 of `docs/development/phase-3-plan.md`, ADR-016, BR-FIN-006. Remai
 
 ### Definitions on a day `d`
 
-- **Owed from `debtFrom`** (`disbursementDate`, else `startDate`; §41.1, full disbursement). Before `debtFrom` the actual and the planned remaining debt are both 0.
+- **Owed from `debtFrom`** (`disbursementDate`, else `startDate`; §41.1, full disbursement). Before `debtFrom` the actual and the planned remaining debt are both 0, and so is `principalPaid` (with `NO_TERMS` the planned values stay `null`).
 - **Principal paid** on `d` = Σ `LOAN_PRINCIPAL` splits with this `loanId` that count (§41.5: of current Transactions, `CONFIRMED` or `RECONCILED` and not a reversal), with booking date ≤ `d`.
 - **Actual remaining debt** = `principalOriginal` − principal paid. It is negative when more principal has been paid than was lent (a booking error, or a payment of another Loan); the read shows that rather than hiding it.
 - **Planned remaining debt** = the plan's balance after its last payment on or before `d` (§41.4). Before the first payment it is the balance the period in effect starts from (`principalOriginal`, or its `principalAtStart`). With `NO_TERMS` there is no plan, and the planned values are `null`.
@@ -2308,7 +2308,7 @@ Decision P3-D6 of `docs/development/phase-3-plan.md`, ADR-016, BR-FIN-006. Remai
   - `loanId`, `asOf`, `debtFrom`;
   - `principalOriginal`, `principalPaid`, `actual`;
   - `planned` (Money or `null`), `difference` (signed Money or `null`), `planEndReason` (§41.4's `endReason`);
-  - `latestStatement`: the `VALID` statement with the latest `statementDate` on or before `asOf`, with its comparison (below), or `null`;
+  - `latestStatement`: the `VALID` statement with the latest `statementDate` on or before `asOf` (of several that day, the last created), with its comparison (below), or `null`;
   - with `perProperty=true`: `allocationSetId`, `items: [{ propertyReferenceId, share, actual, planned, difference }]` in the set's order.
 - **Order of refusals:** `400` → Loan `404` → `VOID` `409 LOAN_NOT_ACTIVE` → `409 LOAN_NOT_ALLOCATED`.
 - **Example** (§41.4's Loan of 1 000.00, debt from 2027-01-01):
@@ -2355,7 +2355,7 @@ A balance the lender reports on a date, e.g. from the annual account statement (
   - `412` on a version conflict;
   - AuditRecord `VOIDED`.
   - Statements are never edited: void and record again.
-- **`GET …/balance-statements[?status=]`:** `{ items }` by `statementDate`, then `createdAt`, each with its comparison.
+- **`GET …/balance-statements[?status=]`:** `{ items }` by `statementDate`, then `createdAt`, each with its comparison. `404`; a `VOID` Loan `409 LOAN_NOT_ACTIVE` (it counts nowhere).
 - **Fields of a statement:** `statementId`, `loanId`, `status` (`VALID` | `VOID`), `statementDate`, `balance`, `source`, `notes`, `voidedAt`, `voidReason`, `createdAt`, `version`, and its comparison:
   - `comparison: { actualOnDate, difference }`, where `actualOnDate` is the actual remaining debt on `statementDate` as derived now, and `difference` = `balance − actualOnDate`, signed;
   - the comparison is derived at each read, so it follows later corrections of the ledger.

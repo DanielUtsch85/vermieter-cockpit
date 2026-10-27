@@ -247,6 +247,19 @@ export type { CreateLoanTerms, CreateLoanTermsInput, GetLoanSchedule, GetPayment
 export { REPAYMENT_MODELS, TERMS_STATUSES, formatRate, parseRate } from '../domains/financing/index.js';
 export type { LoanTermsView, NumberedScheduleEntry, RepaymentModel, Schedule, ScheduleSummary, TermsStatus } from '../domains/financing/index.js';
 export {
+  LoanBalanceStatementNotFoundError,
+  LoanNotAllocatedError,
+  StatementBeforeDebtError,
+  createBalanceStatement,
+  getLoanPayments,
+  getRemainingDebt,
+  listBalanceStatements,
+  voidBalanceStatement,
+} from './loan-debt.js';
+export type { CreateBalanceStatement, CreateBalanceStatementInput, GetLoanPayments, GetRemainingDebt, ListBalanceStatements, VoidBalanceStatement } from './loan-debt.js';
+export { STATEMENT_STATUSES } from '../domains/financing/index.js';
+export type { PropertyDebt, PropertyPayments, RemainingDebt, RemainingDebtPerProperty, StatementStatus, StatementView, YearPayments } from '../domains/financing/index.js';
+export {
   AllocationNotLastError,
   AllocationRefusedError,
   LoanAllocationSetNotFoundError,

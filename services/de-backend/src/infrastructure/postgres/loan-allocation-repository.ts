@@ -230,7 +230,7 @@ async function resolve(trx: Transaction<Database>, mreRealmId: string, request: 
 }
 
 /** The Loan's sets in `validFrom`, then `createdAt` order, each with its entries in the order given. */
-async function setsOf(trx: Transaction<Database>, loanId: string): Promise<LoanAllocationSet[]> {
+export async function setsOf(trx: Transaction<Database>, loanId: string): Promise<LoanAllocationSet[]> {
   const rows = await trx.selectFrom('loan_allocation_set').select(SET_COLUMNS).where('loan_id', '=', loanId).orderBy('valid_from').orderBy('created_at').orderBy('id').execute();
   if (rows.length === 0) return [];
   const entries = await trx

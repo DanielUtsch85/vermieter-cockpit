@@ -40,8 +40,13 @@ import type {
   GetLoan,
   ListLoans,
   VoidLoan,
+  CreateBalanceStatement,
   CreateLoanTerms,
+  GetLoanPayments,
+  GetRemainingDebt,
+  ListBalanceStatements,
   ListLoanTerms,
+  VoidBalanceStatement,
   VoidLoanTerms,
   GetLoanSchedule,
   GetPaymentProposal,
@@ -80,6 +85,7 @@ import { acquisitionCostRoutes } from './acquisition-costs.js';
 import { acquisitionRoutes } from './acquisitions.js';
 import { landBuildingAllocationRoutes } from './land-building-allocations.js';
 import { loanAllocationRoutes } from './loan-allocations.js';
+import { loanDebtRoutes } from './loan-debt.js';
 import { loanTermsRoutes } from './loan-terms.js';
 import { loanRoutes } from './loans.js';
 import { ownerAllocationRoutes } from './owner-allocation.js';
@@ -150,6 +156,12 @@ export interface AppDependencies {
   readonly getLoanSchedule: GetLoanSchedule;
   /** Loan payment proposal (VC-3-05). */
   readonly getPaymentProposal: GetPaymentProposal;
+  /** Remaining debt, payments and lender statements (VC-3-06). */
+  readonly getRemainingDebt: GetRemainingDebt;
+  readonly getLoanPayments: GetLoanPayments;
+  readonly createBalanceStatement: CreateBalanceStatement;
+  readonly voidBalanceStatement: VoidBalanceStatement;
+  readonly listBalanceStatements: ListBalanceStatements;
   /** Loan allocation sets (VC-3-03). */
   readonly createLoanAllocation: CreateLoanAllocation;
   readonly voidLoanAllocation: VoidLoanAllocation;
@@ -264,6 +276,15 @@ export function createApp(deps: AppDependencies): Express {
   );
   api.use(loanRoutes({ create: deps.createLoan, get: deps.getLoan, list: deps.listLoans, amend: deps.amendLoan, void: deps.voidLoan }));
   api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule, proposal: deps.getPaymentProposal }));
+  api.use(
+    loanDebtRoutes({
+      remainingDebt: deps.getRemainingDebt,
+      payments: deps.getLoanPayments,
+      createStatement: deps.createBalanceStatement,
+      voidStatement: deps.voidBalanceStatement,
+      listStatements: deps.listBalanceStatements,
+    }),
+  );
   api.use(
     loanAllocationRoutes({
       create: deps.createLoanAllocation,
