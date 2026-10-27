@@ -1803,7 +1803,7 @@ This list is complete for Phase 3; ACC3 (VC-3-08) compares it with the app's rou
 - a payment is a split carrying `loanId` (P3-D4);
 - refinancing is a new Loan plus `close` (P3-D7).
 
-## 41.1 Contract (VC-3-01)
+## 41.1 Contract (VC-3-01, implemented: migration 0024)
 
 - **Domain owner:** Financing. **Authorization:** as §19.1. A Loan belongs to the caller's Realm, and so do its lender, its borrowers and its Acquisition. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
 - **What it is (P3-D1):** one canonical financing contract. It is never duplicated per property: properties come only through allocations (VC-3-03). Full disbursement is assumed: `principalOriginal` is owed from the disbursement date (staged disbursement is a later item).
@@ -1854,9 +1854,10 @@ This list is complete for Phase 3; ACC3 (VC-3-08) compares it with the app's rou
   1. `400`;
   2. Loan unknown or foreign → `404`;
   3. the Loan not `ACTIVE` → `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.status`. This holds also when the values equal the current ones: a `VOID` or `CLOSED` Loan answers no amend with `200`;
-  4. values equal to the current ones → `200` no-op (below);
-  5. a Party newly named (a new lender, or a borrower not in the current list): unknown or foreign → `404` (`details.partyId`), then `INACTIVE` → `422 PARTY_INACTIVE`. A borrower who stays in the list may have become inactive since: that is an existing role (P2-D1);
-  6. `If-Match` → `412`.
+  4. the merged values break a rule of create (the lender amended to a current borrower, `maturityDate` not after the debt starts) → `400` with `LENDER_IS_BORROWER` (at the borrower's position) or `NOT_AFTER_DISBURSEMENT`;
+  5. values equal to the current ones → `200` no-op (below);
+  6. a Party newly named (a new lender, or a borrower not in the current list): unknown or foreign → `404` (`details.partyId`), then `INACTIVE` → `422 PARTY_INACTIVE`. A borrower who stays in the list may have become inactive since: that is an existing role (P2-D1);
+  7. `If-Match` → `412`.
 - **Success:** `200` with the Loan (`version` + 1; AuditRecord `AMENDED` with each changed field's old and new value). Values equal to the current ones are a `200` no-op without a new version or AuditRecord, answered regardless of `If-Match` (as §19.1).
 
 ### `POST /api/v1/loans/{loanId}/void`
@@ -1885,7 +1886,7 @@ This list is complete for Phase 3; ACC3 (VC-3-08) compares it with the app's rou
   - `acquisition_id` with a composite foreign key to `acquisition (id, mre_realm_id)`;
   - `status` in (`ACTIVE`, `VOID`, `CLOSED`): `VOID` exactly with `voided_at` and `void_reason`. The closing columns are added by VC-3-07.
 - **Borrowers are a column of the Loan (review on #59):** `borrower_party_ids uuid[]`, in the order given, rather than a child table. Then every rule about them is a rule about one row:
-  - `cardinality` 1–20 (CHECK); no duplicates (the trigger below);
+  - `cardinality` 1–20, one-dimensional, and no `NULL` element (`array_position(borrower_party_ids, NULL) IS NULL`; review on #59: `NOT (x = ANY (…))` is `NULL` with a `NULL` element, which a CHECK passes), all in one CHECK; no duplicates (the trigger below, which leaves `NULL` to the CHECK so the CHECK is tight on its own);
   - **the lender is never a borrower:** `CHECK (NOT (lender_party_id = ANY (borrower_party_ids)))`. It holds in both directions at once, for a new borrower and for the lender amended to a current borrower. A swap (lender A and borrower B → lender B and borrower A) is one `UPDATE` and passes;
   - **changes only with a version step of an `ACTIVE` Loan:** `loan_frozen` below covers the column like any amendable field. A separate table would need a deferred trigger to see whether the Loan row was stepped in the same transaction (`xmin`), and P3-D8's no-op write would pass that check without a step;
   - **Realm and existence:** an array cannot carry a foreign key. A trigger (`loan_parties`, on insert and on a change of `lender_party_id` or `borrower_party_ids`) checks that every newly named Party exists in the Loan's Realm, reading it `FOR SHARE`, and that it is `ACTIVE` (below). DE never deletes a Party (no route), and other tables' foreign keys refuse deleting a referenced one. For the array, the migration adds the same guard: a `BEFORE DELETE` trigger on `party` refuses deleting a Party that a Loan names as lender or borrower, so a check at write time stays true.

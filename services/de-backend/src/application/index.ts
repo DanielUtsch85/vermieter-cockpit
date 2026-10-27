@@ -214,3 +214,18 @@ export type { LandBuildingAllocation } from '../domains/acquisition/index.js';
 export { OwnershipBasisIncompleteError, getOwnerAllocation } from './owner-allocation.js';
 export type { GetOwnerAllocation } from './owner-allocation.js';
 export type { OwnerAllocationPlan, OwnerPart } from '../domains/acquisition/index.js';
+export {
+  LoanClosedError,
+  LoanFieldsInvalidError,
+  LoanHasSplitsError,
+  LoanNotActiveError,
+  LoanNotFoundError,
+  amendLoan,
+  createLoan,
+  getLoan,
+  listLoans,
+  voidLoan,
+} from './loans.js';
+export type { AmendLoan, CreateLoan, CreateLoanInput, GetLoan, ListLoans, VoidLoan } from './loans.js';
+export { LOAN_STATUSES, debtFrom, fieldErrors as loanFieldErrors } from '../domains/financing/index.js';
+export type { Loan, LoanChanges, LoanFilter, LoanPage, LoanStatus } from '../domains/financing/index.js';
