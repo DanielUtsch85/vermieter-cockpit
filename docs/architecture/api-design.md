@@ -1781,6 +1781,7 @@ GET /api/v1/property-references/{propertyReferenceId}/loans        (VC-3-03)
 GET /api/v1/loans/{loanId}/schedule[?from=&to=]                    (VC-3-04)
 GET /api/v1/loans/{loanId}/payment-proposal?transactionId=         (VC-3-05)
 GET /api/v1/loans/{loanId}/remaining-debt[?asOf=]                  (VC-3-06)
+GET /api/v1/loans/{loanId}/balance-statements                      (VC-3-06)
 ```
 
 ### Commands
@@ -1790,12 +1791,14 @@ POST /api/v1/loans                                                 (VC-3-01, §4
 POST /api/v1/loans/{loanId}/amend                                  (VC-3-01, §41.1)
 POST /api/v1/loans/{loanId}/void                                   (VC-3-01, §41.1)
 POST /api/v1/loans/{loanId}/terms                                  (VC-3-02)
+POST /api/v1/loans/{loanId}/terms/{termsId}/void                   (VC-3-02)
 POST /api/v1/loans/{loanId}/allocations                            (VC-3-03)
 POST /api/v1/loans/{loanId}/balance-statements                     (VC-3-06)
+POST /api/v1/loans/{loanId}/balance-statements/{statementId}/void  (VC-3-06)
 POST /api/v1/loans/{loanId}/close                                  (VC-3-07)
 ```
 
-The former `recalculate-schedule`, `reconcile-payment` and `refinance` commands are dropped:
+This list is complete for Phase 3; ACC3 (VC-3-08) compares it with the app's routes, as ACC2 does for Phase 2. The former `recalculate-schedule`, `reconcile-payment` and `refinance` commands are dropped:
 - the schedule is derived on read (P3-D5);
 - a payment is a split carrying `loanId` (P3-D4);
 - refinancing is a new Loan plus `close` (P3-D7).
@@ -1847,9 +1850,13 @@ The former `recalculate-schedule`, `reconcile-payment` and `refinance` commands 
   - `maturityDate` (same rule as on create);
   - `contractNumber`, `sourceReferences`, `notes`.
 - The fixed fields (`principalOriginal`, `startDate`, `disbursementDate`, `acquisitionId`) are `400` with code `NOT_AMENDABLE`. A wrong one is voided and entered again (P3-D1).
-- **Order of checks:** `400` → Loan unknown or foreign `404` → a Party newly named (a new lender, or a borrower not in the current list): unknown or foreign `404`, then `INACTIVE` `422 PARTY_INACTIVE`. A borrower who stays in the list may have become inactive since: that is an existing role (P2-D1).
-  - Then: the Loan not `ACTIVE` → `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.status`;
-  - then `If-Match` → `412`.
+- **Order of checks (review on #59):** a final status answers before anything about the request's Parties, as in §27.1 and §28.1.
+  1. `400`;
+  2. Loan unknown or foreign → `404`;
+  3. the Loan not `ACTIVE` → `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.status`. This holds also when the values equal the current ones: a `VOID` or `CLOSED` Loan answers no amend with `200`;
+  4. values equal to the current ones → `200` no-op (below);
+  5. a Party newly named (a new lender, or a borrower not in the current list): unknown or foreign → `404` (`details.partyId`), then `INACTIVE` → `422 PARTY_INACTIVE`. A borrower who stays in the list may have become inactive since: that is an existing role (P2-D1);
+  6. `If-Match` → `412`.
 - **Success:** `200` with the Loan (`version` + 1; AuditRecord `AMENDED` with each changed field's old and new value). Values equal to the current ones are a `200` no-op without a new version or AuditRecord, answered regardless of `If-Match` (as §19.1).
 
 ### `POST /api/v1/loans/{loanId}/void`
@@ -1872,12 +1879,17 @@ The former `recalculate-schedule`, `reconcile-payment` and `refinance` commands 
 ### In the database (VC-3-01)
 
 - **`loan`:**
-  - `lender_party_id` with a composite foreign key to `party (id, mre_realm_id)`;
+  - `lender_party_id` with a composite foreign key to `party (id, mre_realm_id)`; `borrower_party_ids` (below);
   - `principal_original` `numeric` with `scale ≤ 2`, `> 0` and `< 1e18`; `currency` EUR (as the ledger's amounts);
   - the date order as above (CHECK);
   - `acquisition_id` with a composite foreign key to `acquisition (id, mre_realm_id)`;
   - `status` in (`ACTIVE`, `VOID`, `CLOSED`): `VOID` exactly with `voided_at` and `void_reason`. The closing columns are added by VC-3-07.
-- **`loan_borrower`** `(loan_id, party_id, position)`: composite foreign keys to the Loan and to `party (id, mre_realm_id)`; `UNIQUE (loan_id, party_id)`. The lender is never a borrower: a trigger, since the lender is a column of another table.
+- **Borrowers are a column of the Loan (review on #59):** `borrower_party_ids uuid[]`, in the order given, rather than a child table. Then every rule about them is a rule about one row:
+  - `cardinality` 1–20 (CHECK); no duplicates (the trigger below);
+  - **the lender is never a borrower:** `CHECK (NOT (lender_party_id = ANY (borrower_party_ids)))`. It holds in both directions at once, for a new borrower and for the lender amended to a current borrower. A swap (lender A and borrower B → lender B and borrower A) is one `UPDATE` and passes;
+  - **changes only with a version step of an `ACTIVE` Loan:** `loan_frozen` below covers the column like any amendable field. A separate table would need a deferred trigger to see whether the Loan row was stepped in the same transaction (`xmin`), and P3-D8's no-op write would pass that check without a step;
+  - **Realm and existence:** an array cannot carry a foreign key. A trigger (`loan_parties`, on insert and on a change of `lender_party_id` or `borrower_party_ids`) checks that every newly named Party exists in the Loan's Realm, reading it `FOR SHARE`, and that it is `ACTIVE` (below). DE never deletes a Party (no route), and other tables' foreign keys refuse deleting a referenced one. For the array, the migration adds the same guard: a `BEFORE DELETE` trigger on `party` refuses deleting a Party that a Loan names as lender or borrower, so a check at write time stays true.
+  - `GET /loans?partyId=` uses a GIN index on the column (`lender_party_id = $1 OR borrower_party_ids @> ARRAY[$1]`).
 - **`loan_frozen` trigger:**
   - keeps `id`, Realm, principal, currency, `start_date`, `disbursement_date`, `acquisition_id`, `created_at` and `created_by` fixed;
   - allows the amendable fields to change only while `ACTIVE`, each change with `version` + 1;
@@ -1885,8 +1897,7 @@ The former `recalculate-schedule`, `reconcile-payment` and `refinance` commands 
   - makes `VOID` and `CLOSED` final;
   - lets the no-op `UPDATE … SET version = version` of P3-D8 through.
   - A Loan is only inserted `ACTIVE`, and never deleted.
-- **Borrowers** are inserted or deleted only while the Loan is `ACTIVE` (the amend's replacement), and only together with a version step of the Loan in the same transaction.
-- **Active Parties past the repository** (as 0020 for buyers): a trigger refuses linking an `INACTIVE` Party as a new lender or borrower. It reads the Party `FOR SHARE`, and the repository locks the newly named Parties `FOR SHARE` in id order before the Loan, so a concurrent `deactivate` comes first and is seen, or waits.
+- **Active Parties past the repository** (as 0020 for buyers): `loan_parties` refuses linking an `INACTIVE` Party as a **newly named** lender or borrower (one not in the old row). A borrower who stays may be inactive (P2-D1). The trigger reads the Party `FOR SHARE`; the repository locks the newly named Parties `FOR SHARE` in id order before the Loan, so a concurrent `deactivate` comes first and is seen, or waits.
 - **Lock order:** Parties → Loan, as Parties → Acquisition (§27.1).
 
 ### Tests (VC-3-01)
@@ -1897,8 +1908,10 @@ The former `recalculate-schedule`, `reconcile-payment` and `refinance` commands 
   - a fixed field changed;
   - a status step without `version` + 1, or out of `VOID`;
   - an insert as `VOID`;
-  - a borrower changed on a `VOID` Loan;
-  - the lender as a borrower;
+  - the borrowers changed on a `VOID` Loan, or on an `ACTIVE` one without `version` + 1;
+  - the lender as a borrower, in both directions: a borrower added who is the lender, and the lender amended to a current borrower;
+  - a swap of lender and borrower in one `UPDATE`, which is allowed;
+  - a duplicate borrower; a borrower of another Realm or unknown; deleting a Party a Loan names;
   - an `INACTIVE` Party linked.
 
 # 42. Create Loan
