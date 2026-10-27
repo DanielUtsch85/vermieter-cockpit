@@ -11,6 +11,7 @@ import {
   VersionConflictError,
   type CreateLoanTermsInput,
   type LoanTermsView,
+  type Schedule,
   type PrincipalVerifier,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
@@ -214,5 +215,65 @@ describe('GET /api/v1/loans/{id}/terms', () => {
     expect(seen[0]).toMatchObject({ loanId: LOAN, status: 'VALID' });
     expect((await call(base, 'GET', `/loans/${LOAN}/terms?page=1`)).status).toBe(400);
     expect((await call(base, 'GET', `/loans/${TERMS}/terms`)).status).toBe(404);
+  });
+});
+
+describe('GET /api/v1/loans/{id}/schedule', () => {
+  const schedule = {
+    entries: [{ number: 2, termsId: TERMS, paymentDate: '2027-02-28', balanceBefore: 70_500n, interest: 353n, principal: 29_647n, payment: 30_000n, balanceAfter: 40_853n }],
+    summary: { payments: 4, firstPaymentDate: '2027-01-31', lastPaymentDate: '2027-04-30', totalInterest: 1_112n, totalPrincipal: 100_000n, balanceDue: 0n, endReason: 'PAID_OFF' },
+  } as unknown as Schedule;
+
+  it('the items as Money with their numbers, the summary; from/to reach the read; BEFORE_FROM; unknown parameters 400; an unknown Loan 404', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      getLoanSchedule: async (input) => {
+        seen.push(input);
+        if (input.loanId !== LOAN) throw new LoanNotFoundError(input.loanId);
+        return schedule;
+      },
+    });
+    const res = await call(base, 'GET', `/loans/${LOAN}/schedule?from=2027-02-01&to=2027-02-28`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      loanId: LOAN,
+      from: '2027-02-01',
+      to: '2027-02-28',
+      items: [
+        {
+          number: 2,
+          paymentDate: '2027-02-28',
+          termsId: TERMS,
+          balanceBefore: { amount: '705.00', currency: 'EUR' },
+          interest: { amount: '3.53', currency: 'EUR' },
+          principal: { amount: '296.47', currency: 'EUR' },
+          payment: { amount: '300.00', currency: 'EUR' },
+          balanceAfter: { amount: '408.53', currency: 'EUR' },
+        },
+      ],
+      summary: {
+        payments: 4,
+        firstPaymentDate: '2027-01-31',
+        lastPaymentDate: '2027-04-30',
+        totalInterest: { amount: '11.12', currency: 'EUR' },
+        totalPrincipal: { amount: '1000.00', currency: 'EUR' },
+        balanceDue: { amount: '0.00', currency: 'EUR' },
+        endReason: 'PAID_OFF',
+      },
+    });
+    expect(seen[0]).toMatchObject({ loanId: LOAN, from: '2027-02-01', to: '2027-02-28' });
+    expect(await (await call(base, 'GET', `/loans/${LOAN}/schedule`)).json()).toMatchObject({ from: null, to: null });
+    expect(seen[1]).not.toHaveProperty('from');
+    expect(seen[1]).not.toHaveProperty('to');
+    const reversed = await call(base, 'GET', `/loans/${LOAN}/schedule?from=2027-03-01&to=2027-02-28`);
+    expect(reversed.status).toBe(400);
+    expect(((await errorOf(reversed)).details as { fields: unknown[] }).fields).toEqual([{ field: 'to', code: 'BEFORE_FROM' }]);
+    expect((await call(base, 'GET', `/loans/${LOAN}/schedule?from=2027-02-28&to=2027-02-28`)).status).toBe(200);
+    expect((await call(base, 'GET', `/loans/${LOAN}/schedule?from=x`)).status).toBe(400);
+    expect((await call(base, 'GET', `/loans/${LOAN}/schedule?version=1`)).status).toBe(400);
+    expect((await call(base, 'GET', '/loans/x/schedule')).status).toBe(400);
+    const missing = await call(base, 'GET', `/loans/${TERMS}/schedule`);
+    expect(missing.status).toBe(404);
+    expect((await errorOf(missing)).details).toEqual({ loanId: TERMS });
   });
 });

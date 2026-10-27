@@ -1,11 +1,15 @@
 import {
+  scheduleOf,
+  scheduleWindow,
   termsFingerprint,
+  type Schedule,
   type AppendRefusal,
   type LoanTermsData,
   type LoanTermsRepository,
   type LoanTermsView,
   type TermsStatus,
 } from '../domains/financing/index.js';
+import type { BusinessDate } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { LoanNotActiveError, LoanNotFoundError } from './loans.js';
@@ -114,5 +118,21 @@ export function listLoanTerms(deps: { readonly repository: LoanTermsRepository }
     const items = await deps.repository.list(loanId, principal.mreRealmId, status);
     if (items === undefined) throw new LoanNotFoundError(loanId);
     return items;
+  };
+}
+
+/** The Loan's derived plan (api-design §41.4), the entries limited to `[from, to]`; the summary covers the whole plan. */
+export type GetLoanSchedule = (input: {
+  readonly principal: RealmPrincipal;
+  readonly loanId: string;
+  readonly from?: BusinessDate;
+  readonly to?: BusinessDate;
+}) => Promise<Schedule>;
+
+export function getLoanSchedule(deps: { readonly repository: LoanTermsRepository }): GetLoanSchedule {
+  return async ({ principal, loanId, from, to }) => {
+    const inputs = await deps.repository.scheduleInputs(loanId, principal.mreRealmId);
+    if (inputs === undefined) throw new LoanNotFoundError(loanId);
+    return scheduleWindow(scheduleOf(inputs.loan.principalOriginal, inputs.loan.maturityDate, inputs.periods), from, to);
   };
 }

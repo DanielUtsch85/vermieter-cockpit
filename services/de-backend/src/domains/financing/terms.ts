@@ -102,12 +102,26 @@ export type SchedulePeriod = Pick<LoanTerms, 'id' | 'validFrom' | 'interestRate'
  * `principalAtStart`, else the balance carried over, the first one `principalOriginal`.
  */
 export function deriveSchedule(principalOriginal: Money, maturityDate: BusinessDate | null, periods: readonly SchedulePeriod[]): ScheduleEntry[] {
+  return walkSchedule(principalOriginal, maturityDate, periods).entries;
+}
+
+/**
+ * The derivation itself, with what `scheduleOf` needs besides the entries: the balance at the end, and the date the
+ * last period's next payment would have fallen on (null without periods).
+ */
+function walkSchedule(
+  principalOriginal: Money,
+  maturityDate: BusinessDate | null,
+  periods: readonly SchedulePeriod[],
+): { readonly entries: ScheduleEntry[]; readonly balance: bigint; readonly nextPaymentDate: BusinessDate | null } {
   const entries: ScheduleEntry[] = [];
   let balance = toCents(principalOriginal);
+  let nextPaymentDate: BusinessDate | null = null;
   periods.forEach((period, i) => {
     if (period.principalAtStart !== null) balance = toCents(period.principalAtStart);
     const next = periods[i + 1]?.validFrom ?? null;
-    for (let k = 0; balance > 0n && entries.length < MAX_PAYMENTS; k++) {
+    let k = 0;
+    for (; balance > 0n && entries.length < MAX_PAYMENTS; k++) {
       const paymentDate = addMonths(period.firstPaymentDate, k);
       if ((next !== null && paymentDate >= next) || (maturityDate !== null && paymentDate > maturityDate)) break;
       const interest = monthlyInterest(balance, period.interestRate);
@@ -119,8 +133,68 @@ export function deriveSchedule(principalOriginal: Money, maturityDate: BusinessD
       balance -= principal;
       // An interest-only period never repays: one payment per month until the next period or maturity.
     }
+    nextPaymentDate = addMonths(period.firstPaymentDate, k);
   });
-  return entries;
+  return { entries, balance, nextPaymentDate };
+}
+
+/** How a plan ends (api-design §41.4); on a tie `PAID_OFF` before `MATURITY` before `PAYMENT_CAP` (review on #65). */
+export const SCHEDULE_END_REASONS = ['PAID_OFF', 'MATURITY', 'PAYMENT_CAP', 'NO_TERMS'] as const;
+export type ScheduleEndReason = (typeof SCHEDULE_END_REASONS)[number];
+
+/** An entry with its position in the whole plan, from 1, kept in a window. */
+export interface NumberedScheduleEntry extends ScheduleEntry {
+  readonly number: number;
+}
+
+export interface ScheduleSummary {
+  readonly payments: number;
+  readonly firstPaymentDate: BusinessDate | null;
+  readonly lastPaymentDate: BusinessDate | null;
+  /** Cents. */
+  readonly totalInterest: bigint;
+  readonly totalPrincipal: bigint;
+  /** The balance after the last payment, due on `maturityDate` for `MATURITY`. */
+  readonly balanceDue: bigint;
+  readonly endReason: ScheduleEndReason;
+}
+
+export interface Schedule {
+  readonly entries: readonly NumberedScheduleEntry[];
+  readonly summary: ScheduleSummary;
+}
+
+/**
+ * The whole plan of §41.4 with its summary. A follow-up period that starts after the plan reached 0 and states no
+ * `principalAtStart` has no payments, and the plan stays `PAID_OFF` (review on #65).
+ */
+export function scheduleOf(principalOriginal: Money, maturityDate: BusinessDate | null, periods: readonly SchedulePeriod[]): Schedule {
+  const { entries, balance, nextPaymentDate } = walkSchedule(principalOriginal, maturityDate, periods);
+  const endReason: ScheduleEndReason =
+    periods.length === 0
+      ? 'NO_TERMS'
+      : balance === 0n
+        ? 'PAID_OFF'
+        : maturityDate !== null && nextPaymentDate !== null && nextPaymentDate > maturityDate
+          ? 'MATURITY'
+          : 'PAYMENT_CAP';
+  return {
+    entries: entries.map((entry, i) => ({ ...entry, number: i + 1 })),
+    summary: {
+      payments: entries.length,
+      firstPaymentDate: entries[0]?.paymentDate ?? null,
+      lastPaymentDate: entries.at(-1)?.paymentDate ?? null,
+      totalInterest: entries.reduce((sum, e) => sum + e.interest, 0n),
+      totalPrincipal: entries.reduce((sum, e) => sum + e.principal, 0n),
+      balanceDue: balance,
+      endReason,
+    },
+  };
+}
+
+/** The entries with `paymentDate` in `[from, to]`, both optional and inclusive; numbers and summary unchanged. */
+export function scheduleWindow(schedule: Schedule, from?: BusinessDate, to?: BusinessDate): Schedule {
+  return { ...schedule, entries: schedule.entries.filter((e) => (from === undefined || e.paymentDate >= from) && (to === undefined || e.paymentDate <= to)) };
 }
 
 /**
@@ -246,4 +320,6 @@ export interface LoanTermsRepository {
   void(loanId: string, termsId: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidTermsOutcome>;
   /** The Loan's periods in `validFrom`, then `createdAt` order, with `validUntil`; undefined for an unknown or foreign Loan. */
   list(loanId: string, mreRealmId: string, status?: TermsStatus): Promise<readonly LoanTermsView[] | undefined>;
+  /** The Loan and its `VALID` periods in `validFrom` order, in one snapshot (§41.4); undefined for an unknown or foreign Loan. */
+  scheduleInputs(loanId: string, mreRealmId: string): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[] } | undefined>;
 }
