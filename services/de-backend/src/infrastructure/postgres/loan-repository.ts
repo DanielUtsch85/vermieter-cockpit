@@ -278,6 +278,12 @@ export async function readLoanIn(trx: Transaction<Database>, id: string, mreReal
   return row === undefined ? undefined : toLoan(row);
 }
 
+/** The Loan of the Realm, locked `FOR UPDATE` (P3-D8: the Loan row before its terms or allocation sets). */
+export async function lockLoan(trx: Transaction<Database>, loanId: string, mreRealmId: string): Promise<Loan | undefined> {
+  const row = await trx.selectFrom('loan').select('id').where('id', '=', loanId).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
+  return row === undefined ? undefined : readLoanIn(trx, loanId, mreRealmId);
+}
+
 async function readOne(trx: Transaction<Database>, id: string): Promise<Loan> {
   return toLoan(await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).executeTakeFirstOrThrow());
 }

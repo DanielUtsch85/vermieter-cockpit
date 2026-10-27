@@ -1381,7 +1381,7 @@ For a fully allocated Loan and a given date:
 
 The allocation does not create new Loans.
 
-## Sets (P3-D3, api-design §41.3)
+## Sets (P3-D3, api-design §41.3; implemented: migration 0026)
 
 - Allocations are written as **sets** valid from a date; a set's `validUntil` is derived from the next `VALID` set.
   Sets are appended, never edited; only the last one can be voided. Before the first set a Loan is unallocated.

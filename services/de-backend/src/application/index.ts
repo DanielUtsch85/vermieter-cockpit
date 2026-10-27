@@ -233,3 +233,23 @@ export { LoanTermsNotFoundError, TermsNotLastError, TermsRefusedError, createLoa
 export type { CreateLoanTerms, CreateLoanTermsInput, ListLoanTerms, VoidLoanTerms } from './loan-terms.js';
 export { REPAYMENT_MODELS, TERMS_STATUSES, formatRate, parseRate } from '../domains/financing/index.js';
 export type { LoanTermsView, RepaymentModel, TermsStatus } from '../domains/financing/index.js';
+export {
+  AllocationNotLastError,
+  AllocationRefusedError,
+  LoanAllocationSetNotFoundError,
+  createLoanAllocation,
+  getLoanAllocationOn,
+  listLoanAllocations,
+  listPropertyLoans,
+  voidLoanAllocation,
+} from './loan-allocations.js';
+export type {
+  CreateLoanAllocation,
+  CreateLoanAllocationInput,
+  GetLoanAllocationOn,
+  ListLoanAllocations,
+  ListPropertyLoans,
+  VoidLoanAllocation,
+} from './loan-allocations.js';
+export { ALLOCATION_BASES, ALLOCATION_STATUSES, MAX_ALLOCATIONS, sumsToOne } from '../domains/financing/index.js';
+export type { AllocationBasis, AllocationStatus, LoanAllocationSetView, PropertyLoan, RequestedAllocation } from '../domains/financing/index.js';

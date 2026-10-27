@@ -20,7 +20,7 @@ export type ShareError = 'INVALID_FORMAT' | 'OUT_OF_RANGE';
 
 const SHARE = /^([1-9][0-9]{0,8})\/([1-9][0-9]{0,8})$/;
 
-function gcd(a: bigint, b: bigint): bigint {
+export function gcd(a: bigint, b: bigint): bigint {
   while (b !== 0n) [a, b] = [b, a % b];
   return a;
 }
@@ -43,7 +43,7 @@ export function formatShare(share: Share | Fraction): string {
 export const ZERO: Fraction = { numerator: 0n, denominator: 1n };
 
 /** The exact sum, reduced. */
-export function sumShares(shares: readonly Share[]): Fraction {
+export function sumShares(shares: readonly (Share | Fraction)[]): Fraction {
   let numerator = 0n;
   let denominator = 1n;
   for (const share of shares) {

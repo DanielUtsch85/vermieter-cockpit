@@ -296,6 +296,23 @@ Counter-checked: each trigger branch and CHECK above, the repository's Party loc
 
 Counter-checked: each trigger branch and CHECK, both Loan writes in the triggers, the repository's Loan lock, and in the domain the strict annuity bound, `round_half_up`, the carry-over boundary and the first-payment rule were neutralised in turn; a test went red each time.
 
+## 18. Loan allocation sets (VC-3-03, api-design §41.3)
+
+`AL` = `domains/financing/allocation.test.ts`, `AR` = `infrastructure/postgres/loan-allocation-repository.test.ts`, `AA` = `api/loan-allocations.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Shares exact: `PURCHASE_PRICE` derives `price_i / Σ price` in cents, reduced (300 000.00 / 175 000.00 → `12/19`, `7/19`), a denominator above 10 000 stored exactly; `MANUAL` is §26.1's `"n/d"` (`d ≤ 10000`), reduced | AL "allocation shares"; AR "appends a manual and a purchase-price set …", "stores a purchase-price denominator above 10 000 exactly"; AA "400 with the field codes" |
+| A set sums to exactly `1/1` (`1/3 + 1/3 + 1/3` passes, `1/3 + 2/3 + 1/10000` not), checked at the API and **at commit** by the deferred trigger; a set without rows and a row added to a committed set are refused | AL "sums manual shares exactly"; AA "400 …" (`SHARE_SUM_NOT_ONE`); AR schema "the sum is exactly one at commit …", "a committed set takes no further row …" |
+| One entry per property; an Acquisition only of the entry's property (0020's key); the basis and `acquisition_id` agree; `CANCELLED` Acquisitions refused when the set is written | AR "order of checks …"; AR schema "a share is a reduced fraction …", "an Acquisition only of the entry's property …"; AA "400 …" (`DUPLICATE`, `NOT_ALLOWED_FOR_BASIS`) |
+| Sets only appended: not before the debt, after the last `VALID` start; only the last one voidable; `validUntil` derived over `VALID` sets; data never edited, rows never updated or deleted, sets never deleted | AL "sets over time"; AR "order of checks …", "void: …"; AR schema "inserts: …", "updates: …", "a committed set takes no further row …" |
+| Order of checks: Loan → not `ACTIVE` → before the debt → not appended → the PropertyReferences in the order given → the Acquisitions in the order given | AR "order of checks …" |
+| Reads: the set on a day (`null` before the first), the history with `?status`, the Loans of a property with `asOf` before, on and after a change of set, `VOID` sets and `VOID` Loans left out; `asOf` with `status` is `400` | AL "finds the set covering a day …", "lists a property per set …"; AR "reads: …"; AA "GET …" |
+| Lock order: the Loan row first, in the repository and in both triggers: two appends (RC sees the first, RR `40001`), an append against a void of the Loan, a raw void of the last set against a raw append behind it (RC refused, RR `40001`) | AR "concurrency …" |
+| Realm isolation | AR "order of checks …", "void: …", "reads: …" |
+
+Counter-checked: each refusal of the four triggers of 0026 and the share CHECK's parts (the deferred trigger set to `INITIALLY IMMEDIATE` makes a valid multi-row set fail; the sum and the basis/`acquisition_id` checks each neutralised on their own; both Loan writes), the composite key to the Acquisition, `UNIQUE (set_id, property_reference_id)`, the repository's Loan lock, its Realm and property filters, `CANCELLED`, the order PropertyReferences → Acquisitions and the `VOID` Loan filter, in the domain the reduction, the day boundaries, the append boundary, the last-set rule, the `VOID` set filter and the order, and at the API the sum, both `DUPLICATE`s, `NOT_ALLOWED_FOR_BASIS` and `asOf` with `status` were neutralised in turn; a test went red each time.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

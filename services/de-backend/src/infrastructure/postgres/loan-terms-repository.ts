@@ -6,7 +6,6 @@ import {
   planVoidTerms,
   withValidUntil,
   type CreateTermsOutcome,
-  type Loan,
   type LoanTerms,
   type LoanTermsData,
   type LoanTermsId,
@@ -19,7 +18,7 @@ import {
 import { checkVersion, type AuditActor, type BusinessDate, type Money } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
-import { readLoanIn } from './loan-repository.js';
+import { lockLoan } from './loan-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -139,6 +138,10 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
             scheduledPayment: created.scheduledPayment?.toJSON() ?? null,
             firstPaymentDate: created.firstPaymentDate,
             principalAtStart: created.principalAtStart?.toJSON() ?? null,
+            fixedRateUntil: created.fixedRateUntil,
+            initialRepaymentRate: created.initialRepaymentRate === null ? null : formatRate(created.initialRepaymentRate),
+            specialRepaymentLimit: created.specialRepaymentLimit?.toJSON() ?? null,
+            notes: created.notes,
           },
         });
         return { kind: 'CREATED', terms: created };
@@ -190,12 +193,6 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
       return status === undefined ? views : views.filter((t) => t.status === status);
     });
   }
-}
-
-/** The Loan of the Realm, locked `FOR UPDATE` (P3-D8: the Loan row before its periods). */
-async function lockLoan(trx: Transaction<Database>, loanId: string, mreRealmId: string): Promise<Loan | undefined> {
-  const row = await trx.selectFrom('loan').select('id').where('id', '=', loanId).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
-  return row === undefined ? undefined : readLoanIn(trx, loanId, mreRealmId);
 }
 
 /** The Loan's periods in `validFrom`, then `createdAt` order. */

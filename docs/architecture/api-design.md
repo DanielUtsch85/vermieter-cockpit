@@ -1990,7 +1990,7 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
 - **Concurrency:** two appends to one Loan (RC: the second sees the first and is `TERMS_NOT_APPENDED`; RR past the repository: `40001`); an append against a void of the Loan; **a void of the last period against an append behind it, past the repository** (RC: the void waits on the Loan row and is refused; RR: `40001`), with a counter-check (the Loan write in `loan_terms_frozen` removed, the test red).
 - **Schema past the repository**, each with a counter-check: an insert before the last period, an insert not after the last period's `firstPaymentDate`, on a `VOID` Loan, before `debtFrom`, as `VOID`; a changed field; a void of a period that is not the last; a step without `version` + 1; a delete; `scheduled_payment` with `INTEREST_ONLY` or without it for `ANNUITY`.
 
-## 41.3 Loan allocation (VC-3-03)
+## 41.3 Loan allocation (VC-3-03, implemented: migration 0026)
 
 Decision P3-D3 of `docs/development/phase-3-plan.md`, ADR-038. One Loan is never duplicated per property (ADR-014, BR-FIN-002). It reaches its PropertyReferences through **allocation sets**: one exact fraction per property, summing to exactly `1/1`, valid from a date. One basis for principal, interest and remaining debt (ADR-038). The allocated amounts are derived by VC-3-06 (largest remainder, ties by `propertyReferenceId`) and never stored.
 
@@ -2058,6 +2058,7 @@ Decision P3-D3 of `docs/development/phase-3-plan.md`, ADR-038. One Loan is never
 - `loan_allocation_set_frozen` (before update or delete): data never changes; the only step is `VALID` → `VOID` with `version` + 1, for the last `VALID` set only, writing the Loan row before looking for a later set; never deleted.
 - **The sum is exactly one, at commit:** a **deferred** constraint trigger on `loan_allocation_set` (insert) and `loan_allocation` (insert) sums the set's fractions exactly in integer arithmetic (as 0019's share sums) and refuses anything but `1/1`. Rows are only ever added, every share is positive, and a set of sum one cannot take another row without exceeding it. So a committed set is never changed by adding rows past the repository, and a set without rows is refused.
 - `basis = MANUAL` rows have no `acquisition_id`, and `PURCHASE_PRICE` rows have one: a CHECK through the set is not possible, so the deferred trigger checks it with the sum.
+- Not in the database: `ACQUISITION_CANCELLED` (a status read when the set is written; a later cancel keeps the set, above), `d ≤ 10000` for `MANUAL` (§26.1's input format; a `PURCHASE_PRICE` denominator is unbounded) and the 1–50 entries of a request. The repository and the API check them.
 
 ### Tests (VC-3-03)
 

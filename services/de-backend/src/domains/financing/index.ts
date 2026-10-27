@@ -53,3 +53,32 @@ export type {
   VoidTermsOutcome,
   VoidTermsPlan,
 } from './terms.js';
+export {
+  ALLOCATION_BASES,
+  ALLOCATION_STATUSES,
+  MAX_ALLOCATIONS,
+  allocationFingerprint,
+  checkAppendAllocation,
+  planVoidAllocation,
+  propertyLoansOf,
+  selectPropertyLoans,
+  setOn,
+  sharesFromPrices,
+  sumsToOne,
+} from './allocation.js';
+export type {
+  Allocation,
+  AllocationAppendRefusal,
+  AllocationBasis,
+  AllocationRequest,
+  AllocationStatus,
+  CreateAllocationOutcome,
+  LoanAllocationRepository,
+  LoanAllocationSet,
+  LoanAllocationSetId,
+  LoanAllocationSetView,
+  PropertyLoan,
+  RequestedAllocation,
+  VoidAllocationOutcome,
+  VoidAllocationPlan,
+} from './allocation.js';
