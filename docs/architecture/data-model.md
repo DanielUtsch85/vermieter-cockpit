@@ -1381,6 +1381,14 @@ For a fully allocated Loan and a given date:
 
 The allocation does not create new Loans.
 
+## Sets (P3-D3, api-design §41.3)
+
+- Allocations are written as **sets** valid from a date; a set's `validUntil` is derived from the next `VALID` set.
+  Sets are appended, never edited; only the last one can be voided. Before the first set a Loan is unallocated.
+- `allocationShare` is an exact reduced fraction (`"n/d"`), not a percent; a set sums to exactly `1/1`, enforced at
+  commit. `allocationBasis`: `MANUAL`, or `PURCHASE_PRICE` with the Acquisition per property whose price derives the
+  fraction exactly (ADR-038's default). `allocatedPrincipalReference` is dropped: allocated amounts are derived.
+
 ---
 
 # 24. LoanScheduleEntry
