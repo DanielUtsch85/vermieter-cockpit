@@ -1020,7 +1020,7 @@ A split belongs to exactly one Transaction.
 **`loanId` (P3-D4, VC-3-05, API §41.5):** only on a `LOAN_INTEREST` or `LOAN_PRINCIPAL` split of an `OUTFLOW`
 Transaction (a reversal mirrors its original's, whatever its direction), of a Loan of the same Realm that is not
 `VOID`, and never together with `propertyReferenceId`: a Loan reaches its properties through its allocation (§23).
-The split is the link between cash and Loan; a reversal mirrors `loanId` (0014). Database-enforced.
+The split is the link between cash and Loan; a reversal mirrors `loanId` (0014). Database-enforced (migration 0027).
 
 ---
 

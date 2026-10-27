@@ -4,6 +4,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   CurrencyMismatchError,
   FinancialCategoryNotFoundError,
+  InvalidLoanSplitError,
+  LoanNotActiveError,
+  LoanNotFoundError,
   PropertyReferenceNotFoundError,
   SplitSumMismatchError,
   TransactionFrozenError,
@@ -19,6 +22,7 @@ import { unusedCommands } from './app.test-support.js';
 const REALM = '64b0c0ffee0000000000000a';
 const TX = '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 const PROPERTY = 'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f';
+const LOAN = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
   email: 'anna@example.com',
   mreRealmId: mreRealmId ?? '',
@@ -46,6 +50,7 @@ const loanSplits = {
       financialCategoryCode: 'LOAN_PRINCIPAL',
       description: '  Rate 10  ',
       propertyReferenceId: null,
+      loanId: LOAN.toUpperCase(),
     },
   ],
 };
@@ -83,6 +88,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           amount: { amount: '600.00', currency: 'EUR' },
           financialCategoryCode: 'LOAN_INTEREST',
           propertyReferenceId: PROPERTY,
+          loanId: null,
           description: null,
         },
         {
@@ -91,11 +97,13 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           amount: { amount: '600.00', currency: 'EUR' },
           financialCategoryCode: 'LOAN_PRINCIPAL',
           propertyReferenceId: null,
+          loanId: LOAN,
           description: 'Rate 10',
         },
       ],
     });
     expect(seen[0]?.transactionId).toBe(TX);
+    expect(seen[0]?.splits.map((s) => s.loanId)).toEqual([null, LOAN]);
     expect(seen[0]?.principal.mreRealmId).toBe(REALM);
   });
 
@@ -109,7 +117,10 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
       [one({ amount: { amount: '1.005', currency: 'EUR' } }), [{ field: 'splits.0.amount.amount', code: 'SCALE_EXCEEDED' }]],
       [one({ amount: { amount: 1, currency: 'EUR' } }), [{ field: 'splits.0.amount.amount', code: 'INVALID_FORMAT' }]],
       [one({ direction: 'OUTFLOW' }), [{ field: 'splits.0.direction', code: 'NOT_ALLOWED' }]],
-      [one({ loanId: TX }), [{ field: 'splits.0.loanId', code: 'NOT_SUPPORTED' }]],
+      [one({ wegId: TX }), [{ field: 'splits.0.wegId', code: 'NOT_SUPPORTED' }]],
+      [one({ loanId: 'x' }), [{ field: 'splits.0.loanId', code: 'INVALID_FORMAT' }]],
+      // A Loan reaches its properties only through its allocation (§41.5).
+      [one({ loanId: LOAN, propertyReferenceId: PROPERTY }), [{ field: 'splits.0.propertyReferenceId', code: 'NOT_ALLOWED_WITH_LOAN' }]],
       [one({ financialCategoryCode: 'loan interest' }), [{ field: 'splits.0.financialCategoryCode', code: 'INVALID_FORMAT' }]],
       [one({ colour: 'red' }), [{ field: 'splits.0', code: 'INVALID_FORMAT' }]],
       [{ splits: [] }, [{ field: 'splits', code: 'INVALID_FORMAT' }]],
@@ -123,8 +134,12 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
     expect((await put(base, loanSplits, 'nope')).status).toBe(400);
   });
 
-  it('maps not found, unknown category, currency, frozen and sum mismatch', async () => {
+  it('maps not found, unknown category, currency, frozen, sum mismatch and the Loan refusals of §41.5', async () => {
     const cases = [
+      [new LoanNotFoundError(LOAN), 404, { code: 'NOT_FOUND', details: { loanId: LOAN } }],
+      [new InvalidLoanSplitError(2, 'CATEGORY'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 2, reason: 'CATEGORY' } }],
+      [new InvalidLoanSplitError(1, 'DIRECTION'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 1, reason: 'DIRECTION' } }],
+      [new LoanNotActiveError(LOAN, 'VOID'), 409, { code: 'CONFLICT', details: { reason: 'LOAN_NOT_ACTIVE', loanId: LOAN, status: 'VOID' } }],
       [new TransactionNotFoundError(TX), 404, { code: 'NOT_FOUND' }],
       [new PropertyReferenceNotFoundError(PROPERTY), 404, { code: 'NOT_FOUND', details: { propertyReferenceId: PROPERTY } }],
       [

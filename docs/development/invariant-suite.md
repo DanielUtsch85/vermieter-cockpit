@@ -329,6 +329,23 @@ Counter-checked: each refusal of the four triggers of 0026 and the share CHECK's
 
 Counter-checked: in the domain `round_half_up` replaced by truncation, the cap on the last principal, the carry-over, `principalAtStart`, the stop at the next period and at `maturityDate` (also made exclusive), the clamping, the 600 cap (as 601) and the tie between the cap and maturity each turned the oracle property test red. The ties `MATURITY` before `PAID_OFF`, the window bounds, the `VALID` filter and the Realm of the read, `BEFORE_FROM`, the Money of the response and the LoanTerms audit's `notes` (#64 nit) each turned their own tests red.
 
+## 20. Loan payments (VC-3-05, api-design §41.5)
+
+`LP` = `infrastructure/postgres/loan-payment-repository.test.ts`, `TS` = `domains/ledger/transaction-split.test.ts`, `PP` = `domains/financing/payment-proposal.test.ts`, `PA` = `application/payment-proposal.test.ts`, `SA` = `api/transaction-splits.test.ts`, `TA` = `api/loan-terms.test.ts`, `XA` = `api/transactions.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| A split with `loanId`: a Loan of the Realm, not `VOID`, `LOAN_INTEREST`/`LOAN_PRINCIPAL`, an `OUTFLOW` unless a reversal, never with a PropertyReference; in the repository and past it | TS "checkLoanSplits …"; LP "order of checks …"; LP schema "a Loan of the Realm and not VOID …"; SA "400 …" (`NOT_ALLOWED_WITH_LOAN`) |
+| Order of checks: the existing ones, then an unknown Loan, the category, the direction, a `VOID` Loan, each first by position; nothing written on a refusal | TS "in the order of §41.5 …"; LP "order of checks …" |
+| `loanId` is part of the split set: the same set is a no-op, a changed `loanId` a change; reads and the AuditRecord carry it | LP "stores loanId …"; SA "200 …" |
+| Corrections: copied splits keep `loanId`; a replacement's own splits name another Loan or none, and must be `OUTFLOW`; the `INFLOW` reversal mirrors `loanId` (0014 compares it); what counts before and after | LP "correct: …", "reverse: …"; LP schema "a reversal mirrors loan_id …"; XA "maps the refusals of §35.4" |
+| A Loan with splits, a reversal's included, cannot be voided, in the repository and past it; the guard's no-op write and an amend pass | LP "LOAN_HAS_SPLITS …", "reverse: …" |
+| Lock order Transaction → Loan, the guard writing the Loan row: void against a split write in both orders (RC sees the other's result, RR `40001`); two writers naming two Loans in opposite order do not deadlock (id order); the trigger order in `pg_trigger` | LP "concurrency …"; LP schema "trigger order …" |
+| The correction path too (review on #68): `correct` and `reverse` lock every Loan they write, the original's (mirrored by the reversal) and the replacement's, in id order before any split; two reverses, and two corrects with a replacement without a Loan, of payments naming two Loans in opposite order both end `CORRECTED` | LP "concurrency of corrections …" |
+| The proposal: the nearest entry (the earlier on a tie), interest `min(entry.interest, amount)`, principal the rest, `INTEREST_ONLY` leaving it unallocated, the flags, the refusals in order; a read only | PP "proposePayment …"; PA "getPaymentProposal …"; TA "GET …/payment-proposal"; LP "the proposal's inputs …" |
+
+Counter-checked (32 mutants, each red): in 0027 the guard's Loan write replaced by `FOR SHARE` (the RR test), each refusal of the guard, the reversal exemption, the trigger renamed to sort before `transaction_split_frozen`, the CHECK, the foreign key without the Realm, `loan_void_unreferenced` removed or firing on every update, the mirror without `loan_id`; in the repositories the Loan lock removed or taken in position order (the deadlock test), `checkLoanSplits` skipped in the splits command and in `correct`, `correct` locking only the replacement's Loans (both correction deadlock tests `40P01`), the reversal dropping `loan_id`, the void ignoring splits, the read without `loan_id`; in the domain `sameSplits` without `loanId`, the order of checks, the reversal exemption, and the proposal's tie, interest cap, `INTEREST_ONLY` principal, `ALREADY_SPLIT` and statuses; at the API `NOT_ALLOWED_WITH_LOAN`, the lower-cased `loanId`, the zero split and the signed difference; in the application the `VOID` refusal.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

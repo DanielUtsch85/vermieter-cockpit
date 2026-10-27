@@ -239,6 +239,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       amount: Money.of(amount, 'EUR'),
       financialCategoryCode,
       propertyReferenceId: null,
+      loanId: null,
       description: null,
     });
     async function classified(): Promise<string> {

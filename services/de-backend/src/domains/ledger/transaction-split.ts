@@ -14,6 +14,8 @@ export interface SplitInput {
   readonly amount: Money;
   readonly financialCategoryCode: string;
   readonly propertyReferenceId: string | null;
+  /** A Loan payment's interest or principal (P3-D4, api-design §41.5); never together with `propertyReferenceId`. */
+  readonly loanId: string | null;
   readonly description: string | null;
 }
 
@@ -67,10 +69,43 @@ export function sameSplits(current: readonly SplitInput[], next: readonly SplitI
         c.amount.equals(n.amount) &&
         c.financialCategoryCode === n.financialCategoryCode &&
         c.propertyReferenceId === n.propertyReferenceId &&
+        c.loanId === n.loanId &&
         c.description === n.description
       );
     })
   );
+}
+
+/** The categories a split with `loanId` may carry (§41.5, data-model §72). */
+export const LOAN_SPLIT_CATEGORIES = ['LOAN_INTEREST', 'LOAN_PRINCIPAL'] as const;
+
+/** Why a split set's Loans refuse it (api-design §41.5): 404, 422 INVALID_LOAN_SPLIT, 409 LOAN_NOT_ACTIVE. */
+export type LoanSplitRefusal =
+  | { readonly kind: 'LOAN_NOT_FOUND'; readonly loanId: string }
+  | { readonly kind: 'INVALID_LOAN_SPLIT'; readonly position: number; readonly reason: 'CATEGORY' | 'DIRECTION' }
+  | { readonly kind: 'LOAN_NOT_ACTIVE'; readonly loanId: string; readonly status: string };
+
+/**
+ * The rules of §41.5 for the splits with `loanId`, in its order: every unknown or foreign Loan first, then the
+ * category, then the direction (a reversal is exempt), then a `VOID` Loan; each for the first split in position
+ * order. `loans` holds the status of the Loans found in the Realm.
+ */
+export function checkLoanSplits(
+  transaction: { readonly direction: Direction; readonly reversal: boolean },
+  splits: readonly SplitInput[],
+  loans: ReadonlyMap<string, string>,
+): LoanSplitRefusal | undefined {
+  const withLoan = splits.flatMap((split, i) => (split.loanId === null ? [] : [{ split, loanId: split.loanId, position: i + 1 }]));
+  const unknown = withLoan.find((s) => !loans.has(s.loanId));
+  if (unknown !== undefined) return { kind: 'LOAN_NOT_FOUND', loanId: unknown.loanId };
+  const category = withLoan.find((s) => !(LOAN_SPLIT_CATEGORIES as readonly string[]).includes(s.split.financialCategoryCode));
+  if (category !== undefined) return { kind: 'INVALID_LOAN_SPLIT', position: category.position, reason: 'CATEGORY' };
+  if (withLoan.length > 0 && transaction.direction !== 'OUTFLOW' && !transaction.reversal) {
+    return { kind: 'INVALID_LOAN_SPLIT', position: (withLoan[0] as (typeof withLoan)[number]).position, reason: 'DIRECTION' };
+  }
+  const inactive = withLoan.find((s) => loans.get(s.loanId) === 'VOID');
+  if (inactive !== undefined) return { kind: 'LOAN_NOT_ACTIVE', loanId: inactive.loanId, status: 'VOID' };
+  return undefined;
 }
 
 /** The Transaction as far as a split response needs it. */
@@ -95,13 +130,16 @@ export type ReplaceSplitsOutcome =
   | Exclude<SplitPlan, { kind: 'APPLY' }>
   /** Unknown or inactive category codes. */
   | { readonly kind: 'UNKNOWN_CATEGORY'; readonly codes: readonly string[] }
-  | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceIds: readonly string[] };
+  | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceIds: readonly string[] }
+  | LoanSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface TransactionSplitRepository {
   /**
    * In one transaction, under the Transaction's row lock: applies `planSplits`,
-   * resolves categories and PropertyReferences in the Realm, replaces the split
+   * resolves categories and PropertyReferences in the Realm, then locks the
+   * Loans `FOR UPDATE` in id order and applies `checkLoanSplits` (Transaction →
+   * Loan, P3-D8), replaces the split
    * set atomically, sets the status and version and writes the AuditRecord.
    */
   replaceSplits(

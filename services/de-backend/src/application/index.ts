@@ -75,6 +75,7 @@ export type {
 export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';
 export {
   FinancialCategoryNotFoundError,
+  InvalidLoanSplitError,
   SplitSumMismatchError,
   TransactionFrozenError,
   TransactionNotFoundError,
@@ -229,8 +230,20 @@ export {
 export type { AmendLoan, CreateLoan, CreateLoanInput, GetLoan, ListLoans, VoidLoan } from './loans.js';
 export { LOAN_STATUSES, debtFrom, fieldErrors as loanFieldErrors } from '../domains/financing/index.js';
 export type { Loan, LoanChanges, LoanFilter, LoanPage, LoanStatus } from '../domains/financing/index.js';
-export { LoanTermsNotFoundError, TermsNotLastError, TermsRefusedError, createLoanTerms, getLoanSchedule, listLoanTerms, voidLoanTerms } from './loan-terms.js';
-export type { CreateLoanTerms, CreateLoanTermsInput, GetLoanSchedule, ListLoanTerms, VoidLoanTerms } from './loan-terms.js';
+export {
+  LoanTermsNotFoundError,
+  NoScheduleError,
+  PaymentNotProposableError,
+  ProposalTransactionNotFoundError,
+  TermsNotLastError,
+  TermsRefusedError,
+  createLoanTerms,
+  getLoanSchedule,
+  getPaymentProposal,
+  listLoanTerms,
+  voidLoanTerms,
+} from './loan-terms.js';
+export type { CreateLoanTerms, CreateLoanTermsInput, GetLoanSchedule, GetPaymentProposal, ListLoanTerms, PaymentProposalResult, VoidLoanTerms } from './loan-terms.js';
 export { REPAYMENT_MODELS, TERMS_STATUSES, formatRate, parseRate } from '../domains/financing/index.js';
 export type { LoanTermsView, NumberedScheduleEntry, RepaymentModel, Schedule, ScheduleSummary, TermsStatus } from '../domains/financing/index.js';
 export {

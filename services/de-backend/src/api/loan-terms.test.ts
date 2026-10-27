@@ -6,11 +6,15 @@ import {
   LoanNotActiveError,
   LoanNotFoundError,
   LoanTermsNotFoundError,
+  NoScheduleError,
+  PaymentNotProposableError,
+  ProposalTransactionNotFoundError,
   TermsNotLastError,
   TermsRefusedError,
   VersionConflictError,
   type CreateLoanTermsInput,
   type LoanTermsView,
+  type PaymentProposalResult,
   type Schedule,
   type PrincipalVerifier,
 } from '../application/index.js';
@@ -275,5 +279,85 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
     const missing = await call(base, 'GET', `/loans/${TERMS}/schedule`);
     expect(missing.status).toBe(404);
     expect((await errorOf(missing)).details).toEqual({ loanId: TERMS });
+  });
+});
+
+describe('GET /api/v1/loans/{id}/payment-proposal', () => {
+  const TX = '2b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
+  const proposal = {
+    kind: 'PROPOSAL',
+    loanId: LOAN,
+    transactionId: TX,
+    bookingDate: '2027-03-01',
+    amount: 40_000n,
+    entry: { number: 2, paymentDate: '2027-02-28', termsId: TERMS, balanceBefore: 70_500n, interest: 353n, principal: 29_647n, payment: 30_000n, balanceAfter: 40_853n },
+    interest: 353n,
+    principal: 39_647n,
+    unallocated: 0n,
+    flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: 10_000n }, { code: 'ALREADY_SPLIT' }],
+  } as unknown as PaymentProposalResult;
+
+  it('the proposal as Money with the entry and the flags; transactionId required; unknown parameters 400', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      getPaymentProposal: async (input) => {
+        seen.push(input);
+        return proposal;
+      },
+    });
+    const res = await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX.toUpperCase()}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      loanId: LOAN,
+      transactionId: TX,
+      bookingDate: '2027-03-01',
+      amount: { amount: '400.00', currency: 'EUR' },
+      scheduleEntry: {
+        number: 2,
+        paymentDate: '2027-02-28',
+        termsId: TERMS,
+        interest: { amount: '3.53', currency: 'EUR' },
+        principal: { amount: '296.47', currency: 'EUR' },
+        payment: { amount: '300.00', currency: 'EUR' },
+        balanceBefore: { amount: '705.00', currency: 'EUR' },
+      },
+      splits: [
+        { financialCategoryCode: 'LOAN_INTEREST', loanId: LOAN, amount: { amount: '3.53', currency: 'EUR' } },
+        { financialCategoryCode: 'LOAN_PRINCIPAL', loanId: LOAN, amount: { amount: '396.47', currency: 'EUR' } },
+      ],
+      unallocated: { amount: '0.00', currency: 'EUR' },
+      flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', details: { difference: { amount: '100.00', currency: 'EUR' } } }, { code: 'ALREADY_SPLIT' }],
+    });
+    expect(seen[0]).toMatchObject({ loanId: LOAN, transactionId: TX });
+    const missing = await call(base, 'GET', `/loans/${LOAN}/payment-proposal`);
+    expect(missing.status).toBe(400);
+    expect(((await errorOf(missing)).details as { fields: unknown[] }).fields).toEqual([{ field: 'transactionId', code: 'REQUIRED' }]);
+    expect((await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=x`)).status).toBe(400);
+    expect((await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX}&asOf=2027-01-01`)).status).toBe(400);
+    expect((await call(base, 'GET', `/loans/x/payment-proposal?transactionId=${TX}`)).status).toBe(400);
+  });
+
+  it('a negative difference, an INTEREST_ONLY rest and a zero principal left out', async () => {
+    const base = await start({
+      getPaymentProposal: async () =>
+        ({ ...proposal, amount: 29_000n, principal: 0n, unallocated: 28_647n, flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: -1_000n }, { code: 'REST_NOT_PLANNED' }] }) as unknown as PaymentProposalResult,
+    });
+    const body = (await (await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX}`)).json()) as Record<string, unknown>;
+    expect(body['splits']).toEqual([{ financialCategoryCode: 'LOAN_INTEREST', loanId: LOAN, amount: { amount: '3.53', currency: 'EUR' } }]);
+    expect(body['unallocated']).toEqual({ amount: '286.47', currency: 'EUR' });
+    expect(body['flags']).toEqual([{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', details: { difference: { amount: '-10.00', currency: 'EUR' } } }, { code: 'REST_NOT_PLANNED' }]);
+  });
+
+  it.each([
+    [new LoanNotFoundError(LOAN), 404, 'NOT_FOUND', { loanId: LOAN }],
+    [new ProposalTransactionNotFoundError(TERMS), 404, 'NOT_FOUND', { transactionId: TERMS }],
+    [new LoanNotActiveError(LOAN, 'VOID'), 409, 'CONFLICT', { reason: 'LOAN_NOT_ACTIVE', status: 'VOID' }],
+    [new PaymentNotProposableError(TERMS, 'INFLOW', 'CONFIRMED'), 409, 'CONFLICT', { reason: 'NOT_PROPOSABLE', direction: 'INFLOW', status: 'CONFIRMED' }],
+    [new NoScheduleError(LOAN, 'NO_TERMS'), 409, 'CONFLICT', { reason: 'NO_SCHEDULE', endReason: 'NO_TERMS' }],
+  ])('%s → %i %s', async (error, status, code, details) => {
+    const base = await start({ getPaymentProposal: async () => Promise.reject(error) });
+    const res = await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TERMS}`);
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject({ code, details });
   });
 });

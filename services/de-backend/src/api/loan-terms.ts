@@ -5,6 +5,9 @@ import {
   LoanNotActiveError,
   LoanNotFoundError,
   LoanTermsNotFoundError,
+  NoScheduleError,
+  PaymentNotProposableError,
+  ProposalTransactionNotFoundError,
   REPAYMENT_MODELS,
   TERMS_STATUSES,
   TermsNotLastError,
@@ -14,6 +17,8 @@ import {
   parseRate,
   type CreateLoanTerms,
   type GetLoanSchedule,
+  type GetPaymentProposal,
+  type PaymentProposalResult,
   type ListLoanTerms,
   type LoanTermsView,
   type NumberedScheduleEntry,
@@ -24,7 +29,7 @@ import {
 import { Money } from '../shared/index.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
-import { fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 /** Percent p.a. as a decimal string, at most three decimals, `0 ≤ r < 100`; a JSON number is refused (no float in transit). */
 const rate = z.string().transform((value, ctx) => {
@@ -71,6 +76,8 @@ const createBody = z
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const listQuery = z.object({ status: z.enum(TERMS_STATUSES).optional() }).strict();
 
+const proposalQuery = z.object({ transactionId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()) }).strict();
+
 const scheduleQuery = z
   .object({ from: businessDate.optional(), to: businessDate.optional() })
   .strict()
@@ -81,6 +88,7 @@ export interface LoanTermsCommands {
   readonly void: VoidLoanTerms;
   readonly list: ListLoanTerms;
   readonly schedule: GetLoanSchedule;
+  readonly proposal: GetPaymentProposal;
 }
 
 /** Loan terms (api-design.md §41.2, backlog VC-3-02) and the schedule derived from them (§41.4, VC-3-04). */
@@ -178,7 +186,49 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
       .catch(fail(res, next));
   });
 
+  router.get('/loans/:loanId/payment-proposal', (req, res, next) => {
+    const loanId = readId(req.params['loanId'], 'loanId', res);
+    if (loanId === undefined) return;
+    const parsed = proposalQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .proposal({ principal: principalOf(res), loanId, transactionId: parsed.data.transactionId })
+      .then((proposal) => res.json(toProposalDto(proposal)))
+      .catch(fail(res, next));
+  });
+
   return router;
+}
+
+/** Signed cents as Money (a difference may be negative). */
+const signedEurCents = (cents: bigint) => (cents < 0n ? { amount: `-${eurCents(-cents).amount}`, currency: 'EUR' } : eurCents(cents));
+
+function toProposalDto(p: PaymentProposalResult) {
+  const splits = [
+    { financialCategoryCode: 'LOAN_INTEREST', amount: p.interest },
+    { financialCategoryCode: 'LOAN_PRINCIPAL', amount: p.principal },
+  ].filter((s) => s.amount > 0n);
+  return {
+    loanId: p.loanId,
+    transactionId: p.transactionId,
+    bookingDate: p.bookingDate,
+    amount: eurCents(p.amount),
+    scheduleEntry: {
+      number: p.entry.number,
+      paymentDate: p.entry.paymentDate,
+      termsId: p.entry.termsId,
+      interest: eurCents(p.entry.interest),
+      principal: eurCents(p.entry.principal),
+      payment: eurCents(p.entry.payment),
+      balanceBefore: eurCents(p.entry.balanceBefore),
+    },
+    splits: splits.map((s) => ({ financialCategoryCode: s.financialCategoryCode, loanId: p.loanId, amount: eurCents(s.amount) })),
+    unallocated: eurCents(p.unallocated),
+    flags: p.flags.map((f) => (f.code === 'AMOUNT_DIFFERS_FROM_SCHEDULE' ? { code: f.code, details: { difference: signedEurCents(f.difference) } } : { code: f.code })),
+  };
 }
 
 function toScheduleDto(loanId: string, from: string | null, to: string | null, { entries, summary }: Schedule) {
@@ -220,6 +270,12 @@ const eurCents = (cents: bigint) => ({ amount: `${cents / 100n}.${(cents % 100n)
 function sendTermsError(res: Response, error: unknown): boolean {
   if (error instanceof LoanNotFoundError) {
     sendError(res, 404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId });
+  } else if (error instanceof ProposalTransactionNotFoundError) {
+    sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
+  } else if (error instanceof PaymentNotProposableError) {
+    sendError(res, 409, 'CONFLICT', 'Only an unconfirmed OUTFLOW gets a payment proposal.', { reason: 'NOT_PROPOSABLE', direction: error.direction, status: error.status });
+  } else if (error instanceof NoScheduleError) {
+    sendError(res, 409, 'CONFLICT', 'The Loan has no planned payment.', { reason: 'NO_SCHEDULE', endReason: error.endReason });
   } else if (error instanceof LoanTermsNotFoundError) {
     sendError(res, 404, 'NOT_FOUND', 'Loan terms not found.', { termsId: error.termsId });
   } else if (error instanceof LoanNotActiveError) {

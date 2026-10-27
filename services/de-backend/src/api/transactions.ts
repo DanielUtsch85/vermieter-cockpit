@@ -12,6 +12,9 @@ import {
   TransactionNotCorrectableError,
   FinancialCategoryNotFoundError,
   InactiveCategoryError,
+  InvalidLoanSplitError,
+  LoanNotActiveError,
+  LoanNotFoundError,
   SplitsMissingError,
   TransactionNotConfirmableError,
   VersionConflictError,
@@ -77,7 +80,6 @@ const createBody = z.object({
 /** References of a split whose entities do not exist yet (data-model.md §18): refused, not stored unchecked. */
 const NOT_YET_SUPPORTED = [
   'rentalContractReferenceId',
-  'loanId',
   'wegId',
   'maintenanceProjectId',
   'acquisitionId',
@@ -90,12 +92,20 @@ const split = z
     amount: money,
     financialCategoryCode: z.string().regex(CATEGORY_CODE),
     propertyReferenceId: z.string().regex(RESOURCE_ID).nullish(),
+    // A Loan payment's interest or principal (§41.5); the rest of its rules need the database.
+    loanId: z.string().regex(RESOURCE_ID).nullish(),
     description: z.string().trim().max(500).nullish(),
     // A split has no direction of its own: it inherits the Transaction's (§17.4).
     direction: z.undefined(),
     ...Object.fromEntries(NOT_YET_SUPPORTED.map((key) => [key, z.undefined()])),
   })
-  .strict();
+  .strict()
+  // A Loan reaches its properties only through its allocation (§41.3), so never both on one split (§41.5).
+  .superRefine((s, ctx) => {
+    if (typeof s.loanId === 'string' && typeof s.propertyReferenceId === 'string') {
+      ctx.addIssue({ code: 'custom', path: ['propertyReferenceId'], params: { code: 'NOT_ALLOWED_WITH_LOAN' } });
+    }
+  });
 const splitsBody = z.object({ splits: z.array(split).min(1).max(100) }).strict();
 
 type SplitBody = z.infer<typeof split>;
@@ -106,6 +116,7 @@ function toSplitInput(s: SplitBody) {
     amount: s.amount,
     financialCategoryCode: s.financialCategoryCode,
     propertyReferenceId: s.propertyReferenceId?.toLowerCase() ?? null,
+    loanId: s.loanId?.toLowerCase() ?? null,
     description: s.description === undefined || s.description === null || s.description === '' ? null : s.description,
   };
 }
@@ -219,7 +230,7 @@ const ignoreBody = z.object({ reason: z.string().trim().min(1).max(500) }).stric
 /** `reverse` (api-design.md §35.9): only the reason. */
 const reverseBody = ignoreBody;
 
-/** `splits.0.direction` → NOT_ALLOWED, `splits.0.loanId` → NOT_SUPPORTED. */
+/** `splits.0.direction` → NOT_ALLOWED, `splits.0.wegId` → NOT_SUPPORTED. */
 function splitFieldCode(field: string, code: string): string {
   const key = field.split('.').at(-1) ?? '';
   if (key === 'direction') return 'NOT_ALLOWED';
@@ -387,6 +398,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         res.json(toSplitsDto(transaction, stored));
       })
       .catch((error: unknown) => {
+        if (sendLoanSplitError(res, error)) return;
         if (error instanceof TransactionNotFoundError) {
           sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
         } else if (error instanceof PropertyReferenceNotFoundError) {
@@ -521,6 +533,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         res.status(201).json({ original: toDto(original), reversal: toDto(reversal), replacement: corrected === null ? null : toDto(corrected) });
       })
       .catch((error: unknown) => {
+        if (sendLoanSplitError(res, error)) return;
         if (error instanceof TransactionNotFoundError) {
           sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
         } else if (error instanceof FinancialAccountNotFoundError) {
@@ -814,8 +827,26 @@ function toSplitDto(s: TransactionSplit) {
     amount: s.amount.toJSON(),
     financialCategoryCode: s.financialCategoryCode,
     propertyReferenceId: s.propertyReferenceId,
+    loanId: s.loanId,
     description: s.description,
   };
+}
+
+/** The refusals of §41.5 on a split with `loanId` (splits and `correct`); false for anything else. */
+function sendLoanSplitError(res: Response, error: unknown): boolean {
+  if (error instanceof LoanNotFoundError) {
+    sendError(res, 404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId });
+  } else if (error instanceof InvalidLoanSplitError) {
+    sendError(res, 422, 'INVALID_LOAN_SPLIT', 'A split with a Loan is LOAN_INTEREST or LOAN_PRINCIPAL of an OUTFLOW.', {
+      position: error.position,
+      reason: error.reason,
+    });
+  } else if (error instanceof LoanNotActiveError) {
+    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; no split can name it.`, { reason: 'LOAN_NOT_ACTIVE', loanId: error.loanId, status: error.status });
+  } else {
+    return false;
+  }
+  return true;
 }
 
 function toDto(transaction: Transaction) {

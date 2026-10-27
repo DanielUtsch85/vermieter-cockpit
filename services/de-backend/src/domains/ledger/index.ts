@@ -68,8 +68,9 @@ export type {
   RowOutcome,
   SourceRowKey,
 } from './bank-import.js';
-export { SPLITTABLE_STATUSES, planSplits, sameSplits } from './transaction-split.js';
+export { LOAN_SPLIT_CATEGORIES, SPLITTABLE_STATUSES, checkLoanSplits, planSplits, sameSplits } from './transaction-split.js';
 export type {
+  LoanSplitRefusal,
   ReplaceSplitsOutcome,
   SplitInput,
   SplitPlan,

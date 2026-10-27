@@ -89,3 +89,5 @@ export type {
   VoidAllocationOutcome,
   VoidAllocationPlan,
 } from './allocation.js';
+export { nearestEntry, proposePayment } from './payment-proposal.js';
+export type { PaymentProposal, ProposalFlag, ProposalTransaction } from './payment-proposal.js';
