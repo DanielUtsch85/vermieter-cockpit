@@ -1780,8 +1780,9 @@ GET /api/v1/loans/{loanId}/allocations[?asOf=|?status=]            (VC-3-03, §4
 GET /api/v1/property-references/{propertyReferenceId}/loans[?asOf=] (VC-3-03, §41.3)
 GET /api/v1/loans/{loanId}/schedule[?from=&to=]                    (VC-3-04, §41.4)
 GET /api/v1/loans/{loanId}/payment-proposal?transactionId=         (VC-3-05, §41.5)
-GET /api/v1/loans/{loanId}/remaining-debt[?asOf=]                  (VC-3-06)
-GET /api/v1/loans/{loanId}/balance-statements                      (VC-3-06)
+GET /api/v1/loans/{loanId}/remaining-debt[?asOf=&perProperty=]    (VC-3-06, §41.6)
+GET /api/v1/loans/{loanId}/payments?year=[&perProperty=]          (VC-3-06, §41.6)
+GET /api/v1/loans/{loanId}/balance-statements[?status=]            (VC-3-06, §41.6)
 ```
 
 ### Commands
@@ -1794,8 +1795,8 @@ POST /api/v1/loans/{loanId}/terms                                  (VC-3-02, §4
 POST /api/v1/loans/{loanId}/terms/{termsId}/void                   (VC-3-02, §41.2)
 POST /api/v1/loans/{loanId}/allocations                            (VC-3-03, §41.3)
 POST /api/v1/loans/{loanId}/allocations/{allocationSetId}/void     (VC-3-03, §41.3)
-POST /api/v1/loans/{loanId}/balance-statements                     (VC-3-06)
-POST /api/v1/loans/{loanId}/balance-statements/{statementId}/void  (VC-3-06)
+POST /api/v1/loans/{loanId}/balance-statements                     (VC-3-06, §41.6)
+POST /api/v1/loans/{loanId}/balance-statements/{statementId}/void  (VC-3-06, §41.6)
 POST /api/v1/loans/{loanId}/close                                  (VC-3-07)
 ```
 
@@ -2274,6 +2275,124 @@ A read, never a write (ADR-015: the plan never becomes cash). The client applies
   - `loan_id` with `property_reference_id`;
   - a reversal whose splits drop or change `loan_id`;
   - a `VOID` step of a Loan with splits.
+
+## 41.6 Remaining debt, payments and lender statements (VC-3-06)
+
+Decision P3-D6 of `docs/development/phase-3-plan.md`, ADR-016, BR-FIN-006. Remaining debt is **derived**: from the contract (§41.1), the ledger (the payments that count, §41.5) and the plan (§41.4). It is never stored and never taken from a bank balance. A lender's statement is evidence that is compared with the derived value; it never replaces it.
+
+- **Domain owner:** Financing. **Authorization:** as §41.1. An unknown or foreign Loan is `404`. A `VOID` Loan counts nowhere: its reads answer `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"`.
+- **The business date `asOf`** defaults to today in Europe/Berlin, from the server's clock.
+- **All amounts are exact in cents.** Every read below is one `REPEATABLE READ READ ONLY` snapshot of the Loan, its terms, its allocation sets, the counted splits and the statements.
+
+### Definitions on a day `d`
+
+- **Owed from `debtFrom`** (`disbursementDate`, else `startDate`; §41.1, full disbursement). Before `debtFrom` the actual and the planned remaining debt are both 0.
+- **Principal paid** on `d` = Σ `LOAN_PRINCIPAL` splits with this `loanId` that count (§41.5: of current Transactions, `CONFIRMED` or `RECONCILED` and not a reversal), with booking date ≤ `d`.
+- **Actual remaining debt** = `principalOriginal` − principal paid. It is negative when more principal has been paid than was lent (a booking error, or a payment of another Loan); the read shows that rather than hiding it.
+- **Planned remaining debt** = the plan's balance after its last payment on or before `d` (§41.4). Before the first payment it is the balance the period in effect starts from (`principalOriginal`, or its `principalAtStart`). With `NO_TERMS` there is no plan, and the planned values are `null`.
+- **Difference** = actual − planned, signed. Special repayments, missed or late payments, and cents of rounding show up here.
+- **VC-3-07** makes both 0 after a `CLOSED` Loan's `closingDate`.
+
+### Per property
+
+- **The allocation:** the Loan's `VALID` allocation set covering `d` (§41.3). Each property-level amount distributes its total by the set's exact fractions into cents by **largest remainder**, ties by `propertyReferenceId`, as Phase 2 does for owners (§27.4).
+- **Derived, never distributed (F4b):** `actual` and `planned` are distributed; each property's `difference` is its `actual − planned`. Largest remainder is not monotone, so distributing the difference separately could break `difference_i = actual_i − planned_i`. Distributing it this way keeps every per-property identity by construction, and each column still sums exactly to its total.
+- **A negative total** (an actual remaining debt below 0) is distributed by its absolute value, and the sign is restored on each part.
+- **Unallocated:** with `perProperty=true` and no set covering `d`, the read answers `409 CONFLICT` with `reason = "LOAN_NOT_ALLOCATED"` and `details.asOf` (BR-FIN-009: it never invents a share). Without `perProperty`, the Loan-level values are answered whatever the allocation.
+
+### `GET /api/v1/loans/{loanId}/remaining-debt[?asOf=&perProperty=]`
+
+- **Query** (strict; unknown parameters are `400`): `asOf` (business date), `perProperty` (`true`/`false`, default `false`).
+- **Response `200`:**
+  - `loanId`, `asOf`, `debtFrom`;
+  - `principalOriginal`, `principalPaid`, `actual`;
+  - `planned` (Money or `null`), `difference` (signed Money or `null`), `planEndReason` (§41.4's `endReason`);
+  - `latestStatement`: the `VALID` statement with the latest `statementDate` on or before `asOf`, with its comparison (below), or `null`;
+  - with `perProperty=true`: `allocationSetId`, `items: [{ propertyReferenceId, share, actual, planned, difference }]` in the set's order.
+- **Order of refusals:** `400` → Loan `404` → `VOID` `409 LOAN_NOT_ACTIVE` → `409 LOAN_NOT_ALLOCATED`.
+- **Example** (§41.4's Loan of 1 000.00, debt from 2027-01-01):
+  - Two payments are confirmed, booked 2027-01-31 and 2027-02-28, with principal 295.00 and 296.47.
+  - On `asOf = 2027-03-15`: `principalPaid` = 591.47, `actual` = 408.53, `planned` = 408.53 (after entry 2), `difference` = 0.00.
+  - With a set of `2/3` and `1/3` from 2027-01-01, `actual` is distributed as 272.35 and 136.18. In cents, 40 853 × 2/3 = 27 235⅓ and 40 853 × 1/3 = 13 617⅔. The floors 27 235 and 13 617 leave one cent, which goes to the larger remainder, ⅔ against ⅓. So the parts are 272.35 and 136.18. `planned` is distributed the same way, and each `difference` is 0.00.
+
+### `GET /api/v1/loans/{loanId}/payments?year=[&perProperty=]`
+
+The interest and principal **paid** in a calendar year, for reports and, later, tax (Phase 7 interprets the interest; `germany/taxation.md`, VERIFY).
+
+- **Query:** `year` (required, `2000`–`2100`), `perProperty` as above.
+- **What it sums:** the counted `LOAN_INTEREST` and `LOAN_PRINCIPAL` splits with this `loanId`, with booking dates in the year.
+- **Response `200`:** `loanId`, `year`, `interest`, `principal`, and `payments` (the number of Transactions).
+- **With `perProperty=true`:**
+  - each split is attributed by the set covering **its booking date**, then distributed into cents by largest remainder, ties by `propertyReferenceId`;
+  - the parts are summed per property and category: `items: [{ propertyReferenceId, interest, principal }]`, ordered by `propertyReferenceId`;
+  - each column sums exactly to its total;
+  - if any counted split of the year falls on a day without a set → `409 LOAN_NOT_ALLOCATED` with `details.bookingDate`, the first such date.
+- **Refusals:** `400` (`year` missing or out of range) → `404` → `409 LOAN_NOT_ACTIVE` → `409 LOAN_NOT_ALLOCATED`.
+
+### Lender statements: `LoanBalanceStatement`
+
+A balance the lender reports on a date, e.g. from the annual account statement (ADR-016: evidence, never the truth).
+
+- **`POST /api/v1/loans/{loanId}/balance-statements`**
+  - **Body** (strict):
+    - `statementDate` (business date, required);
+    - `balance` (Money ≥ 0, EUR, required);
+    - `source` (1–200 characters, trimmed, required, e.g. "Jahreskontoauszug 2027");
+    - `notes` (≤ 2000).
+  - **Order of checks:**
+    1. `400`;
+    2. `404`;
+    3. Loan `VOID` → `409 LOAN_NOT_ACTIVE` (VC-3-07 adds `CLOSED` and its rule);
+    4. `statementDate` before `debtFrom` → `422 STATEMENT_BEFORE_DEBT` with `details.debtFrom`.
+  - **Success:** `201` with the statement and its comparison; AuditRecord `CREATED`.
+  - **Idempotency (§15):** scope `loan.statement.create`.
+  - Several statements may exist for one date, e.g. a correction letter: the comparison takes each as it is.
+- **`POST …/balance-statements/{statementId}/void`:** body `{ reason }`. As the other voids:
+  - `404`;
+  - an already `VOID` statement → `200` no-op;
+  - Loan `VOID` → `409 LOAN_NOT_ACTIVE`;
+  - `412` on a version conflict;
+  - AuditRecord `VOIDED`.
+  - Statements are never edited: void and record again.
+- **`GET …/balance-statements[?status=]`:** `{ items }` by `statementDate`, then `createdAt`, each with its comparison.
+- **Fields of a statement:** `statementId`, `loanId`, `status` (`VALID` | `VOID`), `statementDate`, `balance`, `source`, `notes`, `voidedAt`, `voidReason`, `createdAt`, `version`, and its comparison:
+  - `comparison: { actualOnDate, difference }`, where `actualOnDate` is the actual remaining debt on `statementDate` as derived now, and `difference` = `balance − actualOnDate`, signed;
+  - the comparison is derived at each read, so it follows later corrections of the ledger.
+- **Locks (P3-D8):** a statement write locks the Loan row `FOR UPDATE`. Past the repository the statement's trigger writes the Loan row (P3-D8's no-op), so a statement and a void of the Loan serialise.
+- **In the database:** table `loan_balance_statement`:
+  - a composite foreign key to `loan`;
+  - `balance` `numeric`, scale ≤ 2, ≥ 0;
+  - `source`, `notes` and the status fields as `loan_terms`.
+  - `loan_balance_statement_append` (before insert): writes the Loan row, refuses a `VOID` Loan and a date before `debtFrom`; only inserted `VALID` with version 1.
+  - `loan_balance_statement_frozen` (before update or delete): data never changes; the only step is `VALID` → `VOID` with `version` + 1; never deleted.
+  - Not in the database: the comparison (a read).
+
+### Tests (VC-3-06)
+
+- **Domain:**
+  - actual, planned and difference on days before `debtFrom`, before the first payment, on a payment date and between payments;
+  - a special repayment (actual below planned);
+  - a missed payment (above);
+  - a principal paid beyond the original (negative);
+  - `NO_TERMS`;
+  - the example above;
+  - largest remainder, ties by `propertyReferenceId`, a negative total, the derived difference;
+  - a **property test**: per-property columns sum exactly to their totals and `difference_i = actual_i − planned_i`.
+- **Repository:**
+  - only counted splits: an unconfirmed payment, a reversal, a corrected original and its replacement, a split of another Loan, a `LOAN_INTEREST` split;
+  - booking dates up to and including `asOf`;
+  - the set covering `asOf`, and before the first set;
+  - the payments of a year per property with a set change within the year;
+  - the latest statement;
+  - Realm isolation; one snapshot.
+- **Statements:**
+  - create with its order of checks;
+  - idempotency;
+  - void as a no-op;
+  - the comparison following a later correction;
+  - concurrency of a statement against a void of the Loan (RC sees it; RR past the repository `40001`), with a counter-check;
+  - the schema past the repository (a `VOID` Loan, before the debt, inserted as `VOID`, an edit, a delete), each with a counter-check.
+- **API:** every `400`, the error mapping, `perProperty`, the Money format of signed values.
 
 # 42. Create Loan
 
