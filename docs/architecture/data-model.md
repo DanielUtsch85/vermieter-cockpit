@@ -1268,7 +1268,10 @@ Represent one canonical financing contract.
 ## 21.3a Status and fixed fields (P3-D1, api-design §41.1)
 
 - `status`: `ACTIVE` → `VOID` (a recording error, only while no split references the Loan) and `ACTIVE` → `CLOSED`
-  (`REPAID`, `REFINANCED`, `OTHER`; VC-3-07); both final.
+  (`REPAID`, `REFINANCED`, `OTHER`; VC-3-07, API §41.7); both final.
+- Closing fields: `closingDate`, `closingReason`, `refinancedByLoanId` (a Loan of the Realm, `ACTIVE` when named),
+  `closingNote`; set only in the step to `CLOSED`. After `closingDate` the remaining debt is 0 and no split may name
+  the Loan on a later booking date (a reversal exempt).
 - Fixed after creation: `principalOriginal`, `currency`, `startDate`, `disbursementDate`, `acquisitionId`. Amendable
   while `ACTIVE`: lender, borrowers, `maturityDate`, `contractNumber`, `sourceReferences`, `notes`.
 - `repaymentType`, `paymentFrequency` and `currentTermsId` belong to LoanTerms (§22, P3-D2), not to the Loan.
