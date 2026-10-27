@@ -313,6 +313,22 @@ Counter-checked: each trigger branch and CHECK, both Loan writes in the triggers
 
 Counter-checked: each refusal of the four triggers of 0026 and the share CHECK's parts (the deferred trigger set to `INITIALLY IMMEDIATE` makes a valid multi-row set fail; the sum and the basis/`acquisition_id` checks each neutralised on their own; both Loan writes), the composite key to the Acquisition, `UNIQUE (set_id, property_reference_id)`, the repository's Loan lock, its Realm and property filters, `CANCELLED`, the order PropertyReferences → Acquisitions and the `VOID` Loan filter, in the domain the reduction, the day boundaries, the append boundary, the last-set rule, the `VOID` set filter and the order, and at the API the sum, both `DUPLICATE`s, `NOT_ALLOWED_FOR_BASIS` and `asOf` with `status` were neutralised in turn; a test went red each time.
 
+## 19. Loan schedule (VC-3-04, api-design §41.4)
+
+`SC` = `domains/financing/schedule.test.ts`, `TR2` = `infrastructure/postgres/loan-terms-repository.test.ts`, `TA` = `api/loan-terms.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| The hand-computed example of §41.4 row for row (3.525 rounds up; the last payment 111.12; Σ interest 11.12) | SC "the hand-computed example …" |
+| A full annuity repays exactly its principal; every payment but the last is the scheduled one, the last at most it | SC property "over 400 seeded random full annuities …" |
+| Against an independent oracle (dates with their own month-end clamp, `round_half_up` as its own formula): balances chain and carry over, `principalAtStart` restarts, a period stops at the next one, at `maturityDate` and at 600 payments and nowhere earlier, the summary and `endReason` | SC property "over 400 seeded random plans …"; SC "carries the balance …", "interest-only …", "an annuity cut by maturity …", "clamps …" |
+| `endReason` on ties: `PAID_OFF` before `MATURITY` before `PAYMENT_CAP`; a follow-up period after 0 without `principalAtStart` has no payments (review on #65); `NO_TERMS` | SC "ties …", "a follow-up period after the plan reached 0 …", "NO_TERMS …" |
+| A window keeps the numbers and the summary; `to` before `from` is `400 BEFORE_FROM` | SC "a window …"; TA "GET …/schedule" |
+| Only `VALID` periods, the Loan and its periods in one snapshot; Realm isolation | TR2 "schedule inputs …" |
+| Never stored: no table, no command | §41.4 (no migration) |
+
+Counter-checked: in the domain `round_half_up` replaced by truncation, the cap on the last principal, the carry-over, `principalAtStart`, the stop at the next period and at `maturityDate` (also made exclusive), the clamping, the 600 cap (as 601) and the tie between the cap and maturity each turned the oracle property test red. The ties `MATURITY` before `PAID_OFF`, the window bounds, the `VALID` filter and the Realm of the read, `BEFORE_FROM`, the Money of the response and the LoanTerms audit's `notes` (#64 nit) each turned their own tests red.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

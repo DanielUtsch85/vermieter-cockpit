@@ -2082,7 +2082,7 @@ Decision P3-D3 of `docs/development/phase-3-plan.md`, ADR-038. One Loan is never
   - an append not after the last set; a void that is not of the last set;
   - an Acquisition of another property; the basis and `acquisition_id` disagreeing.
 
-## 41.4 Loan schedule (VC-3-04)
+## 41.4 Loan schedule (VC-3-04, implemented)
 
 Decision P3-D5 of `docs/development/phase-3-plan.md`, ADR-015. The schedule is the **plan**: derived on read from the Loan and its `VALID` terms periods (§41.2), never stored, never cash. The same Loan and terms always give the same schedule, so there is no `scheduleVersion` and no recalculate command. VC-3-02 already implements the derivation (`deriveSchedule`), since the annuity check needs the carried-over balance; VC-3-04 exposes it.
 
@@ -2116,6 +2116,8 @@ Decision P3-D5 of `docs/development/phase-3-plan.md`, ADR-015. The schedule is t
       - `MATURITY`: the next payment would fall after `maturityDate`, and `balanceDue` is due on `maturityDate`. This is how an `INTEREST_ONLY` plan ends (P3-D5), and an annuity that has not repaid by then;
       - `PAYMENT_CAP`: 600 payments were reached, e.g. `INTEREST_ONLY` without `maturityDate`;
       - `NO_TERMS`: no `VALID` period, so no payments, and `balanceDue` is `principalOriginal`. A Loan without terms has no plan, which is not an error.
+    - **Ties (review on #65):** `PAID_OFF` before `MATURITY` before `PAYMENT_CAP`. A plan paid off by a payment on `maturityDate`, or by its 600th payment, is `PAID_OFF`. A 600th payment after which the next one would fall after `maturityDate` ends the plan with `MATURITY`.
+    - **A follow-up period after the plan reached 0** (review on #65): when it states no `principalAtStart`, it starts from 0 and has no payments, and the plan stays `PAID_OFF`. §41.2 lets such a period be appended (its first interest is 0); it is shown in the terms and has no entries here.
   - Unpaged: at most 600 items. One snapshot (`REPEATABLE READ READ ONLY`) of the Loan and its periods.
 - **Example** (hand-computed; the reference for the tests):
   - The Loan: `principalOriginal` 1 000.00, one `ANNUITY` period at `"6.000"` with payment 300.00, `firstPaymentDate` 2027-01-31, no `maturityDate`. A monthly rate of 0.5 %.

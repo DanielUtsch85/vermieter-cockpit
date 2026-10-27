@@ -104,7 +104,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
 
   it('appends periods; validUntil is derived; the list is ordered and filters by status; AuditRecords', async () => {
     const l = await loan();
-    const first = await appended(l.id, data());
+    const first = await appended(l.id, data({ notes: 'Zinsbindung laut Vertrag' }));
     expect(first).toMatchObject({ status: 'VALID', version: 1, validFrom: '2026-09-01', validUntil: null, interestRate: 3000n, firstPaymentDate: '2026-10-01', fixedRateUntil: '2036-08-31' });
     expect(first.scheduledPayment?.amount).toBe('500.00');
     const second = await appended(l.id, followUp({ repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, interestRate: 2450n }));
@@ -123,7 +123,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
          FROM audit_record WHERE entity_type = 'LoanTerms' AND entity_id = $1`,
       [first.id],
     );
-    expect(informational.rows).toEqual([{ until: '2036-08-31', repayment: '3.000', limit: '5000.00', notes: null }]);
+    expect(informational.rows).toEqual([{ until: '2036-08-31', repayment: '3.000', limit: '5000.00', notes: 'Zinsbindung laut Vertrag' }]);
   });
 
   it('order of checks: Loan unknown or foreign, not ACTIVE, before the debt, not appended, before the previous first payment, principalAtStart, annuity', async () => {
@@ -148,6 +148,21 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     expect(await terms.create(l.id, REALM, followUp({ validFrom: day('2027-06-01'), firstPaymentDate: day('2027-07-01') }), actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
     // Nothing was written by the refusals: two periods.
     expect((await terms.list(l.id, REALM))?.length).toBe(2);
+  });
+
+  it('schedule inputs (§41.4): the Loan and its VALID periods in one snapshot; unknown or foreign is undefined', async () => {
+    const l = await loan();
+    const first = await appended(l.id, data());
+    const second = await appended(l.id, followUp());
+    await terms.void(l.id, second.id, REALM, 'falsch', new Date(), actor);
+    const third = await appended(l.id, followUp({ validFrom: day('2027-02-01'), firstPaymentDate: day('2027-03-01') }));
+    const inputs = await terms.scheduleInputs(l.id, REALM);
+    expect(inputs?.loan).toMatchObject({ id: l.id, maturityDate: null });
+    expect(inputs?.loan.principalOriginal.amount).toBe('100000.00');
+    expect(inputs?.periods.map((t) => t.id)).toEqual([first.id, third.id]);
+    expect(await terms.scheduleInputs(l.id, OTHER_REALM)).toBeUndefined();
+    expect(await terms.scheduleInputs('not-a-uuid', REALM)).toBeUndefined();
+    expect((await terms.scheduleInputs((await loan()).id, REALM))?.periods).toEqual([]);
   });
 
   it('idempotency: the same key and payload replays, another payload conflicts', async () => {

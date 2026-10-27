@@ -6,6 +6,7 @@ import {
   planVoidTerms,
   withValidUntil,
   type CreateTermsOutcome,
+  type Loan,
   type LoanTerms,
   type LoanTermsData,
   type LoanTermsId,
@@ -18,7 +19,7 @@ import {
 import { checkVersion, type AuditActor, type BusinessDate, type Money } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
-import { lockLoan } from './loan-repository.js';
+import { lockLoan, readLoanIn } from './loan-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -191,6 +192,15 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
       if (loan === undefined) return undefined;
       const views = withValidUntil(await periodsOf(trx, loanId));
       return status === undefined ? views : views.filter((t) => t.status === status);
+    });
+  }
+
+  async scheduleInputs(loanId: string, mreRealmId: string): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[] } | undefined> {
+    if (!UUID.test(loanId)) return undefined;
+    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
+      const loan = await readLoanIn(trx, loanId, mreRealmId);
+      if (loan === undefined) return undefined;
+      return { loan, periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID') };
     });
   }
 }

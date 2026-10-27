@@ -13,8 +13,11 @@ import {
   formatRate,
   parseRate,
   type CreateLoanTerms,
+  type GetLoanSchedule,
   type ListLoanTerms,
   type LoanTermsView,
+  type NumberedScheduleEntry,
+  type Schedule,
   type RealmPrincipal,
   type VoidLoanTerms,
 } from '../application/index.js';
@@ -68,13 +71,19 @@ const createBody = z
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const listQuery = z.object({ status: z.enum(TERMS_STATUSES).optional() }).strict();
 
+const scheduleQuery = z
+  .object({ from: businessDate.optional(), to: businessDate.optional() })
+  .strict()
+  .refine((query) => typeof query.from !== 'string' || typeof query.to !== 'string' || query.from <= query.to, { path: ['to'], params: { code: 'BEFORE_FROM' } });
+
 export interface LoanTermsCommands {
   readonly create: CreateLoanTerms;
   readonly void: VoidLoanTerms;
   readonly list: ListLoanTerms;
+  readonly schedule: GetLoanSchedule;
 }
 
-/** Loan terms (api-design.md §41.2, backlog VC-3-02). */
+/** Loan terms (api-design.md §41.2, backlog VC-3-02) and the schedule derived from them (§41.4, VC-3-04). */
 export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   const router = express.Router();
   const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
@@ -154,7 +163,50 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
       .catch(fail(res, next));
   });
 
+  router.get('/loans/:loanId/schedule', (req, res, next) => {
+    const loanId = readId(req.params['loanId'], 'loanId', res);
+    if (loanId === undefined) return;
+    const parsed = scheduleQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const { from, to } = parsed.data;
+    commands
+      .schedule({ principal: principalOf(res), loanId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) })
+      .then((schedule) => res.json(toScheduleDto(loanId, from ?? null, to ?? null, schedule)))
+      .catch(fail(res, next));
+  });
+
   return router;
+}
+
+function toScheduleDto(loanId: string, from: string | null, to: string | null, { entries, summary }: Schedule) {
+  const entry = (e: NumberedScheduleEntry) => ({
+    number: e.number,
+    paymentDate: e.paymentDate,
+    termsId: e.termsId,
+    balanceBefore: eurCents(e.balanceBefore),
+    interest: eurCents(e.interest),
+    principal: eurCents(e.principal),
+    payment: eurCents(e.payment),
+    balanceAfter: eurCents(e.balanceAfter),
+  });
+  return {
+    loanId,
+    from,
+    to,
+    items: entries.map(entry),
+    summary: {
+      payments: summary.payments,
+      firstPaymentDate: summary.firstPaymentDate,
+      lastPaymentDate: summary.lastPaymentDate,
+      totalInterest: eurCents(summary.totalInterest),
+      totalPrincipal: eurCents(summary.totalPrincipal),
+      balanceDue: eurCents(summary.balanceDue),
+      endReason: summary.endReason,
+    },
+  };
 }
 
 function sendTerms(res: Response, terms: LoanTermsView): void {
