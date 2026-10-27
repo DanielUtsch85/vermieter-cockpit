@@ -21,6 +21,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **CR** | `infrastructure/postgres/correction-repository.test.ts` (VC-1-11) |
 | **CC** | `domains/ledger/correct-transaction.test.ts` (VC-1-11) |
 | **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) |
+| **ACC3** | `phase-3-acceptance.e2e.test.ts` (Phase-3 exit through the API, VC-3-08) |
 | **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
 | **TM / TR2 / TA** | the Loan terms' domain, repository and API tests (VC-3-02, §17) |
 
@@ -391,6 +392,48 @@ Counter-checked (38 mutants, each red):
 - **in the domain:** `REPAID` checked before the splits; the no-op; the successor's status; the split rule without the reversal exemption, refusing on the date, or removed; the remaining debt without the closing rule; the schedule keeping its end reason or not cut; `planVoid` ignoring successors; statements after the date;
 - **in the application:** the proposal without `LOAN_CLOSED`;
 - **at the API:** the self reference, `refinancedByLoanId` and the note for `OTHER` not required.
+
+## 23. Phase 3 exit (VC-3-08, roadmap Phase 3)
+
+The exit of `docs/roadmap.md` Phase 3, claim by claim. Each claim is shown **end to end through the HTTP API** by
+**ACC3**, one scenario against PostgreSQL and the fake MRE as ACC2 does for Phase 2, and is backed by the sections
+above. The scenario's figures are hand-computed and stated here, so the test checks them literally.
+
+**The scenario (Realm A):**
+- Two PropertyReferences P1 and P2, each with a `DRAFT` Acquisition: prices 200,000.00 and 100,000.00.
+- Loan L1 from Bank to Anna:
+  - principal 240,000.00, start date 2027-01-01;
+  - terms from 2027-01-01: `ANNUITY` at 3.000 % with a payment of 1,200.00 from 2027-01-31.
+- The plan (§41.4), hand-computed:
+
+  | Payment | Interest | Principal | Balance after |
+  |---|---|---|---|
+  | 2027-01-31 | 600.00 | 600.00 | 239,400.00 |
+  | 2027-02-28 | 598.50 | 601.50 | 238,798.50 |
+  | 2027-03-31 | 597.00 (596.99625 rounds up) | 603.00 | 238,195.50 |
+
+| Exit claim | ACC3 step | Backed by |
+|---|---|---|
+| **A shared loan allocates to properties without duplication** | <ul><li>A `PURCHASE_PRICE` set from 2027-01-01 gives P1 2/3 and P2 1/3.</li><li>A `MANUAL` override from 2027-04-01 gives 1/2 and 1/2.</li><li>`GET /property-references/{id}/loans` lists L1 once per set for each property, with its share. There is one Loan, never one per property.</li><li>An override set not summing to 1/1 is `400 SHARE_SUM_NOT_ONE`. Before the first set, a per-property read is `409 LOAN_NOT_ALLOCATED`.</li></ul> | §16, §18 |
+| **Interest/principal split flows into the ledger via `TransactionSplit`** | <ul><li>A bank CSV import brings four `OUTFLOW` rows: 1,200.00 on 2027-01-31, 2027-02-28 and 2027-03-31, and a special repayment of 5,000.00 on 2027-03-15.</li><li>For each regular row the payment proposal (§41.5) gives the plan's interest and principal. They are applied through `PUT …/splits` with `loanId`, and the Transaction is confirmed. The special repayment is split as all principal.</li><li>**A correction is re-counted.** February is first confirmed with interest and principal swapped (601.50 / 598.50). The remaining debt then shows 3.00 more owed. A `correct` with the right splits brings it back to the plan.</li><li>A split with `loanId` on an `INFLOW` is `422 INVALID_LOAN_SPLIT`.</li></ul> | §20 |
+| **Remaining debt is derived, never stored as truth** | <ul><li>`remaining-debt?asOf=2027-03-31`: `principalPaid` 6,804.50, `actual` 233,195.50, `planned` 238,195.50, `difference` −5,000.00 (the special repayment).</li><li>With `perProperty=true` (the 2/3 : 1/3 set):<ul><li>`actual` 155,463.67 and 77,731.83 (the odd cent goes by largest remainder);</li><li>`planned` 158,797.00 and 79,398.50;</li><li>each `difference` derived: −3,333.33 and −1,666.67.</li></ul>Every column sums exactly to its total.</li><li>`payments?year=2027&perProperty=true`: interest and principal per property; each split goes by the set of its booking date.</li><li>A lender statement of 233,195.49 on 2027-03-31 compares at −0.01. It is shown and never replaces the derived value: after it the read still answers 233,195.50.</li><li>No table stores a remaining debt: ACC3 checks that the database has no column holding one for L1. The value follows the ledger: the February correction moves it.</li></ul> | §19, §21 |
+| **Refinancing and closing** (P3-D7; the end of the Loan's life in Phase 3) | <ul><li>Loan L2 from Bank2, principal 233,195.50 from 2027-04-01.</li><li>L1 is closed on 2027-03-31 as `REFINANCED` by L2. The AuditRecord's `settledAmount` is 233,195.50.</li><li>Afterwards:<ul><li>L1's remaining debt on 2027-04-01 is 0, and its `closing` names L2;</li><li>a split naming L1 on 2027-04-30 is `409 LOAN_CLOSED`;</li><li>a void of L2 is `409 LOAN_REFINANCES`;</li><li>L1's schedule ends with `endReason = CLOSED`.</li></ul></li></ul> | §22 |
+| **Realm isolation** across Phase 3 | <ul><li>Realm B gets `404` on **every route of api-design §41** called with an id of Realm A, reads and commands. Each route is a row of one table that ACC3 iterates. Realm B's own lists are empty, and nothing is written.</li><li>The table is compared with the routes the app serves (Express' router stack, filtered to `/loans` and `/property-references/{id}/loans`). A new route without a row turns ACC3 red.</li><li>`POST /loans` from Realm B naming Realm A's Parties is `404`.</li></ul> | §16–§22 |
+
+ACC3 also checks the traceability every write promises. It expects exactly these AuditRecords, each with its entity id:
+- L1 and L2: `CREATED`; L1: `CLOSED` with `settledAmount`;
+- the terms: `CREATED`;
+- the two allocation sets: `CREATED`;
+- the statement: `CREATED`;
+- the February Transaction: its correction.
+
+**Counter-checks**, each of which must turn ACC3 red:
+- the derived difference distributed directly;
+- reversals counted as payments;
+- the split guard's closing rule removed;
+- the Realm filter dropped from the remaining-debt read;
+- an extra Phase-3 route without a row;
+- a missing `CLOSED` AuditRecord.
 
 ## Keeping this current
 
