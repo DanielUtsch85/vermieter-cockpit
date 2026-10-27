@@ -1948,6 +1948,7 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
   3. Loan not `ACTIVE` → `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.status`;
   4. `validFrom` before the Loan's `debtFrom` → `422 TERMS_BEFORE_DEBT` with `details.debtFrom`;
   5. `validFrom` not after the last `VALID` period's `validFrom` → `422 TERMS_NOT_APPENDED` with `details.lastValidFrom` (periods are only appended, P3-D2);
+  5a. `validFrom` not after the last `VALID` period's `firstPaymentDate` → `422 PREVIOUS_TERMS_WITHOUT_PAYMENT` with `details.termsId` and `details.firstPaymentDate` (review on #61): the previous period would end before its first payment, and its interest up to the follow-up would silently vanish from the plan. So every `VALID` period has at least one payment;
   6. `principalAtStart` as above → `422`;
   7. **an annuity must repay (review on #58):** for `ANNUITY`, `scheduledPayment` must exceed the first period's interest, `round_half_up(balance × rate / 100 / 12)` to the cent, on the balance the period starts from: `principalAtStart`, or else the planned balance carried over from the previous periods on `validFrom` (P3-D5; for the first period `principalOriginal`). Otherwise `422 PAYMENT_DOES_NOT_COVER_INTEREST` with `details.firstInterest` and `details.balance`. So VC-3-02 already implements P3-D5's derivation as a domain function; VC-3-04 exposes it as a read.
 - **Success:** `201` with the period (`status = VALID`, `version = 1`); AuditRecord `CREATED` on `LoanTerms` with the fields. **Idempotency (§15):** scope `loan.terms.create`, fingerprint of the Loan id and the normalized body.
@@ -1964,7 +1965,7 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
 
 ### Concurrency and locks (P3-D8)
 
-- Every terms write (create, void) first locks the **Loan row** `FOR UPDATE`, then reads its periods. Two appends to one Loan therefore serialise, and so do an append and a void or close of the Loan. No Transaction is locked (Loan writers never do, P3-D8).
+- Every terms write (create, void) first locks the **Loan row** `FOR UPDATE`, then reads its periods; past the repository both triggers write the Loan row first (below). Two appends to one Loan therefore serialise, and so do an append and a void or close of the Loan. No Transaction is locked (Loan writers never do, P3-D8).
 - Past the repository the insert trigger writes the Loan row with the no-op of P3-D8 before it reads the periods, so under REPEATABLE READ a concurrent append fails to serialise (`40001`) instead of reading a stale last period.
 
 ### In the database (VC-3-02)
@@ -1976,8 +1977,8 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
   - `first_payment_date ≥ valid_from`, `fixed_rate_until ≥ valid_from`; `principal_at_start > 0`; `special_repayment_limit ≥ 0`;
   - `status` in (`VALID`, `VOID`), `VOID` exactly with `voided_at` and `void_reason`;
   - a unique index on `(loan_id, valid_from) WHERE status = 'VALID'`.
-- `loan_terms_append` (before insert): writes the Loan row (P3-D8's no-op), then refuses a period on a Loan that is not `ACTIVE`, before its `debtFrom`, or not after the last `VALID` period; only inserted `VALID` with version 1.
-- `loan_terms_frozen` (before update or delete): the data never changes; the only step is `VALID` → `VOID` with `version` + 1 exactly, and only while no later `VALID` period exists; never deleted.
+- `loan_terms_append` (before insert): writes the Loan row (P3-D8's no-op), then refuses a period on a Loan that is not `ACTIVE`, before its `debtFrom`, not after the last `VALID` period's `validFrom`, or not after its `firstPaymentDate`; only inserted `VALID` with version 1.
+- `loan_terms_frozen` (before update or delete): the data never changes; the only step is `VALID` → `VOID` with `version` + 1 exactly, and only while no later `VALID` period exists; never deleted. **Before it looks for a later period it writes the Loan row too** (P3-D8's no-op; review on #61). Otherwise a raw void of the last period and a raw append behind it would miss each other: the void would not see the uncommitted append, and both would commit with a voided period that is no longer the last. With the write both meet on the Loan row: under READ COMMITTED the void waits and then sees the new period (refused), under REPEATABLE READ the later one fails to serialise (`40001`).
 - Not in the database: the annuity check (it needs the schedule's derivation) and the `principalAtStart` rules against the Loan (a cross-row comparison the repository makes under the Loan lock).
 
 ### Tests (VC-3-02)
@@ -1985,8 +1986,8 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
 - **Domain:** the first interest and the carried-over balance (hand-computed, including `round_half_up` at half a cent); `PAYMENT_DOES_NOT_COVER_INTEREST` at equality and one cent above; rate `0`.
 - **API:** every `400` code above; `NOT_ALLOWED_FOR_MODEL`; a JSON number as rate; the error mapping.
 - **Repository:** order of checks; append and void with their refusals; `validUntil` derived over `VALID` periods only; idempotency; Realm isolation.
-- **Concurrency:** two appends to one Loan (RC: the second sees the first and is `TERMS_NOT_APPENDED`; RR past the repository: `40001`); an append against a void of the Loan.
-- **Schema past the repository**, each with a counter-check: an insert before the last period, on a `VOID` Loan, before `debtFrom`, as `VOID`; a changed field; a void of a period that is not the last; a step without `version` + 1; a delete; `scheduled_payment` with `INTEREST_ONLY` or without it for `ANNUITY`.
+- **Concurrency:** two appends to one Loan (RC: the second sees the first and is `TERMS_NOT_APPENDED`; RR past the repository: `40001`); an append against a void of the Loan; **a void of the last period against an append behind it, past the repository** (RC: the void waits on the Loan row and is refused; RR: `40001`), with a counter-check (the Loan write in `loan_terms_frozen` removed, the test red).
+- **Schema past the repository**, each with a counter-check: an insert before the last period, an insert not after the last period's `firstPaymentDate`, on a `VOID` Loan, before `debtFrom`, as `VOID`; a changed field; a void of a period that is not the last; a step without `version` + 1; a delete; `scheduled_payment` with `INTEREST_ONLY` or without it for `ANNUITY`.
 
 # 42. Create Loan
 
