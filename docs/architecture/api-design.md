@@ -1477,7 +1477,7 @@ The command replaces the current unconfirmed split proposal atomically.
 - **`400`:**
   - Per field: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED`, `INVALID_FORMAT` (also a JSON number as amount).
   - `NOT_ALLOWED` for a `direction` on a split.
-  - `NOT_SUPPORTED` for references whose entities do not exist yet (`loanId`, `wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `securityDepositId`, `taxClassificationId`): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits.
+  - `NOT_SUPPORTED` for references whose entities do not exist yet (`wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `securityDepositId`, `taxClassificationId`): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits. `loanId` is accepted from VC-3-05 under the rules of §41.5.
   - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` for a split currency other than the Transaction's, with the split's path (`splits.<i>.amount.currency`, VC-X-18).
 - **`404`:** unknown or foreign Transaction; a `propertyReferenceId` not in the caller's Realm.
 - **`409 INVARIANT_VIOLATION`**, `details.reason = "SPLIT_SUM_MISMATCH"`, with `expected`, `actual` and `difference` as Money: the sum differs from the Transaction amount by any amount, one cent included.
@@ -1779,7 +1779,7 @@ GET /api/v1/loans/{loanId}/terms                                   (VC-3-02, §4
 GET /api/v1/loans/{loanId}/allocations[?asOf=|?status=]            (VC-3-03, §41.3)
 GET /api/v1/property-references/{propertyReferenceId}/loans[?asOf=] (VC-3-03, §41.3)
 GET /api/v1/loans/{loanId}/schedule[?from=&to=]                    (VC-3-04, §41.4)
-GET /api/v1/loans/{loanId}/payment-proposal?transactionId=         (VC-3-05)
+GET /api/v1/loans/{loanId}/payment-proposal?transactionId=         (VC-3-05, §41.5)
 GET /api/v1/loans/{loanId}/remaining-debt[?asOf=]                  (VC-3-06)
 GET /api/v1/loans/{loanId}/balance-statements                      (VC-3-06)
 ```
@@ -2155,6 +2155,125 @@ Decision P3-D5 of `docs/development/phase-3-plan.md`, ADR-015. The schedule is t
   - in the domain: `round_half_up` replaced by truncation, the cap on the last principal, the carry-over, `principalAtStart`, the stop at the next period and at `maturityDate`, and the clamping;
   - the property test must fail for each of them.
 
+## 41.5 Loan payments (VC-3-05)
+
+Decision P3-D4 of `docs/development/phase-3-plan.md`, ADR-015, BR-FIN-004/005. An actual payment is ledger cash only. Its interest and principal are separate `TransactionSplit`s with the seeded categories `LOAN_INTEREST` and `LOAN_PRINCIPAL` (migration 0008, data-model §72), each carrying the Loan's `loanId`. The split is the link: data-model §25's `LoanPaymentReconciliation` and §46's `reconcile-payment` are dropped. Deviations from the plan are derived (P3-D5, VC-3-06).
+
+### `loanId` on a split
+
+`PUT /api/v1/transactions/{id}/splits` (§33.2) accepts `loanId` on a split, lifting its `NOT_SUPPORTED`. `correct` accepts it in `replacement.splits` (§35.2), and a reversal mirrors it (below). Every split in a response carries `loanId` (`null` without one), as do the Transaction reads (§30).
+
+- **Rules for a split with `loanId`:**
+  - **The Loan:** of the caller's Realm, else `404 NOT_FOUND` with `details.loanId`, for the first such split in position order. It must not be `VOID`, else `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.loanId` and `details.status`. VC-3-07 adds the `closingDate` rule for a `CLOSED` Loan (below).
+  - **The category:** `LOAN_INTEREST` or `LOAN_PRINCIPAL`, else `422 INVALID_LOAN_SPLIT` with `details.position` and `details.reason = "CATEGORY"`.
+  - **The direction:** the Transaction is `OUTFLOW`, else `422 INVALID_LOAN_SPLIT` with `details.reason = "DIRECTION"`. A **reversal** is exempt (review on #58): it has the opposite direction, mirrors its original's splits (§35.3, 0014) and never counts. Originals and replacements must be `OUTFLOW`.
+  - **No PropertyReference with it:** a Loan reaches its properties only through its allocation (§41.3, BR-FIN-002/007), so it is never attributed twice. A split with both is `400`, code `NOT_ALLOWED_WITH_LOAN` at `splits.<i>.propertyReferenceId`.
+  - A `LOAN_*` split **without** `loanId` stays allowed and counts for no Loan.
+  - Several Loans in one Transaction are allowed, e.g. two loans paid in one bank debit.
+- **Order of checks** (§33.2's, extended):
+  1. `400`, `NOT_ALLOWED_WITH_LOAN` among them;
+  2. Transaction `404`; `409 TRANSACTION_FROZEN`; `409 SPLIT_SUM_MISMATCH`; `412`; `UNKNOWN_CATEGORY`; PropertyReference `404`, all unchanged;
+  3. Loan `404` → `422 INVALID_LOAN_SPLIT` (`CATEGORY`, then `DIRECTION`) → `409 LOAN_NOT_ACTIVE`, each for the first split in position order.
+- **Same set again** (§33.2's no-op): `loanId` is part of the comparison. Changing only a split's `loanId` is a change: it gets a new version and the AuditRecord `SPLITS_REPLACED`, and it is refused once the Transaction is frozen.
+- **Confirm (§34):** unchanged. A confirmed Transaction's splits, `loanId` included, are frozen (0009). A forgotten or wrong `loanId` is fixed by `correct`, whose replacement carries the right splits (P3-D4).
+
+### Corrections of a payment (review on #58)
+
+- **Reversal** (`correct` and `reverse`, §35.3, §35.9): its splits mirror the original's `loanId` together with category, PropertyReference and amount. 0014's comparison gains `loan_id`, so a reversal cannot drop or change it, and each Loan's history stays complete.
+- **Replacement:** its splits follow the rules above, whether copied from the original (§35.2) or given in the request. A copied split whose Loan has become `VOID` is refused like any other (`409 LOAN_NOT_ACTIVE`). The client then sends the replacement's splits. (A Loan with splits cannot be voided, below, so this needs a Loan voided before any of its splits was written.)
+- **Closing date (P3-D7, VC-3-07):** a reversal takes the original's booking date and is allowed whenever the original was. A replacement booked after the Loan's `closingDate` is refused like any new split. VC-3-07 adds `closingDate` and that rule to the guard below.
+
+### What counts
+
+A Loan's actual payments are the splits with its `loanId` of **current** Transactions: `CONFIRMED` or `RECONCILED`, and not a reversal (§35.3), by booking date. A correction replaces them through the replacement's splits. Unconfirmed Transactions do not count. VC-3-06's reads (remaining debt, planned vs actual, per property) are built on exactly this rule. Property-level figures attribute a split with `loanId` through the Loan's allocation set valid on its booking date (§41.3).
+
+### `GET /api/v1/loans/{loanId}/payment-proposal?transactionId=`
+
+A read, never a write (ADR-015: the plan never becomes cash). The client applies a proposal through `PUT …/splits`.
+
+- **Query** (strict): `transactionId` is required (`400 REQUIRED`, malformed `400`).
+- **Refusals**, in this order:
+  1. `400`;
+  2. Loan unknown or foreign → `404` (`details.loanId`); Transaction unknown or foreign → `404` (`details.transactionId`);
+  3. Loan `VOID` → `409 LOAN_NOT_ACTIVE`;
+  4. the Transaction is not `OUTFLOW`, or not unconfirmed (`IMPORTED`, `UNREVIEWED` or `CLASSIFIED`) → `409 CONFLICT` with `reason = "NOT_PROPOSABLE"` and `details.direction` and `details.status`;
+  5. the Loan's schedule (§41.4) has no payments → `409 CONFLICT` with `reason = "NO_SCHEDULE"` and `details.endReason`.
+- **The schedule entry:** the payment of the whole plan whose `paymentDate` is nearest to the Transaction's `bookingDate`. On a tie it is the earlier one. A bank debit booked a day or two before or after its due date matches it.
+- **The proposal:**
+  - **interest** = `min(entry.interest, amount)`;
+  - **principal** = `amount − interest`, for an `ANNUITY` entry;
+  - for an `INTEREST_ONLY` entry no principal is proposed; the rest stays `unallocated` (P3-D4: "interest only, any rest flagged").
+  - `splits` has a `LOAN_INTEREST` and a `LOAN_PRINCIPAL` split with this `loanId`, in that order; a split of amount 0 is left out. Their sum plus `unallocated` is the Transaction's `amount`.
+- **Flags** (a list, possibly empty):
+  - `AMOUNT_DIFFERS_FROM_SCHEDULE` with `details.difference` (amount − `entry.payment`, signed Money): e.g. a special repayment or a changed rate. The principal absorbs the difference.
+  - `AMOUNT_BELOW_INTEREST`: the amount does not cover the entry's interest.
+  - `REST_NOT_PLANNED`: an `INTEREST_ONLY` entry and an amount above its interest.
+  - `ALREADY_SPLIT`: the Transaction has splits already; the proposal ignores them.
+- **Response `200`:**
+  - `loanId`, `transactionId`, `bookingDate`, `amount`;
+  - `scheduleEntry`: `{ number, paymentDate, termsId, interest, principal, payment, balanceBefore }`;
+  - `splits`: `[{ financialCategoryCode, loanId, amount }]`;
+  - `unallocated` (Money), `flags`.
+  - One `REPEATABLE READ READ ONLY` snapshot of the Loan, its terms and the Transaction.
+- **Example** (§41.4's Loan): a Transaction of 300.00 booked on 2027-03-01 matches entry 2 (2027-02-28, 1 day away). It proposes `LOAN_INTEREST` 3.53 and `LOAN_PRINCIPAL` 296.47, with no flags. A Transaction of 400.00 on the same day proposes 3.53 and 396.47 with `AMOUNT_DIFFERS_FROM_SCHEDULE` (difference 100.00).
+
+### Concurrency and locks (P3-D8; review on #58)
+
+- **Lock order Transaction → Loan.** `loanId` is written through the ledger's own path (`PUT …/splits`, `correct`, `reverse`), which locks the Transaction first (§34.2, §35.5). After that lock, the repository locks the split set's Loans `FOR UPDATE` in id order and checks them. Past the repository the split guard **writes** the Loan row (P3-D8's no-op, as 0022 does for the Acquisition, lesson of #50). Then a stale `void` under REPEATABLE READ fails to serialise (`40001`) instead of passing a share lock.
+- **Loan writers never lock a Transaction:** void, terms, allocations and, later, close and statements lock the Loan row and only read splits. No cycle can arise.
+- **Void against a split write:** they serialise on the Loan row. Whichever comes second sees the other's result under READ COMMITTED (the void is refused with `LOAN_HAS_SPLITS`, or the split with `LOAN_NOT_ACTIVE`), or fails to serialise under REPEATABLE READ.
+- **The import path writes no splits.** Imports create unconfirmed Transactions (§32); their splits come through `PUT …/splits` later. So the import never reaches a Loan row, and has nothing to retry. The application's commands run under READ COMMITTED; a `40001` arises only for a raw writer under REPEATABLE READ, where the tests show it.
+
+### In the database (VC-3-05)
+
+- **`transaction_split.loan_id`:**
+  - `uuid`, with a composite foreign key `(loan_id, mre_realm_id)` to `loan`, so a split never names another Realm's Loan;
+  - an index on `loan_id`;
+  - `CHECK (loan_id IS NULL OR property_reference_id IS NULL)`.
+- **`transaction_split_loan` trigger** (before insert or update, only for a split with `loan_id`):
+  - it writes the Loan row with P3-D8's no-op, `RETURNING status`, and refuses a `VOID` Loan;
+  - it refuses a category other than `LOAN_INTEREST` and `LOAN_PRINCIPAL`;
+  - it refuses a Transaction that is not `OUTFLOW`, unless the Transaction's `correction_role` is `REVERSAL`.
+  - The frozen-splits rules (0009/0010) and the split trigger's own Transaction write are unchanged.
+  - VC-3-07 adds the `closingDate` check here.
+- **`loan_void_unreferenced`** (before update of `loan`): a step to `VOID` is refused while a split references the Loan, a reversal's included. With the guard's Loan write, a void and a split cannot both commit past the repository either.
+- **0014's mirror** compares `(category, PropertyReference, loan_id, amount, currency)`.
+- Not in the database: the proposal (a read), and the order of checks (the API).
+
+### Tests (VC-3-05)
+
+- **API:**
+  - every `400` (`NOT_ALLOWED_WITH_LOAN`, a malformed `loanId`);
+  - the error mapping (`404` Loan, `INVALID_LOAN_SPLIT` with its reasons, `LOAN_NOT_ACTIVE`);
+  - `loanId` in the split responses and in `GET /transactions/{id}`;
+  - the proposal's query, its refusals and its shape.
+- **Repository:**
+  - the order of checks;
+  - several Loans in one set;
+  - the same set again as a no-op, and a changed `loanId` as a change;
+  - Realm isolation.
+- **Corrections:**
+  - `correct` of a payment with `loanId`: the copied splits, the replacement's own splits with another Loan or without a Loan, and a replacement that is not `OUTFLOW`;
+  - `reverse` of a payment with `loanId`;
+  - the payments that count before and after each, by the rule above.
+- **Proposal (domain):**
+  - the example above;
+  - the nearest entry and a tie;
+  - `INTEREST_ONLY` with a rest;
+  - an amount below the interest;
+  - `ALREADY_SPLIT`.
+- **Concurrency**, RC and RR, each with a counter-check:
+  - a split write against a void of the Loan, both orders: RC sees the other's result; RR past the repository `40001`;
+  - two split writes with two Loans in opposite position order: no deadlock, because of the id order.
+- **Schema past the repository**, each with a counter-check:
+  - a split with `loan_id` of another Realm;
+  - one on a `VOID` Loan;
+  - one with another category, or on an `INFLOW` Transaction that is not a reversal;
+  - an `INFLOW` reversal mirroring a payment, which is allowed;
+  - `loan_id` with `property_reference_id`;
+  - a reversal whose splits drop or change `loan_id`;
+  - a `VOID` step of a Loan with splits.
+
 # 42. Create Loan
 
 Superseded by §41.1 (`POST /api/v1/loans`).
@@ -2181,18 +2300,7 @@ Superseded by §41.4 (`GET /api/v1/loans/{id}/schedule[?from=&to=]`, derived on 
 
 # 46. Loan Payment Reconciliation
 
-```text
-POST /api/v1/loans/{id}/reconcile-payment
-```
-
-Request may reference:
-
-- Transaction
-- interest split
-- principal split
-- schedule entry
-
-The command validates split semantics before reconciliation.
+Superseded by §41.5 (P3-D4): the split's `loanId` is the link, so there is no `reconcile-payment` command; `GET /api/v1/loans/{id}/payment-proposal?transactionId=` proposes the splits, and deviations from the plan are derived (VC-3-06).
 
 ---
 
