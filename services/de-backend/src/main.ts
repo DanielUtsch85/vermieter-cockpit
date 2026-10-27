@@ -35,7 +35,12 @@ import {
   getLoan,
   listLoans,
   voidLoan,
+  createBalanceStatement,
   createLoanTerms,
+  getLoanPayments,
+  getRemainingDebt,
+  listBalanceStatements,
+  voidBalanceStatement,
   listLoanTerms,
   voidLoanTerms,
   getLoanSchedule,
@@ -75,6 +80,7 @@ import {
   PostgresAcquisitionCostRepository,
   PostgresLandBuildingAllocationRepository,
   PostgresLoanRepository,
+  PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
   PostgresOwnerAllocationSource,
@@ -114,6 +120,7 @@ const acquisitionCosts = new PostgresAcquisitionCostRepository(db);
 const loans = new PostgresLoanRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
+const loanDebt = new PostgresLoanDebtRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -162,6 +169,11 @@ const app = createApp({
   listLoanTerms: listLoanTerms({ repository: loanTerms }),
   getLoanSchedule: getLoanSchedule({ repository: loanTerms }),
   getPaymentProposal: getPaymentProposal({ repository: loanTerms }),
+  getRemainingDebt: getRemainingDebt({ repository: loanDebt }),
+  getLoanPayments: getLoanPayments({ repository: loanDebt }),
+  createBalanceStatement: createBalanceStatement({ repository: loanDebt }),
+  voidBalanceStatement: voidBalanceStatement({ repository: loanDebt }),
+  listBalanceStatements: listBalanceStatements({ repository: loanDebt }),
   createLoanAllocation: createLoanAllocation({ repository: loanAllocations }),
   voidLoanAllocation: voidLoanAllocation({ repository: loanAllocations }),
   listLoanAllocations: listLoanAllocations({ repository: loanAllocations }),

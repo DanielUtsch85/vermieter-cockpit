@@ -346,6 +346,25 @@ Counter-checked: in the domain `round_half_up` replaced by truncation, the cap o
 
 Counter-checked (32 mutants, each red): in 0027 the guard's Loan write replaced by `FOR SHARE` (the RR test), each refusal of the guard, the reversal exemption, the trigger renamed to sort before `transaction_split_frozen`, the CHECK, the foreign key without the Realm, `loan_void_unreferenced` removed or firing on every update, the mirror without `loan_id`; in the repositories the Loan lock removed or taken in position order (the deadlock test), `checkLoanSplits` skipped in the splits command and in `correct`, `correct` locking only the replacement's Loans (both correction deadlock tests `40P01`), the reversal dropping `loan_id`, the void ignoring splits, the read without `loan_id`; in the domain `sameSplits` without `loanId`, the order of checks, the reversal exemption, and the proposal's tie, interest cap, `INTEREST_ONLY` principal, `ALREADY_SPLIT` and statuses; at the API `NOT_ALLOWED_WITH_LOAN`, the lower-cased `loanId`, the zero split and the signed difference; in the application the `VOID` refusal.
 
+## 21. Remaining debt and lender statements (VC-3-06, api-design §41.6)
+
+`DB` = `domains/financing/debt.test.ts`, `LD` = `infrastructure/postgres/loan-debt-repository.test.ts`, `AD` = `application/loan-debt.test.ts`, `PD` = `api/loan-debt.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Actual = `principalOriginal` − counted `LOAN_PRINCIPAL` up to and including the day; 0 before `debtFrom`; negative when more was paid; interest never counts | DB "debtOn …"; LD "booking dates up to and including asOf" |
+| Only the splits that count (§41.5): not unconfirmed, not a reversed original or its reversal, the replacement's, not another Loan's | LD "only the splits that count …" |
+| Planned = the plan's balance after its last payment on or before the day (a later period's `principalAtStart` from its `validFrom`); `null` with `NO_TERMS`; with `MATURITY` 0 from `maturityDate` inclusive, `PAYMENT_CAP` keeping `balanceDue` (review on #69) | DB "debtOn …", "MATURITY (review on #69)" |
+| Per property: `actual` and `planned` by largest remainder (ties by `propertyReferenceId`, a negative total by its absolute value), the difference derived (F4b); columns sum exactly, each part within a cent, `difference_i = actual_i − planned_i` (seeded property test, a negative `actual` included) | DB "per property …" (the 3/7, 3/7, 1/7 counterexample, the property test) |
+| The set covering `asOf`; `409 LOAN_NOT_ALLOCATED` per property only; a `VOID` Loan counts nowhere | DB "remainingDebt …"; LD "per property: the set covering asOf …"; AD; PD |
+| Payments of a year: per category and Transaction count; per property each split by the set of its booking date, then summed; `LOAN_NOT_ALLOCATED` with the first booking date without a set | DB "paymentsInYear …"; LD "the payments of a year per property …"; PD |
+| One `REPEATABLE READ READ ONLY` snapshot: a statement committed while the read waits is not seen | LD "one snapshot …" |
+| Statements: the order of checks (404 → `VOID` Loan → before `debtFrom`), idempotency (the comparison derived again on replay), void as a no-op, `If-Match`, the audit; the comparison derived at each read and following a later correction; the latest `VALID` one on or before `asOf` | DB "statements …"; LD "statements"; AD; PD |
+| P3-D8: a statement (insert and void) writes the Loan row; against a void of the Loan RC sees it, RR past the repository `40001` in both orders | LD "concurrency of a statement and a void of the Loan" |
+| The schema past the repository: a Loan of the Realm, not `VOID`, not before the debt, only inserted `VALID` v1, `balance` ≥ 0 with two decimals, `source` trimmed; never edited or deleted, the only step `VALID` → `VOID` with `version` + 1 | LD "the schema past the repository …" |
+
+Counter-checked (38 mutants, each red): in 0028 the append trigger's Loan write replaced by `FOR SHARE` (the RR test, statement first) or a plain read (the RC test), each refusal of the append trigger, the frozen trigger allowing an edit, a delete or any step, or without its Loan write, the `balance` and `source` CHECKs, the foreign key without the Realm; in the repository the counted splits without the status or the reversal filter, the create without the Loan lock, the inputs read in READ COMMITTED, the void without the version check, the replay with a stale comparison; in the domain the old maturity rule, `maturityDate` exclusive, the difference distributed directly, a negative total not by its absolute value, interest counted, the booking date exclusive, no `debtFrom` guard, the plan read before the day's payment, the latest statement ignoring `VOID` or the creation order on a tie, a year attributed by its last day's set, splits counted as payments, the statement checks swapped, the void's no-op after the Loan check, a `VOID` Loan read; in the application the `VOID` list and `asOf` in UTC; at the API an unsigned `actual`, `perProperty` defaulting to true and the year's range.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

@@ -91,3 +91,42 @@ export type {
 } from './allocation.js';
 export { nearestEntry, proposePayment } from './payment-proposal.js';
 export type { PaymentProposal, ProposalFlag, ProposalTransaction } from './payment-proposal.js';
+export {
+  STATEMENT_STATUSES,
+  actualOn,
+  checkStatement,
+  compareStatement,
+  debtOn,
+  debtPerProperty,
+  distribute,
+  latestStatementOn,
+  paymentsInYear,
+  planVoidStatement,
+  principalPaidOn,
+  remainingDebt,
+  statementFingerprint,
+  statementViews,
+} from './debt.js';
+export type {
+  CountedSplit,
+  CreateStatementOutcome,
+  DebtInputs,
+  DebtOnDay,
+  LoanBalanceStatement,
+  LoanBalanceStatementId,
+  LoanDebtRepository,
+  LoanSplitCategory,
+  PropertyDebt,
+  PropertyPayments,
+  RemainingDebt,
+  RemainingDebtOutcome,
+  RemainingDebtPerProperty,
+  StatementData,
+  StatementRefusal,
+  StatementStatus,
+  StatementView,
+  VoidStatementOutcome,
+  VoidStatementPlan,
+  YearPayments,
+  YearPaymentsOutcome,
+} from './debt.js';
