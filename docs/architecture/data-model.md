@@ -1271,7 +1271,8 @@ Represent one canonical financing contract.
   (`REPAID`, `REFINANCED`, `OTHER`; VC-3-07, API §41.7); both final.
 - Closing fields: `closingDate`, `closingReason`, `refinancedByLoanId` (a Loan of the Realm, `ACTIVE` when named),
   `closingNote`; set only in the step to `CLOSED`. After `closingDate` the remaining debt is 0 and no split may name
-  the Loan on a later booking date (a reversal exempt).
+  the Loan on a later booking date (a reversal exempt). A Loan that a `CLOSED` one names as `refinancedByLoanId` is
+  never voided (review on #71).
 - Fixed after creation: `principalOriginal`, `currency`, `startDate`, `disbursementDate`, `acquisitionId`. Amendable
   while `ACTIVE`: lender, borrowers, `maturityDate`, `contractNumber`, `sourceReferences`, `notes`.
 - `repaymentType`, `paymentFrequency` and `currentTermsId` belong to LoanTerms (§22, P3-D2), not to the Loan.

@@ -1868,6 +1868,7 @@ This list is complete for Phase 3; ACC3 (VC-3-08) compares it with the app's rou
 - **Success:** `200` with the Loan (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1); AuditRecord `VOIDED` with the reason.
 - Voiding a `VOID` Loan is a `200` no-op keeping the first reason and time. A `CLOSED` one is final: `409 CONFLICT` with `reason = "LOAN_CLOSED"`.
 - While a split references the Loan, void is `409 CONFLICT` with `reason = "LOAN_HAS_SPLITS"` and `details.transactionIds` (from VC-3-05; before it, no split can). A reversal's splits count, so the Loan's history stays complete. Its terms, allocations and statements (VC-3-02, -03, -06) do not block a void: they count nowhere once the Loan is `VOID`.
+- While a `CLOSED` Loan names it as `refinancedByLoanId`, void is `409 CONFLICT` with `reason = "LOAN_REFINANCES"` and `details.loanIds` (VC-3-07, §41.7).
 - `If-Match` as §16.1; a no-op answers regardless of the version.
 - **Locks (P3-D8):** the Loan `FOR UPDATE`, then its splits are read; no Transaction is locked. From VC-3-05 the split guard writes the Loan row after its Transaction lock, so a split write and a void serialise on the Loan row: whichever waits sees the other's result (READ COMMITTED) or fails to serialise (REPEATABLE READ).
 
@@ -2416,7 +2417,10 @@ Decision P3-D7 of `docs/development/phase-3-plan.md`. A Loan ends by `close`: re
   3. the Loan `CLOSED` with exactly these values → `200` no-op (below); `CLOSED` with others, or `VOID` → `409 CONFLICT` with `reason = "LOAN_NOT_ACTIVE"` and `details.status`;
   4. `closingDate` before `debtFrom` → `422 CLOSING_BEFORE_DEBT` with `details.debtFrom`;
   5. `REFINANCED`: the named Loan unknown or foreign → `404` with `details.refinancedByLoanId`; not `ACTIVE` → `422 REFINANCING_LOAN_NOT_ACTIVE` with `details.status`. Requiring `ACTIVE` also rules out a cycle: a Loan that is closed cannot take over another.
-  6. a split with this `loanId` on a Transaction booked after `closingDate`, in any status and a reversal included → `409 CONFLICT` with `reason = "SPLITS_AFTER_CLOSING"` and `details.transactionIds` (booking-date order). Closing must not leave a split behind it.
+  6. a split with this `loanId` that could still count, on a Transaction booked after `closingDate` → `409 CONFLICT` with `reason = "SPLITS_AFTER_CLOSING"` and `details.transactionIds` (booking-date order). Closing must not leave a counting or open split behind it (review on #71):
+     - **these count:** splits of **current** Transactions (`CONFIRMED`, `RECONCILED`, not a reversal) and of **open** ones (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`, and `IGNORED`, which `restore` can bring back, §31);
+     - **these do not:** a `CORRECTED` original and its reversal. They cancel out exactly (0014 mirrors `loan_id`), §41.6 never counts them, and they are frozen, so they could never be removed.
+     - A payment booked on the old Loan after the date by mistake (typical at a refinancing date) is corrected first, and the close then passes.
   7. `REPAID`: the actual remaining debt on `closingDate` (§41.6, by the counted splits) is not 0 → `409 CONFLICT` with `reason = "REMAINING_DEBT_NOT_ZERO"` and `details.actual` (signed Money: positive while debt is left, negative when more was paid);
   8. `If-Match` → `412`.
 - **Success:** `200` with the Loan (`status = CLOSED`, `closingDate`, `closingReason`, `refinancedByLoanId`, `closingNote`, `version` + 1).
@@ -2467,7 +2471,7 @@ Decision P3-D7 of `docs/development/phase-3-plan.md`. A Loan ends by `close`: re
   - `closing_date >= coalesce(disbursement_date, start_date)`.
 - **`loan_frozen`:** the closing columns are set only in the step `ACTIVE` → `CLOSED`, and fixed after it. The step's `version` + 1 rule is unchanged.
 - **`loan_close_guard`** (before update, `WHEN (OLD.status <> 'CLOSED' AND NEW.status = 'CLOSED')`):
-  - refuses a split of the Loan on a Transaction booked after `closing_date` (`SPLITS_AFTER_CLOSING`);
+  - refuses a split of the Loan on a Transaction booked after `closing_date` whose status is not `CORRECTED` and whose `correction_role` is not `REVERSAL` (`SPLITS_AFTER_CLOSING`, the rule of check 6);
   - for `REPAID`, refuses a counted `LOAN_PRINCIPAL` sum up to `closing_date` other than `principal_original` (`REMAINING_DEBT_NOT_ZERO`);
   - for `REFINANCED`, writes the named Loan's row (P3-D8's no-op, `RETURNING status`) and refuses one not `ACTIVE`. A concurrent void of that Loan then serialises with the close.
 - **`transaction_split_loan` (0027):**
@@ -2488,7 +2492,18 @@ Decision P3-D7 of `docs/development/phase-3-plan.md`. A Loan ends by `close`: re
     - a split that waited answers `LOAN_CLOSED`.
   - Under REPEATABLE READ the second fails to serialise (`40001`).
 - **Close against an amend of a booking date:** the same, on the Loan row written by `ledger_transaction_loan_closing`.
-- **`REFINANCED` against a void of the named Loan:** the close writes that Loan's row, so a stale void fails under REPEATABLE READ, and a void that waited is still allowed: the named Loan has no splits by being named. The close repository locks both Loans in id order, so two closes naming each other cannot deadlock. Only one of them can pass, since the second finds the other `CLOSED`.
+- **`REFINANCED` against a void of the named Loan:**
+  - the close writes that Loan's row. A void that waited sees the `CLOSED` Loan naming it under READ COMMITTED and is refused with `LOAN_REFINANCES` (below); under REPEATABLE READ a stale void fails to serialise (`40001`);
+  - a void that came first leaves the named Loan `VOID`, and the close that waited answers `REFINANCING_LOAN_NOT_ACTIVE`;
+  - the close repository locks both Loans in id order, so two closes naming each other cannot deadlock. Only one of them can pass, since the second finds the other `CLOSED`.
+
+### A Loan that took over another is never voided (review on #71)
+
+- **Why:** a `CLOSED` Loan with `REFINANCED` names its successor, and its AuditRecord's `settledAmount` is the amount that Loan took over. `CLOSED` is final. A void of the successor would leave the reference pointing at a Loan that counts nowhere, and the settled amount taken over by nobody. That could never be repaired.
+- **`POST /loans/{id}/void`** (§41.1) gains a refusal after `LOAN_HAS_SPLITS`: a `CLOSED` Loan names this one as `refinancedByLoanId` → `409 CONFLICT` with `reason = "LOAN_REFINANCES"` and `details.loanIds` (in id order).
+  - Before the old Loan is closed, the successor can still be voided, e.g. a wrongly entered one. A close naming it then answers `REFINANCING_LOAN_NOT_ACTIVE`.
+- **In the database:** `loan_void_unreferenced` (0027) also refuses the step to `VOID` while a `CLOSED` Loan names the Loan in `refinanced_by_loan_id` (`LOAN_REFINANCES`). With the close guard's write on the named Loan's row, a void and a close naming it cannot both commit past the repository either.
+- **Locks:** the void locks its Loan `FOR UPDATE` and reads the Loans naming it; no other row is locked. A close naming it writes that row too, so the two serialise as above.
 
 ### Tests (VC-3-07)
 
@@ -2504,7 +2519,7 @@ Decision P3-D7 of `docs/development/phase-3-plan.md`. A Loan ends by `close`: re
 - **Repository:**
   - Realm isolation;
   - the refinancing Loan unknown, foreign, `VOID` or `CLOSED`;
-  - `SPLITS_AFTER_CLOSING`, an unconfirmed split and a reversal included;
+  - `SPLITS_AFTER_CLOSING` for a current, an unconfirmed and an `IGNORED` split; not for a `CORRECTED` original and its reversal: the refinancing scenario (a payment booked on the old Loan after the date, corrected to the new one, then the close passes), with a counter-check (the rule counting every status);
   - the audit record with `settledAmount`;
   - after closing:
     - a split after `closingDate` refused, one on it allowed;
@@ -2516,7 +2531,10 @@ Decision P3-D7 of `docs/development/phase-3-plan.md`. A Loan ends by `close`: re
 - **Concurrency**, RC and RR, each with a counter-check (the guard's Loan write → `FOR SHARE` turns RR red):
   - close against a split write, both orders;
   - close against a booking-date amend;
-  - `REFINANCED` against a void of the named Loan.
+  - `REFINANCED` against a void of the named Loan, both orders; a counter-check: `loan_close_guard` without the write on the named Loan's row turns the RR test red;
+  - two booking-date amends of Transactions naming two Loans in opposite order: no deadlock (id order, as #68), with a counter-check (`ledger_transaction_loan_closing` in position order);
+  - the split guard's reversal exemption removed (counter-check: a reversal after the close refused).
+- **Void of a successor (`LOAN_REFINANCES`):** refused after the close and allowed before it, in the repository and past it, each with a counter-check.
 - **Schema past the repository**, each with a counter-check:
   - every CHECK above;
   - the closing columns changed after closing, or set without the step;
