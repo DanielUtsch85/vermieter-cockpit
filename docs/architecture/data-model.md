@@ -1276,6 +1276,16 @@ Represent one canonical financing contract.
 
 ---
 
+## 21.3b Derived values (P3-D6, API §41.6)
+
+- **Remaining debt** on a day is derived, never stored (ADR-016, BR-FIN-006): the actual one is `principalOriginal`
+  minus the counted `LOAN_PRINCIPAL` splits up to that day (§18, API §41.5); the planned one is the schedule's
+  balance (§24). Per property both are split by the allocation set of that day (§23), by largest remainder.
+- **`LoanBalanceStatement`** `{ statementDate, balance, source, notes, status }`: a lender's reported balance, kept as
+  evidence and compared with the derived value at each read; appended, voidable, never edited.
+
+---
+
 ## 21.4 Relationships
 
 A Loan may relate to:
