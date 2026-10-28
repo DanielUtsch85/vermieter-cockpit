@@ -1,6 +1,11 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  NotWritableError,
+  WriteBackFailedError,
+  WriteBackInProgressError,
+  type GetReconciliationWithPresence,
+  type WriteBackToMre,
   AboveSuggestionError,
   NotConfirmableError,
   NotRejectableError,
@@ -106,6 +111,10 @@ const listQuery = z
 
 /** The coverage reads take no query parameters (§37.2). */
 const noQuery = z.object({}).strict();
+/** One reconciliation's read: the presence check is `checkMre=true` (§37.4); nothing else. */
+const getQuery = z.object({ checkMre: z.enum(['true', 'false']).optional() }).strict();
+/** The write-back takes no body, or `{}` (§37.4). */
+const writeBackBody = z.object({}).strict();
 
 export interface RentReconciliationCommands {
   readonly create: CreateReconciliation;
@@ -117,6 +126,8 @@ export interface RentReconciliationCommands {
   readonly suggest: SuggestReconciliations;
   readonly confirm: ConfirmReconciliation;
   readonly reject: RejectReconciliation;
+  readonly writeBack: WriteBackToMre;
+  readonly getWithPresence: GetReconciliationWithPresence;
 }
 
 /** Rent reconciliation API (api-design.md §37.1, backlog VC-4-01). */
@@ -252,9 +263,41 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   router.get('/rent-reconciliations/:reconciliationId', (req, res, next) => {
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;
+    const query = getQuery.safeParse(req.query);
+    if (!query.success) {
+      sendValidationError(res, fieldErrors(query.error));
+      return;
+    }
+    const read =
+      query.data.checkMre === 'true'
+        ? commands.getWithPresence({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', reconciliationId })
+        : commands.get({ principal: principalOf(res), reconciliationId }).then((reconciliation) => ({ reconciliation, mrePresence: null }));
+    read
+      .then(({ reconciliation, mrePresence }) => {
+        res.setHeader('ETag', `"${reconciliation.version}"`);
+        res.json({ ...toDto(reconciliation), mrePresence });
+      })
+      .catch(fail(res, next));
+  });
+
+  router.post('/rent-reconciliations/:reconciliationId/write-back-to-mre', express.json({ limit: '16kb' }), (req, res, next) => {
+    const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
+    if (reconciliationId === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = writeBackBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
     commands
-      .get({ principal: principalOf(res), reconciliationId })
-      .then((reconciliation) => sendReconciliation(res, reconciliation))
+      .writeBack({
+        principal: principalOf(res),
+        authorizationHeader: req.headers.authorization ?? '',
+        reconciliationId,
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+      })
+      .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
       .catch(fail(res, next));
   });
 
@@ -326,6 +369,12 @@ function sendReconciliationError(res: Response, error: unknown): boolean {
     });
   } else if (error instanceof NotRejectableError) {
     sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be rejected.`, { reason: 'NOT_REJECTABLE', status: error.status });
+  } else if (error instanceof NotWritableError) {
+    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be written back to MRE.`, { reason: 'NOT_WRITABLE', status: error.status });
+  } else if (error instanceof WriteBackInProgressError) {
+    sendError(res, 409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: error.reconciliationId });
+  } else if (error instanceof WriteBackFailedError) {
+    sendWriteBackFailure(res, error);
   } else if (error instanceof NotReleasableError) {
     sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be released.`, { reason: 'NOT_RELEASABLE', status: error.status });
   } else if (error instanceof VersionConflictError) {
@@ -343,6 +392,30 @@ function sendReconciliationError(res: Response, error: unknown): boolean {
     return false;
   }
   return true;
+}
+
+/** §37.4: each failure after the claim names its code and the state it left. */
+function sendWriteBackFailure(res: Response, error: WriteBackFailedError): void {
+  const details = { reason: error.code, mreWriteBackState: error.reconciliation.mreWriteBackState };
+  switch (error.code) {
+    case 'MRE_RENT_TERM_NOT_FOUND':
+      // MRE also answers 404 when its own database read fails (review on #76), so the message stays neutral.
+      sendError(res, 422, 'MRE_RENT_TERM_NOT_FOUND', 'MRE did not return this rent term.', {
+        ...details,
+        mreTenantId: error.reconciliation.mreTenantId,
+        mreRentTerm: error.reconciliation.mreRentTerm,
+      });
+      return;
+    case 'MRE_UNAVAILABLE':
+    case 'MRE_WRITE_REFUSED':
+      sendError(res, 503, 'EXTERNAL_SYSTEM_ERROR', 'MRE did not take the payment; the write-back can be retried.', details);
+      return;
+    case 'MRE_TERM_NOT_ROUND_TRIPPABLE':
+      sendError(res, 409, 'CONFLICT', 'Under a VAT ratio MRE would change the discount or extra charge; record this payment in MRE by hand.', details);
+      return;
+    default:
+      sendError(res, 409, 'CONFLICT', 'The term changed in MRE; nothing of it was repaired.', details);
+  }
 }
 
 function toDto(r: RentPaymentReconciliation) {
@@ -366,6 +439,12 @@ function toDto(r: RentPaymentReconciliation) {
     rejectReason: r.rejectReason,
     notes: r.notes,
     mreWriteBackState: r.mreWriteBackState,
+    mreWriteBackLeaseUntil: r.mreWriteBackLeaseUntil?.toISOString() ?? null,
+    mreWrittenBackAt: r.mreWrittenBackAt?.toISOString() ?? null,
+    mreWrittenBackBy: r.mreWrittenBackBy,
+    mrePayment: r.mrePayment === null ? null : { ...r.mrePayment, amount: r.mrePayment.amount.toJSON() },
+    mreWriteBackError: r.mreWriteBackError,
+    mreWriteBackFailedAt: r.mreWriteBackFailedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
     version: r.version,
   };

@@ -272,6 +272,13 @@ export interface RentPaymentReconciliationTable {
   reject_reason: string | null;
   notes: string | null;
   mre_write_back_state: Generated<string>;
+  mre_write_back_attempt_id: string | null;
+  mre_write_back_lease_until: Date | null;
+  mre_written_back_at: Date | null;
+  mre_written_back_by: string | null;
+  mre_payment: unknown;
+  mre_write_back_error: string | null;
+  mre_write_back_failed_at: Date | null;
   created_at: Generated<Date>;
   created_by: string;
   updated_at: Generated<Date>;

@@ -8,8 +8,11 @@ import {
   type MreProperty,
   type MreRealmMembership,
   type MreMonthRent,
+  type MreRawTerm,
   type MreRentPayment,
   type MreRentTerm,
+  type MreTermWrite,
+  type MreTermWriteResult,
 } from './mre-client.js';
 
 /**
@@ -77,6 +80,24 @@ const rentTermDto = z.object({
 /** `GET /rents/:year/:month`: of each rent only the Tenant's `_id`, its term and its amount due are read. */
 const monthDto = z.object({
   rents: z.array(z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/), term: z.number().int(), totalWithoutBalanceAmount: z.number() })),
+});
+/**
+ * A rent term for the write-back's round trip (api-design.md §37.4): the Tenant's `_id`, `vatRatio` and the settlement
+ * with each payment value kept as MRE sent it. MRE's `toRentData` always answers `promo`, `notepromo`, `extracharge`
+ * and `noteextracharge`; `description` may be absent. The occupant and the rest are dropped.
+ */
+const rawTermDto = z.object({
+  _id: z.string().regex(/^[0-9a-f]{24}$/),
+  term: z.number().int(),
+  vatRatio: z.number().optional(),
+  payments: z.array(
+    z.object({ date: z.unknown(), amount: z.unknown(), type: z.unknown(), reference: z.unknown(), description: z.unknown() }),
+  ),
+  promo: z.number(),
+  notepromo: z.string(),
+  extracharge: z.number(),
+  noteextracharge: z.string(),
+  description: z.string().nullish(),
 });
 /** `get`'s answer for a `404` the caller reads as "not there". */
 const ABSENT = Symbol('ABSENT');
@@ -186,6 +207,44 @@ export class HttpMreClient implements MreClient {
     return rents as MreMonthRent[];
   }
 
+  async readRentTermForWriteBack(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRawTerm | undefined> {
+    const body = await this.get(`/rents/tenant/${encodeURIComponent(mreTenantId)}/${encodeURIComponent(term)}`, accessToken, mreRealmId, 'ABSENT');
+    if (body === ABSENT) return undefined;
+    const raw = toRawTerm(body, mreTenantId, term);
+    if (raw === undefined) throw new MreClientError('UNAVAILABLE', 'Unexpected MRE rent term shape');
+    return raw;
+  }
+
+  async writeRentTermPayments(accessToken: string, mreRealmId: string, mreTenantId: string, term: string, write: MreTermWrite): Promise<MreTermWriteResult> {
+    let response: Response;
+    try {
+      response = await this.fetchFn(`${this.baseUrl}/rents/payment/${encodeURIComponent(mreTenantId)}/${encodeURIComponent(term)}`, {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json', 'content-type': 'application/json', organizationid: mreRealmId },
+        // MRE's _updateByTerm looks the Tenant up by the body's _id and never reads the path's (review on #75).
+        body: JSON.stringify({ _id: mreTenantId, ...write }),
+        signal: AbortSignal.timeout(this.options.timeoutMs),
+        redirect: 'error',
+      });
+    } catch (error) {
+      return { kind: 'NO_ANSWER', message: `MRE request failed: ${String(error)}` };
+    }
+    if (response.status === 401) throw new MreClientError('UNAUTHENTICATED', 'MRE rejected the access token');
+    if (response.status === 403) throw new MreClientError('FORBIDDEN', 'MRE refused the caller');
+    // checkOrganization answers 404 when the Realm is not one of the caller's: no access, nothing written.
+    if (response.status === 404) throw new MreClientError('FORBIDDEN', 'MRE does not grant access to this Realm');
+    if (response.status !== 200) return { kind: 'REFUSED', status: response.status };
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      return { kind: 'NO_ANSWER', message: 'MRE returned a non-JSON body' };
+    }
+    const saved = toRawTerm(body, mreTenantId, term);
+    // An unreadable answer says nothing about what MRE saved: the caller reads the term again.
+    return saved === undefined ? { kind: 'NO_ANSWER', message: 'Unexpected MRE rent term shape' } : { kind: 'ANSWERED', term: saved };
+  }
+
   private async get(
     path: string,
     accessToken: string,
@@ -238,6 +297,24 @@ function toCents(value: number): Money | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** A term of the read or of the PATCH's answer, for the Tenant and term asked; undefined for any other shape. */
+function toRawTerm(body: unknown, mreTenantId: string, term: string): MreRawTerm | undefined {
+  const parsed = rawTermDto.safeParse(body);
+  if (!parsed.success || parsed.data._id !== mreTenantId || String(parsed.data.term) !== term) return undefined;
+  const d = parsed.data;
+  return {
+    mreTenantId: d._id,
+    term: String(d.term),
+    vatRatio: d.vatRatio ?? 0,
+    payments: d.payments.map((p) => ({ date: p.date, amount: p.amount, type: p.type, reference: p.reference, description: p.description })),
+    promo: d.promo,
+    notepromo: d.notepromo,
+    extracharge: d.extracharge,
+    noteextracharge: d.noteextracharge,
+    description: d.description ?? '',
+  };
 }
 
 /** A finite JS number's shortest round-trip text as a canonical decimal string, exponent notation expanded. */

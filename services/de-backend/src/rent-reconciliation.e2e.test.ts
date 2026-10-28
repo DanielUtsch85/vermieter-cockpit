@@ -17,6 +17,8 @@ import {
   suggestReconciliations,
   confirmReconciliation,
   rejectReconciliation,
+  writeBackToMre,
+  getReconciliationWithPresence,
   reverseTransaction,
   setTransactionSplits,
 } from './application/index.js';
@@ -32,7 +34,7 @@ import {
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
-import { mreMonthReader, mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader } from './wiring.js';
+import { mreMonthReader, mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
 
 /**
  * VC-4-01 end to end (api-design.md §37.1), wired as in main.ts, against a fake MRE and PostgreSQL: the MRE term read
@@ -109,6 +111,8 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
       suggestReconciliations: suggestReconciliations({ repository: reconciliations, readMreMonth: mreMonthReader(lookupClient) }),
       confirmReconciliation: confirmReconciliation({ repository: reconciliations, readMreRentTerm: mreRentTermReader(lookupClient) }),
       rejectReconciliation: rejectReconciliation({ repository: reconciliations }),
+      writeBackToMre: writeBackToMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 4000 }),
+      getReconciliationWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient) }),
     });
     server = createApp(commands(client)).listen(0, '127.0.0.1');
     // The same app, but the rent term read goes to an MRE that is down (nothing listens on port 1).

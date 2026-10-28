@@ -44,7 +44,7 @@ async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
 
 /** The trigger's own reason, the constraint's name, or the error code. */
 function reasonOf(error: { message?: string; constraint?: string; code?: string }): string {
-  return error.constraint ?? /\(([A-Z_]+)\)|never deleted|fixed after creation|is not a step|only inserted SUGGESTED or CONFIRMED with version 1|only lowered when a suggestion is confirmed/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error';
+  return error.constraint ?? /\(([A-Z_]+)\)|never deleted|fixed after creation|is not a step|only inserted SUGGESTED or CONFIRMED with version 1|only lowered when a suggestion is confirmed|only inserted NOT_WRITTEN|released with write-back|with write-back [A-Z_]+/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error';
 }
 
 describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)', () => {
@@ -178,7 +178,13 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const audit = await pool.query(`SELECT action, previous_version, new_version, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, new_version`, [r.id]);
       expect(audit.rows).toEqual([
         { action: 'CONFIRMED', previous_version: null, new_version: 1, metadata: { transactionId: t, mreTenantId: TENANT, mreRentTerm: '2027010100', matchedAmount: { amount: '800.00', currency: 'EUR' }, manual: true } },
-        { action: 'RELEASED', previous_version: 1, new_version: 2, metadata: { transactionId: t, reason: 'Irrtum', matchedAmount: { amount: '800.00', currency: 'EUR' } } },
+        { action: 'RELEASED', previous_version: 1, new_version: 2, metadata: {
+            transactionId: t,
+            reason: 'Irrtum',
+            matchedAmount: { amount: '800.00', currency: 'EUR' },
+            mreWriteBackState: { from: 'NOT_WRITTEN', to: 'NOT_WRITTEN' },
+          },
+        },
       ]);
       expect((await pool.query(`SELECT status, version, updated_at FROM ledger_transaction WHERE id = $1`, [t])).rows[0]).toEqual(before);
     });
@@ -663,10 +669,11 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await set(`status = 'RELEASED', released_at = now(), released_by = 'x', release_reason = 'x', version = version + 1`)).toBe('accepted');
       expect(await set(`status = 'CONFIRMED', released_at = NULL, released_by = NULL, release_reason = NULL, version = version + 1`)).toBe('is not a step');
       expect(await attempt(`DELETE FROM rent_payment_reconciliation WHERE id = '${r.id}'`)).toBe('never deleted');
-      // Nothing is written back before VC-4-04.
-      expect(await attempt(rawInsert(t, '1.00', '2027020100').replace('confirmed_by, created_by)', 'confirmed_by, created_by, mre_write_back_state)').replace(`'x', 'x')`, `'x', 'x', 'WRITTEN')`))).toBe(
-        'rent_payment_reconciliation_mre_write_back_state_check',
-      );
+      // Born NOT_WRITTEN (0032): a write-back state is reached only by its steps (api-design §37.4).
+      const born = (state: string) =>
+        attempt(rawInsert(t, '1.00', '2027020100').replace('confirmed_by, created_by)', 'confirmed_by, created_by, mre_write_back_state)').replace(`'x', 'x')`, `'x', 'x', '${state}')`));
+      expect(await born('WRITTEN')).toBe('only inserted NOT_WRITTEN');
+      expect(await born('BOGUS')).toBe('only inserted NOT_WRITTEN');
     });
   });
 });

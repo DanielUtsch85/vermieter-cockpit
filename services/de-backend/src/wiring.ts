@@ -5,6 +5,8 @@ import {
   type MreRentTermLookup,
   type MreRentTermReader,
   type MreMonthReader,
+  type MreWriteBackTermReader,
+  type MreWriteBackTermWriter,
   type MreTenantLookup,
   type PrincipalVerifier,
 } from './application/index.js';
@@ -103,6 +105,32 @@ export function mreMonthReader(client: MreClient): MreMonthReader {
     if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
     try {
       return await client.listRentTerms(token, mreRealmId, year, month);
+    } catch (error) {
+      throw mreError(error);
+    }
+  };
+}
+
+/** The rent term with its raw values for the write-back (api-design.md §37.4), read with the caller's own token. */
+export function mreWriteBackTermReader(client: MreClient): MreWriteBackTermReader {
+  return async (authorizationHeader, mreRealmId, mreTenantId, mreRentTerm) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
+    try {
+      return await client.readRentTermForWriteBack(token, mreRealmId, mreTenantId, mreRentTerm);
+    } catch (error) {
+      throw mreError(error);
+    }
+  };
+}
+
+/** The write-back's PATCH (api-design.md §37.4) with the caller's own token; only a refusal of the caller throws. */
+export function mreWriteBackTermWriter(client: MreClient): MreWriteBackTermWriter {
+  return async (authorizationHeader, mreRealmId, mreTenantId, mreRentTerm, write) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
+    try {
+      return await client.writeRentTermPayments(token, mreRealmId, mreTenantId, mreRentTerm, write);
     } catch (error) {
       throw mreError(error);
     }

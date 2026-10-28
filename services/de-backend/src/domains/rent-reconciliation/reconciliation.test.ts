@@ -77,6 +77,13 @@ describe('planRelease (§37.1)', () => {
     rejectReason: null,
     notes: null,
     mreWriteBackState: 'NOT_WRITTEN',
+    mreWriteBackAttemptId: null,
+    mreWriteBackLeaseUntil: null,
+    mreWrittenBackAt: null,
+    mreWrittenBackBy: null,
+    mrePayment: null,
+    mreWriteBackError: null,
+    mreWriteBackFailedAt: null,
     createdAt: new Date('2027-01-05T10:00:00Z'),
     version: 1,
   });

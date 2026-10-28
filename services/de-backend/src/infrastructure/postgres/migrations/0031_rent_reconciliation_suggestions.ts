@@ -111,8 +111,8 @@ function cashBody(suggestions: boolean): string {
     END `;
 }
 
-/** 0030's frozen fields; with `suggestions` `matched_amount` may be lowered in the step SUGGESTED → CONFIRMED. */
-function frozenBody(suggestions: boolean): string {
+/** 0030's frozen fields (exported for 0032's `down`); with `suggestions` `matched_amount` may be lowered in the step SUGGESTED → CONFIRMED. */
+export function frozenBody(suggestions: boolean): string {
   const amount = suggestions ? '' : 'NEW.matched_amount, ';
   const oldAmount = suggestions ? '' : 'OLD.matched_amount, ';
   return `

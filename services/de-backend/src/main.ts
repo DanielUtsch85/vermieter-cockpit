@@ -45,6 +45,8 @@ import {
   suggestReconciliations,
   confirmReconciliation,
   rejectReconciliation,
+  writeBackToMre,
+  getReconciliationWithPresence,
   createBalanceStatement,
   createLoanTerms,
   getLoanPayments,
@@ -111,7 +113,7 @@ import {
 } from './infrastructure/postgres/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreRentTermReader, mreTenantLookup } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreWriteBackTermReader, mreWriteBackTermWriter, mreRentTermReader, mreTenantLookup } from './wiring.js';
 
 /** Composition root: wires configuration, infrastructure and the HTTP app. */
 const config = loadConfig(process.env);
@@ -186,6 +188,14 @@ const app = createApp({
   suggestReconciliations: suggestReconciliations({ repository: rentReconciliations, readMreMonth: mreMonthReader(mreClient) }),
   confirmReconciliation: confirmReconciliation({ repository: rentReconciliations, readMreRentTerm: mreRentTermReader(mreClient) }),
   rejectReconciliation: rejectReconciliation({ repository: rentReconciliations }),
+  // §37.4: the lease outlives a PATCH still in flight, assuming MRE finishes a request within twice the timeout.
+  writeBackToMre: writeBackToMre({
+    repository: rentReconciliations,
+    readTerm: mreWriteBackTermReader(mreClient),
+    writeTerm: mreWriteBackTermWriter(mreClient),
+    leaseMs: 2 * config.MRE_TIMEOUT_MS,
+  }),
+  getReconciliationWithPresence: getReconciliationWithPresence({ repository: rentReconciliations, readTerm: mreWriteBackTermReader(mreClient) }),
   createLoanTerms: createLoanTerms({ repository: loanTerms }),
   voidLoanTerms: voidLoanTerms({ repository: loanTerms }),
   listLoanTerms: listLoanTerms({ repository: loanTerms }),
