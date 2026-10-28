@@ -813,6 +813,15 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await repository.release(r.id, REALM, 'x', ahead, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: r.id });
     });
 
+    it('release on the database clock (review on #85): a lease expired in database time releases although the application clock runs behind', async () => {
+      const r = await confirmedFor(tenant());
+      await repository.claimWriteBack(r.id, REALM, 50, actor);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      const behind = new Date(Date.now() - 3_600_000);
+      const outcome = await repository.release(r.id, REALM, 'x', behind, actor);
+      expect(outcome).toMatchObject({ kind: 'RELEASED', changed: true, reconciliation: { status: 'RELEASED', mreWriteBackState: 'REMOVAL_REQUIRED' } });
+    });
+
     it('schema (0033): the removal steps, the last lease end, the removed fields, the states per status, the Tenant index over REMOVING', async () => {
       const attempt = (query: string) => pool.query(query).then(() => 'accepted', reasonOf);
       const t = tenant();
