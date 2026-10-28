@@ -39,6 +39,8 @@ import type {
   CloseLoan,
   CreateReconciliation,
   GetReconciliation,
+  GetTermCoverage,
+  GetTransactionCoverage,
   ListReconciliations,
   ReleaseReconciliation,
   CreateLoan,
@@ -161,6 +163,9 @@ export interface AppDependencies {
   readonly getReconciliation: GetReconciliation;
   readonly listReconciliations: ListReconciliations;
   readonly releaseReconciliation: ReleaseReconciliation;
+  /** Coverage reads (VC-4-02). */
+  readonly getTermCoverage: GetTermCoverage;
+  readonly getTransactionCoverage: GetTransactionCoverage;
   /** Loan terms (VC-3-02). */
   readonly createLoanTerms: CreateLoanTerms;
   readonly voidLoanTerms: VoidLoanTerms;
@@ -294,6 +299,8 @@ export function createApp(deps: AppDependencies): Express {
       get: deps.getReconciliation,
       list: deps.listReconciliations,
       release: deps.releaseReconciliation,
+      termCoverage: deps.getTermCoverage,
+      transactionCoverage: deps.getTransactionCoverage,
     }),
   );
   api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule, proposal: deps.getPaymentProposal }));

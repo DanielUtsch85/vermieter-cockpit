@@ -18,6 +18,8 @@ import {
   type CreateReconciliationInput,
   type PrincipalVerifier,
   type RentPaymentReconciliation,
+  type TermCoverage,
+  type TransactionCoverage,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { createApp, type AppDependencies } from './app.js';
@@ -225,3 +227,101 @@ describe('GET /api/v1/rent-reconciliations', () => {
     }
   });
 });
+
+describe('GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm} (§37.2)', () => {
+  const coverage: TermCoverage = {
+    mreTenantId: TENANT,
+    mreRentTerm: '2027010100',
+    reconciliations: [reconciliation],
+    matchedTotal: eur('800.00'),
+    mreStatus: 'AVAILABLE',
+    mre: { amountDue: eur('800.00'), payments: [{ date: '2027-01-05' as never, amount: eur('800.00'), type: 'transfer', reference: 'DE-RPR-x' }] },
+    coverage: 'MATCHED',
+    openAmount: eur('0.00'),
+  };
+
+  it('200 with both sides; the caller\'s Authorization header is passed on', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      getTermCoverage: async (input) => {
+        seen.push(input);
+        return coverage;
+      },
+    });
+    const res = await call(base, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      mreTenantId: TENANT,
+      mreRentTerm: '2027010100',
+      reconciliations: [expect.objectContaining({ reconciliationId: ID })],
+      matchedTotal: { amount: '800.00', currency: 'EUR' },
+      mreStatus: 'AVAILABLE',
+      mre: { amountDue: { amount: '800.00', currency: 'EUR' }, payments: [{ date: '2027-01-05', amount: { amount: '800.00', currency: 'EUR' }, type: 'transfer', reference: 'DE-RPR-x' }] },
+      coverage: 'MATCHED',
+      openAmount: { amount: '0.00', currency: 'EUR' },
+    });
+    expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', mreTenantId: TENANT, mreRentTerm: '2027010100' });
+  });
+
+  it('UNAVAILABLE answers nulls for the MRE side; a refused caller is 403', async () => {
+    const base = await start({ getTermCoverage: async () => ({ ...coverage, mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null }) });
+    expect(await (await call(base, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`)).json()).toMatchObject({ mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null });
+    await stopAndStart({ getTermCoverage: async () => Promise.reject(new AccessError('FORBIDDEN', 'x')) }).then(async (b) =>
+      expect((await call(b, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`)).status).toBe(403),
+    );
+  });
+
+  it('400 for a malformed Tenant, a malformed term or a query parameter', async () => {
+    const base = await start({});
+    for (const path of [`/rent-reconciliations/terms/Tina/2027010100`, `/rent-reconciliations/terms/${TENANT}/2027013200`, `/rent-reconciliations/terms/${TENANT}/2027010100?checkMre=true`]) {
+      expect((await call(base, 'GET', path)).status, path).toBe(400);
+    }
+  });
+});
+
+describe('GET /api/v1/transactions/{id}/rent-reconciliations (§37.2)', () => {
+  const coverage: TransactionCoverage = {
+    transactionId: TX,
+    status: 'CONFIRMED',
+    direction: 'INFLOW',
+    correctionRole: null,
+    counted: true,
+    rentCash: eur('800.00'),
+    matchedTotal: eur('300.00'),
+    available: eur('500.00'),
+    reconciliations: [reconciliation],
+  };
+
+  it('200 with the cash view; null amounts stay null; unknown is 404; malformed id or query is 400', async () => {
+    const base = await start({
+      getTransactionCoverage: async ({ transactionId }) => {
+        if (transactionId !== TX) throw new TransactionNotFoundError(transactionId);
+        return coverage;
+      },
+    });
+    const res = await call(base, 'GET', `/transactions/${TX.toUpperCase()}/rent-reconciliations`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      transactionId: TX,
+      status: 'CONFIRMED',
+      direction: 'INFLOW',
+      correctionRole: null,
+      counted: true,
+      rentCash: { amount: '800.00', currency: 'EUR' },
+      matchedTotal: { amount: '300.00', currency: 'EUR' },
+      available: { amount: '500.00', currency: 'EUR' },
+      reconciliations: [expect.objectContaining({ reconciliationId: ID })],
+    });
+    expect((await call(base, 'GET', `/transactions/${ID}/rent-reconciliations`)).status).toBe(404);
+    expect((await call(base, 'GET', '/transactions/x/rent-reconciliations')).status).toBe(400);
+    expect((await call(base, 'GET', `/transactions/${TX}/rent-reconciliations?x=1`)).status).toBe(400);
+    await stopAndStart({ getTransactionCoverage: async () => ({ ...coverage, rentCash: null, available: null, counted: false }) }).then(async (b) =>
+      expect(await (await call(b, 'GET', `/transactions/${TX}/rent-reconciliations`)).json()).toMatchObject({ rentCash: null, available: null, counted: false }),
+    );
+  });
+});
+
+async function stopAndStart(commands: Partial<AppDependencies>): Promise<string> {
+  await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+  return start(commands);
+}

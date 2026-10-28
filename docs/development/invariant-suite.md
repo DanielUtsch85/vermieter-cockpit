@@ -459,6 +459,20 @@ Counter-checked (17 mutants, each red):
 - **in the application:** MRE asked before the precheck;
 - **in the MRE client and the fake MRE:** a `404` read as found; the fake without the `rents.term` filter (review on #76).
 
+## 25. Rent reconciliation: coverage reads (VC-4-02, api-design §37.2)
+
+`RR`, `RD`, `RU`, `RA`, `RE`, `MC` as §24.
+
+| Invariant | Tests |
+|---|---|
+| MRE settlement and DE cash stay two records: the per-term read shows MRE's amount due and payments next to DE's matches; MRE's payments never enter `matchedTotal` or the coverage (BR-RENT-001, the Phase-4 exit) | RU "AVAILABLE …"; RE "coverage of a term …" |
+| Coverage from DE cash against MRE's amount due: `UNMATCHED`, `PARTIALLY_MATCHED`, `MATCHED` (also 0 of 0), `OVERPAID`, with a signed `openAmount`; `matchedTotal` over `CONFIRMED` only | RD "coverageOf …", "matchedTotalOf …"; RE "coverage of a term …" |
+| An MRE outage never hides DE's side (`UNAVAILABLE`), an unknown term is `NOT_RETURNED`, a refused caller stays `403` | RU "NOT_RETURNED and UNAVAILABLE …"; RA "UNAVAILABLE answers nulls …"; RE "coverage of a term …" |
+| MRE floats exactly from their decimal text, exponent notation included, rounded half-up to the cent, never `-0.00`; the term parsed to the amount due and payments only (no name, contacts or description); a payment date `DD/MM/YYYY` or `null` | MC "readRentTerm …", "decimalText …" |
+| Per Transaction: counted, rent cash, matched, available (`null` unless counted); never asks MRE; Realm-scoped DE sides | RU "per Transaction …"; RR "coverage reads, DE side"; RE "coverage of a term …" |
+
+Counter-checked (9 mutants, each red): MRE's payments summed into `matchedTotal`; `RELEASED` summed; the coverage boundary off by a cent; the MRE amount truncated; exponent notation refused (the `e-15` case); an outage turned into a `503`; `available` although not counted; `termSide` without the Realm; the payment date's day and month swapped.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

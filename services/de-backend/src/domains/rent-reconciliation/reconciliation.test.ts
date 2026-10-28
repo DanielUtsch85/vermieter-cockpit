@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
-import { checkMatch, isTermKey, planRelease, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
+import { checkMatch, coverageOf, isTermKey, matchedTotalOf, planRelease, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
@@ -91,5 +91,27 @@ describe('planRelease (§37.1)', () => {
     expect(planRelease(reconciliation('RELEASED'), 'x', at, actor)).toEqual({ kind: 'UNCHANGED' });
     expect(planRelease(reconciliation('SUGGESTED'), 'x', at, actor)).toEqual({ kind: 'NOT_RELEASABLE', status: 'SUGGESTED' });
     expect(planRelease(reconciliation('REJECTED'), 'x', at, actor)).toEqual({ kind: 'NOT_RELEASABLE', status: 'REJECTED' });
+  });
+});
+
+describe('coverageOf (§37.2, BR-RENT-006/007)', () => {
+  it.each([
+    ['0.00', '0.00', 'MATCHED', '0.00'],
+    ['800.00', '0.00', 'UNMATCHED', '800.00'],
+    ['800.00', '799.99', 'PARTIALLY_MATCHED', '0.01'],
+    ['800.00', '0.01', 'PARTIALLY_MATCHED', '799.99'],
+    ['800.00', '800.00', 'MATCHED', '0.00'],
+    ['800.00', '800.01', 'OVERPAID', '-0.01'],
+    ['0.00', '5.00', 'OVERPAID', '-5.00'],
+  ])('due %s, matched %s → %s, open %s', (due, matched, coverage, open) => {
+    const result = coverageOf(eur(due), eur(matched));
+    expect(result.coverage).toBe(coverage);
+    expect(result.openAmount.amount).toBe(open);
+  });
+
+  it('matchedTotalOf sums CONFIRMED only; none is 0.00', () => {
+    const r = (status: RentPaymentReconciliation['status'], amount: string) => ({ status, matchedAmount: eur(amount) });
+    expect(matchedTotalOf([r('CONFIRMED', '300.00'), r('RELEASED', '500.00'), r('CONFIRMED', '200.00'), r('SUGGESTED', '9.00')]).amount).toBe('500.00');
+    expect(matchedTotalOf([]).amount).toBe('0.00');
   });
 });

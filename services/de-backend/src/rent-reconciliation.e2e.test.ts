@@ -12,6 +12,8 @@ import {
   getReconciliation,
   listReconciliations,
   releaseReconciliation,
+  getTermCoverage,
+  getTransactionCoverage,
   reverseTransaction,
   setTransactionSplits,
 } from './application/index.js';
@@ -27,7 +29,7 @@ import {
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
-import { mrePrincipalVerifier, mreRentTermLookup } from './wiring.js';
+import { mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader } from './wiring.js';
 
 /**
  * VC-4-01 end to end (api-design.md §37.1), wired as in main.ts, against a fake MRE and PostgreSQL: the MRE term read
@@ -59,7 +61,15 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
 
     const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
     mre = await startFakeMre([
-      { _id: REALM_A, name: 'A', members: member, applications: [], rents: { [TENANT]: [2027010100, 2027020100] } },
+      {
+        _id: REALM_A,
+        name: 'A',
+        members: member,
+        applications: [],
+        rents: { [TENANT]: [2027010100, 2027020100] },
+        // MRE's own settlement of February: a payment recorded in MRE, not cash in DE (BR-RENT-001).
+        rentTerms: { [`${TENANT}/2027020100`]: { totalWithoutBalanceAmount: 799.9999999999999, payments: [{ date: '04/02/2027', amount: 800, type: 'transfer', reference: 'MRE-1' }] } },
+      },
       { _id: REALM_B, name: 'B', members: member, applications: [] },
     ]);
     const db = createDatabase(pool);
@@ -79,6 +89,8 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
       getReconciliation: getReconciliation({ repository: reconciliations }),
       listReconciliations: listReconciliations({ repository: reconciliations }),
       releaseReconciliation: releaseReconciliation({ repository: reconciliations }),
+      getTermCoverage: getTermCoverage({ repository: reconciliations, readMreRentTerm: mreRentTermReader(lookupClient) }),
+      getTransactionCoverage: getTransactionCoverage({ repository: reconciliations }),
     });
     server = createApp(commands(client)).listen(0, '127.0.0.1');
     // The same app, but the rent term read goes to an MRE that is down (nothing listens on port 1).
@@ -106,13 +118,13 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
   const count = async (transactionId: string) =>
     (await pool.query(`SELECT count(*)::int AS n FROM rent_payment_reconciliation WHERE transaction_id = $1`, [transactionId])).rows[0].n as number;
 
-  /** A confirmed INFLOW of 800.00 split as rent. */
-  async function rent(realm = REALM_A): Promise<string> {
+  /** A confirmed INFLOW split as rent (800.00 by default). */
+  async function rent(realm = REALM_A, amount = '800.00'): Promise<string> {
     const account = (await (await call(realm, 'POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' })).json()) as { financialAccountId: string };
     const tx = (await (
-      await call(realm, 'POST', '/transactions', { financialAccountId: account.financialAccountId, amount: eur('800.00'), direction: 'INFLOW', bookingDate: '2027-01-03' })
+      await call(realm, 'POST', '/transactions', { financialAccountId: account.financialAccountId, amount: eur(amount), direction: 'INFLOW', bookingDate: '2027-01-03' })
     ).json()) as { transactionId: string };
-    expect((await call(realm, 'PUT', `/transactions/${tx.transactionId}/splits`, { splits: [{ amount: eur('800.00'), financialCategoryCode: 'RENT_BASE' }] })).status).toBe(200);
+    expect((await call(realm, 'PUT', `/transactions/${tx.transactionId}/splits`, { splits: [{ amount: eur(amount), financialCategoryCode: 'RENT_BASE' }] })).status).toBe(200);
     expect((await call(realm, 'POST', `/transactions/${tx.transactionId}/confirm`)).status).toBe(200);
     return tx.transactionId;
   }
@@ -170,5 +182,38 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     expect((await call(REALM_A, 'POST', `/transactions/${t}/reverse`, { reason: 'Doppelt' })).status).toBe(201);
     // The released match stays as it was; the reversed cash is not counted any more.
     expect((await call(REALM_A, 'POST', '/rent-reconciliations', matchBody(t))).status).toBe(409);
+  });
+
+  it('coverage of a term (§37.2): DE\'s matches next to MRE\'s amount due and payments, never summed; MRE down keeps DE\'s side', async () => {
+    const coverage = async (realm = REALM_A, at = base) => (await (await call(realm, 'GET', `/rent-reconciliations/terms/${TENANT}/2027020100`, undefined, {}, at)).json()) as Record<string, unknown>;
+    const before = await coverage();
+    expect(before).toMatchObject({
+      mreStatus: 'AVAILABLE',
+      reconciliations: [],
+      matchedTotal: eur('0.00'),
+      mre: { amountDue: eur('800.00'), payments: [{ date: '2027-02-04', amount: eur('800.00'), type: 'transfer', reference: 'MRE-1' }] },
+      coverage: 'UNMATCHED',
+      openAmount: eur('800.00'),
+    });
+    const [a, b, c] = [await rent(REALM_A, '400.00'), await rent(REALM_A, '400.00'), await rent(REALM_A, '100.00')];
+    const post = async (t: string, amount: string) => expect((await call(REALM_A, 'POST', '/rent-reconciliations', { ...matchBody(t, '2027020100'), matchedAmount: eur(amount) })).status).toBe(201);
+    await post(a, '400.00');
+    expect(await coverage()).toMatchObject({ coverage: 'PARTIALLY_MATCHED', matchedTotal: eur('400.00'), openAmount: eur('400.00') });
+    await post(b, '400.00');
+    expect(await coverage()).toMatchObject({ coverage: 'MATCHED', matchedTotal: eur('800.00'), openAmount: eur('0.00') });
+    await post(c, '100.00');
+    const over = await coverage();
+    // MRE's own 800.00 payment is shown, never added: DE's cash alone decides the coverage.
+    expect(over).toMatchObject({ coverage: 'OVERPAID', matchedTotal: eur('900.00'), openAmount: eur('-100.00') });
+    expect((over['reconciliations'] as unknown[]).length).toBe(3);
+    // The per-Transaction view: all of c is matched, nothing available.
+    expect(await (await call(REALM_A, 'GET', `/transactions/${c}/rent-reconciliations`)).json()).toMatchObject({ counted: true, rentCash: eur('100.00'), matchedTotal: eur('100.00'), available: eur('0.00') });
+    const reads = rentReads();
+    expect((await call(REALM_A, 'GET', `/transactions/${c}/rent-reconciliations`)).status).toBe(200);
+    expect(rentReads()).toBe(reads);
+    // MRE down: DE's side still answered.
+    expect(await coverage(REALM_A, downBase)).toMatchObject({ mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null, matchedTotal: eur('900.00') });
+    // Another Realm: MRE does not return A's Tenant there, and DE's side is empty.
+    expect(await coverage(REALM_B)).toMatchObject({ mreStatus: 'NOT_RETURNED', mre: null, reconciliations: [], matchedTotal: eur('0.00') });
   });
 });

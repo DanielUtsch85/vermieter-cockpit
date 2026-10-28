@@ -45,6 +45,8 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   getReconciliation: unused,
   listReconciliations: unused,
   releaseReconciliation: unused,
+  getTermCoverage: unused,
+  getTransactionCoverage: unused,
   createLoanTerms: unused,
   voidLoanTerms: unused,
   listLoanTerms: unused,

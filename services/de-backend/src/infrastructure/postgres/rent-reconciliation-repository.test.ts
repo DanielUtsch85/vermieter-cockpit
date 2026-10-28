@@ -240,6 +240,38 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
     });
   });
 
+  describe('coverage reads, DE side (§37.2)', () => {
+    it('termSide: every status of the Tenant and term in the Realm, in createdAt order', async () => {
+      const [a, b] = [await transaction([split('400.00')]), await transaction([split('401.00')])];
+      const first = await created(match(a, '400.00', '2027080100'));
+      const second = await created(match(b, '400.00', '2027080100'));
+      await created(match(b, '1.00', '2027090100'));
+      await repository.release(first.id, REALM, 'x', new Date(), actor);
+      const side = await repository.termSide(REALM, TENANT, '2027080100');
+      expect(side.map((r) => [r.id, r.status])).toEqual([
+        [first.id, 'RELEASED'],
+        [second.id, 'CONFIRMED'],
+      ]);
+      expect(await repository.termSide(OTHER_REALM, TENANT, '2027080100')).toEqual([]);
+      expect(await repository.termSide(REALM, TENANT_2, '2027080100')).toEqual([]);
+    });
+
+    it('transactionSide: the cash view and every reconciliation; unknown or foreign is undefined; not rent has no rent cash', async () => {
+      const t = await transaction([split('700.00'), split('100.00', 'BANK_FEES')]);
+      const r = await created(match(t, '300.00', '2027100100'));
+      await repository.release((await created(match(t, '100.00', '2027110100'))).id, REALM, 'x', new Date(), actor);
+      const side = await repository.transactionSide(t, REALM);
+      expect(side).toMatchObject({ transactionId: t, status: 'CONFIRMED', direction: 'INFLOW', correctionRole: null, rentCash: eur('700.00') });
+      expect(side?.reconciliations.map((x) => x.status)).toEqual(['CONFIRMED', 'RELEASED']);
+      expect(side?.reconciliations[0]?.id).toBe(r.id);
+      expect(await repository.transactionSide(t, OTHER_REALM)).toBeUndefined();
+      expect(await repository.transactionSide('nope', REALM)).toBeUndefined();
+      expect(await repository.transactionSide(await transaction([split('80.00', 'INSURANCE')]), REALM)).toMatchObject({ rentCash: null, reconciliations: [] });
+      const unconfirmed = await transaction([split('80.00')], { confirm: false });
+      expect(await repository.transactionSide(unconfirmed, REALM)).toMatchObject({ status: 'CLASSIFIED', rentCash: eur('80.00') });
+    });
+  });
+
   describe('corrections of a matched Transaction (P4-D7)', () => {
     it('correct and reverse are refused while CONFIRMED, allowed after release; the trigger refuses past the repository', async () => {
       const t = await transaction();

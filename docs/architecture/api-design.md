@@ -1852,7 +1852,7 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
 - **MRE client:** `rentTermExists(token, realm, tenantId, term)` parsed to existence only (the term key must come back); MRE `404` → not found, `401` / `403` / other as the existing client. The fake MRE gains Tenants with rent terms (the term read only; the PATCH is VC-4-04). `mre.contract.test.ts` pins the term read against the baseline: a known term, an unknown term and an unknown Tenant are `404`.
 - **API:** every `400` code above; the error mapping (`422 MRE_RENT_TERM_NOT_FOUND`, `503 EXTERNAL_SYSTEM_ERROR`, nothing written on either, end to end against the fake MRE); idempotent replay and a refusal without an MRE call; release no-op, `412`, `NOT_RELEASABLE`; the list filters and order; Realm isolation end to end.
 
-## 37.2 Coverage reads: per term and per Transaction (VC-4-02)
+## 37.2 Coverage reads: per term and per Transaction (VC-4-02, implemented)
 
 Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two derived reads that show MRE's operational state and DE's cash **next to each other, never merged** (ADR-004A, the Phase-4 exit's "distinct records"). Nothing is stored; a read never writes, in DE or in MRE.
 
@@ -1872,6 +1872,7 @@ Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two deriv
   - **MRE amounts are floats.** Every **finite** amount is taken exactly from its shortest round-trip decimal text, **exponent notation included**, and rounded half-up to the cent, the precision MRE's own UI shows. Only a non-finite amount or one outside Money's range (§31) is an unexpected answer (`UNAVAILABLE`).
     - Exponent notation is a real answer at the baseline (review on #78): `totalWithoutBalanceAmount` is `grandTotal − balance`, where `grandTotal` is rounded to the cent (`7_total.js`) but the carried `balance` is not (`5_balance.js`). A term whose own amount is 0 with a balance that is no exact cent float gives e.g. `2.831068712794149e-15`, which is `0.00` due, not an outage.
     - Unlike the cached `surface` (mre-integration §21.1), where leaving a malformed value out is enough, an amount due cannot be left out: the coverage needs it.
+    - A negative half cent rounds away from zero (`-0.005` → `-0.01`, decimal.js' HALF_UP), and a rounded negative zero is `0.00`, never `-0.00` (review on #78).
   - The Tenant's name and contact data are not read (mre-integration §20.1); the client parses the term to these fields only.
 - **`coverage`** (derived, BR-RENT-006/007), from `matchedTotal` against `amountDue`; `null` unless `mreStatus = AVAILABLE`:
   - `UNMATCHED`: `matchedTotal` = 0 and `amountDue` > 0;

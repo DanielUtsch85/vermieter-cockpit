@@ -1,4 +1,4 @@
-import type { ExactDecimal } from '../../shared/index.js';
+import type { BusinessDate, ExactDecimal, Money } from '../../shared/index.js';
 
 /**
  * Anti-corruption boundary to MicroRealEstate (ADR-034, mre-integration.md,
@@ -32,6 +32,24 @@ export interface MreAddress {
   readonly city?: string;
   readonly state?: string;
   readonly country?: string;
+}
+
+/**
+ * One MRE rent term reduced to what the coverage read shows (api-design.md §37.2): its amount due without the carried
+ * balance and MRE's own payment records. Amounts are MRE floats rounded half-up to the cent. Nothing else is read.
+ */
+export interface MreRentTerm {
+  readonly amountDue: Money;
+  readonly payments: readonly MreRentPayment[];
+}
+
+/** An MRE payment record: settlement, not cash (BR-RENT-001). `description` is not read. */
+export interface MreRentPayment {
+  /** MRE's `DD/MM/YYYY` as a business date; null when it does not parse. */
+  readonly date: BusinessDate | null;
+  readonly amount: Money;
+  readonly type: string | null;
+  readonly reference: string | null;
 }
 
 export type MreClientErrorCode =
@@ -79,4 +97,10 @@ export interface MreClient {
    * so `false` means "MRE did not return this term" (api-design.md §37.1). Nothing of the term is kept.
    */
   rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean>;
+
+  /**
+   * The rent term as `rentTermExists` reads it, parsed to its amount due and payments (api-design.md §37.2);
+   * undefined on MRE's `404`, with the same meaning.
+   */
+  readRentTerm(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRentTerm | undefined>;
 }

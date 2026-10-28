@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ExactDecimal } from '../../shared/index.js';
+import { ExactDecimal, Money, RoundingMode, checkBusinessDate } from '../../shared/index.js';
 import {
   MreClientError,
   type MreAddress,
@@ -7,6 +7,8 @@ import {
   type MreClientErrorCode,
   type MreProperty,
   type MreRealmMembership,
+  type MreRentPayment,
+  type MreRentTerm,
 } from './mre-client.js';
 
 /**
@@ -58,8 +60,19 @@ const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough()
  * (mre-integration.md §20.1). A Tenant without `_id` rejects the whole response, as for properties.
  */
 const tenantsDto = z.array(z.object({ _id: z.string().min(1) }));
-/** A rent term of `GET /rents/tenant/:id/:term`: only its key is read. */
-const rentTermDto = z.object({ term: z.number().int() });
+/** A rent term of `GET /rents/tenant/:id/:term`: only its key, its amount due and its payments are read. */
+const rentTermDto = z.object({
+  term: z.number().int(),
+  totalWithoutBalanceAmount: z.number(),
+  payments: z.array(
+    z.object({
+      date: z.unknown().optional(),
+      amount: z.number(),
+      type: z.unknown().optional(),
+      reference: z.unknown().optional(),
+    }),
+  ),
+});
 /** `get`'s answer for a `404` the caller reads as "not there". */
 const ABSENT = Symbol('ABSENT');
 const addressPart = z.string().optional().catch(undefined);
@@ -132,14 +145,27 @@ export class HttpMreClient implements MreClient {
   }
 
   async rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean> {
+    return (await this.readRentTerm(accessToken, mreRealmId, mreTenantId, term)) !== undefined;
+  }
+
+  async readRentTerm(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRentTerm | undefined> {
     const body = await this.get(`/rents/tenant/${encodeURIComponent(mreTenantId)}/${encodeURIComponent(term)}`, accessToken, mreRealmId, 'ABSENT');
-    if (body === ABSENT) return false;
-    // Only the term key is read; the rest (amounts, the Tenant's name and contact data) is dropped here.
+    if (body === ABSENT) return undefined;
+    // Only the term key, the amount due and the payments are read; the rest (the Tenant's name and contact data,
+    // a payment's description) is dropped here and never appears in an error message.
     const parsed = rentTermDto.safeParse(body);
     if (!parsed.success || String(parsed.data.term) !== term) {
       throw new MreClientError('UNAVAILABLE', 'Unexpected MRE rent term shape');
     }
-    return true;
+    const amountDue = toCents(parsed.data.totalWithoutBalanceAmount);
+    const payments = parsed.data.payments.map((p): MreRentPayment | undefined => {
+      const amount = toCents(p.amount);
+      return amount === undefined ? undefined : { date: toBusinessDate(p.date), amount, type: textOrNull(p.type), reference: textOrNull(p.reference) };
+    });
+    if (amountDue === undefined || payments.some((p) => p === undefined)) {
+      throw new MreClientError('UNAVAILABLE', 'Unexpected MRE rent term amount');
+    }
+    return { amountDue, payments: payments as MreRentPayment[] };
   }
 
   private async get(
@@ -179,6 +205,47 @@ export class HttpMreClient implements MreClient {
     }
   }
 }
+
+/**
+ * An MRE float amount as Money (api-design.md §37.2): exactly its shortest round-trip decimal text, exponent notation
+ * included (`grandTotal − balance` of a term with 0 due gives e.g. `2.831068712794149e-15`, review on #78), rounded
+ * half-up to the cent. decimal.js' HALF_UP rounds a negative half away from zero (`-0.005` → `-0.01`), and a rounded
+ * negative zero is `0.00`. Undefined for a non-finite amount or one outside Money's range.
+ */
+function toCents(value: number): Money | undefined {
+  const text = decimalText(value);
+  if (text === undefined) return undefined;
+  try {
+    return Money.rounded(ExactDecimal.of(text), 'EUR', RoundingMode.HALF_UP);
+  } catch {
+    return undefined;
+  }
+}
+
+/** A finite JS number's shortest round-trip text as a canonical decimal string, exponent notation expanded. */
+export function decimalText(value: number): string | undefined {
+  if (!Number.isFinite(value)) return undefined;
+  const text = String(value);
+  const match = /^(-?)(\d+)(?:\.(\d+))?e([+-]\d+)$/.exec(text);
+  if (match === null) return text;
+  const [, sign = '', integer = '', fraction = '', exponent = '0'] = match;
+  const digits = integer + fraction;
+  const point = integer.length + Number(exponent);
+  if (point <= 0) return `${sign}0.${'0'.repeat(-point)}${digits}`;
+  if (point >= digits.length) return `${sign}${digits}${'0'.repeat(point - digits.length)}`;
+  return `${sign}${digits.slice(0, point)}.${digits.slice(point)}`;
+}
+
+/** MRE's payment date `DD/MM/YYYY` as a business date, or null. */
+function toBusinessDate(value: unknown): MreRentPayment['date'] {
+  if (typeof value !== 'string') return null;
+  const match = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (match === null) return null;
+  const result = checkBusinessDate(`${match[3]}-${match[2]}-${match[1]}`);
+  return 'date' in result ? result.date : null;
+}
+
+const textOrNull = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
 /** The address parts MRE has, or null when there are none. */
 function toAddress(value: unknown): MreAddress | null {

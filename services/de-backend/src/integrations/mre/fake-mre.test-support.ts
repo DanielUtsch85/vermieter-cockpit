@@ -50,6 +50,11 @@ export interface FakeRealm {
   tenants?: Record<string, unknown>[];
   /** Rent terms (`YYYYMMDDHH` numbers) per Tenant `_id`, served by GET /rents/tenant/:id/:term only. */
   rents?: Record<string, number[]>;
+  /**
+   * The fields of a rent term per `tenantId/term`, as MRE's `toRentData` answers them; a term without an entry answers
+   * `totalWithoutBalanceAmount` 800 and no payments. Values are sent as given, floats included.
+   */
+  rentTerms?: Record<string, { totalWithoutBalanceAmount?: unknown; payments?: unknown }>;
   [extra: string]: unknown;
 }
 
@@ -89,7 +94,16 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
         res.writeHead(404).end();
         return;
       }
-      json({ term: Number(term), month: Number(term.slice(4, 6)), year: Number(term.slice(0, 4)), payments: [], occupant: { name: 'not read by DE' } });
+      const fields = realm?.rentTerms?.[`${tenantId}/${term}`] ?? {};
+      json({
+        term: Number(term),
+        month: Number(term.slice(4, 6)),
+        year: Number(term.slice(0, 4)),
+        totalWithoutBalanceAmount: 800,
+        payments: [],
+        ...fields,
+        occupant: { name: 'not read by DE', contacts: [{ email: 'tenant@example.com' }] },
+      });
       return;
     }
     if (path === '/api/v2/properties' || path === '/api/v2/tenants') {
@@ -106,7 +120,7 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
       json((path === '/api/v2/tenants' ? realm.tenants : realm.properties) ?? []);
       return;
     }
-    const visible = (list: FakeRealm[]) => list.map(({ properties: _properties, tenants: _tenants, rents: _rents, ...realm }) => realm);
+    const visible = (list: FakeRealm[]) => list.map(({ properties: _properties, tenants: _tenants, rents: _rents, rentTerms: _rentTerms, ...realm }) => realm);
     const application = payload?.['application'] as { clientId?: string } | undefined;
     if (application !== undefined) {
       json(visible(realms.filter((r) => r.applications.some((a) => a.clientId === application.clientId))));

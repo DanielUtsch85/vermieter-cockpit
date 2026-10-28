@@ -14,8 +14,11 @@ import {
   TransactionNotInflowError,
   createReconciliation,
   getReconciliation,
+  getTermCoverage,
+  getTransactionCoverage,
   releaseReconciliation,
 } from './rent-reconciliations.js';
+import { AccessError } from './access.js';
 import { TransactionNotFoundError } from './transaction-splits.js';
 
 /** VC-4-01 use cases (api-design.md §37.1): when MRE is asked, the order DE → MRE → DE, each refusal as its error. */
@@ -27,6 +30,8 @@ const eur = (amount: string) => Money.of(amount, 'EUR');
 
 const repository = (overrides: Partial<RentReconciliationRepository>): RentReconciliationRepository => ({
   precheck: () => Promise.reject(new Error('unused')),
+  termSide: () => Promise.reject(new Error('unused')),
+  transactionSide: () => Promise.reject(new Error('unused')),
   create: () => Promise.reject(new Error('unused')),
   findById: () => Promise.reject(new Error('unused')),
   list: () => Promise.reject(new Error('unused')),
@@ -121,5 +126,49 @@ describe('Rent reconciliation use cases', () => {
     await expect(release({ kind: 'NOT_FOUND' })).rejects.toBeInstanceOf(ReconciliationNotFoundError);
     await expect(release({ kind: 'NOT_RELEASABLE', status: 'SUGGESTED' })).rejects.toBeInstanceOf(NotReleasableError);
     await expect(release({ kind: 'VERSION_CONFLICT', expectedVersions: [3], currentVersion: 1 })).rejects.toBeInstanceOf(VersionConflictError);
+  });
+});
+
+describe('coverage reads (§37.2)', () => {
+  const rec = (status: RentPaymentReconciliation['status'], amount: string) => ({ id: `r-${status}-${amount}`, status, matchedAmount: eur(amount) }) as unknown as RentPaymentReconciliation;
+  const side = [rec('CONFIRMED', '300.00'), rec('RELEASED', '500.00')];
+  const term = { principal, authorizationHeader: 'Bearer t', mreTenantId: TENANT, mreRentTerm: '2027010100' };
+  const withMre = (read: Parameters<typeof getTermCoverage>[0]['readMreRentTerm']) =>
+    getTermCoverage({ repository: repository({ termSide: async (realm, tenant, t) => (realm === REALM && tenant === TENANT && t === '2027010100' ? side : []) }), readMreRentTerm: read })(term);
+
+  it('AVAILABLE: MRE next to DE, MRE payments never summed; the caller\'s header and Realm', async () => {
+    const asked: string[][] = [];
+    const mre = { amountDue: eur('800.00'), payments: [{ date: null, amount: eur('800.00'), type: 'transfer', reference: null }] };
+    const result = await withMre(async (...args) => {
+      asked.push(args);
+      return mre;
+    });
+    expect(result).toMatchObject({ mreStatus: 'AVAILABLE', mre, matchedTotal: eur('300.00'), coverage: 'PARTIALLY_MATCHED', openAmount: eur('500.00'), reconciliations: side });
+    expect(asked).toEqual([['Bearer t', REALM, TENANT, '2027010100']]);
+  });
+
+  it('NOT_RETURNED and UNAVAILABLE keep DE\'s side; AccessError passes through', async () => {
+    expect(await withMre(async () => undefined)).toMatchObject({ mreStatus: 'NOT_RETURNED', mre: null, coverage: null, openAmount: null, matchedTotal: eur('300.00'), reconciliations: side });
+    expect(
+      await withMre(async () => {
+        throw new MreUnavailableError('down');
+      }),
+    ).toMatchObject({ mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null, matchedTotal: eur('300.00'), reconciliations: side });
+    await expect(
+      withMre(async () => {
+        throw new AccessError('FORBIDDEN', 'refused');
+      }),
+    ).rejects.toBeInstanceOf(AccessError);
+  });
+
+  it('per Transaction: counted, rent cash, matched, available; not counted means no available; unknown is TransactionNotFoundError', async () => {
+    const read = (s: Awaited<ReturnType<RentReconciliationRepository['transactionSide']>>) =>
+      getTransactionCoverage({ repository: repository({ transactionSide: async () => s }) })({ principal, transactionId: 't1' });
+    const base = { transactionId: 't1', status: 'CONFIRMED', direction: 'INFLOW', correctionRole: null, rentCash: eur('800.00'), reconciliations: side };
+    expect(await read(base)).toMatchObject({ counted: true, matchedTotal: eur('300.00'), available: eur('500.00') });
+    expect(await read({ ...base, status: 'CLASSIFIED' })).toMatchObject({ counted: false, available: null, matchedTotal: eur('300.00') });
+    expect(await read({ ...base, correctionRole: 'REVERSAL' })).toMatchObject({ counted: false, available: null });
+    expect(await read({ ...base, rentCash: null, reconciliations: [] })).toMatchObject({ counted: true, rentCash: null, available: null, matchedTotal: eur('0.00') });
+    await expect(read(undefined)).rejects.toBeInstanceOf(TransactionNotFoundError);
   });
 });
