@@ -1720,7 +1720,7 @@ POST /api/v1/rent-reconciliations/suggest                           (VC-4-03, §
 POST /api/v1/rent-reconciliations/{id}/confirm                      (VC-4-03, §37.3)
 POST /api/v1/rent-reconciliations/{id}/reject                       (VC-4-03, §37.3)
 POST /api/v1/rent-reconciliations/{id}/write-back-to-mre            (VC-4-04, §37.4)
-POST /api/v1/rent-reconciliations/{id}/remove-from-mre              (VC-4-05)
+POST /api/v1/rent-reconciliations/{id}/remove-from-mre              (VC-4-05, §37.5)
 ```
 
 ## 37.1 Manual match, read, list, release (VC-4-01, implemented: migration 0030)
@@ -2178,6 +2178,108 @@ Decision P4-D6 of `docs/development/phase-4-plan.md`, and P4-D7's effect of a re
   - release keeping `WRITTEN`;
   - the index not unique;
   - the presence check changing the state.
+
+## 37.5 Removal from MRE after release (VC-4-05)
+
+Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in reverse. A released reconciliation whose payment is, or may be, in MRE (`REMOVAL_REQUIRED`) has DE's payment removed from the MRE term. Everything else in the term stays. Release stays DE-only (BR-MRE-004); removal is the separate, explicit command. It never changes the reconciliation's status, its Transaction or its cash.
+
+- **Domain owner and authorization:** as §37.1. MRE is called with the caller's own token and Realm.
+- **No database transaction is open during an MRE call** (P4-D8). The protocol is claim → read → write → verify → record, as §37.4.
+- **It removes only DE's payment:** the one payment whose `reference` is the marker `DE-RPR-<reconciliationId>` with DE's date and amount (§37.4). A payment without DE's marker is never removed. A marker payment changed in MRE by hand is not removed either (`MRE_PAYMENT_CHANGED`).
+
+### The lease assumption (review on #82)
+
+§37.4's lease assumes MRE finishes a request within twice the timeout. A write-back PATCH that MRE completes after DE gave up would put DE's payment back, and would undo MRE edits made in between. So:
+
+- the reconciliation keeps the end of its **last** write-back lease: `mreLastLeaseUntil` (set by every claim, never cleared);
+- a removal is refused before `mreLastLeaseUntil` **plus one MRE timeout** (a margin for clock skew between DE and MRE): `409 CONFLICT` with `reason = "REMOVAL_TOO_EARLY"` and `details.notBefore`. A `WRITTEN` reconciliation's lease ended long ago, so in practice only a release right after a failed or abandoned write-back waits;
+- `?checkMre=true` (§37.4) also reads `REMOVAL_FAILED` and `REMOVED`. `PRESENT` on `REMOVED` reports a payment that reappeared in MRE. DE does not remove it again by itself; the user removes it in MRE (residual risk, accepted, as §37.4's).
+
+### `POST /api/v1/rent-reconciliations/{reconciliationId}/remove-from-mre`
+
+- **Body:** none, or `{}` (strict). No `Idempotency-Key`; `If-Match` optional (§16.1).
+- **Order of checks:**
+  1. `400`;
+  2. unknown or foreign → `404`;
+  3. `status` not `RELEASED` → `409 CONFLICT` with `reason = "NOT_REMOVABLE"` and `details.status`;
+  4. `REMOVED` → `200` no-op without an MRE call, whatever the version;
+  5. `NOT_WRITTEN` (nothing of DE's was ever in MRE) → `409 CONFLICT` with `reason = "NOT_REMOVABLE"` and `details.mreWriteBackState`;
+  6. `REMOVING` with a live lease, its own or another reconciliation's of the same Realm and `mreTenantId` (also a `PENDING` write-back) → `409 CONFLICT` with `reason = "WRITE_BACK_IN_PROGRESS"` and `details.reconciliationId`;
+  7. before `mreLastLeaseUntil` + one MRE timeout → `409 REMOVAL_TOO_EARLY` (above);
+  8. `If-Match` → `412`.
+- **1. Claim** (one READ COMMITTED transaction; reconciliation rows only): as §37.4's, from `REMOVAL_REQUIRED` or `REMOVAL_FAILED`. It sets `REMOVING` with a new `attemptId` and lease, `version` + 1, and writes an AuditRecord `REMOVAL_STARTED`. Expired leases of other reconciliations of the same Tenant are failed in the same transaction: an expired `REMOVING` becomes `REMOVAL_FAILED` (`LEASE_EXPIRED`), an expired `PENDING` becomes `FAILED` (`LEASE_EXPIRED`), each with an AuditRecord `WRITE_BACK_ABANDONED`. The Tenant index covers `PENDING` and `REMOVING`: one MRE write per Tenant at a time.
+- **2. Read** the term (§37.4's raw read):
+  - MRE `404` → `REMOVAL_FAILED` (`MRE_RENT_TERM_NOT_FOUND`), `422`. MRE also answers `404` when its own database read fails (review on #76), so a missing term is no proof that the payment is gone;
+  - MRE down → `REMOVAL_FAILED` (`MRE_UNAVAILABLE`), `503`; `401` / `403` → `REMOVAL_FAILED` (`MRE_FORBIDDEN`), answered as §37.1;
+  - the marker **absent**: nothing of DE's is in MRE (removed by hand, or an earlier attempt removed it and crashed). Go to **5. Record** as `REMOVED`, **without a PATCH**;
+  - the marker more than once, or with another date or amount → `REMOVAL_FAILED` (`MRE_PAYMENT_CHANGED`), `409`. DE never removes or repairs a payment it cannot identify exactly;
+  - the marker once, but `vatRatio` ≠ 0 with `promo` or `extracharge` ≠ 0 → back to the state before the claim, an AuditRecord `REMOVAL_NOT_ROUND_TRIPPABLE`, and `409 CONFLICT` with `reason = "MRE_TERM_NOT_ROUND_TRIPPABLE"`. The user removes DE's payment in MRE by hand; the next removal then reads it absent and records `REMOVED`.
+- **3. Write:** the PATCH of §37.4 with every payment read except DE's, in its order and normalised as MRE stores it; `promo`, `extracharge`, `description` and the notes as §37.4; `_id: mreTenantId` in the body.
+- **4. Verify** the answer: no payment with the marker, every other payment read in its order, the settlement as read. Without an answer or on a mismatch, read once more:
+  - it passes → `REMOVED`;
+  - the marker still there with the rest as read → `REMOVAL_FAILED` (`MRE_UNAVAILABLE` without an answer, `MRE_WRITE_REFUSED` with an error answer), `503`;
+  - anything else changed → `REMOVAL_FAILED` (`MRE_TERM_CHANGED`), `409`.
+- **5. Record** (one READ COMMITTED transaction), only while the row is `REMOVING` with **this** `attemptId`:
+  - `REMOVED` with `mreRemovedAt` and `mreRemovedBy`; `mrePayment` stays as the record of what was written. AuditRecord `REMOVED` with the `attemptId` and whether a PATCH was sent;
+  - `REMOVAL_FAILED` with `mreWriteBackError` and `mreWriteBackFailedAt`; AuditRecord `REMOVAL_FAILED`;
+  - `version` + 1 either way;
+  - a lost lease records nothing and answers `WRITE_BACK_IN_PROGRESS`.
+- **Success:** `200` with the reconciliation (`mreWriteBackState = REMOVED`, `mreRemovedAt`, `mreRemovedBy`). Errors after the claim carry `details.reason` and `details.mreWriteBackState`, as §37.4.
+- **Exactly once:** `REMOVED` is a no-op; every attempt reads before it writes; a PATCH without DE's payment that reaches MRE late removes nothing more.
+
+### `mreWriteBackState` with removal (P4-D7)
+
+- on `RELEASED`: `REMOVAL_REQUIRED` | `REMOVAL_FAILED` → `REMOVING` (claim) → `REMOVED` | `REMOVAL_FAILED` | the state before the claim (not round-trippable); `REMOVING` with an expired lease → `REMOVING` (its own retry) or `REMOVAL_FAILED` (`LEASE_EXPIRED`, another reconciliation's claim);
+- `REMOVED` and `NOT_WRITTEN` are final on `RELEASED`.
+- The response of §37.1 gains `mreRemovedAt`, `mreRemovedBy` (`null` unless `REMOVED`) and `mreLastLeaseUntil`; `mreWriteBackLeaseUntil`, `mreWriteBackError` and `mreWriteBackFailedAt` also hold for `REMOVING` and `REMOVAL_FAILED`.
+- Releasing stays as §37.4. With VC-4-05 it also uses the **database's clock** for the lease, as the claim and the trigger do (review on #83); the trigger's `WRITE_BACK_IN_PROGRESS` on the release path is answered `409`, never `500`.
+
+### In the database (migration 0033)
+
+- **`rent_payment_reconciliation` gains** `mre_last_lease_until timestamptz` (set by every claim, never cleared), `mre_removed_at timestamptz` and `mre_removed_by text` (set exactly when `REMOVED`).
+- **Backfill:** rows claimed under 0032 get `mre_last_lease_until = coalesce(mre_write_back_lease_until, mre_write_back_failed_at, mre_written_back_at) + interval '2 minutes'`. Their real lease end is unknown, but it is at most twice the longest MRE timeout DE accepts (`MRE_TIMEOUT_MS` ≤ 60 s) after the claim, and the claim was before both the failure and the write.
+- **CHECKs:**
+  - `mre_write_back_state` adds `REMOVING`, `REMOVED`, `REMOVAL_FAILED`, all three only on `RELEASED`;
+  - the attempt and the lease set exactly when `PENDING` or `REMOVING`; the error and its time exactly when `FAILED` or `REMOVAL_FAILED`;
+  - the written fields as 0032, also kept through `REMOVING`, `REMOVED` and `REMOVAL_FAILED`;
+  - `mre_last_lease_until` not null once a claim has happened (`PENDING`, `WRITTEN`, `FAILED`, `REMOVING`, `REMOVED`, `REMOVAL_FAILED`).
+- **The Tenant index** becomes `(mre_realm_id, mre_tenant_id) WHERE mre_write_back_state IN ('PENDING', 'REMOVING')`.
+- **`rent_payment_reconciliation_frozen`:** on a `RELEASED` row, a change that keeps `status` is a removal step with `version` + 1: `REMOVAL_REQUIRED` | `REMOVAL_FAILED` → `REMOVING` only when `now()` is past `mre_last_lease_until` (the margin stays in the application); `REMOVING` → `REMOVING` only from an expired lease with a new attempt; `REMOVING` → `REMOVED` | `REMOVAL_FAILED` | `REMOVAL_REQUIRED`. 0032's steps are unchanged, plus `mre_last_lease_until` set on each claim and never lowered or cleared.
+- `down` restores 0032's functions, constraints and index exactly.
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Two removals of one reconciliation:** the second waits on the row and answers `WRITE_BACK_IN_PROGRESS` (RC) or fails with `40001` (RR).
+- **A removal and a write-back of two terms of one Tenant:** the index; the loser answers `WRITE_BACK_IN_PROGRESS`.
+- **A takeover after an expired lease,** by the same reconciliation, and by another one of the Tenant (an expired `REMOVING` becomes `REMOVAL_FAILED`, an expired `PENDING` becomes `FAILED`, each `LEASE_EXPIRED`).
+- **A record after a lost lease** writes nothing.
+
+### Tests (VC-4-05)
+
+- **Domain:** the PATCH body without DE's payment; the verification (marker gone, every other payment and the settlement as read); the steps; `REMOVAL_TOO_EARLY` at the margin's edge.
+- **Repository:** claim, record and takeover; `mre_last_lease_until` kept through record and release; the release with the database's clock (an application clock running ahead does not turn the trigger's refusal into a `500`).
+- **Use case:**
+  - the order claim → read → PATCH → verify → record;
+  - `REMOVED` a no-op without an MRE call;
+  - the marker absent → `REMOVED` without a PATCH;
+  - a crash between PATCH and record: after the lease, the retry finds the marker absent and records `REMOVED` without a second PATCH;
+  - a lost answer → the second read → `REMOVED`;
+  - each failure code; not round-trippable back to the state before.
+- **Fake MRE:** unchanged PATCH behaviour (§37.4); the removal uses it.
+- **`mre.contract.test.ts`:** a removal of a DE payment written next to an existing one; the existing payment, the promo and the description kept.
+- **API:** the `400`s, the error mapping, `REMOVAL_TOO_EARLY` with `details.notBefore`, `mrePresence` on `REMOVED`.
+- **End to end** against the fake MRE: confirm → write back → release → remove (MRE's own payment kept, DE's gone, coverage of §37.2 unchanged); a repeat adds nothing; a release right after an abandoned write-back waits for the lease; a payment that reappears is `PRESENT` on `REMOVED`; Realm isolation.
+- **Schema past the repository,** each with a counter-check: the new CHECKs, the widened index, each removal step allowed and refused, a claim before `mre_last_lease_until` refused.
+- **Concurrency** as above, under RC and RR, each with its counter-check.
+- **Counter-checks:**
+  - a payment without DE's exact marker removed;
+  - the read before the write skipped (the crash test then sends a second PATCH);
+  - the verification skipped;
+  - the lease margin dropped (the removal right after an abandoned write-back proceeds);
+  - `mre_last_lease_until` cleared on record or release;
+  - the index without `REMOVING`;
+  - the record without the attempt check;
+  - the release's lease check on the application's clock.
 
 ---
 
