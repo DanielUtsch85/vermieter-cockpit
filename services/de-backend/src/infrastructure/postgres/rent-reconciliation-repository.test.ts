@@ -666,6 +666,10 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
           mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now() WHERE id = '${r.id}'`),
       ).toBe('rent_payment_reconciliation_write_back_state');
       expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_written_back_at = now() WHERE id = '${r.id}'`)).toBe('rent_payment_reconciliation_write_back_fields');
+      // WRITTEN with a time and actor but without the payment snapshot.
+      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'WRITTEN', mre_written_back_at = now(), mre_written_back_by = 'x' WHERE id = '${r.id}'`)).toBe(
+        'rent_payment_reconciliation_write_back_fields',
+      );
       expect(
         await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'FAILED', mre_write_back_error = 'GUESS', mre_write_back_failed_at = now() WHERE id = '${r.id}'`),
       ).toBe('rent_payment_reconciliation_mre_write_back_error_check');

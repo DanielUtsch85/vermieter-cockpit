@@ -516,7 +516,12 @@ Counter-checked (30 mutants, each red):
 | The schema (0032): the field sets per state, the states per status, born `NOT_WRITTEN`, each allowed and refused step, the release rule, the Tenant index | RR "schema (0032) …", "schema past the repository (migration 0030) …" |
 | Realm isolation: another Realm can neither write back nor check a reconciliation; MRE's own Realm check | RE "write-back (§37.4) …"; MC "readRentTermForWriteBack …" |
 
-COUNTERCHECKS
+Counter-checked (25 mutants, each red):
+- **in the MRE client:** the PATCH without `_id`;
+- **in the domain:** the description, the promo or an existing payment not sent back; the amount by float arithmetic from cents; the round-trip rule dropped; payments compared raw (review on #82); release keeping `WRITTEN`, or a `FAILED` released without `REMOVAL_REQUIRED`; another or its own live lease ignored;
+- **in the application:** no read before the write (the crash test then adds a second payment); the verification skipped; no second read after a lost answer; a refused caller not recorded; the presence check always `PRESENT`;
+- **in the repository:** the record without the attempt check; the takeover without failing the expired row (the claim is then refused by the index);
+- **in 0032:** the Tenant index not unique; the trigger's release rule dropped; a release under a live lease allowed; `PENDING` → `PENDING` under a live lease; a row born with a write-back state; the write-back fields CHECK and the state-per-status CHECK dropped.
 
 ## Keeping this current
 
