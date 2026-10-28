@@ -835,6 +835,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await set(`mre_write_back_state = 'REMOVED', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id)).toBe(
         'rent_payment_reconciliation_write_back_fields',
       );
+      expect(
+        await set(`mre_write_back_state = 'REMOVED', mre_removed_by = 'x', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id),
+      ).toBe('rent_payment_reconciliation_write_back_fields');
       expect(await set(`mre_write_back_state = 'WRITTEN', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id)).toBe('is not a step');
       expect(
         await set(`mre_write_back_state = 'REMOVED', mre_removed_at = now(), mre_removed_by = 'x', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id),

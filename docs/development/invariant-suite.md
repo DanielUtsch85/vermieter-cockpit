@@ -539,7 +539,11 @@ Counter-checked (25 mutants, each red):
 | The presence check also reads `REMOVAL_FAILED` and `REMOVED`: `PRESENT` on `REMOVED` reports a payment that reappeared | RB "getReconciliationWithPresence …"; RE "removal (§37.5) …" |
 | Realm isolation: another Realm cannot remove a reconciliation | RE "removal (§37.5) …" |
 
-COUNTERCHECKS
+Counter-checked (19 mutants, each red):
+- **in the domain:** a payment without DE's marker removed; the lease margin dropped; `REMOVED` not a no-op; a removal from `NOT_WRITTEN` allowed;
+- **in the application:** the read before the removal skipped (the crash test then sends a second PATCH); the removal verification skipped; the presence check not on `REMOVED`;
+- **in the repository:** the last lease end cleared on record, or set instead of raised; the record without the attempt check; the claim's holders only `PENDING` (review on #84); an expired `REMOVING` failed as `FAILED`; the release on the application's clock without the trigger's mapping (either alone is covered by the other: the plan and the mapping both answer `WRITE_BACK_IN_PROGRESS`);
+- **in 0033:** the index without `REMOVING`; the trigger letting the last lease end change outside a claim, or allowing a removal claim before it; the last-lease CHECK dropped; the removed-fields CHECK dropped; the backfill without `released_at` (review on #84; the migration then fails its own CHECK).
 
 ## Keeping this current
 
