@@ -15,10 +15,9 @@ import {
   type PrincipalVerifier,
   type SetTransactionSplits,
 } from '../application/index.js';
-import type { AppDependencies } from './index.js';
 import { Money } from '../shared/index.js';
 import { createApp } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 const REALM = '64b0c0ffee0000000000000a';
 const TX = '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
@@ -32,8 +31,8 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
 const auth = { authorization: 'Bearer a.b.c', organizationid: REALM };
 
 let server: Server | undefined;
-async function start(overrides: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...overrides }).listen(0, '127.0.0.1');
+async function start(overrides: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(overrides) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -66,12 +65,14 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
   it('200 with the stored set; the use case gets parsed, normalized splits', async () => {
     const seen: Parameters<SetTransactionSplits>[0][] = [];
     const base = await start({
-      setTransactionSplits: async (input) => {
-        seen.push(input);
-        return {
-          transaction: { id: TX, amount: Money.of('1200.00', 'EUR'), direction: 'OUTFLOW', status: 'CLASSIFIED', version: 2 } as never,
-          splits: input.splits.map((s, i) => ({ ...s, id: `s-${i + 1}`, position: i + 1 })),
-        };
+      transactions: {
+        setSplits: async (input) => {
+          seen.push(input);
+          return {
+            transaction: { id: TX, amount: Money.of('1200.00', 'EUR'), direction: 'OUTFLOW', status: 'CLASSIFIED', version: 2 } as never,
+            splits: input.splits.map((s, i) => ({ ...s, id: `s-${i + 1}`, position: i + 1 })),
+          };
+        },
       },
     });
     const res = await put(base, loanSplits, TX.toUpperCase());
@@ -170,7 +171,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
       ],
     ] as const;
     for (const [error, status, body] of cases) {
-      const base = await start({ setTransactionSplits: () => Promise.reject(error) });
+      const base = await start({ transactions: { setSplits: () => Promise.reject(error) } });
       const res = await put(base, loanSplits);
       expect(res.status).toBe(status);
       expect(await errorOf(res)).toMatchObject(body);
@@ -185,10 +186,12 @@ describe('GET /api/v1/financial-categories', () => {
 
   it('lists the catalog and serves one code; unknown → 404, malformed → 400', async () => {
     const base = await start({
-      listFinancialCategories: async () => [category],
-      getFinancialCategory: async (code) => {
-        if (code === 'LOAN_INTEREST') return category;
-        throw new FinancialCategoryNotFoundError([code]);
+      financialCategories: {
+        list: async () => [category],
+        get: async (code) => {
+          if (code === 'LOAN_INTEREST') return category;
+          throw new FinancialCategoryNotFoundError([code]);
+        },
       },
     });
     const list = await fetch(`${base}/api/v1/financial-categories`, { headers: auth });

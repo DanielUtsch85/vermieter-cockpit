@@ -2,7 +2,7 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
-import { unusedCommands } from './api/app.test-support.js';
+import { commandsWith } from './api/app.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
@@ -36,7 +36,7 @@ describe('DE /api/v1 with real MRE wiring', () => {
       },
     ]);
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
-    server = createApp({ isReady: async () => true, verifyPrincipal: mrePrincipalVerifier(client), ...unusedCommands }).listen(0, '127.0.0.1');
+    server = createApp({ isReady: async () => true, verifyPrincipal: mrePrincipalVerifier(client), ...commandsWith() }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   });
@@ -77,7 +77,7 @@ describe('DE /api/v1 with real MRE wiring', () => {
     const down = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(new HttpMreClient({ apiBaseUrl: 'http://127.0.0.1:9/api/v2', timeoutMs: 500 })),
-      ...unusedCommands,
+      ...commandsWith(),
     }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => down.once('listening', () => resolve()));
     try {

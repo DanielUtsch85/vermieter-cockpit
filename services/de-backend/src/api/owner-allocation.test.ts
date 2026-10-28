@@ -3,8 +3,8 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import { AcquisitionCancelledError, AcquisitionNotFoundError, OwnershipBasisIncompleteError, type PrincipalVerifier } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-09 HTTP contract (api-design.md §27.4). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -13,8 +13,8 @@ const eur = (amount: string) => Money.of(amount, 'EUR');
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -29,16 +29,26 @@ const get = (base: string, path: string) => fetch(`${base}/api/v1${path}`, { hea
 describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
   it('200 with owners (fractions as n/d, costs by category) and totals', async () => {
     const base = await start({
-      getOwnerAllocation: async () => ({
-        kind: 'ALLOCATED',
-        basis: 'CONFIRMED',
-        allocationId: null,
-        owners: [
-          {
-            ownerPartyId: 'p1',
-            ownershipId: 'o1',
-            share: { numerator: 1n, denominator: 2n },
-            weight: { numerator: 1n, denominator: 1n },
+      ownerAllocation: {
+        get: async () => ({
+          kind: 'ALLOCATED',
+          basis: 'CONFIRMED',
+          allocationId: null,
+          owners: [
+            {
+              ownerPartyId: 'p1',
+              ownershipId: 'o1',
+              share: { numerator: 1n, denominator: 2n },
+              weight: { numerator: 1n, denominator: 1n },
+              purchasePrice: eur('300000.00'),
+              costs: new Map([['NOTARY', eur('4000.00')]]),
+              costsTotal: eur('4000.00'),
+              landAmount: null,
+              buildingAmount: null,
+              totalAllocableAmount: null,
+            },
+          ],
+          totals: {
             purchasePrice: eur('300000.00'),
             costs: new Map([['NOTARY', eur('4000.00')]]),
             costsTotal: eur('4000.00'),
@@ -46,16 +56,8 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
             buildingAmount: null,
             totalAllocableAmount: null,
           },
-        ],
-        totals: {
-          purchasePrice: eur('300000.00'),
-          costs: new Map([['NOTARY', eur('4000.00')]]),
-          costsTotal: eur('4000.00'),
-          landAmount: null,
-          buildingAmount: null,
-          totalAllocableAmount: null,
-        },
-      }),
+        }),
+      },
     });
     const res = await get(base, `/acquisitions/${ACQ}/owner-allocation`);
     expect(res.status).toBe(200);
@@ -95,8 +97,10 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
       new OwnershipBasisIncompleteError(ACQ, [{ code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 1n }, actual: { numerator: 1n, denominator: 2n } }]),
     ];
     const base = await start({
-      getOwnerAllocation: async () => {
-        throw errors.shift();
+      ownerAllocation: {
+        get: async () => {
+          throw errors.shift();
+        },
       },
     });
     const path = `/acquisitions/${ACQ}/owner-allocation`;

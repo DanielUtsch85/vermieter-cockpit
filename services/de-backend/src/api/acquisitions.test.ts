@@ -17,8 +17,8 @@ import {
   type PrincipalVerifier,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-05 HTTP contract (api-design.md §27.1). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -50,8 +50,8 @@ const acquisition = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -79,11 +79,13 @@ describe('POST /api/v1/acquisitions', () => {
     const seen: CreateAcquisitionInput[] = [];
     let replayed = false;
     const base = await start({
-      createAcquisition: async (input) => {
-        seen.push(input);
-        const answer = { acquisition, replayed };
-        replayed = true;
-        return answer;
+      acquisitions: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { acquisition, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     const res = await call(base, 'POST', '/acquisitions', body, { 'idempotency-key': 'a1' });
@@ -142,7 +144,7 @@ describe('POST /api/v1/acquisitions', () => {
     [new OwnerInactiveError(BUYER), 422, 'PARTY_INACTIVE', { partyId: BUYER }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ createAcquisition: async () => Promise.reject(error) });
+    const base = await start({ acquisitions: { create: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', '/acquisitions', body);
     expect(res.status).toBe(status);
     const answer = await errorOf(res);
@@ -166,11 +168,13 @@ describe('POST /api/v1/acquisitions/{id}/confirm', () => {
       new VersionConflictError([1], 2),
     ];
     const base = await start({
-      confirmAcquisition: async (input) => {
-        seen.push(input);
-        const next = outcomes.shift();
-        if (next instanceof Error) throw next;
-        return next as never;
+      acquisitions: {
+        confirm: async (input) => {
+          seen.push(input);
+          const next = outcomes.shift();
+          if (next instanceof Error) throw next;
+          return next as never;
+        },
       },
     });
     const ok = await call(base, 'POST', `/acquisitions/${ID}/confirm`, undefined, { 'if-match': '"1"' });
@@ -201,13 +205,15 @@ describe('cancel and reads', () => {
   it('cancel passes the reason and If-Match; 409 for confirmed or carried by Ownerships; 404; 412', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      cancelAcquisition: async (input) => {
-        seen.push(input);
-        if (input.reason === 'confirmed') throw new AcquisitionConfirmedError(ID);
-        if (input.reason === 'owned') throw new AcquisitionHasValidOwnershipsError(ID, [PR]);
-        if (input.expectedVersions?.includes(7)) throw new VersionConflictError([7], 1);
-        if (input.acquisitionId !== ID) throw new AcquisitionNotFoundError(input.acquisitionId);
-        return { acquisition: { ...acquisition, status: 'CANCELLED', cancellationReason: input.reason, cancelledAt: new Date('2026-10-25T09:00:00Z') }, changed: true };
+      acquisitions: {
+        cancel: async (input) => {
+          seen.push(input);
+          if (input.reason === 'confirmed') throw new AcquisitionConfirmedError(ID);
+          if (input.reason === 'owned') throw new AcquisitionHasValidOwnershipsError(ID, [PR]);
+          if (input.expectedVersions?.includes(7)) throw new VersionConflictError([7], 1);
+          if (input.acquisitionId !== ID) throw new AcquisitionNotFoundError(input.acquisitionId);
+          return { acquisition: { ...acquisition, status: 'CANCELLED', cancellationReason: input.reason, cancelledAt: new Date('2026-10-25T09:00:00Z') }, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/acquisitions/${ID}/cancel`, { reason: ' geplatzt ' }, { 'if-match': '"1"' });
@@ -229,18 +235,20 @@ describe('cancel and reads', () => {
   it('get with ETag; lists with their filters and paging; the PropertyReference list is 404 for an unknown one', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      getAcquisition: async ({ acquisitionId }) => {
-        if (acquisitionId !== ID) throw new AcquisitionNotFoundError(acquisitionId);
-        return acquisition;
-      },
-      listAcquisitions: async (input) => {
-        seen.push(input);
-        return { items: [acquisition], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
-      },
-      listPropertyAcquisitions: async (input) => {
-        seen.push(input);
-        if (input.propertyReferenceId !== PR) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
-        return { items: [], page: 1, pageSize: 50, total: 0 };
+      acquisitions: {
+        get: async ({ acquisitionId }) => {
+          if (acquisitionId !== ID) throw new AcquisitionNotFoundError(acquisitionId);
+          return acquisition;
+        },
+        list: async (input) => {
+          seen.push(input);
+          return { items: [acquisition], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+        },
+        listForPropertyReference: async (input) => {
+          seen.push(input);
+          if (input.propertyReferenceId !== PR) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
+          return { items: [], page: 1, pageSize: 50, total: 0 };
+        },
       },
     });
     expect((await call(base, 'GET', `/acquisitions/${ID}`)).headers.get('etag')).toBe('"1"');

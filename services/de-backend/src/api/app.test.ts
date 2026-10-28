@@ -14,7 +14,7 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
 });
 
 
-async function start(deps: Partial<AppDependencies>): Promise<string> {
+async function start(deps: Partial<Pick<AppDependencies, 'isReady' | 'verifyPrincipal'>>): Promise<string> {
   server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...deps }).listen(
     0,
     '127.0.0.1',

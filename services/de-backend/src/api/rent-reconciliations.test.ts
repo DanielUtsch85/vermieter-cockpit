@@ -31,8 +31,8 @@ import {
   type TransactionCoverage,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-4-01 HTTP contract (api-design.md §37.1). */
 const REALM = '64b0c0ffee00000000000017';
@@ -77,8 +77,8 @@ const reconciliation = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -99,11 +99,13 @@ describe('POST /api/v1/rent-reconciliations', () => {
     const seen: CreateReconciliationInput[] = [];
     let replayed = false;
     const base = await start({
-      createReconciliation: async (input) => {
-        seen.push(input);
-        const answer = { reconciliation, replayed };
-        replayed = true;
-        return answer;
+      rentReconciliations: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { reconciliation, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     const res = await call(base, 'POST', '/rent-reconciliations', body, { 'idempotency-key': 'm1' });
@@ -180,14 +182,14 @@ describe('POST /api/v1/rent-reconciliations', () => {
     [new AccessError('FORBIDDEN', 'MRE refused'), 403, 'FORBIDDEN', undefined],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ createReconciliation: async () => Promise.reject(error) });
+    const base = await start({ rentReconciliations: { create: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', '/rent-reconciliations', body);
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, ...(details === undefined ? {} : { details }) });
   });
 
   it('the 422 for a term MRE did not return is worded neutrally (MRE also answers 404 when its database fails)', async () => {
-    const base = await start({ createReconciliation: async () => Promise.reject(new MreRentTermNotFoundError(TENANT, '2027010100')) });
+    const base = await start({ rentReconciliations: { create: async () => Promise.reject(new MreRentTermNotFoundError(TENANT, '2027010100')) } });
     expect(((await errorOf(await call(base, 'POST', '/rent-reconciliations', body))) as unknown as { message: string }).message).toBe('MRE did not return this rent term.');
   });
 });
@@ -196,9 +198,11 @@ describe('POST /api/v1/rent-reconciliations/{id}/release', () => {
   it('passes the reason and If-Match; 200 with ETag', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      releaseReconciliation: async (input) => {
-        seen.push(input);
-        return { reconciliation: { ...reconciliation, status: 'RELEASED', version: 2 } as RentPaymentReconciliation, changed: true };
+      rentReconciliations: {
+        release: async (input) => {
+          seen.push(input);
+          return { reconciliation: { ...reconciliation, status: 'RELEASED', version: 2 } as RentPaymentReconciliation, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/release`, { reason: ' falscher Monat ' }, { 'if-match': '"1"' });
@@ -208,7 +212,7 @@ describe('POST /api/v1/rent-reconciliations/{id}/release', () => {
   });
 
   it('400 for a missing or long reason or another key; refusals mapped', async () => {
-    const base = await start({ releaseReconciliation: async () => Promise.reject(new NotReleasableError('SUGGESTED')) });
+    const base = await start({ rentReconciliations: { release: async () => Promise.reject(new NotReleasableError('SUGGESTED')) } });
     for (const bad of [{}, { reason: '' }, { reason: 'x'.repeat(501) }, { reason: 'x', status: 'RELEASED' }]) {
       expect((await call(base, 'POST', `/rent-reconciliations/${ID}/release`, bad)).status, JSON.stringify(bad)).toBe(400);
     }
@@ -222,7 +226,7 @@ describe('POST /api/v1/rent-reconciliations/{id}/release', () => {
     [new ReconciliationNotFoundError(ID), 404, 'NOT_FOUND'],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT'],
   ])('%s → %i %s', async (error, status, code) => {
-    const base = await start({ releaseReconciliation: async () => Promise.reject(error) });
+    const base = await start({ rentReconciliations: { release: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/release`, { reason: 'x' });
     expect(res.status).toBe(status);
     expect((await errorOf(res)).code).toBe(code);
@@ -232,9 +236,11 @@ describe('POST /api/v1/rent-reconciliations/{id}/release', () => {
 describe('GET /api/v1/rent-reconciliations', () => {
   it('one with ETag; unknown is 404; a malformed id is 400', async () => {
     const base = await start({
-      getReconciliation: async ({ reconciliationId }) => {
-        if (reconciliationId !== ID) throw new ReconciliationNotFoundError(reconciliationId);
-        return reconciliation;
+      rentReconciliations: {
+        get: async ({ reconciliationId }) => {
+          if (reconciliationId !== ID) throw new ReconciliationNotFoundError(reconciliationId);
+          return reconciliation;
+        },
       },
     });
     const res = await call(base, 'GET', `/rent-reconciliations/${ID.toUpperCase()}`);
@@ -247,9 +253,11 @@ describe('GET /api/v1/rent-reconciliations', () => {
   it('the list passes its filters (status as a list) and paging; unknown parameters are 400', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listReconciliations: async (input) => {
-        seen.push(input);
-        return { items: [reconciliation], page: 2, pageSize: 10, total: 11 };
+      rentReconciliations: {
+        list: async (input) => {
+          seen.push(input);
+          return { items: [reconciliation], page: 2, pageSize: 10, total: 11 };
+        },
       },
     });
     const res = await call(base, 'GET', `/rent-reconciliations?status=CONFIRMED,RELEASED&transactionId=${TX}&mreTenantId=${TENANT}&mreRentTerm=2027010100&page=2&pageSize=10`);
@@ -277,9 +285,11 @@ describe('GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm} (§
   it('200 with both sides; the caller\'s Authorization header is passed on', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      getTermCoverage: async (input) => {
-        seen.push(input);
-        return coverage;
+      rentReconciliations: {
+        termCoverage: async (input) => {
+          seen.push(input);
+          return coverage;
+        },
       },
     });
     const res = await call(base, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`);
@@ -298,9 +308,9 @@ describe('GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm} (§
   });
 
   it('UNAVAILABLE answers nulls for the MRE side; a refused caller is 403', async () => {
-    const base = await start({ getTermCoverage: async () => ({ ...coverage, mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null }) });
+    const base = await start({ rentReconciliations: { termCoverage: async () => ({ ...coverage, mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null }) } });
     expect(await (await call(base, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`)).json()).toMatchObject({ mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null });
-    await stopAndStart({ getTermCoverage: async () => Promise.reject(new AccessError('FORBIDDEN', 'x')) }).then(async (b) =>
+    await stopAndStart({ rentReconciliations: { termCoverage: async () => Promise.reject(new AccessError('FORBIDDEN', 'x')) } }).then(async (b) =>
       expect((await call(b, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`)).status).toBe(403),
     );
   });
@@ -328,9 +338,11 @@ describe('GET /api/v1/transactions/{id}/rent-reconciliations (§37.2)', () => {
 
   it('200 with the cash view; null amounts stay null; unknown is 404; malformed id or query is 400', async () => {
     const base = await start({
-      getTransactionCoverage: async ({ transactionId }) => {
-        if (transactionId !== TX) throw new TransactionNotFoundError(transactionId);
-        return coverage;
+      rentReconciliations: {
+        transactionCoverage: async ({ transactionId }) => {
+          if (transactionId !== TX) throw new TransactionNotFoundError(transactionId);
+          return coverage;
+        },
       },
     });
     const res = await call(base, 'GET', `/transactions/${TX.toUpperCase()}/rent-reconciliations`);
@@ -349,7 +361,7 @@ describe('GET /api/v1/transactions/{id}/rent-reconciliations (§37.2)', () => {
     expect((await call(base, 'GET', `/transactions/${ID}/rent-reconciliations`)).status).toBe(404);
     expect((await call(base, 'GET', '/transactions/x/rent-reconciliations')).status).toBe(400);
     expect((await call(base, 'GET', `/transactions/${TX}/rent-reconciliations?x=1`)).status).toBe(400);
-    await stopAndStart({ getTransactionCoverage: async () => ({ ...coverage, rentCash: null, available: null, counted: false }) }).then(async (b) =>
+    await stopAndStart({ rentReconciliations: { transactionCoverage: async () => ({ ...coverage, rentCash: null, available: null, counted: false }) } }).then(async (b) =>
       expect(await (await call(b, 'GET', `/transactions/${TX}/rent-reconciliations`)).json()).toMatchObject({ rentCash: null, available: null, counted: false }),
     );
   });
@@ -361,9 +373,11 @@ describe('suggestions (§37.3)', () => {
   it('suggest: 200 with the window and the written items; the caller\'s Authorization header is passed on', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      suggestReconciliations: async (input) => {
-        seen.push(input);
-        return { from: input.from, to: input.to, items: [suggestion] };
+      rentReconciliations: {
+        suggest: async (input) => {
+          seen.push(input);
+          return { from: input.from, to: input.to, items: [suggestion] };
+        },
       },
     });
     const res = await call(base, 'POST', '/rent-reconciliations/suggest', { from: '2027-01', to: '2027-12' });
@@ -373,7 +387,7 @@ describe('suggestions (§37.3)', () => {
   });
 
   it('suggest: 400 for a malformed month, to before from, more than 12 months or another key; MRE down is 503', async () => {
-    const base = await start({ suggestReconciliations: async () => Promise.reject(new MreUnavailableError('down')) });
+    const base = await start({ rentReconciliations: { suggest: async () => Promise.reject(new MreUnavailableError('down')) } });
     const fieldsOf = async (payload: unknown) => {
       const res = await call(base, 'POST', '/rent-reconciliations/suggest', payload);
       expect(res.status, JSON.stringify(payload)).toBe(400);
@@ -389,9 +403,11 @@ describe('suggestions (§37.3)', () => {
   it('confirm: passes the amount, If-Match and the header; 200 with ETag; no body is fine; 400 for a non-positive amount', async () => {
     const seen: { matchedAmount?: Money }[] = [];
     const base = await start({
-      confirmReconciliation: async (input) => {
-        seen.push(input);
-        return { reconciliation: { ...reconciliation, version: 2 } as RentPaymentReconciliation, changed: true };
+      rentReconciliations: {
+        confirm: async (input) => {
+          seen.push(input);
+          return { reconciliation: { ...reconciliation, version: 2 } as RentPaymentReconciliation, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, { matchedAmount: { amount: '700.00', currency: 'EUR' } }, { 'if-match': '"1"' });
@@ -417,7 +433,7 @@ describe('suggestions (§37.3)', () => {
     [new ReconciliationNotFoundError(ID), 404, 'NOT_FOUND', undefined],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', undefined],
   ])('confirm: %s → %i %s', async (error, status, code, details) => {
-    const base = await start({ confirmReconciliation: async () => Promise.reject(error) });
+    const base = await start({ rentReconciliations: { confirm: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, {});
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, ...(details === undefined ? {} : { details }) });
@@ -426,10 +442,12 @@ describe('suggestions (§37.3)', () => {
   it('reject: passes the trimmed reason and If-Match; 400 for a missing or long reason; refusals mapped', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      rejectReconciliation: async (input) => {
-        seen.push(input);
-        if ((input as { reason: string }).reason === 'nein') throw new NotRejectableError('CONFIRMED');
-        return { reconciliation: { ...suggestion, status: 'REJECTED', version: 2 } as RentPaymentReconciliation, changed: true };
+      rentReconciliations: {
+        reject: async (input) => {
+          seen.push(input);
+          if ((input as { reason: string }).reason === 'nein') throw new NotRejectableError('CONFIRMED');
+          return { reconciliation: { ...suggestion, status: 'REJECTED', version: 2 } as RentPaymentReconciliation, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/reject`, { reason: ' anderer Mieter ' }, { 'if-match': '"1"' });
@@ -460,9 +478,11 @@ describe('write-back to MRE (§37.4)', () => {
   it('200 with the written state, the payment snapshot and ETag; the caller’s header and If-Match passed on; no body or {} only', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      writeBackToMre: async (input) => {
-        seen.push(input);
-        return { reconciliation: written, changed: true };
+      rentReconciliations: {
+        writeBack: async (input) => {
+          seen.push(input);
+          return { reconciliation: written, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/write-back-to-mre`, {}, { 'if-match': '"1"' });
@@ -501,14 +521,14 @@ describe('write-back to MRE (§37.4)', () => {
     [new ReconciliationNotFoundError(ID), 404, 'NOT_FOUND', undefined],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ writeBackToMre: async () => Promise.reject(error) });
+    const base = await start({ rentReconciliations: { writeBack: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/write-back-to-mre`, {});
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, ...(details === undefined ? {} : { details }) });
   });
 
   it('release under a live lease is 409 WRITE_BACK_IN_PROGRESS', async () => {
-    const base = await start({ releaseReconciliation: async () => Promise.reject(new WriteBackInProgressError(ID)) });
+    const base = await start({ rentReconciliations: { release: async () => Promise.reject(new WriteBackInProgressError(ID)) } });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/release`, { reason: 'x' });
     expect(res.status).toBe(409);
     expect(await errorOf(res)).toMatchObject({ details: { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: ID } });
@@ -517,10 +537,12 @@ describe('write-back to MRE (§37.4)', () => {
   it('GET ?checkMre=true answers mrePresence with the caller’s header; without it null and no MRE read; other values or keys are 400', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      getReconciliation: async () => written,
-      getReconciliationWithPresence: async (input) => {
-        seen.push(input);
-        return { reconciliation: written, mrePresence: 'MISSING' };
+      rentReconciliations: {
+        get: async () => written,
+        getWithPresence: async (input) => {
+          seen.push(input);
+          return { reconciliation: written, mrePresence: 'MISSING' };
+        },
       },
     });
     const checked = await call(base, 'GET', `/rent-reconciliations/${ID}?checkMre=true`);
@@ -550,9 +572,11 @@ describe('removal from MRE (§37.5)', () => {
   it('200 with REMOVED, its time and actor, the last lease end and ETag; the header and If-Match passed on; no body or {} only', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      removeFromMre: async (input) => {
-        seen.push(input);
-        return { reconciliation: removed, changed: true };
+      rentReconciliations: {
+        removeFromMre: async (input) => {
+          seen.push(input);
+          return { reconciliation: removed, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/remove-from-mre`, {}, { 'if-match': '"5"' });
@@ -575,14 +599,14 @@ describe('removal from MRE (§37.5)', () => {
     [new WriteBackFailedError('MRE_PAYMENT_CHANGED', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation), 409, 'CONFLICT', { reason: 'MRE_PAYMENT_CHANGED', mreWriteBackState: 'REMOVAL_FAILED' }],
     [new WriteBackFailedError('MRE_UNAVAILABLE', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation), 503, 'EXTERNAL_SYSTEM_ERROR', { reason: 'MRE_UNAVAILABLE' }],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ removeFromMre: async () => Promise.reject(error) });
+    const base = await start({ rentReconciliations: { removeFromMre: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/remove-from-mre`, {});
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
   });
 });
 
-async function stopAndStart(commands: Partial<AppDependencies>): Promise<string> {
+async function stopAndStart(commands: CommandOverrides): Promise<string> {
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   return start(commands);
 }

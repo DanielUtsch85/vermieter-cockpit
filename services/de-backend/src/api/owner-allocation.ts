@@ -14,8 +14,12 @@ import { readId, violationDto } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { fieldErrors, sendValidationError } from './validation.js';
 
+export interface OwnerAllocationCommands {
+  readonly get: GetOwnerAllocation;
+}
+
 /** Owner-level allocation read (api-design.md §27.4, backlog VC-2-09). */
-export function ownerAllocationRoutes(commands: { readonly get: GetOwnerAllocation }): Router {
+export function ownerAllocationRoutes(commands: OwnerAllocationCommands): Router {
   const router = express.Router();
 
   router.get('/acquisitions/:acquisitionId/owner-allocation', (req, res, next) => {

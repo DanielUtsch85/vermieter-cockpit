@@ -20,8 +20,8 @@ import {
   type PrincipalVerifier,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-3-02 HTTP contract (api-design.md §41.2). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -52,8 +52,8 @@ const view = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -82,11 +82,13 @@ describe('POST /api/v1/loans/{id}/terms', () => {
     const seen: CreateLoanTermsInput[] = [];
     let replayed = false;
     const base = await start({
-      createLoanTerms: async (input) => {
-        seen.push(input);
-        const answer = { terms: view, replayed };
-        replayed = true;
-        return answer;
+      loanTerms: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { terms: view, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     const res = await call(base, 'POST', `/loans/${LOAN}/terms`, body, { 'idempotency-key': 't1' });
@@ -166,7 +168,7 @@ describe('POST /api/v1/loans/{id}/terms', () => {
     ],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ createLoanTerms: async () => Promise.reject(error) });
+    const base = await start({ loanTerms: { create: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${LOAN}/terms`, body);
     expect(res.status).toBe(status);
     const answer = await errorOf(res);
@@ -179,9 +181,11 @@ describe('POST /api/v1/loans/{id}/terms/{termsId}/void', () => {
   it('200 with the period; the reason is required; If-Match carries the versions', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      voidLoanTerms: async (input) => {
-        seen.push(input);
-        return { terms: { ...view, status: 'VOID', voidReason: input.reason, version: 2 } as LoanTermsView, changed: true };
+      loanTerms: {
+        void: async (input) => {
+          seen.push(input);
+          return { terms: { ...view, status: 'VOID', voidReason: input.reason, version: 2 } as LoanTermsView, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/loans/${LOAN}/terms/${TERMS}/void`, { reason: ' falsch ' }, { 'if-match': '"1"' });
@@ -197,7 +201,7 @@ describe('POST /api/v1/loans/{id}/terms/{termsId}/void', () => {
     [new TermsNotLastError(TERMS, LOAN), 409, 'CONFLICT', { reason: 'TERMS_NOT_LAST', laterTermsId: LOAN }],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', { expectedVersions: [1], currentVersion: 2 }],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ voidLoanTerms: async () => Promise.reject(error) });
+    const base = await start({ loanTerms: { void: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${LOAN}/terms/${TERMS}/void`, { reason: 'x' });
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
@@ -208,10 +212,12 @@ describe('GET /api/v1/loans/{id}/terms', () => {
   it('the items; ?status reaches the read; unknown parameters 400; an unknown Loan 404', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listLoanTerms: async (input) => {
-        seen.push(input);
-        if (input.loanId !== LOAN) throw new LoanNotFoundError(input.loanId);
-        return [view];
+      loanTerms: {
+        list: async (input) => {
+          seen.push(input);
+          if (input.loanId !== LOAN) throw new LoanNotFoundError(input.loanId);
+          return [view];
+        },
       },
     });
     const res = await call(base, 'GET', `/loans/${LOAN}/terms?status=VALID`);
@@ -232,10 +238,12 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
   it('the items as Money with their numbers, the summary; from/to reach the read; BEFORE_FROM; unknown parameters 400; an unknown Loan 404', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      getLoanSchedule: async (input) => {
-        seen.push(input);
-        if (input.loanId !== LOAN) throw new LoanNotFoundError(input.loanId);
-        return schedule;
+      loanTerms: {
+        schedule: async (input) => {
+          seen.push(input);
+          if (input.loanId !== LOAN) throw new LoanNotFoundError(input.loanId);
+          return schedule;
+        },
       },
     });
     const res = await call(base, 'GET', `/loans/${LOAN}/schedule?from=2027-02-01&to=2027-02-28`);
@@ -301,9 +309,11 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
   it('the proposal as Money with the entry and the flags; transactionId required; unknown parameters 400', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      getPaymentProposal: async (input) => {
-        seen.push(input);
-        return proposal;
+      loanTerms: {
+        proposal: async (input) => {
+          seen.push(input);
+          return proposal;
+        },
       },
     });
     const res = await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX.toUpperCase()}`);
@@ -340,8 +350,10 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
 
   it('a negative difference, an INTEREST_ONLY rest and a zero principal left out', async () => {
     const base = await start({
-      getPaymentProposal: async () =>
-        ({ ...proposal, amount: 29_000n, principal: 0n, unallocated: 28_647n, flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: -1_000n }, { code: 'REST_NOT_PLANNED' }] }) as unknown as PaymentProposalResult,
+      loanTerms: {
+        proposal: async () =>
+          ({ ...proposal, amount: 29_000n, principal: 0n, unallocated: 28_647n, flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: -1_000n }, { code: 'REST_NOT_PLANNED' }] }) as unknown as PaymentProposalResult,
+      },
     });
     const body = (await (await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX}`)).json()) as Record<string, unknown>;
     expect(body['splits']).toEqual([{ financialCategoryCode: 'LOAN_INTEREST', loanId: LOAN, amount: { amount: '3.53', currency: 'EUR' } }]);
@@ -357,7 +369,7 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
     [new NoScheduleError(LOAN, 'NO_TERMS'), 409, 'CONFLICT', { reason: 'NO_SCHEDULE', endReason: 'NO_TERMS' }],
     [new LoanClosedOnError(LOAN, '2027-06-30' as never), 409, 'CONFLICT', { reason: 'LOAN_CLOSED', closingDate: '2027-06-30' }],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ getPaymentProposal: async () => Promise.reject(error) });
+    const base = await start({ loanTerms: { proposal: async () => Promise.reject(error) } });
     const res = await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TERMS}`);
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });

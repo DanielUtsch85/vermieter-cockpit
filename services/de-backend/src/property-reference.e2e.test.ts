@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
-import { unusedCommands } from './api/app.test-support.js';
+import { commandsWith } from './api/app.test-support.js';
 import { linkPropertyReference, refreshPropertyReference } from './application/index.js';
 import {
   PostgresPropertyReferenceRepository,
@@ -94,9 +94,7 @@ describe.skipIf(databaseUrl === undefined)('property-references link + refresh e
     server = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(client),
-      ...unusedCommands,
-      linkPropertyReference: linkPropertyReference(deps),
-      refreshPropertyReference: refreshPropertyReference(deps),
+      ...commandsWith({ propertyReferences: { link: linkPropertyReference(deps), refresh: refreshPropertyReference(deps) } }),
     }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

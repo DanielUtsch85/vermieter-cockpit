@@ -21,8 +21,8 @@ import {
   type PrincipalVerifier,
 } from '../application/index.js';
 import type { BusinessDate } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-03 HTTP contract (api-design.md §26.1). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -51,8 +51,8 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@ex
 
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -73,11 +73,13 @@ describe('POST /api/v1/ownerships', () => {
     const seen: CreateOwnershipInput[] = [];
     let replayed = false;
     const base = await start({
-      createOwnership: async (input) => {
-        seen.push(input);
-        const answer = { ownership, replayed };
-        replayed = true;
-        return answer;
+      ownerships: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { ownership, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     const res = await call(
@@ -146,7 +148,7 @@ describe('POST /api/v1/ownerships', () => {
     [new AcquisitionNotDraftError(ID, 'CANCELLED'), 422, 'ACQUISITION_NOT_DRAFT', { acquisitionId: ID, status: 'CANCELLED' }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ createOwnership: async () => Promise.reject(error) });
+    const base = await start({ ownerships: { create: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', '/ownerships', body);
     expect(res.status).toBe(status);
     const answer = await errorOf(res);
@@ -158,9 +160,11 @@ describe('POST /api/v1/ownerships', () => {
 describe('GET /api/v1/ownerships/{id}, close and void', () => {
   it('get: one Ownership with ETag; 404 unknown; 400 malformed', async () => {
     const base = await start({
-      getOwnership: async ({ ownershipId }) => {
-        if (ownershipId !== ID) throw new OwnershipNotFoundError(ownershipId);
-        return ownership;
+      ownerships: {
+        get: async ({ ownershipId }) => {
+          if (ownershipId !== ID) throw new OwnershipNotFoundError(ownershipId);
+          return ownership;
+        },
       },
     });
     const res = await call(base, 'GET', `/ownerships/${ID}`);
@@ -172,11 +176,13 @@ describe('GET /api/v1/ownerships/{id}, close and void', () => {
   it('close passes validUntil and If-Match; INVALID_OWNERSHIP with its reason; 412; bad bodies are 400', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      closeOwnership: async (input) => {
-        seen.push(input);
-        if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
-        if (input.validUntil === '2040-01-01') throw new InvalidOwnershipError(ID, 'ALREADY_ENDED');
-        return { ownership: { ...ownership, validUntil: input.validUntil }, changed: true };
+      ownerships: {
+        close: async (input) => {
+          seen.push(input);
+          if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
+          if (input.validUntil === '2040-01-01') throw new InvalidOwnershipError(ID, 'ALREADY_ENDED');
+          return { ownership: { ...ownership, validUntil: input.validUntil }, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/ownerships/${ID}/close`, { validUntil: '2030-12-31' }, { 'if-match': '"3"' });
@@ -194,12 +200,14 @@ describe('GET /api/v1/ownerships/{id}, close and void', () => {
   it('void needs a reason (1–500), passes If-Match; 404 and 412 map', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      voidOwnership: async (input) => {
-        seen.push(input);
-        if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
-        if (input.reason === 'confirmed') throw new OwnershipOfConfirmedAcquisitionError(ID, PR);
-        if (input.ownershipId !== ID) throw new OwnershipNotFoundError(input.ownershipId);
-        return { ownership: { ...ownership, status: 'VOID', voidReason: input.reason, voidedAt: new Date('2026-10-22T09:00:00Z') }, changed: true };
+      ownerships: {
+        void: async (input) => {
+          seen.push(input);
+          if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
+          if (input.reason === 'confirmed') throw new OwnershipOfConfirmedAcquisitionError(ID, PR);
+          if (input.ownershipId !== ID) throw new OwnershipNotFoundError(input.ownershipId);
+          return { ownership: { ...ownership, status: 'VOID', voidReason: input.reason, voidedAt: new Date('2026-10-22T09:00:00Z') }, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/ownerships/${ID}/void`, { reason: ' Tippfehler ' }, { 'if-match': '"3"' });
@@ -219,12 +227,14 @@ describe('GET /api/v1/property-references/{id}/ownerships', () => {
   it('asOf: the day with completeness and shareSum (no total); without: the paged history; bad parameters 400; unknown 404', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      readPropertyOwnerships: async (input) => {
-        seen.push(input);
-        if (input.propertyReferenceId !== PR) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
-        return 'asOf' in input
-          ? { day: { asOf: input.asOf, completeness: 'INCOMPLETE', shareSum: { numerator: 1n, denominator: 2n }, items: [ownership] } }
-          : { history: { items: [ownership], page: input.page.page, pageSize: input.page.pageSize, total: 1 } };
+      ownerships: {
+        read: async (input) => {
+          seen.push(input);
+          if (input.propertyReferenceId !== PR) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
+          return 'asOf' in input
+            ? { day: { asOf: input.asOf, completeness: 'INCOMPLETE', shareSum: { numerator: 1n, denominator: 2n }, items: [ownership] } }
+            : { history: { items: [ownership], page: input.page.page, pageSize: input.page.pageSize, total: 1 } };
+        },
       },
     });
     const dayRes = await call(base, 'GET', `/property-references/${PR}/ownerships?asOf=2030-01-01`);
@@ -262,9 +272,11 @@ describe('POST /api/v1/property-references/{id}/ownership-changes', () => {
     const seen: ChangeOwnershipInput[] = [];
     const statuses = ['CREATED', 'REPLAYED', 'UNCHANGED'] as const;
     const base = await start({
-      changeOwnership: async (input) => {
-        seen.push(input);
-        return { result, status: statuses[seen.length - 1] ?? 'CREATED' };
+      ownerships: {
+        change: async (input) => {
+          seen.push(input);
+          return { result, status: statuses[seen.length - 1] ?? 'CREATED' };
+        },
       },
     });
     const res = await call(base, 'POST', `/property-references/${PR}/ownership-changes`, changeBody, { 'idempotency-key': 'c1' });
@@ -320,7 +332,7 @@ describe('POST /api/v1/property-references/{id}/ownership-changes', () => {
     [new OwnershipIncompleteError('2030-01-01' as BusinessDate, { numerator: 5n, denominator: 6n }), 422, 'OWNERSHIP_INCOMPLETE', { date: '2030-01-01', shareSum: '5/6' }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ changeOwnership: async () => Promise.reject(error) });
+    const base = await start({ ownerships: { change: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/property-references/${PR}/ownership-changes`, changeBody);
     expect(res.status).toBe(status);
     const answer = await errorOf(res);

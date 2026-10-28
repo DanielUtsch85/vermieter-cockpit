@@ -9,8 +9,8 @@ import {
   type PrincipalVerifier,
 } from '../application/index.js';
 import { Money, type BusinessDate } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-08 HTTP contract (api-design.md §27.3). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -41,8 +41,8 @@ const allocation: LandBuildingAllocation = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -68,9 +68,11 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
   it('201 with the allocation and its derived shares; defaults passed on; a replay is marked', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      createLandBuildingAllocation: async (input) => {
-        seen.push(input);
-        return { allocation, replayed: seen.length > 1 };
+      landBuildingAllocations: {
+        create: async (input) => {
+          seen.push(input);
+          return { allocation, replayed: seen.length > 1 };
+        },
       },
     });
     const res = await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, body, { 'idempotency-key': 'k' });
@@ -117,10 +119,12 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
   it('a zero land part is allowed (Erbbaurecht); 404, 409 ACQUISITION_CANCELLED and CURRENT_ALLOCATION_CHANGED', async () => {
     const errors: unknown[] = [undefined, new AcquisitionNotFoundError(ACQ), new AcquisitionCancelledError(ACQ), new CurrentAllocationChangedError(NEW)];
     const base = await start({
-      createLandBuildingAllocation: async () => {
-        const error = errors.shift();
-        if (error !== undefined) throw error;
-        return { allocation, replayed: false };
+      landBuildingAllocations: {
+        create: async () => {
+          const error = errors.shift();
+          if (error !== undefined) throw error;
+          return { allocation, replayed: false };
+        },
       },
     });
     const path = `/acquisitions/${ACQ}/land-building-allocation`;
@@ -135,7 +139,7 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
 describe('GET /api/v1/acquisitions/{id}/land-building-allocations', () => {
   it('current and history; unknown parameters 400', async () => {
     const base = await start({
-      listLandBuildingAllocations: async () => ({ current: allocation, items: [allocation, { ...allocation, id: OLD, current: false, supersededById: NEW }] }),
+      landBuildingAllocations: { list: async () => ({ current: allocation, items: [allocation, { ...allocation, id: OLD, current: false, supersededById: NEW }] }) },
     });
     const res = await call(base, 'GET', `/acquisitions/${ACQ}/land-building-allocations`);
     expect(await res.json()).toMatchObject({ current: { allocationId: NEW }, items: [{ allocationId: NEW }, { allocationId: OLD, current: false, supersededById: NEW }] });

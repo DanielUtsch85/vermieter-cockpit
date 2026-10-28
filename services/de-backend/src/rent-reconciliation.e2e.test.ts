@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
-import { unusedCommands } from './api/app.test-support.js';
+import { commandsWith } from './api/app.test-support.js';
 import {
   confirmTransaction,
   createFinancialAccount,
@@ -129,24 +129,29 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     const commands = (lookupClient: HttpMreClient) => ({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(client),
-      ...unusedCommands,
-      createFinancialAccount: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }),
-      createManualTransaction: createManualTransaction({ repository: transactions }),
-      confirmTransaction: confirmTransaction({ repository: transactions }),
-      setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
-      reverseTransaction: reverseTransaction({ repository: new PostgresCorrectionRepository(db) }),
-      createReconciliation: createReconciliation({ repository: reconciliations, lookupMreRentTerm: mreRentTermLookup(lookupClient) }),
-      getReconciliation: getReconciliation({ repository: reconciliations }),
-      listReconciliations: listReconciliations({ repository: reconciliations }),
-      releaseReconciliation: releaseReconciliation({ repository: reconciliations }),
-      getTermCoverage: getTermCoverage({ repository: reconciliations, readMreRentTerm: mreRentTermReader(lookupClient) }),
-      getTransactionCoverage: getTransactionCoverage({ repository: reconciliations }),
-      suggestReconciliations: suggestReconciliations({ repository: reconciliations, readMreMonth: mreMonthReader(lookupClient) }),
-      confirmReconciliation: confirmReconciliation({ repository: reconciliations, readMreRentTerm: mreRentTermReader(lookupClient) }),
-      rejectReconciliation: rejectReconciliation({ repository: reconciliations }),
-      writeBackToMre: writeBackToMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 300 }),
-      getReconciliationWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient) }),
-      removeFromMre: removeFromMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 300, marginMs: 0 }),
+      ...commandsWith({
+        rentReconciliations: {
+          create: createReconciliation({ repository: reconciliations, lookupMreRentTerm: mreRentTermLookup(lookupClient) }),
+          get: getReconciliation({ repository: reconciliations }),
+          list: listReconciliations({ repository: reconciliations }),
+          release: releaseReconciliation({ repository: reconciliations }),
+          termCoverage: getTermCoverage({ repository: reconciliations, readMreRentTerm: mreRentTermReader(lookupClient) }),
+          transactionCoverage: getTransactionCoverage({ repository: reconciliations }),
+          suggest: suggestReconciliations({ repository: reconciliations, readMreMonth: mreMonthReader(lookupClient) }),
+          confirm: confirmReconciliation({ repository: reconciliations, readMreRentTerm: mreRentTermReader(lookupClient) }),
+          reject: rejectReconciliation({ repository: reconciliations }),
+          writeBack: writeBackToMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 300 }),
+          getWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient) }),
+          removeFromMre: removeFromMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 300, marginMs: 0 }),
+        },
+        financialAccounts: { create: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }) },
+        transactions: {
+          createManual: createManualTransaction({ repository: transactions }),
+          confirm: confirmTransaction({ repository: transactions }),
+          setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
+          reverse: reverseTransaction({ repository: new PostgresCorrectionRepository(db) }),
+        },
+      }),
     });
     server = createApp(commands(client)).listen(0, '127.0.0.1');
     // The same app, but the rent term read goes to an MRE that is down (nothing listens on port 1).

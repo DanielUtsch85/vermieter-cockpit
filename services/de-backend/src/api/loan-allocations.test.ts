@@ -17,8 +17,8 @@ import {
   type PropertyLoan,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-3-03 HTTP contract (api-design.md §41.3). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -51,8 +51,8 @@ const view = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -87,11 +87,13 @@ describe('POST /api/v1/loans/{id}/allocations', () => {
     const seen: CreateLoanAllocationInput[] = [];
     let replayed = false;
     const base = await start({
-      createLoanAllocation: async (input) => {
-        seen.push(input);
-        const answer = { set: view, replayed };
-        replayed = true;
-        return answer;
+      loanAllocations: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { set: view, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     const res = await call(base, 'POST', `/loans/${LOAN}/allocations`, { ...manual, notes: '  ' }, { 'idempotency-key': 'a1' });
@@ -179,7 +181,7 @@ describe('POST /api/v1/loans/{id}/allocations', () => {
     [new AllocationRefusedError({ kind: 'ACQUISITION_CANCELLED', acquisitionId: A1 }), 422, 'ACQUISITION_CANCELLED', { acquisitionId: A1 }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ createLoanAllocation: async () => Promise.reject(error) });
+    const base = await start({ loanAllocations: { create: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${LOAN}/allocations`, manual);
     expect(res.status).toBe(status);
     const answer = await errorOf(res);
@@ -192,9 +194,11 @@ describe('POST /api/v1/loans/{id}/allocations/{setId}/void', () => {
   it('200 with the set; the reason is required; If-Match carries the versions', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      voidLoanAllocation: async (input) => {
-        seen.push(input);
-        return { set: { ...view, status: 'VOID', voidReason: input.reason, version: 2 } as LoanAllocationSetView, changed: true };
+      loanAllocations: {
+        void: async (input) => {
+          seen.push(input);
+          return { set: { ...view, status: 'VOID', voidReason: input.reason, version: 2 } as LoanAllocationSetView, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/loans/${LOAN}/allocations/${SET}/void`, { reason: ' falsch ' }, { 'if-match': '"1"' });
@@ -212,7 +216,7 @@ describe('POST /api/v1/loans/{id}/allocations/{setId}/void', () => {
     [new AllocationNotLastError(SET, LOAN), 409, 'CONFLICT', { reason: 'ALLOCATION_NOT_LAST', laterAllocationSetId: LOAN }],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', { expectedVersions: [1], currentVersion: 2 }],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ voidLoanAllocation: async () => Promise.reject(error) });
+    const base = await start({ loanAllocations: { void: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${LOAN}/allocations/${SET}/void`, { reason: 'x' });
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
@@ -223,14 +227,16 @@ describe('GET /api/v1/loans/{id}/allocations', () => {
   it('the history with ?status; the set on a day with ?asOf, null while unallocated; both together 400; an unknown Loan 404', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listLoanAllocations: async (input) => {
-        seen.push(input);
-        if (input.loanId !== LOAN) throw new LoanNotFoundError(input.loanId);
-        return [view];
-      },
-      getLoanAllocationOn: async (input) => {
-        seen.push(input);
-        return input.asOf < '2026-09-01' ? null : view;
+      loanAllocations: {
+        list: async (input) => {
+          seen.push(input);
+          if (input.loanId !== LOAN) throw new LoanNotFoundError(input.loanId);
+          return [view];
+        },
+        on: async (input) => {
+          seen.push(input);
+          return input.asOf < '2026-09-01' ? null : view;
+        },
       },
     });
     const res = await call(base, 'GET', `/loans/${LOAN}/allocations?status=VALID`);
@@ -263,10 +269,12 @@ describe('GET /api/v1/property-references/{id}/loans', () => {
       share: f(12n, 19n),
     };
     const base = await start({
-      listPropertyLoans: async (input) => {
-        seen.push(input);
-        if (input.propertyReferenceId !== P1) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
-        return [item];
+      loanAllocations: {
+        propertyLoans: async (input) => {
+          seen.push(input);
+          if (input.propertyReferenceId !== P1) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
+          return [item];
+        },
       },
     });
     const res = await call(base, 'GET', `/property-references/${P1}/loans?asOf=2026-09-01`);
