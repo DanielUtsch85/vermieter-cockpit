@@ -2035,7 +2035,7 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
   - confirm raising the amount;
   - a suggestion counted as consumed cash.
 
-## 37.4 Write-back to MRE (VC-4-04)
+## 37.4 Write-back to MRE (VC-4-04, implemented: migration 0032)
 
 Decision P4-D6 of `docs/development/phase-4-plan.md`, and P4-D7's effect of a release on a written-back match. BR-MRE-005/006, BR-RENT-010, BR-OPEN-005 (decided: explicit). A write-back adds **one MRE payment** for one `CONFIRMED` reconciliation, marked with DE's identity, and records the outcome. It never changes the reconciliation's status, its Transaction or its cash. The MRE baseline is `479d0ad`, as for every MRE call (mre-integration §47.1).
 
@@ -2049,9 +2049,10 @@ Decision P4-D6 of `docs/development/phase-4-plan.md`, and P4-D7's effect of a re
   - `payments[]` with `date`, `amount`, `type`, `reference`, `description`, each as read (JSON numbers and strings, never converted to Money);
   - `promo`, `notepromo`, `extracharge`, `noteextracharge`, `description`.
 - **Write:** `PATCH /rents/payment/:id/:term`. MRE's `updateByTerm` never reads the path's `:id`. `_updateByTerm` looks the Tenant up with `findOne({ _id: body._id, realmId })` and `payTerm` replaces the term's whole settlement with the body: payments, the settlement discount (`promo`), the extra charge (`extracharge`) and the description. So:
-  - the body carries `_id: mreTenantId`, and the path's `:id` is the same value (review on #75). Without `_id`, or with a Tenant of another Realm, MRE answers `500`;
+  - the body carries `_id: mreTenantId`, and the path's `:id` is the same value (review on #75). Without `_id`, or with a Tenant of another of the caller's Realms, MRE answers `500`. A Realm the caller is not a member of is `checkOrganization`'s `404`, read as no access (`403`);
   - every field DE does not send is lost. The body is therefore the term as read, plus DE's payment.
   - MRE drops payments whose `amount` is missing or ≤ 0 on every save, its own form's included. DE treats them as not part of the term.
+  - MRE stores each payment normalised: `date || ''`, `Number(amount)`, `type || ''`, `reference || ''`, `description || ''`. DE compares payments in that form, so one that never went through MRE's save (an import, a seed) is no mismatch once it has (review on #82).
   - MRE divides `promo` and `extracharge` by `1 + vatRatio` on the way in and multiplies and rounds them to the cent on the way out. Under a VAT ratio a round trip can change them, hence `MRE_TERM_NOT_ROUND_TRIPPABLE` below.
   - The answer is the saved term in the read's shape (`toRentData`).
 - **DE's payment:**
@@ -2085,10 +2086,10 @@ Decision P4-D6 of `docs/development/phase-4-plan.md`, and P4-D7's effect of a re
   - the marker found **once** with DE's date and amount: an earlier attempt wrote it (a crash between write and record, or a lost answer). Go to **5. Record** as `WRITTEN`, **without a PATCH**;
   - the marker found more than once, or with another date or amount (changed in MRE by hand) → `FAILED` (`MRE_PAYMENT_CHANGED`), `409 CONFLICT` with that reason. DE never repairs a payment in MRE;
   - `vatRatio` ≠ 0 and `promo` or `extracharge` ≠ 0 → back to `NOT_WRITTEN` (the marker is absent, so nothing of DE's is in MRE), an AuditRecord `WRITE_BACK_NOT_ROUND_TRIPPABLE`, and `409 CONFLICT` with `reason = "MRE_TERM_NOT_ROUND_TRIPPABLE"`. The user records the payment in MRE by hand.
-- **3. Write:** the PATCH with the body above: every payment read (amount > 0) in its order with its raw values, then DE's payment; `promo`, `extracharge` and `description` as read; `notepromo` and `noteextracharge` with their trailing `\n` removed, as MRE's form does (the read joins notes with `\n`).
+- **3. Write:** the PATCH with the body above: every payment read (amount > 0) in its order, normalised as MRE stores it, then DE's payment; `promo`, `extracharge` and `description` as read; `notepromo` and `noteextracharge` with their trailing `\n` removed, as MRE's form does (the read joins notes with `\n`).
 - **4. Verify** the term in the PATCH answer:
-  - exactly one payment with the marker, DE's date and amount (compared as cents through §37.2's decimal conversion), type `transfer`;
-  - every payment read, with its raw values, in its order;
+  - exactly one payment with the marker, DE's date and amount (the same JSON number DE sent, which MRE stores as it is), type `transfer`;
+  - every payment read, normalised as MRE stores it, in its order;
   - `promo`, `extracharge` and `description` as read.
   - No answer, an error answer, or a failed verification → **read the term once more** and verify that read the same way. It passes → `WRITTEN`: the PATCH reached MRE and only its answer was lost. It fails:
     - the marker is absent → `FAILED` (`MRE_UNAVAILABLE` without an answer, `MRE_WRITE_REFUSED` with an error answer), `503 EXTERNAL_SYSTEM_ERROR`;
@@ -2098,9 +2099,9 @@ Decision P4-D6 of `docs/development/phase-4-plan.md`, and P4-D7's effect of a re
   - `FAILED` with `mreWriteBackError` and `mreWriteBackFailedAt`; AuditRecord `WRITE_BACK_FAILED` with the code;
   - `version` + 1 either way;
   - the lease was lost (another attempt took over after `leaseUntil`) → nothing is recorded and the answer is `409 CONFLICT` with `reason = "WRITE_BACK_IN_PROGRESS"`. The other attempt reads before it writes, so it finds this attempt's payment.
-- **Success:** `200` with the reconciliation (`mreWriteBackState = WRITTEN`, `mreWrittenBackAt`, `mreWrittenBackBy`, `mrePayment`, `version`). Each error after the claim carries `details.mreWriteBackState` (`FAILED` or `NOT_WRITTEN`). Its ETag is the recorded version.
+- **Success:** `200` with the reconciliation (`mreWriteBackState = WRITTEN`, `mreWrittenBackAt`, `mreWrittenBackBy`, `mrePayment`, `version`). Each error after the claim carries `details.reason` (the code) and `details.mreWriteBackState` (`FAILED` or `NOT_WRITTEN`); a `401` / `403` from MRE is recorded as `MRE_FORBIDDEN` and answered as §37.1. Its ETag is the recorded version.
 - **Failure keeps the match (BR-RENT-010).** The reconciliation stays `CONFIRMED`; its cash stays matched. `FAILED` is visible in every read and retried by the same command.
-- **Exactly once (BR-MRE-006):** a `WRITTEN` write-back is a no-op; every attempt reads before it writes; a PATCH body holds the marker once and the PATCH replaces the whole settlement, so a PATCH that reaches MRE late cannot add a second payment. The lease of twice the MRE timeout outlives any PATCH still in flight.
+- **Exactly once (BR-MRE-006):** a `WRITTEN` write-back is a no-op; every attempt reads before it writes; a PATCH body holds the marker once and the PATCH replaces the whole settlement, so a PATCH that reaches MRE late cannot add a second payment. The lease of twice the MRE timeout **assumes MRE finishes a request within twice the timeout** (review on #82): DE's timeout only ends DE's side, and MRE completes a request after its client has gone. For VC-4-04 a later PATCH is harmless (it holds the marker once and replaces the whole settlement). **For VC-4-05** it is not: a PATCH landing after a release and a removal would add DE's payment back while DE shows `REMOVED`, and undo MRE edits in between. The removal therefore touches a `FAILED` or `PENDING` state only after `leaseUntil` plus a margin, and `?checkMre=true` reports a payment that reappears (`PRESENT` on `REMOVED`).
 - **Residual risk, accepted (P4-D6):** MRE has no version or ETag. An edit of the same Tenant in MRE between DE's read and DE's PATCH can be lost, or can make DE's payment lost; the latter is detected (`MRE_TERM_CHANGED`), the former is not. The window is one request (mre-integration §42–44).
 
 ### `mreWriteBackState` (P4-D6, P4-D7)

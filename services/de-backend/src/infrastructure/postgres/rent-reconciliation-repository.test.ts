@@ -488,6 +488,215 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
     });
   });
 
+  describe('write-back to MRE (§37.4)', () => {
+    let next = 0;
+    /** A Tenant of its own per case: a PENDING row of one case never blocks another's claim. */
+    const tenant = () => `6512f0c2a1b2c3d4e5f6${(0xc100 + next++).toString(16)}`;
+    const written = { date: '03/01/2027', amount: eur('800.00'), type: 'transfer', reference: 'DE-RPR-x' };
+    const confirmedFor = async (tenantId: string, term = '2027010100') => created(match(await transaction(), '800.00', term, tenantId));
+    const claimed = async (id: string, leaseMs = 60_000) => {
+      const outcome = await repository.claimWriteBack(id, REALM, leaseMs, actor);
+      if (outcome.kind !== 'CLAIMED') throw new Error(JSON.stringify(outcome));
+      return outcome;
+    };
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    it('claim → PENDING with a lease and the booking date; record WRITTEN under the attempt; a repeat is UNCHANGED; AuditRecords', async () => {
+      const r = await confirmedFor(tenant());
+      const before = Date.now();
+      const claim = await claimed(r.id);
+      expect(claim).toMatchObject({ bookingDate: '2027-01-03', reconciliation: { mreWriteBackState: 'PENDING', mreWriteBackAttemptId: claim.attemptId, version: 2 } });
+      const lease = claim.reconciliation.mreWriteBackLeaseUntil?.getTime() ?? 0;
+      expect(lease).toBeGreaterThanOrEqual(before + 59_000);
+      expect(await repository.claimWriteBack(r.id, REALM, 60_000, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: r.id });
+      expect(await repository.recordWriteBack(r.id, REALM, '00000000-0000-4000-8000-000000000000', { kind: 'FAILED', error: 'MRE_UNAVAILABLE' }, actor)).toEqual({ kind: 'LEASE_LOST' });
+      const recorded = await repository.recordWriteBack(r.id, REALM, claim.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor);
+      expect(recorded).toMatchObject({
+        kind: 'RECORDED',
+        reconciliation: { mreWriteBackState: 'WRITTEN', mreWrittenBackBy: actor.actorId, mrePayment: written, mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null, version: 3 },
+      });
+      expect(await repository.claimWriteBack(r.id, REALM, 60_000, actor)).toMatchObject({ kind: 'UNCHANGED', reconciliation: { version: 3 } });
+      expect((await repository.findById(r.id, REALM))?.mrePayment?.amount).toEqual(eur('800.00'));
+      const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, action`, [r.id]);
+      expect(audit.rows.map((a) => a.action)).toEqual(['CONFIRMED', 'WRITE_BACK_STARTED', 'WRITE_BACK_WRITTEN']);
+      expect(audit.rows[2].metadata).toMatchObject({ attemptId: claim.attemptId, patched: true, payment: { reference: 'DE-RPR-x', amount: { amount: '800.00', currency: 'EUR' } } });
+    });
+
+    it('refusals: unknown or foreign, not CONFIRMED, If-Match; FAILED and NOT_WRITTEN outcomes; a FAILED one is claimed again', async () => {
+      const r = await confirmedFor(tenant());
+      expect(await repository.claimWriteBack(r.id, OTHER_REALM, 60_000, actor)).toEqual({ kind: 'NOT_FOUND' });
+      expect(await repository.claimWriteBack('x', REALM, 60_000, actor)).toEqual({ kind: 'NOT_FOUND' });
+      expect(await repository.claimWriteBack(r.id, REALM, 60_000, actor, [7])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [7], currentVersion: 1 });
+      const first = await claimed(r.id);
+      expect(await repository.recordWriteBack(r.id, REALM, first.attemptId, { kind: 'FAILED', error: 'MRE_UNAVAILABLE' }, actor)).toMatchObject({
+        reconciliation: { mreWriteBackState: 'FAILED', mreWriteBackError: 'MRE_UNAVAILABLE' },
+      });
+      const second = await claimed(r.id);
+      expect(second.reconciliation).toMatchObject({ mreWriteBackState: 'PENDING', mreWriteBackError: null, mreWriteBackFailedAt: null });
+      expect(await repository.recordWriteBack(r.id, REALM, second.attemptId, { kind: 'NOT_WRITTEN' }, actor)).toMatchObject({ reconciliation: { mreWriteBackState: 'NOT_WRITTEN', version: 5 } });
+      await repository.release(r.id, REALM, 'x', new Date(), actor);
+      expect(await repository.claimWriteBack(r.id, REALM, 60_000, actor)).toEqual({ kind: 'NOT_WRITABLE', status: 'RELEASED' });
+    });
+
+    it('takeover after an expired lease: by the same reconciliation (the old attempt records nothing), and by another one of the Tenant (the expired row FAILED, LEASE_EXPIRED)', async () => {
+      const t1 = tenant();
+      const r = await confirmedFor(t1);
+      const old = await claimed(r.id, 1);
+      await pause(20);
+      const retry = await claimed(r.id);
+      expect(retry.attemptId).not.toBe(old.attemptId);
+      expect(await repository.recordWriteBack(r.id, REALM, old.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor)).toEqual({ kind: 'LEASE_LOST' });
+      // A live lease of another reconciliation of the same Tenant refuses; once expired it is failed and taken over.
+      const other = await confirmedFor(t1, '2027020100');
+      expect(await repository.claimWriteBack(other.id, REALM, 60_000, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: r.id });
+      await repository.recordWriteBack(r.id, REALM, retry.attemptId, { kind: 'FAILED', error: 'MRE_UNAVAILABLE' }, actor);
+      const expiring = await claimed(r.id, 1);
+      await pause(20);
+      const taken = await claimed(other.id);
+      expect(taken.reconciliation.mreWriteBackState).toBe('PENDING');
+      expect(await repository.findById(r.id, REALM)).toMatchObject({ mreWriteBackState: 'FAILED', mreWriteBackError: 'LEASE_EXPIRED', mreWriteBackAttemptId: null });
+      expect(await repository.recordWriteBack(r.id, REALM, expiring.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor)).toEqual({ kind: 'LEASE_LOST' });
+      const audit = await pool.query(`SELECT metadata FROM audit_record WHERE entity_id = $1 AND action = 'WRITE_BACK_ABANDONED'`, [r.id]);
+      expect(audit.rows).toEqual([{ metadata: expect.objectContaining({ attemptId: expiring.attemptId, takenOverBy: other.id }) }]);
+      // Other Tenants and Realms are not affected by the Tenant's lease.
+      expect((await repository.claimWriteBack((await confirmedFor(tenant())).id, REALM, 60_000, actor)).kind).toBe('CLAIMED');
+    });
+
+    it('release (P4-D7): NOT_WRITTEN stays; WRITTEN keeps its payment as REMOVAL_REQUIRED; FAILED and an expired PENDING become REMOVAL_REQUIRED; a live lease refuses', async () => {
+      const release = (id: string) => repository.release(id, REALM, 'falscher Monat', new Date(), actor);
+      const plain = await confirmedFor(tenant());
+      expect(await release(plain.id)).toMatchObject({ reconciliation: { mreWriteBackState: 'NOT_WRITTEN' } });
+      const w = await confirmedFor(tenant());
+      await repository.recordWriteBack(w.id, REALM, (await claimed(w.id)).attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor);
+      expect(await release(w.id)).toMatchObject({ reconciliation: { status: 'RELEASED', mreWriteBackState: 'REMOVAL_REQUIRED', mrePayment: written } });
+      const f = await confirmedFor(tenant());
+      await repository.recordWriteBack(f.id, REALM, (await claimed(f.id)).attemptId, { kind: 'FAILED', error: 'MRE_UNAVAILABLE' }, actor);
+      expect(await release(f.id)).toMatchObject({ reconciliation: { mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackError: null, mrePayment: null } });
+      const live = await confirmedFor(tenant());
+      await claimed(live.id);
+      expect(await release(live.id)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: live.id });
+      const expired = await confirmedFor(tenant());
+      await claimed(expired.id, 1);
+      await pause(20);
+      expect(await release(expired.id)).toMatchObject({ reconciliation: { mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null } });
+      const audit = await pool.query(`SELECT metadata FROM audit_record WHERE entity_id = $1 AND action = 'RELEASED'`, [w.id]);
+      expect(audit.rows[0].metadata.mreWriteBackState).toEqual({ from: 'WRITTEN', to: 'REMOVAL_REQUIRED' });
+    });
+
+    const pendingStep = (id: string) =>
+      `UPDATE rent_payment_reconciliation SET mre_write_back_state = 'PENDING', mre_write_back_attempt_id = gen_random_uuid(),
+         mre_write_back_lease_until = now() + interval '1 hour', version = version + 1 WHERE id = '${id}'`;
+    const releaseStep = (id: string) =>
+      `UPDATE rent_payment_reconciliation SET status = 'RELEASED', released_at = now(), released_by = 'x', release_reason = 'x', version = version + 1 WHERE id = '${id}'`;
+    async function heldThen<T>(first: string, second: () => Promise<T>): Promise<T> {
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+        await holder.query(first);
+        const waiting = second();
+        await waitForLocks(pool);
+        await holder.query('COMMIT');
+        return await waiting;
+      } finally {
+        holder.release();
+      }
+    }
+    async function repeatableRead(first: string, second: string): Promise<string | undefined> {
+      const [one, two] = [await pool.connect(), await pool.connect()];
+      try {
+        await one.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+        await one.query('SELECT 1');
+        await two.query('BEGIN ISOLATION LEVEL READ COMMITTED');
+        await two.query(first);
+        const later = one.query(second).then(
+          () => 'written',
+          (error: { code?: string; message?: string }) => error.code ?? error.message,
+        );
+        await waitForLocks(pool);
+        await two.query('COMMIT');
+        return await later;
+      } finally {
+        await one.query('ROLLBACK');
+        one.release();
+        two.release();
+      }
+    }
+
+    it('concurrency (RC): two write-backs of one reconciliation; two of one Tenant (the index); a claim waiting on a release', async () => {
+      const r = await confirmedFor(tenant());
+      expect(await heldThen(pendingStep(r.id), () => repository.claimWriteBack(r.id, REALM, 60_000, actor))).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: r.id });
+      const t2 = tenant();
+      const a = await confirmedFor(t2);
+      const b = await confirmedFor(t2, '2027020100');
+      expect(await heldThen(pendingStep(a.id), () => repository.claimWriteBack(b.id, REALM, 60_000, actor))).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: a.id });
+      expect((await repository.findById(b.id, REALM))?.mreWriteBackState).toBe('NOT_WRITTEN');
+      const c = await confirmedFor(tenant());
+      expect(await heldThen(releaseStep(c.id), () => repository.claimWriteBack(c.id, REALM, 60_000, actor))).toEqual({ kind: 'NOT_WRITABLE', status: 'RELEASED' });
+    });
+
+    it('concurrency (RR past the repository): a second claim, and a claim after a release, fail to serialise', async () => {
+      const r = await confirmedFor(tenant());
+      expect(await repeatableRead(pendingStep(r.id), pendingStep(r.id))).toBe('40001');
+      const c = await confirmedFor(tenant());
+      expect(await repeatableRead(releaseStep(c.id), pendingStep(c.id))).toBe('40001');
+    });
+
+    it('schema (0032): the field sets, the states per status, the steps, the release rule, the Tenant index', async () => {
+      const attempt = (query: string) => pool.query(query).then(() => 'accepted', reasonOf);
+      const t = tenant();
+      const r = await confirmedFor(t);
+      const set = (assignment: string, id = r.id) => attempt(`UPDATE rent_payment_reconciliation SET ${assignment} WHERE id = '${id}'`);
+      expect(await set(`mre_write_back_state = 'PENDING', version = version + 1`)).toBe('rent_payment_reconciliation_write_back_fields');
+      expect(await set(`mre_write_back_state = 'REMOVAL_REQUIRED', version = version + 1`)).toBe('is not a step');
+      // The CHECK behind the trigger, in a rolled-back transaction without the frozen trigger.
+      const unguarded = async (query: string) => {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query('ALTER TABLE rent_payment_reconciliation DISABLE TRIGGER rent_payment_reconciliation_frozen');
+          return await client.query(query).then(() => 'accepted', reasonOf);
+        } finally {
+          await client.query('ROLLBACK');
+          client.release();
+        }
+      };
+      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'REMOVAL_REQUIRED' WHERE id = '${r.id}'`)).toBe('rent_payment_reconciliation_write_back_state');
+      expect(
+        await unguarded(`UPDATE rent_payment_reconciliation SET status = 'RELEASED', released_at = now(), released_by = 'x', release_reason = 'x', mre_write_back_state = 'FAILED',
+          mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now() WHERE id = '${r.id}'`),
+      ).toBe('rent_payment_reconciliation_write_back_state');
+      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_written_back_at = now() WHERE id = '${r.id}'`)).toBe('rent_payment_reconciliation_write_back_fields');
+      expect(
+        await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'FAILED', mre_write_back_error = 'GUESS', mre_write_back_failed_at = now() WHERE id = '${r.id}'`),
+      ).toBe('rent_payment_reconciliation_mre_write_back_error_check');
+      expect(await set(`mre_write_back_state = 'WRITTEN', mre_written_back_at = now(), mre_written_back_by = 'x', mre_payment = '{}', version = version + 1`)).toBe('is not a step');
+      expect(await set(`mre_write_back_state = 'FAILED', mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now(), version = version + 1`)).toBe('is not a step');
+      expect(await set(pendingStep(r.id).replace(/^UPDATE rent_payment_reconciliation SET /, '').replace(/ WHERE id = .*$/s, '').replace('version = version + 1', 'version = version'))).toBe('is not a step');
+      expect(await set(`${pendingStep(r.id).replace(/^UPDATE rent_payment_reconciliation SET /, '').replace(/ WHERE id = .*$/s, '')}, confirmed_by = 'y'`)).toBe('is not a step');
+      expect(await attempt(pendingStep(r.id))).toBe('accepted');
+      // A live lease: no second PENDING step on the row, no release, no second PENDING of the Tenant.
+      expect(await attempt(pendingStep(r.id))).toBe('is not a step');
+      expect(await attempt(releaseStep(r.id))).toBe('(WRITE_BACK_IN_PROGRESS)');
+      const other = await confirmedFor(t, '2027020100');
+      expect(await attempt(pendingStep(other.id))).toBe('rent_payment_reconciliation_write_back_tenant_key');
+      expect(
+        await set(
+          `mre_write_back_state = 'WRITTEN', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, mre_written_back_at = now(), mre_written_back_by = 'x', mre_payment = '{}', version = version + 1`,
+        ),
+      ).toBe('accepted');
+      expect(await attempt(pendingStep(r.id))).toBe('is not a step');
+      // The release must carry the state to REMOVAL_REQUIRED, and keep the snapshot.
+      expect(await attempt(releaseStep(r.id))).toBe('released with write-back');
+      expect(await attempt(releaseStep(r.id).replace('version = version + 1', `mre_write_back_state = 'REMOVAL_REQUIRED', mre_payment = NULL, mre_written_back_at = NULL, mre_written_back_by = NULL, version = version + 1`))).toBe('released with write-back');
+      expect(await attempt(releaseStep(r.id).replace('version = version + 1', `mre_write_back_state = 'REMOVAL_REQUIRED', version = version + 1`))).toBe('accepted');
+      // Other status steps keep NOT_WRITTEN; a row is born NOT_WRITTEN.
+      const s = (await pool.query(`${rawInsert(await transaction(), '800.00', '2027030100', 'SUGGESTED').replace(`'${TENANT}'`, `'${tenant()}'`)} RETURNING id`)).rows[0].id as string;
+      expect(await attempt(`UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', mre_write_back_state = 'REMOVAL_REQUIRED', version = version + 1 WHERE id = '${s}'`)).toBe(
+        'with write-back REMOVAL_REQUIRED',
+      );
+    });
+  });
+
   describe('corrections of a matched Transaction (P4-D7)', () => {
     it('correct and reverse are refused while CONFIRMED, allowed after release; the trigger refuses past the repository', async () => {
       const t = await transaction();

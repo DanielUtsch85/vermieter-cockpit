@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
-import { checkMatch, coverageOf, isTermKey, matchedTotalOf, planConfirm, planReject, planRelease, staleBy, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
+import { checkMatch, coverageOf, holdsLease, isTermKey, matchedTotalOf, planConfirm, planReject, planRelease, planWriteBack, staleBy, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
@@ -152,5 +152,73 @@ describe('coverageOf (§37.2, BR-RENT-006/007)', () => {
     const r = (status: RentPaymentReconciliation['status'], amount: string) => ({ status, matchedAmount: eur(amount) });
     expect(matchedTotalOf([r('CONFIRMED', '300.00'), r('RELEASED', '500.00'), r('CONFIRMED', '200.00'), r('SUGGESTED', '9.00')]).amount).toBe('500.00');
     expect(matchedTotalOf([]).amount).toBe('0.00');
+  });
+});
+
+describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
+  const at = new Date('2027-02-01T10:00:00Z');
+  const later = new Date('2027-02-01T10:00:05Z');
+  const earlier = new Date('2027-02-01T09:59:55Z');
+  const base = {
+    id: 'r1' as RentPaymentReconciliationId,
+    mreRealmId: 'realm',
+    status: 'CONFIRMED',
+    transactionId: 't1',
+    mreTenantId: '6512f0c2a1b2c3d4e5f60a01',
+    mreRentTerm: '2027010100',
+    matchedAmount: Money.of('800.00', 'EUR'),
+    confidence: null,
+    suggestionReason: null,
+    confirmedAt: at,
+    confirmedBy: 'anna@example.com',
+    releasedAt: null,
+    releasedBy: null,
+    releaseReason: null,
+    rejectedAt: null,
+    rejectedBy: null,
+    rejectReason: null,
+    notes: null,
+    mreWriteBackState: 'NOT_WRITTEN',
+    mreWriteBackAttemptId: null,
+    mreWriteBackLeaseUntil: null,
+    mreWrittenBackAt: null,
+    mreWrittenBackBy: null,
+    mrePayment: null,
+    mreWriteBackError: null,
+    mreWriteBackFailedAt: null,
+    createdAt: at,
+    version: 1,
+  } satisfies RentPaymentReconciliation;
+  const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
+  const pending = (leaseUntil: Date) => ({ ...base, mreWriteBackState: 'PENDING', mreWriteBackAttemptId: 'a1', mreWriteBackLeaseUntil: leaseUntil }) satisfies RentPaymentReconciliation;
+
+  it('release: NOT_WRITTEN stays; WRITTEN, FAILED and an expired PENDING become REMOVAL_REQUIRED with the lease and the error cleared; a live lease refuses', () => {
+    const next = (r: RentPaymentReconciliation) => {
+      const plan = planRelease(r, 'x', at, actor);
+      if (plan.kind !== 'RELEASE') throw new Error(plan.kind);
+      return plan.next;
+    };
+    expect(next(base).mreWriteBackState).toBe('NOT_WRITTEN');
+    const written = { ...base, mreWriteBackState: 'WRITTEN', mreWrittenBackAt: at, mreWrittenBackBy: 'anna@example.com' } satisfies RentPaymentReconciliation;
+    expect(next(written)).toMatchObject({ mreWriteBackState: 'REMOVAL_REQUIRED', mreWrittenBackAt: at });
+    expect(next({ ...base, mreWriteBackState: 'FAILED', mreWriteBackError: 'MRE_UNAVAILABLE', mreWriteBackFailedAt: at })).toMatchObject({
+      mreWriteBackState: 'REMOVAL_REQUIRED',
+      mreWriteBackError: null,
+      mreWriteBackFailedAt: null,
+    });
+    expect(next(pending(earlier))).toMatchObject({ mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null });
+    expect(planRelease(pending(later), 'x', at, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });
+    expect(holdsLease(pending(at), at)).toBe(false);
+  });
+
+  it('write-back: only CONFIRMED; WRITTEN a no-op; its own or another live lease of the Tenant refuses; an expired one is claimed over', () => {
+    for (const status of ['SUGGESTED', 'REJECTED', 'RELEASED'] as const) expect(planWriteBack({ ...base, status }, at)).toEqual({ kind: 'NOT_WRITABLE', status });
+    expect(planWriteBack({ ...base, mreWriteBackState: 'WRITTEN' }, at)).toEqual({ kind: 'UNCHANGED' });
+    expect(planWriteBack(pending(later), at)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });
+    expect(planWriteBack(pending(earlier), at)).toEqual({ kind: 'CLAIM' });
+    const other = { ...pending(later), id: 'r2' as RentPaymentReconciliationId };
+    expect(planWriteBack(base, at, other)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r2' });
+    expect(planWriteBack(base, at, { ...other, mreWriteBackLeaseUntil: earlier })).toEqual({ kind: 'CLAIM' });
+    expect(planWriteBack({ ...base, mreWriteBackState: 'FAILED', mreWriteBackError: 'MRE_UNAVAILABLE', mreWriteBackFailedAt: at }, at)).toEqual({ kind: 'CLAIM' });
   });
 });
