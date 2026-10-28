@@ -22,6 +22,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **CC** | `domains/ledger/correct-transaction.test.ts` (VC-1-11) |
 | **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) |
 | **ACC3** | `phase-3-acceptance.e2e.test.ts` (Phase-3 exit through the API, VC-3-08) |
+| **ACC4** | `phase-4-acceptance.e2e.test.ts` (Phase-4 exit through the API, VC-4-06) |
 | **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
 | **TM / TR2 / TA** | the Loan terms' domain, repository and API tests (VC-3-02, §17) |
 
@@ -544,6 +545,51 @@ Counter-checked (19 mutants, each red):
 - **in the application:** the read before the removal skipped (the crash test then sends a second PATCH); the removal verification skipped; the presence check not on `REMOVED`;
 - **in the repository:** the last lease end cleared on record, or set instead of raised; the record without the attempt check; the claim's holders only `PENDING` (review on #84); an expired `REMOVING` failed as `FAILED`; the release on the application's clock without the trigger's mapping (either alone is covered by the other: the plan and the mapping both answer `WRITE_BACK_IN_PROGRESS`);
 - **in 0033:** the index without `REMOVING`; the trigger letting the last lease end change outside a claim, or allowing a removal claim before it; the last-lease CHECK dropped; the removed-fields CHECK dropped; the backfill without `released_at` (review on #84; the migration then fails its own CHECK).
+
+## 29. Phase 4 exit (VC-4-06, roadmap Phase 4)
+
+The exit of `docs/roadmap.md` Phase 4, claim by claim: *a bank transaction can be matched to an MRE rent obligation, confirmed by a human, and written back to MRE exactly once; MRE settlement and DE cash remain distinct records.* Each claim is shown **end to end through the HTTP API** by **ACC4** (`phase-4-acceptance.e2e.test.ts`), one scenario against PostgreSQL and the fake MRE, as ACC3 does for Phase 3. It is backed by §24–§28. The figures are hand-computed and stated here, so the test checks them literally.
+
+**The scenario (Realm A, the fake MRE's Realm A):**
+- Two MRE Tenants: T1 (Tina) with the terms `2027030100` and `2027040100`, each 800.00 due; T2 (Tom) with the same terms, each 650.00 due. T1's March term already holds **MRE's own payment** of 100.00 (`cash`, recorded in MRE by hand). T2's April term is 660.00 rent less a settlement discount (`promo` 10.00, note "Rabatt", no VAT), so 650.00 due as MRE answers it (`totalWithoutBalanceAmount`), and carries the description "April".
+- A bank CSV import (`generic-csv`, as ACC3) into one `BANK` FinancialAccount brings four `INFLOW` rows:
+
+  | Row | Booking date | Amount | Counterparty IBAN | Meaning |
+  |---|---|---|---|---|
+  | R1 | 2027-03-02 | 800.00 | DE…01 (Tina) | T1's March rent |
+  | R2 | 2027-03-05 | 400.00 | DE…02 (Tom) | part of T2's March rent |
+  | R3 | 2027-03-20 | 250.00 | DE…02 (Tom) | the rest of T2's March rent |
+  | R4 | 2027-04-03 | 1,450.00 | DE…02 (Tom) | T1's and T2's April rent in one transfer (800.00 + 650.00) |
+
+- Each row is split as `RENT_BASE` (its whole amount) and confirmed. Leases in the ACC4 wiring are short (a few hundred ms) so the removal can follow without waiting a real MRE timeout.
+
+| Exit claim | ACC4 step | Backed by |
+|---|---|---|
+| **A bank transaction can be matched to an MRE rent obligation** (suggested) | <ul><li>`POST /rent-reconciliations/suggest { from: 2027-03, to: 2027-04 }` answers exactly **one** suggestion: R1 → T1 `2027030100`, 800.00, `MEDIUM`, `EXACT_AMOUNT`.</li><li>Nothing else fits: R2, R3 and R4 match no open amount exactly (400.00, 250.00 and 1,450.00 against 800.00 and 650.00), and R1 is outside the April window (from 2027-03-15).</li><li>A suggestion is not cash: before the confirm, R1's `available` is 800.00 and T1's March `matchedTotal` is 0.00.</li><li>A repeat of the run writes nothing (`items: []`).</li></ul> | §26 |
+| **… confirmed by a human** | <ul><li>`POST …/{id}/confirm` with `If-Match: "1"` → `CONFIRMED`, `version` 2. The live MRE read happens with the caller's token.</li><li>T1's March coverage: `matchedTotal` 800.00, `coverage` `MATCHED`, `openAmount` 0.00.</li></ul> | §24, §26 |
+| **A partial and a combined payment matched by hand** | <ul><li>Partial: R2 → T2 March 400.00 and R3 → T2 March 250.00 (two manual creates). T2's March coverage goes `PARTIALLY_MATCHED` (`openAmount` 250.00), then `MATCHED`.</li><li>Combined: R4 → T1 April 800.00 and R4 → T2 April 650.00. R4's `available` goes 1,450.00 → 650.00 → 0.00.</li></ul> | §24, §25 |
+| **Cash is never consumed twice** | <ul><li>R4 → T1 March 0.01 more is `409 RENT_CASH_EXCEEDED` with `available` 0.00.</li><li>R1 → T1 April 800.00 is `409 RENT_CASH_EXCEEDED` (R1 is fully matched by the confirmed suggestion).</li><li>The same match twice (R2 → T2 March) is `409 ALREADY_MATCHED`.</li></ul> | §24 |
+| **… written back to MRE exactly once** | <ul><li>`POST …/{R1's id}/write-back-to-mre` → `WRITTEN`. T1's March term in MRE now holds MRE's own 100.00 **and** DE's 800.00 with the marker `DE-RPR-<id>`, booking date 02/03/2027, `transfer`. The fake MRE counts one PATCH.</li><li>A **repeat** answers `200` without an MRE call and adds nothing.</li><li>A **crashed** earlier attempt: before writing back R4 → T2 April, the fake MRE's term already holds DE's payment with that reconciliation's marker, as if an earlier attempt's PATCH had reached MRE and its record had not. The write-back reads it, records `WRITTEN` **without a PATCH**, and the term holds the marker once. T2 April's promo 10.00 and description "April" are untouched.</li><li>A **lost answer**: the fake MRE applies the PATCH for R4 → T1 April but drops the answer; the second read records `WRITTEN`, and the term holds the marker once.</li></ul> | §27 |
+| **MRE settlement and DE cash remain distinct records** | <ul><li>T1's March coverage (§37.2) shows MRE's two payments (100.00 `cash`, 800.00 with the marker) **next to** DE's one match. `matchedTotal` stays 800.00 and `coverage` `MATCHED`: MRE's payments are never added.</li><li>R1 is still one Transaction of 800.00 with one split; the write-back changed no Transaction (its `version` is unchanged).</li><li>`?checkMre=true` on R1's reconciliation reports `PRESENT`.</li></ul> | §25, §27 |
+| **A correction is refused until release, and a release is DE-only** | <ul><li>A reversal of R2 is `409 TRANSACTION_RENT_RECONCILED` with R2's reconciliation id.</li><li>Release of R2 → T2 March → `RELEASED`, `NOT_WRITTEN` stays. T2's March coverage drops to `PARTIALLY_MATCHED`, `openAmount` 400.00. The reversal of R2 then succeeds.</li><li>Release of R1's written match → `REMOVAL_REQUIRED`; it asks MRE nothing. After the lease, `remove-from-mre` → `REMOVED`: T1's March term holds only MRE's own 100.00 again.</li></ul> | §24, §28 |
+| **Realm isolation** across Phase 4 | <ul><li>Realm B calls **every route of api-design §37** with Realm A's ids. Each route is a row of one table that ACC4 iterates, and each row carries the answer it expects:<ul><li>`404` for the routes named by a reconciliation or Transaction id: `GET /rent-reconciliations/{id}` (also with `?checkMre=true`), `confirm`, `reject`, `release`, `write-back-to-mre`, `remove-from-mre`, `GET /transactions/{id}/rent-reconciliations`, and `POST /rent-reconciliations` with Realm A's `transactionId`;</li><li>`200` with an empty DE side (`reconciliations: []`, `matchedTotal` 0.00), `mreStatus` `NOT_RETURNED` and `mre` `null` for the term read `GET /rent-reconciliations/terms/{T1}/2027030100` (§37.2: MRE's read carries Realm B's `organizationid`);</li><li>`200` with an empty page for the list `GET /rent-reconciliations` with Realm A's `transactionId`, `mreTenantId` or `mreRentTerm` as filter (§37.1: a foreign filter is a read filter, not `404`);</li><li>`200` with `items: []` for a suggestion run in Realm B over the same months.</li></ul></li><li>After every row, nothing is written in Realm A: its reconciliations, versions and AuditRecords are unchanged, and the fake MRE counts no PATCH.</li><li>The table is compared with the routes the app serves (Express' router stack, filtered to `/rent-reconciliations` and `/transactions/{id}/rent-reconciliations`). A new route without a row turns ACC4 red.</li></ul> | §24–§28 |
+
+ACC4 also checks the traceability every write promises. On the reconciliations it expects exactly these AuditRecords, each with its entity id:
+- R1 → T1 March: `SUGGESTED`, `CONFIRMED` (`manual = false`), `WRITE_BACK_STARTED`, `WRITE_BACK_WRITTEN` (`patched = true`), `RELEASED`, `REMOVAL_STARTED`, `REMOVED`;
+- R2 → T2 March: `CONFIRMED` (manual), `RELEASED`;
+- R3 → T2 March: `CONFIRMED` (manual);
+- R4 → T1 April: `CONFIRMED` (manual), `WRITE_BACK_STARTED`, `WRITE_BACK_WRITTEN` (`patched = true`);
+- R4 → T2 April: `CONFIRMED` (manual), `WRITE_BACK_STARTED`, `WRITE_BACK_WRITTEN` (`patched = false`);
+- R2: its reversal.
+
+**Counter-checks**, each of which turns ACC4 red:
+- MRE's payments summed into a term's `matchedTotal` (the distinct-records claim);
+- a suggestion counted as consumed cash (R1's `available` before the confirm);
+- the write-back without the read before the write (the crashed attempt then gets a second payment);
+- the correction guard dropped (the reversal of R2 passes while matched);
+- the Realm filter dropped from the coverage read of a term;
+- an extra Phase-4 route without a row;
+- a missing `WRITE_BACK_WRITTEN` AuditRecord.
 
 ## Keeping this current
 
