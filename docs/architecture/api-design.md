@@ -1609,7 +1609,7 @@ Example request:
   - `CONFLICT` with `reason = "NO_CHANGE"` or `"ACCOUNT_CLOSED"`.
   - `INVARIANT_VIOLATION` with `SPLIT_SUM_MISMATCH`.
 - **`422`:** `REVIEW_REQUIRED` with `INACTIVE_CATEGORY`.
-- **Reconciled Transactions:** a `RECONCILED` Transaction is matched to MRE rent state, and correcting it must also undo or re-evaluate that match (workflows: "invalidate/re-evaluate affected reconciliations"). Until Phase 4 specifies that, correcting a `RECONCILED` Transaction is `409 CONFLICT` with `reason = "NOT_CORRECTABLE"` and `status = "RECONCILED"`. The status rule `RECONCILED → CORRECTED` (§34.2) stays in place for then. Phase 1 has no `RECONCILED` Transactions.
+- **Reconciled Transactions:** a `RECONCILED` Transaction is matched to MRE rent state, and correcting it must also undo or re-evaluate that match (workflows: "invalidate/re-evaluate affected reconciliations"). Until Phase 4 specifies that, correcting a `RECONCILED` Transaction is `409 CONFLICT` with `reason = "NOT_CORRECTABLE"` and `status = "RECONCILED"`. The status rule `RECONCILED → CORRECTED` (§34.2) stays in place for then. Phase 1 has no `RECONCILED` Transactions. Phase 4 does not use `RECONCILED`: rent reconciliation is a record of its own (§37.1, P4-D3), and a Transaction with a `CONFIRMED` one is refused with `TRANSACTION_RENT_RECONCILED` instead.
 
 ## 35.5 Idempotency and concurrency
 
@@ -1704,19 +1704,150 @@ Decisions: `docs/development/phase-4-plan.md` (P4-D1…D8). Data: data-model §1
 ### Queries
 
 ```text
-GET /api/v1/rent-reconciliations
-GET /api/v1/rent-reconciliations/{id}
-GET /api/v1/rent-reconciliations/suggestions
+GET /api/v1/rent-reconciliations                                    (VC-4-01, §37.1)
+GET /api/v1/rent-reconciliations/{id}                               (VC-4-01, §37.1)
+GET /api/v1/rent-reconciliations/suggestions                        (VC-4-03: ?status=SUGGESTED)
 ```
 
 ### Commands
 
 ```text
-POST /api/v1/rent-reconciliations/suggest
-POST /api/v1/rent-reconciliations/{id}/confirm
-POST /api/v1/rent-reconciliations/{id}/reject
-POST /api/v1/rent-reconciliations/{id}/write-back-to-mre
+POST /api/v1/rent-reconciliations                                   (VC-4-01, §37.1: manual match)
+POST /api/v1/rent-reconciliations/{id}/release                      (VC-4-01, §37.1)
+POST /api/v1/rent-reconciliations/suggest                           (VC-4-03)
+POST /api/v1/rent-reconciliations/{id}/confirm                      (VC-4-03)
+POST /api/v1/rent-reconciliations/{id}/reject                       (VC-4-03)
+POST /api/v1/rent-reconciliations/{id}/write-back-to-mre            (VC-4-04)
+POST /api/v1/rent-reconciliations/{id}/remove-from-mre              (VC-4-05)
 ```
+
+## 37.1 Manual match, read, list, release (VC-4-01)
+
+Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `docs/development/phase-4-plan.md`. A `RentPaymentReconciliation` links counted rent cash of one DE Transaction to one MRE rent term (ADR-004A). It never creates or changes a Transaction, and it never changes MRE: write-back is VC-4-04.
+
+- **Domain owner:** Integration / Financial Ledger. **Authorization:** as §19.1. The reconciliation, its Transaction and the MRE Tenant belong to the caller's Realm. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **Status (P4-D2):**
+  - `CONFIRMED` → `RELEASED` (here; final);
+  - `SUGGESTED` → `CONFIRMED` | `REJECTED` comes with VC-4-03. In VC-4-01 a reconciliation is created `CONFIRMED` by a human and never `SUGGESTED`.
+- **Fixed after creation:** Realm, `transactionId`, `mreTenantId`, `mreRentTerm`, `matchedAmount`, `notes`. A wrong match is released and matched again.
+- **Response:**
+  - `reconciliationId`, `mreRealmId`, `status`;
+  - `transactionId`, `mreTenantId`, `mreRentTerm`;
+  - `matchedAmount` (Money as §31);
+  - `confidence`, `suggestionReason` (`null` until VC-4-03);
+  - `confirmedAt`, `confirmedBy` (the acting MRE user's email);
+  - `releasedAt`, `releasedBy`, `releaseReason` (`null` unless `RELEASED`);
+  - `notes`;
+  - `mreWriteBackState`: `NOT_WRITTEN` in VC-4-01. VC-4-04 adds the other states and their fields (P4-D6);
+  - `createdAt`, `version`.
+  - Single-reconciliation responses carry `ETag: "<version>"` (§16.1).
+
+### The cash rules (P4-D3)
+
+- **Counted:** the Transaction is `CONFIRMED` or `RECONCILED`, and not a reversal (§35.3's "current").
+- **`INFLOW`.**
+- **Rent cash** = the sum of its splits with category `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` or `RENT_OPERATING_COST_SETTLEMENT`. A counted Transaction's splits are frozen (§34.2), so its rent cash never changes.
+- **Available** = rent cash − Σ `matchedAmount` of its `CONFIRMED` reconciliations.
+- **At most one `CONFIRMED` reconciliation per Transaction, `mreTenantId` and `mreRentTerm`.** Several Transactions may match one term (a rent paid in two transfers), and one Transaction may match several terms (two months in one transfer, BR-RENT-008), each with its own `matchedAmount`.
+
+### `POST /api/v1/rent-reconciliations`
+
+- **Body** (strict; unknown keys `400`):
+  - `transactionId` (UUID, required);
+  - `mreTenantId` (required): an MRE id, `^[0-9a-f]{24}$` as §20.1;
+  - `mreRentTerm` (required): MRE's term key `YYYYMMDDHH` as a 10-digit string. Its date must exist and its hour be `00`–`23` (`400 INVALID_TERM`). MRE's monthly terms end in `0100`, but other frequencies exist, so DE checks only the form and leaves the rest to MRE;
+  - `matchedAmount` (Money as §31, required): **> 0** (`400 NOT_POSITIVE`), EUR;
+  - `notes` (optional, trimmed, ≤ 2000).
+- **Order of checks:**
+  1. `400`;
+  2. the Transaction unknown or foreign → `404` (`details.transactionId`);
+  3. the Transaction not counted → `409 CONFLICT` with `reason = "TRANSACTION_NOT_COUNTED"` and `details.status`, `details.correctionRole`;
+  4. `OUTFLOW` → `422 TRANSACTION_NOT_INFLOW`;
+  5. no rent cash (no split in the rent categories) → `422 NO_RENT_CASH`;
+  6. a `CONFIRMED` reconciliation for the same Transaction and term exists → `409 CONFLICT` with `reason = "ALREADY_MATCHED"` and `details.reconciliationId`;
+  7. `matchedAmount` > available → `409 CONFLICT` with `reason = "RENT_CASH_EXCEEDED"` and `details.rentCash`, `details.available`;
+  8. **the MRE term**, read live with the caller's token (`GET /rents/tenant/:id/:term`, P4-D1):
+     - the Tenant or the term unknown in the Realm (MRE `404`) → `422 MRE_RENT_TERM_NOT_FOUND` with `details.mreTenantId`, `details.mreRentTerm`;
+     - MRE refuses the token → `401`, refuses the caller → `403`, as the access guard (§47.1 of mre-integration);
+     - MRE unavailable, or an unexpected answer → `503 MRE_UNAVAILABLE`. Nothing is written (BR-MRE-004: only the match waits, the ledger stays available).
+- **Where the MRE read sits:** checks 2–7 are read first in one snapshot, so a request DE refuses anyway never calls MRE. The MRE read then runs **outside** any database transaction (P4-D8). The write transaction repeats checks 2–7 under its locks, so a change in between answers as above.
+- **Success:** `201` with the reconciliation (`status = CONFIRMED`, `confirmedAt`, `confirmedBy`, `mreWriteBackState = NOT_WRITTEN`, `version = 1`).
+  - AuditRecord `CONFIRMED` with the Transaction, the Tenant, the term, `matchedAmount` and `manual = true`.
+  - Only ids are stored and audited. The MRE answer is parsed to the term's existence and not kept; the Tenant's name and contact data never leave the client (mre-integration §20.1).
+- **Idempotency (§15):** `Idempotency-Key` with scope `rent-reconciliation.create`, fingerprint of the normalized body. A replay answers `201` with the recorded body and `Idempotent-Replayed: true`, without an MRE call; the same key with another payload is `409`.
+- **Locks (P4-D8):** the Transaction row first, written with P3-D8's no-op `UPDATE ledger_transaction SET version = version` (0013 allows it on a confirmed row), then the Transaction's `CONFIRMED` reconciliations are read. Nothing else is locked.
+
+### `POST /api/v1/rent-reconciliations/{reconciliationId}/release`
+
+- **Body:** `{ "reason": "..." }` (required, trimmed, 1–500).
+- **Order of checks:**
+  1. `400`;
+  2. unknown or foreign → `404`;
+  3. `RELEASED` → `200` no-op keeping the first reason and time, answered regardless of `If-Match` (as §41.1's void);
+  4. `SUGGESTED` or `REJECTED` → `409 CONFLICT` with `reason = "NOT_RELEASABLE"` and `details.status`;
+  5. `If-Match` → `412`.
+- **Success:** `200` with the reconciliation (`status = RELEASED`, `releasedAt`, `releasedBy`, `releaseReason`, `version` + 1); AuditRecord `RELEASED` with the reason and `matchedAmount`. Its cash is available again.
+- **DE-only (P4-D7):** release never calls MRE, so it works during an MRE outage. Its effect on a reconciliation already written back (`REMOVAL_REQUIRED`) and the refusal while a write-back runs come with VC-4-04; in VC-4-01 nothing is written back.
+- **Locks:** the Transaction row first, as on create, then the reconciliation `FOR UPDATE`. A release and a create on the same Transaction serialise on it.
+
+### Reads
+
+- `GET /rent-reconciliations/{reconciliationId}`: one reconciliation with `ETag`.
+- `GET /rent-reconciliations`: `{ items, page, pageSize, total }` (§11), newest `createdAt` first, then `reconciliationId`; count and page in one snapshot.
+  - Filters, all optional and combined with AND: `status` (a comma-separated list, any of them), `transactionId`, `mreTenantId`, `mreRentTerm`.
+  - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`. An unknown or foreign `transactionId` filter is an empty page, not `404`, as a read filter (§30.1).
+  - `…/suggestions` of the route list above is `?status=SUGGESTED` (VC-4-03) and gets no route of its own.
+- Reads never call MRE. The coverage of a term and of a Transaction (P4-D5) is VC-4-02.
+
+### Corrections of a matched Transaction (P4-D7)
+
+- **`POST /transactions/{id}/correct` (§35) and `…/reverse` (§35.9)** gain a refusal right after `NOT_CORRECTABLE`: the Transaction has a `CONFIRMED` reconciliation → `409 CONFLICT` with `reason = "TRANSACTION_RENT_RECONCILED"` and `details.reconciliationIds` (in id order). The user releases first; the match then never points at cash that no longer counts (ADR-004A).
+- **`RECONCILED` (§35.4) is unchanged:** rent reconciliation never sets it (P4-D3), so correcting a `RECONCILED` Transaction stays `NOT_CORRECTABLE` until a later item gives that status a meaning.
+- A replacement can be matched again after its release. Nothing is carried over: the original's reconciliations stay `RELEASED`.
+
+### In the database (migration 0030)
+
+- **`rent_payment_reconciliation`:**
+  - `id uuid`, `mre_realm_id text`, `status text` in (`SUGGESTED`, `CONFIRMED`, `REJECTED`, `RELEASED`);
+  - `transaction_id uuid` with a composite foreign key `(transaction_id, mre_realm_id)` to `ledger_transaction`;
+  - `mre_tenant_id text` (`^[0-9a-f]{24}$`), `mre_rent_term text` (`^[0-9]{10}$`);
+  - `matched_amount numeric` (scale ≤ 2, > 0, < 1e18, as the ledger) and `currency text = 'EUR'`;
+  - `confidence`, `suggestion_reason` (VC-4-03; `NULL` here);
+  - `confirmed_at`, `confirmed_by`, `released_at`, `released_by`, `release_reason` (1–500), `notes` (≤ 2000);
+  - `mre_write_back_state text` with `CHECK (mre_write_back_state = 'NOT_WRITTEN')`, which VC-4-04 widens;
+  - `created_at`, `created_by`, `version`.
+- **CHECKs:**
+  - `(status IN ('CONFIRMED', 'RELEASED')) = (confirmed_at IS NOT NULL)`, the same for `confirmed_by`;
+  - `(status = 'RELEASED') = (released_at IS NOT NULL)`, the same for `released_by` and `release_reason`.
+- **Partial unique index** `(transaction_id, mre_tenant_id, mre_rent_term) WHERE status = 'CONFIRMED'`. Under it two concurrent creates of the same match cannot both commit; the repository answers the loser `ALREADY_MATCHED` (`ON CONFLICT … DO NOTHING` and a re-read).
+- **`rent_payment_reconciliation_frozen`** (before update): the fixed fields above never change; the status steps are only `SUGGESTED` → `CONFIRMED` | `REJECTED` and `CONFIRMED` → `RELEASED`, each raising `version` by one. No `DELETE` (a trigger refuses it).
+- **`rent_payment_reconciliation_cash`** (before insert, and before update when `NEW.status = 'CONFIRMED'` and `OLD.status <> 'CONFIRMED'`):
+  - writes the Transaction row first (the no-op of P3-D8, `RETURNING status, direction, correction_role`), so every confirm serialises on the Transaction;
+  - refuses a Transaction not counted (`TRANSACTION_NOT_COUNTED`), not `INFLOW` (`TRANSACTION_NOT_INFLOW`), or without rent cash (`NO_RENT_CASH`);
+  - refuses when the sum of `matched_amount` over the Transaction's `CONFIRMED` reconciliations plus this one exceeds its rent cash (`RENT_CASH_EXCEEDED`). The guard re-reads both sums after the Transaction write, so under READ COMMITTED it sees every confirm that committed before it.
+- **`ledger_transaction_rent_reconciled`** (before update of `status` on `ledger_transaction`, when it becomes `CORRECTED`): refuses while a `CONFIRMED` reconciliation names the Transaction (`TRANSACTION_RENT_RECONCILED`). The correction path holds the Transaction `FOR UPDATE` (§35.5), so this guard and the cash guard serialise on the same row.
+- Not in the database: the MRE check (P4-D1), the order of checks, and the reads.
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Two creates on the same Transaction** (different terms) whose amounts together exceed the rent cash: they serialise on the Transaction row. Under READ COMMITTED the second sees the first and answers `RENT_CASH_EXCEEDED`; under REPEATABLE READ it fails to serialise (`40001`). Counter-check: the guard's Transaction write → `FOR SHARE` lets both commit under RR.
+- **Two creates of the same match:** the partial unique index; the loser answers `ALREADY_MATCHED`.
+- **Create against a correction:** a create that waited sees `CORRECTED` (`TRANSACTION_NOT_COUNTED`) under RC, or fails with `40001` under RR; a correction that waited sees the reconciliation and answers `TRANSACTION_RENT_RECONCILED`, or fails with `40001`.
+- **Release against a create:** after the release commits, its cash is available to a create that waited (RC).
+
+### Tests (VC-4-01)
+
+- **Domain:** the cash rules (counted, `INFLOW`, rent categories, available with released ones not counting); the term key's form; the order of checks.
+- **Repository:**
+  - Realm isolation (a Transaction of another Realm is `404`);
+  - each refusal of the cash rules, with a reversal, a `CORRECTED` original, an unconfirmed Transaction, an `OUTFLOW`, and a Transaction whose only split is `INSURANCE`;
+  - one Transaction over two terms; two Transactions over one term; a release making cash available again;
+  - the AuditRecords `CONFIRMED` and `RELEASED`.
+- **The correction rule:** `correct` and `reverse` refused while `CONFIRMED`, allowed after release, each through the API and past the repository; counter-check: the trigger dropped turns the past-the-repository test red.
+- **Concurrency** as above, under RC and RR, each with its counter-check.
+- **Schema past the repository**, each with a counter-check: every CHECK; the frozen fields and status steps; `DELETE`; the cash guard's four refusals; the unique index.
+- **MRE client:** `getRentTerm(token, realm, tenantId, term)` parsed to existence only; MRE `404` → not found, `401` / `403` / other as the existing client. The fake MRE gains Tenants with rent terms (the term read only; the PATCH is VC-4-04). `mre.contract.test.ts` pins the term read against the baseline: a known term, an unknown term and an unknown Tenant are `404`.
+- **API:** every `400` code above; the error mapping (`422 MRE_RENT_TERM_NOT_FOUND`, `503 MRE_UNAVAILABLE`, nothing written on either); idempotent replay without an MRE call; release no-op, `412`, `NOT_RELEASABLE`; the list filters and order.
 
 ---
 
