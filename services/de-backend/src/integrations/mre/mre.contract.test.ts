@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { z } from 'zod';
-import { dePayment, markerIn, storedPayments, verifyWritten, writeBody } from '../../domains/rent-reconciliation/index.js';
+import { dePayment, markerIn, removalBody, storedPayments, verifyRemoved, verifyWritten, writeBody } from '../../domains/rent-reconciliation/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import { HttpMreClient } from './http-mre-client.js';
 
@@ -326,6 +326,30 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       // Restore the term as MRE's form left it.
       const restored = await client.writeRentTermPayments(await token(), realmA, tenantId, term, { ...writeBody(read, payment), payments: storedPayments(read.payments) });
       expect(restored.kind === 'ANSWERED' && markerIn(restored.term, payment)).toBe('ABSENT');
+    });
+
+    it('the removal PATCH removes only DE\'s payment: the existing one, the promo and the description kept (VC-4-05)', async () => {
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      const term = '2027060100';
+      const payment = dePayment('1b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b', Money.of('650.00', 'EUR'), '2027-06-03' as BusinessDate);
+      const seeded = await call(`/rents/payment/${tenantId}/${term}`, {
+        method: 'PATCH',
+        token: await token(),
+        realm: realmA,
+        body: { _id: tenantId, payments: [{ date: '01/06/2027', amount: 150, type: 'cash', reference: '', description: 'Bar' }, payment], promo: 5, notepromo: 'Rabatt', description: 'Juni' },
+      });
+      expect(seeded.status).toBe(200);
+      const read = await client.readRentTermForWriteBack(await token(), realmA, tenantId, term);
+      if (read === undefined) throw new Error('term not read');
+      expect(markerIn(read, payment)).toBe('PRESENT');
+      const removed = await client.writeRentTermPayments(await token(), realmA, tenantId, term, removalBody(read, payment));
+      if (removed.kind !== 'ANSWERED') throw new Error(removed.kind);
+      expect(verifyRemoved(read, removed.term, payment)).toBe('OK');
+      const after = await client.readRentTermForWriteBack(await token(), realmA, tenantId, term);
+      if (after === undefined) throw new Error('term not read');
+      expect(verifyRemoved(read, after, payment)).toBe('OK');
+      expect(storedPayments(after.payments)).toEqual([{ date: '01/06/2027', amount: 150, type: 'cash', reference: '', description: 'Bar' }]);
+      expect(after).toMatchObject({ promo: 5, notepromo: 'Rabatt\n', description: 'Juni' });
     });
   });
 });
