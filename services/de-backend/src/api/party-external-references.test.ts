@@ -121,6 +121,8 @@ describe('POST /api/v1/parties/{id}/external-references', () => {
     const answer = await errorOf(res);
     expect(answer.code).toBe(code);
     if (details !== undefined) expect(answer.details).toEqual(details);
+    // api-design §543: a concurrent update asks the client to retry after a second (review on #100).
+    expect(res.headers.get('retry-after')).toBe(error instanceof ConcurrentUpdateError ? '1' : null);
   });
 });
 
