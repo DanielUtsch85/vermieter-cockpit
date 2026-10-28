@@ -39,85 +39,84 @@ export class PostgresPartyExternalReferenceRepository implements PartyExternalRe
   async claim(partyId: string, key: ExternalReferenceKey, actor: AuditActor): Promise<ClaimOutcome> {
     if (!UUID.test(partyId)) return { kind: 'NOT_FOUND' };
     // READ COMMITTED explicitly: the re-read after a lost insert must see the winner's commit (a new snapshot).
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ClaimOutcome> => {
-      // The Party's lock serialises this claim with `deactivate` and with other claims of this Party.
-      const row = await trx
-        .selectFrom('party')
-        .selectAll()
-        .where('id', '=', partyId)
-        .where('mre_realm_id', '=', key.mreRealmId)
-        .forUpdate()
-        .executeTakeFirst();
-      if (row === undefined) return { kind: 'NOT_FOUND' };
-      const party = toParty(row);
-      for (let attempt = 1; attempt <= CLAIM_ATTEMPTS; attempt++) {
-        const plan = planClaim(party, await activeFor(trx, key));
-        if (plan.kind !== 'CLAIM') return plan;
-        // Claims of other Parties are not under this lock; the active-key index decides. ON CONFLICT names its
-        // predicate, so the partial index is the arbiter: a concurrent insert of the key is waited for and then
-        // yields no row, instead of a unique violation that would abort the transaction (§20.1).
-        const inserted = await trx
-          .insertInto('party_external_reference')
-          .values({
-            party_id: party.id,
-            mre_realm_id: key.mreRealmId,
-            system: key.system,
-            entity_type: key.entityType,
-            external_id: key.externalId,
-            status: 'ACTIVE' satisfies ExternalReferenceStatus,
-            created_by: actor.actorId,
-          })
-          .onConflict((oc) => oc.columns(['system', 'mre_realm_id', 'entity_type', 'external_id']).where('status', '=', 'ACTIVE').doNothing())
-          .returningAll()
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<ClaimOutcome> => {
+        // The Party's lock serialises this claim with `deactivate` and with other claims of this Party.
+        const row = await trx
+          .selectFrom('party')
+          .selectAll()
+          .where('id', '=', partyId)
+          .where('mre_realm_id', '=', key.mreRealmId)
+          .forUpdate()
           .executeTakeFirst();
-        if (inserted === undefined) continue; // the next statement sees the committed winner
-        await writeAudit(trx, { type: ENTITY_TYPE, id: inserted.id }, 'CREATED', actor, {
-          newVersion: inserted.version,
-          metadata: { partyId: party.id, system: key.system, entityType: key.entityType, externalId: key.externalId },
-        });
-        return { kind: 'CREATED', reference: toReference(inserted) };
-      }
-      return { kind: 'CONTENDED' };
-    });
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const party = toParty(row);
+        for (let attempt = 1; attempt <= CLAIM_ATTEMPTS; attempt++) {
+          const plan = planClaim(party, await activeFor(trx, key));
+          if (plan.kind !== 'CLAIM') return plan;
+          // Claims of other Parties are not under this lock; the active-key index decides. ON CONFLICT names its
+          // predicate, so the partial index is the arbiter: a concurrent insert of the key is waited for and then
+          // yields no row, instead of a unique violation that would abort the transaction (§20.1).
+          const inserted = await trx
+            .insertInto('party_external_reference')
+            .values({
+              party_id: party.id,
+              mre_realm_id: key.mreRealmId,
+              system: key.system,
+              entity_type: key.entityType,
+              external_id: key.externalId,
+              status: 'ACTIVE' satisfies ExternalReferenceStatus,
+              created_by: actor.actorId,
+            })
+            .onConflict((oc) => oc.columns(['system', 'mre_realm_id', 'entity_type', 'external_id']).where('status', '=', 'ACTIVE').doNothing())
+            .returningAll()
+            .executeTakeFirst();
+          if (inserted === undefined) continue; // the next statement sees the committed winner
+          await writeAudit(trx, { type: ENTITY_TYPE, id: inserted.id }, 'CREATED', actor, {
+            newVersion: inserted.version,
+            metadata: { partyId: party.id, system: key.system, entityType: key.entityType, externalId: key.externalId },
+          });
+          return { kind: 'CREATED', reference: toReference(inserted) };
+        }
+        return { kind: 'CONTENDED' };
+      });
   }
 
-  async end(
-    partyId: string,
-    referenceId: string,
-    mreRealmId: string,
-    at: Date,
-    actor: AuditActor,
-    expectedVersions?: readonly number[],
-  ): Promise<EndOutcome> {
+  async end(partyId: string, referenceId: string, mreRealmId: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<EndOutcome> {
     if (!UUID.test(partyId) || !UUID.test(referenceId)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<EndOutcome> => {
-      const row = await trx
-        .selectFrom('party_external_reference')
-        .selectAll()
-        .where('id', '=', referenceId)
-        .where('party_id', '=', partyId)
-        .where('mre_realm_id', '=', mreRealmId)
-        .forUpdate()
-        .executeTakeFirst();
-      if (row === undefined) return { kind: 'NOT_FOUND' };
-      const current = toReference(row);
-      const plan = planEnd(current, at);
-      if (plan.kind === 'UNCHANGED') return { kind: 'ENDED', reference: current, changed: false };
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      const updated = await trx
-        .updateTable('party_external_reference')
-        .set({ status: plan.next.status, ended_at: plan.next.endedAt, version: plan.next.version, updated_at: at })
-        .where('id', '=', referenceId)
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await writeAudit(trx, { type: ENTITY_TYPE, id: referenceId }, 'ENDED', actor, {
-        previousVersion: current.version,
-        newVersion: plan.next.version,
-        metadata: { partyId, externalId: current.externalId },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<EndOutcome> => {
+        const row = await trx
+          .selectFrom('party_external_reference')
+          .selectAll()
+          .where('id', '=', referenceId)
+          .where('party_id', '=', partyId)
+          .where('mre_realm_id', '=', mreRealmId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const current = toReference(row);
+        const plan = planEnd(current, at);
+        if (plan.kind === 'UNCHANGED') return { kind: 'ENDED', reference: current, changed: false };
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        const updated = await trx
+          .updateTable('party_external_reference')
+          .set({ status: plan.next.status, ended_at: plan.next.endedAt, version: plan.next.version, updated_at: at })
+          .where('id', '=', referenceId)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        await writeAudit(trx, { type: ENTITY_TYPE, id: referenceId }, 'ENDED', actor, {
+          previousVersion: current.version,
+          newVersion: plan.next.version,
+          metadata: { partyId, externalId: current.externalId },
+        });
+        return { kind: 'ENDED', reference: toReference(updated), changed: true };
       });
-      return { kind: 'ENDED', reference: toReference(updated), changed: true };
-    });
   }
 
   async list(
@@ -128,26 +127,30 @@ export class PostgresPartyExternalReferenceRepository implements PartyExternalRe
   ): Promise<ExternalReferencePage | undefined> {
     if (!UUID.test(partyId)) return undefined;
     // Party, count and page in one snapshot, so `total` and `items` agree.
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const party = await trx.selectFrom('party').select('id').where('id', '=', partyId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-      if (party === undefined) return undefined;
-      const filtered = () => {
-        let query = trx.selectFrom('party_external_reference').where('party_id', '=', partyId).where('mre_realm_id', '=', mreRealmId);
-        if (filter.status !== undefined) query = query.where('status', '=', filter.status);
-        return query;
-      };
-      const { n } = await filtered()
-        .select((eb) => eb.fn.countAll<string>().as('n'))
-        .executeTakeFirstOrThrow();
-      const rows = await filtered()
-        .selectAll()
-        .orderBy('created_at')
-        .orderBy('id')
-        .limit(page.pageSize)
-        .offset((page.page - 1) * page.pageSize)
-        .execute();
-      return { items: rows.map(toReference), page: page.page, pageSize: page.pageSize, total: Number(n) };
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const party = await trx.selectFrom('party').select('id').where('id', '=', partyId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+        if (party === undefined) return undefined;
+        const filtered = () => {
+          let query = trx.selectFrom('party_external_reference').where('party_id', '=', partyId).where('mre_realm_id', '=', mreRealmId);
+          if (filter.status !== undefined) query = query.where('status', '=', filter.status);
+          return query;
+        };
+        const { n } = await filtered()
+          .select((eb) => eb.fn.countAll<string>().as('n'))
+          .executeTakeFirstOrThrow();
+        const rows = await filtered()
+          .selectAll()
+          .orderBy('created_at')
+          .orderBy('id')
+          .limit(page.pageSize)
+          .offset((page.page - 1) * page.pageSize)
+          .execute();
+        return { items: rows.map(toReference), page: page.page, pageSize: page.pageSize, total: Number(n) };
+      });
   }
 }
 

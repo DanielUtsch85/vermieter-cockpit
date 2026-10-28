@@ -60,58 +60,61 @@ export class PostgresAcquisitionCostRepository implements AcquisitionCostReposit
   ): Promise<CreateCostOutcome> {
     if (!UUID.test(cost.acquisitionId)) return { kind: 'ACQUISITION_NOT_FOUND' };
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CreateCostOutcome> => {
-        const ref = { mreRealmId: cost.mreRealmId, scope: COST_SCOPE, key: idempotency?.key ?? '' };
-        if (idempotency !== undefined) {
-          const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', cost: costFromSnapshot(claim.result) };
-        }
-        const acquisition = await touchAcquisition(trx, cost.acquisitionId, cost.mreRealmId);
-        if (acquisition === undefined) throw new Rejected<CreateCostOutcome>({ kind: 'ACQUISITION_NOT_FOUND' });
-        if (cost.counterpartyPartyId !== null) {
-          const party = await trx
-            .selectFrom('party')
-            .select('id')
-            .where('id', '=', cost.counterpartyPartyId)
-            .where('mre_realm_id', '=', cost.mreRealmId)
-            .executeTakeFirst();
-          if (party === undefined) throw new Rejected<CreateCostOutcome>({ kind: 'PARTY_NOT_FOUND', partyId: cost.counterpartyPartyId });
-        }
-        if (acquisition.status === 'CANCELLED') throw new Rejected<CreateCostOutcome>({ kind: 'ACQUISITION_CANCELLED' });
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<CreateCostOutcome> => {
+          const ref = { mreRealmId: cost.mreRealmId, scope: COST_SCOPE, key: idempotency?.key ?? '' };
+          if (idempotency !== undefined) {
+            const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', cost: costFromSnapshot(claim.result) };
+          }
+          const acquisition = await touchAcquisition(trx, cost.acquisitionId, cost.mreRealmId);
+          if (acquisition === undefined) throw new Rejected<CreateCostOutcome>({ kind: 'ACQUISITION_NOT_FOUND' });
+          if (cost.counterpartyPartyId !== null) {
+            const party = await trx
+              .selectFrom('party')
+              .select('id')
+              .where('id', '=', cost.counterpartyPartyId)
+              .where('mre_realm_id', '=', cost.mreRealmId)
+              .executeTakeFirst();
+            if (party === undefined) throw new Rejected<CreateCostOutcome>({ kind: 'PARTY_NOT_FOUND', partyId: cost.counterpartyPartyId });
+          }
+          if (acquisition.status === 'CANCELLED') throw new Rejected<CreateCostOutcome>({ kind: 'ACQUISITION_CANCELLED' });
 
-        const { id } = await trx
-          .insertInto('acquisition_cost')
-          .values({
-            mre_realm_id: cost.mreRealmId,
-            acquisition_id: cost.acquisitionId,
-            category: cost.category,
-            amount: toNumericAmount(cost.amount),
-            currency: cost.amount.currency,
-            incurred_date: cost.incurredDate,
-            counterparty_party_id: cost.counterpartyPartyId,
-            source_references: [...cost.sourceReferences],
-            notes: cost.notes,
-            status: 'ACTIVE' satisfies CostStatus,
-            created_by: actor.actorId,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        const [created] = await costsOf(trx, cost.acquisitionId, acquisition, {}, id);
-        if (created === undefined) throw new Error(`AcquisitionCost ${id} vanished`);
-        if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, costToSnapshot(created));
-        await writeAudit(trx, { type: COST_ENTITY, id }, 'CREATED', actor, {
-          newVersion: created.version,
-          metadata: {
-            acquisitionId: cost.acquisitionId,
-            category: cost.category,
-            amount: cost.amount.toJSON(),
-            incurredDate: cost.incurredDate,
-            counterpartyPartyId: cost.counterpartyPartyId,
-          },
+          const { id } = await trx
+            .insertInto('acquisition_cost')
+            .values({
+              mre_realm_id: cost.mreRealmId,
+              acquisition_id: cost.acquisitionId,
+              category: cost.category,
+              amount: toNumericAmount(cost.amount),
+              currency: cost.amount.currency,
+              incurred_date: cost.incurredDate,
+              counterparty_party_id: cost.counterpartyPartyId,
+              source_references: [...cost.sourceReferences],
+              notes: cost.notes,
+              status: 'ACTIVE' satisfies CostStatus,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          const [created] = await costsOf(trx, cost.acquisitionId, acquisition, {}, id);
+          if (created === undefined) throw new Error(`AcquisitionCost ${id} vanished`);
+          if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, costToSnapshot(created));
+          await writeAudit(trx, { type: COST_ENTITY, id }, 'CREATED', actor, {
+            newVersion: created.version,
+            metadata: {
+              acquisitionId: cost.acquisitionId,
+              category: cost.category,
+              amount: cost.amount.toJSON(),
+              incurredDate: cost.incurredDate,
+              counterpartyPartyId: cost.counterpartyPartyId,
+            },
+          });
+          return { kind: 'CREATED', cost: created };
         });
-        return { kind: 'CREATED', cost: created };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome as CreateCostOutcome;
       throw error;
@@ -128,44 +131,55 @@ export class PostgresAcquisitionCostRepository implements AcquisitionCostReposit
     expectedVersions?: readonly number[],
   ): Promise<VoidCostOutcome> {
     if (!UUID.test(acquisitionId) || !UUID.test(costId)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidCostOutcome> => {
-      const acquisition = await touchAcquisition(trx, acquisitionId, mreRealmId);
-      if (acquisition === undefined) return { kind: 'NOT_FOUND' };
-      const [current] = await costsOf(trx, acquisitionId, acquisition, {}, costId);
-      if (current === undefined) return { kind: 'NOT_FOUND' };
-      const linked = await trx
-        .selectFrom('acquisition_payment')
-        .select('id')
-        .where('acquisition_cost_id', '=', costId)
-        .where('unlinked_at', 'is', null)
-        .execute();
-      const plan = planVoidCost(current, acquisition.status, linked.map((p) => p.id));
-      if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', cost: current, changed: false };
-      if (plan.kind !== 'VOID') return plan;
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx
-        .updateTable('acquisition_cost')
-        .set({ status: 'VOID' satisfies CostStatus, voided_at: at, void_reason: reason, version: current.version + 1, updated_at: at })
-        .where('id', '=', costId)
-        .execute();
-      const [voided] = await costsOf(trx, acquisitionId, acquisition, {}, costId);
-      if (voided === undefined) throw new Error(`AcquisitionCost ${costId} vanished`);
-      await writeAudit(trx, { type: COST_ENTITY, id: costId }, 'VOIDED', actor, {
-        previousVersion: current.version,
-        newVersion: voided.version,
-        metadata: { acquisitionId, reason },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<VoidCostOutcome> => {
+        const acquisition = await touchAcquisition(trx, acquisitionId, mreRealmId);
+        if (acquisition === undefined) return { kind: 'NOT_FOUND' };
+        const [current] = await costsOf(trx, acquisitionId, acquisition, {}, costId);
+        if (current === undefined) return { kind: 'NOT_FOUND' };
+        const linked = await trx
+          .selectFrom('acquisition_payment')
+          .select('id')
+          .where('acquisition_cost_id', '=', costId)
+          .where('unlinked_at', 'is', null)
+          .execute();
+        const plan = planVoidCost(
+          current,
+          acquisition.status,
+          linked.map((p) => p.id),
+        );
+        if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', cost: current, changed: false };
+        if (plan.kind !== 'VOID') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('acquisition_cost')
+          .set({ status: 'VOID' satisfies CostStatus, voided_at: at, void_reason: reason, version: current.version + 1, updated_at: at })
+          .where('id', '=', costId)
+          .execute();
+        const [voided] = await costsOf(trx, acquisitionId, acquisition, {}, costId);
+        if (voided === undefined) throw new Error(`AcquisitionCost ${costId} vanished`);
+        await writeAudit(trx, { type: COST_ENTITY, id: costId }, 'VOIDED', actor, {
+          previousVersion: current.version,
+          newVersion: voided.version,
+          metadata: { acquisitionId, reason },
+        });
+        return { kind: 'VOIDED', cost: voided, changed: true };
       });
-      return { kind: 'VOIDED', cost: voided, changed: true };
-    });
   }
 
   async listCosts(acquisitionId: string, mreRealmId: string, filter: CostFilter): Promise<readonly AcquisitionCost[] | undefined> {
     if (!UUID.test(acquisitionId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const acquisition = await readAcquisition(trx, acquisitionId, mreRealmId);
-      return acquisition === undefined ? undefined : costsOf(trx, acquisitionId, acquisition, filter);
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const acquisition = await readAcquisition(trx, acquisitionId, mreRealmId);
+        return acquisition === undefined ? undefined : costsOf(trx, acquisitionId, acquisition, filter);
+      });
   }
 
   async linkPayment(
@@ -175,96 +189,99 @@ export class PostgresAcquisitionCostRepository implements AcquisitionCostReposit
   ): Promise<LinkPaymentOutcome> {
     if (!UUID.test(payment.acquisitionId)) return { kind: 'ACQUISITION_NOT_FOUND' };
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<LinkPaymentOutcome> => {
-        const ref = { mreRealmId: payment.mreRealmId, scope: PAYMENT_SCOPE, key: idempotency?.key ?? '' };
-        if (idempotency !== undefined) {
-          const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', payment: paymentFromSnapshot(claim.result) };
-        }
-        const reject = (outcome: LinkPaymentOutcome): never => {
-          throw new Rejected(outcome);
-        };
-        // Lock order of §27.2: the Acquisition, then the Transaction.
-        const acquisition = (await touchAcquisition(trx, payment.acquisitionId, payment.mreRealmId)) ?? reject({ kind: 'ACQUISITION_NOT_FOUND' });
-        const costId = payment.acquisitionCostId;
-        const cost =
-          costId === null
-            ? undefined
-            : ((await trx
-                .selectFrom('acquisition_cost')
-                .select(['status', sql<string>`amount::text`.as('amount'), 'currency'])
-                .where('id', '=', costId)
-                .where('acquisition_id', '=', payment.acquisitionId)
-                .executeTakeFirst()) ?? reject({ kind: 'COST_NOT_FOUND' }));
-        const transaction =
-          (await trx
-            .updateTable('ledger_transaction')
-            .set((eb) => ({ version: eb.ref('version') }))
-            .where('id', '=', payment.transactionId)
-            .where('mre_realm_id', '=', payment.mreRealmId)
-            .returning([sql<string>`amount::text`.as('amount'), 'currency', 'status', 'direction', 'correction_role'])
-            .executeTakeFirst()) ?? reject({ kind: 'TRANSACTION_NOT_FOUND' });
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<LinkPaymentOutcome> => {
+          const ref = { mreRealmId: payment.mreRealmId, scope: PAYMENT_SCOPE, key: idempotency?.key ?? '' };
+          if (idempotency !== undefined) {
+            const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', payment: paymentFromSnapshot(claim.result) };
+          }
+          const reject = (outcome: LinkPaymentOutcome): never => {
+            throw new Rejected(outcome);
+          };
+          // Lock order of §27.2: the Acquisition, then the Transaction.
+          const acquisition = (await touchAcquisition(trx, payment.acquisitionId, payment.mreRealmId)) ?? reject({ kind: 'ACQUISITION_NOT_FOUND' });
+          const costId = payment.acquisitionCostId;
+          const cost =
+            costId === null
+              ? undefined
+              : ((await trx
+                  .selectFrom('acquisition_cost')
+                  .select(['status', sql<string>`amount::text`.as('amount'), 'currency'])
+                  .where('id', '=', costId)
+                  .where('acquisition_id', '=', payment.acquisitionId)
+                  .executeTakeFirst()) ?? reject({ kind: 'COST_NOT_FOUND' }));
+          const transaction =
+            (await trx
+              .updateTable('ledger_transaction')
+              .set((eb) => ({ version: eb.ref('version') }))
+              .where('id', '=', payment.transactionId)
+              .where('mre_realm_id', '=', payment.mreRealmId)
+              .returning([sql<string>`amount::text`.as('amount'), 'currency', 'status', 'direction', 'correction_role'])
+              .executeTakeFirst()) ?? reject({ kind: 'TRANSACTION_NOT_FOUND' });
 
-        const { linked } = await trx
-          .selectFrom('acquisition_payment as p')
-          .innerJoin('acquisition as a', 'a.id', 'p.acquisition_id')
-          .select(sql<string>`coalesce(sum(p.amount), 0)::text`.as('linked'))
-          .where('p.transaction_id', '=', payment.transactionId)
-          .where('p.unlinked_at', 'is', null)
-          .where('a.status', '<>', 'CANCELLED')
-          .executeTakeFirstOrThrow();
-        const { paid } = await trx
-          .selectFrom('acquisition_payment as p')
-          .innerJoin('ledger_transaction as t', 't.id', 'p.transaction_id')
-          .select(sql<string>`coalesce(sum(p.amount), 0)::text`.as('paid'))
-          .where('p.acquisition_id', '=', payment.acquisitionId)
-          .where(sql<boolean>`p.acquisition_cost_id IS NOT DISTINCT FROM ${costId}::uuid`)
-          .where(COUNTING)
-          .executeTakeFirstOrThrow();
-        const currency = acquisition.purchasePrice.currency;
-        const refusal = checkLink(payment.amount, {
-          acquisitionStatus: acquisition.status,
-          ...(cost === undefined ? {} : { costStatus: cost.status as CostStatus }),
-          transaction: {
-            amount: fromNumericAmount(transaction.amount, transaction.currency),
-            status: transaction.status,
-            direction: transaction.direction,
-            correctionRole: transaction.correction_role,
-          },
-          linkedOnTransaction: transaction.currency === currency ? fromNumericAmount(linked, currency) : Money.zero(currency),
-          expected: cost === undefined ? acquisition.purchasePrice : fromNumericAmount(cost.amount, cost.currency),
-          paid: fromNumericAmount(paid, currency),
-        });
-        if (refusal !== undefined) reject(refusal);
+          const { linked } = await trx
+            .selectFrom('acquisition_payment as p')
+            .innerJoin('acquisition as a', 'a.id', 'p.acquisition_id')
+            .select(sql<string>`coalesce(sum(p.amount), 0)::text`.as('linked'))
+            .where('p.transaction_id', '=', payment.transactionId)
+            .where('p.unlinked_at', 'is', null)
+            .where('a.status', '<>', 'CANCELLED')
+            .executeTakeFirstOrThrow();
+          const { paid } = await trx
+            .selectFrom('acquisition_payment as p')
+            .innerJoin('ledger_transaction as t', 't.id', 'p.transaction_id')
+            .select(sql<string>`coalesce(sum(p.amount), 0)::text`.as('paid'))
+            .where('p.acquisition_id', '=', payment.acquisitionId)
+            .where(sql<boolean>`p.acquisition_cost_id IS NOT DISTINCT FROM ${costId}::uuid`)
+            .where(COUNTING)
+            .executeTakeFirstOrThrow();
+          const currency = acquisition.purchasePrice.currency;
+          const refusal = checkLink(payment.amount, {
+            acquisitionStatus: acquisition.status,
+            ...(cost === undefined ? {} : { costStatus: cost.status as CostStatus }),
+            transaction: {
+              amount: fromNumericAmount(transaction.amount, transaction.currency),
+              status: transaction.status,
+              direction: transaction.direction,
+              correctionRole: transaction.correction_role,
+            },
+            linkedOnTransaction: transaction.currency === currency ? fromNumericAmount(linked, currency) : Money.zero(currency),
+            expected: cost === undefined ? acquisition.purchasePrice : fromNumericAmount(cost.amount, cost.currency),
+            paid: fromNumericAmount(paid, currency),
+          });
+          if (refusal !== undefined) reject(refusal);
 
-        const { id } = await trx
-          .insertInto('acquisition_payment')
-          .values({
-            mre_realm_id: payment.mreRealmId,
-            acquisition_id: payment.acquisitionId,
-            acquisition_cost_id: costId,
-            transaction_id: payment.transactionId,
-            amount: toNumericAmount(payment.amount),
-            currency: payment.amount.currency,
-            created_by: actor.actorId,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        const [created] = await paymentsOf(trx, payment.acquisitionId, acquisition, {}, id);
-        if (created === undefined) throw new Error(`AcquisitionPayment ${id} vanished`);
-        if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, paymentToSnapshot(created));
-        await writeAudit(trx, { type: PAYMENT_ENTITY, id }, 'LINKED', actor, {
-          newVersion: created.version,
-          metadata: {
-            acquisitionId: payment.acquisitionId,
-            acquisitionCostId: costId,
-            transactionId: payment.transactionId,
-            amount: payment.amount.toJSON(),
-          },
+          const { id } = await trx
+            .insertInto('acquisition_payment')
+            .values({
+              mre_realm_id: payment.mreRealmId,
+              acquisition_id: payment.acquisitionId,
+              acquisition_cost_id: costId,
+              transaction_id: payment.transactionId,
+              amount: toNumericAmount(payment.amount),
+              currency: payment.amount.currency,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          const [created] = await paymentsOf(trx, payment.acquisitionId, acquisition, {}, id);
+          if (created === undefined) throw new Error(`AcquisitionPayment ${id} vanished`);
+          if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, paymentToSnapshot(created));
+          await writeAudit(trx, { type: PAYMENT_ENTITY, id }, 'LINKED', actor, {
+            newVersion: created.version,
+            metadata: {
+              acquisitionId: payment.acquisitionId,
+              acquisitionCostId: costId,
+              transactionId: payment.transactionId,
+              amount: payment.amount.toJSON(),
+            },
+          });
+          return { kind: 'LINKED', payment: created };
         });
-        return { kind: 'LINKED', payment: created };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome as LinkPaymentOutcome;
       throw error;
@@ -281,30 +298,33 @@ export class PostgresAcquisitionCostRepository implements AcquisitionCostReposit
     expectedVersions?: readonly number[],
   ): Promise<UnlinkPaymentOutcome> {
     if (!UUID.test(acquisitionId) || !UUID.test(paymentId)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<UnlinkPaymentOutcome> => {
-      const acquisition = await touchAcquisition(trx, acquisitionId, mreRealmId);
-      if (acquisition === undefined) return { kind: 'NOT_FOUND' };
-      const [current] = await paymentsOf(trx, acquisitionId, acquisition, {}, paymentId);
-      if (current === undefined) return { kind: 'NOT_FOUND' };
-      const plan = planUnlink(current, acquisition.status);
-      if (plan.kind === 'UNCHANGED') return { kind: 'UNLINKED', payment: current, changed: false };
-      if (plan.kind !== 'UNLINK') return plan;
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx
-        .updateTable('acquisition_payment')
-        .set({ unlinked_at: at, unlink_reason: reason, version: current.version + 1, updated_at: at })
-        .where('id', '=', paymentId)
-        .execute();
-      const [unlinked] = await paymentsOf(trx, acquisitionId, acquisition, {}, paymentId);
-      if (unlinked === undefined) throw new Error(`AcquisitionPayment ${paymentId} vanished`);
-      await writeAudit(trx, { type: PAYMENT_ENTITY, id: paymentId }, 'UNLINKED', actor, {
-        previousVersion: current.version,
-        newVersion: unlinked.version,
-        metadata: { acquisitionId, reason },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<UnlinkPaymentOutcome> => {
+        const acquisition = await touchAcquisition(trx, acquisitionId, mreRealmId);
+        if (acquisition === undefined) return { kind: 'NOT_FOUND' };
+        const [current] = await paymentsOf(trx, acquisitionId, acquisition, {}, paymentId);
+        if (current === undefined) return { kind: 'NOT_FOUND' };
+        const plan = planUnlink(current, acquisition.status);
+        if (plan.kind === 'UNCHANGED') return { kind: 'UNLINKED', payment: current, changed: false };
+        if (plan.kind !== 'UNLINK') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('acquisition_payment')
+          .set({ unlinked_at: at, unlink_reason: reason, version: current.version + 1, updated_at: at })
+          .where('id', '=', paymentId)
+          .execute();
+        const [unlinked] = await paymentsOf(trx, acquisitionId, acquisition, {}, paymentId);
+        if (unlinked === undefined) throw new Error(`AcquisitionPayment ${paymentId} vanished`);
+        await writeAudit(trx, { type: PAYMENT_ENTITY, id: paymentId }, 'UNLINKED', actor, {
+          previousVersion: current.version,
+          newVersion: unlinked.version,
+          metadata: { acquisitionId, reason },
+        });
+        return { kind: 'UNLINKED', payment: unlinked, changed: true };
       });
-      return { kind: 'UNLINKED', payment: unlinked, changed: true };
-    });
   }
 
   async listPayments(
@@ -313,25 +333,27 @@ export class PostgresAcquisitionCostRepository implements AcquisitionCostReposit
     filter: PaymentFilter,
   ): Promise<{ readonly purchasePrice: PurchasePricePayments; readonly items: readonly AcquisitionPayment[] } | undefined> {
     if (!UUID.test(acquisitionId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const acquisition = await readAcquisition(trx, acquisitionId, mreRealmId);
-      if (acquisition === undefined) return undefined;
-      const all = await paymentsOf(trx, acquisitionId, acquisition, {});
-      const price = acquisition.purchasePrice;
-      const paid = all
-        .filter((p) => p.acquisitionCostId === null && p.counting)
-        .reduce((sum, p) => sum.add(p.amount), Money.zero(price.currency));
-      const purchasePrice =
-        acquisition.status === 'CANCELLED'
-          ? { amount: price, paidAmount: Money.zero(price.currency), paymentStatus: null }
-          : { amount: price, paidAmount: paid, paymentStatus: paymentStatusOf(price, paid) };
-      const items = all.filter(
-        (p) =>
-          (filter.acquisitionCostId === undefined || p.acquisitionCostId === filter.acquisitionCostId) &&
-          (filter.counting === undefined || p.counting === filter.counting),
-      );
-      return { purchasePrice, items };
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const acquisition = await readAcquisition(trx, acquisitionId, mreRealmId);
+        if (acquisition === undefined) return undefined;
+        const all = await paymentsOf(trx, acquisitionId, acquisition, {});
+        const price = acquisition.purchasePrice;
+        const paid = all.filter((p) => p.acquisitionCostId === null && p.counting).reduce((sum, p) => sum.add(p.amount), Money.zero(price.currency));
+        const purchasePrice =
+          acquisition.status === 'CANCELLED'
+            ? { amount: price, paidAmount: Money.zero(price.currency), paymentStatus: null }
+            : { amount: price, paidAmount: paid, paymentStatus: paymentStatusOf(price, paid) };
+        const items = all.filter(
+          (p) =>
+            (filter.acquisitionCostId === undefined || p.acquisitionCostId === filter.acquisitionCostId) &&
+            (filter.counting === undefined || p.counting === filter.counting),
+        );
+        return { purchasePrice, items };
+      });
   }
 }
 
@@ -484,7 +506,13 @@ async function paymentsOf(
 
 /** The created cost or payment as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
 function costToSnapshot(c: AcquisitionCost): unknown {
-  return { ...c, amount: c.amount.toJSON(), paidAmount: c.paidAmount.toJSON(), createdAt: c.createdAt.toISOString(), voidedAt: c.voidedAt?.toISOString() ?? null };
+  return {
+    ...c,
+    amount: c.amount.toJSON(),
+    paidAmount: c.paidAmount.toJSON(),
+    createdAt: c.createdAt.toISOString(),
+    voidedAt: c.voidedAt?.toISOString() ?? null,
+  };
 }
 
 /** Written by costToSnapshot in the same codebase, so its shape is trusted. */

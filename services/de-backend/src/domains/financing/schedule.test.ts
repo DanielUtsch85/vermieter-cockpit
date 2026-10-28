@@ -47,7 +47,13 @@ describe('scheduleOf (§41.4)', () => {
   });
 
   it('carries the balance into a follow-up period; principalAtStart restarts it', () => {
-    const second = period({ id: 't2' as LoanTermsId, validFrom: day('2027-03-01'), interestRate: 0n, scheduledPayment: eur('100.00'), firstPaymentDate: day('2027-03-15') });
+    const second = period({
+      id: 't2' as LoanTermsId,
+      validFrom: day('2027-03-01'),
+      interestRate: 0n,
+      scheduledPayment: eur('100.00'),
+      firstPaymentDate: day('2027-03-15'),
+    });
     // Two payments of the first period leave 408.53; at 0 % the second repays 100.00 a month.
     expect(rows('1000.00', null, [period(), second]).map((r) => [r[1], r[2], r[4]])).toEqual([
       ['2027-01-31', 100_000n, 29_500n],
@@ -106,13 +112,25 @@ describe('scheduleOf (§41.4)', () => {
 
   it('clamps to the month end, counted from firstPaymentDate', () => {
     const io = period({ repaymentModel: 'INTEREST_ONLY', scheduledPayment: null });
-    expect(scheduleOf(eur('1000.00'), day('2028-03-31'), [io]).entries.slice(12, 15).map((e) => e.paymentDate)).toEqual(['2028-01-31', '2028-02-29', '2028-03-31']);
+    expect(
+      scheduleOf(eur('1000.00'), day('2028-03-31'), [io])
+        .entries.slice(12, 15)
+        .map((e) => e.paymentDate),
+    ).toEqual(['2028-01-31', '2028-02-29', '2028-03-31']);
   });
 
   it('NO_TERMS: no payments, the original principal due', () => {
     expect(scheduleOf(eur('1000.00'), null, [])).toEqual({
       entries: [],
-      summary: { payments: 0, firstPaymentDate: null, lastPaymentDate: null, totalInterest: 0n, totalPrincipal: 0n, balanceDue: 100_000n, endReason: 'NO_TERMS' },
+      summary: {
+        payments: 0,
+        firstPaymentDate: null,
+        lastPaymentDate: null,
+        totalInterest: 0n,
+        totalPrincipal: 0n,
+        balanceDue: 100_000n,
+        endReason: 'NO_TERMS',
+      },
     });
   });
 
@@ -169,7 +187,10 @@ describe('property: the plan against an independent oracle (§41.4)', () => {
       const { entries, summary } = scheduleOf(cents(principal), null, [period({ interestRate: rate, scheduledPayment: cents(payment) })]);
       const context = `run ${run}: ${principal} cents at ${rate}, payment ${payment}`;
       expect(summary.endReason, context).toBe('PAID_OFF');
-      expect(entries.reduce((sum, e) => sum + e.principal, 0n), context).toBe(principal);
+      expect(
+        entries.reduce((sum, e) => sum + e.principal, 0n),
+        context,
+      ).toBe(principal);
       expect(summary.totalPrincipal, context).toBe(principal);
       entries.forEach((e, i) => {
         // Every payment but the last is the scheduled one; the last may equal it (review on #65).
@@ -192,7 +213,12 @@ describe('property: the plan against an independent oracle (§41.4)', () => {
       const annuity = (balance: bigint, rate: bigint) => cents((2n * balance * rate + 1_200_000n) / 2_400_000n + balance / 200n + BigInt(between(1, 5_000)));
       const rate1 = BigInt(between(0, 15_000));
       const periods: SchedulePeriod[] = [
-        period({ validFrom: day(plusDays(firstPayment, -between(0, 20))), firstPaymentDate: day(firstPayment), interestRate: rate1, scheduledPayment: annuity(principal, rate1) }),
+        period({
+          validFrom: day(plusDays(firstPayment, -between(0, 20))),
+          firstPaymentDate: day(firstPayment),
+          interestRate: rate1,
+          scheduledPayment: annuity(principal, rate1),
+        }),
       ];
       if (chance(0.7)) {
         const validFrom = plusDays(oracleDate(firstPayment, between(0, 30)), between(1, 20));

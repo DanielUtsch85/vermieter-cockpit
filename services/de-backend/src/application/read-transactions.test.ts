@@ -16,7 +16,9 @@ describe('read Transactions (api-design.md §30.1)', () => {
       list: async (...args) => (calls.push(args), { items: [] as Transaction[], page: 1, pageSize: 50, total: 0 }),
     };
     await expect(getTransaction({ queries })({ principal, transactionId: 't1' })).rejects.toBeInstanceOf(TransactionNotFoundError);
-    expect(await listTransactions({ queries })({ principal, filter: { statuses: ['CONFIRMED'] }, page: { page: 1, pageSize: 50 } })).toMatchObject({ total: 0 });
+    expect(await listTransactions({ queries })({ principal, filter: { statuses: ['CONFIRMED'] }, page: { page: 1, pageSize: 50 } })).toMatchObject({
+      total: 0,
+    });
     expect(calls).toEqual([
       ['t1', REALM],
       [REALM, { statuses: ['CONFIRMED'] }, { page: 1, pageSize: 50 }],

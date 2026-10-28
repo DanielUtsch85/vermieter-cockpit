@@ -106,7 +106,7 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
     expect(payload.exp - payload.iat).toBe(30);
   });
 
-  it('GET /realms lists exactly the caller\'s Realms with member roles (what HttpMreClient reads)', async () => {
+  it("GET /realms lists exactly the caller's Realms with member roles (what HttpMreClient reads)", async () => {
     const { status, json } = await call('/realms', { token: await token() });
     expect(status).toBe(200);
     const realms = z.array(realmContract).parse(json);
@@ -152,16 +152,26 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       });
     });
 
-    it('GET /properties lists the Realm\'s properties', async () => {
+    it("GET /properties lists the Realm's properties", async () => {
       const { status, json } = await call('/properties', { token: await token(), realm: realmA });
       expect(status).toBe(200);
-      expect(z.array(propertyContract).parse(json).map((p) => p._id)).toContain(propertyId);
+      expect(
+        z
+          .array(propertyContract)
+          .parse(json)
+          .map((p) => p._id),
+      ).toContain(propertyId);
     });
 
     it('Realm isolation: the property is not visible in another Realm of the same user', async () => {
       const list = await call('/properties', { token: await token(), realm: realmB });
       expect(list.status).toBe(200);
-      expect(z.array(propertyContract).parse(list.json).map((p) => p._id)).not.toContain(propertyId);
+      expect(
+        z
+          .array(propertyContract)
+          .parse(list.json)
+          .map((p) => p._id),
+      ).not.toContain(propertyId);
     });
 
     it('HttpMreClient.listProperties (used by link, VC-1-01) finds the property only in its Realm', async () => {
@@ -199,10 +209,15 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       tenantId = z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/) }).parse(json)._id;
     });
 
-    it('GET /tenants lists the Realm\'s Tenants by _id and ignores a filter: every Tenant comes back (mre-integration.md §20.1)', async () => {
+    it("GET /tenants lists the Realm's Tenants by _id and ignores a filter: every Tenant comes back (mre-integration.md §20.1)", async () => {
       const { status, json } = await call('/tenants?_id=000000000000000000000000', { token: await token(), realm: realmA });
       expect(status).toBe(200);
-      expect(z.array(z.object({ _id: z.string() }).passthrough()).parse(json).map((t) => t._id)).toContain(tenantId);
+      expect(
+        z
+          .array(z.object({ _id: z.string() }).passthrough())
+          .parse(json)
+          .map((t) => t._id),
+      ).toContain(tenantId);
     });
 
     it('HttpMreClient.listTenantIds (used by the reference check) finds the Tenant only in its Realm', async () => {
@@ -266,7 +281,10 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       const t = await token();
       const raw = await call(`/rents/tenant/${tenantId}/2027030100`, { token: t, realm: realmA });
       expect(raw.status).toBe(200);
-      expect(z.object({ totalWithoutBalanceAmount: z.number(), payments: z.array(z.unknown()) }).parse(raw.json)).toMatchObject({ totalWithoutBalanceAmount: 800, payments: [] });
+      expect(z.object({ totalWithoutBalanceAmount: z.number(), payments: z.array(z.unknown()) }).parse(raw.json)).toMatchObject({
+        totalWithoutBalanceAmount: 800,
+        payments: [],
+      });
       // MRE's own form writes a payment this way (PaymentTabs.js): the Tenant in the body's _id (review on #75).
       const paid = await call('/rents/payment/' + tenantId + '/2027030100', {
         method: 'PATCH',
@@ -283,17 +301,23 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       expect(await client.readRentTerm(await token(), realmA, tenantId, '2028010100')).toBeUndefined();
     });
 
-    it('GET /rents/:year/:month lists the Tenant\'s rent of that month with _id, term and totalWithoutBalanceAmount; another Realm\'s month does not (VC-4-03)', async () => {
+    it("GET /rents/:year/:month lists the Tenant's rent of that month with _id, term and totalWithoutBalanceAmount; another Realm's month does not (VC-4-03)", async () => {
       const { status, json } = await call('/rents/2027/04', { token: await token(), realm: realmA });
       expect(status).toBe(200);
-      const rents = z.object({ rents: z.array(z.object({ _id: z.string(), term: z.number(), totalWithoutBalanceAmount: z.number() }).passthrough()) }).parse(json).rents;
+      const rents = z
+        .object({ rents: z.array(z.object({ _id: z.string(), term: z.number(), totalWithoutBalanceAmount: z.number() }).passthrough()) })
+        .parse(json).rents;
       expect(rents.find((r) => r._id === tenantId)).toMatchObject({ term: 2027040100, totalWithoutBalanceAmount: 800 });
       const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
-      expect(await client.listRentTerms(await token(), realmA, 2027, 4)).toContainEqual({ mreTenantId: tenantId, term: '2027040100', amountDue: Money.of('800.00', 'EUR') });
+      expect(await client.listRentTerms(await token(), realmA, 2027, 4)).toContainEqual({
+        mreTenantId: tenantId,
+        term: '2027040100',
+        amountDue: Money.of('800.00', 'EUR'),
+      });
       expect((await client.listRentTerms(await token(), realmB, 2027, 4)).map((r) => r.mreTenantId)).not.toContain(tenantId);
     });
 
-    it('PATCH /rents/payment/:id/:term replaces the settlement: DE\'s payment next to an existing one, the promo and description kept; without _id or for another Realm a 500 and no change (VC-4-04)', async () => {
+    it("PATCH /rents/payment/:id/:term replaces the settlement: DE's payment next to an existing one, the promo and description kept; without _id or for another Realm a 500 and no change (VC-4-04)", async () => {
       const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
       const term = '2027050100';
       // MRE's own form first: a cash payment, a settlement discount and a description (no VAT).
@@ -301,7 +325,13 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
         method: 'PATCH',
         token: await token(),
         realm: realmA,
-        body: { _id: tenantId, payments: [{ date: '02/05/2027', amount: 100, type: 'cash', reference: '', description: 'Bar' }], promo: 10, notepromo: 'Rabatt', description: 'Mai' },
+        body: {
+          _id: tenantId,
+          payments: [{ date: '02/05/2027', amount: 100, type: 'cash', reference: '', description: 'Bar' }],
+          promo: 10,
+          notepromo: 'Rabatt',
+          description: 'Mai',
+        },
       });
       expect(seeded.status).toBe(200);
       const read = await client.readRentTermForWriteBack(await token(), realmA, tenantId, term);
@@ -321,14 +351,20 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       const withoutId = await call(`/rents/payment/${tenantId}/${term}`, { method: 'PATCH', token: await token(), realm: realmA, body: { payments: [] } });
       expect(withoutId.status).toBe(500);
       // The same user's other Realm: the Tenant is not found there either.
-      expect(await client.writeRentTermPayments(await token(), realmB, tenantId, term, { ...writeBody(read, payment), payments: [] })).toEqual({ kind: 'REFUSED', status: 500 });
+      expect(await client.writeRentTermPayments(await token(), realmB, tenantId, term, { ...writeBody(read, payment), payments: [] })).toEqual({
+        kind: 'REFUSED',
+        status: 500,
+      });
       expect(await client.readRentTermForWriteBack(await token(), realmA, tenantId, term)).toEqual(after);
       // Restore the term as MRE's form left it.
-      const restored = await client.writeRentTermPayments(await token(), realmA, tenantId, term, { ...writeBody(read, payment), payments: storedPayments(read.payments) });
+      const restored = await client.writeRentTermPayments(await token(), realmA, tenantId, term, {
+        ...writeBody(read, payment),
+        payments: storedPayments(read.payments),
+      });
       expect(restored.kind === 'ANSWERED' && markerIn(restored.term, payment)).toBe('ABSENT');
     });
 
-    it('the removal PATCH removes only DE\'s payment: the existing one, the promo and the description kept (VC-4-05)', async () => {
+    it("the removal PATCH removes only DE's payment: the existing one, the promo and the description kept (VC-4-05)", async () => {
       const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
       const term = '2027060100';
       const payment = dePayment('1b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b', Money.of('650.00', 'EUR'), '2027-06-03' as BusinessDate);
@@ -336,7 +372,13 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
         method: 'PATCH',
         token: await token(),
         realm: realmA,
-        body: { _id: tenantId, payments: [{ date: '01/06/2027', amount: 150, type: 'cash', reference: '', description: 'Bar' }, payment], promo: 5, notepromo: 'Rabatt', description: 'Juni' },
+        body: {
+          _id: tenantId,
+          payments: [{ date: '01/06/2027', amount: 150, type: 'cash', reference: '', description: 'Bar' }, payment],
+          promo: 5,
+          notepromo: 'Rabatt',
+          description: 'Juni',
+        },
       });
       expect(seeded.status).toBe(200);
       const read = await client.readRentTermForWriteBack(await token(), realmA, tenantId, term);

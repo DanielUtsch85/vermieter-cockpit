@@ -118,7 +118,11 @@ describe('POST /api/v1/financial-accounts', () => {
     ['blank displayName', { accountType: 'BANK', displayName: '   ', currency: 'EUR' }, [{ field: 'displayName', code: 'INVALID_FORMAT' }]],
     ['unsupported currency', { accountType: 'BANK', displayName: 'x', currency: 'USD' }, [{ field: 'currency', code: 'INVALID_FORMAT' }]],
     ['missing currency', { accountType: 'BANK', displayName: 'x' }, [{ field: 'currency', code: 'REQUIRED' }]],
-    ['invalid IBAN checksum', { accountType: 'BANK', displayName: 'x', currency: 'EUR', iban: 'DE88370400440532013000' }, [{ field: 'iban', code: 'INVALID_FORMAT' }]],
+    [
+      'invalid IBAN checksum',
+      { accountType: 'BANK', displayName: 'x', currency: 'EUR', iban: 'DE88370400440532013000' },
+      [{ field: 'iban', code: 'INVALID_FORMAT' }],
+    ],
   ])('400 VALIDATION_ERROR: %s — the use case is not called', async (_label, body, fields) => {
     let called = false;
     const base = await start({ create: async () => ((called = true), { account, replayed: false }) });
@@ -139,8 +143,7 @@ describe('POST /api/v1/financial-accounts', () => {
 });
 
 describe('POST /api/v1/financial-accounts/{id}/close', () => {
-  const close = (base: string, id: string) =>
-    fetch(`${base}/api/v1/financial-accounts/${id}/close`, { method: 'POST', headers });
+  const close = (base: string, id: string) => fetch(`${base}/api/v1/financial-accounts/${id}/close`, { method: 'POST', headers });
 
   it('200 with the closed account', async () => {
     const closedAt = new Date('2026-12-31T12:00:00Z');

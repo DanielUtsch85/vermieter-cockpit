@@ -22,89 +22,86 @@ const CREATE_SCOPE = 'financial-account.create';
 export class PostgresFinancialAccountRepository implements FinancialAccountRepository {
   constructor(private readonly db: Kysely<Database>) {}
 
-  async create(
-    account: NewFinancialAccount,
-    actor: AuditActor,
-    idempotency?: { readonly key: string; readonly fingerprint: string },
-  ): Promise<CreateOutcome> {
+  async create(account: NewFinancialAccount, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateOutcome> {
     // READ COMMITTED explicitly: the idempotency claim relies on it (idempotency.ts).
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx) => {
-      const keyed =
-        idempotency === undefined
-          ? undefined
-          : {
-              ref: { mreRealmId: account.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key },
-              fingerprint: idempotency.fingerprint,
-            };
-      if (keyed !== undefined) {
-        const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
-        if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-        // The account as the first request created it, not as it is now (idempotency.ts).
-        if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', account: fromSnapshot(claim.result) };
-      }
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx) => {
+        const keyed =
+          idempotency === undefined
+            ? undefined
+            : {
+                ref: { mreRealmId: account.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key },
+                fingerprint: idempotency.fingerprint,
+              };
+        if (keyed !== undefined) {
+          const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
+          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+          // The account as the first request created it, not as it is now (idempotency.ts).
+          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', account: fromSnapshot(claim.result) };
+        }
 
-      const inserted = await trx
-        .insertInto('financial_account')
-        .values({
-          mre_realm_id: account.mreRealmId,
-          account_type: account.accountType,
-          display_name: account.displayName,
-          currency: account.currency,
-          iban: account.iban,
-          status: 'OPEN' satisfies AccountStatus,
-          created_by: actor.actorId,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      const created = toFinancialAccount(inserted);
-      if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, inserted.id, toSnapshot(created));
-      await writeAudit(trx, { type: ENTITY_TYPE, id: inserted.id }, 'CREATED', actor, {
-        newVersion: inserted.version,
-        metadata: { accountType: inserted.account_type, currency: inserted.currency },
+        const inserted = await trx
+          .insertInto('financial_account')
+          .values({
+            mre_realm_id: account.mreRealmId,
+            account_type: account.accountType,
+            display_name: account.displayName,
+            currency: account.currency,
+            iban: account.iban,
+            status: 'OPEN' satisfies AccountStatus,
+            created_by: actor.actorId,
+          })
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        const created = toFinancialAccount(inserted);
+        if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, inserted.id, toSnapshot(created));
+        await writeAudit(trx, { type: ENTITY_TYPE, id: inserted.id }, 'CREATED', actor, {
+          newVersion: inserted.version,
+          metadata: { accountType: inserted.account_type, currency: inserted.currency },
+        });
+        return { kind: 'CREATED', account: created };
       });
-      return { kind: 'CREATED', account: created };
-    });
   }
 
   async findById(id: string, mreRealmId: string): Promise<FinancialAccount | undefined> {
     if (!UUID.test(id)) return undefined;
-    const row = await this.db
-      .selectFrom('financial_account')
-      .selectAll()
-      .where('id', '=', id)
-      .where('mre_realm_id', '=', mreRealmId)
-      .executeTakeFirst();
+    const row = await this.db.selectFrom('financial_account').selectAll().where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
     return row === undefined ? undefined : toFinancialAccount(row);
   }
 
   async close(id: FinancialAccountId, mreRealmId: string, at: Date, actor: AuditActor): Promise<FinancialAccount | undefined> {
     if (!UUID.test(id)) return undefined;
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx) => {
-      const row = await trx
-        .selectFrom('financial_account')
-        .selectAll()
-        .where('id', '=', id)
-        .where('mre_realm_id', '=', mreRealmId)
-        .forUpdate()
-        .executeTakeFirst();
-      if (row === undefined) return undefined;
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx) => {
+        const row = await trx
+          .selectFrom('financial_account')
+          .selectAll()
+          .where('id', '=', id)
+          .where('mre_realm_id', '=', mreRealmId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (row === undefined) return undefined;
 
-      const current = toFinancialAccount(row);
-      const { next, changed } = planClose(current, at);
-      if (!changed) return current;
-      const updated = await trx
-        .updateTable('financial_account')
-        .set({ status: next.status, closed_at: next.closedAt, version: next.version, updated_at: at })
-        .where('id', '=', id)
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CLOSED', actor, {
-        previousVersion: current.version,
-        newVersion: next.version,
-        metadata: {},
+        const current = toFinancialAccount(row);
+        const { next, changed } = planClose(current, at);
+        if (!changed) return current;
+        const updated = await trx
+          .updateTable('financial_account')
+          .set({ status: next.status, closed_at: next.closedAt, version: next.version, updated_at: at })
+          .where('id', '=', id)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CLOSED', actor, {
+          previousVersion: current.version,
+          newVersion: next.version,
+          metadata: {},
+        });
+        return toFinancialAccount(updated);
       });
-      return toFinancialAccount(updated);
-    });
   }
 }
 

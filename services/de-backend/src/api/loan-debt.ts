@@ -34,14 +34,12 @@ const debtQuery = z.object({ asOf: businessDate.optional(), perProperty }).stric
 
 const paymentsQuery = z
   .object({
-    year: z
-      .string()
-      .transform((value, ctx) => {
-        const year = /^\d{4}$/.test(value) ? Number(value) : undefined;
-        if (year !== undefined && year >= 2000 && year <= 2100) return year;
-        ctx.addIssue({ code: 'custom', params: { code: year === undefined ? 'INVALID_FORMAT' : 'OUT_OF_RANGE' } });
-        return z.NEVER;
-      }),
+    year: z.string().transform((value, ctx) => {
+      const year = /^\d{4}$/.test(value) ? Number(value) : undefined;
+      if (year !== undefined && year >= 2000 && year <= 2100) return year;
+      ctx.addIssue({ code: 'custom', params: { code: year === undefined ? 'INVALID_FORMAT' : 'OUT_OF_RANGE' } });
+      return z.NEVER;
+    }),
     perProperty,
   })
   .strict();
@@ -108,7 +106,9 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
           payments: p.payments,
           ...(p.items === undefined
             ? {}
-            : { items: p.items.map((i) => ({ propertyReferenceId: i.propertyReferenceId, interest: eurCents(i.interest), principal: eurCents(i.principal) })) }),
+            : {
+                items: p.items.map((i) => ({ propertyReferenceId: i.propertyReferenceId, interest: eurCents(i.interest), principal: eurCents(i.principal) })),
+              }),
         }),
       )
       .catch(fail(res, next));

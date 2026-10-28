@@ -5,11 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
 import { linkPropertyReference, refreshPropertyReference } from './application/index.js';
-import {
-  PostgresPropertyReferenceRepository,
-  createDatabase,
-  migrateToLatest,
-} from './infrastructure/postgres/index.js';
+import { PostgresPropertyReferenceRepository, createDatabase, migrateToLatest } from './infrastructure/postgres/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
@@ -27,9 +23,7 @@ const PROPERTY_A = '6512f0c2a1b2c3d4e5f60718';
 const PROPERTY_B = '6512f0c2a1b2c3d4e5f60719';
 
 /** Mutated by the refresh tests, like a landlord editing the Property in MRE. */
-const realmAProperties: Record<string, unknown>[] = [
-  { _id: PROPERTY_A, name: 'Wohnung 1', price: 950, surface: 64.5, address: { city: 'Berlin' } },
-];
+const realmAProperties: Record<string, unknown>[] = [{ _id: PROPERTY_A, name: 'Wohnung 1', price: 950, surface: 64.5, address: { city: 'Berlin' } }];
 
 /**
  * Where the MRE price (950) shows up in a response: a key `price`, or the value as

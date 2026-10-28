@@ -31,7 +31,6 @@ export function parseBusinessDate(value: string): BusinessDate | undefined {
   return 'date' in result ? result.date : undefined;
 }
 
-
 /** The day `days` after `date` (negative: before), as a business date. */
 export function addDays(date: BusinessDate, days: number): BusinessDate {
   const [y, m, d] = date.split('-').map(Number) as [number, number, number];
@@ -51,7 +50,7 @@ export function addMonths(date: BusinessDate, months: number): BusinessDate {
   const year = Math.floor(index / 12);
   const month = index - year * 12;
   const last = new Date(Date.UTC(2000, month + 1, 0)).getUTCDate();
-  const leap = month === 1 && (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0));
+  const leap = month === 1 && year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
   const day = Math.min(d, month === 1 ? (leap ? 29 : 28) : last);
   const pad = (n: number, width: number) => String(n).padStart(width, '0');
   return `${pad(year, 4)}-${pad(month + 1, 2)}-${pad(day, 2)}` as BusinessDate;

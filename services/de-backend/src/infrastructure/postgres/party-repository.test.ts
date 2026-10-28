@@ -121,7 +121,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresPartyRepository', () => {
       changed: false,
       party: { version: 2 },
     });
-    expect(await repository.amend(party.id, REALM, { phone: '0171' }, actor, [1])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 });
+    expect(await repository.amend(party.id, REALM, { phone: '0171' }, actor, [1])).toEqual({
+      kind: 'VERSION_CONFLICT',
+      expectedVersions: [1],
+      currentVersion: 2,
+    });
     expect(await repository.amend(party.id, REALM, { legalName: 'X GmbH' }, actor)).toEqual({
       kind: 'NOT_ALLOWED_FOR_TYPE',
       partyType: 'PERSON',
@@ -140,15 +144,16 @@ describe.skipIf(databaseUrl === undefined)('PostgresPartyRepository', () => {
         repository.amend(party.id, REALM, { phone: '0171' }, actor, [1]),
         repository.amend(party.id, REALM, { phone: '0172' }, actor, [1]),
       ]);
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
                AND query LIKE '%from "party"%for update%'`,
-            )
-          ).rows[0].count,
-        ) === 2,
+              )
+            ).rows[0].count,
+          ) === 2,
       );
       await holder.query('COMMIT');
       const outcomes = await both;

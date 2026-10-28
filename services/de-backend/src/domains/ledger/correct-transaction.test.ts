@@ -64,7 +64,10 @@ describe('planCorrection (api-design.md §35)', () => {
   });
 
   it('confirmed rent reconciliations refuse correct and reverse right after NOT_CORRECTABLE (§37.1, P4-D7)', () => {
-    expect(planCorrection(original(), splits, { description: 'x' }, ['r1', 'r2'])).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1', 'r2'] });
+    expect(planCorrection(original(), splits, { description: 'x' }, ['r1', 'r2'])).toEqual({
+      kind: 'TRANSACTION_RENT_RECONCILED',
+      reconciliationIds: ['r1', 'r2'],
+    });
     expect(planCorrection(original(), splits, null, ['r1'])).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1'] });
     // Before NO_CHANGE: a request that changes nothing is still refused for the match.
     expect(planCorrection(original(), splits, {}, ['r1'])).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1'] });
@@ -85,9 +88,7 @@ describe('planCorrection (api-design.md §35)', () => {
     ).toEqual({ kind: 'NO_CHANGE' });
     expect(planCorrection(original(), splits, { description: 'Miete Sept.' }).kind).toBe('CORRECT');
     expect(planCorrection(original(), splits, { propertyReferenceId: null }).kind).toBe('CORRECT');
-    expect(planCorrection(original(), splits, { splits: [split('250.00', 'RENT_OPERATING_COST_ADVANCE'), split('1000.00')] }).kind).toBe(
-      'CORRECT',
-    );
+    expect(planCorrection(original(), splits, { splits: [split('250.00', 'RENT_OPERATING_COST_ADVANCE'), split('1000.00')] }).kind).toBe('CORRECT');
   });
 
   it('reverse only (null replacement): CORRECT without a replacement, never NO_CHANGE; still refused when not correctable', () => {

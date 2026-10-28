@@ -97,9 +97,7 @@ describe('importBankStatement', () => {
   });
 
   it('an unknown or foreign account is not found, also when it vanishes before the import', async () => {
-    await expect(setup().run({ ...input, principal: { ...principal, mreRealmId: 'other' } })).rejects.toBeInstanceOf(
-      FinancialAccountNotFoundError,
-    );
+    await expect(setup().run({ ...input, principal: { ...principal, mreRealmId: 'other' } })).rejects.toBeInstanceOf(FinancialAccountNotFoundError);
     await expect(setup({ outcome: { kind: 'ACCOUNT_NOT_FOUND' } }).run(input)).rejects.toBeInstanceOf(FinancialAccountNotFoundError);
   });
 
@@ -117,9 +115,7 @@ describe('getImportBatch', () => {
     const { imports } = setup();
     const get = getImportBatch({ imports });
     expect(await get({ principal, importBatchId: 'batch-1' })).toBe(batch);
-    await expect(get({ principal: { ...principal, mreRealmId: 'other' }, importBatchId: 'batch-1' })).rejects.toBeInstanceOf(
-      ImportBatchNotFoundError,
-    );
+    await expect(get({ principal: { ...principal, mreRealmId: 'other' }, importBatchId: 'batch-1' })).rejects.toBeInstanceOf(ImportBatchNotFoundError);
   });
 });
 

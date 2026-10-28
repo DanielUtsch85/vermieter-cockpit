@@ -117,7 +117,16 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreRentTermReader, mreTenantLookup, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
+import {
+  mrePrincipalVerifier,
+  mrePropertyLookup,
+  mreRentTermLookup,
+  mreMonthReader,
+  mreRentTermReader,
+  mreTenantLookup,
+  mreWriteBackTermReader,
+  mreWriteBackTermWriter,
+} from './wiring.js';
 
 /**
  * VC-1-09: the Slice-1 definition of done (project-brief.md §7) as one
@@ -133,12 +142,8 @@ const REALM_B = '64b0c0ffee0000000000000b';
 const PROPERTY = '6512f0c2a1b2c3d4e5f60901';
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
 
-const september = ['Buchungstag;Betrag;Verwendungszweck', '01.09.2026;1.250,00;Miete September', '02.09.2026;-310,40;Hausgeld'].join(
-  '\r\n',
-);
-const reordered = ['Buchungstag;Betrag;Verwendungszweck', '02.09.2026;-310,40;Hausgeld', '01.09.2026;1.250,00;Miete September'].join(
-  '\r\n',
-);
+const september = ['Buchungstag;Betrag;Verwendungszweck', '01.09.2026;1.250,00;Miete September', '02.09.2026;-310,40;Hausgeld'].join('\r\n');
+const reordered = ['Buchungstag;Betrag;Verwendungszweck', '02.09.2026;-310,40;Hausgeld', '01.09.2026;1.250,00;Miete September'].join('\r\n');
 
 describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of done)', () => {
   const schema = testSchemaName('slice_1_e2e');
@@ -157,7 +162,14 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
 
     const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
     mre = await startFakeMre([
-      { _id: REALM_A, name: 'A', members: member, applications: [], properties: [{ _id: PROPERTY, name: 'Wohnung 1', surface: 64.5 }], tenants: [{ _id: TENANT, name: 'Anna Schmidt' }] },
+      {
+        _id: REALM_A,
+        name: 'A',
+        members: member,
+        applications: [],
+        properties: [{ _id: PROPERTY, name: 'Wohnung 1', surface: 64.5 }],
+        tenants: [{ _id: TENANT, name: 'Anna Schmidt' }],
+      },
       { _id: REALM_B, name: 'B', members: member, applications: [], properties: [] },
     ]);
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
@@ -236,9 +248,20 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         suggest: suggestReconciliations({ repository: new PostgresRentReconciliationRepository(db), readMreMonth: mreMonthReader(client) }),
         confirm: confirmReconciliation({ repository: new PostgresRentReconciliationRepository(db), readMreRentTerm: mreRentTermReader(client) }),
         reject: rejectReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),
-        writeBack: writeBackToMre({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client), writeTerm: mreWriteBackTermWriter(client), leaseMs: 4000 }),
+        writeBack: writeBackToMre({
+          repository: new PostgresRentReconciliationRepository(db),
+          readTerm: mreWriteBackTermReader(client),
+          writeTerm: mreWriteBackTermWriter(client),
+          leaseMs: 4000,
+        }),
         getWithPresence: getReconciliationWithPresence({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client) }),
-        removeFromMre: removeFromMre({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client), writeTerm: mreWriteBackTermWriter(client), leaseMs: 4000, marginMs: 0 }),
+        removeFromMre: removeFromMre({
+          repository: new PostgresRentReconciliationRepository(db),
+          readTerm: mreWriteBackTermReader(client),
+          writeTerm: mreWriteBackTermWriter(client),
+          leaseMs: 4000,
+          marginMs: 0,
+        }),
       },
       loanTerms: {
         create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
@@ -345,10 +368,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       201,
     );
     expect(first.transactionCount).toBe(2);
-    const second = await json<{ transactionCount: number; duplicateCount: number }>(
-      await upload(REALM_A, account.financialAccountId, september),
-      201,
-    );
+    const second = await json<{ transactionCount: number; duplicateCount: number }>(await upload(REALM_A, account.financialAccountId, september), 201);
     expect(second).toMatchObject({ transactionCount: 0, duplicateCount: 2 });
     const rentId = first.rows[0]?.transactionId ?? '';
 
@@ -422,10 +442,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
 
     // Realm isolation: every endpoint, given Realm A's ids, answers Realm B with 404 and changes nothing.
     const review = await json<{ importBatchId: string }>(await upload(REALM_A, account.financialAccountId, reordered), 201);
-    const items = await json<{ items: { reviewItemId: string }[] }>(
-      await call(REALM_A, 'GET', `/imports/${review.importBatchId}/review-items`),
-      200,
-    );
+    const items = await json<{ items: { reviewItemId: string }[] }>(await call(REALM_A, 'GET', `/imports/${review.importBatchId}/review-items`), 200);
     const itemId = items.items[0]?.reviewItemId ?? '';
     // A Party of Realm A (VC-2-01), for the isolation checks below.
     const owner = await json<{ partyId: string }>(
@@ -440,7 +457,10 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     );
     expect(reference.status).toBe('ACTIVE');
     // A valid id MRE does not list in the Realm (which has Tenants) is 404, and nothing is written (§20.1).
-    const unknownTenant = await call(REALM_A, 'POST', `/parties/${owner.partyId}/external-references`, { ...tenantRef, externalId: '6512f0c2a1b2c3d4e5f60aff' });
+    const unknownTenant = await call(REALM_A, 'POST', `/parties/${owner.partyId}/external-references`, {
+      ...tenantRef,
+      externalId: '6512f0c2a1b2c3d4e5f60aff',
+    });
     expect(unknownTenant.status).toBe(404);
     expect(await unknownTenant.json()).toMatchObject({ error: { code: 'NOT_FOUND', details: { externalId: '6512f0c2a1b2c3d4e5f60aff' } } });
     expect(await json(await call(REALM_A, 'POST', `/parties/${owner.partyId}/external-references`, tenantRef), 200)).toMatchObject({
@@ -456,7 +476,9 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     expect(annasHalf.share).toBe('1/2');
     const bensHalf = await json<{ ownershipId: string }>(await call(REALM_A, 'POST', '/ownerships', half(ben.partyId)), 201);
     // A retry with the key replays; Anna's second half overlaps her first.
-    expect((await call(REALM_A, 'POST', '/ownerships', half(owner.partyId), { 'idempotency-key': 'own-anna' })).headers.get('idempotent-replayed')).toBe('true');
+    expect((await call(REALM_A, 'POST', '/ownerships', half(owner.partyId), { 'idempotency-key': 'own-anna' })).headers.get('idempotent-replayed')).toBe(
+      'true',
+    );
     const overlapping = await call(REALM_A, 'POST', '/ownerships', { ...half(owner.partyId), validFrom: '2027-01-01' });
     expect(overlapping.status).toBe(422);
     expect(await overlapping.json()).toMatchObject({ error: { code: 'OVERLAPPING_OWNERSHIP', details: { ownershipId: annasHalf.ownershipId } } });
@@ -467,21 +489,44 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     });
     // Ben sells his half to Carl from 2031 (VC-2-04): one atomic change, complete before and after.
     const carl = await json<{ partyId: string }>(await call(REALM_A, 'POST', '/parties', { partyType: 'PERSON', displayName: 'Carl Neu' }), 201);
-    const sale = { effectiveDate: '2031-01-01', reason: 'Verkauf an Carl', close: [bensHalf.ownershipId], create: [{ ownerPartyId: carl.partyId, share: '1/2' }] };
-    expect(await json(await call(REALM_A, 'POST', `/property-references/${property.propertyReferenceId}/ownership-changes`, sale, { 'idempotency-key': 'sale-1' }), 201)).toMatchObject({
+    const sale = {
+      effectiveDate: '2031-01-01',
+      reason: 'Verkauf an Carl',
+      close: [bensHalf.ownershipId],
+      create: [{ ownerPartyId: carl.partyId, share: '1/2' }],
+    };
+    expect(
+      await json(
+        await call(REALM_A, 'POST', `/property-references/${property.propertyReferenceId}/ownership-changes`, sale, { 'idempotency-key': 'sale-1' }),
+        201,
+      ),
+    ).toMatchObject({
       closed: [{ ownershipId: bensHalf.ownershipId, validUntil: '2030-12-31' }],
       created: [{ ownerPartyId: carl.partyId, validFrom: '2031-01-01' }],
       completeness: 'COMPLETE',
       shareSum: '1/1',
     });
     const owners = async (asOf: string) =>
-      (await json<{ items: { ownerPartyId: string }[] }>(await call(REALM_A, 'GET', `/property-references/${property.propertyReferenceId}/ownerships?asOf=${asOf}`), 200)).items
+      (
+        await json<{ items: { ownerPartyId: string }[] }>(
+          await call(REALM_A, 'GET', `/property-references/${property.propertyReferenceId}/ownerships?asOf=${asOf}`),
+          200,
+        )
+      ).items
         .map((o) => o.ownerPartyId)
         .sort();
     expect(await owners('2030-12-31')).toEqual([owner.partyId, ben.partyId].sort());
     expect(await owners('2031-01-01')).toEqual([owner.partyId, carl.partyId].sort());
     // The purchase behind Carl's half as an Acquisition draft (VC-2-05): read, listed on the property, then cancelled.
-    const purchase = { propertyReferenceId: property.propertyReferenceId, purchasePrice: { amount: '175000.00', currency: 'EUR' }, acquiredShare: '1/2', contractDate: '2030-11-01', economicTransferDate: '2031-01-01', buyerPartyIds: [carl.partyId], sellerPartyIds: [ben.partyId] };
+    const purchase = {
+      propertyReferenceId: property.propertyReferenceId,
+      purchasePrice: { amount: '175000.00', currency: 'EUR' },
+      acquiredShare: '1/2',
+      contractDate: '2030-11-01',
+      economicTransferDate: '2031-01-01',
+      buyerPartyIds: [carl.partyId],
+      sellerPartyIds: [ben.partyId],
+    };
     const draftPurchase = await json<{ acquisitionId: string; transferDate: string; status: string }>(
       await call(REALM_A, 'POST', '/acquisitions', purchase, { 'idempotency-key': 'acq-carl' }),
       201,
@@ -512,11 +557,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       ['GET', `/property-references/${property.propertyReferenceId}/acquisitions`],
       ['POST', `/property-references/${property.propertyReferenceId}/refresh`],
       ['POST', `/financial-accounts/${account.financialAccountId}/close`],
-      [
-        'POST',
-        '/transactions',
-        { financialAccountId: account.financialAccountId, amount: eur('1.00'), direction: 'INFLOW', bookingDate: '2026-09-01' },
-      ],
+      ['POST', '/transactions', { financialAccountId: account.financialAccountId, amount: eur('1.00'), direction: 'INFLOW', bookingDate: '2026-09-01' }],
       ['PUT', `/transactions/${rentId}/splits`, { splits: rentSplits }],
       ['POST', `/transactions/${rentId}/confirm`],
       ['POST', `/transactions/${rentId}/correct`, { reason: 'x', replacement: { bookingDate: '2026-09-03' } }],
@@ -549,7 +590,10 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     const read = await call(REALM_A, 'GET', `/transactions/${rentId}`);
     expect(read.status).toBe(200);
     const body = (await read.json()) as { status: string; version: number; splits: unknown[] };
-    expect(body).toMatchObject({ status: 'CONFIRMED', splits: [{ financialCategoryCode: 'RENT_BASE' }, { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' }] });
+    expect(body).toMatchObject({
+      status: 'CONFIRMED',
+      splits: [{ financialCategoryCode: 'RENT_BASE' }, { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' }],
+    });
     expect(read.headers.get('etag')).toBe(`"${body.version}"`);
     expect((await pool.query(`SELECT count(*) FROM audit_record`)).rows).toEqual(before.rows);
     // Realm A cancels its draft (no VALID Ownership carries it); a repeat keeps the first reason.
@@ -602,10 +646,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
     });
 
     // The bank row still belongs to the original: re-importing the file creates nothing.
-    const reimport = await json<{ transactionCount: number; duplicateCount: number }>(
-      await upload(REALM_A, account.financialAccountId, september),
-      201,
-    );
+    const reimport = await json<{ transactionCount: number; duplicateCount: number }>(await upload(REALM_A, account.financialAccountId, september), 201);
     expect(reimport).toMatchObject({ transactionCount: 0, duplicateCount: 2 });
 
     // Net effect on the account: the rent counts once, now split in two categories.

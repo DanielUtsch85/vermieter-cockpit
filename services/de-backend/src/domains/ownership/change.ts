@@ -1,5 +1,13 @@
 import { addDays, type AuditActor, type BusinessDate } from '../../shared/index.js';
-import { checkInvariants, ownershipOn, type AcquisitionRefusal, type Completeness, type InvalidOwnershipReason, type InvariantViolation, type Ownership } from './ownership.js';
+import {
+  checkInvariants,
+  ownershipOn,
+  type AcquisitionRefusal,
+  type Completeness,
+  type InvalidOwnershipReason,
+  type InvariantViolation,
+  type Ownership,
+} from './ownership.js';
 import type { Fraction, Share } from './share.js';
 
 /**

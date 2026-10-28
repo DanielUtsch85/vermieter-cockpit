@@ -58,7 +58,7 @@ const errorOf = async (res: Response) => ((await res.json()) as { error: { code:
 const body = { system: 'MRE', entityType: 'tenant', mreRealmId: REALM, externalId: TENANT };
 
 describe('POST /api/v1/parties/{id}/external-references', () => {
-  it('201 when created, 200 on a repeat, with the reference and its ETag; the caller\'s Authorization goes along', async () => {
+  it("201 when created, 200 on a repeat, with the reference and its ETag; the caller's Authorization goes along", async () => {
     const seen: unknown[] = [];
     let created = true;
     const base = await start({

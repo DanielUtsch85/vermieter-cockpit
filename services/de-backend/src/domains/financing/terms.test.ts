@@ -166,14 +166,20 @@ describe('checkAppend (order of §41.2)', () => {
 
   it('principalAtStart: not on the first period, never above the original', () => {
     expect(checkAppend(loan, [], data({ principalAtStart: eur('1.00') }))).toEqual({ kind: 'PRINCIPAL_AT_START_ON_FIRST_TERMS' });
-    expect(checkAppend(loan, [terms()], data({ validFrom: day('2027-01-01'), firstPaymentDate: day('2027-02-01'), principalAtStart: eur('100000.01') }))).toEqual({
+    expect(
+      checkAppend(loan, [terms()], data({ validFrom: day('2027-01-01'), firstPaymentDate: day('2027-02-01'), principalAtStart: eur('100000.01') })),
+    ).toEqual({
       kind: 'PRINCIPAL_AT_START_EXCEEDS_ORIGINAL',
       principalOriginal: loan.principalOriginal,
     });
   });
 
   it('an annuity must exceed the first interest: equal is refused, one cent above passes; rate 0 always repays', () => {
-    expect(checkAppend(loan, [], data({ scheduledPayment: eur('250.00') }))).toEqual({ kind: 'PAYMENT_DOES_NOT_COVER_INTEREST', firstInterest: 25_000n, balance: 10_000_000n });
+    expect(checkAppend(loan, [], data({ scheduledPayment: eur('250.00') }))).toEqual({
+      kind: 'PAYMENT_DOES_NOT_COVER_INTEREST',
+      firstInterest: 25_000n,
+      balance: 10_000_000n,
+    });
     expect(checkAppend(loan, [], data({ scheduledPayment: eur('250.01') }))).toBeUndefined();
     expect(checkAppend(loan, [], data({ interestRate: 0n, scheduledPayment: eur('0.01') }))).toBeUndefined();
     // A follow-up on the carried-over balance 99 499.38 at 3 %: 248.748… → 248.75.
@@ -194,7 +200,10 @@ describe('planVoidTerms and withValidUntil', () => {
     expect(planVoidTerms(loan, { ...first, status: 'VOID' }, [second], 'x', at)).toEqual({ kind: 'UNCHANGED' });
     expect(planVoidTerms({ ...loan, status: 'CLOSED' }, second, [first, second], 'x', at)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'CLOSED' });
     expect(planVoidTerms(loan, first, [first, second], 'x', at)).toEqual({ kind: 'TERMS_NOT_LAST', laterTermsId: second.id });
-    expect(planVoidTerms(loan, second, [first, second], 'falsch', at)).toEqual({ kind: 'VOID', next: { ...second, status: 'VOID', voidedAt: at, voidReason: 'falsch', version: 2 } });
+    expect(planVoidTerms(loan, second, [first, second], 'falsch', at)).toEqual({
+      kind: 'VOID',
+      next: { ...second, status: 'VOID', voidedAt: at, voidReason: 'falsch', version: 2 },
+    });
   });
 
   it('validUntil is the day before the next VALID period; VOID ones do not count', () => {

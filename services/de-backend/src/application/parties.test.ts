@@ -32,9 +32,7 @@ describe('Party use cases', () => {
     await expect(create({ principal, partyType: 'ORGANIZATION', ...data, idempotencyKey: 'k' })).rejects.toBeInstanceOf(IdempotencyKeyConflictError);
     const party = { mreRealmId: REALM, partyType: 'ORGANIZATION' as const, ...data };
     expect(calls).toEqual([[party, { actorType: 'USER', actorId: 'anna@example.com' }, { key: 'k', fingerprint: createFingerprint(party) }]]);
-    await expect(create({ principal, partyType: 'PERSON', ...data })).rejects.toMatchObject(
-      new PartyFieldNotAllowedError('PERSON', ['legalName']),
-    );
+    await expect(create({ principal, partyType: 'PERSON', ...data })).rejects.toMatchObject(new PartyFieldNotAllowedError('PERSON', ['legalName']));
     expect(calls).toHaveLength(1);
   });
 

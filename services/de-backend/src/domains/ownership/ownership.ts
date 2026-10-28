@@ -184,29 +184,14 @@ export interface OwnershipRepository {
    * In one READ COMMITTED transaction: claims the key, touches the PropertyReference (serialising writers of it),
    * locks the owner `FOR SHARE`, checks `checkInvariants` and inserts. A refusal rolls everything back.
    */
-  create(
-    ownership: NewOwnership,
-    actor: AuditActor,
-    idempotency?: { readonly key: string; readonly fingerprint: string },
-  ): Promise<CreateOwnershipOutcome>;
+  create(ownership: NewOwnership, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateOwnershipOutcome>;
   findById(id: string, mreRealmId: string): Promise<Ownership | undefined>;
   /** Applies `planClose` under the row lock; the version is checked only when it changes. */
   close(id: string, mreRealmId: string, validUntil: BusinessDate, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseOwnershipOutcome>;
   /** Applies `planVoid` under the row lock; a no-op answers whatever the version. */
-  void(
-    id: string,
-    mreRealmId: string,
-    reason: string,
-    at: Date,
-    actor: AuditActor,
-    expectedVersions?: readonly number[],
-  ): Promise<VoidOwnershipOutcome>;
+  void(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidOwnershipOutcome>;
   /** The PropertyReference's `VALID` Ownerships covering a day; undefined for an unknown or foreign PropertyReference. */
   on(propertyReferenceId: string, mreRealmId: string, asOf: BusinessDate): Promise<OwnershipDay | undefined>;
   /** The full history, `VOID` included, by `validFrom`, `createdAt`, id; count and page in one snapshot. */
-  history(
-    propertyReferenceId: string,
-    mreRealmId: string,
-    page: { readonly page: number; readonly pageSize: number },
-  ): Promise<OwnershipPage | undefined>;
+  history(propertyReferenceId: string, mreRealmId: string, page: { readonly page: number; readonly pageSize: number }): Promise<OwnershipPage | undefined>;
 }

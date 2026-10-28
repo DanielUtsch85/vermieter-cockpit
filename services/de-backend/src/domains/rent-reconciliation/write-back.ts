@@ -122,7 +122,9 @@ export function markerIn(term: WriteBackTerm, payment: StoredPayment): 'ABSENT' 
   const marked = storedPayments(term.payments).filter((p) => p.reference === payment.reference);
   if (marked.length === 0) return 'ABSENT';
   const [only] = marked;
-  return marked.length === 1 && only !== undefined && only.date === payment.date && only.amount === payment.amount && only.type === payment.type ? 'PRESENT' : 'CHANGED';
+  return marked.length === 1 && only !== undefined && only.date === payment.date && only.amount === payment.amount && only.type === payment.type
+    ? 'PRESENT'
+    : 'CHANGED';
 }
 
 /**

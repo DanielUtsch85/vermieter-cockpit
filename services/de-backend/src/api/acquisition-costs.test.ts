@@ -110,7 +110,14 @@ describe('POST /api/v1/acquisitions/{id}/costs', () => {
       createdAt: '2026-10-26T08:00:00.000Z',
       version: 1,
     });
-    expect(seen[0]).toMatchObject({ acquisitionId: ACQ, notes: 'Beurkundung', sourceReferences: ['Rechnung 17'], idempotencyKey: 'k1', incurredDate: null, counterpartyPartyId: null });
+    expect(seen[0]).toMatchObject({
+      acquisitionId: ACQ,
+      notes: 'Beurkundung',
+      sourceReferences: ['Rechnung 17'],
+      idempotencyKey: 'k1',
+      incurredDate: null,
+      counterpartyPartyId: null,
+    });
     const again = await call(base, 'POST', `/acquisitions/${ACQ}/costs`, body, { 'idempotency-key': 'k1' });
     expect(again.headers.get('idempotent-replayed')).toBe('true');
   });
@@ -120,7 +127,9 @@ describe('POST /api/v1/acquisitions/{id}/costs', () => {
     const fields = async (body: unknown) => (await errorOf(await call(base, 'POST', `/acquisitions/${ACQ}/costs`, body))).details;
     const amount = { amount: '1.00', currency: 'EUR' };
     expect(await fields({ category: 'PURCHASE_PRICE', amount })).toMatchObject({ fields: [{ field: 'category' }] });
-    expect(await fields({ category: 'NOTARY', amount: { amount: '0.00', currency: 'EUR' } })).toEqual({ fields: [{ field: 'amount.amount', code: 'NOT_POSITIVE' }] });
+    expect(await fields({ category: 'NOTARY', amount: { amount: '0.00', currency: 'EUR' } })).toEqual({
+      fields: [{ field: 'amount.amount', code: 'NOT_POSITIVE' }],
+    });
     expect(await fields({ category: 'NOTARY', amount, transactionSplitId: TX })).toMatchObject({ fields: [{ field: '(body)' }] });
     expect(await fields({ category: 'NOTARY', amount, documentId: TX })).toEqual({ fields: [{ field: 'documentId', code: 'NOT_SUPPORTED' }] });
     expect((await call(base, 'POST', '/acquisitions/x/costs', { category: 'NOTARY', amount })).status).toBe(400);
@@ -137,7 +146,10 @@ describe('POST /api/v1/acquisitions/{id}/costs', () => {
     });
     const body = { category: 'NOTARY', amount: { amount: '1.00', currency: 'EUR' } };
     const notFound = await call(base, 'POST', `/acquisitions/${ACQ}/costs`, body);
-    expect([notFound.status, await errorOf(notFound)]).toEqual([404, { code: 'NOT_FOUND', message: 'Acquisition not found.', details: { acquisitionId: ACQ } }]);
+    expect([notFound.status, await errorOf(notFound)]).toEqual([
+      404,
+      { code: 'NOT_FOUND', message: 'Acquisition not found.', details: { acquisitionId: ACQ } },
+    ]);
     const cancelled = await call(base, 'POST', `/acquisitions/${ACQ}/costs`, body);
     expect(cancelled.status).toBe(409);
     expect(await errorOf(cancelled)).toMatchObject({ code: 'CONFLICT', details: { reason: 'ACQUISITION_CANCELLED' } });
@@ -162,7 +174,10 @@ describe('POST /api/v1/acquisitions/{id}/costs/{costId}/void', () => {
     const ok = await call(base, 'POST', path, { reason: ' falsch ' }, { 'if-match': '"1"' });
     expect([ok.status, ok.headers.get('etag')]).toEqual([200, '"2"']);
     expect(seen[0]).toMatchObject({ acquisitionId: ACQ, costId: COST, reason: 'falsch', expectedVersions: [1] });
-    expect(await errorOf(await call(base, 'POST', path, { reason: 'x' }))).toMatchObject({ code: 'CONFLICT', details: { reason: 'COST_HAS_PAYMENTS', paymentIds: [PAY] } });
+    expect(await errorOf(await call(base, 'POST', path, { reason: 'x' }))).toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'COST_HAS_PAYMENTS', paymentIds: [PAY] },
+    });
     expect((await call(base, 'POST', path, { reason: 'x' })).status).toBe(412);
     expect(await errorOf(await call(base, 'POST', path, { reason: 'x' }))).toMatchObject({ code: 'NOT_FOUND', details: { acquisitionCostId: COST } });
     expect((await call(base, 'POST', path, {})).status).toBe(400);
@@ -249,7 +264,10 @@ describe('POST /api/v1/acquisitions/{id}/payments', () => {
     ]);
     expect(await next()).toMatchObject([
       409,
-      { code: 'INVARIANT_VIOLATION', details: { reason: 'PAYMENT_EXCEEDS_PRICE', expected: { amount: '10.00' }, paid: { amount: '4.00' }, remaining: { amount: '6.00' } } },
+      {
+        code: 'INVARIANT_VIOLATION',
+        details: { reason: 'PAYMENT_EXCEEDS_PRICE', expected: { amount: '10.00' }, paid: { amount: '4.00' }, remaining: { amount: '6.00' } },
+      },
     ]);
   });
 
@@ -258,7 +276,9 @@ describe('POST /api/v1/acquisitions/{id}/payments', () => {
     const fields = async (body: unknown) => (await errorOf(await call(base, 'POST', `/acquisitions/${ACQ}/payments`, body))).details;
     expect(await fields({ transactionId: TX, amount: { amount: '-1.00', currency: 'EUR' } })).toMatchObject({ fields: [{ field: 'amount.amount' }] });
     expect(await fields({ transactionId: 'x', amount: { amount: '1.00', currency: 'EUR' } })).toMatchObject({ fields: [{ field: 'transactionId' }] });
-    expect(await fields({ transactionId: TX, amount: { amount: '1.00', currency: 'EUR' }, direction: 'OUTFLOW' })).toMatchObject({ fields: [{ field: '(body)' }] });
+    expect(await fields({ transactionId: TX, amount: { amount: '1.00', currency: 'EUR' }, direction: 'OUTFLOW' })).toMatchObject({
+      fields: [{ field: '(body)' }],
+    });
   });
 });
 
@@ -269,7 +289,17 @@ describe('unlink and the reads', () => {
       acquisitionCosts: {
         unlinkPayment: async (input) => {
           seen.push(input);
-          return { payment: { ...payment, unlinkedAt: new Date('2026-10-26T09:00:00Z'), unlinkReason: 'falsch', counting: false, notCountingReason: 'UNLINKED', version: 2 }, changed: true };
+          return {
+            payment: {
+              ...payment,
+              unlinkedAt: new Date('2026-10-26T09:00:00Z'),
+              unlinkReason: 'falsch',
+              counting: false,
+              notCountingReason: 'UNLINKED',
+              version: 2,
+            },
+            changed: true,
+          };
         },
       },
     });

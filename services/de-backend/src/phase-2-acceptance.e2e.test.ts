@@ -118,7 +118,16 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreRentTermReader, mreTenantLookup, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
+import {
+  mrePrincipalVerifier,
+  mrePropertyLookup,
+  mreRentTermLookup,
+  mreMonthReader,
+  mreRentTermReader,
+  mreTenantLookup,
+  mreWriteBackTermReader,
+  mreWriteBackTermWriter,
+} from './wiring.js';
 
 /**
  * VC-2-10: the Phase-2 exit of `docs/roadmap.md` as one acceptance run through the HTTP API (ACC2,
@@ -134,7 +143,8 @@ const PROPERTY = '6512f0c2a1b2c3d4e5f60901';
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
 
 /** The Phase-2 routes (api-design §19–§28) under `/api/v1`, as `METHOD /path/:param`. */
-const PHASE_2 = /^[A-Z]+ \/(parties|ownerships|acquisitions)\b|^[A-Z]+ \/property-references\/:propertyReferenceId\/(ownerships|ownership-changes|acquisitions)$/;
+const PHASE_2 =
+  /^[A-Z]+ \/(parties|ownerships|acquisitions)\b|^[A-Z]+ \/property-references\/:propertyReferenceId\/(ownerships|ownership-changes|acquisitions)$/;
 
 /**
  * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 4
@@ -169,7 +179,14 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
 
     const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
     mre = await startFakeMre([
-      { _id: REALM_A, name: 'A', members: member, applications: [], properties: [{ _id: PROPERTY, name: 'Haus Lindenweg', surface: 180 }], tenants: [{ _id: TENANT, name: 'Mia Mieter' }] },
+      {
+        _id: REALM_A,
+        name: 'A',
+        members: member,
+        applications: [],
+        properties: [{ _id: PROPERTY, name: 'Haus Lindenweg', surface: 180 }],
+        tenants: [{ _id: TENANT, name: 'Mia Mieter' }],
+      },
       { _id: REALM_B, name: 'B', members: member, applications: [], properties: [] },
     ]);
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
@@ -248,9 +265,20 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
         suggest: suggestReconciliations({ repository: new PostgresRentReconciliationRepository(db), readMreMonth: mreMonthReader(client) }),
         confirm: confirmReconciliation({ repository: new PostgresRentReconciliationRepository(db), readMreRentTerm: mreRentTermReader(client) }),
         reject: rejectReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),
-        writeBack: writeBackToMre({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client), writeTerm: mreWriteBackTermWriter(client), leaseMs: 4000 }),
+        writeBack: writeBackToMre({
+          repository: new PostgresRentReconciliationRepository(db),
+          readTerm: mreWriteBackTermReader(client),
+          writeTerm: mreWriteBackTermWriter(client),
+          leaseMs: 4000,
+        }),
         getWithPresence: getReconciliationWithPresence({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client) }),
-        removeFromMre: removeFromMre({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client), writeTerm: mreWriteBackTermWriter(client), leaseMs: 4000, marginMs: 0 }),
+        removeFromMre: removeFromMre({
+          repository: new PostgresRentReconciliationRepository(db),
+          readTerm: mreWriteBackTermReader(client),
+          writeTerm: mreWriteBackTermWriter(client),
+          leaseMs: 4000,
+          marginMs: 0,
+        }),
       },
       loanTerms: {
         create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
@@ -372,7 +400,10 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
     const acquisition = `/acquisitions/${draft.acquisitionId}`;
 
     // Share validation, part 1: neither the allocation nor the confirmation runs on a draft without its Ownerships.
-    const incomplete = await json<{ error: { details: { reason: string; violations: { code: string }[] } } }>(await A('GET', `${acquisition}/owner-allocation`), 409);
+    const incomplete = await json<{ error: { details: { reason: string; violations: { code: string }[] } } }>(
+      await A('GET', `${acquisition}/owner-allocation`),
+      409,
+    );
     expect(incomplete.error.details.reason).toBe('OWNERSHIP_BASIS_INCOMPLETE');
     const blocked = await json<{ error: { code: string; details: { violations: { code: string }[] } } }>(await A('POST', `${acquisition}/confirm`, {}), 422);
     expect(blocked.error.code).toBe('CONFIRMATION_BLOCKED');
@@ -386,11 +417,18 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
 
     // Transaction costs: the transfer tax, an odd notary amount, a wrong broker fee voided and entered again.
     const cost = async (category: string, amount: string, extra: Record<string, unknown> = {}) =>
-      (await json<{ costId: string }>(await A('POST', `${acquisition}/costs`, { category, amount: eur(amount), ...extra }, { 'idempotency-key': `acc2-${category}-${amount}` }), 201)).costId;
+      (
+        await json<{ costId: string }>(
+          await A('POST', `${acquisition}/costs`, { category, amount: eur(amount), ...extra }, { 'idempotency-key': `acc2-${category}-${amount}` }),
+          201,
+        )
+      ).costId;
     const tax = await cost('REAL_ESTATE_TRANSFER_TAX', '18000.00', { incurredDate: '2026-07-01' });
     const notaryFee = await cost('NOTARY', '1234.57', { counterpartyPartyId: notary });
     const wrongBroker = await cost('BROKER', '10000.00');
-    expect(await json(await A('POST', `${acquisition}/costs/${wrongBroker}/void`, { reason: 'Courtage falsch erfasst' }), 200)).toMatchObject({ status: 'VOID' });
+    expect(await json(await A('POST', `${acquisition}/costs/${wrongBroker}/void`, { reason: 'Courtage falsch erfasst' }), 200)).toMatchObject({
+      status: 'VOID',
+    });
     const broker = await cost('BROKER', '10710.00');
 
     // A confirmed bank Transaction pays the price and the tax; the rest of the costs stay expected.
@@ -399,19 +437,36 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
       201,
     );
     const { transactionId } = await json<{ transactionId: string }>(
-      await A('POST', '/transactions', { financialAccountId, amount: eur('318000.00'), direction: 'OUTFLOW', bookingDate: '2026-07-30', description: 'Kaufpreis und Grunderwerbsteuer' }),
+      await A('POST', '/transactions', {
+        financialAccountId,
+        amount: eur('318000.00'),
+        direction: 'OUTFLOW',
+        bookingDate: '2026-07-30',
+        description: 'Kaufpreis und Grunderwerbsteuer',
+      }),
       201,
     );
-    await json(await A('PUT', `/transactions/${transactionId}/splits`, { splits: [{ amount: eur('318000.00'), financialCategoryCode: 'ACQUISITION', propertyReferenceId }] }), 200);
+    await json(
+      await A('PUT', `/transactions/${transactionId}/splits`, {
+        splits: [{ amount: eur('318000.00'), financialCategoryCode: 'ACQUISITION', propertyReferenceId }],
+      }),
+      200,
+    );
     await json(await A('POST', `/transactions/${transactionId}/confirm`), 200);
     const pricePayment = await json<{ paymentId: string; counting: boolean }>(
       await A('POST', `${acquisition}/payments`, { transactionId, amount: eur('300000.00') }, { 'idempotency-key': 'acc2-pay-price' }),
       201,
     );
     expect(pricePayment.counting).toBe(true);
-    await json(await A('POST', `${acquisition}/payments`, { transactionId, acquisitionCostId: tax, amount: eur('18000.00') }, { 'idempotency-key': 'acc2-pay-tax' }), 201);
+    await json(
+      await A('POST', `${acquisition}/payments`, { transactionId, acquisitionCostId: tax, amount: eur('18000.00') }, { 'idempotency-key': 'acc2-pay-tax' }),
+      201,
+    );
     // The Transaction is used up: one cent more is refused.
-    const exceeding = await json<{ error: { details: { reason: string } } }>(await A('POST', `${acquisition}/payments`, { transactionId, acquisitionCostId: notaryFee, amount: eur('0.01') }), 409);
+    const exceeding = await json<{ error: { details: { reason: string } } }>(
+      await A('POST', `${acquisition}/payments`, { transactionId, acquisitionCostId: notaryFee, amount: eur('0.01') }),
+      409,
+    );
     expect(exceeding.error.details.reason).toBe('PAYMENT_EXCEEDS_TRANSACTION');
     expect(await json(await A('GET', `${acquisition}/payments`), 200)).toMatchObject({
       purchasePrice: { amount: eur('300000.00'), paidAmount: eur('300000.00'), paymentStatus: 'PAID' },
@@ -429,19 +484,41 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
     const allocation = (body: Record<string, unknown>, key: string) =>
       A('POST', `${acquisition}/land-building-allocation`, { reviewState: 'UNREVIEWED', ...body }, { 'idempotency-key': key });
     const entered = await json<{ allocationId: string }>(
-      await allocation({ totalAllocableAmount: eur('300000.00'), landAmount: eur('60000.00'), buildingAmount: eur('240000.00'), method: 'PURCHASE_CONTRACT', supersedes: null }, 'acc2-alloc-1'),
+      await allocation(
+        {
+          totalAllocableAmount: eur('300000.00'),
+          landAmount: eur('60000.00'),
+          buildingAmount: eur('240000.00'),
+          method: 'PURCHASE_CONTRACT',
+          supersedes: null,
+        },
+        'acc2-alloc-1',
+      ),
       201,
     );
     const corrected = await json<{ allocationId: string; current: boolean }>(
       await allocation(
-        { totalAllocableAmount: eur('329944.57'), landAmount: eur('82486.15'), buildingAmount: eur('247458.42'), method: 'BMF_TOOL', supersedes: entered.allocationId },
+        {
+          totalAllocableAmount: eur('329944.57'),
+          landAmount: eur('82486.15'),
+          buildingAmount: eur('247458.42'),
+          method: 'BMF_TOOL',
+          supersedes: entered.allocationId,
+        },
         'acc2-alloc-2',
       ),
       201,
     );
     expect(corrected.current).toBe(true);
     // A second correction naming the old one is refused: it is no longer current.
-    expect((await allocation({ totalAllocableAmount: eur('1.00'), landAmount: eur('0.00'), buildingAmount: eur('1.00'), method: 'OTHER', supersedes: entered.allocationId }, 'acc2-alloc-x')).status).toBe(409);
+    expect(
+      (
+        await allocation(
+          { totalAllocableAmount: eur('1.00'), landAmount: eur('0.00'), buildingAmount: eur('1.00'), method: 'OTHER', supersedes: entered.allocationId },
+          'acc2-alloc-x',
+        )
+      ).status,
+    ).toBe(409);
     const history = await json<{ current: { allocationId: string }; items: { allocationId: string; current: boolean; supersededById: string | null }[] }>(
       await A('GET', `${acquisition}/land-building-allocations`),
       200,
@@ -453,7 +530,11 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
     ]);
 
     // Ownership over time, part 2: one atomic change on the transfer date (WF-002).
-    const change = await json<{ closed: { ownershipId: string; validUntil: string }[]; created: { ownershipId: string; ownerPartyId: string; share: string; acquisitionId: string }[]; completeness: string }>(
+    const change = await json<{
+      closed: { ownershipId: string; validUntil: string }[];
+      created: { ownershipId: string; ownerPartyId: string; share: string; acquisitionId: string }[];
+      completeness: string;
+    }>(
       await A(
         'POST',
         `/property-references/${propertyReferenceId}/ownership-changes`,
@@ -499,7 +580,18 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
 
     // It drives the owner-level allocation: 1/2 each, every column exact to the cent, the odd cent by ownerPartyId.
     type Money = { amount: string; currency: string };
-    type Part = { ownerPartyId: string; ownershipId: string; share: string; weight: string; purchasePrice: Money; costs: Record<string, Money>; costsTotal: Money; landAmount: Money; buildingAmount: Money; totalAllocableAmount: Money };
+    type Part = {
+      ownerPartyId: string;
+      ownershipId: string;
+      share: string;
+      weight: string;
+      purchasePrice: Money;
+      costs: Record<string, Money>;
+      costsTotal: Money;
+      landAmount: Money;
+      buildingAmount: Money;
+      totalAllocableAmount: Money;
+    };
     const split = await json<{ basis: string; allocationId: string; owners: Part[]; totals: Omit<Part, 'ownerPartyId' | 'ownershipId' | 'share' | 'weight'> }>(
       await A('GET', `${acquisition}/owner-allocation`),
       200,
@@ -622,7 +714,11 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
       'GET /acquisitions/:acquisitionId/payments': { expect: 404 },
     };
     // The table is the app's Phase-2 routes, no more and no fewer: a new route without a row turns this red.
-    expect(Object.keys(routes).sort()).toEqual(routesOf(app).filter((route) => PHASE_2.test(route)).sort());
+    expect(Object.keys(routes).sort()).toEqual(
+      routesOf(app)
+        .filter((route) => PHASE_2.test(route))
+        .sort(),
+    );
 
     // "Writes nothing" is checked by the AuditRecord count: every write writes one (P2-D11), so a write slipping
     // through for Realm B would raise it.
@@ -648,7 +744,10 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
     for (const partyId of own) expect((await A('GET', `/parties/${partyId}`)).status).toBe(404);
 
     // After confirmation a later sale still ends Anna's Ownership: close is allowed.
-    expect(await json(await A('POST', `/ownerships/${annas}/close`, { validUntil: '2030-12-31' }), 200)).toMatchObject({ validUntil: '2030-12-31', status: 'VALID' });
+    expect(await json(await A('POST', `/ownerships/${annas}/close`, { validUntil: '2030-12-31' }), 200)).toMatchObject({
+      validUntil: '2030-12-31',
+      status: 'VALID',
+    });
 
     // Traceability: every Phase-2 write of the acquisition left its AuditRecord.
     const audit = await pool.query<{ entity_type: string; entity_id: string; action: string }>(
@@ -656,9 +755,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
        WHERE entity_type IN ('Acquisition', 'AcquisitionCost', 'AcquisitionPayment', 'LandBuildingAllocation')`,
     );
     const key = (r: { entity_type: string; entity_id: string; action: string }) => `${r.entity_type} ${r.entity_id} ${r.action}`;
-    const taxPayment = (await json<{ items: { paymentId: string; acquisitionCostId: string | null }[] }>(await A('GET', `${acquisition}/payments`), 200)).items.find(
-      (p) => p.acquisitionCostId === tax,
-    )?.paymentId;
+    const taxPayment = (
+      await json<{ items: { paymentId: string; acquisitionCostId: string | null }[] }>(await A('GET', `${acquisition}/payments`), 200)
+    ).items.find((p) => p.acquisitionCostId === tax)?.paymentId;
     expect(audit.rows.map(key).sort()).toEqual(
       [
         `Acquisition ${draft.acquisitionId} CREATED`,

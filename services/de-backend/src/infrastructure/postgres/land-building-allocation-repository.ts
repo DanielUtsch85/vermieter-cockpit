@@ -37,81 +37,93 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
   ): Promise<CreateAllocationOutcome> {
     if (!UUID.test(allocation.acquisitionId)) return { kind: 'ACQUISITION_NOT_FOUND' };
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CreateAllocationOutcome> => {
-        const ref = { mreRealmId: allocation.mreRealmId, scope: SCOPE, key: idempotency?.key ?? '' };
-        if (idempotency !== undefined) {
-          const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', allocation: fromSnapshot(claim.result) };
-        }
-        // The serialising no-op of §27.2: cancel, confirm, cost and payment writes and other allocations wait here.
-        const acquisition = await trx
-          .updateTable('acquisition')
-          .set((eb) => ({ version: eb.ref('version') }))
-          .where('id', '=', allocation.acquisitionId)
-          .where('mre_realm_id', '=', allocation.mreRealmId)
-          .returning(['status', sql<string>`to_char(coalesce(economic_transfer_date, contract_date), 'YYYY-MM-DD')`.as('transfer_date')])
-          .executeTakeFirst();
-        if (acquisition === undefined) throw new Rejected({ kind: 'ACQUISITION_NOT_FOUND' });
-        const advisor = allocation.advisorPartyId;
-        if (advisor !== null) {
-          const party = await trx.selectFrom('party').select('id').where('id', '=', advisor).where('mre_realm_id', '=', allocation.mreRealmId).executeTakeFirst();
-          if (party === undefined) throw new Rejected({ kind: 'PARTY_NOT_FOUND', partyId: advisor });
-        }
-        const current = await trx
-          .selectFrom('land_building_allocation')
-          .select('id')
-          .where('acquisition_id', '=', allocation.acquisitionId)
-          .where('superseded_at', 'is', null)
-          .executeTakeFirst();
-        const refusal = checkAllocation(acquisition.status as AcquisitionStatus, current?.id ?? null, allocation.supersedes);
-        if (refusal !== undefined) throw new Rejected(refusal);
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<CreateAllocationOutcome> => {
+          const ref = { mreRealmId: allocation.mreRealmId, scope: SCOPE, key: idempotency?.key ?? '' };
+          if (idempotency !== undefined) {
+            const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', allocation: fromSnapshot(claim.result) };
+          }
+          // The serialising no-op of §27.2: cancel, confirm, cost and payment writes and other allocations wait here.
+          const acquisition = await trx
+            .updateTable('acquisition')
+            .set((eb) => ({ version: eb.ref('version') }))
+            .where('id', '=', allocation.acquisitionId)
+            .where('mre_realm_id', '=', allocation.mreRealmId)
+            .returning(['status', sql<string>`to_char(coalesce(economic_transfer_date, contract_date), 'YYYY-MM-DD')`.as('transfer_date')])
+            .executeTakeFirst();
+          if (acquisition === undefined) throw new Rejected({ kind: 'ACQUISITION_NOT_FOUND' });
+          const advisor = allocation.advisorPartyId;
+          if (advisor !== null) {
+            const party = await trx
+              .selectFrom('party')
+              .select('id')
+              .where('id', '=', advisor)
+              .where('mre_realm_id', '=', allocation.mreRealmId)
+              .executeTakeFirst();
+            if (party === undefined) throw new Rejected({ kind: 'PARTY_NOT_FOUND', partyId: advisor });
+          }
+          const current = await trx
+            .selectFrom('land_building_allocation')
+            .select('id')
+            .where('acquisition_id', '=', allocation.acquisitionId)
+            .where('superseded_at', 'is', null)
+            .executeTakeFirst();
+          const refusal = checkAllocation(acquisition.status as AcquisitionStatus, current?.id ?? null, allocation.supersedes);
+          if (refusal !== undefined) throw new Rejected(refusal);
 
-        // The old row first: the partial unique index of the current one cannot be deferred (review on #52).
-        if (current !== undefined) {
-          await trx.updateTable('land_building_allocation').set({ superseded_at: sql<Date>`now()` }).where('id', '=', current.id).execute();
-        }
-        const { id } = await trx
-          .insertInto('land_building_allocation')
-          .values({
-            mre_realm_id: allocation.mreRealmId,
-            acquisition_id: allocation.acquisitionId,
-            total_allocable_amount: toNumericAmount(allocation.totalAllocableAmount),
-            land_amount: toNumericAmount(allocation.landAmount),
-            building_amount: toNumericAmount(allocation.buildingAmount),
-            currency: allocation.totalAllocableAmount.currency,
-            method: allocation.method,
-            review_state: allocation.reviewState,
-            effective_date: allocation.effectiveDate ?? acquisition.transfer_date,
-            advisor_party_id: advisor,
-            source_references: [...allocation.sourceReferences],
-            notes: allocation.notes,
-            supersedes_id: current?.id ?? null,
-            created_by: actor.actorId,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        const created = (await allocationsOf(trx, allocation.acquisitionId, id))[0];
-        if (created === undefined) throw new Error(`LandBuildingAllocation ${id} vanished`);
-        if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
-          newVersion: 1,
-          metadata: {
-            acquisitionId: allocation.acquisitionId,
-            totalAllocableAmount: created.totalAllocableAmount.toJSON(),
-            landAmount: created.landAmount.toJSON(),
-            buildingAmount: created.buildingAmount.toJSON(),
-            method: created.method,
-            reviewState: created.reviewState,
-            effectiveDate: created.effectiveDate,
-            supersedes: created.supersedesId,
-          },
+          // The old row first: the partial unique index of the current one cannot be deferred (review on #52).
+          if (current !== undefined) {
+            await trx
+              .updateTable('land_building_allocation')
+              .set({ superseded_at: sql<Date>`now()` })
+              .where('id', '=', current.id)
+              .execute();
+          }
+          const { id } = await trx
+            .insertInto('land_building_allocation')
+            .values({
+              mre_realm_id: allocation.mreRealmId,
+              acquisition_id: allocation.acquisitionId,
+              total_allocable_amount: toNumericAmount(allocation.totalAllocableAmount),
+              land_amount: toNumericAmount(allocation.landAmount),
+              building_amount: toNumericAmount(allocation.buildingAmount),
+              currency: allocation.totalAllocableAmount.currency,
+              method: allocation.method,
+              review_state: allocation.reviewState,
+              effective_date: allocation.effectiveDate ?? acquisition.transfer_date,
+              advisor_party_id: advisor,
+              source_references: [...allocation.sourceReferences],
+              notes: allocation.notes,
+              supersedes_id: current?.id ?? null,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          const created = (await allocationsOf(trx, allocation.acquisitionId, id))[0];
+          if (created === undefined) throw new Error(`LandBuildingAllocation ${id} vanished`);
+          if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
+          await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
+            newVersion: 1,
+            metadata: {
+              acquisitionId: allocation.acquisitionId,
+              totalAllocableAmount: created.totalAllocableAmount.toJSON(),
+              landAmount: created.landAmount.toJSON(),
+              buildingAmount: created.buildingAmount.toJSON(),
+              method: created.method,
+              reviewState: created.reviewState,
+              effectiveDate: created.effectiveDate,
+              supersedes: created.supersedesId,
+            },
+          });
+          if (current !== undefined) {
+            await writeAudit(trx, { type: ENTITY_TYPE, id: current.id }, 'SUPERSEDED', actor, { newVersion: 1, metadata: { supersededById: id } });
+          }
+          return { kind: 'CREATED', allocation: created };
         });
-        if (current !== undefined) {
-          await writeAudit(trx, { type: ENTITY_TYPE, id: current.id }, 'SUPERSEDED', actor, { newVersion: 1, metadata: { supersededById: id } });
-        }
-        return { kind: 'CREATED', allocation: created };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;
       throw error;
@@ -123,12 +135,21 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
     mreRealmId: string,
   ): Promise<{ readonly current: LandBuildingAllocation | null; readonly items: readonly LandBuildingAllocation[] } | undefined> {
     if (!UUID.test(acquisitionId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const acquisition = await trx.selectFrom('acquisition').select('id').where('id', '=', acquisitionId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-      if (acquisition === undefined) return undefined;
-      const items = await allocationsOf(trx, acquisitionId);
-      return { current: items.find((a) => a.current) ?? null, items };
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const acquisition = await trx
+          .selectFrom('acquisition')
+          .select('id')
+          .where('id', '=', acquisitionId)
+          .where('mre_realm_id', '=', mreRealmId)
+          .executeTakeFirst();
+        if (acquisition === undefined) return undefined;
+        const items = await allocationsOf(trx, acquisitionId);
+        return { current: items.find((a) => a.current) ?? null, items };
+      });
   }
 }
 

@@ -194,7 +194,15 @@ export interface LoanAllocationRepository {
     idempotency?: { readonly key: string; readonly fingerprint: string },
   ): Promise<CreateAllocationOutcome>;
   /** The Loan `FOR UPDATE`, then the set and the `VALID` sets, then `planVoidAllocation`. */
-  void(loanId: string, setId: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidAllocationOutcome>;
+  void(
+    loanId: string,
+    setId: string,
+    mreRealmId: string,
+    reason: string,
+    at: Date,
+    actor: AuditActor,
+    expectedVersions?: readonly number[],
+  ): Promise<VoidAllocationOutcome>;
   /** Every set of the Loan in `validFrom`, then `createdAt` order, with `validUntil`; undefined for an unknown or foreign Loan. */
   list(loanId: string, mreRealmId: string): Promise<readonly LoanAllocationSetView[] | undefined>;
   /** The property's entries in the `VALID` sets of its non-`VOID` Loans, as a history; undefined for an unknown or foreign PropertyReference. */

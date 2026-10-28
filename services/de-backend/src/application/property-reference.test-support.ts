@@ -16,8 +16,7 @@ export function memoryRepository(): PropertyReferenceRepository & {
 } {
   const rows: PropertyReference[] = [];
   const audits: { action: string; actor: AuditActor }[] = [];
-  const find = (realm: string, property: string) =>
-    rows.find((r) => r.mreRealmId === realm && r.mrePropertyId === property);
+  const find = (realm: string, property: string) => rows.find((r) => r.mreRealmId === realm && r.mrePropertyId === property);
   return {
     rows,
     audits,
@@ -57,9 +56,7 @@ export function memoryRepository(): PropertyReferenceRepository & {
 }
 
 /** A lookup answering `result` (or throwing it) and recording its calls. Test support only. */
-export function lookupOf(
-  result: Awaited<ReturnType<MrePropertyLookup>> | Error,
-): MrePropertyLookup & { calls: string[][] } {
+export function lookupOf(result: Awaited<ReturnType<MrePropertyLookup>> | Error): MrePropertyLookup & { calls: string[][] } {
   const calls: string[][] = [];
   const lookup = async (auth: string, realm: string, property: string) => {
     calls.push([auth, realm, property]);

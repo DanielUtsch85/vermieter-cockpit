@@ -131,7 +131,10 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
         { propertyReferenceId: 'p-a', share: '2/3', actual: { amount: '-0.01', currency: 'EUR' }, planned: null, difference: null },
         { propertyReferenceId: 'p-b', share: '1/3', actual: { amount: '0.00', currency: 'EUR' }, planned: null, difference: null },
       ],
-      latestStatement: { statementId: STATEMENT, comparison: { actualOnDate: { amount: '408.53', currency: 'EUR' }, difference: { amount: '-0.53', currency: 'EUR' } } },
+      latestStatement: {
+        statementId: STATEMENT,
+        comparison: { actualOnDate: { amount: '408.53', currency: 'EUR' }, difference: { amount: '-0.53', currency: 'EUR' } },
+      },
       closing: { closingDate: '2027-02-28', reason: 'REFINANCED', refinancedByLoanId: 'new', actualOnClosingDate: { amount: '-0.01', currency: 'EUR' } },
     });
   });
@@ -143,7 +146,10 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
     expect((await fieldsOf(await call(base, 'GET', `/loans/${LOAN}/remaining-debt?perProperty=yes`)))[0]?.field).toBe('perProperty');
     expect((await call(base, 'GET', `/loans/${LOAN}/remaining-debt?from=2027-01-01`)).status).toBe(400);
     const res = await call(base, 'GET', `/loans/${LOAN}/remaining-debt?perProperty=true`);
-    expect([res.status, await errorOf(res)]).toEqual([409, { code: 'CONFLICT', message: 'No allocation set covers the day.', details: { reason: 'LOAN_NOT_ALLOCATED', asOf: '2027-01-31' } }]);
+    expect([res.status, await errorOf(res)]).toEqual([
+      409,
+      { code: 'CONFLICT', message: 'No allocation set covers the day.', details: { reason: 'LOAN_NOT_ALLOCATED', asOf: '2027-01-31' } },
+    ]);
   });
 
   it.each([

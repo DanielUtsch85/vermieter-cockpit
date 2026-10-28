@@ -42,7 +42,7 @@ Binding consequences of these picks:
 
 Runtime dependencies are added to `services/de-backend` by the backlog item that first uses them, not up front.
 
-**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn lint`, `yarn test`; CI runs all four on Node 24 with a PostgreSQL 16 service (`.github/workflows/ci.yml`). Database tests read `DE_TEST_DATABASE_URL`; they are skipped locally when it is unset and fail the run in CI when it is missing. The §3 dependency direction for `domains/` and `shared/` is enforced by `src/architecture.test.ts` (relative imports per layer; third-party packages via an allowlist: `zod` for `domains/`, `decimal.js` and `zod` for `shared/`; `infrastructure/` may import `shared/` and `domains/` but not `application/`, `api/`, `integrations/` or `reporting/`, with packages unrestricted). Lint-based enforcement (e.g. `eslint-plugin-boundaries` or `dependency-cruiser`) can replace it once linting is set up (§15).
+**Repository layout (VC-0-04):** Yarn 3.3 workspace (pinned release in `.yarn/releases`, `nodeLinker: node-modules`, same as MRE). The DE backend is the workspace `services/de-backend` (ESM, `module: NodeNext`, relative imports use `.js` extensions). Shared compiler settings live in `tsconfig.base.json` with all recommended strict flags above enabled. Root scripts: `yarn build`, `yarn typecheck`, `yarn lint`, `yarn format:check`, `yarn test`; CI runs all five on Node 24 with a PostgreSQL 16 service (`.github/workflows/ci.yml`). Database tests read `DE_TEST_DATABASE_URL`; they are skipped locally when it is unset and fail the run in CI when it is missing. The §3 dependency direction for `domains/` and `shared/` is enforced by `src/architecture.test.ts` (relative imports per layer; third-party packages via an allowlist: `zod` for `domains/`, `decimal.js` and `zod` for `shared/`; `infrastructure/` may import `shared/` and `domains/` but not `application/`, `api/`, `integrations/` or `reporting/`, with packages unrestricted). Lint-based enforcement (e.g. `eslint-plugin-boundaries` or `dependency-cruiser`) can replace it once linting is set up (§15).
 
 ---
 
@@ -169,7 +169,7 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 - Terminology from `docs/glossary.md` is mandatory; introducing a new domain term updates the glossary in the same change (`AGENTS.md` §27).
 - Prefer explicit code, cohesive modules, small interfaces, documented invariants, narrow dependencies (`AGENTS.md` §35). Avoid hidden side effects, clever metaprogramming, broad shared utilities carrying business logic, magic constants.
 - Match surrounding code's conventions once a baseline exists.
-- ESLint is authoritative (`eslint.config.mjs`, `yarn lint`, run in CI): typescript-eslint's type-checked recommendations plus no unused code, no floating promise and type-only imports; tests relax only the rules for untyped JSON and `async` test doubles. A formatter (Prettier) follows in its own change (#92).
+- ESLint is authoritative (`eslint.config.mjs`, `yarn lint`, run in CI): typescript-eslint's type-checked recommendations plus no unused code, no floating promise and type-only imports; tests relax only the rules for untyped JSON and `async` test doubles. Prettier formats the code (`.prettierrc.json`: width 160, single quotes, trailing commas; `yarn format`, checked in CI by `yarn format:check`); style is not reviewed by hand.
 
 ---
 
@@ -183,5 +183,4 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 
 # 15. Open items for this document
 
-- Add the formatter reference (Prettier, #92) once its format run is merged; ESLint is in §13.
 - Error-handling convention: value objects in `shared/` throw typed errors carrying a stable `code` (e.g. `MoneyError` with `INVALID_AMOUNT`, `SCALE_EXCEEDED`, `UNSUPPORTED_CURRENCY`, `CURRENCY_MISMATCH`) that the API layer maps to `400`. This covers **both** `MoneyError` and `ExactDecimalError` (e.g. `money.multiply(...)` can throw `ExactDecimalError` with `PRECISION_EXCEEDED`); the error mapping of the first controller must handle both types. The convention for domain services/commands (exceptions vs result types) is still open and is decided with the first command (Phase 1).

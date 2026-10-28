@@ -30,7 +30,10 @@ import { businessDate, definedOnly, optionalText, readId } from './acquisitions.
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
-const uuid = z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase());
+const uuid = z
+  .string()
+  .regex(RESOURCE_ID)
+  .transform((id) => id.toLowerCase());
 
 const positive = (field: string) => (value: { [key: string]: unknown }, ctx: z.RefinementCtx) => {
   // Refinements run even after a field failed to parse: only check what parsed.

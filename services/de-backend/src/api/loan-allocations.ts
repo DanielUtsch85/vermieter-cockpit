@@ -30,7 +30,10 @@ import { businessDate, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
-const uuid = z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase());
+const uuid = z
+  .string()
+  .regex(RESOURCE_ID)
+  .transform((id) => id.toLowerCase());
 
 /** §26.1's notation, `0 < n ≤ d ≤ 10000`; input may be unreduced, kept reduced. */
 const share = z.string().transform((value, ctx) => {
@@ -54,11 +57,13 @@ const createBody = z
   .superRefine((body, ctx) => {
     // Refinements run even after a field failed to parse: only check what parsed.
     const entries = body.allocations;
-    if (!Array.isArray(entries) || entries.length === 0 || entries.length > MAX_ALLOCATIONS || !entries.every((a) => typeof a === 'object' && a !== null)) return;
+    if (!Array.isArray(entries) || entries.length === 0 || entries.length > MAX_ALLOCATIONS || !entries.every((a) => typeof a === 'object' && a !== null))
+      return;
     const properties = body.allocations.map((a) => a.propertyReferenceId);
     const acquisitions = body.allocations.map((a) => a.acquisitionId);
     body.allocations.forEach((a, i) => {
-      if (properties.indexOf(a.propertyReferenceId) !== i) ctx.addIssue({ code: 'custom', path: ['allocations', i, 'propertyReferenceId'], params: { code: 'DUPLICATE' } });
+      if (properties.indexOf(a.propertyReferenceId) !== i)
+        ctx.addIssue({ code: 'custom', path: ['allocations', i, 'propertyReferenceId'], params: { code: 'DUPLICATE' } });
       const [given, other] = body.basis === 'MANUAL' ? (['share', 'acquisitionId'] as const) : (['acquisitionId', 'share'] as const);
       if (a[given] === undefined) ctx.addIssue({ code: 'custom', path: ['allocations', i, given], params: { code: 'REQUIRED' } });
       if (a[other] !== undefined) ctx.addIssue({ code: 'custom', path: ['allocations', i, other], params: { code: 'NOT_ALLOWED_FOR_BASIS' } });
@@ -211,7 +216,11 @@ function sendAllocationError(res: Response, error: unknown): boolean {
   } else if (error instanceof AllocationRefusedError) {
     const r = error.refusal;
     const details =
-      r.kind === 'ALLOCATION_BEFORE_DEBT' ? { debtFrom: r.debtFrom } : r.kind === 'ALLOCATION_NOT_APPENDED' ? { lastValidFrom: r.lastValidFrom } : { acquisitionId: r.acquisitionId };
+      r.kind === 'ALLOCATION_BEFORE_DEBT'
+        ? { debtFrom: r.debtFrom }
+        : r.kind === 'ALLOCATION_NOT_APPENDED'
+          ? { lastValidFrom: r.lastValidFrom }
+          : { acquisitionId: r.acquisitionId };
     sendError(res, 422, r.kind, 'The set cannot be appended.', details);
   } else if (error instanceof VersionConflictError) {
     sendError(res, 412, 'VERSION_CONFLICT', 'The set changed since the version given in If-Match.', {

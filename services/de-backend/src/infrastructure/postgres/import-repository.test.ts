@@ -104,10 +104,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
   });
 
   async function openAccount(mreRealmId = REALM): Promise<FinancialAccountId> {
-    const outcome = await accounts.create(
-      { mreRealmId, accountType: 'BANK', displayName: 'Girokonto', currency: 'EUR', iban: null },
-      actor,
-    );
+    const outcome = await accounts.create({ mreRealmId, accountType: 'BANK', displayName: 'Girokonto', currency: 'EUR', iban: null }, actor);
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
     return outcome.account.id;
   }
@@ -168,9 +165,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       counterparty_name_raw: 'Max Mieter',
     });
 
-    const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'ImportBatch' AND entity_id = $1`, [
-      batch.id,
-    ]);
+    const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'ImportBatch' AND entity_id = $1`, [batch.id]);
     expect(audit.rows).toEqual([{ action: 'IMPORTED', metadata: expect.objectContaining({ transactionCount: 3, status: 'COMPLETED' }) }]);
 
     expect(await imports.findBatch(batch.id, REALM)).toEqual(batch);
@@ -298,10 +293,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       reason: 'ADAPTER_VERSION_CONFLICT',
       conflictingTransactionIds: [created(first)[0]],
     });
-    const prior = await pool.query(
-      `SELECT prior_review_item_ids FROM import_review_item WHERE import_batch_id = $1 AND source_row_key = 'pos:1'`,
-      [v2.id],
-    );
+    const prior = await pool.query(`SELECT prior_review_item_ids FROM import_review_item WHERE import_batch_id = $1 AND source_row_key = 'pos:1'`, [v2.id]);
     expect(prior.rows).toEqual([{ prior_review_item_ids: [] }]);
     expect(await count('ledger_transaction', accountId)).toBe(3);
 
@@ -317,10 +309,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
 
   it('a stable external id with the same content is a duplicate across files and adapter versions', async () => {
     const accountId = await openAccount();
-    const first = await run(
-      accountId,
-      statement([{ externalTransactionId: 'BANK-REF-1' }, { externalTransactionId: 'BANK-REF-2', amount: '7.00' }]),
-    );
+    const first = await run(accountId, statement([{ externalTransactionId: 'BANK-REF-1' }, { externalTransactionId: 'BANK-REF-2', amount: '7.00' }]));
     expect(outcomes(first)).toEqual(['created', 'created']);
 
     const other = await run(accountId, statement([{ externalTransactionId: 'BANK-REF-2', amount: '7.00' }], '2'));
@@ -398,9 +387,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       const accountId = await openAccount();
       const first = await run(accountId, withSourceIds(statement([rentA, rentB]), 'ST-2026-09', ['R1', 'R2']));
       expect(outcomes(first)).toEqual(['created', 'created']);
-      expect(
-        await pool.query(`SELECT DISTINCT source_statement_key FROM ledger_transaction WHERE financial_account_id = $1`, [accountId]),
-      ).toMatchObject({
+      expect(await pool.query(`SELECT DISTINCT source_statement_key FROM ledger_transaction WHERE financial_account_id = $1`, [accountId])).toMatchObject({
         rows: [{ source_statement_key: 'id:ST-2026-09' }],
       });
 
@@ -417,9 +404,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       const first = await run(accountId, withSourceIds(statement([rentA, rentB]), 'ST-1', ['R1', 'R2']));
       const reordered = await run(accountId, withSourceIds(statement([rentB, rentA]), 'ST-1', ['R2', 'R1']));
       expect(reordered).toMatchObject({ transactionCount: 0, duplicateCount: 2, needsReviewCount: 0 });
-      expect(
-        reordered.rows.map((r) => (r.outcome === 'duplicate' && r.duplicateOf === 'TRANSACTION' ? r.transactionId : r.outcome)),
-      ).toEqual([created(first)[1], created(first)[0]]);
+      expect(reordered.rows.map((r) => (r.outcome === 'duplicate' && r.duplicateOf === 'TRANSACTION' ? r.transactionId : r.outcome))).toEqual([
+        created(first)[1],
+        created(first)[0],
+      ]);
     });
 
     it('row ids only count within their statement: the same row id in another statement is not a duplicate', async () => {
@@ -446,10 +434,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
   it('imports into a closed account only up to the closing day', async () => {
     const accountId = await openAccount();
     await accounts.close(accountId, REALM, new Date('2026-09-15T10:00:00Z'), actor);
-    const batch = await run(
-      accountId,
-      statement([{ bookingDate: '2026-09-15' as BusinessDate }, { bookingDate: '2026-09-16' as BusinessDate }]),
-    );
+    const batch = await run(accountId, statement([{ bookingDate: '2026-09-15' as BusinessDate }, { bookingDate: '2026-09-16' as BusinessDate }]));
     expect(batch.rows).toEqual([
       { outcome: 'created', position: 1, transactionId: expect.any(String) },
       { outcome: 'error', position: 2, errors: [{ field: 'bookingDate', code: 'ACCOUNT_CLOSED' }] },
@@ -550,13 +535,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       expect(await imports.findBatch(owning.id, REALM)).toMatchObject({ needsReviewCount: 0, status: 'COMPLETED' });
       expect(await count('ledger_transaction', accountId)).toBe(4);
 
-      const audit = await pool.query(
-        `SELECT action, metadata FROM audit_record WHERE entity_type = 'ImportReviewItem' AND entity_id = $1`,
-        [a.reviewItemId],
-      );
-      expect(audit.rows).toEqual([
-        { action: 'RESOLVED', metadata: expect.objectContaining({ resolution: 'CREATE', createdTransactionId: transactionId }) },
-      ]);
+      const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'ImportReviewItem' AND entity_id = $1`, [a.reviewItemId]);
+      expect(audit.rows).toEqual([{ action: 'RESOLVED', metadata: expect.objectContaining({ resolution: 'CREATE', createdTransactionId: transactionId }) }]);
     });
 
     it('the same resolution again is a no-op replay; the other one is refused; nothing changes', async () => {
@@ -565,9 +545,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       const first = await resolve(owning.id, id, 'CREATE');
       const again = await resolve(owning.id, id, 'CREATE');
       expect(again).toMatchObject({ kind: 'RESOLVED', replayed: true });
-      expect(
-        again.kind === 'RESOLVED' && first.kind === 'RESOLVED' && again.item.createdTransactionId === first.item.createdTransactionId,
-      ).toBe(true);
+      expect(again.kind === 'RESOLVED' && first.kind === 'RESOLVED' && again.item.createdTransactionId === first.item.createdTransactionId).toBe(true);
       expect(await resolve(owning.id, id, 'SKIP')).toMatchObject({ kind: 'RESOLUTION_CONFLICT', item: { resolution: 'CREATE' } });
       expect(await count('ledger_transaction', accountId)).toBe(4);
       expect(await imports.findBatch(owning.id, REALM)).toMatchObject({ needsReviewCount: 1 });
@@ -622,10 +600,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
       expect(conflict?.reason).toBe('EXTERNAL_ID_CONTENT_CONFLICT');
       const outcome = await resolve(batch.id, conflict?.reviewItemId ?? '', 'CREATE');
       if (outcome.kind !== 'RESOLVED') throw new Error(outcome.kind);
-      const stored = await pool.query(
-        `SELECT amount::text, external_transaction_id FROM ledger_transaction WHERE financial_account_id = $1 ORDER BY amount`,
-        [accountId],
-      );
+      const stored = await pool.query(`SELECT amount::text, external_transaction_id FROM ledger_transaction WHERE financial_account_id = $1 ORDER BY amount`, [
+        accountId,
+      ]);
       expect(stored.rows).toEqual([
         { amount: '750.00', external_transaction_id: 'E2E-REUSED' },
         { amount: '980.00', external_transaction_id: null },

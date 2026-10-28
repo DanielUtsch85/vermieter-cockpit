@@ -293,10 +293,7 @@ export interface ConflictingTransaction {
  * is decided; a RESOLVED one answers the same resolution as a no-op replay and
  * refuses a different one — a review decision is never silently reversed.
  */
-export function planResolution(
-  item: Pick<ReviewItem, 'status' | 'resolution'>,
-  resolution: ReviewResolution,
-): 'APPLY' | 'REPLAY' | 'CONFLICT' {
+export function planResolution(item: Pick<ReviewItem, 'status' | 'resolution'>, resolution: ReviewResolution): 'APPLY' | 'REPLAY' | 'CONFLICT' {
   if (item.status === 'PENDING') return 'APPLY';
   return item.resolution === resolution ? 'REPLAY' : 'CONFLICT';
 }
@@ -346,13 +343,7 @@ export interface ImportRepository {
    * the item RESOLVED, decrements the owning batch's needsReviewCount and writes
    * the AuditRecord. The item must be owned by `importBatchId`.
    */
-  resolveReviewItem(
-    importBatchId: string,
-    reviewItemId: string,
-    mreRealmId: string,
-    resolution: ReviewResolution,
-    actor: AuditActor,
-  ): Promise<ResolveOutcome>;
+  resolveReviewItem(importBatchId: string, reviewItemId: string, mreRealmId: string, resolution: ReviewResolution, actor: AuditActor): Promise<ResolveOutcome>;
 }
 
 /** The normalized row as stored on a review item (§20A `normalizedRow`). */

@@ -66,7 +66,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
   }
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -74,7 +84,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
   }
   async function holding(pr: string, ownerPartyId: string, text = '1/2', from = '2026-08-01', until: string | null = null) {
     const outcome = await ownerships.create(
-      { mreRealmId: REALM, propertyReferenceId: pr, ownerPartyId, share: share(text), validFrom: day(from), validUntil: until === null ? null : day(until), acquisitionId: null, sourceReferences: [], notes: null },
+      {
+        mreRealmId: REALM,
+        propertyReferenceId: pr,
+        ownerPartyId,
+        share: share(text),
+        validFrom: day(from),
+        validUntil: until === null ? null : day(until),
+        acquisitionId: null,
+        sourceReferences: [],
+        notes: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -98,7 +118,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
     return { pr, anna, ben, a, b };
   }
   const auditsOf = async (id: string) =>
-    (await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, id`, [id])).rows as { action: string; metadata: Record<string, unknown> }[];
+    (await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, id`, [id])).rows as {
+      action: string;
+      metadata: Record<string, unknown>;
+    }[];
 
   it('a sale to a third party at complete ownership: Anna ends the day before, Dora starts; complete before and after; AuditRecords', async () => {
     const { pr, ben, a, b } = await halves();
@@ -124,7 +147,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
       action: 'CLOSED',
       metadata: { reason: 'Verkauf', effectiveDate: '2030-01-01', validUntil: { from: null, to: '2029-12-31' } },
     });
-    expect(await auditsOf(created)).toMatchObject([{ action: 'CREATED', metadata: { reason: 'Verkauf', ownerPartyId: dora, share: '1/2', validFrom: '2030-01-01' } }]);
+    expect(await auditsOf(created)).toMatchObject([
+      { action: 'CREATED', metadata: { reason: 'Verkauf', ownerPartyId: dora, share: '1/2', validFrom: '2030-01-01' } },
+    ]);
     expect(await auditsOf(pr)).toEqual([
       {
         action: 'OWNERSHIP_CHANGED',
@@ -133,7 +158,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
     ]);
   });
 
-  it('a share change of the same owner: Anna buys Ben\'s half; closes are written before the create, so it does not overlap', async () => {
+  it("a share change of the same owner: Anna buys Ben's half; closes are written before the create, so it does not overlap", async () => {
     const { pr, anna, a, b } = await halves();
     const outcome = await ownerships.change(change(pr, [b.id, a.id], [owner(anna, '1/1')]), actor);
     expect(outcome).toMatchObject({
@@ -211,7 +236,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
     const outcome = await ownerships.change(change(pr, [planned.id, ending.id], [owner(carl, '1/1')]), actor);
     expect(outcome).toMatchObject({
       kind: 'CHANGED',
-      result: { closed: [{ id: planned.id, validUntil: '2029-12-31', version: 2 }, { id: ending.id, validUntil: '2029-12-31', version: 1 }] },
+      result: {
+        closed: [
+          { id: planned.id, validUntil: '2029-12-31', version: 2 },
+          { id: ending.id, validUntil: '2029-12-31', version: 1 },
+        ],
+      },
     });
     // Only the shortened one gets a CLOSED record.
     expect((await auditsOf(ending.id)).map((r) => r.action)).toEqual(['CREATED']);
@@ -249,14 +279,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository.change',
       // A close past the repository: the trigger takes the PropertyReference, the row ends before the change's day.
       await holder.query(`UPDATE ownership SET valid_until = '2028-12-31', version = version + 1 WHERE id = $1`, [a.id]);
       const changing = ownerships.change(change(pr, [a.id], [owner(dora)]), actor);
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"property_reference"%'`,
-            )
-          ).rows[0].count,
-        ) >= 1,
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"property_reference"%'`,
+              )
+            ).rows[0].count,
+          ) >= 1,
       );
       await holder.query('COMMIT');
       expect(await changing).toEqual({ kind: 'INVALID_OWNERSHIP', ownershipId: a.id, reason: 'ALREADY_ENDED' });

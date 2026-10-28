@@ -65,7 +65,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
   }
   async function owner(name = 'Anna Schmidt', realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -91,7 +101,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     const pr = await propertyReference();
     const anna = await owner();
     const ownership = await created(
-      draft({ propertyReferenceId: pr, ownerPartyId: anna, share: share('2/4'), validUntil: day('2035-03-31'), sourceReferences: ['Grundbuch Blatt 1234'], notes: 'Kauf' }),
+      draft({
+        propertyReferenceId: pr,
+        ownerPartyId: anna,
+        share: share('2/4'),
+        validUntil: day('2035-03-31'),
+        sourceReferences: ['Grundbuch Blatt 1234'],
+        notes: 'Kauf',
+      }),
     );
     expect(ownership).toMatchObject({
       mreRealmId: REALM,
@@ -129,7 +146,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     await parties.deactivate(anna, REALM, 'verstorben', new Date(), actor);
     expect(await attempt(draft({ propertyReferenceId: pr, ownerPartyId: anna }))).toEqual({ kind: 'PARTY_INACTIVE' });
     expect((await pool.query(`SELECT count(*)::int AS n FROM ownership WHERE property_reference_id = $1`, [pr])).rows[0].n).toBe(0);
-    expect((await pool.query(`SELECT count(*)::int AS n FROM idempotency_key WHERE scope = 'ownership.create' AND key LIKE $1`, [`k-${pr}%`])).rows[0].n).toBe(0);
+    expect((await pool.query(`SELECT count(*)::int AS n FROM idempotency_key WHERE scope = 'ownership.create' AND key LIKE $1`, [`k-${pr}%`])).rows[0].n).toBe(
+      0,
+    );
   });
 
   it('create: Idempotency-Key replays the recorded Ownership, another payload conflicts; without a key a repeat overlaps', async () => {
@@ -152,7 +171,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     const a = await created(draft({ propertyReferenceId: pr, ownerPartyId: anna, share: share('1/3'), validUntil: day('2030-12-31') }));
     // The same owner again, adjacent: allowed; overlapping by one day: refused.
     await created(draft({ propertyReferenceId: pr, ownerPartyId: anna, share: share('1/3'), validFrom: day('2031-01-01') }));
-    expect(await ownerships.create(draft({ propertyReferenceId: pr, ownerPartyId: anna, validFrom: day('2030-12-31'), validUntil: day('2030-12-31') }), actor)).toEqual({
+    expect(
+      await ownerships.create(draft({ propertyReferenceId: pr, ownerPartyId: anna, validFrom: day('2030-12-31'), validUntil: day('2030-12-31') }), actor),
+    ).toEqual({
       kind: 'OVERLAPPING_OWNERSHIP',
       ownershipId: a.id,
     });
@@ -222,7 +243,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     const [anna, ben] = [await owner('Anna'), await owner('Ben')];
     const a1 = await created(draft({ propertyReferenceId: pr, ownerPartyId: anna, validUntil: day('2035-03-31') }));
     const b1 = await created(draft({ propertyReferenceId: pr, ownerPartyId: ben, validUntil: day('2035-03-31') }));
-    const wrong = await created(draft({ propertyReferenceId: pr, ownerPartyId: ben, share: share('1/3'), validFrom: day('2040-01-01'), validUntil: day('2040-12-31') }));
+    const wrong = await created(
+      draft({ propertyReferenceId: pr, ownerPartyId: ben, share: share('1/3'), validFrom: day('2040-01-01'), validUntil: day('2040-12-31') }),
+    );
     await ownerships.void(wrong.id, REALM, 'Tippfehler', new Date(), actor);
     // Voided, it no longer counts: Anna's whole share from 2035 fits.
     const a2 = await created(draft({ propertyReferenceId: pr, ownerPartyId: anna, share: share('1/1'), validFrom: day('2035-04-01') }));
@@ -257,7 +280,16 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
       pool.query(
         `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, valid_until, status, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'x') RETURNING id`,
-        [values.realm ?? REALM, pr, values.owner ?? anna, values.n ?? 1, values.d ?? 2, values.from ?? '2026-08-01', values.until ?? null, values.status ?? 'VALID'],
+        [
+          values.realm ?? REALM,
+          pr,
+          values.owner ?? anna,
+          values.n ?? 1,
+          values.d ?? 2,
+          values.from ?? '2026-08-01',
+          values.until ?? null,
+          values.status ?? 'VALID',
+        ],
       );
     await expect(insert({ realm: OTHER_REALM })).rejects.toThrow(/ownership_property_reference_fk/);
     await expect(insert({ n: 2, d: 4 })).rejects.toThrow(/ownership_share/);
@@ -270,7 +302,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
     const id = rows[0].id as string;
     await expect(insert({ from: '2030-12-31' })).rejects.toThrow(/OVERLAPPING_OWNERSHIP/);
     await insert({ owner: ben });
-    await expect(insert({ owner: (await owner('Carl')), n: 1, d: 10000 })).rejects.toThrow(/OWNERSHIP_TOTAL_EXCEEDS_ONE/);
+    await expect(insert({ owner: await owner('Carl'), n: 1, d: 10000 })).rejects.toThrow(/OWNERSHIP_TOTAL_EXCEEDS_ONE/);
 
     const update = (set: string) => pool.query(`UPDATE ownership SET ${set} WHERE id = $1`, [id]);
     await expect(update(`share_numerator = 1, share_denominator = 3`)).rejects.toThrow(/never change/);
@@ -289,9 +321,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
       /party_type is fixed/,
     );
     await parties.deactivate(anna, REALM, 'verstorben', new Date(), actor);
-    await expect(
-      pool.query(`UPDATE party SET status = 'ACTIVE', deactivated_at = NULL, deactivation_reason = NULL WHERE id = $1`, [anna]),
-    ).rejects.toThrow(/INACTIVE is final/);
+    await expect(pool.query(`UPDATE party SET status = 'ACTIVE', deactivated_at = NULL, deactivation_reason = NULL WHERE id = $1`, [anna])).rejects.toThrow(
+      /INACTIVE is final/,
+    );
     await expect(pool.query(`UPDATE party SET deactivation_reason = 'anders' WHERE id = $1`, [anna])).rejects.toThrow(/INACTIVE is final/);
     // Amending an inactive Party's data stays allowed (§19.1).
     expect(await parties.amend(anna, REALM, { displayName: 'Anna G.' }, actor)).toMatchObject({ kind: 'AMENDED', changed: true });
@@ -311,14 +343,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
         [REALM, pr, ben],
       );
       const carls = ownerships.create(draft({ propertyReferenceId: pr, ownerPartyId: carl }), actor);
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"property_reference"%'`,
-            )
-          ).rows[0].count,
-        ) >= 1,
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"property_reference"%'`,
+              )
+            ).rows[0].count,
+          ) >= 1,
       );
       await holder.query('COMMIT');
       expect(await carls).toEqual({ kind: 'OWNERSHIP_TOTAL_EXCEEDS_ONE', date: '2026-08-01', shareSum: { numerator: 3n, denominator: 2n } });
@@ -349,14 +382,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
         () => 'inserted',
         (error: { code?: string }) => error.code,
       );
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%INSERT INTO ownership%'`,
-            )
-          ).rows[0].count,
-        ) >= 1,
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%INSERT INTO ownership%'`,
+              )
+            ).rows[0].count,
+          ) >= 1,
       );
       await first.query('COMMIT');
       expect(await late).toBe('40001');
@@ -371,15 +405,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
 
   /** Waits until a session waits for a lock in a statement on `table`. */
   const waitForLock = (table: string) =>
-    waitUntil(async () =>
-      Number(
-        (
-          await pool.query(
-            `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`,
-            [`%"${table}"%`],
-          )
-        ).rows[0].count,
-      ) >= 1,
+    waitUntil(
+      async () =>
+        Number(
+          (
+            await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
+              `%"${table}"%`,
+            ])
+          ).rows[0].count,
+        ) >= 1,
     );
 
   it('close waits for a concurrent writer of the PropertyReference (one lock order: PropertyReference first), then closes', async () => {
@@ -451,16 +485,19 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnershipRepository', () => 
       await holder.query('BEGIN');
       await holder.query(`SELECT 1 FROM party WHERE id = $1 FOR UPDATE`, [anna]);
       const create = ownerships.create(draft({ propertyReferenceId: pr, ownerPartyId: anna }), actor);
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%from "party"%for share%'`,
-            )
-          ).rows[0].count,
-        ) >= 1,
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%from "party"%for share%'`,
+              )
+            ).rows[0].count,
+          ) >= 1,
       );
-      await holder.query(`UPDATE party SET status = 'INACTIVE', deactivated_at = now(), deactivation_reason = 'x', version = version + 1 WHERE id = $1`, [anna]);
+      await holder.query(`UPDATE party SET status = 'INACTIVE', deactivated_at = now(), deactivation_reason = 'x', version = version + 1 WHERE id = $1`, [
+        anna,
+      ]);
       await holder.query('COMMIT');
       expect(await create).toEqual({ kind: 'PARTY_INACTIVE' });
     } finally {

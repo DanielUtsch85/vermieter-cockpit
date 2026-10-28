@@ -5,12 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
 import { createFinancialAccount, getImportBatch, importBankStatement, listReviewItems, resolveReviewItem } from './application/index.js';
-import {
-  PostgresFinancialAccountRepository,
-  PostgresImportRepository,
-  createDatabase,
-  migrateToLatest,
-} from './infrastructure/postgres/index.js';
+import { PostgresFinancialAccountRepository, PostgresImportRepository, createDatabase, migrateToLatest } from './infrastructure/postgres/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -153,9 +148,7 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
     const accountId = await newAccount();
     await upload(REALM_A, accountId, csv);
     const review = (await (await upload(REALM_A, accountId, reordered)).json()) as { importBatchId: string };
-    const listed = (await (
-      await fetch(`${base}/api/v1/imports/${review.importBatchId}/review-items`, { headers: headers(REALM_A) })
-    ).json()) as {
+    const listed = (await (await fetch(`${base}/api/v1/imports/${review.importBatchId}/review-items`, { headers: headers(REALM_A) })).json()) as {
       items: { reviewItemId: string; normalizedRow: { description: string }; conflictingTransactions: { description: string }[] }[];
     };
     expect(listed.items.map((i) => [i.normalizedRow.description, i.conflictingTransactions.map((t) => t.description)])).toEqual([

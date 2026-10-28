@@ -238,14 +238,7 @@ export interface AcquisitionRepository {
    * Locks in the order of every Ownership writer (PropertyReference, then the Acquisition `FOR UPDATE`), reads the
    * `VALID` Ownerships carrying its id, then applies `planCancel`; the version is checked only when it changes.
    */
-  cancel(
-    id: string,
-    mreRealmId: string,
-    reason: string,
-    at: Date,
-    actor: AuditActor,
-    expectedVersions?: readonly number[],
-  ): Promise<CancelAcquisitionOutcome>;
+  cancel(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CancelAcquisitionOutcome>;
   /**
    * Locks PropertyReference (no-op write) → buyers `FOR SHARE` in id order → the Acquisition `FOR UPDATE`, then reads
    * its Ownerships and those of the PropertyReference on the transfer date, and applies `planConfirm` (§28.1).

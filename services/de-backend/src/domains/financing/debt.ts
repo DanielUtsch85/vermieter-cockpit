@@ -91,7 +91,10 @@ export function debtOn(loan: Loan, periods: readonly SchedulePeriod[], splits: r
  */
 export function distribute(total: bigint, allocations: readonly { readonly propertyReferenceId: string; readonly share: Fraction }[]): bigint[] {
   const negative = total < 0n;
-  const parts = largestRemainder(negative ? -total : total, allocations.map((a) => ({ key: a.propertyReferenceId, weight: a.share })));
+  const parts = largestRemainder(
+    negative ? -total : total,
+    allocations.map((a) => ({ key: a.propertyReferenceId, weight: a.share })),
+  );
   return allocations.map((a) => {
     const part = parts.get(a.propertyReferenceId) ?? 0n;
     return negative ? -part : part;
@@ -163,7 +166,12 @@ export function remainingDebt(inputs: DebtInputs, asOf: BusinessDate, perPropert
     latestStatement: latest === null ? null : compareStatement(loan, splits, latest),
     closing:
       loan.status === 'CLOSED' && loan.closingDate !== null && loan.closingReason !== null
-        ? { closingDate: loan.closingDate, reason: loan.closingReason, refinancedByLoanId: loan.refinancedByLoanId, actualOnClosingDate: actualOn(loan, splits, loan.closingDate) }
+        ? {
+            closingDate: loan.closingDate,
+            reason: loan.closingReason,
+            refinancedByLoanId: loan.refinancedByLoanId,
+            actualOnClosingDate: actualOn(loan, splits, loan.closingDate),
+          }
         : null,
   };
   if (!perProperty) return { kind: 'LOAN_LEVEL', debt };
@@ -201,9 +209,16 @@ export function paymentsInYear(inputs: DebtInputs, year: number, perProperty: bo
   const { loan, sets } = inputs;
   if (loan.status === 'VOID') return { kind: 'LOAN_NOT_ACTIVE', status: loan.status };
   const prefix = `${year}-`;
-  const splits = inputs.splits.filter((s) => s.bookingDate.startsWith(prefix)).sort((x, y) => (x.bookingDate < y.bookingDate ? -1 : x.bookingDate > y.bookingDate ? 1 : 0));
+  const splits = inputs.splits
+    .filter((s) => s.bookingDate.startsWith(prefix))
+    .sort((x, y) => (x.bookingDate < y.bookingDate ? -1 : x.bookingDate > y.bookingDate ? 1 : 0));
   const sum = (category: LoanSplitCategory) => splits.reduce((total, s) => (s.category === category ? total + s.amount : total), 0n);
-  const payments: YearPayments = { year, interest: sum('LOAN_INTEREST'), principal: sum('LOAN_PRINCIPAL'), payments: new Set(splits.map((s) => s.transactionId)).size };
+  const payments: YearPayments = {
+    year,
+    interest: sum('LOAN_INTEREST'),
+    principal: sum('LOAN_PRINCIPAL'),
+    payments: new Set(splits.map((s) => s.transactionId)).size,
+  };
   if (!perProperty) return { kind: 'LOAN_LEVEL', payments };
   const totals = new Map<string, { interest: bigint; principal: bigint }>();
   for (const s of splits) {
@@ -296,7 +311,8 @@ export function checkStatement(loan: Loan, statementDate: BusinessDate): Stateme
   if (loan.status === 'VOID') return { kind: 'LOAN_NOT_ACTIVE', status: loan.status };
   const from = debtFrom(loan);
   if (statementDate < from) return { kind: 'STATEMENT_BEFORE_DEBT', debtFrom: from };
-  if (loan.status === 'CLOSED' && loan.closingDate !== null && statementDate > loan.closingDate) return { kind: 'STATEMENT_AFTER_CLOSING', closingDate: loan.closingDate };
+  if (loan.status === 'CLOSED' && loan.closingDate !== null && statementDate > loan.closingDate)
+    return { kind: 'STATEMENT_AFTER_CLOSING', closingDate: loan.closingDate };
   return undefined;
 }
 
@@ -338,5 +354,13 @@ export interface LoanDebtRepository {
     idempotency?: { readonly key: string; readonly fingerprint: string },
   ): Promise<CreateStatementOutcome>;
   /** The Loan `FOR UPDATE`, then the statement and `planVoidStatement`. */
-  voidStatement(loanId: string, statementId: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidStatementOutcome>;
+  voidStatement(
+    loanId: string,
+    statementId: string,
+    mreRealmId: string,
+    reason: string,
+    at: Date,
+    actor: AuditActor,
+    expectedVersions?: readonly number[],
+  ): Promise<VoidStatementOutcome>;
 }

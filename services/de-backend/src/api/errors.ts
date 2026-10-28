@@ -2,13 +2,7 @@ import type { ErrorRequestHandler, Response } from 'express';
 import type { AccessError } from '../application/index.js';
 
 /** Error envelope and categories of api-design.md §12–13. */
-export function sendError(
-  res: Response,
-  status: number,
-  code: string,
-  message: string,
-  details?: Record<string, unknown>,
-): void {
+export function sendError(res: Response, status: number, code: string, message: string, details?: Record<string, unknown>): void {
   res.status(status).json({ error: { code, message, ...(details === undefined ? {} : { details }) } });
 }
 

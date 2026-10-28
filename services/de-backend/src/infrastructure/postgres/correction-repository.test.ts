@@ -131,8 +131,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
       )
     ).rows;
   const audits = async (id: string) =>
-    (await pool.query(`SELECT action, metadata, previous_version, new_version FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at`, [id]))
-      .rows as { action: string; metadata: Record<string, unknown>; previous_version: number; new_version: number }[];
+    (await pool.query(`SELECT action, metadata, previous_version, new_version FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at`, [id])).rows as {
+      action: string;
+      metadata: Record<string, unknown>;
+      previous_version: number;
+      new_version: number;
+    }[];
 
   it('writes a confirmed reversal and replacement and marks the original CORRECTED, in one step (§35.1, §35.3)', async () => {
     const reference = await property('64b0c0ffee00000000000c01');
@@ -255,7 +259,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
       await corrections.correct(
         id,
         REALM,
-        { reason: 'nichts', replacement: { bookingDate: date('2026-09-01'), description: 'Miete September', splits: [split('1000.00', 'RENT_BASE'), split('250.00', 'RENT_OPERATING_COST_ADVANCE')] } },
+        {
+          reason: 'nichts',
+          replacement: {
+            bookingDate: date('2026-09-01'),
+            description: 'Miete September',
+            splits: [split('1000.00', 'RENT_BASE'), split('250.00', 'RENT_OPERATING_COST_ADVANCE')],
+          },
+        },
         actor,
       ),
     ).toEqual({ kind: 'NO_CHANGE' });
@@ -339,17 +350,19 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
 
   it('checks categories and PropertyReferences of the replacement', async () => {
     const id = await confirmedRent();
-    expect(
-      await corrections.correct(id, REALM, { reason: 'x', replacement: { splits: [split('1250.00', 'NO_SUCH_CATEGORY')] } }, actor),
-    ).toEqual({ kind: 'UNKNOWN_CATEGORY', codes: ['NO_SUCH_CATEGORY'] });
+    expect(await corrections.correct(id, REALM, { reason: 'x', replacement: { splits: [split('1250.00', 'NO_SUCH_CATEGORY')] } }, actor)).toEqual({
+      kind: 'UNKNOWN_CATEGORY',
+      codes: ['NO_SUCH_CATEGORY'],
+    });
     const foreign = await property('64b0c0ffee00000000000c03', OTHER_REALM);
     expect(await corrections.correct(id, REALM, { reason: 'x', replacement: { propertyReferenceId: foreign } }, actor)).toEqual({
       kind: 'PROPERTY_REFERENCE_NOT_FOUND',
       propertyReferenceIds: [foreign],
     });
-    expect(
-      await corrections.correct(id, REALM, { reason: 'x', replacement: { splits: [split('1250.00', 'RENT_BASE', foreign)] } }, actor),
-    ).toEqual({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceIds: [foreign] });
+    expect(await corrections.correct(id, REALM, { reason: 'x', replacement: { splits: [split('1250.00', 'RENT_BASE', foreign)] } }, actor)).toEqual({
+      kind: 'PROPERTY_REFERENCE_NOT_FOUND',
+      propertyReferenceIds: [foreign],
+    });
 
     // Copied splits whose category was deactivated since: send new splits (→ 422). The reversal would still mirror them.
     await pool.query(`UPDATE financial_category SET active = false WHERE code = 'RENT_OPERATING_COST_ADVANCE'`);
@@ -423,7 +436,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
     const replay = await corrections.correct(id, REALM, request, actor, key);
     expect(replay).toEqual({ ...first, replayed: true });
     expect(
-      await corrections.correct(id, REALM, { ...request, reason: 'anders' }, actor, { key: 'k-correct-1', fingerprint: correctionFingerprint(id, { ...request, reason: 'anders' }) }),
+      await corrections.correct(id, REALM, { ...request, reason: 'anders' }, actor, {
+        key: 'k-correct-1',
+        fingerprint: correctionFingerprint(id, { ...request, reason: 'anders' }),
+      }),
     ).toEqual({ kind: 'IDEMPOTENCY_CONFLICT' });
     expect((await audits(id)).filter((r) => r.action === 'CORRECTED')).toHaveLength(1);
   });
@@ -437,15 +453,16 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
       await holder.query('BEGIN');
       await holder.query(`SELECT 1 FROM ledger_transaction WHERE id = $1 FOR UPDATE`, [id]);
       const both = Promise.all([corrections.correct(id, REALM, request, actor), corrections.correct(id, REALM, request, actor)]);
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
                AND query LIKE '%from "ledger_transaction"%for update%'`,
-            )
-          ).rows[0].count,
-        ) === 2,
+              )
+            ).rows[0].count,
+          ) === 2,
       );
       await holder.query('COMMIT');
       const outcomes = await both;

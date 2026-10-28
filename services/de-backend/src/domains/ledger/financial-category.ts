@@ -4,15 +4,7 @@
  * codes are stable once used and are deactivated, never reused.
  */
 
-export const CATEGORY_TYPES = [
-  'INCOME',
-  'OPERATING_EXPENSE',
-  'FINANCING',
-  'CAPITAL_MOVEMENT',
-  'SECURITY_DEPOSIT',
-  'TRANSFER',
-  'OTHER',
-] as const;
+export const CATEGORY_TYPES = ['INCOME', 'OPERATING_EXPENSE', 'FINANCING', 'CAPITAL_MOVEMENT', 'SECURITY_DEPOSIT', 'TRANSFER', 'OTHER'] as const;
 export type CategoryType = (typeof CATEGORY_TYPES)[number];
 
 /** Upper-case code, e.g. `LOAN_INTEREST`. */

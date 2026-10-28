@@ -130,7 +130,13 @@ describe('POST /api/v1/loans/{id}/allocations', () => {
     });
     expect((await call(base, 'POST', `/loans/${LOAN}/allocations`, manual, { 'idempotency-key': 'a1' })).headers.get('idempotent-replayed')).toBe('true');
     await call(base, 'POST', `/loans/${LOAN}/allocations`, byPrice);
-    expect(seen[2]).toMatchObject({ basis: 'PURCHASE_PRICE', allocations: [{ propertyReferenceId: P1, share: null, acquisitionId: A1 }, { share: null, acquisitionId: A2 }] });
+    expect(seen[2]).toMatchObject({
+      basis: 'PURCHASE_PRICE',
+      allocations: [
+        { propertyReferenceId: P1, share: null, acquisitionId: A1 },
+        { share: null, acquisitionId: A2 },
+      ],
+    });
   });
 
   it('400 with the field codes', async () => {
@@ -141,31 +147,65 @@ describe('POST /api/v1/loans/{id}/allocations', () => {
       return ((await errorOf(res)).details as { fields: unknown[] }).fields;
     };
     const entry = (share: string) => ({ ...manual, allocations: [{ propertyReferenceId: P1, share }] });
-    expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: P1, share: '1/3' }, { propertyReferenceId: P2, share: '1/3' }] })).toEqual([
-      { field: 'allocations', code: 'SHARE_SUM_NOT_ONE' },
-    ]);
-    expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: P1, share: '1/3' }, { propertyReferenceId: P2, share: '2/3' }, { propertyReferenceId: A1, share: '1/10000' }] })).toEqual([
-      { field: 'allocations', code: 'SHARE_SUM_NOT_ONE' },
-    ]);
+    expect(
+      await fieldsOf({
+        ...manual,
+        allocations: [
+          { propertyReferenceId: P1, share: '1/3' },
+          { propertyReferenceId: P2, share: '1/3' },
+        ],
+      }),
+    ).toEqual([{ field: 'allocations', code: 'SHARE_SUM_NOT_ONE' }]);
+    expect(
+      await fieldsOf({
+        ...manual,
+        allocations: [
+          { propertyReferenceId: P1, share: '1/3' },
+          { propertyReferenceId: P2, share: '2/3' },
+          { propertyReferenceId: A1, share: '1/10000' },
+        ],
+      }),
+    ).toEqual([{ field: 'allocations', code: 'SHARE_SUM_NOT_ONE' }]);
     expect(await fieldsOf(entry('1/10001'))).toEqual([{ field: 'allocations.0.share', code: 'OUT_OF_RANGE' }]);
     expect(await fieldsOf(entry('2/1'))).toEqual([{ field: 'allocations.0.share', code: 'OUT_OF_RANGE' }]);
     expect(await fieldsOf(entry('0/1'))).toEqual([{ field: 'allocations.0.share', code: 'INVALID_FORMAT' }]);
     expect(await fieldsOf(entry('0.5'))).toEqual([{ field: 'allocations.0.share', code: 'INVALID_FORMAT' }]);
-    expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: P1, share: '1/2' }, { propertyReferenceId: P1.toUpperCase(), share: '1/2' }] })).toEqual([
-      { field: 'allocations.1.propertyReferenceId', code: 'DUPLICATE' },
-    ]);
+    expect(
+      await fieldsOf({
+        ...manual,
+        allocations: [
+          { propertyReferenceId: P1, share: '1/2' },
+          { propertyReferenceId: P1.toUpperCase(), share: '1/2' },
+        ],
+      }),
+    ).toEqual([{ field: 'allocations.1.propertyReferenceId', code: 'DUPLICATE' }]);
     expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: P1 }] })).toEqual([{ field: 'allocations.0.share', code: 'REQUIRED' }]);
-    expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: P1, share: '1/1', acquisitionId: A1 }] })).toEqual([{ field: 'allocations.0.acquisitionId', code: 'NOT_ALLOWED_FOR_BASIS' }]);
-    expect(await fieldsOf({ ...byPrice, allocations: [{ propertyReferenceId: P1, acquisitionId: A1, share: '1/1' }] })).toEqual([{ field: 'allocations.0.share', code: 'NOT_ALLOWED_FOR_BASIS' }]);
-    expect(await fieldsOf({ ...byPrice, allocations: [{ propertyReferenceId: P1 }] })).toEqual([{ field: 'allocations.0.acquisitionId', code: 'REQUIRED' }]);
-    expect(await fieldsOf({ ...byPrice, allocations: [{ propertyReferenceId: P1, acquisitionId: A1 }, { propertyReferenceId: P2, acquisitionId: A1 }] })).toEqual([
-      { field: 'allocations.1.acquisitionId', code: 'DUPLICATE' },
+    expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: P1, share: '1/1', acquisitionId: A1 }] })).toEqual([
+      { field: 'allocations.0.acquisitionId', code: 'NOT_ALLOWED_FOR_BASIS' },
     ]);
+    expect(await fieldsOf({ ...byPrice, allocations: [{ propertyReferenceId: P1, acquisitionId: A1, share: '1/1' }] })).toEqual([
+      { field: 'allocations.0.share', code: 'NOT_ALLOWED_FOR_BASIS' },
+    ]);
+    expect(await fieldsOf({ ...byPrice, allocations: [{ propertyReferenceId: P1 }] })).toEqual([{ field: 'allocations.0.acquisitionId', code: 'REQUIRED' }]);
+    expect(
+      await fieldsOf({
+        ...byPrice,
+        allocations: [
+          { propertyReferenceId: P1, acquisitionId: A1 },
+          { propertyReferenceId: P2, acquisitionId: A1 },
+        ],
+      }),
+    ).toEqual([{ field: 'allocations.1.acquisitionId', code: 'DUPLICATE' }]);
     expect(await fieldsOf({ ...manual, allocations: [] })).toEqual([{ field: 'allocations', code: 'INVALID_FORMAT' }]);
-    const many = Array.from({ length: 51 }, (_, i) => ({ propertyReferenceId: `${i.toString(16).padStart(8, '0')}-2f2c-4a8e-9d55-1f0d8c1e2a3b`, share: '1/51' }));
+    const many = Array.from({ length: 51 }, (_, i) => ({
+      propertyReferenceId: `${i.toString(16).padStart(8, '0')}-2f2c-4a8e-9d55-1f0d8c1e2a3b`,
+      share: '1/51',
+    }));
     expect(await fieldsOf({ ...manual, allocations: many })).toEqual([{ field: 'allocations', code: 'INVALID_FORMAT' }]);
     expect(await fieldsOf({ ...manual, basis: 'AREA' })).toEqual([{ field: 'basis', code: 'INVALID_FORMAT' }]);
-    expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: 'x', share: '1/1' }] })).toEqual([{ field: 'allocations.0.propertyReferenceId', code: 'INVALID_FORMAT' }]);
+    expect(await fieldsOf({ ...manual, allocations: [{ propertyReferenceId: 'x', share: '1/1' }] })).toEqual([
+      { field: 'allocations.0.propertyReferenceId', code: 'INVALID_FORMAT' },
+    ]);
     await fieldsOf({ ...manual, validFrom: 'x' });
     await fieldsOf({ ...manual, unknown: 1 });
     expect((await call(base, 'POST', '/loans/x/allocations', manual)).status).toBe(400);
@@ -176,8 +216,18 @@ describe('POST /api/v1/loans/{id}/allocations', () => {
     [new PropertyReferenceNotFoundError(P2), 404, 'NOT_FOUND', { propertyReferenceId: P2 }],
     [new AcquisitionNotFoundError(A2), 404, 'NOT_FOUND', { acquisitionId: A2 }],
     [new LoanNotActiveError(LOAN, 'VOID'), 409, 'CONFLICT', { reason: 'LOAN_NOT_ACTIVE', status: 'VOID' }],
-    [new AllocationRefusedError({ kind: 'ALLOCATION_BEFORE_DEBT', debtFrom: '2026-09-01' as never }), 422, 'ALLOCATION_BEFORE_DEBT', { debtFrom: '2026-09-01' }],
-    [new AllocationRefusedError({ kind: 'ALLOCATION_NOT_APPENDED', lastValidFrom: '2026-09-01' as never }), 422, 'ALLOCATION_NOT_APPENDED', { lastValidFrom: '2026-09-01' }],
+    [
+      new AllocationRefusedError({ kind: 'ALLOCATION_BEFORE_DEBT', debtFrom: '2026-09-01' as never }),
+      422,
+      'ALLOCATION_BEFORE_DEBT',
+      { debtFrom: '2026-09-01' },
+    ],
+    [
+      new AllocationRefusedError({ kind: 'ALLOCATION_NOT_APPENDED', lastValidFrom: '2026-09-01' as never }),
+      422,
+      'ALLOCATION_NOT_APPENDED',
+      { lastValidFrom: '2026-09-01' },
+    ],
     [new AllocationRefusedError({ kind: 'ACQUISITION_CANCELLED', acquisitionId: A1 }), 422, 'ACQUISITION_CANCELLED', { acquisitionId: A1 }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
@@ -243,7 +293,10 @@ describe('GET /api/v1/loans/{id}/allocations', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ items: [{ allocationSetId: SET, allocations: [{ share: '10000001/20000000' }, {}] }] });
     expect(seen[0]).toMatchObject({ loanId: LOAN, status: 'VALID' });
-    expect(await (await call(base, 'GET', `/loans/${LOAN}/allocations?asOf=2026-09-01`)).json()).toMatchObject({ asOf: '2026-09-01', set: { allocationSetId: SET } });
+    expect(await (await call(base, 'GET', `/loans/${LOAN}/allocations?asOf=2026-09-01`)).json()).toMatchObject({
+      asOf: '2026-09-01',
+      set: { allocationSetId: SET },
+    });
     expect(await (await call(base, 'GET', `/loans/${LOAN}/allocations?asOf=2026-08-31`)).json()).toEqual({ asOf: '2026-08-31', set: null });
     const both = await call(base, 'GET', `/loans/${LOAN}/allocations?asOf=2026-09-01&status=VALID`);
     expect(both.status).toBe(400);

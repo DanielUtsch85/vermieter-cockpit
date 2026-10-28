@@ -1,10 +1,4 @@
-import type {
-  SourceField,
-  Transaction,
-  TransactionChanges,
-  TransactionStatus,
-  UnconfirmedTransactionRepository,
-} from '../domains/ledger/index.js';
+import type { SourceField, Transaction, TransactionChanges, TransactionStatus, UnconfirmedTransactionRepository } from '../domains/ledger/index.js';
 import type { RealmPrincipal } from './access.js';
 import { VersionConflictError } from './errors.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';

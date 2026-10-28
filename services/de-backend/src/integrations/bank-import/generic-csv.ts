@@ -90,12 +90,13 @@ export const genericCsvAdapter: BankStatementAdapter = {
     if (header === undefined) return fail('EMPTY', 'The file has no header row');
     if (dataRows.length > MAX_ROWS) return fail('TOO_MANY_ROWS', `More than ${MAX_ROWS} rows; split the statement`);
 
-    const indexes = resolveColumns(header.map((h) => h.trim()), options.columnMapping);
+    const indexes = resolveColumns(
+      header.map((h) => h.trim()),
+      options.columnMapping,
+    );
     if ('error' in indexes) return { error: indexes.error };
 
-    const rows: ParsedRow[] = dataRows.map((cells, i) =>
-      parseRow(cells, i + 1, header.length, indexes.columns, options, accountCurrency),
-    );
+    const rows: ParsedRow[] = dataRows.map((cells, i) => parseRow(cells, i + 1, header.length, indexes.columns, options, accountCurrency));
     const statement: ParsedStatement = {
       adapterId: GENERIC_CSV_ID,
       adapterVersion: GENERIC_CSV_VERSION,

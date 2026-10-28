@@ -36,7 +36,9 @@ const split = (amount: string, financialCategoryCode = 'RENT_BASE'): SplitInput 
 
 async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
   const deadline = Date.now() + 5_000;
-  while (Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count) {
+  while (
+    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count
+  ) {
     if (Date.now() > deadline) throw new Error(`fewer than ${count} sessions wait on a lock`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -44,7 +46,14 @@ async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
 
 /** The trigger's own reason, the constraint's name, or the error code. */
 function reasonOf(error: { message?: string; constraint?: string; code?: string }): string {
-  return error.constraint ?? /\(([A-Z_]+)\)|never deleted|fixed after creation|is not a step|only inserted SUGGESTED or CONFIRMED with version 1|only lowered when a suggestion is confirmed|only inserted NOT_WRITTEN|released with write-back|with write-back [A-Z_]+|mre_last_lease_until changed outside a claim|a claim sets mre_last_lease_until to the latest lease/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error';
+  return (
+    error.constraint ??
+    /\(([A-Z_]+)\)|never deleted|fixed after creation|is not a step|only inserted SUGGESTED or CONFIRMED with version 1|only lowered when a suggestion is confirmed|only inserted NOT_WRITTEN|released with write-back|with write-back [A-Z_]+|mre_last_lease_until changed outside a claim|a claim sets mre_last_lease_until to the latest lease/.exec(
+      error.message ?? '',
+    )?.[0] ??
+    error.code ??
+    'error'
+  );
 }
 
 describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)', () => {
@@ -83,7 +92,10 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
   });
 
   /** A Transaction with the given splits, confirmed unless told otherwise. */
-  async function transaction(set: readonly SplitInput[] = [split('800.00')], options: { direction?: 'INFLOW' | 'OUTFLOW'; confirm?: boolean; realm?: string; bookingDate?: string; iban?: string } = {}): Promise<string> {
+  async function transaction(
+    set: readonly SplitInput[] = [split('800.00')],
+    options: { direction?: 'INFLOW' | 'OUTFLOW'; confirm?: boolean; realm?: string; bookingDate?: string; iban?: string } = {},
+  ): Promise<string> {
     const realm = options.realm ?? REALM;
     const total = set.reduce((sum, s) => sum.add(s.amount), eur('0'));
     const created = await transactions.createManual(
@@ -140,7 +152,11 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const reversed = await corrections.correct(original, REALM, { reason: 'Doppelt', replacement: null }, actor);
       if (reversed.kind !== 'CORRECTED') throw new Error(reversed.kind);
       expect(await repository.create(match(original), actor)).toEqual({ kind: 'TRANSACTION_NOT_COUNTED', status: 'CORRECTED', correctionRole: null });
-      expect(await repository.create(match(reversed.result.reversal.id), actor)).toEqual({ kind: 'TRANSACTION_NOT_COUNTED', status: 'CONFIRMED', correctionRole: 'REVERSAL' });
+      expect(await repository.create(match(reversed.result.reversal.id), actor)).toEqual({
+        kind: 'TRANSACTION_NOT_COUNTED',
+        status: 'CONFIRMED',
+        correctionRole: 'REVERSAL',
+      });
       expect(await repository.create(match(await transaction([split('800.00')], { direction: 'OUTFLOW' })), actor)).toEqual({ kind: 'TRANSACTION_NOT_INFLOW' });
       expect(await repository.create(match(await transaction([split('800.00', 'INSURANCE')])), actor)).toEqual({ kind: 'NO_RENT_CASH' });
     });
@@ -148,11 +164,25 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
     it('rent cash is the RENT_* splits only; available = rent cash − CONFIRMED; the same term twice is ALREADY_MATCHED', async () => {
       const t = await transaction([split('700.00'), split('100.00', 'RENT_OPERATING_COST_ADVANCE'), split('50.00', 'BANK_FEES')]);
       const first = await created(match(t, '500.00'));
-      expect(first).toMatchObject({ status: 'CONFIRMED', matchedAmount: eur('500.00'), confirmedBy: actor.actorId, mreWriteBackState: 'NOT_WRITTEN', version: 1 });
+      expect(first).toMatchObject({
+        status: 'CONFIRMED',
+        matchedAmount: eur('500.00'),
+        confirmedBy: actor.actorId,
+        mreWriteBackState: 'NOT_WRITTEN',
+        version: 1,
+      });
       expect(await repository.create(match(t, '1.00'), actor)).toEqual({ kind: 'ALREADY_MATCHED', reconciliationId: first.id });
-      expect(await repository.create(match(t, '300.01', '2027020100'), actor)).toEqual({ kind: 'RENT_CASH_EXCEEDED', rentCash: eur('800.00'), available: eur('300.00') });
+      expect(await repository.create(match(t, '300.01', '2027020100'), actor)).toEqual({
+        kind: 'RENT_CASH_EXCEEDED',
+        rentCash: eur('800.00'),
+        available: eur('300.00'),
+      });
       expect((await created(match(t, '300.00', '2027020100'))).mreRentTerm).toBe('2027020100');
-      expect(await repository.create(match(t, '0.01', '2027030100'), actor)).toEqual({ kind: 'RENT_CASH_EXCEEDED', rentCash: eur('800.00'), available: eur('0.00') });
+      expect(await repository.create(match(t, '0.01', '2027030100'), actor)).toEqual({
+        kind: 'RENT_CASH_EXCEEDED',
+        rentCash: eur('800.00'),
+        available: eur('0.00'),
+      });
     });
 
     it('several Transactions per term, one Transaction over several Tenants; a release makes its cash available again', async () => {
@@ -174,11 +204,27 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const before = (await pool.query(`SELECT status, version, updated_at FROM ledger_transaction WHERE id = $1`, [t])).rows[0];
       const r = await created(match(t));
       const released = await repository.release(r.id, REALM, 'Irrtum', new Date(), actor);
-      expect(released).toMatchObject({ kind: 'RELEASED', changed: true, reconciliation: { status: 'RELEASED', releasedBy: actor.actorId, releaseReason: 'Irrtum', version: 2 } });
-      const audit = await pool.query(`SELECT action, previous_version, new_version, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, new_version`, [r.id]);
+      expect(released).toMatchObject({
+        kind: 'RELEASED',
+        changed: true,
+        reconciliation: { status: 'RELEASED', releasedBy: actor.actorId, releaseReason: 'Irrtum', version: 2 },
+      });
+      const audit = await pool.query(
+        `SELECT action, previous_version, new_version, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, new_version`,
+        [r.id],
+      );
       expect(audit.rows).toEqual([
-        { action: 'CONFIRMED', previous_version: null, new_version: 1, metadata: { transactionId: t, mreTenantId: TENANT, mreRentTerm: '2027010100', matchedAmount: { amount: '800.00', currency: 'EUR' }, manual: true } },
-        { action: 'RELEASED', previous_version: 1, new_version: 2, metadata: {
+        {
+          action: 'CONFIRMED',
+          previous_version: null,
+          new_version: 1,
+          metadata: { transactionId: t, mreTenantId: TENANT, mreRentTerm: '2027010100', matchedAmount: { amount: '800.00', currency: 'EUR' }, manual: true },
+        },
+        {
+          action: 'RELEASED',
+          previous_version: 1,
+          new_version: 2,
+          metadata: {
             transactionId: t,
             reason: 'Irrtum',
             matchedAmount: { amount: '800.00', currency: 'EUR' },
@@ -221,10 +267,18 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const r = await created(match(t));
       expect(await repository.release(r.id, OTHER_REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_FOUND' });
       expect(await repository.release('nope', REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_FOUND' });
-      expect(await repository.release(r.id, REALM, 'x', new Date(), actor, [7])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [7], currentVersion: 1 });
+      expect(await repository.release(r.id, REALM, 'x', new Date(), actor, [7])).toEqual({
+        kind: 'VERSION_CONFLICT',
+        expectedVersions: [7],
+        currentVersion: 1,
+      });
       const first = await repository.release(r.id, REALM, 'erster Grund', new Date(), actor, [1]);
       if (first.kind !== 'RELEASED') throw new Error(first.kind);
-      expect(await repository.release(r.id, REALM, 'zweiter Grund', new Date(), actor, [1])).toEqual({ kind: 'RELEASED', reconciliation: first.reconciliation, changed: false });
+      expect(await repository.release(r.id, REALM, 'zweiter Grund', new Date(), actor, [1])).toEqual({
+        kind: 'RELEASED',
+        reconciliation: first.reconciliation,
+        changed: false,
+      });
       const { rows } = await pool.query(`${rawInsert(t, '1.00', '2027050100', 'SUGGESTED')} RETURNING id`);
       expect(await repository.release(rows[0].id as string, REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_RELEASABLE', status: 'SUGGESTED' });
     });
@@ -305,12 +359,21 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const partly = await transaction([split('900.00')], { bookingDate: '2027-05-08', iban: 'DE22' });
       await created(match(partly, '100.00', '2027050100', SUG_REALM_TENANT));
       const pending = await suggested(inWindow, '800.00', '2027060100');
-      const snapshot = await repository.suggestionSnapshot(REALM, [{ mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100' }], day('2027-04-15'), day('2027-06-30'));
+      const snapshot = await repository.suggestionSnapshot(
+        REALM,
+        [{ mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100' }],
+        day('2027-04-15'),
+        day('2027-06-30'),
+      );
       const ids = snapshot.candidates.map((c) => c.transactionId);
       expect(ids).toContain(inWindow);
       expect(ids).toContain(partly);
       for (const excluded of [consumed, late, open, outflow]) expect(ids).not.toContain(excluded);
-      expect(snapshot.candidates.find((c) => c.transactionId === partly)).toMatchObject({ available: eur('800.00'), counterpartyIban: 'DE22', bookingDate: '2027-05-08' });
+      expect(snapshot.candidates.find((c) => c.transactionId === partly)).toMatchObject({
+        available: eur('800.00'),
+        counterpartyIban: 'DE22',
+        bookingDate: '2027-05-08',
+      });
       expect(snapshot.confirmedByTerm.get(`${SUG_REALM_TENANT}/2027050100`)).toEqual(eur('100.00'));
       expect(snapshot.open).toContainEqual({ transactionId: pending.transactionId, mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027060100' });
       expect(snapshot.handled).toContainEqual({ transactionId: partly, mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100' });
@@ -323,11 +386,23 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const changed = await transaction([split('800.00')], { bookingDate: '2027-05-04' });
       await created(match(changed, '100.00', '2027010100'));
       const written = await repository.writeSuggestions(REALM, [suggestion(t), suggestion(changed)], actor);
-      expect(written.map((w) => [w.transactionId, w.status, w.confidence, w.suggestionReason, w.version])).toEqual([[t, 'SUGGESTED', 'MEDIUM', 'EXACT_AMOUNT', 1]]);
+      expect(written.map((w) => [w.transactionId, w.status, w.confidence, w.suggestionReason, w.version])).toEqual([
+        [t, 'SUGGESTED', 'MEDIUM', 'EXACT_AMOUNT', 1],
+      ]);
       expect(await repository.writeSuggestions(REALM, [suggestion(t)], actor)).toEqual([]);
       const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1`, [written[0]?.id]);
       expect(audit.rows).toEqual([
-        { action: 'SUGGESTED', metadata: { transactionId: t, mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100', matchedAmount: { amount: '800.00', currency: 'EUR' }, confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' } },
+        {
+          action: 'SUGGESTED',
+          metadata: {
+            transactionId: t,
+            mreTenantId: SUG_REALM_TENANT,
+            mreRentTerm: '2027050100',
+            matchedAmount: { amount: '800.00', currency: 'EUR' },
+            confidence: 'MEDIUM',
+            suggestionReason: 'EXACT_AMOUNT',
+          },
+        },
       ]);
       // A suggestion never counts: the whole cash stays available for a manual match.
       expect((await repository.precheck(match(t, '800.00', '2027090100'))).kind).toBe('PROCEED');
@@ -340,28 +415,56 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await repository.confirmPrecheck(s1.id, REALM, eur('800.01'))).toEqual({ kind: 'ABOVE_SUGGESTION', suggested: eur('800.00') });
       expect(await repository.confirmPrecheck(s1.id, REALM, eur('700.00'))).toMatchObject({ kind: 'PROCEED', amount: eur('700.00') });
       expect(await repository.confirm(s1.id, REALM, eur('700.00'), eur('600.00'), actor)).toEqual({ kind: 'SUGGESTION_STALE', openAmount: eur('600.00') });
-      expect(await repository.confirm(s1.id, REALM, eur('700.00'), eur('800.00'), actor, [9])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [9], currentVersion: 1 });
+      expect(await repository.confirm(s1.id, REALM, eur('700.00'), eur('800.00'), actor, [9])).toEqual({
+        kind: 'VERSION_CONFLICT',
+        expectedVersions: [9],
+        currentVersion: 1,
+      });
       const done = await repository.confirm(s1.id, REALM, eur('700.00'), eur('800.00'), actor, [1]);
-      expect(done).toMatchObject({ kind: 'CONFIRMED', changed: true, reconciliation: { status: 'CONFIRMED', matchedAmount: eur('700.00'), confirmedBy: actor.actorId, confidence: 'MEDIUM', version: 2 } });
+      expect(done).toMatchObject({
+        kind: 'CONFIRMED',
+        changed: true,
+        reconciliation: { status: 'CONFIRMED', matchedAmount: eur('700.00'), confirmedBy: actor.actorId, confidence: 'MEDIUM', version: 2 },
+      });
       expect(await repository.confirm(s1.id, REALM, undefined, eur('800.00'), actor, [1])).toMatchObject({ kind: 'CONFIRMED', changed: false });
       expect(await repository.confirmPrecheck(s1.id, REALM, eur('600.00'))).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'CONFIRMED' });
       const audit = await pool.query(`SELECT metadata FROM audit_record WHERE entity_id = $1 AND action = 'CONFIRMED'`, [s1.id]);
-      expect(audit.rows[0].metadata).toMatchObject({ manual: false, suggestedAmount: { amount: '800.00', currency: 'EUR' }, matchedAmount: { amount: '700.00', currency: 'EUR' } });
+      expect(audit.rows[0].metadata).toMatchObject({
+        manual: false,
+        suggestedAmount: { amount: '800.00', currency: 'EUR' },
+        matchedAmount: { amount: '700.00', currency: 'EUR' },
+      });
       // The cash rules: a second suggestion over the rest of t confirms only within the available 100.00.
       const s2 = await suggested(t, '100.00', '2027060100');
       expect(await repository.confirmPrecheck(s2.id, REALM, undefined)).toMatchObject({ kind: 'PROCEED' });
       await created(match(t, '50.00', '2027070100'));
-      expect(await repository.confirm(s2.id, REALM, undefined, eur('800.00'), actor)).toEqual({ kind: 'RENT_CASH_EXCEEDED', rentCash: eur('800.00'), available: eur('50.00') });
+      expect(await repository.confirm(s2.id, REALM, undefined, eur('800.00'), actor)).toEqual({
+        kind: 'RENT_CASH_EXCEEDED',
+        rentCash: eur('800.00'),
+        available: eur('50.00'),
+      });
     });
 
     it('reject: final with the reason; a repeat is a no-op; CONFIRMED and RELEASED not rejectable; If-Match', async () => {
       const t = await transaction([split('800.00')], { bookingDate: '2027-05-03' });
       const s1 = await suggested(t);
       expect(await repository.reject(s1.id, OTHER_REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_FOUND' });
-      expect(await repository.reject(s1.id, REALM, 'x', new Date(), actor, [5])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [5], currentVersion: 1 });
+      expect(await repository.reject(s1.id, REALM, 'x', new Date(), actor, [5])).toEqual({
+        kind: 'VERSION_CONFLICT',
+        expectedVersions: [5],
+        currentVersion: 1,
+      });
       const first = await repository.reject(s1.id, REALM, 'anderer Mieter', new Date(), actor, [1]);
-      expect(first).toMatchObject({ kind: 'REJECTED', changed: true, reconciliation: { status: 'REJECTED', rejectReason: 'anderer Mieter', rejectedBy: actor.actorId, version: 2 } });
-      expect(await repository.reject(s1.id, REALM, 'zweiter', new Date(), actor)).toMatchObject({ kind: 'REJECTED', changed: false, reconciliation: { rejectReason: 'anderer Mieter' } });
+      expect(first).toMatchObject({
+        kind: 'REJECTED',
+        changed: true,
+        reconciliation: { status: 'REJECTED', rejectReason: 'anderer Mieter', rejectedBy: actor.actorId, version: 2 },
+      });
+      expect(await repository.reject(s1.id, REALM, 'zweiter', new Date(), actor)).toMatchObject({
+        kind: 'REJECTED',
+        changed: false,
+        reconciliation: { rejectReason: 'anderer Mieter' },
+      });
       const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at`, [s1.id]);
       expect(audit.rows.map((r) => r.action)).toEqual(['SUGGESTED', 'REJECTED']);
       // A rejected pair is handled: in the snapshot, and never written again while its cash is still all available.
@@ -374,7 +477,7 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await repository.reject(s2.id, REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_REJECTABLE', status: 'CONFIRMED' });
     });
 
-    it('concurrency: a run waiting on another run\'s pair skips it; a confirm waiting on a manual match of the same cash (RC), RR 40001', async () => {
+    it("concurrency: a run waiting on another run's pair skips it; a confirm waiting on a manual match of the same cash (RC), RR 40001", async () => {
       const t = await transaction([split('800.00')], { bookingDate: '2027-05-03' });
       const raw = `INSERT INTO rent_payment_reconciliation (mre_realm_id, status, transaction_id, mre_tenant_id, mre_rent_term, matched_amount, currency, confidence, suggestion_reason, created_by)
         VALUES ('${REALM}', 'SUGGESTED', '${t}', '${SUG_REALM_TENANT}', '2027050100', 800, 'EUR', 'MEDIUM', 'EXACT_AMOUNT', 'x')`;
@@ -410,8 +513,13 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
         await two.query('BEGIN ISOLATION LEVEL READ COMMITTED');
         await two.query(rawInsert(u, '800.00', '2027080100'));
         const later = one
-          .query(`UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = '${s2.id}'`)
-          .then(() => 'written', (e: { code?: string }) => e.code);
+          .query(
+            `UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = '${s2.id}'`,
+          )
+          .then(
+            () => 'written',
+            (e: { code?: string }) => e.code,
+          );
         await waitForLocks(pool);
         await two.query('COMMIT');
         expect(await later).toBe('40001');
@@ -446,10 +554,13 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
         await one.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
         await one.query('SELECT 1');
         await two.query('BEGIN ISOLATION LEVEL READ COMMITTED');
-        await two.query(`UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = '${s2.id}'`);
-        const later = one
-          .query(`UPDATE ledger_transaction SET status = 'CORRECTED', version = version + 1 WHERE id = '${u}'`)
-          .then(() => 'written', (e: { code?: string }) => e.code);
+        await two.query(
+          `UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = '${s2.id}'`,
+        );
+        const later = one.query(`UPDATE ledger_transaction SET status = 'CORRECTED', version = version + 1 WHERE id = '${u}'`).then(
+          () => 'written',
+          (e: { code?: string }) => e.code,
+        );
         await waitForLocks(pool);
         await two.query('COMMIT');
         expect(await later).toBe('40001');
@@ -505,21 +616,37 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const r = await confirmedFor(tenant());
       const before = Date.now();
       const claim = await claimed(r.id);
-      expect(claim).toMatchObject({ bookingDate: '2027-01-03', reconciliation: { mreWriteBackState: 'PENDING', mreWriteBackAttemptId: claim.attemptId, version: 2 } });
+      expect(claim).toMatchObject({
+        bookingDate: '2027-01-03',
+        reconciliation: { mreWriteBackState: 'PENDING', mreWriteBackAttemptId: claim.attemptId, version: 2 },
+      });
       const lease = claim.reconciliation.mreWriteBackLeaseUntil?.getTime() ?? 0;
       expect(lease).toBeGreaterThanOrEqual(before + 59_000);
       expect(await repository.claimWriteBack(r.id, REALM, 60_000, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: r.id });
-      expect(await repository.recordWriteBack(r.id, REALM, '00000000-0000-4000-8000-000000000000', { kind: 'FAILED', error: 'MRE_UNAVAILABLE' }, actor)).toEqual({ kind: 'LEASE_LOST' });
+      expect(
+        await repository.recordWriteBack(r.id, REALM, '00000000-0000-4000-8000-000000000000', { kind: 'FAILED', error: 'MRE_UNAVAILABLE' }, actor),
+      ).toEqual({ kind: 'LEASE_LOST' });
       const recorded = await repository.recordWriteBack(r.id, REALM, claim.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor);
       expect(recorded).toMatchObject({
         kind: 'RECORDED',
-        reconciliation: { mreWriteBackState: 'WRITTEN', mreWrittenBackBy: actor.actorId, mrePayment: written, mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null, version: 3 },
+        reconciliation: {
+          mreWriteBackState: 'WRITTEN',
+          mreWrittenBackBy: actor.actorId,
+          mrePayment: written,
+          mreWriteBackAttemptId: null,
+          mreWriteBackLeaseUntil: null,
+          version: 3,
+        },
       });
       expect(await repository.claimWriteBack(r.id, REALM, 60_000, actor)).toMatchObject({ kind: 'UNCHANGED', reconciliation: { version: 3 } });
       expect((await repository.findById(r.id, REALM))?.mrePayment?.amount).toEqual(eur('800.00'));
       const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, action`, [r.id]);
       expect(audit.rows.map((a) => a.action)).toEqual(['CONFIRMED', 'WRITE_BACK_STARTED', 'WRITE_BACK_WRITTEN']);
-      expect(audit.rows[2].metadata).toMatchObject({ attemptId: claim.attemptId, patched: true, payment: { reference: 'DE-RPR-x', amount: { amount: '800.00', currency: 'EUR' } } });
+      expect(audit.rows[2].metadata).toMatchObject({
+        attemptId: claim.attemptId,
+        patched: true,
+        payment: { reference: 'DE-RPR-x', amount: { amount: '800.00', currency: 'EUR' } },
+      });
     });
 
     it('refusals: unknown or foreign, not CONFIRMED, If-Match; FAILED and NOT_WRITTEN outcomes; a FAILED one is claimed again', async () => {
@@ -533,7 +660,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       });
       const second = await claimed(r.id);
       expect(second.reconciliation).toMatchObject({ mreWriteBackState: 'PENDING', mreWriteBackError: null, mreWriteBackFailedAt: null });
-      expect(await repository.recordWriteBack(r.id, REALM, second.attemptId, { kind: 'NOT_WRITTEN' }, actor)).toMatchObject({ reconciliation: { mreWriteBackState: 'NOT_WRITTEN', version: 5 } });
+      expect(await repository.recordWriteBack(r.id, REALM, second.attemptId, { kind: 'NOT_WRITTEN' }, actor)).toMatchObject({
+        reconciliation: { mreWriteBackState: 'NOT_WRITTEN', version: 5 },
+      });
       await repository.release(r.id, REALM, 'x', new Date(), actor);
       expect(await repository.claimWriteBack(r.id, REALM, 60_000, actor)).toEqual({ kind: 'NOT_WRITABLE', status: 'RELEASED' });
     });
@@ -545,7 +674,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       await pause(20);
       const retry = await claimed(r.id);
       expect(retry.attemptId).not.toBe(old.attemptId);
-      expect(await repository.recordWriteBack(r.id, REALM, old.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor)).toEqual({ kind: 'LEASE_LOST' });
+      expect(await repository.recordWriteBack(r.id, REALM, old.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor)).toEqual({
+        kind: 'LEASE_LOST',
+      });
       // A live lease of another reconciliation of the same Tenant refuses; once expired it is failed and taken over.
       const other = await confirmedFor(t1, '2027020100');
       expect(await repository.claimWriteBack(other.id, REALM, 60_000, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: r.id });
@@ -554,8 +685,14 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       await pause(20);
       const taken = await claimed(other.id);
       expect(taken.reconciliation.mreWriteBackState).toBe('PENDING');
-      expect(await repository.findById(r.id, REALM)).toMatchObject({ mreWriteBackState: 'FAILED', mreWriteBackError: 'LEASE_EXPIRED', mreWriteBackAttemptId: null });
-      expect(await repository.recordWriteBack(r.id, REALM, expiring.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor)).toEqual({ kind: 'LEASE_LOST' });
+      expect(await repository.findById(r.id, REALM)).toMatchObject({
+        mreWriteBackState: 'FAILED',
+        mreWriteBackError: 'LEASE_EXPIRED',
+        mreWriteBackAttemptId: null,
+      });
+      expect(await repository.recordWriteBack(r.id, REALM, expiring.attemptId, { kind: 'WRITTEN', payment: written, patched: true }, actor)).toEqual({
+        kind: 'LEASE_LOST',
+      });
       const audit = await pool.query(`SELECT metadata FROM audit_record WHERE entity_id = $1 AND action = 'WRITE_BACK_ABANDONED'`, [r.id]);
       expect(audit.rows).toEqual([{ metadata: expect.objectContaining({ attemptId: expiring.attemptId, takenOverBy: other.id }) }]);
       // Other Tenants and Realms are not affected by the Tenant's lease.
@@ -578,7 +715,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const expired = await confirmedFor(tenant());
       await claimed(expired.id, 1);
       await pause(20);
-      expect(await release(expired.id)).toMatchObject({ reconciliation: { mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null } });
+      expect(await release(expired.id)).toMatchObject({
+        reconciliation: { mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null },
+      });
       const audit = await pool.query(`SELECT metadata FROM audit_record WHERE entity_id = $1 AND action = 'RELEASED'`, [w.id]);
       expect(audit.rows[0].metadata.mreWriteBackState).toEqual({ from: 'WRITTEN', to: 'REMOVAL_REQUIRED' });
     });
@@ -625,14 +764,23 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
 
     it('concurrency (RC): two write-backs of one reconciliation; two of one Tenant (the index); a claim waiting on a release', async () => {
       const r = await confirmedFor(tenant());
-      expect(await heldThen(pendingStep(r.id), () => repository.claimWriteBack(r.id, REALM, 60_000, actor))).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: r.id });
+      expect(await heldThen(pendingStep(r.id), () => repository.claimWriteBack(r.id, REALM, 60_000, actor))).toEqual({
+        kind: 'WRITE_BACK_IN_PROGRESS',
+        reconciliationId: r.id,
+      });
       const t2 = tenant();
       const a = await confirmedFor(t2);
       const b = await confirmedFor(t2, '2027020100');
-      expect(await heldThen(pendingStep(a.id), () => repository.claimWriteBack(b.id, REALM, 60_000, actor))).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: a.id });
+      expect(await heldThen(pendingStep(a.id), () => repository.claimWriteBack(b.id, REALM, 60_000, actor))).toEqual({
+        kind: 'WRITE_BACK_IN_PROGRESS',
+        reconciliationId: a.id,
+      });
       expect((await repository.findById(b.id, REALM))?.mreWriteBackState).toBe('NOT_WRITTEN');
       const c = await confirmedFor(tenant());
-      expect(await heldThen(releaseStep(c.id), () => repository.claimWriteBack(c.id, REALM, 60_000, actor))).toEqual({ kind: 'NOT_WRITABLE', status: 'RELEASED' });
+      expect(await heldThen(releaseStep(c.id), () => repository.claimWriteBack(c.id, REALM, 60_000, actor))).toEqual({
+        kind: 'NOT_WRITABLE',
+        status: 'RELEASED',
+      });
     });
 
     it('concurrency (RR past the repository): a second claim, and a claim after a release, fail to serialise', async () => {
@@ -661,25 +809,48 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
           client.release();
         }
       };
-      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'REMOVAL_REQUIRED', mre_last_lease_until = now() WHERE id = '${r.id}'`)).toBe(
-        'rent_payment_reconciliation_write_back_state',
-      );
+      expect(
+        await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'REMOVAL_REQUIRED', mre_last_lease_until = now() WHERE id = '${r.id}'`),
+      ).toBe('rent_payment_reconciliation_write_back_state');
       expect(
         await unguarded(`UPDATE rent_payment_reconciliation SET status = 'RELEASED', released_at = now(), released_by = 'x', release_reason = 'x', mre_write_back_state = 'FAILED',
           mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now(), mre_last_lease_until = now() WHERE id = '${r.id}'`),
       ).toBe('rent_payment_reconciliation_write_back_state');
-      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_written_back_at = now() WHERE id = '${r.id}'`)).toBe('rent_payment_reconciliation_write_back_fields');
-      // WRITTEN with a time and actor but without the payment snapshot.
-      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'WRITTEN', mre_written_back_at = now(), mre_written_back_by = 'x' WHERE id = '${r.id}'`)).toBe(
+      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_written_back_at = now() WHERE id = '${r.id}'`)).toBe(
         'rent_payment_reconciliation_write_back_fields',
       );
+      // WRITTEN with a time and actor but without the payment snapshot.
       expect(
-        await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'FAILED', mre_write_back_error = 'GUESS', mre_write_back_failed_at = now() WHERE id = '${r.id}'`),
+        await unguarded(
+          `UPDATE rent_payment_reconciliation SET mre_write_back_state = 'WRITTEN', mre_written_back_at = now(), mre_written_back_by = 'x' WHERE id = '${r.id}'`,
+        ),
+      ).toBe('rent_payment_reconciliation_write_back_fields');
+      expect(
+        await unguarded(
+          `UPDATE rent_payment_reconciliation SET mre_write_back_state = 'FAILED', mre_write_back_error = 'GUESS', mre_write_back_failed_at = now() WHERE id = '${r.id}'`,
+        ),
       ).toBe('rent_payment_reconciliation_mre_write_back_error_check');
-      expect(await set(`mre_write_back_state = 'WRITTEN', mre_written_back_at = now(), mre_written_back_by = 'x', mre_payment = '{}', version = version + 1`)).toBe('is not a step');
-      expect(await set(`mre_write_back_state = 'FAILED', mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now(), version = version + 1`)).toBe('is not a step');
-      expect(await set(pendingStep(r.id).replace(/^UPDATE rent_payment_reconciliation SET /, '').replace(/ WHERE id = .*$/s, '').replace('version = version + 1', 'version = version'))).toBe('is not a step');
-      expect(await set(`${pendingStep(r.id).replace(/^UPDATE rent_payment_reconciliation SET /, '').replace(/ WHERE id = .*$/s, '')}, confirmed_by = 'y'`)).toBe('is not a step');
+      expect(
+        await set(`mre_write_back_state = 'WRITTEN', mre_written_back_at = now(), mre_written_back_by = 'x', mre_payment = '{}', version = version + 1`),
+      ).toBe('is not a step');
+      expect(
+        await set(`mre_write_back_state = 'FAILED', mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now(), version = version + 1`),
+      ).toBe('is not a step');
+      expect(
+        await set(
+          pendingStep(r.id)
+            .replace(/^UPDATE rent_payment_reconciliation SET /, '')
+            .replace(/ WHERE id = .*$/s, '')
+            .replace('version = version + 1', 'version = version'),
+        ),
+      ).toBe('is not a step');
+      expect(
+        await set(
+          `${pendingStep(r.id)
+            .replace(/^UPDATE rent_payment_reconciliation SET /, '')
+            .replace(/ WHERE id = .*$/s, '')}, confirmed_by = 'y'`,
+        ),
+      ).toBe('is not a step');
       expect(await attempt(pendingStep(r.id))).toBe('accepted');
       // A live lease: no second PENDING step on the row, no release, no second PENDING of the Tenant.
       expect(await attempt(pendingStep(r.id))).toBe('is not a step');
@@ -694,13 +865,26 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await attempt(pendingStep(r.id))).toBe('is not a step');
       // The release must carry the state to REMOVAL_REQUIRED, and keep the snapshot.
       expect(await attempt(releaseStep(r.id))).toBe('released with write-back');
-      expect(await attempt(releaseStep(r.id).replace('version = version + 1', `mre_write_back_state = 'REMOVAL_REQUIRED', mre_payment = NULL, mre_written_back_at = NULL, mre_written_back_by = NULL, version = version + 1`))).toBe('released with write-back');
-      expect(await attempt(releaseStep(r.id).replace('version = version + 1', `mre_write_back_state = 'REMOVAL_REQUIRED', version = version + 1`))).toBe('accepted');
-      // Other status steps keep NOT_WRITTEN; a row is born NOT_WRITTEN.
-      const s = (await pool.query(`${rawInsert(await transaction(), '800.00', '2027030100', 'SUGGESTED').replace(`'${TENANT}'`, `'${tenant()}'`)} RETURNING id`)).rows[0].id as string;
-      expect(await attempt(`UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', mre_write_back_state = 'REMOVAL_REQUIRED', version = version + 1 WHERE id = '${s}'`)).toBe(
-        'with write-back REMOVAL_REQUIRED',
+      expect(
+        await attempt(
+          releaseStep(r.id).replace(
+            'version = version + 1',
+            `mre_write_back_state = 'REMOVAL_REQUIRED', mre_payment = NULL, mre_written_back_at = NULL, mre_written_back_by = NULL, version = version + 1`,
+          ),
+        ),
+      ).toBe('released with write-back');
+      expect(await attempt(releaseStep(r.id).replace('version = version + 1', `mre_write_back_state = 'REMOVAL_REQUIRED', version = version + 1`))).toBe(
+        'accepted',
       );
+      // Other status steps keep NOT_WRITTEN; a row is born NOT_WRITTEN.
+      const s = (
+        await pool.query(`${rawInsert(await transaction(), '800.00', '2027030100', 'SUGGESTED').replace(`'${TENANT}'`, `'${tenant()}'`)} RETURNING id`)
+      ).rows[0].id as string;
+      expect(
+        await attempt(
+          `UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', mre_write_back_state = 'REMOVAL_REQUIRED', version = version + 1 WHERE id = '${s}'`,
+        ),
+      ).toBe('with write-back REMOVAL_REQUIRED');
     });
   });
 
@@ -733,16 +917,28 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const claim = await removing(r.id);
       expect(claim).toMatchObject({ bookingDate: '2027-01-03', reconciliation: { mreWriteBackState: 'REMOVING', mreWriteBackAttemptId: claim.attemptId } });
       expect(claim.reconciliation.mreLastLeaseUntil).toEqual(claim.reconciliation.mreWriteBackLeaseUntil);
-      expect(await repository.recordRemoval(r.id, REALM, '00000000-0000-4000-8000-000000000000', { kind: 'REMOVED', patched: true }, actor)).toEqual({ kind: 'LEASE_LOST' });
+      expect(await repository.recordRemoval(r.id, REALM, '00000000-0000-4000-8000-000000000000', { kind: 'REMOVED', patched: true }, actor)).toEqual({
+        kind: 'LEASE_LOST',
+      });
       const done = await repository.recordRemoval(r.id, REALM, claim.attemptId, { kind: 'REMOVED', patched: true }, actor);
       expect(done).toMatchObject({
         kind: 'RECORDED',
-        reconciliation: { status: 'RELEASED', mreWriteBackState: 'REMOVED', mreRemovedBy: actor.actorId, mrePayment: written, mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null },
+        reconciliation: {
+          status: 'RELEASED',
+          mreWriteBackState: 'REMOVED',
+          mreRemovedBy: actor.actorId,
+          mrePayment: written,
+          mreWriteBackAttemptId: null,
+          mreWriteBackLeaseUntil: null,
+        },
       });
       if (done.kind !== 'RECORDED') throw new Error(done.kind);
       expect(done.reconciliation.mreLastLeaseUntil).toEqual(claim.reconciliation.mreLastLeaseUntil);
       expect(await repository.claimRemoval(r.id, REALM, 60_000, 0, actor)).toMatchObject({ kind: 'UNCHANGED' });
-      const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 AND action IN ('REMOVAL_STARTED', 'REMOVED') ORDER BY occurred_at`, [r.id]);
+      const audit = await pool.query(
+        `SELECT action, metadata FROM audit_record WHERE entity_id = $1 AND action IN ('REMOVAL_STARTED', 'REMOVED') ORDER BY occurred_at`,
+        [r.id],
+      );
       expect(audit.rows.map((a) => a.action)).toEqual(['REMOVAL_STARTED', 'REMOVED']);
       expect(audit.rows[1].metadata).toMatchObject({ attemptId: claim.attemptId, patched: true });
     });
@@ -750,10 +946,18 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
     it('refusals: unknown or foreign, CONFIRMED, NOT_WRITTEN, too early, If-Match; REMOVAL_FAILED claimed again; NOT_REMOVED back to REMOVAL_REQUIRED', async () => {
       const r = await releasedWritten(tenant());
       expect(await repository.claimRemoval(r.id, OTHER_REALM, 60_000, 0, actor)).toEqual({ kind: 'NOT_FOUND' });
-      expect(await repository.claimRemoval((await confirmedFor(tenant())).id, REALM, 60_000, 0, actor)).toEqual({ kind: 'NOT_REMOVABLE', status: 'CONFIRMED', mreWriteBackState: 'NOT_WRITTEN' });
+      expect(await repository.claimRemoval((await confirmedFor(tenant())).id, REALM, 60_000, 0, actor)).toEqual({
+        kind: 'NOT_REMOVABLE',
+        status: 'CONFIRMED',
+        mreWriteBackState: 'NOT_WRITTEN',
+      });
       const plain = await confirmedFor(tenant());
       await repository.release(plain.id, REALM, 'x', new Date(), actor);
-      expect(await repository.claimRemoval(plain.id, REALM, 60_000, 0, actor)).toEqual({ kind: 'NOT_REMOVABLE', status: 'RELEASED', mreWriteBackState: 'NOT_WRITTEN' });
+      expect(await repository.claimRemoval(plain.id, REALM, 60_000, 0, actor)).toEqual({
+        kind: 'NOT_REMOVABLE',
+        status: 'RELEASED',
+        mreWriteBackState: 'NOT_WRITTEN',
+      });
       expect(await repository.claimRemoval(r.id, REALM, 60_000, 0, actor, [1])).toMatchObject({ kind: 'VERSION_CONFLICT' });
       // The margin past the last lease (review on #82).
       const tooEarly = await repository.claimRemoval(r.id, REALM, 60_000, 3_600_000, actor);
@@ -770,7 +974,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       await pause(10);
       const again = await removing(r2.id, 1);
       expect(again.reconciliation).toMatchObject({ mreWriteBackState: 'REMOVING', mreWriteBackError: null });
-      expect(await repository.recordRemoval(r2.id, REALM, again.attemptId, { kind: 'NOT_REMOVED' }, actor)).toMatchObject({ reconciliation: { mreWriteBackState: 'REMOVAL_REQUIRED' } });
+      expect(await repository.recordRemoval(r2.id, REALM, again.attemptId, { kind: 'NOT_REMOVED' }, actor)).toMatchObject({
+        reconciliation: { mreWriteBackState: 'REMOVAL_REQUIRED' },
+      });
     });
 
     it('takeovers: its own expired REMOVING; another removal of the Tenant fails it (REMOVAL_FAILED); a write-back of the Tenant fails it too (review on #84); a live one blocks both', async () => {
@@ -786,7 +992,11 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       const other = await confirmedFor(t, '2027020100');
       const wb = await repository.claimWriteBack(other.id, REALM, 60_000, actor);
       expect(wb.kind).toBe('CLAIMED');
-      expect(await repository.findById(r.id, REALM)).toMatchObject({ mreWriteBackState: 'REMOVAL_FAILED', mreWriteBackError: 'LEASE_EXPIRED', mreWriteBackAttemptId: null });
+      expect(await repository.findById(r.id, REALM)).toMatchObject({
+        mreWriteBackState: 'REMOVAL_FAILED',
+        mreWriteBackError: 'LEASE_EXPIRED',
+        mreWriteBackAttemptId: null,
+      });
       const audit = await pool.query(`SELECT metadata FROM audit_record WHERE entity_id = $1 AND action = 'WRITE_BACK_ABANDONED'`, [r.id]);
       expect(audit.rows).toEqual([{ metadata: expect.objectContaining({ attemptId: retry.attemptId, takenOverBy: other.id, from: 'REMOVING' }) }]);
       // That write-back's live lease blocks a removal of the Tenant, and the reverse.
@@ -834,22 +1044,33 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await set(`mre_last_lease_until = now() - interval '1 second', version = version + 1`)).toBe('mre_last_lease_until changed outside a claim');
       const p = await releasedWritten(t, 1, '2027020100');
       const q = await releasedWritten(t, 1, '2027030100');
-      expect(await set(removingStep.replace("mre_last_lease_until = greatest(mre_last_lease_until, now() + interval '1 hour')", 'mre_last_lease_until = now()'), p.id)).toBe(
-        'a claim sets mre_last_lease_until to the latest lease',
-      );
+      expect(
+        await set(
+          removingStep.replace("mre_last_lease_until = greatest(mre_last_lease_until, now() + interval '1 hour')", 'mre_last_lease_until = now()'),
+          p.id,
+        ),
+      ).toBe('a claim sets mre_last_lease_until to the latest lease');
       expect(await set(`${removingStep}, mre_payment = NULL, mre_written_back_at = NULL, mre_written_back_by = NULL`, p.id)).toBe('is not a step');
       expect(await set(removingStep, p.id)).toBe('accepted');
       // A second REMOVING of the Tenant: the index.
       expect(await set(removingStep, q.id)).toBe('rent_payment_reconciliation_write_back_tenant_key');
-      expect(await set(`mre_write_back_state = 'REMOVED', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id)).toBe(
-        'rent_payment_reconciliation_write_back_fields',
-      );
       expect(
-        await set(`mre_write_back_state = 'REMOVED', mre_removed_by = 'x', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id),
+        await set(`mre_write_back_state = 'REMOVED', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id),
       ).toBe('rent_payment_reconciliation_write_back_fields');
-      expect(await set(`mre_write_back_state = 'WRITTEN', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id)).toBe('is not a step');
       expect(
-        await set(`mre_write_back_state = 'REMOVED', mre_removed_at = now(), mre_removed_by = 'x', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id),
+        await set(
+          `mre_write_back_state = 'REMOVED', mre_removed_by = 'x', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`,
+          p.id,
+        ),
+      ).toBe('rent_payment_reconciliation_write_back_fields');
+      expect(
+        await set(`mre_write_back_state = 'WRITTEN', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`, p.id),
+      ).toBe('is not a step');
+      expect(
+        await set(
+          `mre_write_back_state = 'REMOVED', mre_removed_at = now(), mre_removed_by = 'x', mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL, version = version + 1`,
+          p.id,
+        ),
       ).toBe('accepted');
       expect(await set(removingStep, p.id)).toBe('is not a step');
       // REMOVING on a CONFIRMED row: not a step.
@@ -867,7 +1088,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
           client.release();
         }
       };
-      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_last_lease_until = NULL WHERE id = '${r.id}'`)).toBe('rent_payment_reconciliation_write_back_fields');
+      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_last_lease_until = NULL WHERE id = '${r.id}'`)).toBe(
+        'rent_payment_reconciliation_write_back_fields',
+      );
       expect(
         await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'REMOVING', mre_write_back_attempt_id = gen_random_uuid(), mre_write_back_lease_until = now(),
           mre_last_lease_until = now() WHERE id = '${c.id}'`),
@@ -901,7 +1124,10 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
         await one.query('SELECT 1');
         await two.query('BEGIN ISOLATION LEVEL READ COMMITTED');
         await two.query(step);
-        const later = one.query(step).then(() => 'written', (e: { code?: string }) => e.code);
+        const later = one.query(step).then(
+          () => 'written',
+          (e: { code?: string }) => e.code,
+        );
         await waitForLocks(pool);
         await two.query('COMMIT');
         expect(await later).toBe('40001');
@@ -917,8 +1143,14 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
     it('correct and reverse are refused while CONFIRMED, allowed after release; the trigger refuses past the repository', async () => {
       const t = await transaction();
       const r = await created(match(t));
-      expect(await corrections.correct(t, REALM, { reason: 'x', replacement: { description: 'neu' } }, actor)).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: [r.id] });
-      expect(await corrections.correct(t, REALM, { reason: 'x', replacement: null }, actor)).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: [r.id] });
+      expect(await corrections.correct(t, REALM, { reason: 'x', replacement: { description: 'neu' } }, actor)).toEqual({
+        kind: 'TRANSACTION_RENT_RECONCILED',
+        reconciliationIds: [r.id],
+      });
+      expect(await corrections.correct(t, REALM, { reason: 'x', replacement: null }, actor)).toEqual({
+        kind: 'TRANSACTION_RENT_RECONCILED',
+        reconciliationIds: [r.id],
+      });
       const raw = `UPDATE ledger_transaction SET status = 'CORRECTED', version = version + 1 WHERE id = '${t}'`;
       expect(await pool.query(raw).then(() => 'accepted', reasonOf)).toBe('(TRANSACTION_RENT_RECONCILED)');
       await repository.release(r.id, REALM, 'Korrektur folgt', new Date(), actor);
@@ -1008,7 +1240,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
 
     it('REPEATABLE READ past the repository, a create against the step to CORRECTED: the later one fails to serialise', async () => {
       const t = await transaction();
-      expect(await repeatableRead(rawInsert(t, '800.00'), `UPDATE ledger_transaction SET status = 'CORRECTED', version = version + 1 WHERE id = '${t}'`)).toBe('40001');
+      expect(await repeatableRead(rawInsert(t, '800.00'), `UPDATE ledger_transaction SET status = 'CORRECTED', version = version + 1 WHERE id = '${t}'`)).toBe(
+        '40001',
+      );
     });
 
     it('READ COMMITTED, a release lets a waiting create use the cash', async () => {
@@ -1048,9 +1282,11 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await attempt(rawInsert(t, '100.00'))).toBe('rent_payment_reconciliation_confirmed_key');
       // A SUGGESTED row is not checked until it is confirmed, and then it is.
       const { rows } = await pool.query(`${rawInsert(t, '800.00', '2027020100', 'SUGGESTED')} RETURNING id`);
-      expect(await attempt(`UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = '${rows[0].id}'`)).toBe(
-        '(RENT_CASH_EXCEEDED)',
-      );
+      expect(
+        await attempt(
+          `UPDATE rent_payment_reconciliation SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = '${rows[0].id}'`,
+        ),
+      ).toBe('(RENT_CASH_EXCEEDED)');
     });
 
     it('CHECKs: term and tenant form, amount > 0, the status fields', async () => {
@@ -1058,7 +1294,9 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await attempt(rawInsert(t, '0.00'))).toBe('rent_payment_reconciliation_matched_amount_check');
       expect(await attempt(rawInsert(t, '1.00', '202701'))).toBe('rent_payment_reconciliation_mre_rent_term_check');
       expect(await attempt(rawInsert(t, '1.00').replace(TENANT, 'not-a-tenant'))).toBe('rent_payment_reconciliation_mre_tenant_id_check');
-      expect(await attempt(rawInsert(t, '1.00', '2027010100', 'SUGGESTED').replace(`'EXACT_AMOUNT', NULL, NULL`, `'EXACT_AMOUNT', now(), 'x'`))).toBe('rent_payment_reconciliation_confirmed_fields');
+      expect(await attempt(rawInsert(t, '1.00', '2027010100', 'SUGGESTED').replace(`'EXACT_AMOUNT', NULL, NULL`, `'EXACT_AMOUNT', now(), 'x'`))).toBe(
+        'rent_payment_reconciliation_confirmed_fields',
+      );
       // A release without its fields is a valid step, so the CHECK decides.
       const { rows } = await pool.query(`${rawInsert(t, '1.00', '2027040100')} RETURNING id`);
       expect(await attempt(`UPDATE rent_payment_reconciliation SET status = 'RELEASED', version = version + 1 WHERE id = '${rows[0].id}'`)).toBe(
@@ -1077,7 +1315,11 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
         .replace(`'x', 'x')`, `'x', 'x', now(), 'x', 'x')`);
       expect(await attempt(released)).toBe(born);
       expect(await attempt(rawInsert(t, '5000.00', '2027020100', 'SUGGESTED').replace(`'SUGGESTED'`, `'REJECTED'`))).toBe(born);
-      expect(await attempt(rawInsert(t, '1.00', '2027030100').replace('confirmed_by, created_by)', 'confirmed_by, created_by, version)').replace(`'x', 'x')`, `'x', 'x', 7)`))).toBe(born);
+      expect(
+        await attempt(
+          rawInsert(t, '1.00', '2027030100').replace('confirmed_by, created_by)', 'confirmed_by, created_by, version)').replace(`'x', 'x')`, `'x', 'x', 7)`),
+        ),
+      ).toBe(born);
       expect((await pool.query(`SELECT count(*)::int AS n FROM rent_payment_reconciliation WHERE transaction_id = $1`, [t])).rows[0].n).toBe(0);
     });
 
@@ -1096,7 +1338,11 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await attempt(`DELETE FROM rent_payment_reconciliation WHERE id = '${r.id}'`)).toBe('never deleted');
       // Born NOT_WRITTEN (0032): a write-back state is reached only by its steps (api-design §37.4).
       const born = (state: string) =>
-        attempt(rawInsert(t, '1.00', '2027020100').replace('confirmed_by, created_by)', 'confirmed_by, created_by, mre_write_back_state)').replace(`'x', 'x')`, `'x', 'x', '${state}')`));
+        attempt(
+          rawInsert(t, '1.00', '2027020100')
+            .replace('confirmed_by, created_by)', 'confirmed_by, created_by, mre_write_back_state)')
+            .replace(`'x', 'x')`, `'x', 'x', '${state}')`),
+        );
       expect(await born('WRITTEN')).toBe('only inserted NOT_WRITTEN');
       expect(await born('BOGUS')).toBe('only inserted NOT_WRITTEN');
     });

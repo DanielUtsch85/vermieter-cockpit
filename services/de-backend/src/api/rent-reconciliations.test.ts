@@ -92,10 +92,16 @@ const headers = { authorization: 'Bearer a.b.c', organizationid: REALM, 'content
 const call = (base: string, method: string, path: string, body?: unknown, extra: Record<string, string> = {}) =>
   fetch(`${base}/api/v1${path}`, { method, headers: { ...headers, ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
 const errorOf = async (res: Response) => ((await res.json()) as { error: { code: string; details?: unknown } }).error;
-const body = { transactionId: TX.toUpperCase(), mreTenantId: TENANT, mreRentTerm: '2027010100', matchedAmount: { amount: '800.00', currency: 'EUR' }, notes: ' Januar ' };
+const body = {
+  transactionId: TX.toUpperCase(),
+  mreTenantId: TENANT,
+  mreRentTerm: '2027010100',
+  matchedAmount: { amount: '800.00', currency: 'EUR' },
+  notes: ' Januar ',
+};
 
 describe('POST /api/v1/rent-reconciliations', () => {
-  it('201 with the reconciliation and ETag; the caller\'s Authorization header and key are passed on; a replay is marked', async () => {
+  it("201 with the reconciliation and ETag; the caller's Authorization header and key are passed on; a replay is marked", async () => {
     const seen: CreateReconciliationInput[] = [];
     let replayed = false;
     const base = await start({
@@ -143,7 +149,14 @@ describe('POST /api/v1/rent-reconciliations', () => {
       createdAt: '2027-01-05T10:00:00.000Z',
       version: 1,
     });
-    expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', transactionId: TX, mreTenantId: TENANT, mreRentTerm: '2027010100', notes: 'Januar', idempotencyKey: 'm1' });
+    expect(seen[0]).toMatchObject({
+      authorizationHeader: 'Bearer a.b.c',
+      transactionId: TX,
+      mreTenantId: TENANT,
+      mreRentTerm: '2027010100',
+      notes: 'Januar',
+      idempotencyKey: 'm1',
+    });
     expect(seen[0]?.matchedAmount.equals(eur('800.00'))).toBe(true);
     expect((await call(base, 'POST', '/rent-reconciliations', body, { 'idempotency-key': 'm1' })).headers.get('idempotent-replayed')).toBe('true');
   });
@@ -158,7 +171,13 @@ describe('POST /api/v1/rent-reconciliations', () => {
     expect(await fieldsOf({ ...body, matchedAmount: { amount: '0.00', currency: 'EUR' } })).toEqual([{ field: 'matchedAmount.amount', code: 'NOT_POSITIVE' }]);
     expect(await fieldsOf({ ...body, mreRentTerm: '2027023100' })).toEqual([{ field: 'mreRentTerm', code: 'INVALID_TERM' }]);
     expect(await fieldsOf({ ...body, mreRentTerm: '202701' })).toEqual([{ field: 'mreRentTerm', code: 'INVALID_TERM' }]);
-    for (const bad of [{ ...body, mreTenantId: 'Tina' }, { ...body, transactionId: 'x' }, { ...body, matchedAmount: 800 }, { ...body, status: 'CONFIRMED' }, { ...body, notes: 'x'.repeat(2001) }]) {
+    for (const bad of [
+      { ...body, mreTenantId: 'Tina' },
+      { ...body, transactionId: 'x' },
+      { ...body, matchedAmount: 800 },
+      { ...body, status: 'CONFIRMED' },
+      { ...body, notes: 'x'.repeat(2001) },
+    ]) {
       await fieldsOf(bad);
     }
     const { transactionId: _t, ...withoutTransaction } = body;
@@ -167,7 +186,12 @@ describe('POST /api/v1/rent-reconciliations', () => {
 
   it.each([
     [new TransactionNotFoundError(TX), 404, 'NOT_FOUND', { transactionId: TX }],
-    [new TransactionNotCountedError('CONFIRMED', 'REVERSAL'), 409, 'CONFLICT', { reason: 'TRANSACTION_NOT_COUNTED', status: 'CONFIRMED', correctionRole: 'REVERSAL' }],
+    [
+      new TransactionNotCountedError('CONFIRMED', 'REVERSAL'),
+      409,
+      'CONFLICT',
+      { reason: 'TRANSACTION_NOT_COUNTED', status: 'CONFIRMED', correctionRole: 'REVERSAL' },
+    ],
     [new TransactionNotInflowError('x'), 422, 'TRANSACTION_NOT_INFLOW', undefined],
     [new NoRentCashError('x'), 422, 'NO_RENT_CASH', undefined],
     [new AlreadyMatchedError(ID), 409, 'CONFLICT', { reason: 'ALREADY_MATCHED', reconciliationId: ID }],
@@ -190,7 +214,9 @@ describe('POST /api/v1/rent-reconciliations', () => {
 
   it('the 422 for a term MRE did not return is worded neutrally (MRE also answers 404 when its database fails)', async () => {
     const base = await start({ rentReconciliations: { create: async () => Promise.reject(new MreRentTermNotFoundError(TENANT, '2027010100')) } });
-    expect(((await errorOf(await call(base, 'POST', '/rent-reconciliations', body))) as unknown as { message: string }).message).toBe('MRE did not return this rent term.');
+    expect(((await errorOf(await call(base, 'POST', '/rent-reconciliations', body))) as unknown as { message: string }).message).toBe(
+      'MRE did not return this rent term.',
+    );
   });
 });
 
@@ -260,10 +286,17 @@ describe('GET /api/v1/rent-reconciliations', () => {
         },
       },
     });
-    const res = await call(base, 'GET', `/rent-reconciliations?status=CONFIRMED,RELEASED&transactionId=${TX}&mreTenantId=${TENANT}&mreRentTerm=2027010100&page=2&pageSize=10`);
+    const res = await call(
+      base,
+      'GET',
+      `/rent-reconciliations?status=CONFIRMED,RELEASED&transactionId=${TX}&mreTenantId=${TENANT}&mreRentTerm=2027010100&page=2&pageSize=10`,
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ page: 2, pageSize: 10, total: 11, items: [{ reconciliationId: ID }] });
-    expect(seen[0]).toMatchObject({ filter: { status: ['CONFIRMED', 'RELEASED'], transactionId: TX, mreTenantId: TENANT, mreRentTerm: '2027010100' }, page: { page: 2, pageSize: 10 } });
+    expect(seen[0]).toMatchObject({
+      filter: { status: ['CONFIRMED', 'RELEASED'], transactionId: TX, mreTenantId: TENANT, mreRentTerm: '2027010100' },
+      page: { page: 2, pageSize: 10 },
+    });
     for (const bad of ['status=OPEN', 'status=', 'mreRentTerm=2027', 'mreTenantId=x', 'pageSize=201', 'checkMre=true']) {
       expect((await call(base, 'GET', `/rent-reconciliations?${bad}`)).status, bad).toBe(400);
     }
@@ -282,7 +315,7 @@ describe('GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm} (§
     openAmount: eur('0.00'),
   };
 
-  it('200 with both sides; the caller\'s Authorization header is passed on', async () => {
+  it("200 with both sides; the caller's Authorization header is passed on", async () => {
     const seen: unknown[] = [];
     const base = await start({
       rentReconciliations: {
@@ -300,7 +333,10 @@ describe('GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm} (§
       reconciliations: [expect.objectContaining({ reconciliationId: ID })],
       matchedTotal: { amount: '800.00', currency: 'EUR' },
       mreStatus: 'AVAILABLE',
-      mre: { amountDue: { amount: '800.00', currency: 'EUR' }, payments: [{ date: '2027-01-05', amount: { amount: '800.00', currency: 'EUR' }, type: 'transfer', reference: 'DE-RPR-x' }] },
+      mre: {
+        amountDue: { amount: '800.00', currency: 'EUR' },
+        payments: [{ date: '2027-01-05', amount: { amount: '800.00', currency: 'EUR' }, type: 'transfer', reference: 'DE-RPR-x' }],
+      },
       coverage: 'MATCHED',
       openAmount: { amount: '0.00', currency: 'EUR' },
     });
@@ -308,8 +344,15 @@ describe('GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm} (§
   });
 
   it('UNAVAILABLE answers nulls for the MRE side; a refused caller is 403', async () => {
-    const base = await start({ rentReconciliations: { termCoverage: async () => ({ ...coverage, mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null }) } });
-    expect(await (await call(base, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`)).json()).toMatchObject({ mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null });
+    const base = await start({
+      rentReconciliations: { termCoverage: async () => ({ ...coverage, mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null }) },
+    });
+    expect(await (await call(base, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`)).json()).toMatchObject({
+      mreStatus: 'UNAVAILABLE',
+      mre: null,
+      coverage: null,
+      openAmount: null,
+    });
     await stopAndStart({ rentReconciliations: { termCoverage: async () => Promise.reject(new AccessError('FORBIDDEN', 'x')) } }).then(async (b) =>
       expect((await call(b, 'GET', `/rent-reconciliations/terms/${TENANT}/2027010100`)).status).toBe(403),
     );
@@ -317,7 +360,11 @@ describe('GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm} (§
 
   it('400 for a malformed Tenant, a malformed term or a query parameter', async () => {
     const base = await start({});
-    for (const path of [`/rent-reconciliations/terms/Tina/2027010100`, `/rent-reconciliations/terms/${TENANT}/2027013200`, `/rent-reconciliations/terms/${TENANT}/2027010100?checkMre=true`]) {
+    for (const path of [
+      `/rent-reconciliations/terms/Tina/2027010100`,
+      `/rent-reconciliations/terms/${TENANT}/2027013200`,
+      `/rent-reconciliations/terms/${TENANT}/2027010100?checkMre=true`,
+    ]) {
       expect((await call(base, 'GET', path)).status, path).toBe(400);
     }
   });
@@ -361,16 +408,28 @@ describe('GET /api/v1/transactions/{id}/rent-reconciliations (§37.2)', () => {
     expect((await call(base, 'GET', `/transactions/${ID}/rent-reconciliations`)).status).toBe(404);
     expect((await call(base, 'GET', '/transactions/x/rent-reconciliations')).status).toBe(400);
     expect((await call(base, 'GET', `/transactions/${TX}/rent-reconciliations?x=1`)).status).toBe(400);
-    await stopAndStart({ rentReconciliations: { transactionCoverage: async () => ({ ...coverage, rentCash: null, available: null, counted: false }) } }).then(async (b) =>
-      expect(await (await call(b, 'GET', `/transactions/${TX}/rent-reconciliations`)).json()).toMatchObject({ rentCash: null, available: null, counted: false }),
+    await stopAndStart({ rentReconciliations: { transactionCoverage: async () => ({ ...coverage, rentCash: null, available: null, counted: false }) } }).then(
+      async (b) =>
+        expect(await (await call(b, 'GET', `/transactions/${TX}/rent-reconciliations`)).json()).toMatchObject({
+          rentCash: null,
+          available: null,
+          counted: false,
+        }),
     );
   });
 });
 
 describe('suggestions (§37.3)', () => {
-  const suggestion = { ...reconciliation, status: 'SUGGESTED', confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT', confirmedAt: null, confirmedBy: null } as unknown as RentPaymentReconciliation;
+  const suggestion = {
+    ...reconciliation,
+    status: 'SUGGESTED',
+    confidence: 'MEDIUM',
+    suggestionReason: 'EXACT_AMOUNT',
+    confirmedAt: null,
+    confirmedBy: null,
+  } as unknown as RentPaymentReconciliation;
 
-  it('suggest: 200 with the window and the written items; the caller\'s Authorization header is passed on', async () => {
+  it("suggest: 200 with the window and the written items; the caller's Authorization header is passed on", async () => {
     const seen: unknown[] = [];
     const base = await start({
       rentReconciliations: {
@@ -382,7 +441,11 @@ describe('suggestions (§37.3)', () => {
     });
     const res = await call(base, 'POST', '/rent-reconciliations/suggest', { from: '2027-01', to: '2027-12' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ from: '2027-01', to: '2027-12', items: [expect.objectContaining({ reconciliationId: ID, status: 'SUGGESTED', confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' })] });
+    expect(await res.json()).toEqual({
+      from: '2027-01',
+      to: '2027-12',
+      items: [expect.objectContaining({ reconciliationId: ID, status: 'SUGGESTED', confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' })],
+    });
     expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', from: '2027-01', to: '2027-12' });
   });
 
@@ -395,7 +458,13 @@ describe('suggestions (§37.3)', () => {
     };
     expect(await fieldsOf({ from: '2027-02', to: '2027-01' })).toEqual([{ field: 'to', code: 'INVALID_RANGE' }]);
     expect(await fieldsOf({ from: '2027-01', to: '2028-01' })).toEqual([{ field: 'to', code: 'RANGE_TOO_LONG' }]);
-    for (const bad of [{ from: '2027-13', to: '2027-12' }, { from: '2027-1', to: '2027-02' }, { from: '2027-01' }, { from: '2027-01', to: '2027-01', realm: 'x' }]) await fieldsOf(bad);
+    for (const bad of [
+      { from: '2027-13', to: '2027-12' },
+      { from: '2027-1', to: '2027-02' },
+      { from: '2027-01' },
+      { from: '2027-01', to: '2027-01', realm: 'x' },
+    ])
+      await fieldsOf(bad);
     const res = await call(base, 'POST', '/rent-reconciliations/suggest', { from: '2027-01', to: '2027-01' });
     expect(res.status).toBe(503);
   });
@@ -410,12 +479,21 @@ describe('suggestions (§37.3)', () => {
         },
       },
     });
-    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, { matchedAmount: { amount: '700.00', currency: 'EUR' } }, { 'if-match': '"1"' });
+    const res = await call(
+      base,
+      'POST',
+      `/rent-reconciliations/${ID}/confirm`,
+      { matchedAmount: { amount: '700.00', currency: 'EUR' } },
+      { 'if-match': '"1"' },
+    );
     expect(res.status).toBe(200);
     expect(res.headers.get('etag')).toBe('"2"');
     expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', reconciliationId: ID, expectedVersions: [1] });
     expect(seen[0]?.matchedAmount?.equals(eur('700.00'))).toBe(true);
-    expect((await fetch(`${base}/api/v1/rent-reconciliations/${ID}/confirm`, { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } })).status).toBe(200);
+    expect(
+      (await fetch(`${base}/api/v1/rent-reconciliations/${ID}/confirm`, { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } }))
+        .status,
+    ).toBe(200);
     expect(seen[1]).not.toHaveProperty('matchedAmount');
     const bad = await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, { matchedAmount: { amount: '0.00', currency: 'EUR' } });
     expect(bad.status).toBe(400);
@@ -501,7 +579,14 @@ describe('write-back to MRE (§37.4)', () => {
     // The attempt id stays internal.
     expect(JSON.stringify(body)).not.toContain('internal');
     expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', reconciliationId: ID, expectedVersions: [1] });
-    expect((await fetch(`${base}/api/v1/rent-reconciliations/${ID}/write-back-to-mre`, { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } })).status).toBe(200);
+    expect(
+      (
+        await fetch(`${base}/api/v1/rent-reconciliations/${ID}/write-back-to-mre`, {
+          method: 'POST',
+          headers: { authorization: 'Bearer a.b.c', organizationid: REALM },
+        })
+      ).status,
+    ).toBe(200);
     expect((await call(base, 'POST', `/rent-reconciliations/${ID}/write-back-to-mre`, { force: true })).status).toBe(400);
     expect((await call(base, 'POST', '/rent-reconciliations/x/write-back-to-mre', {})).status).toBe(400);
   });
@@ -514,7 +599,12 @@ describe('write-back to MRE (§37.4)', () => {
     [failed('MRE_TERM_NOT_ROUND_TRIPPABLE', 'NOT_WRITTEN'), 409, 'CONFLICT', { reason: 'MRE_TERM_NOT_ROUND_TRIPPABLE', mreWriteBackState: 'NOT_WRITTEN' }],
     [failed('MRE_PAYMENT_CHANGED'), 409, 'CONFLICT', { reason: 'MRE_PAYMENT_CHANGED', mreWriteBackState: 'FAILED' }],
     [failed('MRE_TERM_CHANGED'), 409, 'CONFLICT', { reason: 'MRE_TERM_CHANGED', mreWriteBackState: 'FAILED' }],
-    [failed('MRE_RENT_TERM_NOT_FOUND'), 422, 'MRE_RENT_TERM_NOT_FOUND', { reason: 'MRE_RENT_TERM_NOT_FOUND', mreWriteBackState: 'FAILED', mreTenantId: TENANT, mreRentTerm: '2027010100' }],
+    [
+      failed('MRE_RENT_TERM_NOT_FOUND'),
+      422,
+      'MRE_RENT_TERM_NOT_FOUND',
+      { reason: 'MRE_RENT_TERM_NOT_FOUND', mreWriteBackState: 'FAILED', mreTenantId: TENANT, mreRentTerm: '2027010100' },
+    ],
     [failed('MRE_UNAVAILABLE'), 503, 'EXTERNAL_SYSTEM_ERROR', { reason: 'MRE_UNAVAILABLE', mreWriteBackState: 'FAILED' }],
     [failed('MRE_WRITE_REFUSED'), 503, 'EXTERNAL_SYSTEM_ERROR', { reason: 'MRE_WRITE_REFUSED', mreWriteBackState: 'FAILED' }],
     [new AccessError('FORBIDDEN', 'no'), 403, 'FORBIDDEN', undefined],
@@ -554,7 +644,8 @@ describe('write-back to MRE (§37.4)', () => {
       expect(await (await call(base, 'GET', path)).json()).toMatchObject({ mrePresence: null });
     }
     expect(seen).toHaveLength(1);
-    for (const bad of ['checkMre=yes', 'checkMre=true&x=1', 'x=1']) expect((await call(base, 'GET', `/rent-reconciliations/${ID}?${bad}`)).status, bad).toBe(400);
+    for (const bad of ['checkMre=yes', 'checkMre=true&x=1', 'x=1'])
+      expect((await call(base, 'GET', `/rent-reconciliations/${ID}?${bad}`)).status, bad).toBe(400);
   });
 });
 
@@ -596,8 +687,18 @@ describe('removal from MRE (§37.5)', () => {
     [new NotRemovableError('RELEASED', 'NOT_WRITTEN'), 409, 'CONFLICT', { reason: 'NOT_REMOVABLE', status: 'RELEASED', mreWriteBackState: 'NOT_WRITTEN' }],
     [new RemovalTooEarlyError(new Date('2027-01-06T08:01:10Z')), 409, 'CONFLICT', { reason: 'REMOVAL_TOO_EARLY', notBefore: '2027-01-06T08:01:10.000Z' }],
     [new WriteBackInProgressError(TX), 409, 'CONFLICT', { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: TX }],
-    [new WriteBackFailedError('MRE_PAYMENT_CHANGED', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation), 409, 'CONFLICT', { reason: 'MRE_PAYMENT_CHANGED', mreWriteBackState: 'REMOVAL_FAILED' }],
-    [new WriteBackFailedError('MRE_UNAVAILABLE', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation), 503, 'EXTERNAL_SYSTEM_ERROR', { reason: 'MRE_UNAVAILABLE' }],
+    [
+      new WriteBackFailedError('MRE_PAYMENT_CHANGED', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation),
+      409,
+      'CONFLICT',
+      { reason: 'MRE_PAYMENT_CHANGED', mreWriteBackState: 'REMOVAL_FAILED' },
+    ],
+    [
+      new WriteBackFailedError('MRE_UNAVAILABLE', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation),
+      503,
+      'EXTERNAL_SYSTEM_ERROR',
+      { reason: 'MRE_UNAVAILABLE' },
+    ],
   ])('%s → %i %s', async (error, status, code, details) => {
     const base = await start({ rentReconciliations: { removeFromMre: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/rent-reconciliations/${ID}/remove-from-mre`, {});

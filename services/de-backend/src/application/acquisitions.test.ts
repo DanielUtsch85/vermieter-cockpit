@@ -77,7 +77,9 @@ describe('Acquisition use cases', () => {
     );
     await expect(cancel({ kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 })).rejects.toBeInstanceOf(VersionConflictError);
     const list = listPropertyAcquisitions({ repository: repository({}), propertyReferences: { findById: async () => undefined } });
-    await expect(list({ principal, propertyReferenceId: 'pr', filter: {}, page: { page: 1, pageSize: 50 } })).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
+    await expect(list({ principal, propertyReferenceId: 'pr', filter: {}, page: { page: 1, pageSize: 50 } })).rejects.toBeInstanceOf(
+      PropertyReferenceNotFoundError,
+    );
   });
 });
 
@@ -106,7 +108,9 @@ describe('confirmAcquisition', () => {
     expect(calls[0]).toEqual(['a1', REALM, at, { actorType: 'USER', actorId: 'anna@example.com' }, [1]]);
     await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toBeInstanceOf(AcquisitionNotFoundError);
     await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toBeInstanceOf(AcquisitionCancelledError);
-    await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toEqual(new ConfirmationBlockedError('a1', [{ code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'b' }]));
+    await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toEqual(
+      new ConfirmationBlockedError('a1', [{ code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'b' }]),
+    );
     await expect(confirm({ principal, acquisitionId: 'a1' })).rejects.toBeInstanceOf(VersionConflictError);
   });
 });

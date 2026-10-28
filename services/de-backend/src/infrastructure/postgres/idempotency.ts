@@ -28,11 +28,7 @@ export interface IdempotencyKeyRef {
   readonly key: string;
 }
 
-export async function claimIdempotencyKey(
-  trx: Transaction<Database>,
-  ref: IdempotencyKeyRef,
-  fingerprint: string,
-): Promise<IdempotencyClaim> {
+export async function claimIdempotencyKey(trx: Transaction<Database>, ref: IdempotencyKeyRef, fingerprint: string): Promise<IdempotencyClaim> {
   const claimed = await trx
     .insertInto('idempotency_key')
     .values({ mre_realm_id: ref.mreRealmId, scope: ref.scope, key: ref.key, request_fingerprint: fingerprint })
@@ -55,12 +51,7 @@ export async function claimIdempotencyKey(
 }
 
 /** Binds a claimed key to the created resource and its result (same transaction as the claim). */
-export async function recordIdempotentResult(
-  trx: Transaction<Database>,
-  ref: IdempotencyKeyRef,
-  resourceId: string,
-  result: unknown,
-): Promise<void> {
+export async function recordIdempotentResult(trx: Transaction<Database>, ref: IdempotencyKeyRef, resourceId: string, result: unknown): Promise<void> {
   await trx
     .updateTable('idempotency_key')
     .set({ resource_id: resourceId, result: JSON.stringify(result) })

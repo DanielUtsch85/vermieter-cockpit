@@ -42,7 +42,12 @@ export interface MreRentTermView {
  * The rent term read live with the caller's own MRE credentials; undefined when MRE does not return it. Throws
  * AccessError when MRE refuses the caller and MreUnavailableError when MRE cannot be asked.
  */
-export type MreRentTermReader = (authorizationHeader: string, mreRealmId: string, mreTenantId: string, mreRentTerm: string) => Promise<MreRentTermView | undefined>;
+export type MreRentTermReader = (
+  authorizationHeader: string,
+  mreRealmId: string,
+  mreTenantId: string,
+  mreRentTerm: string,
+) => Promise<MreRentTermView | undefined>;
 
 export class ReconciliationNotFoundError extends Error {
   override readonly name = 'ReconciliationNotFoundError';
@@ -202,10 +207,15 @@ export interface CreateReconciliationInput extends Omit<NewMatch, 'mreRealmId'> 
   readonly idempotencyKey?: string;
 }
 
-export type CreateReconciliation = (input: CreateReconciliationInput) => Promise<{ readonly reconciliation: RentPaymentReconciliation; readonly replayed: boolean }>;
+export type CreateReconciliation = (
+  input: CreateReconciliationInput,
+) => Promise<{ readonly reconciliation: RentPaymentReconciliation; readonly replayed: boolean }>;
 
 /** §37.1's manual match: DE's checks, then MRE outside any transaction, then DE's checks again under the locks. */
-export function createReconciliation(deps: { readonly repository: RentReconciliationRepository; readonly lookupMreRentTerm: MreRentTermLookup }): CreateReconciliation {
+export function createReconciliation(deps: {
+  readonly repository: RentReconciliationRepository;
+  readonly lookupMreRentTerm: MreRentTermLookup;
+}): CreateReconciliation {
   return async ({ principal, authorizationHeader, idempotencyKey, ...fields }) => {
     const match: NewMatch = { mreRealmId: principal.mreRealmId, ...fields };
     const idempotency = idempotencyKey === undefined ? undefined : { key: idempotencyKey, fingerprint: matchFingerprint(match) };
@@ -359,7 +369,10 @@ export type SuggestReconciliations = (input: {
  * §37.3's suggest: MRE's months (the window and its two neighbours) outside any transaction, then DE's snapshot, the
  * rule, and the write re-checking each pair. MRE down is MreUnavailableError and nothing is written.
  */
-export function suggestReconciliations(deps: { readonly repository: RentReconciliationRepository; readonly readMreMonth: MreMonthReader }): SuggestReconciliations {
+export function suggestReconciliations(deps: {
+  readonly repository: RentReconciliationRepository;
+  readonly readMreMonth: MreMonthReader;
+}): SuggestReconciliations {
   return async ({ principal, authorizationHeader, from, to }) => {
     const first = monthIndex(from);
     const last = monthIndex(to);
@@ -409,7 +422,10 @@ function confirmRefusal(outcome: Exclude<ConfirmPrecheck, { kind: 'PROCEED' | 'U
 }
 
 /** §37.3's confirm: DE's checks, the live MRE read outside any transaction, then the checks again under the locks. */
-export function confirmReconciliation(deps: { readonly repository: RentReconciliationRepository; readonly readMreRentTerm: MreRentTermReader }): ConfirmReconciliation {
+export function confirmReconciliation(deps: {
+  readonly repository: RentReconciliationRepository;
+  readonly readMreRentTerm: MreRentTermReader;
+}): ConfirmReconciliation {
   return async ({ principal, authorizationHeader, reconciliationId, matchedAmount, expectedVersions }) => {
     const pre = await deps.repository.confirmPrecheck(reconciliationId, principal.mreRealmId, matchedAmount);
     if (pre.kind === 'UNCHANGED') return { reconciliation: pre.reconciliation, changed: false };

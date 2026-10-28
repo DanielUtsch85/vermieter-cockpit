@@ -177,7 +177,11 @@ export function voidBalanceStatement(deps: Deps): VoidBalanceStatement {
   };
 }
 
-export type ListBalanceStatements = (input: { readonly principal: RealmPrincipal; readonly loanId: string; readonly status?: StatementStatus }) => Promise<readonly StatementView[]>;
+export type ListBalanceStatements = (input: {
+  readonly principal: RealmPrincipal;
+  readonly loanId: string;
+  readonly status?: StatementStatus;
+}) => Promise<readonly StatementView[]>;
 
 export function listBalanceStatements(deps: Deps): ListBalanceStatements {
   return async ({ principal, loanId, status }) => {

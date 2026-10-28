@@ -61,7 +61,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER loan_balance_statement_append BEFORE INSERT ON loan_balance_statement FOR EACH ROW EXECUTE FUNCTION loan_balance_statement_append()`.execute(db);
+  await sql`CREATE TRIGGER loan_balance_statement_append BEFORE INSERT ON loan_balance_statement FOR EACH ROW EXECUTE FUNCTION loan_balance_statement_append()`.execute(
+    db,
+  );
 
   await sql`
     CREATE FUNCTION loan_balance_statement_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -87,7 +89,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER loan_balance_statement_frozen BEFORE UPDATE OR DELETE ON loan_balance_statement FOR EACH ROW EXECUTE FUNCTION loan_balance_statement_frozen()`.execute(db);
+  await sql`CREATE TRIGGER loan_balance_statement_frozen BEFORE UPDATE OR DELETE ON loan_balance_statement FOR EACH ROW EXECUTE FUNCTION loan_balance_statement_frozen()`.execute(
+    db,
+  );
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {

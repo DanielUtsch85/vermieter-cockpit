@@ -137,12 +137,7 @@ export type ConfirmTransaction = (input: {
 /** Confirm Transaction (api-design.md §34, backlog VC-1-08). */
 export function confirmTransaction(deps: { readonly repository: TransactionRepository }): ConfirmTransaction {
   return async ({ principal, transactionId, expectedVersions }) => {
-    const outcome = await deps.repository.confirm(
-      transactionId,
-      principal.mreRealmId,
-      { actorType: 'USER', actorId: principal.email },
-      expectedVersions,
-    );
+    const outcome = await deps.repository.confirm(transactionId, principal.mreRealmId, { actorType: 'USER', actorId: principal.email }, expectedVersions);
     switch (outcome.kind) {
       case 'CONFIRMED':
         return { transaction: outcome.transaction, replayed: outcome.replayed };

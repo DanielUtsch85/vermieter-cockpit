@@ -1,8 +1,4 @@
-import type {
-  CachedAddress,
-  LinkOutcome,
-  PropertyReferenceRepository,
-} from '../domains/property-reference/index.js';
+import type { CachedAddress, LinkOutcome, PropertyReferenceRepository } from '../domains/property-reference/index.js';
 import type { ExactDecimal } from '../shared/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
 
@@ -31,11 +27,7 @@ export interface MrePropertySnapshot {
  * that Realm. Throws AccessError when MRE refuses the caller and
  * MreUnavailableError when MRE cannot be asked.
  */
-export type MrePropertyLookup = (
-  authorizationHeader: string,
-  mreRealmId: string,
-  mrePropertyId: string,
-) => Promise<MrePropertySnapshot | undefined>;
+export type MrePropertyLookup = (authorizationHeader: string, mreRealmId: string, mrePropertyId: string) => Promise<MrePropertySnapshot | undefined>;
 
 export class MrePropertyNotFoundError extends Error {
   override readonly name = 'MrePropertyNotFoundError';

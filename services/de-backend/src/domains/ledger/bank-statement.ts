@@ -67,11 +67,7 @@ export interface BankStatementAdapter {
   readonly version: string;
   /** Provenance of the Transactions it produces (data-model.md §17.6). */
   readonly provenance: Provenance;
-  parse(
-    file: Uint8Array,
-    options: unknown,
-    accountCurrency: CurrencyCode,
-  ): { readonly statement: ParsedStatement } | { readonly error: StatementError };
+  parse(file: Uint8Array, options: unknown, accountCurrency: CurrencyCode): { readonly statement: ParsedStatement } | { readonly error: StatementError };
 }
 
 /**

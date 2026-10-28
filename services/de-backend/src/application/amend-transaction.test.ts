@@ -68,7 +68,11 @@ describe('amend / ignore / restore use cases (api-design.md §31.3–31.4)', () 
       ).rejects.toBeInstanceOf(type);
     }
     await expect(
-      ignoreTransaction({ repository: repository({ ignore: { kind: 'NOT_IGNORABLE', status: 'CONFIRMED' } }).repo })({ principal, transactionId: 't1', reason: 'r' }),
+      ignoreTransaction({ repository: repository({ ignore: { kind: 'NOT_IGNORABLE', status: 'CONFIRMED' } }).repo })({
+        principal,
+        transactionId: 't1',
+        reason: 'r',
+      }),
     ).rejects.toBeInstanceOf(TransactionNotIgnorableError);
     await expect(
       restoreTransaction({ repository: repository({ restore: { kind: 'NOT_IGNORED', status: 'CLASSIFIED' } }).repo })({ principal, transactionId: 't1' }),

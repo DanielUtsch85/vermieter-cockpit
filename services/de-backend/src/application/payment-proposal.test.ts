@@ -40,24 +40,36 @@ describe('getPaymentProposal (§41.5)', () => {
     await expect(call({ kind: 'LOAN_NOT_FOUND' })).rejects.toBeInstanceOf(LoanNotFoundError);
     await expect(call({ kind: 'TRANSACTION_NOT_FOUND' })).rejects.toBeInstanceOf(ProposalTransactionNotFoundError);
     const voided = { ...loan, status: 'VOID' } as Loan;
-    await expect(call({ kind: 'FOUND', loan: voided, periods: [], transaction: { ...transaction, direction: 'INFLOW' } })).rejects.toBeInstanceOf(LoanNotActiveError);
-    await expect(call({ kind: 'FOUND', loan, periods: [], transaction: { ...transaction, status: 'CONFIRMED' } })).rejects.toBeInstanceOf(PaymentNotProposableError);
+    await expect(call({ kind: 'FOUND', loan: voided, periods: [], transaction: { ...transaction, direction: 'INFLOW' } })).rejects.toBeInstanceOf(
+      LoanNotActiveError,
+    );
+    await expect(call({ kind: 'FOUND', loan, periods: [], transaction: { ...transaction, status: 'CONFIRMED' } })).rejects.toBeInstanceOf(
+      PaymentNotProposableError,
+    );
     await expect(call({ kind: 'FOUND', loan, periods: [], transaction })).rejects.toBeInstanceOf(NoScheduleError);
   });
 
   it('a CLOSED Loan (§41.7): a Transaction after the closing date is LOAN_CLOSED, after the VOID check; on it the cut plan proposes', async () => {
     const closed = { ...loan, status: 'CLOSED', closingDate: day('2027-02-28') } as Loan;
     await expect(call({ kind: 'FOUND', loan: closed, periods: [period], transaction })).rejects.toMatchObject(new LoanClosedOnError('l', day('2027-02-28')));
-    expect(await call({ kind: 'FOUND', loan: closed, periods: [period], transaction: { ...transaction, bookingDate: day('2027-02-28') } })).toMatchObject({ entry: { number: 2 } });
+    expect(await call({ kind: 'FOUND', loan: closed, periods: [period], transaction: { ...transaction, bookingDate: day('2027-02-28') } })).toMatchObject({
+      entry: { number: 2 },
+    });
     // Cut before the first payment, the plan has no entry left to propose.
     const early = { ...loan, status: 'CLOSED', closingDate: day('2027-01-15') } as Loan;
-    await expect(call({ kind: 'FOUND', loan: early, periods: [period], transaction: { ...transaction, bookingDate: day('2027-01-15') } })).rejects.toMatchObject({ endReason: 'CLOSED' });
+    await expect(
+      call({ kind: 'FOUND', loan: early, periods: [period], transaction: { ...transaction, bookingDate: day('2027-01-15') } }),
+    ).rejects.toMatchObject({ endReason: 'CLOSED' });
   });
 });
 
 describe('getLoanSchedule (§41.4, §41.7)', () => {
-  it('a CLOSED Loan\'s plan is cut at its closing date with endReason CLOSED', async () => {
-    const read = (l: Loan) => getLoanSchedule({ repository: { scheduleInputs: async () => ({ loan: l, periods: [period] }) } as unknown as LoanTermsRepository })({ principal, loanId: 'l' });
+  it("a CLOSED Loan's plan is cut at its closing date with endReason CLOSED", async () => {
+    const read = (l: Loan) =>
+      getLoanSchedule({ repository: { scheduleInputs: async () => ({ loan: l, periods: [period] }) } as unknown as LoanTermsRepository })({
+        principal,
+        loanId: 'l',
+      });
     expect((await read(loan)).summary).toMatchObject({ payments: 4, endReason: 'PAID_OFF' });
     const closed = await read({ ...loan, status: 'CLOSED', closingDate: day('2027-02-28') } as Loan);
     expect([closed.entries.length, closed.summary.endReason, closed.summary.balanceDue]).toEqual([2, 'CLOSED', 40_853n]);

@@ -13,12 +13,8 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
   mreRole: 'administrator',
 });
 
-
 async function start(deps: Partial<Pick<AppDependencies, 'isReady' | 'verifyPrincipal'>>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...deps }).listen(
-    0,
-    '127.0.0.1',
-  );
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...deps }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   const { port } = server.address() as AddressInfo;
   return `http://127.0.0.1:${port}`;

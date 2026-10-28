@@ -72,12 +72,9 @@ describe('text and IBAN normalization (§70.3)', () => {
 });
 
 describe('normalizeReference (§70.3)', () => {
-  it.each([['NOTPROVIDED'], ['Not Provided'], ['NOT_PROVIDED'], ['NONREF'], ['-'], ['n/a'], ['  '], [undefined]])(
-    '%s is no reference',
-    (raw) => {
-      expect(normalizeReference(raw)).toBeNull();
-    },
-  );
+  it.each([['NOTPROVIDED'], ['Not Provided'], ['NOT_PROVIDED'], ['NONREF'], ['-'], ['n/a'], ['  '], [undefined]])('%s is no reference', (raw) => {
+    expect(normalizeReference(raw)).toBeNull();
+  });
 
   it('keeps real references, whitespace-normalized', () => {
     expect(normalizeReference(' E2E  4711 ')).toBe('E2E 4711');

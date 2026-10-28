@@ -49,19 +49,37 @@ describe.skipIf(databaseUrl === undefined)('migration 0033: the backfill of mre_
       ['plain', '6512f0c2a1b2c3d4e5f6e003'],
     ] as const) {
       const tx = await transactions.createManual(
-        { mreRealmId: REALM, financialAccountId: account.account.id, amount: eur('800.00'), direction: 'INFLOW', bookingDate: '2027-01-03' as BusinessDate, valueDate: null, description: 'Miete', propertyReferenceId: null },
+        {
+          mreRealmId: REALM,
+          financialAccountId: account.account.id,
+          amount: eur('800.00'),
+          direction: 'INFLOW',
+          bookingDate: '2027-01-03' as BusinessDate,
+          valueDate: null,
+          description: 'Miete',
+          propertyReferenceId: null,
+        },
         actor,
       );
       if (tx.kind !== 'CREATED') throw new Error(tx.kind);
-      await splits.replaceSplits(tx.transaction.id, REALM, [{ amount: eur('800.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: null }], actor);
+      await splits.replaceSplits(
+        tx.transaction.id,
+        REALM,
+        [{ amount: eur('800.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: null }],
+        actor,
+      );
       await transactions.confirm(tx.transaction.id, REALM, actor);
-      const created = await repository.create({ mreRealmId: REALM, transactionId: tx.transaction.id, mreTenantId: tenant, mreRentTerm: '2027010100', matchedAmount: eur('800.00'), notes: null }, actor);
+      const created = await repository.create(
+        { mreRealmId: REALM, transactionId: tx.transaction.id, mreTenantId: tenant, mreRentTerm: '2027010100', matchedAmount: eur('800.00'), notes: null },
+        actor,
+      );
       if (created.kind !== 'CREATED') throw new Error(created.kind);
       ids[name] = created.reconciliation.id;
     }
     // Back to 0032, and the rows' history there with 0032's own steps.
     await m0033.down(db as unknown as Kysely<unknown>);
-    const step = (id: string | undefined, assignment: string) => pool.query(`UPDATE rent_payment_reconciliation SET ${assignment}, version = version + 1 WHERE id = $1`, [id]);
+    const step = (id: string | undefined, assignment: string) =>
+      pool.query(`UPDATE rent_payment_reconciliation SET ${assignment}, version = version + 1 WHERE id = $1`, [id]);
     const claim = `mre_write_back_state = 'PENDING', mre_write_back_attempt_id = gen_random_uuid(), mre_write_back_lease_until = now() + interval '1 second'`;
     const cleared = `mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL`;
     await step(ids['failed'], claim);

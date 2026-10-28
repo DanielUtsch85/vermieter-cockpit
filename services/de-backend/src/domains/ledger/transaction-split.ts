@@ -40,10 +40,7 @@ export type SplitPlan =
  * Checks a full replacement split set against its Transaction, in this order:
  * frozen status, currency (no FX, §17.7), exact sum (§18).
  */
-export function planSplits(
-  transaction: { readonly amount: Money; readonly status: TransactionStatus },
-  splits: readonly SplitInput[],
-): SplitPlan {
+export function planSplits(transaction: { readonly amount: Money; readonly status: TransactionStatus }, splits: readonly SplitInput[]): SplitPlan {
   if (!(SPLITTABLE_STATUSES as readonly TransactionStatus[]).includes(transaction.status)) {
     return { kind: 'FROZEN', status: transaction.status };
   }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { costFingerprint, paymentFingerprint, type AcquisitionCost, type AcquisitionCostRepository, type AcquisitionPayment } from '../domains/acquisition/index.js';
+import {
+  costFingerprint,
+  paymentFingerprint,
+  type AcquisitionCost,
+  type AcquisitionCostRepository,
+  type AcquisitionPayment,
+} from '../domains/acquisition/index.js';
 import { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import {
@@ -70,7 +76,12 @@ describe('createAcquisitionCost', () => {
 
 describe('voidAcquisitionCost and unlinkAcquisitionPayment', () => {
   it('map their refusals', async () => {
-    const voids = [{ kind: 'NOT_FOUND' }, { kind: 'ACQUISITION_CANCELLED' }, { kind: 'COST_HAS_PAYMENTS', paymentIds: ['p'] }, { kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 1 }] as const;
+    const voids = [
+      { kind: 'NOT_FOUND' },
+      { kind: 'ACQUISITION_CANCELLED' },
+      { kind: 'COST_HAS_PAYMENTS', paymentIds: ['p'] },
+      { kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 1 },
+    ] as const;
     let v = 0;
     const voidCost = voidAcquisitionCost({ repository: repository({ voidCost: async () => voids[v++] ?? { kind: 'VOIDED', cost, changed: true } }) });
     const input = { principal, acquisitionId: 'a', costId: 'c', reason: 'x' };
@@ -82,7 +93,9 @@ describe('voidAcquisitionCost and unlinkAcquisitionPayment', () => {
 
     const unlinks = [{ kind: 'NOT_FOUND' }, { kind: 'ACQUISITION_CANCELLED' }] as const;
     let u = 0;
-    const unlink = unlinkAcquisitionPayment({ repository: repository({ unlinkPayment: async () => unlinks[u++] ?? { kind: 'UNLINKED', payment, changed: false } }) });
+    const unlink = unlinkAcquisitionPayment({
+      repository: repository({ unlinkPayment: async () => unlinks[u++] ?? { kind: 'UNLINKED', payment, changed: false } }),
+    });
     const unlinkInput = { principal, acquisitionId: 'a', paymentId: 'p', reason: 'x' };
     await expect(unlink(unlinkInput)).rejects.toBeInstanceOf(AcquisitionPaymentNotFoundError);
     await expect(unlink(unlinkInput)).rejects.toBeInstanceOf(AcquisitionCancelledError);
@@ -122,8 +135,14 @@ describe('linkAcquisitionPayment', () => {
 
 describe('the reads', () => {
   it('an unknown or foreign Acquisition is 404, not an empty list', async () => {
-    await expect(listAcquisitionCosts({ repository: repository({}) })({ principal, acquisitionId: 'a', filter: {} })).rejects.toBeInstanceOf(AcquisitionNotFoundError);
-    await expect(listAcquisitionPayments({ repository: repository({}) })({ principal, acquisitionId: 'a', filter: {} })).rejects.toBeInstanceOf(AcquisitionNotFoundError);
-    expect(await listAcquisitionCosts({ repository: repository({ listCosts: async () => [cost] }) })({ principal, acquisitionId: 'a', filter: {} })).toEqual([cost]);
+    await expect(listAcquisitionCosts({ repository: repository({}) })({ principal, acquisitionId: 'a', filter: {} })).rejects.toBeInstanceOf(
+      AcquisitionNotFoundError,
+    );
+    await expect(listAcquisitionPayments({ repository: repository({}) })({ principal, acquisitionId: 'a', filter: {} })).rejects.toBeInstanceOf(
+      AcquisitionNotFoundError,
+    );
+    expect(await listAcquisitionCosts({ repository: repository({ listCosts: async () => [cost] }) })({ principal, acquisitionId: 'a', filter: {} })).toEqual([
+      cost,
+    ]);
   });
 });

@@ -65,13 +65,9 @@ describe('generic-csv v1', () => {
   });
 
   it('the fingerprint ignores presentation formatting but changes with any fingerprint field', () => {
-    const reformatted = sparkasse
-      .replace('DE89 3704 0044 0532 0130 00', 'de89370400440532013000')
-      .replace('Max Mustermann', 'Max   Mustermann');
+    const reformatted = sparkasse.replace('DE89 3704 0044 0532 0130 00', 'de89370400440532013000').replace('Max Mustermann', 'Max   Mustermann');
     expect(rowsOf(parse(reformatted))[0]?.contentFingerprint).toBe(rowsOf(parse(sparkasse))[0]?.contentFingerprint);
-    expect(rowsOf(parse(sparkasse.replace('1.250,00', '1.250,01')))[0]?.contentFingerprint).not.toBe(
-      rowsOf(parse(sparkasse))[0]?.contentFingerprint,
-    );
+    expect(rowsOf(parse(sparkasse.replace('1.250,00', '1.250,01')))[0]?.contentFingerprint).not.toBe(rowsOf(parse(sparkasse))[0]?.contentFingerprint);
   });
 
   it('reads Windows-1252 exports when configured; as UTF-8 they are refused, never garbled', () => {
@@ -134,17 +130,13 @@ describe('generic-csv v1', () => {
 
   it('uses a mapped external id and source row id', () => {
     const csv = 'Buchungstag;Betrag;Ref;Nr\n01.09.2026;5,00;E2E-77;42\n';
-    const [row] = rowsOf(
-      parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', externalTransactionId: 'Ref', sourceRowId: 'Nr' } }),
-    );
+    const [row] = rowsOf(parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', externalTransactionId: 'Ref', sourceRowId: 'Nr' } }));
     expect(row).toMatchObject({ sourceRowId: '42', row: { externalTransactionId: 'E2E-77' } });
   });
 
   it('treats reference placeholders such as SEPA NOTPROVIDED as no reference', () => {
     const csv = 'Buchungstag;Betrag;Ref;Nr\n01.09.2026;750,00;NOTPROVIDED;-\n02.09.2026;980,00;notprovided;NONREF\n';
-    const rows = rowsOf(
-      parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', externalTransactionId: 'Ref', sourceRowId: 'Nr' } }),
-    );
+    const rows = rowsOf(parse(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', externalTransactionId: 'Ref', sourceRowId: 'Nr' } }));
     expect(rows.map((r) => [r.sourceRowId, r.row.externalTransactionId])).toEqual([
       [null, null],
       [null, null],

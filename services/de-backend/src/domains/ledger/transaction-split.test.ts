@@ -76,7 +76,11 @@ describe('checkLoanSplits (api-design §41.5)', () => {
   it('in the order of §41.5: an unknown Loan, then the category, then the direction, then a VOID Loan, each first by position', () => {
     const all = [withLoan('l2'), withLoan('l1', 'OTHER'), withLoan('nope'), withLoan('gone')];
     expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, all, loans)).toEqual({ kind: 'LOAN_NOT_FOUND', loanId: 'nope' });
-    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, all.slice(0, 2), loans)).toEqual({ kind: 'INVALID_LOAN_SPLIT', position: 2, reason: 'CATEGORY' });
+    expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, all.slice(0, 2), loans)).toEqual({
+      kind: 'INVALID_LOAN_SPLIT',
+      position: 2,
+      reason: 'CATEGORY',
+    });
     expect(checkLoanSplits({ direction: 'INFLOW', reversal: false, bookingDate }, [split('1.00', 'OTHER'), withLoan('l2')], loans)).toEqual({
       kind: 'INVALID_LOAN_SPLIT',
       position: 2,

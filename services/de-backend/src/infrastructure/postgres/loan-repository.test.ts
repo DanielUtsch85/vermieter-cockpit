@@ -52,7 +52,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -158,7 +168,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
     const refused = newLoan(bank, [gone]);
     const refusedKey = { key: `refused-${bank}`, fingerprint: createFingerprint(refused) };
     expect(await loans.create(refused, actor, refusedKey)).toEqual({ kind: 'PARTY_INACTIVE', partyId: gone });
-    expect((await loans.create(newLoan(bank, [anna]), actor, { key: refusedKey.key, fingerprint: createFingerprint(newLoan(bank, [anna])) })).kind).toBe('CREATED');
+    expect((await loans.create(newLoan(bank, [anna]), actor, { key: refusedKey.key, fingerprint: createFingerprint(newLoan(bank, [anna])) })).kind).toBe(
+      'CREATED',
+    );
   });
 
   it('reads: newest start date first; filters by status, party (lender or borrower) and Acquisition; paged; Realm-scoped', async () => {
@@ -184,7 +196,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       const [bank, anna, ben] = [await party('Bank'), await party('Anna'), await party('Ben')];
       const loan = await created(newLoan(bank, [anna]));
       const outcome = await loans.amend(loan.id, REALM, { borrowerPartyIds: [anna, ben], maturityDate: day('2046-09-01'), contractNumber: null }, actor, [1]);
-      expect(outcome).toMatchObject({ kind: 'AMENDED', changed: true, loan: { version: 2, borrowerPartyIds: [anna, ben], maturityDate: '2046-09-01', contractNumber: null } });
+      expect(outcome).toMatchObject({
+        kind: 'AMENDED',
+        changed: true,
+        loan: { version: 2, borrowerPartyIds: [anna, ben], maturityDate: '2046-09-01', contractNumber: null },
+      });
       expect((await audit(loan.id))[1]).toEqual({
         action: 'AMENDED',
         metadata: {
@@ -201,7 +217,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       const [bank, anna] = [await party('Bank'), await party('Anna')];
       const loan = await created(newLoan(bank, [anna]));
       expect(await loans.amend(loan.id, REALM, { contractNumber: 'D-4711' }, actor, [7])).toEqual({ kind: 'AMENDED', loan, changed: false });
-      expect(await loans.amend(loan.id, REALM, { contractNumber: 'D-4712' }, actor, [7])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [7], currentVersion: 1 });
+      expect(await loans.amend(loan.id, REALM, { contractNumber: 'D-4712' }, actor, [7])).toEqual({
+        kind: 'VERSION_CONFLICT',
+        expectedVersions: [7],
+        currentVersion: 1,
+      });
     });
 
     it('order: 404, then LOAN_NOT_ACTIVE (a no-op too), then the merged rules, then newly named Parties', async () => {
@@ -227,7 +247,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       const [bank, anna, ben] = [await party('Bank'), await party('Anna'), await party('Ben')];
       const loan = await created(newLoan(bank, [anna, ben]));
       await deactivate(anna);
-      expect(await loans.amend(loan.id, REALM, { borrowerPartyIds: [ben, anna], notes: 'Anna verstorben' }, actor)).toMatchObject({ kind: 'AMENDED', changed: true });
+      expect(await loans.amend(loan.id, REALM, { borrowerPartyIds: [ben, anna], notes: 'Anna verstorben' }, actor)).toMatchObject({
+        kind: 'AMENDED',
+        changed: true,
+      });
       expect(await loans.amend(loan.id, REALM, { lenderPartyId: ben, borrowerPartyIds: [bank, anna] }, actor)).toMatchObject({
         kind: 'AMENDED',
         loan: { lenderPartyId: ben, borrowerPartyIds: [bank, anna], version: 3 },
@@ -243,11 +266,18 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       expect(await loans.void(loan.id, REALM, 'Doppelt', at, actor, [2])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 1 });
       const voided = await loans.void(loan.id, REALM, 'Doppelt', at, actor, [1]);
       expect(voided).toMatchObject({ kind: 'VOIDED', changed: true, loan: { status: 'VOID', voidReason: 'Doppelt', voidedAt: at, version: 2 } });
-      expect(await loans.void(loan.id, REALM, 'anders', new Date(), actor, [9])).toMatchObject({ kind: 'VOIDED', changed: false, loan: { voidReason: 'Doppelt' } });
+      expect(await loans.void(loan.id, REALM, 'anders', new Date(), actor, [9])).toMatchObject({
+        kind: 'VOIDED',
+        changed: false,
+        loan: { voidReason: 'Doppelt' },
+      });
       expect((await audit(loan.id)).map((r) => r.action)).toEqual(['CREATED', 'VOIDED']);
       const closed = await created(newLoan(bank, [anna]));
       // VC-3-07 brings close; past the repository a status step out of ACTIVE is allowed with version + 1.
-      await pool.query(`UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`, [closed.id]);
+      await pool.query(
+        `UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`,
+        [closed.id],
+      );
       expect(await loans.void(closed.id, REALM, 'x', new Date(), actor)).toEqual({ kind: 'LOAN_CLOSED' });
       expect(await loans.void(loan.id, OTHER_REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_FOUND' });
     });
@@ -259,9 +289,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       const holder = await pool.connect();
       try {
         await holder.query('BEGIN');
-        await holder.query(`UPDATE party SET status = 'INACTIVE', deactivated_at = now(), deactivation_reason = 'x', version = version + 1 WHERE id = $1`, [anna]);
+        await holder.query(`UPDATE party SET status = 'INACTIVE', deactivated_at = now(), deactivation_reason = 'x', version = version + 1 WHERE id = $1`, [
+          anna,
+        ]);
         const creating = loans.create(newLoan(bank, [anna]), actor);
-        await waitUntil(async () => Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >= 1);
+        await waitUntil(
+          async () =>
+            Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >=
+            1,
+        );
         await holder.query('COMMIT');
         expect(await creating).toEqual({ kind: 'PARTY_INACTIVE', partyId: anna });
       } finally {
@@ -287,7 +323,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
             () => 'inserted',
             (error: { code?: string }) => error.code,
           );
-        await waitUntil(async () => Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >= 1);
+        await waitUntil(
+          async () =>
+            Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >=
+            1,
+        );
         await two.query('COMMIT');
         expect(await inserting).toBe('40001');
       } finally {
@@ -305,7 +345,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
         await holder.query('BEGIN');
         await holder.query(`UPDATE loan SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [loan.id]);
         const amending = loans.amend(loan.id, REALM, { notes: 'zu spät' }, actor);
-        await waitUntil(async () => Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >= 1);
+        await waitUntil(
+          async () =>
+            Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >=
+            1,
+        );
         await holder.query('COMMIT');
         expect(await amending).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
       } finally {
@@ -335,8 +379,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       expect(await refused(`UPDATE loan SET notes = 'x' WHERE id = $1`, [loan.id])).toBe('23000');
       expect(await refused(`UPDATE loan SET notes = 'x', version = version + 2 WHERE id = $1`, [loan.id])).toBe('23000');
       expect(await refused(`UPDATE loan SET version = version WHERE id = $1`, [loan.id])).toBe('accepted');
-      expect(await refused(`UPDATE loan SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [loan.id])).toBe('accepted');
-      expect(await refused(`UPDATE loan SET status = 'ACTIVE', voided_at = NULL, void_reason = NULL, version = version + 1 WHERE id = $1`, [loan.id])).toBe('23000');
+      expect(await refused(`UPDATE loan SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [loan.id])).toBe(
+        'accepted',
+      );
+      expect(await refused(`UPDATE loan SET status = 'ACTIVE', voided_at = NULL, void_reason = NULL, version = version + 1 WHERE id = $1`, [loan.id])).toBe(
+        '23000',
+      );
       expect(await refused(`UPDATE loan SET borrower_party_ids = ARRAY[$2]::uuid[], version = version + 1 WHERE id = $1`, [loan.id, bank])).toBe('23000');
       // The no-op of P3-D8 still passes on a final Loan.
       expect(await refused(`UPDATE loan SET version = version WHERE id = $1`, [loan.id])).toBe('accepted');
@@ -359,7 +407,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       expect(await refused(insert(bank, `ARRAY['${anna}', '${bank}']::uuid[]`))).toBe('loan_lender_not_borrower');
       const loan = await created(newLoan(bank, [anna, ben]));
       expect(await refused(`UPDATE loan SET lender_party_id = $2, version = version + 1 WHERE id = $1`, [loan.id, anna])).toBe('loan_lender_not_borrower');
-      expect(await refused(`UPDATE loan SET lender_party_id = $2, borrower_party_ids = ARRAY[$3, $4]::uuid[], version = version + 1 WHERE id = $1`, [loan.id, anna, bank, ben])).toBe('accepted');
+      expect(
+        await refused(`UPDATE loan SET lender_party_id = $2, borrower_party_ids = ARRAY[$3, $4]::uuid[], version = version + 1 WHERE id = $1`, [
+          loan.id,
+          anna,
+          bank,
+          ben,
+        ]),
+      ).toBe('accepted');
       expect(await refused(insert(bank, `ARRAY['${anna}', '${anna}']::uuid[]`))).toBe('23000');
       // NOT (x = ANY (…)) is NULL with a NULL element, which a CHECK alone would pass (review on #59).
       expect(await refused(insert(bank, `ARRAY['${anna}', NULL]::uuid[]`))).toBe('loan_borrowers');
@@ -377,9 +432,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
       expect(await refused(insert(bank, `ARRAY['${gone}']::uuid[]`))).toBe('23000');
       expect(await refused(insert(gone, `ARRAY['${anna}']::uuid[]`))).toBe('23000');
       const loan = await created(newLoan(bank, [anna]));
-      expect(await refused(`UPDATE loan SET borrower_party_ids = ARRAY[$2, $3]::uuid[], version = version + 1 WHERE id = $1`, [loan.id, anna, gone])).toBe('23000');
+      expect(await refused(`UPDATE loan SET borrower_party_ids = ARRAY[$2, $3]::uuid[], version = version + 1 WHERE id = $1`, [loan.id, anna, gone])).toBe(
+        '23000',
+      );
       await deactivate(anna);
-      expect(await refused(`UPDATE loan SET borrower_party_ids = ARRAY[$2, $3]::uuid[], version = version + 1 WHERE id = $1`, [loan.id, anna, ben])).toBe('accepted');
+      expect(await refused(`UPDATE loan SET borrower_party_ids = ARRAY[$2, $3]::uuid[], version = version + 1 WHERE id = $1`, [loan.id, anna, ben])).toBe(
+        'accepted',
+      );
       expect(await refused(`DELETE FROM party WHERE id = $1`, [ben])).toBe('23503');
       expect(await refused(`DELETE FROM party WHERE id = $1`, [bank])).toBe('23503');
     });

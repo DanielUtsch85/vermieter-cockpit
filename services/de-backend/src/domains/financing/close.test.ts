@@ -35,8 +35,19 @@ const loanOf = (overrides: Partial<Loan> = {}): Loan => ({
 });
 const loan = loanOf();
 const successor = loanOf({ id: 'l0000000-0000-4000-8000-000000000002' as LoanId });
-const principal = (bookingDate: string, amount: bigint): CountedSplit => ({ transactionId: `tx-${bookingDate}`, bookingDate: day(bookingDate), category: 'LOAN_PRINCIPAL', amount });
-const request = (overrides: Partial<CloseRequest> = {}): CloseRequest => ({ closingDate: day('2027-06-30'), reason: 'OTHER', refinancedByLoanId: null, closingNote: 'Vergleich', ...overrides });
+const principal = (bookingDate: string, amount: bigint): CountedSplit => ({
+  transactionId: `tx-${bookingDate}`,
+  bookingDate: day(bookingDate),
+  category: 'LOAN_PRINCIPAL',
+  amount,
+});
+const request = (overrides: Partial<CloseRequest> = {}): CloseRequest => ({
+  closingDate: day('2027-06-30'),
+  reason: 'OTHER',
+  refinancedByLoanId: null,
+  closingNote: 'Vergleich',
+  ...overrides,
+});
 const refinanced = request({ reason: 'REFINANCED', refinancedByLoanId: successor.id, closingNote: null });
 const period: SchedulePeriod = {
   id: 't1' as LoanTermsId,
@@ -50,20 +61,39 @@ const period: SchedulePeriod = {
 
 describe('planClose (§41.7)', () => {
   it('the order of checks: not ACTIVE, before the debt, the refinancing Loan, splits after the date, REPAID at 0', () => {
-    const after = [{ transactionId: 'b', bookingDate: day('2027-08-01') }, { transactionId: 'a', bookingDate: day('2027-07-01') }, { transactionId: 'b', bookingDate: day('2027-08-01') }];
-    expect(planClose(loanOf({ status: 'VOID' }), request({ closingDate: day('2026-01-01') }), undefined, after, [])).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
-    expect(planClose(loan, request({ closingDate: day('2026-12-31'), reason: 'REFINANCED' }), undefined, after, [])).toEqual({ kind: 'CLOSING_BEFORE_DEBT', debtFrom: '2027-01-01' });
+    const after = [
+      { transactionId: 'b', bookingDate: day('2027-08-01') },
+      { transactionId: 'a', bookingDate: day('2027-07-01') },
+      { transactionId: 'b', bookingDate: day('2027-08-01') },
+    ];
+    expect(planClose(loanOf({ status: 'VOID' }), request({ closingDate: day('2026-01-01') }), undefined, after, [])).toEqual({
+      kind: 'LOAN_NOT_ACTIVE',
+      status: 'VOID',
+    });
+    expect(planClose(loan, request({ closingDate: day('2026-12-31'), reason: 'REFINANCED' }), undefined, after, [])).toEqual({
+      kind: 'CLOSING_BEFORE_DEBT',
+      debtFrom: '2027-01-01',
+    });
     expect(planClose(loan, refinanced, undefined, after, [])).toEqual({ kind: 'REFINANCING_LOAN_NOT_FOUND', refinancedByLoanId: successor.id });
     expect(planClose(loan, refinanced, loanOf({ status: 'CLOSED' }), after, [])).toEqual({ kind: 'REFINANCING_LOAN_NOT_ACTIVE', status: 'CLOSED' });
     expect(planClose(loan, refinanced, successor, after, [])).toEqual({ kind: 'SPLITS_AFTER_CLOSING', transactionIds: ['a', 'b'] });
-    expect(planClose(loan, request({ reason: 'REPAID', closingNote: null }), undefined, after, [principal('2027-01-31', 1n)])).toEqual({ kind: 'SPLITS_AFTER_CLOSING', transactionIds: ['a', 'b'] });
-    expect(planClose(loan, request({ reason: 'REPAID', closingNote: null }), undefined, [], [principal('2027-01-31', 99_999n)])).toEqual({ kind: 'REMAINING_DEBT_NOT_ZERO', actual: 1n });
+    expect(planClose(loan, request({ reason: 'REPAID', closingNote: null }), undefined, after, [principal('2027-01-31', 1n)])).toEqual({
+      kind: 'SPLITS_AFTER_CLOSING',
+      transactionIds: ['a', 'b'],
+    });
+    expect(planClose(loan, request({ reason: 'REPAID', closingNote: null }), undefined, [], [principal('2027-01-31', 99_999n)])).toEqual({
+      kind: 'REMAINING_DEBT_NOT_ZERO',
+      actual: 1n,
+    });
   });
 
   it('REPAID: a rest, an overpayment, payments after the date not counted; at 0 it closes with settledAmount 0', () => {
     const repaid = request({ reason: 'REPAID', closingNote: null });
     expect(planClose(loan, repaid, undefined, [], [principal('2027-01-31', 100_001n)])).toEqual({ kind: 'REMAINING_DEBT_NOT_ZERO', actual: -1n });
-    expect(planClose(loan, repaid, undefined, [], [principal('2027-01-31', 60_000n), principal('2027-07-31', 40_000n)])).toEqual({ kind: 'REMAINING_DEBT_NOT_ZERO', actual: 40_000n });
+    expect(planClose(loan, repaid, undefined, [], [principal('2027-01-31', 60_000n), principal('2027-07-31', 40_000n)])).toEqual({
+      kind: 'REMAINING_DEBT_NOT_ZERO',
+      actual: 40_000n,
+    });
     expect(planClose(loan, repaid, undefined, [], [principal('2027-01-31', 60_000n), principal('2027-06-30', 40_000n)])).toMatchObject({
       kind: 'CLOSE',
       settledAmount: 0n,
@@ -72,8 +102,16 @@ describe('planClose (§41.7)', () => {
   });
 
   it('REFINANCED: settledAmount is the rest the other Loan took over; OTHER keeps its note', () => {
-    expect(planClose(loan, refinanced, successor, [], [principal('2027-01-31', 30_000n)])).toMatchObject({ kind: 'CLOSE', settledAmount: 70_000n, next: { refinancedByLoanId: successor.id } });
-    expect(planClose(loan, request(), undefined, [], [])).toMatchObject({ kind: 'CLOSE', settledAmount: 100_000n, next: { closingReason: 'OTHER', closingNote: 'Vergleich' } });
+    expect(planClose(loan, refinanced, successor, [], [principal('2027-01-31', 30_000n)])).toMatchObject({
+      kind: 'CLOSE',
+      settledAmount: 70_000n,
+      next: { refinancedByLoanId: successor.id },
+    });
+    expect(planClose(loan, request(), undefined, [], [])).toMatchObject({
+      kind: 'CLOSE',
+      settledAmount: 100_000n,
+      next: { closingReason: 'OTHER', closingNote: 'Vergleich' },
+    });
   });
 
   it('a repeat with the same values is a no-op; other values are LOAN_NOT_ACTIVE', () => {
@@ -95,14 +133,27 @@ describe('void of a successor (§41.7, review on #71)', () => {
 });
 
 describe('effects of CLOSED (§41.7)', () => {
-  const done = (closingDate: string, overrides: Partial<Loan> = {}) => loanOf({ status: 'CLOSED', closingDate: day(closingDate), closingReason: 'REFINANCED', refinancedByLoanId: successor.id, ...overrides });
+  const done = (closingDate: string, overrides: Partial<Loan> = {}) =>
+    loanOf({ status: 'CLOSED', closingDate: day(closingDate), closingReason: 'REFINANCED', refinancedByLoanId: successor.id, ...overrides });
   const paid = [principal('2027-01-31', 29_500n), principal('2027-02-28', 29_647n)];
 
   it('the remaining debt: as derived on the date, 0 after it; principalPaid stays; NO_TERMS keeps null', () => {
     const closed = done('2027-03-15');
     expect(debtOn(closed, [period], paid, day('2027-03-15'))).toMatchObject({ principalPaid: 59_147n, actual: 40_853n, planned: 40_853n, difference: 0n });
-    expect(debtOn(closed, [period], paid, day('2027-03-16'))).toEqual({ principalPaid: 59_147n, actual: 0n, planned: 0n, difference: 0n, planEndReason: 'CLOSED' });
-    expect(debtOn(closed, [], paid, day('2028-01-01'))).toEqual({ principalPaid: 59_147n, actual: 0n, planned: null, difference: null, planEndReason: 'NO_TERMS' });
+    expect(debtOn(closed, [period], paid, day('2027-03-16'))).toEqual({
+      principalPaid: 59_147n,
+      actual: 0n,
+      planned: 0n,
+      difference: 0n,
+      planEndReason: 'CLOSED',
+    });
+    expect(debtOn(closed, [], paid, day('2028-01-01'))).toEqual({
+      principalPaid: 59_147n,
+      actual: 0n,
+      planned: null,
+      difference: null,
+      planEndReason: 'NO_TERMS',
+    });
     // Not a closed Loan: the same day shows the debt left.
     expect(debtOn(loan, [period], paid, day('2027-03-16'))).toMatchObject({ actual: 40_853n });
   });
@@ -144,7 +195,11 @@ describe('effects of CLOSED (§41.7)', () => {
       balanceDue: 40_853n,
       endReason: 'CLOSED',
     });
-    expect(closedSchedule(scheduleOf(eur('1000.00'), null, [period]), day('2026-12-31')).summary).toMatchObject({ payments: 0, balanceDue: 100_000n, endReason: 'CLOSED' });
+    expect(closedSchedule(scheduleOf(eur('1000.00'), null, [period]), day('2026-12-31')).summary).toMatchObject({
+      payments: 0,
+      balanceDue: 100_000n,
+      endReason: 'CLOSED',
+    });
     expect(loanSchedule(done('2027-05-01'), [period]).summary).toMatchObject({ payments: 4, endReason: 'PAID_OFF' });
     expect(loanSchedule(done('2027-03-15'), [period]).summary.endReason).toBe('CLOSED');
     expect(loanSchedule(loanOf(), [period]).summary.endReason).toBe('PAID_OFF');

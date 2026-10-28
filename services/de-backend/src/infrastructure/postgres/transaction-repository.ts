@@ -101,49 +101,52 @@ export class PostgresTransactionRepository implements TransactionRepository {
   ): Promise<CreateTransactionOutcome> {
     try {
       // READ COMMITTED explicitly: the idempotency claim relies on it (idempotency.ts).
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx) => {
-        const keyed =
-          idempotency === undefined
-            ? undefined
-            : {
-                ref: { mreRealmId: transaction.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key },
-                fingerprint: idempotency.fingerprint,
-              };
-        if (keyed !== undefined) {
-          const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          // Before any check: a replay answers as the first request did, even if the account closed since.
-          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', transaction: fromSnapshot(claim.result) };
-        }
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx) => {
+          const keyed =
+            idempotency === undefined
+              ? undefined
+              : {
+                  ref: { mreRealmId: transaction.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key },
+                  fingerprint: idempotency.fingerprint,
+                };
+          if (keyed !== undefined) {
+            const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            // Before any check: a replay answers as the first request did, even if the account closed since.
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', transaction: fromSnapshot(claim.result) };
+          }
 
-        await this.assertPostable(trx, transaction);
-        const inserted = (await trx
-          .insertInto('ledger_transaction')
-          .values({
-            mre_realm_id: transaction.mreRealmId,
-            financial_account_id: transaction.financialAccountId,
-            amount: toNumericAmount(transaction.amount),
-            currency: transaction.amount.currency,
-            direction: transaction.direction,
-            booking_date: transaction.bookingDate,
-            value_date: transaction.valueDate,
-            description: transaction.description,
-            property_reference_id: transaction.propertyReferenceId,
-            provenance: 'MANUAL' satisfies Provenance,
-            status: 'UNREVIEWED' satisfies TransactionStatus,
-            created_by: actor.actorId,
-          })
-          .returning(COLUMNS)
-          .executeTakeFirstOrThrow()) as Row;
+          await this.assertPostable(trx, transaction);
+          const inserted = (await trx
+            .insertInto('ledger_transaction')
+            .values({
+              mre_realm_id: transaction.mreRealmId,
+              financial_account_id: transaction.financialAccountId,
+              amount: toNumericAmount(transaction.amount),
+              currency: transaction.amount.currency,
+              direction: transaction.direction,
+              booking_date: transaction.bookingDate,
+              value_date: transaction.valueDate,
+              description: transaction.description,
+              property_reference_id: transaction.propertyReferenceId,
+              provenance: 'MANUAL' satisfies Provenance,
+              status: 'UNREVIEWED' satisfies TransactionStatus,
+              created_by: actor.actorId,
+            })
+            .returning(COLUMNS)
+            .executeTakeFirstOrThrow()) as Row;
 
-        const created = toDomain(inserted);
-        if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, created.id, toSnapshot(created));
-        await writeAudit(trx, { type: ENTITY_TYPE, id: created.id }, 'CREATED', actor, {
-          newVersion: created.version,
-          metadata: { provenance: created.provenance, financialAccountId: created.financialAccountId },
+          const created = toDomain(inserted);
+          if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, created.id, toSnapshot(created));
+          await writeAudit(trx, { type: ENTITY_TYPE, id: created.id }, 'CREATED', actor, {
+            newVersion: created.version,
+            metadata: { provenance: created.provenance, financialAccountId: created.financialAccountId },
+          });
+          return { kind: 'CREATED', transaction: created };
         });
-        return { kind: 'CREATED', transaction: created };
-      });
     } catch (error) {
       if (error instanceof Rejected) return { kind: 'REJECTED', reason: error.reason };
       throw error;

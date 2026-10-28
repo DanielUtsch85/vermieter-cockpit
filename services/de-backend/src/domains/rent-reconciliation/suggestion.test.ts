@@ -6,7 +6,12 @@ import { bookingWindow, suggestPairs, type SuggestionCandidate, type SuggestionI
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const X = '6512f0c2a1b2c3d4e5f60a01';
 const Y = '6512f0c2a1b2c3d4e5f60a02';
-const term = (mreTenantId: string, mreRentTerm: string, open = '800.00', inWindow = true): SuggestionTerm => ({ mreTenantId, mreRentTerm, openAmount: eur(open), inWindow });
+const term = (mreTenantId: string, mreRentTerm: string, open = '800.00', inWindow = true): SuggestionTerm => ({
+  mreTenantId,
+  mreRentTerm,
+  openAmount: eur(open),
+  inWindow,
+});
 const tx = (transactionId: string, bookingDate: string, available = '800.00', counterpartyIban: string | null = null): SuggestionCandidate => ({
   transactionId,
   bookingDate: bookingDate as BusinessDate,
@@ -27,7 +32,14 @@ describe('bookingWindow', () => {
 describe('suggestPairs (§37.3)', () => {
   it('one Transaction and one term with equal amounts → MEDIUM, EXACT_AMOUNT, the open amount', () => {
     const [s] = suggestPairs(input({ terms: [term(X, '2027010100')], candidates: [tx('t1', '2027-01-03')] }));
-    expect(s).toEqual({ transactionId: 't1', mreTenantId: X, mreRentTerm: '2027010100', matchedAmount: eur('800.00'), confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' });
+    expect(s).toEqual({
+      transactionId: 't1',
+      mreTenantId: X,
+      mreRentTerm: '2027010100',
+      matchedAmount: eur('800.00'),
+      confidence: 'MEDIUM',
+      suggestionReason: 'EXACT_AMOUNT',
+    });
   });
 
   it('two Transactions for one term, or two terms for one Transaction → nothing', () => {
@@ -40,16 +52,30 @@ describe('suggestPairs (§37.3)', () => {
     expect(pairs(input({ ...two, history: [{ mreTenantId: X, counterpartyIban: 'DE01' }] }))).toEqual(['t1→X/2027010100:HIGH']);
     expect(suggestPairs(input({ ...two, history: [{ mreTenantId: X, counterpartyIban: 'DE01' }] }))[0]?.suggestionReason).toBe('EXACT_AMOUNT_IBAN_HISTORY');
     expect(
-      pairs(input({ ...two, history: [{ mreTenantId: X, counterpartyIban: 'DE01' }, { mreTenantId: X, counterpartyIban: 'DE02' }] })),
+      pairs(
+        input({
+          ...two,
+          history: [
+            { mreTenantId: X, counterpartyIban: 'DE01' },
+            { mreTenantId: X, counterpartyIban: 'DE02' },
+          ],
+        }),
+      ),
     ).toEqual([]);
     // History of another Tenant does not decide.
     expect(pairs(input({ ...two, history: [{ mreTenantId: Y, counterpartyIban: 'DE01' }] }))).toEqual([]);
   });
 
   it('a unique fit with history is HIGH too', () => {
-    expect(pairs(input({ terms: [term(X, '2027010100')], candidates: [tx('t1', '2027-01-03', '800.00', 'DE01')], history: [{ mreTenantId: X, counterpartyIban: 'DE01' }] }))).toEqual([
-      't1→X/2027010100:HIGH',
-    ]);
+    expect(
+      pairs(
+        input({
+          terms: [term(X, '2027010100')],
+          candidates: [tx('t1', '2027-01-03', '800.00', 'DE01')],
+          history: [{ mreTenantId: X, counterpartyIban: 'DE01' }],
+        }),
+      ),
+    ).toEqual(['t1→X/2027010100:HIGH']);
   });
 
   it('the booking window: a day before the 15th of the month before, or after the month → no fit; its ends → fit', () => {
@@ -80,7 +106,9 @@ describe('suggestPairs (§37.3)', () => {
     expect(pairs(input({ terms: [term(X, '2027010100')], candidates: [tx('t1', '2027-01-03')], open }))).toEqual([]);
     // It blocks in the history step too.
     const history = [{ mreTenantId: X, counterpartyIban: 'DE02' }];
-    expect(pairs(input({ terms: [term(X, '2027010100')], candidates: [tx('t1', '2027-01-03'), tx('t2', '2027-01-05', '800.00', 'DE02')], open, history }))).toEqual([]);
+    expect(
+      pairs(input({ terms: [term(X, '2027010100')], candidates: [tx('t1', '2027-01-03'), tx('t2', '2027-01-05', '800.00', 'DE02')], open, history })),
+    ).toEqual([]);
   });
 
   it('a Transaction booked on the 20th of `to` that also fits the month after → nothing; the neighbour itself never suggested', () => {

@@ -118,7 +118,16 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreRentTermReader, mreTenantLookup, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
+import {
+  mrePrincipalVerifier,
+  mrePropertyLookup,
+  mreRentTermLookup,
+  mreMonthReader,
+  mreRentTermReader,
+  mreTenantLookup,
+  mreWriteBackTermReader,
+  mreWriteBackTermWriter,
+} from './wiring.js';
 
 /**
  * VC-3-08: the Phase-3 exit of `docs/roadmap.md` as one acceptance run through the HTTP API (ACC3,
@@ -169,7 +178,16 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
 
     const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
     mre = await startFakeMre([
-      { _id: REALM_A, name: 'A', members: member, applications: [], properties: [{ _id: PROPERTY_1, name: 'Haus Lindenweg', surface: 180 }, { _id: PROPERTY_2, name: 'Wohnung Gartenstraße', surface: 70 }] },
+      {
+        _id: REALM_A,
+        name: 'A',
+        members: member,
+        applications: [],
+        properties: [
+          { _id: PROPERTY_1, name: 'Haus Lindenweg', surface: 180 },
+          { _id: PROPERTY_2, name: 'Wohnung Gartenstraße', surface: 70 },
+        ],
+      },
       { _id: REALM_B, name: 'B', members: member, applications: [], properties: [] },
     ]);
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
@@ -248,9 +266,20 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         suggest: suggestReconciliations({ repository: new PostgresRentReconciliationRepository(db), readMreMonth: mreMonthReader(client) }),
         confirm: confirmReconciliation({ repository: new PostgresRentReconciliationRepository(db), readMreRentTerm: mreRentTermReader(client) }),
         reject: rejectReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),
-        writeBack: writeBackToMre({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client), writeTerm: mreWriteBackTermWriter(client), leaseMs: 4000 }),
+        writeBack: writeBackToMre({
+          repository: new PostgresRentReconciliationRepository(db),
+          readTerm: mreWriteBackTermReader(client),
+          writeTerm: mreWriteBackTermWriter(client),
+          leaseMs: 4000,
+        }),
         getWithPresence: getReconciliationWithPresence({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client) }),
-        removeFromMre: removeFromMre({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client), writeTerm: mreWriteBackTermWriter(client), leaseMs: 4000, marginMs: 0 }),
+        removeFromMre: removeFromMre({
+          repository: new PostgresRentReconciliationRepository(db),
+          readTerm: mreWriteBackTermReader(client),
+          writeTerm: mreWriteBackTermWriter(client),
+          leaseMs: 4000,
+          marginMs: 0,
+        }),
       },
       loanTerms: {
         create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
@@ -358,30 +387,49 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
 
     // The two properties, each with a DRAFT Acquisition: 200,000.00 and 100,000.00.
     const link = async (mrePropertyId: string) =>
-      (await json<{ propertyReferenceId: string }>(await A('POST', '/property-references/link', { mreRealmId: REALM_A, mrePropertyId }), 201)).propertyReferenceId;
+      (await json<{ propertyReferenceId: string }>(await A('POST', '/property-references/link', { mreRealmId: REALM_A, mrePropertyId }), 201))
+        .propertyReferenceId;
     const [p1, p2] = [await link(PROPERTY_1), await link(PROPERTY_2)];
     const party = async (displayName: string, partyType = 'ORGANIZATION') =>
       (await json<{ partyId: string }>(await A('POST', '/parties', { partyType, displayName }), 201)).partyId;
     const [bank, bank2, anna] = [await party('Hausbank'), await party('Neue Bank'), await party('Anna Darlehensnehmerin', 'PERSON')];
     const acquisition = async (propertyReferenceId: string, price: string) =>
-      (await json<{ acquisitionId: string }>(await A('POST', '/acquisitions', { propertyReferenceId, purchasePrice: eur(price), contractDate: '2026-12-01', buyerPartyIds: [anna] }), 201))
-        .acquisitionId;
+      (
+        await json<{ acquisitionId: string }>(
+          await A('POST', '/acquisitions', { propertyReferenceId, purchasePrice: eur(price), contractDate: '2026-12-01', buyerPartyIds: [anna] }),
+          201,
+        )
+      ).acquisitionId;
     const [a1, a2] = [await acquisition(p1, '200000.00'), await acquisition(p2, '100000.00')];
 
     // Loan L1: 240,000.00 from 2027-01-01, ANNUITY at 3.000 % with 1,200.00 a month from 2027-01-31.
     const l1 = (
       await json<{ loanId: string }>(
-        await A('POST', '/loans', { lenderPartyId: bank, borrowerPartyIds: [anna], principalOriginal: eur('240000.00'), startDate: '2027-01-01' }, { 'idempotency-key': 'acc3-l1' }),
+        await A(
+          'POST',
+          '/loans',
+          { lenderPartyId: bank, borrowerPartyIds: [anna], principalOriginal: eur('240000.00'), startDate: '2027-01-01' },
+          { 'idempotency-key': 'acc3-l1' },
+        ),
         201,
       )
     ).loanId;
     const loan = `/loans/${l1}`;
     const { termsId } = await json<{ termsId: string }>(
-      await A('POST', `${loan}/terms`, { validFrom: '2027-01-01', interestRate: '3.000', repaymentModel: 'ANNUITY', scheduledPayment: eur('1200.00'), firstPaymentDate: '2027-01-31' }),
+      await A('POST', `${loan}/terms`, {
+        validFrom: '2027-01-01',
+        interestRate: '3.000',
+        repaymentModel: 'ANNUITY',
+        scheduledPayment: eur('1200.00'),
+        firstPaymentDate: '2027-01-31',
+      }),
       201,
     );
     // The plan, hand-computed in §23: 596.99625 rounds up to 597.00.
-    const plan = await json<{ items: { paymentDate: string; interest: Money; principal: Money; balanceAfter: Money }[] }>(await A('GET', `${loan}/schedule?to=2027-03-31`), 200);
+    const plan = await json<{ items: { paymentDate: string; interest: Money; principal: Money; balanceAfter: Money }[] }>(
+      await A('GET', `${loan}/schedule?to=2027-03-31`),
+      200,
+    );
     expect(plan.items.map((e) => [e.paymentDate, e.interest.amount, e.principal.amount, e.balanceAfter.amount])).toEqual([
       ['2027-01-31', '600.00', '600.00', '239400.00'],
       ['2027-02-28', '598.50', '601.50', '238798.50'],
@@ -392,7 +440,14 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
     const unallocated = await json<{ error: { details: { reason: string } } }>(await A('GET', `${loan}/remaining-debt?asOf=2027-01-15&perProperty=true`), 409);
     expect(unallocated.error.details.reason).toBe('LOAN_NOT_ALLOCATED');
     const byPrice = await json<{ allocationSetId: string; allocations: { propertyReferenceId: string; share: string }[] }>(
-      await A('POST', `${loan}/allocations`, { validFrom: '2027-01-01', basis: 'PURCHASE_PRICE', allocations: [{ propertyReferenceId: p1, acquisitionId: a1 }, { propertyReferenceId: p2, acquisitionId: a2 }] }),
+      await A('POST', `${loan}/allocations`, {
+        validFrom: '2027-01-01',
+        basis: 'PURCHASE_PRICE',
+        allocations: [
+          { propertyReferenceId: p1, acquisitionId: a1 },
+          { propertyReferenceId: p2, acquisitionId: a2 },
+        ],
+      }),
       201,
     );
     expect(byPrice.allocations.map((a) => [a.propertyReferenceId, a.share])).toEqual([
@@ -400,13 +455,23 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
       [p2, '1/3'],
     ]);
     const notOne = await json<{ error: { details: { fields: unknown[] } } }>(
-      await A('POST', `${loan}/allocations`, { validFrom: '2027-04-01', basis: 'MANUAL', allocations: [{ propertyReferenceId: p1, share: '1/2' }, { propertyReferenceId: p2, share: '1/3' }] }),
+      await A('POST', `${loan}/allocations`, {
+        validFrom: '2027-04-01',
+        basis: 'MANUAL',
+        allocations: [
+          { propertyReferenceId: p1, share: '1/2' },
+          { propertyReferenceId: p2, share: '1/3' },
+        ],
+      }),
       400,
     );
     expect(notOne.error.details.fields).toEqual([{ field: 'allocations', code: 'SHARE_SUM_NOT_ONE' }]);
 
     // Interest/principal split flows into the ledger: four imported rows, three instalments and a special repayment.
-    const { financialAccountId } = await json<{ financialAccountId: string }>(await A('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Darlehenskonto', currency: 'EUR' }), 201);
+    const { financialAccountId } = await json<{ financialAccountId: string }>(
+      await A('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Darlehenskonto', currency: 'EUR' }),
+      201,
+    );
     const statement = [
       'Buchungstag;Betrag;Verwendungszweck',
       '31.01.2027;-1.200,00;Rate Januar',
@@ -472,14 +537,19 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
     ]);
     const cents = (m: Money | null | undefined) => BigInt((m?.amount ?? '0').replace('.', ''));
     for (const column of ['actual', 'planned', 'difference'] as const) {
-      expect(perProperty.items?.reduce((sum, i) => sum + cents(i[column]), 0n), column).toBe(cents(perProperty[column]));
+      expect(
+        perProperty.items?.reduce((sum, i) => sum + cents(i[column]), 0n),
+        column,
+      ).toBe(cents(perProperty[column]));
     }
     // The payments of the year per property, each split by the set of its booking date, by largest remainder.
     const yearPayments = async () => {
-      const payments = await json<{ interest: Money; principal: Money; payments: number; items: { propertyReferenceId: string; interest: Money; principal: Money }[] }>(
-        await A('GET', `${loan}/payments?year=2027&perProperty=true`),
-        200,
-      );
+      const payments = await json<{
+        interest: Money;
+        principal: Money;
+        payments: number;
+        items: { propertyReferenceId: string; interest: Money; principal: Money }[];
+      }>(await A('GET', `${loan}/payments?year=2027&perProperty=true`), 200);
       expect(payments).toMatchObject({ interest: eur('1795.50'), principal: eur('6804.50'), payments: 4 });
       expect(Object.fromEntries(payments.items.map((i) => [i.propertyReferenceId, [i.interest.amount, i.principal.amount]]))).toEqual({
         [p1]: ['1197.00', '4536.33'],
@@ -502,13 +572,23 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
 
     // The manual override from 2027-04-01, before L1 is closed (a CLOSED Loan takes no new set, §41.7).
     const manual = await json<{ allocationSetId: string }>(
-      await A('POST', `${loan}/allocations`, { validFrom: '2027-04-01', basis: 'MANUAL', allocations: [{ propertyReferenceId: p1, share: '1/2' }, { propertyReferenceId: p2, share: '1/2' }] }),
+      await A('POST', `${loan}/allocations`, {
+        validFrom: '2027-04-01',
+        basis: 'MANUAL',
+        allocations: [
+          { propertyReferenceId: p1, share: '1/2' },
+          { propertyReferenceId: p2, share: '1/2' },
+        ],
+      }),
       201,
     );
     // The year's payments do not move: each split stays with the set of its booking date, not the year's last set.
     await yearPayments();
     // One Loan per property's history, never a Loan per property.
-    const p1Loans = await json<{ items: { loanId: string; allocationSetId: string; share: string }[] }>(await A('GET', `/property-references/${p1}/loans`), 200);
+    const p1Loans = await json<{ items: { loanId: string; allocationSetId: string; share: string }[] }>(
+      await A('GET', `/property-references/${p1}/loans`),
+      200,
+    );
     expect(p1Loans.items.map((i) => [i.loanId, i.allocationSetId, i.share])).toEqual([
       [l1, manual.allocationSetId, '1/2'],
       [l1, byPrice.allocationSetId, '2/3'],
@@ -517,7 +597,10 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
 
     // Refinancing: L2 at Neue Bank takes over 233,195.50; L1 is closed as REFINANCED on 2027-03-31.
     const l2 = (
-      await json<{ loanId: string }>(await A('POST', '/loans', { lenderPartyId: bank2, borrowerPartyIds: [anna], principalOriginal: eur('233195.50'), startDate: '2027-04-01' }), 201)
+      await json<{ loanId: string }>(
+        await A('POST', '/loans', { lenderPartyId: bank2, borrowerPartyIds: [anna], principalOriginal: eur('233195.50'), startDate: '2027-04-01' }),
+        201,
+      )
     ).loanId;
     expect(await json(await A('POST', `${loan}/close`, { closingDate: '2027-03-31', reason: 'REFINANCED', refinancedByLoanId: l2 }), 200)).toMatchObject({
       status: 'CLOSED',
@@ -533,7 +616,13 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
       closing: { closingDate: '2027-03-31', reason: 'REFINANCED', refinancedByLoanId: l2, actualOnClosingDate: eur('233195.50') },
     });
     const { transactionId: april } = await json<{ transactionId: string }>(
-      await A('POST', '/transactions', { financialAccountId, amount: eur('1200.00'), direction: 'OUTFLOW', bookingDate: '2027-04-30', description: 'Rate April' }),
+      await A('POST', '/transactions', {
+        financialAccountId,
+        amount: eur('1200.00'),
+        direction: 'OUTFLOW',
+        bookingDate: '2027-04-30',
+        description: 'Rate April',
+      }),
       201,
     );
     const afterClosing = await json<{ error: { details: unknown } }>(
@@ -543,7 +632,10 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
     expect(afterClosing.error.details).toEqual({ reason: 'LOAN_CLOSED', loanId: l1, closingDate: '2027-03-31' });
     const successorVoid = await json<{ error: { details: unknown } }>(await A('POST', `/loans/${l2}/void`, { reason: 'x' }), 409);
     expect(successorVoid.error.details).toEqual({ reason: 'LOAN_REFINANCES', loanIds: [l1] });
-    expect((await json<{ summary: { endReason: string; payments: number } }>(await A('GET', `${loan}/schedule`), 200)).summary).toMatchObject({ endReason: 'CLOSED', payments: 3 });
+    expect((await json<{ summary: { endReason: string; payments: number } }>(await A('GET', `${loan}/schedule`), 200)).summary).toMatchObject({
+      endReason: 'CLOSED',
+      payments: 3,
+    });
 
     // Realm isolation: every Phase-3 route, given Realm A's ids, answers Realm B with 404 and writes nothing.
     const ids: Record<string, string> = { loanId: l1, termsId, allocationSetId: manual.allocationSetId, statementId, propertyReferenceId: p1 };
@@ -574,7 +666,11 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
       'GET /loans/:loanId/balance-statements': { expect: 404 },
     };
     // The table is the app's Phase-3 routes, no more and no fewer: a new route without a row turns this red.
-    expect(Object.keys(routes).sort()).toEqual(routesOf(app).filter((route) => PHASE_3.test(route)).sort());
+    expect(Object.keys(routes).sort()).toEqual(
+      routesOf(app)
+        .filter((route) => PHASE_3.test(route))
+        .sort(),
+    );
     // "Writes nothing" is checked by the AuditRecord count: every write writes one.
     const auditBefore = (await pool.query(`SELECT count(*)::int AS n FROM audit_record`)).rows[0].n as number;
     for (const [route, row] of Object.entries(routes)) {
@@ -606,7 +702,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
       ].sort(),
     );
     expect(audit.rows.find((r) => r.action === 'CLOSED')?.metadata.settledAmount).toEqual(eur('233195.50'));
-    const corrected = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1 AND action = 'CORRECTED'`, [february]);
+    const corrected = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1 AND action = 'CORRECTED'`, [
+      february,
+    ]);
     expect(corrected.rowCount).toBe(1);
   });
 });

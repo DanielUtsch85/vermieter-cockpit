@@ -189,7 +189,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER acquisition_payment_step BEFORE INSERT OR UPDATE ON acquisition_payment FOR EACH ROW EXECUTE FUNCTION acquisition_payment_step()`.execute(db);
+  await sql`CREATE TRIGGER acquisition_payment_step BEFORE INSERT OR UPDATE ON acquisition_payment FOR EACH ROW EXECUTE FUNCTION acquisition_payment_step()`.execute(
+    db,
+  );
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {

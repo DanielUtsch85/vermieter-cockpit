@@ -100,7 +100,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER acquisition_cost_frozen BEFORE UPDATE OR DELETE ON acquisition_cost FOR EACH ROW EXECUTE FUNCTION acquisition_cost_frozen()`.execute(db);
+  await sql`CREATE TRIGGER acquisition_cost_frozen BEFORE UPDATE OR DELETE ON acquisition_cost FOR EACH ROW EXECUTE FUNCTION acquisition_cost_frozen()`.execute(
+    db,
+  );
 
   await sql`
     CREATE FUNCTION acquisition_payment_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -126,7 +128,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER acquisition_payment_frozen BEFORE UPDATE OR DELETE ON acquisition_payment FOR EACH ROW EXECUTE FUNCTION acquisition_payment_frozen()`.execute(db);
+  await sql`CREATE TRIGGER acquisition_payment_frozen BEFORE UPDATE OR DELETE ON acquisition_payment FOR EACH ROW EXECUTE FUNCTION acquisition_payment_frozen()`.execute(
+    db,
+  );
 
   // Serialises on the Acquisition row and refuses a CANCELLED one; returns its status.
   await sql`
@@ -223,7 +227,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER acquisition_payment_guard BEFORE INSERT OR UPDATE ON acquisition_payment FOR EACH ROW EXECUTE FUNCTION acquisition_payment_guard()`.execute(db);
+  await sql`CREATE TRIGGER acquisition_payment_guard BEFORE INSERT OR UPDATE ON acquisition_payment FOR EACH ROW EXECUTE FUNCTION acquisition_payment_guard()`.execute(
+    db,
+  );
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {

@@ -34,11 +34,16 @@ const split = (amount: string, financialCategoryCode: string, loanId: string | n
   loanId,
   description: null,
 });
-const payment = (loanId: string | null, interest = '3.53', principal = '296.47') => [split(interest, 'LOAN_INTEREST', loanId), split(principal, 'LOAN_PRINCIPAL', loanId)];
+const payment = (loanId: string | null, interest = '3.53', principal = '296.47') => [
+  split(interest, 'LOAN_INTEREST', loanId),
+  split(principal, 'LOAN_PRINCIPAL', loanId),
+];
 
 async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
   const deadline = Date.now() + 5_000;
-  while (Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count) {
+  while (
+    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count
+  ) {
     if (Date.now() > deadline) throw new Error(`fewer than ${count} sessions wait on a lock`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -85,7 +90,17 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -175,7 +190,10 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
       expect(moved.splits.map((s) => s.loanId)).toEqual([l1.id, l2.id]);
       // A LOAN_* split without a Loan stays allowed and counts for no Loan.
       expect((await replaced(id, payment(null))).splits.map((s) => s.loanId)).toEqual([null, null]);
-      const audit = await pool.query(`SELECT metadata->'splits' AS splits FROM audit_record WHERE entity_id = $1 AND action = 'SPLITS_REPLACED' ORDER BY occurred_at`, [id]);
+      const audit = await pool.query(
+        `SELECT metadata->'splits' AS splits FROM audit_record WHERE entity_id = $1 AND action = 'SPLITS_REPLACED' ORDER BY occurred_at`,
+        [id],
+      );
       expect(audit.rows[1].splits.map((s: { loanId?: string }) => s.loanId)).toEqual([l1.id, l2.id]);
     });
 
@@ -187,7 +205,10 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
       const inflow = await transaction({ direction: 'INFLOW' });
       const refused = (id: string, set: readonly SplitInput[]) => splits.replaceSplits(id, REALM, set, actor);
       expect(await refused(outflow, [split('300.00', 'LOAN_INTEREST', foreign.id)])).toEqual({ kind: 'LOAN_NOT_FOUND', loanId: foreign.id });
-      expect(await refused(inflow, [split('1.00', 'OTHER', voided.id), split('299.00', 'LOAN_INTEREST', unknown)])).toEqual({ kind: 'LOAN_NOT_FOUND', loanId: unknown });
+      expect(await refused(inflow, [split('1.00', 'OTHER', voided.id), split('299.00', 'LOAN_INTEREST', unknown)])).toEqual({
+        kind: 'LOAN_NOT_FOUND',
+        loanId: unknown,
+      });
       expect(await refused(inflow, [split('1.00', 'LOAN_INTEREST', voided.id), split('299.00', 'OTHER', active.id)])).toEqual({
         kind: 'INVALID_LOAN_SPLIT',
         position: 2,
@@ -217,10 +238,9 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
       const id = await transaction();
       await replaced(id, payment(l.id));
       expect(await loans.void(l.id, REALM, 'x', new Date(), actor)).toEqual({ kind: 'LOAN_HAS_SPLITS', transactionIds: [id] });
-      const refused = await pool.query(`UPDATE loan SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [l.id]).then(
-        () => 'accepted',
-        reasonOf,
-      );
+      const refused = await pool
+        .query(`UPDATE loan SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [l.id])
+        .then(() => 'accepted', reasonOf);
       expect(refused).toBe('(LOAN_HAS_SPLITS)');
       // Not a step to VOID: an amend and the guard's no-op write pass.
       await expect(pool.query(`UPDATE loan SET version = version WHERE id = $1`, [l.id])).resolves.toBeDefined();
@@ -255,11 +275,21 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
       expect(await counted(l1.id)).toEqual({ LOAN_INTEREST: '3.53', LOAN_PRINCIPAL: '296.47' });
 
       // The wrong Loan was named: the next replacement moves the payment to l2.
-      const moved = await corrections.correct(copied.result.replacement.id, REALM, { reason: 'anderes Darlehen', replacement: { splits: payment(l2.id) } }, actor);
+      const moved = await corrections.correct(
+        copied.result.replacement.id,
+        REALM,
+        { reason: 'anderes Darlehen', replacement: { splits: payment(l2.id) } },
+        actor,
+      );
       if (moved.kind !== 'CORRECTED' || moved.result.replacement === null) throw new Error(moved.kind);
       expect([await counted(l1.id), await counted(l2.id)]).toEqual([{}, { LOAN_INTEREST: '3.53', LOAN_PRINCIPAL: '296.47' }]);
       // Not a Loan payment at all: the replacement without a Loan.
-      const none = await corrections.correct(moved.result.replacement.id, REALM, { reason: 'kein Darlehen', replacement: { splits: [split('300.00', 'OTHER')] } }, actor);
+      const none = await corrections.correct(
+        moved.result.replacement.id,
+        REALM,
+        { reason: 'kein Darlehen', replacement: { splits: [split('300.00', 'OTHER')] } },
+        actor,
+      );
       expect(none.kind).toBe('CORRECTED');
       expect(await counted(l2.id)).toEqual({});
     });
@@ -433,7 +463,10 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
       const id = await transaction({ amount: '400.00' });
       await replaced(id, [split('400.00', 'OTHER')]);
       const inputs = await terms.proposalInputs(l.id, id, REALM);
-      expect(inputs).toMatchObject({ kind: 'FOUND', transaction: { id, bookingDate: '2027-03-01', amount: 40_000n, direction: 'OUTFLOW', status: 'CLASSIFIED', splitCount: 1 } });
+      expect(inputs).toMatchObject({
+        kind: 'FOUND',
+        transaction: { id, bookingDate: '2027-03-01', amount: 40_000n, direction: 'OUTFLOW', status: 'CLASSIFIED', splitCount: 1 },
+      });
       expect(inputs.kind === 'FOUND' ? inputs.periods.length : -1).toBe(1);
       expect(await terms.proposalInputs(l.id, id, OTHER_REALM)).toEqual({ kind: 'LOAN_NOT_FOUND' });
       expect(await terms.proposalInputs(l.id, await transaction({ realm: OTHER_REALM }), REALM)).toEqual({ kind: 'TRANSACTION_NOT_FOUND' });

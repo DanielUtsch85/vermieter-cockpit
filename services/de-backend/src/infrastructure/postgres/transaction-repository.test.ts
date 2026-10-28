@@ -1,11 +1,6 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  manualTransactionFingerprint,
-  type BusinessDate,
-  type FinancialAccountId,
-  type NewManualTransaction,
-} from '../../domains/ledger/index.js';
+import { manualTransactionFingerprint, type BusinessDate, type FinancialAccountId, type NewManualTransaction } from '../../domains/ledger/index.js';
 import { Money } from '../../shared/index.js';
 import { PostgresCorrectionRepository } from './correction-repository.js';
 import { createDatabase } from './database.js';
@@ -62,10 +57,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
   });
 
   async function openAccount(mreRealmId = REALM): Promise<FinancialAccountId> {
-    const outcome = await accounts.create(
-      { mreRealmId, accountType: 'BANK', displayName: 'Girokonto', currency: 'EUR', iban: null },
-      actor,
-    );
+    const outcome = await accounts.create({ mreRealmId, accountType: 'BANK', displayName: 'Girokonto', currency: 'EUR', iban: null }, actor);
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
     return outcome.account.id;
   }
@@ -101,14 +93,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       version: 1,
     });
     expect(outcome.transaction.amount.toJSON()).toEqual({ amount: '0.10', currency: 'EUR' });
-    const row = await pool.query<{ amount: string; booking_date: string }>(
-      `SELECT amount::text, booking_date::text FROM ledger_transaction WHERE id = $1`,
-      [outcome.transaction.id],
-    );
-    expect(row.rows[0]).toEqual({ amount: '0.10', booking_date: '2026-09-01' });
-    const audits = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1`, [
+    const row = await pool.query<{ amount: string; booking_date: string }>(`SELECT amount::text, booking_date::text FROM ledger_transaction WHERE id = $1`, [
       outcome.transaction.id,
     ]);
+    expect(row.rows[0]).toEqual({ amount: '0.10', booking_date: '2026-09-01' });
+    const audits = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1`, [outcome.transaction.id]);
     expect(audits.rows).toEqual([{ action: 'CREATED' }]);
   });
 
@@ -199,9 +188,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
   it('concurrent requests with the same key create exactly one Transaction', async () => {
     const accountId = await openAccount();
     const transaction = rent(accountId);
-    const outcomes = await Promise.all(
-      Array.from({ length: 8 }, () => transactions.createManual(transaction, actor, keyed('tx-race-1', transaction))),
-    );
+    const outcomes = await Promise.all(Array.from({ length: 8 }, () => transactions.createManual(transaction, actor, keyed('tx-race-1', transaction))));
     expect(outcomes.filter((o) => o.kind === 'CREATED')).toHaveLength(1);
     expect(outcomes.filter((o) => o.kind === 'REPLAYED')).toHaveLength(7);
     expect(await countFor(accountId)).toBe(1);
@@ -362,7 +349,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
       );
     });
     it('the status of a confirmed Transaction only moves forward; CORRECTED is terminal', async () => {
-      const setStatus = (id: string, status: string) => pool.query(`UPDATE ledger_transaction SET status = $2, version = version + 1 WHERE id = $1`, [id, status]);
+      const setStatus = (id: string, status: string) =>
+        pool.query(`UPDATE ledger_transaction SET status = $2, version = version + 1 WHERE id = $1`, [id, status]);
       const confirmedOne = async () => {
         const id = await classified();
         await transactions.confirm(id, REALM, actor);

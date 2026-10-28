@@ -253,7 +253,9 @@ export function voidLoan(deps: { readonly repository: LoanRepository; readonly n
   };
 }
 
-export type CloseLoan = (input: CloseRequest & { readonly principal: RealmPrincipal; readonly loanId: string; readonly expectedVersions?: readonly number[] }) => Promise<{
+export type CloseLoan = (
+  input: CloseRequest & { readonly principal: RealmPrincipal; readonly loanId: string; readonly expectedVersions?: readonly number[] },
+) => Promise<{
   readonly loan: Loan;
   readonly changed: boolean;
 }>;

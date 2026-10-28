@@ -22,12 +22,7 @@ export function mrePrincipalVerifier(client: MreClient): PrincipalVerifier {
       return await verifyMrePrincipal(client, authorizationHeader, mreRealmId);
     } catch (error) {
       if (error instanceof MreAuthError) {
-        const code =
-          error.code === 'UNAUTHENTICATED'
-            ? 'UNAUTHENTICATED'
-            : error.code === 'NOT_A_REALM_MEMBER'
-              ? 'FORBIDDEN'
-              : 'AUTH_UNAVAILABLE';
+        const code = error.code === 'UNAUTHENTICATED' ? 'UNAUTHENTICATED' : error.code === 'NOT_A_REALM_MEMBER' ? 'FORBIDDEN' : 'AUTH_UNAVAILABLE';
         throw new AccessError(code, error.message);
       }
       throw error;

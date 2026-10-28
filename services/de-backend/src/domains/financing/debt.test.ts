@@ -66,7 +66,12 @@ const split = (bookingDate: string, category: CountedSplit['category'], amount: 
   amount,
 });
 /** The plan's entries 1 and 2 paid as planned (§41.4: principal 295.00 and 296.47). */
-const twoPayments = [split('2027-01-31', 'LOAN_INTEREST', 500n), split('2027-01-31', 'LOAN_PRINCIPAL', 29_500n), split('2027-02-28', 'LOAN_INTEREST', 353n), split('2027-02-28', 'LOAN_PRINCIPAL', 29_647n)];
+const twoPayments = [
+  split('2027-01-31', 'LOAN_INTEREST', 500n),
+  split('2027-01-31', 'LOAN_PRINCIPAL', 29_500n),
+  split('2027-02-28', 'LOAN_INTEREST', 353n),
+  split('2027-02-28', 'LOAN_PRINCIPAL', 29_647n),
+];
 const setOf = (validFrom: string, validUntil: string | null, allocations: [string, bigint, bigint][], id = `set-${validFrom}`): LoanAllocationSetView => ({
   id: id as LoanAllocationSetId,
   loanId: loan.id,
@@ -101,11 +106,24 @@ const statementOf = (statementDate: string, balance: string, overrides: Partial<
   version: 1,
   ...overrides,
 });
-const inputs = (overrides: Partial<DebtInputs> = {}): DebtInputs => ({ loan, periods: annuity, sets: [twoThirds], splits: twoPayments, statements: [], ...overrides });
+const inputs = (overrides: Partial<DebtInputs> = {}): DebtInputs => ({
+  loan,
+  periods: annuity,
+  sets: [twoThirds],
+  splits: twoPayments,
+  statements: [],
+  ...overrides,
+});
 
 describe('debtOn (§41.6)', () => {
   it('the example: on 2027-03-15 principal paid 591.47, actual = planned = 408.53, difference 0', () => {
-    expect(debtOn(loan, annuity, twoPayments, day('2027-03-15'))).toEqual({ principalPaid: 59_147n, actual: 40_853n, planned: 40_853n, difference: 0n, planEndReason: 'PAID_OFF' });
+    expect(debtOn(loan, annuity, twoPayments, day('2027-03-15'))).toEqual({
+      principalPaid: 59_147n,
+      actual: 40_853n,
+      planned: 40_853n,
+      difference: 0n,
+      planEndReason: 'PAID_OFF',
+    });
   });
 
   it('before debtFrom everything is 0; before the first payment the starting balance; on and between payment dates', () => {
@@ -131,13 +149,22 @@ describe('debtOn (§41.6)', () => {
   });
 
   it('a later period: its principalAtStart restarts the planned balance from its validFrom, before its first payment', () => {
-    const periods = [period(), period({ id: 't2' as LoanTermsId, validFrom: day('2027-03-10'), firstPaymentDate: day('2027-04-10'), principalAtStart: eur('500.00') })];
+    const periods = [
+      period(),
+      period({ id: 't2' as LoanTermsId, validFrom: day('2027-03-10'), firstPaymentDate: day('2027-04-10'), principalAtStart: eur('500.00') }),
+    ];
     expect(debtOn(loan, periods, twoPayments, day('2027-03-09'))).toMatchObject({ planned: 40_853n });
     expect(debtOn(loan, periods, twoPayments, day('2027-03-10'))).toMatchObject({ planned: 50_000n });
   });
 
   it('NO_TERMS: planned and difference are null, the actual is still derived', () => {
-    expect(debtOn(loan, [], twoPayments, day('2027-03-15'))).toEqual({ principalPaid: 59_147n, actual: 40_853n, planned: null, difference: null, planEndReason: 'NO_TERMS' });
+    expect(debtOn(loan, [], twoPayments, day('2027-03-15'))).toEqual({
+      principalPaid: 59_147n,
+      actual: 40_853n,
+      planned: null,
+      difference: null,
+      planEndReason: 'NO_TERMS',
+    });
     expect(debtOn(loan, [], [], day('2026-12-31'))).toMatchObject({ actual: 0n, planned: null, difference: null });
   });
 
@@ -234,7 +261,10 @@ describe('per property (§41.6)', () => {
       );
       const actual = BigInt(int(20_000_000)) - (run % 5 === 0 ? 30_000_000n : 0n); // every fifth negative
       const planned = run % 7 === 0 ? null : BigInt(int(20_000_000));
-      const items = debtPerProperty({ principalPaid: 0n, actual, planned, difference: planned === null ? null : actual - planned, planEndReason: 'PAID_OFF' }, set);
+      const items = debtPerProperty(
+        { principalPaid: 0n, actual, planned, difference: planned === null ? null : actual - planned, planEndReason: 'PAID_OFF' },
+        set,
+      );
       expect(items.reduce((s, i) => s + i.actual, 0n)).toBe(actual);
       items.forEach((item, i) => {
         // |part − total × w| < 1 cent, exactly: |part × sum − total × w| < sum.
@@ -256,8 +286,14 @@ describe('per property (§41.6)', () => {
 
 describe('remainingDebt (§41.6)', () => {
   it('Loan level whatever the allocation; per property with the set covering asOf', () => {
-    expect(remainingDebt(inputs({ sets: [] }), day('2027-03-15'), false)).toMatchObject({ kind: 'LOAN_LEVEL', debt: { actual: 40_853n, debtFrom: '2027-01-01', latestStatement: null } });
-    expect(remainingDebt(inputs(), day('2027-03-15'), true)).toMatchObject({ kind: 'PER_PROPERTY', debt: { allocationSetId: twoThirds.id, items: [{ actual: 27_235n }, { actual: 13_618n }] } });
+    expect(remainingDebt(inputs({ sets: [] }), day('2027-03-15'), false)).toMatchObject({
+      kind: 'LOAN_LEVEL',
+      debt: { actual: 40_853n, debtFrom: '2027-01-01', latestStatement: null },
+    });
+    expect(remainingDebt(inputs(), day('2027-03-15'), true)).toMatchObject({
+      kind: 'PER_PROPERTY',
+      debt: { allocationSetId: twoThirds.id, items: [{ actual: 27_235n }, { actual: 13_618n }] },
+    });
   });
 
   it('per property without a set covering asOf: LOAN_NOT_ALLOCATED with asOf', () => {
@@ -356,7 +392,10 @@ describe('statements (§41.6)', () => {
 
   it('create: a VOID Loan before the debt check; a date before debtFrom', () => {
     expect(checkStatement(loanOf({ status: 'VOID' }), day('2026-01-01'))).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
-    expect(checkStatement(loanOf({ disbursementDate: day('2027-02-01') }), day('2027-01-31'))).toEqual({ kind: 'STATEMENT_BEFORE_DEBT', debtFrom: '2027-02-01' });
+    expect(checkStatement(loanOf({ disbursementDate: day('2027-02-01') }), day('2027-01-31'))).toEqual({
+      kind: 'STATEMENT_BEFORE_DEBT',
+      debtFrom: '2027-02-01',
+    });
     expect(checkStatement(loan, day('2027-01-01'))).toBeUndefined();
     expect(checkStatement(loanOf({ status: 'CLOSED' }), day('2027-01-01'))).toBeUndefined();
   });
@@ -365,7 +404,10 @@ describe('statements (§41.6)', () => {
     const at = new Date('2027-07-01T00:00:00Z');
     expect(planVoidStatement(loanOf({ status: 'VOID' }), statementOf('2027-02-28', '1.00', { status: 'VOID' }), 'x', at)).toEqual({ kind: 'UNCHANGED' });
     expect(planVoidStatement(loanOf({ status: 'VOID' }), statementOf('2027-02-28', '1.00'), 'x', at)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
-    expect(planVoidStatement(loan, statementOf('2027-02-28', '1.00'), 'Tippfehler', at)).toMatchObject({ kind: 'VOID', next: { status: 'VOID', voidedAt: at, voidReason: 'Tippfehler', version: 2 } });
+    expect(planVoidStatement(loan, statementOf('2027-02-28', '1.00'), 'Tippfehler', at)).toMatchObject({
+      kind: 'VOID',
+      next: { status: 'VOID', voidedAt: at, voidReason: 'Tippfehler', version: 2 },
+    });
   });
 });
 

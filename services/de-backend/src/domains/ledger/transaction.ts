@@ -14,15 +14,7 @@ export type TransactionId = string & { readonly __brand: 'TransactionId' };
 export const DIRECTIONS = ['INFLOW', 'OUTFLOW'] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 
-export const TRANSACTION_STATUSES = [
-  'IMPORTED',
-  'UNREVIEWED',
-  'CLASSIFIED',
-  'CONFIRMED',
-  'RECONCILED',
-  'CORRECTED',
-  'IGNORED',
-] as const;
+export const TRANSACTION_STATUSES = ['IMPORTED', 'UNREVIEWED', 'CLASSIFIED', 'CONFIRMED', 'RECONCILED', 'CORRECTED', 'IGNORED'] as const;
 export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
 
 export const PROVENANCES = ['MANUAL', 'BANK_CSV', 'BANK_API', 'MIGRATION', 'CORRECTION'] as const;

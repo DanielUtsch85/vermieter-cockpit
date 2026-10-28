@@ -76,11 +76,7 @@ export interface FinancialAccountRepository {
    * idempotency key, the key is claimed in the same transaction: a concurrent or
    * later request with the same key never creates a second account.
    */
-  create(
-    account: NewFinancialAccount,
-    actor: AuditActor,
-    idempotency?: { readonly key: string; readonly fingerprint: string },
-  ): Promise<CreateOutcome>;
+  create(account: NewFinancialAccount, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateOutcome>;
   /** Only within the given Realm: another Realm's account is not found. */
   findById(id: string, mreRealmId: string): Promise<FinancialAccount | undefined>;
   /**

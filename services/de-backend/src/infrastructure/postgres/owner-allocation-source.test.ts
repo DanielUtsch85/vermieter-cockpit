@@ -57,7 +57,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnerAllocationSource', () =
 
   async function party(name: string): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: REALM, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: REALM,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -93,7 +103,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnerAllocationSource', () =
     const owned = [];
     for (const owner of [anna ?? '', ben ?? '']) {
       const o = await ownerships.create(
-        { mreRealmId: REALM, propertyReferenceId: pr, ownerPartyId: owner, share: { numerator: 1, denominator: 2 }, validFrom: day('2026-08-01'), validUntil: null, acquisitionId: id, sourceReferences: [], notes: null },
+        {
+          mreRealmId: REALM,
+          propertyReferenceId: pr,
+          ownerPartyId: owner,
+          share: { numerator: 1, denominator: 2 },
+          validFrom: day('2026-08-01'),
+          validUntil: null,
+          acquisitionId: id,
+          sourceReferences: [],
+          notes: null,
+        },
         actor,
       );
       if (o.kind !== 'CREATED') throw new Error(o.kind);
@@ -116,8 +136,20 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnerAllocationSource', () =
     await cost(s.id, 'NOTARY', '500.01');
     const voided = await cost(s.id, 'BROKER', '9999.00');
     await costs.voidCost(s.id, voided, REALM, 'falsch', new Date(), actor);
-    const entered = { mreRealmId: REALM, acquisitionId: s.id, method: 'BMF_TOOL', reviewState: 'UNREVIEWED', effectiveDate: null, advisorPartyId: null, sourceReferences: [], notes: null } as const;
-    const first = await allocations.create({ ...entered, totalAllocableAmount: eur('100.00'), landAmount: eur('20.00'), buildingAmount: eur('80.00'), supersedes: null }, actor);
+    const entered = {
+      mreRealmId: REALM,
+      acquisitionId: s.id,
+      method: 'BMF_TOOL',
+      reviewState: 'UNREVIEWED',
+      effectiveDate: null,
+      advisorPartyId: null,
+      sourceReferences: [],
+      notes: null,
+    } as const;
+    const first = await allocations.create(
+      { ...entered, totalAllocableAmount: eur('100.00'), landAmount: eur('20.00'), buildingAmount: eur('80.00'), supersedes: null },
+      actor,
+    );
     if (first.kind !== 'CREATED') throw new Error(first.kind);
     const current = await allocations.create(
       { ...entered, totalAllocableAmount: eur('301500.02'), landAmount: eur('60300.01'), buildingAmount: eur('241200.01'), supersedes: first.allocation.id },
@@ -136,7 +168,16 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnerAllocationSource', () =
     if (result.kind !== 'ALLOCATED') throw new Error(result.kind);
     expect(result).toMatchObject({ basis: 'CONFIRMED', allocationId: current.allocation.id });
     // An odd cent goes to the smaller ownerPartyId (both remainders are 1/2).
-    expect(result.owners.map((o) => [o.ownerPartyId, o.purchasePrice.amount, o.costs.get('NOTARY')?.amount, o.landAmount?.amount, o.buildingAmount?.amount, o.totalAllocableAmount?.amount])).toEqual([
+    expect(
+      result.owners.map((o) => [
+        o.ownerPartyId,
+        o.purchasePrice.amount,
+        o.costs.get('NOTARY')?.amount,
+        o.landAmount?.amount,
+        o.buildingAmount?.amount,
+        o.totalAllocableAmount?.amount,
+      ]),
+    ).toEqual([
       [s.anna, '150000.01', '750.01', '30150.01', '120600.01', '150750.02'],
       [s.ben, '150000.00', '750.00', '30150.00', '120600.00', '150750.00'],
     ]);
@@ -151,7 +192,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresOwnerAllocationSource', () =
     };
     expect(await plan()).toMatchObject({ kind: 'ALLOCATED', basis: 'PROVISIONAL' });
     await ownerships.void(s.owned[1] ?? '', REALM, 'Tippfehler', new Date(), actor);
-    expect(await plan()).toMatchObject({ kind: 'OWNERSHIP_BASIS_INCOMPLETE', violations: [{ code: 'BUYER_WITHOUT_OWNERSHIP', partyId: s.ben }, { code: 'SHARE_SUM_MISMATCH' }] });
+    expect(await plan()).toMatchObject({
+      kind: 'OWNERSHIP_BASIS_INCOMPLETE',
+      violations: [{ code: 'BUYER_WITHOUT_OWNERSHIP', partyId: s.ben }, { code: 'SHARE_SUM_MISMATCH' }],
+    });
     await ownerships.void(s.owned[0] ?? '', REALM, 'Tippfehler', new Date(), actor);
     await acquisitions.cancel(s.id, REALM, 'geplatzt', new Date(), actor);
     expect(await plan()).toEqual({ kind: 'ACQUISITION_CANCELLED' });

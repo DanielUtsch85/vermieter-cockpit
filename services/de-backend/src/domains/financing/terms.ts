@@ -94,7 +94,10 @@ export interface ScheduleEntry {
 export const MAX_PAYMENTS = 600;
 
 /** A `VALID` period as the schedule reads it. */
-export type SchedulePeriod = Pick<LoanTerms, 'id' | 'validFrom' | 'interestRate' | 'repaymentModel' | 'scheduledPayment' | 'firstPaymentDate' | 'principalAtStart'>;
+export type SchedulePeriod = Pick<
+  LoanTerms,
+  'id' | 'validFrom' | 'interestRate' | 'repaymentModel' | 'scheduledPayment' | 'firstPaymentDate' | 'principalAtStart'
+>;
 
 /**
  * The planned payments (P3-D5), periods in `validFrom` order. A period's payments fall monthly from its
@@ -127,10 +130,16 @@ function walkSchedule(
       if ((next !== null && paymentDate >= next) || (maturityDate !== null && paymentDate > maturityDate)) break;
       const interest = monthlyInterest(balance, period.interestRate);
       const principal =
-        period.repaymentModel === 'ANNUITY' && period.scheduledPayment !== null
-          ? minBig(maxBig(toCents(period.scheduledPayment) - interest, 0n), balance)
-          : 0n;
-      entries.push({ termsId: period.id, paymentDate, balanceBefore: balance, interest, principal, payment: interest + principal, balanceAfter: balance - principal });
+        period.repaymentModel === 'ANNUITY' && period.scheduledPayment !== null ? minBig(maxBig(toCents(period.scheduledPayment) - interest, 0n), balance) : 0n;
+      entries.push({
+        termsId: period.id,
+        paymentDate,
+        balanceBefore: balance,
+        interest,
+        principal,
+        payment: interest + principal,
+        balanceAfter: balance - principal,
+      });
       balance -= principal;
       // An interest-only period never repays: one payment per month until the next period or maturity.
     }
@@ -253,8 +262,13 @@ const maxBig = (x: bigint, y: bigint) => (x > y ? x : y);
  * The derived `validUntil` of each period (or allocation set, §41.3), over the `VALID` ones only; `VOID` ones get the
  * end they would have.
  */
-export function withValidUntil<T extends { readonly status: TermsStatus; readonly validFrom: BusinessDate }>(items: readonly T[]): (T & { readonly validUntil: BusinessDate | null })[] {
-  const valid = items.filter((t) => t.status === 'VALID').map((t) => t.validFrom).sort();
+export function withValidUntil<T extends { readonly status: TermsStatus; readonly validFrom: BusinessDate }>(
+  items: readonly T[],
+): (T & { readonly validUntil: BusinessDate | null })[] {
+  const valid = items
+    .filter((t) => t.status === 'VALID')
+    .map((t) => t.validFrom)
+    .sort();
   return items.map((t) => {
     const next = valid.find((from) => from > t.validFrom);
     return { ...t, validUntil: next === undefined ? null : addDays(next, -1) };
@@ -299,10 +313,12 @@ export function checkAppend(loan: Loan, valid: readonly LoanTerms[], terms: Loan
   }
   if (terms.principalAtStart !== null) {
     if (last === undefined) return { kind: 'PRINCIPAL_AT_START_ON_FIRST_TERMS' };
-    if (toCents(terms.principalAtStart) > toCents(loan.principalOriginal)) return { kind: 'PRINCIPAL_AT_START_EXCEEDS_ORIGINAL', principalOriginal: loan.principalOriginal };
+    if (toCents(terms.principalAtStart) > toCents(loan.principalOriginal))
+      return { kind: 'PRINCIPAL_AT_START_EXCEEDS_ORIGINAL', principalOriginal: loan.principalOriginal };
   }
   if (terms.repaymentModel === 'ANNUITY' && terms.scheduledPayment !== null) {
-    const balance = terms.principalAtStart !== null ? toCents(terms.principalAtStart) : plannedBalanceOn(loan.principalOriginal, loan.maturityDate, valid, terms.validFrom);
+    const balance =
+      terms.principalAtStart !== null ? toCents(terms.principalAtStart) : plannedBalanceOn(loan.principalOriginal, loan.maturityDate, valid, terms.validFrom);
     const firstInterest = monthlyInterest(balance, terms.interestRate);
     if (toCents(terms.scheduledPayment) <= firstInterest) return { kind: 'PAYMENT_DOES_NOT_COVER_INTEREST', firstInterest, balance };
   }
@@ -349,7 +365,15 @@ export interface LoanTermsRepository {
     idempotency?: { readonly key: string; readonly fingerprint: string },
   ): Promise<CreateTermsOutcome>;
   /** The Loan `FOR UPDATE`, then the period and the `VALID` periods, then `planVoidTerms`. */
-  void(loanId: string, termsId: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidTermsOutcome>;
+  void(
+    loanId: string,
+    termsId: string,
+    mreRealmId: string,
+    reason: string,
+    at: Date,
+    actor: AuditActor,
+    expectedVersions?: readonly number[],
+  ): Promise<VoidTermsOutcome>;
   /** The Loan's periods in `validFrom`, then `createdAt` order, with `validUntil`; undefined for an unknown or foreign Loan. */
   list(loanId: string, mreRealmId: string, status?: TermsStatus): Promise<readonly LoanTermsView[] | undefined>;
   /** The Loan and its `VALID` periods in `validFrom` order, in one snapshot (§41.4); undefined for an unknown or foreign Loan. */

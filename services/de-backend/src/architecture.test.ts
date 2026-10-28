@@ -104,9 +104,7 @@ function violation(rule: LayerRule, file: string, specifier: string): string | u
       : undefined;
   }
   const name = packageName(specifier);
-  return rule.allowedPackages === 'any' ||
-    rule.allowedPackages.includes(name) ||
-    (testFilePattern.test(file) && testPackages.includes(name))
+  return rule.allowedPackages === 'any' || rule.allowedPackages.includes(name) || (testFilePattern.test(file) && testPackages.includes(name))
     ? undefined
     : `${file} imports non-allowlisted package '${specifier}'`;
 }
@@ -177,12 +175,9 @@ describe('architecture rules (fixtures)', () => {
     expect(violation(ruleFor('domains'), domainFile, specifier)).toBeDefined();
   });
 
-  it.each(['zod', '../../shared/index.js', '../ownership/index.js', './money.js', './internal/repo.js'])(
-    'domains/ allows %s',
-    (specifier) => {
-      expect(violation(ruleFor('domains'), domainFile, specifier)).toBeUndefined();
-    },
-  );
+  it.each(['zod', '../../shared/index.js', '../ownership/index.js', './money.js', './internal/repo.js'])('domains/ allows %s', (specifier) => {
+    expect(violation(ruleFor('domains'), domainFile, specifier)).toBeUndefined();
+  });
 
   it.each(['../domains/ledger/index.js', '../api/index.js', '../integrations/mre/index.js', '../infrastructure/postgres/index.js', 'express', 'node:crypto'])(
     'shared/ rejects %s',
@@ -197,12 +192,16 @@ describe('architecture rules (fixtures)', () => {
 
   const infraFile = 'infrastructure/postgres/probe.ts';
 
-  it.each(['../../api/index.js', '../../application/index.js', '../../integrations/mre/index.js', '../../reporting/index.js', '../../shared/money.js', '../../domains/ledger/internal/repo.js'])(
-    'infrastructure/ rejects %s',
-    (specifier) => {
-      expect(violation(ruleFor('infrastructure'), infraFile, specifier)).toBeDefined();
-    },
-  );
+  it.each([
+    '../../api/index.js',
+    '../../application/index.js',
+    '../../integrations/mre/index.js',
+    '../../reporting/index.js',
+    '../../shared/money.js',
+    '../../domains/ledger/internal/repo.js',
+  ])('infrastructure/ rejects %s', (specifier) => {
+    expect(violation(ruleFor('infrastructure'), infraFile, specifier)).toBeDefined();
+  });
 
   it.each(['pg', 'kysely', 'node:fs', '../../shared/index.js', '../../domains/ledger/index.js', './money-column.js'])(
     'infrastructure/ allows %s',
@@ -211,23 +210,31 @@ describe('architecture rules (fixtures)', () => {
     },
   );
 
-  it.each(['../../api/index.js', '../../application/index.js', '../../infrastructure/postgres/index.js', '../bank-import/internal/parser.js', '../../shared/money.js'])(
-    'integrations/ rejects %s',
-    (specifier) => {
-      expect(violation(ruleFor('integrations'), 'integrations/mre/probe.ts', specifier)).toBeDefined();
-    },
-  );
+  it.each([
+    '../../api/index.js',
+    '../../application/index.js',
+    '../../infrastructure/postgres/index.js',
+    '../bank-import/internal/parser.js',
+    '../../shared/money.js',
+  ])('integrations/ rejects %s', (specifier) => {
+    expect(violation(ruleFor('integrations'), 'integrations/mre/probe.ts', specifier)).toBeDefined();
+  });
 
   it.each(['zod', 'node:crypto', '../../shared/index.js', './mre-client.js', '../bank-import/index.js'])('integrations/ allows %s', (specifier) => {
     expect(violation(ruleFor('integrations'), 'integrations/mre/probe.ts', specifier)).toBeUndefined();
   });
 
-  it.each(['../infrastructure/postgres/index.js', '../integrations/mre/index.js', '../domains/ledger/index.js', '../application/access.js', 'pg', 'axios', 'node:fs'])(
-    'api/ rejects %s',
-    (specifier) => {
-      expect(violation(ruleFor('api'), 'api/probe.ts', specifier)).toBeDefined();
-    },
-  );
+  it.each([
+    '../infrastructure/postgres/index.js',
+    '../integrations/mre/index.js',
+    '../domains/ledger/index.js',
+    '../application/access.js',
+    'pg',
+    'axios',
+    'node:fs',
+  ])('api/ rejects %s', (specifier) => {
+    expect(violation(ruleFor('api'), 'api/probe.ts', specifier)).toBeDefined();
+  });
 
   it.each(['express', '../application/index.js', '../shared/index.js', './app.js'])('api/ allows %s', (specifier) => {
     expect(violation(ruleFor('api'), 'api/probe.ts', specifier)).toBeUndefined();
@@ -259,10 +266,6 @@ describe('architecture rules (fixtures)', () => {
   });
 
   it('scans .ts, .mts and .cts files but not declaration files', () => {
-    expect(['a.ts', 'b.mts', 'c.cts', 'd.d.ts', 'e.js'].filter(isSourceFile)).toEqual([
-      'a.ts',
-      'b.mts',
-      'c.cts',
-    ]);
+    expect(['a.ts', 'b.mts', 'c.cts', 'd.d.ts', 'e.js'].filter(isSourceFile)).toEqual(['a.ts', 'b.mts', 'c.cts']);
   });
 });

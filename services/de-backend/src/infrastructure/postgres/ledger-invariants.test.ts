@@ -82,8 +82,7 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
     );
     return linked.reference.id;
   }
-  const category = async (code: string) =>
-    (await pool.query(`SELECT id FROM financial_category WHERE code = $1`, [code])).rows[0].id as string;
+  const category = async (code: string) => (await pool.query(`SELECT id FROM financial_category WHERE code = $1`, [code])).rows[0].id as string;
   const addSplit = async (transactionId: string, position: number, amount: string) =>
     pool.query(
       `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, created_by)
@@ -113,18 +112,12 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       await addSplit(id, 1, '600.00');
       await addSplit(id, 2, '600');
       await confirmBySql(id);
-      await expect(
-        pool.query(`UPDATE transaction_split SET amount = 599.99 WHERE transaction_id = $1 AND position = 2`, [id]),
-      ).rejects.toThrow(/ADR-037/);
+      await expect(pool.query(`UPDATE transaction_split SET amount = 599.99 WHERE transaction_id = $1 AND position = 2`, [id])).rejects.toThrow(/ADR-037/);
     });
 
     const lockWait = (fragment: string) => async () =>
-      (
-        await pool.query(
-          `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`,
-          [`%${fragment}%`],
-        )
-      ).rowCount !== 0;
+      (await pool.query(`SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [`%${fragment}%`]))
+        .rowCount !== 0;
 
     it('two writers: a confirmation waits for an uncommitted split and is refused (no 150 on 100)', async () => {
       const id = await transaction(REALM, '100.00');
@@ -159,10 +152,7 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       const confirmer = await pool.connect();
       try {
         await confirmer.query('BEGIN');
-        await confirmer.query(
-          `UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`,
-          [id],
-        );
+        await confirmer.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [id]);
         // Expectation attached at once, as above.
         const adding = expect(addSplit(id, 2, '50.00')).rejects.toThrow(/frozen|could not serialize/);
         await waitUntil(lockWait('INSERT INTO transaction_split'));
@@ -219,9 +209,9 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
       const foreign = await property(OTHER_REALM, '6512f0c2a1b2c3d4e5f60802');
       const id = await transaction();
       await addSplit(id, 1, '1200.00');
-      await expect(
-        pool.query(`UPDATE transaction_split SET property_reference_id = $2 WHERE transaction_id = $1`, [id, foreign]),
-      ).rejects.toThrow(/transaction_split_property_reference_fk/);
+      await expect(pool.query(`UPDATE transaction_split SET property_reference_id = $2 WHERE transaction_id = $1`, [id, foreign])).rejects.toThrow(
+        /transaction_split_property_reference_fk/,
+      );
     });
 
     it('import batches, imported Transactions and review items stay in their Realm', async () => {
@@ -428,15 +418,16 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
           /already CORRECTED|could not serialize/,
         );
         // The replacer's INSERT waits in its trigger's FOR SHARE on the reverser's uncommitted status change.
-        await waitUntil(async () =>
-          Number(
-            (
-              await pool.query(
-                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+        await waitUntil(
+          async () =>
+            Number(
+              (
+                await pool.query(
+                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
                  AND query LIKE 'INSERT INTO ledger_transaction%'`,
-              )
-            ).rows[0].count,
-          ) === 1,
+                )
+              ).rows[0].count,
+            ) === 1,
         );
         await reverser.query('COMMIT');
         await replacing;

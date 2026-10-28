@@ -73,11 +73,15 @@ export class PostgresLoanDebtRepository implements LoanDebtRepository {
 
   async debtInputs(loanId: string, mreRealmId: string): Promise<DebtInputs | undefined> {
     if (!UUID.test(loanId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const loan = await readLoanIn(trx, loanId, mreRealmId);
-      if (loan === undefined) return undefined;
-      return inputsIn(trx, loan);
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const loan = await readLoanIn(trx, loanId, mreRealmId);
+        if (loan === undefined) return undefined;
+        return inputsIn(trx, loan);
+      });
   }
 
   async createStatement(
@@ -89,45 +93,48 @@ export class PostgresLoanDebtRepository implements LoanDebtRepository {
   ): Promise<CreateStatementOutcome> {
     if (!UUID.test(loanId)) return { kind: 'LOAN_NOT_FOUND' };
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CreateStatementOutcome> => {
-        const ref = { mreRealmId, scope: CREATE_SCOPE, key: idempotency?.key ?? '' };
-        if (idempotency !== undefined) {
-          const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') {
-            // The comparison is derived at each read, so a replay derives it again.
-            const loan = await readLoanIn(trx, loanId, mreRealmId);
-            return { kind: 'REPLAYED', statement: compareStatement(loan as Loan, await countedSplitsOf(trx, loanId), fromSnapshot(claim.result)) };
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<CreateStatementOutcome> => {
+          const ref = { mreRealmId, scope: CREATE_SCOPE, key: idempotency?.key ?? '' };
+          if (idempotency !== undefined) {
+            const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') {
+              // The comparison is derived at each read, so a replay derives it again.
+              const loan = await readLoanIn(trx, loanId, mreRealmId);
+              return { kind: 'REPLAYED', statement: compareStatement(loan as Loan, await countedSplitsOf(trx, loanId), fromSnapshot(claim.result)) };
+            }
           }
-        }
-        // P3-D8: the Loan row first; no Transaction is locked.
-        const loan = await lockLoan(trx, loanId, mreRealmId);
-        if (loan === undefined) throw new Rejected({ kind: 'LOAN_NOT_FOUND' });
-        const refusal = checkStatement(loan, data.statementDate);
-        if (refusal !== undefined) throw new Rejected(refusal);
-        const { id } = await trx
-          .insertInto('loan_balance_statement')
-          .values({
-            mre_realm_id: mreRealmId,
-            loan_id: loanId,
-            status: 'VALID' satisfies StatementStatus,
-            statement_date: data.statementDate,
-            balance: toNumericAmount(data.balance),
-            currency: data.balance.currency,
-            source: data.source,
-            notes: data.notes,
-            created_by: actor.actorId,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        const created = await readStatement(trx, id);
-        if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
-          newVersion: 1,
-          metadata: { loanId, statementDate: created.statementDate, balance: created.balance.toJSON(), source: created.source, notes: created.notes },
+          // P3-D8: the Loan row first; no Transaction is locked.
+          const loan = await lockLoan(trx, loanId, mreRealmId);
+          if (loan === undefined) throw new Rejected({ kind: 'LOAN_NOT_FOUND' });
+          const refusal = checkStatement(loan, data.statementDate);
+          if (refusal !== undefined) throw new Rejected(refusal);
+          const { id } = await trx
+            .insertInto('loan_balance_statement')
+            .values({
+              mre_realm_id: mreRealmId,
+              loan_id: loanId,
+              status: 'VALID' satisfies StatementStatus,
+              statement_date: data.statementDate,
+              balance: toNumericAmount(data.balance),
+              currency: data.balance.currency,
+              source: data.source,
+              notes: data.notes,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          const created = await readStatement(trx, id);
+          if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
+          await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
+            newVersion: 1,
+            metadata: { loanId, statementDate: created.statementDate, balance: created.balance.toJSON(), source: created.source, notes: created.notes },
+          });
+          return { kind: 'CREATED', statement: compareStatement(loan, await countedSplitsOf(trx, loanId), created) };
         });
-        return { kind: 'CREATED', statement: compareStatement(loan, await countedSplitsOf(trx, loanId), created) };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;
       throw error;
@@ -144,30 +151,39 @@ export class PostgresLoanDebtRepository implements LoanDebtRepository {
     expectedVersions?: readonly number[],
   ): Promise<VoidStatementOutcome> {
     if (!UUID.test(loanId) || !UUID.test(statementId)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidStatementOutcome> => {
-      const loan = await lockLoan(trx, loanId, mreRealmId);
-      if (loan === undefined) return { kind: 'NOT_FOUND' };
-      const current = await trx.selectFrom('loan_balance_statement').select(COLUMNS).where('id', '=', statementId).where('loan_id', '=', loanId).executeTakeFirst();
-      if (current === undefined) return { kind: 'NOT_FOUND' };
-      const statement = toStatement(current);
-      const plan = planVoidStatement(loan, statement, reason, at);
-      if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', statement: compareStatement(loan, await countedSplitsOf(trx, loanId), statement), changed: false };
-      if (plan.kind !== 'VOID') return plan;
-      const conflict = checkVersion(statement.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx
-        .updateTable('loan_balance_statement')
-        .set({ status: 'VOID', voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at })
-        .where('id', '=', statementId)
-        .execute();
-      const voided = await readStatement(trx, statementId);
-      await writeAudit(trx, { type: ENTITY_TYPE, id: statementId }, 'VOIDED', actor, {
-        previousVersion: statement.version,
-        newVersion: voided.version,
-        metadata: { loanId, reason },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<VoidStatementOutcome> => {
+        const loan = await lockLoan(trx, loanId, mreRealmId);
+        if (loan === undefined) return { kind: 'NOT_FOUND' };
+        const current = await trx
+          .selectFrom('loan_balance_statement')
+          .select(COLUMNS)
+          .where('id', '=', statementId)
+          .where('loan_id', '=', loanId)
+          .executeTakeFirst();
+        if (current === undefined) return { kind: 'NOT_FOUND' };
+        const statement = toStatement(current);
+        const plan = planVoidStatement(loan, statement, reason, at);
+        if (plan.kind === 'UNCHANGED')
+          return { kind: 'VOIDED', statement: compareStatement(loan, await countedSplitsOf(trx, loanId), statement), changed: false };
+        if (plan.kind !== 'VOID') return plan;
+        const conflict = checkVersion(statement.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('loan_balance_statement')
+          .set({ status: 'VOID', voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at })
+          .where('id', '=', statementId)
+          .execute();
+        const voided = await readStatement(trx, statementId);
+        await writeAudit(trx, { type: ENTITY_TYPE, id: statementId }, 'VOIDED', actor, {
+          previousVersion: statement.version,
+          newVersion: voided.version,
+          metadata: { loanId, reason },
+        });
+        return { kind: 'VOIDED', statement: compareStatement(loan, await countedSplitsOf(trx, loanId), voided), changed: true };
       });
-      return { kind: 'VOIDED', statement: compareStatement(loan, await countedSplitsOf(trx, loanId), voided), changed: true };
-    });
   }
 }
 
@@ -178,9 +194,16 @@ async function inputsIn(trx: Transaction<Database>, loan: Loan): Promise<DebtInp
     periods: (await periodsOf(trx, loan.id)).filter((t) => t.status === 'VALID'),
     sets: withValidUntil(await setsOf(trx, loan.id)),
     splits: await countedSplitsOf(trx, loan.id),
-    statements: (await trx.selectFrom('loan_balance_statement').select(COLUMNS).where('loan_id', '=', loan.id).orderBy('statement_date').orderBy('created_at').orderBy('id').execute()).map(
-      toStatement,
-    ),
+    statements: (
+      await trx
+        .selectFrom('loan_balance_statement')
+        .select(COLUMNS)
+        .where('loan_id', '=', loan.id)
+        .orderBy('statement_date')
+        .orderBy('created_at')
+        .orderBy('id')
+        .execute()
+    ).map(toStatement),
   };
 }
 
@@ -217,5 +240,10 @@ function fromSnapshot(result: unknown): LoanBalanceStatement {
     voidedAt: string | null;
     createdAt: string;
   };
-  return { ...s, balance: fromNumericAmount(s.balance.amount, s.balance.currency), voidedAt: s.voidedAt === null ? null : new Date(s.voidedAt), createdAt: new Date(s.createdAt) };
+  return {
+    ...s,
+    balance: fromNumericAmount(s.balance.amount, s.balance.currency),
+    voidedAt: s.voidedAt === null ? null : new Date(s.voidedAt),
+    createdAt: new Date(s.createdAt),
+  };
 }

@@ -162,7 +162,11 @@ export type ReleasePlan =
 
 /** A live lease at `at`: a write-back or a removal may still be talking to MRE. */
 export function holdsLease(current: Pick<RentPaymentReconciliation, 'mreWriteBackState' | 'mreWriteBackLeaseUntil'>, at: Date): boolean {
-  return (current.mreWriteBackState === 'PENDING' || current.mreWriteBackState === 'REMOVING') && current.mreWriteBackLeaseUntil !== null && current.mreWriteBackLeaseUntil > at;
+  return (
+    (current.mreWriteBackState === 'PENDING' || current.mreWriteBackState === 'REMOVING') &&
+    current.mreWriteBackLeaseUntil !== null &&
+    current.mreWriteBackLeaseUntil > at
+  );
 }
 
 /**
@@ -346,7 +350,10 @@ export type RejectPlan =
 export function planReject(current: RentPaymentReconciliation, reason: string, at: Date, actor: AuditActor): RejectPlan {
   if (current.status === 'REJECTED') return { kind: 'UNCHANGED' };
   if (current.status !== 'SUGGESTED') return { kind: 'NOT_REJECTABLE', status: current.status };
-  return { kind: 'REJECT', next: { ...current, status: 'REJECTED', rejectedAt: at, rejectedBy: actor.actorId, rejectReason: reason, version: current.version + 1 } };
+  return {
+    kind: 'REJECT',
+    next: { ...current, status: 'REJECTED', rejectedAt: at, rejectedBy: actor.actorId, rejectReason: reason, version: current.version + 1 },
+  };
 }
 
 /** What a confirm needs before the MRE read: the reconciliation and the amount, or why not (§37.3 checks 2–5). */
@@ -394,7 +401,14 @@ export interface RentReconciliationRepository {
   /** §37.3 confirm checks 2–5 in one snapshot, before the MRE read. */
   confirmPrecheck(id: string, mreRealmId: string, amount: Money | undefined): Promise<ConfirmPrecheck>;
   /** The Transaction row first, then the reconciliation `FOR UPDATE`; checks 3–5 and 7 again with MRE's amount due. */
-  confirm(id: string, mreRealmId: string, amount: Money | undefined, amountDue: Money, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmOutcome>;
+  confirm(
+    id: string,
+    mreRealmId: string,
+    amount: Money | undefined,
+    amountDue: Money,
+    actor: AuditActor,
+    expectedVersions?: readonly number[],
+  ): Promise<ConfirmOutcome>;
   /** The reconciliation `FOR UPDATE` only: a rejection consumes no cash. */
   reject(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RejectOutcome>;
   /** Every reconciliation of the Realm for this Tenant and term, in `createdAt` order (§37.2's DE side). */
@@ -424,7 +438,14 @@ export interface RentReconciliationRepository {
    * §37.5 step 1, as `claimWriteBack` on a `RELEASED` row: `planRemoval` with the database's clock and `marginMs`,
    * `If-Match`; the Tenant's other expired leases failed; then `REMOVING` with a new attempt and a lease of `leaseMs`.
    */
-  claimRemoval(id: string, mreRealmId: string, leaseMs: number, marginMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RemovalClaimOutcome>;
+  claimRemoval(
+    id: string,
+    mreRealmId: string,
+    leaseMs: number,
+    marginMs: number,
+    actor: AuditActor,
+    expectedVersions?: readonly number[],
+  ): Promise<RemovalClaimOutcome>;
 
   /** §37.5 step 5: only while the row is `REMOVING` with this `attemptId`; otherwise nothing is written. */
   recordRemoval(id: string, mreRealmId: string, attemptId: string, result: RemovalResult, actor: AuditActor): Promise<RecordOutcome>;

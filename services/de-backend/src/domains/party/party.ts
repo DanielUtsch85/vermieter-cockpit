@@ -134,11 +134,7 @@ export interface PartyPage {
 /** Persistence port, implemented in infrastructure/postgres. Everything is scoped to the given Realm. */
 export interface PartyRepository {
   /** Creates the Party and its AuditRecord in one transaction, claiming the idempotency key there too. */
-  create(
-    party: NewParty,
-    actor: AuditActor,
-    idempotency?: { readonly key: string; readonly fingerprint: string },
-  ): Promise<CreatePartyOutcome>;
+  create(party: NewParty, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreatePartyOutcome>;
   findById(id: string, mreRealmId: string): Promise<Party | undefined>;
   /** Ordered by displayName (case-insensitive), then id; count and page in one snapshot. */
   list(mreRealmId: string, filter: PartyFilter, page: { readonly page: number; readonly pageSize: number }): Promise<PartyPage>;

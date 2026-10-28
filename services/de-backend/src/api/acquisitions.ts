@@ -51,7 +51,16 @@ export const optionalText = (max: number) =>
     .max(max)
     .transform((value) => (value === '' ? null : value));
 
-const partyIds = (min: number) => z.array(z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase())).min(min).max(20);
+const partyIds = (min: number) =>
+  z
+    .array(
+      z
+        .string()
+        .regex(RESOURCE_ID)
+        .transform((id) => id.toLowerCase()),
+    )
+    .min(min)
+    .max(20);
 
 const createBody = z
   .object({
@@ -77,7 +86,8 @@ const createBody = z
     }
     for (const field of ['economicTransferDate', 'landRegistryTransferDate'] as const) {
       const date = body[field];
-      if (typeof date === 'string' && typeof body.contractDate === 'string' && date < body.contractDate) ctx.addIssue({ code: 'custom', path: [field], params: { code: 'BEFORE_CONTRACT_DATE' } });
+      if (typeof date === 'string' && typeof body.contractDate === 'string' && date < body.contractDate)
+        ctx.addIssue({ code: 'custom', path: [field], params: { code: 'BEFORE_CONTRACT_DATE' } });
     }
     const buyers = Array.isArray(body.buyerPartyIds) ? body.buyerPartyIds : [];
     const sellers = Array.isArray(body.sellerPartyIds) ? body.sellerPartyIds : [];
@@ -101,8 +111,16 @@ const paging = {
 const listQuery = z
   .object({
     ...paging,
-    propertyReferenceId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()).optional(),
-    partyId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()).optional(),
+    propertyReferenceId: z
+      .string()
+      .regex(RESOURCE_ID)
+      .transform((id) => id.toLowerCase())
+      .optional(),
+    partyId: z
+      .string()
+      .regex(RESOURCE_ID)
+      .transform((id) => id.toLowerCase())
+      .optional(),
   })
   .strict();
 const propertyListQuery = z.object(paging).strict();

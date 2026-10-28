@@ -32,29 +32,25 @@ describe.skipIf(databaseUrl === undefined)('Money ↔ PostgreSQL NUMERIC', () =>
   });
 
   async function roundTrip(money: Money): Promise<{ raw: unknown; restored: Money }> {
-    const inserted = await client.query<{ id: number }>(
-      'INSERT INTO money_roundtrip (amount, currency) VALUES ($1, $2) RETURNING id',
-      [toNumericAmount(money), money.currency],
-    );
-    const row = await client.query<{ amount: unknown; currency: unknown }>(
-      'SELECT amount, currency FROM money_roundtrip WHERE id = $1',
-      [inserted.rows[0]?.id],
-    );
+    const inserted = await client.query<{ id: number }>('INSERT INTO money_roundtrip (amount, currency) VALUES ($1, $2) RETURNING id', [
+      toNumericAmount(money),
+      money.currency,
+    ]);
+    const row = await client.query<{ amount: unknown; currency: unknown }>('SELECT amount, currency FROM money_roundtrip WHERE id = $1', [
+      inserted.rows[0]?.id,
+    ]);
     const { amount, currency } = row.rows[0] ?? {};
     return { raw: amount, restored: fromNumericAmount(amount, currency) };
   }
 
-  it.each(['0.00', '0.01', '0.10', '1250.00', '-12.34', '999999999999999999.99', '-999999999999999999.99'])(
-    'round-trips %s EUR exactly',
-    async (amount) => {
-      const money = Money.of(amount, 'EUR');
-      const { raw, restored } = await roundTrip(money);
-      expect(typeof raw).toBe('string');
-      expect(raw).toBe(amount);
-      expect(restored.equals(money)).toBe(true);
-      expect(restored.amount).toBe(amount);
-    },
-  );
+  it.each(['0.00', '0.01', '0.10', '1250.00', '-12.34', '999999999999999999.99', '-999999999999999999.99'])('round-trips %s EUR exactly', async (amount) => {
+    const money = Money.of(amount, 'EUR');
+    const { raw, restored } = await roundTrip(money);
+    expect(typeof raw).toBe('string');
+    expect(raw).toBe(amount);
+    expect(restored.equals(money)).toBe(true);
+    expect(restored.amount).toBe(amount);
+  });
 
   it('keeps a sum computed in Money exact through the database', async () => {
     const sum = Money.of('0.1', 'EUR').add(Money.of('0.2', 'EUR'));
@@ -66,10 +62,7 @@ describe.skipIf(databaseUrl === undefined)('Money ↔ PostgreSQL NUMERIC', () =>
     await client.query('TRUNCATE money_roundtrip');
     const parts = ['0.10', '0.20', '0.30', '1234567890123456.78', '-0.01'].map((a) => Money.of(a, 'EUR'));
     for (const p of parts) {
-      await client.query('INSERT INTO money_roundtrip (amount, currency) VALUES ($1, $2)', [
-        toNumericAmount(p),
-        p.currency,
-      ]);
+      await client.query('INSERT INTO money_roundtrip (amount, currency) VALUES ($1, $2)', [toNumericAmount(p), p.currency]);
     }
     const result = await client.query<{ total: unknown }>('SELECT sum(amount) AS total FROM money_roundtrip');
     expect(fromNumericAmount(result.rows[0]?.total, 'EUR').equals(Money.sum(parts, 'EUR'))).toBe(true);

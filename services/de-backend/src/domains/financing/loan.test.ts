@@ -78,7 +78,10 @@ describe('planAmend', () => {
 
   it('checks the merged values: the lender amended to a current borrower, or a maturity too early', () => {
     expect(planAmend(loan, { lenderPartyId: B })).toEqual({ kind: 'INVALID', errors: [{ field: 'borrowerPartyIds.0', code: 'LENDER_IS_BORROWER' }] });
-    expect(planAmend(loan, { maturityDate: day('2026-08-31') })).toEqual({ kind: 'INVALID', errors: [{ field: 'maturityDate', code: 'NOT_AFTER_DISBURSEMENT' }] });
+    expect(planAmend(loan, { maturityDate: day('2026-08-31') })).toEqual({
+      kind: 'INVALID',
+      errors: [{ field: 'maturityDate', code: 'NOT_AFTER_DISBURSEMENT' }],
+    });
   });
 });
 
@@ -86,7 +89,10 @@ describe('planVoid', () => {
   const at = new Date('2026-10-01T00:00:00Z');
 
   it('voids an ACTIVE Loan without splits, version + 1', () => {
-    expect(planVoid(loan, 'Doppelt erfasst', at, [])).toEqual({ kind: 'VOID', next: { ...loan, status: 'VOID', voidedAt: at, voidReason: 'Doppelt erfasst', version: 2 } });
+    expect(planVoid(loan, 'Doppelt erfasst', at, [])).toEqual({
+      kind: 'VOID',
+      next: { ...loan, status: 'VOID', voidedAt: at, voidReason: 'Doppelt erfasst', version: 2 },
+    });
   });
 
   it('is a no-op on a VOID Loan and refuses a CLOSED one', () => {

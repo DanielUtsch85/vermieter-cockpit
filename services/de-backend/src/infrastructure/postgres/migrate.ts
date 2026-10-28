@@ -24,10 +24,7 @@ export interface MigrateOptions {
  */
 export const MIGRATION_ADVISORY_LOCK = 71_340_017;
 
-export async function migrateToLatest(
-  pool: pg.Pool,
-  options: MigrateOptions = {},
-): Promise<readonly MigrationResult[]> {
+export async function migrateToLatest(pool: pg.Pool, options: MigrateOptions = {}): Promise<readonly MigrationResult[]> {
   // A connection of its own, outside the pool: the migration takes pool
   // connections while the lock is held, so a small or busy pool cannot deadlock.
   const lock = new pg.Client(pool.options);

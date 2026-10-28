@@ -1,9 +1,4 @@
-import type {
-  ExternalReferencePage,
-  ExternalReferenceStatus,
-  PartyExternalReference,
-  PartyExternalReferenceRepository,
-} from '../domains/party/index.js';
+import type { ExternalReferencePage, ExternalReferenceStatus, PartyExternalReference, PartyExternalReferenceRepository } from '../domains/party/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
 import { ConcurrentUpdateError, VersionConflictError } from './errors.js';
 import { PartyNotFoundError } from './parties.js';
@@ -108,10 +103,7 @@ export type EndExternalReference = (input: {
   readonly expectedVersions?: readonly number[];
 }) => Promise<{ readonly reference: PartyExternalReference; readonly changed: boolean }>;
 
-export function endExternalReference(deps: {
-  readonly repository: PartyExternalReferenceRepository;
-  readonly now?: () => Date;
-}): EndExternalReference {
+export function endExternalReference(deps: { readonly repository: PartyExternalReferenceRepository; readonly now?: () => Date }): EndExternalReference {
   const now = deps.now ?? (() => new Date());
   return async ({ principal, partyId, externalReferenceId, expectedVersions }) => {
     const outcome = await deps.repository.end(partyId, externalReferenceId, principal.mreRealmId, now(), actorOf(principal), expectedVersions);

@@ -92,61 +92,64 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
   ): Promise<CreateTermsOutcome> {
     if (!UUID.test(loanId)) return { kind: 'LOAN_NOT_FOUND' };
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CreateTermsOutcome> => {
-        const ref = { mreRealmId, scope: CREATE_SCOPE, key: idempotency?.key ?? '' };
-        if (idempotency !== undefined) {
-          const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', terms: fromSnapshot(claim.result) };
-        }
-        // P3-D8: the Loan row first; no Transaction is locked.
-        const loan = await lockLoan(trx, loanId, mreRealmId);
-        if (loan === undefined) throw new Rejected({ kind: 'LOAN_NOT_FOUND' });
-        const valid = (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID');
-        const refusal = checkAppend(loan, valid, terms);
-        if (refusal !== undefined) throw new Rejected(refusal);
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<CreateTermsOutcome> => {
+          const ref = { mreRealmId, scope: CREATE_SCOPE, key: idempotency?.key ?? '' };
+          if (idempotency !== undefined) {
+            const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', terms: fromSnapshot(claim.result) };
+          }
+          // P3-D8: the Loan row first; no Transaction is locked.
+          const loan = await lockLoan(trx, loanId, mreRealmId);
+          if (loan === undefined) throw new Rejected({ kind: 'LOAN_NOT_FOUND' });
+          const valid = (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID');
+          const refusal = checkAppend(loan, valid, terms);
+          if (refusal !== undefined) throw new Rejected(refusal);
 
-        const { id } = await trx
-          .insertInto('loan_terms')
-          .values({
-            mre_realm_id: mreRealmId,
-            loan_id: loanId,
-            status: 'VALID' satisfies TermsStatus,
-            valid_from: terms.validFrom,
-            interest_rate: formatRate(terms.interestRate),
-            repayment_model: terms.repaymentModel,
-            scheduled_payment: terms.scheduledPayment === null ? null : toNumericAmount(terms.scheduledPayment),
-            first_payment_date: terms.firstPaymentDate,
-            principal_at_start: terms.principalAtStart === null ? null : toNumericAmount(terms.principalAtStart),
-            fixed_rate_until: terms.fixedRateUntil,
-            initial_repayment_rate: terms.initialRepaymentRate === null ? null : formatRate(terms.initialRepaymentRate),
-            special_repayment_limit: terms.specialRepaymentLimit === null ? null : toNumericAmount(terms.specialRepaymentLimit),
-            currency: loan.principalOriginal.currency,
-            notes: terms.notes,
-            created_by: actor.actorId,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        const created = await viewOf(trx, loanId, id);
-        if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
-          newVersion: 1,
-          metadata: {
-            loanId,
-            validFrom: created.validFrom,
-            interestRate: formatRate(created.interestRate),
-            repaymentModel: created.repaymentModel,
-            scheduledPayment: created.scheduledPayment?.toJSON() ?? null,
-            firstPaymentDate: created.firstPaymentDate,
-            principalAtStart: created.principalAtStart?.toJSON() ?? null,
-            fixedRateUntil: created.fixedRateUntil,
-            initialRepaymentRate: created.initialRepaymentRate === null ? null : formatRate(created.initialRepaymentRate),
-            specialRepaymentLimit: created.specialRepaymentLimit?.toJSON() ?? null,
-            notes: created.notes,
-          },
+          const { id } = await trx
+            .insertInto('loan_terms')
+            .values({
+              mre_realm_id: mreRealmId,
+              loan_id: loanId,
+              status: 'VALID' satisfies TermsStatus,
+              valid_from: terms.validFrom,
+              interest_rate: formatRate(terms.interestRate),
+              repayment_model: terms.repaymentModel,
+              scheduled_payment: terms.scheduledPayment === null ? null : toNumericAmount(terms.scheduledPayment),
+              first_payment_date: terms.firstPaymentDate,
+              principal_at_start: terms.principalAtStart === null ? null : toNumericAmount(terms.principalAtStart),
+              fixed_rate_until: terms.fixedRateUntil,
+              initial_repayment_rate: terms.initialRepaymentRate === null ? null : formatRate(terms.initialRepaymentRate),
+              special_repayment_limit: terms.specialRepaymentLimit === null ? null : toNumericAmount(terms.specialRepaymentLimit),
+              currency: loan.principalOriginal.currency,
+              notes: terms.notes,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          const created = await viewOf(trx, loanId, id);
+          if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
+          await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
+            newVersion: 1,
+            metadata: {
+              loanId,
+              validFrom: created.validFrom,
+              interestRate: formatRate(created.interestRate),
+              repaymentModel: created.repaymentModel,
+              scheduledPayment: created.scheduledPayment?.toJSON() ?? null,
+              firstPaymentDate: created.firstPaymentDate,
+              principalAtStart: created.principalAtStart?.toJSON() ?? null,
+              fixedRateUntil: created.fixedRateUntil,
+              initialRepaymentRate: created.initialRepaymentRate === null ? null : formatRate(created.initialRepaymentRate),
+              specialRepaymentLimit: created.specialRepaymentLimit?.toJSON() ?? null,
+              notes: created.notes,
+            },
+          });
+          return { kind: 'CREATED', terms: created };
         });
-        return { kind: 'CREATED', terms: created };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;
       throw error;
@@ -163,88 +166,125 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
     expectedVersions?: readonly number[],
   ): Promise<VoidTermsOutcome> {
     if (!UUID.test(loanId) || !UUID.test(termsId)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidTermsOutcome> => {
-      const loan = await lockLoan(trx, loanId, mreRealmId);
-      if (loan === undefined) return { kind: 'NOT_FOUND' };
-      const periods = await periodsOf(trx, loanId);
-      const current = periods.find((t) => t.id === termsId);
-      if (current === undefined) return { kind: 'NOT_FOUND' };
-      const plan = planVoidTerms(loan, current, periods.filter((t) => t.status === 'VALID'), reason, at);
-      if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', terms: withValidUntil(periods).find((t) => t.id === termsId) as LoanTermsView, changed: false };
-      if (plan.kind !== 'VOID') return plan;
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx.updateTable('loan_terms').set({ status: 'VOID', voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at }).where('id', '=', termsId).execute();
-      const voided = await viewOf(trx, loanId, termsId);
-      await writeAudit(trx, { type: ENTITY_TYPE, id: termsId }, 'VOIDED', actor, {
-        previousVersion: current.version,
-        newVersion: voided.version,
-        metadata: { loanId, reason },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<VoidTermsOutcome> => {
+        const loan = await lockLoan(trx, loanId, mreRealmId);
+        if (loan === undefined) return { kind: 'NOT_FOUND' };
+        const periods = await periodsOf(trx, loanId);
+        const current = periods.find((t) => t.id === termsId);
+        if (current === undefined) return { kind: 'NOT_FOUND' };
+        const plan = planVoidTerms(
+          loan,
+          current,
+          periods.filter((t) => t.status === 'VALID'),
+          reason,
+          at,
+        );
+        if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', terms: withValidUntil(periods).find((t) => t.id === termsId) as LoanTermsView, changed: false };
+        if (plan.kind !== 'VOID') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('loan_terms')
+          .set({ status: 'VOID', voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at })
+          .where('id', '=', termsId)
+          .execute();
+        const voided = await viewOf(trx, loanId, termsId);
+        await writeAudit(trx, { type: ENTITY_TYPE, id: termsId }, 'VOIDED', actor, {
+          previousVersion: current.version,
+          newVersion: voided.version,
+          metadata: { loanId, reason },
+        });
+        return { kind: 'VOIDED', terms: voided, changed: true };
       });
-      return { kind: 'VOIDED', terms: voided, changed: true };
-    });
   }
 
   async list(loanId: string, mreRealmId: string, status?: TermsStatus): Promise<readonly LoanTermsView[] | undefined> {
     if (!UUID.test(loanId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const loan = await trx.selectFrom('loan').select('id').where('id', '=', loanId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-      if (loan === undefined) return undefined;
-      const views = withValidUntil(await periodsOf(trx, loanId));
-      return status === undefined ? views : views.filter((t) => t.status === status);
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const loan = await trx.selectFrom('loan').select('id').where('id', '=', loanId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+        if (loan === undefined) return undefined;
+        const views = withValidUntil(await periodsOf(trx, loanId));
+        return status === undefined ? views : views.filter((t) => t.status === status);
+      });
   }
 
   async proposalInputs(loanId: string, transactionId: string, mreRealmId: string): ReturnType<LoanTermsRepository['proposalInputs']> {
     if (!UUID.test(loanId)) return { kind: 'LOAN_NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const loan = await readLoanIn(trx, loanId, mreRealmId);
-      if (loan === undefined) return { kind: 'LOAN_NOT_FOUND' as const };
-      const row = UUID.test(transactionId)
-        ? await trx
-            .selectFrom('ledger_transaction')
-            .select([
-              'id',
-              sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'),
-              sql<string>`(amount * 100)::bigint::text`.as('cents'),
-              'direction',
-              'status',
-              (eb) => eb.selectFrom('transaction_split').select(eb.fn.countAll<string>().as('n')).whereRef('transaction_split.transaction_id', '=', 'ledger_transaction.id').as('split_count'),
-            ])
-            .where('id', '=', transactionId)
-            .where('mre_realm_id', '=', mreRealmId)
-            .executeTakeFirst()
-        : undefined;
-      if (row === undefined) return { kind: 'TRANSACTION_NOT_FOUND' as const };
-      return {
-        kind: 'FOUND' as const,
-        loan,
-        periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID'),
-        transaction: {
-          id: row.id,
-          bookingDate: row.booking_date as BusinessDate,
-          amount: BigInt(row.cents),
-          direction: row.direction,
-          status: row.status,
-          splitCount: Number(row.split_count ?? 0),
-        },
-      };
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const loan = await readLoanIn(trx, loanId, mreRealmId);
+        if (loan === undefined) return { kind: 'LOAN_NOT_FOUND' as const };
+        const row = UUID.test(transactionId)
+          ? await trx
+              .selectFrom('ledger_transaction')
+              .select([
+                'id',
+                sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'),
+                sql<string>`(amount * 100)::bigint::text`.as('cents'),
+                'direction',
+                'status',
+                (eb) =>
+                  eb
+                    .selectFrom('transaction_split')
+                    .select(eb.fn.countAll<string>().as('n'))
+                    .whereRef('transaction_split.transaction_id', '=', 'ledger_transaction.id')
+                    .as('split_count'),
+              ])
+              .where('id', '=', transactionId)
+              .where('mre_realm_id', '=', mreRealmId)
+              .executeTakeFirst()
+          : undefined;
+        if (row === undefined) return { kind: 'TRANSACTION_NOT_FOUND' as const };
+        return {
+          kind: 'FOUND' as const,
+          loan,
+          periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID'),
+          transaction: {
+            id: row.id,
+            bookingDate: row.booking_date as BusinessDate,
+            amount: BigInt(row.cents),
+            direction: row.direction,
+            status: row.status,
+            splitCount: Number(row.split_count ?? 0),
+          },
+        };
+      });
   }
 
   async scheduleInputs(loanId: string, mreRealmId: string): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[] } | undefined> {
     if (!UUID.test(loanId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const loan = await readLoanIn(trx, loanId, mreRealmId);
-      if (loan === undefined) return undefined;
-      return { loan, periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID') };
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const loan = await readLoanIn(trx, loanId, mreRealmId);
+        if (loan === undefined) return undefined;
+        return { loan, periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID') };
+      });
   }
 }
 
 /** The Loan's periods in `validFrom`, then `createdAt` order. */
 export async function periodsOf(trx: Transaction<Database>, loanId: string): Promise<LoanTerms[]> {
-  const rows = await trx.selectFrom('loan_terms').select(COLUMNS).where('loan_id', '=', loanId).orderBy('valid_from').orderBy('created_at').orderBy('id').execute();
+  const rows = await trx
+    .selectFrom('loan_terms')
+    .select(COLUMNS)
+    .where('loan_id', '=', loanId)
+    .orderBy('valid_from')
+    .orderBy('created_at')
+    .orderBy('id')
+    .execute();
   return rows.map(toTerms);
 }
 
@@ -296,7 +336,10 @@ function toSnapshot(t: LoanTermsView): unknown {
 /** Written by toSnapshot in the same codebase, so its shape is trusted. */
 function fromSnapshot(result: unknown): LoanTermsView {
   type MoneyJson = { amount: string; currency: string } | null;
-  const s = result as Omit<LoanTermsView, 'interestRate' | 'initialRepaymentRate' | 'scheduledPayment' | 'principalAtStart' | 'specialRepaymentLimit' | 'voidedAt' | 'createdAt'> & {
+  const s = result as Omit<
+    LoanTermsView,
+    'interestRate' | 'initialRepaymentRate' | 'scheduledPayment' | 'principalAtStart' | 'specialRepaymentLimit' | 'voidedAt' | 'createdAt'
+  > & {
     interestRate: string;
     initialRepaymentRate: string | null;
     scheduledPayment: MoneyJson;

@@ -1,0 +1,3 @@
+# Pure formatting commits, skipped by `git blame --ignore-revs-file .git-blame-ignore-revs` (and by GitHub).
+# Prettier format run (#92)
+593e325bc0c04447b5d3a3fee63d5a56ab6454ad

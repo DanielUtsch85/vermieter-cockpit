@@ -142,7 +142,11 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
       [new InvalidLoanSplitError(2, 'CATEGORY'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 2, reason: 'CATEGORY' } }],
       [new InvalidLoanSplitError(1, 'DIRECTION'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 1, reason: 'DIRECTION' } }],
       [new LoanNotActiveError(LOAN, 'VOID'), 409, { code: 'CONFLICT', details: { reason: 'LOAN_NOT_ACTIVE', loanId: LOAN, status: 'VOID' } }],
-      [new LoanClosedOnError(LOAN, '2027-06-30' as never), 409, { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: LOAN, closingDate: '2027-06-30' } }],
+      [
+        new LoanClosedOnError(LOAN, '2027-06-30' as never),
+        409,
+        { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: LOAN, closingDate: '2027-06-30' } },
+      ],
       [new TransactionNotFoundError(TX), 404, { code: 'NOT_FOUND' }],
       [new PropertyReferenceNotFoundError(PROPERTY), 404, { code: 'NOT_FOUND', details: { propertyReferenceId: PROPERTY } }],
       [
@@ -151,11 +155,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
         { code: 'VALIDATION_ERROR', details: { fields: [{ field: 'splits.1.financialCategoryCode', code: 'UNKNOWN_CATEGORY' }] } },
       ],
       [new CurrencyMismatchError('x'), 400, { details: { fields: [{ field: 'splits', code: 'CURRENCY_MISMATCH' }] } }],
-      [
-        new TransactionFrozenError(TX, 'CONFIRMED'),
-        409,
-        { code: 'CONFLICT', details: { reason: 'TRANSACTION_FROZEN', status: 'CONFIRMED' } },
-      ],
+      [new TransactionFrozenError(TX, 'CONFIRMED'), 409, { code: 'CONFLICT', details: { reason: 'TRANSACTION_FROZEN', status: 'CONFIRMED' } }],
       [
         new SplitSumMismatchError(Money.of('1200.00', 'EUR'), Money.of('1199.99', 'EUR')),
         409,

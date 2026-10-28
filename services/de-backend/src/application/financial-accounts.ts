@@ -63,18 +63,13 @@ export interface CloseFinancialAccountInput {
 
 export type CloseFinancialAccount = (input: CloseFinancialAccountInput) => Promise<FinancialAccount>;
 
-export function closeFinancialAccount(deps: {
-  readonly repository: FinancialAccountRepository;
-  readonly now?: () => Date;
-}): CloseFinancialAccount {
+export function closeFinancialAccount(deps: { readonly repository: FinancialAccountRepository; readonly now?: () => Date }): CloseFinancialAccount {
   const now = deps.now ?? (() => new Date());
   return async ({ principal, financialAccountId }) => {
-    const closed = await deps.repository.close(
-      financialAccountId as FinancialAccountId,
-      principal.mreRealmId,
-      now(),
-      { actorType: 'USER', actorId: principal.email },
-    );
+    const closed = await deps.repository.close(financialAccountId as FinancialAccountId, principal.mreRealmId, now(), {
+      actorType: 'USER',
+      actorId: principal.email,
+    });
     // Unknown and other-Realm accounts look the same, so existence does not leak.
     if (closed === undefined) throw new FinancialAccountNotFoundError(financialAccountId);
     return closed;

@@ -98,7 +98,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER loan_allocation_set_append BEFORE INSERT ON loan_allocation_set FOR EACH ROW EXECUTE FUNCTION loan_allocation_set_append()`.execute(db);
+  await sql`CREATE TRIGGER loan_allocation_set_append BEFORE INSERT ON loan_allocation_set FOR EACH ROW EXECUTE FUNCTION loan_allocation_set_append()`.execute(
+    db,
+  );
 
   await sql`
     CREATE FUNCTION loan_allocation_set_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -132,7 +134,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       RETURN NEW;
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER loan_allocation_set_frozen BEFORE UPDATE OR DELETE ON loan_allocation_set FOR EACH ROW EXECUTE FUNCTION loan_allocation_set_frozen()`.execute(db);
+  await sql`CREATE TRIGGER loan_allocation_set_frozen BEFORE UPDATE OR DELETE ON loan_allocation_set FOR EACH ROW EXECUTE FUNCTION loan_allocation_set_frozen()`.execute(
+    db,
+  );
 
   await sql`
     CREATE FUNCTION loan_allocation_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -141,7 +145,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         USING ERRCODE = 'integrity_constraint_violation';
     END $$
   `.execute(db);
-  await sql`CREATE TRIGGER loan_allocation_frozen BEFORE UPDATE OR DELETE ON loan_allocation FOR EACH ROW EXECUTE FUNCTION loan_allocation_frozen()`.execute(db);
+  await sql`CREATE TRIGGER loan_allocation_frozen BEFORE UPDATE OR DELETE ON loan_allocation FOR EACH ROW EXECUTE FUNCTION loan_allocation_frozen()`.execute(
+    db,
+  );
 
   await sql`
     CREATE FUNCTION loan_allocation_complete() RETURNS trigger LANGUAGE plpgsql AS $$

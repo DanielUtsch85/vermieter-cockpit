@@ -19,7 +19,10 @@ import { businessDate, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, sendValidationError } from './validation.js';
 
-const uuid = z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase());
+const uuid = z
+  .string()
+  .regex(RESOURCE_ID)
+  .transform((id) => id.toLowerCase());
 
 const body = z
   .object({
@@ -41,7 +44,8 @@ const body = z
     if (b.documentIds !== undefined) ctx.addIssue({ code: 'custom', path: ['documentIds'], params: { code: 'NOT_SUPPORTED' } });
     // Refinements run even after a field failed to parse: only check what parsed.
     const [total, land, building] = [b.totalAllocableAmount, b.landAmount, b.buildingAmount];
-    if (total instanceof Money && !total.isPositive()) ctx.addIssue({ code: 'custom', path: ['totalAllocableAmount', 'amount'], params: { code: 'NOT_POSITIVE' } });
+    if (total instanceof Money && !total.isPositive())
+      ctx.addIssue({ code: 'custom', path: ['totalAllocableAmount', 'amount'], params: { code: 'NOT_POSITIVE' } });
     if (total instanceof Money && land instanceof Money && building instanceof Money) {
       if (land.currency !== total.currency || building.currency !== total.currency) {
         ctx.addIssue({ code: 'custom', path: ['totalAllocableAmount', 'currency'], params: { code: 'CURRENCY_MISMATCH' } });

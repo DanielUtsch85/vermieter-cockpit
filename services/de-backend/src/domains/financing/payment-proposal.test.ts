@@ -46,7 +46,9 @@ describe('proposePayment (§41.5)', () => {
       principal: 39_647n,
       flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: 10_000n }],
     });
-    expect(proposePayment(annuity, tx({ amount: 29_000n }), model('ANNUITY'))).toMatchObject({ flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: -1_000n }] });
+    expect(proposePayment(annuity, tx({ amount: 29_000n }), model('ANNUITY'))).toMatchObject({
+      flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: -1_000n }],
+    });
   });
 
   it('the nearest entry, and the earlier one on a tie', () => {

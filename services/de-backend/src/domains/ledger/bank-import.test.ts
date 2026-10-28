@@ -96,9 +96,7 @@ describe('decideRow (data-model.md §70.1/§70.4, §20A)', () => {
   });
 
   it('the same source row under another adapter version is a new review item, never automatic', () => {
-    expect(
-      decideRow(false, { otherAdapterVersion: { transactionIds: ['tx-0'], reviewItemIds: ['item-0'] }, fingerprintMatches: ['tx-5'] }),
-    ).toEqual({
+    expect(decideRow(false, { otherAdapterVersion: { transactionIds: ['tx-0'], reviewItemIds: ['item-0'] }, fingerprintMatches: ['tx-5'] })).toEqual({
       kind: 'NEW_REVIEW_ITEM',
       reason: 'ADAPTER_VERSION_CONFLICT',
       conflictingTransactionIds: ['tx-0'],
@@ -107,9 +105,7 @@ describe('decideRow (data-model.md §70.1/§70.4, §20A)', () => {
   });
 
   it('the same content in another statement is ambiguous; nothing known creates', () => {
-    expect(
-      decideRow(false, { otherAdapterVersion: { transactionIds: [], reviewItemIds: [] }, fingerprintMatches: ['tx-5', 'tx-6'] }),
-    ).toEqual({
+    expect(decideRow(false, { otherAdapterVersion: { transactionIds: [], reviewItemIds: [] }, fingerprintMatches: ['tx-5', 'tx-6'] })).toEqual({
       kind: 'NEW_REVIEW_ITEM',
       reason: 'AMBIGUOUS_CROSS_FILE_MATCH',
       conflictingTransactionIds: ['tx-5', 'tx-6'],

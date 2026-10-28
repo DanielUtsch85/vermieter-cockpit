@@ -144,17 +144,26 @@ describe('POST /api/v1/loans', () => {
       expect(res.status, JSON.stringify(payload)).toBe(400);
       return ((await errorOf(res)).details as { fields: unknown[] }).fields;
     };
-    expect(await fieldsOf({ ...body, principalOriginal: { amount: '0.00', currency: 'EUR' } })).toEqual([{ field: 'principalOriginal.amount', code: 'NOT_POSITIVE' }]);
+    expect(await fieldsOf({ ...body, principalOriginal: { amount: '0.00', currency: 'EUR' } })).toEqual([
+      { field: 'principalOriginal.amount', code: 'NOT_POSITIVE' },
+    ]);
     expect(await fieldsOf({ ...body, disbursementDate: '2026-08-14' })).toEqual([{ field: 'disbursementDate', code: 'BEFORE_START_DATE' }]);
     expect(await fieldsOf({ ...body, maturityDate: '2026-08-15' })).toEqual([{ field: 'maturityDate', code: 'NOT_AFTER_DISBURSEMENT' }]);
-    expect(await fieldsOf({ ...body, disbursementDate: '2026-09-01', maturityDate: '2026-08-31' })).toEqual([{ field: 'maturityDate', code: 'NOT_AFTER_DISBURSEMENT' }]);
+    expect(await fieldsOf({ ...body, disbursementDate: '2026-09-01', maturityDate: '2026-08-31' })).toEqual([
+      { field: 'maturityDate', code: 'NOT_AFTER_DISBURSEMENT' },
+    ]);
     expect(await fieldsOf({ ...body, borrowerPartyIds: [ANNA, BANK] })).toEqual([{ field: 'borrowerPartyIds.1', code: 'LENDER_IS_BORROWER' }]);
     expect(await fieldsOf({ ...body, borrowerPartyIds: [ANNA, ANNA] })).toEqual([{ field: 'borrowerPartyIds.1', code: 'DUPLICATE' }]);
     expect(await fieldsOf({ ...body, borrowerPartyIds: [] })).toEqual([{ field: 'borrowerPartyIds', code: 'INVALID_FORMAT' }]);
     expect(await fieldsOf({ ...body, documentIds: [ID] })).toEqual([{ field: 'documentIds', code: 'NOT_SUPPORTED' }]);
     // data-model §21's terms fields belong to the terms (P3-D2): unknown keys here.
     for (const key of ['repaymentType', 'paymentFrequency', 'currentTermsId']) await fieldsOf({ ...body, [key]: 'x' });
-    for (const bad of [{ ...body, startDate: 'x' }, { ...body, principalOriginal: 1000 }, { ...body, lenderPartyId: 'x' }]) await fieldsOf(bad);
+    for (const bad of [
+      { ...body, startDate: 'x' },
+      { ...body, principalOriginal: 1000 },
+      { ...body, lenderPartyId: 'x' },
+    ])
+      await fieldsOf(bad);
   });
 
   it.each([
@@ -187,7 +196,9 @@ describe('POST /api/v1/loans/{id}/amend', () => {
   });
 
   it('400: fixed fields NOT_AMENDABLE, an empty body REQUIRED, unknown keys, and the merged rules from the domain', async () => {
-    const base = await start({ loans: { amend: async () => Promise.reject(new LoanFieldsInvalidError([{ field: 'borrowerPartyIds.0', code: 'LENDER_IS_BORROWER' }])) } });
+    const base = await start({
+      loans: { amend: async () => Promise.reject(new LoanFieldsInvalidError([{ field: 'borrowerPartyIds.0', code: 'LENDER_IS_BORROWER' }])) },
+    });
     const fieldsOf = async (payload: unknown) => {
       const res = await call(base, 'POST', `/loans/${ID}/amend`, payload);
       expect(res.status, JSON.stringify(payload)).toBe(400);
@@ -220,7 +231,9 @@ describe('POST /api/v1/loans/{id}/amend', () => {
 
 describe('POST /api/v1/loans/{id}/void', () => {
   it('200 with the Loan; the reason is required', async () => {
-    const base = await start({ loans: { void: async ({ reason }) => ({ loan: { ...loan, status: 'VOID', voidReason: reason, version: 2 } as Loan, changed: true }) } });
+    const base = await start({
+      loans: { void: async ({ reason }) => ({ loan: { ...loan, status: 'VOID', voidReason: reason, version: 2 } as Loan, changed: true }) },
+    });
     const res = await call(base, 'POST', `/loans/${ID}/void`, { reason: ' Doppelt ' });
     expect(res.status).toBe(200);
     expect(res.headers.get('etag')).toBe('"2"');
@@ -252,7 +265,15 @@ describe('POST /api/v1/loans/{id}/close (§41.7)', () => {
         close: async (input) => {
           seen.push(input);
           return {
-            loan: { ...loan, status: 'CLOSED', closingDate: '2027-06-30', closingReason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null, version: 2 } as unknown as Loan,
+            loan: {
+              ...loan,
+              status: 'CLOSED',
+              closingDate: '2027-06-30',
+              closingReason: 'REFINANCED',
+              refinancedByLoanId: BEN,
+              closingNote: null,
+              version: 2,
+            } as unknown as Loan,
             changed: true,
           };
         },
@@ -260,8 +281,21 @@ describe('POST /api/v1/loans/{id}/close (§41.7)', () => {
     });
     const res = await call(base, 'POST', `/loans/${ID}/close`, body, { 'if-match': '"1"' });
     expect([res.status, res.headers.get('etag')]).toEqual([200, '"2"']);
-    expect(await res.json()).toMatchObject({ status: 'CLOSED', closingDate: '2027-06-30', closingReason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null });
-    expect(seen[0]).toMatchObject({ loanId: ID, closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null, expectedVersions: [1] });
+    expect(await res.json()).toMatchObject({
+      status: 'CLOSED',
+      closingDate: '2027-06-30',
+      closingReason: 'REFINANCED',
+      refinancedByLoanId: BEN,
+      closingNote: null,
+    });
+    expect(seen[0]).toMatchObject({
+      loanId: ID,
+      closingDate: '2027-06-30',
+      reason: 'REFINANCED',
+      refinancedByLoanId: BEN,
+      closingNote: null,
+      expectedVersions: [1],
+    });
     await call(base, 'POST', `/loans/${ID}/close`, { closingDate: '2027-06-30', reason: 'OTHER', closingNote: ' Vergleich ' });
     expect(seen[1]).toMatchObject({ reason: 'OTHER', refinancedByLoanId: null, closingNote: 'Vergleich' });
   });
@@ -272,9 +306,13 @@ describe('POST /api/v1/loans/{id}/close (§41.7)', () => {
     expect(await fields({ ...body, extra: 1 })).toHaveLength(1);
     expect(await fields({ closingDate: '2027-06-30', reason: 'SOLD' })).toEqual([{ field: 'reason', code: 'INVALID_FORMAT' }]);
     expect(await fields({ closingDate: '2027-06-30', reason: 'REFINANCED' })).toEqual([{ field: 'refinancedByLoanId', code: 'REQUIRED' }]);
-    expect(await fields({ closingDate: '2027-06-30', reason: 'REPAID', refinancedByLoanId: BEN })).toEqual([{ field: 'refinancedByLoanId', code: 'NOT_ALLOWED_FOR_REASON' }]);
+    expect(await fields({ closingDate: '2027-06-30', reason: 'REPAID', refinancedByLoanId: BEN })).toEqual([
+      { field: 'refinancedByLoanId', code: 'NOT_ALLOWED_FOR_REASON' },
+    ]);
     expect(await fields({ closingDate: '2027-06-30', reason: 'OTHER', closingNote: '  ' })).toEqual([{ field: 'closingNote', code: 'REQUIRED' }]);
-    expect(await fields({ closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: ID.toUpperCase() })).toEqual([{ field: 'refinancedByLoanId', code: 'SELF_REFERENCE' }]);
+    expect(await fields({ closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: ID.toUpperCase() })).toEqual([
+      { field: 'refinancedByLoanId', code: 'SELF_REFERENCE' },
+    ]);
     expect((await fields({ reason: 'REPAID' }))[0]).toMatchObject({ field: 'closingDate' });
   });
 

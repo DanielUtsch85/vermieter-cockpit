@@ -25,7 +25,9 @@ const f = (n: bigint, d: bigint) => ({ numerator: n, denominator: d });
 
 async function waitForLock(pool: pg.Pool): Promise<void> {
   const deadline = Date.now() + 5_000;
-  while (Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < 1) {
+  while (
+    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < 1
+  ) {
     if (Date.now() > deadline) throw new Error('no session waits on a lock');
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -33,7 +35,12 @@ async function waitForLock(pool: pg.Pool): Promise<void> {
 
 /** The trigger's own reason or the constraint's name, to tell guards apart that share an error code. */
 function reasonOf(error: { message?: string; constraint?: string; code?: string }): string {
-  return error.constraint ?? /\(([A-Z_]+)\)|never deleted|never edited|never updated|only step|exactly for PURCHASE_PRICE/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error';
+  return (
+    error.constraint ??
+    /\(([A-Z_]+)\)|never deleted|never edited|never updated|only step|exactly for PURCHASE_PRICE/.exec(error.message ?? '')?.[0] ??
+    error.code ??
+    'error'
+  );
 }
 
 describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', () => {
@@ -63,7 +70,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -97,7 +114,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     );
     return rows[0].id as string;
   }
-  async function acquisition(propertyReferenceId: string, price: string, status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED' = 'DRAFT', realm = REALM): Promise<string> {
+  async function acquisition(
+    propertyReferenceId: string,
+    price: string,
+    status: 'DRAFT' | 'CONFIRMED' | 'CANCELLED' = 'DRAFT',
+    realm = REALM,
+  ): Promise<string> {
     const { rows } = await pool.query(
       `INSERT INTO acquisition (mre_realm_id, property_reference_id, status, purchase_price, currency, acquired_share_numerator, acquired_share_denominator, contract_date, created_by)
        VALUES ($1, $2, 'DRAFT', $3, 'EUR', 1, 1, '2026-06-15', 'x') RETURNING id`,
@@ -107,7 +129,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     if (status === 'CONFIRMED') {
       // Confirming needs the acquired share covered by Ownerships of its buyers (§27.1).
       const owner = await party('Owner', realm);
-      await pool.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'BUYER', 1)`, [id, realm, owner]);
+      await pool.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'BUYER', 1)`, [
+        id,
+        realm,
+        owner,
+      ]);
       await pool.query(
         `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
          VALUES ($1, $2, $3, 1, 1, '2026-06-15', 'VALID', $4, 'x')`,
@@ -116,7 +142,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
       await pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = version + 1 WHERE id = $1`, [id]);
     }
     if (status === 'CANCELLED') {
-      await pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [id]);
+      await pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [
+        id,
+      ]);
     }
     return id;
   }
@@ -141,20 +169,26 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
   it('appends a manual and a purchase-price set; shares are exact and reduced; validUntil is derived; AuditRecord', async () => {
     const l = await loan();
     const [p1, p2] = [await property(), await property()];
-    const first = await appended(l.id, manual('2026-09-01', [
-      [p1, 1n, 3n],
-      [p2, 2n, 3n],
-    ]));
+    const first = await appended(
+      l.id,
+      manual('2026-09-01', [
+        [p1, 1n, 3n],
+        [p2, 2n, 3n],
+      ]),
+    );
     expect(first).toMatchObject({ status: 'VALID', version: 1, basis: 'MANUAL', validFrom: '2026-09-01', validUntil: null });
     expect(first.allocations).toEqual([
       { propertyReferenceId: p1, share: f(1n, 3n), acquisitionId: null },
       { propertyReferenceId: p2, share: f(2n, 3n), acquisitionId: null },
     ]);
     const [a1, a2] = [await acquisition(p1, '300000.00', 'CONFIRMED'), await acquisition(p2, '175000.00')];
-    const second = await appended(l.id, byPrice('2027-01-01', [
-      [p1, a1],
-      [p2, a2],
-    ]));
+    const second = await appended(
+      l.id,
+      byPrice('2027-01-01', [
+        [p1, a1],
+        [p2, a2],
+      ]),
+    );
     expect(second.allocations).toEqual([
       { propertyReferenceId: p1, share: f(12n, 19n), acquisitionId: a1 },
       { propertyReferenceId: p2, share: f(7n, 19n), acquisitionId: a2 },
@@ -184,10 +218,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
   it('stores a purchase-price denominator above 10 000 exactly', async () => {
     const l = await loan();
     const [p1, p2] = [await property(), await property()];
-    const set = await appended(l.id, byPrice('2026-09-01', [
-      [p1, await acquisition(p1, '100000.01')],
-      [p2, await acquisition(p2, '99999.99')],
-    ]));
+    const set = await appended(
+      l.id,
+      byPrice('2026-09-01', [
+        [p1, await acquisition(p1, '100000.01')],
+        [p2, await acquisition(p2, '99999.99')],
+      ]),
+    );
     expect(set.allocations.map((a) => a.share)).toEqual([f(10_000_001n, 20_000_000n), f(9_999_999n, 20_000_000n)]);
     expect((await allocations.list(l.id, REALM))?.[0]?.allocations.map((a) => a.share)).toEqual([f(10_000_001n, 20_000_000n), f(9_999_999n, 20_000_000n)]);
   });
@@ -199,27 +236,85 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     const one = manual('2026-09-01', [[p1, 1n, 1n]]);
     expect(await allocations.create(l.id, OTHER_REALM, one, actor)).toEqual({ kind: 'LOAN_NOT_FOUND' });
     expect(await allocations.create('not-a-uuid', REALM, one, actor)).toEqual({ kind: 'LOAN_NOT_FOUND' });
-    expect(await allocations.create(l.id, REALM, manual('2026-08-31', [[unknown, 1n, 1n]]), actor)).toEqual({ kind: 'ALLOCATION_BEFORE_DEBT', debtFrom: '2026-09-01' });
-    expect(await allocations.create(l.id, REALM, manual('2026-09-01', [[p1, 1n, 2n], [unknown, 1n, 2n]]), actor)).toEqual({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceId: unknown });
-    expect(await allocations.create(l.id, REALM, manual('2026-09-01', [[foreign, 1n, 1n]]), actor)).toEqual({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceId: foreign });
+    expect(await allocations.create(l.id, REALM, manual('2026-08-31', [[unknown, 1n, 1n]]), actor)).toEqual({
+      kind: 'ALLOCATION_BEFORE_DEBT',
+      debtFrom: '2026-09-01',
+    });
+    expect(
+      await allocations.create(
+        l.id,
+        REALM,
+        manual('2026-09-01', [
+          [p1, 1n, 2n],
+          [unknown, 1n, 2n],
+        ]),
+        actor,
+      ),
+    ).toEqual({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceId: unknown });
+    expect(await allocations.create(l.id, REALM, manual('2026-09-01', [[foreign, 1n, 1n]]), actor)).toEqual({
+      kind: 'PROPERTY_REFERENCE_NOT_FOUND',
+      propertyReferenceId: foreign,
+    });
     const [a1, a2] = [await acquisition(p1, '300000.00'), await acquisition(p2, '175000.00')];
     // The PropertyReferences in the order given come before any Acquisition.
-    expect(await allocations.create(l.id, REALM, byPrice('2026-09-01', [[p1, unknown], [foreign, a2]]), actor)).toEqual({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceId: foreign });
-    expect(await allocations.create(l.id, REALM, byPrice('2026-09-01', [[p1, unknown]]), actor)).toEqual({ kind: 'ACQUISITION_NOT_FOUND', acquisitionId: unknown });
+    expect(
+      await allocations.create(
+        l.id,
+        REALM,
+        byPrice('2026-09-01', [
+          [p1, unknown],
+          [foreign, a2],
+        ]),
+        actor,
+      ),
+    ).toEqual({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceId: foreign });
+    expect(await allocations.create(l.id, REALM, byPrice('2026-09-01', [[p1, unknown]]), actor)).toEqual({
+      kind: 'ACQUISITION_NOT_FOUND',
+      acquisitionId: unknown,
+    });
     // An Acquisition of another property is not found, though it exists in the Realm.
-    expect(await allocations.create(l.id, REALM, byPrice('2026-09-01', [[p1, a2], [p2, a1]]), actor)).toEqual({ kind: 'ACQUISITION_NOT_FOUND', acquisitionId: a2 });
+    expect(
+      await allocations.create(
+        l.id,
+        REALM,
+        byPrice('2026-09-01', [
+          [p1, a2],
+          [p2, a1],
+        ]),
+        actor,
+      ),
+    ).toEqual({ kind: 'ACQUISITION_NOT_FOUND', acquisitionId: a2 });
     const otherRealm = await acquisition(foreign, '1.00', 'DRAFT', OTHER_REALM);
-    expect(await allocations.create(l.id, REALM, byPrice('2026-09-01', [[p1, otherRealm]]), actor)).toEqual({ kind: 'ACQUISITION_NOT_FOUND', acquisitionId: otherRealm });
+    expect(await allocations.create(l.id, REALM, byPrice('2026-09-01', [[p1, otherRealm]]), actor)).toEqual({
+      kind: 'ACQUISITION_NOT_FOUND',
+      acquisitionId: otherRealm,
+    });
     const cancelled = await acquisition(p2, '1.00', 'CANCELLED');
-    expect(await allocations.create(l.id, REALM, byPrice('2026-09-01', [[p1, a1], [p2, cancelled]]), actor)).toEqual({ kind: 'ACQUISITION_CANCELLED', acquisitionId: cancelled });
+    expect(
+      await allocations.create(
+        l.id,
+        REALM,
+        byPrice('2026-09-01', [
+          [p1, a1],
+          [p2, cancelled],
+        ]),
+        actor,
+      ),
+    ).toEqual({ kind: 'ACQUISITION_CANCELLED', acquisitionId: cancelled });
     await appended(l.id, one);
     // Not appended comes before the PropertyReferences.
-    expect(await allocations.create(l.id, REALM, manual('2026-09-01', [[unknown, 1n, 1n]]), actor)).toEqual({ kind: 'ALLOCATION_NOT_APPENDED', lastValidFrom: '2026-09-01' });
+    expect(await allocations.create(l.id, REALM, manual('2026-09-01', [[unknown, 1n, 1n]]), actor)).toEqual({
+      kind: 'ALLOCATION_NOT_APPENDED',
+      lastValidFrom: '2026-09-01',
+    });
     await loans.void(l.id, REALM, 'x', new Date(), actor);
     expect(await allocations.create(l.id, REALM, manual('2027-01-01', [[unknown, 1n, 1n]]), actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
     // Nothing was written by the refusals: one set with one entry.
     expect((await allocations.list(l.id, REALM))?.map((s) => s.allocations.length)).toEqual([1]);
-    expect((await pool.query(`SELECT count(*)::int AS n FROM loan_allocation a JOIN loan_allocation_set s ON s.id = a.set_id WHERE s.loan_id = $1`, [l.id])).rows[0].n).toBe(1);
+    expect(
+      (await pool.query(`SELECT count(*)::int AS n FROM loan_allocation a JOIN loan_allocation_set s ON s.id = a.set_id WHERE s.loan_id = $1`, [l.id])).rows[0]
+        .n,
+    ).toBe(1);
   });
 
   it('idempotency: the same key and payload replays, another payload conflicts', async () => {
@@ -231,7 +326,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     if (first.kind !== 'CREATED') throw new Error(first.kind);
     expect(await allocations.create(l.id, REALM, request, actor, key)).toEqual({ kind: 'REPLAYED', set: first.set });
     const other = manual('2026-09-01', [[p, 1n, 1n]], 'x');
-    expect(await allocations.create(l.id, REALM, other, actor, { key: key.key, fingerprint: allocationFingerprint(l.id, other) })).toEqual({ kind: 'IDEMPOTENCY_CONFLICT' });
+    expect(await allocations.create(l.id, REALM, other, actor, { key: key.key, fingerprint: allocationFingerprint(l.id, other) })).toEqual({
+      kind: 'IDEMPOTENCY_CONFLICT',
+    });
   });
 
   it('void: only the last VALID set; a repeat is a no-op; another Loan’s set is not found; then a new one can take its place', async () => {
@@ -241,9 +338,21 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     const second = await appended(l.id, manual('2027-01-01', [[p, 1n, 1n]]));
     const at = new Date('2027-02-01T08:00:00Z');
     expect(await allocations.void(l.id, first.id, REALM, 'x', at, actor)).toEqual({ kind: 'ALLOCATION_NOT_LAST', laterAllocationSetId: second.id });
-    expect(await allocations.void(l.id, second.id, REALM, 'falsch', at, actor, [2])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 1 });
-    expect(await allocations.void(l.id, second.id, REALM, 'falsch', at, actor, [1])).toMatchObject({ kind: 'VOIDED', changed: true, set: { status: 'VOID', voidReason: 'falsch', version: 2 } });
-    expect(await allocations.void(l.id, second.id, REALM, 'anders', new Date(), actor)).toMatchObject({ kind: 'VOIDED', changed: false, set: { voidReason: 'falsch' } });
+    expect(await allocations.void(l.id, second.id, REALM, 'falsch', at, actor, [2])).toEqual({
+      kind: 'VERSION_CONFLICT',
+      expectedVersions: [2],
+      currentVersion: 1,
+    });
+    expect(await allocations.void(l.id, second.id, REALM, 'falsch', at, actor, [1])).toMatchObject({
+      kind: 'VOIDED',
+      changed: true,
+      set: { status: 'VOID', voidReason: 'falsch', version: 2 },
+    });
+    expect(await allocations.void(l.id, second.id, REALM, 'anders', new Date(), actor)).toMatchObject({
+      kind: 'VOIDED',
+      changed: false,
+      set: { voidReason: 'falsch' },
+    });
     expect((await allocations.list(l.id, REALM))?.map((s) => s.validUntil)).toEqual([null, null]);
     expect((await appended(l.id, manual('2027-01-01', [[p, 1n, 1n]]))).validFrom).toBe('2027-01-01');
     const other = await loan();
@@ -251,9 +360,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     expect(await allocations.void(l.id, first.id, OTHER_REALM, 'x', at, actor)).toEqual({ kind: 'NOT_FOUND' });
     const closedLoan = await loan();
     const closedSet = await appended(closedLoan.id, manual('2026-09-01', [[p, 1n, 1n]]));
-    await pool.query(`UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`, [closedLoan.id]);
+    await pool.query(
+      `UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`,
+      [closedLoan.id],
+    );
     expect(await allocations.void(closedLoan.id, closedSet.id, REALM, 'x', at, actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'CLOSED' });
-    const audit = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'LoanAllocationSet' AND entity_id = $1 ORDER BY occurred_at`, [second.id]);
+    const audit = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'LoanAllocationSet' AND entity_id = $1 ORDER BY occurred_at`, [
+      second.id,
+    ]);
     expect(audit.rows.map((r) => r.action)).toEqual(['CREATED', 'VOIDED']);
   });
 
@@ -261,7 +375,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     const l = await loan();
     const [p1, p2] = [await property(), await property()];
     const first = await appended(l.id, manual('2026-09-01', [[p1, 1n, 1n]]));
-    const second = await appended(l.id, manual('2027-01-01', [[p1, 1n, 4n], [p2, 3n, 4n]]));
+    const second = await appended(
+      l.id,
+      manual('2027-01-01', [
+        [p1, 1n, 4n],
+        [p2, 3n, 4n],
+      ]),
+    );
     const sets = (await allocations.list(l.id, REALM)) ?? [];
     expect(setOn(sets, day('2026-08-31'))).toBeNull();
     expect(setOn(sets, day('2026-12-31'))?.id).toBe(first.id);
@@ -426,11 +546,33 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
       const l = await loan();
       const [p1, p2, p3] = [await property(), await property(), await property()];
       expect(await commit(l.id, '2026-09-01', [])).toBe('(SHARE_SUM_NOT_ONE)');
-      expect(await commit(l.id, '2026-09-01', [[p1, '1', '3'], [p2, '1', '3']])).toBe('(SHARE_SUM_NOT_ONE)');
-      expect(await commit(l.id, '2026-09-01', [[p1, '1', '3'], [p2, '2', '3'], [p3, '1', '10000']])).toBe('(SHARE_SUM_NOT_ONE)');
-      expect(await commit(l.id, '2026-09-01', [[p1, '1', '3'], [p2, '1', '3'], [p3, '1', '3']])).toBe('accepted');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '1', '3'],
+          [p2, '1', '3'],
+        ]),
+      ).toBe('(SHARE_SUM_NOT_ONE)');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '1', '3'],
+          [p2, '2', '3'],
+          [p3, '1', '10000'],
+        ]),
+      ).toBe('(SHARE_SUM_NOT_ONE)');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '1', '3'],
+          [p2, '1', '3'],
+          [p3, '1', '3'],
+        ]),
+      ).toBe('accepted');
       // Outside an explicit transaction a lone set has no rows at its statement's end.
-      expect(await refused(`INSERT INTO loan_allocation_set (mre_realm_id, loan_id, status, valid_from, basis, created_by) VALUES ($1, $2, 'VALID', '2027-01-01', 'MANUAL', 'x')`, [REALM, l.id])).toBe('(SHARE_SUM_NOT_ONE)');
+      expect(
+        await refused(
+          `INSERT INTO loan_allocation_set (mre_realm_id, loan_id, status, valid_from, basis, created_by) VALUES ($1, $2, 'VALID', '2027-01-01', 'MANUAL', 'x')`,
+          [REALM, l.id],
+        ),
+      ).toBe('(SHARE_SUM_NOT_ONE)');
     });
 
     it('a committed set takes no further row; rows are never updated or deleted', async () => {
@@ -438,7 +580,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
       const [p1, p2] = [await property(), await property()];
       const set = await appended(l.id, manual('2026-09-01', [[p1, 1n, 1n]]));
       const row = (n: string, d: string) =>
-        refused(`INSERT INTO loan_allocation (set_id, mre_realm_id, position, property_reference_id, share_numerator, share_denominator) VALUES ($1, $2, 1, $3, $4, $5)`, [set.id, REALM, p2, n, d]);
+        refused(
+          `INSERT INTO loan_allocation (set_id, mre_realm_id, position, property_reference_id, share_numerator, share_denominator) VALUES ($1, $2, 1, $3, $4, $5)`,
+          [set.id, REALM, p2, n, d],
+        );
       expect(await row('1', '10000')).toBe('(SHARE_SUM_NOT_ONE)');
       expect(await refused(`UPDATE loan_allocation SET share_numerator = 1 WHERE set_id = $1`, [set.id])).toBe('never updated');
       expect(await refused(`DELETE FROM loan_allocation WHERE set_id = $1`, [set.id])).toBe('never updated');
@@ -448,13 +593,38 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
       const l = await loan();
       const [p1, p2, foreign] = [await property(), await property(), await property(OTHER_REALM)];
       expect(await commit(l.id, '2026-09-01', [[p1, '2', '2']])).toBe('loan_allocation_share');
-      expect(await commit(l.id, '2026-09-01', [[p1, '2', '1'], [p2, '-1', '1']])).toBe('loan_allocation_share');
-      expect(await commit(l.id, '2026-09-01', [[p1, '0', '1'], [p2, '1', '1']])).toBe('loan_allocation_share');
-      expect(await commit(l.id, '2026-09-01', [[p1, '0.5', '1'], [p2, '0.5', '1']])).toBe('loan_allocation_share');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '2', '1'],
+          [p2, '-1', '1'],
+        ]),
+      ).toBe('loan_allocation_share');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '0', '1'],
+          [p2, '1', '1'],
+        ]),
+      ).toBe('loan_allocation_share');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '0.5', '1'],
+          [p2, '0.5', '1'],
+        ]),
+      ).toBe('loan_allocation_share');
       expect(await commit(l.id, '2026-09-01', [[p1, '1.0', '1']])).toBe('loan_allocation_share');
-      expect(await commit(l.id, '2026-09-01', [[p1, '1', '2'], [p1, '1', '2']])).toBe('loan_allocation_property');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '1', '2'],
+          [p1, '1', '2'],
+        ]),
+      ).toBe('loan_allocation_property');
       expect(await commit(l.id, '2026-09-01', [[foreign, '1', '1']])).toBe('loan_allocation_property_reference_fk');
-      expect(await commit(l.id, '2026-09-01', [[p1, '10000001', '20000000'], [p2, '9999999', '20000000']])).toBe('accepted');
+      expect(
+        await commit(l.id, '2026-09-01', [
+          [p1, '10000001', '20000000'],
+          [p2, '9999999', '20000000'],
+        ]),
+      ).toBe('accepted');
     });
 
     it('an Acquisition only of the entry’s property; the basis and acquisition_id agree', async () => {
@@ -463,15 +633,38 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
       const [a1, a2] = [await acquisition(p1, '1.00'), await acquisition(p2, '1.00')];
       expect(await commit(l.id, '2026-09-01', [[p1, '1', '1', a2]], 'PURCHASE_PRICE')).toBe('loan_allocation_acquisition_fk');
       expect(await commit(l.id, '2026-09-01', [[p1, '1', '1', a1]], 'MANUAL')).toBe('exactly for PURCHASE_PRICE');
-      expect(await commit(l.id, '2026-09-01', [[p1, '1', '2', a1], [p2, '1', '2']], 'PURCHASE_PRICE')).toBe('exactly for PURCHASE_PRICE');
-      expect(await commit(l.id, '2026-09-01', [[p1, '1', '2', a1], [p2, '1', '2', a2]], 'PURCHASE_PRICE')).toBe('accepted');
+      expect(
+        await commit(
+          l.id,
+          '2026-09-01',
+          [
+            [p1, '1', '2', a1],
+            [p2, '1', '2'],
+          ],
+          'PURCHASE_PRICE',
+        ),
+      ).toBe('exactly for PURCHASE_PRICE');
+      expect(
+        await commit(
+          l.id,
+          '2026-09-01',
+          [
+            [p1, '1', '2', a1],
+            [p2, '1', '2', a2],
+          ],
+          'PURCHASE_PRICE',
+        ),
+      ).toBe('accepted');
     });
 
     it('inserts: only VALID v1, on an ACTIVE Loan, not before the debt, appended after the last start', async () => {
       const l = await loan();
       const p = await property();
       const raw = (columns: string, values: string) =>
-        refused(`INSERT INTO loan_allocation_set (mre_realm_id, loan_id, valid_from, basis, created_by, ${columns}) VALUES ($1, $2, '2026-09-01', 'MANUAL', 'x', ${values})`, [REALM, l.id]);
+        refused(
+          `INSERT INTO loan_allocation_set (mre_realm_id, loan_id, valid_from, basis, created_by, ${columns}) VALUES ($1, $2, '2026-09-01', 'MANUAL', 'x', ${values})`,
+          [REALM, l.id],
+        );
       expect(await raw(`status, voided_at, void_reason`, `'VOID', now(), 'x'`)).toBe('23000');
       expect(await raw(`status, version`, `'VALID', 2`)).toBe('23000');
       expect(await commit(l.id, '2026-08-31', [[p, '1', '1']])).toBe('(ALLOCATION_BEFORE_DEBT)');
@@ -492,12 +685,18 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
       const voidStep = `status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1`;
       expect(await refused(`UPDATE loan_allocation_set SET basis = 'PURCHASE_PRICE', version = version + 1 WHERE id = $1`, [second.id])).toBe('never edited');
       expect(await refused(`UPDATE loan_allocation_set SET valid_from = '2027-01-02', version = version + 1 WHERE id = $1`, [second.id])).toBe('never edited');
-      expect(await refused(`UPDATE loan_allocation_set SET status = 'VOID', voided_at = now(), void_reason = 'x' WHERE id = $1`, [second.id])).toBe('only step');
+      expect(await refused(`UPDATE loan_allocation_set SET status = 'VOID', voided_at = now(), void_reason = 'x' WHERE id = $1`, [second.id])).toBe(
+        'only step',
+      );
       expect(await refused(`UPDATE loan_allocation_set SET ${voidStep} WHERE id = $1`, [first.id])).toBe('(ALLOCATION_NOT_LAST)');
       expect(await refused(`DELETE FROM loan_allocation_set WHERE id = $1`, [first.id])).toBe('never deleted');
       expect(await refused(`UPDATE loan_allocation_set SET ${voidStep}, notes = 'x' WHERE id = $1`, [second.id])).toBe('never edited');
       expect(await refused(`UPDATE loan_allocation_set SET ${voidStep} WHERE id = $1`, [second.id])).toBe('accepted');
-      expect(await refused(`UPDATE loan_allocation_set SET status = 'VALID', voided_at = NULL, void_reason = NULL, version = version + 1 WHERE id = $1`, [second.id])).toBe('only step');
+      expect(
+        await refused(`UPDATE loan_allocation_set SET status = 'VALID', voided_at = NULL, void_reason = NULL, version = version + 1 WHERE id = $1`, [
+          second.id,
+        ]),
+      ).toBe('only step');
     });
   });
 });
