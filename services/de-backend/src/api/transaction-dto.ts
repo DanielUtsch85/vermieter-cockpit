@@ -228,6 +228,8 @@ export function toDto(transaction: Transaction) {
     correctionRole: transaction.correctionRole,
     reversalTransactionId: transaction.reversalTransactionId,
     replacementTransactionId: transaction.replacementTransactionId,
+    counterpartyNameRaw: transaction.counterpartyNameRaw,
+    counterpartyIbanRaw: transaction.counterpartyIbanRaw,
   };
 }
 

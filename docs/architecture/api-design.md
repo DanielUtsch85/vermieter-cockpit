@@ -1596,6 +1596,7 @@ Example request:
 ## 35.4 Response and errors
 
 - **Transaction fields added by correction** (in every Transaction response from VC-1-11 on): `correctionOfTransactionId` and `correctionRole` (both `null` on an ordinary Transaction), and on a `CORRECTED` original `reversalTransactionId` and `replacementTransactionId`.
+- **Counterparty** (in every Transaction response from #109 on): `counterpartyNameRaw` and `counterpartyIbanRaw`, read-only, as the bank file named them (data-model §70.2; IBAN as normalized on import). `null` when the file had no such column or value, and on manual Transactions, reversals and replacements (a correction carries no import evidence).
 - **AuditRecord:** one record `CORRECTED` on the original: actor (the MRE email), `reason`, the reversal and replacement ids, the changed fields with old and new values, `previousVersion`/`newVersion`. This is a deliberate exception to "one AuditRecord per new Transaction" (§31.1): reversal and replacement are created by this one act and get **no record of their own**. From either of them the record is found through `correctionOfTransactionId` (the original's record names both).
 - **`400`:** malformed id or body (§31.2 / §33 field codes).
 - **`404`:** unknown or foreign Transaction; a target account or PropertyReference not in the caller's Realm.

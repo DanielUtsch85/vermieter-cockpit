@@ -18,6 +18,7 @@ import { PostgresFinancialAccountRepository } from './financial-account-reposito
 import { PostgresImportRepository } from './import-repository.js';
 import { migrateToLatest } from './migrate.js';
 import { testSchemaName } from './test-schema.test-support.js';
+import { PostgresTransactionQueries } from './transaction-query-repository.js';
 
 /**
  * VC-1-05/06 persistence: the duplicate rules of data-model.md §70 and the
@@ -86,6 +87,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
   let pool: pg.Pool;
   let imports: PostgresImportRepository;
   let accounts: PostgresFinancialAccountRepository;
+  let queries: PostgresTransactionQueries;
 
   beforeAll(async () => {
     const admin = new pg.Client({ connectionString: databaseUrl });
@@ -97,6 +99,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
     const db = createDatabase(pool);
     imports = new PostgresImportRepository(db);
     accounts = new PostgresFinancialAccountRepository(db);
+    queries = new PostgresTransactionQueries(db);
   });
 
   afterAll(async () => {
@@ -171,6 +174,26 @@ describe.skipIf(databaseUrl === undefined)('PostgresImportRepository', () => {
     expect(await imports.findBatch(batch.id, REALM)).toEqual(batch);
     expect(await imports.findBatch(batch.id, OTHER_REALM)).toBeUndefined();
     expect(await imports.findBatch('not-a-uuid', REALM)).toBeUndefined();
+  });
+
+  it('the Transaction reads return the counterparty as the file named it (#109)', async () => {
+    const accountId = await openAccount();
+    const batch = await run(
+      accountId,
+      statement([{ counterpartyNameRaw: 'Erika Mieterin', counterpartyIbanRaw: 'DE02120300000000202051' }, { counterpartyNameRaw: null }]),
+    );
+    const [named, anonymous] = created(batch);
+    expect((await queries.get(named ?? '', REALM))?.transaction).toMatchObject({
+      counterpartyNameRaw: 'Erika Mieterin',
+      counterpartyIbanRaw: 'DE02120300000000202051',
+    });
+    const page = await queries.list(REALM, { financialAccountId: accountId }, { page: 1, pageSize: 50 });
+    expect(page.items.map((t) => [t.id, t.counterpartyNameRaw, t.counterpartyIbanRaw])).toEqual(
+      expect.arrayContaining([
+        [named, 'Erika Mieterin', 'DE02120300000000202051'],
+        [anonymous, null, null],
+      ]),
+    );
   });
 
   it('re-importing the identical file creates nothing and reports each row as a duplicate of its Transaction', async () => {

@@ -60,6 +60,8 @@ export const COLUMNS = [
   'correction_role',
   correctionLink('REVERSAL').as('reversal_transaction_id'),
   correctionLink('REPLACEMENT').as('replacement_transaction_id'),
+  'counterparty_name_raw',
+  'counterparty_iban_raw',
 ] as const;
 
 function correctionLink(role: CorrectionRole) {
@@ -88,6 +90,8 @@ export interface Row {
   correction_role: string | null;
   reversal_transaction_id: string | null;
   replacement_transaction_id: string | null;
+  counterparty_name_raw: string | null;
+  counterparty_iban_raw: string | null;
 }
 
 /** PostgreSQL implementation of the Transaction persistence port. */
@@ -259,6 +263,8 @@ export function toDomain(row: Row): Transaction {
     correctionRole: row.correction_role as CorrectionRole | null,
     reversalTransactionId: row.reversal_transaction_id as TransactionId | null,
     replacementTransactionId: row.replacement_transaction_id as TransactionId | null,
+    counterpartyNameRaw: row.counterparty_name_raw,
+    counterpartyIbanRaw: row.counterparty_iban_raw,
   };
 }
 
@@ -298,5 +304,8 @@ export function fromSnapshot(result: unknown): Transaction {
     correction_role: (s['correctionRole'] as string | null | undefined) ?? null,
     reversal_transaction_id: (s['reversalTransactionId'] as string | null | undefined) ?? null,
     replacement_transaction_id: (s['replacementTransactionId'] as string | null | undefined) ?? null,
+    // Snapshots from before #109 lack the counterparty fields.
+    counterparty_name_raw: (s['counterpartyNameRaw'] as string | null | undefined) ?? null,
+    counterparty_iban_raw: (s['counterpartyIbanRaw'] as string | null | undefined) ?? null,
   });
 }

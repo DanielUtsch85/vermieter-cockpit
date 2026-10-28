@@ -65,6 +65,8 @@ const transaction = {
   correctionRole: null,
   reversalTransactionId: null,
   replacementTransactionId: null,
+  counterpartyNameRaw: null,
+  counterpartyIbanRaw: null,
 } as unknown as Transaction;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
@@ -132,6 +134,8 @@ describe('POST /api/v1/transactions', () => {
       correctionRole: null,
       reversalTransactionId: null,
       replacementTransactionId: null,
+      counterpartyNameRaw: null,
+      counterpartyIbanRaw: null,
     });
     expect(seen[0]).toMatchObject({
       financialAccountId: ACCOUNT,
@@ -690,7 +694,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
   }
   const get = (base: string, path: string) => fetch(`${base}/api/v1${path}`, { headers: { authorization: 'Bearer a.b.c', organizationid: REALM } });
 
-  it('one Transaction with its splits and an ETag; 404 unknown, 400 malformed id', async () => {
+  it('one Transaction with its splits, counterparty and an ETag; 404 unknown, 400 malformed id', async () => {
     const split = {
       id: 's1',
       position: 1,
@@ -704,7 +708,10 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
       transactions: {
         get: async ({ transactionId }) => {
           if (transactionId !== transaction.id) throw new TransactionNotFoundError(transactionId);
-          return { transaction: { ...transaction, version: 3 } as Transaction, splits: [split] };
+          return {
+            transaction: { ...transaction, version: 3, counterpartyNameRaw: 'Erika Mieterin', counterpartyIbanRaw: 'DE02120300000000202051' } as Transaction,
+            splits: [split],
+          };
         },
       },
     });
@@ -714,6 +721,8 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     expect(await res.json()).toMatchObject({
       transactionId: transaction.id,
       version: 3,
+      counterpartyNameRaw: 'Erika Mieterin',
+      counterpartyIbanRaw: 'DE02120300000000202051',
       splits: [{ splitId: 's1', position: 1, amount: { amount: '1250.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' }],
     });
     expect((await get(base, '/transactions/0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b')).status).toBe(404);
