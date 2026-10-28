@@ -7,9 +7,9 @@ import {
   type CloseFinancialAccount,
   type CreateFinancialAccount,
   type FinancialAccount,
-  type RealmPrincipal,
 } from '../application/index.js';
 import { isSupportedCurrency, normalizeIban } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, sendValidationError } from './validation.js';
 
@@ -45,7 +45,7 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
 
     commands
       .create({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         accountType: parsed.data.accountType,
         displayName: parsed.data.displayName,
         currency: parsed.data.currency,
@@ -73,7 +73,7 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
       return;
     }
     commands
-      .close({ principal: res.locals['principal'] as RealmPrincipal, financialAccountId })
+      .close({ principal: principalOf(res), financialAccountId })
       .then((account) => {
         res.status(200).json(toDto(account));
       })

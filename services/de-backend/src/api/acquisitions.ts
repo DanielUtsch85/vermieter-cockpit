@@ -24,9 +24,9 @@ import {
   type GetAcquisition,
   type ListAcquisitions,
   type ListPropertyAcquisitions,
-  type RealmPrincipal,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
@@ -119,7 +119,6 @@ export interface AcquisitionCommands {
 /** Acquisition API (api-design.md §27.1, backlog VC-2-05). */
 export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
 
   router.post('/acquisitions', express.json({ limit: '32kb' }), (req, res, next) => {
     const idempotency = readIdempotencyKey(req, res);

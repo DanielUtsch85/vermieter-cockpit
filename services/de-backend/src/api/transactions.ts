@@ -47,12 +47,12 @@ import {
   type TransactionChanges,
   type ReplacementInput,
   type CreateManualTransaction,
-  type RealmPrincipal,
   type SetTransactionSplits,
   type SplitTransaction,
   type Transaction,
   type TransactionSplit,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
@@ -265,7 +265,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     }
     const q = parsed.data;
     commands
-      .list({ principal: res.locals['principal'] as RealmPrincipal, filter: listFilter(q), page: { page: q.page, pageSize: q.pageSize } })
+      .list({ principal: principalOf(res), filter: listFilter(q), page: { page: q.page, pageSize: q.pageSize } })
       .then((result) => sendPage(res, result))
       .catch(next);
   });
@@ -284,7 +284,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     const q = parsed.data;
     commands
       .listForPropertyReference({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         propertyReferenceId: propertyReferenceId.toLowerCase(),
         filter: listFilter(q),
         page: { page: q.page, pageSize: q.pageSize },
@@ -306,7 +306,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       return;
     }
     commands
-      .get({ principal: res.locals['principal'] as RealmPrincipal, transactionId: id.toLowerCase() })
+      .get({ principal: principalOf(res), transactionId: id.toLowerCase() })
       .then(({ transaction, splits }) => {
         setVersionTag(res, transaction.version);
         res.json({ ...toDto(transaction), splits: splits.map(toSplitDto) });
@@ -335,7 +335,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
 
     commands
       .createManual({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         financialAccountId: body.financialAccountId.toLowerCase(),
         amount: body.amount,
         direction: body.direction,
@@ -390,7 +390,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
 
     commands
       .setSplits({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         transactionId: id.toLowerCase(),
         splits,
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
@@ -447,7 +447,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     if (ifMatch === undefined) return;
     commands
       .confirm({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         transactionId: id.toLowerCase(),
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
@@ -523,7 +523,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
 
     commands
       .correct({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         transactionId: id.toLowerCase(),
         reason: parsed.data.reason,
         replacement,
@@ -621,7 +621,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     }
     commands
       .reverse({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         transactionId: id.toLowerCase(),
         reason: parsed.data.reason,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
@@ -691,7 +691,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     };
     commands
       .amend({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         transactionId: id.toLowerCase(),
         changes,
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
@@ -750,7 +750,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     }
     commands
       .ignore({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         transactionId: id.toLowerCase(),
         reason: parsed.data.reason,
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
@@ -786,7 +786,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     if (ifMatch === undefined) return;
     commands
       .restore({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         transactionId: id.toLowerCase(),
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })

@@ -15,12 +15,12 @@ import {
   type GetLoanPayments,
   type GetRemainingDebt,
   type ListBalanceStatements,
-  type RealmPrincipal,
   type RemainingDebt,
   type RemainingDebtPerProperty,
   type StatementView,
   type VoidBalanceStatement,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -70,7 +70,6 @@ export interface LoanDebtCommands {
 /** Remaining debt, payments and lender statements (api-design.md §41.6, backlog VC-3-06). */
 export function loanDebtRoutes(commands: LoanDebtCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
   const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
     if (!sendDebtError(res, error)) next(error);
   };

@@ -21,11 +21,11 @@ import {
   type ListAcquisitionCosts,
   type ListAcquisitionPayments,
   type PurchasePricePayments,
-  type RealmPrincipal,
   type UnlinkAcquisitionPayment,
   type VoidAcquisitionCost,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -89,7 +89,6 @@ export interface AcquisitionCostCommands {
 /** Acquisition costs and payment links (api-design.md §27.2, backlog VC-2-06). */
 export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
   const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
     if (!sendCostError(res, error)) next(error);
   };

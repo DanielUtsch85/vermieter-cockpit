@@ -14,8 +14,8 @@ import {
   type GetParty,
   type ListParties,
   type Party,
-  type RealmPrincipal,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
@@ -92,7 +92,6 @@ export interface PartyCommands {
 /** Party API (api-design.md §19.1, backlog VC-2-01). */
 export function partyRoutes(commands: PartyCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
 
   router.post('/parties', express.json({ limit: '16kb' }), (req, res, next) => {
     const idempotency = readIdempotencyKey(req, res);

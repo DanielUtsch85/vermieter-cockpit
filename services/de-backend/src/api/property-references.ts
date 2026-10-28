@@ -8,9 +8,9 @@ import {
   PropertyReferenceNotFoundError,
   type LinkPropertyReference,
   type PropertyReference,
-  type RealmPrincipal,
   type RefreshPropertyReference,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendAccessError, sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
 
@@ -38,7 +38,7 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
 
     commands
       .link({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         // Present: the access guard has already verified it.
         authorizationHeader: req.headers.authorization ?? '',
         ...parsed.data,
@@ -68,7 +68,7 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
 
     commands
       .refresh({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         authorizationHeader: req.headers.authorization ?? '',
         propertyReferenceId,
       })
