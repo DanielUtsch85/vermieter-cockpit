@@ -1699,6 +1699,8 @@ Core category codes should remain stable.
 
 # 37. Rent Reconciliation API
 
+Decisions: `docs/development/phase-4-plan.md` (P4-D1…D8). Data: data-model §18A. Items: backlog §3c. The route list below is refined by those items' spec PRs.
+
 ### Queries
 
 ```text
