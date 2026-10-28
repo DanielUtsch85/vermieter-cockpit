@@ -24,6 +24,8 @@ import {
  * - `GET /tenants` with `organizationid` returns every Tenant of that Realm; it
  *   has no filter (mre-integration.md §20.1). `GET /tenants/:id` is not used
  *   either: it also answers 500 for an unknown id.
+ * - `GET /rents/tenant/:id/:term` returns one rent term of a Tenant of that Realm;
+ *   404 for an unknown Tenant or term (api-design.md §37.1).
  *
  * Only the fields DE needs are read; the MRE DTO never leaves this file.
  */
@@ -56,6 +58,10 @@ const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough()
  * (mre-integration.md §20.1). A Tenant without `_id` rejects the whole response, as for properties.
  */
 const tenantsDto = z.array(z.object({ _id: z.string().min(1) }));
+/** A rent term of `GET /rents/tenant/:id/:term`: only its key is read. */
+const rentTermDto = z.object({ term: z.number().int() });
+/** `get`'s answer for a `404` the caller reads as "not there". */
+const ABSENT = Symbol('ABSENT');
 const addressPart = z.string().optional().catch(undefined);
 const addressDto = z.object({
   street1: addressPart,
@@ -125,11 +131,22 @@ export class HttpMreClient implements MreClient {
     return parsed.data.map((tenant) => tenant._id);
   }
 
+  async rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean> {
+    const body = await this.get(`/rents/tenant/${encodeURIComponent(mreTenantId)}/${encodeURIComponent(term)}`, accessToken, mreRealmId, 'ABSENT');
+    if (body === ABSENT) return false;
+    // Only the term key is read; the rest (amounts, the Tenant's name and contact data) is dropped here.
+    const parsed = rentTermDto.safeParse(body);
+    if (!parsed.success || String(parsed.data.term) !== term) {
+      throw new MreClientError('UNAVAILABLE', 'Unexpected MRE rent term shape');
+    }
+    return true;
+  }
+
   private async get(
     path: string,
     accessToken: string,
     mreRealmId?: string,
-    notFound: MreClientErrorCode = 'UNAVAILABLE',
+    notFound: MreClientErrorCode | 'ABSENT' = 'UNAVAILABLE',
   ): Promise<unknown> {
     const headers: Record<string, string> = { authorization: `Bearer ${accessToken}`, accept: 'application/json' };
     if (mreRealmId !== undefined) headers['organizationid'] = mreRealmId;
@@ -150,6 +167,7 @@ export class HttpMreClient implements MreClient {
     if (response.status === 404 && notFound === 'FORBIDDEN') {
       throw new MreClientError('FORBIDDEN', 'MRE does not grant access to this Realm');
     }
+    if (response.status === 404 && notFound === 'ABSENT') return ABSENT;
     if (response.status !== 200) {
       throw new MreClientError('UNAVAILABLE', `Unexpected MRE status ${response.status}`);
     }

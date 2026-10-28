@@ -37,6 +37,10 @@ import type {
   ListAcquisitionPayments,
   AmendLoan,
   CloseLoan,
+  CreateReconciliation,
+  GetReconciliation,
+  ListReconciliations,
+  ReleaseReconciliation,
   CreateLoan,
   GetLoan,
   ListLoans,
@@ -89,6 +93,7 @@ import { loanAllocationRoutes } from './loan-allocations.js';
 import { loanDebtRoutes } from './loan-debt.js';
 import { loanTermsRoutes } from './loan-terms.js';
 import { loanRoutes } from './loans.js';
+import { rentReconciliationRoutes } from './rent-reconciliations.js';
 import { ownerAllocationRoutes } from './owner-allocation.js';
 import { propertyReferenceRoutes } from './property-references.js';
 import { transactionRoutes } from './transactions.js';
@@ -151,6 +156,11 @@ export interface AppDependencies {
   readonly voidLoan: VoidLoan;
   /** Close a Loan (VC-3-07). */
   readonly closeLoan: CloseLoan;
+  /** Rent reconciliation (VC-4-01). */
+  readonly createReconciliation: CreateReconciliation;
+  readonly getReconciliation: GetReconciliation;
+  readonly listReconciliations: ListReconciliations;
+  readonly releaseReconciliation: ReleaseReconciliation;
   /** Loan terms (VC-3-02). */
   readonly createLoanTerms: CreateLoanTerms;
   readonly voidLoanTerms: VoidLoanTerms;
@@ -278,6 +288,14 @@ export function createApp(deps: AppDependencies): Express {
     }),
   );
   api.use(loanRoutes({ create: deps.createLoan, get: deps.getLoan, list: deps.listLoans, amend: deps.amendLoan, void: deps.voidLoan, close: deps.closeLoan }));
+  api.use(
+    rentReconciliationRoutes({
+      create: deps.createReconciliation,
+      get: deps.getReconciliation,
+      list: deps.listReconciliations,
+      release: deps.releaseReconciliation,
+    }),
+  );
   api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule, proposal: deps.getPaymentProposal }));
   api.use(
     loanDebtRoutes({

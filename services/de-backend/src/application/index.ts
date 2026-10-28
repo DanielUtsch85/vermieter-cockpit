@@ -95,6 +95,7 @@ export {
   CorrectionNoChangeError,
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
+  TransactionRentReconciledError,
   correctTransaction,
   reverseTransaction,
 } from './correct-transaction.js';
@@ -288,3 +289,27 @@ export type {
 } from './loan-allocations.js';
 export { ALLOCATION_BASES, ALLOCATION_STATUSES, MAX_ALLOCATIONS, sumsToOne } from '../domains/financing/index.js';
 export type { AllocationBasis, AllocationStatus, LoanAllocationSetView, PropertyLoan, RequestedAllocation } from '../domains/financing/index.js';
+export {
+  AlreadyMatchedError,
+  MreRentTermNotFoundError,
+  NoRentCashError,
+  NotReleasableError,
+  ReconciliationNotFoundError,
+  RentCashExceededError,
+  TransactionNotCountedError,
+  TransactionNotInflowError,
+  createReconciliation,
+  getReconciliation,
+  listReconciliations,
+  releaseReconciliation,
+} from './rent-reconciliations.js';
+export type {
+  CreateReconciliation,
+  CreateReconciliationInput,
+  GetReconciliation,
+  ListReconciliations,
+  MreRentTermLookup,
+  ReleaseReconciliation,
+} from './rent-reconciliations.js';
+export { RECONCILIATION_STATUSES, isTermKey } from '../domains/rent-reconciliation/index.js';
+export type { ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';

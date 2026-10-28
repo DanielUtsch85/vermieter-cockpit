@@ -1721,7 +1721,7 @@ POST /api/v1/rent-reconciliations/{id}/write-back-to-mre            (VC-4-04)
 POST /api/v1/rent-reconciliations/{id}/remove-from-mre              (VC-4-05)
 ```
 
-## 37.1 Manual match, read, list, release (VC-4-01)
+## 37.1 Manual match, read, list, release (VC-4-01, implemented: migration 0030)
 
 Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `docs/development/phase-4-plan.md`. A `RentPaymentReconciliation` links counted rent cash of one DE Transaction to one MRE rent term (ADR-004A). It never creates or changes a Transaction, and it never changes MRE: write-back is VC-4-04.
 
@@ -1767,9 +1767,9 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
   6. a `CONFIRMED` reconciliation for the same Transaction and term exists → `409 CONFLICT` with `reason = "ALREADY_MATCHED"` and `details.reconciliationId`;
   7. `matchedAmount` > available → `409 CONFLICT` with `reason = "RENT_CASH_EXCEEDED"` and `details.rentCash`, `details.available`;
   8. **the MRE term**, read live with the caller's token (`GET /rents/tenant/:id/:term`, P4-D1):
-     - the Tenant or the term unknown in the Realm (MRE `404`) → `422 MRE_RENT_TERM_NOT_FOUND` with `details.mreTenantId`, `details.mreRentTerm`;
+     - the Tenant or the term unknown in the Realm (MRE `404`) → `422 MRE_RENT_TERM_NOT_FOUND` with `details.mreTenantId`, `details.mreRentTerm`. At the baseline MRE also answers `404` when its own database read fails (`_findOccupants(...).catch(logger.error)` in `_rentOfOccupant`), so the code means "MRE did not return this term", and the message says so (review on #76);
      - MRE refuses the token → `401`, refuses the caller → `403`, as the access guard (§47.1 of mre-integration);
-     - MRE unavailable, or an unexpected answer → `503 MRE_UNAVAILABLE`. Nothing is written (BR-MRE-004: only the match waits, the ledger stays available).
+     - MRE unavailable, or an unexpected answer → `503 EXTERNAL_SYSTEM_ERROR`, as every other MRE call (§20.1, §23.1). Nothing is written (BR-MRE-004: only the match waits, the ledger stays available).
 - **Where the MRE read sits:** checks 2–7 are read first in one snapshot, so a request DE refuses anyway never calls MRE. The MRE read then runs **outside** any database transaction (P4-D8). The write transaction repeats checks 2–7 under its locks, so a change in between answers as above.
 - **Success:** `201` with the reconciliation (`status = CONFIRMED`, `confirmedAt`, `confirmedBy`, `mreWriteBackState = NOT_WRITTEN`, `version = 1`).
   - AuditRecord `CONFIRMED` with the Transaction, the Tenant, the term, `matchedAmount` and `manual = true`.
@@ -1822,6 +1822,7 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
 - **Partial unique index** `(transaction_id, mre_tenant_id, mre_rent_term) WHERE status = 'CONFIRMED'`. Under it two concurrent creates of the same match cannot both commit; the repository answers the loser `ALREADY_MATCHED` (`ON CONFLICT … DO NOTHING` and a re-read).
 - **`rent_payment_reconciliation_frozen`** (before update): the fixed fields above never change; the status steps are only `SUGGESTED` → `CONFIRMED` | `REJECTED` and `CONFIRMED` → `RELEASED`, each raising `version` by one. No `DELETE` (a trigger refuses it).
 - **`rent_payment_reconciliation_cash`** (before insert, and before update when `NEW.status = 'CONFIRMED'` and `OLD.status <> 'CONFIRMED'`):
+  - an insert is only `SUGGESTED` or `CONFIRMED` with `version = 1`, as `loan_initial` (0024). `REJECTED` and `RELEASED` are reached only by the steps, so no row is born past the cash guard or with another version (review on #77);
   - writes the Transaction row first (the no-op of P3-D8, `RETURNING status, direction, correction_role`), so every confirm serialises on the Transaction;
   - refuses a Transaction not counted (`TRANSACTION_NOT_COUNTED`), not `INFLOW` (`TRANSACTION_NOT_INFLOW`), or without rent cash (`NO_RENT_CASH`);
   - refuses when the sum of `matched_amount` over the Transaction's `CONFIRMED` reconciliations plus this one exceeds its rent cash (`RENT_CASH_EXCEEDED`). The guard re-reads both sums after the Transaction write, so under READ COMMITTED it sees every confirm that committed before it.
@@ -1846,8 +1847,8 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
 - **The correction rule:** `correct` and `reverse` refused while `CONFIRMED`, allowed after release, each through the API and past the repository; counter-check: the trigger dropped turns the past-the-repository test red.
 - **Concurrency** as above, under RC and RR, each with its counter-check.
 - **Schema past the repository**, each with a counter-check: every CHECK; the frozen fields and status steps; `DELETE`; the cash guard's four refusals; the unique index.
-- **MRE client:** `getRentTerm(token, realm, tenantId, term)` parsed to existence only; MRE `404` → not found, `401` / `403` / other as the existing client. The fake MRE gains Tenants with rent terms (the term read only; the PATCH is VC-4-04). `mre.contract.test.ts` pins the term read against the baseline: a known term, an unknown term and an unknown Tenant are `404`.
-- **API:** every `400` code above; the error mapping (`422 MRE_RENT_TERM_NOT_FOUND`, `503 MRE_UNAVAILABLE`, nothing written on either); idempotent replay without an MRE call; release no-op, `412`, `NOT_RELEASABLE`; the list filters and order.
+- **MRE client:** `rentTermExists(token, realm, tenantId, term)` parsed to existence only (the term key must come back); MRE `404` → not found, `401` / `403` / other as the existing client. The fake MRE gains Tenants with rent terms (the term read only; the PATCH is VC-4-04). `mre.contract.test.ts` pins the term read against the baseline: a known term, an unknown term and an unknown Tenant are `404`.
+- **API:** every `400` code above; the error mapping (`422 MRE_RENT_TERM_NOT_FOUND`, `503 EXTERNAL_SYSTEM_ERROR`, nothing written on either, end to end against the fake MRE); idempotent replay and a refusal without an MRE call; release no-op, `412`, `NOT_RELEASABLE`; the list filters and order; Realm isolation end to end.
 
 ---
 

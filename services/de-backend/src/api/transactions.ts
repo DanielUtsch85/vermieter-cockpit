@@ -10,6 +10,7 @@ import {
   CurrencyMismatchError,
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
+  TransactionRentReconciledError,
   FinancialCategoryNotFoundError,
   InactiveCategoryError,
   InvalidLoanSplitError,
@@ -557,6 +558,11 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             status: error.status,
             ...(error.correctionRole === undefined ? {} : { correctionRole: error.correctionRole }),
           });
+        } else if (error instanceof TransactionRentReconciledError) {
+          sendError(res, 409, 'CONFLICT', 'Confirmed rent reconciliations match this Transaction; release them first.', {
+            reason: 'TRANSACTION_RENT_RECONCILED',
+            reconciliationIds: error.reconciliationIds,
+          });
         } else if (error instanceof CorrectionNoChangeError) {
           sendError(res, 409, 'CONFLICT', 'The replacement equals the original; nothing to correct.', { reason: 'NO_CHANGE' });
         } else if (error instanceof FinancialAccountClosedError) {
@@ -643,6 +649,11 @@ export function transactionRoutes(commands: TransactionCommands): Router {
             reason: 'NOT_CORRECTABLE',
             status: error.status,
             ...(error.correctionRole === undefined ? {} : { correctionRole: error.correctionRole }),
+          });
+        } else if (error instanceof TransactionRentReconciledError) {
+          sendError(res, 409, 'CONFLICT', 'Confirmed rent reconciliations match this Transaction; release them first.', {
+            reason: 'TRANSACTION_RENT_RECONCILED',
+            reconciliationIds: error.reconciliationIds,
           });
         } else if (error instanceof IdempotencyKeyConflictError) {
           sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');

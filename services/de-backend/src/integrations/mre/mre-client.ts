@@ -71,4 +71,12 @@ export interface MreClient {
    * caller looks for the id itself (mre-integration.md §20.1); nothing else of a Tenant is read.
    */
   listTenantIds(accessToken: string, mreRealmId: string): Promise<readonly string[]>;
+
+  /**
+   * Whether the MRE Tenant `mreTenantId` of the Realm has the rent term `term` (`YYYYMMDDHH`), read through
+   * `GET /rents/tenant/:id/:term` (mre-integration.md §19). MRE answers `404` for an unknown Tenant, an unknown term
+   * and a Tenant of another Realm; at the baseline also when its own database read fails (the error is swallowed),
+   * so `false` means "MRE did not return this term" (api-design.md §37.1). Nothing of the term is kept.
+   */
+  rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean>;
 }

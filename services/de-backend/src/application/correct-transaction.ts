@@ -46,6 +46,18 @@ export class TransactionNotCorrectableError extends Error {
   }
 }
 
+/** `CONFIRMED` rent reconciliations name the Transaction (→ 409 TRANSACTION_RENT_RECONCILED; §37.1, P4-D7). */
+export class TransactionRentReconciledError extends Error {
+  override readonly name = 'TransactionRentReconciledError';
+
+  constructor(
+    readonly transactionId: string,
+    readonly reconciliationIds: readonly string[],
+  ) {
+    super(`Transaction ${transactionId} is matched by rent reconciliations ${reconciliationIds.join(', ')}`);
+  }
+}
+
 /** The replacement equals the original in every field and split (→ 409). */
 export class CorrectionNoChangeError extends Error {
   override readonly name = 'CorrectionNoChangeError';
@@ -106,6 +118,8 @@ async function run(
       throw new TransactionAlreadyCorrectedError(transactionId, outcome.reversalTransactionId, outcome.replacementTransactionId);
     case 'NOT_CORRECTABLE':
       throw new TransactionNotCorrectableError(transactionId, outcome.status, outcome.correctionRole);
+    case 'TRANSACTION_RENT_RECONCILED':
+      throw new TransactionRentReconciledError(transactionId, outcome.reconciliationIds);
     case 'NO_CHANGE':
       throw new CorrectionNoChangeError('The replacement equals the original');
     case 'ACCOUNT_NOT_FOUND':

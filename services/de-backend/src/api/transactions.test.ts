@@ -24,6 +24,7 @@ import {
   FinancialCategoryNotFoundError,
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
+  TransactionRentReconciledError,
   type ConfirmTransaction,
   type CorrectTransaction,
   type ReverseTransaction,
@@ -419,6 +420,11 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
         new TransactionNotCorrectableError(transaction.id, 'CONFIRMED', 'REVERSAL'),
         409,
         { code: 'CONFLICT', details: { reason: 'NOT_CORRECTABLE', status: 'CONFIRMED', correctionRole: 'REVERSAL' } },
+      ],
+      [
+        new TransactionRentReconciledError(transaction.id, ['r1', 'r2']),
+        409,
+        { code: 'CONFLICT', details: { reason: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1', 'r2'] } },
       ],
       [new CorrectionNoChangeError('same'), 409, { code: 'CONFLICT', details: { reason: 'NO_CHANGE' } }],
       [new FinancialAccountClosedError(ACCOUNT), 409, { code: 'CONFLICT', details: { reason: 'ACCOUNT_CLOSED', financialAccountId: ACCOUNT } }],
@@ -821,6 +827,7 @@ describe('POST /api/v1/transactions/{id}/reverse (§35.9, VC-X-15)', () => {
       [new TransactionNotFoundError(transaction.id), 404, { code: 'NOT_FOUND' }],
       [new TransactionAlreadyCorrectedError(transaction.id, 'rev', null), 409, { details: { reason: 'ALREADY_CORRECTED', reversalTransactionId: 'rev', replacementTransactionId: null } }],
       [new TransactionNotCorrectableError(transaction.id, 'CONFIRMED', 'REVERSAL'), 409, { details: { reason: 'NOT_CORRECTABLE', correctionRole: 'REVERSAL' } }],
+      [new TransactionRentReconciledError(transaction.id, ['r1']), 409, { details: { reason: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1'] } }],
       [new VersionConflictError([2], 3), 412, { code: 'VERSION_CONFLICT' }],
       [new IdempotencyKeyConflictError('x'), 409, { code: 'CONFLICT' }],
     ] as const;

@@ -27,3 +27,4 @@ export { PostgresFinancialCategoryRepository } from './financial-category-reposi
 export { PostgresCorrectionRepository } from './correction-repository.js';
 export { PostgresUnconfirmedTransactionRepository } from './unconfirmed-transaction-repository.js';
 export { PostgresTransactionQueries } from './transaction-query-repository.js';
+export { PostgresRentReconciliationRepository } from './rent-reconciliation-repository.js';

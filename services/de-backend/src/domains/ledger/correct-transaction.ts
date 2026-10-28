@@ -76,6 +76,8 @@ export type CorrectionPlan =
     }
   /** Not confirmed, IGNORED, RECONCILED (until Phase 4), or a reversal (`correctionRole`). */
   | { readonly kind: 'NOT_CORRECTABLE'; readonly status: TransactionStatus; readonly correctionRole?: 'REVERSAL' }
+  /** `CONFIRMED` rent reconciliations name it: release them first (api-design §37.1, P4-D7). */
+  | { readonly kind: 'TRANSACTION_RENT_RECONCILED'; readonly reconciliationIds: readonly string[] }
   /** The replacement would equal the original in every field and split (§35.2). */
   | { readonly kind: 'NO_CHANGE' };
 
@@ -89,6 +91,8 @@ export function planCorrection(
   original: CorrectionOriginal,
   originalSplits: readonly SplitInput[],
   request: ReplacementInput | null,
+  /** The ids of the `CONFIRMED` rent reconciliations naming the original (§37.1), in id order. */
+  rentReconciliationIds: readonly string[] = [],
 ): CorrectionPlan {
   switch (original.status) {
     case 'CORRECTED':
@@ -110,6 +114,8 @@ export function planCorrection(
     case 'RECONCILED':
       return { kind: 'NOT_CORRECTABLE', status: original.status };
   }
+  // Right after NOT_CORRECTABLE (§37.1): a matched Transaction is released first, for correct and reverse alike.
+  if (rentReconciliationIds.length > 0) return { kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: rentReconciliationIds };
   // Reverse only: nothing to overlay, and the reversal itself is the change.
   if (request === null) return { kind: 'CORRECT', replacement: null };
 

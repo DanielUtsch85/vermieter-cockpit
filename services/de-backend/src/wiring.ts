@@ -2,6 +2,7 @@ import {
   AccessError,
   MreUnavailableError,
   type MrePropertyLookup,
+  type MreRentTermLookup,
   type MreTenantLookup,
   type PrincipalVerifier,
 } from './application/index.js';
@@ -61,6 +62,19 @@ export function mreTenantLookup(client: MreClient): MreTenantLookup {
     if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
     try {
       return (await client.listTenantIds(token, mreRealmId)).includes(mreTenantId);
+    } catch (error) {
+      throw mreError(error);
+    }
+  };
+}
+
+/** Whether MRE returns the Tenant's rent term in the Realm, with the caller's own token (api-design.md §37.1). */
+export function mreRentTermLookup(client: MreClient): MreRentTermLookup {
+  return async (authorizationHeader, mreRealmId, mreTenantId, mreRentTerm) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
+    try {
+      return await client.rentTermExists(token, mreRealmId, mreTenantId, mreRentTerm);
     } catch (error) {
       throw mreError(error);
     }
