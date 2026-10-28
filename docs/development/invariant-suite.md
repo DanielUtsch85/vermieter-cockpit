@@ -333,14 +333,14 @@ Counter-checked: in the domain `round_half_up` replaced by truncation, the cap o
 
 ## 20. Loan payments (VC-3-05, api-design §41.5)
 
-`LP` = `infrastructure/postgres/loan-payment-repository.test.ts`, `TS` = `domains/ledger/transaction-split.test.ts`, `PP` = `domains/financing/payment-proposal.test.ts`, `PA` = `application/payment-proposal.test.ts`, `SA` = `api/transaction-splits.test.ts`, `TA` = `api/loan-terms.test.ts`, `XA` = `api/transactions.test.ts`.
+`LP` = `infrastructure/postgres/loan-payment-repository.test.ts`, `TS` = `domains/ledger/transaction-split.test.ts`, `PP` = `domains/financing/payment-proposal.test.ts`, `PA` = `application/payment-proposal.test.ts`, `SA` = `api/transaction-splits.test.ts`, `TA` = `api/loan-terms.test.ts`, `XA` = `api/transactions.test.ts`, `XL` = `api/transaction-lifecycle.test.ts`.
 
 | Invariant | Tests |
 |---|---|
 | A split with `loanId`: a Loan of the Realm, not `VOID`, `LOAN_INTEREST`/`LOAN_PRINCIPAL`, an `OUTFLOW` unless a reversal, never with a PropertyReference; in the repository and past it | TS "checkLoanSplits …"; LP "order of checks …"; LP schema "a Loan of the Realm and not VOID …"; SA "400 …" (`NOT_ALLOWED_WITH_LOAN`) |
 | Order of checks: the existing ones, then an unknown Loan, the category, the direction, a `VOID` Loan, each first by position; nothing written on a refusal | TS "in the order of §41.5 …"; LP "order of checks …" |
 | `loanId` is part of the split set: the same set is a no-op, a changed `loanId` a change; reads and the AuditRecord carry it | LP "stores loanId …"; SA "200 …" |
-| Corrections: copied splits keep `loanId`; a replacement's own splits name another Loan or none, and must be `OUTFLOW`; the `INFLOW` reversal mirrors `loanId` (0014 compares it); what counts before and after | LP "correct: …", "reverse: …"; LP schema "a reversal mirrors loan_id …"; XA "maps the refusals of §35.4" |
+| Corrections: copied splits keep `loanId`; a replacement's own splits name another Loan or none, and must be `OUTFLOW`; the `INFLOW` reversal mirrors `loanId` (0014 compares it); what counts before and after | LP "correct: …", "reverse: …"; LP schema "a reversal mirrors loan_id …"; XL "maps the refusals of §35.4" |
 | A Loan with splits, a reversal's included, cannot be voided, in the repository and past it; the guard's no-op write and an amend pass | LP "LOAN_HAS_SPLITS …", "reverse: …" |
 | Lock order Transaction → Loan, the guard writing the Loan row: void against a split write in both orders (RC sees the other's result, RR `40001`); two writers naming two Loans in opposite order do not deadlock (id order); the trigger order in `pg_trigger` | LP "concurrency …"; LP schema "trigger order …" |
 | The correction path too (review on #68): `correct` and `reverse` lock every Loan they write, the original's (mirrored by the reversal) and the replacement's, in id order before any split; two reverses, and two corrects with a replacement without a Loan, of payments naming two Loans in opposite order both end `CORRECTED` | LP "concurrency of corrections …" |
@@ -476,20 +476,20 @@ Counter-checked (9 mutants, each red): MRE's payments summed into `matchedTotal`
 
 ## 26. Rent reconciliation: suggestions (VC-4-03, api-design §37.3)
 
-`RR`, `RD`, `RU`, `RA`, `RE`, `MC` as §24; `RS` = `domains/rent-reconciliation/suggestion.test.ts`.
+`RR`, `RD`, `RU`, `RA`, `RE`, `MC` as §24; `RS` = `domains/rent-reconciliation/suggestion.test.ts`, `RSS` = `infrastructure/postgres/rent-suggestion-store.test.ts`.
 
 | Invariant | Tests |
 |---|---|
 | A suggestion only for an exact amount (available rent cash = the term's open amount, MRE's amount due − DE's `CONFIRMED`, never MRE's payments) booked from the 15th of the month before to the end of the term's month | RS "one Transaction and one term …", "the booking window …", "an amount a cent off …"; RU "suggest: MRE months …" |
 | Only unique pairs: an ambiguity is left alone or decided by the IBAN history of the same Tenant (`HIGH`); never by input order | RS "two Transactions for one term …", "the IBAN history decides …", "two separate unique pairs …" |
 | Open suggestions stay in the graph as competition, in both steps, and are never written again; the months before `from` and after `to` are read and block, never suggested (review on #80) | RS "an open suggestion T1–A blocks …", "a Transaction booked on the 20th of `to` …"; RU "suggest: MRE months …"; RE "suggestions (§37.3) …" |
-| A rejected, released or confirmed pair is never suggested again; a repeat writes nothing; a pair changed between the snapshot and the write is skipped | RS "a handled pair …"; RR "writeSuggestions …", "reject …"; RE "suggestions (§37.3) …" |
-| A suggestion never counts or consumes cash until confirmed | RR "writeSuggestions …", "suggestionSnapshot …"; RE "suggestions (§37.3) …" |
-| Confirm: DE's checks, then MRE live (no MRE call on a refusal or a no-op), then the checks again under the locks; may lower, never raise the amount (`422 ABOVE_SUGGESTION`); `409 SUGGESTION_STALE` when the term was matched in between; `If-Match`; AuditRecord `CONFIRMED` with `manual = false` | RD "planConfirm …", "staleBy …"; RU "confirm: …"; RR "confirm: …"; RA "confirm: …"; RE "suggestions (§37.3) …" |
-| Reject: final, a repeat a no-op keeping the first reason; `CONFIRMED`/`RELEASED` not rejectable; AuditRecord `REJECTED` | RD "planReject …"; RR "reject: …"; RA "reject: …" |
+| A rejected, released or confirmed pair is never suggested again; a repeat writes nothing; a pair changed between the snapshot and the write is skipped | RS "a handled pair …"; RSS "writeSuggestions …", "reject …"; RE "suggestions (§37.3) …" |
+| A suggestion never counts or consumes cash until confirmed | RSS "writeSuggestions …", "suggestionSnapshot …"; RE "suggestions (§37.3) …" |
+| Confirm: DE's checks, then MRE live (no MRE call on a refusal or a no-op), then the checks again under the locks; may lower, never raise the amount (`422 ABOVE_SUGGESTION`); `409 SUGGESTION_STALE` when the term was matched in between; `If-Match`; AuditRecord `CONFIRMED` with `manual = false` | RD "planConfirm …", "staleBy …"; RU "confirm: …"; RSS "confirm: …"; RA "confirm: …"; RE "suggestions (§37.3) …" |
+| Reject: final, a repeat a no-op keeping the first reason; `CONFIRMED`/`RELEASED` not rejectable; AuditRecord `REJECTED` | RD "planReject …"; RSS "reject: …"; RA "reject: …" |
 | MRE month read with the caller's token and Realm, parsed to Tenant, term and amount due only; MRE down or refusing writes nothing | MC "listRentTerms …"; RU "suggest: a year boundary …"; RA "suggest: 400 …"; RE "suggestions (§37.3) …"; `mre.contract.test.ts` |
-| P4-D8: a run waiting on another run's pair skips it (the index); a confirm waiting on a manual match of the same cash is `RENT_CASH_EXCEEDED` (RC), RR `40001`; a confirm against a reversal of its Transaction (RC: `TRANSACTION_NOT_COUNTED`; RR, the step to `CORRECTED` after a confirm, `40001`) | RR "concurrency: …" |
-| The schema (0031): the suggestion and rejected fields, the `SUGGESTED` index, `matched_amount` only lowered in the step to `CONFIRMED`, a `SUGGESTED` insert only on counted `INFLOW` rent cash | RR "schema (0031) …" |
+| P4-D8: a run waiting on another run's pair skips it (the index); a confirm waiting on a manual match of the same cash is `RENT_CASH_EXCEEDED` (RC), RR `40001`; a confirm against a reversal of its Transaction (RC: `TRANSACTION_NOT_COUNTED`; RR, the step to `CORRECTED` after a confirm, `40001`) | RSS "concurrency: …" |
+| The schema (0031): the suggestion and rejected fields, the `SUGGESTED` index, `matched_amount` only lowered in the step to `CONFIRMED`, a `SUGGESTED` insert only on counted `INFLOW` rent cash | RSS "schema (0031) …" |
 
 Counter-checked (30 mutants, each red):
 - **in the rule:** a handled pair suggested again; open suggestions left out of the uniqueness check, in either step; ambiguity broken by input order; the history ignored; the booking window a day early at either end; the neighbours' terms suggested;
@@ -501,7 +501,7 @@ Counter-checked (30 mutants, each red):
 
 ## 27. Rent reconciliation: write-back to MRE (VC-4-04, api-design §37.4)
 
-`RR`, `RD`, `RA`, `RE`, `MC` as §24; `RW` = `domains/rent-reconciliation/write-back.test.ts`, `RB` = `application/rent-write-back.test.ts`, `CT` = `integrations/mre/mre.contract.test.ts` (the real MRE baseline, CI job `compose-smoke`).
+`RR`, `RD`, `RA`, `RE`, `MC` as §24; `RW` = `domains/rent-reconciliation/write-back.test.ts`, `RWS` = `infrastructure/postgres/rent-write-back-store.test.ts`, `RB` = `application/rent-write-back.test.ts`, `CT` = `integrations/mre/mre.contract.test.ts` (the real MRE baseline, CI job `compose-smoke`).
 
 | Invariant | Tests |
 |---|---|
@@ -511,10 +511,10 @@ Counter-checked (30 mutants, each red):
 | Verified after the write: the marker once, every other payment and the settlement as read; otherwise `MRE_TERM_CHANGED`; a marker edited in MRE is `MRE_PAYMENT_CHANGED`; DE never repairs MRE | RW "verifyWritten …", "markerIn …"; RB "an answer without DE's payment …" |
 | Under a VAT ratio with a promo or an extra charge nothing is written (`MRE_TERM_NOT_ROUND_TRIPPABLE`, back to `NOT_WRITTEN`) | RW "isRoundTrippable …"; RB "under VAT …" |
 | Failure keeps the match (BR-RENT-010): `FAILED` with its code, the cash still matched, retried by the same command; each code and its answer | RB "the read …", "the PATCH refused …"; RA "write-back to MRE (§37.4) …"; RE "write-back (§37.4) …" |
-| One write-back per MRE Tenant at a time: the lease, the Tenant index, the takeover of an expired lease by the same reconciliation and by another one (the old row `FAILED`, `LEASE_EXPIRED`), a record only under its own attempt | RD "planRelease and planWriteBack …"; RR "takeover after an expired lease …", "claim → PENDING …", "concurrency (RC) …", "concurrency (RR …)" |
-| Release (P4-D7) stays DE-only: `NOT_WRITTEN` stays, `WRITTEN`, `FAILED` and an expired `PENDING` become `REMOVAL_REQUIRED`, a live lease refuses | RD "planRelease and planWriteBack …"; RR "release (P4-D7) …", "schema (0032) …"; RA "release under a live lease …"; RE "write-back (§37.4) …" |
+| One write-back per MRE Tenant at a time: the lease, the Tenant index, the takeover of an expired lease by the same reconciliation and by another one (the old row `FAILED`, `LEASE_EXPIRED`), a record only under its own attempt | RD "planRelease and planWriteBack …"; RWS "takeover after an expired lease …", "claim → PENDING …", "concurrency (RC) …", "concurrency (RR …)" |
+| Release (P4-D7) stays DE-only: `NOT_WRITTEN` stays, `WRITTEN`, `FAILED` and an expired `PENDING` become `REMOVAL_REQUIRED`, a live lease refuses | RD "planRelease and planWriteBack …"; RWS "release (P4-D7) …", "schema (0032) …"; RA "release under a live lease …"; RE "write-back (§37.4) …" |
 | The presence check is a read only: `PRESENT`, `MISSING`, `UNAVAILABLE`, `null` without an MRE call when nothing was written | RB "getReconciliationWithPresence …"; RA "GET ?checkMre=true …"; RE "write-back (§37.4) …" |
-| The schema (0032): the field sets per state, the states per status, born `NOT_WRITTEN`, each allowed and refused step, the release rule, the Tenant index | RR "schema (0032) …", "schema past the repository (migration 0030) …" |
+| The schema (0032): the field sets per state, the states per status, born `NOT_WRITTEN`, each allowed and refused step, the release rule, the Tenant index | RWS "schema (0032) …"; RR "schema past the repository (migration 0030) …" |
 | Realm isolation: another Realm can neither write back nor check a reconciliation; MRE's own Realm check | RE "write-back (§37.4) …"; MC "readRentTermForWriteBack …" |
 
 Counter-checked (25 mutants, each red):
@@ -526,17 +526,17 @@ Counter-checked (25 mutants, each red):
 
 ## 28. Rent reconciliation: removal from MRE after release (VC-4-05, api-design §37.5)
 
-`RR`, `RD`, `RW`, `RB`, `RA`, `RE`, `CT` as §24 and §27; `RM` = `infrastructure/postgres/rent-reconciliation-migration.test.ts`.
+`RR`, `RD`, `RW`, `RWS`, `RB`, `RA`, `RE`, `CT` as §24 and §27; `RM` = `infrastructure/postgres/rent-reconciliation-migration.test.ts`.
 
 | Invariant | Tests |
 |---|---|
 | Only DE's payment is removed: the marker with DE's date and amount; every other payment, the promo, the extra charge and the description stay; a marker edited in MRE is `MRE_PAYMENT_CHANGED` | RW "removalBody …", "verifyRemoved …"; RB "the marker absent …"; RE "removal (§37.5) …"; CT "the removal PATCH removes only DE's payment …" |
 | Exactly once: `REMOVED` is a no-op without an MRE call; the marker absent → `REMOVED` without a PATCH; a crash between PATCH and record, retried after the lease, sends no second PATCH; a lost answer is decided by the second read | RB "the marker absent …", "a missing term …"; RE "removal exactly once …", "removal (§37.5) …" |
 | A missing term is no proof the payment is gone (MRE's 404 on its own errors) → `REMOVAL_FAILED`; under VAT with a promo or extra charge nothing is written (back to `REMOVAL_REQUIRED`) | RB "a missing term …", "the marker absent …" |
-| The lease assumption (review on #82): the latest lease end is kept for good and only grows; a removal before it plus one MRE timeout is `REMOVAL_TOO_EARLY`; the database refuses a removal claim before it | RD "removal: only RELEASED …"; RR "refusals: …", "schema (0033) …"; RE "removal (§37.5) …"; RA "removal from MRE (§37.5) …" |
-| One MRE write per Tenant: the index over `PENDING` and `REMOVING`; an expired `REMOVING` is taken over by a removal and by a write-back of the Tenant (`REMOVAL_FAILED`, `LEASE_EXPIRED`, review on #84); a live one blocks both | RD "removal: only RELEASED …"; RR "takeovers: …", "concurrency: a removal waiting …", "schema (0033) …" |
-| The backfill (review on #84): a `REMOVAL_REQUIRED` from a failed write-back gets `released_at + 2 minutes`, a `WRITTEN` its written time + 2 minutes, `NOT_WRITTEN` stays `NULL`; the CHECK keeps every claimed state's last lease end not null | RM "a REMOVAL_REQUIRED from FAILED …", "a removal of the released failed write-back …"; RR "schema (0033) …" |
-| Release on the database's clock (review on #83): an application clock running ahead gets `WRITE_BACK_IN_PROGRESS`, never a `500`; one running behind does not keep a lease the database has ended (review on #85: the expired `PENDING` is released as `REMOVAL_REQUIRED`) | RR "release on the database clock …" (both) |
+| The lease assumption (review on #82): the latest lease end is kept for good and only grows; a removal before it plus one MRE timeout is `REMOVAL_TOO_EARLY`; the database refuses a removal claim before it | RD "removal: only RELEASED …"; RWS "refusals: …", "schema (0033) …"; RE "removal (§37.5) …"; RA "removal from MRE (§37.5) …" |
+| One MRE write per Tenant: the index over `PENDING` and `REMOVING`; an expired `REMOVING` is taken over by a removal and by a write-back of the Tenant (`REMOVAL_FAILED`, `LEASE_EXPIRED`, review on #84); a live one blocks both | RD "removal: only RELEASED …"; RWS "takeovers: …", "concurrency: a removal waiting …", "schema (0033) …" |
+| The backfill (review on #84): a `REMOVAL_REQUIRED` from a failed write-back gets `released_at + 2 minutes`, a `WRITTEN` its written time + 2 minutes, `NOT_WRITTEN` stays `NULL`; the CHECK keeps every claimed state's last lease end not null | RM "a REMOVAL_REQUIRED from FAILED …", "a removal of the released failed write-back …"; RWS "schema (0033) …" |
+| Release on the database's clock (review on #83): an application clock running ahead gets `WRITE_BACK_IN_PROGRESS`, never a `500`; one running behind does not keep a lease the database has ended (review on #85: the expired `PENDING` is released as `REMOVAL_REQUIRED`) | RWS "release on the database clock …" (both) |
 | The presence check also reads `REMOVAL_FAILED` and `REMOVED`: `PRESENT` on `REMOVED` reports a payment that reappeared | RB "getReconciliationWithPresence …"; RE "removal (§37.5) …" |
 | Realm isolation: another Realm cannot remove a reconciliation | RE "removal (§37.5) …" |
 
