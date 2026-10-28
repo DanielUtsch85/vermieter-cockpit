@@ -60,6 +60,7 @@ Reference: `docs/project-brief.md` §7, `api-design.md`.
 | VC-1-08 | feature | **done** · Confirm a transaction | `POST /api/v1/transactions/{id}/confirm` | Allowed transitions + confirm preconditions per domain-model §21; immutable once `CONFIRMED` |
 | VC-1-09 | test | **done** · Invariant suite (`docs/development/invariant-suite.md`) | — | Split totals (exact), non-negative amount + direction, dedup + `needs_review`/resolve test cases incl. re-import of a still-`PENDING` ambiguous row, re-import after `CREATE` and after `SKIP` (structured `RESOLVED_REVIEW_ITEM` duplicate, no new decision/Transaction), and adapter-version conflict (`needs_review`, no auto-Transaction) (`data-model.md` §70.5), no silent merge/duplicate of ambiguous rows, monetary precision/scale rejection, Realm isolation |
 | VC-1-10 | infra | **done** · Bank CSV adapter interface + first concrete format (`generic-csv` v1, api-design §32.4) | — | New formats pluggable; ledger format-agnostic |
+| VC-1-11 | feature | `generic-csv` v2: balance identity + continuity check (ADR-043, #93 F1) | `POST /api/v1/imports/bank-transactions` | Optional `balanceAfter` column; overlapping exports dedupe by balance identity with matching content (`data-model.md` §70.6); repeated identity in a file or a broken chain → fallback; gaps and breaks reported on the batch; never drops a payment; `api-design.md` §32.4 documents v2 |
 
 **Phase 1 exit:** see `docs/project-brief.md` §7 "Definition of done."
 

@@ -34,7 +34,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 ### Findings
 
-**F1 — Overlapping exports need a human for every shared row (high).** The spec's overlap case dedupes through a stable external id or a statement id (§70.1, §70.5 "overlap of the same source-statement identity"). A BBBank CSV has neither: the file is its own statement identity (`contentHash`), and there is no transaction id column. So a monthly export that overlaps the previous one by a few days puts each shared row into review, as designed, and the user resolves each one by hand (`SKIP`). With real exports, overlap is the normal case, not the exception. Options, for a decision (not implemented):
+**F1 — Overlapping exports need a human for every shared row (high).** The spec's overlap case dedupes through a stable external id or a statement id (§70.1, §70.5 "overlap of the same source-statement identity"). A BBBank CSV has neither: the file is its own statement identity (`contentHash`), and there is no transaction id column. So a monthly export that overlaps the previous one by a few days puts each shared row into review, as designed, and the user resolves each one by hand (`SKIP`). With real exports, overlap is the normal case, not the exception. **Decided:** D with C, ADR-043 (`data-model.md` §70.6, backlog VC-1-11). Options weighed:
 - **A. Workflow only:** export strictly non-overlapping periods (document it in the import guide). Cheapest; fragile, because banks' period filters and late bookings make gaps or overlaps easy.
 - **B. EREF as external id:** a v2 adapter option that takes the SEPA end-to-end reference out of the description. Covers direct debits and some transfers only; transfers without EREF (here: the owner's transfer, the bonus) stay on the fallback.
 - **C. Balance-aware identity (adapter v2):** `(bookingDate, amount, direction, balance after booking)` as the row identity, since the bank's running balance is the same for one booking in every export and differs between two equal payments. Tried as an experiment by mapping `Saldo nach Buchung` as `externalTransactionId`: the overlapping rows were then duplicates. Risk: a balance can repeat with identical content (e.g. a booking, its reversal and the same booking again on one day); then a real payment would be dropped as a duplicate, which the constitution forbids. Needs a written risk analysis and a spec change (§70.2), not a mapping trick.
@@ -50,8 +50,8 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 **What worked without friction:** UTF-8 with BOM and umlauts, CRLF, decimal comma, German dates, newest-first order, signed amounts → direction, the second import of the same file, and the empty `needs_review` list on a first import.
 
-### Proposed backlog entries
-- F1: a decision record (ADR) on cross-export identity for CSV without external ids (options A–D), then the adapter v2 it chooses.
+### Follow-ups
+- F1: ADR-043 (D with C); implementation VC-1-11.
 - F2: account IBAN check on import.
 - F3: mapping presets per bank.
 - F4: counterparty in the Transaction reads.

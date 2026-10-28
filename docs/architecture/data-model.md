@@ -3070,7 +3070,8 @@ Bank and document imports must be repeatable without duplicating canonical recor
 For each normalized bank row, the canonical import identity is resolved in this order:
 
 1. **Stable external transaction identifier** — if the source provides one (e.g. a bank-assigned end-to-end/transaction reference), it is the identity, scoped to `(realm, financialAccountId, externalTransactionId)` — **but only with consistent content**: an id match is a duplicate only when the content fingerprint (§70.2) matches too. An import of user-mapped CSV columns cannot rely on an id being unique (reused or placeholder references such as SEPA `NOTPROVIDED`), so the same id with other content is ambiguous (§70.4), never a duplicate. The external id stays the preferred identity: it makes reordered and re-exported files deduplicate exactly, independent of the adapter.
-2. **Adapter-/source-bound row fingerprint** — otherwise a deterministic hash over a fixed, versioned set of normalized fields, scoped to `(realm, financialAccountId, adapterId, adapterVersion, fingerprint)`.
+2. **Balance identity** (ADR-043, `generic-csv` v2, §70.6) — otherwise, if the row carries the bank's running balance after the booking and the file passes the §70.6 rules, `(realm, financialAccountId, bookingDate, amount, direction, balanceAfter)`, adapter-independent and, like the external id, a duplicate **only with a matching content fingerprint**.
+3. **Adapter-/source-bound row fingerprint** — otherwise a deterministic hash over a fixed, versioned set of normalized fields, scoped to `(realm, financialAccountId, adapterId, adapterVersion, fingerprint)`.
 
 ## 70.2 Fallback row identity (v1, first CSV adapter)
 
@@ -3122,6 +3123,27 @@ Before computing the content fingerprint: trim and collapse whitespace, uppercas
 - **same external id, same content** → `duplicate`; **same external id, other content** (also within one file, e.g. a placeholder id) → `needs_review` (`EXTERNAL_ID_CONTENT_CONFLICT`), no Transaction;
 - **first imported without, then with an external id** → `needs_review` (`AMBIGUOUS_CROSS_FILE_MATCH`), no second Transaction;
 - an ambiguous row is **never** auto-merged into the existing Transaction nor auto-duplicated.
+
+## 70.6 Balance identity and continuity (ADR-043, `generic-csv` v2)
+
+Applies to rows whose import maps the bank's **running balance after the booking** (`balanceAfter`, a signed Money value in the account currency). Implementation: backlog VC-1-11.
+
+- **Identity:** `(realm, financialAccountId, bookingDate, amount, direction, balanceAfter)`, ranked after the stable external id and before the fallback (§70.1). It is adapter-independent: the same booking under another adapter or version with the same balance is the same identity.
+- **Content consistency:** a balance-identity match is a `duplicate` only when the content fingerprint (§70.2) matches too; otherwise the row is `needs_review` (`BALANCE_IDENTITY_CONTENT_CONFLICT`), no Transaction.
+- **In-file uniqueness:** a balance identity that occurs more than once in one file is not used for any of those rows; they keep the fallback identity (§70.2) and its ambiguity rules (§70.4).
+- **In-file continuity:** in file order (oldest-first or newest-first, detected from the dates), each row must satisfy `balance before + signed amount = balanceAfter`, with `balance before` the neighbouring row's `balanceAfter`. A file with a break uses **no** balance identity; every row takes the fallback, and the batch reports the break (positions).
+- **Cross-file continuity:** the oldest row of the file is checked against the account's known balances (from earlier balance-identity imports). A gap or an overlap that does not chain is **reported on the batch**; it neither refuses the file nor changes row outcomes.
+- **Storage:** the Transaction keeps the raw `balanceAfter` as `sourceBalanceAfter`; it is import evidence, never a ledger balance.
+- A row without a balance, or a file without a mapped balance column, behaves as in §70.1–70.4.
+
+Required test cases (in addition to §70.5):
+
+- **overlapping exports with balance** (shared rows, different `contentHash`) → shared rows `duplicate`, new rows created, no review item;
+- **same balance identity, other content** → `needs_review` (`BALANCE_IDENTITY_CONTENT_CONFLICT`), no Transaction;
+- **balance identity repeated in one file** (debit, return, same debit on one day) → those rows on the fallback; against an earlier file that held the first debit: `needs_review`, never a duplicate;
+- **broken chain in a file** → no row uses the balance identity, the batch reports the break;
+- **gap between exports** → rows created as usual, the batch reports the gap;
+- **v1 rows, then an overlapping v2 file with balance** → the shared rows are `needs_review` once (§70.4), not dropped.
 
 ---
 
