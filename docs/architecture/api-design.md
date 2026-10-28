@@ -1707,6 +1707,8 @@ Decisions: `docs/development/phase-4-plan.md` (P4-D1…D8). Data: data-model §1
 GET /api/v1/rent-reconciliations                                    (VC-4-01, §37.1)
 GET /api/v1/rent-reconciliations/{id}                               (VC-4-01, §37.1)
 GET /api/v1/rent-reconciliations/suggestions                        (VC-4-03: ?status=SUGGESTED)
+GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}  (VC-4-02, §37.2)
+GET /api/v1/transactions/{transactionId}/rent-reconciliations       (VC-4-02, §37.2)
 ```
 
 ### Commands
@@ -1797,7 +1799,7 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
   - Filters, all optional and combined with AND: `status` (a comma-separated list, any of them), `transactionId`, `mreTenantId`, `mreRentTerm`.
   - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`. An unknown or foreign `transactionId` filter is an empty page, not `404`, as a read filter (§30.1).
   - `…/suggestions` of the route list above is `?status=SUGGESTED` (VC-4-03) and gets no route of its own.
-- Reads never call MRE. The coverage of a term and of a Transaction (P4-D5) is VC-4-02.
+- Reads never call MRE. The coverage of a term and of a Transaction (P4-D5) is VC-4-02 (§37.2).
 
 ### Corrections of a matched Transaction (P4-D7)
 
@@ -1849,6 +1851,64 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
 - **Schema past the repository**, each with a counter-check: every CHECK; the frozen fields and status steps; `DELETE`; the cash guard's four refusals; the unique index.
 - **MRE client:** `rentTermExists(token, realm, tenantId, term)` parsed to existence only (the term key must come back); MRE `404` → not found, `401` / `403` / other as the existing client. The fake MRE gains Tenants with rent terms (the term read only; the PATCH is VC-4-04). `mre.contract.test.ts` pins the term read against the baseline: a known term, an unknown term and an unknown Tenant are `404`.
 - **API:** every `400` code above; the error mapping (`422 MRE_RENT_TERM_NOT_FOUND`, `503 EXTERNAL_SYSTEM_ERROR`, nothing written on either, end to end against the fake MRE); idempotent replay and a refusal without an MRE call; release no-op, `412`, `NOT_RELEASABLE`; the list filters and order; Realm isolation end to end.
+
+## 37.2 Coverage reads: per term and per Transaction (VC-4-02)
+
+Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two derived reads that show MRE's operational state and DE's cash **next to each other, never merged** (ADR-004A, the Phase-4 exit's "distinct records"). Nothing is stored; a read never writes, in DE or in MRE.
+
+- **Domain owner:** Integration / Financial Ledger. **Authorization:** as §37.1. Reads use one `REPEATABLE READ READ ONLY` snapshot for the DE side; the MRE read runs outside it (P4-D8).
+
+### `GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}`
+
+- **Path:** `mreTenantId` as §37.1 (`^[0-9a-f]{24}$`), `mreRentTerm` a term key (`400 INVALID_TERM` as §37.1). No query parameters (`400`).
+- **DE side** (from DE alone, always answered): every reconciliation of the Realm for this Tenant and term, in `createdAt` order, each as §37.1's response; `matchedTotal` = Σ `matchedAmount` of the `CONFIRMED` ones (Money, `0.00` when none). A term without any reconciliation is not `404`: its DE side is empty.
+- **MRE side**, read live with the caller's token (`GET /rents/tenant/:id/:term`, as §37.1):
+  - `mreStatus`:
+    - `AVAILABLE`: `mre` = `{ amountDue, payments }`;
+    - `NOT_RETURNED`: MRE answered `404` (an unknown or deleted Tenant or term, or MRE's swallowed database error, §37.1); `mre` = `null`;
+    - `UNAVAILABLE`: MRE down or an unexpected answer; `mre` = `null`. The DE side is still answered (BR-MRE-004): an outage never hides DE's matches. A refused token or caller is still `401` / `403` (§37.1): access is not degraded silently.
+  - `amountDue`: MRE's amount due for the term **without** the carried balance (`totalWithoutBalanceAmount`, P4-D4), as Money.
+  - `payments`: MRE's own payment records of the term, each `{ date, amount, type, reference }` in MRE's order. `date` is converted from MRE's `DD/MM/YYYY` to a business date, `null` when it does not parse; `description` is not read (MRE's own form drops it, P4-D6's MRE facts). They are **MRE settlement, not cash** (BR-RENT-001) and never enter `matchedTotal` or the coverage.
+  - **MRE amounts are floats.** Each is taken from its shortest round-trip decimal text (as the cached `surface`, mre-integration §21.1) and rounded half-up to the cent, the precision MRE's own UI shows. A non-finite or exponent-notation amount is an unexpected answer (`UNAVAILABLE`).
+  - The Tenant's name and contact data are not read (mre-integration §20.1); the client parses the term to these fields only.
+- **`coverage`** (derived, BR-RENT-006/007), from `matchedTotal` against `amountDue`; `null` unless `mreStatus = AVAILABLE`:
+  - `UNMATCHED`: `matchedTotal` = 0 and `amountDue` > 0;
+  - `PARTIALLY_MATCHED`: 0 < `matchedTotal` < `amountDue`;
+  - `MATCHED`: `matchedTotal` = `amountDue` (also 0 = 0);
+  - `OVERPAID`: `matchedTotal` > `amountDue`;
+  - `openAmount` = `amountDue` − `matchedTotal`, signed (negative when overpaid). The overpaid rest stays visible until its meaning is decided (BR-RENT-007); nothing is carried to another term.
+- **Response:** `{ mreTenantId, mreRentTerm, reconciliations, matchedTotal, mreStatus, mre, coverage, openAmount }`.
+- **Realm isolation:** the DE side is filtered to the caller's Realm; the MRE read carries the caller's Realm in `organizationid`, so another Realm's Tenant is `NOT_RETURNED`.
+
+### `GET /api/v1/transactions/{transactionId}/rent-reconciliations`
+
+- **Path:** a Transaction id (`400` malformed). No query parameters.
+- Unknown or foreign Transaction → `404` (`details.transactionId`), as §30.1. Never calls MRE.
+- **Response:**
+  - `transactionId`, `status`, `direction`, `correctionRole`;
+  - `counted`: the cash rules' "counted" (§37.1: `CONFIRMED` or `RECONCILED`, not a reversal);
+  - `rentCash`: Σ of its `RENT_*` splits (Money), `null` without one;
+  - `matchedTotal`: Σ `matchedAmount` of its `CONFIRMED` reconciliations (Money, `0.00` when none);
+  - `available`: `rentCash` − `matchedTotal` when `counted` and `rentCash` ≠ `null`, else `null` (cash that is not counted is not available to match);
+  - `reconciliations`: every reconciliation of the Transaction, any status, in `createdAt` order, each as §37.1's response.
+- A Transaction that is not rent (no `RENT_*` split) answers with `rentCash = null` and its (empty) list, not `404`: the read describes, the match refuses (§37.1).
+- The rest after the matches (`available` > 0) stays visible: it is the "unresolved" part of BR-RENT-007 until it is matched or its meaning is decided.
+
+### In the code
+
+- **Domain:** `coverageOf(amountDue, matchedTotal)` → `{ coverage, openAmount }`; the cash view of §37.1 (`MatchCash`, `availableOf`) reused for the Transaction read.
+- **MRE client:** `readRentTerm(token, realm, tenantId, term)` → `{ amountDue, payments }` or `undefined` on `404`; `rentTermExists` (§37.1) becomes `readRentTerm(…) !== undefined`, so both parse one shape. The fake MRE gains `totalWithoutBalanceAmount` and payments per term; `mre.contract.test.ts` pins both fields against the baseline (a Tenant with rent 800: `totalWithoutBalanceAmount` 800, `payments` an array, a payment written through MRE's own `PATCH` coming back with `date`, `amount`, `type` and `reference`).
+- **No migration.**
+
+### Tests (VC-4-02)
+
+- **Domain:** `coverageOf` at each boundary (0 of 0, 0 of due, a cent short, exact, a cent over), `openAmount` signed.
+- **MRE client:** the fields parsed and nothing else (a body with a name and contacts leaves no trace in the result or an error message); float amounts (`799.9999999999999` → `800.00`, `0.1 + 0.2` → `0.30`) rounded half-up; exponent notation, a missing `totalWithoutBalanceAmount`, a non-array `payments` → `UNAVAILABLE`; a payment date that does not parse → `null`; `404` → `undefined`.
+- **Repository:** the DE side in one snapshot, Realm-filtered; `matchedTotal` over `CONFIRMED` only (a `RELEASED` one listed, not summed); the Transaction read with `counted`, `rentCash`, `available` for a counted rent Transaction, an unconfirmed one (`available = null`), a reversal, and a non-rent Transaction (`rentCash = null`).
+- **Use case:** `AVAILABLE`, `NOT_RETURNED` and `UNAVAILABLE` each with the DE side answered; `401`/`403` passed through; the Transaction read never asks MRE.
+- **API:** the path and query `400`s; `404` for an unknown Transaction; the response shapes.
+- **End to end** against the fake MRE: a term matched by two Transactions (`PARTIALLY_MATCHED`, then `MATCHED`, then `OVERPAID` after a third), MRE's own payments shown separately and never summed; MRE down → `UNAVAILABLE` with DE's matches; another Realm sees `NOT_RETURNED` and an empty DE side.
+- **Counter-checks:** MRE's payments summed into `matchedTotal`; `RELEASED` summed; the coverage boundary off by one cent; the MRE amount truncated instead of rounded; an MRE outage turned into a `503`.
 
 ---
 
