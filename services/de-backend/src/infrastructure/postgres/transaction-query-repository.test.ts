@@ -93,7 +93,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
       actor,
     );
     const found = await queries.get(id, REALM);
-    expect(found?.transaction).toMatchObject({ id, status: 'CLASSIFIED', version: 2, bookingDate: '2026-09-01' });
+    // A manual Transaction has no counterparty from a bank file (#109).
+    expect(found?.transaction).toMatchObject({
+      id,
+      status: 'CLASSIFIED',
+      version: 2,
+      bookingDate: '2026-09-01',
+      counterpartyNameRaw: null,
+      counterpartyIbanRaw: null,
+    });
     expect(found?.splits.map((s) => [s.position, s.amount.toJSON().amount, s.financialCategoryCode, s.description])).toEqual([
       [1, '1000.00', 'RENT_BASE', 'Kalt'],
       [2, '250.00', 'RENT_OPERATING_COST_ADVANCE', null],

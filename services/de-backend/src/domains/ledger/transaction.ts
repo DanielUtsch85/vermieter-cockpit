@@ -54,6 +54,9 @@ export interface Transaction {
   /** Set on a CORRECTED original: its reversal and replacement. */
   readonly reversalTransactionId: TransactionId | null;
   readonly replacementTransactionId: TransactionId | null;
+  /** The counterparty as the bank file named it (import evidence, §70.2); null for manual and correction Transactions. */
+  readonly counterpartyNameRaw: string | null;
+  readonly counterpartyIbanRaw: string | null;
 }
 
 // Optimistic concurrency (api-design.md §16.1) is shared with other aggregates: shared/version.ts.
