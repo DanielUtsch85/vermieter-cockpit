@@ -1,16 +1,8 @@
 import express, { type Router } from 'express';
 import { z } from 'zod';
-import {
-  ACCOUNT_TYPES,
-  FinancialAccountNotFoundError,
-  IdempotencyKeyConflictError,
-  type CloseFinancialAccount,
-  type CreateFinancialAccount,
-  type FinancialAccount,
-} from '../application/index.js';
+import { ACCOUNT_TYPES, type CloseFinancialAccount, type CreateFinancialAccount, type FinancialAccount } from '../application/index.js';
 import { isSupportedCurrency, normalizeIban } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, sendValidationError } from './validation.js';
 
 /** Field mapping verbatim from data-model.md §16 (api-design.md §29.1). */
@@ -57,13 +49,7 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         res.status(201).json(toDto(account));
       })
-      .catch((error: unknown) => {
-        if (error instanceof IdempotencyKeyConflictError) {
-          sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.post('/financial-accounts/:financialAccountId/close', (req, res, next) => {
@@ -77,13 +63,7 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
       .then((account) => {
         res.status(200).json(toDto(account));
       })
-      .catch((error: unknown) => {
-        if (error instanceof FinancialAccountNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'FinancialAccount not found.', { financialAccountId });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   return router;

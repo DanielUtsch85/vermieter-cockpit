@@ -1,13 +1,8 @@
-import express, { type Response, type Router } from 'express';
+import express, { type Router } from 'express';
 import { z } from 'zod';
 import {
   ALLOCATION_METHODS,
   ALLOCATION_REVIEW_STATES,
-  AcquisitionCancelledError,
-  AcquisitionNotFoundError,
-  CurrentAllocationChangedError,
-  IdempotencyKeyConflictError,
-  PartyNotFoundError,
   shareOf,
   type CreateLandBuildingAllocation,
   type LandBuildingAllocation,
@@ -16,7 +11,6 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, sendValidationError } from './validation.js';
 
 const uuid = z
@@ -95,9 +89,7 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         res.status(201).json(toDto(allocation));
       })
-      .catch((error: unknown) => {
-        if (!sendAllocationError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.get('/acquisitions/:acquisitionId/land-building-allocations', (req, res, next) => {
@@ -111,33 +103,10 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
     commands
       .list({ principal: principalOf(res), acquisitionId })
       .then(({ current, items }) => res.json({ current: current === null ? null : toDto(current), items: items.map(toDto) }))
-      .catch((error: unknown) => {
-        if (!sendAllocationError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   return router;
-}
-
-/** The refusals of §27.3; false for anything else (→ the error handler). */
-function sendAllocationError(res: Response, error: unknown): boolean {
-  if (error instanceof AcquisitionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId });
-  } else if (error instanceof PartyNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Party not found.', { partyId: error.partyId });
-  } else if (error instanceof AcquisitionCancelledError) {
-    sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition takes no allocation.', { reason: 'ACQUISITION_CANCELLED', acquisitionId: error.acquisitionId });
-  } else if (error instanceof CurrentAllocationChangedError) {
-    sendError(res, 409, 'CONFLICT', 'supersedes does not name the current allocation.', {
-      reason: 'CURRENT_ALLOCATION_CHANGED',
-      currentAllocationId: error.currentAllocationId,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(a: LandBuildingAllocation) {

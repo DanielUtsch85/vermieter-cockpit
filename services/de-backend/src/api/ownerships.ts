@@ -1,19 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  IdempotencyKeyConflictError,
-  InvalidOwnershipError,
-  OverlappingOwnershipError,
-  OwnerInactiveError,
-  AcquisitionNotDraftError,
-  AcquisitionNotFoundError,
-  OwnershipIncompleteError,
-  OwnershipOfConfirmedAcquisitionError,
-  OwnershipNotFoundError,
-  OwnershipTotalExceedsOneError,
-  PartyNotFoundError,
-  PropertyReferenceNotFoundError,
-  VersionConflictError,
   checkBusinessDate,
   formatShare,
   parseShare,
@@ -27,7 +14,6 @@ import {
   type VoidOwnership,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const businessDate = z.string().transform((value, ctx) => {
@@ -180,9 +166,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendOwnership(res.status(201), ownership);
       })
-      .catch((error: unknown) => {
-        if (!sendOwnershipError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.get('/ownerships/:ownershipId', (req, res, next) => {
@@ -191,9 +175,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
     commands
       .get({ principal: principalOf(res), ownershipId })
       .then((ownership) => sendOwnership(res, ownership))
-      .catch((error: unknown) => {
-        if (!sendOwnershipError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.post('/ownerships/:ownershipId/close', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -214,9 +196,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ ownership }) => sendOwnership(res, ownership))
-      .catch((error: unknown) => {
-        if (!sendOwnershipError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.post('/ownerships/:ownershipId/void', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -237,9 +217,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ ownership }) => sendOwnership(res, ownership))
-      .catch((error: unknown) => {
-        if (!sendOwnershipError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.post('/property-references/:propertyReferenceId/ownership-changes', express.json({ limit: '64kb' }), (req, res, next) => {
@@ -273,9 +251,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
         if (status === 'REPLAYED') res.setHeader('Idempotent-Replayed', 'true');
         res.status(status === 'UNCHANGED' ? 200 : 201).json(toChangeDto(result));
       })
-      .catch((error: unknown) => {
-        if (!sendOwnershipError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.get('/property-references/:propertyReferenceId/ownerships', (req, res, next) => {
@@ -307,9 +283,7 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
           res.json({ items: items.map(toDto), ...paging });
         }
       })
-      .catch((error: unknown) => {
-        if (!sendOwnershipError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   return router;
@@ -325,54 +299,6 @@ function readId(value: string | undefined, field: string, res: Response): string
 function sendOwnership(res: Response, ownership: Ownership): void {
   res.setHeader('ETag', `"${ownership.version}"`);
   res.json(toDto(ownership));
-}
-
-/** The refusals of §26.1; false for anything else (→ the error handler). */
-function sendOwnershipError(res: Response, error: unknown): boolean {
-  if (error instanceof OwnershipNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Ownership not found.', { ownershipId: error.ownershipId });
-  } else if (error instanceof PropertyReferenceNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
-  } else if (error instanceof PartyNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Party not found.', { partyId: error.partyId });
-  } else if (error instanceof OwnerInactiveError) {
-    sendError(res, 422, 'PARTY_INACTIVE', 'A new owner must be an active Party.', { partyId: error.partyId });
-  } else if (error instanceof OverlappingOwnershipError) {
-    sendError(res, 422, 'OVERLAPPING_OWNERSHIP', 'The owner already holds an overlapping Ownership of this PropertyReference.', {
-      ownershipId: error.ownershipId,
-    });
-  } else if (error instanceof OwnershipTotalExceedsOneError) {
-    sendError(res, 422, 'OWNERSHIP_TOTAL_EXCEEDS_ONE', 'The shares would sum above 1.', { date: error.date, shareSum: formatShare(error.shareSum) });
-  } else if (error instanceof AcquisitionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Acquisition not found for this PropertyReference.', { acquisitionId: error.acquisitionId });
-  } else if (error instanceof OwnershipOfConfirmedAcquisitionError) {
-    sendError(res, 409, 'CONFLICT', 'The Ownership carries a confirmed Acquisition; close it instead of voiding it.', {
-      reason: 'ACQUISITION_CONFIRMED',
-      acquisitionId: error.acquisitionId,
-    });
-  } else if (error instanceof AcquisitionNotDraftError) {
-    sendError(res, 422, 'ACQUISITION_NOT_DRAFT', 'Only a DRAFT Acquisition takes new Ownerships.', {
-      acquisitionId: error.acquisitionId,
-      status: error.status,
-    });
-  } else if (error instanceof OwnershipIncompleteError) {
-    sendError(res, 422, 'OWNERSHIP_INCOMPLETE', 'The ownership was complete and would no longer be.', {
-      date: error.date,
-      shareSum: formatShare(error.shareSum),
-    });
-  } else if (error instanceof InvalidOwnershipError) {
-    sendError(res, 422, 'INVALID_OWNERSHIP', 'The Ownership cannot be closed so.', { ownershipId: error.ownershipId, reason: error.reason });
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The Ownership changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(ownership: Ownership) {

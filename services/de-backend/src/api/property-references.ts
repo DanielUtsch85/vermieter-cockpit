@@ -1,17 +1,8 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
-import {
-  AccessError,
-  MRE_OBJECT_ID,
-  MrePropertyNotFoundError,
-  MreUnavailableError,
-  PropertyReferenceNotFoundError,
-  type LinkPropertyReference,
-  type PropertyReference,
-  type RefreshPropertyReference,
-} from '../application/index.js';
+import { MRE_OBJECT_ID, MreUnavailableError, type LinkPropertyReference, type PropertyReference, type RefreshPropertyReference } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { sendAccessError, sendError } from './errors.js';
+import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
 
 /** A malformed MRE id would end in a 500 upstream, so it is rejected here (mre-integration.md §21.1). */
@@ -47,12 +38,7 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
         res.status(created ? 201 : 200).json(toDto(reference));
       })
       .catch((error: unknown) => {
-        if (error instanceof MrePropertyNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'MRE Property not found in this Realm.', {
-            mreRealmId: error.mreRealmId,
-            mrePropertyId: error.mrePropertyId,
-          });
-        } else if (!sendCommonError(res, error, 'nothing was linked')) {
+        if (!sendCommonError(res, error, 'nothing was linked')) {
           next(error);
         }
       });
@@ -76,9 +62,7 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
         res.status(200).json(toDto(reference));
       })
       .catch((error: unknown) => {
-        if (error instanceof PropertyReferenceNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId });
-        } else if (!sendCommonError(res, error, 'nothing was changed')) {
+        if (!sendCommonError(res, error, 'nothing was changed')) {
           next(error);
         }
       });
@@ -89,10 +73,6 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
 
 /** Access and MRE availability errors shared by the commands; false if `error` is neither. */
 function sendCommonError(res: Response, error: unknown, outcome: string): boolean {
-  if (error instanceof AccessError) {
-    sendAccessError(res, error.code);
-    return true;
-  }
   if (error instanceof MreUnavailableError) {
     sendError(res, 503, 'EXTERNAL_SYSTEM_ERROR', `MRE is unavailable; ${outcome}.`);
     return true;

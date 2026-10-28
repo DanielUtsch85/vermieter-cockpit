@@ -1,23 +1,12 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  AcquisitionCancelledError,
-  AcquisitionCostNotFoundError,
-  AcquisitionNotFoundError,
-  AcquisitionPaymentNotFoundError,
   COST_CATEGORIES,
   COST_STATUSES,
-  CostHasPaymentsError,
-  IdempotencyKeyConflictError,
-  PartyNotFoundError,
-  PaymentRefusedError,
-  TransactionNotFoundError,
-  VersionConflictError,
   type AcquisitionCost,
   type AcquisitionPayment,
   type CreateAcquisitionCost,
   type LinkAcquisitionPayment,
-  type LinkRefusal,
   type ListAcquisitionCosts,
   type ListAcquisitionPayments,
   type PurchasePricePayments,
@@ -27,7 +16,6 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const uuid = z
@@ -92,9 +80,6 @@ export interface AcquisitionCostCommands {
 /** Acquisition costs and payment links (api-design.md §27.2, backlog VC-2-06). */
 export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router {
   const router = express.Router();
-  const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
-    if (!sendCostError(res, error)) next(error);
-  };
 
   router.post('/acquisitions/:acquisitionId/costs', express.json({ limit: '32kb' }), (req, res, next) => {
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
@@ -123,7 +108,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendOne(res.status(201), cost.version, costDto(cost));
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/acquisitions/:acquisitionId/costs/:costId/void', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -147,7 +132,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ cost }) => sendOne(res, cost.version, costDto(cost)))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/acquisitions/:acquisitionId/costs', (req, res, next) => {
@@ -161,7 +146,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
     commands
       .listCosts({ principal: principalOf(res), acquisitionId, filter: definedOnly(parsed.data) })
       .then((costs) => res.json({ items: costs.map(costDto) }))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/acquisitions/:acquisitionId/payments', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -187,7 +172,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendOne(res.status(201), payment.version, paymentDto(payment));
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/acquisitions/:acquisitionId/payments/:paymentId/unlink', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -211,7 +196,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ payment }) => sendOne(res, payment.version, paymentDto(payment)))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/acquisitions/:acquisitionId/payments', (req, res, next) => {
@@ -225,7 +210,7 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
     commands
       .listPayments({ principal: principalOf(res), acquisitionId, filter: definedOnly(parsed.data) })
       .then(({ purchasePrice, items }) => res.json({ purchasePrice: priceDto(purchasePrice), items: items.map(paymentDto) }))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   return router;
@@ -235,83 +220,6 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
 function sendOne(res: Response, version: number, body: unknown): void {
   res.setHeader('ETag', `"${version}"`);
   res.json(body);
-}
-
-/** The refusals of §27.2; false for anything else (→ the error handler). */
-function sendCostError(res: Response, error: unknown): boolean {
-  if (error instanceof AcquisitionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId });
-  } else if (error instanceof AcquisitionCostNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'AcquisitionCost not found.', { acquisitionCostId: error.acquisitionCostId });
-  } else if (error instanceof AcquisitionPaymentNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'AcquisitionPayment not found.', { paymentId: error.paymentId });
-  } else if (error instanceof TransactionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-  } else if (error instanceof PartyNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Party not found.', { partyId: error.partyId });
-  } else if (error instanceof AcquisitionCancelledError) {
-    sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition takes no cost or payment writes.', {
-      reason: 'ACQUISITION_CANCELLED',
-      acquisitionId: error.acquisitionId,
-    });
-  } else if (error instanceof CostHasPaymentsError) {
-    sendError(res, 409, 'CONFLICT', 'Payments are linked to this cost; unlink them first.', {
-      reason: 'COST_HAS_PAYMENTS',
-      paymentIds: error.paymentIds,
-    });
-  } else if (error instanceof PaymentRefusedError) {
-    sendRefusal(res, error.refusal);
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The resource changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
-}
-
-function sendRefusal(res: Response, refusal: LinkRefusal): void {
-  switch (refusal.kind) {
-    case 'ACQUISITION_CANCELLED':
-      sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition takes no cost or payment writes.', { reason: refusal.kind });
-      return;
-    case 'COST_VOID':
-      sendError(res, 409, 'CONFLICT', 'The cost is void.', { reason: refusal.kind });
-      return;
-    case 'TRANSACTION_NOT_CURRENT':
-      sendError(res, 422, refusal.kind, 'Only a current Transaction (CONFIRMED or RECONCILED, not a reversal) can be linked.', {
-        status: refusal.status,
-        correctionRole: refusal.correctionRole,
-      });
-      return;
-    case 'NOT_OUTFLOW':
-      sendError(res, 422, refusal.kind, 'Only an OUTFLOW Transaction pays an acquisition.');
-      return;
-    case 'CURRENCY_MISMATCH':
-      sendError(res, 422, refusal.kind, "The Transaction is not in the Acquisition's currency.");
-      return;
-    case 'PAYMENT_EXCEEDS_TRANSACTION':
-      sendError(res, 409, 'INVARIANT_VIOLATION', 'The payments would exceed the Transaction amount.', {
-        reason: refusal.kind,
-        transactionAmount: refusal.transactionAmount.toJSON(),
-        linkedAmount: refusal.linkedAmount.toJSON(),
-        available: refusal.available.toJSON(),
-      });
-      return;
-    case 'PAYMENT_EXCEEDS_COST':
-    case 'PAYMENT_EXCEEDS_PRICE':
-      sendError(res, 409, 'INVARIANT_VIOLATION', 'The payments would exceed the expected amount.', {
-        reason: refusal.kind,
-        expected: refusal.expected.toJSON(),
-        paid: refusal.paid.toJSON(),
-        remaining: refusal.remaining.toJSON(),
-      });
-      return;
-  }
 }
 
 function costDto(c: AcquisitionCost) {

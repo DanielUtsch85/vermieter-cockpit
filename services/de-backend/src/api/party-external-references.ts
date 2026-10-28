@@ -1,24 +1,14 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  AccessError,
-  ConcurrentUpdateError,
   EXTERNAL_REFERENCE_STATUSES,
-  ExternalReferenceInUseError,
-  ExternalReferenceNotFoundError,
   MRE_EXTERNAL_ID,
-  MreTenantNotFoundError,
-  MreUnavailableError,
-  PartyInactiveError,
-  PartyNotFoundError,
-  VersionConflictError,
   type CreateExternalReference,
   type EndExternalReference,
   type ListExternalReferences,
   type PartyExternalReference,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { sendAccessError, sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIfMatch, sendValidationError } from './validation.js';
 
 /** Phase 2: MRE Tenants only (api-design.md §20.1); `metadata` is not accepted yet. */
@@ -67,9 +57,7 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
         externalId: parsed.data.externalId,
       })
       .then(({ reference, created }) => sendReference(res.status(created ? 201 : 200), reference))
-      .catch((error: unknown) => {
-        if (!sendReferenceError(res, error, { partyId })) next(error);
-      });
+      .catch(next);
   });
 
   // Takes no body: ending only sets the status (§20.1).
@@ -88,9 +76,7 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ reference }) => sendReference(res, reference))
-      .catch((error: unknown) => {
-        if (!sendReferenceError(res, error, { partyId, externalReferenceId })) next(error);
-      });
+      .catch(next);
   });
 
   router.get('/parties/:partyId/external-references', (req, res, next) => {
@@ -107,9 +93,7 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
       .then((result) => {
         res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
       })
-      .catch((error: unknown) => {
-        if (!sendReferenceError(res, error, { partyId })) next(error);
-      });
+      .catch(next);
   });
 
   return router;
@@ -125,37 +109,6 @@ function readId(value: string | undefined, field: string, res: Response): string
 function sendReference(res: Response, reference: PartyExternalReference): void {
   res.setHeader('ETag', `"${reference.version}"`);
   res.json(toDto(reference));
-}
-
-/** The refusals of §20.1; false for anything else (→ the error handler). */
-function sendReferenceError(res: Response, error: unknown, ids: { partyId: string; externalReferenceId?: string }): boolean {
-  if (error instanceof PartyNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Party not found.', { partyId: ids.partyId });
-  } else if (error instanceof ExternalReferenceNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'External reference not found.', { externalReferenceId: ids.externalReferenceId });
-  } else if (error instanceof MreTenantNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'MRE Tenant not found in this Realm.', { externalId: error.externalId });
-  } else if (error instanceof ExternalReferenceInUseError) {
-    sendError(res, 409, 'CONFLICT', 'Another Party holds this external reference.', { reason: 'REFERENCE_IN_USE', partyId: error.partyId });
-  } else if (error instanceof PartyInactiveError) {
-    sendError(res, 409, 'CONFLICT', 'An inactive Party gets no new external reference.', { reason: 'PARTY_INACTIVE', partyId: error.partyId });
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The external reference changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof AccessError) {
-    sendAccessError(res, error.code);
-  } else if (error instanceof MreUnavailableError) {
-    sendError(res, 503, 'EXTERNAL_SYSTEM_ERROR', 'MRE is unavailable; nothing was written.');
-  } else if (error instanceof ConcurrentUpdateError) {
-    // Not a server fault: concurrent claims kept winning; nothing was written and a retry is safe (review on #41).
-    res.setHeader('Retry-After', '1');
-    sendError(res, 503, 'CONCURRENT_UPDATE', 'The external reference kept changing concurrently; nothing was written. Retry.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(reference: PartyExternalReference) {

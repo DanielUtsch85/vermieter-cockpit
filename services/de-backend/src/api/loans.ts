@@ -1,24 +1,8 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  AcquisitionNotFoundError,
   CLOSING_REASONS,
-  ClosingBeforeDebtError,
-  IdempotencyKeyConflictError,
   LOAN_STATUSES,
-  LoanClosedError,
-  LoanFieldsInvalidError,
-  LoanHasSplitsError,
-  LoanNotActiveError,
-  LoanNotFoundError,
-  LoanRefinancesError,
-  OwnerInactiveError,
-  PartyNotFoundError,
-  RefinancingLoanNotActiveError,
-  RefinancingLoanNotFoundError,
-  RemainingDebtNotZeroError,
-  SplitsAfterClosingError,
-  VersionConflictError,
   debtFrom,
   loanFieldErrors,
   type AmendLoan,
@@ -33,7 +17,6 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const uuid = z
@@ -156,9 +139,6 @@ export interface LoanCommands {
 /** Loan API (api-design.md §41.1, backlog VC-3-01). */
 export function loanRoutes(commands: LoanCommands): Router {
   const router = express.Router();
-  const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
-    if (!sendLoanError(res, error)) next(error);
-  };
 
   router.post('/loans', express.json({ limit: '32kb' }), (req, res, next) => {
     const idempotency = readIdempotencyKey(req, res);
@@ -188,7 +168,7 @@ export function loanRoutes(commands: LoanCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendLoan(res.status(201), loan);
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/loans', (req, res, next) => {
@@ -210,7 +190,7 @@ export function loanRoutes(commands: LoanCommands): Router {
     commands
       .get({ principal: principalOf(res), loanId })
       .then((loan) => sendLoan(res, loan))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/loans/:loanId/amend', express.json({ limit: '32kb' }), (req, res, next) => {
@@ -235,7 +215,7 @@ export function loanRoutes(commands: LoanCommands): Router {
     commands
       .amend({ principal: principalOf(res), loanId, changes, ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }) })
       .then(({ loan }) => sendLoan(res, loan))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/loans/:loanId/void', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -256,7 +236,7 @@ export function loanRoutes(commands: LoanCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ loan }) => sendLoan(res, loan))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/loans/:loanId/close', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -285,68 +265,16 @@ export function loanRoutes(commands: LoanCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ loan }) => sendLoan(res, loan))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   return router;
-}
-
-/** Signed cents as Money (a remaining debt may be negative). */
-function signedEurCents(cents: bigint) {
-  const abs = cents < 0n ? -cents : cents;
-  return { amount: `${cents < 0n ? '-' : ''}${abs / 100n}.${(abs % 100n).toString().padStart(2, '0')}`, currency: 'EUR' };
 }
 
 /** A single Loan with its version as `ETag` for the next `If-Match` (api-design.md §16.1). */
 function sendLoan(res: Response, loan: Loan): void {
   res.setHeader('ETag', `"${loan.version}"`);
   res.json(toDto(loan));
-}
-
-/** The refusals of §41.1; false for anything else (→ the error handler). */
-function sendLoanError(res: Response, error: unknown): boolean {
-  if (error instanceof LoanNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId });
-  } else if (error instanceof PartyNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Party not found.', { partyId: error.partyId });
-  } else if (error instanceof AcquisitionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId });
-  } else if (error instanceof OwnerInactiveError) {
-    sendError(res, 422, 'PARTY_INACTIVE', 'A new lender or borrower must be an active Party.', { partyId: error.partyId });
-  } else if (error instanceof LoanNotActiveError) {
-    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; it cannot change.`, { reason: 'LOAN_NOT_ACTIVE', status: error.status });
-  } else if (error instanceof LoanClosedError) {
-    sendError(res, 409, 'CONFLICT', 'A closed Loan is final.', { reason: 'LOAN_CLOSED', loanId: error.loanId });
-  } else if (error instanceof LoanHasSplitsError) {
-    sendError(res, 409, 'CONFLICT', 'Splits reference the Loan.', { reason: 'LOAN_HAS_SPLITS', transactionIds: error.transactionIds });
-  } else if (error instanceof LoanRefinancesError) {
-    sendError(res, 409, 'CONFLICT', 'A closed Loan names this one as its refinancing.', { reason: 'LOAN_REFINANCES', loanIds: error.loanIds });
-  } else if (error instanceof ClosingBeforeDebtError) {
-    sendError(res, 422, 'CLOSING_BEFORE_DEBT', 'The closing date is before the debt starts.', { debtFrom: error.debtFrom });
-  } else if (error instanceof RefinancingLoanNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Refinancing Loan not found.', { refinancedByLoanId: error.refinancedByLoanId });
-  } else if (error instanceof RefinancingLoanNotActiveError) {
-    sendError(res, 422, 'REFINANCING_LOAN_NOT_ACTIVE', 'The refinancing Loan must be ACTIVE.', { status: error.status });
-  } else if (error instanceof SplitsAfterClosingError) {
-    sendError(res, 409, 'CONFLICT', 'Splits name the Loan after the closing date.', { reason: 'SPLITS_AFTER_CLOSING', transactionIds: error.transactionIds });
-  } else if (error instanceof RemainingDebtNotZeroError) {
-    sendError(res, 409, 'CONFLICT', 'The remaining debt on the closing date is not 0.', {
-      reason: 'REMAINING_DEBT_NOT_ZERO',
-      actual: signedEurCents(error.actual),
-    });
-  } else if (error instanceof LoanFieldsInvalidError) {
-    sendValidationError(res, error.errors);
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The Loan changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(loan: Loan) {

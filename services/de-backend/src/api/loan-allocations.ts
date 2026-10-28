@@ -3,16 +3,7 @@ import { z } from 'zod';
 import {
   ALLOCATION_BASES,
   ALLOCATION_STATUSES,
-  AcquisitionNotFoundError,
-  AllocationNotLastError,
-  AllocationRefusedError,
-  IdempotencyKeyConflictError,
-  LoanAllocationSetNotFoundError,
-  LoanNotActiveError,
-  LoanNotFoundError,
   MAX_ALLOCATIONS,
-  PropertyReferenceNotFoundError,
-  VersionConflictError,
   formatShare,
   parseShare,
   sumsToOne,
@@ -27,7 +18,6 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const uuid = z
@@ -98,9 +88,6 @@ export interface LoanAllocationCommands {
 /** Loan allocation sets (api-design.md §41.3, backlog VC-3-03). */
 export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
   const router = express.Router();
-  const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
-    if (!sendAllocationError(res, error)) next(error);
-  };
 
   router.post('/loans/:loanId/allocations', express.json({ limit: '64kb' }), (req, res, next) => {
     const loanId = readId(req.params['loanId'], 'loanId', res);
@@ -132,7 +119,7 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendSet(res.status(201), set);
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/loans/:loanId/allocations/:allocationSetId/void', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -156,7 +143,7 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ set }) => sendSet(res, set))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/loans/:loanId/allocations', (req, res, next) => {
@@ -174,7 +161,7 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
       : commands.on({ principal, loanId, asOf }).then((set) => ({ asOf, set: set === null ? null : toDto(set) }))
     )
       .then((body) => res.json(body))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/property-references/:propertyReferenceId/loans', (req, res, next) => {
@@ -188,7 +175,7 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
     commands
       .propertyLoans({ principal: principalOf(res), propertyReferenceId, ...(parsed.data.asOf === undefined ? {} : { asOf: parsed.data.asOf }) })
       .then((items) => res.json({ items: items.map(toPropertyLoanDto) }))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   return router;
@@ -197,42 +184,6 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
 function sendSet(res: Response, set: LoanAllocationSetView): void {
   res.setHeader('ETag', `"${set.version}"`);
   res.json(toDto(set));
-}
-
-/** The refusals of §41.3; false for anything else (→ the error handler). */
-function sendAllocationError(res: Response, error: unknown): boolean {
-  if (error instanceof LoanNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId });
-  } else if (error instanceof LoanAllocationSetNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Allocation set not found.', { allocationSetId: error.allocationSetId });
-  } else if (error instanceof PropertyReferenceNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
-  } else if (error instanceof AcquisitionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Acquisition not found for this PropertyReference.', { acquisitionId: error.acquisitionId });
-  } else if (error instanceof LoanNotActiveError) {
-    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; its allocation cannot change.`, { reason: 'LOAN_NOT_ACTIVE', status: error.status });
-  } else if (error instanceof AllocationNotLastError) {
-    sendError(res, 409, 'CONFLICT', 'Only the last set is voided.', { reason: 'ALLOCATION_NOT_LAST', laterAllocationSetId: error.laterAllocationSetId });
-  } else if (error instanceof AllocationRefusedError) {
-    const r = error.refusal;
-    const details =
-      r.kind === 'ALLOCATION_BEFORE_DEBT'
-        ? { debtFrom: r.debtFrom }
-        : r.kind === 'ALLOCATION_NOT_APPENDED'
-          ? { lastValidFrom: r.lastValidFrom }
-          : { acquisitionId: r.acquisitionId };
-    sendError(res, 422, r.kind, 'The set cannot be appended.', details);
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The set changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(s: LoanAllocationSetView) {
