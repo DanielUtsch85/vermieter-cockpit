@@ -1,5 +1,7 @@
 # Readiness Reassessment — Vermieter Cockpit DE
 
+> **Archiv (Stand 2026-10):** Diese Bewertung prüfte die Dokumentation vor dem ersten Code. Ihre Befunde wurden mit Slice 1 geschlossen; das Verdikt unten gilt nicht mehr. Den aktuellen Stand nennen `README.md` und `docs/development/backlog.md`. Die Datei lag ursprünglich unter `docs/review/`.
+
 **Bewertungsstand:** 2026-08-14  
 **Prüfgegenstand:** unabhängige Nur-Lesen-Re-Review der Dokumentationskorrekturen zu P0.1–P0.4; P0.5 bleibt ein bewusst vor den ersten Code gesetztes mechanisches Gate. Die Erstbewertung lautete `NICHT BEREIT` und verlangte fünf konkrete Freigabeergebnisse (`docs/review/readiness-assessment.md:6`; `docs/review/readiness-assessment.md:88-98`).
 

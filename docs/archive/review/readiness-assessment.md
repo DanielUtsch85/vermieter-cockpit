@@ -1,5 +1,7 @@
 # Readiness Assessment — Vermieter Cockpit DE
 
+> **Archiv (Stand 2026-10):** Diese Bewertung prüfte die Dokumentation vor dem ersten Code. Ihre Befunde wurden mit Slice 1 geschlossen; das Verdikt unten gilt nicht mehr. Den aktuellen Stand nennen `README.md` und `docs/development/backlog.md`. Die Datei lag ursprünglich unter `docs/review/`.
+
 **Bewertungsstand:** 2026-08-14  
 **Prüfgegenstand:** produktiver Implementierungsstart für Roadmap Phase 0 und Phase 1; Phase 0 soll einen authentifizierten, leeren DE-Backend-Scaffold liefern, Phase 1 den MRE-Anker und das minimale Cash-Ledger (`docs/roadmap.md:37–60`).
 
