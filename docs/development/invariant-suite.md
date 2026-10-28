@@ -432,7 +432,7 @@ ACC3 also checks the traceability every write promises. On the Loan aggregates (
 **Counter-checks**, each of which turns ACC3 red:
 - the year's payments attributed by the set of the year's last day instead of each booking date. This replaces the counter-check planned in #73, the derived difference distributed directly: ACC3's planned parts are exact (238,195.50 is divisible by 3), so there the direct and the derived difference coincide. F4b stays counter-checked by §21's 3/7, 3/7, 1/7 counterexample;
 - reversals counted as payments;
-- the split guard's closing rule removed;
+- the closing rule of `checkLoanSplits` removed (the database guard is counter-checked in §22, LC);
 - the Realm filter dropped from the remaining-debt read;
 - an extra Phase-3 route without a row;
 - a missing `CLOSED` AuditRecord.
