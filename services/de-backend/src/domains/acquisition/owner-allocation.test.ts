@@ -42,14 +42,26 @@ const input = (overrides: Partial<OwnerAllocationInput> = {}): OwnerAllocationIn
   allocation: null,
   ...overrides,
 });
-const amounts = (plan: ReturnType<typeof planOwnerAllocation>, pick: (o: { landAmount: Money | null; buildingAmount: Money | null; totalAllocableAmount: Money | null }) => Money | null) =>
-  plan.kind === 'ALLOCATED' ? plan.owners.map((o) => pick(o)?.amount) : [];
+const amounts = (
+  plan: ReturnType<typeof planOwnerAllocation>,
+  pick: (o: { landAmount: Money | null; buildingAmount: Money | null; totalAllocableAmount: Money | null }) => Money | null,
+) => (plan.kind === 'ALLOCATED' ? plan.owners.map((o) => pick(o)?.amount) : []);
 
 describe('largestRemainder', () => {
   it('floor first, the rest to the largest remainders, ties by key', () => {
     const third = { numerator: 1n, denominator: 3n };
-    expect(largestRemainder(100n, [{ key: 'b', weight: third }, { key: 'a', weight: third }, { key: 'c', weight: third }])).toEqual(
-      new Map([['b', 33n], ['a', 34n], ['c', 33n]]),
+    expect(
+      largestRemainder(100n, [
+        { key: 'b', weight: third },
+        { key: 'a', weight: third },
+        { key: 'c', weight: third },
+      ]),
+    ).toEqual(
+      new Map([
+        ['b', 33n],
+        ['a', 34n],
+        ['c', 33n],
+      ]),
     );
     expect(largestRemainder(0n, [{ key: 'a', weight: { numerator: 1n, denominator: 1n } }])).toEqual(new Map([['a', 0n]]));
     expect(() => largestRemainder(-1n, [])).toThrow(RangeError);
@@ -62,12 +74,20 @@ describe('largestRemainder', () => {
       { key: 'b', weight: { numerator: 1n, denominator: 3n } },
       { key: 'c', weight: { numerator: 1n, denominator: 2n } },
     ];
-    expect(largestRemainder(1n, weights)).toEqual(new Map([['a', 0n], ['b', 0n], ['c', 1n]]));
+    expect(largestRemainder(1n, weights)).toEqual(
+      new Map([
+        ['a', 0n],
+        ['b', 0n],
+        ['c', 1n],
+      ]),
+    );
   });
 
   it('stays exact above 2^53 cents, where a floating-point variant is off by one (review on #55)', () => {
     // Number(9007199254740995n) is 9007199254740996: any float step would overshoot here.
-    expect(largestRemainder(9_007_199_254_740_995n, [{ key: 'a', weight: { numerator: 1n, denominator: 1n } }])).toEqual(new Map([['a', 9_007_199_254_740_995n]]));
+    expect(largestRemainder(9_007_199_254_740_995n, [{ key: 'a', weight: { numerator: 1n, denominator: 1n } }])).toEqual(
+      new Map([['a', 9_007_199_254_740_995n]]),
+    );
     const third = { numerator: 1n, denominator: 3n };
     const parts = largestRemainder(99_999_999_999_999_999_999n, [
       { key: 'a', weight: third },
@@ -102,7 +122,12 @@ describe('planOwnerAllocation', () => {
     expect(amounts(plan, (o) => o.buildingAmount)).toEqual(['0.01', '0.00', '0.00']);
     expect(amounts(plan, (o) => o.totalAllocableAmount)).toEqual(['0.05', '0.04', '0.02']);
     // Distributing the total 0.11 directly would give 5/5/1: the reason totals are derived (F4b).
-    expect([...largestRemainder(11n, [3n, 3n, 1n].map((n, i) => ({ key: `p${i + 1}`, weight: { numerator: n, denominator: 7n } }))).values()]).toEqual([5n, 5n, 1n]);
+    expect([
+      ...largestRemainder(
+        11n,
+        [3n, 3n, 1n].map((n, i) => ({ key: `p${i + 1}`, weight: { numerator: n, denominator: 7n } })),
+      ).values(),
+    ]).toEqual([5n, 5n, 1n]);
   });
 
   it('a partial acquisition: the buyer of 1/2 has weight 1/1 and carries everything; costs per category, totals derived', () => {
@@ -132,7 +157,10 @@ describe('planOwnerAllocation', () => {
     const draft = acquisition(['p1', 'p2'], { status: 'DRAFT', acquiredShare: { numerator: 1, denominator: 2 } });
     expect(planOwnerAllocation(input({ acquisition: draft, own: [own('o1', 'p1', 1, 4), own('o2', 'p2', 1, 4)] }))).toMatchObject({ basis: 'PROVISIONAL' });
     const stranger = planOwnerAllocation(input({ acquisition: draft, own: [own('o1', 'p1', 1, 4), own('o2', 'x', 1, 4)] }));
-    expect(stranger).toMatchObject({ kind: 'OWNERSHIP_BASIS_INCOMPLETE', violations: [{ code: 'OWNER_NOT_A_BUYER' }, { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'p2' }] });
+    expect(stranger).toMatchObject({
+      kind: 'OWNERSHIP_BASIS_INCOMPLETE',
+      violations: [{ code: 'OWNER_NOT_A_BUYER' }, { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'p2' }],
+    });
     const twice = planOwnerAllocation(input({ acquisition: draft, own: [own('o1', 'p1', 1, 8), own('o3', 'p1', 1, 8, '2027-01-01'), own('o2', 'p2', 1, 4)] }));
     expect(twice).toMatchObject({ kind: 'OWNERSHIP_BASIS_INCOMPLETE', violations: [{ code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: 'o3' }] });
   });
@@ -163,7 +191,8 @@ describe('planOwnerAllocation', () => {
       });
       // Up to just under 10^19 cents, far above 2^53 (≈ 9·10^15), so a floating-point step would show (review on #55);
       // bounded so that the sums of up to four categories stay within Money's 18 integer digits.
-      const cents = () => (BigInt(random(100_000_000)) * 100_000_000_000n + BigInt(random(1_000_000_000)) * 100n + BigInt(random(100))) % 10_000_000_000_000_000_000n;
+      const cents = () =>
+        (BigInt(random(100_000_000)) * 100_000_000_000n + BigInt(random(1_000_000_000)) * 100n + BigInt(random(100))) % 10_000_000_000_000_000_000n;
       const amount = (c: bigint) => fromCents(c, 'EUR');
       const priceCents = cents() + 1n;
       const costs = new Map<CostCategory, Money>(categories.slice(0, random(5)).map((c) => [c, amount(cents())]));

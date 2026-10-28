@@ -35,11 +35,18 @@ const split = (amount: string, financialCategoryCode: string, loanId: string | n
   loanId,
   description: null,
 });
-const statement = (statementDate: string, balance: string, source = 'Jahreskontoauszug 2027'): StatementData => ({ statementDate: day(statementDate), balance: eur(balance), source, notes: null });
+const statement = (statementDate: string, balance: string, source = 'Jahreskontoauszug 2027'): StatementData => ({
+  statementDate: day(statementDate),
+  balance: eur(balance),
+  source,
+  notes: null,
+});
 
 async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
   const deadline = Date.now() + 5_000;
-  while (Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count) {
+  while (
+    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count
+  ) {
     if (Date.now() > deadline) throw new Error(`fewer than ${count} sessions wait on a lock`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -47,7 +54,9 @@ async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
 
 /** The trigger's own reason, the constraint's name, or the error code. */
 function reasonOf(error: { message?: string; constraint?: string; code?: string }): string {
-  return error.constraint ?? /\(([A-Z_]+)\)|only inserted VALID|never edited|never deleted|the only step/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error';
+  return (
+    error.constraint ?? /\(([A-Z_]+)\)|only inserted VALID|never edited|never deleted|the only step/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error'
+  );
 }
 
 describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements (§41.6)', () => {
@@ -89,7 +98,17 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -161,9 +180,20 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
     return outcome.set.id;
   }
   async function transaction(bookingDate: string, amount: string, realm = REALM): Promise<string> {
-    const { account } = (await accounts.create({ mreRealmId: realm, accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: null }, actor)) as { account: { id: string } };
+    const { account } = (await accounts.create({ mreRealmId: realm, accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: null }, actor)) as {
+      account: { id: string };
+    };
     const created = await transactions.createManual(
-      { mreRealmId: realm, financialAccountId: account.id, amount: eur(amount), direction: 'OUTFLOW', bookingDate: day(bookingDate), valueDate: null, description: 'Rate', propertyReferenceId: null },
+      {
+        mreRealmId: realm,
+        financialAccountId: account.id,
+        amount: eur(amount),
+        direction: 'OUTFLOW',
+        bookingDate: day(bookingDate),
+        valueDate: null,
+        description: 'Rate',
+        propertyReferenceId: null,
+      },
       actor,
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
@@ -198,7 +228,10 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
       ]);
       await pay(l.id, '2027-01-31', '5.00', '295.00');
       await pay(l.id, '2027-02-28', '3.53', '296.47');
-      expect(await debtOf(l.id, '2027-03-15')).toMatchObject({ kind: 'LOAN_LEVEL', debt: { principalPaid: 59_147n, actual: 40_853n, planned: 40_853n, difference: 0n } });
+      expect(await debtOf(l.id, '2027-03-15')).toMatchObject({
+        kind: 'LOAN_LEVEL',
+        debt: { principalPaid: 59_147n, actual: 40_853n, planned: 40_853n, difference: 0n },
+      });
       expect(await debtOf(l.id, '2027-03-15', true)).toMatchObject({
         kind: 'PER_PROPERTY',
         debt: {
@@ -216,7 +249,12 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
       const reversed = await pay(l.id, '2027-01-31', '5.00', '100.00');
       expect((await corrections.correct(reversed, REALM, { reason: 'doppelt', replacement: null }, actor)).kind).toBe('CORRECTED');
       const corrected = await pay(l.id, '2027-01-31', '5.00', '200.00');
-      const replacement = await corrections.correct(corrected, REALM, { reason: 'Betrag', replacement: { splits: [split('10.00', 'LOAN_INTEREST', l.id), split('195.00', 'LOAN_PRINCIPAL', l.id)] } }, actor);
+      const replacement = await corrections.correct(
+        corrected,
+        REALM,
+        { reason: 'Betrag', replacement: { splits: [split('10.00', 'LOAN_INTEREST', l.id), split('195.00', 'LOAN_PRINCIPAL', l.id)] } },
+        actor,
+      );
       expect(replacement.kind).toBe('CORRECTED');
       await pay(other.id, '2027-01-31', '5.00', '295.00');
       expect((await inputsOf(l.id)).splits.map((s) => [s.category, s.amount])).toEqual([
@@ -302,13 +340,38 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
       expect(await debt.createStatement(foreign.id, REALM, statement('2027-01-10', '1.00'), actor)).toEqual({ kind: 'LOAN_NOT_FOUND' });
       expect(await debt.createStatement('nope', REALM, statement('2027-01-10', '1.00'), actor)).toEqual({ kind: 'LOAN_NOT_FOUND' });
       expect(await debt.createStatement(voided.id, REALM, statement('2020-01-01', '1.00'), actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
-      expect(await debt.createStatement(l.id, REALM, statement('2027-01-09', '1.00'), actor)).toEqual({ kind: 'STATEMENT_BEFORE_DEBT', debtFrom: '2027-01-10' });
+      expect(await debt.createStatement(l.id, REALM, statement('2027-01-09', '1.00'), actor)).toEqual({
+        kind: 'STATEMENT_BEFORE_DEBT',
+        debtFrom: '2027-01-10',
+      });
       await pay(l.id, '2027-01-31', '5.00', '295.00');
       const created = await debt.createStatement(l.id, REALM, statement('2027-01-31', '705.10'), actor);
-      expect(created).toMatchObject({ kind: 'CREATED', statement: { status: 'VALID', version: 1, statementDate: '2027-01-31', source: 'Jahreskontoauszug 2027', comparison: { actualOnDate: 70_500n, difference: 10n } } });
+      expect(created).toMatchObject({
+        kind: 'CREATED',
+        statement: {
+          status: 'VALID',
+          version: 1,
+          statementDate: '2027-01-31',
+          source: 'Jahreskontoauszug 2027',
+          comparison: { actualOnDate: 70_500n, difference: 10n },
+        },
+      });
       if (created.kind !== 'CREATED') return;
-      const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'LoanBalanceStatement' AND entity_id = $1`, [created.statement.id]);
-      expect(audit.rows).toEqual([{ action: 'CREATED', metadata: { loanId: l.id, statementDate: '2027-01-31', balance: { amount: '705.10', currency: 'EUR' }, source: 'Jahreskontoauszug 2027', notes: null } }]);
+      const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'LoanBalanceStatement' AND entity_id = $1`, [
+        created.statement.id,
+      ]);
+      expect(audit.rows).toEqual([
+        {
+          action: 'CREATED',
+          metadata: {
+            loanId: l.id,
+            statementDate: '2027-01-31',
+            balance: { amount: '705.10', currency: 'EUR' },
+            source: 'Jahreskontoauszug 2027',
+            notes: null,
+          },
+        },
+      ]);
       expect((await pool.query(`SELECT count(*)::int AS n FROM loan_balance_statement WHERE loan_id = $1`, [l.id])).rows[0].n).toBe(1);
     });
 
@@ -318,8 +381,13 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
       const first = await debt.createStatement(l.id, REALM, statement('2027-01-31', '705.00'), actor, key);
       await pay(l.id, '2027-01-31', '5.00', '295.00');
       const again = await debt.createStatement(l.id, REALM, statement('2027-01-31', '705.00'), actor, key);
-      expect(again).toMatchObject({ kind: 'REPLAYED', statement: { id: first.kind === 'CREATED' ? first.statement.id : '', comparison: { actualOnDate: 70_500n, difference: 0n } } });
-      expect(await debt.createStatement(l.id, REALM, statement('2027-01-31', '1.00'), actor, { ...key, fingerprint: 'f2' })).toEqual({ kind: 'IDEMPOTENCY_CONFLICT' });
+      expect(again).toMatchObject({
+        kind: 'REPLAYED',
+        statement: { id: first.kind === 'CREATED' ? first.statement.id : '', comparison: { actualOnDate: 70_500n, difference: 0n } },
+      });
+      expect(await debt.createStatement(l.id, REALM, statement('2027-01-31', '1.00'), actor, { ...key, fingerprint: 'f2' })).toEqual({
+        kind: 'IDEMPOTENCY_CONFLICT',
+      });
       expect((await pool.query(`SELECT count(*)::int AS n FROM loan_balance_statement WHERE loan_id = $1`, [l.id])).rows[0].n).toBe(1);
     });
 
@@ -328,12 +396,20 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
       const created = await debt.createStatement(l.id, REALM, statement('2027-01-31', '705.00'), actor);
       if (created.kind !== 'CREATED') throw new Error(created.kind);
       const id = created.statement.id;
-      expect(await debt.voidStatement(l.id, id, REALM, 'x', new Date(), actor, [7])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [7], currentVersion: 1 });
+      expect(await debt.voidStatement(l.id, id, REALM, 'x', new Date(), actor, [7])).toEqual({
+        kind: 'VERSION_CONFLICT',
+        expectedVersions: [7],
+        currentVersion: 1,
+      });
       expect(await debt.voidStatement(other.id, id, REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_FOUND' });
       expect(await debt.voidStatement(l.id, id, OTHER_REALM, 'x', new Date(), actor)).toEqual({ kind: 'NOT_FOUND' });
       const voided = await debt.voidStatement(l.id, id, REALM, 'Tippfehler', new Date('2027-07-01T00:00:00Z'), actor, [1]);
       expect(voided).toMatchObject({ kind: 'VOIDED', changed: true, statement: { status: 'VOID', voidReason: 'Tippfehler', version: 2 } });
-      expect(await debt.voidStatement(l.id, id, REALM, 'anders', new Date(), actor, [1])).toMatchObject({ kind: 'VOIDED', changed: false, statement: { voidReason: 'Tippfehler', version: 2 } });
+      expect(await debt.voidStatement(l.id, id, REALM, 'anders', new Date(), actor, [1])).toMatchObject({
+        kind: 'VOIDED',
+        changed: false,
+        statement: { voidReason: 'Tippfehler', version: 2 },
+      });
       const audit = await pool.query(`SELECT action FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at`, [id]);
       expect(audit.rows.map((r) => r.action)).toEqual(['CREATED', 'VOIDED']);
 
@@ -431,7 +507,9 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
         await one.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
         await one.query('SELECT 1');
         await two.query('BEGIN');
-        await two.query(`UPDATE loan_balance_statement SET status = 'VOID', voided_at = now(), void_reason = 'x', version = 2 WHERE id = $1`, [created.statement.id]);
+        await two.query(`UPDATE loan_balance_statement SET status = 'VOID', voided_at = now(), void_reason = 'x', version = 2 WHERE id = $1`, [
+          created.statement.id,
+        ]);
         const second = one.query(rawVoid(l.id)).then(
           () => 'written',
           (error: { code?: string }) => error.code,

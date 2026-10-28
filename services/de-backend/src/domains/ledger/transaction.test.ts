@@ -41,13 +41,10 @@ describe('parseBusinessDate', () => {
     expect(parseBusinessDate(value)).toBe(value);
   });
 
-  it.each(['2026-02-30', '2025-02-29', '2026-13-01', '2026-9-1', '2026-09-01T00:00:00Z', '01.09.2026', ''])(
-    'rejects %j',
-    (value) => {
-      expect(parseBusinessDate(value)).toBeUndefined();
-      expect(checkBusinessDate(value)).toEqual({ error: 'INVALID_FORMAT' });
-    },
-  );
+  it.each(['2026-02-30', '2025-02-29', '2026-13-01', '2026-9-1', '2026-09-01T00:00:00Z', '01.09.2026', ''])('rejects %j', (value) => {
+    expect(parseBusinessDate(value)).toBeUndefined();
+    expect(checkBusinessDate(value)).toEqual({ error: 'INVALID_FORMAT' });
+  });
 
   it.each([
     ['0202-03-01', 'a typo year (would book into the year 202)'],

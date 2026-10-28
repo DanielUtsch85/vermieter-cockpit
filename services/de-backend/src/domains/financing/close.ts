@@ -63,7 +63,9 @@ export function planClose(
     if (refinancing.status !== 'ACTIVE') return { kind: 'REFINANCING_LOAN_NOT_ACTIVE', status: refinancing.status };
   }
   if (splitsAfter.length > 0) {
-    const ordered = [...splitsAfter].sort((x, y) => (x.bookingDate !== y.bookingDate ? (x.bookingDate < y.bookingDate ? -1 : 1) : x.transactionId < y.transactionId ? -1 : 1));
+    const ordered = [...splitsAfter].sort((x, y) =>
+      x.bookingDate !== y.bookingDate ? (x.bookingDate < y.bookingDate ? -1 : 1) : x.transactionId < y.transactionId ? -1 : 1,
+    );
     return { kind: 'SPLITS_AFTER_CLOSING', transactionIds: [...new Set(ordered.map((s) => s.transactionId))] };
   }
   const settledAmount = actualOn(loan, counted, request.closingDate);

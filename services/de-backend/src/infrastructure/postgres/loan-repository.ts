@@ -104,71 +104,74 @@ export class PostgresLoanRepository implements LoanRepository {
 
   async create(loan: NewLoan, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateLoanOutcome> {
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CreateLoanOutcome> => {
-        const keyed =
-          idempotency === undefined
-            ? undefined
-            : { ref: { mreRealmId: loan.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key }, fingerprint: idempotency.fingerprint };
-        if (keyed !== undefined) {
-          const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', loan: fromSnapshot(claim.result) };
-        }
-        // Lender, then each borrower, in the order given (§41.1); all locked FOR SHARE in id order first.
-        const named = [loan.lenderPartyId, ...loan.borrowerPartyIds];
-        const status = await lockParties(trx, named, loan.mreRealmId);
-        for (const partyId of named) {
-          if (!status.has(partyId)) throw new Rejected({ kind: 'PARTY_NOT_FOUND', partyId });
-        }
-        if (loan.acquisitionId !== null) {
-          const acquisition = await trx
-            .selectFrom('acquisition')
-            .select('id')
-            .where('id', '=', loan.acquisitionId)
-            .where('mre_realm_id', '=', loan.mreRealmId)
-            .executeTakeFirst();
-          if (acquisition === undefined) throw new Rejected({ kind: 'ACQUISITION_NOT_FOUND', acquisitionId: loan.acquisitionId });
-        }
-        for (const partyId of named) {
-          if (status.get(partyId) !== 'ACTIVE') throw new Rejected({ kind: 'PARTY_INACTIVE', partyId });
-        }
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<CreateLoanOutcome> => {
+          const keyed =
+            idempotency === undefined
+              ? undefined
+              : { ref: { mreRealmId: loan.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key }, fingerprint: idempotency.fingerprint };
+          if (keyed !== undefined) {
+            const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', loan: fromSnapshot(claim.result) };
+          }
+          // Lender, then each borrower, in the order given (§41.1); all locked FOR SHARE in id order first.
+          const named = [loan.lenderPartyId, ...loan.borrowerPartyIds];
+          const status = await lockParties(trx, named, loan.mreRealmId);
+          for (const partyId of named) {
+            if (!status.has(partyId)) throw new Rejected({ kind: 'PARTY_NOT_FOUND', partyId });
+          }
+          if (loan.acquisitionId !== null) {
+            const acquisition = await trx
+              .selectFrom('acquisition')
+              .select('id')
+              .where('id', '=', loan.acquisitionId)
+              .where('mre_realm_id', '=', loan.mreRealmId)
+              .executeTakeFirst();
+            if (acquisition === undefined) throw new Rejected({ kind: 'ACQUISITION_NOT_FOUND', acquisitionId: loan.acquisitionId });
+          }
+          for (const partyId of named) {
+            if (status.get(partyId) !== 'ACTIVE') throw new Rejected({ kind: 'PARTY_INACTIVE', partyId });
+          }
 
-        const { id } = await trx
-          .insertInto('loan')
-          .values({
-            mre_realm_id: loan.mreRealmId,
-            status: 'ACTIVE' satisfies LoanStatus,
-            lender_party_id: loan.lenderPartyId,
-            borrower_party_ids: [...loan.borrowerPartyIds],
-            principal_original: toNumericAmount(loan.principalOriginal),
-            currency: loan.principalOriginal.currency,
-            start_date: loan.startDate,
-            disbursement_date: loan.disbursementDate,
-            maturity_date: loan.maturityDate,
-            contract_number: loan.contractNumber,
-            acquisition_id: loan.acquisitionId,
-            source_references: [...loan.sourceReferences],
-            notes: loan.notes,
-            created_by: actor.actorId,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        const created = await readOne(trx, id);
-        if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, id, toSnapshot(created));
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
-          newVersion: created.version,
-          metadata: {
-            principalOriginal: created.principalOriginal.toJSON(),
-            startDate: created.startDate,
-            disbursementDate: created.disbursementDate,
-            maturityDate: created.maturityDate,
-            lenderPartyId: created.lenderPartyId,
-            borrowerPartyIds: created.borrowerPartyIds,
-            acquisitionId: created.acquisitionId,
-          },
+          const { id } = await trx
+            .insertInto('loan')
+            .values({
+              mre_realm_id: loan.mreRealmId,
+              status: 'ACTIVE' satisfies LoanStatus,
+              lender_party_id: loan.lenderPartyId,
+              borrower_party_ids: [...loan.borrowerPartyIds],
+              principal_original: toNumericAmount(loan.principalOriginal),
+              currency: loan.principalOriginal.currency,
+              start_date: loan.startDate,
+              disbursement_date: loan.disbursementDate,
+              maturity_date: loan.maturityDate,
+              contract_number: loan.contractNumber,
+              acquisition_id: loan.acquisitionId,
+              source_references: [...loan.sourceReferences],
+              notes: loan.notes,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          const created = await readOne(trx, id);
+          if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, id, toSnapshot(created));
+          await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
+            newVersion: created.version,
+            metadata: {
+              principalOriginal: created.principalOriginal.toJSON(),
+              startDate: created.startDate,
+              disbursementDate: created.disbursementDate,
+              maturityDate: created.maturityDate,
+              lenderPartyId: created.lenderPartyId,
+              borrowerPartyIds: created.borrowerPartyIds,
+              acquisitionId: created.acquisitionId,
+            },
+          });
+          return { kind: 'CREATED', loan: created };
         });
-        return { kind: 'CREATED', loan: created };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;
       throw error;
@@ -183,164 +186,183 @@ export class PostgresLoanRepository implements LoanRepository {
 
   async list(mreRealmId: string, filter: LoanFilter, page: { readonly page: number; readonly pageSize: number }): Promise<LoanPage> {
     // Count and page in one snapshot, so `total` and `items` agree.
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const filtered = () => {
-        let query = trx.selectFrom('loan').where('mre_realm_id', '=', mreRealmId);
-        if (filter.status !== undefined) query = query.where('status', '=', filter.status);
-        if (filter.acquisitionId !== undefined) query = query.where('acquisition_id', '=', filter.acquisitionId);
-        const partyId = filter.partyId;
-        if (partyId !== undefined) {
-          query = query.where((eb) => eb.or([eb('lender_party_id', '=', partyId), eb(sql<boolean>`borrower_party_ids @> ARRAY[${partyId}]::uuid[]`, '=', true)]));
-        }
-        return query;
-      };
-      const { n } = await filtered()
-        .select((eb) => eb.fn.countAll<string>().as('n'))
-        .executeTakeFirstOrThrow();
-      const rows = await filtered()
-        .select(COLUMNS)
-        .orderBy('start_date', 'desc')
-        .orderBy('created_at', 'desc')
-        .orderBy('id')
-        .limit(page.pageSize)
-        .offset((page.page - 1) * page.pageSize)
-        .execute();
-      return { items: rows.map(toLoan), page: page.page, pageSize: page.pageSize, total: Number(n) };
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const filtered = () => {
+          let query = trx.selectFrom('loan').where('mre_realm_id', '=', mreRealmId);
+          if (filter.status !== undefined) query = query.where('status', '=', filter.status);
+          if (filter.acquisitionId !== undefined) query = query.where('acquisition_id', '=', filter.acquisitionId);
+          const partyId = filter.partyId;
+          if (partyId !== undefined) {
+            query = query.where((eb) =>
+              eb.or([eb('lender_party_id', '=', partyId), eb(sql<boolean>`borrower_party_ids @> ARRAY[${partyId}]::uuid[]`, '=', true)]),
+            );
+          }
+          return query;
+        };
+        const { n } = await filtered()
+          .select((eb) => eb.fn.countAll<string>().as('n'))
+          .executeTakeFirstOrThrow();
+        const rows = await filtered()
+          .select(COLUMNS)
+          .orderBy('start_date', 'desc')
+          .orderBy('created_at', 'desc')
+          .orderBy('id')
+          .limit(page.pageSize)
+          .offset((page.page - 1) * page.pageSize)
+          .execute();
+        return { items: rows.map(toLoan), page: page.page, pageSize: page.pageSize, total: Number(n) };
+      });
   }
 
   async amend(id: string, mreRealmId: string, changes: LoanChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendLoanOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<AmendLoanOutcome> => {
-      // Parties → Loan (§41.1): every Party the changes name, a superset of the newly named ones, FOR SHARE first.
-      const named = [...(changes.lenderPartyId === undefined ? [] : [changes.lenderPartyId]), ...(changes.borrowerPartyIds ?? [])];
-      const status = await lockParties(trx, named, mreRealmId);
-      const row = await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
-      if (row === undefined) return { kind: 'NOT_FOUND' };
-      const current = toLoan(row);
-      const plan = planAmend(current, changes);
-      if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', loan: current, changed: false };
-      if (plan.kind !== 'AMEND') return plan;
-      for (const partyId of plan.newPartyIds) {
-        if (!status.has(partyId)) return { kind: 'PARTY_NOT_FOUND', partyId };
-      }
-      for (const partyId of plan.newPartyIds) {
-        if (status.get(partyId) !== 'ACTIVE') return { kind: 'PARTY_INACTIVE', partyId };
-      }
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx
-        .updateTable('loan')
-        .set((eb) => ({
-          ...Object.fromEntries(plan.changed.map((field) => [COLUMN[field], toColumn(plan.values[field])])),
-          version: eb('version', '+', 1),
-          updated_at: new Date(),
-        }))
-        .where('id', '=', id)
-        .execute();
-      const amended = await readOne(trx, id);
-      await writeAudit(trx, { type: ENTITY_TYPE, id }, 'AMENDED', actor, {
-        previousVersion: current.version,
-        newVersion: amended.version,
-        metadata: { changes: Object.fromEntries(plan.changed.map((field) => [field, { from: current[field], to: amended[field] }])) },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<AmendLoanOutcome> => {
+        // Parties → Loan (§41.1): every Party the changes name, a superset of the newly named ones, FOR SHARE first.
+        const named = [...(changes.lenderPartyId === undefined ? [] : [changes.lenderPartyId]), ...(changes.borrowerPartyIds ?? [])];
+        const status = await lockParties(trx, named, mreRealmId);
+        const row = await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const current = toLoan(row);
+        const plan = planAmend(current, changes);
+        if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', loan: current, changed: false };
+        if (plan.kind !== 'AMEND') return plan;
+        for (const partyId of plan.newPartyIds) {
+          if (!status.has(partyId)) return { kind: 'PARTY_NOT_FOUND', partyId };
+        }
+        for (const partyId of plan.newPartyIds) {
+          if (status.get(partyId) !== 'ACTIVE') return { kind: 'PARTY_INACTIVE', partyId };
+        }
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('loan')
+          .set((eb) => ({
+            ...Object.fromEntries(plan.changed.map((field) => [COLUMN[field], toColumn(plan.values[field])])),
+            version: eb('version', '+', 1),
+            updated_at: new Date(),
+          }))
+          .where('id', '=', id)
+          .execute();
+        const amended = await readOne(trx, id);
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'AMENDED', actor, {
+          previousVersion: current.version,
+          newVersion: amended.version,
+          metadata: { changes: Object.fromEntries(plan.changed.map((field) => [field, { from: current[field], to: amended[field] }])) },
+        });
+        return { kind: 'AMENDED', loan: amended, changed: true };
       });
-      return { kind: 'AMENDED', loan: amended, changed: true };
-    });
   }
 
   async close(id: string, mreRealmId: string, request: CloseRequest, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseLoanOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CloseLoanOutcome> => {
-      // P3-D8: the Loan and the named one in id order, so two closes naming each other cannot deadlock.
-      const locked = await lockLoansOf(trx, mreRealmId, [id, ...(request.refinancedByLoanId === null ? [] : [request.refinancedByLoanId])]);
-      if (!locked.has(id)) return { kind: 'NOT_FOUND' };
-      const current = (await readLoanIn(trx, id, mreRealmId)) as Loan;
-      const refinancing =
-        request.reason === 'REFINANCED' && request.refinancedByLoanId !== null && locked.has(request.refinancedByLoanId)
-          ? await readLoanIn(trx, request.refinancedByLoanId, mreRealmId)
-          : undefined;
-      // Read after the Loan lock and unlocked: a split write takes the Loan row after its Transaction (P3-D8).
-      const after = await trx
-        .selectFrom('transaction_split as s')
-        .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
-        .select(['s.transaction_id', sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date')])
-        .where('s.loan_id', '=', id)
-        .where(sql<boolean>`t.booking_date > ${request.closingDate}::date`)
-        .where('t.status', '<>', 'CORRECTED')
-        .where((eb) => eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]))
-        .execute();
-      const plan = planClose(
-        current,
-        request,
-        refinancing,
-        after.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate })),
-        await countedSplitsOf(trx, id),
-      );
-      if (plan.kind === 'UNCHANGED') return { kind: 'CLOSED', loan: current, changed: false };
-      if (plan.kind !== 'CLOSE') return plan;
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      const at = new Date();
-      await trx
-        .updateTable('loan')
-        .set({
-          status: 'CLOSED' satisfies LoanStatus,
-          closing_date: request.closingDate,
-          closing_reason: request.reason,
-          refinanced_by_loan_id: request.refinancedByLoanId,
-          closing_note: request.closingNote,
-          version: plan.next.version,
-          updated_at: at,
-        })
-        .where('id', '=', id)
-        .execute();
-      const closed = await readOne(trx, id);
-      await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CLOSED', actor, {
-        previousVersion: current.version,
-        newVersion: closed.version,
-        metadata: {
-          closingDate: request.closingDate,
-          reason: request.reason,
-          refinancedByLoanId: request.refinancedByLoanId,
-          closingNote: request.closingNote,
-          settledAmount: signedAmount(plan.settledAmount, closed.principalOriginal.currency),
-        },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<CloseLoanOutcome> => {
+        // P3-D8: the Loan and the named one in id order, so two closes naming each other cannot deadlock.
+        const locked = await lockLoansOf(trx, mreRealmId, [id, ...(request.refinancedByLoanId === null ? [] : [request.refinancedByLoanId])]);
+        if (!locked.has(id)) return { kind: 'NOT_FOUND' };
+        const current = (await readLoanIn(trx, id, mreRealmId)) as Loan;
+        const refinancing =
+          request.reason === 'REFINANCED' && request.refinancedByLoanId !== null && locked.has(request.refinancedByLoanId)
+            ? await readLoanIn(trx, request.refinancedByLoanId, mreRealmId)
+            : undefined;
+        // Read after the Loan lock and unlocked: a split write takes the Loan row after its Transaction (P3-D8).
+        const after = await trx
+          .selectFrom('transaction_split as s')
+          .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
+          .select(['s.transaction_id', sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date')])
+          .where('s.loan_id', '=', id)
+          .where(sql<boolean>`t.booking_date > ${request.closingDate}::date`)
+          .where('t.status', '<>', 'CORRECTED')
+          .where((eb) => eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]))
+          .execute();
+        const plan = planClose(
+          current,
+          request,
+          refinancing,
+          after.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate })),
+          await countedSplitsOf(trx, id),
+        );
+        if (plan.kind === 'UNCHANGED') return { kind: 'CLOSED', loan: current, changed: false };
+        if (plan.kind !== 'CLOSE') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        const at = new Date();
+        await trx
+          .updateTable('loan')
+          .set({
+            status: 'CLOSED' satisfies LoanStatus,
+            closing_date: request.closingDate,
+            closing_reason: request.reason,
+            refinanced_by_loan_id: request.refinancedByLoanId,
+            closing_note: request.closingNote,
+            version: plan.next.version,
+            updated_at: at,
+          })
+          .where('id', '=', id)
+          .execute();
+        const closed = await readOne(trx, id);
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CLOSED', actor, {
+          previousVersion: current.version,
+          newVersion: closed.version,
+          metadata: {
+            closingDate: request.closingDate,
+            reason: request.reason,
+            refinancedByLoanId: request.refinancedByLoanId,
+            closingNote: request.closingNote,
+            settledAmount: signedAmount(plan.settledAmount, closed.principalOriginal.currency),
+          },
+        });
+        return { kind: 'CLOSED', loan: closed, changed: true };
       });
-      return { kind: 'CLOSED', loan: closed, changed: true };
-    });
   }
 
   async void(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidLoanOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidLoanOutcome> => {
-      const row = await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
-      if (row === undefined) return { kind: 'NOT_FOUND' };
-      const current = toLoan(row);
-      // The splits naming the Loan, reversals included, read after the Loan lock and unlocked (P3-D8): a split write
-      // takes the Loan row after its Transaction, so it either committed before this lock (and is seen) or waits.
-      const splits = await trx.selectFrom('transaction_split').select('transaction_id').distinct().where('loan_id', '=', id).execute();
-      // A Loan that took over another is never voided (§41.7, review on #71); a close naming it writes this row.
-      const refinanced = await trx.selectFrom('loan').select('id').where('refinanced_by_loan_id', '=', id).where('status', '=', 'CLOSED').execute();
-      const plan = planVoid(
-        current,
-        reason,
-        at,
-        splits.map((s) => s.transaction_id),
-        refinanced.map((l) => l.id),
-      );
-      if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', loan: current, changed: false };
-      if (plan.kind !== 'VOID') return plan;
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx.updateTable('loan').set({ status: plan.next.status, voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at }).where('id', '=', id).execute();
-      const voided = await readOne(trx, id);
-      await writeAudit(trx, { type: ENTITY_TYPE, id }, 'VOIDED', actor, {
-        previousVersion: current.version,
-        newVersion: voided.version,
-        metadata: { reason },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<VoidLoanOutcome> => {
+        const row = await trx.selectFrom('loan').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const current = toLoan(row);
+        // The splits naming the Loan, reversals included, read after the Loan lock and unlocked (P3-D8): a split write
+        // takes the Loan row after its Transaction, so it either committed before this lock (and is seen) or waits.
+        const splits = await trx.selectFrom('transaction_split').select('transaction_id').distinct().where('loan_id', '=', id).execute();
+        // A Loan that took over another is never voided (§41.7, review on #71); a close naming it writes this row.
+        const refinanced = await trx.selectFrom('loan').select('id').where('refinanced_by_loan_id', '=', id).where('status', '=', 'CLOSED').execute();
+        const plan = planVoid(
+          current,
+          reason,
+          at,
+          splits.map((s) => s.transaction_id),
+          refinanced.map((l) => l.id),
+        );
+        if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', loan: current, changed: false };
+        if (plan.kind !== 'VOID') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('loan')
+          .set({ status: plan.next.status, voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at })
+          .where('id', '=', id)
+          .execute();
+        const voided = await readOne(trx, id);
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'VOIDED', actor, {
+          previousVersion: current.version,
+          newVersion: voided.version,
+          metadata: { reason },
+        });
+        return { kind: 'VOIDED', loan: voided, changed: true };
       });
-      return { kind: 'VOIDED', loan: voided, changed: true };
-    });
   }
 }
 
@@ -354,7 +376,14 @@ function signedAmount(cents: bigint, currency: string): { readonly amount: strin
 async function lockParties(trx: Transaction<Database>, ids: readonly string[], mreRealmId: string): Promise<Map<string, string>> {
   const unique = [...new Set(ids)].filter((id) => UUID.test(id)).sort();
   if (unique.length === 0) return new Map();
-  const rows = await trx.selectFrom('party').select(['id', 'status']).where('id', 'in', unique).where('mre_realm_id', '=', mreRealmId).orderBy('id').forShare().execute();
+  const rows = await trx
+    .selectFrom('party')
+    .select(['id', 'status'])
+    .where('id', 'in', unique)
+    .where('mre_realm_id', '=', mreRealmId)
+    .orderBy('id')
+    .forShare()
+    .execute();
   return new Map(rows.map((p) => [p.id, p.status]));
 }
 
@@ -423,7 +452,12 @@ export async function countedSplitsOf(trx: Transaction<Database>, loanId: string
     .orderBy('s.transaction_id')
     .orderBy('s.position')
     .execute();
-  return rows.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate, category: r.code as LoanSplitCategory, amount: BigInt(r.cents) }));
+  return rows.map((r) => ({
+    transactionId: r.transaction_id,
+    bookingDate: r.booking_date as BusinessDate,
+    category: r.code as LoanSplitCategory,
+    amount: BigInt(r.cents),
+  }));
 }
 
 async function readOne(trx: Transaction<Database>, id: string): Promise<Loan> {

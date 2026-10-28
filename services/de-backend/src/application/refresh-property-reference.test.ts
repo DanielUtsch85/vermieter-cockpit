@@ -72,9 +72,7 @@ describe('refreshPropertyReference', () => {
     const { repository, id } = await linked();
     const lookup = lookupOf(wohnung);
     const other = { ...principal, mreRealmId: '64b0c0ffee0000000000000b' };
-    await expect(refreshPropertyReference({ repository, lookupMreProperty: lookup })(input(id, other))).rejects.toBeInstanceOf(
-      PropertyReferenceNotFoundError,
-    );
+    await expect(refreshPropertyReference({ repository, lookupMreProperty: lookup })(input(id, other))).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
     expect(lookup.calls).toEqual([]);
   });
 

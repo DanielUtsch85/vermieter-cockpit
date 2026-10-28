@@ -88,9 +88,7 @@ describe('createFinancialAccount', () => {
     const { repository, rows } = memoryRepository();
     const create = createFinancialAccount({ repository });
     await create({ ...girokonto, idempotencyKey: 'k-1' });
-    await expect(create({ ...girokonto, displayName: 'Tagesgeld', idempotencyKey: 'k-1' })).rejects.toBeInstanceOf(
-      IdempotencyKeyConflictError,
-    );
+    await expect(create({ ...girokonto, displayName: 'Tagesgeld', idempotencyKey: 'k-1' })).rejects.toBeInstanceOf(IdempotencyKeyConflictError);
     expect(rows).toHaveLength(1);
   });
 });

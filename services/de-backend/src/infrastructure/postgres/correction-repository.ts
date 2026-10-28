@@ -63,108 +63,114 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     if (!UUID.test(originalId)) return { kind: 'NOT_FOUND' };
     try {
       // READ COMMITTED explicitly: the idempotency claim relies on it (idempotency.ts).
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CorrectOutcome> => {
-        const keyed =
-          idempotency === undefined
-            ? undefined
-            : {
-                ref: { mreRealmId, scope: request.replacement === null ? REVERSE_SCOPE : SCOPE, key: idempotency.key },
-                fingerprint: idempotency.fingerprint,
-              };
-        if (keyed !== undefined) {
-          const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') return { kind: 'CORRECTED', result: fromResultSnapshot(claim.result), replayed: true };
-        }
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<CorrectOutcome> => {
+          const keyed =
+            idempotency === undefined
+              ? undefined
+              : {
+                  ref: { mreRealmId, scope: request.replacement === null ? REVERSE_SCOPE : SCOPE, key: idempotency.key },
+                  fingerprint: idempotency.fingerprint,
+                };
+          if (keyed !== undefined) {
+            const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') return { kind: 'CORRECTED', result: fromResultSnapshot(claim.result), replayed: true };
+          }
 
-        // Lock order (§35.5): the original first, then the account(s).
-        const locked = await trx
-          .selectFrom('ledger_transaction')
-          .select('id')
-          .where('id', '=', originalId)
-          .where('mre_realm_id', '=', mreRealmId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (locked === undefined) throw new Rejected({ kind: 'NOT_FOUND' });
-        // Read after the lock, in a new statement: a request that waited on a concurrent correction must see its
-        // reversal and replacement. Under READ COMMITTED the locking statement re-reads only the locked row itself;
-        // the link subqueries of COLUMNS would still run on its older snapshot.
-        const original = toDomain(await trx.selectFrom('ledger_transaction').select(COLUMNS).where('id', '=', locked.id).executeTakeFirstOrThrow());
-        const originalSplits = await storedSplits(trx, original.id);
+          // Lock order (§35.5): the original first, then the account(s).
+          const locked = await trx
+            .selectFrom('ledger_transaction')
+            .select('id')
+            .where('id', '=', originalId)
+            .where('mre_realm_id', '=', mreRealmId)
+            .forUpdate()
+            .executeTakeFirst();
+          if (locked === undefined) throw new Rejected({ kind: 'NOT_FOUND' });
+          // Read after the lock, in a new statement: a request that waited on a concurrent correction must see its
+          // reversal and replacement. Under READ COMMITTED the locking statement re-reads only the locked row itself;
+          // the link subqueries of COLUMNS would still run on its older snapshot.
+          const original = toDomain(await trx.selectFrom('ledger_transaction').select(COLUMNS).where('id', '=', locked.id).executeTakeFirstOrThrow());
+          const originalSplits = await storedSplits(trx, original.id);
 
-        // §37.1: the CONFIRMED rent reconciliations naming the original, read under its lock; the trigger of 0030 is the
-        // backstop at the status step.
-        const reconciled = await trx
-          .selectFrom('rent_payment_reconciliation')
-          .select('id')
-          .where('transaction_id', '=', original.id)
-          .where('status', '=', 'CONFIRMED')
-          .orderBy('id')
-          .execute();
-        const plan = planCorrection(original, originalSplits, request.replacement, reconciled.map((r) => r.id));
-        if (plan.kind !== 'CORRECT') throw new Rejected(plan);
-        const conflict = checkVersion(original.version, expectedVersions);
-        if (conflict !== undefined) throw new Rejected(conflict);
-        const replacement = plan.replacement;
-        // §41.5, P3-D8: every Loan the correction writes, the original's (the reversal mirrors them) and the
-        // replacement's, locked FOR UPDATE in id order after the original, before any split is inserted. The split
-        // trigger writes them again in position order, which is then a no-op on rows already held (review on #68).
-        const loans = await lockLoansOf(trx, mreRealmId, [...loanIdsOf(originalSplits), ...(replacement === null ? [] : loanIdsOf(replacement.splits))]);
-        // Reverse only (§35.9): no replacement to check; the reversal goes to the original's account, closed or not.
-        const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement, loans);
+          // §37.1: the CONFIRMED rent reconciliations naming the original, read under its lock; the trigger of 0030 is the
+          // backstop at the status step.
+          const reconciled = await trx
+            .selectFrom('rent_payment_reconciliation')
+            .select('id')
+            .where('transaction_id', '=', original.id)
+            .where('status', '=', 'CONFIRMED')
+            .orderBy('id')
+            .execute();
+          const plan = planCorrection(
+            original,
+            originalSplits,
+            request.replacement,
+            reconciled.map((r) => r.id),
+          );
+          if (plan.kind !== 'CORRECT') throw new Rejected(plan);
+          const conflict = checkVersion(original.version, expectedVersions);
+          if (conflict !== undefined) throw new Rejected(conflict);
+          const replacement = plan.replacement;
+          // §41.5, P3-D8: every Loan the correction writes, the original's (the reversal mirrors them) and the
+          // replacement's, locked FOR UPDATE in id order after the original, before any split is inserted. The split
+          // trigger writes them again in position order, which is then a no-op on rows already held (review on #68).
+          const loans = await lockLoansOf(trx, mreRealmId, [...loanIdsOf(originalSplits), ...(replacement === null ? [] : loanIdsOf(replacement.splits))]);
+          // Reverse only (§35.9): no replacement to check; the reversal goes to the original's account, closed or not.
+          const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement, loans);
 
-        const reversalId = await insertCorrection(trx, actor, original, 'REVERSAL', {
-          financialAccountId: original.financialAccountId,
-          amount: original.amount,
-          direction: opposite(original.direction),
-          bookingDate: original.bookingDate,
-          valueDate: original.valueDate,
-          description: original.description,
-          propertyReferenceId: original.propertyReferenceId,
-          // A mirror of the original's splits, inactive categories included: the reversal must cancel it exactly.
-          splits: originalSplits,
+          const reversalId = await insertCorrection(trx, actor, original, 'REVERSAL', {
+            financialAccountId: original.financialAccountId,
+            amount: original.amount,
+            direction: opposite(original.direction),
+            bookingDate: original.bookingDate,
+            valueDate: original.valueDate,
+            description: original.description,
+            propertyReferenceId: original.propertyReferenceId,
+            // A mirror of the original's splits, inactive categories included: the reversal must cancel it exactly.
+            splits: originalSplits,
+          });
+          const replacementId =
+            replacement === null || categoryIds === undefined
+              ? null
+              : await insertCorrection(trx, actor, original, 'REPLACEMENT', {
+                  ...replacement,
+                  splits: replacement.splits.map((s) => ({ ...s, financialCategoryId: categoryIds.get(s.financialCategoryCode) as string })),
+                });
+          const corrected = await trx
+            .updateTable('ledger_transaction')
+            .set((eb) => ({ status: 'CORRECTED', version: eb('version', '+', 1), updated_at: new Date() }))
+            .where('id', '=', original.id)
+            .returning(COLUMNS)
+            .executeTakeFirstOrThrow();
+          const written = await trx
+            .selectFrom('ledger_transaction')
+            .select(COLUMNS)
+            .where('id', 'in', replacementId === null ? [reversalId] : [reversalId, replacementId])
+            .execute();
+          const byId = new Map(written.map((r) => [r.id, toDomain(r)]));
+          const result: CorrectionResult = {
+            original: toDomain(corrected),
+            reversal: byId.get(reversalId) as Transaction,
+            replacement: replacementId === null ? null : (byId.get(replacementId) as Transaction),
+          };
+
+          // One AuditRecord for the whole act (§35.4, §35.9); reversal and replacement are found from it via their link.
+          await writeAudit(trx, { type: 'Transaction', id: original.id }, replacement === null ? 'REVERSED' : 'CORRECTED', actor, {
+            previousVersion: original.version,
+            newVersion: result.original.version,
+            metadata: {
+              reason: request.reason,
+              previousStatus: original.status,
+              reversalTransactionId: reversalId,
+              ...(replacement === null ? {} : { replacementTransactionId: replacementId, changes: changes(original, originalSplits, replacement) }),
+            },
+          });
+          if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, original.id, toResultSnapshot(result));
+          return { kind: 'CORRECTED', result, replayed: false };
         });
-        const replacementId =
-          replacement === null || categoryIds === undefined
-            ? null
-            : await insertCorrection(trx, actor, original, 'REPLACEMENT', {
-                ...replacement,
-                splits: replacement.splits.map((s) => ({ ...s, financialCategoryId: categoryIds.get(s.financialCategoryCode) as string })),
-              });
-        const corrected = await trx
-          .updateTable('ledger_transaction')
-          .set((eb) => ({ status: 'CORRECTED', version: eb('version', '+', 1), updated_at: new Date() }))
-          .where('id', '=', original.id)
-          .returning(COLUMNS)
-          .executeTakeFirstOrThrow();
-        const written = await trx
-          .selectFrom('ledger_transaction')
-          .select(COLUMNS)
-          .where('id', 'in', replacementId === null ? [reversalId] : [reversalId, replacementId])
-          .execute();
-        const byId = new Map(written.map((r) => [r.id, toDomain(r)]));
-        const result: CorrectionResult = {
-          original: toDomain(corrected),
-          reversal: byId.get(reversalId) as Transaction,
-          replacement: replacementId === null ? null : (byId.get(replacementId) as Transaction),
-        };
-
-        // One AuditRecord for the whole act (§35.4, §35.9); reversal and replacement are found from it via their link.
-        await writeAudit(trx, { type: 'Transaction', id: original.id }, replacement === null ? 'REVERSED' : 'CORRECTED', actor, {
-          previousVersion: original.version,
-          newVersion: result.original.version,
-          metadata: {
-            reason: request.reason,
-            previousStatus: original.status,
-            reversalTransactionId: reversalId,
-            ...(replacement === null
-              ? {}
-              : { replacementTransactionId: replacementId, changes: changes(original, originalSplits, replacement) }),
-          },
-        });
-        if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, original.id, toResultSnapshot(result));
-        return { kind: 'CORRECTED', result, replayed: false };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;
       throw error;
@@ -220,9 +226,7 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     if (!actual.equals(replacement.amount)) throw new Rejected({ kind: 'SUM_MISMATCH', expected: replacement.amount, actual });
 
     const references = [
-      ...new Set(
-        [replacement.propertyReferenceId, ...replacement.splits.map((s) => s.propertyReferenceId)].filter((id): id is string => id !== null),
-      ),
+      ...new Set([replacement.propertyReferenceId, ...replacement.splits.map((s) => s.propertyReferenceId)].filter((id): id is string => id !== null)),
     ];
     if (references.length > 0) {
       const valid = references.filter((id) => UUID.test(id));
@@ -241,9 +245,7 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     const rows = await trx.selectFrom('financial_category').select(['id', 'code', 'active']).where('code', 'in', codes).execute();
     const unusable = codes.filter((code) => !rows.some((r) => r.code === code && r.active));
     if (unusable.length > 0) {
-      throw new Rejected(
-        replacement.splitsRequested ? { kind: 'UNKNOWN_CATEGORY', codes: unusable } : { kind: 'INACTIVE_CATEGORY', codes: unusable },
-      );
+      throw new Rejected(replacement.splitsRequested ? { kind: 'UNKNOWN_CATEGORY', codes: unusable } : { kind: 'INACTIVE_CATEGORY', codes: unusable });
     }
     return new Map(rows.map((r) => [r.code, r.id]));
   }
@@ -261,13 +263,7 @@ interface NewCorrection {
 }
 
 /** Inserts a reversal or replacement unconfirmed, writes its splits, then confirms it (§35.6). */
-async function insertCorrection(
-  trx: Trx<Database>,
-  actor: AuditActor,
-  original: Transaction,
-  role: CorrectionRole,
-  record: NewCorrection,
-): Promise<string> {
+async function insertCorrection(trx: Trx<Database>, actor: AuditActor, original: Transaction, role: CorrectionRole, record: NewCorrection): Promise<string> {
   const { id } = await trx
     .insertInto('ledger_transaction')
     .values({

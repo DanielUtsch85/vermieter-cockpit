@@ -84,8 +84,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
     if (outcome.kind !== 'REPLACED') throw new Error(outcome.kind);
     return id;
   }
-  const splitCount = async (id: string) =>
-    Number((await pool.query(`SELECT count(*) FROM transaction_split WHERE transaction_id = $1`, [id])).rows[0].count);
+  const splitCount = async (id: string) => Number((await pool.query(`SELECT count(*) FROM transaction_split WHERE transaction_id = $1`, [id])).rows[0].count);
   const audits = async (id: string) =>
     (await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, new_version`, [id])).rows as {
       action: string;
@@ -97,7 +96,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
       const id = await manual();
       const reference = (
         await properties.linkOnce(
-          { mreRealmId: REALM, mrePropertyId: '64b0c0ffee00000000000d01', displayName: null, cachedAddress: null, cachedSurface: null, refreshedAt: new Date() },
+          {
+            mreRealmId: REALM,
+            mrePropertyId: '64b0c0ffee00000000000d01',
+            displayName: null,
+            cachedAddress: null,
+            cachedSurface: null,
+            refreshedAt: new Date(),
+          },
           actor,
         )
       ).reference.id;
@@ -171,7 +177,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
       });
       const reference = (
         await properties.linkOnce(
-          { mreRealmId: REALM, mrePropertyId: '64b0c0ffee00000000000d02', displayName: null, cachedAddress: null, cachedSurface: null, refreshedAt: new Date() },
+          {
+            mreRealmId: REALM,
+            mrePropertyId: '64b0c0ffee00000000000d02',
+            displayName: null,
+            cachedAddress: null,
+            cachedSurface: null,
+            refreshedAt: new Date(),
+          },
           actor,
         )
       ).reference.id;
@@ -223,7 +236,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresUnconfirmedTransactionReposi
       expect(await transactions.confirm(id, REALM, actor)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'IGNORED' });
       expect(await unconfirmed.amend(id, REALM, { description: 'x' }, actor)).toEqual({ kind: 'NOT_AMENDABLE', status: 'IGNORED' });
       expect(
-        await splits.replaceSplits(id, REALM, [{ amount: eur('1250.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }], actor),
+        await splits.replaceSplits(
+          id,
+          REALM,
+          [{ amount: eur('1250.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }],
+          actor,
+        ),
       ).toEqual({ kind: 'FROZEN', status: 'IGNORED' });
 
       expect(await unconfirmed.restore(id, REALM, actor)).toMatchObject({ kind: 'RESTORED', transaction: { status: 'CLASSIFIED', version: 4 } });

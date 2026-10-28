@@ -242,12 +242,7 @@ export class PostgresImportRepository implements ImportRepository {
 
   async findBatch(id: string, mreRealmId: string): Promise<ImportBatch | undefined> {
     if (!UUID.test(id)) return undefined;
-    const row = await this.db
-      .selectFrom('import_batch')
-      .selectAll()
-      .where('id', '=', id)
-      .where('mre_realm_id', '=', mreRealmId)
-      .executeTakeFirst();
+    const row = await this.db.selectFrom('import_batch').selectAll().where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
     return row === undefined ? undefined : toDomain(row);
   }
 
@@ -260,11 +255,7 @@ export class PostgresImportRepository implements ImportRepository {
       .where('mre_realm_id', '=', mreRealmId)
       .executeTakeFirst();
     if (batch === undefined) return undefined;
-    let query = this.db
-      .selectFrom('import_review_item')
-      .selectAll()
-      .where('import_batch_id', '=', importBatchId)
-      .where('mre_realm_id', '=', mreRealmId);
+    let query = this.db.selectFrom('import_review_item').selectAll().where('import_batch_id', '=', importBatchId).where('mre_realm_id', '=', mreRealmId);
     if (status !== undefined) query = query.where('status', '=', status);
     const items = (
       await query
@@ -272,11 +263,7 @@ export class PostgresImportRepository implements ImportRepository {
         .orderBy('id')
         .execute()
     ).map(toReviewItem);
-    const ids = [
-      ...new Set(
-        items.flatMap((i) => [...i.conflictingTransactionIds, ...(i.createdTransactionId === null ? [] : [i.createdTransactionId])]),
-      ),
-    ];
+    const ids = [...new Set(items.flatMap((i) => [...i.conflictingTransactionIds, ...(i.createdTransactionId === null ? [] : [i.createdTransactionId])]))];
     if (ids.length === 0) return { items, conflicting: [] };
     const rows = await this.db
       .selectFrom('ledger_transaction')
@@ -344,12 +331,7 @@ export class PostgresImportRepository implements ImportRepository {
           .where('mre_realm_id', '=', mreRealmId)
           .forUpdate()
           .executeTakeFirstOrThrow();
-        const row = await trx
-          .selectFrom('import_review_item')
-          .selectAll()
-          .where('id', '=', reviewItemId)
-          .forUpdate()
-          .executeTakeFirstOrThrow();
+        const row = await trx.selectFrom('import_review_item').selectAll().where('id', '=', reviewItemId).forUpdate().executeTakeFirstOrThrow();
         const item = toReviewItem(row);
 
         switch (planResolution(item, resolution)) {
@@ -365,11 +347,7 @@ export class PostgresImportRepository implements ImportRepository {
         if (resolution === 'CREATE') {
           const normalized = storedRow(item);
           if (!importPostable(toFinancialAccount(accountRow), normalized.bookingDate)) return { kind: 'ACCOUNT_CLOSED', item };
-          const batch = await trx
-            .selectFrom('import_batch')
-            .select('provenance')
-            .where('id', '=', item.importBatchId)
-            .executeTakeFirstOrThrow();
+          const batch = await trx.selectFrom('import_batch').select('provenance').where('id', '=', item.importBatchId).executeTakeFirstOrThrow();
           const externalId = normalized.externalTransactionId;
           const idTaken =
             externalId !== null &&
@@ -629,10 +607,7 @@ function lookupFor(known: Known, statement: NewImport['statement'], parsed: Pars
     otherAdapterVersion: {
       // A prior decision's Transaction is part of the conflict too (provenance preserved).
       transactionIds: [
-        ...new Set([
-          ...otherTransactions.map((t) => t.id),
-          ...otherItems.flatMap((i) => (i.createdTransactionId === null ? [] : [i.createdTransactionId])),
-        ]),
+        ...new Set([...otherTransactions.map((t) => t.id), ...otherItems.flatMap((i) => (i.createdTransactionId === null ? [] : [i.createdTransactionId]))]),
       ],
       reviewItemIds: otherItems.map((i) => i.id),
     },

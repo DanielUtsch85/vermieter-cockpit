@@ -39,10 +39,7 @@ export interface RealmPrincipal {
  * Verifies the caller's MRE token and membership of the given Realm. Throws
  * AccessError; never resolves for an unverified caller.
  */
-export type PrincipalVerifier = (
-  authorizationHeader: string | undefined,
-  mreRealmId: string | undefined,
-) => Promise<RealmPrincipal>;
+export type PrincipalVerifier = (authorizationHeader: string | undefined, mreRealmId: string | undefined) => Promise<RealmPrincipal>;
 
 /** MRE Realm roles with DE access. */
 export const DE_ACCESS_ROLES: readonly string[] = ['administrator'];

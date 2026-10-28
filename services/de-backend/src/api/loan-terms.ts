@@ -77,12 +77,22 @@ const createBody = z
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const listQuery = z.object({ status: z.enum(TERMS_STATUSES).optional() }).strict();
 
-const proposalQuery = z.object({ transactionId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()) }).strict();
+const proposalQuery = z
+  .object({
+    transactionId: z
+      .string()
+      .regex(RESOURCE_ID)
+      .transform((id) => id.toLowerCase()),
+  })
+  .strict();
 
 const scheduleQuery = z
   .object({ from: businessDate.optional(), to: businessDate.optional() })
   .strict()
-  .refine((query) => typeof query.from !== 'string' || typeof query.to !== 'string' || query.from <= query.to, { path: ['to'], params: { code: 'BEFORE_FROM' } });
+  .refine((query) => typeof query.from !== 'string' || typeof query.to !== 'string' || query.from <= query.to, {
+    path: ['to'],
+    params: { code: 'BEFORE_FROM' },
+  });
 
 export interface LoanTermsCommands {
   readonly create: CreateLoanTerms;
@@ -227,7 +237,9 @@ function toProposalDto(p: PaymentProposalResult) {
     },
     splits: splits.map((s) => ({ financialCategoryCode: s.financialCategoryCode, loanId: p.loanId, amount: eurCents(s.amount) })),
     unallocated: eurCents(p.unallocated),
-    flags: p.flags.map((f) => (f.code === 'AMOUNT_DIFFERS_FROM_SCHEDULE' ? { code: f.code, details: { difference: signedEurCents(f.difference) } } : { code: f.code })),
+    flags: p.flags.map((f) =>
+      f.code === 'AMOUNT_DIFFERS_FROM_SCHEDULE' ? { code: f.code, details: { difference: signedEurCents(f.difference) } } : { code: f.code },
+    ),
   };
 }
 
@@ -273,7 +285,11 @@ function sendTermsError(res: Response, error: unknown): boolean {
   } else if (error instanceof ProposalTransactionNotFoundError) {
     sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
   } else if (error instanceof PaymentNotProposableError) {
-    sendError(res, 409, 'CONFLICT', 'Only an unconfirmed OUTFLOW gets a payment proposal.', { reason: 'NOT_PROPOSABLE', direction: error.direction, status: error.status });
+    sendError(res, 409, 'CONFLICT', 'Only an unconfirmed OUTFLOW gets a payment proposal.', {
+      reason: 'NOT_PROPOSABLE',
+      direction: error.direction,
+      status: error.status,
+    });
   } else if (error instanceof LoanClosedOnError) {
     sendError(res, 409, 'CONFLICT', `The Loan was closed on ${error.closingDate}.`, { reason: 'LOAN_CLOSED', closingDate: error.closingDate });
   } else if (error instanceof NoScheduleError) {

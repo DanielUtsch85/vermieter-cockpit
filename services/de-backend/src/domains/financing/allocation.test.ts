@@ -82,7 +82,12 @@ describe('allocation shares (§41.3)', () => {
   });
 
   it('fingerprints the normalized request', () => {
-    const request = { validFrom: day('2026-09-01'), basis: 'MANUAL' as const, allocations: [{ propertyReferenceId: 'p1', share: f(1n, 1n), acquisitionId: null }], notes: null };
+    const request = {
+      validFrom: day('2026-09-01'),
+      basis: 'MANUAL' as const,
+      allocations: [{ propertyReferenceId: 'p1', share: f(1n, 1n), acquisitionId: null }],
+      notes: null,
+    };
     expect(allocationFingerprint(loan.id, request)).toBe(allocationFingerprint(loan.id, { ...request }));
     expect(allocationFingerprint(loan.id, request)).not.toBe(allocationFingerprint(loan.id, { ...request, validFrom: day('2026-09-02') }));
   });

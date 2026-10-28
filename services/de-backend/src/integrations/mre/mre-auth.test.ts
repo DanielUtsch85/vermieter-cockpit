@@ -86,8 +86,16 @@ describe('verifyMrePrincipal', () => {
     ['internal service', { service: { serviceId: 'api', realmId: 'realm-a', role: 'administrator' } }],
     ['account without email', { account: {} }],
   ])('rejects a %s token even if MRE answers', async (_label, payload) => {
-    const client: MreClient = { listRealms: async () => realms, listProperties: async () => [], listTenantIds: async () => [], rentTermExists: async () => false, readRentTerm: async () => undefined, listRentTerms: async () => [],
-      readRentTermForWriteBack: async () => undefined, writeRentTermPayments: async () => ({ kind: 'REFUSED', status: 500 }) };
+    const client: MreClient = {
+      listRealms: async () => realms,
+      listProperties: async () => [],
+      listTenantIds: async () => [],
+      rentTermExists: async () => false,
+      readRentTerm: async () => undefined,
+      listRentTerms: async () => [],
+      readRentTermForWriteBack: async () => undefined,
+      writeRentTermPayments: async () => ({ kind: 'REFUSED', status: 500 }),
+    };
     await expectCode(verifyMrePrincipal(client, bearer(payload), 'realm-a'), 'NOT_A_REALM_MEMBER');
   });
 
@@ -123,10 +131,7 @@ describe('verifyMrePrincipal end-to-end with HttpMreClient and a fake MRE', () =
       );
       // MRE answers 200 with the associated realm for application and service tokens;
       // only the landlord-account check in DE refuses them.
-      for (const payload of [
-        { application: { clientId: 'app-1' } },
-        { service: { serviceId: 'api', realmId: 'realm-a', role: 'administrator' } },
-      ]) {
+      for (const payload of [{ application: { clientId: 'app-1' } }, { service: { serviceId: 'api', realmId: 'realm-a', role: 'administrator' } }]) {
         await expect(client.listRealms(signJwt(payload))).resolves.toHaveLength(1);
         await expectCode(verifyMrePrincipal(client, `Bearer ${signJwt(payload)}`, 'realm-a'), 'NOT_A_REALM_MEMBER');
       }

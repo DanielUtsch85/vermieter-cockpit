@@ -191,17 +191,29 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
 
   type Money = { amount: string; currency: string };
   type Reconciliation = { reconciliationId: string; status: string; version: number; mreWriteBackState: string; mrePayment: { reference: string } | null };
-  type Term = { reconciliations: { reconciliationId: string }[]; matchedTotal: Money; coverage: string | null; openAmount: Money | null; mreStatus: string; mre: { payments: unknown[] } | null };
+  type Term = {
+    reconciliations: { reconciliationId: string }[];
+    matchedTotal: Money;
+    coverage: string | null;
+    openAmount: Money | null;
+    mreStatus: string;
+    mre: { payments: unknown[] } | null;
+  };
   const term = async (tenant: string, mreRentTerm: string) => json<Term>(await A('GET', `/rent-reconciliations/terms/${tenant}/${mreRentTerm}`), 200);
-  const cash = async (transactionId: string) => json<{ available: Money | null; matchedTotal: Money }>(await A('GET', `/transactions/${transactionId}/rent-reconciliations`), 200);
+  const cash = async (transactionId: string) =>
+    json<{ available: Money | null; matchedTotal: Money }>(await A('GET', `/transactions/${transactionId}/rent-reconciliations`), 200);
   const match = async (transactionId: string, tenant: string, mreRentTerm: string, amount: string) =>
     A('POST', '/rent-reconciliations', { transactionId, mreTenantId: tenant, mreRentTerm, matchedAmount: eur(amount) });
-  const stored = (tenant: string, mreRentTerm: string) => realmA.rentTerms?.[`${tenant}/${mreRentTerm}`]?.payments as { reference: string; amount: number; type: string }[];
+  const stored = (tenant: string, mreRentTerm: string) =>
+    realmA.rentTerms?.[`${tenant}/${mreRentTerm}`]?.payments as { reference: string; amount: number; type: string }[];
   const rentReads = () => mre.requests.filter((r) => r.path.startsWith('/api/v2/rents/')).length;
 
   it('runs the Phase-4 exit end to end: suggested and manual matches, human confirmation, write-back exactly once, two records, correction rule, removal, isolation, audit', async () => {
     // Four INFLOW rows from a bank CSV, each split as RENT_BASE and confirmed.
-    const { financialAccountId } = await json<{ financialAccountId: string }>(await A('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Mietkonto', currency: 'EUR' }), 201);
+    const { financialAccountId } = await json<{ financialAccountId: string }>(
+      await A('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Mietkonto', currency: 'EUR' }),
+      201,
+    );
     const statement = [
       'Buchungstag;Betrag;IBAN;Verwendungszweck',
       `02.03.2027;800,00;${IBAN_TINA};Miete März Tina`,
@@ -212,16 +224,27 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
     const imported = await json<{ transactionCount: number; rows: { transactionId?: string }[] }>(await upload(REALM_A, financialAccountId, statement), 201);
     expect(imported.transactionCount).toBe(4);
     const [r1, r2, r3, r4] = imported.rows.map((r) => r.transactionId ?? '') as [string, string, string, string];
-    for (const [t, amount] of [[r1, '800.00'], [r2, '400.00'], [r3, '250.00'], [r4, '1450.00']] as const) {
+    for (const [t, amount] of [
+      [r1, '800.00'],
+      [r2, '400.00'],
+      [r3, '250.00'],
+      [r4, '1450.00'],
+    ] as const) {
       await json(await A('PUT', `/transactions/${t}/splits`, { splits: [{ amount: eur(amount), financialCategoryCode: 'RENT_BASE' }] }), 200);
       expect(await json(await A('POST', `/transactions/${t}/confirm`), 200)).toMatchObject({ status: 'CONFIRMED', direction: 'INFLOW' });
     }
 
     // Matched to an MRE rent obligation, suggested: exactly one suggestion, and it is not cash.
-    const suggested = await json<{ items: (Reconciliation & { transactionId: string; mreTenantId: string; mreRentTerm: string; matchedAmount: Money; confidence: string; suggestionReason: string })[] }>(
-      await A('POST', '/rent-reconciliations/suggest', { from: '2027-03', to: '2027-04' }),
-      200,
-    );
+    const suggested = await json<{
+      items: (Reconciliation & {
+        transactionId: string;
+        mreTenantId: string;
+        mreRentTerm: string;
+        matchedAmount: Money;
+        confidence: string;
+        suggestionReason: string;
+      })[];
+    }>(await A('POST', '/rent-reconciliations/suggest', { from: '2027-03', to: '2027-04' }), 200);
     expect(suggested.items.map((i) => [i.transactionId, i.mreTenantId, i.mreRentTerm, i.matchedAmount, i.status, i.confidence, i.suggestionReason])).toEqual([
       [r1, T1, MARCH, eur('800.00'), 'SUGGESTED', 'MEDIUM', 'EXACT_AMOUNT'],
     ]);
@@ -299,7 +322,10 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
     expect(await json(await A('GET', `/rent-reconciliations/${m1}?checkMre=true`), 200)).toMatchObject({ mrePresence: 'PRESENT' });
 
     // A correction is refused until release, and a release is DE-only.
-    expect(await conflict(await A('POST', `/transactions/${r2}/reverse`, { reason: 'falsch zugeordnet' }))).toEqual({ reason: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: [m2] });
+    expect(await conflict(await A('POST', `/transactions/${r2}/reverse`, { reason: 'falsch zugeordnet' }))).toEqual({
+      reason: 'TRANSACTION_RENT_RECONCILED',
+      reconciliationIds: [m2],
+    });
     expect(await json(await A('POST', `/rent-reconciliations/${m2}/release`, { reason: 'falsch zugeordnet' }), 200)).toMatchObject({
       status: 'RELEASED',
       mreWriteBackState: 'NOT_WRITTEN',
@@ -324,7 +350,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
     const emptyPage = (body: unknown) => expect(body).toMatchObject({ items: [], total: 0 });
     const routes: Record<string, readonly Row[]> = {
       'POST /rent-reconciliations': [{ expect: 404, body: { transactionId: r1, mreTenantId: T1, mreRentTerm: APRIL, matchedAmount: eur('1.00') } }],
-      'POST /rent-reconciliations/suggest': [{ expect: (body) => expect(body).toEqual({ from: '2027-03', to: '2027-04', items: [] }), body: { from: '2027-03', to: '2027-04' } }],
+      'POST /rent-reconciliations/suggest': [
+        { expect: (body) => expect(body).toEqual({ from: '2027-03', to: '2027-04', items: [] }), body: { from: '2027-03', to: '2027-04' } },
+      ],
       'GET /rent-reconciliations': [
         { expect: emptyPage, query: `transactionId=${r1}` },
         { expect: emptyPage, query: `mreTenantId=${T1}` },
@@ -342,9 +370,14 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
       'GET /transactions/:transactionId/rent-reconciliations': [{ expect: 404 }],
     };
     // The table is the app's Phase-4 routes, no more and no fewer: a new route without a row turns this red.
-    expect(Object.keys(routes).sort()).toEqual(routesOf(app).filter((route) => PHASE_4.test(route)).sort());
+    expect(Object.keys(routes).sort()).toEqual(
+      routesOf(app)
+        .filter((route) => PHASE_4.test(route))
+        .sort(),
+    );
     const stateOfA = async () =>
-      (await pool.query(`SELECT id, version, status, mre_write_back_state FROM rent_payment_reconciliation WHERE mre_realm_id = $1 ORDER BY id`, [REALM_A])).rows;
+      (await pool.query(`SELECT id, version, status, mre_write_back_state FROM rent_payment_reconciliation WHERE mre_realm_id = $1 ORDER BY id`, [REALM_A]))
+        .rows;
     const audits = async () => (await pool.query(`SELECT count(*)::int AS n FROM audit_record`)).rows[0].n as number;
     const before = { state: await stateOfA(), audits: await audits(), patches: mre.patches.length };
     for (const [route, rows] of Object.entries(routes)) {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { RemovalResult, RentPaymentReconciliation, RentReconciliationRepository, WriteBackResult, WriteBackTerm } from '../domains/rent-reconciliation/index.js';
+import type {
+  RemovalResult,
+  RentPaymentReconciliation,
+  RentReconciliationRepository,
+  WriteBackResult,
+  WriteBackTerm,
+} from '../domains/rent-reconciliation/index.js';
 import { Money, type BusinessDate } from '../shared/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
 import { MreUnavailableError, VersionConflictError } from './errors.js';
@@ -22,7 +28,14 @@ const ID = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const MARKER = `DE-RPR-${ID}`;
 const principal: RealmPrincipal = { email: 'anna@example.com', mreRealmId: REALM, mreRole: 'administrator' };
 const eur = (amount: string) => Money.of(amount, 'EUR');
-const reconciliation = { id: ID, mreTenantId: TENANT, mreRentTerm: '2027010100', matchedAmount: eur('800.00'), mreWriteBackState: 'PENDING', version: 2 } as unknown as RentPaymentReconciliation;
+const reconciliation = {
+  id: ID,
+  mreTenantId: TENANT,
+  mreRentTerm: '2027010100',
+  matchedAmount: eur('800.00'),
+  mreWriteBackState: 'PENDING',
+  version: 2,
+} as unknown as RentPaymentReconciliation;
 const theirs = { date: '02/01/2027', amount: 50, type: 'cash', reference: '', description: 'Bar' };
 const mine = { date: '03/01/2027', amount: 800, type: 'transfer', reference: MARKER, description: '' };
 const term = (payments: WriteBackTerm['payments'] = [theirs], overrides: Partial<WriteBackTerm> = {}): WriteBackTerm => ({
@@ -40,7 +53,14 @@ const term = (payments: WriteBackTerm['payments'] = [theirs], overrides: Partial
 const input = { principal, authorizationHeader: 'Bearer t', reconciliationId: ID };
 
 /** A repository that claims, and records what it is told, logging the order. */
-function world(options: { claim?: Awaited<ReturnType<RentReconciliationRepository['claimWriteBack']>>; reads?: (WriteBackTerm | undefined | Error)[]; write?: Awaited<ReturnType<MreWriteBackTermWriter>> | Error; leaseLost?: boolean } = {}) {
+function world(
+  options: {
+    claim?: Awaited<ReturnType<RentReconciliationRepository['claimWriteBack']>>;
+    reads?: (WriteBackTerm | undefined | Error)[];
+    write?: Awaited<ReturnType<MreWriteBackTermWriter>> | Error;
+    leaseLost?: boolean;
+  } = {},
+) {
   const order: string[] = [];
   const recorded: WriteBackResult[] = [];
   const reads = [...(options.reads ?? [term()])];
@@ -50,7 +70,9 @@ function world(options: { claim?: Awaited<ReturnType<RentReconciliationRepositor
       return options.claim ?? { kind: 'CLAIMED', reconciliation, attemptId: 'a1', bookingDate: '2027-01-03' as BusinessDate };
     },
     recordWriteBack: async (_id: string, _realm: string, attemptId: string, result: WriteBackResult) => {
-      order.push(`record ${attemptId} ${result.kind}${result.kind === 'FAILED' ? ` ${result.error}` : result.kind === 'WRITTEN' ? ` patched=${result.patched}` : ''}`);
+      order.push(
+        `record ${attemptId} ${result.kind}${result.kind === 'FAILED' ? ` ${result.error}` : result.kind === 'WRITTEN' ? ` patched=${result.patched}` : ''}`,
+      );
       recorded.push(result);
       if (options.leaseLost === true) return { kind: 'LEASE_LOST' } as const;
       const state = result.kind === 'WRITTEN' ? 'WRITTEN' : result.kind === 'FAILED' ? 'FAILED' : 'NOT_WRITTEN';
@@ -82,7 +104,11 @@ describe('writeBackToMre (§37.4)', () => {
       `patch Bearer t ${REALM} ${TENANT} 2027010100 ["","${MARKER}"]`,
       'record a1 WRITTEN patched=true',
     ]);
-    expect(w.recorded[0]).toEqual({ kind: 'WRITTEN', patched: true, payment: { date: '03/01/2027', amount: eur('800.00'), type: 'transfer', reference: MARKER } });
+    expect(w.recorded[0]).toEqual({
+      kind: 'WRITTEN',
+      patched: true,
+      payment: { date: '03/01/2027', amount: eur('800.00'), type: 'transfer', reference: MARKER },
+    });
   });
 
   it('claim refusals never ask MRE: WRITTEN is a no-op, the others their errors', async () => {
@@ -96,7 +122,10 @@ describe('writeBackToMre (§37.4)', () => {
     expect(await refused({ kind: 'UNCHANGED', reconciliation })).toEqual({ reconciliation, changed: false });
     expect(await refused({ kind: 'NOT_FOUND' })).toBeInstanceOf(ReconciliationNotFoundError);
     expect(await refused({ kind: 'NOT_WRITABLE', status: 'RELEASED' })).toBeInstanceOf(NotWritableError);
-    expect(await refused({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r2' })).toMatchObject({ constructor: WriteBackInProgressError, reconciliationId: 'r2' });
+    expect(await refused({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r2' })).toMatchObject({
+      constructor: WriteBackInProgressError,
+      reconciliationId: 'r2',
+    });
     expect(await refused({ kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 })).toBeInstanceOf(VersionConflictError);
   });
 
@@ -118,7 +147,10 @@ describe('writeBackToMre (§37.4)', () => {
   });
 
   it('the read: not returned → MRE_RENT_TERM_NOT_FOUND; down → MRE_UNAVAILABLE; refused → MRE_FORBIDDEN recorded and the AccessError kept', async () => {
-    await expect(world({ reads: [undefined] }).run(input)).rejects.toMatchObject({ code: 'MRE_RENT_TERM_NOT_FOUND', reconciliation: { mreWriteBackState: 'FAILED' } });
+    await expect(world({ reads: [undefined] }).run(input)).rejects.toMatchObject({
+      code: 'MRE_RENT_TERM_NOT_FOUND',
+      reconciliation: { mreWriteBackState: 'FAILED' },
+    });
     await expect(world({ reads: [new MreUnavailableError('down')] }).run(input)).rejects.toMatchObject({ code: 'MRE_UNAVAILABLE' });
     const refused = world({ reads: [new AccessError('FORBIDDEN', 'no')] });
     await expect(refused.run(input)).rejects.toBeInstanceOf(AccessError);
@@ -132,7 +164,9 @@ describe('writeBackToMre (§37.4)', () => {
     expect(lost.order.at(-1)).toBe('record a1 WRITTEN patched=true');
     await expect(world({ reads: [term(), term()], write: { kind: 'NO_ANSWER' } }).run(input)).rejects.toMatchObject({ code: 'MRE_UNAVAILABLE' });
     await expect(world({ reads: [term(), term()], write: { kind: 'REFUSED', status: 500 } }).run(input)).rejects.toMatchObject({ code: 'MRE_WRITE_REFUSED' });
-    await expect(world({ reads: [term(), new MreUnavailableError('down')], write: { kind: 'NO_ANSWER' } }).run(input)).rejects.toMatchObject({ code: 'MRE_UNAVAILABLE' });
+    await expect(world({ reads: [term(), new MreUnavailableError('down')], write: { kind: 'NO_ANSWER' } }).run(input)).rejects.toMatchObject({
+      code: 'MRE_UNAVAILABLE',
+    });
     await expect(world({ reads: [term(), undefined], write: { kind: 'NO_ANSWER' } }).run(input)).rejects.toMatchObject({ code: 'MRE_RENT_TERM_NOT_FOUND' });
   });
 
@@ -141,7 +175,9 @@ describe('writeBackToMre (§37.4)', () => {
     const edited = term([{ ...theirs, amount: 60 }, mine]);
     await expect(world({ reads: [term(), edited], write: { kind: 'ANSWERED', term: edited } }).run(input)).rejects.toMatchObject({ code: 'MRE_TERM_CHANGED' });
     // A wrong answer but a right second read: WRITTEN.
-    await expect(world({ reads: [term(), term([theirs, mine])], write: { kind: 'ANSWERED', term: term() } }).run(input)).resolves.toMatchObject({ changed: true });
+    await expect(world({ reads: [term(), term([theirs, mine])], write: { kind: 'ANSWERED', term: term() } }).run(input)).resolves.toMatchObject({
+      changed: true,
+    });
   });
 
   it('the PATCH refused for the caller: MRE_FORBIDDEN recorded, the AccessError kept; a lost lease records nothing and is WRITE_BACK_IN_PROGRESS', async () => {
@@ -177,13 +213,22 @@ describe('getReconciliationWithPresence (§37.4)', () => {
     expect(await presence('NOT_WRITTEN', term())).toEqual({ presence: null, asked: [] });
     expect(await presence('FAILED', term())).toEqual({ presence: null, asked: [] });
     await expect(presence('WRITTEN', new AccessError('FORBIDDEN', 'no'))).rejects.toBeInstanceOf(AccessError);
-    const unknown = getReconciliationWithPresence({ repository: { findById: async () => undefined } as unknown as RentReconciliationRepository, readTerm: async () => undefined });
+    const unknown = getReconciliationWithPresence({
+      repository: { findById: async () => undefined } as unknown as RentReconciliationRepository,
+      readTerm: async () => undefined,
+    });
     await expect(unknown(input)).rejects.toBeInstanceOf(ReconciliationNotFoundError);
   });
 });
 
 describe('removeFromMre (§37.5)', () => {
-  function removal(options: { claim?: Awaited<ReturnType<RentReconciliationRepository['claimRemoval']>>; reads?: (WriteBackTerm | undefined | Error)[]; write?: Awaited<ReturnType<MreWriteBackTermWriter>> | Error } = {}) {
+  function removal(
+    options: {
+      claim?: Awaited<ReturnType<RentReconciliationRepository['claimRemoval']>>;
+      reads?: (WriteBackTerm | undefined | Error)[];
+      write?: Awaited<ReturnType<MreWriteBackTermWriter>> | Error;
+    } = {},
+  ) {
     const order: string[] = [];
     const recorded: RemovalResult[] = [];
     const reads = [...(options.reads ?? [term([theirs, mine])])];
@@ -193,7 +238,9 @@ describe('removeFromMre (§37.5)', () => {
         return options.claim ?? { kind: 'CLAIMED', reconciliation, attemptId: 'a1', bookingDate: '2027-01-03' as BusinessDate };
       },
       recordRemoval: async (_id: string, _realm: string, attemptId: string, result: RemovalResult) => {
-        order.push(`record ${attemptId} ${result.kind}${result.kind === 'FAILED' ? ` ${result.error}` : result.kind === 'REMOVED' ? ` patched=${result.patched}` : ''}`);
+        order.push(
+          `record ${attemptId} ${result.kind}${result.kind === 'FAILED' ? ` ${result.error}` : result.kind === 'REMOVED' ? ` patched=${result.patched}` : ''}`,
+        );
         recorded.push(result);
         const state = result.kind === 'REMOVED' ? 'REMOVED' : result.kind === 'FAILED' ? 'REMOVAL_FAILED' : 'REMOVAL_REQUIRED';
         return { kind: 'RECORDED', reconciliation: { ...reconciliation, mreWriteBackState: state } as RentPaymentReconciliation } as const;
@@ -227,7 +274,11 @@ describe('removeFromMre (§37.5)', () => {
       return result;
     };
     expect(await refused({ kind: 'UNCHANGED', reconciliation })).toEqual({ reconciliation, changed: false });
-    expect(await refused({ kind: 'NOT_REMOVABLE', status: 'CONFIRMED', mreWriteBackState: 'WRITTEN' })).toMatchObject({ constructor: NotRemovableError, status: 'CONFIRMED', mreWriteBackState: 'WRITTEN' });
+    expect(await refused({ kind: 'NOT_REMOVABLE', status: 'CONFIRMED', mreWriteBackState: 'WRITTEN' })).toMatchObject({
+      constructor: NotRemovableError,
+      status: 'CONFIRMED',
+      mreWriteBackState: 'WRITTEN',
+    });
     const notBefore = new Date('2027-01-01T00:02:00Z');
     expect(await refused({ kind: 'REMOVAL_TOO_EARLY', notBefore })).toMatchObject({ constructor: RemovalTooEarlyError, notBefore });
     expect(await refused({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r2' })).toBeInstanceOf(WriteBackInProgressError);
@@ -240,7 +291,10 @@ describe('removeFromMre (§37.5)', () => {
     await absent.run(input);
     expect(absent.order.at(-1)).toBe('record a1 REMOVED patched=false');
     expect(absent.order.some((o) => o.startsWith('patch'))).toBe(false);
-    await expect(removal({ reads: [term([mine, mine])] }).run(input)).rejects.toMatchObject({ code: 'MRE_PAYMENT_CHANGED', reconciliation: { mreWriteBackState: 'REMOVAL_FAILED' } });
+    await expect(removal({ reads: [term([mine, mine])] }).run(input)).rejects.toMatchObject({
+      code: 'MRE_PAYMENT_CHANGED',
+      reconciliation: { mreWriteBackState: 'REMOVAL_FAILED' },
+    });
     const vat = removal({ reads: [term([theirs, mine], { vatRatio: 0.2, promo: 10 })] });
     await expect(vat.run(input)).rejects.toMatchObject({ code: 'MRE_TERM_NOT_ROUND_TRIPPABLE', reconciliation: { mreWriteBackState: 'REMOVAL_REQUIRED' } });
     expect(vat.order.some((o) => o.startsWith('patch'))).toBe(false);
@@ -256,9 +310,15 @@ describe('removeFromMre (§37.5)', () => {
     const lost = removal({ reads: [term([theirs, mine]), term([theirs])], write: { kind: 'NO_ANSWER' } });
     await lost.run(input);
     expect(lost.order.at(-1)).toBe('record a1 REMOVED patched=true');
-    await expect(removal({ reads: [term([theirs, mine]), term([theirs, mine])], write: { kind: 'NO_ANSWER' } }).run(input)).rejects.toMatchObject({ code: 'MRE_UNAVAILABLE' });
-    await expect(removal({ reads: [term([theirs, mine]), term([theirs, mine])], write: { kind: 'REFUSED', status: 500 } }).run(input)).rejects.toMatchObject({ code: 'MRE_WRITE_REFUSED' });
+    await expect(removal({ reads: [term([theirs, mine]), term([theirs, mine])], write: { kind: 'NO_ANSWER' } }).run(input)).rejects.toMatchObject({
+      code: 'MRE_UNAVAILABLE',
+    });
+    await expect(removal({ reads: [term([theirs, mine]), term([theirs, mine])], write: { kind: 'REFUSED', status: 500 } }).run(input)).rejects.toMatchObject({
+      code: 'MRE_WRITE_REFUSED',
+    });
     const edited = term([{ ...theirs, amount: 60 }]);
-    await expect(removal({ reads: [term([theirs, mine]), edited], write: { kind: 'ANSWERED', term: edited } }).run(input)).rejects.toMatchObject({ code: 'MRE_TERM_CHANGED' });
+    await expect(removal({ reads: [term([theirs, mine]), edited], write: { kind: 'ANSWERED', term: edited } }).run(input)).rejects.toMatchObject({
+      code: 'MRE_TERM_CHANGED',
+    });
   });
 });

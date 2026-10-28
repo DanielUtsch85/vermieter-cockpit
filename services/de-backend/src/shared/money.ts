@@ -32,12 +32,7 @@ export function currencyScale(currency: CurrencyCode): number {
   return CURRENCY_SCALE[currency];
 }
 
-export type MoneyErrorCode =
-  | 'INVALID_AMOUNT'
-  | 'AMOUNT_OUT_OF_RANGE'
-  | 'SCALE_EXCEEDED'
-  | 'UNSUPPORTED_CURRENCY'
-  | 'CURRENCY_MISMATCH';
+export type MoneyErrorCode = 'INVALID_AMOUNT' | 'AMOUNT_OUT_OF_RANGE' | 'SCALE_EXCEEDED' | 'UNSUPPORTED_CURRENCY' | 'CURRENCY_MISMATCH';
 
 export class MoneyError extends Error {
   override readonly name = 'MoneyError';
@@ -73,10 +68,7 @@ export class Money {
     }
     const value = ExactDecimal.of(amount);
     if (value.decimalPlaces() > currencyScale(code)) {
-      throw new MoneyError(
-        'SCALE_EXCEEDED',
-        `${amount} has more than ${currencyScale(code)} decimal places for ${code}`,
-      );
+      throw new MoneyError('SCALE_EXCEEDED', `${amount} has more than ${currencyScale(code)} decimal places for ${code}`);
     }
     return Money.create(value, code);
   }
@@ -179,10 +171,7 @@ export class Money {
 
   private assertSameCurrency(other: Money): void {
     if (this.currency !== other.currency) {
-      throw new MoneyError(
-        'CURRENCY_MISMATCH',
-        `Cannot combine ${this.currency} with ${other.currency}`,
-      );
+      throw new MoneyError('CURRENCY_MISMATCH', `Cannot combine ${this.currency} with ${other.currency}`);
     }
   }
 }

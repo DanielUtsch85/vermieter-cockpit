@@ -67,7 +67,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
   }
   async function party(name: string): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: REALM, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: REALM,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -113,14 +123,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
   const rawDeactivate = (client: pg.Pool | pg.PoolClient, partyId: string) =>
     client.query(`UPDATE party SET status = 'INACTIVE', deactivated_at = now(), deactivation_reason = 'x', version = version + 1 WHERE id = $1`, [partyId]);
   const waitForLock = (text: string) =>
-    waitUntil(async () =>
-      Number(
-        (
-          await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
-            `%${text}%`,
-          ])
-        ).rows[0].count,
-      ) >= 1,
+    waitUntil(
+      async () =>
+        Number(
+          (
+            await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
+              `%${text}%`,
+            ])
+          ).rows[0].count,
+        ) >= 1,
     );
   async function whileHeld<T>(hold: (client: pg.PoolClient) => Promise<unknown>, waiter: () => Promise<T>, lockText: string): Promise<T> {
     const holder = await pool.connect();
@@ -140,7 +151,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
     const pr = await propertyReference();
     const [anna, ben] = [await party('Anna'), await party('Ben')];
     const id = await acquisition(pr, [anna, ben]);
-    const own = [await insertOwnership(pool, { pr, owner: anna, share: [1, 2], acquisitionId: id }), await insertOwnership(pool, { pr, owner: ben, share: [1, 2], acquisitionId: id })];
+    const own = [
+      await insertOwnership(pool, { pr, owner: anna, share: [1, 2], acquisitionId: id }),
+      await insertOwnership(pool, { pr, owner: ben, share: [1, 2], acquisitionId: id }),
+    ];
     return { pr, anna, ben, id, own };
   }
 
@@ -149,10 +163,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
       const { id, own } = await ready();
       const outcome = await acquisitions.confirm(id, REALM, AT, actor, [1]);
       expect(outcome).toMatchObject({ kind: 'CONFIRMED', changed: true, acquisition: { status: 'CONFIRMED', confirmedAt: AT, version: 2 } });
-      expect((await pool.query(`SELECT action, metadata, previous_version, new_version FROM audit_record WHERE entity_id = $1 AND action = 'CONFIRMED'`, [id])).rows).toEqual([
-        { action: 'CONFIRMED', metadata: { transferDate: D, ownershipIds: [...own].sort() }, previous_version: 1, new_version: 2 },
-      ]);
-      expect(await acquisitions.confirm(id, REALM, new Date(), actor, [9])).toMatchObject({ kind: 'CONFIRMED', changed: false, acquisition: { confirmedAt: AT, version: 2 } });
+      expect(
+        (await pool.query(`SELECT action, metadata, previous_version, new_version FROM audit_record WHERE entity_id = $1 AND action = 'CONFIRMED'`, [id])).rows,
+      ).toEqual([{ action: 'CONFIRMED', metadata: { transferDate: D, ownershipIds: [...own].sort() }, previous_version: 1, new_version: 2 }]);
+      expect(await acquisitions.confirm(id, REALM, new Date(), actor, [9])).toMatchObject({
+        kind: 'CONFIRMED',
+        changed: false,
+        acquisition: { confirmedAt: AT, version: 2 },
+      });
     });
 
     it('the order of checks: unknown, CANCELLED before a stale If-Match, then If-Match, then the requirements', async () => {
@@ -253,14 +271,18 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
     it('a status step raises version by exactly one; a raw void of a confirmed Ownership is refused, a raw close allowed', async () => {
       const { id, own } = await ready();
       await expect(pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now() WHERE id = $1`, [id])).rejects.toThrow(/must raise version/);
-      await expect(pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = version + 2 WHERE id = $1`, [id])).rejects.toThrow(/must raise version/);
+      await expect(pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = version + 2 WHERE id = $1`, [id])).rejects.toThrow(
+        /must raise version/,
+      );
       await rawConfirm(pool, id);
       await expect(rawVoid(pool, own[0] ?? '')).rejects.toThrow(/ACQUISITION_CONFIRMED/);
       await pool.query(`UPDATE ownership SET valid_until = '2030-12-31', version = version + 1 WHERE id = $1`, [own[0]]);
       const draft = await acquisition(await propertyReference(), [await party('X')]);
-      await expect(pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 2 WHERE id = $1`, [draft])).rejects.toThrow(
-        /must raise version/,
-      );
+      await expect(
+        pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 2 WHERE id = $1`, [
+          draft,
+        ]),
+      ).rejects.toThrow(/must raise version/);
     });
   });
 
@@ -270,7 +292,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
       const [ben, keeper] = [await party('Ben'), await party('Bleibt')];
       const id = await acquisition(pr, [ben], { acquiredShare: { numerator: 1, denominator: 2 } });
       await insertOwnership(pool, { pr, owner: ben, share: [1, 2], acquisitionId: id });
-      const outcome = await whileHeld((h) => insertOwnership(h, { pr, owner: keeper, share: [1, 2], from: '2020-01-01' }), () => acquisitions.confirm(id, REALM, AT, actor), '"property_reference"');
+      const outcome = await whileHeld(
+        (h) => insertOwnership(h, { pr, owner: keeper, share: [1, 2], from: '2020-01-01' }),
+        () => acquisitions.confirm(id, REALM, AT, actor),
+        '"property_reference"',
+      );
       expect(outcome.kind).toBe('CONFIRMED');
     });
 
@@ -290,19 +316,32 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
 
     it('against a void of its Ownership, a deactivate of a buyer, and a cancel', async () => {
       const a = await ready();
-      expect(await whileHeld((h) => rawVoid(h, a.own[0] ?? ''), () => acquisitions.confirm(a.id, REALM, AT, actor), '"property_reference"')).toMatchObject({
+      expect(
+        await whileHeld(
+          (h) => rawVoid(h, a.own[0] ?? ''),
+          () => acquisitions.confirm(a.id, REALM, AT, actor),
+          '"property_reference"',
+        ),
+      ).toMatchObject({
         kind: 'CONFIRMATION_BLOCKED',
         violations: [{ code: 'BUYER_WITHOUT_OWNERSHIP', partyId: a.anna }, { code: 'SHARE_SUM_MISMATCH' }, { code: 'OWNERSHIP_INCOMPLETE' }],
       });
       const b = await ready();
-      expect(await whileHeld((h) => rawDeactivate(h, b.ben), () => acquisitions.confirm(b.id, REALM, AT, actor), '"party"')).toMatchObject({
+      expect(
+        await whileHeld(
+          (h) => rawDeactivate(h, b.ben),
+          () => acquisitions.confirm(b.id, REALM, AT, actor),
+          '"party"',
+        ),
+      ).toMatchObject({
         kind: 'CONFIRMATION_BLOCKED',
         violations: [{ code: 'BUYER_INACTIVE', partyId: b.ben }],
       });
       // A cancellable draft carries no VALID Ownerships (§27.1): the cancel commits, the confirm that waited sees it.
       const c = await acquisition(await propertyReference(), [await party('Carl')]);
       const cancelled = await whileHeld(
-        (h) => h.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [c]),
+        (h) =>
+          h.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [c]),
         () => acquisitions.confirm(c, REALM, AT, actor),
         '"acquisition"',
       );
@@ -311,14 +350,22 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
 
     it('a void of its Ownership waits for a confirm in flight and is then refused', async () => {
       const { id, own } = await ready();
-      const outcome = await whileHeld((h) => rawConfirm(h, id), () => ownerships.void(own[0] ?? '', REALM, 'x', AT, actor), '"acquisition"');
+      const outcome = await whileHeld(
+        (h) => rawConfirm(h, id),
+        () => ownerships.void(own[0] ?? '', REALM, 'x', AT, actor),
+        '"acquisition"',
+      );
       expect(outcome).toEqual({ kind: 'ACQUISITION_CONFIRMED', acquisitionId: id });
     });
   });
 
   describe('concurrency past the repository (REPEATABLE READ: a forbidden write fails to serialise, an allowed one commits)', () => {
     /** `lockText` null: the second is not expected to wait at all. */
-    async function race(first: (c: pg.PoolClient) => Promise<unknown>, second: (c: pg.PoolClient) => Promise<unknown>, lockText: string | null): Promise<string> {
+    async function race(
+      first: (c: pg.PoolClient) => Promise<unknown>,
+      second: (c: pg.PoolClient) => Promise<unknown>,
+      lockText: string | null,
+    ): Promise<string> {
       const [one, two] = [await pool.connect(), await pool.connect()];
       try {
         await one.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
@@ -348,7 +395,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
 
     it('a raw confirm against a void of its Ownership, an insert carrying its id, a deactivate of a buyer: 40001', async () => {
       const a = await ready();
-      expect(await race((x) => rawVoid(x, a.own[0] ?? ''), (y) => rawConfirm(y, a.id), 'UPDATE acquisition SET status')).toBe('40001');
+      expect(
+        await race(
+          (x) => rawVoid(x, a.own[0] ?? ''),
+          (y) => rawConfirm(y, a.id),
+          'UPDATE acquisition SET status',
+        ),
+      ).toBe('40001');
       const pr = await propertyReference();
       const [ben, carl] = [await party('Ben'), await party('Carl')];
       const b = await acquisition(pr, [ben], { acquiredShare: { numerator: 1, denominator: 2 } });
@@ -356,11 +409,21 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
       await insertOwnership(pool, { pr, owner: carl, share: [1, 4], from: '2020-01-01' });
       // A buyer-less extra Ownership carrying the id would make OWNER_NOT_A_BUYER; the stale confirm must not miss it.
       const dora = await party('Dora');
-      expect(await race((x) => insertOwnership(x, { pr, owner: dora, share: [1, 4], acquisitionId: b }), (y) => rawConfirm(y, b), 'UPDATE acquisition SET status')).toBe(
-        '40001',
-      );
+      expect(
+        await race(
+          (x) => insertOwnership(x, { pr, owner: dora, share: [1, 4], acquisitionId: b }),
+          (y) => rawConfirm(y, b),
+          'UPDATE acquisition SET status',
+        ),
+      ).toBe('40001');
       const c = await ready();
-      expect(await race((x) => rawDeactivate(x, c.anna), (y) => rawConfirm(y, c.id), 'UPDATE acquisition SET status')).toBe('40001');
+      expect(
+        await race(
+          (x) => rawDeactivate(x, c.anna),
+          (y) => rawConfirm(y, c.id),
+          'UPDATE acquisition SET status',
+        ),
+      ).toBe('40001');
     });
 
     it('a raw confirm against a raw close of another owner: both commit (serially equivalent)', async () => {
@@ -370,7 +433,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
       const id = await acquisition(pr, [ben], { acquiredShare: { numerator: 1, denominator: 2 } });
       await insertOwnership(pool, { pr, owner: ben, share: [1, 2], acquisitionId: id });
       expect(
-        await race((x) => x.query(`UPDATE ownership SET valid_until = '2030-12-31', version = version + 1 WHERE id = $1`, [keepers]), (y) => rawConfirm(y, id), null),
+        await race(
+          (x) => x.query(`UPDATE ownership SET valid_until = '2030-12-31', version = version + 1 WHERE id = $1`, [keepers]),
+          (y) => rawConfirm(y, id),
+          null,
+        ),
       ).toBe('committed');
       expect((await pool.query(`SELECT status FROM acquisition WHERE id = $1`, [id])).rows[0].status).toBe('CONFIRMED');
     });

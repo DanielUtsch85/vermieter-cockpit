@@ -96,9 +96,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
   });
 
   it('concurrent links of the same MRE Property create exactly one reference', async () => {
-    const outcomes = await Promise.all(
-      Array.from({ length: 8 }, () => repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60703'), actor)),
-    );
+    const outcomes = await Promise.all(Array.from({ length: 8 }, () => repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60703'), actor)));
     expect(outcomes.filter((o) => o.created)).toHaveLength(1);
     expect(new Set(outcomes.map((o) => o.reference.id)).size).toBe(1);
     expect(await audits(outcomes[0]?.reference.id ?? '')).toHaveLength(1);
@@ -155,10 +153,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
   });
 
   it('stores no cached address when MRE has none', async () => {
-    const { reference } = await repository.linkOnce(
-      { ...draft('6512f0c2a1b2c3d4e5f60706'), displayName: null, cachedAddress: null },
-      actor,
-    );
+    const { reference } = await repository.linkOnce({ ...draft('6512f0c2a1b2c3d4e5f60706'), displayName: null, cachedAddress: null }, actor);
     expect(reference).toMatchObject({ displayName: null, cachedAddress: null });
   });
 
@@ -201,9 +196,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
     it('surface is stored exactly as NUMERIC (no float rounding)', async () => {
       const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60713'), actor);
       await repository.refresh(reference.id, REALM, found('Wohnung 1', '33.333333333333336'), actor);
-      const row = await pool.query<{ cached_surface: string }>('SELECT cached_surface FROM property_reference WHERE id = $1', [
-        reference.id,
-      ]);
+      const row = await pool.query<{ cached_surface: string }>('SELECT cached_surface FROM property_reference WHERE id = $1', [reference.id]);
       expect(row.rows[0]?.cached_surface).toBe('33.333333333333336');
     });
 
@@ -211,9 +204,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
       const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60714'), actor);
       const base = Date.parse('2026-10-20T09:00:00Z');
       await Promise.all(
-        Array.from({ length: 6 }, (_, i) =>
-          repository.refresh(reference.id, REALM, { ...found(`Name ${i}`), observedAt: new Date(base + i) }, actor),
-        ),
+        Array.from({ length: 6 }, (_, i) => repository.refresh(reference.id, REALM, { ...found(`Name ${i}`), observedAt: new Date(base + i) }, actor)),
       );
       // Whatever order the row lock grants, an older observation never lands after a newer one.
       expect(await repository.findById(reference.id, REALM)).toMatchObject({
@@ -252,7 +243,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
       expect((await versions(reference.id)).map((v) => v.action)).toEqual(['LINKED', 'MARKED_MISSING']);
     });
 
-    it("is scoped to the Realm and ignores ids that are not UUIDs", async () => {
+    it('is scoped to the Realm and ignores ids that are not UUIDs', async () => {
       const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60715'), actor);
       expect(await repository.refresh(reference.id, OTHER_REALM, found('x'), actor)).toBeUndefined();
       expect(await repository.findById(reference.id, OTHER_REALM)).toBeUndefined();
@@ -263,9 +254,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
 
     it('the database rejects a negative surface', async () => {
       const { reference } = await repository.linkOnce(draft('6512f0c2a1b2c3d4e5f60716'), actor);
-      await expect(
-        pool.query('UPDATE property_reference SET cached_surface = -1 WHERE id = $1', [reference.id]),
-      ).rejects.toThrow(/check constraint/);
+      await expect(pool.query('UPDATE property_reference SET cached_surface = -1 WHERE id = $1', [reference.id])).rejects.toThrow(/check constraint/);
     });
   });
 

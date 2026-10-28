@@ -195,9 +195,7 @@ describe('Currency safety', () => {
 
 describe('Serialization (api-design.md §86)', () => {
   it('serializes as decimal string plus currency', () => {
-    expect(JSON.stringify({ price: Money.of('1250', 'EUR') })).toBe(
-      '{"price":{"amount":"1250.00","currency":"EUR"}}',
-    );
+    expect(JSON.stringify({ price: Money.of('1250', 'EUR') })).toBe('{"price":{"amount":"1250.00","currency":"EUR"}}');
   });
 
   it('round-trips through JSON', () => {
@@ -206,9 +204,6 @@ describe('Serialization (api-design.md §86)', () => {
   });
 
   it('rejects JSON with a numeric amount', () => {
-    expectMoneyError(
-      () => Money.fromJSON(JSON.parse('{"amount":1250.5,"currency":"EUR"}')),
-      'INVALID_AMOUNT',
-    );
+    expectMoneyError(() => Money.fromJSON(JSON.parse('{"amount":1250.5,"currency":"EUR"}')), 'INVALID_AMOUNT');
   });
 });

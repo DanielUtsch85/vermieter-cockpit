@@ -62,7 +62,11 @@ describe('Ownership', () => {
       ownership('anna', [1, 1], '2035-04-01'),
       ownership('ben', [1, 3], '2040-01-01', null, 'VOID'),
     ];
-    expect(ownershipOn(rows, day('2030-01-01'))).toMatchObject({ completeness: 'COMPLETE', shareSum: { numerator: 1n, denominator: 1n }, items: [{ ownerPartyId: 'anna' }, { ownerPartyId: 'ben' }] });
+    expect(ownershipOn(rows, day('2030-01-01'))).toMatchObject({
+      completeness: 'COMPLETE',
+      shareSum: { numerator: 1n, denominator: 1n },
+      items: [{ ownerPartyId: 'anna' }, { ownerPartyId: 'ben' }],
+    });
     expect(ownershipOn(rows, day('2035-03-31')).items).toHaveLength(2);
     expect(ownershipOn(rows, day('2041-01-01'))).toMatchObject({ completeness: 'COMPLETE', items: [{ share: { numerator: 1, denominator: 1 } }] });
     expect(ownershipOn(rows.slice(0, 1), day('2030-01-01'))).toMatchObject({ completeness: 'INCOMPLETE', shareSum: { numerator: 1n, denominator: 2n } });

@@ -52,7 +52,10 @@ export function ownerAllocationRoutes(commands: OwnerAllocationCommands): Router
         if (error instanceof AcquisitionNotFoundError) {
           sendError(res, 404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId });
         } else if (error instanceof AcquisitionCancelledError) {
-          sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition is allocated to nobody.', { reason: 'ACQUISITION_CANCELLED', acquisitionId: error.acquisitionId });
+          sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition is allocated to nobody.', {
+            reason: 'ACQUISITION_CANCELLED',
+            acquisitionId: error.acquisitionId,
+          });
         } else if (error instanceof OwnershipBasisIncompleteError) {
           sendError(res, 409, 'CONFLICT', "The draft's Ownerships do not yet form a complete basis.", {
             reason: 'OWNERSHIP_BASIS_INCOMPLETE',

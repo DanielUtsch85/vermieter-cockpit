@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { Money, type BusinessDate } from '../../shared/index.js';
-import { dePayment, isRoundTrippable, markerIn, markerOf, removalBody, storedPayments, verifyRemoved, verifyWritten, writeBody, type WriteBackTerm } from './write-back.js';
+import {
+  dePayment,
+  isRoundTrippable,
+  markerIn,
+  markerOf,
+  removalBody,
+  storedPayments,
+  verifyRemoved,
+  verifyWritten,
+  writeBody,
+  type WriteBackTerm,
+} from './write-back.js';
 
 /** §37.4's round trip, against the shapes of MRE baseline 479d0ad (`toRentData`, `_updateByTerm`). */
 const ID = '0B6F1F9E-2F2C-4A8E-9D55-1F0D8C1E2A3B';
@@ -98,7 +109,9 @@ describe('verifyWritten', () => {
     expect(verifyWritten(term(), term(), mine)).toBe('MARKER_ABSENT');
     expect(verifyWritten(term(), after({ payments: [mine] }), mine)).toBe('CHANGED');
     expect(verifyWritten(term(), after({ payments: [{ ...theirs, amount: 51 }, mine] }), mine)).toBe('CHANGED');
-    expect(verifyWritten(term({ payments: [theirs, { ...theirs, reference: 'b' }] }), after({ payments: [{ ...theirs, reference: 'b' }, theirs, mine] }), mine)).toBe('CHANGED');
+    expect(
+      verifyWritten(term({ payments: [theirs, { ...theirs, reference: 'b' }] }), after({ payments: [{ ...theirs, reference: 'b' }, theirs, mine] }), mine),
+    ).toBe('CHANGED');
     expect(verifyWritten(term(), after({ promo: 0 }), mine)).toBe('CHANGED');
     expect(verifyWritten(term(), after({ notepromo: '' }), mine)).toBe('CHANGED');
     expect(verifyWritten(term(), after({ extracharge: 1 }), mine)).toBe('CHANGED');
@@ -109,7 +122,12 @@ describe('verifyWritten', () => {
 
 describe('removal (§37.5)', () => {
   it('removalBody: every payment read but DE’s, as MRE stores them; the settlement as writeBody', () => {
-    const read = term({ payments: [theirs, mine, { ...theirs, reference: 'b', type: undefined }], notepromo: 'Rabatt\n', extracharge: 5, noteextracharge: 'Mahngebühr\n' });
+    const read = term({
+      payments: [theirs, mine, { ...theirs, reference: 'b', type: undefined }],
+      notepromo: 'Rabatt\n',
+      extracharge: 5,
+      noteextracharge: 'Mahngebühr\n',
+    });
     expect(removalBody(read, mine)).toEqual({
       payments: [theirs, { ...theirs, reference: 'b', type: '' }],
       promo: 20,

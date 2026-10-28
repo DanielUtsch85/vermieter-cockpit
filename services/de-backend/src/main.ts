@@ -114,7 +114,16 @@ import {
 } from './infrastructure/postgres/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreWriteBackTermReader, mreWriteBackTermWriter, mreRentTermReader, mreTenantLookup } from './wiring.js';
+import {
+  mrePrincipalVerifier,
+  mrePropertyLookup,
+  mreRentTermLookup,
+  mreMonthReader,
+  mreWriteBackTermReader,
+  mreWriteBackTermWriter,
+  mreRentTermReader,
+  mreTenantLookup,
+} from './wiring.js';
 
 /** Composition root: wires configuration, infrastructure and the HTTP app. */
 const config = loadConfig(process.env);

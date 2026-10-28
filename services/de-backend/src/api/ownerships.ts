@@ -61,7 +61,11 @@ const createBody = z
     validFrom: businessDate,
     validUntil: businessDate.nullish(),
     // The Acquisition this Ownership results from (P2-D8, §27.1): a DRAFT of the same Realm and PropertyReference.
-    acquisitionId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()).nullish(),
+    acquisitionId: z
+      .string()
+      .regex(RESOURCE_ID)
+      .transform((id) => id.toLowerCase())
+      .nullish(),
     sourceReferences: z.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
   })
@@ -76,12 +80,23 @@ const changeBody = z
   .object({
     effectiveDate: businessDate,
     reason: z.string().trim().min(1).max(500),
-    close: z.array(z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase())).max(50).default([]),
+    close: z
+      .array(
+        z
+          .string()
+          .regex(RESOURCE_ID)
+          .transform((id) => id.toLowerCase()),
+      )
+      .max(50)
+      .default([]),
     create: z
       .array(
         z
           .object({
-            ownerPartyId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()),
+            ownerPartyId: z
+              .string()
+              .regex(RESOURCE_ID)
+              .transform((id) => id.toLowerCase()),
             share,
             sourceReferences: z.array(optionalText(500)).max(10).optional(),
             notes: optionalText(2000).nullish(),
@@ -91,7 +106,11 @@ const changeBody = z
       .max(50)
       .default([]),
     // The Acquisition every created Ownership results from (P2-D8, §27.1).
-    acquisitionId: z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase()).nullish(),
+    acquisitionId: z
+      .string()
+      .regex(RESOURCE_ID)
+      .transform((id) => id.toLowerCase())
+      .nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {

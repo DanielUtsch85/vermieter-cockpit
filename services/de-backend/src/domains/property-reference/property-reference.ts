@@ -175,10 +175,5 @@ export interface PropertyReferenceRepository {
    * nothing and resolves the current row. Resolves undefined if the reference
    * does not exist in the Realm.
    */
-  refresh(
-    id: PropertyReferenceId,
-    mreRealmId: string,
-    observation: MreObservation,
-    actor: AuditActor,
-  ): Promise<PropertyReference | undefined>;
+  refresh(id: PropertyReferenceId, mreRealmId: string, observation: MreObservation, actor: AuditActor): Promise<PropertyReference | undefined>;
 }

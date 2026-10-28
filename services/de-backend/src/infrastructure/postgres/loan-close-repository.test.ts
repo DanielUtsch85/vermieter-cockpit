@@ -46,7 +46,9 @@ const closing = (closingDate: string, reason: CloseRequest['reason'] = 'OTHER', 
 
 async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
   const deadline = Date.now() + 5_000;
-  while (Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count) {
+  while (
+    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count
+  ) {
     if (Date.now() > deadline) throw new Error(`fewer than ${count} sessions wait on a lock`);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -101,7 +103,17 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -130,7 +142,16 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
   }
   async function transaction(bookingDate: string, amount: string): Promise<string> {
     const created = await transactions.createManual(
-      { mreRealmId: REALM, financialAccountId: account, amount: eur(amount), direction: 'OUTFLOW', bookingDate: day(bookingDate), valueDate: null, description: 'Rate', propertyReferenceId: null },
+      {
+        mreRealmId: REALM,
+        financialAccountId: account,
+        amount: eur(amount),
+        direction: 'OUTFLOW',
+        bookingDate: day(bookingDate),
+        valueDate: null,
+        description: 'Rate',
+        propertyReferenceId: null,
+      },
       actor,
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
@@ -158,7 +179,8 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
   const rawSplit = (transactionId: string, loanId: string) =>
     `INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, loan_id, created_by)
      SELECT '${transactionId}', '${REALM}', 1, 1.00, 'EUR', id, '${loanId}', 'x' FROM financial_category WHERE code = 'LOAN_PRINCIPAL'`;
-  const rawAmend = (transactionId: string, date: string) => `UPDATE ledger_transaction SET booking_date = '${date}', version = version + 1 WHERE id = '${transactionId}'`;
+  const rawAmend = (transactionId: string, date: string) =>
+    `UPDATE ledger_transaction SET booking_date = '${date}', version = version + 1 WHERE id = '${transactionId}'`;
 
   describe('close: the order of checks', () => {
     it('unknown or foreign → NOT_FOUND; VOID or CLOSED with other values → LOAN_NOT_ACTIVE; before the debt', async () => {
@@ -177,10 +199,22 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       await loans.void(voided.id, REALM, 'x', new Date(), actor);
       await closed(done.id, closing('2027-06-30'));
       const unknown = '00000000-0000-4000-8000-000000000000';
-      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', unknown), actor)).toEqual({ kind: 'REFINANCING_LOAN_NOT_FOUND', refinancedByLoanId: unknown });
-      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', foreign.id), actor)).toEqual({ kind: 'REFINANCING_LOAN_NOT_FOUND', refinancedByLoanId: foreign.id });
-      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', voided.id), actor)).toEqual({ kind: 'REFINANCING_LOAN_NOT_ACTIVE', status: 'VOID' });
-      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', done.id), actor)).toEqual({ kind: 'REFINANCING_LOAN_NOT_ACTIVE', status: 'CLOSED' });
+      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', unknown), actor)).toEqual({
+        kind: 'REFINANCING_LOAN_NOT_FOUND',
+        refinancedByLoanId: unknown,
+      });
+      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', foreign.id), actor)).toEqual({
+        kind: 'REFINANCING_LOAN_NOT_FOUND',
+        refinancedByLoanId: foreign.id,
+      });
+      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', voided.id), actor)).toEqual({
+        kind: 'REFINANCING_LOAN_NOT_ACTIVE',
+        status: 'VOID',
+      });
+      expect(await loans.close(l.id, REALM, closing('2027-06-30', 'REFINANCED', done.id), actor)).toEqual({
+        kind: 'REFINANCING_LOAN_NOT_ACTIVE',
+        status: 'CLOSED',
+      });
     });
 
     it('SPLITS_AFTER_CLOSING for a current, an unconfirmed and an IGNORED split, in booking-date order', async () => {
@@ -197,14 +231,36 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       const [old, successor] = [await loan(), await loan()];
       await pay(old.id, '2027-01-31', '400.00');
       const july = await pay(old.id, '2027-07-31', '25.00');
-      expect(await loans.close(old.id, REALM, closing('2027-06-30', 'REFINANCED', successor.id), actor)).toEqual({ kind: 'SPLITS_AFTER_CLOSING', transactionIds: [july] });
-      const moved = await corrections.correct(july, REALM, { reason: 'falsches Darlehen', replacement: { splits: [split('25.00', 'LOAN_PRINCIPAL', successor.id)] } }, actor);
+      expect(await loans.close(old.id, REALM, closing('2027-06-30', 'REFINANCED', successor.id), actor)).toEqual({
+        kind: 'SPLITS_AFTER_CLOSING',
+        transactionIds: [july],
+      });
+      const moved = await corrections.correct(
+        july,
+        REALM,
+        { reason: 'falsches Darlehen', replacement: { splits: [split('25.00', 'LOAN_PRINCIPAL', successor.id)] } },
+        actor,
+      );
       expect(moved.kind).toBe('CORRECTED');
       const done = await closed(old.id, closing('2027-06-30', 'REFINANCED', successor.id));
-      expect(done).toMatchObject({ status: 'CLOSED', closingDate: '2027-06-30', closingReason: 'REFINANCED', refinancedByLoanId: successor.id, version: old.version + 1 });
+      expect(done).toMatchObject({
+        status: 'CLOSED',
+        closingDate: '2027-06-30',
+        closingReason: 'REFINANCED',
+        refinancedByLoanId: successor.id,
+        version: old.version + 1,
+      });
       const audit = await pool.query(`SELECT metadata FROM audit_record WHERE entity_type = 'Loan' AND entity_id = $1 AND action = 'CLOSED'`, [old.id]);
       expect(audit.rows).toEqual([
-        { metadata: { closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: successor.id, closingNote: null, settledAmount: { amount: '600.00', currency: 'EUR' } } },
+        {
+          metadata: {
+            closingDate: '2027-06-30',
+            reason: 'REFINANCED',
+            refinancedByLoanId: successor.id,
+            closingNote: null,
+            settledAmount: { amount: '600.00', currency: 'EUR' },
+          },
+        },
       ]);
     });
 
@@ -237,7 +293,11 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       const corrected = await pay(l.id, '2027-06-15', '50.00');
       await closed(l.id, closing('2027-06-30'));
       const after = await transaction('2027-07-01', '1.00');
-      expect(await splits.replaceSplits(after, REALM, [split('1.00', 'LOAN_PRINCIPAL', l.id)], actor)).toEqual({ kind: 'LOAN_CLOSED', loanId: l.id, closingDate: '2027-06-30' });
+      expect(await splits.replaceSplits(after, REALM, [split('1.00', 'LOAN_PRINCIPAL', l.id)], actor)).toEqual({
+        kind: 'LOAN_CLOSED',
+        loanId: l.id,
+        closingDate: '2027-06-30',
+      });
       const on = await transaction('2027-06-30', '1.00');
       expect((await splits.replaceSplits(on, REALM, [split('1.00', 'LOAN_PRINCIPAL', l.id)], actor)).kind).toBe('REPLACED');
       expect((await corrections.correct(earlier, REALM, { reason: 'doppelt', replacement: null }, actor)).kind).toBe('CORRECTED');
@@ -252,7 +312,11 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       const l = await loan();
       const open = await pay(l.id, '2027-06-01', '1.00', false);
       await closed(l.id, closing('2027-06-30'));
-      expect(await unconfirmed.amend(open, REALM, { bookingDate: day('2027-07-01') }, actor)).toEqual({ kind: 'LOAN_CLOSED', loanId: l.id, closingDate: '2027-06-30' });
+      expect(await unconfirmed.amend(open, REALM, { bookingDate: day('2027-07-01') }, actor)).toEqual({
+        kind: 'LOAN_CLOSED',
+        loanId: l.id,
+        closingDate: '2027-06-30',
+      });
       expect(await pool.query(rawAmend(open, '2027-07-01')).then(() => 'accepted', reasonOf)).toBe('(LOAN_CLOSED)');
       expect((await unconfirmed.amend(open, REALM, { bookingDate: day('2027-06-30') }, actor)).kind).toBe('AMENDED');
     });
@@ -276,7 +340,10 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
         notes: null,
       };
       expect(await terms.create(l.id, REALM, period, actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'CLOSED' });
-      expect(await allocations.create(l.id, REALM, { validFrom: day('2027-07-01'), basis: 'MANUAL', allocations: [], notes: null }, actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'CLOSED' });
+      expect(await allocations.create(l.id, REALM, { validFrom: day('2027-07-01'), basis: 'MANUAL', allocations: [], notes: null }, actor)).toEqual({
+        kind: 'LOAN_NOT_ACTIVE',
+        status: 'CLOSED',
+      });
     });
 
     it('the remaining debt: 0 after the date with the closing; on the date as derived; a later correction shows in actualOnClosingDate', async () => {
@@ -284,7 +351,14 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       const payment = await pay(l.id, '2027-01-31', '300.00');
       await closed(l.id, closing('2027-06-30', 'REFINANCED', successor.id));
       const read = async (asOf: string) => remainingDebt((await debt.debtInputs(l.id, REALM))!, day(asOf), false);
-      expect(await read('2027-06-30')).toMatchObject({ debt: { principalPaid: 30_000n, actual: 70_000n, planned: null, closing: { closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: successor.id, actualOnClosingDate: 70_000n } } });
+      expect(await read('2027-06-30')).toMatchObject({
+        debt: {
+          principalPaid: 30_000n,
+          actual: 70_000n,
+          planned: null,
+          closing: { closingDate: '2027-06-30', reason: 'REFINANCED', refinancedByLoanId: successor.id, actualOnClosingDate: 70_000n },
+        },
+      });
       expect(await read('2027-07-01')).toMatchObject({ debt: { principalPaid: 30_000n, actual: 0n, planned: null, difference: null } });
       expect((await corrections.correct(payment, REALM, { reason: 'doppelt', replacement: null }, actor)).kind).toBe('CORRECTED');
       expect(await read('2027-07-01')).toMatchObject({ debt: { actual: 0n, closing: { actualOnClosingDate: 100_000n } } });
@@ -298,7 +372,10 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       expect(await loans.void(successor.id, REALM, 'x', new Date(), actor)).toEqual({ kind: 'LOAN_REFINANCES', loanIds: [old.id] });
       expect(await pool.query(rawVoid(successor.id)).then(() => 'accepted', reasonOf)).toBe('(LOAN_REFINANCES)');
       expect((await loans.void(unused.id, REALM, 'falsch erfasst', new Date(), actor)).kind).toBe('VOIDED');
-      expect(await loans.close(other.id, REALM, closing('2027-06-30', 'REFINANCED', unused.id), actor)).toEqual({ kind: 'REFINANCING_LOAN_NOT_ACTIVE', status: 'VOID' });
+      expect(await loans.close(other.id, REALM, closing('2027-06-30', 'REFINANCED', unused.id), actor)).toEqual({
+        kind: 'REFINANCING_LOAN_NOT_ACTIVE',
+        status: 'VOID',
+      });
     });
   });
 
@@ -342,7 +419,10 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
     it('READ COMMITTED, close against a split write, both orders: the second sees the first', async () => {
       const a = await loan();
       const afterA = await transaction('2027-07-15', '1.00');
-      expect(await heldThen(rawSplit(afterA, a.id), () => loans.close(a.id, REALM, closing('2027-06-30'), actor))).toEqual({ kind: 'SPLITS_AFTER_CLOSING', transactionIds: [afterA] });
+      expect(await heldThen(rawSplit(afterA, a.id), () => loans.close(a.id, REALM, closing('2027-06-30'), actor))).toEqual({
+        kind: 'SPLITS_AFTER_CLOSING',
+        transactionIds: [afterA],
+      });
       const b = await loan();
       const afterB = await transaction('2027-07-15', '1.00');
       expect(await heldThen(rawClose(b.id), () => splits.replaceSplits(afterB, REALM, [split('1.00', 'LOAN_PRINCIPAL', b.id)], actor))).toEqual({
@@ -369,7 +449,10 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       });
       const b = await loan();
       const openB = await pay(b.id, '2027-06-01', '1.00', false);
-      expect(await heldThen(rawAmend(openB, '2027-07-01'), () => loans.close(b.id, REALM, closing('2027-06-30'), actor))).toEqual({ kind: 'SPLITS_AFTER_CLOSING', transactionIds: [openB] });
+      expect(await heldThen(rawAmend(openB, '2027-07-01'), () => loans.close(b.id, REALM, closing('2027-06-30'), actor))).toEqual({
+        kind: 'SPLITS_AFTER_CLOSING',
+        transactionIds: [openB],
+      });
       const c = await loan();
       const openC = await pay(c.id, '2027-06-01', '1.00', false);
       expect(await repeatableRead(rawAmend(openC, '2027-07-01'), rawClose(c.id))).toBe('40001');
@@ -377,7 +460,11 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
 
     it('REFINANCED against a void of the named Loan: RC both orders; RR fails to serialise', async () => {
       const [a, successorA] = [await loan(), await loan()];
-      expect(await heldThen(rawClose(a.id, '2027-06-30', `closing_reason = 'REFINANCED', refinanced_by_loan_id = '${successorA.id}'`), () => loans.void(successorA.id, REALM, 'x', new Date(), actor))).toEqual({
+      expect(
+        await heldThen(rawClose(a.id, '2027-06-30', `closing_reason = 'REFINANCED', refinanced_by_loan_id = '${successorA.id}'`), () =>
+          loans.void(successorA.id, REALM, 'x', new Date(), actor),
+        ),
+      ).toEqual({
         kind: 'LOAN_REFINANCES',
         loanIds: [a.id],
       });
@@ -388,7 +475,9 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       });
       const [c, successorC] = [await loan(), await loan()];
       // Without the close guard's write on the named Loan's row, the stale void would commit.
-      expect(await repeatableRead(rawClose(c.id, '2027-06-30', `closing_reason = 'REFINANCED', refinanced_by_loan_id = '${successorC.id}'`), rawVoid(successorC.id))).toBe('40001');
+      expect(
+        await repeatableRead(rawClose(c.id, '2027-06-30', `closing_reason = 'REFINANCED', refinanced_by_loan_id = '${successorC.id}'`), rawVoid(successorC.id)),
+      ).toBe('40001');
     });
 
     it('two booking-date amends naming two Loans in opposite position order: the id order avoids a deadlock', async () => {
@@ -438,19 +527,33 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
   });
 
   describe('the schema past the repository (each guard has a counter-check)', () => {
-    const update = (loanId: string, set: string) => pool.query(`UPDATE loan SET ${set}, version = version + 1 WHERE id = $1`, [loanId]).then(() => 'accepted', reasonOf);
+    const update = (loanId: string, set: string) =>
+      pool.query(`UPDATE loan SET ${set}, version = version + 1 WHERE id = $1`, [loanId]).then(() => 'accepted', reasonOf);
 
     it('the CHECKs: the closing fields with CLOSED, REFINANCED with its Loan, OTHER with a note, not itself, not before the debt, the Realm', async () => {
       const [l, successor, foreign] = [await loan(), await loan(), await loan(OTHER_REALM)];
       expect(await update(l.id, `status = 'CLOSED'`)).toBe('loan_closing_fields');
       expect(await update(l.id, `closing_note = 'x'`)).toBe('loan_closing_fields');
       expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'REFINANCED'`)).toBe('loan_closing_fields');
-      expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'OTHER', closing_note = 'x', refinanced_by_loan_id = '${successor.id}'`)).toBe('loan_closing_fields');
+      expect(
+        await update(
+          l.id,
+          `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'OTHER', closing_note = 'x', refinanced_by_loan_id = '${successor.id}'`,
+        ),
+      ).toBe('loan_closing_fields');
       expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'OTHER'`)).toBe('loan_closing_fields');
-      expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'REFINANCED', refinanced_by_loan_id = id`)).toBe('loan_not_refinanced_by_itself');
-      expect(await update(l.id, `status = 'CLOSED', closing_date = '2026-12-31', closing_reason = 'OTHER', closing_note = 'x'`)).toBe('loan_closing_after_debt');
-      expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'REFINANCED', refinanced_by_loan_id = '${foreign.id}'`)).toBe('loan_refinanced_by_fk');
-      expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'OTHER', closing_note = ' x'`)).toBe('loan_closing_note_check');
+      expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'REFINANCED', refinanced_by_loan_id = id`)).toBe(
+        'loan_not_refinanced_by_itself',
+      );
+      expect(await update(l.id, `status = 'CLOSED', closing_date = '2026-12-31', closing_reason = 'OTHER', closing_note = 'x'`)).toBe(
+        'loan_closing_after_debt',
+      );
+      expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'REFINANCED', refinanced_by_loan_id = '${foreign.id}'`)).toBe(
+        'loan_refinanced_by_fk',
+      );
+      expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'OTHER', closing_note = ' x'`)).toBe(
+        'loan_closing_note_check',
+      );
       expect(await update(l.id, `status = 'CLOSED', closing_date = '2027-06-30', closing_reason = 'OTHER', closing_note = 'x'`)).toBe('accepted');
       expect(await update(l.id, `closing_date = '2027-07-31'`)).toBe('is final');
     });
@@ -464,11 +567,15 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
       expect((await unconfirmed.ignore(ignored, REALM, 'doppelt', actor)).kind).toBe('IGNORED');
       expect(await pool.query(rawClose(ignoredOnly.id)).then(() => 'accepted', reasonOf)).toBe('(SPLITS_AFTER_CLOSING)');
       await pay(repaid.id, '2027-01-31', '999.99');
-      expect(await pool.query(rawClose(repaid.id, '2027-06-30', `closing_reason = 'REPAID'`)).then(() => 'accepted', reasonOf)).toBe('(REMAINING_DEBT_NOT_ZERO)');
-      await loans.void(voided.id, REALM, 'x', new Date(), actor);
-      expect(await pool.query(rawClose(refinanced.id, '2027-06-30', `closing_reason = 'REFINANCED', refinanced_by_loan_id = '${voided.id}'`)).then(() => 'accepted', reasonOf)).toBe(
-        '(REFINANCING_LOAN_NOT_ACTIVE)',
+      expect(await pool.query(rawClose(repaid.id, '2027-06-30', `closing_reason = 'REPAID'`)).then(() => 'accepted', reasonOf)).toBe(
+        '(REMAINING_DEBT_NOT_ZERO)',
       );
+      await loans.void(voided.id, REALM, 'x', new Date(), actor);
+      expect(
+        await pool
+          .query(rawClose(refinanced.id, '2027-06-30', `closing_reason = 'REFINANCED', refinanced_by_loan_id = '${voided.id}'`))
+          .then(() => 'accepted', reasonOf),
+      ).toBe('(REFINANCING_LOAN_NOT_ACTIVE)');
       await pay(repaid.id, '2027-02-28', '0.01');
       expect(await pool.query(rawClose(repaid.id, '2027-06-30', `closing_reason = 'REPAID'`)).then(() => 'accepted', reasonOf)).toBe('accepted');
     });

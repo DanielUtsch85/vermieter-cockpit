@@ -1,6 +1,12 @@
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { costFingerprint, paymentFingerprint, type NewAcquisition, type NewAcquisitionCost, type NewAcquisitionPayment } from '../../domains/acquisition/index.js';
+import {
+  costFingerprint,
+  paymentFingerprint,
+  type NewAcquisition,
+  type NewAcquisitionCost,
+  type NewAcquisitionPayment,
+} from '../../domains/acquisition/index.js';
 import type { SplitInput } from '../../domains/ledger/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import { PostgresAcquisitionCostRepository } from './acquisition-cost-repository.js';
@@ -71,7 +77,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -170,19 +186,22 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       [REALM, acquisitionId, costId, transactionId, amount],
     );
   const rawCancel = (client: pg.Pool | pg.PoolClient, acquisitionId: string) =>
-    client.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [acquisitionId]);
+    client.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [
+      acquisitionId,
+    ]);
   const rawVoid = (client: pg.Pool | pg.PoolClient, costId: string) =>
     client.query(`UPDATE acquisition_cost SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [costId]);
   /** Waits until a session waits for a lock in a statement mentioning `text`. */
   const waitForLock = (text: string, sessions = 1) =>
-    waitUntil(async () =>
-      Number(
-        (
-          await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
-            `%${text}%`,
-          ])
-        ).rows[0].count,
-      ) >= sessions,
+    waitUntil(
+      async () =>
+        Number(
+          (
+            await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
+              `%${text}%`,
+            ])
+          ).rows[0].count,
+        ) >= sessions,
     );
   /** Runs `hold` in an open transaction, starts `waiter`, waits until it waits on `lockText`, then commits. */
   async function whileHeld<T>(hold: (client: pg.PoolClient) => Promise<unknown>, waiter: () => Promise<T>, lockText: string): Promise<T> {
@@ -203,7 +222,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
     it('create: ACTIVE and EXPECTED, with the Realm-scoped counterparty, and an AuditRecord', async () => {
       const a = await acquisition();
       const notary = await party('Notar Müller');
-      const outcome = await costs.createCost(newCost(a, '2450.10', { incurredDate: day('2026-06-20'), counterpartyPartyId: notary, notes: 'Beurkundung' }), actor);
+      const outcome = await costs.createCost(
+        newCost(a, '2450.10', { incurredDate: day('2026-06-20'), counterpartyPartyId: notary, notes: 'Beurkundung' }),
+        actor,
+      );
       expect(outcome).toMatchObject({
         kind: 'CREATED',
         cost: {
@@ -243,9 +265,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       const foreignParty = await party('Fremd', OTHER_REALM);
       expect(await costs.createCost(newCost(foreign, '1.00'), actor)).toEqual({ kind: 'ACQUISITION_NOT_FOUND' });
       expect(await costs.createCost(newCost('not-a-uuid', '1.00'), actor)).toEqual({ kind: 'ACQUISITION_NOT_FOUND' });
-      expect(await costs.createCost(newCost(a, '1.00', { counterpartyPartyId: foreignParty }), actor)).toEqual({ kind: 'PARTY_NOT_FOUND', partyId: foreignParty });
+      expect(await costs.createCost(newCost(a, '1.00', { counterpartyPartyId: foreignParty }), actor)).toEqual({
+        kind: 'PARTY_NOT_FOUND',
+        partyId: foreignParty,
+      });
       await acquisitions.cancel(a, REALM, 'geplatzt', AT, actor);
-      expect(await costs.createCost(newCost(a, '1.00', { counterpartyPartyId: foreignParty }), actor)).toEqual({ kind: 'PARTY_NOT_FOUND', partyId: foreignParty });
+      expect(await costs.createCost(newCost(a, '1.00', { counterpartyPartyId: foreignParty }), actor)).toEqual({
+        kind: 'PARTY_NOT_FOUND',
+        partyId: foreignParty,
+      });
       expect(await costs.createCost(newCost(a, '1.00'), actor)).toEqual({ kind: 'ACQUISITION_CANCELLED' });
     });
 
@@ -286,13 +314,25 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       expect((await costs.unlinkPayment(a, p, REALM, 'falsch', AT, actor)).kind).toBe('UNLINKED');
       expect(await costs.voidCost(a, c, REALM, 'falsch', AT, actor, [7])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [7], currentVersion: 1 });
       const voided = await costs.voidCost(a, c, REALM, 'falsch', AT, actor, [1]);
-      expect(voided).toMatchObject({ kind: 'VOIDED', changed: true, cost: { status: 'VOID', voidedAt: AT, voidReason: 'falsch', paymentStatus: null, version: 2 } });
-      expect(await costs.voidCost(a, c, REALM, 'anders', new Date(), actor, [99])).toMatchObject({ kind: 'VOIDED', changed: false, cost: { voidReason: 'falsch' } });
+      expect(voided).toMatchObject({
+        kind: 'VOIDED',
+        changed: true,
+        cost: { status: 'VOID', voidedAt: AT, voidReason: 'falsch', paymentStatus: null, version: 2 },
+      });
+      expect(await costs.voidCost(a, c, REALM, 'anders', new Date(), actor, [99])).toMatchObject({
+        kind: 'VOIDED',
+        changed: false,
+        cost: { voidReason: 'falsch' },
+      });
       expect(await costs.voidCost(a, c, OTHER_REALM, 'x', AT, actor)).toEqual({ kind: 'NOT_FOUND' });
       expect(await costs.voidCost(await acquisition(), c, REALM, 'x', AT, actor)).toEqual({ kind: 'NOT_FOUND' });
       expect(
-        (await pool.query(`SELECT action, previous_version, new_version FROM audit_record WHERE entity_type = 'AcquisitionCost' AND entity_id = $1 ORDER BY occurred_at`, [c]))
-          .rows,
+        (
+          await pool.query(
+            `SELECT action, previous_version, new_version FROM audit_record WHERE entity_type = 'AcquisitionCost' AND entity_id = $1 ORDER BY occurred_at`,
+            [c],
+          )
+        ).rows,
       ).toEqual([
         { action: 'CREATED', previous_version: null, new_version: 1 },
         { action: 'VOIDED', previous_version: 1, new_version: 2 },
@@ -327,7 +367,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       expect(listed?.purchasePrice.paymentStatus).toBe('PARTIALLY_PAID');
       expect(listed?.purchasePrice.paidAmount.amount).toBe('100000.00');
       expect(listed?.items.map((p) => p.id)).toHaveLength(3);
-      expect(listed?.items[0]).toMatchObject({ id: p1, acquisitionCostId: c, transactionId: t1, counting: true, notCountingReason: null, transactionStatus: 'CONFIRMED' });
+      expect(listed?.items[0]).toMatchObject({
+        id: p1,
+        acquisitionCostId: c,
+        transactionId: t1,
+        counting: true,
+        notCountingReason: null,
+        transactionStatus: 'CONFIRMED',
+      });
       expect((await costs.listPayments(a, REALM, { acquisitionCostId: null }))?.items.map((p) => p.id)).toEqual([price]);
       expect((await costs.listPayments(a, REALM, { counting: false }))?.items).toEqual([]);
       expect(await costs.listPayments(a, OTHER_REALM, {})).toBeUndefined();
@@ -357,7 +404,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       await link(a, t, '30.00', c);
       const price = await costs.linkPayment(newPayment(a, await transaction('400000.00'), '300000.01'), actor);
       expect(price.kind).toBe('PAYMENT_EXCEEDS_PRICE');
-      if (price.kind === 'PAYMENT_EXCEEDS_PRICE') expect([price.expected.amount, price.paid.amount, price.remaining.amount]).toEqual(['300000.00', '0.00', '300000.00']);
+      if (price.kind === 'PAYMENT_EXCEEDS_PRICE')
+        expect([price.expected.amount, price.paid.amount, price.remaining.amount]).toEqual(['300000.00', '0.00', '300000.00']);
       await costs.voidCost(b, await cost(b, '1.00'), REALM, 'x', AT, actor);
       const voidCost = (await costs.listCosts(b, REALM, { status: 'VOID' }))?.[0]?.id ?? '';
       expect((await costs.linkPayment(newPayment(b, t, '0.01', voidCost), actor)).kind).toBe('COST_VOID');
@@ -416,7 +464,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
         changed: true,
         payment: { unlinkedAt: AT, unlinkReason: 'falsch', counting: false, notCountingReason: 'UNLINKED', version: 2 },
       });
-      expect(await costs.unlinkPayment(a, p, REALM, 'anders', new Date(), actor, [9])).toMatchObject({ kind: 'UNLINKED', changed: false, payment: { unlinkReason: 'falsch' } });
+      expect(await costs.unlinkPayment(a, p, REALM, 'anders', new Date(), actor, [9])).toMatchObject({
+        kind: 'UNLINKED',
+        changed: false,
+        payment: { unlinkReason: 'falsch' },
+      });
       expect(await costs.unlinkPayment(await acquisition(), p, REALM, 'x', AT, actor)).toEqual({ kind: 'NOT_FOUND' });
       await link(await acquisition(), t, '50.00');
     });
@@ -460,7 +512,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       await rawCancel(pool, e);
       await expect(insertPayment(pool, e, await transaction('1.00'), '1.00')).rejects.toThrow(/ACQUISITION_CANCELLED/);
       await expect(
-        pool.query(`INSERT INTO acquisition_cost (mre_realm_id, acquisition_id, category, amount, currency, status, created_by) VALUES ($1, $2, 'OTHER', 1, 'EUR', 'ACTIVE', 'x')`, [REALM, e]),
+        pool.query(
+          `INSERT INTO acquisition_cost (mre_realm_id, acquisition_id, category, amount, currency, status, created_by) VALUES ($1, $2, 'OTHER', 1, 'EUR', 'ACTIVE', 'x')`,
+          [REALM, e],
+        ),
       ).rejects.toThrow(/ACQUISITION_CANCELLED/);
     });
 
@@ -468,7 +523,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       const a = await acquisition();
       const foreignTransaction = await transaction('1.00', { realm: OTHER_REALM });
       await expect(insertPayment(pool, a, foreignTransaction, '1.00')).rejects.toThrow(/acquisition_payment_transaction_fk/);
-      await expect(insertPayment(pool, a, await transaction('1.00'), '1.00', await cost(await acquisition(), '1.00'))).rejects.toThrow(/acquisition_payment_cost_fk/);
+      await expect(insertPayment(pool, a, await transaction('1.00'), '1.00', await cost(await acquisition(), '1.00'))).rejects.toThrow(
+        /acquisition_payment_cost_fk/,
+      );
     });
 
     it('keeps data fixed and rows undeleted; only the void and the unlink are steps', async () => {
@@ -483,7 +540,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       await pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = 2 WHERE id = $1`, [p]);
       await expect(pool.query(`UPDATE acquisition_payment SET unlinked_at = NULL, unlink_reason = NULL WHERE id = $1`, [p])).rejects.toThrow(/final/);
       await rawVoid(pool, c);
-      await expect(pool.query(`UPDATE acquisition_cost SET status = 'ACTIVE', voided_at = NULL, void_reason = NULL WHERE id = $1`, [c])).rejects.toThrow(/final/);
+      await expect(pool.query(`UPDATE acquisition_cost SET status = 'ACTIVE', voided_at = NULL, void_reason = NULL WHERE id = $1`, [c])).rejects.toThrow(
+        /final/,
+      );
     });
   });
 
@@ -492,12 +551,16 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       const a = await acquisition();
       const c = await cost(a, '10.00');
       const p = await link(a, await transaction('10.00'), '5.00', c);
-      await expect(pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x' WHERE id = $1`, [p])).rejects.toThrow(/must raise version/);
-      await expect(pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = version + 2 WHERE id = $1`, [p])).rejects.toThrow(
+      await expect(pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x' WHERE id = $1`, [p])).rejects.toThrow(
         /must raise version/,
       );
+      await expect(
+        pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = version + 2 WHERE id = $1`, [p]),
+      ).rejects.toThrow(/must raise version/);
       await pool.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = version + 1 WHERE id = $1`, [p]);
-      await expect(pool.query(`UPDATE acquisition_cost SET status = 'VOID', voided_at = now(), void_reason = 'x' WHERE id = $1`, [c])).rejects.toThrow(/must raise version/);
+      await expect(pool.query(`UPDATE acquisition_cost SET status = 'VOID', voided_at = now(), void_reason = 'x' WHERE id = $1`, [c])).rejects.toThrow(
+        /must raise version/,
+      );
       await rawVoid(pool, c);
       await expect(
         pool.query(
@@ -526,7 +589,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
         [a],
       );
       const t = await transaction('10.00');
-      const confirmed = await whileHeld((h) => insertPayment(h, a, t, '10.00'), () => acquisitions.confirm(a, REALM, AT, actor), '"acquisition"');
+      const confirmed = await whileHeld(
+        (h) => insertPayment(h, a, t, '10.00'),
+        () => acquisitions.confirm(a, REALM, AT, actor),
+        '"acquisition"',
+      );
       expect(confirmed.kind).toBe('CONFIRMED');
       expect((await costs.listPayments(a, REALM, {}))?.purchasePrice.paidAmount.amount).toBe('10.00');
     });
@@ -534,7 +601,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
     it('two links of one Transaction from two Acquisitions serialise on the Transaction row', async () => {
       const [a, b] = [await acquisition(), await acquisition()];
       const t = await transaction('100.00');
-      const outcome = await whileHeld((h) => insertPayment(h, a, t, '60.00'), () => costs.linkPayment(newPayment(b, t, '60.00'), actor), '"ledger_transaction"');
+      const outcome = await whileHeld(
+        (h) => insertPayment(h, a, t, '60.00'),
+        () => costs.linkPayment(newPayment(b, t, '60.00'), actor),
+        '"ledger_transaction"',
+      );
       expect(outcome.kind).toBe('PAYMENT_EXCEEDS_TRANSACTION');
     });
 
@@ -548,7 +619,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       );
       expect(onCost.kind).toBe('PAYMENT_EXCEEDS_COST');
       const [t1, t2] = [await transaction('200000.00'), await transaction('200000.00')];
-      const onPrice = await whileHeld((h) => insertPayment(h, a, t1, '200000.00'), () => costs.linkPayment(newPayment(a, t2, '200000.00'), actor), '"acquisition"');
+      const onPrice = await whileHeld(
+        (h) => insertPayment(h, a, t1, '200000.00'),
+        () => costs.linkPayment(newPayment(a, t2, '200000.00'), actor),
+        '"acquisition"',
+      );
       expect(onPrice.kind).toBe('PAYMENT_EXCEEDS_PRICE');
     });
 
@@ -577,7 +652,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
     it('a cancel waits for a link in flight and then cancels; the payment counts nowhere', async () => {
       const a = await acquisition();
       const t = await transaction('1.00');
-      const outcome = await whileHeld((h) => insertPayment(h, a, t, '1.00'), () => acquisitions.cancel(a, REALM, 'x', AT, actor), '"acquisition"');
+      const outcome = await whileHeld(
+        (h) => insertPayment(h, a, t, '1.00'),
+        () => acquisitions.cancel(a, REALM, 'x', AT, actor),
+        '"acquisition"',
+      );
       expect(outcome.kind).toBe('CANCELLED');
       expect((await costs.listPayments(a, REALM, {}))?.items[0]).toMatchObject({ notCountingReason: 'ACQUISITION_CANCELLED' });
     });
@@ -586,9 +665,21 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       const a = await acquisition();
       const c = await cost(a, '10.00');
       const t = await transaction('10.00');
-      expect((await whileHeld((h) => rawVoid(h, c), () => costs.linkPayment(newPayment(a, t, '1.00', c), actor), '"acquisition"')).kind).toBe('COST_VOID');
+      expect(
+        (
+          await whileHeld(
+            (h) => rawVoid(h, c),
+            () => costs.linkPayment(newPayment(a, t, '1.00', c), actor),
+            '"acquisition"',
+          )
+        ).kind,
+      ).toBe('COST_VOID');
       const d = await cost(a, '10.00');
-      const voided = await whileHeld((h) => insertPayment(h, a, t, '1.00', d), () => costs.voidCost(a, d, REALM, 'x', AT, actor), '"acquisition"');
+      const voided = await whileHeld(
+        (h) => insertPayment(h, a, t, '1.00', d),
+        () => costs.voidCost(a, d, REALM, 'x', AT, actor),
+        '"acquisition"',
+      );
       expect(voided.kind).toBe('COST_HAS_PAYMENTS');
     });
 
@@ -649,16 +740,46 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
       const [a, b] = [await acquisition(), await acquisition()];
       const c = await cost(a, '100.00');
       const t = await transaction('100.00');
-      expect(await race((x) => insertPayment(x, a, t, '60.00'), (y) => insertPayment(y, b, t, '60.00'), 'INSERT INTO acquisition_payment')).toBe('40001');
+      expect(
+        await race(
+          (x) => insertPayment(x, a, t, '60.00'),
+          (y) => insertPayment(y, b, t, '60.00'),
+          'INSERT INTO acquisition_payment',
+        ),
+      ).toBe('40001');
       const [t1, t2] = [await transaction('60.00'), await transaction('60.00')];
-      expect(await race((x) => insertPayment(x, a, t1, '60.00', c), (y) => insertPayment(y, a, t2, '60.00', c), 'INSERT INTO acquisition_payment')).toBe('40001');
+      expect(
+        await race(
+          (x) => insertPayment(x, a, t1, '60.00', c),
+          (y) => insertPayment(y, a, t2, '60.00', c),
+          'INSERT INTO acquisition_payment',
+        ),
+      ).toBe('40001');
       const d = await acquisition();
       const p = await link(d, await transaction('1.00'), '1.00');
       const t3 = await transaction('1.00');
-      expect(await race((x) => insertPayment(x, d, t3, '0.01'), (y) => rawCancel(y, d), 'UPDATE acquisition SET')).toBe('40001');
-      expect(await race((x) => rawCancel(x, d), (y) => y.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = 2 WHERE id = $1`, [p]), 'UPDATE acquisition_payment')).toBe('40001');
+      expect(
+        await race(
+          (x) => insertPayment(x, d, t3, '0.01'),
+          (y) => rawCancel(y, d),
+          'UPDATE acquisition SET',
+        ),
+      ).toBe('40001');
+      expect(
+        await race(
+          (x) => rawCancel(x, d),
+          (y) => y.query(`UPDATE acquisition_payment SET unlinked_at = now(), unlink_reason = 'x', version = 2 WHERE id = $1`, [p]),
+          'UPDATE acquisition_payment',
+        ),
+      ).toBe('40001');
       const e = await cost(a, '10.00');
-      expect(await race((x) => rawVoid(x, e), (y) => insertPayment(y, a, t2, '1.00', e), 'INSERT INTO acquisition_payment')).toBe('40001');
+      expect(
+        await race(
+          (x) => rawVoid(x, e),
+          (y) => insertPayment(y, a, t2, '1.00', e),
+          'INSERT INTO acquisition_payment',
+        ),
+      ).toBe('40001');
     });
   });
 });

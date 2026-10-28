@@ -44,7 +44,9 @@ describe('checkLink', () => {
 
   it('refuses in the order of §27.2', () => {
     const corrected = { amount: eur('100.00'), status: 'CORRECTED', direction: 'INFLOW', correctionRole: null };
-    expect(checkLink(eur('1.00'), context({ acquisitionStatus: 'CANCELLED', costStatus: 'VOID', transaction: corrected }))).toEqual({ kind: 'ACQUISITION_CANCELLED' });
+    expect(checkLink(eur('1.00'), context({ acquisitionStatus: 'CANCELLED', costStatus: 'VOID', transaction: corrected }))).toEqual({
+      kind: 'ACQUISITION_CANCELLED',
+    });
     expect(checkLink(eur('1.00'), context({ costStatus: 'VOID', transaction: corrected }))).toEqual({ kind: 'COST_VOID' });
     expect(checkLink(eur('1.00'), context({ transaction: corrected }))).toEqual({ kind: 'TRANSACTION_NOT_CURRENT', status: 'CORRECTED', correctionRole: null });
     expect(checkLink(eur('1.00'), context({ transaction: { ...corrected, status: 'CONFIRMED', correctionRole: 'REVERSAL' } }))).toMatchObject({
@@ -80,7 +82,15 @@ describe('void and unlink', () => {
   });
 
   it('the cost fingerprint includes the Acquisition, so one key never creates a cost on two Acquisitions', () => {
-    const cost = { mreRealmId: 'r', category: 'NOTARY', amount: eur('1.00'), incurredDate: null, counterpartyPartyId: null, sourceReferences: [], notes: null } as const;
+    const cost = {
+      mreRealmId: 'r',
+      category: 'NOTARY',
+      amount: eur('1.00'),
+      incurredDate: null,
+      counterpartyPartyId: null,
+      sourceReferences: [],
+      notes: null,
+    } as const;
     expect(costFingerprint({ ...cost, acquisitionId: 'a' })).not.toBe(costFingerprint({ ...cost, acquisitionId: 'b' }));
   });
 });

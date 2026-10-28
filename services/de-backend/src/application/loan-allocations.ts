@@ -121,7 +121,11 @@ export function voidLoanAllocation(deps: { readonly repository: LoanAllocationRe
   };
 }
 
-export type ListLoanAllocations = (input: { readonly principal: RealmPrincipal; readonly loanId: string; readonly status?: AllocationStatus }) => Promise<readonly LoanAllocationSetView[]>;
+export type ListLoanAllocations = (input: {
+  readonly principal: RealmPrincipal;
+  readonly loanId: string;
+  readonly status?: AllocationStatus;
+}) => Promise<readonly LoanAllocationSetView[]>;
 
 export function listLoanAllocations(deps: { readonly repository: LoanAllocationRepository }): ListLoanAllocations {
   return async ({ principal, loanId, status }) => {
@@ -132,7 +136,11 @@ export function listLoanAllocations(deps: { readonly repository: LoanAllocationR
 }
 
 /** The set covering `asOf`, or null while the Loan is unallocated on that day (BR-FIN-009). */
-export type GetLoanAllocationOn = (input: { readonly principal: RealmPrincipal; readonly loanId: string; readonly asOf: BusinessDate }) => Promise<LoanAllocationSetView | null>;
+export type GetLoanAllocationOn = (input: {
+  readonly principal: RealmPrincipal;
+  readonly loanId: string;
+  readonly asOf: BusinessDate;
+}) => Promise<LoanAllocationSetView | null>;
 
 export function getLoanAllocationOn(deps: { readonly repository: LoanAllocationRepository }): GetLoanAllocationOn {
   return async ({ principal, loanId, asOf }) => {
@@ -142,7 +150,11 @@ export function getLoanAllocationOn(deps: { readonly repository: LoanAllocationR
   };
 }
 
-export type ListPropertyLoans = (input: { readonly principal: RealmPrincipal; readonly propertyReferenceId: string; readonly asOf?: BusinessDate }) => Promise<readonly PropertyLoan[]>;
+export type ListPropertyLoans = (input: {
+  readonly principal: RealmPrincipal;
+  readonly propertyReferenceId: string;
+  readonly asOf?: BusinessDate;
+}) => Promise<readonly PropertyLoan[]>;
 
 export function listPropertyLoans(deps: { readonly repository: LoanAllocationRepository }): ListPropertyLoans {
   return async ({ principal, propertyReferenceId, asOf }) => {

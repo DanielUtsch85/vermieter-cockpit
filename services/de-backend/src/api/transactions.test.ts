@@ -211,10 +211,7 @@ describe('POST /api/v1/transactions/{transactionId}/confirm', () => {
     confirmedBy: 'anna@example.com',
   } as unknown as Transaction;
   async function startConfirm(confirm: ConfirmTransaction): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ transactions: { confirm } }) }).listen(
-      0,
-      '127.0.0.1',
-    );
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ transactions: { confirm } }) }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
@@ -255,22 +252,14 @@ describe('POST /api/v1/transactions/{transactionId}/confirm', () => {
 
     const cases = [
       [new TransactionNotFoundError(transaction.id), 404, { code: 'NOT_FOUND' }],
-      [
-        new TransactionNotConfirmableError(transaction.id, 'IGNORED'),
-        409,
-        { code: 'CONFLICT', details: { reason: 'NOT_CONFIRMABLE', status: 'IGNORED' } },
-      ],
+      [new TransactionNotConfirmableError(transaction.id, 'IGNORED'), 409, { code: 'CONFLICT', details: { reason: 'NOT_CONFIRMABLE', status: 'IGNORED' } }],
       [new SplitsMissingError(transaction.id), 409, { code: 'INVARIANT_VIOLATION', details: { reason: 'SPLITS_MISSING' } }],
       [
         new SplitSumMismatchError(Money.of('1250.00', 'EUR'), Money.of('1249.99', 'EUR')),
         409,
         { code: 'INVARIANT_VIOLATION', details: { reason: 'SPLIT_SUM_MISMATCH', difference: { amount: '0.01', currency: 'EUR' } } },
       ],
-      [
-        new InactiveCategoryError(['OLD']),
-        422,
-        { code: 'REVIEW_REQUIRED', details: { reason: 'INACTIVE_CATEGORY', financialCategoryCodes: ['OLD'] } },
-      ],
+      [new InactiveCategoryError(['OLD']), 422, { code: 'REVIEW_REQUIRED', details: { reason: 'INACTIVE_CATEGORY', financialCategoryCodes: ['OLD'] } }],
     ] as const;
     for (const [error, status, body] of cases) {
       const base = await startConfirm(() => Promise.reject(error));
@@ -322,10 +311,7 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
   } as unknown as { original: Transaction; reversal: Transaction; replacement: Transaction };
 
   async function startCorrect(correct: CorrectTransaction): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ transactions: { correct } }) }).listen(
-      0,
-      '127.0.0.1',
-    );
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ transactions: { correct } }) }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
@@ -368,7 +354,12 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
       replacementTransactionId: REPLACEMENT,
       correctionOfTransactionId: null,
     });
-    expect(body['reversal']).toMatchObject({ transactionId: REVERSAL, direction: 'OUTFLOW', correctionRole: 'REVERSAL', correctionOfTransactionId: transaction.id });
+    expect(body['reversal']).toMatchObject({
+      transactionId: REVERSAL,
+      direction: 'OUTFLOW',
+      correctionRole: 'REVERSAL',
+      correctionOfTransactionId: transaction.id,
+    });
     expect(body['replacement']).toMatchObject({ transactionId: REPLACEMENT, bookingDate: '2026-09-03', correctionRole: 'REPLACEMENT' });
     expect(seen[0]).toEqual({
       principal: expect.anything(),
@@ -384,12 +375,14 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
     const base = await startCorrect(() => Promise.reject(new Error('unused')));
     expect((await correctAt(base, { reason: 'x', replacement: {} }, 'nope')).status).toBe(400);
     const fields = async (body: unknown) =>
-      (((await (await correctAt(base, body)).json()) as { error: { details: { fields: { field: string; code: string }[] } } }).error.details.fields);
+      ((await (await correctAt(base, body)).json()) as { error: { details: { fields: { field: string; code: string }[] } } }).error.details.fields;
     expect(await fields({ replacement: {} })).toEqual([expect.objectContaining({ field: 'reason' })]);
     expect(await fields({ reason: '   ', replacement: {} })).toEqual([expect.objectContaining({ field: 'reason' })]);
     expect(await fields({ reason: 'x' })).toEqual([expect.objectContaining({ field: 'replacement' })]);
     expect((await fields({ reason: 'x', replacement: { status: 'CONFIRMED' } })).length).toBe(1);
-    expect(await fields({ reason: 'x', replacement: { amount: 12.5 } })).toEqual([expect.objectContaining({ field: expect.stringMatching(/^replacement\.amount/) })]);
+    expect(await fields({ reason: 'x', replacement: { amount: 12.5 } })).toEqual([
+      expect.objectContaining({ field: expect.stringMatching(/^replacement\.amount/) }),
+    ]);
     expect(
       await fields({
         reason: 'x',
@@ -433,12 +426,20 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
       [new IdempotencyKeyConflictError('x'), 409, { code: 'CONFLICT' }],
       [new InactiveCategoryError(['OLD']), 422, { code: 'REVIEW_REQUIRED', details: { reason: 'INACTIVE_CATEGORY', financialCategoryCodes: ['OLD'] } }],
       [new CurrencyMismatchError('x'), 400, { code: 'VALIDATION_ERROR' }],
-      [new LoanClosedOnError(ACCOUNT, '2027-06-30' as never), 409, { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: ACCOUNT, closingDate: '2027-06-30' } }],
+      [
+        new LoanClosedOnError(ACCOUNT, '2027-06-30' as never),
+        409,
+        { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: ACCOUNT, closingDate: '2027-06-30' } },
+      ],
       // §41.5: the replacement's splits with loanId.
       [new LoanNotFoundError(ACCOUNT), 404, { code: 'NOT_FOUND', details: { loanId: ACCOUNT } }],
       [new InvalidLoanSplitError(1, 'DIRECTION'), 422, { code: 'INVALID_LOAN_SPLIT', details: { position: 1, reason: 'DIRECTION' } }],
       [new LoanNotActiveError(ACCOUNT, 'VOID'), 409, { code: 'CONFLICT', details: { reason: 'LOAN_NOT_ACTIVE', loanId: ACCOUNT, status: 'VOID' } }],
-      [new LoanClosedOnError(ACCOUNT, '2027-06-30' as never), 409, { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: ACCOUNT, closingDate: '2027-06-30' } }],
+      [
+        new LoanClosedOnError(ACCOUNT, '2027-06-30' as never),
+        409,
+        { code: 'CONFLICT', details: { reason: 'LOAN_CLOSED', loanId: ACCOUNT, closingDate: '2027-06-30' } },
+      ],
     ] as const;
     for (const [error, status, body] of cases) {
       const base = await startCorrect(() => Promise.reject(error));
@@ -463,10 +464,11 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
     // account whose currency it no longer matches.
     const eurSplit = (amount: string) => ({ amount: { amount, currency: 'EUR' }, financialCategoryCode: 'OTHER' });
     const currencyCases = [
-      [{ amount: true, splitPositions: [2] }, { amount: { amount: '1250.00', currency: 'EUR' }, splits: [eurSplit('1000.00'), eurSplit('250.00')] }, [
-        'replacement.amount.currency',
-        'replacement.splits.1.amount.currency',
-      ]],
+      [
+        { amount: true, splitPositions: [2] },
+        { amount: { amount: '1250.00', currency: 'EUR' }, splits: [eurSplit('1000.00'), eurSplit('250.00')] },
+        ['replacement.amount.currency', 'replacement.splits.1.amount.currency'],
+      ],
       [{ amount: true, splitPositions: [1, 2] }, { financialAccountId: ACCOUNT }, ['replacement.financialAccountId']],
       [{ amount: false, splitPositions: [1] }, { financialAccountId: ACCOUNT, splits: [eurSplit('1250.00')] }, ['replacement.splits.0.amount.currency']],
     ] as const;
@@ -509,7 +511,12 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
         },
       },
     });
-    const res = await postTo(base, 'amend', { valueDate: null, description: '', propertyReferenceId: PROPERTY.toUpperCase(), amount: { amount: '1200', currency: 'EUR' } });
+    const res = await postTo(base, 'amend', {
+      valueDate: null,
+      description: '',
+      propertyReferenceId: PROPERTY.toUpperCase(),
+      amount: { amount: '1200', currency: 'EUR' },
+    });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ transactionId: transaction.id, splitsDropped: true });
     expect(seen[0]?.changes).toEqual({ valueDate: null, description: null, propertyReferenceId: PROPERTY, amount: Money.of('1200', 'EUR') });
@@ -681,8 +688,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
     await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
-  const get = (base: string, path: string) =>
-    fetch(`${base}/api/v1${path}`, { headers: { authorization: 'Bearer a.b.c', organizationid: REALM } });
+  const get = (base: string, path: string) => fetch(`${base}/api/v1${path}`, { headers: { authorization: 'Bearer a.b.c', organizationid: REALM } });
 
   it('one Transaction with its splits and an ETag; 404 unknown, 400 malformed id', async () => {
     const split = {
@@ -783,7 +789,19 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
 
   it('400 for unknown parameters, bad values and an inverted date range', async () => {
     const base = await startWith({ transactions: { list: () => Promise.reject(new Error('unused')) } });
-    for (const query of ['foo=1', 'status=DONE', 'pageSize=201', 'page=0', 'bookingDateFrom=2026-13-01', 'reviewable=yes', 'current=false', 'financialCategoryCode=rent', 'provenance=IMPORT', 'financialAccountId=x', 'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01']) {
+    for (const query of [
+      'foo=1',
+      'status=DONE',
+      'pageSize=201',
+      'page=0',
+      'bookingDateFrom=2026-13-01',
+      'reviewable=yes',
+      'current=false',
+      'financialCategoryCode=rent',
+      'provenance=IMPORT',
+      'financialAccountId=x',
+      'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01',
+    ]) {
       expect((await get(base, `/transactions?${query}`)).status, query).toBe(400);
     }
     const inverted = await get(base, '/transactions?bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01');
@@ -821,7 +839,11 @@ describe('POST /api/v1/transactions/{id}/reverse (§35.9, VC-X-15)', () => {
     });
     const res = await reverseAt(base, { reason: ' Doppelt ' }, { 'idempotency-key': 'k-1', 'if-match': '"2"' });
     expect(res.status).toBe(201);
-    expect(await res.json()).toMatchObject({ original: { status: 'CORRECTED' }, reversal: { transactionId: 'rev', correctionRole: 'REVERSAL' }, replacement: null });
+    expect(await res.json()).toMatchObject({
+      original: { status: 'CORRECTED' },
+      reversal: { transactionId: 'rev', correctionRole: 'REVERSAL' },
+      replacement: null,
+    });
     expect(seen[0]).toMatchObject({ transactionId: transaction.id, reason: 'Doppelt', idempotencyKey: 'k-1', expectedVersions: [2] });
     expect((await reverseAt(base, {})).status).toBe(400);
     expect((await reverseAt(base, { reason: 'x', replacement: {} })).status).toBe(400);
@@ -830,8 +852,16 @@ describe('POST /api/v1/transactions/{id}/reverse (§35.9, VC-X-15)', () => {
   it('maps the refusals', async () => {
     const cases = [
       [new TransactionNotFoundError(transaction.id), 404, { code: 'NOT_FOUND' }],
-      [new TransactionAlreadyCorrectedError(transaction.id, 'rev', null), 409, { details: { reason: 'ALREADY_CORRECTED', reversalTransactionId: 'rev', replacementTransactionId: null } }],
-      [new TransactionNotCorrectableError(transaction.id, 'CONFIRMED', 'REVERSAL'), 409, { details: { reason: 'NOT_CORRECTABLE', correctionRole: 'REVERSAL' } }],
+      [
+        new TransactionAlreadyCorrectedError(transaction.id, 'rev', null),
+        409,
+        { details: { reason: 'ALREADY_CORRECTED', reversalTransactionId: 'rev', replacementTransactionId: null } },
+      ],
+      [
+        new TransactionNotCorrectableError(transaction.id, 'CONFIRMED', 'REVERSAL'),
+        409,
+        { details: { reason: 'NOT_CORRECTABLE', correctionRole: 'REVERSAL' } },
+      ],
       [new TransactionRentReconciledError(transaction.id, ['r1']), 409, { details: { reason: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1'] } }],
       [new VersionConflictError([2], 3), 412, { code: 'VERSION_CONFLICT' }],
       [new IdempotencyKeyConflictError('x'), 409, { code: 'CONFLICT' }],

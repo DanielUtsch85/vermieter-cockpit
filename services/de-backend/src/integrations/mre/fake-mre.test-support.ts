@@ -151,9 +151,7 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
       // _getRentsDataByTerm: every Tenant's rents with a term inside the month, as toRentData with the occupant.
       const prefix = `${rentMonth[1]}${String(Number(rentMonth[2])).padStart(2, '0')}`;
       const rents = Object.entries(realm.rents ?? {}).flatMap(([tenantId, terms]) =>
-        terms
-          .filter((t) => String(t).startsWith(prefix))
-          .map((t) => termView(tenantId, t, realm.rentTerms?.[`${tenantId}/${t}`])),
+        terms.filter((t) => String(t).startsWith(prefix)).map((t) => termView(tenantId, t, realm.rentTerms?.[`${tenantId}/${t}`])),
       );
       json({ overview: { countAll: rents.length }, rents });
       return;
@@ -250,7 +248,13 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
         ...stored,
         payments: payments
           .filter(({ amount }) => amount && Number(amount) > 0)
-          .map((p) => ({ date: p['date'] || '', amount: Number(p['amount']), type: p['type'] || '', reference: p['reference'] || '', description: p['description'] || '' })),
+          .map((p) => ({
+            date: p['date'] || '',
+            amount: Number(p['amount']),
+            type: p['type'] || '',
+            reference: p['reference'] || '',
+            description: p['description'] || '',
+          })),
         discounts: promo ? [{ amount: net(promo), description: String(body['notepromo'] || '') }] : [],
         debts: extracharge ? [{ amount: net(extracharge), description: String(body['noteextracharge'] || '') }] : [],
         description: typeof body['description'] === 'string' && body['description'] !== '' ? body['description'] : '',

@@ -36,7 +36,10 @@ import { businessDate, definedOnly, optionalText, readId } from './acquisitions.
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
-const uuid = z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase());
+const uuid = z
+  .string()
+  .regex(RESOURCE_ID)
+  .transform((id) => id.toLowerCase());
 
 /** 1–20 Parties, no duplicates (`DUPLICATE` at the later position). */
 const borrowers = z
@@ -327,7 +330,10 @@ function sendLoanError(res: Response, error: unknown): boolean {
   } else if (error instanceof SplitsAfterClosingError) {
     sendError(res, 409, 'CONFLICT', 'Splits name the Loan after the closing date.', { reason: 'SPLITS_AFTER_CLOSING', transactionIds: error.transactionIds });
   } else if (error instanceof RemainingDebtNotZeroError) {
-    sendError(res, 409, 'CONFLICT', 'The remaining debt on the closing date is not 0.', { reason: 'REMAINING_DEBT_NOT_ZERO', actual: signedEurCents(error.actual) });
+    sendError(res, 409, 'CONFLICT', 'The remaining debt on the closing date is not 0.', {
+      reason: 'REMAINING_DEBT_NOT_ZERO',
+      actual: signedEurCents(error.actual),
+    });
   } else if (error instanceof LoanFieldsInvalidError) {
     sendValidationError(res, error.errors);
   } else if (error instanceof VersionConflictError) {

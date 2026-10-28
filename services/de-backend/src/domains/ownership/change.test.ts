@@ -5,7 +5,14 @@ import type { Ownership, OwnershipId } from './ownership.js';
 
 /** VC-2-04 domain rules (api-design.md §26.2, phase-2-plan P2-D5). */
 const day = (value: string) => value as BusinessDate;
-const ownership = (id: string, owner: string, share: [number, number], from: string, until: string | null = null, status: 'VALID' | 'VOID' = 'VALID'): Ownership =>
+const ownership = (
+  id: string,
+  owner: string,
+  share: [number, number],
+  from: string,
+  until: string | null = null,
+  status: 'VALID' | 'VOID' = 'VALID',
+): Ownership =>
   ({
     id: id as OwnershipId,
     ownerPartyId: owner,
@@ -49,10 +56,12 @@ describe('planChange', () => {
   it('a later planned end is shortened; one already ending on effectiveDate − 1 stays; a close-only change of nothing is UNCHANGED', () => {
     const planned = ownership('p', 'anna', [1, 2], '2026-08-01', '2040-12-31');
     const ending = ownership('q', 'ben', [1, 2], '2026-08-01', '2029-12-31');
-    expect(planChange([planned, ending], { effectiveDate, close: ['p', 'q'], create: [{ ...half('carl'), share: { numerator: 1, denominator: 1 } }] })).toEqual({
-      kind: 'CHANGE',
-      closes: [{ ownership: planned, validUntil: '2029-12-31' }],
-    });
+    expect(planChange([planned, ending], { effectiveDate, close: ['p', 'q'], create: [{ ...half('carl'), share: { numerator: 1, denominator: 1 } }] })).toEqual(
+      {
+        kind: 'CHANGE',
+        closes: [{ ownership: planned, validUntil: '2029-12-31' }],
+      },
+    );
     expect(planChange([ending], { effectiveDate, close: ['q'], create: [] })).toEqual({ kind: 'UNCHANGED' });
   });
 
@@ -76,13 +85,23 @@ describe('planChange', () => {
       date: '2030-01-01',
       shareSum: { numerator: 5n, denominator: 6n },
     });
-    expect(planChange([a], { effectiveDate, close: ['a'], create: [{ ...half('dora'), share: { numerator: 1, denominator: 3 } }] })).toMatchObject({ kind: 'CHANGE' });
+    expect(planChange([a], { effectiveDate, close: ['a'], create: [{ ...half('dora'), share: { numerator: 1, denominator: 3 } }] })).toMatchObject({
+      kind: 'CHANGE',
+    });
     // Leaving with nobody taking over: complete before, incomplete after.
     expect(planChange([a, b], { effectiveDate, close: ['a'], create: [] })).toMatchObject({ kind: 'OWNERSHIP_INCOMPLETE' });
   });
 
   it('the fingerprint ignores the order of close', () => {
-    const change: OwnershipChange = { mreRealmId: 'r', propertyReferenceId: 'pr', effectiveDate, reason: 'Verkauf', close: ['a', 'b'], create: [half('dora')], acquisitionId: null };
+    const change: OwnershipChange = {
+      mreRealmId: 'r',
+      propertyReferenceId: 'pr',
+      effectiveDate,
+      reason: 'Verkauf',
+      close: ['a', 'b'],
+      create: [half('dora')],
+      acquisitionId: null,
+    };
     expect(changeFingerprint(change)).toBe(changeFingerprint({ ...change, close: ['b', 'a'] }));
     expect(changeFingerprint(change)).not.toBe(changeFingerprint({ ...change, reason: 'Erbfall' }));
   });

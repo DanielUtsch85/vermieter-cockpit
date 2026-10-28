@@ -64,7 +64,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
   }
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -117,7 +127,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     const pr = await propertyReference();
     const [anna, ben, seller] = [await party('Anna'), await party('Ben'), await party('Verkäufer')];
     const acquisition = await created(
-      draft(pr, [ben, anna], { sellerPartyIds: [seller], acquiredShare: { numerator: 1, denominator: 2 }, purchasePrice: Money.of('175000.05', 'EUR'), notes: 'Notar Müller' }),
+      draft(pr, [ben, anna], {
+        sellerPartyIds: [seller],
+        acquiredShare: { numerator: 1, denominator: 2 },
+        purchasePrice: Money.of('175000.05', 'EUR'),
+        notes: 'Notar Müller',
+      }),
     );
     expect(acquisition).toMatchObject({
       mreRealmId: REALM,
@@ -137,21 +152,23 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     expect(acquisition.purchasePrice.amount).toBe('175000.05');
     expect(await acquisitions.findById(acquisition.id, REALM)).toEqual(acquisition);
     expect(await acquisitions.findById(acquisition.id, OTHER_REALM)).toBeUndefined();
-    expect((await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'Acquisition' AND entity_id = $1`, [acquisition.id])).rows).toEqual([
-      {
-        action: 'CREATED',
-        metadata: {
-          propertyReferenceId: pr,
-          purchasePrice: { amount: '175000.05', currency: 'EUR' },
-          acquiredShare: '1/2',
-          contractDate: '2026-06-15',
-          economicTransferDate: '2026-08-01',
-          landRegistryTransferDate: null,
-          buyerPartyIds: [ben, anna],
-          sellerPartyIds: [seller],
+    expect((await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'Acquisition' AND entity_id = $1`, [acquisition.id])).rows).toEqual(
+      [
+        {
+          action: 'CREATED',
+          metadata: {
+            propertyReferenceId: pr,
+            purchasePrice: { amount: '175000.05', currency: 'EUR' },
+            acquiredShare: '1/2',
+            contractDate: '2026-06-15',
+            economicTransferDate: '2026-08-01',
+            landRegistryTransferDate: null,
+            buyerPartyIds: [ben, anna],
+            sellerPartyIds: [seller],
+          },
         },
-      },
-    ]);
+      ],
+    );
   });
 
   it('create: the order of checks (PropertyReference, unknown parties buyers first, inactive buyer); an inactive seller is fine; a refusal writes nothing', async () => {
@@ -228,14 +245,18 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     });
     const cancelled = await created(draft(pr, [anna]));
     await acquisitions.cancel(cancelled.id, REALM, 'x', new Date(), actor);
-    expect(await ownerships.create(ownership(pr, anna, cancelled.id), actor)).toEqual({ kind: 'ACQUISITION_NOT_DRAFT', acquisitionId: cancelled.id, status: 'CANCELLED' });
+    expect(await ownerships.create(ownership(pr, anna, cancelled.id), actor)).toEqual({
+      kind: 'ACQUISITION_NOT_DRAFT',
+      acquisitionId: cancelled.id,
+      status: 'CANCELLED',
+    });
 
     const o = await ownerships.create(ownership(pr, anna, a.id, { share: { numerator: 1, denominator: 2 } }), actor);
     if (o.kind !== 'CREATED') throw new Error(o.kind);
     await expect(pool.query(`UPDATE ownership SET acquisition_id = NULL WHERE id = $1`, [o.ownership.id])).rejects.toThrow(/never change/);
-    await expect(
-      pool.query(`UPDATE ownership SET acquisition_id = $2 WHERE id = $1`, [o.ownership.id, elsewhere.id]),
-    ).rejects.toThrow(/ownership_acquisition_fk|never change/);
+    await expect(pool.query(`UPDATE ownership SET acquisition_id = $2 WHERE id = $1`, [o.ownership.id, elsewhere.id])).rejects.toThrow(
+      /ownership_acquisition_fk|never change/,
+    );
 
     // A sale of half to Ben within the same draft, as an ownership-change.
     const change = {
@@ -276,14 +297,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
         [REALM, pr, anna, a.id],
       );
       const cancelling = acquisitions.cancel(a.id, REALM, 'geplatzt', new Date(), actor);
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"property_reference"%'`,
-            )
-          ).rows[0].count,
-        ) >= 1,
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"property_reference"%'`,
+              )
+            ).rows[0].count,
+          ) >= 1,
       );
       await holder.query('COMMIT');
       expect(await cancelling).toEqual({ kind: 'ACQUISITION_HAS_VALID_OWNERSHIPS', ownershipIds: [rows[0].id] });
@@ -298,7 +320,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     const realm = '64b0c0ffee0000000000000c';
     const [prC, annaC, benC] = [await propertyReference(realm), await party('Anna C', realm), await party('Ben C', realm)];
     const old = await created(draft(prC, [annaC], { mreRealmId: realm, contractDate: day('2020-01-01'), economicTransferDate: null }));
-    const recent = await created(draft(prC, [benC], { mreRealmId: realm, sellerPartyIds: [annaC], contractDate: day('2026-01-01'), economicTransferDate: null }));
+    const recent = await created(
+      draft(prC, [benC], { mreRealmId: realm, sellerPartyIds: [annaC], contractDate: day('2026-01-01'), economicTransferDate: null }),
+    );
     await acquisitions.cancel(old.id, realm, 'x', new Date(), actor);
     const page = { page: 1, pageSize: 50 };
     expect((await acquisitions.list(realm, {}, page)).items.map((a) => a.id)).toEqual([recent.id, old.id]);
@@ -350,7 +374,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     await expect(pool.query(`DELETE FROM acquisition_party WHERE acquisition_id = $1`, [a.id])).rejects.toThrow(/never change/);
     await expect(pool.query(`UPDATE acquisition_party SET role = 'SELLER' WHERE acquisition_id = $1`, [a.id])).rejects.toThrow(/never change/);
     await expect(
-      pool.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'SELLER', 1)`, [a.id, REALM, anna]),
+      pool.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'SELLER', 1)`, [
+        a.id,
+        REALM,
+        anna,
+      ]),
     ).rejects.toThrow(/acquisition_party_key/);
     await update(`status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = 2`);
     await expect(update(`status = 'DRAFT', cancelled_at = NULL, cancellation_reason = NULL`)).rejects.toThrow(/final/);
@@ -360,7 +388,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     // A party row of another Realm than its (draft) Acquisition.
     const b = await created(draft(pr, [anna]));
     await expect(
-      pool.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'SELLER', 1)`, [b.id, OTHER_REALM, ben]),
+      pool.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'SELLER', 1)`, [
+        b.id,
+        OTHER_REALM,
+        ben,
+      ]),
     ).rejects.toThrow(/acquisition_party_acquisition_fk/);
   });
 
@@ -386,7 +418,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
       pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = 2 WHERE id = $1`, [carried.id]);
     await expect(cancel()).rejects.toThrow(/ACQUISITION_HAS_VALID_OWNERSHIPS/);
     // Once voided, the Ownership no longer counts: the cancel goes through.
-    await pool.query(`UPDATE ownership SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE acquisition_id = $1`, [carried.id]);
+    await pool.query(`UPDATE ownership SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE acquisition_id = $1`, [
+      carried.id,
+    ]);
     await cancel();
   });
 

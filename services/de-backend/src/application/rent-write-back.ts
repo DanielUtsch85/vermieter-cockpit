@@ -32,7 +32,12 @@ import { ReconciliationNotFoundError, WriteBackInProgressError, actorOf } from '
  * The rent term with its raw values, read with the caller's own MRE credentials; undefined when MRE does not return
  * it. Throws AccessError when MRE refuses the caller and MreUnavailableError when MRE cannot be asked.
  */
-export type MreWriteBackTermReader = (authorizationHeader: string, mreRealmId: string, mreTenantId: string, mreRentTerm: string) => Promise<WriteBackTerm | undefined>;
+export type MreWriteBackTermReader = (
+  authorizationHeader: string,
+  mreRealmId: string,
+  mreTenantId: string,
+  mreRentTerm: string,
+) => Promise<WriteBackTerm | undefined>;
 
 /**
  * The PATCH of the term's whole settlement with the caller's own MRE credentials. Throws AccessError when MRE refuses
@@ -44,7 +49,9 @@ export type MreWriteBackTermWriter = (
   mreTenantId: string,
   mreRentTerm: string,
   write: TermWrite,
-) => Promise<{ readonly kind: 'ANSWERED'; readonly term: WriteBackTerm } | { readonly kind: 'NO_ANSWER' } | { readonly kind: 'REFUSED'; readonly status: number }>;
+) => Promise<
+  { readonly kind: 'ANSWERED'; readonly term: WriteBackTerm } | { readonly kind: 'NO_ANSWER' } | { readonly kind: 'REFUSED'; readonly status: number }
+>;
 
 /** Not `CONFIRMED` (→ 409 NOT_WRITABLE). */
 export class NotWritableError extends Error {
@@ -295,7 +302,10 @@ export type GetReconciliationWithPresence = (input: {
  * §37.4's presence check (`?checkMre=true`): whether DE's payment is in MRE, for a `WRITTEN`, `REMOVAL_REQUIRED`,
  * `REMOVAL_FAILED` or `REMOVED` reconciliation (§37.5). A read only: nothing is written, not even an AuditRecord.
  */
-export function getReconciliationWithPresence(deps: { readonly repository: RentReconciliationRepository; readonly readTerm: MreWriteBackTermReader }): GetReconciliationWithPresence {
+export function getReconciliationWithPresence(deps: {
+  readonly repository: RentReconciliationRepository;
+  readonly readTerm: MreWriteBackTermReader;
+}): GetReconciliationWithPresence {
   return async ({ principal, authorizationHeader, reconciliationId }) => {
     const reconciliation = await deps.repository.findById(reconciliationId, principal.mreRealmId);
     if (reconciliation === undefined) throw new ReconciliationNotFoundError(reconciliationId);

@@ -62,61 +62,68 @@ export class PostgresLoanAllocationRepository implements LoanAllocationRepositor
   ): Promise<CreateAllocationOutcome> {
     if (!UUID.test(loanId)) return { kind: 'LOAN_NOT_FOUND' };
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<CreateAllocationOutcome> => {
-        const ref = { mreRealmId, scope: CREATE_SCOPE, key: idempotency?.key ?? '' };
-        if (idempotency !== undefined) {
-          const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
-          if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', set: fromSnapshot(claim.result) };
-        }
-        // P3-D8: the Loan row first; PropertyReferences and Acquisitions are only read; no Transaction is locked.
-        const loan = await lockLoan(trx, loanId, mreRealmId);
-        if (loan === undefined) throw new Rejected({ kind: 'LOAN_NOT_FOUND' });
-        const valid = (await setsOf(trx, loanId)).filter((s) => s.status === 'VALID');
-        const refusal = checkAppendAllocation(loan, valid, request.validFrom);
-        if (refusal !== undefined) throw new Rejected(refusal);
-        const allocations = await resolve(trx, mreRealmId, request);
+      return await this.db
+        .transaction()
+        .setIsolationLevel('read committed')
+        .execute(async (trx): Promise<CreateAllocationOutcome> => {
+          const ref = { mreRealmId, scope: CREATE_SCOPE, key: idempotency?.key ?? '' };
+          if (idempotency !== undefined) {
+            const claim = await claimIdempotencyKey(trx, ref, idempotency.fingerprint);
+            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', set: fromSnapshot(claim.result) };
+          }
+          // P3-D8: the Loan row first; PropertyReferences and Acquisitions are only read; no Transaction is locked.
+          const loan = await lockLoan(trx, loanId, mreRealmId);
+          if (loan === undefined) throw new Rejected({ kind: 'LOAN_NOT_FOUND' });
+          const valid = (await setsOf(trx, loanId)).filter((s) => s.status === 'VALID');
+          const refusal = checkAppendAllocation(loan, valid, request.validFrom);
+          if (refusal !== undefined) throw new Rejected(refusal);
+          const allocations = await resolve(trx, mreRealmId, request);
 
-        const { id } = await trx
-          .insertInto('loan_allocation_set')
-          .values({
-            mre_realm_id: mreRealmId,
-            loan_id: loanId,
-            status: 'VALID' satisfies AllocationStatus,
-            valid_from: request.validFrom,
-            basis: request.basis,
-            notes: request.notes,
-            created_by: actor.actorId,
-          })
-          .returning('id')
-          .executeTakeFirstOrThrow();
-        await trx
-          .insertInto('loan_allocation')
-          .values(
-            allocations.map((a, position) => ({
-              set_id: id,
+          const { id } = await trx
+            .insertInto('loan_allocation_set')
+            .values({
               mre_realm_id: mreRealmId,
-              position,
-              property_reference_id: a.propertyReferenceId,
-              share_numerator: a.share.numerator.toString(),
-              share_denominator: a.share.denominator.toString(),
-              acquisition_id: a.acquisitionId,
-            })),
-          )
-          .execute();
-        const created = await viewOf(trx, loanId, id);
-        if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
-          newVersion: 1,
-          metadata: {
-            loanId,
-            validFrom: created.validFrom,
-            basis: created.basis,
-            allocations: created.allocations.map((a) => ({ propertyReferenceId: a.propertyReferenceId, share: formatShare(a.share), acquisitionId: a.acquisitionId })),
-          },
+              loan_id: loanId,
+              status: 'VALID' satisfies AllocationStatus,
+              valid_from: request.validFrom,
+              basis: request.basis,
+              notes: request.notes,
+              created_by: actor.actorId,
+            })
+            .returning('id')
+            .executeTakeFirstOrThrow();
+          await trx
+            .insertInto('loan_allocation')
+            .values(
+              allocations.map((a, position) => ({
+                set_id: id,
+                mre_realm_id: mreRealmId,
+                position,
+                property_reference_id: a.propertyReferenceId,
+                share_numerator: a.share.numerator.toString(),
+                share_denominator: a.share.denominator.toString(),
+                acquisition_id: a.acquisitionId,
+              })),
+            )
+            .execute();
+          const created = await viewOf(trx, loanId, id);
+          if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
+          await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, {
+            newVersion: 1,
+            metadata: {
+              loanId,
+              validFrom: created.validFrom,
+              basis: created.basis,
+              allocations: created.allocations.map((a) => ({
+                propertyReferenceId: a.propertyReferenceId,
+                share: formatShare(a.share),
+                acquisitionId: a.acquisitionId,
+              })),
+            },
+          });
+          return { kind: 'CREATED', set: created };
         });
-        return { kind: 'CREATED', set: created };
-      });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;
       throw error;
@@ -133,68 +140,86 @@ export class PostgresLoanAllocationRepository implements LoanAllocationRepositor
     expectedVersions?: readonly number[],
   ): Promise<VoidAllocationOutcome> {
     if (!UUID.test(loanId) || !UUID.test(setId)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<VoidAllocationOutcome> => {
-      const loan = await lockLoan(trx, loanId, mreRealmId);
-      if (loan === undefined) return { kind: 'NOT_FOUND' };
-      const sets = await setsOf(trx, loanId);
-      const current = sets.find((s) => s.id === setId);
-      if (current === undefined) return { kind: 'NOT_FOUND' };
-      const plan = planVoidAllocation(loan, current, sets.filter((s) => s.status === 'VALID'), reason, at);
-      if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', set: withValidUntil(sets).find((s) => s.id === setId) as LoanAllocationSetView, changed: false };
-      if (plan.kind !== 'VOID') return plan;
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx
-        .updateTable('loan_allocation_set')
-        .set({ status: 'VOID', voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at })
-        .where('id', '=', setId)
-        .execute();
-      const voided = await viewOf(trx, loanId, setId);
-      await writeAudit(trx, { type: ENTITY_TYPE, id: setId }, 'VOIDED', actor, {
-        previousVersion: current.version,
-        newVersion: voided.version,
-        metadata: { loanId, reason },
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<VoidAllocationOutcome> => {
+        const loan = await lockLoan(trx, loanId, mreRealmId);
+        if (loan === undefined) return { kind: 'NOT_FOUND' };
+        const sets = await setsOf(trx, loanId);
+        const current = sets.find((s) => s.id === setId);
+        if (current === undefined) return { kind: 'NOT_FOUND' };
+        const plan = planVoidAllocation(
+          loan,
+          current,
+          sets.filter((s) => s.status === 'VALID'),
+          reason,
+          at,
+        );
+        if (plan.kind === 'UNCHANGED')
+          return { kind: 'VOIDED', set: withValidUntil(sets).find((s) => s.id === setId) as LoanAllocationSetView, changed: false };
+        if (plan.kind !== 'VOID') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('loan_allocation_set')
+          .set({ status: 'VOID', voided_at: at, void_reason: reason, version: plan.next.version, updated_at: at })
+          .where('id', '=', setId)
+          .execute();
+        const voided = await viewOf(trx, loanId, setId);
+        await writeAudit(trx, { type: ENTITY_TYPE, id: setId }, 'VOIDED', actor, {
+          previousVersion: current.version,
+          newVersion: voided.version,
+          metadata: { loanId, reason },
+        });
+        return { kind: 'VOIDED', set: voided, changed: true };
       });
-      return { kind: 'VOIDED', set: voided, changed: true };
-    });
   }
 
   async list(loanId: string, mreRealmId: string): Promise<readonly LoanAllocationSetView[] | undefined> {
     if (!UUID.test(loanId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const loan = await trx.selectFrom('loan').select('id').where('id', '=', loanId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-      return loan === undefined ? undefined : withValidUntil(await setsOf(trx, loanId));
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const loan = await trx.selectFrom('loan').select('id').where('id', '=', loanId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+        return loan === undefined ? undefined : withValidUntil(await setsOf(trx, loanId));
+      });
   }
 
   async loansOf(propertyReferenceId: string, mreRealmId: string): Promise<readonly PropertyLoan[] | undefined> {
     if (!UUID.test(propertyReferenceId)) return undefined;
-    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
-      const property = await trx
-        .selectFrom('property_reference')
-        .select('id')
-        .where('id', '=', propertyReferenceId)
-        .where('mre_realm_id', '=', mreRealmId)
-        .executeTakeFirst();
-      if (property === undefined) return undefined;
-      const loanIds = await trx
-        .selectFrom('loan_allocation as a')
-        .innerJoin('loan_allocation_set as s', 's.id', 'a.set_id')
-        .innerJoin('loan as l', 'l.id', 's.loan_id')
-        .select('s.loan_id')
-        .distinct()
-        .where('a.property_reference_id', '=', propertyReferenceId)
-        .where('a.mre_realm_id', '=', mreRealmId)
-        .where('l.status', '<>', 'VOID')
-        .execute();
-      const items: PropertyLoan[] = [];
-      for (const { loan_id } of loanIds) {
-        const loan = await readLoanIn(trx, loan_id, mreRealmId);
-        if (loan === undefined) continue;
-        items.push(...propertyLoansOf(loan, withValidUntil(await setsOf(trx, loan_id)), propertyReferenceId));
-      }
-      return items;
-    });
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const property = await trx
+          .selectFrom('property_reference')
+          .select('id')
+          .where('id', '=', propertyReferenceId)
+          .where('mre_realm_id', '=', mreRealmId)
+          .executeTakeFirst();
+        if (property === undefined) return undefined;
+        const loanIds = await trx
+          .selectFrom('loan_allocation as a')
+          .innerJoin('loan_allocation_set as s', 's.id', 'a.set_id')
+          .innerJoin('loan as l', 'l.id', 's.loan_id')
+          .select('s.loan_id')
+          .distinct()
+          .where('a.property_reference_id', '=', propertyReferenceId)
+          .where('a.mre_realm_id', '=', mreRealmId)
+          .where('l.status', '<>', 'VOID')
+          .execute();
+        const items: PropertyLoan[] = [];
+        for (const { loan_id } of loanIds) {
+          const loan = await readLoanIn(trx, loan_id, mreRealmId);
+          if (loan === undefined) continue;
+          items.push(...propertyLoansOf(loan, withValidUntil(await setsOf(trx, loan_id)), propertyReferenceId));
+        }
+        return items;
+      });
   }
 }
 
@@ -205,7 +230,12 @@ export class PostgresLoanAllocationRepository implements LoanAllocationRepositor
  */
 async function resolve(trx: Transaction<Database>, mreRealmId: string, request: AllocationRequest): Promise<Allocation[]> {
   for (const { propertyReferenceId } of request.allocations) {
-    const found = await trx.selectFrom('property_reference').select('id').where('id', '=', propertyReferenceId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+    const found = await trx
+      .selectFrom('property_reference')
+      .select('id')
+      .where('id', '=', propertyReferenceId)
+      .where('mre_realm_id', '=', mreRealmId)
+      .executeTakeFirst();
     if (found === undefined) throw new Rejected({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceId });
   }
   if (request.basis === 'MANUAL') {
@@ -226,22 +256,27 @@ async function resolve(trx: Transaction<Database>, mreRealmId: string, request: 
     prices.push(BigInt(acquisition.cents));
   }
   const shares = sharesFromPrices(prices);
-  return request.allocations.map((a, i) => ({ propertyReferenceId: a.propertyReferenceId, share: shares[i] as NonNullable<(typeof shares)[number]>, acquisitionId: a.acquisitionId }));
+  return request.allocations.map((a, i) => ({
+    propertyReferenceId: a.propertyReferenceId,
+    share: shares[i] as NonNullable<(typeof shares)[number]>,
+    acquisitionId: a.acquisitionId,
+  }));
 }
 
 /** The Loan's sets in `validFrom`, then `createdAt` order, each with its entries in the order given. */
 export async function setsOf(trx: Transaction<Database>, loanId: string): Promise<LoanAllocationSet[]> {
-  const rows = await trx.selectFrom('loan_allocation_set').select(SET_COLUMNS).where('loan_id', '=', loanId).orderBy('valid_from').orderBy('created_at').orderBy('id').execute();
+  const rows = await trx
+    .selectFrom('loan_allocation_set')
+    .select(SET_COLUMNS)
+    .where('loan_id', '=', loanId)
+    .orderBy('valid_from')
+    .orderBy('created_at')
+    .orderBy('id')
+    .execute();
   if (rows.length === 0) return [];
   const entries = await trx
     .selectFrom('loan_allocation')
-    .select([
-      'set_id',
-      'property_reference_id',
-      sql<string>`share_numerator::text`.as('n'),
-      sql<string>`share_denominator::text`.as('d'),
-      'acquisition_id',
-    ])
+    .select(['set_id', 'property_reference_id', sql<string>`share_numerator::text`.as('n'), sql<string>`share_denominator::text`.as('d'), 'acquisition_id'])
     .where(
       'set_id',
       'in',
@@ -259,7 +294,11 @@ export async function setsOf(trx: Transaction<Database>, loanId: string): Promis
     basis: row.basis as AllocationBasis,
     allocations: entries
       .filter((e) => e.set_id === row.id)
-      .map((e) => ({ propertyReferenceId: e.property_reference_id, share: { numerator: BigInt(e.n), denominator: BigInt(e.d) }, acquisitionId: e.acquisition_id })),
+      .map((e) => ({
+        propertyReferenceId: e.property_reference_id,
+        share: { numerator: BigInt(e.n), denominator: BigInt(e.d) },
+        acquisitionId: e.acquisition_id,
+      })),
     notes: row.notes,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,

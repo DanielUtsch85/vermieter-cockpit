@@ -56,7 +56,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -125,7 +135,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
     };
     const keys = Object.keys(values);
     return client
-      .query(`INSERT INTO land_building_allocation (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`, Object.values(values))
+      .query(
+        `INSERT INTO land_building_allocation (${keys.join(', ')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
+        Object.values(values),
+      )
       .then((r) => r.rows[0].id as string);
   };
   const rawSupersede = async (client: pg.PoolClient, acquisitionId: string, oldId: string) => {
@@ -147,14 +160,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
     }
   }
   const waitForLock = (text: string) =>
-    waitUntil(async () =>
-      Number(
-        (
-          await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
-            `%${text}%`,
-          ])
-        ).rows[0].count,
-      ) >= 1,
+    waitUntil(
+      async () =>
+        Number(
+          (
+            await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
+              `%${text}%`,
+            ])
+          ).rows[0].count,
+        ) >= 1,
     );
   async function whileHeld<T>(hold: (client: pg.PoolClient) => Promise<unknown>, waiter: () => Promise<T>, lockText: string): Promise<T> {
     const holder = await pool.connect();
@@ -213,7 +227,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
 
     it('the optimistic check: supersedes must name the current allocation, null only while there is none', async () => {
       const a = await acquisition();
-      expect(await allocations.create(entered(a, '00000000-0000-4000-8000-000000000001'), actor)).toEqual({ kind: 'CURRENT_ALLOCATION_CHANGED', currentAllocationId: null });
+      expect(await allocations.create(entered(a, '00000000-0000-4000-8000-000000000001'), actor)).toEqual({
+        kind: 'CURRENT_ALLOCATION_CHANGED',
+        currentAllocationId: null,
+      });
       const first = await created(entered(a, null));
       expect(await allocations.create(entered(a, null), actor)).toEqual({ kind: 'CURRENT_ALLOCATION_CHANGED', currentAllocationId: first.id });
       const second = await created(entered(a, first.id));
@@ -224,7 +241,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
       const a = await acquisition();
       const foreignAdvisor = await party('Fremd', OTHER_REALM);
       expect(await allocations.create(entered(await acquisition(OTHER_REALM), null), actor)).toEqual({ kind: 'ACQUISITION_NOT_FOUND' });
-      expect(await allocations.create(entered(a, 'x', { advisorPartyId: foreignAdvisor }), actor)).toEqual({ kind: 'PARTY_NOT_FOUND', partyId: foreignAdvisor });
+      expect(await allocations.create(entered(a, 'x', { advisorPartyId: foreignAdvisor }), actor)).toEqual({
+        kind: 'PARTY_NOT_FOUND',
+        partyId: foreignAdvisor,
+      });
       await acquisitions.cancel(a, REALM, 'x', new Date(), actor);
       expect(await allocations.create(entered(a, 'x'), actor)).toEqual({ kind: 'ACQUISITION_CANCELLED' });
       const confirmed = await acquisition();
@@ -260,12 +280,16 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
     it('refuses a wrong sum, a second current row, an insert already superseded, an insert on a CANCELLED Acquisition', async () => {
       const a = await acquisition();
       await expect(rawInsert(pool, a, null, { land_amount: '20.01' })).rejects.toThrow(/land_building_allocation_sum/);
-      await expect(rawInsert(pool, a, null, { total_allocable_amount: '0', land_amount: '0', building_amount: '0' })).rejects.toThrow(/total_allocable_amount_check/);
+      await expect(rawInsert(pool, a, null, { total_allocable_amount: '0', land_amount: '0', building_amount: '0' })).rejects.toThrow(
+        /total_allocable_amount_check/,
+      );
       await rawInsert(pool, a);
       await expect(rawInsert(pool, a)).rejects.toThrow(/land_building_allocation_current/);
       await expect(rawInsert(pool, await acquisition(), null, { superseded_at: new Date().toISOString() })).rejects.toThrow(/only inserted current/);
       const cancelled = await acquisition();
-      await pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [cancelled]);
+      await pool.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [
+        cancelled,
+      ]);
       await expect(rawInsert(pool, cancelled)).rejects.toThrow(/ACQUISITION_CANCELLED/);
     });
 
@@ -294,7 +318,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
     it('keeps data fixed and rows undeleted; superseded is final', async () => {
       const a = await acquisition();
       const first = await rawInsert(pool, a);
-      await expect(pool.query(`UPDATE land_building_allocation SET land_amount = 21, building_amount = 79 WHERE id = $1`, [first])).rejects.toThrow(/never changes/);
+      await expect(pool.query(`UPDATE land_building_allocation SET land_amount = 21, building_amount = 79 WHERE id = $1`, [first])).rejects.toThrow(
+        /never changes/,
+      );
       await expect(pool.query(`UPDATE land_building_allocation SET review_state = 'CONFIRMED' WHERE id = $1`, [first])).rejects.toThrow(/never changes/);
       await expect(pool.query(`DELETE FROM land_building_allocation WHERE id = $1`, [first])).rejects.toThrow(/never deleted/);
       await inTransaction((c) => rawSupersede(c, a, first));
@@ -305,20 +331,29 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
   describe('concurrency', () => {
     it('two allocations of one Acquisition serialise on its row (RC): the second gets CURRENT_ALLOCATION_CHANGED', async () => {
       const a = await acquisition();
-      const outcome = await whileHeld((h) => rawInsert(h, a), () => allocations.create(entered(a, null), actor), '"acquisition"');
+      const outcome = await whileHeld(
+        (h) => rawInsert(h, a),
+        () => allocations.create(entered(a, null), actor),
+        '"acquisition"',
+      );
       expect(outcome.kind).toBe('CURRENT_ALLOCATION_CHANGED');
     });
 
     it('an allocation against a cancel, both orders (RC)', async () => {
       const a = await acquisition();
       const cancelFirst = await whileHeld(
-        (h) => h.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [a]),
+        (h) =>
+          h.query(`UPDATE acquisition SET status = 'CANCELLED', cancelled_at = now(), cancellation_reason = 'x', version = version + 1 WHERE id = $1`, [a]),
         () => allocations.create(entered(a, null), actor),
         '"acquisition"',
       );
       expect(cancelFirst).toEqual({ kind: 'ACQUISITION_CANCELLED' });
       const b = await acquisition();
-      const cancelled = await whileHeld((h) => rawInsert(h, b), () => acquisitions.cancel(b, REALM, 'x', new Date(), actor), '"acquisition"');
+      const cancelled = await whileHeld(
+        (h) => rawInsert(h, b),
+        () => acquisitions.cancel(b, REALM, 'x', new Date(), actor),
+        '"acquisition"',
+      );
       expect(cancelled.kind).toBe('CANCELLED');
     });
 
@@ -346,9 +381,19 @@ describe.skipIf(databaseUrl === undefined)('PostgresLandBuildingAllocationReposi
         }
       }
       const a = await acquisition();
-      expect(await race((x) => rawInsert(x, a), (y) => rawInsert(y, a))).toBe('40001');
+      expect(
+        await race(
+          (x) => rawInsert(x, a),
+          (y) => rawInsert(y, a),
+        ),
+      ).toBe('40001');
       const current = (await pool.query(`SELECT id FROM land_building_allocation WHERE acquisition_id = $1`, [a])).rows[0].id as string;
-      expect(await race((x) => rawSupersede(x, a, current), (y) => rawSupersede(y, a, current))).toBe('40001');
+      expect(
+        await race(
+          (x) => rawSupersede(x, a, current),
+          (y) => rawSupersede(y, a, current),
+        ),
+      ).toBe('40001');
     });
   });
 });

@@ -177,11 +177,7 @@ describe('POST /api/v1/imports/bank-transactions', () => {
   it('maps use-case errors: 404 account, 400 adapter, 400 IMPORT_ERROR with the file-level reason', async () => {
     const errors = [
       [new FinancialAccountNotFoundError(ACCOUNT), 404, { code: 'NOT_FOUND', details: { financialAccountId: ACCOUNT } }],
-      [
-        new UnsupportedAdapterError('mt940', '1'),
-        400,
-        { code: 'VALIDATION_ERROR', details: { fields: [{ field: 'adapterId', code: 'NOT_SUPPORTED' }] } },
-      ],
+      [new UnsupportedAdapterError('mt940', '1'), 400, { code: 'VALIDATION_ERROR', details: { fields: [{ field: 'adapterId', code: 'NOT_SUPPORTED' }] } }],
       [
         new ImportFileError({ code: 'MISSING_COLUMN', message: 'Column "Betrag" not found' }),
         400,

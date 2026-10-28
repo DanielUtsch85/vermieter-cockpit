@@ -44,11 +44,7 @@ let server: Server | undefined;
 
 const unused = () => Promise.reject(new Error('not used in this test'));
 
-async function start(
-  link: LinkPropertyReference,
-  verifyPrincipal: PrincipalVerifier = admin,
-  refresh: RefreshPropertyReference = unused,
-): Promise<string> {
+async function start(link: LinkPropertyReference, verifyPrincipal: PrincipalVerifier = admin, refresh: RefreshPropertyReference = unused): Promise<string> {
   server = createApp({
     isReady: async () => true,
     verifyPrincipal,
@@ -172,8 +168,7 @@ describe('POST /api/v1/property-references/link', () => {
 
 describe('POST /api/v1/property-references/{id}/refresh', () => {
   const refreshUrl = (base: string, id: string) => `${base}/api/v1/property-references/${id}/refresh`;
-  const call = (base: string, id: string) =>
-    fetch(refreshUrl(base, id), { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } });
+  const call = (base: string, id: string) => fetch(refreshUrl(base, id), { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } });
 
   it('200 with the refreshed PropertyReference; the use case gets principal, token and id', async () => {
     const seen: RefreshPropertyReferenceInput[] = [];

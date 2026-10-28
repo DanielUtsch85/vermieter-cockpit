@@ -90,9 +90,7 @@ const rawTermDto = z.object({
   _id: z.string().regex(/^[0-9a-f]{24}$/),
   term: z.number().int(),
   vatRatio: z.number().optional(),
-  payments: z.array(
-    z.object({ date: z.unknown(), amount: z.unknown(), type: z.unknown(), reference: z.unknown(), description: z.unknown() }),
-  ),
+  payments: z.array(z.object({ date: z.unknown(), amount: z.unknown(), type: z.unknown(), reference: z.unknown(), description: z.unknown() })),
   promo: z.number(),
   notepromo: z.string(),
   extracharge: z.number(),
@@ -245,12 +243,7 @@ export class HttpMreClient implements MreClient {
     return saved === undefined ? { kind: 'NO_ANSWER', message: 'Unexpected MRE rent term shape' } : { kind: 'ANSWERED', term: saved };
   }
 
-  private async get(
-    path: string,
-    accessToken: string,
-    mreRealmId?: string,
-    notFound: MreClientErrorCode | 'ABSENT' = 'UNAVAILABLE',
-  ): Promise<unknown> {
+  private async get(path: string, accessToken: string, mreRealmId?: string, notFound: MreClientErrorCode | 'ABSENT' = 'UNAVAILABLE'): Promise<unknown> {
     const headers: Record<string, string> = { authorization: `Bearer ${accessToken}`, accept: 'application/json' };
     if (mreRealmId !== undefined) headers['organizationid'] = mreRealmId;
     let response: Response;

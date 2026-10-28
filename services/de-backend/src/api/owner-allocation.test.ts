@@ -94,7 +94,9 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
     const errors: unknown[] = [
       new AcquisitionNotFoundError(ACQ),
       new AcquisitionCancelledError(ACQ),
-      new OwnershipBasisIncompleteError(ACQ, [{ code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 1n }, actual: { numerator: 1n, denominator: 2n } }]),
+      new OwnershipBasisIncompleteError(ACQ, [
+        { code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 1n }, actual: { numerator: 1n, denominator: 2n } },
+      ]),
     ];
     const base = await start({
       ownerAllocation: {
@@ -107,7 +109,10 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
     expect((await get(base, path)).status).toBe(404);
     expect(await (await get(base, path)).json()).toMatchObject({ error: { code: 'CONFLICT', details: { reason: 'ACQUISITION_CANCELLED' } } });
     expect(await (await get(base, path)).json()).toMatchObject({
-      error: { code: 'CONFLICT', details: { reason: 'OWNERSHIP_BASIS_INCOMPLETE', violations: [{ code: 'SHARE_SUM_MISMATCH', expected: '1/1', actual: '1/2' }] } },
+      error: {
+        code: 'CONFLICT',
+        details: { reason: 'OWNERSHIP_BASIS_INCOMPLETE', violations: [{ code: 'SHARE_SUM_MISMATCH', expected: '1/1', actual: '1/2' }] },
+      },
     });
     expect((await get(base, `${path}?asOf=2026-01-01`)).status).toBe(400);
     expect((await get(base, '/acquisitions/x/owner-allocation')).status).toBe(400);

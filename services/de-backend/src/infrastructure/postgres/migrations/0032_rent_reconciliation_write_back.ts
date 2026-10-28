@@ -66,7 +66,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-  await sql`CREATE OR REPLACE FUNCTION rent_payment_reconciliation_frozen() RETURNS trigger LANGUAGE plpgsql AS $$${sql.raw(suggestionsFrozenBody(true))}$$`.execute(db);
+  await sql`CREATE OR REPLACE FUNCTION rent_payment_reconciliation_frozen() RETURNS trigger LANGUAGE plpgsql AS $$${sql.raw(suggestionsFrozenBody(true))}$$`.execute(
+    db,
+  );
   await sql`DROP TRIGGER rent_payment_reconciliation_born_unwritten ON rent_payment_reconciliation`.execute(db);
   await sql`DROP FUNCTION rent_payment_reconciliation_born_unwritten()`.execute(db);
   await sql`DROP INDEX rent_payment_reconciliation_write_back_tenant_key`.execute(db);

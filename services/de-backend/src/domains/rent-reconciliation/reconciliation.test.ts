@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
-import { checkMatch, coverageOf, holdsLease, isTermKey, matchedTotalOf, planConfirm, planReject, planRelease, planRemoval, planWriteBack, staleBy, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
+import {
+  checkMatch,
+  coverageOf,
+  holdsLease,
+  isTermKey,
+  matchedTotalOf,
+  planConfirm,
+  planReject,
+  planRelease,
+  planRemoval,
+  planWriteBack,
+  staleBy,
+  type MatchCash,
+  type RentPaymentReconciliation,
+  type RentPaymentReconciliationId,
+} from './reconciliation.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
@@ -31,19 +46,30 @@ describe('checkMatch (§37.1 checks 2–7, P4-D3)', () => {
   it('follows the order: unknown, not counted, not INFLOW, no rent cash, already matched, exceeded', () => {
     expect(checkMatch(undefined, request())).toEqual({ kind: 'TRANSACTION_NOT_FOUND' });
     // Not counted comes before the direction: an unconfirmed OUTFLOW is not counted.
-    expect(checkMatch(cash({ status: 'CLASSIFIED', direction: 'OUTFLOW' }), request())).toEqual({ kind: 'TRANSACTION_NOT_COUNTED', status: 'CLASSIFIED', correctionRole: null });
+    expect(checkMatch(cash({ status: 'CLASSIFIED', direction: 'OUTFLOW' }), request())).toEqual({
+      kind: 'TRANSACTION_NOT_COUNTED',
+      status: 'CLASSIFIED',
+      correctionRole: null,
+    });
     expect(checkMatch(cash({ direction: 'OUTFLOW', rentCash: null }), request())).toEqual({ kind: 'TRANSACTION_NOT_INFLOW' });
     expect(checkMatch(cash({ rentCash: null }), request())).toEqual({ kind: 'NO_RENT_CASH' });
     expect(checkMatch(cash({ rentCash: eur('0.00') }), request())).toEqual({ kind: 'NO_RENT_CASH' });
     // Already matched comes before the amount: the same term twice is never "exceeded".
-    expect(checkMatch(cash({ confirmed: [confirmed('800.00', '2027010100')] }), request('900.00'))).toEqual({ kind: 'ALREADY_MATCHED', reconciliationId: 'r1' });
+    expect(checkMatch(cash({ confirmed: [confirmed('800.00', '2027010100')] }), request('900.00'))).toEqual({
+      kind: 'ALREADY_MATCHED',
+      reconciliationId: 'r1',
+    });
     expect(checkMatch(cash(), request('800.01'))).toEqual({ kind: 'RENT_CASH_EXCEEDED', rentCash: eur('800.00'), available: eur('800.00') });
   });
 
   it('counted: CONFIRMED and RECONCILED, never a reversal or a CORRECTED original', () => {
     expect(checkMatch(cash({ status: 'RECONCILED' }), request())).toBeUndefined();
     expect(checkMatch(cash({ correctionRole: 'REPLACEMENT' }), request())).toBeUndefined();
-    expect(checkMatch(cash({ correctionRole: 'REVERSAL' }), request())).toEqual({ kind: 'TRANSACTION_NOT_COUNTED', status: 'CONFIRMED', correctionRole: 'REVERSAL' });
+    expect(checkMatch(cash({ correctionRole: 'REVERSAL' }), request())).toEqual({
+      kind: 'TRANSACTION_NOT_COUNTED',
+      status: 'CONFIRMED',
+      correctionRole: 'REVERSAL',
+    });
     expect(checkMatch(cash({ status: 'CORRECTED' }), request())).toEqual({ kind: 'TRANSACTION_NOT_COUNTED', status: 'CORRECTED', correctionRole: null });
   });
 
@@ -52,7 +78,9 @@ describe('checkMatch (§37.1 checks 2–7, P4-D3)', () => {
     expect(checkMatch(two, request('300.00', '2027030100'))).toBeUndefined();
     expect(checkMatch(two, request('300.01', '2027030100'))).toEqual({ kind: 'RENT_CASH_EXCEEDED', rentCash: eur('800.00'), available: eur('300.00') });
     // Another Tenant on the same term is another match.
-    expect(checkMatch(cash({ confirmed: [confirmed('300.00', '2027010100')] }), { ...request('500.00'), mreTenantId: '6512f0c2a1b2c3d4e5f60a02' })).toBeUndefined();
+    expect(
+      checkMatch(cash({ confirmed: [confirmed('300.00', '2027010100')] }), { ...request('500.00'), mreTenantId: '6512f0c2a1b2c3d4e5f60a02' }),
+    ).toBeUndefined();
   });
 });
 
@@ -112,7 +140,7 @@ describe('planRelease (§37.1)', () => {
     expect(planConfirm(reconciliation('RELEASED'), undefined)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'RELEASED' });
   });
 
-  it('staleBy: above the open amount now (due − the term\'s CONFIRMED) is stale; exactly it is not', () => {
+  it("staleBy: above the open amount now (due − the term's CONFIRMED) is stale; exactly it is not", () => {
     expect(staleBy(eur('800.00'), eur('800.00'), eur('0.00'))).toBeUndefined();
     expect(staleBy(eur('400.00'), eur('800.00'), eur('400.00'))).toBeUndefined();
     expect(staleBy(eur('400.01'), eur('800.00'), eur('400.00'))).toEqual({ openAmount: eur('400.00') });
@@ -196,7 +224,8 @@ describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
     version: 1,
   } satisfies RentPaymentReconciliation;
   const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
-  const pending = (leaseUntil: Date) => ({ ...base, mreWriteBackState: 'PENDING', mreWriteBackAttemptId: 'a1', mreWriteBackLeaseUntil: leaseUntil }) satisfies RentPaymentReconciliation;
+  const pending = (leaseUntil: Date) =>
+    ({ ...base, mreWriteBackState: 'PENDING', mreWriteBackAttemptId: 'a1', mreWriteBackLeaseUntil: leaseUntil }) satisfies RentPaymentReconciliation;
 
   it('release: NOT_WRITTEN stays; WRITTEN, FAILED and an expired PENDING become REMOVAL_REQUIRED with the lease and the error cleared; a live lease refuses', () => {
     const next = (r: RentPaymentReconciliation) => {
@@ -211,9 +240,9 @@ describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
       mreWriteBackState: 'REMOVAL_REQUIRED',
       mreWriteBackError: null,
       mreWriteBackFailedAt: null,
-    mreLastLeaseUntil: null,
-    mreRemovedAt: null,
-    mreRemovedBy: null,
+      mreLastLeaseUntil: null,
+      mreRemovedAt: null,
+      mreRemovedBy: null,
     });
     expect(next(pending(earlier))).toMatchObject({ mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null });
     expect(planRelease(pending(later), 'x', at, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });
@@ -234,20 +263,29 @@ describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
     const removing = { ...released('REMOVING'), mreWriteBackAttemptId: 'a1', mreWriteBackLeaseUntil: later } satisfies RentPaymentReconciliation;
     expect(planRemoval(removing, at, 0)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });
     expect(planRemoval({ ...removing, mreWriteBackLeaseUntil: earlier }, at, 0)).toEqual({ kind: 'CLAIM' });
-    expect(planRemoval(released('REMOVAL_REQUIRED'), at, 0, { ...pending(later), id: 'r2' as RentPaymentReconciliationId })).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r2' });
+    expect(planRemoval(released('REMOVAL_REQUIRED'), at, 0, { ...pending(later), id: 'r2' as RentPaymentReconciliationId })).toEqual({
+      kind: 'WRITE_BACK_IN_PROGRESS',
+      reconciliationId: 'r2',
+    });
     // A live removal of the Tenant blocks a write-back too (review on #84).
-    expect(planWriteBack(base, at, { ...removing, id: 'r3' as RentPaymentReconciliationId })).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r3' });
+    expect(planWriteBack(base, at, { ...removing, id: 'r3' as RentPaymentReconciliationId })).toEqual({
+      kind: 'WRITE_BACK_IN_PROGRESS',
+      reconciliationId: 'r3',
+    });
     expect(holdsLease(removing, at)).toBe(true);
   });
 
   it('write-back: only CONFIRMED; WRITTEN a no-op; its own or another live lease of the Tenant refuses; an expired one is claimed over', () => {
-    for (const status of ['SUGGESTED', 'REJECTED', 'RELEASED'] as const) expect(planWriteBack({ ...base, status }, at)).toEqual({ kind: 'NOT_WRITABLE', status });
+    for (const status of ['SUGGESTED', 'REJECTED', 'RELEASED'] as const)
+      expect(planWriteBack({ ...base, status }, at)).toEqual({ kind: 'NOT_WRITABLE', status });
     expect(planWriteBack({ ...base, mreWriteBackState: 'WRITTEN' }, at)).toEqual({ kind: 'UNCHANGED' });
     expect(planWriteBack(pending(later), at)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });
     expect(planWriteBack(pending(earlier), at)).toEqual({ kind: 'CLAIM' });
     const other = { ...pending(later), id: 'r2' as RentPaymentReconciliationId };
     expect(planWriteBack(base, at, other)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r2' });
     expect(planWriteBack(base, at, { ...other, mreWriteBackLeaseUntil: earlier })).toEqual({ kind: 'CLAIM' });
-    expect(planWriteBack({ ...base, mreWriteBackState: 'FAILED', mreWriteBackError: 'MRE_UNAVAILABLE', mreWriteBackFailedAt: at }, at)).toEqual({ kind: 'CLAIM' });
+    expect(planWriteBack({ ...base, mreWriteBackState: 'FAILED', mreWriteBackError: 'MRE_UNAVAILABLE', mreWriteBackFailedAt: at }, at)).toEqual({
+      kind: 'CLAIM',
+    });
   });
 });

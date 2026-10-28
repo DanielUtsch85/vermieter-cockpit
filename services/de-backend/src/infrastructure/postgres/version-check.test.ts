@@ -160,15 +160,16 @@ describe.skipIf(databaseUrl === undefined)('version check (If-Match) on Transact
         unconfirmed.amend(id, REALM, { description: 'Anna' }, actor, [1]),
         unconfirmed.amend(id, REALM, { description: 'Ben' }, actor, [1]),
       ]);
-      await waitUntil(async () =>
-        Number(
-          (
-            await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+      await waitUntil(
+        async () =>
+          Number(
+            (
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
                AND query LIKE '%from "ledger_transaction"%for update%'`,
-            )
-          ).rows[0].count,
-        ) === 2,
+              )
+            ).rows[0].count,
+          ) === 2,
       );
       await holder.query('COMMIT');
       const outcomes = await both;

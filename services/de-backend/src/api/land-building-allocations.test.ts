@@ -97,14 +97,25 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
       current: true,
       createdAt: '2026-10-26T15:00:00.000Z',
     });
-    expect(seen[0]).toMatchObject({ acquisitionId: ACQ, reviewState: 'UNREVIEWED', effectiveDate: null, advisorPartyId: null, supersedes: OLD, idempotencyKey: 'k' });
-    expect((await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, body, { 'idempotency-key': 'k' })).headers.get('idempotent-replayed')).toBe('true');
+    expect(seen[0]).toMatchObject({
+      acquisitionId: ACQ,
+      reviewState: 'UNREVIEWED',
+      effectiveDate: null,
+      advisorPartyId: null,
+      supersedes: OLD,
+      idempotencyKey: 'k',
+    });
+    expect(
+      (await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, body, { 'idempotency-key': 'k' })).headers.get('idempotent-replayed'),
+    ).toBe('true');
   });
 
   it('400: the exact sum, a zero total, SUGGESTED, a missing supersedes, documentIds, percentages', async () => {
     const base = await start({});
     const fields = async (b: unknown) => (await errorOf(await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, b))).details;
-    expect(await fields({ ...body, landAmount: { amount: '66100.01', currency: 'EUR' } })).toEqual({ fields: [{ field: 'totalAllocableAmount', code: 'ALLOCATION_SUM_MISMATCH' }] });
+    expect(await fields({ ...body, landAmount: { amount: '66100.01', currency: 'EUR' } })).toEqual({
+      fields: [{ field: 'totalAllocableAmount', code: 'ALLOCATION_SUM_MISMATCH' }],
+    });
     const zero = { amount: '0.00', currency: 'EUR' };
     expect(await fields({ ...body, totalAllocableAmount: zero, landAmount: zero, buildingAmount: zero })).toEqual({
       fields: [{ field: 'totalAllocableAmount.amount', code: 'NOT_POSITIVE' }],
@@ -132,17 +143,25 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
     expect((await call(base, 'POST', path, erbbau)).status).toBe(201);
     expect((await call(base, 'POST', path, body)).status).toBe(404);
     expect(await errorOf(await call(base, 'POST', path, body))).toMatchObject({ code: 'CONFLICT', details: { reason: 'ACQUISITION_CANCELLED' } });
-    expect(await errorOf(await call(base, 'POST', path, body))).toMatchObject({ code: 'CONFLICT', details: { reason: 'CURRENT_ALLOCATION_CHANGED', currentAllocationId: NEW } });
+    expect(await errorOf(await call(base, 'POST', path, body))).toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'CURRENT_ALLOCATION_CHANGED', currentAllocationId: NEW },
+    });
   });
 });
 
 describe('GET /api/v1/acquisitions/{id}/land-building-allocations', () => {
   it('current and history; unknown parameters 400', async () => {
     const base = await start({
-      landBuildingAllocations: { list: async () => ({ current: allocation, items: [allocation, { ...allocation, id: OLD, current: false, supersededById: NEW }] }) },
+      landBuildingAllocations: {
+        list: async () => ({ current: allocation, items: [allocation, { ...allocation, id: OLD, current: false, supersededById: NEW }] }),
+      },
     });
     const res = await call(base, 'GET', `/acquisitions/${ACQ}/land-building-allocations`);
-    expect(await res.json()).toMatchObject({ current: { allocationId: NEW }, items: [{ allocationId: NEW }, { allocationId: OLD, current: false, supersededById: NEW }] });
+    expect(await res.json()).toMatchObject({
+      current: { allocationId: NEW },
+      items: [{ allocationId: NEW }, { allocationId: OLD, current: false, supersededById: NEW }],
+    });
     expect((await call(base, 'GET', `/acquisitions/${ACQ}/land-building-allocations?page=1`)).status).toBe(400);
   });
 });

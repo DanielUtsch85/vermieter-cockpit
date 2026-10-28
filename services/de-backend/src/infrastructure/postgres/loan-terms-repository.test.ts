@@ -24,7 +24,9 @@ const eur = (amount: string) => Money.of(amount, 'EUR');
 
 async function waitForLock(pool: pg.Pool): Promise<void> {
   const deadline = Date.now() + 5_000;
-  while (Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < 1) {
+  while (
+    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < 1
+  ) {
     if (Date.now() > deadline) throw new Error('no session waits on a lock');
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -56,7 +58,17 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
 
   async function party(name: string, realm = REALM): Promise<string> {
     const outcome = await parties.create(
-      { mreRealmId: realm, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: realm,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
@@ -95,7 +107,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     notes: null,
     ...overrides,
   });
-  const followUp = (overrides: Partial<LoanTermsData> = {}) => data({ validFrom: day('2026-12-01'), firstPaymentDate: day('2027-01-01'), fixedRateUntil: null, ...overrides });
+  const followUp = (overrides: Partial<LoanTermsData> = {}) =>
+    data({ validFrom: day('2026-12-01'), firstPaymentDate: day('2027-01-01'), fixedRateUntil: null, ...overrides });
   async function appended(loanId: string, d: LoanTermsData) {
     const outcome = await terms.create(loanId, REALM, d, actor);
     if (outcome.kind !== 'CREATED') throw new Error(JSON.stringify(outcome, (_, v) => (typeof v === 'bigint' ? v.toString() : v)));
@@ -105,7 +118,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
   it('appends periods; validUntil is derived; the list is ordered and filters by status; AuditRecords', async () => {
     const l = await loan();
     const first = await appended(l.id, data({ notes: 'Zinsbindung laut Vertrag' }));
-    expect(first).toMatchObject({ status: 'VALID', version: 1, validFrom: '2026-09-01', validUntil: null, interestRate: 3000n, firstPaymentDate: '2026-10-01', fixedRateUntil: '2036-08-31' });
+    expect(first).toMatchObject({
+      status: 'VALID',
+      version: 1,
+      validFrom: '2026-09-01',
+      validUntil: null,
+      interestRate: 3000n,
+      firstPaymentDate: '2026-10-01',
+      fixedRateUntil: '2036-08-31',
+    });
     expect(first.scheduledPayment?.amount).toBe('500.00');
     const second = await appended(l.id, followUp({ repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, interestRate: 2450n }));
     expect(second).toMatchObject({ repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, interestRate: 2450n, validUntil: null });
@@ -116,7 +137,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     ]);
     expect(await terms.list(l.id, REALM, 'VOID')).toEqual([]);
     expect(await terms.list(l.id, OTHER_REALM)).toBeUndefined();
-    const audit = await pool.query(`SELECT action, metadata->>'interestRate' AS rate FROM audit_record WHERE entity_type = 'LoanTerms' AND entity_id = $1`, [second.id]);
+    const audit = await pool.query(`SELECT action, metadata->>'interestRate' AS rate FROM audit_record WHERE entity_type = 'LoanTerms' AND entity_id = $1`, [
+      second.id,
+    ]);
     expect(audit.rows).toEqual([{ action: 'CREATED', rate: '2.450' }]);
     const informational = await pool.query(
       `SELECT metadata->>'fixedRateUntil' AS until, metadata->>'initialRepaymentRate' AS repayment, metadata->'specialRepaymentLimit'->>'amount' AS limit, metadata->'notes' AS notes
@@ -132,7 +155,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     expect(await terms.create('not-a-uuid', REALM, data(), actor)).toEqual({ kind: 'LOAN_NOT_FOUND' });
     expect(await terms.create(l.id, REALM, data({ validFrom: day('2026-08-31') }), actor)).toEqual({ kind: 'TERMS_BEFORE_DEBT', debtFrom: '2026-09-01' });
     expect(await terms.create(l.id, REALM, data({ principalAtStart: eur('1.00') }), actor)).toEqual({ kind: 'PRINCIPAL_AT_START_ON_FIRST_TERMS' });
-    expect(await terms.create(l.id, REALM, data({ scheduledPayment: eur('250.00') }), actor)).toEqual({ kind: 'PAYMENT_DOES_NOT_COVER_INTEREST', firstInterest: 25_000n, balance: 10_000_000n });
+    expect(await terms.create(l.id, REALM, data({ scheduledPayment: eur('250.00') }), actor)).toEqual({
+      kind: 'PAYMENT_DOES_NOT_COVER_INTEREST',
+      firstInterest: 25_000n,
+      balance: 10_000_000n,
+    });
     const first = await appended(l.id, data());
     expect(await terms.create(l.id, REALM, data(), actor)).toEqual({ kind: 'TERMS_NOT_APPENDED', lastValidFrom: '2026-09-01' });
     expect(await terms.create(l.id, REALM, data({ validFrom: day('2026-10-01'), firstPaymentDate: day('2026-11-01') }), actor)).toEqual({
@@ -140,12 +167,21 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
       termsId: first.id,
       firstPaymentDate: '2026-10-01',
     });
-    expect(await terms.create(l.id, REALM, followUp({ principalAtStart: eur('100000.01') }), actor)).toMatchObject({ kind: 'PRINCIPAL_AT_START_EXCEEDS_ORIGINAL' });
+    expect(await terms.create(l.id, REALM, followUp({ principalAtStart: eur('100000.01') }), actor)).toMatchObject({
+      kind: 'PRINCIPAL_AT_START_EXCEEDS_ORIGINAL',
+    });
     // The carried-over balance on 2026-12-01 is 99 499.38; its interest at 3 % is 248.75.
-    expect(await terms.create(l.id, REALM, followUp({ scheduledPayment: eur('248.75') }), actor)).toEqual({ kind: 'PAYMENT_DOES_NOT_COVER_INTEREST', firstInterest: 24_875n, balance: 9_949_938n });
+    expect(await terms.create(l.id, REALM, followUp({ scheduledPayment: eur('248.75') }), actor)).toEqual({
+      kind: 'PAYMENT_DOES_NOT_COVER_INTEREST',
+      firstInterest: 24_875n,
+      balance: 9_949_938n,
+    });
     expect((await terms.create(l.id, REALM, followUp({ scheduledPayment: eur('248.76') }), actor)).kind).toBe('CREATED');
     await loans.void(l.id, REALM, 'x', new Date(), actor);
-    expect(await terms.create(l.id, REALM, followUp({ validFrom: day('2027-06-01'), firstPaymentDate: day('2027-07-01') }), actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });
+    expect(await terms.create(l.id, REALM, followUp({ validFrom: day('2027-06-01'), firstPaymentDate: day('2027-07-01') }), actor)).toEqual({
+      kind: 'LOAN_NOT_ACTIVE',
+      status: 'VOID',
+    });
     // Nothing was written by the refusals: two periods.
     expect((await terms.list(l.id, REALM))?.length).toBe(2);
   });
@@ -173,7 +209,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     if (first.kind !== 'CREATED') throw new Error(first.kind);
     expect(await terms.create(l.id, REALM, d, actor, key)).toEqual({ kind: 'REPLAYED', terms: first.terms });
     const other = data({ notes: 'x' });
-    expect(await terms.create(l.id, REALM, other, actor, { key: key.key, fingerprint: termsFingerprint(l.id, other) })).toEqual({ kind: 'IDEMPOTENCY_CONFLICT' });
+    expect(await terms.create(l.id, REALM, other, actor, { key: key.key, fingerprint: termsFingerprint(l.id, other) })).toEqual({
+      kind: 'IDEMPOTENCY_CONFLICT',
+    });
   });
 
   it('void: only the last VALID period; a repeat is a no-op; another Loan’s period is not found; then a new one can take its place', async () => {
@@ -183,8 +221,16 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     const at = new Date('2026-10-01T08:00:00Z');
     expect(await terms.void(l.id, first.id, REALM, 'x', at, actor)).toEqual({ kind: 'TERMS_NOT_LAST', laterTermsId: second.id });
     expect(await terms.void(l.id, second.id, REALM, 'falsch', at, actor, [2])).toEqual({ kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 1 });
-    expect(await terms.void(l.id, second.id, REALM, 'falsch', at, actor, [1])).toMatchObject({ kind: 'VOIDED', changed: true, terms: { status: 'VOID', voidReason: 'falsch', version: 2 } });
-    expect(await terms.void(l.id, second.id, REALM, 'anders', new Date(), actor)).toMatchObject({ kind: 'VOIDED', changed: false, terms: { voidReason: 'falsch' } });
+    expect(await terms.void(l.id, second.id, REALM, 'falsch', at, actor, [1])).toMatchObject({
+      kind: 'VOIDED',
+      changed: true,
+      terms: { status: 'VOID', voidReason: 'falsch', version: 2 },
+    });
+    expect(await terms.void(l.id, second.id, REALM, 'anders', new Date(), actor)).toMatchObject({
+      kind: 'VOIDED',
+      changed: false,
+      terms: { voidReason: 'falsch' },
+    });
     expect((await terms.list(l.id, REALM))?.map((t) => t.validUntil)).toEqual([null, null]);
     expect((await appended(l.id, followUp({ interestRate: 2900n }))).validFrom).toBe('2026-12-01');
     const other = await loan();
@@ -193,7 +239,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     await loans.void(other.id, REALM, 'x', new Date(), actor);
     const closedLoan = await loan();
     const closedTerms = await appended(closedLoan.id, data());
-    await pool.query(`UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`, [closedLoan.id]);
+    await pool.query(
+      `UPDATE loan SET status = 'CLOSED', closing_date = coalesce(disbursement_date, start_date), closing_reason = 'OTHER', closing_note = 'x', version = version + 1 WHERE id = $1`,
+      [closedLoan.id],
+    );
     expect(await terms.void(closedLoan.id, closedTerms.id, REALM, 'x', at, actor)).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'CLOSED' });
     const audit = await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'LoanTerms' AND entity_id = $1 ORDER BY occurred_at`, [second.id]);
     expect(audit.rows.map((r) => r.action)).toEqual(['CREATED', 'VOIDED']);
@@ -347,12 +396,22 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
       expect(await refused(`UPDATE loan_terms SET interest_rate = 4, version = version + 1 WHERE id = $1`, [second.id])).toBe('23000');
       expect(await refused(`UPDATE loan_terms SET valid_from = '2026-12-02', version = version + 1 WHERE id = $1`, [second.id])).toBe('23000');
       expect(await refused(`UPDATE loan_terms SET status = 'VOID', voided_at = now(), void_reason = 'x' WHERE id = $1`, [second.id])).toBe('23000');
-      expect(await refused(`UPDATE loan_terms SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [first.id])).toBe('23000');
+      expect(
+        await refused(`UPDATE loan_terms SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [first.id]),
+      ).toBe('23000');
       expect(await reason(`DELETE FROM loan_terms WHERE id = $1`, [first.id])).toBe('never deleted');
       // A valid void step that also edits data is refused for the edit.
-      expect(await reason(`UPDATE loan_terms SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1, notes = 'x' WHERE id = $1`, [second.id])).toBe('never edited');
-      expect(await refused(`UPDATE loan_terms SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [second.id])).toBe('accepted');
-      expect(await refused(`UPDATE loan_terms SET status = 'VALID', voided_at = NULL, void_reason = NULL, version = version + 1 WHERE id = $1`, [second.id])).toBe('23000');
+      expect(
+        await reason(`UPDATE loan_terms SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1, notes = 'x' WHERE id = $1`, [
+          second.id,
+        ]),
+      ).toBe('never edited');
+      expect(
+        await refused(`UPDATE loan_terms SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [second.id]),
+      ).toBe('accepted');
+      expect(
+        await refused(`UPDATE loan_terms SET status = 'VALID', voided_at = NULL, void_reason = NULL, version = version + 1 WHERE id = $1`, [second.id]),
+      ).toBe('23000');
     });
   });
 });

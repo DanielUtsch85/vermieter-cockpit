@@ -80,14 +80,7 @@ const createBody = z.object({
 });
 
 /** References of a split whose entities do not exist yet (data-model.md §18): refused, not stored unchecked. */
-const NOT_YET_SUPPORTED = [
-  'rentalContractReferenceId',
-  'wegId',
-  'maintenanceProjectId',
-  'acquisitionId',
-  'securityDepositId',
-  'taxClassificationId',
-] as const;
+const NOT_YET_SUPPORTED = ['rentalContractReferenceId', 'wegId', 'maintenanceProjectId', 'acquisitionId', 'securityDepositId', 'taxClassificationId'] as const;
 
 const split = z
   .object({
@@ -182,8 +175,7 @@ type ListQuery = z.infer<typeof listQuery>;
 function listFilter(q: Omit<ListQuery, 'propertyReferenceId'> & { propertyReferenceId?: string | undefined }): TransactionFilter {
   // `reviewable=true` is the statuses IMPORTED and UNREVIEWED; with `status` too, both must hold.
   const reviewable: readonly TransactionStatus[] | undefined = q.reviewable === 'true' ? REVIEWABLE_STATUSES : undefined;
-  const statuses =
-    q.status !== undefined && reviewable !== undefined ? q.status.filter((s) => reviewable.includes(s)) : (q.status ?? reviewable);
+  const statuses = q.status !== undefined && reviewable !== undefined ? q.status.filter((s) => reviewable.includes(s)) : (q.status ?? reviewable);
   return {
     ...(q.financialAccountId === undefined ? {} : { financialAccountId: q.financialAccountId.toLowerCase() }),
     ...(statuses === undefined ? {} : { statuses }),
@@ -203,9 +195,7 @@ function listFilter(q: Omit<ListQuery, 'propertyReferenceId'> & { propertyRefere
 function replacementCurrencyFields(error: CurrencyMismatchError, body: { readonly amount?: unknown; readonly splits?: unknown }) {
   const fields = [
     ...(error.where.amount ? [body.amount === undefined ? 'replacement.financialAccountId' : 'replacement.amount.currency'] : []),
-    ...error.where.splitPositions.map((p) =>
-      body.splits === undefined ? 'replacement.financialAccountId' : `replacement.splits.${p - 1}.amount.currency`,
-    ),
+    ...error.where.splitPositions.map((p) => (body.splits === undefined ? 'replacement.financialAccountId' : `replacement.splits.${p - 1}.amount.currency`)),
   ];
   return [...new Set(fields)].map((field) => ({ field, code: 'CURRENCY_MISMATCH' }));
 }
@@ -409,9 +399,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           sendValidationError(
             res,
             splits.flatMap((s, i) =>
-              error.codes.includes(s.financialCategoryCode)
-                ? [{ field: `splits.${i}.financialCategoryCode`, code: 'UNKNOWN_CATEGORY' }]
-                : [],
+              error.codes.includes(s.financialCategoryCode) ? [{ field: `splits.${i}.financialCategoryCode`, code: 'UNKNOWN_CATEGORY' }] : [],
             ),
           );
         } else if (error instanceof CurrencyMismatchError) {
@@ -502,9 +490,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     if (!parsed.success) {
       sendValidationError(
         res,
-        fieldErrors(parsed.error).map((f) =>
-          f.field.startsWith('replacement.splits.') ? { ...f, code: splitFieldCode(f.field, f.code) } : f,
-        ),
+        fieldErrors(parsed.error).map((f) => (f.field.startsWith('replacement.splits.') ? { ...f, code: splitFieldCode(f.field, f.code) } : f)),
       );
       return;
     }
@@ -577,9 +563,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
           sendValidationError(
             res,
             splits.flatMap((s, i) =>
-              error.codes.includes(s.financialCategoryCode)
-                ? [{ field: `replacement.splits.${i}.financialCategoryCode`, code: 'UNKNOWN_CATEGORY' }]
-                : [],
+              error.codes.includes(s.financialCategoryCode) ? [{ field: `replacement.splits.${i}.financialCategoryCode`, code: 'UNKNOWN_CATEGORY' }] : [],
             ),
           );
         } else if (error instanceof SplitSumMismatchError) {
@@ -865,7 +849,11 @@ function sendLoanSplitError(res: Response, error: unknown): boolean {
       reason: error.reason,
     });
   } else if (error instanceof LoanNotActiveError) {
-    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; no split can name it.`, { reason: 'LOAN_NOT_ACTIVE', loanId: error.loanId, status: error.status });
+    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; no split can name it.`, {
+      reason: 'LOAN_NOT_ACTIVE',
+      loanId: error.loanId,
+      status: error.status,
+    });
   } else if (error instanceof LoanClosedOnError) {
     sendLoanClosed(res, error);
   } else {

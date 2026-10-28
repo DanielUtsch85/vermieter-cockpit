@@ -88,9 +88,7 @@ describe.skipIf(databaseUrl === undefined)('transaction splits end to end', () =
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   async function loanPayment(realm = REALM_A): Promise<string> {
-    const account = (await (
-      await call(realm, 'POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' })
-    ).json()) as {
+    const account = (await (await call(realm, 'POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' })).json()) as {
       financialAccountId: string;
     };
     const tx = (await (
@@ -157,10 +155,9 @@ describe.skipIf(databaseUrl === undefined)('transaction splits end to end', () =
 
   it("another Realm's Transaction is 404; an unknown category is 400", async () => {
     const foreign = await loanPayment(REALM_B);
-    expect(
-      (await call(REALM_A, 'PUT', `/transactions/${foreign}/splits`, { splits: [{ amount: eur('1200'), financialCategoryCode: 'OTHER' }] }))
-        .status,
-    ).toBe(404);
+    expect((await call(REALM_A, 'PUT', `/transactions/${foreign}/splits`, { splits: [{ amount: eur('1200'), financialCategoryCode: 'OTHER' }] })).status).toBe(
+      404,
+    );
     const id = await loanPayment();
     const unknown = await call(REALM_A, 'PUT', `/transactions/${id}/splits`, {
       splits: [{ amount: eur('1200'), financialCategoryCode: 'NOT_A_CATEGORY' }],

@@ -5,12 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
 import { closeFinancialAccount, createFinancialAccount, createManualTransaction } from './application/index.js';
-import {
-  PostgresFinancialAccountRepository,
-  PostgresTransactionRepository,
-  createDatabase,
-  migrateToLatest,
-} from './infrastructure/postgres/index.js';
+import { PostgresFinancialAccountRepository, PostgresTransactionRepository, createDatabase, migrateToLatest } from './infrastructure/postgres/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
@@ -74,9 +69,11 @@ describe.skipIf(databaseUrl === undefined)('manual Transactions end to end', () 
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   const newAccount = async (realm = REALM_A) =>
-    ((await (await call(realm, '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' })).json()) as {
-      financialAccountId: string;
-    }).financialAccountId;
+    (
+      (await (await call(realm, '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' })).json()) as {
+        financialAccountId: string;
+      }
+    ).financialAccountId;
   const rent = (financialAccountId: string) => ({
     financialAccountId,
     amount: { amount: '1250.00', currency: 'EUR' },
@@ -92,9 +89,14 @@ describe.skipIf(databaseUrl === undefined)('manual Transactions end to end', () 
     const created = (await first.json()) as Record<string, unknown>;
     expect(created).toMatchObject({ amount: { amount: '1250.00', currency: 'EUR' }, provenance: 'MANUAL', status: 'UNREVIEWED' });
 
-    const replay = await call(REALM_A, '/transactions', { ...rent(accountId), amount: { amount: '1250', currency: 'EUR' } }, {
-      'idempotency-key': 'e2e-tx-1',
-    });
+    const replay = await call(
+      REALM_A,
+      '/transactions',
+      { ...rent(accountId), amount: { amount: '1250', currency: 'EUR' } },
+      {
+        'idempotency-key': 'e2e-tx-1',
+      },
+    );
     expect(replay.status).toBe(201);
     expect(await replay.json()).toEqual(created);
 

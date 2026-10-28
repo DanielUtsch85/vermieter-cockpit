@@ -50,7 +50,10 @@ import { definedOnly, optionalText, readId } from './acquisitions.js';
 import { sendAccessError, sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
-const uuid = z.string().regex(RESOURCE_ID).transform((id) => id.toLowerCase());
+const uuid = z
+  .string()
+  .regex(RESOURCE_ID)
+  .transform((id) => id.toLowerCase());
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 /** MRE's term key `YYYYMMDDHH`: only its form (§37.1). */
 const mreRentTerm = z.string().refine(isTermKey, { params: { code: 'INVALID_TERM' } });
@@ -356,7 +359,10 @@ function sendReconciliationError(res: Response, error: unknown): boolean {
   } else if (error instanceof NoRentCashError) {
     sendError(res, 422, 'NO_RENT_CASH', 'The Transaction has no split in a rent category.');
   } else if (error instanceof AlreadyMatchedError) {
-    sendError(res, 409, 'CONFLICT', 'This Transaction already matches this rent term.', { reason: 'ALREADY_MATCHED', reconciliationId: error.reconciliationId });
+    sendError(res, 409, 'CONFLICT', 'This Transaction already matches this rent term.', {
+      reason: 'ALREADY_MATCHED',
+      reconciliationId: error.reconciliationId,
+    });
   } else if (error instanceof RentCashExceededError) {
     sendError(res, 409, 'CONFLICT', 'The matched amount exceeds the available rent cash.', {
       reason: 'RENT_CASH_EXCEEDED',
@@ -386,9 +392,15 @@ function sendReconciliationError(res: Response, error: unknown): boolean {
       mreWriteBackState: error.mreWriteBackState,
     });
   } else if (error instanceof RemovalTooEarlyError) {
-    sendError(res, 409, 'CONFLICT', 'A late write-back to MRE could still land; the removal may start later.', { reason: 'REMOVAL_TOO_EARLY', notBefore: error.notBefore.toISOString() });
+    sendError(res, 409, 'CONFLICT', 'A late write-back to MRE could still land; the removal may start later.', {
+      reason: 'REMOVAL_TOO_EARLY',
+      notBefore: error.notBefore.toISOString(),
+    });
   } else if (error instanceof WriteBackInProgressError) {
-    sendError(res, 409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: error.reconciliationId });
+    sendError(res, 409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', {
+      reason: 'WRITE_BACK_IN_PROGRESS',
+      reconciliationId: error.reconciliationId,
+    });
   } else if (error instanceof WriteBackFailedError) {
     sendWriteBackFailure(res, error);
   } else if (error instanceof NotReleasableError) {

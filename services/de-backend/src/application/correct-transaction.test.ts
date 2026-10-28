@@ -61,7 +61,10 @@ describe('correctTransaction (api-design.md §35)', () => {
     const cases: [CorrectOutcome, new (...args: never[]) => Error][] = [
       [{ kind: 'NOT_FOUND' }, TransactionNotFoundError],
       [{ kind: 'IDEMPOTENCY_CONFLICT' }, IdempotencyKeyConflictError],
-      [{ kind: 'ALREADY_CORRECTED', reversalTransactionId: 'r' as TransactionId, replacementTransactionId: 'n' as TransactionId }, TransactionAlreadyCorrectedError],
+      [
+        { kind: 'ALREADY_CORRECTED', reversalTransactionId: 'r' as TransactionId, replacementTransactionId: 'n' as TransactionId },
+        TransactionAlreadyCorrectedError,
+      ],
       [{ kind: 'NOT_CORRECTABLE', status: 'IGNORED' }, TransactionNotCorrectableError],
       [{ kind: 'NO_CHANGE' }, CorrectionNoChangeError],
       [{ kind: 'ACCOUNT_NOT_FOUND', financialAccountId: 'a' }, FinancialAccountNotFoundError],
@@ -73,18 +76,19 @@ describe('correctTransaction (api-design.md §35)', () => {
       [{ kind: 'SUM_MISMATCH', expected: eur('1'), actual: eur('2') }, SplitSumMismatchError],
     ];
     for (const [outcome, type] of cases) {
-      await expect(
-        correctTransaction(answering(outcome))({ principal, transactionId: ID, reason: 'x', replacement }),
-        outcome.kind,
-      ).rejects.toBeInstanceOf(type);
+      await expect(correctTransaction(answering(outcome))({ principal, transactionId: ID, reason: 'x', replacement }), outcome.kind).rejects.toBeInstanceOf(
+        type,
+      );
     }
     await expect(
-      correctTransaction(answering({ kind: 'ALREADY_CORRECTED', reversalTransactionId: 'r' as TransactionId, replacementTransactionId: 'n' as TransactionId }))({
-        principal,
-        transactionId: ID,
-        reason: 'x',
-        replacement,
-      }),
+      correctTransaction(answering({ kind: 'ALREADY_CORRECTED', reversalTransactionId: 'r' as TransactionId, replacementTransactionId: 'n' as TransactionId }))(
+        {
+          principal,
+          transactionId: ID,
+          reason: 'x',
+          replacement,
+        },
+      ),
     ).rejects.toMatchObject({ reversalTransactionId: 'r', replacementTransactionId: 'n' });
     await expect(
       correctTransaction(answering({ kind: 'CURRENCY_MISMATCH', amount: false, positions: [2] }))({ principal, transactionId: ID, reason: 'x', replacement }),

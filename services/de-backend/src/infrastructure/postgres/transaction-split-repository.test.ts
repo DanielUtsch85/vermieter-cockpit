@@ -96,10 +96,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
     ).rows;
   const audits = async (transactionId: string) =>
     (
-      await pool.query(
-        `SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1 ORDER BY occurred_at, new_version`,
-        [transactionId],
-      )
+      await pool.query(`SELECT action FROM audit_record WHERE entity_type = 'Transaction' AND entity_id = $1 ORDER BY occurred_at, new_version`, [
+        transactionId,
+      ])
     ).rows.map((r: { action: string }) => r.action);
 
   it('stores an exact split set, classifies the Transaction, bumps its version and audits', async () => {
@@ -125,21 +124,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
   it('replaces the whole set atomically; repeating the current set changes nothing', async () => {
     const id = await loanPayment();
     await splits.replaceSplits(id, REALM, loanSplits, actor);
-    const replaced = await splits.replaceSplits(
-      id,
-      REALM,
-      [split('612.40'), split('587.60', 'LOAN_PRINCIPAL'), split('0', 'BANK_FEES')],
-      actor,
-    );
+    const replaced = await splits.replaceSplits(id, REALM, [split('612.40'), split('587.60', 'LOAN_PRINCIPAL'), split('0', 'BANK_FEES')], actor);
     expect(replaced).toMatchObject({ kind: 'REPLACED', changed: true, transaction: { version: 3 } });
     expect((await stored(id)).map((r: { code: string }) => r.code)).toEqual(['LOAN_INTEREST', 'LOAN_PRINCIPAL', 'BANK_FEES']);
 
-    const repeated = await splits.replaceSplits(
-      id,
-      REALM,
-      [split('612.4'), split('587.6', 'LOAN_PRINCIPAL'), split('0.00', 'BANK_FEES')],
-      actor,
-    );
+    const repeated = await splits.replaceSplits(id, REALM, [split('612.4'), split('587.6', 'LOAN_PRINCIPAL'), split('0.00', 'BANK_FEES')], actor);
     expect(repeated).toMatchObject({ kind: 'REPLACED', changed: false, transaction: { version: 3 } });
     expect(await audits(id)).toEqual(['CREATED', 'SPLITS_REPLACED', 'SPLITS_REPLACED']);
   });
@@ -181,16 +170,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
 
   it('PropertyReferences must be in the Realm; another Realm’s Transaction is not found', async () => {
     const link = (mreRealmId: string, mrePropertyId: string) =>
-      properties.linkOnce(
-        { mreRealmId, mrePropertyId, displayName: null, cachedAddress: null, cachedSurface: null, refreshedAt: new Date() },
-        actor,
-      );
+      properties.linkOnce({ mreRealmId, mrePropertyId, displayName: null, cachedAddress: null, cachedSurface: null, refreshedAt: new Date() }, actor);
     const own = await link(REALM, '6512f0c2a1b2c3d4e5f60720');
     const foreign = await link(OTHER_REALM, '6512f0c2a1b2c3d4e5f60721');
     const id = await loanPayment();
-    expect(
-      await splits.replaceSplits(id, REALM, [split('1200', 'LOAN_INTEREST', { propertyReferenceId: foreign.reference.id })], actor),
-    ).toEqual({ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceIds: [foreign.reference.id] });
+    expect(await splits.replaceSplits(id, REALM, [split('1200', 'LOAN_INTEREST', { propertyReferenceId: foreign.reference.id })], actor)).toEqual({
+      kind: 'PROPERTY_REFERENCE_NOT_FOUND',
+      propertyReferenceIds: [foreign.reference.id],
+    });
     expect(
       await splits.replaceSplits(
         id,
@@ -240,10 +227,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
       await holder.query('COMMIT');
       // ... so the waiting replacement builds on version 2, not on what it would have read without the lock.
       expect(await pending).toMatchObject({ kind: 'REPLACED', transaction: { version: 3 } });
-      const audit = await pool.query(
-        `SELECT previous_version, new_version FROM audit_record WHERE entity_id = $1 AND action = 'SPLITS_REPLACED'`,
-        [id],
-      );
+      const audit = await pool.query(`SELECT previous_version, new_version FROM audit_record WHERE entity_id = $1 AND action = 'SPLITS_REPLACED'`, [id]);
       expect(audit.rows).toEqual([{ previous_version: 2, new_version: 3 }]);
     } finally {
       holder.release();
@@ -267,9 +251,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
             )
           ).rowCount !== 0,
       );
-      await holder.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [
-        id,
-      ]);
+      await holder.query(`UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x' WHERE id = $1`, [id]);
       await holder.query('COMMIT');
       expect(await pending).toEqual({ kind: 'FROZEN', status: 'CONFIRMED' });
       expect((await stored(id)).map((r: { code: string }) => r.code)).toEqual(['LOAN_INTEREST', 'LOAN_PRINCIPAL']);

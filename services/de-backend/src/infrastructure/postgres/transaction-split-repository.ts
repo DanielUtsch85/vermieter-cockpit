@@ -68,12 +68,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
         if (conflict !== undefined) return conflict;
 
         const codes = [...new Set(splits.map((s) => s.financialCategoryCode))];
-        const categories = await trx
-          .selectFrom('financial_category')
-          .select(['id', 'code'])
-          .where('code', 'in', codes)
-          .where('active', '=', true)
-          .execute();
+        const categories = await trx.selectFrom('financial_category').select(['id', 'code']).where('code', 'in', codes).where('active', '=', true).execute();
         const categoryIds = new Map(categories.map((c) => [c.code, c.id]));
         const unknown = codes.filter((c) => !categoryIds.has(c));
         if (unknown.length > 0) return { kind: 'UNKNOWN_CATEGORY', codes: unknown };

@@ -40,15 +40,18 @@ export type {
   VersionConflict,
 } from './transaction.js';
 export { contentFingerprintFieldsV1 } from './bank-statement.js';
-export type {
-  BankStatementAdapter,
-  NormalizedBankRow,
-  ParsedRow,
-  ParsedStatement,
-  RowError,
-  StatementError,
-} from './bank-statement.js';
-export { businessDayOf, decideRow, importPostable, keepsExternalId, planResolution, isSkippable, normalizedRowJson, sourceRowKey, summarize } from './bank-import.js';
+export type { BankStatementAdapter, NormalizedBankRow, ParsedRow, ParsedStatement, RowError, StatementError } from './bank-statement.js';
+export {
+  businessDayOf,
+  decideRow,
+  importPostable,
+  keepsExternalId,
+  planResolution,
+  isSkippable,
+  normalizedRowJson,
+  sourceRowKey,
+  summarize,
+} from './bank-import.js';
 export type {
   AmbiguityReason,
   ConflictingTransaction,

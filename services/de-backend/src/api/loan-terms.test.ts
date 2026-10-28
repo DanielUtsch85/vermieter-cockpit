@@ -114,7 +114,14 @@ describe('POST /api/v1/loans/{id}/terms', () => {
       createdAt: '2026-08-20T10:00:00.000Z',
       version: 1,
     });
-    expect(seen[0]).toMatchObject({ loanId: LOAN, interestRate: 3450n, initialRepaymentRate: 2000n, principalAtStart: null, specialRepaymentLimit: null, idempotencyKey: 't1' });
+    expect(seen[0]).toMatchObject({
+      loanId: LOAN,
+      interestRate: 3450n,
+      initialRepaymentRate: 2000n,
+      principalAtStart: null,
+      specialRepaymentLimit: null,
+      idempotencyKey: 't1',
+    });
     expect((await call(base, 'POST', `/loans/${LOAN}/terms`, body, { 'idempotency-key': 't1' })).headers.get('idempotent-replayed')).toBe('true');
   });
 
@@ -133,8 +140,12 @@ describe('POST /api/v1/loans/{id}/terms', () => {
     const { scheduledPayment: _payment, ...withoutPayment } = body;
     expect(await fieldsOf(withoutPayment)).toEqual([{ field: 'scheduledPayment', code: 'REQUIRED' }]);
     expect(await fieldsOf({ ...body, repaymentModel: 'INTEREST_ONLY' })).toEqual([{ field: 'scheduledPayment', code: 'NOT_ALLOWED_FOR_MODEL' }]);
-    expect(await fieldsOf({ ...body, scheduledPayment: { amount: '0.00', currency: 'EUR' } })).toEqual([{ field: 'scheduledPayment.amount', code: 'NOT_POSITIVE' }]);
-    expect(await fieldsOf({ ...body, principalAtStart: { amount: '0.00', currency: 'EUR' } })).toEqual([{ field: 'principalAtStart.amount', code: 'NOT_POSITIVE' }]);
+    expect(await fieldsOf({ ...body, scheduledPayment: { amount: '0.00', currency: 'EUR' } })).toEqual([
+      { field: 'scheduledPayment.amount', code: 'NOT_POSITIVE' },
+    ]);
+    expect(await fieldsOf({ ...body, principalAtStart: { amount: '0.00', currency: 'EUR' } })).toEqual([
+      { field: 'principalAtStart.amount', code: 'NOT_POSITIVE' },
+    ]);
     expect(await fieldsOf({ ...body, firstPaymentDate: '2026-08-31' })).toEqual([{ field: 'firstPaymentDate', code: 'BEFORE_VALID_FROM' }]);
     expect(await fieldsOf({ ...body, fixedRateUntil: '2026-08-31' })).toEqual([{ field: 'fixedRateUntil', code: 'BEFORE_VALID_FROM' }]);
     await fieldsOf({ ...body, paymentFrequency: 'MONTHLY' });
@@ -231,8 +242,27 @@ describe('GET /api/v1/loans/{id}/terms', () => {
 
 describe('GET /api/v1/loans/{id}/schedule', () => {
   const schedule = {
-    entries: [{ number: 2, termsId: TERMS, paymentDate: '2027-02-28', balanceBefore: 70_500n, interest: 353n, principal: 29_647n, payment: 30_000n, balanceAfter: 40_853n }],
-    summary: { payments: 4, firstPaymentDate: '2027-01-31', lastPaymentDate: '2027-04-30', totalInterest: 1_112n, totalPrincipal: 100_000n, balanceDue: 0n, endReason: 'PAID_OFF' },
+    entries: [
+      {
+        number: 2,
+        termsId: TERMS,
+        paymentDate: '2027-02-28',
+        balanceBefore: 70_500n,
+        interest: 353n,
+        principal: 29_647n,
+        payment: 30_000n,
+        balanceAfter: 40_853n,
+      },
+    ],
+    summary: {
+      payments: 4,
+      firstPaymentDate: '2027-01-31',
+      lastPaymentDate: '2027-04-30',
+      totalInterest: 1_112n,
+      totalPrincipal: 100_000n,
+      balanceDue: 0n,
+      endReason: 'PAID_OFF',
+    },
   } as unknown as Schedule;
 
   it('the items as Money with their numbers, the summary; from/to reach the read; BEFORE_FROM; unknown parameters 400; an unknown Loan 404', async () => {
@@ -299,7 +329,16 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
     transactionId: TX,
     bookingDate: '2027-03-01',
     amount: 40_000n,
-    entry: { number: 2, paymentDate: '2027-02-28', termsId: TERMS, balanceBefore: 70_500n, interest: 353n, principal: 29_647n, payment: 30_000n, balanceAfter: 40_853n },
+    entry: {
+      number: 2,
+      paymentDate: '2027-02-28',
+      termsId: TERMS,
+      balanceBefore: 70_500n,
+      interest: 353n,
+      principal: 29_647n,
+      payment: 30_000n,
+      balanceAfter: 40_853n,
+    },
     interest: 353n,
     principal: 39_647n,
     unallocated: 0n,
@@ -352,13 +391,22 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
     const base = await start({
       loanTerms: {
         proposal: async () =>
-          ({ ...proposal, amount: 29_000n, principal: 0n, unallocated: 28_647n, flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: -1_000n }, { code: 'REST_NOT_PLANNED' }] }) as unknown as PaymentProposalResult,
+          ({
+            ...proposal,
+            amount: 29_000n,
+            principal: 0n,
+            unallocated: 28_647n,
+            flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: -1_000n }, { code: 'REST_NOT_PLANNED' }],
+          }) as unknown as PaymentProposalResult,
       },
     });
     const body = (await (await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX}`)).json()) as Record<string, unknown>;
     expect(body['splits']).toEqual([{ financialCategoryCode: 'LOAN_INTEREST', loanId: LOAN, amount: { amount: '3.53', currency: 'EUR' } }]);
     expect(body['unallocated']).toEqual({ amount: '286.47', currency: 'EUR' });
-    expect(body['flags']).toEqual([{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', details: { difference: { amount: '-10.00', currency: 'EUR' } } }, { code: 'REST_NOT_PLANNED' }]);
+    expect(body['flags']).toEqual([
+      { code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', details: { difference: { amount: '-10.00', currency: 'EUR' } } },
+      { code: 'REST_NOT_PLANNED' },
+    ]);
   });
 
   it.each([

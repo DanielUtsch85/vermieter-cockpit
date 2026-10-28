@@ -245,7 +245,9 @@ export interface ChangeOwnershipInput extends Omit<OwnershipChange, 'mreRealmId'
 }
 
 /** `status`: `CREATED` (201), `REPLAYED` (201, recorded body) or `UNCHANGED` (200 no-op, §26.2). */
-export type ChangeOwnership = (input: ChangeOwnershipInput) => Promise<{ readonly result: ChangeResult; readonly status: 'CREATED' | 'REPLAYED' | 'UNCHANGED' }>;
+export type ChangeOwnership = (
+  input: ChangeOwnershipInput,
+) => Promise<{ readonly result: ChangeResult; readonly status: 'CREATED' | 'REPLAYED' | 'UNCHANGED' }>;
 
 export function changeOwnership(deps: { readonly repository: OwnershipChangeRepository }): ChangeOwnership {
   return async ({ principal, idempotencyKey, ...fields }) => {

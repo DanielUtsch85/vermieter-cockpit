@@ -114,7 +114,11 @@ export function voidLoanTerms(deps: { readonly repository: LoanTermsRepository; 
   };
 }
 
-export type ListLoanTerms = (input: { readonly principal: RealmPrincipal; readonly loanId: string; readonly status?: TermsStatus }) => Promise<readonly LoanTermsView[]>;
+export type ListLoanTerms = (input: {
+  readonly principal: RealmPrincipal;
+  readonly loanId: string;
+  readonly status?: TermsStatus;
+}) => Promise<readonly LoanTermsView[]>;
 
 export function listLoanTerms(deps: { readonly repository: LoanTermsRepository }): ListLoanTerms {
   return async ({ principal, loanId, status }) => {
@@ -182,7 +186,11 @@ export type PaymentProposalResult = Extract<PaymentProposal, { kind: 'PROPOSAL' 
 };
 
 /** §41.5's proposal: a read, never a write; the client applies it through the splits command. */
-export type GetPaymentProposal = (input: { readonly principal: RealmPrincipal; readonly loanId: string; readonly transactionId: string }) => Promise<PaymentProposalResult>;
+export type GetPaymentProposal = (input: {
+  readonly principal: RealmPrincipal;
+  readonly loanId: string;
+  readonly transactionId: string;
+}) => Promise<PaymentProposalResult>;
 
 export function getPaymentProposal(deps: { readonly repository: LoanTermsRepository }): GetPaymentProposal {
   return async ({ principal, loanId, transactionId }) => {
@@ -192,7 +200,8 @@ export function getPaymentProposal(deps: { readonly repository: LoanTermsReposit
     const { loan, periods, transaction } = inputs;
     if (loan.status === 'VOID') throw new LoanNotActiveError(loanId, loan.status);
     // §41.7: its splits would be refused after the closing date.
-    if (loan.status === 'CLOSED' && loan.closingDate !== null && transaction.bookingDate > loan.closingDate) throw new LoanClosedOnError(loanId, loan.closingDate);
+    if (loan.status === 'CLOSED' && loan.closingDate !== null && transaction.bookingDate > loan.closingDate)
+      throw new LoanClosedOnError(loanId, loan.closingDate);
     const models = new Map(periods.map((p) => [p.id as string, p.repaymentModel]));
     const proposal = proposePayment(loanSchedule(loan, periods), transaction, (id) => models.get(id) ?? 'ANNUITY');
     if (proposal.kind === 'NOT_PROPOSABLE') throw new PaymentNotProposableError(transactionId, proposal.direction, proposal.status);

@@ -32,9 +32,7 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
 
   it('applies every migration on a fresh database, in order', async () => {
     const results = await migrateToLatest(pool, { migrationTableSchema: schema });
-    expect(results.map((r) => [r.migrationName, r.status])).toEqual(
-      Object.keys(migrations).map((name) => [name, 'Success']),
-    );
+    expect(results.map((r) => [r.migrationName, r.status])).toEqual(Object.keys(migrations).map((name) => [name, 'Success']));
     const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration ORDER BY name`);
     expect(applied.rows.map((r) => r.name)).toEqual(Object.keys(migrations));
   });

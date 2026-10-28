@@ -127,7 +127,9 @@ describe('POST /api/v1/acquisitions', () => {
       return ((await errorOf(res)).details as { fields: unknown[] }).fields;
     };
     expect(await fieldsOf({ ...body, purchasePrice: { amount: '0.00', currency: 'EUR' } })).toEqual([{ field: 'purchasePrice.amount', code: 'NOT_POSITIVE' }]);
-    expect(await fieldsOf({ ...body, purchasePrice: { amount: '-1.00', currency: 'EUR' } })).toEqual([{ field: 'purchasePrice.amount', code: 'NEGATIVE_AMOUNT' }]);
+    expect(await fieldsOf({ ...body, purchasePrice: { amount: '-1.00', currency: 'EUR' } })).toEqual([
+      { field: 'purchasePrice.amount', code: 'NEGATIVE_AMOUNT' },
+    ]);
     expect(await fieldsOf({ ...body, economicTransferDate: '2026-06-14' })).toEqual([{ field: 'economicTransferDate', code: 'BEFORE_CONTRACT_DATE' }]);
     expect(await fieldsOf({ ...body, landRegistryTransferDate: '2026-06-14' })).toEqual([{ field: 'landRegistryTransferDate', code: 'BEFORE_CONTRACT_DATE' }]);
     expect(await fieldsOf({ ...body, buyerPartyIds: [BUYER, BUYER] })).toEqual([{ field: 'buyerPartyIds.1', code: 'DUPLICATE' }]);
@@ -135,7 +137,12 @@ describe('POST /api/v1/acquisitions', () => {
     expect(await fieldsOf({ ...body, buyerPartyIds: [] })).toEqual([{ field: 'buyerPartyIds', code: 'INVALID_FORMAT' }]);
     expect(await fieldsOf({ ...body, notarialDocumentId: ID })).toEqual([{ field: 'notarialDocumentId', code: 'NOT_SUPPORTED' }]);
     expect(await fieldsOf({ ...body, acquiredShare: '3/2' })).toEqual([{ field: 'acquiredShare', code: 'OUT_OF_RANGE' }]);
-    for (const bad of [{ ...body, possessionTransferDate: '2026-08-01' }, { ...body, contractDate: 'x' }, { ...body, purchasePrice: 1000 }]) await fieldsOf(bad);
+    for (const bad of [
+      { ...body, possessionTransferDate: '2026-08-01' },
+      { ...body, contractDate: 'x' },
+      { ...body, purchasePrice: 1000 },
+    ])
+      await fieldsOf(bad);
   });
 
   it.each([
@@ -182,7 +189,10 @@ describe('POST /api/v1/acquisitions/{id}/confirm', () => {
     expect(await ok.json()).toMatchObject({ status: 'CONFIRMED', confirmedAt: '2026-10-26T10:00:00.000Z' });
     expect(seen[0]).toEqual({ principal: expect.anything(), acquisitionId: ID, expectedVersions: [1] });
     expect((await call(base, 'POST', `/acquisitions/${ID}/confirm`, {})).headers.get('idempotent-replayed')).toBe('true');
-    expect(await errorOf(await call(base, 'POST', `/acquisitions/${ID}/confirm`))).toMatchObject({ code: 'CONFLICT', details: { reason: 'ACQUISITION_CANCELLED' } });
+    expect(await errorOf(await call(base, 'POST', `/acquisitions/${ID}/confirm`))).toMatchObject({
+      code: 'CONFLICT',
+      details: { reason: 'ACQUISITION_CANCELLED' },
+    });
     const blocked = await call(base, 'POST', `/acquisitions/${ID}/confirm`);
     expect(blocked.status).toBe(422);
     expect(await errorOf(blocked)).toEqual({
@@ -212,7 +222,10 @@ describe('cancel and reads', () => {
           if (input.reason === 'owned') throw new AcquisitionHasValidOwnershipsError(ID, [PR]);
           if (input.expectedVersions?.includes(7)) throw new VersionConflictError([7], 1);
           if (input.acquisitionId !== ID) throw new AcquisitionNotFoundError(input.acquisitionId);
-          return { acquisition: { ...acquisition, status: 'CANCELLED', cancellationReason: input.reason, cancelledAt: new Date('2026-10-25T09:00:00Z') }, changed: true };
+          return {
+            acquisition: { ...acquisition, status: 'CANCELLED', cancellationReason: input.reason, cancelledAt: new Date('2026-10-25T09:00:00Z') },
+            changed: true,
+          };
         },
       },
     });
@@ -261,7 +274,8 @@ describe('cancel and reads', () => {
     expect((await call(base, 'GET', `/property-references/${PR}/acquisitions?status=CANCELLED`)).status).toBe(200);
     expect(seen[2]).toMatchObject({ propertyReferenceId: PR, filter: { status: 'CANCELLED' } });
     expect((await call(base, 'GET', `/property-references/${ID}/acquisitions`)).status).toBe(404);
-    for (const query of ['status=PLANNED', 'pageSize=201', 'buyer=x', 'partyId=x']) expect((await call(base, 'GET', `/acquisitions?${query}`)).status, query).toBe(400);
+    for (const query of ['status=PLANNED', 'pageSize=201', 'buyer=x', 'partyId=x'])
+      expect((await call(base, 'GET', `/acquisitions?${query}`)).status, query).toBe(400);
     expect((await call(base, 'GET', `/property-references/${PR}/acquisitions?partyId=${BUYER}`)).status).toBe(400);
   });
 });

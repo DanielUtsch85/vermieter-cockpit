@@ -70,7 +70,12 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
           if (plan.dropSplits) await trx.deleteFrom('transaction_split').where('transaction_id', '=', id).execute();
           else if (plan.changed.includes('bookingDate')) {
             // §41.7: after the Transaction lock, the Loans its splits name in id order (P3-D8); none may be closed before the new date.
-            const named = await trx.selectFrom('transaction_split').select('loan_id').where('transaction_id', '=', id).where('loan_id', 'is not', null).execute();
+            const named = await trx
+              .selectFrom('transaction_split')
+              .select('loan_id')
+              .where('transaction_id', '=', id)
+              .where('loan_id', 'is not', null)
+              .execute();
             const loans = await lockLoansOf(
               trx,
               mreRealmId,
@@ -192,13 +197,7 @@ function setStatus(trx: Trx<Database>, id: string, status: string) {
  */
 async function checkAccount(trx: Trx<Database>, mreRealmId: string, transaction: Transaction, accountId: string, currency: string): Promise<void> {
   const row = UUID.test(accountId)
-    ? await trx
-        .selectFrom('financial_account')
-        .selectAll()
-        .where('id', '=', accountId)
-        .where('mre_realm_id', '=', mreRealmId)
-        .forShare()
-        .executeTakeFirst()
+    ? await trx.selectFrom('financial_account').selectAll().where('id', '=', accountId).where('mre_realm_id', '=', mreRealmId).forShare().executeTakeFirst()
     : undefined;
   if (row === undefined) throw new Rejected({ kind: 'ACCOUNT_NOT_FOUND', financialAccountId: accountId });
   const account = toFinancialAccount(row);

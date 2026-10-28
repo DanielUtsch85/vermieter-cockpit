@@ -77,15 +77,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresPartyExternalReferenceReposi
   }
   /** Waits until `n` sessions wait for a lock in a statement on `table`. */
   const waitForLockWaiters = (table: string, n = 1) =>
-    waitUntil(async () =>
-      Number(
-        (
-          await pool.query(
-            `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`,
-            [`%"${table}"%`],
-          )
-        ).rows[0].count,
-      ) >= n,
+    waitUntil(
+      async () =>
+        Number(
+          (
+            await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
+              `%"${table}"%`,
+            ])
+          ).rows[0].count,
+        ) >= n,
     );
 
   it('claim: creates an ACTIVE reference with an AuditRecord; a repeat is EXISTING; another Party is IN_USE', async () => {
@@ -95,9 +95,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresPartyExternalReferenceReposi
     expect(await references.checkClaim(anna.id, key)).toEqual({ kind: 'CLAIM' });
     const reference = await claimed(anna, key);
     expect(reference).toMatchObject({ partyId: anna.id, ...key, status: 'ACTIVE', endedAt: null, version: 1 });
-    expect((await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'PartyExternalReference' AND entity_id = $1`, [reference.id])).rows).toEqual([
-      { action: 'CREATED', metadata: { partyId: anna.id, system: 'MRE', entityType: 'tenant', externalId: key.externalId } },
-    ]);
+    expect(
+      (await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_type = 'PartyExternalReference' AND entity_id = $1`, [reference.id])).rows,
+    ).toEqual([{ action: 'CREATED', metadata: { partyId: anna.id, system: 'MRE', entityType: 'tenant', externalId: key.externalId } }]);
     expect(await references.checkClaim(anna.id, key)).toEqual({ kind: 'EXISTING', reference });
     expect(await references.claim(anna.id, key, actor)).toEqual({ kind: 'EXISTING', reference });
     expect(await references.claim(ben.id, key, actor)).toEqual({ kind: 'IN_USE', partyId: anna.id });
@@ -171,10 +171,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresPartyExternalReferenceReposi
       await holder.query(`SELECT 1 FROM party WHERE id = $1 FOR UPDATE`, [anna.id]);
       const claim = references.claim(anna.id, keyOf(tenantId()), actor);
       await waitForLockWaiters('party');
-      await holder.query(
-        `UPDATE party SET status = 'INACTIVE', deactivated_at = now(), deactivation_reason = 'x', version = version + 1 WHERE id = $1`,
-        [anna.id],
-      );
+      await holder.query(`UPDATE party SET status = 'INACTIVE', deactivated_at = now(), deactivation_reason = 'x', version = version + 1 WHERE id = $1`, [
+        anna.id,
+      ]);
       await holder.query('COMMIT');
       expect(await claim).toEqual({ kind: 'PARTY_INACTIVE' });
     } finally {
@@ -255,13 +254,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresPartyExternalReferenceReposi
     await insert({ externalId, status: 'ENDED', endedAt: '2026-10-22' });
 
     const reference = await claimed(anna, keyOf(tenantId()));
-    await expect(pool.query(`UPDATE party_external_reference SET external_id = $2 WHERE id = $1`, [reference.id, tenantId()])).rejects.toThrow(
-      /never change/,
-    );
+    await expect(pool.query(`UPDATE party_external_reference SET external_id = $2 WHERE id = $1`, [reference.id, tenantId()])).rejects.toThrow(/never change/);
     await references.end(anna.id, reference.id, REALM, new Date(), actor);
-    await expect(
-      pool.query(`UPDATE party_external_reference SET status = 'ACTIVE', ended_at = NULL WHERE id = $1`, [reference.id]),
-    ).rejects.toThrow(/ENDED is final/);
+    await expect(pool.query(`UPDATE party_external_reference SET status = 'ACTIVE', ended_at = NULL WHERE id = $1`, [reference.id])).rejects.toThrow(
+      /ENDED is final/,
+    );
     // A no-op write passes.
     await pool.query(`UPDATE party_external_reference SET status = status WHERE id = $1`, [reference.id]);
   });

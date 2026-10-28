@@ -98,14 +98,7 @@ export interface PartyExternalReferenceRepository {
    */
   claim(partyId: string, key: ExternalReferenceKey, actor: AuditActor): Promise<ClaimOutcome>;
   /** Applies `planEnd` under the reference's row lock; the version is checked only when it changes. */
-  end(
-    partyId: string,
-    referenceId: string,
-    mreRealmId: string,
-    at: Date,
-    actor: AuditActor,
-    expectedVersions?: readonly number[],
-  ): Promise<EndOutcome>;
+  end(partyId: string, referenceId: string, mreRealmId: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<EndOutcome>;
   /** The Party's references, oldest first; undefined for an unknown or foreign Party. Count and page in one snapshot. */
   list(
     partyId: string,

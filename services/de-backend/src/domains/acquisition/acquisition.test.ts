@@ -54,8 +54,18 @@ describe('Acquisition', () => {
 
 describe('planConfirm (§28.1)', () => {
   const at = new Date('2026-10-26T10:00:00Z');
-  const draft: Acquisition = { ...acquisition, economicTransferDate: day('2026-08-01'), buyerPartyIds: ['b2', 'b1'], acquiredShare: { numerator: 1, denominator: 2 } };
-  const own = (id: string, owner: string, n: number, d: number, from = '2026-08-01') => ({ id, ownerPartyId: owner, share: { numerator: n, denominator: d }, validFrom: day(from) });
+  const draft: Acquisition = {
+    ...acquisition,
+    economicTransferDate: day('2026-08-01'),
+    buyerPartyIds: ['b2', 'b1'],
+    acquiredShare: { numerator: 1, denominator: 2 },
+  };
+  const own = (id: string, owner: string, n: number, d: number, from = '2026-08-01') => ({
+    id,
+    ownerPartyId: owner,
+    share: { numerator: n, denominator: d },
+    validFrom: day(from),
+  });
   const active = new Map([
     ['b1', 'ACTIVE'],
     ['b2', 'ACTIVE'],
@@ -78,7 +88,14 @@ describe('planConfirm (§28.1)', () => {
   it('reports all six requirements in their order, ids sorted within each', () => {
     const plan = planConfirm(
       draft,
-      { buyerStatuses: new Map([['b1', 'INACTIVE'], ['b2', 'INACTIVE']]), own: [own('o2', 'x', 1, 8), own('o1', 'b1', 1, 4, '2026-08-02')], onTransferDate: [own('o2', 'x', 1, 8)] },
+      {
+        buyerStatuses: new Map([
+          ['b1', 'INACTIVE'],
+          ['b2', 'INACTIVE'],
+        ]),
+        own: [own('o2', 'x', 1, 8), own('o1', 'b1', 1, 4, '2026-08-02')],
+        onTransferDate: [own('o2', 'x', 1, 8)],
+      },
       at,
     );
     expect(plan).toEqual({
@@ -96,7 +113,12 @@ describe('planConfirm (§28.1)', () => {
   });
 
   it('sums exactly and reduced, beyond what a double holds', () => {
-    expect(sumOf([{ numerator: 1, denominator: 3 }, { numerator: 1, denominator: 6 }])).toEqual({ numerator: 1n, denominator: 2n });
+    expect(
+      sumOf([
+        { numerator: 1, denominator: 3 },
+        { numerator: 1, denominator: 6 },
+      ]),
+    ).toEqual({ numerator: 1n, denominator: 2n });
     expect(sumOf([])).toEqual({ numerator: 0n, denominator: 1n });
     const sevenths = Array.from({ length: 7 }, () => ({ numerator: 1, denominator: 7 }));
     expect(sumOf(sevenths)).toEqual({ numerator: 1n, denominator: 1n });

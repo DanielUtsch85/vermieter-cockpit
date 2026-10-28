@@ -133,7 +133,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     expect(await queries.list(REALM, { statuses: [] }, { page: 2, pageSize: 10 })).toEqual({ items: [], page: 2, pageSize: 10, total: 0 });
 
     // The other Realm's Transaction on 2026-08-03 never shows; another account's only without the account filter.
-    expect((await queries.list(REALM, { bookingDateFrom: '2026-08-03' as BusinessDate, bookingDateTo: '2026-08-03' as BusinessDate }, { page: 1, pageSize: 50 })).items.every((t) => t.mreRealmId === REALM)).toBe(true);
+    expect(
+      (
+        await queries.list(REALM, { bookingDateFrom: '2026-08-03' as BusinessDate, bookingDateTo: '2026-08-03' as BusinessDate }, { page: 1, pageSize: 50 })
+      ).items.every((t) => t.mreRealmId === REALM),
+    ).toBe(true);
     expect((await queries.list(REALM, { financialAccountId: '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b' }, { page: 1, pageSize: 50 })).total).toBe(0);
   });
 
@@ -142,7 +146,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     const reference = await property('64b0c0ffee00000000000e01');
     const own = await book(account, '2026-07-01', '10.00', reference);
     const viaSplit = await book(account, '2026-07-02', '10.00');
-    await splits.replaceSplits(viaSplit, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: reference, loanId: null, description: null }], actor);
+    await splits.replaceSplits(
+      viaSplit,
+      REALM,
+      [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: reference, loanId: null, description: null }],
+      actor,
+    );
     await book(account, '2026-07-03');
     const page = await queries.list(REALM, { propertyReferenceId: reference }, { page: 1, pageSize: 50 });
     expect(page.items.map((t) => t.id)).toEqual([viaSplit, own]);
@@ -151,14 +160,19 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
 
   it('list by financial category: Transactions with at least one split of that code; an unknown code matches nothing', async () => {
     const account = await openAccount();
-    const split = (amount: string, financialCategoryCode: string) => ({ amount: eur(amount), financialCategoryCode, propertyReferenceId: null, loanId: null, description: null });
+    const split = (amount: string, financialCategoryCode: string) => ({
+      amount: eur(amount),
+      financialCategoryCode,
+      propertyReferenceId: null,
+      loanId: null,
+      description: null,
+    });
     const rent = await book(account, '2026-05-01', '1250.00');
     await splits.replaceSplits(rent, REALM, [split('1000.00', 'RENT_BASE'), split('250.00', 'RENT_OPERATING_COST_ADVANCE')], actor);
     const other = await book(account, '2026-05-02', '10.00');
     await splits.replaceSplits(other, REALM, [split('10.00', 'OTHER')], actor);
     await book(account, '2026-05-03');
-    const byCode = (financialCategoryCode: string) =>
-      queries.list(REALM, { financialAccountId: account, financialCategoryCode }, { page: 1, pageSize: 50 });
+    const byCode = (financialCategoryCode: string) => queries.list(REALM, { financialAccountId: account, financialCategoryCode }, { page: 1, pageSize: 50 });
     expect((await byCode('RENT_OPERATING_COST_ADVANCE')).items.map((t) => t.id)).toEqual([rent]);
     expect((await byCode('OTHER')).items.map((t) => t.id)).toEqual([other]);
     expect(await byCode('NO_SUCH_CATEGORY')).toMatchObject({ items: [], total: 0 });
@@ -167,7 +181,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
   it('list by provenance: any of the given sources', async () => {
     const account = await openAccount();
     const original = await book(account, '2026-04-01');
-    await splits.replaceSplits(original, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }], actor);
+    await splits.replaceSplits(
+      original,
+      REALM,
+      [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }],
+      actor,
+    );
     await transactions.confirm(original, REALM, actor);
     const reversed = await corrections.correct(original, REALM, { reason: 'Doppelt', replacement: null }, actor);
     if (reversed.kind !== 'CORRECTED') throw new Error(reversed.kind);
@@ -183,7 +202,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     const account = await openAccount();
     const confirmed = async (day: string) => {
       const id = await book(account, `2026-06-${day}`);
-      await splits.replaceSplits(id, REALM, [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }], actor);
+      await splits.replaceSplits(
+        id,
+        REALM,
+        [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }],
+        actor,
+      );
       await transactions.confirm(id, REALM, actor);
       return id;
     };
