@@ -1706,7 +1706,7 @@ Decisions: `docs/development/phase-4-plan.md` (P4-D1…D8). Data: data-model §1
 ```text
 GET /api/v1/rent-reconciliations                                    (VC-4-01, §37.1)
 GET /api/v1/rent-reconciliations/{id}                               (VC-4-01, §37.1)
-GET /api/v1/rent-reconciliations/suggestions                        (VC-4-03: ?status=SUGGESTED)
+GET /api/v1/rent-reconciliations/suggestions                        (VC-4-03, §37.3: ?status=SUGGESTED)
 GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}  (VC-4-02, §37.2)
 GET /api/v1/transactions/{transactionId}/rent-reconciliations       (VC-4-02, §37.2)
 ```
@@ -1716,9 +1716,9 @@ GET /api/v1/transactions/{transactionId}/rent-reconciliations       (VC-4-02, §
 ```text
 POST /api/v1/rent-reconciliations                                   (VC-4-01, §37.1: manual match)
 POST /api/v1/rent-reconciliations/{id}/release                      (VC-4-01, §37.1)
-POST /api/v1/rent-reconciliations/suggest                           (VC-4-03)
-POST /api/v1/rent-reconciliations/{id}/confirm                      (VC-4-03)
-POST /api/v1/rent-reconciliations/{id}/reject                       (VC-4-03)
+POST /api/v1/rent-reconciliations/suggest                           (VC-4-03, §37.3)
+POST /api/v1/rent-reconciliations/{id}/confirm                      (VC-4-03, §37.3)
+POST /api/v1/rent-reconciliations/{id}/reject                       (VC-4-03, §37.3)
 POST /api/v1/rent-reconciliations/{id}/write-back-to-mre            (VC-4-04)
 POST /api/v1/rent-reconciliations/{id}/remove-from-mre              (VC-4-05)
 ```
@@ -1900,7 +1900,7 @@ Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two deriv
 ### In the code
 
 - **Domain:** `coverageOf(amountDue, matchedTotal)` → `{ coverage, openAmount }`; the cash view of §37.1 (`MatchCash`, `availableOf`) reused for the Transaction read.
-- **MRE client:** `readRentTerm(token, realm, tenantId, term)` → `{ amountDue, payments }` or `undefined` on `404`; `rentTermExists` (§37.1) becomes `readRentTerm(…) !== undefined`, so both parse one shape. The fake MRE gains `totalWithoutBalanceAmount` and payments per term; `mre.contract.test.ts` pins both fields against the baseline (a Tenant with rent 800: `totalWithoutBalanceAmount` 800, `payments` an array, a payment written through MRE's own `PATCH` coming back with `date`, `amount`, `type` and `reference`).
+- **MRE client:** `readRentTerm(token, realm, tenantId, term)` → `{ amountDue, payments }` or `undefined` on `404`; `rentTermExists` (§37.1) becomes `readRentTerm(…) !== undefined`, so both parse one shape. The manual match therefore also answers `503` when the term's amount due or a payment amount is malformed, not only the coverage read `UNAVAILABLE`. That cannot happen at the baseline, whose `update` keeps only `Number(amount) > 0` payments and whose totals are numbers (review on #79). The fake MRE gains `totalWithoutBalanceAmount` and payments per term; `mre.contract.test.ts` pins both fields against the baseline (a Tenant with rent 800: `totalWithoutBalanceAmount` 800, `payments` an array, a payment written through MRE's own `PATCH` coming back with `date`, `amount`, `type` and `reference`).
 - **No migration.**
 
 ### Tests (VC-4-02)
@@ -1912,6 +1912,128 @@ Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two deriv
 - **API:** the path and query `400`s; `404` for an unknown Transaction; the response shapes.
 - **End to end** against the fake MRE: a term matched by two Transactions (`PARTIALLY_MATCHED`, then `MATCHED`, then `OVERPAID` after a third), MRE's own payments shown separately and never summed; MRE down → `UNAVAILABLE` with DE's matches; another Realm sees `NOT_RETURNED` and an empty DE side.
 - **Counter-checks:** MRE's payments summed into `matchedTotal`; `RELEASED` summed; the coverage boundary off by one cent; the MRE amount truncated instead of rounded; exponent notation refused (the `e-15` case turns red); an MRE outage turned into a `503`.
+
+## 37.3 Suggestions: suggest, confirm, reject (VC-4-03)
+
+Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A suggestion is a stored `SUGGESTED` reconciliation: it never counts, never consumes cash and never changes MRE. A human confirms or rejects it. Confirmation runs the checks of §37.1 again, so a stale suggestion can never confirm wrong cash.
+
+- **Domain owner and authorization:** as §37.1.
+- **Status (P4-D2):** `SUGGESTED` → `CONFIRMED` (confirm) | `REJECTED` (reject, final). Both steps raise `version` by one.
+
+### `POST /api/v1/rent-reconciliations/suggest`
+
+- **Body** (strict): `from`, `to` as `YYYY-MM` (`400 INVALID_FORMAT`). `from` ≤ `to` (`400 INVALID_RANGE`), at most 12 months inclusive (`400 RANGE_TOO_LONG`). No `Idempotency-Key`: suggesting is idempotent by design (below).
+- **1. MRE, outside any database transaction (P4-D8):** for each month of the window, and for the month before `from` and the month after `to`, `GET /rents/:year/:month` with the caller's token and Realm.
+  - The two neighbouring months are read **for the uniqueness check only**: nothing is suggested for their terms.
+  - Without them, a Transaction booked from the 15th to the end of a boundary month would look unique for one term in one run, and ambiguous in a run over a wider window (review on #80). Of each rent only the Tenant's `_id`, the `term` and `totalWithoutBalanceAmount` are read (amounts as §37.2). The occupant object with the Tenant's name and contacts is dropped by the client and never logged. If any month fails → `503 EXTERNAL_SYSTEM_ERROR` and nothing is written. A `401`/`403` is as §37.1.
+- **2. DE, in one `REPEATABLE READ READ ONLY` snapshot:**
+  - **open amount of a term** = MRE's amount due − Σ `matchedAmount` of the Realm's `CONFIRMED` reconciliations for that Tenant and term. MRE's own payments are not subtracted (BR-RENT-001). Terms with open amount ≤ 0 are skipped.
+  - **candidates:** the Realm's counted `INFLOW` Transactions (§37.1) with available rent cash > 0.
+  - **a pair (Transaction, term) fits** when the Transaction's available rent cash **equals** the term's open amount exactly, and its booking date lies from the 15th of the month before the term's month to the last day of the term's month. The term's month is the `YYYYMM` of its key.
+  - **pairs already handled:**
+    - a pair (Transaction, Tenant, term) with a `REJECTED`, `RELEASED` or `CONFIRMED` reconciliation is no fit and is never suggested again. A `CONFIRMED` one acts through the cash and the open amount anyway;
+    - a pair with an **open `SUGGESTED`** reconciliation **stays in the graph as competition**, whether or not its amounts still match. It is never written again, but its Transaction and its term are not unique for any other pair (review on #80). Without that rule, two runs would suggest two Transactions for one term, or one Transaction for two terms, where a single run over both would have suggested nothing.
+- **3. The rule** (deterministic, independent of input order):
+  - The fits and the open suggestions form a bipartite graph between Transactions and terms, the neighbouring months' terms included. A fit whose Transaction and term have no other edge is **unique** → suggested.
+  - **IBAN history decides the rest:** a fit is a *history fit* when an earlier `CONFIRMED` reconciliation of the same Tenant names a Transaction with the same `counterparty_iban_raw` (not null). Among the non-unique fits, keep only the history fits, and keep the open suggestions as edges. A history fit whose Transaction and term have no other edge → suggested. A term of a neighbouring month is never suggested, but its edges block.
+  - Everything else is left alone: partial and combined payments, overpayments, and ambiguous amounts. The user matches those by hand (§37.1).
+  - **`confidence`:** `HIGH` for a history fit (whether it was unique or decided by the history), `MEDIUM` for a unique fit without history.
+  - **`suggestionReason`:** `EXACT_AMOUNT` or `EXACT_AMOUNT_IBAN_HISTORY`.
+  - **`matchedAmount`:** the open amount.
+- **4. Write** (one READ COMMITTED transaction):
+  - lock the chosen pairs' Transaction rows in id order (P3-D8's no-op write; Transaction → reconciliation);
+  - re-check each pair: still counted, still the same available rent cash, still no reconciliation for the pair. A pair that changed is skipped, not refused;
+  - insert it `SUGGESTED` with `version = 1` and one AuditRecord `SUGGESTED` (Transaction, Tenant, term, amount, confidence, reason).
+- **Success:** `200 { from, to, items }`. `items` are the reconciliations written by this run, in Transaction id order. A repeat over the same window writes nothing new and answers `items: []`.
+- **Concurrency:** two runs over one window cannot both write a pair. The partial unique index `(transaction_id, mre_tenant_id, mre_rent_term) WHERE status = 'SUGGESTED'` (0031) is the arbiter, and the loser skips (`ON CONFLICT … DO NOTHING`).
+
+### `POST /api/v1/rent-reconciliations/{reconciliationId}/confirm`
+
+- **Body** (strict, may be empty): `matchedAmount` (Money, optional). When given it is > 0 (`400 NOT_POSITIVE`) and not above the suggested amount (`422 ABOVE_SUGGESTION` with `details.suggested`): a confirmation may lower the amount, never raise it (P4-D5). Without it, the suggested amount is kept.
+- **Order of checks:**
+  1. `400`;
+  2. unknown or foreign → `404`;
+  3. `CONFIRMED` with the same amount → `200` no-op whatever the version; `CONFIRMED` with another amount, `REJECTED` or `RELEASED` → `409 CONFLICT` with `reason = "NOT_CONFIRMABLE"` and `details.status`;
+  4. `ABOVE_SUGGESTION`;
+  5. checks 3–7 of §37.1 for the Transaction with the amount to confirm: `TRANSACTION_NOT_COUNTED`, `TRANSACTION_NOT_INFLOW`, `NO_RENT_CASH`, `ALREADY_MATCHED`, `RENT_CASH_EXCEEDED`. The suggestion itself never counts as consumed cash;
+  6. the MRE term, read live: as §37.1 (`422 MRE_RENT_TERM_NOT_FOUND`, `503`), read outside any database transaction after checks 1–5;
+  7. **`409 CONFLICT` with `reason = "SUGGESTION_STALE"`** and `details.openAmount`: the amount to confirm is above the term's open amount now. This is MRE's amount due, read in step 6, minus the term's `CONFIRMED` matches; someone matched the term in between. A deliberate overpayment is still possible by hand (§37.1);
+  8. `If-Match` → `412`.
+- The write repeats checks 3–5 and 7 under the locks (Transaction row first, then the reconciliation `FOR UPDATE`), with the MRE amount of step 6.
+- **Success:** `200` with the reconciliation (`status = CONFIRMED`, `confirmedAt`, `confirmedBy`, `matchedAmount`, `version` + 1; `confidence` and `suggestionReason` kept). AuditRecord `CONFIRMED` with `manual = false`, `suggestedAmount` and `matchedAmount`. Never calls the write-back (BR-MRE-005).
+
+### `POST /api/v1/rent-reconciliations/{reconciliationId}/reject`
+
+- **Body:** `{ "reason": "..." }` (required, trimmed, 1–500).
+- **Order:**
+  1. `400`;
+  2. `404`;
+  3. `REJECTED` → `200` no-op keeping the first reason;
+  4. `CONFIRMED` or `RELEASED` → `409 CONFLICT` with `reason = "NOT_REJECTABLE"` and `details.status`;
+  5. `If-Match` → `412`.
+- **Success:** `200` (`status = REJECTED`, `rejectedAt`, `rejectedBy`, `rejectReason`, `version` + 1). AuditRecord `REJECTED` with the reason. The pair is never suggested again.
+- **Locks:** the reconciliation `FOR UPDATE` only. A rejection consumes no cash, so it takes no Transaction lock.
+- The §37.1 response gains `rejectedAt`, `rejectedBy`, `rejectReason` (`null` unless `REJECTED`).
+
+### Reads
+
+- `GET /rent-reconciliations?status=SUGGESTED` lists the open suggestions (§37.1's list). The route list's `…/suggestions` is that filter and has no route of its own.
+
+### In the database (migration 0031)
+
+- **`rent_payment_reconciliation` gains** `rejected_at`, `rejected_by` and `reject_reason` (1–500, trimmed). CHECK `(status = 'REJECTED') =` each of them `IS NOT NULL`.
+- **CHECK:** `status <> 'SUGGESTED' OR (confidence IS NOT NULL AND suggestion_reason IS NOT NULL)`. `suggestion_reason` must be one of `EXACT_AMOUNT` or `EXACT_AMOUNT_IBAN_HISTORY` when set.
+- **Partial unique index** `(transaction_id, mre_tenant_id, mre_rent_term) WHERE status = 'SUGGESTED'`.
+- **`rent_payment_reconciliation_frozen`:** `matched_amount` may change only in the step `SUGGESTED` → `CONFIRMED`, and only to a lower positive amount. The other fixed fields are unchanged.
+- **`rent_payment_reconciliation_cash` on a `SUGGESTED` insert:** it writes the Transaction row as for a confirm, then refuses a Transaction not counted, not `INFLOW`, or without rent cash. There is no sum check, because a suggestion consumes nothing. The step into `CONFIRMED` gets the full check of §37.1, as today.
+- Not in the database: the rule, the MRE reads, the order of checks.
+
+### Tests (VC-4-03)
+
+- **Domain, the rule, each with its fixture:**
+  - one Transaction and one term with equal amounts → `MEDIUM`;
+  - an open suggestion T1–A blocks a new T2–A, and T1 with an open suggestion for A is not suggested for B (review on #80);
+  - a Transaction booked on the 20th of `to` that also fits the month after `to` → nothing; the neighbouring month's term itself never suggested;
+  - two Transactions for one term → nothing;
+  - two terms for one Transaction → nothing;
+  - the IBAN history deciding one of two → `HIGH`, and the other not suggested;
+  - the history on both sides → nothing;
+  - a booking date one day before the 15th of the prior month, and one day after the term's month → no fit;
+  - an amount a cent off → no fit;
+  - a handled pair (each status) → excluded;
+  - an open amount ≤ 0 → skipped;
+  - permuted input gives the same result.
+- **Repository:**
+  - the DE snapshot (counted `INFLOW` with available cash, the term sums, the IBAN history within the Realm);
+  - the write skipping a pair changed in between;
+  - the AuditRecords `SUGGESTED`, `CONFIRMED` (`manual = false`) and `REJECTED`;
+  - confirm and reject with every refusal in order, and the no-ops;
+  - lowering the amount on confirm.
+- **Concurrency (RC and RR, each with a counter-check):**
+  - two suggest runs over one window → each pair once (the index);
+  - a confirm against a manual match of the same cash → `RENT_CASH_EXCEEDED`, RR `40001`;
+  - a confirm against a correction of the Transaction → as §37.1.
+- **Schema past the repository, each with a counter-check:**
+  - the new CHECKs and the index;
+  - `matched_amount` raised on confirm, or changed outside the step, refused;
+  - a `SUGGESTED` insert on an unconfirmed or `OUTFLOW` Transaction refused.
+- **MRE client:** `listRentTerms(token, realm, year, month)` parsed to `{ mreTenantId, term, amountDue }` only (no name, contacts or payments). An unexpected shape → `UNAVAILABLE`. The fake MRE gains the month read. `mre.contract.test.ts` pins `GET /rents/:year/:month` against the baseline: the Tenant's rent of that month comes back with `_id`, `term` and `totalWithoutBalanceAmount`, and another Realm's month does not list it.
+- **Use case and API:**
+  - the window `400`s;
+  - MRE down → `503`, nothing written;
+  - a repeat writes nothing;
+  - confirm's `ABOVE_SUGGESTION`, `SUGGESTION_STALE` and `MRE_RENT_TERM_NOT_FOUND`, and reject's `NOT_REJECTABLE`.
+- **End to end** against the fake MRE: suggest over two months → confirm one (it counts in §37.2's coverage), reject another (never suggested again), lower an amount on confirm; a suggestion never counts before its confirmation.
+- **Counter-checks:**
+  - the rule summing MRE's payments into the open amount;
+  - a rejected pair suggested again;
+  - open suggestions excluded before the uniqueness check (both blocking tests turn red);
+  - the neighbouring months not read;
+  - ambiguity broken by input order;
+  - the booking window off by a day;
+  - confirm without the live MRE read;
+  - confirm raising the amount;
+  - a suggestion counted as consumed cash.
 
 ---
 
