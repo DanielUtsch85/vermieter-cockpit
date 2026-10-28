@@ -177,7 +177,11 @@ written back to MRE exactly once; MRE settlement and DE cash remain distinct rec
      - commit.
   2. **Read** the term (`GET /rents/tenant/:id/:term`). If a payment with the marker is already there, a crashed
      earlier attempt wrote it: go to step 4 without a PATCH.
-  3. **Write** with `PATCH /rents/payment/:id/:term`. The body is the term as read, plus DE's payment:
+  3. **Write** with `PATCH /rents/payment/:id/:term`. **MRE takes the Tenant from the body's `_id`, not from the
+     path:** `updateByTerm` never reads `req.params.id`, and `_updateByTerm` looks the Tenant up with
+     `findOne({ _id: body._id, realmId })`. Without `_id` that lookup finds nothing and MRE answers `500` (review on
+     #75; MRE's form sends `_id: rent._id`). The body therefore carries `_id: mreTenantId`, and the path's `:id` is
+     set to the same value, though MRE ignores it. The body is the term as read, plus DE's payment:
      - every existing payment with `date`, `amount`, `type`, `reference` and `description` as read;
      - `promo` with `notepromo`, and `extracharge` with `noteextracharge`, each note trimmed of trailing newlines as
        MRE's form does;
@@ -197,6 +201,13 @@ written back to MRE exactly once; MRE settlement and DE cash remain distinct rec
   - A partial unique index allows only one `PENDING` (or `REMOVING`, P4-D7) per Realm and `mreTenantId`.
   - A second write-back is `409 WRITE_BACK_IN_PROGRESS`.
   - A lease older than twice the MRE timeout is taken over; step 2 makes that safe.
+    - **By the same reconciliation:** its retry claims again.
+    - **By another reconciliation of the same Tenant:** the partial unique index would block its claim. So the claim
+      sets the expired row to `FAILED` (for a removal, `REMOVAL_FAILED`) with an AuditRecord, in the same statement
+      that takes the new lease (review on #75). VC-4-04 tests this.
+  - A PATCH that still reaches MRE after DE's timeout cannot add a second payment: the PATCH replaces the whole
+    settlement, and each DE body holds the marker at most once. It could, however, restore a marker after a
+    `remove-from-mre`. Waiting twice the timeout before a lease is taken over covers that.
 - **Refused before any PATCH:**
   - **`409 MRE_TERM_NOT_ROUND_TRIPPABLE`** when the term has a VAT ratio and a non-zero `promo` or `extracharge`.
     Sending those back would change them by float rounding. The user records that payment in MRE by hand, and the
@@ -226,7 +237,7 @@ written back to MRE exactly once; MRE settlement and DE cash remain distinct rec
   `REMOVAL_REQUIRED` or `REMOVAL_FAILED`:
   - `REMOVING` with the same per-Tenant lease;
   - read; if the marker is gone, done without a PATCH;
-  - a PATCH with every payment except the marker's, and the term's other fields as in P4-D6;
+  - a PATCH with every payment except the marker's, and the term's other fields and `_id: mreTenantId` as in P4-D6;
   - verify;
   - `REMOVED` or `REMOVAL_FAILED`.
   - It never removes a payment without DE's marker.
@@ -251,8 +262,15 @@ written back to MRE exactly once; MRE settlement and DE cash remain distinct rec
 - **MRE calls never run inside a database transaction.** Reads use one `REPEATABLE READ READ ONLY` snapshot for the
   DE side.
 - **The MRE client gains three calls**, each parsed to the fields DE needs and pinned by the contract suite against
-  the baseline (`mre.contract.test.ts`): the term read, the month read, and the PATCH. The fake MRE gains Tenants
-  with rent terms and the PATCH semantics above, including the replacement of the whole settlement.
+  the baseline (`mre.contract.test.ts`):
+  - the term read;
+  - the month read;
+  - the PATCH, with the Tenant in the body's `_id`.
+- **The fake MRE gains Tenants with rent terms and the PATCH semantics above:**
+  - it replaces the whole settlement;
+  - it takes the Tenant from the body's `_id` and ignores the path's `:id`;
+  - a missing `_id`, or one of another Realm, answers `500`, as at the baseline. A fake that used the path's `:id`
+    would hide a missing `_id`.
 
 ---
 
