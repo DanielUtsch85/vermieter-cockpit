@@ -2237,13 +2237,14 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
 ### In the database (migration 0033)
 
 - **`rent_payment_reconciliation` gains** `mre_last_lease_until timestamptz` (set by every claim, never cleared), `mre_removed_at timestamptz` and `mre_removed_by text` (set exactly when `REMOVED`).
-- **Backfill:** rows claimed under 0032 get `mre_last_lease_until = coalesce(mre_write_back_lease_until, mre_write_back_failed_at, mre_written_back_at) + interval '2 minutes'`. Their real lease end is unknown, but it is at most twice the longest MRE timeout DE accepts (`MRE_TIMEOUT_MS` ≤ 60 s) after the claim, and the claim was before both the failure and the write.
+- **Backfill:** every row claimed under 0032 (any state but `NOT_WRITTEN`) gets `mre_last_lease_until = coalesce(mre_write_back_lease_until, mre_write_back_failed_at, mre_written_back_at, released_at) + interval '2 minutes'`. Their real lease end is unknown, but it is at most twice the longest MRE timeout DE accepts (`MRE_TIMEOUT_MS` ≤ 60 s) after the claim, and the claim came before the failure, the write and the release. `released_at` covers the riskiest rows (review on #84): a `REMOVAL_REQUIRED` that came from `FAILED` or an expired `PENDING` has its lease, its failure time and its written time cleared by 0032's release.
 - **CHECKs:**
   - `mre_write_back_state` adds `REMOVING`, `REMOVED`, `REMOVAL_FAILED`, all three only on `RELEASED`;
   - the attempt and the lease set exactly when `PENDING` or `REMOVING`; the error and its time exactly when `FAILED` or `REMOVAL_FAILED`;
   - the written fields as 0032, also kept through `REMOVING`, `REMOVED` and `REMOVAL_FAILED`;
-  - `mre_last_lease_until` not null once a claim has happened (`PENDING`, `WRITTEN`, `FAILED`, `REMOVING`, `REMOVED`, `REMOVAL_FAILED`).
+  - `mre_last_lease_until` not null once a claim has happened: every state but `NOT_WRITTEN` (`PENDING`, `WRITTEN`, `FAILED`, `REMOVAL_REQUIRED`, `REMOVING`, `REMOVED`, `REMOVAL_FAILED`; every `REMOVAL_REQUIRED` comes from a claim). So the trigger's `now()` > `mre_last_lease_until` and `REMOVAL_TOO_EARLY` never see `NULL`.
 - **The Tenant index** becomes `(mre_realm_id, mre_tenant_id) WHERE mre_write_back_state IN ('PENDING', 'REMOVING')`.
+- **§37.4's write-back claim changes with it** (review on #84): its holders are the Tenant's `PENDING` **and** `REMOVING` rows. A live `REMOVING` answers `WRITE_BACK_IN_PROGRESS`; an expired one becomes `REMOVAL_FAILED` (`LEASE_EXPIRED`) with an AuditRecord `WRITE_BACK_ABANDONED`, in the same transaction that takes the new lease. Without that, an abandoned removal would block every write-back of the Tenant through the index until someone retried the removal.
 - **`rent_payment_reconciliation_frozen`:** on a `RELEASED` row, a change that keeps `status` is a removal step with `version` + 1: `REMOVAL_REQUIRED` | `REMOVAL_FAILED` → `REMOVING` only when `now()` is past `mre_last_lease_until` (the margin stays in the application); `REMOVING` → `REMOVING` only from an expired lease with a new attempt; `REMOVING` → `REMOVED` | `REMOVAL_FAILED` | `REMOVAL_REQUIRED`. 0032's steps are unchanged, plus `mre_last_lease_until` set on each claim and never lowered or cleared.
 - `down` restores 0032's functions, constraints and index exactly.
 
@@ -2252,12 +2253,14 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
 - **Two removals of one reconciliation:** the second waits on the row and answers `WRITE_BACK_IN_PROGRESS` (RC) or fails with `40001` (RR).
 - **A removal and a write-back of two terms of one Tenant:** the index; the loser answers `WRITE_BACK_IN_PROGRESS`.
 - **A takeover after an expired lease,** by the same reconciliation, and by another one of the Tenant (an expired `REMOVING` becomes `REMOVAL_FAILED`, an expired `PENDING` becomes `FAILED`, each `LEASE_EXPIRED`).
+- **A write-back after an abandoned removal of the same Tenant:** the write-back's claim fails the expired `REMOVING` (`REMOVAL_FAILED`, `LEASE_EXPIRED`) and takes its own lease; under a live `REMOVING` it answers `WRITE_BACK_IN_PROGRESS`.
 - **A record after a lost lease** writes nothing.
 
 ### Tests (VC-4-05)
 
 - **Domain:** the PATCH body without DE's payment; the verification (marker gone, every other payment and the settlement as read); the steps; `REMOVAL_TOO_EARLY` at the margin's edge.
 - **Repository:** claim, record and takeover; `mre_last_lease_until` kept through record and release; the release with the database's clock (an application clock running ahead does not turn the trigger's refusal into a `500`).
+- **Migration:** a 0032 row `FAILED` → released → 0033 gets `mre_last_lease_until = released_at + 2 minutes`, and a removal before it plus the margin is `REMOVAL_TOO_EARLY`; a 0032 `WRITTEN` row gets `mre_written_back_at + 2 minutes`; `NOT_WRITTEN` rows stay `NULL`.
 - **Use case:**
   - the order claim → read → PATCH → verify → record;
   - `REMOVED` a no-op without an MRE call;
@@ -2278,6 +2281,8 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
   - the lease margin dropped (the removal right after an abandoned write-back proceeds);
   - `mre_last_lease_until` cleared on record or release;
   - the index without `REMOVING`;
+  - the write-back claim's holders only `PENDING` (the write-back after an abandoned removal is then refused for good);
+  - the backfill without `released_at`, and `REMOVAL_REQUIRED` left out of the CHECK;
   - the record without the attempt check;
   - the release's lease check on the application's clock.
 
