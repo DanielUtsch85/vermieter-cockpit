@@ -1,10 +1,11 @@
 import { Money, type AuditActor, type BusinessDate, type VersionConflict } from '../../shared/index.js';
 import type { Suggestion, SuggestionCandidate, SuggestionPair } from './suggestion.js';
+import type { MrePaymentSnapshot, WriteBackError } from './write-back.js';
 
 /**
  * RentPaymentReconciliation (data-model.md §18A, api-design.md §37.1, phase-4-plan P4-D1…D3, P4-D7): counted rent cash
- * of one DE Transaction matched to one MRE rent term. It never creates or changes a Transaction (ADR-004A), and it
- * never changes MRE here: write-back is VC-4-04.
+ * of one DE Transaction matched to one MRE rent term. It never creates or changes a Transaction (ADR-004A); MRE is
+ * changed only by the explicit write-back (§37.4, write-back.ts).
  */
 
 export const RECONCILIATION_STATUSES = ['SUGGESTED', 'CONFIRMED', 'REJECTED', 'RELEASED'] as const;
@@ -13,8 +14,9 @@ export type ReconciliationStatus = (typeof RECONCILIATION_STATUSES)[number];
 /** The rent income categories whose splits are a Transaction's rent cash (P4-D3, migration 0008). */
 export const RENT_CATEGORIES = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE', 'RENT_OPERATING_COST_SETTLEMENT'] as const;
 
-/** Until VC-4-04 nothing is written back. */
-export type MreWriteBackState = 'NOT_WRITTEN';
+/** The write-back's state (§37.4, P4-D6/D7); VC-4-05 adds the removal's states. */
+export const WRITE_BACK_STATES = ['NOT_WRITTEN', 'PENDING', 'WRITTEN', 'FAILED', 'REMOVAL_REQUIRED'] as const;
+export type MreWriteBackState = (typeof WRITE_BACK_STATES)[number];
 
 export type RentPaymentReconciliationId = string & { readonly __brand: 'RentPaymentReconciliationId' };
 
@@ -38,6 +40,16 @@ export interface RentPaymentReconciliation {
   readonly rejectReason: string | null;
   readonly notes: string | null;
   readonly mreWriteBackState: MreWriteBackState;
+  /** Set exactly while `PENDING`; the attempt id stays internal (never in a response). */
+  readonly mreWriteBackAttemptId: string | null;
+  readonly mreWriteBackLeaseUntil: Date | null;
+  /** Set when `WRITTEN`, kept into `REMOVAL_REQUIRED`. */
+  readonly mreWrittenBackAt: Date | null;
+  readonly mreWrittenBackBy: string | null;
+  readonly mrePayment: MrePaymentSnapshot | null;
+  /** Set exactly when `FAILED`. */
+  readonly mreWriteBackError: WriteBackError | null;
+  readonly mreWriteBackFailedAt: Date | null;
   readonly createdAt: Date;
   readonly version: number;
 }
@@ -139,17 +151,80 @@ export type ReleasePlan =
   | { readonly kind: 'RELEASE'; readonly next: RentPaymentReconciliation }
   /** Already `RELEASED`: a 200 no-op keeping the first reason and time, whatever the version. */
   | { readonly kind: 'UNCHANGED' }
-  | { readonly kind: 'NOT_RELEASABLE'; readonly status: ReconciliationStatus };
+  | { readonly kind: 'NOT_RELEASABLE'; readonly status: ReconciliationStatus }
+  /** A write-back holds a live lease: its PATCH may still reach MRE (§37.4). */
+  | { readonly kind: 'WRITE_BACK_IN_PROGRESS'; readonly reconciliationId: string };
 
-/** Checks 3–4 of §37.1's release; `If-Match` is checked after it by the caller. */
+/** A live lease at `at`: a write-back may still be talking to MRE. */
+export function holdsLease(current: Pick<RentPaymentReconciliation, 'mreWriteBackState' | 'mreWriteBackLeaseUntil'>, at: Date): boolean {
+  return current.mreWriteBackState === 'PENDING' && current.mreWriteBackLeaseUntil !== null && current.mreWriteBackLeaseUntil > at;
+}
+
+/**
+ * Checks 3–4 of §37.1's release, and P4-D7's effect on the write-back (§37.4): refused under a live lease;
+ * `NOT_WRITTEN` stays, every other state becomes `REMOVAL_REQUIRED` (DE's payment is, or may be, in MRE). `If-Match`
+ * is checked after it by the caller.
+ */
 export function planRelease(current: RentPaymentReconciliation, reason: string, at: Date, actor: AuditActor): ReleasePlan {
   if (current.status === 'RELEASED') return { kind: 'UNCHANGED' };
   if (current.status !== 'CONFIRMED') return { kind: 'NOT_RELEASABLE', status: current.status };
+  if (holdsLease(current, at)) return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: current.id };
+  const unwritten = current.mreWriteBackState === 'NOT_WRITTEN';
   return {
     kind: 'RELEASE',
-    next: { ...current, status: 'RELEASED', releasedAt: at, releasedBy: actor.actorId, releaseReason: reason, version: current.version + 1 },
+    next: {
+      ...current,
+      status: 'RELEASED',
+      releasedAt: at,
+      releasedBy: actor.actorId,
+      releaseReason: reason,
+      mreWriteBackState: unwritten ? 'NOT_WRITTEN' : 'REMOVAL_REQUIRED',
+      mreWriteBackAttemptId: null,
+      mreWriteBackLeaseUntil: null,
+      mreWriteBackError: null,
+      mreWriteBackFailedAt: null,
+      version: current.version + 1,
+    },
   };
 }
+
+export type WriteBackPlan =
+  | { readonly kind: 'CLAIM' }
+  /** Already `WRITTEN`: a 200 no-op without an MRE call, whatever the version. */
+  | { readonly kind: 'UNCHANGED' }
+  | { readonly kind: 'NOT_WRITABLE'; readonly status: ReconciliationStatus }
+  | { readonly kind: 'WRITE_BACK_IN_PROGRESS'; readonly reconciliationId: string };
+
+/**
+ * Checks 3–5 of §37.4's write-back: `CONFIRMED`, not `WRITTEN`, no live lease of its own or of another reconciliation
+ * of the same MRE Tenant (`holder`). `If-Match` is checked after it by the caller.
+ */
+export function planWriteBack(
+  current: RentPaymentReconciliation,
+  at: Date,
+  holder?: Pick<RentPaymentReconciliation, 'id' | 'mreWriteBackState' | 'mreWriteBackLeaseUntil'>,
+): WriteBackPlan {
+  if (current.status !== 'CONFIRMED') return { kind: 'NOT_WRITABLE', status: current.status };
+  if (current.mreWriteBackState === 'WRITTEN') return { kind: 'UNCHANGED' };
+  if (holdsLease(current, at)) return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: current.id };
+  if (holder !== undefined && holder.id !== current.id && holdsLease(holder, at)) return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: holder.id };
+  return { kind: 'CLAIM' };
+}
+
+/** How an attempt ends (§37.4 step 5); `NOT_WRITTEN` is the not-round-trippable return. */
+export type WriteBackResult =
+  | { readonly kind: 'WRITTEN'; readonly payment: MrePaymentSnapshot; readonly patched: boolean }
+  | { readonly kind: 'FAILED'; readonly error: WriteBackError }
+  | { readonly kind: 'NOT_WRITTEN' };
+
+export type ClaimOutcome =
+  | { readonly kind: 'CLAIMED'; readonly reconciliation: RentPaymentReconciliation; readonly attemptId: string; readonly bookingDate: BusinessDate }
+  | { readonly kind: 'UNCHANGED'; readonly reconciliation: RentPaymentReconciliation }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<WriteBackPlan, { kind: 'CLAIM' | 'UNCHANGED' }>
+  | VersionConflict;
+
+export type RecordOutcome = { readonly kind: 'RECORDED'; readonly reconciliation: RentPaymentReconciliation } | { readonly kind: 'LEASE_LOST' };
 
 export type CreateMatchOutcome =
   | { readonly kind: 'CREATED'; readonly reconciliation: RentPaymentReconciliation }
@@ -287,4 +362,14 @@ export interface RentReconciliationRepository {
   list(mreRealmId: string, filter: ReconciliationFilter, page: { readonly page: number; readonly pageSize: number }): Promise<ReconciliationPage>;
   /** The Transaction row first, then the reconciliation `FOR UPDATE`, then `planRelease`. */
   release(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ReleaseOutcome>;
+
+  /**
+   * §37.4 step 1, one READ COMMITTED transaction on reconciliation rows only (P4-D8): the row `FOR UPDATE`,
+   * `planWriteBack`, `If-Match`; another expired `PENDING` of the same Tenant becomes `FAILED` (`LEASE_EXPIRED`); then
+   * `PENDING` with a new attempt and a lease of `leaseMs`. A claim beaten by the Tenant index is `WRITE_BACK_IN_PROGRESS`.
+   */
+  claimWriteBack(id: string, mreRealmId: string, leaseMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ClaimOutcome>;
+
+  /** §37.4 step 5: only while the row is `PENDING` with this `attemptId`; otherwise nothing is written. */
+  recordWriteBack(id: string, mreRealmId: string, attemptId: string, result: WriteBackResult, actor: AuditActor): Promise<RecordOutcome>;
 }

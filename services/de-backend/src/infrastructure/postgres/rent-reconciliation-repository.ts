@@ -1,7 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   RENT_CATEGORIES,
   checkMatch,
+  holdsLease,
+  planWriteBack,
+  type ClaimOutcome,
+  type MrePaymentSnapshot,
+  type RecordOutcome,
+  type WriteBackError,
+  type WriteBackResult,
   planConfirm,
   planReject,
   planRelease,
@@ -58,6 +66,13 @@ const COLUMNS = [
   'reject_reason',
   'notes',
   'mre_write_back_state',
+  'mre_write_back_attempt_id',
+  'mre_write_back_lease_until',
+  'mre_written_back_at',
+  'mre_written_back_by',
+  'mre_payment',
+  'mre_write_back_error',
+  'mre_write_back_failed_at',
   'created_at',
   'version',
 ] as const;
@@ -83,8 +98,23 @@ interface ReconciliationRow {
   reject_reason: string | null;
   notes: string | null;
   mre_write_back_state: string;
+  mre_write_back_attempt_id: string | null;
+  mre_write_back_lease_until: Date | null;
+  mre_written_back_at: Date | null;
+  mre_written_back_by: string | null;
+  mre_payment: unknown;
+  mre_write_back_error: string | null;
+  mre_write_back_failed_at: Date | null;
   created_at: Date;
   version: number;
+}
+
+/** `mre_payment` as stored: DE's payment as MRE stores it, the amount as Money JSON. */
+interface PaymentColumn {
+  date: string;
+  amount: { amount: string; currency: string };
+  type: string;
+  reference: string;
 }
 
 /** Thrown inside the transaction to roll back the key claim and every write together. */
@@ -488,18 +518,172 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
       if (conflict !== undefined) return conflict;
       await trx
         .updateTable('rent_payment_reconciliation')
-        .set({ status: 'RELEASED', released_at: at, released_by: actor.actorId, release_reason: reason, version: plan.next.version, updated_at: at })
+        .set({
+          status: 'RELEASED',
+          released_at: at,
+          released_by: actor.actorId,
+          release_reason: reason,
+          // P4-D7 (§37.4): a match whose payment is, or may be, in MRE stays visible as REMOVAL_REQUIRED.
+          mre_write_back_state: plan.next.mreWriteBackState,
+          mre_write_back_attempt_id: null,
+          mre_write_back_lease_until: null,
+          mre_write_back_error: null,
+          mre_write_back_failed_at: null,
+          version: plan.next.version,
+          updated_at: at,
+        })
         .where('id', '=', id)
         .execute();
       const released = await readIn(trx, id);
       await writeAudit(trx, { type: ENTITY_TYPE, id }, 'RELEASED', actor, {
         previousVersion: current.version,
         newVersion: released.version,
-        metadata: { transactionId: released.transactionId, reason, matchedAmount: released.matchedAmount.toJSON() },
+        metadata: {
+          transactionId: released.transactionId,
+          reason,
+          matchedAmount: released.matchedAmount.toJSON(),
+          mreWriteBackState: { from: current.mreWriteBackState, to: released.mreWriteBackState },
+        },
       });
       return { kind: 'RELEASED', reconciliation: released, changed: true };
     });
   }
+
+  async claimWriteBack(id: string, mreRealmId: string, leaseMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ClaimOutcome> {
+    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
+    try {
+      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ClaimOutcome> => {
+        // P4-D8: reconciliation rows only, never the Transaction.
+        const row = await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const current = toReconciliation(row);
+        // The database's clock, the one the frozen trigger compares leases with.
+        const now = (await sql<{ now: Date }>`SELECT now() AS now`.execute(trx)).rows[0]?.now ?? new Date();
+        const holders = (
+          await trx
+            .selectFrom('rent_payment_reconciliation')
+            .select(COLUMNS)
+            .where('mre_realm_id', '=', mreRealmId)
+            .where('mre_tenant_id', '=', current.mreTenantId)
+            .where('mre_write_back_state', '=', 'PENDING')
+            .where('id', '<>', id)
+            .orderBy('id')
+            .forUpdate()
+            .execute()
+        ).map(toReconciliation);
+        const plan = planWriteBack(current, now, holders.find((h) => holdsLease(h, now)));
+        if (plan.kind === 'UNCHANGED') return { kind: 'UNCHANGED', reconciliation: current };
+        if (plan.kind !== 'CLAIM') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        // Another reconciliation's expired lease: FAILED in the same transaction that takes the new one (review on #75).
+        for (const expired of holders) {
+          await trx
+            .updateTable('rent_payment_reconciliation')
+            .set({
+              mre_write_back_state: 'FAILED',
+              mre_write_back_error: 'LEASE_EXPIRED' satisfies WriteBackError,
+              mre_write_back_failed_at: now,
+              mre_write_back_attempt_id: null,
+              mre_write_back_lease_until: null,
+              version: expired.version + 1,
+              updated_at: now,
+            })
+            .where('id', '=', expired.id)
+            .execute();
+          await writeAudit(trx, { type: ENTITY_TYPE, id: expired.id }, 'WRITE_BACK_ABANDONED', actor, {
+            previousVersion: expired.version,
+            newVersion: expired.version + 1,
+            metadata: { attemptId: expired.mreWriteBackAttemptId, leaseUntil: expired.mreWriteBackLeaseUntil?.toISOString() ?? null, takenOverBy: id },
+          });
+        }
+        const attemptId = randomUUID();
+        const leaseUntil = new Date(now.getTime() + leaseMs);
+        await trx
+          .updateTable('rent_payment_reconciliation')
+          .set({
+            mre_write_back_state: 'PENDING',
+            mre_write_back_attempt_id: attemptId,
+            mre_write_back_lease_until: leaseUntil,
+            mre_write_back_error: null,
+            mre_write_back_failed_at: null,
+            version: current.version + 1,
+            updated_at: now,
+          })
+          .where('id', '=', id)
+          .execute();
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'WRITE_BACK_STARTED', actor, {
+          previousVersion: current.version,
+          newVersion: current.version + 1,
+          metadata: { attemptId, leaseUntil: leaseUntil.toISOString(), from: current.mreWriteBackState },
+        });
+        const tx = await trx
+          .selectFrom('ledger_transaction')
+          .select(sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'))
+          .where('id', '=', current.transactionId)
+          .executeTakeFirstOrThrow();
+        return { kind: 'CLAIMED', reconciliation: await readIn(trx, id), attemptId, bookingDate: tx.booking_date as BusinessDate };
+      });
+    } catch (error) {
+      // Another reconciliation of the same Tenant claimed first and committed: the Tenant index decides.
+      if ((error as { constraint?: string }).constraint !== 'rent_payment_reconciliation_write_back_tenant_key') throw error;
+      const named = await this.db.selectFrom('rent_payment_reconciliation').select('mre_tenant_id').where('id', '=', id).executeTakeFirstOrThrow();
+      const holder = await this.db
+        .selectFrom('rent_payment_reconciliation')
+        .select('id')
+        .where('mre_realm_id', '=', mreRealmId)
+        .where('mre_tenant_id', '=', named.mre_tenant_id)
+        .where('mre_write_back_state', '=', 'PENDING')
+        .executeTakeFirst();
+      return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: holder?.id ?? id };
+    }
+  }
+
+  async recordWriteBack(id: string, mreRealmId: string, attemptId: string, result: WriteBackResult, actor: AuditActor): Promise<RecordOutcome> {
+    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<RecordOutcome> => {
+      const row = await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
+      // Only the attempt that holds the lease records; a taken-over one writes nothing (§37.4 step 5).
+      if (row === undefined || row.mre_write_back_state !== 'PENDING' || row.mre_write_back_attempt_id !== attemptId) return { kind: 'LEASE_LOST' };
+      const current = toReconciliation(row);
+      const now = new Date();
+      const cleared = { mre_write_back_attempt_id: null, mre_write_back_lease_until: null, version: current.version + 1, updated_at: now };
+      const audit = (action: string, metadata: Record<string, unknown>) =>
+        writeAudit(trx, { type: ENTITY_TYPE, id }, action, actor, { previousVersion: current.version, newVersion: current.version + 1, metadata: { attemptId, ...metadata } });
+      switch (result.kind) {
+        case 'WRITTEN':
+          await trx
+            .updateTable('rent_payment_reconciliation')
+            .set({ ...cleared, mre_write_back_state: 'WRITTEN', mre_written_back_at: now, mre_written_back_by: actor.actorId, mre_payment: JSON.stringify(toPaymentColumn(result.payment)) })
+            .where('id', '=', id)
+            .execute();
+          await audit('WRITE_BACK_WRITTEN', { patched: result.patched, payment: toPaymentColumn(result.payment) });
+          break;
+        case 'FAILED':
+          await trx
+            .updateTable('rent_payment_reconciliation')
+            .set({ ...cleared, mre_write_back_state: 'FAILED', mre_write_back_error: result.error, mre_write_back_failed_at: now })
+            .where('id', '=', id)
+            .execute();
+          await audit('WRITE_BACK_FAILED', { error: result.error });
+          break;
+        case 'NOT_WRITTEN':
+          await trx.updateTable('rent_payment_reconciliation').set({ ...cleared, mre_write_back_state: 'NOT_WRITTEN' }).where('id', '=', id).execute();
+          await audit('WRITE_BACK_NOT_ROUND_TRIPPABLE', {});
+          break;
+      }
+      return { kind: 'RECORDED', reconciliation: await readIn(trx, id) };
+    });
+  }
+}
+
+function toPaymentColumn(payment: MrePaymentSnapshot): PaymentColumn {
+  return { date: payment.date, amount: payment.amount.toJSON(), type: payment.type, reference: payment.reference };
+}
+
+function fromPaymentColumn(value: unknown): MrePaymentSnapshot | null {
+  if (value === null || value === undefined) return null;
+  const p = value as PaymentColumn;
+  return { date: p.date, amount: fromNumericAmount(p.amount.amount, p.amount.currency), type: p.type, reference: p.reference };
 }
 
 /** A confirm's cash refusal: the Transaction is known (the foreign key), so TRANSACTION_NOT_FOUND cannot occur. */
@@ -578,6 +762,13 @@ function toReconciliation(row: ReconciliationRow): RentPaymentReconciliation {
     rejectReason: row.reject_reason,
     notes: row.notes,
     mreWriteBackState: row.mre_write_back_state as MreWriteBackState,
+    mreWriteBackAttemptId: row.mre_write_back_attempt_id,
+    mreWriteBackLeaseUntil: row.mre_write_back_lease_until,
+    mreWrittenBackAt: row.mre_written_back_at,
+    mreWrittenBackBy: row.mre_written_back_by,
+    mrePayment: fromPaymentColumn(row.mre_payment),
+    mreWriteBackError: row.mre_write_back_error as WriteBackError | null,
+    mreWriteBackFailedAt: row.mre_write_back_failed_at,
     createdAt: row.created_at,
     version: row.version,
   };
@@ -592,6 +783,14 @@ function toSnapshot(r: RentPaymentReconciliation): unknown {
     releasedAt: r.releasedAt?.toISOString() ?? null,
     rejectedAt: r.rejectedAt?.toISOString() ?? null,
     createdAt: r.createdAt.toISOString(),
+    // A created reconciliation is NOT_WRITTEN: nothing of the write-back is stored with its replay.
+    mreWriteBackAttemptId: null,
+    mreWriteBackLeaseUntil: null,
+    mreWrittenBackAt: null,
+    mreWrittenBackBy: null,
+    mrePayment: null,
+    mreWriteBackError: null,
+    mreWriteBackFailedAt: null,
   };
 }
 
@@ -612,6 +811,13 @@ function fromSnapshot(result: unknown): RentPaymentReconciliation {
     rejectedAt: r.rejectedAt == null ? null : new Date(r.rejectedAt),
     rejectedBy: r.rejectedBy ?? null,
     rejectReason: r.rejectReason ?? null,
+    mreWriteBackAttemptId: null,
+    mreWriteBackLeaseUntil: null,
+    mreWrittenBackAt: null,
+    mreWrittenBackBy: null,
+    mrePayment: null,
+    mreWriteBackError: null,
+    mreWriteBackFailedAt: null,
     createdAt: new Date(r.createdAt),
   };
 }

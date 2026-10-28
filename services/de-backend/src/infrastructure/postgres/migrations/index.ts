@@ -30,6 +30,7 @@ import * as m0028 from './0028_loan_balance_statement.js';
 import * as m0029 from './0029_loan_close.js';
 import * as m0030 from './0030_rent_payment_reconciliation.js';
 import * as m0031 from './0031_rent_reconciliation_suggestions.js';
+import * as m0032 from './0032_rent_reconciliation_write_back.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -69,4 +70,5 @@ export const migrations: Record<string, Migration> = {
   '0029_loan_close': m0029,
   '0030_rent_payment_reconciliation': m0030,
   '0031_rent_reconciliation_suggestions': m0031,
+  '0032_rent_reconciliation_write_back': m0032,
 };

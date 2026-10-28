@@ -60,6 +60,64 @@ export interface MreMonthRent {
   readonly amountDue: Money;
 }
 
+/**
+ * A payment of an MRE rent term as the write-back reads it (api-design.md §37.4): each value exactly as MRE answered it
+ * (a JSON number, string, null or absent), never converted, so the round trip changes nothing.
+ */
+export interface MreRawPayment {
+  readonly date: unknown;
+  readonly amount: unknown;
+  readonly type: unknown;
+  readonly reference: unknown;
+  readonly description: unknown;
+}
+
+/**
+ * An MRE rent term as the write-back reads and writes it back (api-design.md §37.4): the Tenant's `_id`, its VAT ratio
+ * and the term's whole settlement with raw values. The occupant object with the Tenant's personal data is dropped.
+ */
+export interface MreRawTerm {
+  readonly mreTenantId: string;
+  /** `YYYYMMDDHH` as text. */
+  readonly term: string;
+  /** 0 when MRE has none. */
+  readonly vatRatio: number;
+  readonly payments: readonly MreRawPayment[];
+  readonly promo: number;
+  readonly notepromo: string;
+  readonly extracharge: number;
+  readonly noteextracharge: string;
+  readonly description: string;
+}
+
+/** A payment as the write-back sends it, in the form MRE's `_updateByTerm` stores. */
+export interface MrePaymentWrite {
+  readonly date: unknown;
+  readonly amount: number;
+  readonly type: unknown;
+  readonly reference: unknown;
+  readonly description: unknown;
+}
+
+/** The body of `PATCH /rents/payment/:id/:term` without its `_id`: the term's whole settlement (§37.4). */
+export interface MreTermWrite {
+  readonly payments: readonly MrePaymentWrite[];
+  readonly promo: number;
+  readonly notepromo: string;
+  readonly extracharge: number;
+  readonly noteextracharge: string;
+  readonly description: string;
+}
+
+/**
+ * How a PATCH ended: MRE answered the saved term; no answer (a timeout, a dropped connection, an unreadable body), so
+ * it may or may not have been saved; or MRE refused it with an error status.
+ */
+export type MreTermWriteResult =
+  | { readonly kind: 'ANSWERED'; readonly term: MreRawTerm }
+  | { readonly kind: 'NO_ANSWER'; readonly message: string }
+  | { readonly kind: 'REFUSED'; readonly status: number };
+
 export type MreClientErrorCode =
   /** MRE rejected the token (missing, malformed, expired, bad signature): HTTP 401. */
   | 'UNAUTHENTICATED'
@@ -117,4 +175,17 @@ export interface MreClient {
    * `_id`, the term and the amount due; the occupant object with the Tenant's name and contacts is dropped.
    */
   listRentTerms(accessToken: string, mreRealmId: string, year: number, month: number): Promise<readonly MreMonthRent[]>;
+
+  /**
+   * The rent term as `readRentTerm` reads it, with its raw values for the write-back's round trip (api-design.md
+   * §37.4); undefined on MRE's `404`.
+   */
+  readRentTermForWriteBack(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRawTerm | undefined>;
+
+  /**
+   * `PATCH /rents/payment/:id/:term` with `_id: mreTenantId` in the body (MRE ignores the path's `:id`, review on
+   * #75): replaces the term's whole settlement with `write`. `401` / `403` throw as everywhere; every other outcome is
+   * a result, since a PATCH without an answer may still have been saved.
+   */
+  writeRentTermPayments(accessToken: string, mreRealmId: string, mreTenantId: string, term: string, write: MreTermWrite): Promise<MreTermWriteResult>;
 }

@@ -2,6 +2,9 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  NotWritableError,
+  WriteBackFailedError,
+  WriteBackInProgressError,
   AboveSuggestionError,
   AccessError,
   AlreadyMatchedError,
@@ -55,6 +58,13 @@ const reconciliation = {
   rejectReason: null,
   notes: 'Januar',
   mreWriteBackState: 'NOT_WRITTEN',
+  mreWriteBackAttemptId: null,
+  mreWriteBackLeaseUntil: null,
+  mreWrittenBackAt: null,
+  mreWrittenBackBy: null,
+  mrePayment: null,
+  mreWriteBackError: null,
+  mreWriteBackFailedAt: null,
   createdAt: new Date('2027-01-05T10:00:00Z'),
   version: 1,
 } as unknown as RentPaymentReconciliation;
@@ -114,6 +124,12 @@ describe('POST /api/v1/rent-reconciliations', () => {
       rejectReason: null,
       notes: 'Januar',
       mreWriteBackState: 'NOT_WRITTEN',
+      mreWriteBackLeaseUntil: null,
+      mreWrittenBackAt: null,
+      mreWrittenBackBy: null,
+      mrePayment: null,
+      mreWriteBackError: null,
+      mreWriteBackFailedAt: null,
       createdAt: '2027-01-05T10:00:00.000Z',
       version: 1,
     });
@@ -418,6 +434,97 @@ describe('suggestions (§37.3)', () => {
     const refused = await call(base, 'POST', `/rent-reconciliations/${ID}/reject`, { reason: 'nein' });
     expect(refused.status).toBe(409);
     expect(await errorOf(refused)).toMatchObject({ code: 'CONFLICT', details: { reason: 'NOT_REJECTABLE', status: 'CONFIRMED' } });
+  });
+});
+
+describe('write-back to MRE (§37.4)', () => {
+  const writtenAt = new Date('2027-01-06T08:00:00Z');
+  const written = {
+    ...reconciliation,
+    mreWriteBackState: 'WRITTEN',
+    mreWrittenBackAt: writtenAt,
+    mreWrittenBackBy: 'anna@example.com',
+    mrePayment: { date: '03/01/2027', amount: eur('800.00'), type: 'transfer', reference: `DE-RPR-${ID}` },
+    mreWriteBackAttemptId: 'internal',
+    version: 3,
+  } as unknown as RentPaymentReconciliation;
+
+  it('200 with the written state, the payment snapshot and ETag; the caller’s header and If-Match passed on; no body or {} only', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      writeBackToMre: async (input) => {
+        seen.push(input);
+        return { reconciliation: written, changed: true };
+      },
+    });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/write-back-to-mre`, {}, { 'if-match': '"1"' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('etag')).toBe('"3"');
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      mreWriteBackState: 'WRITTEN',
+      mreWrittenBackAt: '2027-01-06T08:00:00.000Z',
+      mreWrittenBackBy: 'anna@example.com',
+      mrePayment: { date: '03/01/2027', amount: { amount: '800.00', currency: 'EUR' }, type: 'transfer', reference: `DE-RPR-${ID}` },
+      mreWriteBackError: null,
+      mreWriteBackFailedAt: null,
+      mreWriteBackLeaseUntil: null,
+    });
+    // The attempt id stays internal.
+    expect(JSON.stringify(body)).not.toContain('internal');
+    expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', reconciliationId: ID, expectedVersions: [1] });
+    expect((await fetch(`${base}/api/v1/rent-reconciliations/${ID}/write-back-to-mre`, { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } })).status).toBe(200);
+    expect((await call(base, 'POST', `/rent-reconciliations/${ID}/write-back-to-mre`, { force: true })).status).toBe(400);
+    expect((await call(base, 'POST', '/rent-reconciliations/x/write-back-to-mre', {})).status).toBe(400);
+  });
+
+  const failed = (code: ConstructorParameters<typeof WriteBackFailedError>[0], state = 'FAILED') =>
+    new WriteBackFailedError(code, { ...reconciliation, mreWriteBackState: state } as unknown as RentPaymentReconciliation);
+  it.each([
+    [new NotWritableError('RELEASED'), 409, 'CONFLICT', { reason: 'NOT_WRITABLE', status: 'RELEASED' }],
+    [new WriteBackInProgressError(TX), 409, 'CONFLICT', { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: TX }],
+    [failed('MRE_TERM_NOT_ROUND_TRIPPABLE', 'NOT_WRITTEN'), 409, 'CONFLICT', { reason: 'MRE_TERM_NOT_ROUND_TRIPPABLE', mreWriteBackState: 'NOT_WRITTEN' }],
+    [failed('MRE_PAYMENT_CHANGED'), 409, 'CONFLICT', { reason: 'MRE_PAYMENT_CHANGED', mreWriteBackState: 'FAILED' }],
+    [failed('MRE_TERM_CHANGED'), 409, 'CONFLICT', { reason: 'MRE_TERM_CHANGED', mreWriteBackState: 'FAILED' }],
+    [failed('MRE_RENT_TERM_NOT_FOUND'), 422, 'MRE_RENT_TERM_NOT_FOUND', { reason: 'MRE_RENT_TERM_NOT_FOUND', mreWriteBackState: 'FAILED', mreTenantId: TENANT, mreRentTerm: '2027010100' }],
+    [failed('MRE_UNAVAILABLE'), 503, 'EXTERNAL_SYSTEM_ERROR', { reason: 'MRE_UNAVAILABLE', mreWriteBackState: 'FAILED' }],
+    [failed('MRE_WRITE_REFUSED'), 503, 'EXTERNAL_SYSTEM_ERROR', { reason: 'MRE_WRITE_REFUSED', mreWriteBackState: 'FAILED' }],
+    [new AccessError('FORBIDDEN', 'no'), 403, 'FORBIDDEN', undefined],
+    [new ReconciliationNotFoundError(ID), 404, 'NOT_FOUND', undefined],
+    [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', undefined],
+  ])('%s → %i %s', async (error, status, code, details) => {
+    const base = await start({ writeBackToMre: async () => Promise.reject(error) });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/write-back-to-mre`, {});
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject({ code, ...(details === undefined ? {} : { details }) });
+  });
+
+  it('release under a live lease is 409 WRITE_BACK_IN_PROGRESS', async () => {
+    const base = await start({ releaseReconciliation: async () => Promise.reject(new WriteBackInProgressError(ID)) });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/release`, { reason: 'x' });
+    expect(res.status).toBe(409);
+    expect(await errorOf(res)).toMatchObject({ details: { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: ID } });
+  });
+
+  it('GET ?checkMre=true answers mrePresence with the caller’s header; without it null and no MRE read; other values or keys are 400', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      getReconciliation: async () => written,
+      getReconciliationWithPresence: async (input) => {
+        seen.push(input);
+        return { reconciliation: written, mrePresence: 'MISSING' };
+      },
+    });
+    const checked = await call(base, 'GET', `/rent-reconciliations/${ID}?checkMre=true`);
+    expect(checked.status).toBe(200);
+    expect(checked.headers.get('etag')).toBe('"3"');
+    expect(await checked.json()).toMatchObject({ mreWriteBackState: 'WRITTEN', mrePresence: 'MISSING' });
+    expect(seen).toEqual([{ principal: expect.anything(), authorizationHeader: 'Bearer a.b.c', reconciliationId: ID }]);
+    for (const path of [`/rent-reconciliations/${ID}`, `/rent-reconciliations/${ID}?checkMre=false`]) {
+      expect(await (await call(base, 'GET', path)).json()).toMatchObject({ mrePresence: null });
+    }
+    expect(seen).toHaveLength(1);
+    for (const bad of ['checkMre=yes', 'checkMre=true&x=1', 'x=1']) expect((await call(base, 'GET', `/rent-reconciliations/${ID}?${bad}`)).status, bad).toBe(400);
   });
 });
 

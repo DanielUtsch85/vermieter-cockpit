@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { z } from 'zod';
-import { Money } from '../../shared/index.js';
+import { dePayment, markerIn, storedPayments, verifyWritten, writeBody } from '../../domains/rent-reconciliation/index.js';
+import { Money, type BusinessDate } from '../../shared/index.js';
 import { HttpMreClient } from './http-mre-client.js';
 
 /**
@@ -290,6 +291,41 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
       expect(await client.listRentTerms(await token(), realmA, 2027, 4)).toContainEqual({ mreTenantId: tenantId, term: '2027040100', amountDue: Money.of('800.00', 'EUR') });
       expect((await client.listRentTerms(await token(), realmB, 2027, 4)).map((r) => r.mreTenantId)).not.toContain(tenantId);
+    });
+
+    it('PATCH /rents/payment/:id/:term replaces the settlement: DE\'s payment next to an existing one, the promo and description kept; without _id or for another Realm a 500 and no change (VC-4-04)', async () => {
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      const term = '2027050100';
+      // MRE's own form first: a cash payment, a settlement discount and a description (no VAT).
+      const seeded = await call(`/rents/payment/${tenantId}/${term}`, {
+        method: 'PATCH',
+        token: await token(),
+        realm: realmA,
+        body: { _id: tenantId, payments: [{ date: '02/05/2027', amount: 100, type: 'cash', reference: '', description: 'Bar' }], promo: 10, notepromo: 'Rabatt', description: 'Mai' },
+      });
+      expect(seeded.status).toBe(200);
+      const read = await client.readRentTermForWriteBack(await token(), realmA, tenantId, term);
+      expect(read).toMatchObject({ mreTenantId: tenantId, term, vatRatio: 0, promo: 10, notepromo: 'Rabatt\n', extracharge: 0, description: 'Mai' });
+      if (read === undefined) throw new Error('term not read');
+      expect(storedPayments(read.payments)).toEqual([{ date: '02/05/2027', amount: 100, type: 'cash', reference: '', description: 'Bar' }]);
+      const payment = dePayment('0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b', Money.of('700.10', 'EUR'), '2027-05-03' as BusinessDate);
+      const written = await client.writeRentTermPayments(await token(), realmA, tenantId, term, writeBody(read, payment));
+      expect(written.kind).toBe('ANSWERED');
+      if (written.kind !== 'ANSWERED') throw new Error(written.kind);
+      expect(verifyWritten(read, written.term, payment)).toBe('OK');
+      const after = await client.readRentTermForWriteBack(await token(), realmA, tenantId, term);
+      if (after === undefined) throw new Error('term not read');
+      expect(verifyWritten(read, after, payment)).toBe('OK');
+      expect(markerIn(after, payment)).toBe('PRESENT');
+      // Quirk: the Tenant comes from the body's _id; without it findOne finds nothing and MRE answers 500 (review on #75).
+      const withoutId = await call(`/rents/payment/${tenantId}/${term}`, { method: 'PATCH', token: await token(), realm: realmA, body: { payments: [] } });
+      expect(withoutId.status).toBe(500);
+      // The same user's other Realm: the Tenant is not found there either.
+      expect(await client.writeRentTermPayments(await token(), realmB, tenantId, term, { ...writeBody(read, payment), payments: [] })).toEqual({ kind: 'REFUSED', status: 500 });
+      expect(await client.readRentTermForWriteBack(await token(), realmA, tenantId, term)).toEqual(after);
+      // Restore the term as MRE's form left it.
+      const restored = await client.writeRentTermPayments(await token(), realmA, tenantId, term, { ...writeBody(read, payment), payments: storedPayments(read.payments) });
+      expect(restored.kind === 'ANSWERED' && markerIn(restored.term, payment)).toBe('ABSENT');
     });
   });
 });

@@ -50,6 +50,8 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   suggestReconciliations: unused,
   confirmReconciliation: unused,
   rejectReconciliation: unused,
+  writeBackToMre: unused,
+  getReconciliationWithPresence: unused,
   createLoanTerms: unused,
   voidLoanTerms: unused,
   listLoanTerms: unused,

@@ -156,6 +156,15 @@ export class NotRejectableError extends Error {
   }
 }
 
+/** A write-back holds a live lease, its own or another reconciliation's of the same MRE Tenant (→ 409 WRITE_BACK_IN_PROGRESS). */
+export class WriteBackInProgressError extends Error {
+  override readonly name = 'WriteBackInProgressError';
+
+  constructor(readonly reconciliationId: string) {
+    super(`A write-back to MRE is running for reconciliation ${reconciliationId}`);
+  }
+}
+
 /** `SUGGESTED` or `REJECTED` (→ 409 NOT_RELEASABLE). */
 export class NotReleasableError extends Error {
   override readonly name = 'NotReleasableError';
@@ -165,7 +174,7 @@ export class NotReleasableError extends Error {
   }
 }
 
-const actorOf = (principal: RealmPrincipal) => ({ actorType: 'USER', actorId: principal.email }) as const;
+export const actorOf = (principal: RealmPrincipal) => ({ actorType: 'USER', actorId: principal.email }) as const;
 
 function refusal(outcome: Exclude<CreateMatchOutcome, { kind: 'CREATED' | 'REPLAYED' }>, transactionId: string): Error {
   switch (outcome.kind) {
@@ -255,6 +264,8 @@ export function releaseReconciliation(deps: { readonly repository: RentReconcili
         throw new ReconciliationNotFoundError(reconciliationId);
       case 'NOT_RELEASABLE':
         throw new NotReleasableError(outcome.status);
+      case 'WRITE_BACK_IN_PROGRESS':
+        throw new WriteBackInProgressError(outcome.reconciliationId);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

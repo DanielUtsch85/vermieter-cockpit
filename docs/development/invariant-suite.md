@@ -498,6 +498,31 @@ Counter-checked (30 mutants, each red):
 - **in 0031:** a suggestion counted as consumed cash by the cash guard; a `SUGGESTED` insert past the cash guard's checks; `matched_amount` raised on confirm, or the rule dropped; the `SUGGESTED` index not unique; the rejected-fields and suggestion-fields CHECKs;
 - **in the MRE client:** the month's amount truncated; the month not zero-padded.
 
+## 27. Rent reconciliation: write-back to MRE (VC-4-04, api-design §37.4)
+
+`RR`, `RD`, `RA`, `RE`, `MC` as §24; `RW` = `domains/rent-reconciliation/write-back.test.ts`, `RB` = `application/rent-write-back.test.ts`, `CT` = `integrations/mre/mre.contract.test.ts` (the real MRE baseline, CI job `compose-smoke`).
+
+| Invariant | Tests |
+|---|---|
+| One MRE payment per reconciliation: the marker `DE-RPR-<id>`, the booking date `DD/MM/YYYY`, `transfer`, the amount written from its decimal text | RW "the DE payment …"; RE "write-back (§37.4) …" |
+| MRE's PATCH replaces the whole settlement, so the term goes back as read: every payment (normalised as MRE stores it, review on #82), the promo, the extra charge, the description, the notes without their trailing `\n`; `_id` in the body | RW "writeBody …", "storedPayments …"; MC "readRentTermForWriteBack … writeRentTermPayments …"; CT "PATCH /rents/payment/:id/:term …"; RE "write-back (§37.4) …" |
+| Exactly once (BR-MRE-006): `WRITTEN` is a no-op without an MRE call; every attempt reads before it writes; a crash between the PATCH and the record, retried after the lease, adds no second payment; a lost answer is `WRITTEN` by the second read | RB "the marker already there once …", "a lost answer …"; RE "exactly once …", "write-back (§37.4) …" |
+| Verified after the write: the marker once, every other payment and the settlement as read; otherwise `MRE_TERM_CHANGED`; a marker edited in MRE is `MRE_PAYMENT_CHANGED`; DE never repairs MRE | RW "verifyWritten …", "markerIn …"; RB "an answer without DE's payment …" |
+| Under a VAT ratio with a promo or an extra charge nothing is written (`MRE_TERM_NOT_ROUND_TRIPPABLE`, back to `NOT_WRITTEN`) | RW "isRoundTrippable …"; RB "under VAT …" |
+| Failure keeps the match (BR-RENT-010): `FAILED` with its code, the cash still matched, retried by the same command; each code and its answer | RB "the read …", "the PATCH refused …"; RA "write-back to MRE (§37.4) …"; RE "write-back (§37.4) …" |
+| One write-back per MRE Tenant at a time: the lease, the Tenant index, the takeover of an expired lease by the same reconciliation and by another one (the old row `FAILED`, `LEASE_EXPIRED`), a record only under its own attempt | RD "planRelease and planWriteBack …"; RR "takeover after an expired lease …", "claim → PENDING …", "concurrency (RC) …", "concurrency (RR …)" |
+| Release (P4-D7) stays DE-only: `NOT_WRITTEN` stays, `WRITTEN`, `FAILED` and an expired `PENDING` become `REMOVAL_REQUIRED`, a live lease refuses | RD "planRelease and planWriteBack …"; RR "release (P4-D7) …", "schema (0032) …"; RA "release under a live lease …"; RE "write-back (§37.4) …" |
+| The presence check is a read only: `PRESENT`, `MISSING`, `UNAVAILABLE`, `null` without an MRE call when nothing was written | RB "getReconciliationWithPresence …"; RA "GET ?checkMre=true …"; RE "write-back (§37.4) …" |
+| The schema (0032): the field sets per state, the states per status, born `NOT_WRITTEN`, each allowed and refused step, the release rule, the Tenant index | RR "schema (0032) …", "schema past the repository (migration 0030) …" |
+| Realm isolation: another Realm can neither write back nor check a reconciliation; MRE's own Realm check | RE "write-back (§37.4) …"; MC "readRentTermForWriteBack …" |
+
+Counter-checked (25 mutants, each red):
+- **in the MRE client:** the PATCH without `_id`;
+- **in the domain:** the description, the promo or an existing payment not sent back; the amount by float arithmetic from cents; the round-trip rule dropped; payments compared raw (review on #82); release keeping `WRITTEN`, or a `FAILED` released without `REMOVAL_REQUIRED`; another or its own live lease ignored;
+- **in the application:** no read before the write (the crash test then adds a second payment); the verification skipped; no second read after a lost answer; a refused caller not recorded; the presence check always `PRESENT`;
+- **in the repository:** the record without the attempt check; the takeover without failing the expired row (the claim is then refused by the index);
+- **in 0032:** the Tenant index not unique; the trigger's release rule dropped; a release under a live lease allowed; `PENDING` → `PENDING` under a live lease; a row born with a write-back state; the write-back fields CHECK and the state-per-status CHECK dropped.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

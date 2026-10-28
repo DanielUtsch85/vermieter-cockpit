@@ -158,6 +158,56 @@ describe('HttpMreClient against a fake MRE', () => {
     await expectCode(client.listRentTerms(token, 'realm-b', 2027, 2), 'FORBIDDEN');
   });
 
+  it('readRentTermForWriteBack keeps the raw values and drops the occupant; writeRentTermPayments PATCHes with _id in the body (§37.4)', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    const read = await client.readRentTermForWriteBack(token, 'realm-a', TENANT_A, '2027020100');
+    expect(read).toEqual({
+      mreTenantId: TENANT_A,
+      term: '2027020100',
+      vatRatio: 0,
+      payments: [
+        { date: '03/02/2027', amount: 500, type: 'transfer', reference: 'DE-RPR-x', description: 'Tina zahlt' },
+        { date: 'gestern', amount: 0.1 + 0.2, type: 'cash', reference: undefined, description: undefined },
+      ],
+      promo: 0,
+      notepromo: '',
+      extracharge: 0,
+      noteextracharge: '',
+      description: '',
+    });
+    expect(JSON.stringify(read)).not.toMatch(/not read by DE|tenant@example.com/);
+    expect(await client.readRentTermForWriteBack(token, 'realm-a', TENANT_A, '2027030100')).toBeUndefined();
+    const write = {
+      payments: [{ date: '03/01/2027', amount: 800.1, type: 'transfer', reference: 'DE-RPR-y', description: '' }],
+      promo: 20,
+      notepromo: 'Rabatt',
+      extracharge: 0,
+      noteextracharge: '',
+      description: 'Januar',
+    };
+    const result = await client.writeRentTermPayments(token, 'realm-a', TENANT_A, '2027010100', write);
+    expect(mre.patches.at(-1)).toEqual({ _id: TENANT_A, ...write });
+    expect(mre.requests.at(-1)).toEqual({ path: `/api/v2/rents/payment/${TENANT_A}/2027010100`, authorization: `Bearer ${token}`, organizationid: 'realm-a' });
+    expect(result).toEqual({
+      kind: 'ANSWERED',
+      term: { mreTenantId: TENANT_A, term: '2027010100', vatRatio: 0, payments: write.payments, promo: 20, notepromo: 'Rabatt\n', extracharge: 0, noteextracharge: '', description: 'Januar' },
+    });
+    // A Realm the caller is not a member of: checkOrganization's 404, FORBIDDEN. A Tenant of another Realm under the
+    // caller's own Realm: findOne finds nothing and MRE answers 500. Nothing is written either way.
+    const before = mre.patches.length;
+    await expectCode(client.writeRentTermPayments(signJwt({ account: { email: 'bert@example.com' } }), 'realm-a', TENANT_A, '2027010100', write), 'FORBIDDEN');
+    expect(await client.writeRentTermPayments(signJwt({ account: { email: 'bert@example.com' } }), 'realm-b', TENANT_A, '2027010100', write)).toEqual({ kind: 'REFUSED', status: 500 });
+    expect(mre.patches.length).toBe(before);
+    await expectCode(client.writeRentTermPayments(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret'), 'realm-a', TENANT_A, '2027010100', write), 'UNAUTHENTICATED');
+    // A dropped answer: MRE saved it, DE does not know.
+    mre.faults.push('DROP_ANSWER');
+    expect(await client.writeRentTermPayments(token, 'realm-a', TENANT_A, '2027010100', write)).toMatchObject({ kind: 'NO_ANSWER' });
+    expect(mre.patches.length).toBe(before + 1);
+    mre.faults.push('FAIL');
+    expect(await client.writeRentTermPayments(token, 'realm-a', TENANT_A, '2027010100', write)).toEqual({ kind: 'REFUSED', status: 500 });
+    expect(mre.patches.length).toBe(before + 1);
+  });
+
   it('maps 401 (bad signature or expired) to UNAUTHENTICATED', async () => {
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret')), 'UNAUTHENTICATED');
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, undefined, -1)), 'UNAUTHENTICATED');
@@ -280,6 +330,42 @@ describe('HttpMreClient failure handling', () => {
     } finally {
       stub.close();
     }
+  });
+
+  it.each([
+    ['not an object', '[]'],
+    ['another Tenant', '{"_id":"6512f0c2a1b2c3d4e5f60a09","term":2027010100,"payments":[],"promo":0,"notepromo":"","extracharge":0,"noteextracharge":"","occupant":{"name":"Tina"}}'],
+    ['another term', '{"_id":"6512f0c2a1b2c3d4e5f60a01","term":2027020100,"payments":[],"promo":0,"notepromo":"","extracharge":0,"noteextracharge":"","occupant":{"name":"Tina"}}'],
+    ['promo missing', '{"_id":"6512f0c2a1b2c3d4e5f60a01","term":2027010100,"payments":[],"notepromo":"","extracharge":0,"noteextracharge":"","occupant":{"name":"Tina"}}'],
+  ])('readRentTermForWriteBack: %s → UNAVAILABLE, without the body in the message', async (_label, body) => {
+    const stub = await startStub(200, body);
+    try {
+      const read = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readRentTermForWriteBack('a.b.c', 'r', TENANT_A, '2027010100');
+      await expectCode(read, 'UNAVAILABLE');
+      await expect(read).rejects.not.toThrow(/Tina/);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it('writeRentTermPayments: an error status is REFUSED; no answer, a timeout or an unreadable body is NO_ANSWER; 403 throws', async () => {
+    const write = { payments: [], promo: 0, notepromo: '', extracharge: 0, noteextracharge: '', description: '' };
+    const outcome = async (status: number, body: string, delayMs = 0) => {
+      const stub = await startStub(status, body, delayMs);
+      try {
+        return await new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 200 }).writeRentTermPayments('a.b.c', 'r', TENANT_A, '2027010100', write);
+      } finally {
+        stub.close();
+      }
+    };
+    expect(await outcome(500, '{}')).toEqual({ kind: 'REFUSED', status: 500 });
+    expect(await outcome(200, 'not json')).toMatchObject({ kind: 'NO_ANSWER' });
+    expect(await outcome(200, '{"term":1}')).toMatchObject({ kind: 'NO_ANSWER' });
+    expect(await outcome(200, '{}', 500)).toMatchObject({ kind: 'NO_ANSWER' });
+    await expectCode(outcome(403, ''), 'FORBIDDEN');
+    expect(await new HttpMreClient({ apiBaseUrl: 'http://127.0.0.1:1/api/v2', timeoutMs: 200 }).writeRentTermPayments('a.b.c', 'r', TENANT_A, '2027010100', write)).toMatchObject({
+      kind: 'NO_ANSWER',
+    });
   });
 
   it.each([

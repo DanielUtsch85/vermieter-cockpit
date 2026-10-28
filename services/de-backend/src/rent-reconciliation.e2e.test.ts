@@ -17,6 +17,8 @@ import {
   suggestReconciliations,
   confirmReconciliation,
   rejectReconciliation,
+  writeBackToMre,
+  getReconciliationWithPresence,
   reverseTransaction,
   setTransactionSplits,
 } from './application/index.js';
@@ -30,9 +32,9 @@ import {
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
-import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
+import { signJwt, startFakeMre, type FakeMre, type FakeRealm } from './integrations/mre/fake-mre.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
-import { mreMonthReader, mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader } from './wiring.js';
+import { mreMonthReader, mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
 
 /**
  * VC-4-01 end to end (api-design.md §37.1), wired as in main.ts, against a fake MRE and PostgreSQL: the MRE term read
@@ -48,6 +50,18 @@ const TENANT = '6512f0c2a1b2c3d4e5f60a01';
 const REALM_C = '64b0c0ffee0000000000001a';
 const TENANT_C1 = '6512f0c2a1b2c3d4e5f60c01';
 const TENANT_C2 = '6512f0c2a1b2c3d4e5f60c02';
+// Realm D for the write-back (§37.4): a Tenant whose June term already holds MRE's own cash payment.
+const REALM_D = '64b0c0ffee0000000000001b';
+const TENANT_D = '6512f0c2a1b2c3d4e5f60d01';
+const MRE_CASH = { date: '02/06/2027', amount: 100, type: 'cash', reference: '', description: 'Bar' };
+const realmD: FakeRealm = {
+  _id: REALM_D,
+  name: 'D',
+  members: [{ name: 'Anna', email: 'anna@example.com', role: 'administrator', registered: true }],
+  applications: [],
+  rents: { [TENANT_D]: [2027060100, 2027070100, 2027080100, 2027090100] },
+  rentTerms: { [`${TENANT_D}/2027060100`]: { payments: [MRE_CASH], description: 'Juni' } },
+};
 
 describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () => {
   const schema = testSchemaName('rent_reconciliation_e2e');
@@ -57,6 +71,8 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
   let downServer: Server;
   let base: string;
   let downBase: string;
+  let repositoryForCrash: PostgresRentReconciliationRepository;
+  let clientForCrash: HttpMreClient;
 
   beforeAll(async () => {
     const admin = new pg.Client({ connectionString: databaseUrl });
@@ -86,11 +102,14 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
         rents: { [TENANT_C1]: [2027050100, 2027060100, 2027070100], [TENANT_C2]: [2027050100] },
         rentTerms: { [`${TENANT_C2}/2027050100`]: { totalWithoutBalanceAmount: 650 } },
       },
+      realmD,
     ]);
     const db = createDatabase(pool);
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
     const transactions = new PostgresTransactionRepository(db);
     const reconciliations = new PostgresRentReconciliationRepository(db);
+    repositoryForCrash = reconciliations;
+    clientForCrash = client;
     const commands = (lookupClient: HttpMreClient) => ({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(client),
@@ -109,6 +128,8 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
       suggestReconciliations: suggestReconciliations({ repository: reconciliations, readMreMonth: mreMonthReader(lookupClient) }),
       confirmReconciliation: confirmReconciliation({ repository: reconciliations, readMreRentTerm: mreRentTermReader(lookupClient) }),
       rejectReconciliation: rejectReconciliation({ repository: reconciliations }),
+      writeBackToMre: writeBackToMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 4000 }),
+      getReconciliationWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient) }),
     });
     server = createApp(commands(client)).listen(0, '127.0.0.1');
     // The same app, but the rent term read goes to an MRE that is down (nothing listens on port 1).
@@ -286,5 +307,102 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     expect(await (await call(REALM_C, 'GET', `/transactions/${t3}/rent-reconciliations`)).json()).toMatchObject({ matchedTotal: eur('700.00'), available: eur('100.00') });
     // Realm A cannot see or confirm C's suggestions.
     expect((await call(REALM_A, 'POST', `/rent-reconciliations/${by(t2).reconciliationId}/confirm`)).status).toBe(404);
+  });
+
+  it('write-back (§37.4): DE’s payment next to MRE’s own, once; coverage unchanged; presence; MRE down → FAILED, retry → WRITTEN; release → REMOVAL_REQUIRED; Realm isolation', async () => {
+    const match = (t: string, term: string, amount = '700.00') => ({ transactionId: t, mreTenantId: TENANT_D, mreRentTerm: term, matchedAmount: eur(amount) });
+    const t = await rent(REALM_D, '700.00', '2027-06-03');
+    const r = (await (await call(REALM_D, 'POST', '/rent-reconciliations', match(t, '2027060100'))).json()) as { reconciliationId: string; version: number };
+    const marker = `DE-RPR-${r.reconciliationId}`;
+    const patches = mre.patches.length;
+    const res = await call(REALM_D, 'POST', `/rent-reconciliations/${r.reconciliationId}/write-back-to-mre`, undefined, { 'if-match': '"1"' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      status: 'CONFIRMED',
+      mreWriteBackState: 'WRITTEN',
+      mrePayment: { date: '03/06/2027', amount: eur('700.00'), type: 'transfer', reference: marker },
+      version: 3,
+    });
+    expect(mre.patches.length).toBe(patches + 1);
+    expect(mre.patches.at(-1)).toMatchObject({ _id: TENANT_D, description: 'Juni', payments: [MRE_CASH, { date: '03/06/2027', amount: 700, type: 'transfer', reference: marker, description: '' }] });
+    // Two records: MRE's payments shown, DE's Transaction matched once; nothing summed.
+    expect(await (await call(REALM_D, 'GET', `/rent-reconciliations/terms/${TENANT_D}/2027060100`)).json()).toMatchObject({
+      matchedTotal: eur('700.00'),
+      coverage: 'PARTIALLY_MATCHED',
+      mre: { payments: [{ amount: eur('100.00'), type: 'cash' }, { amount: eur('700.00'), reference: marker }] },
+    });
+    // A repeat adds nothing and asks MRE nothing.
+    const reads = mre.requests.length;
+    expect((await call(REALM_D, 'POST', `/rent-reconciliations/${r.reconciliationId}/write-back-to-mre`)).status).toBe(200);
+    expect(mre.patches.length).toBe(patches + 1);
+    expect(mre.requests.slice(reads).filter((q) => q.path.startsWith('/api/v2/rents/'))).toEqual([]);
+    // The presence check; a payment deleted in MRE by hand is MISSING, and nothing changes in DE.
+    const presence = async () => ((await (await call(REALM_D, 'GET', `/rent-reconciliations/${r.reconciliationId}?checkMre=true`)).json()) as { mrePresence: string; version: number });
+    expect(await presence()).toMatchObject({ mrePresence: 'PRESENT', version: 3 });
+    const june = realmD.rentTerms?.[`${TENANT_D}/2027060100`];
+    if (june === undefined) throw new Error('term');
+    june.payments = [MRE_CASH];
+    expect(await presence()).toMatchObject({ mrePresence: 'MISSING', version: 3 });
+    // MRE down: FAILED, the match kept; a retry against MRE writes it.
+    const u = await rent(REALM_D, '800.00', '2027-07-02');
+    const r2 = (await (await call(REALM_D, 'POST', '/rent-reconciliations', match(u, '2027070100', '800.00'))).json()) as { reconciliationId: string };
+    const down = await call(REALM_D, 'POST', `/rent-reconciliations/${r2.reconciliationId}/write-back-to-mre`, {}, {}, downBase);
+    expect(down.status).toBe(503);
+    expect(((await down.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'MRE_UNAVAILABLE', mreWriteBackState: 'FAILED' } });
+    expect(await (await call(REALM_D, 'GET', `/transactions/${u}/rent-reconciliations`)).json()).toMatchObject({ matchedTotal: eur('800.00') });
+    expect(await (await call(REALM_D, 'POST', `/rent-reconciliations/${r2.reconciliationId}/write-back-to-mre`)).json()).toMatchObject({ mreWriteBackState: 'WRITTEN', mreWriteBackError: null });
+    // Release of a written match: REMOVAL_REQUIRED, the payment snapshot kept.
+    expect(await (await call(REALM_D, 'POST', `/rent-reconciliations/${r2.reconciliationId}/release`, { reason: 'falscher Monat' })).json()).toMatchObject({
+      status: 'RELEASED',
+      mreWriteBackState: 'REMOVAL_REQUIRED',
+      mrePayment: { reference: `DE-RPR-${r2.reconciliationId}` },
+    });
+    // Realm isolation.
+    expect((await call(REALM_A, 'POST', `/rent-reconciliations/${r.reconciliationId}/write-back-to-mre`)).status).toBe(404);
+    expect((await call(REALM_A, 'GET', `/rent-reconciliations/${r.reconciliationId}?checkMre=true`)).status).toBe(404);
+  });
+
+  it('exactly once: a crash between PATCH and record, retried after the lease, adds no second payment; a lost PATCH answer is WRITTEN by the second read', async () => {
+    const t = await rent(REALM_D, '800.00', '2027-08-03');
+    const r = (await (await call(REALM_D, 'POST', '/rent-reconciliations', { transactionId: t, mreTenantId: TENANT_D, mreRentTerm: '2027080100', matchedAmount: eur('800.00') })).json()) as {
+      reconciliationId: string;
+    };
+    const principal = { email: 'anna@example.com', mreRealmId: REALM_D, mreRole: 'administrator' } as const;
+    const crashing = Object.create(repositoryForCrash) as PostgresRentReconciliationRepository;
+    crashing.recordWriteBack = async () => {
+      throw new Error('the process died after the PATCH');
+    };
+    const use = (repository: PostgresRentReconciliationRepository) =>
+      writeBackToMre({ repository, readTerm: mreWriteBackTermReader(clientForCrash), writeTerm: mreWriteBackTermWriter(clientForCrash), leaseMs: 50 })({
+        principal,
+        authorizationHeader: `Bearer ${token}`,
+        reconciliationId: r.reconciliationId,
+      });
+    const patches = mre.patches.length;
+    await expect(use(crashing)).rejects.toThrow('the process died');
+    expect(mre.patches.length).toBe(patches + 1);
+    const stuck = (await (await call(REALM_D, 'GET', `/rent-reconciliations/${r.reconciliationId}`)).json()) as { mreWriteBackState: string };
+    expect(stuck.mreWriteBackState).toBe('PENDING');
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(await use(repositoryForCrash)).toMatchObject({ reconciliation: { mreWriteBackState: 'WRITTEN' } });
+    expect(mre.patches.length).toBe(patches + 1);
+    const marker = `DE-RPR-${r.reconciliationId}`;
+    const august = realmD.rentTerms?.[`${TENANT_D}/2027080100`]?.payments as { reference: string }[];
+    expect(august.filter((p) => p.reference === marker)).toHaveLength(1);
+    const audit = await pool.query(`SELECT action, metadata->>'patched' AS patched FROM audit_record WHERE entity_id = $1 AND action LIKE 'WRITE_BACK_%' ORDER BY occurred_at`, [r.reconciliationId]);
+    expect(audit.rows).toEqual([
+      { action: 'WRITE_BACK_STARTED', patched: null },
+      { action: 'WRITE_BACK_STARTED', patched: null },
+      { action: 'WRITE_BACK_WRITTEN', patched: 'false' },
+    ]);
+
+    // MRE saves the PATCH but its answer is lost.
+    const v = await rent(REALM_D, '800.00', '2027-09-03');
+    const r2 = (await (await call(REALM_D, 'POST', '/rent-reconciliations', { transactionId: v, mreTenantId: TENANT_D, mreRentTerm: '2027090100', matchedAmount: eur('800.00') })).json()) as {
+      reconciliationId: string;
+    };
+    mre.faults.push('DROP_ANSWER');
+    expect(await (await call(REALM_D, 'POST', `/rent-reconciliations/${r2.reconciliationId}/write-back-to-mre`)).json()).toMatchObject({ mreWriteBackState: 'WRITTEN' });
+    expect(mre.patches.length).toBe(patches + 2);
   });
 });

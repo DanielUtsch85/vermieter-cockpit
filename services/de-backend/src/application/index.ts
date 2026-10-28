@@ -303,6 +303,7 @@ export {
   NotReleasableError,
   ReconciliationNotFoundError,
   RentCashExceededError,
+  WriteBackInProgressError,
   TransactionNotCountedError,
   TransactionNotInflowError,
   createReconciliation,
@@ -332,5 +333,7 @@ export type {
   MreRentTermLookup,
   ReleaseReconciliation,
 } from './rent-reconciliations.js';
-export { RECONCILIATION_STATUSES, isTermKey } from '../domains/rent-reconciliation/index.js';
+export { NotWritableError, WriteBackFailedError, getReconciliationWithPresence, writeBackToMre } from './rent-write-back.js';
+export type { GetReconciliationWithPresence, MrePresence, MreWriteBackTermReader, MreWriteBackTermWriter, WriteBackToMre } from './rent-write-back.js';
+export { RECONCILIATION_STATUSES, WRITE_BACK_STATES, isTermKey } from '../domains/rent-reconciliation/index.js';
 export type { Coverage, ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';
