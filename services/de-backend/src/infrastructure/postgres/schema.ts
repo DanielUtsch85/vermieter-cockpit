@@ -251,6 +251,30 @@ export interface LoanBalanceStatementTable {
   version: Generated<number>;
 }
 
+export interface RentPaymentReconciliationTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  status: string;
+  transaction_id: string;
+  mre_tenant_id: string;
+  mre_rent_term: string;
+  matched_amount: string;
+  currency: string;
+  confidence: string | null;
+  suggestion_reason: string | null;
+  confirmed_at: Date | null;
+  confirmed_by: string | null;
+  released_at: Date | null;
+  released_by: string | null;
+  release_reason: string | null;
+  notes: string | null;
+  mre_write_back_state: Generated<string>;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface LoanAllocationSetTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -434,6 +458,7 @@ export interface Database {
   loan_allocation_set: LoanAllocationSetTable;
   loan_allocation: LoanAllocationTable;
   loan_balance_statement: LoanBalanceStatementTable;
+  rent_payment_reconciliation: RentPaymentReconciliationTable;
   ledger_transaction: LedgerTransactionTable;
   import_batch: ImportBatchTable;
   import_review_item: ImportReviewItemTable;

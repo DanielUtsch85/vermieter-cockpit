@@ -437,6 +437,28 @@ ACC3 also checks the traceability every write promises. On the Loan aggregates (
 - an extra Phase-3 route without a row;
 - a missing `CLOSED` AuditRecord.
 
+## 24. Rent reconciliation: manual match and release (VC-4-01, api-design §37.1)
+
+`RR` = `infrastructure/postgres/rent-reconciliation-repository.test.ts`, `RD` = `domains/rent-reconciliation/reconciliation.test.ts`, `RU` = `application/rent-reconciliations.test.ts`, `RA` = `api/rent-reconciliations.test.ts`, `RE` = `rent-reconciliation.e2e.test.ts`, `MC` = `integrations/mre/http-mre-client.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Only counted `INFLOW` rent cash is matched, in §37.1's order: unknown or foreign, not counted (unconfirmed, a reversal, a `CORRECTED` original), `OUTFLOW`, no rent split, the same term twice, beyond the available amount; rent cash is the `RENT_*` splits only | RD "checkMatch …"; RR "create: the cash rules in their order" |
+| Cash is never consumed twice (BR-RENT-005): available = rent cash − `CONFIRMED`; a release makes it available again; one Transaction over several terms or Tenants, several Transactions per term | RD "available …"; RR "rent cash is …", "several Transactions per term …" |
+| MRE is read between the two DE checks, with the caller's token and Realm: a refusal or a replay never asks MRE; a term MRE does not return (`422`) or an MRE outage (`503`) writes nothing; the term read is parsed to existence only | RU "create: …"; RE "a manual match …", "a term MRE does not return …"; MC "rentTermExists …" |
+| A matched Transaction is not corrected or reversed until released (P4-D7), in the repository and past it; the Transaction itself is never changed | RR "correct and reverse are refused …", "writes AuditRecords …"; RE "a reversal of a matched Transaction …" |
+| Release: DE-only; a repeat a no-op keeping the first reason; `If-Match`; `SUGGESTED`/`REJECTED` not releasable; AuditRecords `CONFIRMED` (manual) and `RELEASED` | RD "planRelease …"; RR "release and reads", "writes AuditRecords …"; RA "POST …/release" |
+| Realm isolation: get, release, list and create from another Realm see nothing of Realm A | RR "findById and list in the Realm …"; RE "Realm isolation …" |
+| P4-D8: two creates on one Transaction (RC: the second sees the first; RR `40001`); the same match twice (`ALREADY_MATCHED`); a create against a reversal, both orders (RC), and against the step to `CORRECTED` (RR `40001`); a release lets a waiting create use the cash | RR "concurrency (P4-D8)" |
+| The schema: the cash guard's four refusals (a reversal included), the partial unique index, the CHECKs (term and Tenant form, amount > 0, status fields, EUR, `NOT_WRITTEN` only), the fixed fields, the status steps with `version` + 1, no `DELETE` | RR "schema past the repository (migration 0030)" |
+
+Counter-checked (16 mutants, each red):
+- **in 0030:** the cash guard's Transaction write replaced by `FOR SHARE` (the RR tests), without its sum check or its reversal rule; `ledger_transaction_rent_reconciled` without its refusal; the unique index not unique; the frozen fields free;
+- **in the repositories:** create without the Transaction lock; the correction path not reading the reconciliations; rent cash over every category; `findById` without the Realm; no `RELEASED` AuditRecord;
+- **in the domain:** the same term not checked; release without `version` + 1;
+- **in the application:** MRE asked before the precheck;
+- **in the MRE client and the fake MRE:** a `404` read as found; the fake without the `rents.term` filter (review on #76).
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

@@ -219,4 +219,45 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       expect(status).toBeGreaterThanOrEqual(500);
     });
   });
+
+  describe('rent terms (needed for the rent reconciliation, VC-4-01)', () => {
+    let tenantId = '';
+
+    beforeAll(async () => {
+      const t = await token();
+      const property = await call('/properties', { method: 'POST', token: t, realm: realmA, body: { type: 'apartment', name: 'Wohnung Miete', price: 800 } });
+      expect(property.status).toBe(200);
+      const propertyId = propertyContract.parse(property.json)._id;
+      // A Tenant with a lease from 01/01/2027 to 31/12/2027: MRE generates its monthly rent terms (`Contract.create`).
+      const { status, json } = await call('/tenants', {
+        method: 'POST',
+        token: t,
+        realm: realmA,
+        body: { name: 'Mieter Miete', beginDate: '01/01/2027', endDate: '31/12/2027', properties: [{ propertyId, rent: 800, expenses: [] }] },
+      });
+      expect(status).toBe(200);
+      tenantId = z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/) }).parse(json)._id;
+    });
+
+    it('GET /rents/tenant/:id/:term returns the term with its key as a number', async () => {
+      const { status, json } = await call(`/rents/tenant/${tenantId}/2027010100`, { token: await token(), realm: realmA });
+      expect(status).toBe(200);
+      expect(z.object({ term: z.number() }).parse(json).term).toBe(2027010100);
+    });
+
+    it('an unknown term, an unknown Tenant and a Tenant of another Realm are all 404 (api-design.md §37.1)', async () => {
+      const t = await token();
+      expect((await call(`/rents/tenant/${tenantId}/2028010100`, { token: t, realm: realmA })).status).toBe(404);
+      expect((await call('/rents/tenant/000000000000000000000000/2027010100', { token: t, realm: realmA })).status).toBe(404);
+      expect((await call(`/rents/tenant/${tenantId}/2027010100`, { token: t, realm: realmB })).status).toBe(404);
+    });
+
+    it('HttpMreClient.rentTermExists (used by the manual match) finds the term only for its Tenant and Realm', async () => {
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      expect(await client.rentTermExists(await token(), realmA, tenantId, '2027010100')).toBe(true);
+      expect(await client.rentTermExists(await token(), realmA, tenantId, '2027120100')).toBe(true);
+      expect(await client.rentTermExists(await token(), realmA, tenantId, '2028010100')).toBe(false);
+      expect(await client.rentTermExists(await token(), realmB, tenantId, '2027010100')).toBe(false);
+    });
+  });
 });

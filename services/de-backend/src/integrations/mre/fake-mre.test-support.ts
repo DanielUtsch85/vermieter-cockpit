@@ -12,7 +12,11 @@ import type { AddressInfo } from 'node:net';
  * `GET /api/v2/properties` (account tokens) answers the properties of the Realm
  * in the `organizationid` header; a missing header or a Realm the account is
  * not a member of is a 404, as upstream (mre-integration.md §21.1). `GET /api/v2/tenants` does the
- * same with the Realm's tenants, ignoring any query string as upstream does (§20.1). Test support only.
+ * same with the Realm's tenants, ignoring any query string as upstream does (§20.1).
+ *
+ * `GET /api/v2/rents/tenant/:id/:term` answers one rent term of a Tenant of the Realm in `organizationid`, as
+ * `_rentOfOccupant` does: the Tenant is looked up together with `rents.term = term`, so an unknown Tenant, an unknown
+ * term and a Tenant of another Realm are all `404` (api-design.md §37.1). Test support only.
  */
 
 export const FAKE_SECRET = 'test-access-token-secret';
@@ -44,6 +48,8 @@ export interface FakeRealm {
   properties?: Record<string, unknown>[];
   /** Served by GET /tenants only, never as part of the realm. */
   tenants?: Record<string, unknown>[];
+  /** Rent terms (`YYYYMMDDHH` numbers) per Tenant `_id`, served by GET /rents/tenant/:id/:term only. */
+  rents?: Record<string, number[]>;
   [extra: string]: unknown;
 }
 
@@ -61,13 +67,31 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
     requests.push({ path: req.url ?? '', authorization: req.headers.authorization, organizationid: realmHeader });
     // MRE's list routes take no filter: a query string is ignored (mre-integration.md §20.1).
     const path = (req.url ?? '').split('?')[0];
-    if (path !== '/api/v2/realms' && path !== '/api/v2/properties' && path !== '/api/v2/tenants') {
+    const rentTerm = /^\/api\/v2\/rents\/tenant\/([^/]+)\/([^/]+)$/.exec(path ?? '');
+    if (path !== '/api/v2/realms' && path !== '/api/v2/properties' && path !== '/api/v2/tenants' && rentTerm === null) {
       res.writeHead(404).end();
       return;
     }
     const token = req.headers.authorization?.split(' ')[1];
     const payload = token === undefined ? undefined : verifyJwt(token);
     const json = (body: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+    if (rentTerm !== null) {
+      const account = payload?.['account'] as { email?: string } | undefined;
+      if (account === undefined) {
+        res.writeHead(401).end('Unauthorized');
+        return;
+      }
+      const realm = realms.find((r) => r._id === realmHeader && r.members.some((m) => m.email === account.email));
+      const [, tenantId = '', term = ''] = rentTerm;
+      // Tenant and term in one lookup, as `_findOccupants(realm, tenantId, Number(term))` filters on `rents.term`.
+      const found = realm?.rents?.[tenantId]?.includes(Number(term)) === true;
+      if (!found) {
+        res.writeHead(404).end();
+        return;
+      }
+      json({ term: Number(term), month: Number(term.slice(4, 6)), year: Number(term.slice(0, 4)), payments: [], occupant: { name: 'not read by DE' } });
+      return;
+    }
     if (path === '/api/v2/properties' || path === '/api/v2/tenants') {
       const account = payload?.['account'] as { email?: string } | undefined;
       if (account === undefined) {
@@ -82,7 +106,7 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
       json((path === '/api/v2/tenants' ? realm.tenants : realm.properties) ?? []);
       return;
     }
-    const visible = (list: FakeRealm[]) => list.map(({ properties: _properties, tenants: _tenants, ...realm }) => realm);
+    const visible = (list: FakeRealm[]) => list.map(({ properties: _properties, tenants: _tenants, rents: _rents, ...realm }) => realm);
     const application = payload?.['application'] as { clientId?: string } | undefined;
     if (application !== undefined) {
       json(visible(realms.filter((r) => r.applications.some((a) => a.clientId === application.clientId))));

@@ -63,6 +63,16 @@ describe('planCorrection (api-design.md §35)', () => {
     expect(planCorrection(original({ correctionRole: 'REPLACEMENT' }), splits, { description: 'x' }).kind).toBe('CORRECT');
   });
 
+  it('confirmed rent reconciliations refuse correct and reverse right after NOT_CORRECTABLE (§37.1, P4-D7)', () => {
+    expect(planCorrection(original(), splits, { description: 'x' }, ['r1', 'r2'])).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1', 'r2'] });
+    expect(planCorrection(original(), splits, null, ['r1'])).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1'] });
+    // Before NO_CHANGE: a request that changes nothing is still refused for the match.
+    expect(planCorrection(original(), splits, {}, ['r1'])).toEqual({ kind: 'TRANSACTION_RENT_RECONCILED', reconciliationIds: ['r1'] });
+    // After NOT_CORRECTABLE and ALREADY_CORRECTED.
+    expect(planCorrection(original({ correctionRole: 'REVERSAL' }), splits, null, ['r1']).kind).toBe('NOT_CORRECTABLE');
+    expect(planCorrection(original({ status: 'CORRECTED', reversalTransactionId: 'r' as TransactionId }), splits, null, ['r1']).kind).toBe('ALREADY_CORRECTED');
+  });
+
   it('a CORRECTED original names its existing correction', () => {
     const corrected = original({ status: 'CORRECTED', reversalTransactionId: 'r' as TransactionId, replacementTransactionId: 'n' as TransactionId });
     expect(planCorrection(corrected, splits, {})).toEqual({ kind: 'ALREADY_CORRECTED', reversalTransactionId: 'r', replacementTransactionId: 'n' });

@@ -36,6 +36,10 @@ import {
   listLoans,
   voidLoan,
   closeLoan,
+  createReconciliation,
+  getReconciliation,
+  listReconciliations,
+  releaseReconciliation,
   createBalanceStatement,
   createLoanTerms,
   getLoanPayments,
@@ -84,6 +88,7 @@ import {
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
+  PostgresRentReconciliationRepository,
   PostgresOwnerAllocationSource,
   PostgresAcquisitionRepository,
   PostgresFinancialCategoryRepository,
@@ -101,7 +106,7 @@ import {
 } from './infrastructure/postgres/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreTenantLookup } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreTenantLookup } from './wiring.js';
 
 /** Composition root: wires configuration, infrastructure and the HTTP app. */
 const config = loadConfig(process.env);
@@ -122,6 +127,7 @@ const loans = new PostgresLoanRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
+const rentReconciliations = new PostgresRentReconciliationRepository(db);
 const imports = new PostgresImportRepository(db);
 const transactions = new PostgresTransactionRepository(db);
 const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
@@ -166,6 +172,10 @@ const app = createApp({
   amendLoan: amendLoan({ repository: loans }),
   voidLoan: voidLoan({ repository: loans }),
   closeLoan: closeLoan({ repository: loans }),
+  createReconciliation: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),
+  getReconciliation: getReconciliation({ repository: rentReconciliations }),
+  listReconciliations: listReconciliations({ repository: rentReconciliations }),
+  releaseReconciliation: releaseReconciliation({ repository: rentReconciliations }),
   createLoanTerms: createLoanTerms({ repository: loanTerms }),
   voidLoanTerms: voidLoanTerms({ repository: loanTerms }),
   listLoanTerms: listLoanTerms({ repository: loanTerms }),

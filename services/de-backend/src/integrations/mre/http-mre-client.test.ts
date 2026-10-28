@@ -55,6 +55,7 @@ describe('HttpMreClient against a fake MRE', () => {
           { _id: PROPERTY_B, name: 'Stellplatz' },
         ],
         tenants: [{ _id: TENANT_A, name: 'Tina Mieterin', contacts: [{ email: 'tina@example.com' }] }],
+        rents: { [TENANT_A]: [2027010100, 2027020100] },
       },
       {
         _id: 'realm-b',
@@ -113,6 +114,16 @@ describe('HttpMreClient against a fake MRE', () => {
     await expectCode(client.listTenantIds(token, 'realm-b'), 'FORBIDDEN');
   });
 
+  it('rentTermExists reads GET /rents/tenant/:id/:term of the Realm; an unknown term, Tenant or Realm is false', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    expect(await client.rentTermExists(token, 'realm-a', TENANT_A, '2027010100')).toBe(true);
+    expect(mre.requests.at(-1)).toEqual({ path: `/api/v2/rents/tenant/${TENANT_A}/2027010100`, authorization: `Bearer ${token}`, organizationid: 'realm-a' });
+    expect(await client.rentTermExists(token, 'realm-a', TENANT_A, '2027030100')).toBe(false);
+    expect(await client.rentTermExists(token, 'realm-a', '6512f0c2a1b2c3d4e5f60aff', '2027010100')).toBe(false);
+    expect(await client.rentTermExists(signJwt({ account: { email: 'bert@example.com' } }), 'realm-b', TENANT_A, '2027010100')).toBe(false);
+    await expectCode(client.rentTermExists(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret'), 'realm-a', TENANT_A, '2027010100'), 'UNAUTHENTICATED');
+  });
+
   it('maps 401 (bad signature or expired) to UNAUTHENTICATED', async () => {
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret')), 'UNAUTHENTICATED');
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, undefined, -1)), 'UNAUTHENTICATED');
@@ -164,6 +175,34 @@ describe('HttpMreClient failure handling', () => {
       const listing = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listTenantIds('a.b.c', 'r');
       await expectCode(listing, 'UNAVAILABLE');
       await expect(listing).rejects.not.toThrow(/Tina/);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it.each([
+    ['not an object', '[]'],
+    ['no term', '{"month":1}'],
+    ['another term', '{"term":2027020100}'],
+    ['a term as text', '{"term":"2027010100"}'],
+  ])('rentTermExists: %s → UNAVAILABLE (never a silent "found"), without the body in the message', async (_label, body) => {
+    const stub = await startStub(200, body);
+    try {
+      const reading = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).rentTermExists('a.b.c', 'r', TENANT_A, '2027010100');
+      await expectCode(reading, 'UNAVAILABLE');
+      await expect(reading).rejects.not.toThrow(/month/);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it.each([
+    [500, '{"status":500}'],
+    [403, ''],
+  ])('rentTermExists: status %i is no "not found"', async (status, body) => {
+    const stub = await startStub(status, body);
+    try {
+      await expectCode(new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).rentTermExists('a.b.c', 'r', TENANT_A, '2027010100'), status === 403 ? 'FORBIDDEN' : 'UNAVAILABLE');
     } finally {
       stub.close();
     }

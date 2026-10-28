@@ -92,7 +92,16 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
         const original = toDomain(await trx.selectFrom('ledger_transaction').select(COLUMNS).where('id', '=', locked.id).executeTakeFirstOrThrow());
         const originalSplits = await storedSplits(trx, original.id);
 
-        const plan = planCorrection(original, originalSplits, request.replacement);
+        // §37.1: the CONFIRMED rent reconciliations naming the original, read under its lock; the trigger of 0030 is the
+        // backstop at the status step.
+        const reconciled = await trx
+          .selectFrom('rent_payment_reconciliation')
+          .select('id')
+          .where('transaction_id', '=', original.id)
+          .where('status', '=', 'CONFIRMED')
+          .orderBy('id')
+          .execute();
+        const plan = planCorrection(original, originalSplits, request.replacement, reconciled.map((r) => r.id));
         if (plan.kind !== 'CORRECT') throw new Rejected(plan);
         const conflict = checkVersion(original.version, expectedVersions);
         if (conflict !== undefined) throw new Rejected(conflict);
