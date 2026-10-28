@@ -8,7 +8,7 @@ import { sendAccessError } from './errors.js';
  * `organizationid` header (same header as the MRE landlord API, API-OPEN-002),
  * must be a member of that Realm, and must hold a role with DE access.
  *
- * On success the principal is available as `res.locals.principal`.
+ * On success the principal is available as `res.locals.principal`; routes read it with `principalOf`.
  */
 
 export function requireDeAccess(verify: PrincipalVerifier): RequestHandler {
@@ -26,4 +26,9 @@ export function requireDeAccess(verify: PrincipalVerifier): RequestHandler {
         sendAccessError(res, error instanceof AccessError ? error.code : 'AUTH_UNAVAILABLE');
       });
   };
+}
+
+/** The principal `requireDeAccess` stored for this request; only called behind that middleware. */
+export function principalOf(res: Response): RealmPrincipal {
+  return res.locals['principal'] as RealmPrincipal;
 }

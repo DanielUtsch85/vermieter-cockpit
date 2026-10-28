@@ -1,4 +1,4 @@
-import express, { type Response, type Router } from 'express';
+import express, { type Router } from 'express';
 import { z } from 'zod';
 import {
   AcquisitionCancelledError,
@@ -7,9 +7,9 @@ import {
   formatShare,
   type GetOwnerAllocation,
   type OwnerPart,
-  type RealmPrincipal,
 } from '../application/index.js';
 import type { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { readId, violationDto } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { fieldErrors, sendValidationError } from './validation.js';
@@ -17,7 +17,6 @@ import { fieldErrors, sendValidationError } from './validation.js';
 /** Owner-level allocation read (api-design.md §27.4, backlog VC-2-09). */
 export function ownerAllocationRoutes(commands: { readonly get: GetOwnerAllocation }): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
 
   router.get('/acquisitions/:acquisitionId/owner-allocation', (req, res, next) => {
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);

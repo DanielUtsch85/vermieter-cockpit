@@ -40,12 +40,12 @@ import {
   type TermCoverage,
   type TransactionCoverage,
   type ListReconciliations,
-  type RealmPrincipal,
   type ReconciliationStatus,
   type ReleaseReconciliation,
   type RentPaymentReconciliation,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
 import { sendAccessError, sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -137,7 +137,6 @@ export interface RentReconciliationCommands {
 /** Rent reconciliation API (api-design.md §37.1, backlog VC-4-01). */
 export function rentReconciliationRoutes(commands: RentReconciliationCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
   const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
     if (!sendReconciliationError(res, error)) next(error);
   };

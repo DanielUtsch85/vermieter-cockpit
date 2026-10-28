@@ -22,10 +22,10 @@ import {
   type ListPropertyLoans,
   type LoanAllocationSetView,
   type PropertyLoan,
-  type RealmPrincipal,
   type RequestedAllocation,
   type VoidLoanAllocation,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -93,7 +93,6 @@ export interface LoanAllocationCommands {
 /** Loan allocation sets (api-design.md §41.3, backlog VC-3-03). */
 export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
   const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
     if (!sendAllocationError(res, error)) next(error);
   };

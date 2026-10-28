@@ -28,10 +28,10 @@ import {
   type ListLoans,
   type Loan,
   type LoanChanges,
-  type RealmPrincipal,
   type VoidLoan,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -153,7 +153,6 @@ export interface LoanCommands {
 /** Loan API (api-design.md §41.1, backlog VC-3-01). */
 export function loanRoutes(commands: LoanCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
   const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
     if (!sendLoanError(res, error)) next(error);
   };

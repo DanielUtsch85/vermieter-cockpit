@@ -14,10 +14,10 @@ import {
   type ImportBankStatement,
   type ImportBatch,
   type ListReviewItems,
-  type RealmPrincipal,
   type ResolveReviewItem,
   type ReviewItem,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
 
@@ -99,7 +99,7 @@ export function importRoutes(commands: ImportCommands): Router {
         const { financialAccountId, adapterId, adapterVersion, ...options } = parsed.data;
         return commands
           .importStatement({
-            principal: res.locals['principal'] as RealmPrincipal,
+            principal: principalOf(res),
             financialAccountId: financialAccountId.toLowerCase(),
             adapterId,
             adapterVersion,
@@ -136,7 +136,7 @@ export function importRoutes(commands: ImportCommands): Router {
     }
     commands
       .getBatch({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         importBatchId: id.toLowerCase(),
       })
       .then((batch) => {
@@ -165,7 +165,7 @@ export function importRoutes(commands: ImportCommands): Router {
     }
     commands
       .listReviewItems({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         importBatchId: id.toLowerCase(),
         ...(query.data.status === undefined ? {} : { status: query.data.status }),
       })
@@ -201,7 +201,7 @@ export function importRoutes(commands: ImportCommands): Router {
     }
     commands
       .resolveReviewItem({
-        principal: res.locals['principal'] as RealmPrincipal,
+        principal: principalOf(res),
         importBatchId: batchId.toLowerCase(),
         reviewItemId: itemId.toLowerCase(),
         resolution: body.data.resolution,

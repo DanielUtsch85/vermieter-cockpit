@@ -24,9 +24,9 @@ import {
   type GetOwnership,
   type Ownership,
   type ReadPropertyOwnerships,
-  type RealmPrincipal,
   type VoidOwnership,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
@@ -134,7 +134,6 @@ export interface OwnershipCommands {
 /** Ownership API (api-design.md §25–26, backlog VC-2-03). */
 export function ownershipRoutes(commands: OwnershipCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
 
   router.post('/ownerships', express.json({ limit: '32kb' }), (req, res, next) => {
     const idempotency = readIdempotencyKey(req, res);

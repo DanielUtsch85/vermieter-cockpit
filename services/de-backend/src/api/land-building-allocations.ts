@@ -12,9 +12,9 @@ import {
   type CreateLandBuildingAllocation,
   type LandBuildingAllocation,
   type ListLandBuildingAllocations,
-  type RealmPrincipal,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, sendValidationError } from './validation.js';
@@ -59,7 +59,6 @@ export interface LandBuildingAllocationCommands {
 /** Land/building allocation (api-design.md §27.3, backlog VC-2-08). */
 export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
 
   router.post('/acquisitions/:acquisitionId/land-building-allocation', express.json({ limit: '32kb' }), (req, res, next) => {
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);

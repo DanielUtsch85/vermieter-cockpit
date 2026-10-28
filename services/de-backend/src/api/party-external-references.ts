@@ -16,8 +16,8 @@ import {
   type EndExternalReference,
   type ListExternalReferences,
   type PartyExternalReference,
-  type RealmPrincipal,
 } from '../application/index.js';
+import { principalOf } from './access-middleware.js';
 import { sendAccessError, sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIfMatch, sendValidationError } from './validation.js';
 
@@ -48,7 +48,6 @@ export interface ExternalReferenceCommands {
 /** Party external references (api-design.md §20.1, backlog VC-2-02). */
 export function externalReferenceRoutes(commands: ExternalReferenceCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
 
   router.post('/parties/:partyId/external-references', express.json({ limit: '16kb' }), (req, res, next) => {
     const partyId = readId(req.params['partyId'], 'partyId', res);

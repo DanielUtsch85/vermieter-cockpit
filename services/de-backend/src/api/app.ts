@@ -19,7 +19,6 @@ import type {
   ListReviewItems,
   LinkPropertyReference,
   PrincipalVerifier,
-  RealmPrincipal,
   RefreshPropertyReference,
   ResolveReviewItem,
   SetTransactionSplits,
@@ -86,7 +85,7 @@ import type {
   GetParty,
   ListParties,
 } from '../application/index.js';
-import { requireDeAccess } from './access-middleware.js';
+import { principalOf, requireDeAccess } from './access-middleware.js';
 import { errorHandler } from './errors.js';
 import { financialAccountRoutes } from './financial-accounts.js';
 import { financialCategoryRoutes } from './financial-categories.js';
@@ -255,7 +254,7 @@ export function createApp(deps: AppDependencies): Express {
   const api = express.Router();
   api.use(requireDeAccess(deps.verifyPrincipal));
   api.get('/health', (_req, res) => {
-    const principal = res.locals['principal'] as RealmPrincipal;
+    const principal = principalOf(res);
     res.json({ status: 'ok', mreRealmId: principal.mreRealmId });
   });
   api.use(propertyReferenceRoutes({ link: deps.linkPropertyReference, refresh: deps.refreshPropertyReference }));

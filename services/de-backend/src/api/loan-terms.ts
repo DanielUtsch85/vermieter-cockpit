@@ -24,10 +24,10 @@ import {
   type LoanTermsView,
   type NumberedScheduleEntry,
   type Schedule,
-  type RealmPrincipal,
   type VoidLoanTerms,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -95,7 +95,6 @@ export interface LoanTermsCommands {
 /** Loan terms (api-design.md §41.2, backlog VC-3-02) and the schedule derived from them (§41.4, VC-3-04). */
 export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   const router = express.Router();
-  const principalOf = (res: Response) => res.locals['principal'] as RealmPrincipal;
   const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
     if (!sendTermsError(res, error)) next(error);
   };
