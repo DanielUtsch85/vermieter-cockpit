@@ -1923,15 +1923,19 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
 ### `POST /api/v1/rent-reconciliations/suggest`
 
 - **Body** (strict): `from`, `to` as `YYYY-MM` (`400 INVALID_FORMAT`). `from` ≤ `to` (`400 INVALID_RANGE`), at most 12 months inclusive (`400 RANGE_TOO_LONG`). No `Idempotency-Key`: suggesting is idempotent by design (below).
-- **1. MRE, outside any database transaction (P4-D8):** for each month of the window, `GET /rents/:year/:month` with the caller's token and Realm. Of each rent only the Tenant's `_id`, the `term` and `totalWithoutBalanceAmount` are read (amounts as §37.2). The occupant object with the Tenant's name and contacts is dropped by the client and never logged. If any month fails → `503 EXTERNAL_SYSTEM_ERROR` and nothing is written. A `401`/`403` is as §37.1.
+- **1. MRE, outside any database transaction (P4-D8):** for each month of the window, and for the month before `from` and the month after `to`, `GET /rents/:year/:month` with the caller's token and Realm.
+  - The two neighbouring months are read **for the uniqueness check only**: nothing is suggested for their terms.
+  - Without them, a Transaction booked from the 15th to the end of a boundary month would look unique for one term in one run, and ambiguous in a run over a wider window (review on #80). Of each rent only the Tenant's `_id`, the `term` and `totalWithoutBalanceAmount` are read (amounts as §37.2). The occupant object with the Tenant's name and contacts is dropped by the client and never logged. If any month fails → `503 EXTERNAL_SYSTEM_ERROR` and nothing is written. A `401`/`403` is as §37.1.
 - **2. DE, in one `REPEATABLE READ READ ONLY` snapshot:**
   - **open amount of a term** = MRE's amount due − Σ `matchedAmount` of the Realm's `CONFIRMED` reconciliations for that Tenant and term. MRE's own payments are not subtracted (BR-RENT-001). Terms with open amount ≤ 0 are skipped.
   - **candidates:** the Realm's counted `INFLOW` Transactions (§37.1) with available rent cash > 0.
   - **a pair (Transaction, term) fits** when the Transaction's available rent cash **equals** the term's open amount exactly, and its booking date lies from the 15th of the month before the term's month to the last day of the term's month. The term's month is the `YYYYMM` of its key.
-  - **pairs already handled are excluded:** a pair (Transaction, Tenant, term) with a reconciliation in **any** status, `REJECTED` and `RELEASED` included, is never suggested again.
+  - **pairs already handled:**
+    - a pair (Transaction, Tenant, term) with a `REJECTED`, `RELEASED` or `CONFIRMED` reconciliation is no fit and is never suggested again. A `CONFIRMED` one acts through the cash and the open amount anyway;
+    - a pair with an **open `SUGGESTED`** reconciliation **stays in the graph as competition**, whether or not its amounts still match. It is never written again, but its Transaction and its term are not unique for any other pair (review on #80). Without that rule, two runs would suggest two Transactions for one term, or one Transaction for two terms, where a single run over both would have suggested nothing.
 - **3. The rule** (deterministic, independent of input order):
-  - The fits form a bipartite graph between Transactions and terms. A fit whose Transaction and term have no other fit is **unique** → suggested.
-  - **IBAN history decides the rest:** a fit is a *history fit* when an earlier `CONFIRMED` reconciliation of the same Tenant names a Transaction with the same `counterparty_iban_raw` (not null). Among the non-unique fits, keep only the history fits. A history fit whose Transaction and term have no other history fit → suggested.
+  - The fits and the open suggestions form a bipartite graph between Transactions and terms, the neighbouring months' terms included. A fit whose Transaction and term have no other edge is **unique** → suggested.
+  - **IBAN history decides the rest:** a fit is a *history fit* when an earlier `CONFIRMED` reconciliation of the same Tenant names a Transaction with the same `counterparty_iban_raw` (not null). Among the non-unique fits, keep only the history fits, and keep the open suggestions as edges. A history fit whose Transaction and term have no other edge → suggested. A term of a neighbouring month is never suggested, but its edges block.
   - Everything else is left alone: partial and combined payments, overpayments, and ambiguous amounts. The user matches those by hand (§37.1).
   - **`confidence`:** `HIGH` for a history fit (whether it was unique or decided by the history), `MEDIUM` for a unique fit without history.
   - **`suggestionReason`:** `EXACT_AMOUNT` or `EXACT_AMOUNT_IBAN_HISTORY`.
@@ -1988,6 +1992,8 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
 
 - **Domain, the rule, each with its fixture:**
   - one Transaction and one term with equal amounts → `MEDIUM`;
+  - an open suggestion T1–A blocks a new T2–A, and T1 with an open suggestion for A is not suggested for B (review on #80);
+  - a Transaction booked on the 20th of `to` that also fits the month after `to` → nothing; the neighbouring month's term itself never suggested;
   - two Transactions for one term → nothing;
   - two terms for one Transaction → nothing;
   - the IBAN history deciding one of two → `HIGH`, and the other not suggested;
@@ -2021,6 +2027,8 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
 - **Counter-checks:**
   - the rule summing MRE's payments into the open amount;
   - a rejected pair suggested again;
+  - open suggestions excluded before the uniqueness check (both blocking tests turn red);
+  - the neighbouring months not read;
   - ambiguity broken by input order;
   - the booking window off by a day;
   - confirm without the live MRE read;
