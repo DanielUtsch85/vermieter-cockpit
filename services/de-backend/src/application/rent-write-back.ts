@@ -3,12 +3,16 @@ import {
   isRoundTrippable,
   markerIn,
   markerOf,
+  removalBody,
   storedPayments,
+  verifyRemoved,
   verifyWritten,
   writeBody,
   type MrePaymentSnapshot,
+  type MreWriteBackState,
   type ReconciliationStatus,
   type RentPaymentReconciliation,
+  type RemovalResult,
   type RentReconciliationRepository,
   type TermWrite,
   type WriteBackError,
@@ -165,6 +169,120 @@ export function writeBackToMre(deps: {
   };
 }
 
+/** Not `RELEASED`, or nothing of DE's was ever in MRE (→ 409 NOT_REMOVABLE). */
+export class NotRemovableError extends Error {
+  override readonly name = 'NotRemovableError';
+
+  constructor(
+    readonly status: ReconciliationStatus,
+    readonly mreWriteBackState: MreWriteBackState,
+  ) {
+    super(`A ${status} reconciliation in ${mreWriteBackState} cannot be removed from MRE`);
+  }
+}
+
+/** Before the last lease's end plus the margin (→ 409 REMOVAL_TOO_EARLY, §37.5). */
+export class RemovalTooEarlyError extends Error {
+  override readonly name = 'RemovalTooEarlyError';
+
+  constructor(readonly notBefore: Date) {
+    super(`The removal may start at ${notBefore.toISOString()}`);
+  }
+}
+
+export type RemoveFromMre = WriteBackToMre;
+
+/**
+ * §37.5's removal: §37.4's protocol in reverse. Only DE's payment, identified by the marker with DE's date and amount,
+ * is removed; `leaseMs` is twice the MRE timeout, `marginMs` one MRE timeout past the last lease (review on #82).
+ */
+export function removeFromMre(deps: {
+  readonly repository: RentReconciliationRepository;
+  readonly readTerm: MreWriteBackTermReader;
+  readonly writeTerm: MreWriteBackTermWriter;
+  readonly leaseMs: number;
+  readonly marginMs: number;
+}): RemoveFromMre {
+  return async ({ principal, authorizationHeader, reconciliationId, expectedVersions }) => {
+    const actor = actorOf(principal);
+    const realm = principal.mreRealmId;
+    const claim = await deps.repository.claimRemoval(reconciliationId, realm, deps.leaseMs, deps.marginMs, actor, expectedVersions);
+    switch (claim.kind) {
+      case 'UNCHANGED':
+        return { reconciliation: claim.reconciliation, changed: false };
+      case 'NOT_FOUND':
+        throw new ReconciliationNotFoundError(reconciliationId);
+      case 'NOT_REMOVABLE':
+        throw new NotRemovableError(claim.status, claim.mreWriteBackState);
+      case 'WRITE_BACK_IN_PROGRESS':
+        throw new WriteBackInProgressError(claim.reconciliationId);
+      case 'REMOVAL_TOO_EARLY':
+        throw new RemovalTooEarlyError(claim.notBefore);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(claim.expectedVersions, claim.currentVersion);
+      case 'CLAIMED':
+        break;
+    }
+    const { reconciliation: claimed, attemptId, bookingDate } = claim;
+    const { mreTenantId, mreRentTerm } = claimed;
+    const payment = dePayment(claimed.id, claimed.matchedAmount, bookingDate);
+
+    const record = async (result: RemovalResult) => {
+      const recorded = await deps.repository.recordRemoval(claimed.id, realm, attemptId, result, actor);
+      if (recorded.kind === 'LEASE_LOST') throw new WriteBackInProgressError(claimed.id);
+      return recorded.reconciliation;
+    };
+    const failed = async (error: WriteBackError) => new WriteBackFailedError(error, await record({ kind: 'FAILED', error }));
+    const removed = async (patched: boolean) => ({ reconciliation: await record({ kind: 'REMOVED', patched }), changed: true });
+    const mreFailure = async (error: unknown) => {
+      if (error instanceof AccessError) {
+        await record({ kind: 'FAILED', error: 'MRE_FORBIDDEN' });
+        return error;
+      }
+      if (error instanceof MreUnavailableError) return failed('MRE_UNAVAILABLE');
+      return error;
+    };
+    const readTerm = async () => {
+      try {
+        return await deps.readTerm(authorizationHeader, realm, mreTenantId, mreRentTerm);
+      } catch (error) {
+        throw await mreFailure(error);
+      }
+    };
+
+    // 2. Read before writing: a missing term is no proof the payment is gone (MRE's 404 on its own errors, review on #76).
+    const read = await readTerm();
+    if (read === undefined) throw await failed('MRE_RENT_TERM_NOT_FOUND');
+    const marker = markerIn(read, payment);
+    if (marker === 'ABSENT') return removed(false);
+    if (marker === 'CHANGED') throw await failed('MRE_PAYMENT_CHANGED');
+    if (!isRoundTrippable(read)) throw new WriteBackFailedError('MRE_TERM_NOT_ROUND_TRIPPABLE', await record({ kind: 'NOT_REMOVED' }));
+
+    // 3. Write the settlement back without DE's payment.
+    let result: Awaited<ReturnType<MreWriteBackTermWriter>>;
+    try {
+      result = await deps.writeTerm(authorizationHeader, realm, mreTenantId, mreRentTerm, removalBody(read, payment));
+    } catch (error) {
+      throw await mreFailure(error);
+    }
+
+    // 4. Verify; without an answer, or on a mismatch, read once more.
+    if (result.kind === 'ANSWERED' && verifyRemoved(read, result.term, payment) === 'OK') return removed(true);
+    let again: WriteBackTerm | undefined;
+    try {
+      again = await deps.readTerm(authorizationHeader, realm, mreTenantId, mreRentTerm);
+    } catch (error) {
+      if (error instanceof AccessError) throw await mreFailure(error);
+      throw await failed(result.kind === 'REFUSED' ? 'MRE_WRITE_REFUSED' : 'MRE_UNAVAILABLE');
+    }
+    if (again === undefined) throw await failed('MRE_RENT_TERM_NOT_FOUND');
+    const check = verifyRemoved(read, again, payment);
+    if (check === 'OK') return removed(true);
+    if (check === 'CHANGED' || result.kind === 'ANSWERED') throw await failed('MRE_TERM_CHANGED');
+    throw await failed(result.kind === 'REFUSED' ? 'MRE_WRITE_REFUSED' : 'MRE_UNAVAILABLE');
+  };
+}
+
 export type MrePresence = 'PRESENT' | 'MISSING' | 'UNAVAILABLE';
 
 export type GetReconciliationWithPresence = (input: {
@@ -174,14 +292,17 @@ export type GetReconciliationWithPresence = (input: {
 }) => Promise<{ readonly reconciliation: RentPaymentReconciliation; readonly mrePresence: MrePresence | null }>;
 
 /**
- * §37.4's presence check (`?checkMre=true`): whether DE's payment is still in MRE, for a `WRITTEN` or
- * `REMOVAL_REQUIRED` reconciliation. A read only: nothing is written, not even an AuditRecord.
+ * §37.4's presence check (`?checkMre=true`): whether DE's payment is in MRE, for a `WRITTEN`, `REMOVAL_REQUIRED`,
+ * `REMOVAL_FAILED` or `REMOVED` reconciliation (§37.5). A read only: nothing is written, not even an AuditRecord.
  */
 export function getReconciliationWithPresence(deps: { readonly repository: RentReconciliationRepository; readonly readTerm: MreWriteBackTermReader }): GetReconciliationWithPresence {
   return async ({ principal, authorizationHeader, reconciliationId }) => {
     const reconciliation = await deps.repository.findById(reconciliationId, principal.mreRealmId);
     if (reconciliation === undefined) throw new ReconciliationNotFoundError(reconciliationId);
-    if (reconciliation.mreWriteBackState !== 'WRITTEN' && reconciliation.mreWriteBackState !== 'REMOVAL_REQUIRED') return { reconciliation, mrePresence: null };
+    // A state whose payment is, or was, in MRE; PRESENT on REMOVED reports a payment that reappeared (§37.5).
+    if (!(['WRITTEN', 'REMOVAL_REQUIRED', 'REMOVAL_FAILED', 'REMOVED'] as const).some((state) => state === reconciliation.mreWriteBackState)) {
+      return { reconciliation, mrePresence: null };
+    }
     try {
       const term = await deps.readTerm(authorizationHeader, principal.mreRealmId, reconciliation.mreTenantId, reconciliation.mreRentTerm);
       const marker = markerOf(reconciliation.id);

@@ -523,6 +523,28 @@ Counter-checked (25 mutants, each red):
 - **in the repository:** the record without the attempt check; the takeover without failing the expired row (the claim is then refused by the index);
 - **in 0032:** the Tenant index not unique; the trigger's release rule dropped; a release under a live lease allowed; `PENDING` → `PENDING` under a live lease; a row born with a write-back state; the write-back fields CHECK and the state-per-status CHECK dropped.
 
+## 28. Rent reconciliation: removal from MRE after release (VC-4-05, api-design §37.5)
+
+`RR`, `RD`, `RW`, `RB`, `RA`, `RE`, `CT` as §24 and §27; `RM` = `infrastructure/postgres/rent-reconciliation-migration.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Only DE's payment is removed: the marker with DE's date and amount; every other payment, the promo, the extra charge and the description stay; a marker edited in MRE is `MRE_PAYMENT_CHANGED` | RW "removalBody …", "verifyRemoved …"; RB "the marker absent …"; RE "removal (§37.5) …"; CT "the removal PATCH removes only DE's payment …" |
+| Exactly once: `REMOVED` is a no-op without an MRE call; the marker absent → `REMOVED` without a PATCH; a crash between PATCH and record, retried after the lease, sends no second PATCH; a lost answer is decided by the second read | RB "the marker absent …", "a missing term …"; RE "removal exactly once …", "removal (§37.5) …" |
+| A missing term is no proof the payment is gone (MRE's 404 on its own errors) → `REMOVAL_FAILED`; under VAT with a promo or extra charge nothing is written (back to `REMOVAL_REQUIRED`) | RB "a missing term …", "the marker absent …" |
+| The lease assumption (review on #82): the latest lease end is kept for good and only grows; a removal before it plus one MRE timeout is `REMOVAL_TOO_EARLY`; the database refuses a removal claim before it | RD "removal: only RELEASED …"; RR "refusals: …", "schema (0033) …"; RE "removal (§37.5) …"; RA "removal from MRE (§37.5) …" |
+| One MRE write per Tenant: the index over `PENDING` and `REMOVING`; an expired `REMOVING` is taken over by a removal and by a write-back of the Tenant (`REMOVAL_FAILED`, `LEASE_EXPIRED`, review on #84); a live one blocks both | RD "removal: only RELEASED …"; RR "takeovers: …", "concurrency: a removal waiting …", "schema (0033) …" |
+| The backfill (review on #84): a `REMOVAL_REQUIRED` from a failed write-back gets `released_at + 2 minutes`, a `WRITTEN` its written time + 2 minutes, `NOT_WRITTEN` stays `NULL`; the CHECK keeps every claimed state's last lease end not null | RM "a REMOVAL_REQUIRED from FAILED …", "a removal of the released failed write-back …"; RR "schema (0033) …" |
+| Release on the database's clock (review on #83): an application clock running ahead gets `WRITE_BACK_IN_PROGRESS`, never a `500` | RR "release on the database clock …" |
+| The presence check also reads `REMOVAL_FAILED` and `REMOVED`: `PRESENT` on `REMOVED` reports a payment that reappeared | RB "getReconciliationWithPresence …"; RE "removal (§37.5) …" |
+| Realm isolation: another Realm cannot remove a reconciliation | RE "removal (§37.5) …" |
+
+Counter-checked (19 mutants, each red):
+- **in the domain:** a payment without DE's marker removed; the lease margin dropped; `REMOVED` not a no-op; a removal from `NOT_WRITTEN` allowed;
+- **in the application:** the read before the removal skipped (the crash test then sends a second PATCH); the removal verification skipped; the presence check not on `REMOVED`;
+- **in the repository:** the last lease end cleared on record, or set instead of raised; the record without the attempt check; the claim's holders only `PENDING` (review on #84); an expired `REMOVING` failed as `FAILED`; the release on the application's clock without the trigger's mapping (either alone is covered by the other: the plan and the mapping both answer `WRITE_BACK_IN_PROGRESS`);
+- **in 0033:** the index without `REMOVING`; the trigger letting the last lease end change outside a claim, or allowing a removal claim before it; the last-lease CHECK dropped; the removed-fields CHECK dropped; the backfill without `released_at` (review on #84; the migration then fails its own CHECK).
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

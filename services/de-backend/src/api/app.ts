@@ -43,6 +43,7 @@ import type {
   ConfirmReconciliation,
   RejectReconciliation,
   WriteBackToMre,
+  RemoveFromMre,
   GetReconciliationWithPresence,
   SuggestReconciliations,
   GetTransactionCoverage,
@@ -178,6 +179,8 @@ export interface AppDependencies {
   /** Write-back to MRE and its presence check (VC-4-04). */
   readonly writeBackToMre: WriteBackToMre;
   readonly getReconciliationWithPresence: GetReconciliationWithPresence;
+  /** Removal from MRE after release (VC-4-05). */
+  readonly removeFromMre: RemoveFromMre;
   /** Loan terms (VC-3-02). */
   readonly createLoanTerms: CreateLoanTerms;
   readonly voidLoanTerms: VoidLoanTerms;
@@ -318,6 +321,7 @@ export function createApp(deps: AppDependencies): Express {
       reject: deps.rejectReconciliation,
       writeBack: deps.writeBackToMre,
       getWithPresence: deps.getReconciliationWithPresence,
+      removeFromMre: deps.removeFromMre,
     }),
   );
   api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule, proposal: deps.getPaymentProposal }));

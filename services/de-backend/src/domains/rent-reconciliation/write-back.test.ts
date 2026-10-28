@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money, type BusinessDate } from '../../shared/index.js';
-import { dePayment, isRoundTrippable, markerIn, markerOf, storedPayments, verifyWritten, writeBody, type WriteBackTerm } from './write-back.js';
+import { dePayment, isRoundTrippable, markerIn, markerOf, removalBody, storedPayments, verifyRemoved, verifyWritten, writeBody, type WriteBackTerm } from './write-back.js';
 
 /** §37.4's round trip, against the shapes of MRE baseline 479d0ad (`toRentData`, `_updateByTerm`). */
 const ID = '0B6F1F9E-2F2C-4A8E-9D55-1F0D8C1E2A3B';
@@ -104,5 +104,32 @@ describe('verifyWritten', () => {
     expect(verifyWritten(term(), after({ extracharge: 1 }), mine)).toBe('CHANGED');
     expect(verifyWritten(term(), after({ description: '' }), mine)).toBe('CHANGED');
     expect(verifyWritten(term(), after({ payments: [theirs, mine, mine] }), mine)).toBe('CHANGED');
+  });
+});
+
+describe('removal (§37.5)', () => {
+  it('removalBody: every payment read but DE’s, as MRE stores them; the settlement as writeBody', () => {
+    const read = term({ payments: [theirs, mine, { ...theirs, reference: 'b', type: undefined }], notepromo: 'Rabatt\n', extracharge: 5, noteextracharge: 'Mahngebühr\n' });
+    expect(removalBody(read, mine)).toEqual({
+      payments: [theirs, { ...theirs, reference: 'b', type: '' }],
+      promo: 20,
+      notepromo: 'Rabatt',
+      extracharge: 5,
+      noteextracharge: 'Mahngebühr',
+      description: 'Januar',
+    });
+  });
+
+  it('verifyRemoved: OK without the marker and with the rest as read; MARKER_PRESENT; CHANGED for any other difference', () => {
+    const read = term({ payments: [theirs, mine] });
+    expect(verifyRemoved(read, term({ payments: [theirs] }), mine)).toBe('OK');
+    expect(verifyRemoved(read, read, mine)).toBe('MARKER_PRESENT');
+    expect(verifyRemoved(read, term({ payments: [] }), mine)).toBe('CHANGED');
+    expect(verifyRemoved(read, term({ payments: [{ ...theirs, amount: 51 }] }), mine)).toBe('CHANGED');
+    expect(verifyRemoved(read, term({ payments: [theirs], promo: 0 }), mine)).toBe('CHANGED');
+    expect(verifyRemoved(read, term({ payments: [theirs], description: '' }), mine)).toBe('CHANGED');
+    // A payment that never went through MRE's save comes back normalised: no mismatch.
+    const raw = term({ payments: [{ date: '02/01/2027', amount: '50', type: undefined, reference: undefined, description: undefined }, mine] });
+    expect(verifyRemoved(raw, term({ payments: [{ date: '02/01/2027', amount: 50, type: '', reference: '', description: '' }] }), mine)).toBe('OK');
   });
 });

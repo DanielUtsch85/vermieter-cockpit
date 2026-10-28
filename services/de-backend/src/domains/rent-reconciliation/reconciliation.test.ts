@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
-import { checkMatch, coverageOf, holdsLease, isTermKey, matchedTotalOf, planConfirm, planReject, planRelease, planWriteBack, staleBy, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
+import { checkMatch, coverageOf, holdsLease, isTermKey, matchedTotalOf, planConfirm, planReject, planRelease, planRemoval, planWriteBack, staleBy, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
@@ -84,6 +84,9 @@ describe('planRelease (§37.1)', () => {
     mrePayment: null,
     mreWriteBackError: null,
     mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
     createdAt: new Date('2027-01-05T10:00:00Z'),
     version: 1,
   });
@@ -186,6 +189,9 @@ describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
     mrePayment: null,
     mreWriteBackError: null,
     mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
     createdAt: at,
     version: 1,
   } satisfies RentPaymentReconciliation;
@@ -205,10 +211,33 @@ describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
       mreWriteBackState: 'REMOVAL_REQUIRED',
       mreWriteBackError: null,
       mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
     });
     expect(next(pending(earlier))).toMatchObject({ mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null });
     expect(planRelease(pending(later), 'x', at, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });
     expect(holdsLease(pending(at), at)).toBe(false);
+  });
+
+  it('removal: only RELEASED; REMOVED a no-op; NOT_WRITTEN nothing to remove; a live lease refuses; not before the last lease + the margin', () => {
+    const released = (state: RentPaymentReconciliation['mreWriteBackState'], lastLease: Date | null = earlier) =>
+      ({ ...base, status: 'RELEASED', mreWriteBackState: state, mreLastLeaseUntil: lastLease }) satisfies RentPaymentReconciliation;
+    expect(planRemoval(base, at, 1000)).toEqual({ kind: 'NOT_REMOVABLE', status: 'CONFIRMED', mreWriteBackState: 'NOT_WRITTEN' });
+    expect(planRemoval(released('REMOVED'), at, 1000)).toEqual({ kind: 'UNCHANGED' });
+    expect(planRemoval(released('NOT_WRITTEN', null), at, 1000)).toEqual({ kind: 'NOT_REMOVABLE', status: 'RELEASED', mreWriteBackState: 'NOT_WRITTEN' });
+    expect(planRemoval(released('REMOVAL_REQUIRED'), at, 1000)).toEqual({ kind: 'CLAIM' });
+    expect(planRemoval(released('REMOVAL_FAILED'), at, 1000)).toEqual({ kind: 'CLAIM' });
+    // earlier = at − 5 s: with a 5 s margin the removal may start exactly now, with 5.001 s not yet.
+    expect(planRemoval(released('REMOVAL_REQUIRED'), at, 5000)).toEqual({ kind: 'CLAIM' });
+    expect(planRemoval(released('REMOVAL_REQUIRED'), at, 5001)).toEqual({ kind: 'REMOVAL_TOO_EARLY', notBefore: new Date(earlier.getTime() + 5001) });
+    const removing = { ...released('REMOVING'), mreWriteBackAttemptId: 'a1', mreWriteBackLeaseUntil: later } satisfies RentPaymentReconciliation;
+    expect(planRemoval(removing, at, 0)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });
+    expect(planRemoval({ ...removing, mreWriteBackLeaseUntil: earlier }, at, 0)).toEqual({ kind: 'CLAIM' });
+    expect(planRemoval(released('REMOVAL_REQUIRED'), at, 0, { ...pending(later), id: 'r2' as RentPaymentReconciliationId })).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r2' });
+    // A live removal of the Tenant blocks a write-back too (review on #84).
+    expect(planWriteBack(base, at, { ...removing, id: 'r3' as RentPaymentReconciliationId })).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r3' });
+    expect(holdsLease(removing, at)).toBe(true);
   });
 
   it('write-back: only CONFIRMED; WRITTEN a no-op; its own or another live lease of the Tenant refuses; an expired one is claimed over', () => {

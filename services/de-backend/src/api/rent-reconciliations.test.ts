@@ -2,6 +2,8 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  NotRemovableError,
+  RemovalTooEarlyError,
   NotWritableError,
   WriteBackFailedError,
   WriteBackInProgressError,
@@ -65,6 +67,9 @@ const reconciliation = {
   mrePayment: null,
   mreWriteBackError: null,
   mreWriteBackFailedAt: null,
+  mreLastLeaseUntil: null,
+  mreRemovedAt: null,
+  mreRemovedBy: null,
   createdAt: new Date('2027-01-05T10:00:00Z'),
   version: 1,
 } as unknown as RentPaymentReconciliation;
@@ -130,6 +135,9 @@ describe('POST /api/v1/rent-reconciliations', () => {
       mrePayment: null,
       mreWriteBackError: null,
       mreWriteBackFailedAt: null,
+      mreLastLeaseUntil: null,
+      mreRemovedAt: null,
+      mreRemovedBy: null,
       createdAt: '2027-01-05T10:00:00.000Z',
       version: 1,
     });
@@ -525,6 +533,52 @@ describe('write-back to MRE (§37.4)', () => {
     }
     expect(seen).toHaveLength(1);
     for (const bad of ['checkMre=yes', 'checkMre=true&x=1', 'x=1']) expect((await call(base, 'GET', `/rent-reconciliations/${ID}?${bad}`)).status, bad).toBe(400);
+  });
+});
+
+describe('removal from MRE (§37.5)', () => {
+  const removed = {
+    ...reconciliation,
+    status: 'RELEASED',
+    mreWriteBackState: 'REMOVED',
+    mreRemovedAt: new Date('2027-02-01T08:00:00Z'),
+    mreRemovedBy: 'anna@example.com',
+    mreLastLeaseUntil: new Date('2027-01-06T08:00:10Z'),
+    version: 6,
+  } as unknown as RentPaymentReconciliation;
+
+  it('200 with REMOVED, its time and actor, the last lease end and ETag; the header and If-Match passed on; no body or {} only', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      removeFromMre: async (input) => {
+        seen.push(input);
+        return { reconciliation: removed, changed: true };
+      },
+    });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/remove-from-mre`, {}, { 'if-match': '"5"' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('etag')).toBe('"6"');
+    expect(await res.json()).toMatchObject({
+      mreWriteBackState: 'REMOVED',
+      mreRemovedAt: '2027-02-01T08:00:00.000Z',
+      mreRemovedBy: 'anna@example.com',
+      mreLastLeaseUntil: '2027-01-06T08:00:10.000Z',
+    });
+    expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', reconciliationId: ID, expectedVersions: [5] });
+    expect((await call(base, 'POST', `/rent-reconciliations/${ID}/remove-from-mre`, { force: true })).status).toBe(400);
+  });
+
+  it.each([
+    [new NotRemovableError('RELEASED', 'NOT_WRITTEN'), 409, 'CONFLICT', { reason: 'NOT_REMOVABLE', status: 'RELEASED', mreWriteBackState: 'NOT_WRITTEN' }],
+    [new RemovalTooEarlyError(new Date('2027-01-06T08:01:10Z')), 409, 'CONFLICT', { reason: 'REMOVAL_TOO_EARLY', notBefore: '2027-01-06T08:01:10.000Z' }],
+    [new WriteBackInProgressError(TX), 409, 'CONFLICT', { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: TX }],
+    [new WriteBackFailedError('MRE_PAYMENT_CHANGED', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation), 409, 'CONFLICT', { reason: 'MRE_PAYMENT_CHANGED', mreWriteBackState: 'REMOVAL_FAILED' }],
+    [new WriteBackFailedError('MRE_UNAVAILABLE', { ...reconciliation, mreWriteBackState: 'REMOVAL_FAILED' } as unknown as RentPaymentReconciliation), 503, 'EXTERNAL_SYSTEM_ERROR', { reason: 'MRE_UNAVAILABLE' }],
+  ])('%s → %i %s', async (error, status, code, details) => {
+    const base = await start({ removeFromMre: async () => Promise.reject(error) });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/remove-from-mre`, {});
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject({ code, details });
   });
 });
 

@@ -137,3 +137,20 @@ export function verifyWritten(read: WriteBackTerm, after: WriteBackTerm, payment
   const settlement = (term: WriteBackTerm) => JSON.stringify([term.promo, term.notepromo, term.extracharge, term.noteextracharge, term.description]);
   return others(after) === others(read) && settlement(after) === settlement(read) ? 'OK' : 'CHANGED';
 }
+
+/** The removal's PATCH body (§37.5): every payment read but DE's, as MRE stores them; the settlement as `writeBody`. */
+export function removalBody(read: WriteBackTerm, payment: StoredPayment): TermWrite {
+  const { payments: _with, ...settlement } = writeBody(read, payment);
+  return { payments: storedPayments(read.payments).filter((p) => p.reference !== payment.reference), ...settlement };
+}
+
+/**
+ * §37.5 step 4: the term after the PATCH holds no payment with the marker, every other payment read in its order, and
+ * the settlement as read. `MARKER_PRESENT` when only DE's payment is still there.
+ */
+export function verifyRemoved(read: WriteBackTerm, after: WriteBackTerm, payment: StoredPayment): 'OK' | 'MARKER_PRESENT' | 'CHANGED' {
+  const others = (term: WriteBackTerm) => JSON.stringify(storedPayments(term.payments).filter((p) => p.reference !== payment.reference));
+  const settlement = (term: WriteBackTerm) => JSON.stringify([term.promo, term.notepromo, term.extracharge, term.noteextracharge, term.description]);
+  if (others(after) !== others(read) || settlement(after) !== settlement(read)) return 'CHANGED';
+  return markerIn(after, payment) === 'ABSENT' ? 'OK' : 'MARKER_PRESENT';
+}

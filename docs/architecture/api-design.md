@@ -2179,7 +2179,7 @@ Decision P4-D6 of `docs/development/phase-4-plan.md`, and P4-D7's effect of a re
   - the index not unique;
   - the presence check changing the state.
 
-## 37.5 Removal from MRE after release (VC-4-05)
+## 37.5 Removal from MRE after release (VC-4-05, implemented: migration 0033)
 
 Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in reverse. A released reconciliation whose payment is, or may be, in MRE (`REMOVAL_REQUIRED`) has DE's payment removed from the MRE term. Everything else in the term stays. Release stays DE-only (BR-MRE-004); removal is the separate, explicit command. It never changes the reconciliation's status, its Transaction or its cash.
 
@@ -2191,7 +2191,7 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
 
 §37.4's lease assumes MRE finishes a request within twice the timeout. A write-back PATCH that MRE completes after DE gave up would put DE's payment back, and would undo MRE edits made in between. So:
 
-- the reconciliation keeps the end of its **last** write-back lease: `mreLastLeaseUntil` (set by every claim, never cleared);
+- the reconciliation keeps the end of its **latest** lease, write-back or removal: `mreLastLeaseUntil`. Every claim raises it to its own lease if that ends later; it is never lowered or cleared, so a shorter retry cannot hide a longer lease still running;
 - a removal is refused before `mreLastLeaseUntil` **plus one MRE timeout** (a margin for clock skew between DE and MRE): `409 CONFLICT` with `reason = "REMOVAL_TOO_EARLY"` and `details.notBefore`. A `WRITTEN` reconciliation's lease ended long ago, so in practice only a release right after a failed or abandoned write-back waits;
 - `?checkMre=true` (§37.4) also reads `REMOVAL_FAILED` and `REMOVED`. `PRESENT` on `REMOVED` reports a payment that reappeared in MRE. DE does not remove it again by itself; the user removes it in MRE (residual risk, accepted, as §37.4's).
 
@@ -2213,7 +2213,7 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
   - MRE down → `REMOVAL_FAILED` (`MRE_UNAVAILABLE`), `503`; `401` / `403` → `REMOVAL_FAILED` (`MRE_FORBIDDEN`), answered as §37.1;
   - the marker **absent**: nothing of DE's is in MRE (removed by hand, or an earlier attempt removed it and crashed). Go to **5. Record** as `REMOVED`, **without a PATCH**;
   - the marker more than once, or with another date or amount → `REMOVAL_FAILED` (`MRE_PAYMENT_CHANGED`), `409`. DE never removes or repairs a payment it cannot identify exactly;
-  - the marker once, but `vatRatio` ≠ 0 with `promo` or `extracharge` ≠ 0 → back to the state before the claim, an AuditRecord `REMOVAL_NOT_ROUND_TRIPPABLE`, and `409 CONFLICT` with `reason = "MRE_TERM_NOT_ROUND_TRIPPABLE"`. The user removes DE's payment in MRE by hand; the next removal then reads it absent and records `REMOVED`.
+  - the marker once, but `vatRatio` ≠ 0 with `promo` or `extracharge` ≠ 0 → back to `REMOVAL_REQUIRED` (a removal is still required; a former `REMOVAL_FAILED` code is dropped), an AuditRecord `REMOVAL_NOT_ROUND_TRIPPABLE`, and `409 CONFLICT` with `reason = "MRE_TERM_NOT_ROUND_TRIPPABLE"`. The user removes DE's payment in MRE by hand; the next removal then reads it absent and records `REMOVED`.
 - **3. Write:** the PATCH of §37.4 with every payment read except DE's, in its order and normalised as MRE stores it; `promo`, `extracharge`, `description` and the notes as §37.4; `_id: mreTenantId` in the body.
 - **4. Verify** the answer: no payment with the marker, every other payment read in its order, the settlement as read. Without an answer or on a mismatch, read once more:
   - it passes → `REMOVED`;
@@ -2229,14 +2229,14 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
 
 ### `mreWriteBackState` with removal (P4-D7)
 
-- on `RELEASED`: `REMOVAL_REQUIRED` | `REMOVAL_FAILED` → `REMOVING` (claim) → `REMOVED` | `REMOVAL_FAILED` | the state before the claim (not round-trippable); `REMOVING` with an expired lease → `REMOVING` (its own retry) or `REMOVAL_FAILED` (`LEASE_EXPIRED`, another reconciliation's claim);
+- on `RELEASED`: `REMOVAL_REQUIRED` | `REMOVAL_FAILED` → `REMOVING` (claim) → `REMOVED` | `REMOVAL_FAILED` | `REMOVAL_REQUIRED` (not round-trippable); `REMOVING` with an expired lease → `REMOVING` (its own retry) or `REMOVAL_FAILED` (`LEASE_EXPIRED`, another reconciliation's claim);
 - `REMOVED` and `NOT_WRITTEN` are final on `RELEASED`.
 - The response of §37.1 gains `mreRemovedAt`, `mreRemovedBy` (`null` unless `REMOVED`) and `mreLastLeaseUntil`; `mreWriteBackLeaseUntil`, `mreWriteBackError` and `mreWriteBackFailedAt` also hold for `REMOVING` and `REMOVAL_FAILED`.
 - Releasing stays as §37.4. With VC-4-05 it also uses the **database's clock** for the lease, as the claim and the trigger do (review on #83); the trigger's `WRITE_BACK_IN_PROGRESS` on the release path is answered `409`, never `500`.
 
 ### In the database (migration 0033)
 
-- **`rent_payment_reconciliation` gains** `mre_last_lease_until timestamptz` (set by every claim, never cleared), `mre_removed_at timestamptz` and `mre_removed_by text` (set exactly when `REMOVED`).
+- **`rent_payment_reconciliation` gains** `mre_last_lease_until timestamptz` (raised by every claim to `greatest(mre_last_lease_until, the new lease)`, never lowered or cleared; the trigger enforces both), `mre_removed_at timestamptz` and `mre_removed_by text` (set exactly when `REMOVED`).
 - **Backfill:** every row claimed under 0032 (any state but `NOT_WRITTEN`) gets `mre_last_lease_until = coalesce(mre_write_back_lease_until, mre_write_back_failed_at, mre_written_back_at, released_at) + interval '2 minutes'`. Their real lease end is unknown, but it is at most twice the longest MRE timeout DE accepts (`MRE_TIMEOUT_MS` ≤ 60 s) after the claim, and the claim came before the failure, the write and the release. `released_at` covers the riskiest rows (review on #84): a `REMOVAL_REQUIRED` that came from `FAILED` or an expired `PENDING` has its lease, its failure time and its written time cleared by 0032's release.
 - **CHECKs:**
   - `mre_write_back_state` adds `REMOVING`, `REMOVED`, `REMOVAL_FAILED`, all three only on `RELEASED`;

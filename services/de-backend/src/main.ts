@@ -47,6 +47,7 @@ import {
   rejectReconciliation,
   writeBackToMre,
   getReconciliationWithPresence,
+  removeFromMre,
   createBalanceStatement,
   createLoanTerms,
   getLoanPayments,
@@ -196,6 +197,14 @@ const app = createApp({
     leaseMs: 2 * config.MRE_TIMEOUT_MS,
   }),
   getReconciliationWithPresence: getReconciliationWithPresence({ repository: rentReconciliations, readTerm: mreWriteBackTermReader(mreClient) }),
+  // §37.5: a removal waits one MRE timeout past the last lease (review on #82).
+  removeFromMre: removeFromMre({
+    repository: rentReconciliations,
+    readTerm: mreWriteBackTermReader(mreClient),
+    writeTerm: mreWriteBackTermWriter(mreClient),
+    leaseMs: 2 * config.MRE_TIMEOUT_MS,
+    marginMs: config.MRE_TIMEOUT_MS,
+  }),
   createLoanTerms: createLoanTerms({ repository: loanTerms }),
   voidLoanTerms: voidLoanTerms({ repository: loanTerms }),
   listLoanTerms: listLoanTerms({ repository: loanTerms }),
