@@ -7,7 +7,8 @@ import { sql, type Kysely } from 'kysely';
  *   currency; status `SUGGESTED` → `CONFIRMED` | `REJECTED`, `CONFIRMED` → `RELEASED`; the confirmation and release
  *   fields exactly with their status; `mre_write_back_state` fixed to `NOT_WRITTEN` until VC-4-04.
  * - A partial unique index: at most one `CONFIRMED` reconciliation per Transaction and term.
- * - `rent_payment_reconciliation_cash` (before insert, and before the step into `CONFIRMED`): writes the Transaction
+ * - `rent_payment_reconciliation_cash` (before insert, and before the step into `CONFIRMED`): an insert is only
+ *   `SUGGESTED` or `CONFIRMED` with version 1 (as `loan_initial`, review on #77); then it writes the Transaction
  *   row first (P3-D8's no-op, Transaction → reconciliation), then refuses a Transaction that is not counted, not
  *   `INFLOW`, or without rent cash, and a sum of `CONFIRMED` matches above its rent cash (BR-RENT-005).
  * - `rent_payment_reconciliation_frozen` (before update or delete): the fixed fields never change; the status steps
@@ -72,6 +73,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       rent_cash numeric;
       matched numeric;
     BEGIN
+      -- Born only SUGGESTED or CONFIRMED with version 1: the other statuses are reached only by the steps (review on #77).
+      IF TG_OP = 'INSERT' AND (NEW.status NOT IN ('SUGGESTED', 'CONFIRMED') OR NEW.version <> 1) THEN
+        RAISE EXCEPTION 'RentPaymentReconciliation: only inserted SUGGESTED or CONFIRMED with version 1, not % / % (api-design §37.1)', NEW.status, NEW.version
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
       -- P4-D8: the Transaction row first, so every confirm serialises on it (a stale one fails under REPEATABLE READ).
       UPDATE ledger_transaction SET version = version WHERE id = NEW.transaction_id
         RETURNING status, direction, correction_role INTO tx_status, tx_direction, tx_role;

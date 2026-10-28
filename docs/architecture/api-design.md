@@ -1822,6 +1822,7 @@ Decisions P4-D1, P4-D2, P4-D3 and P4-D7 (release and the correction rule) of `do
 - **Partial unique index** `(transaction_id, mre_tenant_id, mre_rent_term) WHERE status = 'CONFIRMED'`. Under it two concurrent creates of the same match cannot both commit; the repository answers the loser `ALREADY_MATCHED` (`ON CONFLICT … DO NOTHING` and a re-read).
 - **`rent_payment_reconciliation_frozen`** (before update): the fixed fields above never change; the status steps are only `SUGGESTED` → `CONFIRMED` | `REJECTED` and `CONFIRMED` → `RELEASED`, each raising `version` by one. No `DELETE` (a trigger refuses it).
 - **`rent_payment_reconciliation_cash`** (before insert, and before update when `NEW.status = 'CONFIRMED'` and `OLD.status <> 'CONFIRMED'`):
+  - an insert is only `SUGGESTED` or `CONFIRMED` with `version = 1`, as `loan_initial` (0024). `REJECTED` and `RELEASED` are reached only by the steps, so no row is born past the cash guard or with another version (review on #77);
   - writes the Transaction row first (the no-op of P3-D8, `RETURNING status, direction, correction_role`), so every confirm serialises on the Transaction;
   - refuses a Transaction not counted (`TRANSACTION_NOT_COUNTED`), not `INFLOW` (`TRANSACTION_NOT_INFLOW`), or without rent cash (`NO_RENT_CASH`);
   - refuses when the sum of `matched_amount` over the Transaction's `CONFIRMED` reconciliations plus this one exceeds its rent cash (`RENT_CASH_EXCEEDED`). The guard re-reads both sums after the Transaction write, so under READ COMMITTED it sees every confirm that committed before it.

@@ -44,7 +44,7 @@ async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
 
 /** The trigger's own reason, the constraint's name, or the error code. */
 function reasonOf(error: { message?: string; constraint?: string; code?: string }): string {
-  return error.constraint ?? /\(([A-Z_]+)\)|never deleted|fixed after creation|is not a step/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error';
+  return error.constraint ?? /\(([A-Z_]+)\)|never deleted|fixed after creation|is not a step|only inserted SUGGESTED or CONFIRMED with version 1/.exec(error.message ?? '')?.[0] ?? error.code ?? 'error';
 }
 
 describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)', () => {
@@ -386,8 +386,26 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect(await attempt(rawInsert(t, '1.00', '202701'))).toBe('rent_payment_reconciliation_mre_rent_term_check');
       expect(await attempt(rawInsert(t, '1.00').replace(TENANT, 'not-a-tenant'))).toBe('rent_payment_reconciliation_mre_tenant_id_check');
       expect(await attempt(rawInsert(t, '1.00', '2027010100', 'SUGGESTED').replace('NULL, NULL', `now(), 'x'`))).toBe('rent_payment_reconciliation_confirmed_fields');
-      expect(await attempt(rawInsert(t, '1.00', '2027010100', 'RELEASED'))).toBe('rent_payment_reconciliation_released_fields');
+      // A release without its fields is a valid step, so the CHECK decides.
+      const { rows } = await pool.query(`${rawInsert(t, '1.00', '2027040100')} RETURNING id`);
+      expect(await attempt(`UPDATE rent_payment_reconciliation SET status = 'RELEASED', version = version + 1 WHERE id = '${rows[0].id}'`)).toBe(
+        'rent_payment_reconciliation_released_fields',
+      );
       expect(await attempt(rawInsert(t, '1.00').replace("'EUR'", "'USD'"))).toBe('rent_payment_reconciliation_currency_check');
+    });
+
+    it('born only SUGGESTED or CONFIRMED with version 1: RELEASED, REJECTED or another version refused at the insert (review on #77)', async () => {
+      const t = await transaction();
+      const born = 'only inserted SUGGESTED or CONFIRMED with version 1';
+      // RELEASED with every release field and an amount above the rent cash: never passes the cash guard.
+      const released = rawInsert(t, '900.00', '2027010100', 'CONFIRMED')
+        .replace('confirmed_by, created_by)', 'confirmed_by, created_by, released_at, released_by, release_reason)')
+        .replace(`'CONFIRMED'`, `'RELEASED'`)
+        .replace(`'x', 'x')`, `'x', 'x', now(), 'x', 'x')`);
+      expect(await attempt(released)).toBe(born);
+      expect(await attempt(rawInsert(t, '5000.00', '2027020100', 'SUGGESTED').replace(`'SUGGESTED'`, `'REJECTED'`))).toBe(born);
+      expect(await attempt(rawInsert(t, '1.00', '2027030100').replace('confirmed_by, created_by)', 'confirmed_by, created_by, version)').replace(`'x', 'x')`, `'x', 'x', 7)`))).toBe(born);
+      expect((await pool.query(`SELECT count(*)::int AS n FROM rent_payment_reconciliation WHERE transaction_id = $1`, [t])).rows[0].n).toBe(0);
     });
 
     it('fixed fields, status steps with version + 1, never deleted', async () => {

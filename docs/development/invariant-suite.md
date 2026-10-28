@@ -450,10 +450,10 @@ ACC3 also checks the traceability every write promises. On the Loan aggregates (
 | Release: DE-only; a repeat a no-op keeping the first reason; `If-Match`; `SUGGESTED`/`REJECTED` not releasable; AuditRecords `CONFIRMED` (manual) and `RELEASED` | RD "planRelease …"; RR "release and reads", "writes AuditRecords …"; RA "POST …/release" |
 | Realm isolation: get, release, list and create from another Realm see nothing of Realm A | RR "findById and list in the Realm …"; RE "Realm isolation …" |
 | P4-D8: two creates on one Transaction (RC: the second sees the first; RR `40001`); the same match twice (`ALREADY_MATCHED`); a create against a reversal, both orders (RC), and against the step to `CORRECTED` (RR `40001`); a release lets a waiting create use the cash | RR "concurrency (P4-D8)" |
-| The schema: the cash guard's four refusals (a reversal included), the partial unique index, the CHECKs (term and Tenant form, amount > 0, status fields, EUR, `NOT_WRITTEN` only), the fixed fields, the status steps with `version` + 1, no `DELETE` | RR "schema past the repository (migration 0030)" |
+| The schema: born only `SUGGESTED` or `CONFIRMED` with version 1 (review on #77), the cash guard's four refusals (a reversal included), the partial unique index, the CHECKs (term and Tenant form, amount > 0, status fields, EUR, `NOT_WRITTEN` only), the fixed fields, the status steps with `version` + 1, no `DELETE` | RR "schema past the repository (migration 0030)" |
 
-Counter-checked (16 mutants, each red):
-- **in 0030:** the cash guard's Transaction write replaced by `FOR SHARE` (the RR tests), without its sum check or its reversal rule; `ledger_transaction_rent_reconciled` without its refusal; the unique index not unique; the frozen fields free;
+Counter-checked (17 mutants, each red):
+- **in 0030:** the insert guard (any status and version at the insert); the cash guard's Transaction write replaced by `FOR SHARE` (the RR tests), without its sum check or its reversal rule; `ledger_transaction_rent_reconciled` without its refusal; the unique index not unique; the frozen fields free;
 - **in the repositories:** create without the Transaction lock; the correction path not reading the reconciliations; rent cash over every category; `findById` without the Realm; no `RELEASED` AuditRecord;
 - **in the domain:** the same term not checked; release without `version` + 1;
 - **in the application:** MRE asked before the precheck;
