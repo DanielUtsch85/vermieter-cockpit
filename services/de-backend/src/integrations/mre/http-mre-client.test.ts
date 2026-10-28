@@ -1,8 +1,8 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ExactDecimal } from '../../shared/index.js';
-import { HttpMreClient } from './http-mre-client.js';
+import { ExactDecimal, Money } from '../../shared/index.js';
+import { HttpMreClient, decimalText } from './http-mre-client.js';
 import { MreClientError, type MreClientErrorCode } from './mre-client.js';
 import { signJwt, startFakeMre, type FakeMre } from './fake-mre.test-support.js';
 
@@ -56,6 +56,15 @@ describe('HttpMreClient against a fake MRE', () => {
         ],
         tenants: [{ _id: TENANT_A, name: 'Tina Mieterin', contacts: [{ email: 'tina@example.com' }] }],
         rents: { [TENANT_A]: [2027010100, 2027020100] },
+        rentTerms: {
+          [`${TENANT_A}/2027020100`]: {
+            totalWithoutBalanceAmount: 799.9999999999999,
+            payments: [
+              { date: '03/02/2027', amount: 500, type: 'transfer', reference: 'DE-RPR-x', description: 'Tina zahlt' },
+              { date: 'gestern', amount: 0.1 + 0.2, type: 'cash' },
+            ],
+          },
+        },
       },
       {
         _id: 'realm-b',
@@ -122,6 +131,21 @@ describe('HttpMreClient against a fake MRE', () => {
     expect(await client.rentTermExists(token, 'realm-a', '6512f0c2a1b2c3d4e5f60aff', '2027010100')).toBe(false);
     expect(await client.rentTermExists(signJwt({ account: { email: 'bert@example.com' } }), 'realm-b', TENANT_A, '2027010100')).toBe(false);
     await expectCode(client.rentTermExists(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret'), 'realm-a', TENANT_A, '2027010100'), 'UNAUTHENTICATED');
+  });
+
+  it('readRentTerm parses the amount due and the payments only; floats rounded half-up to the cent', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    const read = await client.readRentTerm(token, 'realm-a', TENANT_A, '2027020100');
+    expect(read).toEqual({
+      amountDue: Money.of('800.00', 'EUR'),
+      payments: [
+        { date: '2027-02-03', amount: Money.of('500.00', 'EUR'), type: 'transfer', reference: 'DE-RPR-x' },
+        { date: null, amount: Money.of('0.30', 'EUR'), type: 'cash', reference: null },
+      ],
+    });
+    // The Tenant's name, contacts and the payment's description leave no trace.
+    expect(JSON.stringify(read)).not.toMatch(/Tina|tenant@example.com|not read by DE/);
+    expect(await client.readRentTerm(token, 'realm-a', TENANT_A, '2027030100')).toBeUndefined();
   });
 
   it('maps 401 (bad signature or expired) to UNAUTHENTICATED', async () => {
@@ -194,6 +218,57 @@ describe('HttpMreClient failure handling', () => {
     } finally {
       stub.close();
     }
+  });
+
+  it.each([
+    [799.9999999999999, '800.00'],
+    [0.1 + 0.2, '0.30'],
+    [2.831068712794149e-15, '0.00'],
+    [-1e-14, '0.00'],
+    [0.005, '0.01'],
+    [-0.005, '-0.01'],
+    [1e21, '1000000000000000000000.00'],
+    [-120.5, '-120.50'],
+  ])('readRentTerm takes the MRE float %j as %s (review on #78: exponent notation included, no -0.00)', async (amount, expected) => {
+    const stub = await startStub(200, JSON.stringify({ term: 2027010100, totalWithoutBalanceAmount: amount, payments: [] }));
+    try {
+      const read = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readRentTerm('a.b.c', 'r', TENANT_A, '2027010100');
+      if (expected.length > 22) await expectCode(read, 'UNAVAILABLE');
+      else expect((await read)?.amountDue.amount).toBe(expected);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it.each([
+    ['a missing amount due', '{"term":2027010100,"payments":[]}'],
+    ['payments not an array', '{"term":2027010100,"totalWithoutBalanceAmount":800,"payments":{}}'],
+    ['a payment without an amount', '{"term":2027010100,"totalWithoutBalanceAmount":800,"payments":[{"date":"01/01/2027","reference":"Tina"}]}'],
+    ['an amount as text', '{"term":2027010100,"totalWithoutBalanceAmount":"800","payments":[]}'],
+  ])('readRentTerm: %s → UNAVAILABLE, without the body in the message', async (_label, body) => {
+    const stub = await startStub(200, body);
+    try {
+      const read = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readRentTerm('a.b.c', 'r', TENANT_A, '2027010100');
+      await expectCode(read, 'UNAVAILABLE');
+      await expect(read).rejects.not.toThrow(/Tina/);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it.each([
+    [1e21, '1000000000000000000000'],
+    [2.831068712794149e-15, '0.000000000000002831068712794149'],
+    [-1.5e-7, '-0.00000015'],
+    [1.25e+25, '12500000000000000000000000'],
+    [64.5, '64.5'],
+  ])('decimalText(%j) is %s', (value, expected) => {
+    expect(decimalText(value)).toBe(expected);
+  });
+
+  it('decimalText: not finite → undefined', () => {
+    expect(decimalText(Number.NaN)).toBeUndefined();
+    expect(decimalText(Number.POSITIVE_INFINITY)).toBeUndefined();
   });
 
   it.each([

@@ -1,5 +1,9 @@
 import {
+  availableOf,
+  coverageOf,
   matchFingerprint,
+  matchedTotalOf,
+  type Coverage,
   type CreateMatchOutcome,
   type NewMatch,
   type ReconciliationFilter,
@@ -8,9 +12,9 @@ import {
   type RentPaymentReconciliation,
   type RentReconciliationRepository,
 } from '../domains/rent-reconciliation/index.js';
-import type { Money } from '../shared/index.js';
+import type { BusinessDate, Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
-import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { IdempotencyKeyConflictError, MreUnavailableError, VersionConflictError } from './errors.js';
 import { TransactionNotFoundError } from './transaction-splits.js';
 
 /**
@@ -23,6 +27,18 @@ import { TransactionNotFoundError } from './transaction-splits.js';
  * credentials (P4-D1). Throws AccessError when MRE refuses the caller and MreUnavailableError when MRE cannot be asked.
  */
 export type MreRentTermLookup = (authorizationHeader: string, mreRealmId: string, mreTenantId: string, mreRentTerm: string) => Promise<boolean>;
+
+/** An MRE rent term as the coverage read shows it (§37.2): MRE settlement, never cash (BR-RENT-001). */
+export interface MreRentTermView {
+  readonly amountDue: Money;
+  readonly payments: readonly { readonly date: BusinessDate | null; readonly amount: Money; readonly type: string | null; readonly reference: string | null }[];
+}
+
+/**
+ * The rent term read live with the caller's own MRE credentials; undefined when MRE does not return it. Throws
+ * AccessError when MRE refuses the caller and MreUnavailableError when MRE cannot be asked.
+ */
+export type MreRentTermReader = (authorizationHeader: string, mreRealmId: string, mreTenantId: string, mreRentTerm: string) => Promise<MreRentTermView | undefined>;
 
 export class ReconciliationNotFoundError extends Error {
   override readonly name = 'ReconciliationNotFoundError';
@@ -189,5 +205,75 @@ export function releaseReconciliation(deps: { readonly repository: RentReconcili
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
+  };
+}
+
+export type MreStatus = 'AVAILABLE' | 'NOT_RETURNED' | 'UNAVAILABLE';
+
+export interface TermCoverage {
+  readonly mreTenantId: string;
+  readonly mreRentTerm: string;
+  readonly reconciliations: readonly RentPaymentReconciliation[];
+  readonly matchedTotal: Money;
+  readonly mreStatus: MreStatus;
+  readonly mre: MreRentTermView | null;
+  readonly coverage: Coverage | null;
+  readonly openAmount: Money | null;
+}
+
+export type GetTermCoverage = (input: {
+  readonly principal: RealmPrincipal;
+  readonly authorizationHeader: string;
+  readonly mreTenantId: string;
+  readonly mreRentTerm: string;
+}) => Promise<TermCoverage>;
+
+/**
+ * §37.2's per-term read: DE's side always, MRE's side read live next to it and never merged. An MRE outage degrades
+ * to `UNAVAILABLE` with DE's side (BR-MRE-004); a refused token or caller stays an error (AccessError passes).
+ */
+export function getTermCoverage(deps: { readonly repository: RentReconciliationRepository; readonly readMreRentTerm: MreRentTermReader }): GetTermCoverage {
+  return async ({ principal, authorizationHeader, mreTenantId, mreRentTerm }) => {
+    const reconciliations = await deps.repository.termSide(principal.mreRealmId, mreTenantId, mreRentTerm);
+    const matchedTotal = matchedTotalOf(reconciliations);
+    let mre: MreRentTermView | undefined;
+    try {
+      mre = await deps.readMreRentTerm(authorizationHeader, principal.mreRealmId, mreTenantId, mreRentTerm);
+    } catch (error) {
+      if (!(error instanceof MreUnavailableError)) throw error;
+      return { mreTenantId, mreRentTerm, reconciliations, matchedTotal, mreStatus: 'UNAVAILABLE', mre: null, coverage: null, openAmount: null };
+    }
+    if (mre === undefined) {
+      return { mreTenantId, mreRentTerm, reconciliations, matchedTotal, mreStatus: 'NOT_RETURNED', mre: null, coverage: null, openAmount: null };
+    }
+    const { coverage, openAmount } = coverageOf(mre.amountDue, matchedTotal);
+    return { mreTenantId, mreRentTerm, reconciliations, matchedTotal, mreStatus: 'AVAILABLE', mre, coverage, openAmount };
+  };
+}
+
+export interface TransactionCoverage {
+  readonly transactionId: string;
+  readonly status: string;
+  readonly direction: string;
+  readonly correctionRole: string | null;
+  readonly counted: boolean;
+  readonly rentCash: Money | null;
+  readonly matchedTotal: Money;
+  readonly available: Money | null;
+  readonly reconciliations: readonly RentPaymentReconciliation[];
+}
+
+export type GetTransactionCoverage = (input: { readonly principal: RealmPrincipal; readonly transactionId: string }) => Promise<TransactionCoverage>;
+
+/** §37.2's per-Transaction read; never asks MRE. Cash that is not counted is not available to match. */
+export function getTransactionCoverage(deps: { readonly repository: RentReconciliationRepository }): GetTransactionCoverage {
+  return async ({ principal, transactionId }) => {
+    const side = await deps.repository.transactionSide(transactionId, principal.mreRealmId);
+    if (side === undefined) throw new TransactionNotFoundError(transactionId);
+    const counted = (side.status === 'CONFIRMED' || side.status === 'RECONCILED') && side.correctionRole !== 'REVERSAL';
+    const confirmed = side.reconciliations.filter((r) => r.status === 'CONFIRMED');
+    const matchedTotal = matchedTotalOf(side.reconciliations);
+    const available = counted && side.rentCash !== null ? availableOf({ ...side, rentCash: side.rentCash, confirmed }) : null;
+    return { ...side, counted, matchedTotal, available };
   };
 }

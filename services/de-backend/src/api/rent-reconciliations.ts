@@ -19,6 +19,11 @@ import {
   isTermKey,
   type CreateReconciliation,
   type GetReconciliation,
+  type GetTermCoverage,
+  type GetTransactionCoverage,
+  type MreRentTermView,
+  type TermCoverage,
+  type TransactionCoverage,
   type ListReconciliations,
   type RealmPrincipal,
   type ReconciliationStatus,
@@ -70,11 +75,16 @@ const listQuery = z
   })
   .strict();
 
+/** The coverage reads take no query parameters (§37.2). */
+const noQuery = z.object({}).strict();
+
 export interface RentReconciliationCommands {
   readonly create: CreateReconciliation;
   readonly get: GetReconciliation;
   readonly list: ListReconciliations;
   readonly release: ReleaseReconciliation;
+  readonly termCoverage: GetTermCoverage;
+  readonly transactionCoverage: GetTransactionCoverage;
 }
 
 /** Rent reconciliation API (api-design.md §37.1, backlog VC-4-01). */
@@ -123,6 +133,33 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
       .list({ principal: principalOf(res), filter: definedOnly(filter), page: { page, pageSize } })
       .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
       .catch(next);
+  });
+
+  router.get('/rent-reconciliations/terms/:mreTenantId/:mreRentTerm', (req, res, next) => {
+    const parsed = z.object({ mreTenantId, mreRentTerm }).safeParse(req.params);
+    const query = noQuery.safeParse(req.query);
+    if (!parsed.success || !query.success) {
+      sendValidationError(res, [...(parsed.success ? [] : fieldErrors(parsed.error)), ...(query.success ? [] : fieldErrors(query.error))]);
+      return;
+    }
+    commands
+      .termCoverage({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
+      .then((result) => res.json(toTermDto(result)))
+      .catch(fail(res, next));
+  });
+
+  router.get('/transactions/:transactionId/rent-reconciliations', (req, res, next) => {
+    const transactionId = readId(req.params['transactionId'], 'transactionId', res);
+    if (transactionId === undefined) return;
+    const query = noQuery.safeParse(req.query);
+    if (!query.success) {
+      sendValidationError(res, fieldErrors(query.error));
+      return;
+    }
+    commands
+      .transactionCoverage({ principal: principalOf(res), transactionId })
+      .then((result) => res.json(toTransactionDto(result)))
+      .catch(fail(res, next));
   });
 
   router.get('/rent-reconciliations/:reconciliationId', (req, res, next) => {
@@ -230,5 +267,39 @@ function toDto(r: RentPaymentReconciliation) {
     mreWriteBackState: r.mreWriteBackState,
     createdAt: r.createdAt.toISOString(),
     version: r.version,
+  };
+}
+
+function toMreDto(mre: MreRentTermView) {
+  return {
+    amountDue: mre.amountDue.toJSON(),
+    payments: mre.payments.map((p) => ({ date: p.date, amount: p.amount.toJSON(), type: p.type, reference: p.reference })),
+  };
+}
+
+function toTermDto(t: TermCoverage) {
+  return {
+    mreTenantId: t.mreTenantId,
+    mreRentTerm: t.mreRentTerm,
+    reconciliations: t.reconciliations.map(toDto),
+    matchedTotal: t.matchedTotal.toJSON(),
+    mreStatus: t.mreStatus,
+    mre: t.mre === null ? null : toMreDto(t.mre),
+    coverage: t.coverage,
+    openAmount: t.openAmount?.toJSON() ?? null,
+  };
+}
+
+function toTransactionDto(t: TransactionCoverage) {
+  return {
+    transactionId: t.transactionId,
+    status: t.status,
+    direction: t.direction,
+    correctionRole: t.correctionRole,
+    counted: t.counted,
+    rentCash: t.rentCash?.toJSON() ?? null,
+    matchedTotal: t.matchedTotal.toJSON(),
+    available: t.available?.toJSON() ?? null,
+    reconciliations: t.reconciliations.map(toDto),
   };
 }

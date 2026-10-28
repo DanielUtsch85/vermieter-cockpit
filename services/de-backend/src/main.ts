@@ -40,6 +40,8 @@ import {
   getReconciliation,
   listReconciliations,
   releaseReconciliation,
+  getTermCoverage,
+  getTransactionCoverage,
   createBalanceStatement,
   createLoanTerms,
   getLoanPayments,
@@ -106,7 +108,7 @@ import {
 } from './infrastructure/postgres/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreTenantLookup } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreRentTermReader, mreTenantLookup } from './wiring.js';
 
 /** Composition root: wires configuration, infrastructure and the HTTP app. */
 const config = loadConfig(process.env);
@@ -176,6 +178,8 @@ const app = createApp({
   getReconciliation: getReconciliation({ repository: rentReconciliations }),
   listReconciliations: listReconciliations({ repository: rentReconciliations }),
   releaseReconciliation: releaseReconciliation({ repository: rentReconciliations }),
+  getTermCoverage: getTermCoverage({ repository: rentReconciliations, readMreRentTerm: mreRentTermReader(mreClient) }),
+  getTransactionCoverage: getTransactionCoverage({ repository: rentReconciliations }),
   createLoanTerms: createLoanTerms({ repository: loanTerms }),
   voidLoanTerms: voidLoanTerms({ repository: loanTerms }),
   listLoanTerms: listLoanTerms({ repository: loanTerms }),

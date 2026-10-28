@@ -15,6 +15,7 @@ import {
   type RentPaymentReconciliation,
   type RentPaymentReconciliationId,
   type RentReconciliationRepository,
+  type TransactionRentSide,
 } from '../../domains/rent-reconciliation/index.js';
 import { checkVersion, type AuditActor } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
@@ -163,6 +164,37 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
       if (error instanceof Rejected) return error.outcome;
       throw error;
     }
+  }
+
+  async termSide(mreRealmId: string, mreTenantId: string, mreRentTerm: string): Promise<readonly RentPaymentReconciliation[]> {
+    const rows = await this.db
+      .selectFrom('rent_payment_reconciliation')
+      .select(COLUMNS)
+      .where('mre_realm_id', '=', mreRealmId)
+      .where('mre_tenant_id', '=', mreTenantId)
+      .where('mre_rent_term', '=', mreRentTerm)
+      .orderBy('created_at')
+      .orderBy('id')
+      .execute();
+    return rows.map(toReconciliation);
+  }
+
+  async transactionSide(transactionId: string, mreRealmId: string): Promise<TransactionRentSide | undefined> {
+    if (!UUID.test(transactionId)) return undefined;
+    // The cash view and the reconciliations in one snapshot, so `available` agrees with the list.
+    return this.db.transaction().setIsolationLevel('repeatable read').setAccessMode('read only').execute(async (trx) => {
+      const cash = await cashOf(trx, transactionId, mreRealmId, false);
+      if (cash === undefined) return undefined;
+      const rows = await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('transaction_id', '=', transactionId).orderBy('created_at').orderBy('id').execute();
+      return {
+        transactionId,
+        status: cash.status,
+        direction: cash.direction,
+        correctionRole: cash.correctionRole,
+        rentCash: cash.rentCash,
+        reconciliations: rows.map(toReconciliation),
+      };
+    });
   }
 
   async findById(id: string, mreRealmId: string): Promise<RentPaymentReconciliation | undefined> {

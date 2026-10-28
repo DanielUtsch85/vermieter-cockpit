@@ -103,6 +103,29 @@ export function checkMatch(cash: MatchCash | undefined, request: Pick<NewMatch, 
   return undefined;
 }
 
+export const COVERAGES = ['UNMATCHED', 'PARTIALLY_MATCHED', 'MATCHED', 'OVERPAID'] as const;
+export type Coverage = (typeof COVERAGES)[number];
+
+/**
+ * A term's coverage by DE cash (api-design.md §37.2, BR-RENT-006/007): `matchedTotal` (DE's `CONFIRMED` matches)
+ * against MRE's `amountDue`. MRE's own payments never enter it (BR-RENT-001). `openAmount` is signed: negative when
+ * overpaid, and the rest stays visible (nothing is carried to another term).
+ */
+export function coverageOf(amountDue: Money, matchedTotal: Money): { readonly coverage: Coverage; readonly openAmount: Money } {
+  const openAmount = amountDue.subtract(matchedTotal);
+  const order = matchedTotal.compare(amountDue);
+  const coverage: Coverage = order > 0 ? 'OVERPAID' : order === 0 ? 'MATCHED' : matchedTotal.isZero() ? 'UNMATCHED' : 'PARTIALLY_MATCHED';
+  return { coverage, openAmount };
+}
+
+/** Σ `matchedAmount` of the `CONFIRMED` ones; `0.00` when none (§37.2). */
+export function matchedTotalOf(reconciliations: readonly Pick<RentPaymentReconciliation, 'status' | 'matchedAmount'>[]): Money {
+  return Money.sum(
+    reconciliations.filter((r) => r.status === 'CONFIRMED').map((r) => r.matchedAmount),
+    'EUR',
+  );
+}
+
 /** The idempotency fingerprint of a manual match: the normalized body (§15). */
 export function matchFingerprint(match: NewMatch): string {
   return JSON.stringify([match.transactionId, match.mreTenantId, match.mreRentTerm, match.matchedAmount.amount, match.matchedAmount.currency, match.notes]);
@@ -153,7 +176,21 @@ export interface ReconciliationPage {
   readonly total: number;
 }
 
+/** The DE side of a Transaction's coverage read (§37.2): the cash rules' view and every reconciliation of it. */
+export interface TransactionRentSide {
+  readonly transactionId: string;
+  readonly status: string;
+  readonly direction: string;
+  readonly correctionRole: string | null;
+  readonly rentCash: Money | null;
+  readonly reconciliations: readonly RentPaymentReconciliation[];
+}
+
 export interface RentReconciliationRepository {
+  /** Every reconciliation of the Realm for this Tenant and term, in `createdAt` order (§37.2's DE side). */
+  termSide(mreRealmId: string, mreTenantId: string, mreRentTerm: string): Promise<readonly RentPaymentReconciliation[]>;
+  /** The Transaction of the Realm with its rent cash and reconciliations, in one snapshot; undefined when unknown. */
+  transactionSide(transactionId: string, mreRealmId: string): Promise<TransactionRentSide | undefined>;
   /** Checks 2–7 and a replay of the key, in one snapshot; nothing is written. */
   precheck(match: NewMatch, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<PrecheckOutcome>;
   /** The Transaction row first (P4-D8's no-op write), then checks 2–7 again, then the insert and its AuditRecord. */

@@ -300,6 +300,8 @@ export {
   TransactionNotInflowError,
   createReconciliation,
   getReconciliation,
+  getTermCoverage,
+  getTransactionCoverage,
   listReconciliations,
   releaseReconciliation,
 } from './rent-reconciliations.js';
@@ -307,9 +309,16 @@ export type {
   CreateReconciliation,
   CreateReconciliationInput,
   GetReconciliation,
+  GetTermCoverage,
+  GetTransactionCoverage,
+  MreRentTermReader,
+  MreRentTermView,
+  MreStatus,
+  TermCoverage,
+  TransactionCoverage,
   ListReconciliations,
   MreRentTermLookup,
   ReleaseReconciliation,
 } from './rent-reconciliations.js';
 export { RECONCILIATION_STATUSES, isTermKey } from '../domains/rent-reconciliation/index.js';
-export type { ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';
+export type { Coverage, ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';

@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { z } from 'zod';
+import { Money } from '../../shared/index.js';
 import { HttpMreClient } from './http-mre-client.js';
 
 /**
@@ -258,6 +259,27 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       expect(await client.rentTermExists(await token(), realmA, tenantId, '2027120100')).toBe(true);
       expect(await client.rentTermExists(await token(), realmA, tenantId, '2028010100')).toBe(false);
       expect(await client.rentTermExists(await token(), realmB, tenantId, '2027010100')).toBe(false);
+    });
+
+    it('the term carries totalWithoutBalanceAmount and payments; a payment written through MRE comes back with date, amount, type and reference (VC-4-02)', async () => {
+      const t = await token();
+      const raw = await call(`/rents/tenant/${tenantId}/2027030100`, { token: t, realm: realmA });
+      expect(raw.status).toBe(200);
+      expect(z.object({ totalWithoutBalanceAmount: z.number(), payments: z.array(z.unknown()) }).parse(raw.json)).toMatchObject({ totalWithoutBalanceAmount: 800, payments: [] });
+      // MRE's own form writes a payment this way (PaymentTabs.js): the Tenant in the body's _id (review on #75).
+      const paid = await call('/rents/payment/' + tenantId + '/2027030100', {
+        method: 'PATCH',
+        token: t,
+        realm: realmA,
+        body: { _id: tenantId, payments: [{ date: '05/03/2027', amount: 800, type: 'transfer', reference: 'DE-RPR-contract' }] },
+      });
+      expect(paid.status).toBe(200);
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      expect(await client.readRentTerm(await token(), realmA, tenantId, '2027030100')).toEqual({
+        amountDue: Money.of('800.00', 'EUR'),
+        payments: [{ date: '2027-03-05', amount: Money.of('800.00', 'EUR'), type: 'transfer', reference: 'DE-RPR-contract' }],
+      });
+      expect(await client.readRentTerm(await token(), realmA, tenantId, '2028010100')).toBeUndefined();
     });
   });
 });
