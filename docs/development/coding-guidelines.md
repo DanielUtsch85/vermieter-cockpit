@@ -48,7 +48,7 @@ Runtime dependencies are added to `services/de-backend` by the backlog item that
 
 # 3. Module structure (modular monolith)
 
-One deployable backend, strong internal boundaries (ADR-026). Conceptual layout (`technology.md` §5):
+One deployable backend, strong internal boundaries (ADR-026). Conceptual layout (`technology.md` §5), the target structure; a module directory is created with the first feature that needs it, never as an empty placeholder:
 
 ```text
 de-backend/
