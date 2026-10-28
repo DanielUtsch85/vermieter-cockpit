@@ -21,7 +21,7 @@ export interface SignedAmount {
  * misread separator would change the amount by orders of magnitude.
  */
 export function parseSignedAmount(raw: string, decimalSeparator: DecimalSeparator): SignedAmount | undefined {
-  const value = raw.replace(/[\s ]/g, '');
+  const value = raw.replace(/[\s\u00a0]/g, '');
   const thousands = decimalSeparator === ',' ? '\\.' : ',';
   const decimal = decimalSeparator === ',' ? ',' : '\\.';
   const pattern = new RegExp(`^([+-]?)((?:\\d{1,3}(?:${thousands}\\d{3})+)|\\d+)(?:${decimal}(\\d+))?$`);
@@ -58,7 +58,7 @@ export function normalizeText(raw: string | undefined): string | null {
 /** Strips presentation formatting from an IBAN and upper-cases it (§70.3); not validated. */
 export function normalizeIbanRaw(raw: string | undefined): string | null {
   if (raw === undefined) return null;
-  const iban = raw.replace(/[\s -]/g, '').toUpperCase();
+  const iban = raw.replace(/[\s\u00a0-]/g, '').toUpperCase();
   return iban === '' ? null : iban;
 }
 

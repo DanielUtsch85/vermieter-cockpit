@@ -510,7 +510,7 @@ function fromSnapshot(result: unknown): Ownership {
   const snapshot = result as OwnershipSnapshot;
   return {
     ...snapshot,
-    id: snapshot.id as OwnershipId,
+    id: snapshot.id,
     createdAt: new Date(snapshot.createdAt),
     voidedAt: snapshot.voidedAt === null ? null : new Date(snapshot.voidedAt),
   };

@@ -477,7 +477,7 @@ function fromSnapshot(result: unknown): Loan {
   const s = result as LoanSnapshot;
   return {
     ...s,
-    id: s.id as LoanId,
+    id: s.id,
     principalOriginal: fromNumericAmount(s.principalOriginal.amount, s.principalOriginal.currency),
     createdAt: new Date(s.createdAt),
     voidedAt: s.voidedAt === null ? null : new Date(s.voidedAt),

@@ -5,7 +5,6 @@ import type {
 } from '../domains/property-reference/index.js';
 import type { ExactDecimal } from '../shared/index.js';
 import { AccessError, type RealmPrincipal } from './access.js';
-import { MreUnavailableError } from './errors.js';
 
 /**
  * Link Property command (api-design.md §23, backlog VC-1-01): binds an MRE

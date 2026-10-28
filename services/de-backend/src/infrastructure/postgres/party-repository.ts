@@ -242,7 +242,7 @@ function fromSnapshot(result: unknown): Party {
   const snapshot = result as PartySnapshot;
   return {
     ...snapshot,
-    id: snapshot.id as PartyId,
+    id: snapshot.id,
     createdAt: new Date(snapshot.createdAt),
     deactivatedAt: snapshot.deactivatedAt === null ? null : new Date(snapshot.deactivatedAt),
   };

@@ -86,7 +86,7 @@ describe('generic-csv v1', () => {
   });
 
   it('skips preamble lines, a UTF-8 BOM and empty lines', () => {
-    const file = `﻿Konto;DE89370400440532013000\nZeitraum;09/2026\n\n${sparkasse}\n\n`;
+    const file = `\uFEFFKonto;DE89370400440532013000\nZeitraum;09/2026\n\n${sparkasse}\n\n`;
     expect(rowsOf(parse(file, { columnMapping: mapping, skipLines: 3 }))).toHaveLength(3);
   });
 

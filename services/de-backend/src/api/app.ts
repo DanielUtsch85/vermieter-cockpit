@@ -243,7 +243,7 @@ export function createApp(deps: AppDependencies): Express {
 
   // Readiness: dependencies are reachable. A failing or throwing check is "not ready".
   app.get('/health/ready', (_req, res) => {
-    deps
+    void deps
       .isReady()
       .catch(() => false)
       .then((ready) => {
