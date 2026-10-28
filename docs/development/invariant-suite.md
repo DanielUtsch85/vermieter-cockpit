@@ -536,17 +536,17 @@ Counter-checked (25 mutants, each red):
 | The lease assumption (review on #82): the latest lease end is kept for good and only grows; a removal before it plus one MRE timeout is `REMOVAL_TOO_EARLY`; the database refuses a removal claim before it | RD "removal: only RELEASED …"; RR "refusals: …", "schema (0033) …"; RE "removal (§37.5) …"; RA "removal from MRE (§37.5) …" |
 | One MRE write per Tenant: the index over `PENDING` and `REMOVING`; an expired `REMOVING` is taken over by a removal and by a write-back of the Tenant (`REMOVAL_FAILED`, `LEASE_EXPIRED`, review on #84); a live one blocks both | RD "removal: only RELEASED …"; RR "takeovers: …", "concurrency: a removal waiting …", "schema (0033) …" |
 | The backfill (review on #84): a `REMOVAL_REQUIRED` from a failed write-back gets `released_at + 2 minutes`, a `WRITTEN` its written time + 2 minutes, `NOT_WRITTEN` stays `NULL`; the CHECK keeps every claimed state's last lease end not null | RM "a REMOVAL_REQUIRED from FAILED …", "a removal of the released failed write-back …"; RR "schema (0033) …" |
-| Release on the database's clock (review on #83): an application clock running ahead gets `WRITE_BACK_IN_PROGRESS`, never a `500` | RR "release on the database clock …" |
+| Release on the database's clock (review on #83): an application clock running ahead gets `WRITE_BACK_IN_PROGRESS`, never a `500`; one running behind does not keep a lease the database has ended (review on #85: the expired `PENDING` is released as `REMOVAL_REQUIRED`) | RR "release on the database clock …" (both) |
 | The presence check also reads `REMOVAL_FAILED` and `REMOVED`: `PRESENT` on `REMOVED` reports a payment that reappeared | RB "getReconciliationWithPresence …"; RE "removal (§37.5) …" |
 | Realm isolation: another Realm cannot remove a reconciliation | RE "removal (§37.5) …" |
 
 Counter-checked (19 mutants, each red):
 - **in the domain:** a payment without DE's marker removed; the lease margin dropped; `REMOVED` not a no-op; a removal from `NOT_WRITTEN` allowed;
 - **in the application:** the read before the removal skipped (the crash test then sends a second PATCH); the removal verification skipped; the presence check not on `REMOVED`;
-- **in the repository:** the last lease end cleared on record, or set instead of raised; the record without the attempt check; the claim's holders only `PENDING` (review on #84); an expired `REMOVING` failed as `FAILED`; the release on the application's clock without the trigger's mapping (either alone is covered by the other: the plan and the mapping both answer `WRITE_BACK_IN_PROGRESS`);
+- **in the repository:** the last lease end cleared on record, or set instead of raised; the record without the attempt check; the claim's holders only `PENDING` (review on #84); an expired `REMOVING` failed as `FAILED`; the release on the application's clock without the trigger's mapping, and the release on the application's clock alone (review on #85: the clock running behind then refuses a lease the database has ended);
 - **in 0033:** the index without `REMOVING`; the trigger letting the last lease end change outside a claim, or allowing a removal claim before it; the last-lease CHECK dropped; the removed-fields CHECK dropped; the backfill without `released_at` (review on #84; the migration then fails its own CHECK).
 
-## 29. Phase 4 exit (VC-4-06, roadmap Phase 4)
+## 29. Phase 4 exit (VC-4-06, roadmap Phase 4; implemented)
 
 The exit of `docs/roadmap.md` Phase 4, claim by claim: *a bank transaction can be matched to an MRE rent obligation, confirmed by a human, and written back to MRE exactly once; MRE settlement and DE cash remain distinct records.* Each claim is shown **end to end through the HTTP API** by **ACC4** (`phase-4-acceptance.e2e.test.ts`), one scenario against PostgreSQL and the fake MRE, as ACC3 does for Phase 3. It is backed by §24–§28. The figures are hand-computed and stated here, so the test checks them literally.
 
