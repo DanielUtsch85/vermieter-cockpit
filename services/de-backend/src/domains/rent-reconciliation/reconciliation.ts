@@ -1,4 +1,5 @@
-import { Money, type AuditActor, type VersionConflict } from '../../shared/index.js';
+import { Money, type AuditActor, type BusinessDate, type VersionConflict } from '../../shared/index.js';
+import type { Suggestion, SuggestionCandidate, SuggestionPair } from './suggestion.js';
 
 /**
  * RentPaymentReconciliation (data-model.md §18A, api-design.md §37.1, phase-4-plan P4-D1…D3, P4-D7): counted rent cash
@@ -32,6 +33,9 @@ export interface RentPaymentReconciliation {
   readonly releasedAt: Date | null;
   readonly releasedBy: string | null;
   readonly releaseReason: string | null;
+  readonly rejectedAt: Date | null;
+  readonly rejectedBy: string | null;
+  readonly rejectReason: string | null;
   readonly notes: string | null;
   readonly mreWriteBackState: MreWriteBackState;
   readonly createdAt: Date;
@@ -186,7 +190,91 @@ export interface TransactionRentSide {
   readonly reconciliations: readonly RentPaymentReconciliation[];
 }
 
+export type ConfirmPlan =
+  | { readonly kind: 'CONFIRM'; readonly amount: Money }
+  /** Already `CONFIRMED` with this amount: a 200 no-op whatever the version. */
+  | { readonly kind: 'UNCHANGED' }
+  | { readonly kind: 'NOT_CONFIRMABLE'; readonly status: ReconciliationStatus }
+  | { readonly kind: 'ABOVE_SUGGESTION'; readonly suggested: Money };
+
+/** Checks 3–4 of §37.3's confirm: the status, then the amount (lowered or kept, never raised). */
+export function planConfirm(current: RentPaymentReconciliation, requested: Money | undefined): ConfirmPlan {
+  if (current.status === 'CONFIRMED' && (requested === undefined || requested.equals(current.matchedAmount))) return { kind: 'UNCHANGED' };
+  if (current.status !== 'SUGGESTED') return { kind: 'NOT_CONFIRMABLE', status: current.status };
+  const amount = requested ?? current.matchedAmount;
+  if (amount.compare(current.matchedAmount) > 0) return { kind: 'ABOVE_SUGGESTION', suggested: current.matchedAmount };
+  return { kind: 'CONFIRM', amount };
+}
+
+/**
+ * Check 7 of §37.3's confirm: the amount above the term's open amount now (MRE's amount due − the term's `CONFIRMED`
+ * matches) means someone matched the term in between.
+ */
+export function staleBy(amount: Money, amountDue: Money, termConfirmed: Money): { readonly openAmount: Money } | undefined {
+  const openAmount = amountDue.subtract(termConfirmed);
+  return amount.compare(openAmount) > 0 ? { openAmount } : undefined;
+}
+
+export type RejectPlan =
+  | { readonly kind: 'REJECT'; readonly next: RentPaymentReconciliation }
+  /** Already `REJECTED`: a 200 no-op keeping the first reason. */
+  | { readonly kind: 'UNCHANGED' }
+  | { readonly kind: 'NOT_REJECTABLE'; readonly status: ReconciliationStatus };
+
+export function planReject(current: RentPaymentReconciliation, reason: string, at: Date, actor: AuditActor): RejectPlan {
+  if (current.status === 'REJECTED') return { kind: 'UNCHANGED' };
+  if (current.status !== 'SUGGESTED') return { kind: 'NOT_REJECTABLE', status: current.status };
+  return { kind: 'REJECT', next: { ...current, status: 'REJECTED', rejectedAt: at, rejectedBy: actor.actorId, rejectReason: reason, version: current.version + 1 } };
+}
+
+/** What a confirm needs before the MRE read: the reconciliation and the amount, or why not (§37.3 checks 2–5). */
+export type ConfirmPrecheck =
+  | { readonly kind: 'PROCEED'; readonly reconciliation: RentPaymentReconciliation; readonly amount: Money }
+  | { readonly kind: 'UNCHANGED'; readonly reconciliation: RentPaymentReconciliation }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<ConfirmPlan, { kind: 'CONFIRM' | 'UNCHANGED' }>
+  | Exclude<MatchRefusal, { kind: 'TRANSACTION_NOT_FOUND' }>;
+
+export type ConfirmOutcome =
+  | { readonly kind: 'CONFIRMED'; readonly reconciliation: RentPaymentReconciliation; readonly changed: boolean }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<ConfirmPlan, { kind: 'CONFIRM' | 'UNCHANGED' }>
+  | Exclude<MatchRefusal, { kind: 'TRANSACTION_NOT_FOUND' }>
+  | { readonly kind: 'SUGGESTION_STALE'; readonly openAmount: Money }
+  | VersionConflict;
+
+export type RejectOutcome =
+  | { readonly kind: 'REJECTED'; readonly reconciliation: RentPaymentReconciliation; readonly changed: boolean }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<RejectPlan, { kind: 'REJECT' | 'UNCHANGED' }>
+  | VersionConflict;
+
+/** The DE side of a suggest run (§37.3 step 2), read in one snapshot. */
+export interface SuggestionSnapshot {
+  readonly candidates: readonly SuggestionCandidate[];
+  /** Σ `CONFIRMED` per term key `tenant/term` of the given terms. */
+  readonly confirmedByTerm: ReadonlyMap<string, Money>;
+  readonly handled: readonly SuggestionPair[];
+  readonly open: readonly SuggestionPair[];
+  readonly history: readonly { readonly mreTenantId: string; readonly counterpartyIban: string }[];
+}
+
 export interface RentReconciliationRepository {
+  /** §37.3 step 2: candidates booked from `from` to `to`, the terms' confirmed sums, handled and open pairs, the IBAN history. */
+  suggestionSnapshot(
+    mreRealmId: string,
+    terms: readonly { readonly mreTenantId: string; readonly mreRentTerm: string }[],
+    from: BusinessDate,
+    to: BusinessDate,
+  ): Promise<SuggestionSnapshot>;
+  /** §37.3 step 4: the Transactions in id order, each pair re-checked; returns the reconciliations written. */
+  writeSuggestions(mreRealmId: string, suggestions: readonly Suggestion[], actor: AuditActor): Promise<readonly RentPaymentReconciliation[]>;
+  /** §37.3 confirm checks 2–5 in one snapshot, before the MRE read. */
+  confirmPrecheck(id: string, mreRealmId: string, amount: Money | undefined): Promise<ConfirmPrecheck>;
+  /** The Transaction row first, then the reconciliation `FOR UPDATE`; checks 3–5 and 7 again with MRE's amount due. */
+  confirm(id: string, mreRealmId: string, amount: Money | undefined, amountDue: Money, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmOutcome>;
+  /** The reconciliation `FOR UPDATE` only: a rejection consumes no cash. */
+  reject(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RejectOutcome>;
   /** Every reconciliation of the Realm for this Tenant and term, in `createdAt` order (§37.2's DE side). */
   termSide(mreRealmId: string, mreTenantId: string, mreRentTerm: string): Promise<readonly RentPaymentReconciliation[]>;
   /** The Transaction of the Realm with its rent cash and reconciliations, in one snapshot; undefined when unknown. */

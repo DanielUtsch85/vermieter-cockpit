@@ -31,6 +31,7 @@ function fakeClient(behaviour: 'ok' | MreClientError = 'ok'): MreClient & { call
     listTenantIds: async () => [],
     rentTermExists: async () => false,
     readRentTerm: async () => undefined,
+    listRentTerms: async () => [],
   };
 }
 
@@ -83,7 +84,7 @@ describe('verifyMrePrincipal', () => {
     ['internal service', { service: { serviceId: 'api', realmId: 'realm-a', role: 'administrator' } }],
     ['account without email', { account: {} }],
   ])('rejects a %s token even if MRE answers', async (_label, payload) => {
-    const client: MreClient = { listRealms: async () => realms, listProperties: async () => [], listTenantIds: async () => [], rentTermExists: async () => false, readRentTerm: async () => undefined };
+    const client: MreClient = { listRealms: async () => realms, listProperties: async () => [], listTenantIds: async () => [], rentTermExists: async () => false, readRentTerm: async () => undefined, listRentTerms: async () => [] };
     await expectCode(verifyMrePrincipal(client, bearer(payload), 'realm-a'), 'NOT_A_REALM_MEMBER');
   });
 

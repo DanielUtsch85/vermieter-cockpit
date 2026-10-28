@@ -1,6 +1,13 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  AboveSuggestionError,
+  NotConfirmableError,
+  NotRejectableError,
+  SuggestionStaleError,
+  type ConfirmReconciliation,
+  type RejectReconciliation,
+  type SuggestReconciliations,
   AccessError,
   AlreadyMatchedError,
   IdempotencyKeyConflictError,
@@ -58,6 +65,28 @@ const createBody = z
 
 const releaseBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
+/** `YYYY-MM` with a real month. */
+const yearMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+const monthIndex = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7));
+const suggestBody = z
+  .object({ from: yearMonth, to: yearMonth })
+  .strict()
+  .superRefine((body, ctx) => {
+    // Refinements run even after a field failed to parse: only check what parsed.
+    if (typeof body.from !== 'string' || typeof body.to !== 'string') return;
+    const span = monthIndex(body.to) - monthIndex(body.from);
+    if (span < 0) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'INVALID_RANGE' } });
+    else if (span >= 12) ctx.addIssue({ code: 'custom', path: ['to'], params: { code: 'RANGE_TOO_LONG' } });
+  });
+const confirmBody = z
+  .object({ matchedAmount: money.optional() })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (body.matchedAmount instanceof Money && !body.matchedAmount.isPositive()) {
+      ctx.addIssue({ code: 'custom', path: ['matchedAmount', 'amount'], params: { code: 'NOT_POSITIVE' } });
+    }
+  });
+
 /** `status` as a comma-separated list, any of them. */
 const statusList = z
   .string()
@@ -85,6 +114,9 @@ export interface RentReconciliationCommands {
   readonly release: ReleaseReconciliation;
   readonly termCoverage: GetTermCoverage;
   readonly transactionCoverage: GetTransactionCoverage;
+  readonly suggest: SuggestReconciliations;
+  readonly confirm: ConfirmReconciliation;
+  readonly reject: RejectReconciliation;
 }
 
 /** Rent reconciliation API (api-design.md §37.1, backlog VC-4-01). */
@@ -119,6 +151,61 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendReconciliation(res.status(201), reconciliation);
       })
+      .catch(fail(res, next));
+  });
+
+  router.post('/rent-reconciliations/suggest', express.json({ limit: '16kb' }), (req, res, next) => {
+    const parsed = suggestBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .suggest({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
+      .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
+      .catch(fail(res, next));
+  });
+
+  router.post('/rent-reconciliations/:reconciliationId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
+    const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
+    if (reconciliationId === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = confirmBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .confirm({
+        principal: principalOf(res),
+        authorizationHeader: req.headers.authorization ?? '',
+        reconciliationId,
+        ...(parsed.data.matchedAmount === undefined ? {} : { matchedAmount: parsed.data.matchedAmount }),
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+      })
+      .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
+      .catch(fail(res, next));
+  });
+
+  router.post('/rent-reconciliations/:reconciliationId/reject', express.json({ limit: '16kb' }), (req, res, next) => {
+    const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
+    if (reconciliationId === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = releaseBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .reject({
+        principal: principalOf(res),
+        reconciliationId,
+        reason: parsed.data.reason,
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+      })
+      .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
       .catch(fail(res, next));
   });
 
@@ -228,6 +315,17 @@ function sendReconciliationError(res: Response, error: unknown): boolean {
   } else if (error instanceof MreRentTermNotFoundError) {
     // MRE also answers 404 when its own database read fails (review on #76), so the message stays neutral.
     sendError(res, 422, 'MRE_RENT_TERM_NOT_FOUND', 'MRE did not return this rent term.', { mreTenantId: error.mreTenantId, mreRentTerm: error.mreRentTerm });
+  } else if (error instanceof AboveSuggestionError) {
+    sendError(res, 422, 'ABOVE_SUGGESTION', 'A confirmation may lower the suggested amount, never raise it.', { suggested: error.suggested.toJSON() });
+  } else if (error instanceof NotConfirmableError) {
+    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be confirmed.`, { reason: 'NOT_CONFIRMABLE', status: error.status });
+  } else if (error instanceof SuggestionStaleError) {
+    sendError(res, 409, 'CONFLICT', 'The term was matched in between; the amount is above its open amount now.', {
+      reason: 'SUGGESTION_STALE',
+      openAmount: error.openAmount.toJSON(),
+    });
+  } else if (error instanceof NotRejectableError) {
+    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be rejected.`, { reason: 'NOT_REJECTABLE', status: error.status });
   } else if (error instanceof NotReleasableError) {
     sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be released.`, { reason: 'NOT_RELEASABLE', status: error.status });
   } else if (error instanceof VersionConflictError) {
@@ -263,6 +361,9 @@ function toDto(r: RentPaymentReconciliation) {
     releasedAt: r.releasedAt?.toISOString() ?? null,
     releasedBy: r.releasedBy,
     releaseReason: r.releaseReason,
+    rejectedAt: r.rejectedAt?.toISOString() ?? null,
+    rejectedBy: r.rejectedBy,
+    rejectReason: r.rejectReason,
     notes: r.notes,
     mreWriteBackState: r.mreWriteBackState,
     createdAt: r.createdAt.toISOString(),

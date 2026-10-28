@@ -45,6 +45,9 @@ import {
   releaseReconciliation,
   getTermCoverage,
   getTransactionCoverage,
+  suggestReconciliations,
+  confirmReconciliation,
+  rejectReconciliation,
   createLoanTerms,
   listLoanTerms,
   voidLoanTerms,
@@ -111,7 +114,7 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreRentTermReader, mreTenantLookup } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreRentTermReader, mreTenantLookup } from './wiring.js';
 
 /**
  * VC-1-09: the Slice-1 definition of done (project-brief.md §7) as one
@@ -213,6 +216,9 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       releaseReconciliation: releaseReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),
       getTermCoverage: getTermCoverage({ repository: new PostgresRentReconciliationRepository(db), readMreRentTerm: mreRentTermReader(client) }),
       getTransactionCoverage: getTransactionCoverage({ repository: new PostgresRentReconciliationRepository(db) }),
+      suggestReconciliations: suggestReconciliations({ repository: new PostgresRentReconciliationRepository(db), readMreMonth: mreMonthReader(client) }),
+      confirmReconciliation: confirmReconciliation({ repository: new PostgresRentReconciliationRepository(db), readMreRentTerm: mreRentTermReader(client) }),
+      rejectReconciliation: rejectReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),
       createLoanTerms: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
       voidLoanTerms: voidLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
       listLoanTerms: listLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),

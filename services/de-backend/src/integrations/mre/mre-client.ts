@@ -52,6 +52,14 @@ export interface MreRentPayment {
   readonly reference: string | null;
 }
 
+/** One rent of an MRE month read (api-design.md §37.3): the Tenant, the term key and the amount due only. */
+export interface MreMonthRent {
+  readonly mreTenantId: string;
+  /** `YYYYMMDDHH` as text. */
+  readonly term: string;
+  readonly amountDue: Money;
+}
+
 export type MreClientErrorCode =
   /** MRE rejected the token (missing, malformed, expired, bad signature): HTTP 401. */
   | 'UNAUTHENTICATED'
@@ -103,4 +111,10 @@ export interface MreClient {
    * undefined on MRE's `404`, with the same meaning.
    */
   readRentTerm(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRentTerm | undefined>;
+
+  /**
+   * Every rent of the Realm in one month, `GET /rents/:year/:month` (api-design.md §37.3), parsed to the Tenant's
+   * `_id`, the term and the amount due; the occupant object with the Tenant's name and contacts is dropped.
+   */
+  listRentTerms(accessToken: string, mreRealmId: string, year: number, month: number): Promise<readonly MreMonthRent[]>;
 }

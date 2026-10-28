@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money } from '../../shared/index.js';
-import { checkMatch, coverageOf, isTermKey, matchedTotalOf, planRelease, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
+import { checkMatch, coverageOf, isTermKey, matchedTotalOf, planConfirm, planReject, planRelease, staleBy, type MatchCash, type RentPaymentReconciliation, type RentPaymentReconciliationId } from './reconciliation.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
@@ -72,6 +72,9 @@ describe('planRelease (§37.1)', () => {
     releasedAt: null,
     releasedBy: null,
     releaseReason: null,
+    rejectedAt: null,
+    rejectedBy: null,
+    rejectReason: null,
     notes: null,
     mreWriteBackState: 'NOT_WRITTEN',
     createdAt: new Date('2027-01-05T10:00:00Z'),
@@ -85,6 +88,35 @@ describe('planRelease (§37.1)', () => {
       kind: 'RELEASE',
       next: { ...reconciliation('CONFIRMED'), status: 'RELEASED', releasedAt: at, releasedBy: 'ben@example.com', releaseReason: 'Irrtum', version: 2 },
     });
+  });
+
+  it('planConfirm (§37.3): keeps or lowers the suggested amount, never raises it; CONFIRMED with that amount a no-op', () => {
+    const suggested = reconciliation('SUGGESTED');
+    expect(planConfirm(suggested, undefined)).toEqual({ kind: 'CONFIRM', amount: eur('800.00') });
+    expect(planConfirm(suggested, eur('700.00'))).toEqual({ kind: 'CONFIRM', amount: eur('700.00') });
+    expect(planConfirm(suggested, eur('800.01'))).toEqual({ kind: 'ABOVE_SUGGESTION', suggested: eur('800.00') });
+    expect(planConfirm(reconciliation('CONFIRMED'), undefined)).toEqual({ kind: 'UNCHANGED' });
+    expect(planConfirm(reconciliation('CONFIRMED'), eur('800.00'))).toEqual({ kind: 'UNCHANGED' });
+    expect(planConfirm(reconciliation('CONFIRMED'), eur('700.00'))).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'CONFIRMED' });
+    expect(planConfirm(reconciliation('REJECTED'), undefined)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'REJECTED' });
+    expect(planConfirm(reconciliation('RELEASED'), undefined)).toEqual({ kind: 'NOT_CONFIRMABLE', status: 'RELEASED' });
+  });
+
+  it('staleBy: above the open amount now (due − the term\'s CONFIRMED) is stale; exactly it is not', () => {
+    expect(staleBy(eur('800.00'), eur('800.00'), eur('0.00'))).toBeUndefined();
+    expect(staleBy(eur('400.00'), eur('800.00'), eur('400.00'))).toBeUndefined();
+    expect(staleBy(eur('400.01'), eur('800.00'), eur('400.00'))).toEqual({ openAmount: eur('400.00') });
+    expect(staleBy(eur('1.00'), eur('800.00'), eur('900.00'))).toEqual({ openAmount: eur('-100.00') });
+  });
+
+  it('planReject: SUGGESTED → REJECTED with the reason; REJECTED a no-op; CONFIRMED and RELEASED not rejectable', () => {
+    expect(planReject(reconciliation('SUGGESTED'), 'falscher Mieter', at, actor)).toEqual({
+      kind: 'REJECT',
+      next: { ...reconciliation('SUGGESTED'), status: 'REJECTED', rejectedAt: at, rejectedBy: 'ben@example.com', rejectReason: 'falscher Mieter', version: 2 },
+    });
+    expect(planReject(reconciliation('REJECTED'), 'x', at, actor)).toEqual({ kind: 'UNCHANGED' });
+    expect(planReject(reconciliation('CONFIRMED'), 'x', at, actor)).toEqual({ kind: 'NOT_REJECTABLE', status: 'CONFIRMED' });
+    expect(planReject(reconciliation('RELEASED'), 'x', at, actor)).toEqual({ kind: 'NOT_REJECTABLE', status: 'RELEASED' });
   });
 
   it('RELEASED is a no-op; SUGGESTED and REJECTED are not releasable', () => {

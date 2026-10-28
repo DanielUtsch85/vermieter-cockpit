@@ -40,6 +40,9 @@ import type {
   CreateReconciliation,
   GetReconciliation,
   GetTermCoverage,
+  ConfirmReconciliation,
+  RejectReconciliation,
+  SuggestReconciliations,
   GetTransactionCoverage,
   ListReconciliations,
   ReleaseReconciliation,
@@ -166,6 +169,10 @@ export interface AppDependencies {
   /** Coverage reads (VC-4-02). */
   readonly getTermCoverage: GetTermCoverage;
   readonly getTransactionCoverage: GetTransactionCoverage;
+  /** Suggestions (VC-4-03). */
+  readonly suggestReconciliations: SuggestReconciliations;
+  readonly confirmReconciliation: ConfirmReconciliation;
+  readonly rejectReconciliation: RejectReconciliation;
   /** Loan terms (VC-3-02). */
   readonly createLoanTerms: CreateLoanTerms;
   readonly voidLoanTerms: VoidLoanTerms;
@@ -301,6 +308,9 @@ export function createApp(deps: AppDependencies): Express {
       release: deps.releaseReconciliation,
       termCoverage: deps.getTermCoverage,
       transactionCoverage: deps.getTransactionCoverage,
+      suggest: deps.suggestReconciliations,
+      confirm: deps.confirmReconciliation,
+      reject: deps.rejectReconciliation,
     }),
   );
   api.use(loanTermsRoutes({ create: deps.createLoanTerms, void: deps.voidLoanTerms, list: deps.listLoanTerms, schedule: deps.getLoanSchedule, proposal: deps.getPaymentProposal }));

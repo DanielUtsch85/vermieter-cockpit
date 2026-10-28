@@ -4,7 +4,14 @@ import { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, MreUnavailableError, VersionConflictError } from './errors.js';
 import {
+  AboveSuggestionError,
   AlreadyMatchedError,
+  NotConfirmableError,
+  NotRejectableError,
+  SuggestionStaleError,
+  confirmReconciliation,
+  rejectReconciliation,
+  suggestReconciliations,
   MreRentTermNotFoundError,
   NoRentCashError,
   NotReleasableError,
@@ -32,6 +39,11 @@ const repository = (overrides: Partial<RentReconciliationRepository>): RentRecon
   precheck: () => Promise.reject(new Error('unused')),
   termSide: () => Promise.reject(new Error('unused')),
   transactionSide: () => Promise.reject(new Error('unused')),
+  suggestionSnapshot: () => Promise.reject(new Error('unused')),
+  writeSuggestions: () => Promise.reject(new Error('unused')),
+  confirmPrecheck: () => Promise.reject(new Error('unused')),
+  confirm: () => Promise.reject(new Error('unused')),
+  reject: () => Promise.reject(new Error('unused')),
   create: () => Promise.reject(new Error('unused')),
   findById: () => Promise.reject(new Error('unused')),
   list: () => Promise.reject(new Error('unused')),
@@ -170,5 +182,132 @@ describe('coverage reads (§37.2)', () => {
     expect(await read({ ...base, correctionRole: 'REVERSAL' })).toMatchObject({ counted: false, available: null });
     expect(await read({ ...base, rentCash: null, reconciliations: [] })).toMatchObject({ counted: true, rentCash: null, available: null, matchedTotal: eur('0.00') });
     await expect(read(undefined)).rejects.toBeInstanceOf(TransactionNotFoundError);
+  });
+});
+
+describe('suggestions (§37.3)', () => {
+  const empty = { candidates: [], confirmedByTerm: new Map(), handled: [], open: [], history: [] };
+
+  it('suggest: MRE months from-1 .. to+1 with the caller\'s header, the candidate dates of all their windows, open = due − confirmed, the neighbours never suggested', async () => {
+    const asked: string[] = [];
+    const snapshots: unknown[][] = [];
+    const written: unknown[][] = [];
+    const due: Record<string, string> = { '2026-12': '800.00', '2027-1': '800.00', '2027-2': '800.00', '2027-3': '800.00' };
+    const suggest = suggestReconciliations({
+      readMreMonth: async (header, realm, year, month) => {
+        asked.push(`${header} ${realm} ${year}-${month}`);
+        const key = `${year}-${month}`;
+        const tenant = year === 2026 ? '6512f0c2a1b2c3d4e5f60a09' : TENANT;
+        return [{ mreTenantId: tenant, term: `${year}${String(month).padStart(2, '0')}0100`, amountDue: eur(due[key] ?? '0.00') }];
+      },
+      repository: repository({
+        suggestionSnapshot: async (...args) => {
+          snapshots.push(args);
+          return {
+            ...empty,
+            // t1 pays the open rest of January; t0 fits the neighbour December only.
+            candidates: [
+              { transactionId: 't0', bookingDate: '2026-12-02' as never, available: eur('800.00'), counterpartyIban: null },
+              { transactionId: 't1', bookingDate: '2027-01-03' as never, available: eur('300.00'), counterpartyIban: null },
+            ],
+            confirmedByTerm: new Map([[`${TENANT}/2027010100`, eur('500.00')]]),
+          };
+        },
+        writeSuggestions: async (...args) => {
+          written.push(args);
+          return [reconciliation];
+        },
+      }),
+    });
+    expect(await suggest({ principal, authorizationHeader: 'Bearer t', from: '2027-01', to: '2027-02' })).toEqual({ from: '2027-01', to: '2027-02', items: [reconciliation] });
+    expect(asked).toEqual([`Bearer t ${REALM} 2026-12`, `Bearer t ${REALM} 2027-1`, `Bearer t ${REALM} 2027-2`, `Bearer t ${REALM} 2027-3`]);
+    expect(snapshots[0]?.slice(2)).toEqual(['2026-11-15', '2027-03-31']);
+    expect(snapshots[0]?.[1]).toHaveLength(4);
+    expect(written[0]?.[1]).toEqual([
+      { transactionId: 't1', mreTenantId: TENANT, mreRentTerm: '2027010100', matchedAmount: eur('300.00'), confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' },
+    ]);
+    expect(written[0]?.[2]).toEqual({ actorType: 'USER', actorId: 'anna@example.com' });
+  });
+
+  it('suggest: a year boundary; MRE down or refusing passes through and nothing is read from DE or written', async () => {
+    const asked: string[] = [];
+    await suggestReconciliations({
+      readMreMonth: async (_h, _r, year, month) => {
+        asked.push(`${year}-${month}`);
+        return [];
+      },
+      repository: repository({ suggestionSnapshot: async () => empty, writeSuggestions: async () => [] }),
+    })({ principal, authorizationHeader: 'Bearer t', from: '2027-12', to: '2027-12' });
+    expect(asked).toEqual(['2027-11', '2027-12', '2028-1']);
+    for (const error of [new MreUnavailableError('down'), new AccessError('FORBIDDEN', 'refused')]) {
+      const suggest = suggestReconciliations({
+        readMreMonth: async (_h, _r, _y, month) => {
+          if (month === 2) throw error;
+          return [];
+        },
+        repository: repository({}),
+      });
+      await expect(suggest({ principal, authorizationHeader: 'Bearer t', from: '2027-01', to: '2027-01' })).rejects.toBe(error);
+    }
+  });
+
+  const suggestion = { id: 'r1', version: 1, transactionId: 't1', mreTenantId: TENANT, mreRentTerm: '2027010100' } as unknown as RentPaymentReconciliation;
+
+  it('confirm: DE checks first, then MRE live with the caller\'s header, then the write with its amount due', async () => {
+    const order: string[] = [];
+    const confirm = confirmReconciliation({
+      repository: repository({
+        confirmPrecheck: async (id, realm, amount) => {
+          order.push(`precheck ${id} ${realm} ${amount?.toString() ?? '-'}`);
+          return { kind: 'PROCEED', reconciliation: suggestion, amount: eur('700.00') };
+        },
+        confirm: async (id, realm, amount, amountDue, actor, versions) => {
+          order.push(`confirm ${id} ${amount?.toString()} ${amountDue.toString()} ${actor.actorId} ${versions?.join()}`);
+          return { kind: 'CONFIRMED', reconciliation, changed: true };
+        },
+      }),
+      readMreRentTerm: async (...args) => {
+        order.push(`mre ${args.join(' ')}`);
+        return { amountDue: eur('800.00'), payments: [] };
+      },
+    });
+    expect(await confirm({ principal, authorizationHeader: 'Bearer t', reconciliationId: 'r1', matchedAmount: eur('700.00'), expectedVersions: [1] })).toEqual({ reconciliation, changed: true });
+    expect(order).toEqual([
+      `precheck r1 ${REALM} ${eur('700.00').toString()}`,
+      `mre Bearer t ${REALM} ${TENANT} 2027010100`,
+      `confirm r1 ${eur('700.00').toString()} ${eur('800.00').toString()} anna@example.com 1`,
+    ]);
+  });
+
+  it('confirm: a no-op or a refusal from the precheck never asks MRE; refusals under the locks as their errors', async () => {
+    const withPrecheck = (outcome: Awaited<ReturnType<RentReconciliationRepository['confirmPrecheck']>>) =>
+      confirmReconciliation({ repository: repository({ confirmPrecheck: async () => outcome }), readMreRentTerm: neverAsked })({ principal, authorizationHeader: 'Bearer t', reconciliationId: 'r1' });
+    expect(await withPrecheck({ kind: 'UNCHANGED', reconciliation })).toEqual({ reconciliation, changed: false });
+    await expect(withPrecheck({ kind: 'NOT_FOUND' })).rejects.toBeInstanceOf(ReconciliationNotFoundError);
+    await expect(withPrecheck({ kind: 'NOT_CONFIRMABLE', status: 'REJECTED' })).rejects.toBeInstanceOf(NotConfirmableError);
+    await expect(withPrecheck({ kind: 'ABOVE_SUGGESTION', suggested: eur('800.00') })).rejects.toMatchObject({ constructor: AboveSuggestionError, suggested: eur('800.00') });
+    await expect(withPrecheck({ kind: 'TRANSACTION_NOT_COUNTED', status: 'CLASSIFIED', correctionRole: null })).rejects.toBeInstanceOf(TransactionNotCountedError);
+    await expect(withPrecheck({ kind: 'RENT_CASH_EXCEEDED', rentCash: eur('800.00'), available: eur('1.00') })).rejects.toBeInstanceOf(RentCashExceededError);
+
+    const underLocks = (outcome: Awaited<ReturnType<RentReconciliationRepository['confirm']>>, term: { amountDue: Money; payments: [] } | null = { amountDue: eur('800.00'), payments: [] }) =>
+      confirmReconciliation({
+        repository: repository({ confirmPrecheck: async () => ({ kind: 'PROCEED', reconciliation: suggestion, amount: eur('800.00') }), confirm: async () => outcome }),
+        readMreRentTerm: async () => term ?? undefined,
+      })({ principal, authorizationHeader: 'Bearer t', reconciliationId: 'r1' });
+    await expect(underLocks({ kind: 'SUGGESTION_STALE', openAmount: eur('300.00') })).rejects.toMatchObject({ constructor: SuggestionStaleError, openAmount: eur('300.00') });
+    await expect(underLocks({ kind: 'VERSION_CONFLICT', expectedVersions: [3], currentVersion: 1 })).rejects.toBeInstanceOf(VersionConflictError);
+    await expect(underLocks({ kind: 'NOT_CONFIRMABLE', status: 'REJECTED' })).rejects.toBeInstanceOf(NotConfirmableError);
+    await expect(underLocks({ kind: 'RENT_CASH_EXCEEDED', rentCash: eur('800.00'), available: eur('0.00') })).rejects.toBeInstanceOf(RentCashExceededError);
+    // A term MRE no longer returns: nothing is written.
+    await expect(underLocks({ kind: 'CONFIRMED', reconciliation, changed: true }, null)).rejects.toBeInstanceOf(MreRentTermNotFoundError);
+  });
+
+  it('reject: each outcome as its result or error', async () => {
+    const reject = (outcome: Awaited<ReturnType<RentReconciliationRepository['reject']>>) =>
+      rejectReconciliation({ repository: repository({ reject: async () => outcome }), now: () => new Date(0) })({ principal, reconciliationId: 'r1', reason: 'x' });
+    expect(await reject({ kind: 'REJECTED', reconciliation, changed: true })).toEqual({ reconciliation, changed: true });
+    await expect(reject({ kind: 'NOT_FOUND' })).rejects.toBeInstanceOf(ReconciliationNotFoundError);
+    await expect(reject({ kind: 'NOT_REJECTABLE', status: 'CONFIRMED' })).rejects.toBeInstanceOf(NotRejectableError);
+    await expect(reject({ kind: 'VERSION_CONFLICT', expectedVersions: [3], currentVersion: 1 })).rejects.toBeInstanceOf(VersionConflictError);
   });
 });

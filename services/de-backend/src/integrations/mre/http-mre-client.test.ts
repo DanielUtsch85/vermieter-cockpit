@@ -148,6 +148,16 @@ describe('HttpMreClient against a fake MRE', () => {
     expect(await client.readRentTerm(token, 'realm-a', TENANT_A, '2027030100')).toBeUndefined();
   });
 
+  it('listRentTerms reads GET /rents/:year/:month of the Realm: Tenant, term and amount due only; a foreign Realm is FORBIDDEN', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    const rents = await client.listRentTerms(token, 'realm-a', 2027, 2);
+    expect(rents).toEqual([{ mreTenantId: TENANT_A, term: '2027020100', amountDue: Money.of('800.00', 'EUR') }]);
+    expect(mre.requests.at(-1)).toMatchObject({ path: '/api/v2/rents/2027/02', organizationid: 'realm-a' });
+    expect(JSON.stringify(rents)).not.toMatch(/not read by DE|tenant@example.com/);
+    expect(await client.listRentTerms(token, 'realm-a', 2027, 3)).toEqual([]);
+    await expectCode(client.listRentTerms(token, 'realm-b', 2027, 2), 'FORBIDDEN');
+  });
+
   it('maps 401 (bad signature or expired) to UNAUTHENTICATED', async () => {
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, 'wrong-secret')), 'UNAUTHENTICATED');
     await expectCode(client.listRealms(signJwt({ account: { email: 'anna@example.com' } }, undefined, -1)), 'UNAUTHENTICATED');
@@ -251,6 +261,22 @@ describe('HttpMreClient failure handling', () => {
       const read = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readRentTerm('a.b.c', 'r', TENANT_A, '2027010100');
       await expectCode(read, 'UNAVAILABLE');
       await expect(read).rejects.not.toThrow(/Tina/);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it.each([
+    ['not an object with rents', '[]'],
+    ['a rent without _id', '{"rents":[{"term":2027010100,"totalWithoutBalanceAmount":800,"occupant":{"name":"Tina"}}]}'],
+    ['an amount as text', '{"rents":[{"_id":"6512f0c2a1b2c3d4e5f60a01","term":2027010100,"totalWithoutBalanceAmount":"800","occupant":{"name":"Tina"}}]}'],
+    ['a non-finite amount', '{"rents":[{"_id":"6512f0c2a1b2c3d4e5f60a01","term":2027010100,"totalWithoutBalanceAmount":1e400,"occupant":{"name":"Tina"}}]}'],
+  ])('listRentTerms: %s → UNAVAILABLE, without the body in the message', async (_label, body) => {
+    const stub = await startStub(200, body);
+    try {
+      const listing = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).listRentTerms('a.b.c', 'r', 2027, 1);
+      await expectCode(listing, 'UNAVAILABLE');
+      await expect(listing).rejects.not.toThrow(/Tina/);
     } finally {
       stub.close();
     }

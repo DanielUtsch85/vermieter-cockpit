@@ -1913,7 +1913,7 @@ Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two deriv
 - **End to end** against the fake MRE: a term matched by two Transactions (`PARTIALLY_MATCHED`, then `MATCHED`, then `OVERPAID` after a third), MRE's own payments shown separately and never summed; MRE down → `UNAVAILABLE` with DE's matches; another Realm sees `NOT_RETURNED` and an empty DE side.
 - **Counter-checks:** MRE's payments summed into `matchedTotal`; `RELEASED` summed; the coverage boundary off by one cent; the MRE amount truncated instead of rounded; exponent notation refused (the `e-15` case turns red); an MRE outage turned into a `503`.
 
-## 37.3 Suggestions: suggest, confirm, reject (VC-4-03)
+## 37.3 Suggestions: suggest, confirm, reject (VC-4-03, implemented: migration 0031)
 
 Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A suggestion is a stored `SUGGESTED` reconciliation: it never counts, never consumes cash and never changes MRE. A human confirms or rejects it. Confirmation runs the checks of §37.1 again, so a stale suggestion can never confirm wrong cash.
 
