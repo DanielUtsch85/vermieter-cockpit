@@ -1869,7 +1869,9 @@ Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two deriv
     - `UNAVAILABLE`: MRE down or an unexpected answer; `mre` = `null`. The DE side is still answered (BR-MRE-004): an outage never hides DE's matches. A refused token or caller is still `401` / `403` (§37.1): access is not degraded silently.
   - `amountDue`: MRE's amount due for the term **without** the carried balance (`totalWithoutBalanceAmount`, P4-D4), as Money.
   - `payments`: MRE's own payment records of the term, each `{ date, amount, type, reference }` in MRE's order. `date` is converted from MRE's `DD/MM/YYYY` to a business date, `null` when it does not parse; `description` is not read (MRE's own form drops it, P4-D6's MRE facts). They are **MRE settlement, not cash** (BR-RENT-001) and never enter `matchedTotal` or the coverage.
-  - **MRE amounts are floats.** Each is taken from its shortest round-trip decimal text (as the cached `surface`, mre-integration §21.1) and rounded half-up to the cent, the precision MRE's own UI shows. A non-finite or exponent-notation amount is an unexpected answer (`UNAVAILABLE`).
+  - **MRE amounts are floats.** Every **finite** amount is taken exactly from its shortest round-trip decimal text, **exponent notation included**, and rounded half-up to the cent, the precision MRE's own UI shows. Only a non-finite amount or one outside Money's range (§31) is an unexpected answer (`UNAVAILABLE`).
+    - Exponent notation is a real answer at the baseline (review on #78): `totalWithoutBalanceAmount` is `grandTotal − balance`, where `grandTotal` is rounded to the cent (`7_total.js`) but the carried `balance` is not (`5_balance.js`). A term whose own amount is 0 with a balance that is no exact cent float gives e.g. `2.831068712794149e-15`, which is `0.00` due, not an outage.
+    - Unlike the cached `surface` (mre-integration §21.1), where leaving a malformed value out is enough, an amount due cannot be left out: the coverage needs it.
   - The Tenant's name and contact data are not read (mre-integration §20.1); the client parses the term to these fields only.
 - **`coverage`** (derived, BR-RENT-006/007), from `matchedTotal` against `amountDue`; `null` unless `mreStatus = AVAILABLE`:
   - `UNMATCHED`: `matchedTotal` = 0 and `amountDue` > 0;
@@ -1903,12 +1905,12 @@ Decision P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-006/007. Two deriv
 ### Tests (VC-4-02)
 
 - **Domain:** `coverageOf` at each boundary (0 of 0, 0 of due, a cent short, exact, a cent over), `openAmount` signed.
-- **MRE client:** the fields parsed and nothing else (a body with a name and contacts leaves no trace in the result or an error message); float amounts (`799.9999999999999` → `800.00`, `0.1 + 0.2` → `0.30`) rounded half-up; exponent notation, a missing `totalWithoutBalanceAmount`, a non-array `payments` → `UNAVAILABLE`; a payment date that does not parse → `null`; `404` → `undefined`.
+- **MRE client:** the fields parsed and nothing else (a body with a name and contacts leaves no trace in the result or an error message); float amounts (`799.9999999999999` → `800.00`, `0.1 + 0.2` → `0.30`, `2.831068712794149e-15` → `0.00`, `-1e-14` → `0.00`) rounded half-up; a non-finite or out-of-range amount, a missing `totalWithoutBalanceAmount`, a non-array `payments` → `UNAVAILABLE`; a payment date that does not parse → `null`; `404` → `undefined`.
 - **Repository:** the DE side in one snapshot, Realm-filtered; `matchedTotal` over `CONFIRMED` only (a `RELEASED` one listed, not summed); the Transaction read with `counted`, `rentCash`, `available` for a counted rent Transaction, an unconfirmed one (`available = null`), a reversal, and a non-rent Transaction (`rentCash = null`).
 - **Use case:** `AVAILABLE`, `NOT_RETURNED` and `UNAVAILABLE` each with the DE side answered; `401`/`403` passed through; the Transaction read never asks MRE.
 - **API:** the path and query `400`s; `404` for an unknown Transaction; the response shapes.
 - **End to end** against the fake MRE: a term matched by two Transactions (`PARTIALLY_MATCHED`, then `MATCHED`, then `OVERPAID` after a third), MRE's own payments shown separately and never summed; MRE down → `UNAVAILABLE` with DE's matches; another Realm sees `NOT_RETURNED` and an empty DE side.
-- **Counter-checks:** MRE's payments summed into `matchedTotal`; `RELEASED` summed; the coverage boundary off by one cent; the MRE amount truncated instead of rounded; an MRE outage turned into a `503`.
+- **Counter-checks:** MRE's payments summed into `matchedTotal`; `RELEASED` summed; the coverage boundary off by one cent; the MRE amount truncated instead of rounded; exponent notation refused (the `e-15` case turns red); an MRE outage turned into a `503`.
 
 ---
 
