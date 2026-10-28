@@ -1705,7 +1705,7 @@ Decisions: `docs/development/phase-4-plan.md` (P4-D1…D8). Data: data-model §1
 
 ```text
 GET /api/v1/rent-reconciliations                                    (VC-4-01, §37.1)
-GET /api/v1/rent-reconciliations/{id}                               (VC-4-01, §37.1)
+GET /api/v1/rent-reconciliations/{id}                               (VC-4-01, §37.1; ?checkMre=true VC-4-04, §37.4)
 GET /api/v1/rent-reconciliations/suggestions                        (VC-4-03, §37.3: ?status=SUGGESTED)
 GET /api/v1/rent-reconciliations/terms/{mreTenantId}/{mreRentTerm}  (VC-4-02, §37.2)
 GET /api/v1/transactions/{transactionId}/rent-reconciliations       (VC-4-02, §37.2)
@@ -1719,7 +1719,7 @@ POST /api/v1/rent-reconciliations/{id}/release                      (VC-4-01, §
 POST /api/v1/rent-reconciliations/suggest                           (VC-4-03, §37.3)
 POST /api/v1/rent-reconciliations/{id}/confirm                      (VC-4-03, §37.3)
 POST /api/v1/rent-reconciliations/{id}/reject                       (VC-4-03, §37.3)
-POST /api/v1/rent-reconciliations/{id}/write-back-to-mre            (VC-4-04)
+POST /api/v1/rent-reconciliations/{id}/write-back-to-mre            (VC-4-04, §37.4)
 POST /api/v1/rent-reconciliations/{id}/remove-from-mre              (VC-4-05)
 ```
 
@@ -2035,6 +2035,149 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
   - confirm raising the amount;
   - a suggestion counted as consumed cash.
 
+## 37.4 Write-back to MRE (VC-4-04)
+
+Decision P4-D6 of `docs/development/phase-4-plan.md`, and P4-D7's effect of a release on a written-back match. BR-MRE-005/006, BR-RENT-010, BR-OPEN-005 (decided: explicit). A write-back adds **one MRE payment** for one `CONFIRMED` reconciliation, marked with DE's identity, and records the outcome. It never changes the reconciliation's status, its Transaction or its cash. The MRE baseline is `479d0ad`, as for every MRE call (mre-integration §47.1).
+
+- **Domain owner and authorization:** as §37.1. MRE is called with the caller's own token and Realm: the write-back is the human's action, under the human's MRE rights.
+- **No database transaction is open during an MRE call** (P4-D8). The protocol is claim → read → write → verify → record.
+
+### The MRE side (baseline `479d0ad`)
+
+- **Read:** `GET /rents/tenant/:id/:term` (§37.1), here parsed **to its raw values** for the round trip:
+  - `_id`, `vatRatio`;
+  - `payments[]` with `date`, `amount`, `type`, `reference`, `description`, each as read (JSON numbers and strings, never converted to Money);
+  - `promo`, `notepromo`, `extracharge`, `noteextracharge`, `description`.
+- **Write:** `PATCH /rents/payment/:id/:term`. MRE's `updateByTerm` never reads the path's `:id`. `_updateByTerm` looks the Tenant up with `findOne({ _id: body._id, realmId })` and `payTerm` replaces the term's whole settlement with the body: payments, the settlement discount (`promo`), the extra charge (`extracharge`) and the description. So:
+  - the body carries `_id: mreTenantId`, and the path's `:id` is the same value (review on #75). Without `_id`, or with a Tenant of another Realm, MRE answers `500`;
+  - every field DE does not send is lost. The body is therefore the term as read, plus DE's payment.
+  - MRE drops payments whose `amount` is missing or ≤ 0 on every save, its own form's included. DE treats them as not part of the term.
+  - MRE divides `promo` and `extracharge` by `1 + vatRatio` on the way in and multiplies and rounds them to the cent on the way out. Under a VAT ratio a round trip can change them, hence `MRE_TERM_NOT_ROUND_TRIPPABLE` below.
+  - The answer is the saved term in the read's shape (`toRentData`).
+- **DE's payment:**
+  - `date`: the Transaction's booking date as `DD/MM/YYYY`;
+  - `amount`: `matchedAmount` as a JSON number written from its decimal text (`"800.10"` → `800.1`), never by float arithmetic on cents;
+  - `type`: `transfer`;
+  - `reference`: the **DE marker** `DE-RPR-<reconciliationId>` (lower-case UUID). MRE payments have no stable id (mre-integration §41). MRE's own form keeps `reference` for a `transfer`, so the marker survives a later save in MRE;
+  - `description`: `""`.
+- **The marker is DE's payment identity.** A payment whose `reference` is the marker is DE's payment for that reconciliation, wherever it is in the term's list.
+
+### `POST /api/v1/rent-reconciliations/{reconciliationId}/write-back-to-mre`
+
+- **Body:** none, or `{}` (strict). No `Idempotency-Key`: the command is idempotent by design (a `WRITTEN` no-op, and every attempt reads before it writes). `If-Match` optional (§16.1).
+- **Order of checks:**
+  1. `400`;
+  2. unknown or foreign → `404`;
+  3. `status` not `CONFIRMED` → `409 CONFLICT` with `reason = "NOT_WRITABLE"` and `details.status`;
+  4. `WRITTEN` → `200` no-op without an MRE call, whatever the version;
+  5. `PENDING` with a live lease, its own or another reconciliation's of the same Realm and `mreTenantId` → `409 CONFLICT` with `reason = "WRITE_BACK_IN_PROGRESS"` and `details.reconciliationId` (the holder);
+  6. `If-Match` → `412`.
+- **1. Claim** (one READ COMMITTED transaction; the reconciliation row only, never the Transaction, P4-D8):
+  - the reconciliation `FOR UPDATE`, and checks 2–6 again;
+  - other reconciliations of the same Realm and `mreTenantId` that are `PENDING` with an **expired** lease are set to `FAILED` (`LEASE_EXPIRED`), each with an AuditRecord `WRITE_BACK_ABANDONED`, in the same transaction that takes the new lease (review on #75);
+  - its own expired `PENDING` is claimed again;
+  - set `PENDING` with a new `attemptId` (UUID) and `leaseUntil = now() + 2 × the MRE timeout`, `version` + 1, and an AuditRecord `WRITE_BACK_STARTED` with the `attemptId`;
+  - two claims for the same Tenant: the partial unique index lets one commit; the other answers `WRITE_BACK_IN_PROGRESS`.
+- **2. Read** the term (outside any transaction):
+  - MRE `404` → record `FAILED` (`MRE_RENT_TERM_NOT_FOUND`) and answer `422 MRE_RENT_TERM_NOT_FOUND` (§37.1's neutral wording);
+  - MRE down → `FAILED` (`MRE_UNAVAILABLE`), `503 EXTERNAL_SYSTEM_ERROR`;
+  - `401` / `403` → `FAILED` (`MRE_FORBIDDEN`), answered as §37.1;
+  - the marker found **once** with DE's date and amount: an earlier attempt wrote it (a crash between write and record, or a lost answer). Go to **5. Record** as `WRITTEN`, **without a PATCH**;
+  - the marker found more than once, or with another date or amount (changed in MRE by hand) → `FAILED` (`MRE_PAYMENT_CHANGED`), `409 CONFLICT` with that reason. DE never repairs a payment in MRE;
+  - `vatRatio` ≠ 0 and `promo` or `extracharge` ≠ 0 → back to `NOT_WRITTEN` (the marker is absent, so nothing of DE's is in MRE), an AuditRecord `WRITE_BACK_NOT_ROUND_TRIPPABLE`, and `409 CONFLICT` with `reason = "MRE_TERM_NOT_ROUND_TRIPPABLE"`. The user records the payment in MRE by hand.
+- **3. Write:** the PATCH with the body above: every payment read (amount > 0) in its order with its raw values, then DE's payment; `promo`, `extracharge` and `description` as read; `notepromo` and `noteextracharge` with their trailing `\n` removed, as MRE's form does (the read joins notes with `\n`).
+- **4. Verify** the term in the PATCH answer:
+  - exactly one payment with the marker, DE's date and amount (compared as cents through §37.2's decimal conversion), type `transfer`;
+  - every payment read, with its raw values, in its order;
+  - `promo`, `extracharge` and `description` as read.
+  - No answer, an error answer, or a failed verification → **read the term once more** and verify that read the same way. It passes → `WRITTEN`: the PATCH reached MRE and only its answer was lost. It fails:
+    - the marker is absent → `FAILED` (`MRE_UNAVAILABLE` without an answer, `MRE_WRITE_REFUSED` with an error answer), `503 EXTERNAL_SYSTEM_ERROR`;
+    - the marker is there but the term's other content differs (someone edited the Tenant in MRE in between) → `FAILED` (`MRE_TERM_CHANGED`), `409 CONFLICT` with that reason.
+- **5. Record** (one READ COMMITTED transaction): only while the row is still `PENDING` with **this** `attemptId`:
+  - `WRITTEN` with `mreWrittenBackAt`, `mreWrittenBackBy` and `mrePayment`, the snapshot of DE's payment as MRE stores it (`date`, `amount` as Money, `type`, `reference`); AuditRecord `WRITE_BACK_WRITTEN` with the `attemptId` and whether a PATCH was sent;
+  - `FAILED` with `mreWriteBackError` and `mreWriteBackFailedAt`; AuditRecord `WRITE_BACK_FAILED` with the code;
+  - `version` + 1 either way;
+  - the lease was lost (another attempt took over after `leaseUntil`) → nothing is recorded and the answer is `409 CONFLICT` with `reason = "WRITE_BACK_IN_PROGRESS"`. The other attempt reads before it writes, so it finds this attempt's payment.
+- **Success:** `200` with the reconciliation (`mreWriteBackState = WRITTEN`, `mreWrittenBackAt`, `mreWrittenBackBy`, `mrePayment`, `version`). Each error after the claim carries `details.mreWriteBackState` (`FAILED` or `NOT_WRITTEN`). Its ETag is the recorded version.
+- **Failure keeps the match (BR-RENT-010).** The reconciliation stays `CONFIRMED`; its cash stays matched. `FAILED` is visible in every read and retried by the same command.
+- **Exactly once (BR-MRE-006):** a `WRITTEN` write-back is a no-op; every attempt reads before it writes; a PATCH body holds the marker once and the PATCH replaces the whole settlement, so a PATCH that reaches MRE late cannot add a second payment. The lease of twice the MRE timeout outlives any PATCH still in flight.
+- **Residual risk, accepted (P4-D6):** MRE has no version or ETag. An edit of the same Tenant in MRE between DE's read and DE's PATCH can be lost, or can make DE's payment lost; the latter is detected (`MRE_TERM_CHANGED`), the former is not. The window is one request (mre-integration §42–44).
+
+### `mreWriteBackState` (P4-D6, P4-D7)
+
+- `NOT_WRITTEN` → `PENDING` (claim) → `WRITTEN` | `FAILED` | `NOT_WRITTEN` (not round-trippable);
+- `FAILED` → `PENDING` (retry); `PENDING` with an expired lease → `PENDING` (its own retry) or `FAILED` (`LEASE_EXPIRED`, another reconciliation's claim);
+- with the release (`CONFIRMED` → `RELEASED`, §37.1): `NOT_WRITTEN` stays; `WRITTEN`, `FAILED` and an expired `PENDING` become **`REMOVAL_REQUIRED`**, because DE's payment is, or may be, in MRE. A failed attempt may have reached MRE without an answer; the removal (VC-4-05) reads first and finds nothing to remove if it did not. `PENDING` with a live lease → `409 CONFLICT` with `reason = "WRITE_BACK_IN_PROGRESS"`;
+- `REMOVING`, `REMOVED` and `REMOVAL_FAILED` come with VC-4-05.
+- The response of §37.1 gains `mreWrittenBackAt`, `mreWrittenBackBy`, `mrePayment` (`null` unless written), `mreWriteBackError`, `mreWriteBackFailedAt` (`null` unless `FAILED`), and `mreWriteBackLeaseUntil` (`null` unless `PENDING`). The `attemptId` stays internal.
+- Release stays DE-only and never calls MRE (BR-MRE-004). Confirm and the manual create never write back (BR-MRE-005).
+
+### `GET /api/v1/rent-reconciliations/{reconciliationId}?checkMre=true`
+
+- **Presence check** for a marker deleted in MRE by hand. A read only: it never changes the state and writes no AuditRecord.
+- `checkMre` is `true` or `false` (default); any other value is `400`. The list keeps refusing it (§37.1).
+- The response gains `mrePresence`:
+  - `null` without `checkMre`, or when the state is neither `WRITTEN` nor `REMOVAL_REQUIRED` (no MRE call);
+  - `PRESENT` when the term read live holds a payment with the marker, `MISSING` when it does not or the term is gone, `UNAVAILABLE` when MRE is down. `401` / `403` are answered as §37.1.
+
+### In the database (migration 0032)
+
+- **`rent_payment_reconciliation` gains:**
+  - `mre_write_back_attempt_id uuid`, `mre_write_back_lease_until timestamptz`: set exactly when `PENDING`;
+  - `mre_written_back_at timestamptz`, `mre_written_back_by text`, `mre_payment jsonb` (`date`, `amount`, `type`, `reference`): set when `WRITTEN`, kept into `REMOVAL_REQUIRED`, `NULL` when `NOT_WRITTEN`, `PENDING` or `FAILED`;
+  - `mre_write_back_error text` in (`MRE_RENT_TERM_NOT_FOUND`, `MRE_UNAVAILABLE`, `MRE_FORBIDDEN`, `MRE_WRITE_REFUSED`, `MRE_PAYMENT_CHANGED`, `MRE_TERM_CHANGED`, `LEASE_EXPIRED`) and `mre_write_back_failed_at timestamptz`: set exactly when `FAILED`.
+- **CHECKs:**
+  - `mre_write_back_state` in (`NOT_WRITTEN`, `PENDING`, `WRITTEN`, `FAILED`, `REMOVAL_REQUIRED`);
+  - `PENDING`, `WRITTEN` and `FAILED` only on `CONFIRMED`; `REMOVAL_REQUIRED` only on `RELEASED`;
+  - the field sets above.
+- **Partial unique index** `(mre_realm_id, mre_tenant_id) WHERE mre_write_back_state = 'PENDING'`: one write-back per MRE Tenant at a time (VC-4-05 adds `REMOVING`).
+- **`rent_payment_reconciliation_frozen`:**
+  - a change that keeps `status` may change only the write-back fields, with `version` + 1, along the steps above; `PENDING` → `PENDING` only from an expired lease, with a new `attemptId`;
+  - with the step `CONFIRMED` → `RELEASED`, `mre_write_back_state` becomes exactly `NOT_WRITTEN` from `NOT_WRITTEN` and `REMOVAL_REQUIRED` from the others; a live lease refuses the release (`WRITE_BACK_IN_PROGRESS`). A written-back match is never released silently;
+  - the other status steps keep `NOT_WRITTEN`;
+  - the fixed fields and status steps of 0030/0031 are unchanged.
+- `down` restores 0031's functions exactly, as 0031's `down` does for 0030.
+- Not in the database: the MRE calls, the verification, the order of checks.
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Two write-backs of one reconciliation:** the second waits on the row in its claim and answers `WRITE_BACK_IN_PROGRESS` (RC), or fails with `40001` (RR).
+- **Two write-backs of two terms of one Tenant:** the index; the loser answers `WRITE_BACK_IN_PROGRESS`.
+- **A takeover after an expired lease,** by the same reconciliation and by another one of the same Tenant (the expired row becomes `FAILED`, `LEASE_EXPIRED`, with its AuditRecord). VC-4-04 tests this (review on #75).
+- **A record after a lost lease** writes nothing.
+- **Release against a write-back:** a release during `PENDING` is refused; a claim that waited on a release sees `RELEASED` (`NOT_WRITABLE`) under RC, or fails with `40001` under RR.
+
+### Tests (VC-4-04)
+
+- **Domain:** the state steps; the PATCH body from a term read (raw values kept, notes trimmed, payments ≤ 0 dropped, DE's payment last); the marker; the verification (each mismatch); the round-trip rule (VAT with `promo`, with `extracharge`, VAT alone, neither); the amount written from decimal text (`800.10`, `0.01`, `1234567.89`).
+- **MRE client:** `readRentTermForWriteBack` keeps the raw values and drops the occupant's personal data; `writeRentTermPayments` sends the PATCH with `_id` in the body and the caller's token and Realm; an unexpected shape → `UNAVAILABLE`.
+- **Fake MRE** gains the PATCH with `_updateByTerm`'s behaviour: the Tenant from the body's `_id` (`500` without it, or for another Realm), payments ≤ 0 dropped, `promo` and `extracharge` through `vatRatio`, the saved term answered; and switches to fail a PATCH, to apply a PATCH but drop its answer, and to delay it.
+- **`mre.contract.test.ts`** pins the PATCH against the baseline: a payment with a marker written next to an existing one, both read back with their raw values; the description and a `promo` kept (no VAT); without `_id` → `500`; another Realm's token → no change. Each case restores the term it changed.
+- **Repository:** claim, record and the takeover; the lease; the record after a lost lease; the AuditRecords; release's effect on each state.
+- **Use case:**
+  - the order claim → read → PATCH → verify → record, and no database transaction open during an MRE call;
+  - a `WRITTEN` no-op without an MRE call;
+  - **a crash between PATCH and record** (the record throws after the PATCH): the row stays `PENDING`; after the lease expires the retry finds the marker and records `WRITTEN` without a second PATCH; the fake MRE counts one PATCH;
+  - a lost PATCH answer → the second read → `WRITTEN`;
+  - each failure code and its answer; not round-trippable back to `NOT_WRITTEN`.
+- **API:** the `400`s (a body, `checkMre=yes`), the error mapping, `ETag`, `mrePresence` with each value.
+- **End to end** against the fake MRE: confirm → write back → the term shows DE's payment next to MRE's own payment and DE's Transaction stays one record (§37.2's coverage unchanged); a repeat adds nothing; a payment deleted in MRE by hand → `mrePresence = MISSING`; MRE down → `FAILED`, then a retry → `WRITTEN`; release of a written match → `REMOVAL_REQUIRED`; Realm isolation.
+- **Schema past the repository**, each with a counter-check: the new CHECKs, the index, each allowed and refused state step, release setting `REMOVAL_REQUIRED`, a release under a live lease refused.
+- **Concurrency** as above, under RC and RR, each with its counter-check.
+- **Counter-checks:**
+  - the PATCH without `_id`;
+  - a field of the term not sent back (`description`, `promo`, an existing payment);
+  - no read before the write (the crash test adds a second payment);
+  - the marker check skipped on a retry;
+  - the verification skipped (a `MRE_TERM_CHANGED` case turns `WRITTEN`);
+  - the amount written by float arithmetic from cents;
+  - the round-trip rule dropped;
+  - the record without the `attemptId` check;
+  - the takeover without failing the expired row (the claim is refused by the index);
+  - release keeping `WRITTEN`;
+  - the index not unique;
+  - the presence check changing the state.
+
 ---
 
 # 38. Rent Match Suggestion
@@ -2069,6 +2212,8 @@ MRE write-back should be a separate explicit command.
 ---
 
 # 40. MRE Rent Write-Back
+
+Refined by §37.4 (VC-4-04).
 
 ```text
 POST /api/v1/rent-reconciliations/{id}/write-back-to-mre
