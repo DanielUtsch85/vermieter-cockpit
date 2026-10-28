@@ -34,7 +34,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 ### Findings
 
-**F1 — Overlapping exports need a human for every shared row (high).** The spec's overlap case dedupes through a stable external id or a statement id (§70.1, §70.5 "overlap of the same source-statement identity"). A BBBank CSV has neither: the file is its own statement identity (`contentHash`), and there is no transaction id column. So a monthly export that overlaps the previous one by a few days puts each shared row into review, as designed, and the user resolves each one by hand (`SKIP`). With real exports, overlap is the normal case, not the exception. **Decided:** D with C, ADR-043 (`data-model.md` §70.6, backlog VC-1-11). Options weighed:
+**F1 — Overlapping exports need a human for every shared row (high).** The spec's overlap case dedupes through a stable external id or a statement id (§70.1, §70.5 "overlap of the same source-statement identity"). A BBBank CSV has neither: the file is its own statement identity (`contentHash`), and there is no transaction id column. So a monthly export that overlaps the previous one by a few days puts each shared row into review, as designed, and the user resolves each one by hand (`SKIP`). With real exports, overlap is the normal case, not the exception. **Decided:** D with C, ADR-043 (`data-model.md` §70.6, backlog VC-1-12). Options weighed:
 - **A. Workflow only:** export strictly non-overlapping periods (document it in the import guide). Cheapest; fragile, because banks' period filters and late bookings make gaps or overlaps easy.
 - **B. EREF as external id:** a v2 adapter option that takes the SEPA end-to-end reference out of the description. Covers direct debits and some transfers only; transfers without EREF (here: the owner's transfer, the bonus) stay on the fallback.
 - **C. Balance-aware identity (adapter v2):** `(bookingDate, amount, direction, balance after booking)` as the row identity, since the bank's running balance is the same for one booking in every export and differs between two equal payments. Tried as an experiment by mapping `Saldo nach Buchung` as `externalTransactionId`: the overlapping rows were then duplicates. Risk: a balance can repeat with identical content (e.g. a booking, its reversal and the same booking again on one day); then a real payment would be dropped as a duplicate, which the constitution forbids. Needs a written risk analysis and a spec change (§70.2), not a mapping trick.
@@ -51,10 +51,20 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 **What worked without friction:** UTF-8 with BOM and umlauts, CRLF, decimal comma, German dates, newest-first order, signed amounts → direction, the second import of the same file, and the empty `needs_review` list on a first import.
 
 ### Follow-ups
-- F1: ADR-043 (D with C); implementation VC-1-11.
-- F2: account IBAN check on import.
-- F3: mapping presets per bank.
-- F4: counterparty in the Transaction reads.
+- F1: ADR-043 (D with C); implementation VC-1-12 (#106).
+- F2: account IBAN check on import (#107).
+- F3: mapping presets per bank (#108).
+- F4: counterparty in the Transaction reads (#109).
+
+### Second export (Volksbank, CSV)
+
+**Input:** one real export of a Volksbank checking account, 14 rows from August to October 2026, all outflows: three monthly rent payments by standing order (the account holder paying rent) and other private payments. Same layout as the BBBank export (both banks use the same banking platform) plus one column, `Kategorie` (the bank's own spending category).
+
+**Results:**
+- The step-1 mapping works unchanged: 14 rows parsed, no errors; dates, amounts, directions, umlauts correct; value date before or after the booking date (two rows) kept as given; multiple spaces in the description collapsed.
+- **F6 — Exports can be filtered (decided).** The balance chain breaks at 10 of 13 steps: the export holds selected rows, not every booking. Under the first draft of ADR-043 such a file would have lost the balance identity entirely. Decided: a break is only reported; ADR-043 and `data-model.md` §70.6 amended before merge.
+- **F7 — These rent payments are outflows (information).** The rent reconciliation (Phase 4) matches **incoming** rent against MRE rent terms and refuses an outflow (`TRANSACTION_NOT_INFLOW`). Rent the landlord pays for their own home is a private outflow and out of scope; step 3 needs rent **received** from a tenant.
+- F3 gets a second data point: one preset can serve both banks.
 
 ## Step 2: loan schedule (open)
 
@@ -62,4 +72,4 @@ Needs a real loan contract with its amortization plan (Tilgungsplan): create Loa
 
 ## Step 3: rent reconciliation (open)
 
-Needs one flat's MRE tenant and three months of real rent payments: reconcile them against the MRE terms and record whether the suggestions match.
+Needs one flat's MRE tenant and three months of real rent payments **received** (inflows on the landlord's account): reconcile them against the MRE terms and record whether the suggestions match. The second export above holds rent paid, not received (F7).

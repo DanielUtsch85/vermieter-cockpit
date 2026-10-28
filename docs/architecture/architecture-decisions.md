@@ -1596,7 +1596,7 @@ Each investment formula has an explicit **version id**. Every `InvestmentMetricS
 
 ---
 
-# ADR-043 — Overlapping CSV Exports Dedupe by the Bank's Running Balance, Guarded by a Continuity Check
+# ADR-043 — Overlapping CSV Exports Dedupe by the Bank's Running Balance, with a Continuity Report
 
 **Status:** Accepted
 **Origin:** Real-data run #93, finding F1 (`docs/development/real-data-run.md`)
@@ -1611,7 +1611,7 @@ The export does carry the account's **running balance after each booking** (`Sal
 
 1. **C — balance identity.** The `generic-csv` adapter gets an optional `balanceAfter` column (**version 2**). A row with a balance has the **balance identity** `(realm, financialAccountId, bookingDate, amount, direction, balanceAfter)`. It ranks between the stable external id and the fallback source-row identity (§70.1) and, like the external id, is **adapter-independent**. A balance-identity match is a duplicate **only with a matching content fingerprint** (§70.2); a match with other content is `needs_review`, never a duplicate.
 2. **Never drop a payment.** A balance identity that occurs **more than once in one file** is not unique: none of those rows uses it, they keep the fallback identity. This is the risk case of C (below).
-3. **D — continuity check.** Within a file, consecutive rows must chain: `balance before + signed amount = balance after`, in the file's own order (oldest-first or newest-first, detected). A file whose chain breaks uses **no** balance identity at all (every row on the fallback) and the batch reports the break. Across files, the oldest new row is checked against the account's known balances; a gap or an overlap that does not chain is **reported on the batch**, not refused.
+3. **D — continuity report.** Within a file, consecutive rows should chain: `balance before + signed amount = balance after`, in the file's own order (oldest-first or newest-first, detected). Across files, the oldest new row is checked against the account's known balances. A break, a gap or an overlap that does not chain is **reported on the batch**; it neither refuses the file nor changes how its rows are identified. Reason: a filtered export (only some categories, a search, rows left out) breaks the chain at every left-out booking — the second real export of #93 was one — and the chain does not guard the risk case below anyway; rules 1 and 2 do. *(Amended before merge, at the user's decision: the first draft dropped the balance identity for a whole file on a break.)*
 4. **A and B are not adopted.** A stays a tip in the import guide, not a rule. B is left to a later adapter option: EREF covers direct debits only and is the external id's job anyway (§70.1).
 
 ## Risk analysis (C)
@@ -1622,21 +1622,23 @@ Two real bookings get the same balance identity only if they have the same day, 
 - **Only the first of them in an earlier file** (exported during that day): the next export that covers the day holds both, so its identity repeats in the file → first case; its first copy is not taken for the earlier one.
 - **Only the second of them in a later file:** possible only for an export that starts inside that day instead of at a date boundary. Its chain closes on the balance before the first booking, so neither rule catches it; with the same description and counterparty, the second booking would be taken for the first.
 - **Bank corrects a booking later** (other description, same balance): the content fingerprint differs → `needs_review`.
+- **Filtered exports:** a filter by category or text keeps or drops both bookings alike (same text, same category), so the first case applies; a filter that keeps only the second booking is the residual case below.
 
-Residual risk: the last case. It needs an export cut inside a day, plus a debit, its return and the same debit again on that day with identical text. Bank exports are cut by booking date (BBBank: a date range), and the case was not observed. Accepted; the import guide says to export whole days, and a bank whose export cuts inside a day must not use the balance column.
+Residual risk: the "only the second" case. It needs an export cut inside a day (or filtered to drop exactly the first booking), plus a debit, its return and the same debit again on that day with identical text. Bank exports are cut by booking date (BBBank: a date range), and the case was not observed. Accepted; the import guide says to export whole days, and a bank whose export cuts inside a day must not use the balance column.
 
 ## Consequences
 
-- Overlapping exports of a bank with a balance column dedupe without review; the batch says whether the exports chain.
-- `data-model.md` §70.1 gets the balance identity as priority 2 and §70.6 its rules and test cases; `api-design.md` §32.4 gets `generic-csv` v2 when it is implemented (backlog VC-1-11).
+- Overlapping exports of a bank with a balance column dedupe without review, filtered ones included; the batch says whether the exports chain.
+- `data-model.md` §70.1 gets the balance identity as priority 2 and §70.6 its rules and test cases; `api-design.md` §32.4 gets `generic-csv` v2 when it is implemented (backlog VC-1-12).
 - Transactions imported with a balance store it (`sourceBalanceAfter`, raw bank value, not a ledger balance; DE never derives account balances from it).
 - Rows imported under `generic-csv` v1 carry no balance: the first v2 import that overlaps them gives `needs_review` for the shared rows once (§70.4), as any adapter change does.
 - A bank export without a balance column keeps the v1 behaviour.
 
 ## Rejected Alternatives
 
-- **Balance as a mapped external id** (the #93 experiment): deduped the overlap, but takes a balance for a unique id with no in-file uniqueness rule and no chain check; the risk case above would silently drop a payment.
+- **Balance as a mapped external id** (the #93 experiment): deduped the overlap, but takes a balance for a unique id with no in-file uniqueness rule and no content condition beyond §70.1; the risk case above would silently drop a payment.
 - **Only A (workflow):** period filters and late bookings make gaps and overlaps easy, and a gap would go unnoticed.
+- **A chain break disables the balance identity for the file** (first draft): no safety gain (see rule 3), and every filtered export would fall back to manual review.
 
 ---
 
