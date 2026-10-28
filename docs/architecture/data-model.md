@@ -1036,40 +1036,32 @@ Explicitly link canonical DE cash movements to MRE operational rent-payment stat
 
 MRE payment records answer whether an operational rent obligation is considered settled. DE `Transaction` and `TransactionSplit` remain the canonical source of actual cash truth.
 
-## Required Fields
+## Fields (phase-4-plan P4-D2, api-design §37.1)
 
-- `id`
-- `mreRealmId`
-- `mreTenantId`
-- `mreRentTerm`
-- `transactionId`
-- `matchedAmount`
-- `status`
-
-## Optional Fields
-
-- `transactionSplitId`
-- `mrePaymentFingerprint`
-- `confidence`
-- `matchedAt`
-- `matchedBy`
+- `id`, `mreRealmId`, `status`
+- `transactionId`: the DE Transaction whose rent cash is matched (P4-D3)
+- `mreTenantId`, `mreRentTerm`: MRE's term key `YYYYMMDDHH` (P4-D1)
+- `matchedAmount`: Money, > 0, EUR
+- `confidence`, `suggestionReason`: only on a suggestion (VC-4-03)
+- `confirmedAt`, `confirmedBy`; `releasedAt`, `releasedBy`, `releaseReason`
 - `notes`
-- `mreWriteBackState`
-- `mreWriteBackAt`
+- `mreWriteBackState` and its fields (VC-4-04, P4-D6)
 
-## Suggested Status Values
+`transactionSplitId` is dropped: the matched cash is the Transaction's rent cash, the sum of its `RENT_*` splits (P4-D3). `mrePaymentFingerprint` is replaced by the DE marker written into MRE's payment `reference` (P4-D6).
 
-- `UNMATCHED`
-- `SUGGESTED`
-- `MATCHED`
-- `PARTIALLY_MATCHED`
-- `CONFLICT`
-- `IGNORED`
+## Status Values
+
+- `SUGGESTED` → `CONFIRMED` | `REJECTED` (VC-4-03)
+- `CONFIRMED` → `RELEASED` (VC-4-01); a manual match is created `CONFIRMED`
+- `REJECTED` and `RELEASED` are final
+
+`UNMATCHED`, `PARTIALLY_MATCHED` and `MATCHED` (and `OVERPAID`) are a term's coverage by DE cash and are derived (VC-4-02), never stored. `CONFLICT` is not a state: matching beyond the available cash is refused. `IGNORED` is not needed: a Transaction without rent splits is never a candidate.
 
 ## Invariants
 
 - A reconciliation does not create or replace a Transaction.
-- Total reconciled amount against a Transaction or Split must not exceed the available amount unless an explicit conflict state is recorded.
+- The `matchedAmount`s of a Transaction's `CONFIRMED` reconciliations never exceed its rent cash (BR-RENT-005); at most one `CONFIRMED` reconciliation per Transaction and term. Database-enforced (migration 0030, api-design §37.1).
+- A Transaction with a `CONFIRMED` reconciliation is not corrected or reversed until the reconciliation is released (P4-D7).
 - MRE write-back is a separate, auditable operation.
 - Matching suggestions may be automated; canonical confirmation must remain reviewable.
 - MRE payment fingerprints are integration aids, not internal canonical identifiers.
