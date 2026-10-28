@@ -19,8 +19,6 @@ import {
   TransactionNotIgnoredError,
   VersionConflictError,
   type AmendTransaction,
-  type IgnoreTransaction,
-  type RestoreTransaction,
   FinancialCategoryNotFoundError,
   TransactionAlreadyCorrectedError,
   TransactionNotCorrectableError,
@@ -42,7 +40,7 @@ import {
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { createApp } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 const REALM = '64b0c0ffee0000000000000a';
 const ACCOUNT = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
@@ -81,8 +79,7 @@ async function start(createManual: CreateManualTransaction): Promise<string> {
   server = createApp({
     isReady: async () => true,
     verifyPrincipal: admin,
-    ...unusedCommands,
-    createManualTransaction: createManual,
+    ...commandsWith({ transactions: { createManual } }),
   }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -214,7 +211,7 @@ describe('POST /api/v1/transactions/{transactionId}/confirm', () => {
     confirmedBy: 'anna@example.com',
   } as unknown as Transaction;
   async function startConfirm(confirm: ConfirmTransaction): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, confirmTransaction: confirm }).listen(
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ transactions: { confirm } }) }).listen(
       0,
       '127.0.0.1',
     );
@@ -325,7 +322,7 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
   } as unknown as { original: Transaction; reversal: Transaction; replacement: Transaction };
 
   async function startCorrect(correct: CorrectTransaction): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, correctTransaction: correct }).listen(
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ transactions: { correct } }) }).listen(
       0,
       '127.0.0.1',
     );
@@ -486,12 +483,8 @@ describe('POST /api/v1/transactions/{transactionId}/correct', () => {
 });
 
 describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', () => {
-  async function startWith(commands: {
-    amendTransaction?: AmendTransaction;
-    ignoreTransaction?: IgnoreTransaction;
-    restoreTransaction?: RestoreTransaction;
-  }): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+  async function startWith(commands: CommandOverrides): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
@@ -509,9 +502,11 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
   it('amend: 200 with the Transaction; omitted keys stay omitted, null clears, ids lower-cased', async () => {
     const seen: Parameters<AmendTransaction>[0][] = [];
     const base = await startWith({
-      amendTransaction: async (input) => {
-        seen.push(input);
-        return { transaction, changed: true, splitsDropped: true };
+      transactions: {
+        amend: async (input) => {
+          seen.push(input);
+          return { transaction, changed: true, splitsDropped: true };
+        },
       },
     });
     const res = await postTo(base, 'amend', { valueDate: null, description: '', propertyReferenceId: PROPERTY.toUpperCase(), amount: { amount: '1200', currency: 'EUR' } });
@@ -521,7 +516,7 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
   });
 
   it('amend: 400 for an empty or unknown body, 404/409 refusals', async () => {
-    const base0 = await startWith({ amendTransaction: () => Promise.reject(new Error('unused')) });
+    const base0 = await startWith({ transactions: { amend: () => Promise.reject(new Error('unused')) } });
     const fields = async (body: unknown) =>
       ((await (await postTo(base0, 'amend', body)).json()) as { error: { details: { fields: unknown[] } } }).error.details.fields;
     expect(await fields({})).toEqual([{ field: '(body)', code: 'REQUIRED' }]);
@@ -539,7 +534,7 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
       [new CurrencyMismatchError('x'), 400, { code: 'VALIDATION_ERROR' }],
     ] as const;
     for (const [error, status, body] of cases) {
-      const base = await startWith({ amendTransaction: () => Promise.reject(error) });
+      const base = await startWith({ transactions: { amend: () => Promise.reject(error) } });
       const res = await postTo(base, 'amend', { description: 'x' });
       expect(res.status, error.name).toBe(status);
       expect(((await res.json()) as { error: unknown }).error, error.name).toMatchObject(body);
@@ -550,11 +545,13 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
   it('ignore needs a reason; a repeat is marked replayed; confirmed is 409', async () => {
     let replayed = false;
     const base = await startWith({
-      ignoreTransaction: async ({ reason }) => {
-        expect(reason).toBe('Doppelt');
-        const answer = { transaction, replayed };
-        replayed = true;
-        return answer;
+      transactions: {
+        ignore: async ({ reason }) => {
+          expect(reason).toBe('Doppelt');
+          const answer = { transaction, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     expect((await postTo(base, 'ignore', {})).status).toBe(400);
@@ -564,17 +561,17 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
     expect((await postTo(base, 'ignore', { reason: 'Doppelt' })).headers.get('idempotent-replayed')).toBe('true');
     await stop();
 
-    const refused = await startWith({ ignoreTransaction: () => Promise.reject(new TransactionNotIgnorableError(transaction.id, 'CONFIRMED')) });
+    const refused = await startWith({ transactions: { ignore: () => Promise.reject(new TransactionNotIgnorableError(transaction.id, 'CONFIRMED')) } });
     const res = await postTo(refused, 'ignore', { reason: 'x' });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'NOT_IGNORABLE', status: 'CONFIRMED' } });
   });
 
   it('restore: 200, or 409 when not ignored', async () => {
-    const base = await startWith({ restoreTransaction: async () => ({ transaction }) });
+    const base = await startWith({ transactions: { restore: async () => ({ transaction }) } });
     expect((await postTo(base, 'restore')).status).toBe(200);
     await stop();
-    const refused = await startWith({ restoreTransaction: () => Promise.reject(new TransactionNotIgnoredError(transaction.id, 'CLASSIFIED')) });
+    const refused = await startWith({ transactions: { restore: () => Promise.reject(new TransactionNotIgnoredError(transaction.id, 'CLASSIFIED')) } });
     const res = await postTo(refused, 'restore');
     expect(res.status).toBe(409);
     expect(((await res.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'NOT_IGNORED', status: 'CLASSIFIED' } });
@@ -582,8 +579,8 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
 });
 
 describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
-  async function startWith(commands: Partial<Parameters<typeof createApp>[0]>): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+  async function startWith(commands: CommandOverrides): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
@@ -602,9 +599,11 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
   it('passes the strong versions of If-Match (a list too; weak tags never match), none for * or no header; answers with an ETag', async () => {
     const seen: (readonly number[] | undefined)[] = [];
     const base = await startWith({
-      amendTransaction: async (input) => {
-        seen.push(input.expectedVersions);
-        return { transaction: { ...transaction, version: 4 } as Transaction, changed: true, splitsDropped: false };
+      transactions: {
+        amend: async (input) => {
+          seen.push(input.expectedVersions);
+          return { transaction: { ...transaction, version: 4 } as Transaction, changed: true, splitsDropped: false };
+        },
       },
     });
     for (const header of ['"3"', '"3", "4"', 'W/"3"', '"abc", W/"4", "5"', '"3", , "4",', '"a,b", "5"', '*', undefined]) {
@@ -617,7 +616,7 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
   });
 
   it('400 for an If-Match that is not a list of entity tags; 412 VERSION_CONFLICT names the versions', async () => {
-    const base0 = await startWith({ amendTransaction: () => Promise.reject(new Error('unused')) });
+    const base0 = await startWith({ transactions: { amend: () => Promise.reject(new Error('unused')) } });
     for (const header of ['3', 'abc', '"3', 'W/3', ',', '"3" "4"', '"3"x']) {
       const res = await amendWith(base0, header);
       expect(res.status, header).toBe(400);
@@ -627,12 +626,12 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
     server = undefined;
 
     const error = new VersionConflictError([3], 5);
-    const cases: [string, Partial<Parameters<typeof createApp>[0]>, string, unknown][] = [
-      ['amend', { amendTransaction: () => Promise.reject(error) }, 'amend', { description: 'x' }],
-      ['ignore', { ignoreTransaction: () => Promise.reject(error) }, 'ignore', { reason: 'x' }],
-      ['restore', { restoreTransaction: () => Promise.reject(error) }, 'restore', undefined],
-      ['confirm', { confirmTransaction: () => Promise.reject(error) }, 'confirm', undefined],
-      ['correct', { correctTransaction: () => Promise.reject(error) }, 'correct', { reason: 'x', replacement: { bookingDate: '2026-09-03' } }],
+    const cases: [string, CommandOverrides, string, unknown][] = [
+      ['amend', { transactions: { amend: () => Promise.reject(error) } }, 'amend', { description: 'x' }],
+      ['ignore', { transactions: { ignore: () => Promise.reject(error) } }, 'ignore', { reason: 'x' }],
+      ['restore', { transactions: { restore: () => Promise.reject(error) } }, 'restore', undefined],
+      ['confirm', { transactions: { confirm: () => Promise.reject(error) } }, 'confirm', undefined],
+      ['correct', { transactions: { correct: () => Promise.reject(error) } }, 'correct', { reason: 'x', replacement: { bookingDate: '2026-09-03' } }],
     ];
     for (const [name, commands, action, body] of cases) {
       const base = await startWith(commands);
@@ -649,7 +648,7 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
       await new Promise<void>((resolve) => server?.close(() => resolve()));
       server = undefined;
     }
-    const base = await startWith({ setTransactionSplits: () => Promise.reject(error) });
+    const base = await startWith({ transactions: { setSplits: () => Promise.reject(error) } });
     const res = await fetch(`${base}/api/v1/transactions/${transaction.id}/splits`, {
       method: 'PUT',
       headers: { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json', 'if-match': '"3"' },
@@ -662,7 +661,7 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
 
     // PUT splits: a split outside the Transaction's currency is named by its path (VC-X-18).
     const mismatch = await startWith({
-      setTransactionSplits: () => Promise.reject(new CurrencyMismatchError('x', { amount: false, splitPositions: [2] })),
+      transactions: { setSplits: () => Promise.reject(new CurrencyMismatchError('x', { amount: false, splitPositions: [2] })) },
     });
     const refused = await fetch(`${mismatch}/api/v1/transactions/${transaction.id}/splits`, {
       method: 'PUT',
@@ -677,8 +676,8 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
 });
 
 describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
-  async function startWith(commands: Partial<Parameters<typeof createApp>[0]>): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+  async function startWith(commands: CommandOverrides): Promise<string> {
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }
@@ -696,9 +695,11 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
       description: null,
     };
     const base = await startWith({
-      getTransaction: async ({ transactionId }) => {
-        if (transactionId !== transaction.id) throw new TransactionNotFoundError(transactionId);
-        return { transaction: { ...transaction, version: 3 } as Transaction, splits: [split] };
+      transactions: {
+        get: async ({ transactionId }) => {
+          if (transactionId !== transaction.id) throw new TransactionNotFoundError(transactionId);
+          return { transaction: { ...transaction, version: 3 } as Transaction, splits: [split] };
+        },
       },
     });
     const res = await get(base, `/transactions/${transaction.id.toUpperCase()}`);
@@ -716,9 +717,11 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
   it('a page with the filters as given; reviewable is IMPORTED + UNREVIEWED and narrows status; defaults page 1 / 50', async () => {
     const seen: Parameters<ListTransactions>[0][] = [];
     const base = await startWith({
-      listTransactions: async (input) => {
-        seen.push(input);
-        return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 7 };
+      transactions: {
+        list: async (input) => {
+          seen.push(input);
+          return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 7 };
+        },
       },
     });
     const res = await get(
@@ -754,10 +757,12 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
   it('GET /property-references/{id}/transactions: the same filters, the id from the path; 404 when unknown or foreign', async () => {
     const seen: Parameters<ListPropertyReferenceTransactions>[0][] = [];
     const base = await startWith({
-      listPropertyReferenceTransactions: async (input) => {
-        seen.push(input);
-        if (input.propertyReferenceId !== PROPERTY) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
-        return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+      transactions: {
+        listForPropertyReference: async (input) => {
+          seen.push(input);
+          if (input.propertyReferenceId !== PROPERTY) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
+          return { items: [transaction], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+        },
       },
     });
     const res = await get(base, `/property-references/${PROPERTY.toUpperCase()}/transactions?current=true&bookingDateFrom=2026-09-01&pageSize=5`);
@@ -777,7 +782,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
   });
 
   it('400 for unknown parameters, bad values and an inverted date range', async () => {
-    const base = await startWith({ listTransactions: () => Promise.reject(new Error('unused')) });
+    const base = await startWith({ transactions: { list: () => Promise.reject(new Error('unused')) } });
     for (const query of ['foo=1', 'status=DONE', 'pageSize=201', 'page=0', 'bookingDateFrom=2026-13-01', 'reviewable=yes', 'current=false', 'financialCategoryCode=rent', 'provenance=IMPORT', 'financialAccountId=x', 'bookingDateFrom=2026-09-02&bookingDateTo=2026-09-01']) {
       expect((await get(base, `/transactions?${query}`)).status, query).toBe(400);
     }
@@ -788,7 +793,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
 
 describe('POST /api/v1/transactions/{id}/reverse (§35.9, VC-X-15)', () => {
   async function startWith(reverse: ReverseTransaction): Promise<string> {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, reverseTransaction: reverse }).listen(0, '127.0.0.1');
+    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ transactions: { reverse } }) }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   }

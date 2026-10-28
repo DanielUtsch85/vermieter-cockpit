@@ -17,8 +17,8 @@ import {
   type StatementView,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-3-06 HTTP contract (api-design.md §41.6). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -55,8 +55,8 @@ const debt = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -76,9 +76,11 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
   it('200 with signed Money (a negative actual and difference), perProperty defaulting to false, asOf passed through', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      getRemainingDebt: async (input) => {
-        seen.push({ asOf: input.asOf, perProperty: input.perProperty, loanId: input.loanId });
-        return debt;
+      loanDebt: {
+        remainingDebt: async (input) => {
+          seen.push({ asOf: input.asOf, perProperty: input.perProperty, loanId: input.loanId });
+          return debt;
+        },
       },
     });
     const res = await call(base, 'GET', `/loans/${LOAN.toUpperCase()}/remaining-debt?asOf=2027-03-15`);
@@ -118,7 +120,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
         { propertyReferenceId: 'p-b', share: { numerator: 1n, denominator: 3n }, actual: 0n, planned: null, difference: null },
       ],
     } as unknown as RemainingDebtPerProperty;
-    const base = await start({ getRemainingDebt: async (input) => (input.perProperty ? perProperty : debt) });
+    const base = await start({ loanDebt: { remainingDebt: async (input) => (input.perProperty ? perProperty : debt) } });
     const body = (await (await call(base, 'GET', `/loans/${LOAN}/remaining-debt?perProperty=true`)).json()) as Record<string, unknown>;
     expect(body).toMatchObject({
       actual: { amount: '-0.01', currency: 'EUR' },
@@ -135,7 +137,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
   });
 
   it('400 for a malformed id, asOf or perProperty and an unknown parameter; the refusals mapped', async () => {
-    const base = await start({ getRemainingDebt: async () => Promise.reject(new LoanNotAllocatedError(LOAN, { asOf: '2027-01-31' as never })) });
+    const base = await start({ loanDebt: { remainingDebt: async () => Promise.reject(new LoanNotAllocatedError(LOAN, { asOf: '2027-01-31' as never })) } });
     expect((await call(base, 'GET', '/loans/nope/remaining-debt')).status).toBe(400);
     expect(await fieldsOf(await call(base, 'GET', `/loans/${LOAN}/remaining-debt?asOf=2027-02-30`))).toEqual([{ field: 'asOf', code: 'INVALID_FORMAT' }]);
     expect((await fieldsOf(await call(base, 'GET', `/loans/${LOAN}/remaining-debt?perProperty=yes`)))[0]?.field).toBe('perProperty');
@@ -148,7 +150,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
     [new LoanNotFoundError(LOAN), 404, 'NOT_FOUND', { loanId: LOAN }],
     [new LoanNotActiveError(LOAN, 'VOID'), 409, 'CONFLICT', { reason: 'LOAN_NOT_ACTIVE', status: 'VOID' }],
   ])('maps %s', async (error, status, code, details) => {
-    const base = await start({ getRemainingDebt: async () => Promise.reject(error) });
+    const base = await start({ loanDebt: { remainingDebt: async () => Promise.reject(error) } });
     const res = await call(base, 'GET', `/loans/${LOAN}/remaining-debt`);
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
@@ -158,13 +160,15 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
 describe('GET /api/v1/loans/{id}/payments', () => {
   it('200 Loan level and per property', async () => {
     const base = await start({
-      getLoanPayments: async ({ perProperty, year }) => ({
-        year,
-        interest: 853n,
-        principal: 59_147n,
-        payments: 2,
-        ...(perProperty ? { items: [{ propertyReferenceId: 'p-a', interest: 853n, principal: 59_147n }] } : {}),
-      }),
+      loanDebt: {
+        payments: async ({ perProperty, year }) => ({
+          year,
+          interest: 853n,
+          principal: 59_147n,
+          payments: 2,
+          ...(perProperty ? { items: [{ propertyReferenceId: 'p-a', interest: 853n, principal: 59_147n }] } : {}),
+        }),
+      },
     });
     expect(await (await call(base, 'GET', `/loans/${LOAN}/payments?year=2027`)).json()).toEqual({
       loanId: LOAN,
@@ -179,7 +183,7 @@ describe('GET /api/v1/loans/{id}/payments', () => {
   });
 
   it('400: year missing, malformed or out of range; LOAN_NOT_ALLOCATED with bookingDate', async () => {
-    const base = await start({ getLoanPayments: async () => Promise.reject(new LoanNotAllocatedError(LOAN, { bookingDate: '2027-01-31' as never })) });
+    const base = await start({ loanDebt: { payments: async () => Promise.reject(new LoanNotAllocatedError(LOAN, { bookingDate: '2027-01-31' as never })) } });
     expect(await fieldsOf(await call(base, 'GET', `/loans/${LOAN}/payments`))).toEqual([{ field: 'year', code: 'REQUIRED' }]);
     expect(await fieldsOf(await call(base, 'GET', `/loans/${LOAN}/payments?year=27`))).toEqual([{ field: 'year', code: 'INVALID_FORMAT' }]);
     expect(await fieldsOf(await call(base, 'GET', `/loans/${LOAN}/payments?year=1999`))).toEqual([{ field: 'year', code: 'OUT_OF_RANGE' }]);
@@ -195,9 +199,11 @@ describe('balance statements', () => {
   it('POST 201 with the comparison and ETag; trimmed source; notes default null; a replay is marked', async () => {
     const seen: CreateBalanceStatementInput[] = [];
     const base = await start({
-      createBalanceStatement: async (input) => {
-        seen.push(input);
-        return { statement: statementView, replayed: input.idempotencyKey !== undefined };
+      loanDebt: {
+        createStatement: async (input) => {
+          seen.push(input);
+          return { statement: statementView, replayed: input.idempotencyKey !== undefined };
+        },
       },
     });
     const res = await call(base, 'POST', `/loans/${LOAN}/balance-statements`, body);
@@ -240,7 +246,7 @@ describe('balance statements', () => {
     [new StatementAfterClosingError('2027-06-30' as never), 422, 'STATEMENT_AFTER_CLOSING', { closingDate: '2027-06-30' }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('POST maps %s', async (error, status, code, details) => {
-    const base = await start({ createBalanceStatement: async () => Promise.reject(error) });
+    const base = await start({ loanDebt: { createStatement: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${LOAN}/balance-statements`, body);
     expect(res.status).toBe(status);
     const e = await errorOf(res);
@@ -252,10 +258,12 @@ describe('balance statements', () => {
     const seen: unknown[] = [];
     let fail: Error | undefined;
     const base = await start({
-      voidBalanceStatement: async (input) => {
-        seen.push(input.expectedVersions);
-        if (fail !== undefined) throw fail;
-        return { statement: { ...statementView, status: 'VOID', version: 2 } as StatementView, changed: true };
+      loanDebt: {
+        voidStatement: async (input) => {
+          seen.push(input.expectedVersions);
+          if (fail !== undefined) throw fail;
+          return { statement: { ...statementView, status: 'VOID', version: 2 } as StatementView, changed: true };
+        },
       },
     });
     const path = `/loans/${LOAN}/balance-statements/${STATEMENT}/void`;
@@ -278,9 +286,11 @@ describe('balance statements', () => {
   it('list: items with comparisons; status filter strict', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listBalanceStatements: async (input) => {
-        seen.push(input.status);
-        return [statementView];
+      loanDebt: {
+        listStatements: async (input) => {
+          seen.push(input.status);
+          return [statementView];
+        },
       },
     });
     const res = await call(base, 'GET', `/loans/${LOAN}/balance-statements?status=VALID`);

@@ -24,8 +24,8 @@ import {
   type PrincipalVerifier,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-3-01 HTTP contract (api-design.md §41.1). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -60,8 +60,8 @@ const loan = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -88,11 +88,13 @@ describe('POST /api/v1/loans', () => {
     const seen: CreateLoanInput[] = [];
     let replayed = false;
     const base = await start({
-      createLoan: async (input) => {
-        seen.push(input);
-        const answer = { loan, replayed };
-        replayed = true;
-        return answer;
+      loans: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { loan, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     const res = await call(base, 'POST', '/loans', body, { 'idempotency-key': 'l1' });
@@ -161,7 +163,7 @@ describe('POST /api/v1/loans', () => {
     [new OwnerInactiveError(BANK), 422, 'PARTY_INACTIVE', { partyId: BANK }],
     [new IdempotencyKeyConflictError('x'), 409, 'CONFLICT', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ createLoan: async () => Promise.reject(error) });
+    const base = await start({ loans: { create: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', '/loans', body);
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, ...(details === undefined ? {} : { details }) });
@@ -172,9 +174,11 @@ describe('POST /api/v1/loans/{id}/amend', () => {
   it('passes only the given fields; null clears; If-Match carries the versions', async () => {
     const seen: { changes: LoanChanges; expectedVersions?: readonly number[] }[] = [];
     const base = await start({
-      amendLoan: async (input) => {
-        seen.push(input);
-        return { loan, changed: true };
+      loans: {
+        amend: async (input) => {
+          seen.push(input);
+          return { loan, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/loans/${ID}/amend`, { borrowerPartyIds: [BEN], maturityDate: null, notes: '' }, { 'if-match': '"1"' });
@@ -183,7 +187,7 @@ describe('POST /api/v1/loans/{id}/amend', () => {
   });
 
   it('400: fixed fields NOT_AMENDABLE, an empty body REQUIRED, unknown keys, and the merged rules from the domain', async () => {
-    const base = await start({ amendLoan: async () => Promise.reject(new LoanFieldsInvalidError([{ field: 'borrowerPartyIds.0', code: 'LENDER_IS_BORROWER' }])) });
+    const base = await start({ loans: { amend: async () => Promise.reject(new LoanFieldsInvalidError([{ field: 'borrowerPartyIds.0', code: 'LENDER_IS_BORROWER' }])) } });
     const fieldsOf = async (payload: unknown) => {
       const res = await call(base, 'POST', `/loans/${ID}/amend`, payload);
       expect(res.status, JSON.stringify(payload)).toBe(400);
@@ -207,7 +211,7 @@ describe('POST /api/v1/loans/{id}/amend', () => {
     [new OwnerInactiveError(BEN), 422, 'PARTY_INACTIVE', { partyId: BEN }],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', { expectedVersions: [1], currentVersion: 2 }],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ amendLoan: async () => Promise.reject(error) });
+    const base = await start({ loans: { amend: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${ID}/amend`, { notes: 'x' });
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
@@ -216,7 +220,7 @@ describe('POST /api/v1/loans/{id}/amend', () => {
 
 describe('POST /api/v1/loans/{id}/void', () => {
   it('200 with the Loan; the reason is required', async () => {
-    const base = await start({ voidLoan: async ({ reason }) => ({ loan: { ...loan, status: 'VOID', voidReason: reason, version: 2 } as Loan, changed: true }) });
+    const base = await start({ loans: { void: async ({ reason }) => ({ loan: { ...loan, status: 'VOID', voidReason: reason, version: 2 } as Loan, changed: true }) } });
     const res = await call(base, 'POST', `/loans/${ID}/void`, { reason: ' Doppelt ' });
     expect(res.status).toBe(200);
     expect(res.headers.get('etag')).toBe('"2"');
@@ -231,7 +235,7 @@ describe('POST /api/v1/loans/{id}/void', () => {
     [new LoanHasSplitsError(ID, [BEN]), 409, 'CONFLICT', { reason: 'LOAN_HAS_SPLITS', transactionIds: [BEN] }],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', { currentVersion: 2 }],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ voidLoan: async () => Promise.reject(error) });
+    const base = await start({ loans: { void: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${ID}/void`, { reason: 'x' });
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
@@ -244,12 +248,14 @@ describe('POST /api/v1/loans/{id}/close (§41.7)', () => {
   it('200 with the closed Loan and ETag; the request reaches the command normalized; If-Match passed', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      closeLoan: async (input) => {
-        seen.push(input);
-        return {
-          loan: { ...loan, status: 'CLOSED', closingDate: '2027-06-30', closingReason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null, version: 2 } as unknown as Loan,
-          changed: true,
-        };
+      loans: {
+        close: async (input) => {
+          seen.push(input);
+          return {
+            loan: { ...loan, status: 'CLOSED', closingDate: '2027-06-30', closingReason: 'REFINANCED', refinancedByLoanId: BEN, closingNote: null, version: 2 } as unknown as Loan,
+            changed: true,
+          };
+        },
       },
     });
     const res = await call(base, 'POST', `/loans/${ID}/close`, body, { 'if-match': '"1"' });
@@ -283,14 +289,14 @@ describe('POST /api/v1/loans/{id}/close (§41.7)', () => {
     [new RemainingDebtNotZeroError(12_345n), 409, 'CONFLICT', { reason: 'REMAINING_DEBT_NOT_ZERO', actual: { amount: '123.45', currency: 'EUR' } }],
     [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', { currentVersion: 2 }],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ closeLoan: async () => Promise.reject(error) });
+    const base = await start({ loans: { close: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/loans/${ID}/close`, body);
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
   });
 
   it('void of a successor: 409 LOAN_REFINANCES', async () => {
-    const base = await start({ voidLoan: async () => Promise.reject(new LoanRefinancesError(ID, [BEN])) });
+    const base = await start({ loans: { void: async () => Promise.reject(new LoanRefinancesError(ID, [BEN])) } });
     const res = await call(base, 'POST', `/loans/${ID}/void`, { reason: 'x' });
     expect([res.status, await errorOf(res)]).toMatchObject([409, { code: 'CONFLICT', details: { reason: 'LOAN_REFINANCES', loanIds: [BEN] } }]);
   });
@@ -299,9 +305,11 @@ describe('POST /api/v1/loans/{id}/close (§41.7)', () => {
 describe('reads', () => {
   it('GET /loans/{id}: the Loan with ETag; malformed id 400; unknown 404', async () => {
     const base = await start({
-      getLoan: async ({ loanId }) => {
-        if (loanId !== ID) throw new LoanNotFoundError(loanId);
-        return loan;
+      loans: {
+        get: async ({ loanId }) => {
+          if (loanId !== ID) throw new LoanNotFoundError(loanId);
+          return loan;
+        },
       },
     });
     const res = await call(base, 'GET', `/loans/${ID.toUpperCase()}`);
@@ -314,9 +322,11 @@ describe('reads', () => {
   it('GET /loans: the filters and paging reach the read; unknown parameters are 400', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listLoans: async (input) => {
-        seen.push(input);
-        return { items: [loan], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+      loans: {
+        list: async (input) => {
+          seen.push(input);
+          return { items: [loan], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+        },
       },
     });
     const res = await call(base, 'GET', `/loans?status=ACTIVE&partyId=${ANNA.toUpperCase()}&acquisitionId=${ID}&page=2&pageSize=10`);

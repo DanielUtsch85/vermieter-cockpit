@@ -14,8 +14,8 @@ import {
   type PartyExternalReference,
   type PrincipalVerifier,
 } from '../application/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-02 HTTP contract (api-design.md §20.1). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -40,8 +40,8 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@ex
 
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -62,11 +62,13 @@ describe('POST /api/v1/parties/{id}/external-references', () => {
     const seen: unknown[] = [];
     let created = true;
     const base = await start({
-      createExternalReference: async (input) => {
-        seen.push(input);
-        const answer = { reference, created };
-        created = false;
-        return answer;
+      externalReferences: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { reference, created };
+          created = false;
+          return answer;
+        },
       },
     });
     const res = await call(base, 'POST', `/parties/${PARTY.toUpperCase()}/external-references`, body);
@@ -113,7 +115,7 @@ describe('POST /api/v1/parties/{id}/external-references', () => {
     [new MreUnavailableError('x'), 503, 'EXTERNAL_SYSTEM_ERROR', undefined],
     [new ConcurrentUpdateError('x'), 503, 'CONCURRENT_UPDATE', undefined],
   ])('%s → %i %s', async (error, status, code, details) => {
-    const base = await start({ createExternalReference: async () => Promise.reject(error) });
+    const base = await start({ externalReferences: { create: async () => Promise.reject(error) } });
     const res = await call(base, 'POST', `/parties/${PARTY}/external-references`, body);
     expect(res.status).toBe(status);
     const answer = await errorOf(res);
@@ -126,11 +128,13 @@ describe('POST /api/v1/parties/{id}/external-references/{refId}/end', () => {
   it('200 with the ended reference; passes If-Match; refusals map to 404/412; ids must be UUIDs', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      endExternalReference: async (input) => {
-        seen.push(input);
-        if (input.expectedVersions?.includes(7)) throw new VersionConflictError([7], 1);
-        if (input.externalReferenceId !== REF) throw new ExternalReferenceNotFoundError(input.externalReferenceId);
-        return { reference: { ...reference, status: 'ENDED', endedAt: new Date('2026-10-22T09:00:00Z'), version: 2 }, changed: true };
+      externalReferences: {
+        end: async (input) => {
+          seen.push(input);
+          if (input.expectedVersions?.includes(7)) throw new VersionConflictError([7], 1);
+          if (input.externalReferenceId !== REF) throw new ExternalReferenceNotFoundError(input.externalReferenceId);
+          return { reference: { ...reference, status: 'ENDED', endedAt: new Date('2026-10-22T09:00:00Z'), version: 2 }, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/parties/${PARTY}/external-references/${REF}/end`, undefined, { 'if-match': '"1"' });
@@ -153,10 +157,12 @@ describe('GET /api/v1/parties/{id}/external-references and the Party list filter
   it('a page with the status filter; defaults 1 / 50; bad parameters are 400; an unknown Party is 404', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listExternalReferences: async (input) => {
-        seen.push(input);
-        if (input.partyId !== PARTY) throw new PartyNotFoundError(input.partyId);
-        return { items: [reference], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+      externalReferences: {
+        list: async (input) => {
+          seen.push(input);
+          if (input.partyId !== PARTY) throw new PartyNotFoundError(input.partyId);
+          return { items: [reference], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+        },
       },
     });
     const res = await call(base, 'GET', `/parties/${PARTY}/external-references?status=ACTIVE&page=2&pageSize=5`);
@@ -173,9 +179,11 @@ describe('GET /api/v1/parties/{id}/external-references and the Party list filter
   it('GET /parties?externalSystem=MRE&externalId=… passes the reference filter; the two come together and are validated', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listParties: async (input) => {
-        seen.push(input);
-        return { items: [], page: 1, pageSize: 50, total: 0 };
+      parties: {
+        list: async (input) => {
+          seen.push(input);
+          return { items: [], page: 1, pageSize: 50, total: 0 };
+        },
       },
     });
     expect((await call(base, 'GET', `/parties?externalSystem=MRE&externalId=${TENANT}&status=ACTIVE`)).status).toBe(200);

@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
-import { unusedCommands } from './api/app.test-support.js';
+import { commandsWith } from './api/app.test-support.js';
 import { closeFinancialAccount, createFinancialAccount, createManualTransaction } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
@@ -47,10 +47,10 @@ describe.skipIf(databaseUrl === undefined)('manual Transactions end to end', () 
     server = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 })),
-      ...unusedCommands,
-      createFinancialAccount: createFinancialAccount({ repository: accounts }),
-      closeFinancialAccount: closeFinancialAccount({ repository: accounts }),
-      createManualTransaction: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
+      ...commandsWith({
+        financialAccounts: { create: createFinancialAccount({ repository: accounts }), close: closeFinancialAccount({ repository: accounts }) },
+        transactions: { createManual: createManualTransaction({ repository: new PostgresTransactionRepository(db) }) },
+      }),
     }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

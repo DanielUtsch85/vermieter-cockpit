@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
-import { unusedCommands } from './api/app.test-support.js';
+import { commandsWith } from './api/app.test-support.js';
 import {
   confirmTransaction,
   createFinancialAccount,
@@ -57,13 +57,15 @@ describe.skipIf(databaseUrl === undefined)('transaction splits end to end', () =
     server = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 })),
-      ...unusedCommands,
-      createFinancialAccount: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }),
-      createManualTransaction: createManualTransaction({ repository: transactions }),
-      confirmTransaction: confirmTransaction({ repository: transactions }),
-      setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
-      listFinancialCategories: listFinancialCategories({ categories }),
-      getFinancialCategory: getFinancialCategory({ categories }),
+      ...commandsWith({
+        financialAccounts: { create: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }) },
+        transactions: {
+          createManual: createManualTransaction({ repository: transactions }),
+          confirm: confirmTransaction({ repository: transactions }),
+          setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
+        },
+        financialCategories: { list: listFinancialCategories({ categories }), get: getFinancialCategory({ categories }) },
+      }),
     }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

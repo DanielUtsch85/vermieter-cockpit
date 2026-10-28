@@ -14,8 +14,8 @@ import {
   type PrincipalVerifier,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-06 HTTP contract (api-design.md §27.2). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -62,8 +62,8 @@ const payment: AcquisitionPayment = {
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -82,9 +82,11 @@ describe('POST /api/v1/acquisitions/{id}/costs', () => {
   it('201 with the cost and ETag, the input normalized; a replay is marked', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      createAcquisitionCost: async (input) => {
-        seen.push(input);
-        return { cost, replayed: seen.length > 1 };
+      acquisitionCosts: {
+        createCost: async (input) => {
+          seen.push(input);
+          return { cost, replayed: seen.length > 1 };
+        },
       },
     });
     const body = { category: 'NOTARY', amount: { amount: '2450.10', currency: 'EUR' }, notes: '  Beurkundung ', sourceReferences: [' Rechnung 17 ', ''] };
@@ -127,8 +129,10 @@ describe('POST /api/v1/acquisitions/{id}/costs', () => {
   it('404 and 409 refusals', async () => {
     const errors = [new AcquisitionNotFoundError(ACQ), new AcquisitionCancelledError(ACQ)];
     const base = await start({
-      createAcquisitionCost: async () => {
-        throw errors.shift();
+      acquisitionCosts: {
+        createCost: async () => {
+          throw errors.shift();
+        },
       },
     });
     const body = { category: 'NOTARY', amount: { amount: '1.00', currency: 'EUR' } };
@@ -145,11 +149,13 @@ describe('POST /api/v1/acquisitions/{id}/costs/{costId}/void', () => {
     const errors: unknown[] = [undefined, new CostHasPaymentsError(COST, [PAY]), new VersionConflictError([3], 1), new AcquisitionCostNotFoundError(COST)];
     const seen: unknown[] = [];
     const base = await start({
-      voidAcquisitionCost: async (input) => {
-        seen.push(input);
-        const error = errors.shift();
-        if (error !== undefined) throw error;
-        return { cost: { ...cost, status: 'VOID', paymentStatus: null, version: 2 }, changed: true };
+      acquisitionCosts: {
+        voidCost: async (input) => {
+          seen.push(input);
+          const error = errors.shift();
+          if (error !== undefined) throw error;
+          return { cost: { ...cost, status: 'VOID', paymentStatus: null, version: 2 }, changed: true };
+        },
       },
     });
     const path = `/acquisitions/${ACQ}/costs/${COST}/void`;
@@ -167,9 +173,11 @@ describe('POST /api/v1/acquisitions/{id}/payments', () => {
   it('201 with the payment; absent and null acquisitionCostId both mean the price', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      linkAcquisitionPayment: async (input) => {
-        seen.push(input);
-        return { payment, replayed: false };
+      acquisitionCosts: {
+        linkPayment: async (input) => {
+          seen.push(input);
+          return { payment, replayed: false };
+        },
       },
     });
     const amount = { amount: '1000.00', currency: 'EUR' };
@@ -209,8 +217,10 @@ describe('POST /api/v1/acquisitions/{id}/payments', () => {
       new PaymentRefusedError({ kind: 'PAYMENT_EXCEEDS_PRICE', expected: eur('10.00'), paid: eur('4.00'), remaining: eur('6.00') }),
     ];
     const base = await start({
-      linkAcquisitionPayment: async () => {
-        throw refusals.shift();
+      acquisitionCosts: {
+        linkPayment: async () => {
+          throw refusals.shift();
+        },
       },
     });
     const body = { transactionId: TX, amount: { amount: '1.00', currency: 'EUR' } };
@@ -256,9 +266,11 @@ describe('unlink and the reads', () => {
   it('unlink: 200 with the payment, If-Match passed on', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      unlinkAcquisitionPayment: async (input) => {
-        seen.push(input);
-        return { payment: { ...payment, unlinkedAt: new Date('2026-10-26T09:00:00Z'), unlinkReason: 'falsch', counting: false, notCountingReason: 'UNLINKED', version: 2 }, changed: true };
+      acquisitionCosts: {
+        unlinkPayment: async (input) => {
+          seen.push(input);
+          return { payment: { ...payment, unlinkedAt: new Date('2026-10-26T09:00:00Z'), unlinkReason: 'falsch', counting: false, notCountingReason: 'UNLINKED', version: 2 }, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/acquisitions/${ACQ}/payments/${PAY}/unlink`, { reason: 'falsch' }, { 'if-match': '"1"' });
@@ -270,13 +282,15 @@ describe('unlink and the reads', () => {
   it('GET …/costs and …/payments with their filters; the literal null names the price, an empty value is 400', async () => {
     const filters: unknown[] = [];
     const base = await start({
-      listAcquisitionCosts: async ({ filter }) => {
-        filters.push(filter);
-        return [cost];
-      },
-      listAcquisitionPayments: async ({ filter }) => {
-        filters.push(filter);
-        return { purchasePrice: { amount: eur('300000.00'), paidAmount: eur('1000.00'), paymentStatus: 'PARTIALLY_PAID' }, items: [payment] };
+      acquisitionCosts: {
+        listCosts: async ({ filter }) => {
+          filters.push(filter);
+          return [cost];
+        },
+        listPayments: async ({ filter }) => {
+          filters.push(filter);
+          return { purchasePrice: { amount: eur('300000.00'), paidAmount: eur('1000.00'), paymentStatus: 'PARTIALLY_PAID' }, items: [payment] };
+        },
       },
     });
     const costs = await call(base, 'GET', `/acquisitions/${ACQ}/costs?status=ACTIVE`);

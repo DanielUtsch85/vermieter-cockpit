@@ -4,14 +4,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   FinancialAccountNotFoundError,
   IdempotencyKeyConflictError,
-  type CloseFinancialAccount,
-  type CreateFinancialAccount,
   type CreateFinancialAccountInput,
   type FinancialAccount,
   type PrincipalVerifier,
 } from '../application/index.js';
 import { createApp } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { commandsWith } from './app.test-support.js';
+import type { FinancialAccountCommands } from './financial-accounts.js';
 
 const REALM = '64b0c0ffee0000000000000a';
 const ID = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
@@ -36,13 +35,11 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
 
 let server: Server | undefined;
 
-async function start(commands: { create?: CreateFinancialAccount; close?: CloseFinancialAccount }): Promise<string> {
+async function start(commands: Partial<FinancialAccountCommands>): Promise<string> {
   server = createApp({
     isReady: async () => true,
     verifyPrincipal: admin,
-    ...unusedCommands,
-    ...(commands.create === undefined ? {} : { createFinancialAccount: commands.create }),
-    ...(commands.close === undefined ? {} : { closeFinancialAccount: commands.close }),
+    ...commandsWith({ financialAccounts: commands }),
   }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

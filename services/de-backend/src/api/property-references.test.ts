@@ -15,7 +15,7 @@ import {
 } from '../application/index.js';
 import { ExactDecimal } from '../shared/index.js';
 import { createApp } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { commandsWith } from './app.test-support.js';
 
 const REALM = '64b0c0ffee0000000000000a';
 const PROPERTY = '6512f0c2a1b2c3d4e5f60718';
@@ -52,9 +52,7 @@ async function start(
   server = createApp({
     isReady: async () => true,
     verifyPrincipal,
-    ...unusedCommands,
-    linkPropertyReference: link,
-    refreshPropertyReference: refresh,
+    ...commandsWith({ propertyReferences: { link, refresh } }),
   }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;

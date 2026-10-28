@@ -10,8 +10,8 @@ import {
   type Party,
   type PrincipalVerifier,
 } from '../application/index.js';
-import { createApp, type AppDependencies } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { createApp } from './app.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-01 HTTP contract (api-design.md §19.1). */
 const REALM = '64b0c0ffee0000000000000a';
@@ -38,8 +38,8 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@ex
 
 let server: Server | undefined;
 
-async function start(commands: Partial<AppDependencies>): Promise<string> {
-  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...unusedCommands, ...commands }).listen(0, '127.0.0.1');
+async function start(commands: CommandOverrides): Promise<string> {
+  server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith(commands) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 }
@@ -59,11 +59,13 @@ describe('POST /api/v1/parties', () => {
     const seen: CreatePartyInput[] = [];
     let replayed = false;
     const base = await start({
-      createParty: async (input) => {
-        seen.push(input);
-        const answer = { party, replayed };
-        replayed = true;
-        return answer;
+      parties: {
+        create: async (input) => {
+          seen.push(input);
+          const answer = { party, replayed };
+          replayed = true;
+          return answer;
+        },
       },
     });
     const body = { partyType: 'PERSON', displayName: '  Anna Schmidt ', firstName: 'Anna', lastName: 'Schmidt', email: ' ', phone: null };
@@ -100,9 +102,11 @@ describe('POST /api/v1/parties', () => {
 
   it('400 for missing or bad fields, unknown keys (organizationType, dateOfBirth), fields of the other type; 409 on a reused key', async () => {
     const base = await start({
-      createParty: async (input) => {
-        if (input.legalName !== null) throw new PartyFieldNotAllowedError('PERSON', ['legalName']);
-        throw new IdempotencyKeyConflictError('x');
+      parties: {
+        create: async (input) => {
+          if (input.legalName !== null) throw new PartyFieldNotAllowedError('PERSON', ['legalName']);
+          throw new IdempotencyKeyConflictError('x');
+        },
       },
     });
     for (const body of [
@@ -126,9 +130,11 @@ describe('POST /api/v1/parties', () => {
 describe('GET /api/v1/parties(/{id})', () => {
   it('one Party with its ETag; 404 when unknown or foreign, 400 for a malformed id', async () => {
     const base = await start({
-      getParty: async ({ partyId }) => {
-        if (partyId !== ID) throw new PartyNotFoundError(partyId);
-        return party;
+      parties: {
+        get: async ({ partyId }) => {
+          if (partyId !== ID) throw new PartyNotFoundError(partyId);
+          return party;
+        },
       },
     });
     const res = await call(base, 'GET', `/parties/${ID.toUpperCase()}`);
@@ -144,9 +150,11 @@ describe('GET /api/v1/parties(/{id})', () => {
   it('a page with the filters as given; defaults page 1 / 50; unknown or bad parameters are 400', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listParties: async (input) => {
-        seen.push(input);
-        return { items: [party], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+      parties: {
+        list: async (input) => {
+          seen.push(input);
+          return { items: [party], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+        },
       },
     });
     const res = await call(base, 'GET', '/parties?partyType=PERSON&status=ACTIVE&name=100%25&page=2&pageSize=5');
@@ -164,12 +172,14 @@ describe('POST /api/v1/parties/{id}/amend and /deactivate', () => {
   it('amend passes the changes and If-Match; partyType and an empty body are 400; refusals map to 400/404/412', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      amendParty: async (input) => {
-        seen.push(input);
-        if (input.changes.legalName !== undefined) throw new PartyFieldNotAllowedError('PERSON', ['legalName']);
-        if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
-        if (input.partyId !== ID) throw new PartyNotFoundError(input.partyId);
-        return { party, changed: true };
+      parties: {
+        amend: async (input) => {
+          seen.push(input);
+          if (input.changes.legalName !== undefined) throw new PartyFieldNotAllowedError('PERSON', ['legalName']);
+          if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
+          if (input.partyId !== ID) throw new PartyNotFoundError(input.partyId);
+          return { party, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/parties/${ID}/amend`, { email: 'a@b.de', phone: '' }, { 'if-match': '"3"' });
@@ -191,11 +201,13 @@ describe('POST /api/v1/parties/{id}/amend and /deactivate', () => {
   it('deactivate needs a reason (1–500) and passes If-Match; refusals map to 404/412', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      deactivateParty: async (input) => {
-        seen.push(input);
-        if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
-        if (input.partyId !== ID) throw new PartyNotFoundError(input.partyId);
-        return { party: { ...party, status: 'INACTIVE', deactivationReason: 'verstorben' }, changed: true };
+      parties: {
+        deactivate: async (input) => {
+          seen.push(input);
+          if (input.expectedVersions?.includes(1)) throw new VersionConflictError([1], 3);
+          if (input.partyId !== ID) throw new PartyNotFoundError(input.partyId);
+          return { party: { ...party, status: 'INACTIVE', deactivationReason: 'verstorben' }, changed: true };
+        },
       },
     });
     const res = await call(base, 'POST', `/parties/${ID}/deactivate`, { reason: ' verstorben ' }, { 'if-match': '"3"' });

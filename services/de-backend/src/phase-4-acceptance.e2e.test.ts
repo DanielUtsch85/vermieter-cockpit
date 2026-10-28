@@ -4,7 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Express } from 'express';
 import { createApp } from './api/index.js';
-import { unusedCommands } from './api/app.test-support.js';
+import { commandsWith } from './api/app.test-support.js';
 import {
   confirmReconciliation,
   confirmTransaction,
@@ -123,25 +123,30 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
     app = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(client),
-      ...unusedCommands,
-      createFinancialAccount: createFinancialAccount({ repository: accounts }),
-      confirmTransaction: confirmTransaction({ repository: transactions }),
-      getTransaction: getTransaction({ queries: new PostgresTransactionQueries(db) }),
-      setTransactionSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
-      reverseTransaction: reverseTransaction({ repository: new PostgresCorrectionRepository(db) }),
-      importBankStatement: importBankStatement({ imports: new PostgresImportRepository(db), accounts, findAdapter: findBankStatementAdapter }),
-      createReconciliation: createReconciliation({ repository: reconciliations, lookupMreRentTerm: mreRentTermLookup(client) }),
-      getReconciliation: getReconciliation({ repository: reconciliations }),
-      listReconciliations: listReconciliations({ repository: reconciliations }),
-      releaseReconciliation: releaseReconciliation({ repository: reconciliations }),
-      getTermCoverage: getTermCoverage({ repository: reconciliations, readMreRentTerm: mreRentTermReader(client) }),
-      getTransactionCoverage: getTransactionCoverage({ repository: reconciliations }),
-      suggestReconciliations: suggestReconciliations({ repository: reconciliations, readMreMonth: mreMonthReader(client) }),
-      confirmReconciliation: confirmReconciliation({ repository: reconciliations, readMreRentTerm: mreRentTermReader(client) }),
-      rejectReconciliation: rejectReconciliation({ repository: reconciliations }),
-      writeBackToMre: writeBackToMre(writeBack),
-      getReconciliationWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(client) }),
-      removeFromMre: removeFromMre({ ...writeBack, marginMs: 0 }),
+      ...commandsWith({
+        rentReconciliations: {
+          create: createReconciliation({ repository: reconciliations, lookupMreRentTerm: mreRentTermLookup(client) }),
+          get: getReconciliation({ repository: reconciliations }),
+          list: listReconciliations({ repository: reconciliations }),
+          release: releaseReconciliation({ repository: reconciliations }),
+          termCoverage: getTermCoverage({ repository: reconciliations, readMreRentTerm: mreRentTermReader(client) }),
+          transactionCoverage: getTransactionCoverage({ repository: reconciliations }),
+          suggest: suggestReconciliations({ repository: reconciliations, readMreMonth: mreMonthReader(client) }),
+          confirm: confirmReconciliation({ repository: reconciliations, readMreRentTerm: mreRentTermReader(client) }),
+          reject: rejectReconciliation({ repository: reconciliations }),
+          writeBack: writeBackToMre(writeBack),
+          getWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(client) }),
+          removeFromMre: removeFromMre({ ...writeBack, marginMs: 0 }),
+        },
+        financialAccounts: { create: createFinancialAccount({ repository: accounts }) },
+        transactions: {
+          confirm: confirmTransaction({ repository: transactions }),
+          get: getTransaction({ queries: new PostgresTransactionQueries(db) }),
+          setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
+          reverse: reverseTransaction({ repository: new PostgresCorrectionRepository(db) }),
+        },
+        imports: { importStatement: importBankStatement({ imports: new PostgresImportRepository(db), accounts, findAdapter: findBankStatementAdapter }) },
+      }),
     });
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));

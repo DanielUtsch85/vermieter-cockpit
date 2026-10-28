@@ -10,18 +10,14 @@ import {
   ReviewResolutionConflictError,
   UnsupportedAdapterError,
   type ConflictingTransaction,
-  type GetImportBatch,
-  type ImportBankStatement,
   type ImportBankStatementInput,
   type ImportBatch,
-  type ListReviewItems,
   type PrincipalVerifier,
-  type ResolveReviewItem,
   type ReviewItem,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { createApp } from './app.js';
-import { unusedCommands } from './app.test-support.js';
+import { commandsWith, type CommandOverrides } from './app.test-support.js';
 import { MAX_IMPORT_FILE_BYTES } from './imports.js';
 
 const REALM = '64b0c0ffee0000000000000a';
@@ -54,20 +50,11 @@ const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
 
 let server: Server | undefined;
 
-async function start(commands: {
-  importStatement?: ImportBankStatement;
-  getBatch?: GetImportBatch;
-  listReviewItems?: ListReviewItems;
-  resolveReviewItem?: ResolveReviewItem;
-}): Promise<string> {
+async function start(commands: CommandOverrides): Promise<string> {
   server = createApp({
     isReady: async () => true,
     verifyPrincipal: admin,
-    ...unusedCommands,
-    ...(commands.importStatement === undefined ? {} : { importBankStatement: commands.importStatement }),
-    ...(commands.getBatch === undefined ? {} : { getImportBatch: commands.getBatch }),
-    ...(commands.listReviewItems === undefined ? {} : { listReviewItems: commands.listReviewItems }),
-    ...(commands.resolveReviewItem === undefined ? {} : { resolveReviewItem: commands.resolveReviewItem }),
+    ...commandsWith(commands),
   }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -105,9 +92,11 @@ describe('POST /api/v1/imports/bank-transactions', () => {
   it('201 with the batch; the use case gets the file bytes, filename and the remaining metadata as options', async () => {
     const seen: ImportBankStatementInput[] = [];
     const base = await start({
-      importStatement: async (input) => {
-        seen.push(input);
-        return batch;
+      imports: {
+        importStatement: async (input) => {
+          seen.push(input);
+          return batch;
+        },
       },
     });
     const res = await upload(base, form({ metadata, file: csv }));
@@ -144,7 +133,7 @@ describe('POST /api/v1/imports/bank-transactions', () => {
   });
 
   it('400 for a missing part, non-JSON or invalid metadata, an unexpected part or a non-multipart body', async () => {
-    const base = await start({ importStatement: async () => batch });
+    const base = await start({ imports: { importStatement: async () => batch } });
     const cases: [FormData | string, unknown][] = [
       [form({ file: csv }), [{ field: 'metadata', code: 'REQUIRED' }]],
       [form({ metadata }), [{ field: 'file', code: 'REQUIRED' }]],
@@ -167,9 +156,11 @@ describe('POST /api/v1/imports/bank-transactions', () => {
   it('413 for a file over the limit, without calling the use case', async () => {
     let called = false;
     const base = await start({
-      importStatement: async () => {
-        called = true;
-        return batch;
+      imports: {
+        importStatement: async () => {
+          called = true;
+          return batch;
+        },
       },
     });
     // Just over the limit: caught while streaming.
@@ -198,7 +189,7 @@ describe('POST /api/v1/imports/bank-transactions', () => {
       ],
     ] as const;
     for (const [error, status, body] of errors) {
-      const base = await start({ importStatement: () => Promise.reject(error) });
+      const base = await start({ imports: { importStatement: () => Promise.reject(error) } });
       const res = await upload(base, form({ metadata, file: csv }));
       expect(res.status).toBe(status);
       expect(await errorOf(res)).toMatchObject(body);
@@ -211,9 +202,11 @@ describe('POST /api/v1/imports/bank-transactions', () => {
 describe('GET /api/v1/imports/{importBatchId}', () => {
   it('200 with the batch; 400 for a non-UUID; 404 when not in the Realm', async () => {
     const base = await start({
-      getBatch: async ({ importBatchId, principal }) => {
-        if (importBatchId === BATCH && principal.mreRealmId === REALM) return batch;
-        throw new ImportBatchNotFoundError(importBatchId);
+      imports: {
+        getBatch: async ({ importBatchId, principal }) => {
+          if (importBatchId === BATCH && principal.mreRealmId === REALM) return batch;
+          throw new ImportBatchNotFoundError(importBatchId);
+        },
       },
     });
     const ok = await fetch(`${base}/api/v1/imports/${BATCH.toUpperCase()}`, { headers: auth });
@@ -268,9 +261,11 @@ describe('GET /api/v1/imports/{importBatchId}/review-items', () => {
   it('200 with the owned items, each next to the Transactions it conflicts with; the status filter is passed on', async () => {
     const seen: unknown[] = [];
     const base = await start({
-      listReviewItems: async (input) => {
-        seen.push(input.status);
-        return { items: [item], conflicting: [conflicting] };
+      imports: {
+        listReviewItems: async (input) => {
+          seen.push(input.status);
+          return { items: [item], conflicting: [conflicting] };
+        },
       },
     });
     const res = await fetch(`${base}/api/v1/imports/${BATCH}/review-items?status=PENDING`, { headers: auth });
@@ -316,7 +311,7 @@ describe('GET /api/v1/imports/{importBatchId}/review-items', () => {
 
   it('400 for a non-UUID or an unknown status; 404 for an unknown batch', async () => {
     const base = await start({
-      listReviewItems: ({ importBatchId }) => Promise.reject(new ImportBatchNotFoundError(importBatchId)),
+      imports: { listReviewItems: ({ importBatchId }) => Promise.reject(new ImportBatchNotFoundError(importBatchId)) },
     });
     const invalid = await fetch(`${base}/api/v1/imports/nope/review-items?status=OPEN`, { headers: auth });
     expect(invalid.status).toBe(400);
@@ -348,11 +343,13 @@ describe('POST /api/v1/imports/{importBatchId}/review-items/{reviewItemId}/resol
     const seen: unknown[] = [];
     let replayed = false;
     const base = await start({
-      resolveReviewItem: async (input) => {
-        seen.push(input);
-        const result = { item: resolved, replayed };
-        replayed = true;
-        return result;
+      imports: {
+        resolveReviewItem: async (input) => {
+          seen.push(input);
+          const result = { item: resolved, replayed };
+          replayed = true;
+          return result;
+        },
       },
     });
     const first = await resolveAt(base, { resolution: 'CREATE' }, BATCH.toUpperCase());
@@ -392,7 +389,7 @@ describe('POST /api/v1/imports/{importBatchId}/review-items/{reviewItemId}/resol
       [new FinancialAccountClosedError(ACCOUNT), 409, { code: 'CONFLICT', details: { reason: 'ACCOUNT_CLOSED' } }],
     ] as const;
     for (const [error, status, body] of errors) {
-      const base = await start({ resolveReviewItem: () => Promise.reject(error) });
+      const base = await start({ imports: { resolveReviewItem: () => Promise.reject(error) } });
       const res = await resolveAt(base, { resolution: 'CREATE' });
       expect(res.status).toBe(status);
       expect(await errorOf(res)).toMatchObject(body);

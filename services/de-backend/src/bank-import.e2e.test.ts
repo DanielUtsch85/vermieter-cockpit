@@ -3,7 +3,7 @@ import type { Server } from 'node:http';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
-import { unusedCommands } from './api/app.test-support.js';
+import { commandsWith } from './api/app.test-support.js';
 import { createFinancialAccount, getImportBatch, importBankStatement, listReviewItems, resolveReviewItem } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
@@ -64,12 +64,15 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
     server = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 })),
-      ...unusedCommands,
-      createFinancialAccount: createFinancialAccount({ repository: accounts }),
-      importBankStatement: importBankStatement({ imports, accounts, findAdapter: findBankStatementAdapter }),
-      getImportBatch: getImportBatch({ imports }),
-      listReviewItems: listReviewItems({ imports }),
-      resolveReviewItem: resolveReviewItem({ imports }),
+      ...commandsWith({
+        financialAccounts: { create: createFinancialAccount({ repository: accounts }) },
+        imports: {
+          importStatement: importBankStatement({ imports, accounts, findAdapter: findBankStatementAdapter }),
+          getBatch: getImportBatch({ imports }),
+          listReviewItems: listReviewItems({ imports }),
+          resolveReviewItem: resolveReviewItem({ imports }),
+        },
+      }),
     }).listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
