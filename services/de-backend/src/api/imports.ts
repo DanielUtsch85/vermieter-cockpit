@@ -281,6 +281,8 @@ function toDto(batch: ImportBatch) {
     importedAt: batch.importedAt.toISOString(),
     importedBy: batch.importedBy,
     rows: batch.rows,
+    // generic-csv v2 (§70.6): null when the file had no balance column.
+    continuity: batch.continuity,
   };
 }
 

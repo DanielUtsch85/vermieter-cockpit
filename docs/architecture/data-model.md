@@ -3126,7 +3126,7 @@ Before computing the content fingerprint: trim and collapse whitespace, uppercas
 
 ## 70.6 Balance identity and continuity (ADR-043, `generic-csv` v2)
 
-Applies to rows whose import maps the bank's **running balance after the booking** (`balanceAfter`, a signed Money value in the account currency). Implementation: backlog VC-1-12.
+Applies to rows whose import maps the bank's **running balance after the booking** (`balanceAfter`, a signed Money value in the account currency). Implementation: backlog VC-1-12 (migration 0034, `api-design.md` §32.5).
 
 - **Identity:** `(realm, financialAccountId, bookingDate, amount, direction, balanceAfter)`, ranked after the stable external id and before the fallback (§70.1). It is adapter-independent: the same booking under another adapter or version with the same balance is the same identity.
 - **Matched against:** every Transaction of the account that carries a `sourceBalanceAfter` — also those created through the fallback because their identity repeated in their own file.

@@ -378,6 +378,8 @@ export interface LedgerTransactionTable {
   content_fingerprint: string | null;
   /** Set when a review item's `CREATE` resolution created this Transaction (§20A). */
   import_review_item_id: string | null;
+  /** The bank's running balance after the booking, as imported (§70.6); fixed after creation. */
+  source_balance_after: string | null;
   /** Set exactly for confirmed Transactions (CONFIRMED, RECONCILED, CORRECTED). */
   confirmed_at: Date | null;
   confirmed_by: string | null;
@@ -404,6 +406,8 @@ export interface ImportBatchTable {
   rows: Json<unknown[]>;
   imported_at: Generated<Date>;
   imported_by: string;
+  /** The continuity report (§70.6); null for a file without a balance column. */
+  continuity: Json<unknown> | null;
 }
 
 export interface ImportReviewItemTable {

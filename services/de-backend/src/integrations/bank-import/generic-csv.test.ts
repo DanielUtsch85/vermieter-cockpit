@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { ParsedRow, ParsedStatement } from '../../domains/ledger/index.js';
-import { MAX_ROWS, findBankStatementAdapter, genericCsvAdapter } from './index.js';
+import { MAX_ROWS, findBankStatementAdapter, genericCsvAdapter, genericCsvAdapterV2 } from './index.js';
 
 const mapping = {
   bookingDate: 'Buchungstag',
@@ -190,6 +190,40 @@ describe('generic-csv v1', () => {
 
   it('is registered by id and version', () => {
     expect(findBankStatementAdapter('generic-csv', '1')).toBe(genericCsvAdapter);
-    expect(findBankStatementAdapter('generic-csv', '2')).toBeUndefined();
+    expect(findBankStatementAdapter('generic-csv', '2')).toBe(genericCsvAdapterV2);
+    expect(findBankStatementAdapter('generic-csv', '3')).toBeUndefined();
+  });
+});
+
+describe('generic-csv v2 (ADR-043, data-model §70.6)', () => {
+  const withBalance = [
+    'Buchungstag;Betrag;Saldo nach Buchung;Verwendungszweck',
+    '01.10.2026;-9,96;1.077,00;Rücklage',
+    '01.10.2026;-213,04;-5,10;Hausgeld',
+    '02.10.2026;12,00;;Ohne Saldo',
+  ].join('\n');
+  const balanceMapping = { bookingDate: 'Buchungstag', amount: 'Betrag', balanceAfter: 'Saldo nach Buchung', description: 'Verwendungszweck' };
+  const parseV2 = (content: string, options: unknown = { columnMapping: balanceMapping }) =>
+    genericCsvAdapterV2.parse(new TextEncoder().encode(content), options, 'EUR');
+
+  it('reads the balance after the booking, signed, in the currency scale; an empty cell is no balance', () => {
+    const statement = statementOf(parseV2(withBalance));
+    expect(statement.adapterVersion).toBe('2');
+    expect(rowsOf(parseV2(withBalance)).map((r) => r.row.balanceAfter)).toEqual(['1077.00', '-5.10', null]);
+  });
+
+  it('keeps the v1 content fingerprint: the balance is not part of it', () => {
+    const v1 = rowsOf(parse(withBalance, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', description: 'Verwendungszweck' } }));
+    expect(rowsOf(parseV2(withBalance)).map((r) => r.contentFingerprint)).toEqual(v1.map((r) => r.contentFingerprint));
+    expect(v1.map((r) => r.row.balanceAfter)).toEqual([null, null, null]);
+  });
+
+  it('a malformed or too precise balance is a row error; v1 refuses the balanceAfter mapping', () => {
+    const csv = 'Buchungstag;Betrag;Saldo nach Buchung;Verwendungszweck\n01.10.2026;-1,00;abc;x\n01.10.2026;-1,00;1,005;y\n';
+    expect(statementOf(parseV2(csv)).rows).toEqual([
+      { kind: 'ERROR', position: 1, errors: [{ field: 'balanceAfter', code: 'INVALID_FORMAT' }] },
+      { kind: 'ERROR', position: 2, errors: [{ field: 'balanceAfter', code: 'SCALE_EXCEEDED' }] },
+    ]);
+    expect(parse(withBalance, { columnMapping: balanceMapping })).toMatchObject({ error: { code: 'INVALID_OPTIONS' } });
   });
 });

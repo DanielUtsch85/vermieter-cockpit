@@ -40,6 +40,7 @@ const batch = {
   importedAt: new Date('2026-10-19T08:00:00Z'),
   importedBy: 'anna@example.com',
   rows: [{ outcome: 'created', position: 1, transactionId: '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' }],
+  continuity: { order: 'NEWEST_FIRST', breaks: [{ position: 1, expectedBalanceAfter: '1.00', balanceAfter: '2.00' }], previousExport: 'GAP' },
 } as unknown as ImportBatch;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
@@ -118,6 +119,7 @@ describe('POST /api/v1/imports/bank-transactions', () => {
       importedAt: '2026-10-19T08:00:00.000Z',
       importedBy: 'anna@example.com',
       rows: [{ outcome: 'created', position: 1, transactionId: '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d' }],
+      continuity: { order: 'NEWEST_FIRST', breaks: [{ position: 1, expectedBalanceAfter: '1.00', balanceAfter: '2.00' }], previousExport: 'GAP' },
     });
     expect(seen).toHaveLength(1);
     const [input] = seen;

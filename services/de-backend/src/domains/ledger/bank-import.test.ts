@@ -115,6 +115,51 @@ describe('decideRow (data-model.md §70.1/§70.4, §20A)', () => {
   });
 });
 
+describe('decideRow, balance branch (data-model.md §70.6)', () => {
+  const matches = (...ids: string[]) => ids.map((id) => ({ id, contentFingerprint: id === 'other' ? 'fp-other' : 'fp' }));
+
+  it('one Transaction with the balance identity and the same content: a duplicate, ahead of the fallback', () => {
+    expect(decideRow(false, { balanceMatches: matches('tx-1'), balanceFingerprint: 'fp', fingerprintMatches: ['tx-1'] })).toEqual({
+      kind: 'DUPLICATE_TRANSACTION',
+      transactionId: 'tx-1',
+    });
+  });
+
+  it('one with other content: BALANCE_IDENTITY_CONTENT_CONFLICT, never a duplicate', () => {
+    expect(decideRow(false, { balanceMatches: matches('other'), balanceFingerprint: 'fp', fingerprintMatches: [] })).toEqual({
+      kind: 'NEW_REVIEW_ITEM',
+      reason: 'BALANCE_IDENTITY_CONTENT_CONFLICT',
+      conflictingTransactionIds: ['other'],
+      priorReviewItemIds: [],
+    });
+  });
+
+  it('several: AMBIGUOUS_CROSS_FILE_MATCH naming all of them, even with the same content', () => {
+    expect(decideRow(false, { balanceMatches: matches('tx-1', 'tx-2'), balanceFingerprint: 'fp', fingerprintMatches: [] })).toEqual({
+      kind: 'NEW_REVIEW_ITEM',
+      reason: 'AMBIGUOUS_CROSS_FILE_MATCH',
+      conflictingTransactionIds: ['tx-1', 'tx-2'],
+      priorReviewItemIds: [],
+    });
+  });
+
+  it('none: the fallback decides; a review item of the row and an external id still come first', () => {
+    expect(decideRow(false, { balanceMatches: [], balanceFingerprint: 'fp', fingerprintMatches: ['tx-3'] })).toMatchObject({
+      kind: 'NEW_REVIEW_ITEM',
+      reason: 'AMBIGUOUS_CROSS_FILE_MATCH',
+      conflictingTransactionIds: ['tx-3'],
+    });
+    expect(decideRow(false, { balanceMatches: [], fingerprintMatches: [] })).toEqual({ kind: 'CREATE' });
+    expect(decideRow(false, { reviewItemByIdentity: pending, balanceMatches: matches('tx-1'), balanceFingerprint: 'fp', fingerprintMatches: [] })).toEqual({
+      kind: 'REFERENCE_PENDING_ITEM',
+      item: pending,
+    });
+    expect(decideRow(true, { balanceMatches: matches('tx-1'), balanceFingerprint: 'fp', contentFingerprint: 'fp', fingerprintMatches: [] })).toEqual({
+      kind: 'CREATE',
+    });
+  });
+});
+
 describe('sourceRowKey', () => {
   const statement = (sourceStatementId: string | null) =>
     ({ adapterId: 'a', adapterVersion: '1', contentHash: 'abc', sourceStatementId, rows: [] }) as ParsedStatement;

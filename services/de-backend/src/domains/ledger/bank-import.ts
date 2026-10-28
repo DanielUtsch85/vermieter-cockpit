@@ -1,4 +1,5 @@
 import type { AuditActor, Money } from '../../shared/index.js';
+import type { ContinuityReport } from './balance-identity.js';
 import type { NormalizedBankRow, ParsedStatement, RowError } from './bank-statement.js';
 import type { FinancialAccount, FinancialAccountId } from './financial-account.js';
 import type { BusinessDate, Direction, Provenance } from './transaction.js';
@@ -22,7 +23,9 @@ export type AmbiguityReason =
   /** Same source row already imported or reviewed under another adapter version (§70.4). */
   | 'ADAPTER_VERSION_CONFLICT'
   /** Same external id as an imported Transaction, but different content (§70.4): not provably the same payment. */
-  | 'EXTERNAL_ID_CONTENT_CONFLICT';
+  | 'EXTERNAL_ID_CONTENT_CONFLICT'
+  /** Same balance identity as an imported Transaction, but different content (§70.6). */
+  | 'BALANCE_IDENTITY_CONTENT_CONFLICT';
 
 /** Per-row result of an import (api-design.md §32.1). */
 export type RowOutcome =
@@ -69,6 +72,8 @@ export interface ImportBatch {
   readonly importedAt: Date;
   readonly importedBy: string;
   readonly rows: readonly RowOutcome[];
+  /** The continuity report (§70.6); null when the file has no balance column or no row with a balance. */
+  readonly continuity: ContinuityReport | null;
 }
 
 /** Statement identity and source-row identity within it (§70.2 fallback key, minus Realm and account). */
@@ -108,6 +113,13 @@ export interface RowLookup {
    * with the same content fingerprint — the same payment imported before without its id.
    */
   readonly fallbackFingerprintMatches?: readonly string[];
+  /**
+   * Balance branch (§70.6), present only when the row's balance identity is unique in its file: the Transactions of
+   * the account with the same balance identity, any adapter, with their content fingerprints.
+   */
+  readonly balanceMatches?: readonly { readonly id: string; readonly contentFingerprint: string }[];
+  /** Balance branch: the row's content fingerprint, compared with `balanceMatches`. */
+  readonly balanceFingerprint?: string;
   /** Fallback branch: the Transaction with the full identity (same adapter id and version). */
   readonly transactionByIdentity?: string;
   /** Fallback branch: the same source row recorded under another adapter id or version. */
@@ -143,10 +155,13 @@ export type RowDecision =
  *    - no id match, but the same content imported earlier without an id → a new
  *      review item (the same payment must not be booked twice);
  *    - otherwise create.
- * 3. Otherwise the full source-row identity: an imported Transaction → duplicate.
- * 4. The same source row under another adapter version → a new review item, never automatic.
- * 5. The same content in another statement → a new review item (sameness cannot be proven).
- * 6. Otherwise create.
+ * 3. A balance identity unique in its file (§70.6, adapter-independent): one Transaction with it and the same content →
+ *    duplicate; one with other content → a new review item; several → a new review item (the file cannot tell which
+ *    payment it is). No Transaction with it → the fallback below.
+ * 4. Otherwise the full source-row identity: an imported Transaction → duplicate.
+ * 5. The same source row under another adapter version → a new review item, never automatic.
+ * 6. The same content in another statement → a new review item (sameness cannot be proven).
+ * 7. Otherwise create.
  */
 export function decideRow(hasExternalId: boolean, lookup: RowLookup): RowDecision {
   if (lookup.reviewItemByIdentity !== undefined) {
@@ -154,6 +169,8 @@ export function decideRow(hasExternalId: boolean, lookup: RowLookup): RowDecisio
     return item.status === 'PENDING' ? { kind: 'REFERENCE_PENDING_ITEM', item } : { kind: 'DUPLICATE_RESOLVED_ITEM', item };
   }
   if (hasExternalId) return decideByExternalId(lookup);
+  const byBalance = lookup.balanceMatches ?? [];
+  if (byBalance.length > 0) return decideByBalance(byBalance, lookup.balanceFingerprint);
   if (lookup.transactionByIdentity !== undefined) {
     return { kind: 'DUPLICATE_TRANSACTION', transactionId: lookup.transactionByIdentity };
   }
@@ -175,6 +192,15 @@ export function decideRow(hasExternalId: boolean, lookup: RowLookup): RowDecisio
     };
   }
   return { kind: 'CREATE' };
+}
+
+function decideByBalance(matches: readonly { readonly id: string; readonly contentFingerprint: string }[], fingerprint: string | undefined): RowDecision {
+  const [only, ...more] = matches;
+  if (only !== undefined && more.length === 0) {
+    if (fingerprint !== undefined && only.contentFingerprint === fingerprint) return { kind: 'DUPLICATE_TRANSACTION', transactionId: only.id };
+    return { kind: 'NEW_REVIEW_ITEM', reason: 'BALANCE_IDENTITY_CONTENT_CONFLICT', conflictingTransactionIds: [only.id], priorReviewItemIds: [] };
+  }
+  return { kind: 'NEW_REVIEW_ITEM', reason: 'AMBIGUOUS_CROSS_FILE_MATCH', conflictingTransactionIds: matches.map((m) => m.id), priorReviewItemIds: [] };
 }
 
 function decideByExternalId(lookup: RowLookup): RowDecision {
