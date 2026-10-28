@@ -150,7 +150,7 @@ Listed for visibility; expand into items when their blocker clears.
 |---|---|---|
 | VC-X-01 | spec | **Verify** the four drafted `docs/germany/*` specs against current law using `docs/germany/verification-checklist.md` (ideally a tax professional); replace `VERIFY` markers with confirmed, dated rules before Phases 6–8 |
 | VC-X-02 | decision | ~~Resolve open ADRs 004/005/006/007/009/010~~ — **done** (ADR-037–042). Open new `ADR-OPEN-*` only if fresh architectural questions arise |
-| VC-X-03 | infra | **in-progress** (build/typecheck/test on Node 24 since VC-0-04; lint + migration check still open) · CI: typecheck + lint + tests + migration check on every change |
+| VC-X-03 | infra | **in-progress** (build/typecheck/test on Node 24 since VC-0-04; ESLint since #92; the compose stack checks every migration file is applied since #87; format check and further migration checks still open) · CI: typecheck + lint + tests + migration check on every change |
 | VC-X-04 | infra | Data export tooling (constitution Art. I; ADR-030 open formats) |
 | VC-X-05 | decision | ~~Finalize `LICENSE`~~ — **done** (MIT, see README §License) |
 | VC-X-06 | test | MRE-upgrade compatibility test suite (contract + integration) per ADR-036 |

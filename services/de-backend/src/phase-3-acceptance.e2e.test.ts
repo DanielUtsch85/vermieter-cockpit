@@ -301,7 +301,6 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
     return (await res.json()) as T;
   };
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
-  const cents = (money: { amount: string }) => BigInt(money.amount.replace('.', ''));
 
   type Money = { amount: string; currency: string };
   type Debt = {

@@ -47,7 +47,7 @@ async function migrate(pool: pg.Pool, options: MigrateOptions): Promise<readonly
   const db = new Kysely<unknown>({ dialect: new PostgresDialect({ pool }) });
   const migrator = new Migrator({
     db,
-    provider: { getMigrations: async () => migrationSet },
+    provider: { getMigrations: () => Promise.resolve(migrationSet) },
     ...(options.migrationTableSchema === undefined ? {} : { migrationTableSchema: options.migrationTableSchema }),
   });
   const { error, results } = await migrator.migrateToLatest();

@@ -48,7 +48,6 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
   let transactions: PostgresTransactionRepository;
   let accounts: PostgresFinancialAccountRepository;
   let properties: PostgresPropertyReferenceRepository;
-  let categories: PostgresFinancialCategoryRepository;
 
   beforeAll(async () => {
     const admin = new pg.Client({ connectionString: databaseUrl });
@@ -62,7 +61,6 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
     transactions = new PostgresTransactionRepository(db);
     accounts = new PostgresFinancialAccountRepository(db);
     properties = new PostgresPropertyReferenceRepository(db);
-    categories = new PostgresFinancialCategoryRepository(db);
   });
 
   afterAll(async () => {

@@ -392,7 +392,7 @@ function fromSnapshot(result: unknown): Acquisition {
   const s = result as AcquisitionSnapshot;
   return {
     ...s,
-    id: s.id as AcquisitionId,
+    id: s.id,
     purchasePrice: fromNumericAmount(s.purchasePrice.amount, s.purchasePrice.currency),
     createdAt: new Date(s.createdAt),
     cancelledAt: s.cancelledAt === null ? null : new Date(s.cancelledAt),

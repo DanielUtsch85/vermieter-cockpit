@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ExactDecimal, ExactDecimalError, RoundingMode, type ExactDecimalErrorCode } from './exact-decimal.js';
+import { ExactDecimal, ExactDecimalError, type RoundingMode, type ExactDecimalErrorCode } from './exact-decimal.js';
 
 const d = (value: string) => ExactDecimal.of(value);
 

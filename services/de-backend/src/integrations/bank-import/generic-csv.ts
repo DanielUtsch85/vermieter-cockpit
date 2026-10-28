@@ -81,7 +81,7 @@ export const genericCsvAdapter: BankStatementAdapter = {
         skip_empty_lines: true,
         relax_column_count: true,
         bom: true,
-      }) as string[][];
+      });
     } catch (error) {
       return fail('UNPARSEABLE', `The file is not valid CSV: ${error instanceof Error ? error.message : String(error)}`);
     }
