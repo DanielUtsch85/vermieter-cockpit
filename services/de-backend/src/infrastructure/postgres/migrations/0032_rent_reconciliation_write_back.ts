@@ -90,7 +90,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
  * `mre_write_back_state` on a `CONFIRMED` row, with `version` + 1 and no other field changed; with the release the
  * state becomes exactly `NOT_WRITTEN` from `NOT_WRITTEN` and `REMOVAL_REQUIRED` from the others, never under a live lease.
  */
-const FROZEN = `
+export const FROZEN = `
     BEGIN
       IF TG_OP = 'DELETE' THEN
         RAISE EXCEPTION 'RentPaymentReconciliation %: never deleted; release it instead (api-design §37.1)', OLD.id USING ERRCODE = 'integrity_constraint_violation';

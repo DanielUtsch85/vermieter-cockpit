@@ -333,7 +333,7 @@ export type {
   MreRentTermLookup,
   ReleaseReconciliation,
 } from './rent-reconciliations.js';
-export { NotWritableError, WriteBackFailedError, getReconciliationWithPresence, writeBackToMre } from './rent-write-back.js';
-export type { GetReconciliationWithPresence, MrePresence, MreWriteBackTermReader, MreWriteBackTermWriter, WriteBackToMre } from './rent-write-back.js';
+export { NotRemovableError, NotWritableError, RemovalTooEarlyError, WriteBackFailedError, getReconciliationWithPresence, removeFromMre, writeBackToMre } from './rent-write-back.js';
+export type { GetReconciliationWithPresence, MrePresence, MreWriteBackTermReader, MreWriteBackTermWriter, RemoveFromMre, WriteBackToMre } from './rent-write-back.js';
 export { RECONCILIATION_STATUSES, WRITE_BACK_STATES, isTermKey } from '../domains/rent-reconciliation/index.js';
 export type { Coverage, ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';

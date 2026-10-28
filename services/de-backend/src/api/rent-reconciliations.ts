@@ -1,6 +1,9 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  NotRemovableError,
+  RemovalTooEarlyError,
+  type RemoveFromMre,
   NotWritableError,
   WriteBackFailedError,
   WriteBackInProgressError,
@@ -127,6 +130,7 @@ export interface RentReconciliationCommands {
   readonly confirm: ConfirmReconciliation;
   readonly reject: RejectReconciliation;
   readonly writeBack: WriteBackToMre;
+  readonly removeFromMre: RemoveFromMre;
   readonly getWithPresence: GetReconciliationWithPresence;
 }
 
@@ -280,26 +284,31 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
       .catch(fail(res, next));
   });
 
-  router.post('/rent-reconciliations/:reconciliationId/write-back-to-mre', express.json({ limit: '16kb' }), (req, res, next) => {
-    const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
-    if (reconciliationId === undefined) return;
-    const ifMatch = readIfMatch(req, res);
-    if (ifMatch === undefined) return;
-    const parsed = writeBackBody.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
-    commands
-      .writeBack({
+  // §37.4's write-back and §37.5's removal: no body or {}, If-Match optional.
+  for (const [path, command] of [
+    ['write-back-to-mre', commands.writeBack],
+    ['remove-from-mre', commands.removeFromMre],
+  ] as const) {
+    router.post(`/rent-reconciliations/:reconciliationId/${path}`, express.json({ limit: '16kb' }), (req, res, next) => {
+      const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
+      if (reconciliationId === undefined) return;
+      const ifMatch = readIfMatch(req, res);
+      if (ifMatch === undefined) return;
+      const parsed = writeBackBody.safeParse(req.body ?? {});
+      if (!parsed.success) {
+        sendValidationError(res, fieldErrors(parsed.error));
+        return;
+      }
+      command({
         principal: principalOf(res),
         authorizationHeader: req.headers.authorization ?? '',
         reconciliationId,
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
-      .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
-      .catch(fail(res, next));
-  });
+        .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
+        .catch(fail(res, next));
+    });
+  }
 
   router.post('/rent-reconciliations/:reconciliationId/release', express.json({ limit: '16kb' }), (req, res, next) => {
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
@@ -371,6 +380,14 @@ function sendReconciliationError(res: Response, error: unknown): boolean {
     sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be rejected.`, { reason: 'NOT_REJECTABLE', status: error.status });
   } else if (error instanceof NotWritableError) {
     sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be written back to MRE.`, { reason: 'NOT_WRITABLE', status: error.status });
+  } else if (error instanceof NotRemovableError) {
+    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation in ${error.mreWriteBackState} has nothing to remove from MRE.`, {
+      reason: 'NOT_REMOVABLE',
+      status: error.status,
+      mreWriteBackState: error.mreWriteBackState,
+    });
+  } else if (error instanceof RemovalTooEarlyError) {
+    sendError(res, 409, 'CONFLICT', 'A late write-back to MRE could still land; the removal may start later.', { reason: 'REMOVAL_TOO_EARLY', notBefore: error.notBefore.toISOString() });
   } else if (error instanceof WriteBackInProgressError) {
     sendError(res, 409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', { reason: 'WRITE_BACK_IN_PROGRESS', reconciliationId: error.reconciliationId });
   } else if (error instanceof WriteBackFailedError) {
@@ -445,6 +462,9 @@ function toDto(r: RentPaymentReconciliation) {
     mrePayment: r.mrePayment === null ? null : { ...r.mrePayment, amount: r.mrePayment.amount.toJSON() },
     mreWriteBackError: r.mreWriteBackError,
     mreWriteBackFailedAt: r.mreWriteBackFailedAt?.toISOString() ?? null,
+    mreLastLeaseUntil: r.mreLastLeaseUntil?.toISOString() ?? null,
+    mreRemovedAt: r.mreRemovedAt?.toISOString() ?? null,
+    mreRemovedBy: r.mreRemovedBy,
     createdAt: r.createdAt.toISOString(),
     version: r.version,
   };

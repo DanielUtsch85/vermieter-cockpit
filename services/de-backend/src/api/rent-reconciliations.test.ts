@@ -65,6 +65,9 @@ const reconciliation = {
   mrePayment: null,
   mreWriteBackError: null,
   mreWriteBackFailedAt: null,
+  mreLastLeaseUntil: null,
+  mreRemovedAt: null,
+  mreRemovedBy: null,
   createdAt: new Date('2027-01-05T10:00:00Z'),
   version: 1,
 } as unknown as RentPaymentReconciliation;
@@ -130,6 +133,9 @@ describe('POST /api/v1/rent-reconciliations', () => {
       mrePayment: null,
       mreWriteBackError: null,
       mreWriteBackFailedAt: null,
+      mreLastLeaseUntil: null,
+      mreRemovedAt: null,
+      mreRemovedBy: null,
       createdAt: '2027-01-05T10:00:00.000Z',
       version: 1,
     });

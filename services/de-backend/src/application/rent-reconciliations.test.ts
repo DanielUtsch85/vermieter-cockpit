@@ -50,6 +50,8 @@ const repository = (overrides: Partial<RentReconciliationRepository>): RentRecon
   release: () => Promise.reject(new Error('unused')),
   claimWriteBack: () => Promise.reject(new Error('unused')),
   recordWriteBack: () => Promise.reject(new Error('unused')),
+  claimRemoval: () => Promise.reject(new Error('unused')),
+  recordRemoval: () => Promise.reject(new Error('unused')),
   ...overrides,
 });
 const input = {

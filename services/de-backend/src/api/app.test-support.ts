@@ -52,6 +52,7 @@ export const unusedCommands: Omit<AppDependencies, 'isReady' | 'verifyPrincipal'
   rejectReconciliation: unused,
   writeBackToMre: unused,
   getReconciliationWithPresence: unused,
+  removeFromMre: unused,
   createLoanTerms: unused,
   voidLoanTerms: unused,
   listLoanTerms: unused,

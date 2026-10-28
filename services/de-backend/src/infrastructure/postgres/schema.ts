@@ -279,6 +279,9 @@ export interface RentPaymentReconciliationTable {
   mre_payment: unknown;
   mre_write_back_error: string | null;
   mre_write_back_failed_at: Date | null;
+  mre_last_lease_until: Date | null;
+  mre_removed_at: Date | null;
+  mre_removed_by: string | null;
   created_at: Generated<Date>;
   created_by: string;
   updated_at: Generated<Date>;

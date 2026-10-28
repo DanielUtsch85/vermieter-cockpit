@@ -84,6 +84,9 @@ describe('planRelease (§37.1)', () => {
     mrePayment: null,
     mreWriteBackError: null,
     mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
     createdAt: new Date('2027-01-05T10:00:00Z'),
     version: 1,
   });
@@ -186,6 +189,9 @@ describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
     mrePayment: null,
     mreWriteBackError: null,
     mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
     createdAt: at,
     version: 1,
   } satisfies RentPaymentReconciliation;
@@ -205,6 +211,9 @@ describe('planRelease and planWriteBack with the write-back (§37.4)', () => {
       mreWriteBackState: 'REMOVAL_REQUIRED',
       mreWriteBackError: null,
       mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
     });
     expect(next(pending(earlier))).toMatchObject({ mreWriteBackState: 'REMOVAL_REQUIRED', mreWriteBackAttemptId: null, mreWriteBackLeaseUntil: null });
     expect(planRelease(pending(later), 'x', at, actor)).toEqual({ kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: 'r1' });

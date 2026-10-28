@@ -19,6 +19,7 @@ import {
   rejectReconciliation,
   writeBackToMre,
   getReconciliationWithPresence,
+  removeFromMre,
   reverseTransaction,
   setTransactionSplits,
 } from './application/index.js';
@@ -130,6 +131,7 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
       rejectReconciliation: rejectReconciliation({ repository: reconciliations }),
       writeBackToMre: writeBackToMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 4000 }),
       getReconciliationWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient) }),
+      removeFromMre: removeFromMre({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient), writeTerm: mreWriteBackTermWriter(lookupClient), leaseMs: 4000, marginMs: 0 }),
     });
     server = createApp(commands(client)).listen(0, '127.0.0.1');
     // The same app, but the rent term read goes to an MRE that is down (nothing listens on port 1).

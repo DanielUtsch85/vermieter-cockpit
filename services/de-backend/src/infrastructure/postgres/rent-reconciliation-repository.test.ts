@@ -585,7 +585,8 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
 
     const pendingStep = (id: string) =>
       `UPDATE rent_payment_reconciliation SET mre_write_back_state = 'PENDING', mre_write_back_attempt_id = gen_random_uuid(),
-         mre_write_back_lease_until = now() + interval '1 hour', version = version + 1 WHERE id = '${id}'`;
+         mre_write_back_lease_until = now() + interval '1 hour', mre_last_lease_until = greatest(mre_last_lease_until, now() + interval '1 hour'),
+         version = version + 1 WHERE id = '${id}'`;
     const releaseStep = (id: string) =>
       `UPDATE rent_payment_reconciliation SET status = 'RELEASED', released_at = now(), released_by = 'x', release_reason = 'x', version = version + 1 WHERE id = '${id}'`;
     async function heldThen<T>(first: string, second: () => Promise<T>): Promise<T> {
@@ -660,10 +661,12 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
           client.release();
         }
       };
-      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'REMOVAL_REQUIRED' WHERE id = '${r.id}'`)).toBe('rent_payment_reconciliation_write_back_state');
+      expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_write_back_state = 'REMOVAL_REQUIRED', mre_last_lease_until = now() WHERE id = '${r.id}'`)).toBe(
+        'rent_payment_reconciliation_write_back_state',
+      );
       expect(
         await unguarded(`UPDATE rent_payment_reconciliation SET status = 'RELEASED', released_at = now(), released_by = 'x', release_reason = 'x', mre_write_back_state = 'FAILED',
-          mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now() WHERE id = '${r.id}'`),
+          mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now(), mre_last_lease_until = now() WHERE id = '${r.id}'`),
       ).toBe('rent_payment_reconciliation_write_back_state');
       expect(await unguarded(`UPDATE rent_payment_reconciliation SET mre_written_back_at = now() WHERE id = '${r.id}'`)).toBe('rent_payment_reconciliation_write_back_fields');
       // WRITTEN with a time and actor but without the payment snapshot.

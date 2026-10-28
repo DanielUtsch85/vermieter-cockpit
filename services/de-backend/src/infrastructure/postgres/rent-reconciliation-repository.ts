@@ -4,8 +4,13 @@ import {
   RENT_CATEGORIES,
   checkMatch,
   holdsLease,
+  planRemoval,
   planWriteBack,
   type ClaimOutcome,
+  type RemovalClaimOutcome,
+  type RemovalPlan,
+  type RemovalResult,
+  type WriteBackPlan,
   type MrePaymentSnapshot,
   type RecordOutcome,
   type WriteBackError,
@@ -73,6 +78,9 @@ const COLUMNS = [
   'mre_payment',
   'mre_write_back_error',
   'mre_write_back_failed_at',
+  'mre_last_lease_until',
+  'mre_removed_at',
+  'mre_removed_by',
   'created_at',
   'version',
 ] as const;
@@ -105,6 +113,9 @@ interface ReconciliationRow {
   mre_payment: unknown;
   mre_write_back_error: string | null;
   mre_write_back_failed_at: Date | null;
+  mre_last_lease_until: Date | null;
+  mre_removed_at: Date | null;
+  mre_removed_by: string | null;
   created_at: Date;
   version: number;
 }
@@ -505,83 +516,115 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
 
   async release(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ReleaseOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ReleaseOutcome> => {
-      const named = await trx.selectFrom('rent_payment_reconciliation').select('transaction_id').where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-      if (named === undefined) return { kind: 'NOT_FOUND' };
-      // P4-D8: the Transaction row first, then the reconciliation; a release and a create on it serialise.
-      await lockTransaction(trx, named.transaction_id, mreRealmId);
-      const current = toReconciliation(await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).forUpdate().executeTakeFirstOrThrow());
-      const plan = planRelease(current, reason, at, actor);
-      if (plan.kind === 'UNCHANGED') return { kind: 'RELEASED', reconciliation: current, changed: false };
-      if (plan.kind !== 'RELEASE') return plan;
-      const conflict = checkVersion(current.version, expectedVersions);
-      if (conflict !== undefined) return conflict;
-      await trx
-        .updateTable('rent_payment_reconciliation')
-        .set({
-          status: 'RELEASED',
-          released_at: at,
-          released_by: actor.actorId,
-          release_reason: reason,
-          // P4-D7 (§37.4): a match whose payment is, or may be, in MRE stays visible as REMOVAL_REQUIRED.
-          mre_write_back_state: plan.next.mreWriteBackState,
-          mre_write_back_attempt_id: null,
-          mre_write_back_lease_until: null,
-          mre_write_back_error: null,
-          mre_write_back_failed_at: null,
-          version: plan.next.version,
-          updated_at: at,
-        })
-        .where('id', '=', id)
-        .execute();
-      const released = await readIn(trx, id);
-      await writeAudit(trx, { type: ENTITY_TYPE, id }, 'RELEASED', actor, {
-        previousVersion: current.version,
-        newVersion: released.version,
-        metadata: {
-          transactionId: released.transactionId,
-          reason,
-          matchedAmount: released.matchedAmount.toJSON(),
-          mreWriteBackState: { from: current.mreWriteBackState, to: released.mreWriteBackState },
-        },
+    try {
+      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ReleaseOutcome> => {
+        const named = await trx.selectFrom('rent_payment_reconciliation').select('transaction_id').where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+        if (named === undefined) return { kind: 'NOT_FOUND' };
+        // P4-D8: the Transaction row first, then the reconciliation; a release and a create on it serialise.
+        await lockTransaction(trx, named.transaction_id, mreRealmId);
+        const current = toReconciliation(await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).forUpdate().executeTakeFirstOrThrow());
+        // The lease is judged on the database's clock, as the claim and the trigger judge it (review on #83).
+        const plan = planRelease(current, reason, await databaseNow(trx), actor);
+        if (plan.kind === 'UNCHANGED') return { kind: 'RELEASED', reconciliation: current, changed: false };
+        if (plan.kind !== 'RELEASE') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('rent_payment_reconciliation')
+          .set({
+            status: 'RELEASED',
+            released_at: at,
+            released_by: actor.actorId,
+            release_reason: reason,
+            // P4-D7 (§37.4): a match whose payment is, or may be, in MRE stays visible as REMOVAL_REQUIRED.
+            mre_write_back_state: plan.next.mreWriteBackState,
+            mre_write_back_attempt_id: null,
+            mre_write_back_lease_until: null,
+            mre_write_back_error: null,
+            mre_write_back_failed_at: null,
+            version: plan.next.version,
+            updated_at: at,
+          })
+          .where('id', '=', id)
+          .execute();
+        const released = await readIn(trx, id);
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'RELEASED', actor, {
+          previousVersion: current.version,
+          newVersion: released.version,
+          metadata: {
+            transactionId: released.transactionId,
+            reason,
+            matchedAmount: released.matchedAmount.toJSON(),
+            mreWriteBackState: { from: current.mreWriteBackState, to: released.mreWriteBackState },
+          },
+        });
+        return { kind: 'RELEASED', reconciliation: released, changed: true };
       });
-      return { kind: 'RELEASED', reconciliation: released, changed: true };
-    });
+    } catch (error) {
+      // The trigger's own refusal of a release under a live lease is the same answer as the plan's, never a 500.
+      if (/\(WRITE_BACK_IN_PROGRESS\)/.test((error as { message?: string }).message ?? '')) return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: id };
+      throw error;
+    }
   }
 
   async claimWriteBack(id: string, mreRealmId: string, leaseMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ClaimOutcome> {
+    const outcome = await this.claimLease(id, mreRealmId, leaseMs, actor, expectedVersions, 'PENDING', 'WRITE_BACK_STARTED', (current, now, holder) => planWriteBack(current, now, holder));
+    return outcome as ClaimOutcome;
+  }
+
+  async claimRemoval(id: string, mreRealmId: string, leaseMs: number, marginMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RemovalClaimOutcome> {
+    const outcome = await this.claimLease(id, mreRealmId, leaseMs, actor, expectedVersions, 'REMOVING', 'REMOVAL_STARTED', (current, now, holder) =>
+      planRemoval(current, now, marginMs, holder),
+    );
+    return outcome as RemovalClaimOutcome;
+  }
+
+  /**
+   * §37.4 and §37.5 step 1, one READ COMMITTED transaction on reconciliation rows only (P4-D8): the row `FOR UPDATE`,
+   * the plan on the database's clock (the one the frozen trigger compares leases with), `If-Match`; the Tenant's other
+   * expired leases failed in the same transaction (`PENDING` → `FAILED`, `REMOVING` → `REMOVAL_FAILED`, review on #75
+   * and #84); then `target` with a new attempt and a lease of `leaseMs`, which is also the last lease end.
+   */
+  private async claimLease(
+    id: string,
+    mreRealmId: string,
+    leaseMs: number,
+    actor: AuditActor,
+    expectedVersions: readonly number[] | undefined,
+    target: 'PENDING' | 'REMOVING',
+    action: string,
+    plan: (current: RentPaymentReconciliation, now: Date, holder: RentPaymentReconciliation | undefined) => WriteBackPlan | RemovalPlan,
+  ): Promise<ClaimOutcome | RemovalClaimOutcome> {
     if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
     try {
-      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ClaimOutcome> => {
-        // P4-D8: reconciliation rows only, never the Transaction.
+      return await this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<ClaimOutcome | RemovalClaimOutcome> => {
         const row = await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
         if (row === undefined) return { kind: 'NOT_FOUND' };
         const current = toReconciliation(row);
-        // The database's clock, the one the frozen trigger compares leases with.
-        const now = (await sql<{ now: Date }>`SELECT now() AS now`.execute(trx)).rows[0]?.now ?? new Date();
+        const now = await databaseNow(trx);
         const holders = (
           await trx
             .selectFrom('rent_payment_reconciliation')
             .select(COLUMNS)
             .where('mre_realm_id', '=', mreRealmId)
             .where('mre_tenant_id', '=', current.mreTenantId)
-            .where('mre_write_back_state', '=', 'PENDING')
+            .where('mre_write_back_state', 'in', ['PENDING', 'REMOVING'])
             .where('id', '<>', id)
             .orderBy('id')
             .forUpdate()
             .execute()
         ).map(toReconciliation);
-        const plan = planWriteBack(current, now, holders.find((h) => holdsLease(h, now)));
-        if (plan.kind === 'UNCHANGED') return { kind: 'UNCHANGED', reconciliation: current };
-        if (plan.kind !== 'CLAIM') return plan;
+        const planned = plan(current, now, holders.find((h) => holdsLease(h, now)));
+        if (planned.kind === 'UNCHANGED') return { kind: 'UNCHANGED', reconciliation: current };
+        if (planned.kind !== 'CLAIM') return planned;
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
-        // Another reconciliation's expired lease: FAILED in the same transaction that takes the new one (review on #75).
+        // Another reconciliation's expired lease: failed in the same transaction that takes the new one.
         for (const expired of holders) {
           await trx
             .updateTable('rent_payment_reconciliation')
             .set({
-              mre_write_back_state: 'FAILED',
+              mre_write_back_state: expired.mreWriteBackState === 'REMOVING' ? 'REMOVAL_FAILED' : 'FAILED',
               mre_write_back_error: 'LEASE_EXPIRED' satisfies WriteBackError,
               mre_write_back_failed_at: now,
               mre_write_back_attempt_id: null,
@@ -594,7 +637,7 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
           await writeAudit(trx, { type: ENTITY_TYPE, id: expired.id }, 'WRITE_BACK_ABANDONED', actor, {
             previousVersion: expired.version,
             newVersion: expired.version + 1,
-            metadata: { attemptId: expired.mreWriteBackAttemptId, leaseUntil: expired.mreWriteBackLeaseUntil?.toISOString() ?? null, takenOverBy: id },
+            metadata: { attemptId: expired.mreWriteBackAttemptId, leaseUntil: expired.mreWriteBackLeaseUntil?.toISOString() ?? null, takenOverBy: id, from: expired.mreWriteBackState },
           });
         }
         const attemptId = randomUUID();
@@ -602,9 +645,11 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
         await trx
           .updateTable('rent_payment_reconciliation')
           .set({
-            mre_write_back_state: 'PENDING',
+            mre_write_back_state: target,
             mre_write_back_attempt_id: attemptId,
             mre_write_back_lease_until: leaseUntil,
+            // The last lease end only grows: a shorter lease never hides a longer one still running (§37.5).
+            mre_last_lease_until: sql<Date>`greatest(mre_last_lease_until, ${leaseUntil}::timestamptz)`,
             mre_write_back_error: null,
             mre_write_back_failed_at: null,
             version: current.version + 1,
@@ -612,7 +657,7 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
           })
           .where('id', '=', id)
           .execute();
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'WRITE_BACK_STARTED', actor, {
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, action, actor, {
           previousVersion: current.version,
           newVersion: current.version + 1,
           metadata: { attemptId, leaseUntil: leaseUntil.toISOString(), from: current.mreWriteBackState },
@@ -633,47 +678,71 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
         .select('id')
         .where('mre_realm_id', '=', mreRealmId)
         .where('mre_tenant_id', '=', named.mre_tenant_id)
-        .where('mre_write_back_state', '=', 'PENDING')
+        .where('mre_write_back_state', 'in', ['PENDING', 'REMOVING'])
         .executeTakeFirst();
       return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: holder?.id ?? id };
     }
   }
 
   async recordWriteBack(id: string, mreRealmId: string, attemptId: string, result: WriteBackResult, actor: AuditActor): Promise<RecordOutcome> {
-    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<RecordOutcome> => {
-      const row = await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
-      // Only the attempt that holds the lease records; a taken-over one writes nothing (§37.4 step 5).
-      if (row === undefined || row.mre_write_back_state !== 'PENDING' || row.mre_write_back_attempt_id !== attemptId) return { kind: 'LEASE_LOST' };
-      const current = toReconciliation(row);
-      const now = new Date();
-      const cleared = { mre_write_back_attempt_id: null, mre_write_back_lease_until: null, version: current.version + 1, updated_at: now };
-      const audit = (action: string, metadata: Record<string, unknown>) =>
-        writeAudit(trx, { type: ENTITY_TYPE, id }, action, actor, { previousVersion: current.version, newVersion: current.version + 1, metadata: { attemptId, ...metadata } });
+    return this.recordLease(id, mreRealmId, attemptId, 'PENDING', actor, (now) => {
       switch (result.kind) {
         case 'WRITTEN':
-          await trx
-            .updateTable('rent_payment_reconciliation')
-            .set({ ...cleared, mre_write_back_state: 'WRITTEN', mre_written_back_at: now, mre_written_back_by: actor.actorId, mre_payment: JSON.stringify(toPaymentColumn(result.payment)) })
-            .where('id', '=', id)
-            .execute();
-          await audit('WRITE_BACK_WRITTEN', { patched: result.patched, payment: toPaymentColumn(result.payment) });
-          break;
+          return {
+            set: { mre_write_back_state: 'WRITTEN', mre_written_back_at: now, mre_written_back_by: actor.actorId, mre_payment: JSON.stringify(toPaymentColumn(result.payment)) },
+            action: 'WRITE_BACK_WRITTEN',
+            metadata: { patched: result.patched, payment: toPaymentColumn(result.payment) },
+          };
         case 'FAILED':
-          await trx
-            .updateTable('rent_payment_reconciliation')
-            .set({ ...cleared, mre_write_back_state: 'FAILED', mre_write_back_error: result.error, mre_write_back_failed_at: now })
-            .where('id', '=', id)
-            .execute();
-          await audit('WRITE_BACK_FAILED', { error: result.error });
-          break;
+          return { set: { mre_write_back_state: 'FAILED', mre_write_back_error: result.error, mre_write_back_failed_at: now }, action: 'WRITE_BACK_FAILED', metadata: { error: result.error } };
         case 'NOT_WRITTEN':
-          await trx.updateTable('rent_payment_reconciliation').set({ ...cleared, mre_write_back_state: 'NOT_WRITTEN' }).where('id', '=', id).execute();
-          await audit('WRITE_BACK_NOT_ROUND_TRIPPABLE', {});
-          break;
+          return { set: { mre_write_back_state: 'NOT_WRITTEN' }, action: 'WRITE_BACK_NOT_ROUND_TRIPPABLE', metadata: {} };
       }
+    });
+  }
+
+  async recordRemoval(id: string, mreRealmId: string, attemptId: string, result: RemovalResult, actor: AuditActor): Promise<RecordOutcome> {
+    return this.recordLease(id, mreRealmId, attemptId, 'REMOVING', actor, (now) => {
+      switch (result.kind) {
+        case 'REMOVED':
+          return { set: { mre_write_back_state: 'REMOVED', mre_removed_at: now, mre_removed_by: actor.actorId }, action: 'REMOVED', metadata: { patched: result.patched } };
+        case 'FAILED':
+          return { set: { mre_write_back_state: 'REMOVAL_FAILED', mre_write_back_error: result.error, mre_write_back_failed_at: now }, action: 'REMOVAL_FAILED', metadata: { error: result.error } };
+        case 'NOT_REMOVED':
+          return { set: { mre_write_back_state: 'REMOVAL_REQUIRED' }, action: 'REMOVAL_NOT_ROUND_TRIPPABLE', metadata: {} };
+      }
+    });
+  }
+
+  /** §37.4 and §37.5 step 5: only the attempt holding the lease records; a taken-over one writes nothing. */
+  private async recordLease(
+    id: string,
+    mreRealmId: string,
+    attemptId: string,
+    state: 'PENDING' | 'REMOVING',
+    actor: AuditActor,
+    outcome: (now: Date) => { readonly set: Record<string, unknown>; readonly action: string; readonly metadata: Record<string, unknown> },
+  ): Promise<RecordOutcome> {
+    return this.db.transaction().setIsolationLevel('read committed').execute(async (trx): Promise<RecordOutcome> => {
+      const row = await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).forUpdate().executeTakeFirst();
+      if (row === undefined || row.mre_write_back_state !== state || row.mre_write_back_attempt_id !== attemptId) return { kind: 'LEASE_LOST' };
+      const current = toReconciliation(row);
+      const now = new Date();
+      const { set, action, metadata } = outcome(now);
+      await trx
+        .updateTable('rent_payment_reconciliation')
+        .set({ ...set, mre_write_back_attempt_id: null, mre_write_back_lease_until: null, version: current.version + 1, updated_at: now })
+        .where('id', '=', id)
+        .execute();
+      await writeAudit(trx, { type: ENTITY_TYPE, id }, action, actor, { previousVersion: current.version, newVersion: current.version + 1, metadata: { attemptId, ...metadata } });
       return { kind: 'RECORDED', reconciliation: await readIn(trx, id) };
     });
   }
+}
+
+/** The database's clock, the one the frozen trigger compares leases with. */
+async function databaseNow(trx: Transaction<Database>): Promise<Date> {
+  return (await sql<{ now: Date }>`SELECT now() AS now`.execute(trx)).rows[0]?.now ?? new Date();
 }
 
 function toPaymentColumn(payment: MrePaymentSnapshot): PaymentColumn {
@@ -769,6 +838,9 @@ function toReconciliation(row: ReconciliationRow): RentPaymentReconciliation {
     mrePayment: fromPaymentColumn(row.mre_payment),
     mreWriteBackError: row.mre_write_back_error as WriteBackError | null,
     mreWriteBackFailedAt: row.mre_write_back_failed_at,
+    mreLastLeaseUntil: row.mre_last_lease_until,
+    mreRemovedAt: row.mre_removed_at,
+    mreRemovedBy: row.mre_removed_by,
     createdAt: row.created_at,
     version: row.version,
   };
@@ -791,6 +863,9 @@ function toSnapshot(r: RentPaymentReconciliation): unknown {
     mrePayment: null,
     mreWriteBackError: null,
     mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
   };
 }
 
@@ -818,6 +893,9 @@ function fromSnapshot(result: unknown): RentPaymentReconciliation {
     mrePayment: null,
     mreWriteBackError: null,
     mreWriteBackFailedAt: null,
+    mreLastLeaseUntil: null,
+    mreRemovedAt: null,
+    mreRemovedBy: null,
     createdAt: new Date(r.createdAt),
   };
 }

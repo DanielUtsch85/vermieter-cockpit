@@ -14,8 +14,8 @@ export type ReconciliationStatus = (typeof RECONCILIATION_STATUSES)[number];
 /** The rent income categories whose splits are a Transaction's rent cash (P4-D3, migration 0008). */
 export const RENT_CATEGORIES = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE', 'RENT_OPERATING_COST_SETTLEMENT'] as const;
 
-/** The write-back's state (§37.4, P4-D6/D7); VC-4-05 adds the removal's states. */
-export const WRITE_BACK_STATES = ['NOT_WRITTEN', 'PENDING', 'WRITTEN', 'FAILED', 'REMOVAL_REQUIRED'] as const;
+/** The write-back's state (§37.4, P4-D6) and the removal's after a release (§37.5, P4-D7). */
+export const WRITE_BACK_STATES = ['NOT_WRITTEN', 'PENDING', 'WRITTEN', 'FAILED', 'REMOVAL_REQUIRED', 'REMOVING', 'REMOVED', 'REMOVAL_FAILED'] as const;
 export type MreWriteBackState = (typeof WRITE_BACK_STATES)[number];
 
 export type RentPaymentReconciliationId = string & { readonly __brand: 'RentPaymentReconciliationId' };
@@ -40,16 +40,21 @@ export interface RentPaymentReconciliation {
   readonly rejectReason: string | null;
   readonly notes: string | null;
   readonly mreWriteBackState: MreWriteBackState;
-  /** Set exactly while `PENDING`; the attempt id stays internal (never in a response). */
+  /** Set exactly while `PENDING` or `REMOVING`; the attempt id stays internal (never in a response). */
   readonly mreWriteBackAttemptId: string | null;
   readonly mreWriteBackLeaseUntil: Date | null;
   /** Set when `WRITTEN`, kept into `REMOVAL_REQUIRED`. */
   readonly mreWrittenBackAt: Date | null;
   readonly mreWrittenBackBy: string | null;
   readonly mrePayment: MrePaymentSnapshot | null;
-  /** Set exactly when `FAILED`. */
+  /** Set exactly when `FAILED` or `REMOVAL_FAILED`. */
   readonly mreWriteBackError: WriteBackError | null;
   readonly mreWriteBackFailedAt: Date | null;
+  /** The end of the last write-back or removal lease (§37.5): set by every claim, never cleared. */
+  readonly mreLastLeaseUntil: Date | null;
+  /** Set exactly when `REMOVED`. */
+  readonly mreRemovedAt: Date | null;
+  readonly mreRemovedBy: string | null;
   readonly createdAt: Date;
   readonly version: number;
 }
@@ -155,9 +160,9 @@ export type ReleasePlan =
   /** A write-back holds a live lease: its PATCH may still reach MRE (§37.4). */
   | { readonly kind: 'WRITE_BACK_IN_PROGRESS'; readonly reconciliationId: string };
 
-/** A live lease at `at`: a write-back may still be talking to MRE. */
+/** A live lease at `at`: a write-back or a removal may still be talking to MRE. */
 export function holdsLease(current: Pick<RentPaymentReconciliation, 'mreWriteBackState' | 'mreWriteBackLeaseUntil'>, at: Date): boolean {
-  return current.mreWriteBackState === 'PENDING' && current.mreWriteBackLeaseUntil !== null && current.mreWriteBackLeaseUntil > at;
+  return (current.mreWriteBackState === 'PENDING' || current.mreWriteBackState === 'REMOVING') && current.mreWriteBackLeaseUntil !== null && current.mreWriteBackLeaseUntil > at;
 }
 
 /**
@@ -225,6 +230,48 @@ export type ClaimOutcome =
   | VersionConflict;
 
 export type RecordOutcome = { readonly kind: 'RECORDED'; readonly reconciliation: RentPaymentReconciliation } | { readonly kind: 'LEASE_LOST' };
+
+export type RemovalPlan =
+  | { readonly kind: 'CLAIM' }
+  /** Already `REMOVED`: a 200 no-op without an MRE call, whatever the version. */
+  | { readonly kind: 'UNCHANGED' }
+  | { readonly kind: 'NOT_REMOVABLE'; readonly status: ReconciliationStatus; readonly mreWriteBackState: MreWriteBackState }
+  | { readonly kind: 'WRITE_BACK_IN_PROGRESS'; readonly reconciliationId: string }
+  /** Before the last lease's end plus the margin: a late write-back PATCH could still land (§37.5). */
+  | { readonly kind: 'REMOVAL_TOO_EARLY'; readonly notBefore: Date };
+
+/**
+ * Checks 3–7 of §37.5's removal: `RELEASED`; `REMOVED` a no-op; `NOT_WRITTEN` has nothing to remove; no live lease of
+ * its own or of another reconciliation of the Tenant; not before `mreLastLeaseUntil` + `marginMs`. `If-Match` after.
+ */
+export function planRemoval(
+  current: RentPaymentReconciliation,
+  at: Date,
+  marginMs: number,
+  holder?: Pick<RentPaymentReconciliation, 'id' | 'mreWriteBackState' | 'mreWriteBackLeaseUntil'>,
+): RemovalPlan {
+  if (current.status !== 'RELEASED') return { kind: 'NOT_REMOVABLE', status: current.status, mreWriteBackState: current.mreWriteBackState };
+  if (current.mreWriteBackState === 'REMOVED') return { kind: 'UNCHANGED' };
+  if (holdsLease(current, at)) return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: current.id };
+  if (holder !== undefined && holder.id !== current.id && holdsLease(holder, at)) return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: holder.id };
+  if (current.mreWriteBackState === 'NOT_WRITTEN') return { kind: 'NOT_REMOVABLE', status: current.status, mreWriteBackState: current.mreWriteBackState };
+  const notBefore = new Date((current.mreLastLeaseUntil?.getTime() ?? 0) + marginMs);
+  if (at < notBefore) return { kind: 'REMOVAL_TOO_EARLY', notBefore };
+  return { kind: 'CLAIM' };
+}
+
+/** How a removal ends (§37.5 step 5); `NOT_REMOVED` returns to `REMOVAL_REQUIRED` (not round-trippable). */
+export type RemovalResult =
+  | { readonly kind: 'REMOVED'; readonly patched: boolean }
+  | { readonly kind: 'FAILED'; readonly error: WriteBackError }
+  | { readonly kind: 'NOT_REMOVED' };
+
+export type RemovalClaimOutcome =
+  | { readonly kind: 'CLAIMED'; readonly reconciliation: RentPaymentReconciliation; readonly attemptId: string; readonly bookingDate: BusinessDate }
+  | { readonly kind: 'UNCHANGED'; readonly reconciliation: RentPaymentReconciliation }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<RemovalPlan, { kind: 'CLAIM' | 'UNCHANGED' }>
+  | VersionConflict;
 
 export type CreateMatchOutcome =
   | { readonly kind: 'CREATED'; readonly reconciliation: RentPaymentReconciliation }
@@ -372,4 +419,13 @@ export interface RentReconciliationRepository {
 
   /** §37.4 step 5: only while the row is `PENDING` with this `attemptId`; otherwise nothing is written. */
   recordWriteBack(id: string, mreRealmId: string, attemptId: string, result: WriteBackResult, actor: AuditActor): Promise<RecordOutcome>;
+
+  /**
+   * §37.5 step 1, as `claimWriteBack` on a `RELEASED` row: `planRemoval` with the database's clock and `marginMs`,
+   * `If-Match`; the Tenant's other expired leases failed; then `REMOVING` with a new attempt and a lease of `leaseMs`.
+   */
+  claimRemoval(id: string, mreRealmId: string, leaseMs: number, marginMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RemovalClaimOutcome>;
+
+  /** §37.5 step 5: only while the row is `REMOVING` with this `attemptId`; otherwise nothing is written. */
+  recordRemoval(id: string, mreRealmId: string, attemptId: string, result: RemovalResult, actor: AuditActor): Promise<RecordOutcome>;
 }
