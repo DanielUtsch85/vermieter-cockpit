@@ -1,6 +1,10 @@
 import {
   availableOf,
+  bookingWindow,
   coverageOf,
+  suggestPairs,
+  type ConfirmPrecheck,
+  type SuggestionTerm,
   matchFingerprint,
   matchedTotalOf,
   type Coverage,
@@ -12,7 +16,7 @@ import {
   type RentPaymentReconciliation,
   type RentReconciliationRepository,
 } from '../domains/rent-reconciliation/index.js';
-import type { BusinessDate, Money } from '../shared/index.js';
+import { Money, type BusinessDate } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, MreUnavailableError, VersionConflictError } from './errors.js';
 import { TransactionNotFoundError } from './transaction-splits.js';
@@ -100,6 +104,55 @@ export class MreRentTermNotFoundError extends Error {
     readonly mreRentTerm: string,
   ) {
     super(`MRE did not return term ${mreRentTerm} of Tenant ${mreTenantId}`);
+  }
+}
+
+/** A rent of an MRE month read (§37.3): the Tenant, the term and the amount due only. */
+export interface MreMonthRentView {
+  readonly mreTenantId: string;
+  readonly term: string;
+  readonly amountDue: Money;
+}
+
+/**
+ * Every rent of the Realm in one month, read with the caller's own MRE credentials. Throws AccessError when MRE refuses
+ * the caller and MreUnavailableError when MRE cannot be asked.
+ */
+export type MreMonthReader = (authorizationHeader: string, mreRealmId: string, year: number, month: number) => Promise<readonly MreMonthRentView[]>;
+
+/** Confirm with an amount above the suggestion (→ 422 ABOVE_SUGGESTION). */
+export class AboveSuggestionError extends Error {
+  override readonly name = 'AboveSuggestionError';
+
+  constructor(readonly suggested: Money) {
+    super(`A confirmation may lower the suggested ${suggested.amount}, never raise it`);
+  }
+}
+
+/** Not `SUGGESTED` (→ 409 NOT_CONFIRMABLE). */
+export class NotConfirmableError extends Error {
+  override readonly name = 'NotConfirmableError';
+
+  constructor(readonly status: ReconciliationStatus) {
+    super(`A ${status} reconciliation cannot be confirmed`);
+  }
+}
+
+/** The term was matched in between: the amount is above its open amount now (→ 409 SUGGESTION_STALE). */
+export class SuggestionStaleError extends Error {
+  override readonly name = 'SuggestionStaleError';
+
+  constructor(readonly openAmount: Money) {
+    super(`The term's open amount is ${openAmount.amount} now`);
+  }
+}
+
+/** `CONFIRMED` or `RELEASED` (→ 409 NOT_REJECTABLE). */
+export class NotRejectableError extends Error {
+  override readonly name = 'NotRejectableError';
+
+  constructor(readonly status: ReconciliationStatus) {
+    super(`A ${status} reconciliation cannot be rejected`);
   }
 }
 
@@ -275,5 +328,119 @@ export function getTransactionCoverage(deps: { readonly repository: RentReconcil
     const matchedTotal = matchedTotalOf(side.reconciliations);
     const available = counted && side.rentCash !== null ? availableOf({ ...side, rentCash: side.rentCash, confirmed }) : null;
     return { ...side, counted, matchedTotal, available };
+  };
+}
+
+/** `YYYY-MM` months as year and month, inclusive, plus one; months are counted from year 0. */
+const monthIndex = (ym: string) => Number(ym.slice(0, 4)) * 12 + Number(ym.slice(5, 7)) - 1;
+const fromIndex = (i: number) => ({ year: Math.floor(i / 12), month: (i % 12) + 1 });
+const termOfMonth = (i: number) => `${fromIndex(i).year}${String(fromIndex(i).month).padStart(2, '0')}0100`;
+
+export type SuggestReconciliations = (input: {
+  readonly principal: RealmPrincipal;
+  readonly authorizationHeader: string;
+  /** `YYYY-MM`, validated at the API (from ≤ to, at most 12 months). */
+  readonly from: string;
+  readonly to: string;
+}) => Promise<{ readonly from: string; readonly to: string; readonly items: readonly RentPaymentReconciliation[] }>;
+
+/**
+ * §37.3's suggest: MRE's months (the window and its two neighbours) outside any transaction, then DE's snapshot, the
+ * rule, and the write re-checking each pair. MRE down is MreUnavailableError and nothing is written.
+ */
+export function suggestReconciliations(deps: { readonly repository: RentReconciliationRepository; readonly readMreMonth: MreMonthReader }): SuggestReconciliations {
+  return async ({ principal, authorizationHeader, from, to }) => {
+    const first = monthIndex(from);
+    const last = monthIndex(to);
+    const months: { readonly index: number; readonly rents: readonly MreMonthRentView[] }[] = [];
+    for (let i = first - 1; i <= last + 1; i++) {
+      const { year, month } = fromIndex(i);
+      months.push({ index: i, rents: await deps.readMreMonth(authorizationHeader, principal.mreRealmId, year, month) });
+    }
+    const rents = months.flatMap((m) => m.rents.map((r) => ({ ...r, inWindow: m.index >= first && m.index <= last })));
+    // Candidates booked within the booking windows of every term read, the neighbours' included.
+    const snapshot = await deps.repository.suggestionSnapshot(
+      principal.mreRealmId,
+      rents.map((r) => ({ mreTenantId: r.mreTenantId, mreRentTerm: r.term })),
+      bookingWindow(termOfMonth(first - 1)).from,
+      bookingWindow(termOfMonth(last + 1)).to,
+    );
+    const terms: SuggestionTerm[] = rents.map((r) => ({
+      mreTenantId: r.mreTenantId,
+      mreRentTerm: r.term,
+      openAmount: r.amountDue.subtract(snapshot.confirmedByTerm.get(`${r.mreTenantId}/${r.term}`) ?? Money.zero('EUR')),
+      inWindow: r.inWindow,
+    }));
+    const suggestions = suggestPairs({ terms, candidates: snapshot.candidates, handled: snapshot.handled, open: snapshot.open, history: snapshot.history });
+    return { from, to, items: await deps.repository.writeSuggestions(principal.mreRealmId, suggestions, actorOf(principal)) };
+  };
+}
+
+export type ConfirmReconciliation = (input: {
+  readonly principal: RealmPrincipal;
+  readonly authorizationHeader: string;
+  readonly reconciliationId: string;
+  readonly matchedAmount?: Money;
+  readonly expectedVersions?: readonly number[];
+}) => Promise<{ readonly reconciliation: RentPaymentReconciliation; readonly changed: boolean }>;
+
+function confirmRefusal(outcome: Exclude<ConfirmPrecheck, { kind: 'PROCEED' | 'UNCHANGED' }>, reconciliationId: string, transactionId: string): Error {
+  switch (outcome.kind) {
+    case 'NOT_FOUND':
+      return new ReconciliationNotFoundError(reconciliationId);
+    case 'NOT_CONFIRMABLE':
+      return new NotConfirmableError(outcome.status);
+    case 'ABOVE_SUGGESTION':
+      return new AboveSuggestionError(outcome.suggested);
+    default:
+      return refusal(outcome, transactionId);
+  }
+}
+
+/** §37.3's confirm: DE's checks, the live MRE read outside any transaction, then the checks again under the locks. */
+export function confirmReconciliation(deps: { readonly repository: RentReconciliationRepository; readonly readMreRentTerm: MreRentTermReader }): ConfirmReconciliation {
+  return async ({ principal, authorizationHeader, reconciliationId, matchedAmount, expectedVersions }) => {
+    const pre = await deps.repository.confirmPrecheck(reconciliationId, principal.mreRealmId, matchedAmount);
+    if (pre.kind === 'UNCHANGED') return { reconciliation: pre.reconciliation, changed: false };
+    if (pre.kind !== 'PROCEED') throw confirmRefusal(pre, reconciliationId, '');
+    const { reconciliation } = pre;
+    const term = await deps.readMreRentTerm(authorizationHeader, principal.mreRealmId, reconciliation.mreTenantId, reconciliation.mreRentTerm);
+    if (term === undefined) throw new MreRentTermNotFoundError(reconciliation.mreTenantId, reconciliation.mreRentTerm);
+    const outcome = await deps.repository.confirm(reconciliationId, principal.mreRealmId, matchedAmount, term.amountDue, actorOf(principal), expectedVersions);
+    switch (outcome.kind) {
+      case 'CONFIRMED':
+        return { reconciliation: outcome.reconciliation, changed: outcome.changed };
+      case 'SUGGESTION_STALE':
+        throw new SuggestionStaleError(outcome.openAmount);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+      default:
+        throw confirmRefusal(outcome, reconciliationId, reconciliation.transactionId);
+    }
+  };
+}
+
+export type RejectReconciliation = (input: {
+  readonly principal: RealmPrincipal;
+  readonly reconciliationId: string;
+  readonly reason: string;
+  readonly expectedVersions?: readonly number[];
+}) => Promise<{ readonly reconciliation: RentPaymentReconciliation; readonly changed: boolean }>;
+
+/** §37.3's reject: final; the pair is never suggested again. */
+export function rejectReconciliation(deps: { readonly repository: RentReconciliationRepository; readonly now?: () => Date }): RejectReconciliation {
+  const now = deps.now ?? (() => new Date());
+  return async ({ principal, reconciliationId, reason, expectedVersions }) => {
+    const outcome = await deps.repository.reject(reconciliationId, principal.mreRealmId, reason, now(), actorOf(principal), expectedVersions);
+    switch (outcome.kind) {
+      case 'REJECTED':
+        return { reconciliation: outcome.reconciliation, changed: outcome.changed };
+      case 'NOT_FOUND':
+        throw new ReconciliationNotFoundError(reconciliationId);
+      case 'NOT_REJECTABLE':
+        throw new NotRejectableError(outcome.status);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+    }
   };
 }

@@ -281,5 +281,15 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       });
       expect(await client.readRentTerm(await token(), realmA, tenantId, '2028010100')).toBeUndefined();
     });
+
+    it('GET /rents/:year/:month lists the Tenant\'s rent of that month with _id, term and totalWithoutBalanceAmount; another Realm\'s month does not (VC-4-03)', async () => {
+      const { status, json } = await call('/rents/2027/04', { token: await token(), realm: realmA });
+      expect(status).toBe(200);
+      const rents = z.object({ rents: z.array(z.object({ _id: z.string(), term: z.number(), totalWithoutBalanceAmount: z.number() }).passthrough()) }).parse(json).rents;
+      expect(rents.find((r) => r._id === tenantId)).toMatchObject({ term: 2027040100, totalWithoutBalanceAmount: 800 });
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      expect(await client.listRentTerms(await token(), realmA, 2027, 4)).toContainEqual({ mreTenantId: tenantId, term: '2027040100', amountDue: Money.of('800.00', 'EUR') });
+      expect((await client.listRentTerms(await token(), realmB, 2027, 4)).map((r) => r.mreTenantId)).not.toContain(tenantId);
+    });
   });
 });

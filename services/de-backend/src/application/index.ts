@@ -290,6 +290,13 @@ export type {
 export { ALLOCATION_BASES, ALLOCATION_STATUSES, MAX_ALLOCATIONS, sumsToOne } from '../domains/financing/index.js';
 export type { AllocationBasis, AllocationStatus, LoanAllocationSetView, PropertyLoan, RequestedAllocation } from '../domains/financing/index.js';
 export {
+  AboveSuggestionError,
+  NotConfirmableError,
+  NotRejectableError,
+  SuggestionStaleError,
+  confirmReconciliation,
+  rejectReconciliation,
+  suggestReconciliations,
   AlreadyMatchedError,
   MreRentTermNotFoundError,
   NoRentCashError,
@@ -313,6 +320,11 @@ export type {
   GetTransactionCoverage,
   MreRentTermReader,
   MreRentTermView,
+  ConfirmReconciliation,
+  MreMonthReader,
+  MreMonthRentView,
+  RejectReconciliation,
+  SuggestReconciliations,
   MreStatus,
   TermCoverage,
   TransactionCoverage,

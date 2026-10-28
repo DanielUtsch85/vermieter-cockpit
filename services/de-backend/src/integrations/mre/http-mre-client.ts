@@ -7,6 +7,7 @@ import {
   type MreClientErrorCode,
   type MreProperty,
   type MreRealmMembership,
+  type MreMonthRent,
   type MreRentPayment,
   type MreRentTerm,
 } from './mre-client.js';
@@ -72,6 +73,10 @@ const rentTermDto = z.object({
       reference: z.unknown().optional(),
     }),
   ),
+});
+/** `GET /rents/:year/:month`: of each rent only the Tenant's `_id`, its term and its amount due are read. */
+const monthDto = z.object({
+  rents: z.array(z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/), term: z.number().int(), totalWithoutBalanceAmount: z.number() })),
 });
 /** `get`'s answer for a `404` the caller reads as "not there". */
 const ABSENT = Symbol('ABSENT');
@@ -166,6 +171,19 @@ export class HttpMreClient implements MreClient {
       throw new MreClientError('UNAVAILABLE', 'Unexpected MRE rent term amount');
     }
     return { amountDue, payments: payments as MreRentPayment[] };
+  }
+
+  async listRentTerms(accessToken: string, mreRealmId: string, year: number, month: number): Promise<readonly MreMonthRent[]> {
+    // checkOrganization answers 404 when the Realm is not one of the caller's: no access, not an outage.
+    const body = await this.get(`/rents/${year}/${String(month).padStart(2, '0')}`, accessToken, mreRealmId, 'FORBIDDEN');
+    const parsed = monthDto.safeParse(body);
+    // The issue paths only, never the values: the body holds the Tenants' personal data.
+    if (!parsed.success) {
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE month shape at ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
+    }
+    const rents = parsed.data.rents.map((r) => ({ mreTenantId: r._id, term: String(r.term), amountDue: toCents(r.totalWithoutBalanceAmount) }));
+    if (rents.some((r) => r.amountDue === undefined || !/^\d{10}$/.test(r.term))) throw new MreClientError('UNAVAILABLE', 'Unexpected MRE month amount');
+    return rents as MreMonthRent[];
   }
 
   private async get(

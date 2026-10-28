@@ -2,8 +2,12 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AboveSuggestionError,
   AccessError,
   AlreadyMatchedError,
+  NotConfirmableError,
+  NotRejectableError,
+  SuggestionStaleError,
   IdempotencyKeyConflictError,
   MreRentTermNotFoundError,
   MreUnavailableError,
@@ -46,6 +50,9 @@ const reconciliation = {
   releasedAt: null,
   releasedBy: null,
   releaseReason: null,
+  rejectedAt: null,
+  rejectedBy: null,
+  rejectReason: null,
   notes: 'Januar',
   mreWriteBackState: 'NOT_WRITTEN',
   createdAt: new Date('2027-01-05T10:00:00Z'),
@@ -102,6 +109,9 @@ describe('POST /api/v1/rent-reconciliations', () => {
       releasedAt: null,
       releasedBy: null,
       releaseReason: null,
+      rejectedAt: null,
+      rejectedBy: null,
+      rejectReason: null,
       notes: 'Januar',
       mreWriteBackState: 'NOT_WRITTEN',
       createdAt: '2027-01-05T10:00:00.000Z',
@@ -318,6 +328,96 @@ describe('GET /api/v1/transactions/{id}/rent-reconciliations (§37.2)', () => {
     await stopAndStart({ getTransactionCoverage: async () => ({ ...coverage, rentCash: null, available: null, counted: false }) }).then(async (b) =>
       expect(await (await call(b, 'GET', `/transactions/${TX}/rent-reconciliations`)).json()).toMatchObject({ rentCash: null, available: null, counted: false }),
     );
+  });
+});
+
+describe('suggestions (§37.3)', () => {
+  const suggestion = { ...reconciliation, status: 'SUGGESTED', confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT', confirmedAt: null, confirmedBy: null } as unknown as RentPaymentReconciliation;
+
+  it('suggest: 200 with the window and the written items; the caller\'s Authorization header is passed on', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      suggestReconciliations: async (input) => {
+        seen.push(input);
+        return { from: input.from, to: input.to, items: [suggestion] };
+      },
+    });
+    const res = await call(base, 'POST', '/rent-reconciliations/suggest', { from: '2027-01', to: '2027-12' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ from: '2027-01', to: '2027-12', items: [expect.objectContaining({ reconciliationId: ID, status: 'SUGGESTED', confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' })] });
+    expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', from: '2027-01', to: '2027-12' });
+  });
+
+  it('suggest: 400 for a malformed month, to before from, more than 12 months or another key; MRE down is 503', async () => {
+    const base = await start({ suggestReconciliations: async () => Promise.reject(new MreUnavailableError('down')) });
+    const fieldsOf = async (payload: unknown) => {
+      const res = await call(base, 'POST', '/rent-reconciliations/suggest', payload);
+      expect(res.status, JSON.stringify(payload)).toBe(400);
+      return ((await errorOf(res)).details as { fields: unknown[] }).fields;
+    };
+    expect(await fieldsOf({ from: '2027-02', to: '2027-01' })).toEqual([{ field: 'to', code: 'INVALID_RANGE' }]);
+    expect(await fieldsOf({ from: '2027-01', to: '2028-01' })).toEqual([{ field: 'to', code: 'RANGE_TOO_LONG' }]);
+    for (const bad of [{ from: '2027-13', to: '2027-12' }, { from: '2027-1', to: '2027-02' }, { from: '2027-01' }, { from: '2027-01', to: '2027-01', realm: 'x' }]) await fieldsOf(bad);
+    const res = await call(base, 'POST', '/rent-reconciliations/suggest', { from: '2027-01', to: '2027-01' });
+    expect(res.status).toBe(503);
+  });
+
+  it('confirm: passes the amount, If-Match and the header; 200 with ETag; no body is fine; 400 for a non-positive amount', async () => {
+    const seen: { matchedAmount?: Money }[] = [];
+    const base = await start({
+      confirmReconciliation: async (input) => {
+        seen.push(input);
+        return { reconciliation: { ...reconciliation, version: 2 } as RentPaymentReconciliation, changed: true };
+      },
+    });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, { matchedAmount: { amount: '700.00', currency: 'EUR' } }, { 'if-match': '"1"' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('etag')).toBe('"2"');
+    expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', reconciliationId: ID, expectedVersions: [1] });
+    expect(seen[0]?.matchedAmount?.equals(eur('700.00'))).toBe(true);
+    expect((await fetch(`${base}/api/v1/rent-reconciliations/${ID}/confirm`, { method: 'POST', headers: { authorization: 'Bearer a.b.c', organizationid: REALM } })).status).toBe(200);
+    expect(seen[1]).not.toHaveProperty('matchedAmount');
+    const bad = await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, { matchedAmount: { amount: '0.00', currency: 'EUR' } });
+    expect(bad.status).toBe(400);
+    expect(((await errorOf(bad)).details as { fields: unknown[] }).fields).toEqual([{ field: 'matchedAmount.amount', code: 'NOT_POSITIVE' }]);
+    expect((await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, { status: 'CONFIRMED' })).status).toBe(400);
+  });
+
+  it.each([
+    [new AboveSuggestionError(eur('800.00')), 422, 'ABOVE_SUGGESTION', { suggested: { amount: '800.00', currency: 'EUR' } }],
+    [new NotConfirmableError('REJECTED'), 409, 'CONFLICT', { reason: 'NOT_CONFIRMABLE', status: 'REJECTED' }],
+    [new SuggestionStaleError(eur('300.00')), 409, 'CONFLICT', { reason: 'SUGGESTION_STALE', openAmount: { amount: '300.00', currency: 'EUR' } }],
+    [new RentCashExceededError(eur('800.00'), eur('0.00')), 409, 'CONFLICT', { reason: 'RENT_CASH_EXCEEDED' }],
+    [new MreRentTermNotFoundError(TENANT, '2027010100'), 422, 'MRE_RENT_TERM_NOT_FOUND', undefined],
+    [new MreUnavailableError('down'), 503, 'EXTERNAL_SYSTEM_ERROR', undefined],
+    [new ReconciliationNotFoundError(ID), 404, 'NOT_FOUND', undefined],
+    [new VersionConflictError([1], 2), 412, 'VERSION_CONFLICT', undefined],
+  ])('confirm: %s → %i %s', async (error, status, code, details) => {
+    const base = await start({ confirmReconciliation: async () => Promise.reject(error) });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/confirm`, {});
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject({ code, ...(details === undefined ? {} : { details }) });
+  });
+
+  it('reject: passes the trimmed reason and If-Match; 400 for a missing or long reason; refusals mapped', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      rejectReconciliation: async (input) => {
+        seen.push(input);
+        if ((input as { reason: string }).reason === 'nein') throw new NotRejectableError('CONFIRMED');
+        return { reconciliation: { ...suggestion, status: 'REJECTED', version: 2 } as RentPaymentReconciliation, changed: true };
+      },
+    });
+    const res = await call(base, 'POST', `/rent-reconciliations/${ID}/reject`, { reason: ' anderer Mieter ' }, { 'if-match': '"1"' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('etag')).toBe('"2"');
+    expect(seen[0]).toMatchObject({ reconciliationId: ID, reason: 'anderer Mieter', expectedVersions: [1] });
+    for (const bad of [{}, { reason: '' }, { reason: 'x'.repeat(501) }, { reason: 'x', status: 'REJECTED' }]) {
+      expect((await call(base, 'POST', `/rent-reconciliations/${ID}/reject`, bad)).status, JSON.stringify(bad)).toBe(400);
+    }
+    const refused = await call(base, 'POST', `/rent-reconciliations/${ID}/reject`, { reason: 'nein' });
+    expect(refused.status).toBe(409);
+    expect(await errorOf(refused)).toMatchObject({ code: 'CONFLICT', details: { reason: 'NOT_REJECTABLE', status: 'CONFIRMED' } });
   });
 });
 

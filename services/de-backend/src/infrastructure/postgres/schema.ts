@@ -267,6 +267,9 @@ export interface RentPaymentReconciliationTable {
   released_at: Date | null;
   released_by: string | null;
   release_reason: string | null;
+  rejected_at: Date | null;
+  rejected_by: string | null;
+  reject_reason: string | null;
   notes: string | null;
   mre_write_back_state: Generated<string>;
   created_at: Generated<Date>;

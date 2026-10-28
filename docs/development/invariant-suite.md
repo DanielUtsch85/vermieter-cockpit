@@ -473,6 +473,31 @@ Counter-checked (17 mutants, each red):
 
 Counter-checked (9 mutants, each red): MRE's payments summed into `matchedTotal`; `RELEASED` summed; the coverage boundary off by a cent; the MRE amount truncated; exponent notation refused (the `e-15` case); an outage turned into a `503`; `available` although not counted; `termSide` without the Realm; the payment date's day and month swapped.
 
+## 26. Rent reconciliation: suggestions (VC-4-03, api-design §37.3)
+
+`RR`, `RD`, `RU`, `RA`, `RE`, `MC` as §24; `RS` = `domains/rent-reconciliation/suggestion.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| A suggestion only for an exact amount (available rent cash = the term's open amount, MRE's amount due − DE's `CONFIRMED`, never MRE's payments) booked from the 15th of the month before to the end of the term's month | RS "one Transaction and one term …", "the booking window …", "an amount a cent off …"; RU "suggest: MRE months …" |
+| Only unique pairs: an ambiguity is left alone or decided by the IBAN history of the same Tenant (`HIGH`); never by input order | RS "two Transactions for one term …", "the IBAN history decides …", "two separate unique pairs …" |
+| Open suggestions stay in the graph as competition, in both steps, and are never written again; the months before `from` and after `to` are read and block, never suggested (review on #80) | RS "an open suggestion T1–A blocks …", "a Transaction booked on the 20th of `to` …"; RU "suggest: MRE months …"; RE "suggestions (§37.3) …" |
+| A rejected, released or confirmed pair is never suggested again; a repeat writes nothing; a pair changed between the snapshot and the write is skipped | RS "a handled pair …"; RR "writeSuggestions …", "reject …"; RE "suggestions (§37.3) …" |
+| A suggestion never counts or consumes cash until confirmed | RR "writeSuggestions …", "suggestionSnapshot …"; RE "suggestions (§37.3) …" |
+| Confirm: DE's checks, then MRE live (no MRE call on a refusal or a no-op), then the checks again under the locks; may lower, never raise the amount (`422 ABOVE_SUGGESTION`); `409 SUGGESTION_STALE` when the term was matched in between; `If-Match`; AuditRecord `CONFIRMED` with `manual = false` | RD "planConfirm …", "staleBy …"; RU "confirm: …"; RR "confirm: …"; RA "confirm: …"; RE "suggestions (§37.3) …" |
+| Reject: final, a repeat a no-op keeping the first reason; `CONFIRMED`/`RELEASED` not rejectable; AuditRecord `REJECTED` | RD "planReject …"; RR "reject: …"; RA "reject: …" |
+| MRE month read with the caller's token and Realm, parsed to Tenant, term and amount due only; MRE down or refusing writes nothing | MC "listRentTerms …"; RU "suggest: a year boundary …"; RA "suggest: 400 …"; RE "suggestions (§37.3) …"; `mre.contract.test.ts` |
+| P4-D8: a run waiting on another run's pair skips it (the index); a confirm waiting on a manual match of the same cash is `RENT_CASH_EXCEEDED` (RC), RR `40001`; a confirm against a reversal of its Transaction (RC: `TRANSACTION_NOT_COUNTED`; RR, the step to `CORRECTED` after a confirm, `40001`) | RR "concurrency: …" |
+| The schema (0031): the suggestion and rejected fields, the `SUGGESTED` index, `matched_amount` only lowered in the step to `CONFIRMED`, a `SUGGESTED` insert only on counted `INFLOW` rent cash | RR "schema (0031) …" |
+
+Counter-checked (30 mutants, each red):
+- **in the rule:** a handled pair suggested again; open suggestions left out of the uniqueness check, in either step; ambiguity broken by input order; the history ignored; the booking window a day early at either end; the neighbours' terms suggested;
+- **in the application:** the confirmed matches not subtracted from the open amount; the neighbouring months not read; the candidate dates only the window's; confirm without the live MRE read;
+- **in the domain:** confirm raising the amount; the stale check dropped; a `CONFIRMED` reconciliation rejectable;
+- **in the repository:** a rejected pair not handled in the snapshot; an existing pair not skipped on the write; the available cash not re-checked on the write; the snapshot without the Realm; a suggestion counted as consumed cash in the snapshot; confirm without the Transaction lock;
+- **in 0031:** a suggestion counted as consumed cash by the cash guard; a `SUGGESTED` insert past the cash guard's checks; `matched_amount` raised on confirm, or the rule dropped; the `SUGGESTED` index not unique; the rejected-fields and suggestion-fields CHECKs;
+- **in the MRE client:** the month's amount truncated; the month not zero-padded.
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

@@ -46,6 +46,9 @@ import {
   releaseReconciliation,
   getTermCoverage,
   getTransactionCoverage,
+  suggestReconciliations,
+  confirmReconciliation,
+  rejectReconciliation,
   createLoanTerms,
   listLoanTerms,
   voidLoanTerms,
@@ -112,7 +115,7 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
-import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreRentTermReader, mreTenantLookup } from './wiring.js';
+import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreMonthReader, mreRentTermReader, mreTenantLookup } from './wiring.js';
 
 /**
  * VC-2-10: the Phase-2 exit of `docs/roadmap.md` as one acceptance run through the HTTP API (ACC2,
@@ -225,6 +228,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
       releaseReconciliation: releaseReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),
       getTermCoverage: getTermCoverage({ repository: new PostgresRentReconciliationRepository(db), readMreRentTerm: mreRentTermReader(client) }),
       getTransactionCoverage: getTransactionCoverage({ repository: new PostgresRentReconciliationRepository(db) }),
+      suggestReconciliations: suggestReconciliations({ repository: new PostgresRentReconciliationRepository(db), readMreMonth: mreMonthReader(client) }),
+      confirmReconciliation: confirmReconciliation({ repository: new PostgresRentReconciliationRepository(db), readMreRentTerm: mreRentTermReader(client) }),
+      rejectReconciliation: rejectReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),
       createLoanTerms: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
       voidLoanTerms: voidLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
       listLoanTerms: listLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),

@@ -16,7 +16,8 @@ import type { AddressInfo } from 'node:net';
  *
  * `GET /api/v2/rents/tenant/:id/:term` answers one rent term of a Tenant of the Realm in `organizationid`, as
  * `_rentOfOccupant` does: the Tenant is looked up together with `rents.term = term`, so an unknown Tenant, an unknown
- * term and a Tenant of another Realm are all `404` (api-design.md §37.1). Test support only.
+ * term and a Tenant of another Realm are all `404` (api-design.md §37.1). `GET /api/v2/rents/:year/:month` answers
+ * `{ overview, rents }` with every Tenant's rent of that month and its occupant (§37.3). Test support only.
  */
 
 export const FAKE_SECRET = 'test-access-token-secret';
@@ -73,13 +74,42 @@ export async function startFakeMre(realms: FakeRealm[]): Promise<FakeMre> {
     // MRE's list routes take no filter: a query string is ignored (mre-integration.md §20.1).
     const path = (req.url ?? '').split('?')[0];
     const rentTerm = /^\/api\/v2\/rents\/tenant\/([^/]+)\/([^/]+)$/.exec(path ?? '');
-    if (path !== '/api/v2/realms' && path !== '/api/v2/properties' && path !== '/api/v2/tenants' && rentTerm === null) {
+    const rentMonth = /^\/api\/v2\/rents\/(\d{4})\/(\d{1,2})$/.exec(path ?? '');
+    if (path !== '/api/v2/realms' && path !== '/api/v2/properties' && path !== '/api/v2/tenants' && rentTerm === null && rentMonth === null) {
       res.writeHead(404).end();
       return;
     }
     const token = req.headers.authorization?.split(' ')[1];
     const payload = token === undefined ? undefined : verifyJwt(token);
     const json = (body: unknown) => res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+    if (rentMonth !== null) {
+      const account = payload?.['account'] as { email?: string } | undefined;
+      if (account === undefined) {
+        res.writeHead(401).end('Unauthorized');
+        return;
+      }
+      const realm = realms.find((r) => r._id === realmHeader && r.members.some((m) => m.email === account.email));
+      if (realm === undefined) {
+        res.writeHead(404).end();
+        return;
+      }
+      // _getRentsDataByTerm: every Tenant's rents with a term inside the month, as toRentData with the occupant.
+      const prefix = `${rentMonth[1]}${String(Number(rentMonth[2])).padStart(2, '0')}`;
+      const rents = Object.entries(realm.rents ?? {}).flatMap(([tenantId, terms]) =>
+        terms
+          .filter((t) => String(t).startsWith(prefix))
+          .map((t) => ({
+            _id: tenantId,
+            term: t,
+            totalWithoutBalanceAmount: 800,
+            payments: [],
+            ...(realm.rentTerms?.[`${tenantId}/${t}`] ?? {}),
+            occupant: { _id: tenantId, name: 'not read by DE', contacts: [{ email: 'tenant@example.com' }] },
+          })),
+      );
+      json({ overview: { countAll: rents.length }, rents });
+      return;
+    }
     if (rentTerm !== null) {
       const account = payload?.['account'] as { email?: string } | undefined;
       if (account === undefined) {

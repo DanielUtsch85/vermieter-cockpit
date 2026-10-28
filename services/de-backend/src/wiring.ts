@@ -4,6 +4,7 @@ import {
   type MrePropertyLookup,
   type MreRentTermLookup,
   type MreRentTermReader,
+  type MreMonthReader,
   type MreTenantLookup,
   type PrincipalVerifier,
 } from './application/index.js';
@@ -89,6 +90,19 @@ export function mreRentTermReader(client: MreClient): MreRentTermReader {
     if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
     try {
       return await client.readRentTerm(token, mreRealmId, mreTenantId, mreRentTerm);
+    } catch (error) {
+      throw mreError(error);
+    }
+  };
+}
+
+/** Every rent of the Realm in one month, read with the caller's own token (api-design.md §37.3). */
+export function mreMonthReader(client: MreClient): MreMonthReader {
+  return async (authorizationHeader, mreRealmId, year, month) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
+    try {
+      return await client.listRentTerms(token, mreRealmId, year, month);
     } catch (error) {
       throw mreError(error);
     }
