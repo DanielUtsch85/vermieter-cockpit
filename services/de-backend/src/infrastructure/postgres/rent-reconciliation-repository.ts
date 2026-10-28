@@ -1,33 +1,18 @@
-import { randomUUID } from 'node:crypto';
-import { sql, type Kysely, type Transaction } from 'kysely';
+import type { Kysely } from 'kysely';
 import {
-  RENT_CATEGORIES,
   checkMatch,
-  holdsLease,
-  planRemoval,
-  planWriteBack,
   type ClaimOutcome,
   type RemovalClaimOutcome,
-  type RemovalPlan,
   type RemovalResult,
-  type WriteBackPlan,
-  type MrePaymentSnapshot,
   type RecordOutcome,
-  type WriteBackError,
   type WriteBackResult,
-  planConfirm,
-  planReject,
   planRelease,
-  staleBy,
   type ConfirmOutcome,
   type ConfirmPrecheck,
   type RejectOutcome,
   type Suggestion,
-  type SuggestionPair,
   type SuggestionSnapshot,
   type CreateMatchOutcome,
-  type MatchCash,
-  type MreWriteBackState,
   type NewMatch,
   type PrecheckOutcome,
   type ReconciliationFilter,
@@ -35,98 +20,30 @@ import {
   type ReconciliationStatus,
   type ReleaseOutcome,
   type RentPaymentReconciliation,
-  type RentPaymentReconciliationId,
   type RentReconciliationRepository,
   type TransactionRentSide,
 } from '../../domains/rent-reconciliation/index.js';
-import { Money, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
+import { type Money, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
-import { fromNumericAmount, toNumericAmount } from './money-column.js';
+import { toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
+import {
+  UUID,
+  ENTITY_TYPE,
+  COLUMNS,
+  databaseNow,
+  lockTransaction,
+  cashOf,
+  readIn,
+  toReconciliation,
+  toSnapshot,
+  fromSnapshot,
+} from './rent-reconciliation-rows.js';
+import * as suggestionStore from './rent-suggestion-store.js';
+import * as leaseStore from './rent-write-back-store.js';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ENTITY_TYPE = 'RentPaymentReconciliation';
 const CREATE_SCOPE = 'rent-reconciliation.create';
-
-/** Every column, the amount as text (exact). */
-const COLUMNS = [
-  'id',
-  'mre_realm_id',
-  'status',
-  'transaction_id',
-  'mre_tenant_id',
-  'mre_rent_term',
-  sql<string>`matched_amount::text`.as('matched_amount'),
-  'currency',
-  'confidence',
-  'suggestion_reason',
-  'confirmed_at',
-  'confirmed_by',
-  'released_at',
-  'released_by',
-  'release_reason',
-  'rejected_at',
-  'rejected_by',
-  'reject_reason',
-  'notes',
-  'mre_write_back_state',
-  'mre_write_back_attempt_id',
-  'mre_write_back_lease_until',
-  'mre_written_back_at',
-  'mre_written_back_by',
-  'mre_payment',
-  'mre_write_back_error',
-  'mre_write_back_failed_at',
-  'mre_last_lease_until',
-  'mre_removed_at',
-  'mre_removed_by',
-  'created_at',
-  'version',
-] as const;
-
-interface ReconciliationRow {
-  id: string;
-  mre_realm_id: string;
-  status: string;
-  transaction_id: string;
-  mre_tenant_id: string;
-  mre_rent_term: string;
-  matched_amount: string;
-  currency: string;
-  confidence: string | null;
-  suggestion_reason: string | null;
-  confirmed_at: Date | null;
-  confirmed_by: string | null;
-  released_at: Date | null;
-  released_by: string | null;
-  release_reason: string | null;
-  rejected_at: Date | null;
-  rejected_by: string | null;
-  reject_reason: string | null;
-  notes: string | null;
-  mre_write_back_state: string;
-  mre_write_back_attempt_id: string | null;
-  mre_write_back_lease_until: Date | null;
-  mre_written_back_at: Date | null;
-  mre_written_back_by: string | null;
-  mre_payment: unknown;
-  mre_write_back_error: string | null;
-  mre_write_back_failed_at: Date | null;
-  mre_last_lease_until: Date | null;
-  mre_removed_at: Date | null;
-  mre_removed_by: string | null;
-  created_at: Date;
-  version: number;
-}
-
-/** `mre_payment` as stored: DE's payment as MRE stores it, the amount as Money JSON. */
-interface PaymentColumn {
-  date: string;
-  amount: { amount: string; currency: string };
-  type: string;
-  reference: string;
-}
 
 /** Thrown inside the transaction to roll back the key claim and every write together. */
 class Rejected extends Error {
@@ -135,7 +52,11 @@ class Rejected extends Error {
   }
 }
 
-/** PostgreSQL implementation of api-design.md §37.1. */
+/**
+ * PostgreSQL implementation of api-design.md §37: matches, reads and release here; suggestions (§37.3) in
+ * `rent-suggestion-store.ts` and the write-back and removal leases (§37.4–§37.5) in `rent-write-back-store.ts`, behind
+ * this one class for the one port. Shared rows, reads and locks are in `rent-reconciliation-rows.ts`.
+ */
 export class PostgresRentReconciliationRepository implements RentReconciliationRepository {
   constructor(private readonly db: Kysely<Database>) {}
 
@@ -270,166 +191,24 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
       });
   }
 
-  async suggestionSnapshot(
+  suggestionSnapshot(
     mreRealmId: string,
     terms: readonly { readonly mreTenantId: string; readonly mreRentTerm: string }[],
     from: BusinessDate,
     to: BusinessDate,
   ): Promise<SuggestionSnapshot> {
-    return this.db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .setAccessMode('read only')
-      .execute(async (trx) => {
-        // Counted INFLOW Transactions of the Realm booked in the window, with their rent cash and CONFIRMED matches.
-        const rows = await sql<{ id: string; booking_date: string; iban: string | null; rent: string | null; matched: string }>`
-        SELECT t.id, to_char(t.booking_date, 'YYYY-MM-DD') AS booking_date, t.counterparty_iban_raw AS iban,
-          (SELECT sum(s.amount)::text FROM transaction_split s JOIN financial_category c ON c.id = s.financial_category_id
-            WHERE s.transaction_id = t.id AND c.code IN (${sql.join(RENT_CATEGORIES.map((c) => sql`${c}`))})) AS rent,
-          (SELECT coalesce(sum(r.matched_amount), 0)::text FROM rent_payment_reconciliation r WHERE r.transaction_id = t.id AND r.status = 'CONFIRMED') AS matched
-        FROM ledger_transaction t
-        WHERE t.mre_realm_id = ${mreRealmId} AND t.direction = 'INFLOW' AND t.status IN ('CONFIRMED', 'RECONCILED')
-          AND t.correction_role IS DISTINCT FROM 'REVERSAL' AND t.booking_date BETWEEN ${from} AND ${to}
-        ORDER BY t.id`.execute(trx);
-        const candidates = rows.rows.flatMap((r) => {
-          if (r.rent === null) return [];
-          const available = fromNumericAmount(r.rent, 'EUR').subtract(fromNumericAmount(r.matched, 'EUR'));
-          return available.isPositive() ? [{ transactionId: r.id, bookingDate: r.booking_date as BusinessDate, available, counterpartyIban: r.iban }] : [];
-        });
-        const ids = candidates.map((c) => c.transactionId);
-        const termKeys = terms.map((t) => `${t.mreTenantId}/${t.mreRentTerm}`);
-        const confirmedByTerm = new Map<string, Money>();
-        const pairs =
-          ids.length === 0 && termKeys.length === 0
-            ? []
-            : await trx
-                .selectFrom('rent_payment_reconciliation')
-                .select(['transaction_id', 'mre_tenant_id', 'mre_rent_term', 'status', sql<string>`matched_amount::text`.as('matched_amount')])
-                .where('mre_realm_id', '=', mreRealmId)
-                .where((eb) => {
-                  const ors = [];
-                  if (ids.length > 0) ors.push(eb('transaction_id', 'in', ids));
-                  if (termKeys.length > 0) ors.push(eb(sql<string>`mre_tenant_id || '/' || mre_rent_term`, 'in', termKeys));
-                  return eb.or(ors);
-                })
-                .orderBy('id')
-                .execute();
-        const handled: SuggestionPair[] = [];
-        const open: SuggestionPair[] = [];
-        const idSet = new Set(ids);
-        const termSet = new Set(termKeys);
-        for (const p of pairs) {
-          const key = `${p.mre_tenant_id}/${p.mre_rent_term}`;
-          const pair = { transactionId: p.transaction_id, mreTenantId: p.mre_tenant_id, mreRentTerm: p.mre_rent_term };
-          if (p.status === 'CONFIRMED' && termSet.has(key))
-            confirmedByTerm.set(key, (confirmedByTerm.get(key) ?? Money.zero('EUR')).add(fromNumericAmount(p.matched_amount, 'EUR')));
-          // Open suggestions are edges for every candidate and every term read (review on #80); handled pairs only matter for candidates.
-          if (p.status === 'SUGGESTED') open.push(pair);
-          else if (idSet.has(p.transaction_id)) handled.push(pair);
-        }
-        const history = await trx
-          .selectFrom('rent_payment_reconciliation as r')
-          .innerJoin('ledger_transaction as t', 't.id', 'r.transaction_id')
-          .select(['r.mre_tenant_id', 't.counterparty_iban_raw'])
-          .distinct()
-          .where('r.mre_realm_id', '=', mreRealmId)
-          .where('r.status', '=', 'CONFIRMED')
-          .where('t.counterparty_iban_raw', 'is not', null)
-          .execute();
-        return {
-          candidates,
-          confirmedByTerm,
-          handled,
-          open,
-          history: history.map((h) => ({ mreTenantId: h.mre_tenant_id, counterpartyIban: h.counterparty_iban_raw as string })),
-        };
-      });
+    return suggestionStore.suggestionSnapshot(this.db, mreRealmId, terms, from, to);
   }
 
-  async writeSuggestions(mreRealmId: string, suggestions: readonly Suggestion[], actor: AuditActor): Promise<readonly RentPaymentReconciliation[]> {
-    if (suggestions.length === 0) return [];
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx) => {
-        // P4-D8: the Transactions first, in id order; every pair re-checked under them.
-        for (const id of [...new Set(suggestions.map((x) => x.transactionId))].sort()) await lockTransaction(trx, id, mreRealmId);
-        const written: RentPaymentReconciliation[] = [];
-        for (const suggestion of suggestions) {
-          const cash = await cashOf(trx, suggestion.transactionId, mreRealmId, false);
-          if (cash === undefined || cash.rentCash === null) continue;
-          const counted = (cash.status === 'CONFIRMED' || cash.status === 'RECONCILED') && cash.correctionRole !== 'REVERSAL';
-          const available = cash.confirmed.reduce((left, c) => left.subtract(c.matchedAmount), cash.rentCash);
-          if (!counted || cash.direction !== 'INFLOW' || !available.equals(suggestion.matchedAmount)) continue;
-          const existing = await trx
-            .selectFrom('rent_payment_reconciliation')
-            .select('id')
-            .where('transaction_id', '=', suggestion.transactionId)
-            .where('mre_tenant_id', '=', suggestion.mreTenantId)
-            .where('mre_rent_term', '=', suggestion.mreRentTerm)
-            .executeTakeFirst();
-          if (existing !== undefined) continue; // changed in between: skipped, not refused
-          const inserted = await trx
-            .insertInto('rent_payment_reconciliation')
-            .values({
-              mre_realm_id: mreRealmId,
-              status: 'SUGGESTED' satisfies ReconciliationStatus,
-              transaction_id: suggestion.transactionId,
-              mre_tenant_id: suggestion.mreTenantId,
-              mre_rent_term: suggestion.mreRentTerm,
-              matched_amount: toNumericAmount(suggestion.matchedAmount),
-              currency: suggestion.matchedAmount.currency,
-              confidence: suggestion.confidence,
-              suggestion_reason: suggestion.suggestionReason,
-              created_by: actor.actorId,
-            })
-            .onConflict((oc) => oc.columns(['transaction_id', 'mre_tenant_id', 'mre_rent_term']).where('status', '=', 'SUGGESTED').doNothing())
-            .returning('id')
-            .executeTakeFirst();
-          if (inserted === undefined) continue; // a concurrent run wrote it
-          const created = await readIn(trx, inserted.id);
-          await writeAudit(trx, { type: ENTITY_TYPE, id: created.id }, 'SUGGESTED', actor, {
-            newVersion: 1,
-            metadata: {
-              transactionId: created.transactionId,
-              mreTenantId: created.mreTenantId,
-              mreRentTerm: created.mreRentTerm,
-              matchedAmount: created.matchedAmount.toJSON(),
-              confidence: created.confidence,
-              suggestionReason: created.suggestionReason,
-            },
-          });
-          written.push(created);
-        }
-        return written;
-      });
+  writeSuggestions(mreRealmId: string, suggestions: readonly Suggestion[], actor: AuditActor): Promise<readonly RentPaymentReconciliation[]> {
+    return suggestionStore.writeSuggestions(this.db, mreRealmId, suggestions, actor);
   }
 
-  async confirmPrecheck(id: string, mreRealmId: string, amount: Money | undefined): Promise<ConfirmPrecheck> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .setAccessMode('read only')
-      .execute(async (trx): Promise<ConfirmPrecheck> => {
-        const row = await trx
-          .selectFrom('rent_payment_reconciliation')
-          .select(COLUMNS)
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .executeTakeFirst();
-        if (row === undefined) return { kind: 'NOT_FOUND' };
-        const current = toReconciliation(row);
-        const plan = planConfirm(current, amount);
-        if (plan.kind === 'UNCHANGED') return { kind: 'UNCHANGED', reconciliation: current };
-        if (plan.kind !== 'CONFIRM') return plan;
-        const refusal = checkMatch(await cashOf(trx, current.transactionId, mreRealmId, false), { ...current, matchedAmount: plan.amount });
-        if (refusal !== undefined) return withTransaction(refusal);
-        return { kind: 'PROCEED', reconciliation: current, amount: plan.amount };
-      });
+  confirmPrecheck(id: string, mreRealmId: string, amount: Money | undefined): Promise<ConfirmPrecheck> {
+    return suggestionStore.confirmPrecheck(this.db, id, mreRealmId, amount);
   }
 
-  async confirm(
+  confirm(
     id: string,
     mreRealmId: string,
     amount: Money | undefined,
@@ -437,104 +216,11 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
     actor: AuditActor,
     expectedVersions?: readonly number[],
   ): Promise<ConfirmOutcome> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx): Promise<ConfirmOutcome> => {
-        const named = await trx
-          .selectFrom('rent_payment_reconciliation')
-          .select('transaction_id')
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .executeTakeFirst();
-        if (named === undefined) return { kind: 'NOT_FOUND' };
-        // P4-D8: the Transaction row first, then the reconciliation.
-        await lockTransaction(trx, named.transaction_id, mreRealmId);
-        const current = toReconciliation(
-          await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).forUpdate().executeTakeFirstOrThrow(),
-        );
-        const plan = planConfirm(current, amount);
-        if (plan.kind === 'UNCHANGED') return { kind: 'CONFIRMED', reconciliation: current, changed: false };
-        if (plan.kind !== 'CONFIRM') return plan;
-        const refusal = checkMatch(await cashOf(trx, current.transactionId, mreRealmId, false), { ...current, matchedAmount: plan.amount });
-        if (refusal !== undefined) return withTransaction(refusal);
-        const termConfirmed = await trx
-          .selectFrom('rent_payment_reconciliation')
-          .select(sql<string>`coalesce(sum(matched_amount), 0)::text`.as('total'))
-          .where('mre_realm_id', '=', mreRealmId)
-          .where('mre_tenant_id', '=', current.mreTenantId)
-          .where('mre_rent_term', '=', current.mreRentTerm)
-          .where('status', '=', 'CONFIRMED')
-          .executeTakeFirstOrThrow();
-        const stale = staleBy(plan.amount, amountDue, fromNumericAmount(termConfirmed.total, 'EUR'));
-        if (stale !== undefined) return { kind: 'SUGGESTION_STALE', openAmount: stale.openAmount };
-        const conflict = checkVersion(current.version, expectedVersions);
-        if (conflict !== undefined) return conflict;
-        const at = new Date();
-        await trx
-          .updateTable('rent_payment_reconciliation')
-          .set({
-            status: 'CONFIRMED',
-            matched_amount: toNumericAmount(plan.amount),
-            confirmed_at: at,
-            confirmed_by: actor.actorId,
-            version: current.version + 1,
-            updated_at: at,
-          })
-          .where('id', '=', id)
-          .execute();
-        const confirmed = await readIn(trx, id);
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CONFIRMED', actor, {
-          previousVersion: current.version,
-          newVersion: confirmed.version,
-          metadata: {
-            transactionId: confirmed.transactionId,
-            mreTenantId: confirmed.mreTenantId,
-            mreRentTerm: confirmed.mreRentTerm,
-            suggestedAmount: current.matchedAmount.toJSON(),
-            matchedAmount: confirmed.matchedAmount.toJSON(),
-            manual: false,
-          },
-        });
-        return { kind: 'CONFIRMED', reconciliation: confirmed, changed: true };
-      });
+    return suggestionStore.confirm(this.db, id, mreRealmId, amount, amountDue, actor, expectedVersions);
   }
 
-  async reject(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RejectOutcome> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx): Promise<RejectOutcome> => {
-        // A rejection consumes no cash: the reconciliation alone (§37.3).
-        const row = await trx
-          .selectFrom('rent_payment_reconciliation')
-          .select(COLUMNS)
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (row === undefined) return { kind: 'NOT_FOUND' };
-        const current = toReconciliation(row);
-        const plan = planReject(current, reason, at, actor);
-        if (plan.kind === 'UNCHANGED') return { kind: 'REJECTED', reconciliation: current, changed: false };
-        if (plan.kind !== 'REJECT') return plan;
-        const conflict = checkVersion(current.version, expectedVersions);
-        if (conflict !== undefined) return conflict;
-        await trx
-          .updateTable('rent_payment_reconciliation')
-          .set({ status: 'REJECTED', rejected_at: at, rejected_by: actor.actorId, reject_reason: reason, version: plan.next.version, updated_at: at })
-          .where('id', '=', id)
-          .execute();
-        const rejected = await readIn(trx, id);
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'REJECTED', actor, {
-          previousVersion: current.version,
-          newVersion: rejected.version,
-          metadata: { transactionId: rejected.transactionId, mreTenantId: rejected.mreTenantId, mreRentTerm: rejected.mreRentTerm, reason },
-        });
-        return { kind: 'REJECTED', reconciliation: rejected, changed: true };
-      });
+  reject(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<RejectOutcome> {
+    return suggestionStore.reject(this.db, id, mreRealmId, reason, at, actor, expectedVersions);
   }
 
   async findById(id: string, mreRealmId: string): Promise<RentPaymentReconciliation | undefined> {
@@ -641,14 +327,11 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
     }
   }
 
-  async claimWriteBack(id: string, mreRealmId: string, leaseMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ClaimOutcome> {
-    const outcome = await this.claimLease(id, mreRealmId, leaseMs, actor, expectedVersions, 'PENDING', 'WRITE_BACK_STARTED', (current, now, holder) =>
-      planWriteBack(current, now, holder),
-    );
-    return outcome as ClaimOutcome;
+  claimWriteBack(id: string, mreRealmId: string, leaseMs: number, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ClaimOutcome> {
+    return leaseStore.claimWriteBack(this.db, id, mreRealmId, leaseMs, actor, expectedVersions);
   }
 
-  async claimRemoval(
+  claimRemoval(
     id: string,
     mreRealmId: string,
     leaseMs: number,
@@ -656,387 +339,14 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
     actor: AuditActor,
     expectedVersions?: readonly number[],
   ): Promise<RemovalClaimOutcome> {
-    const outcome = await this.claimLease(id, mreRealmId, leaseMs, actor, expectedVersions, 'REMOVING', 'REMOVAL_STARTED', (current, now, holder) =>
-      planRemoval(current, now, marginMs, holder),
-    );
-    return outcome as RemovalClaimOutcome;
+    return leaseStore.claimRemoval(this.db, id, mreRealmId, leaseMs, marginMs, actor, expectedVersions);
   }
 
-  /**
-   * §37.4 and §37.5 step 1, one READ COMMITTED transaction on reconciliation rows only (P4-D8): the row `FOR UPDATE`,
-   * the plan on the database's clock (the one the frozen trigger compares leases with), `If-Match`; the Tenant's other
-   * expired leases failed in the same transaction (`PENDING` → `FAILED`, `REMOVING` → `REMOVAL_FAILED`, review on #75
-   * and #84); then `target` with a new attempt and a lease of `leaseMs`, which is also the last lease end.
-   */
-  private async claimLease(
-    id: string,
-    mreRealmId: string,
-    leaseMs: number,
-    actor: AuditActor,
-    expectedVersions: readonly number[] | undefined,
-    target: 'PENDING' | 'REMOVING',
-    action: string,
-    plan: (current: RentPaymentReconciliation, now: Date, holder: RentPaymentReconciliation | undefined) => WriteBackPlan | RemovalPlan,
-  ): Promise<ClaimOutcome | RemovalClaimOutcome> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    try {
-      return await this.db
-        .transaction()
-        .setIsolationLevel('read committed')
-        .execute(async (trx): Promise<ClaimOutcome | RemovalClaimOutcome> => {
-          const row = await trx
-            .selectFrom('rent_payment_reconciliation')
-            .select(COLUMNS)
-            .where('id', '=', id)
-            .where('mre_realm_id', '=', mreRealmId)
-            .forUpdate()
-            .executeTakeFirst();
-          if (row === undefined) return { kind: 'NOT_FOUND' };
-          const current = toReconciliation(row);
-          const now = await databaseNow(trx);
-          const holders = (
-            await trx
-              .selectFrom('rent_payment_reconciliation')
-              .select(COLUMNS)
-              .where('mre_realm_id', '=', mreRealmId)
-              .where('mre_tenant_id', '=', current.mreTenantId)
-              .where('mre_write_back_state', 'in', ['PENDING', 'REMOVING'])
-              .where('id', '<>', id)
-              .orderBy('id')
-              .forUpdate()
-              .execute()
-          ).map(toReconciliation);
-          const planned = plan(
-            current,
-            now,
-            holders.find((h) => holdsLease(h, now)),
-          );
-          if (planned.kind === 'UNCHANGED') return { kind: 'UNCHANGED', reconciliation: current };
-          if (planned.kind !== 'CLAIM') return planned;
-          const conflict = checkVersion(current.version, expectedVersions);
-          if (conflict !== undefined) return conflict;
-          // Another reconciliation's expired lease: failed in the same transaction that takes the new one.
-          for (const expired of holders) {
-            await trx
-              .updateTable('rent_payment_reconciliation')
-              .set({
-                mre_write_back_state: expired.mreWriteBackState === 'REMOVING' ? 'REMOVAL_FAILED' : 'FAILED',
-                mre_write_back_error: 'LEASE_EXPIRED' satisfies WriteBackError,
-                mre_write_back_failed_at: now,
-                mre_write_back_attempt_id: null,
-                mre_write_back_lease_until: null,
-                version: expired.version + 1,
-                updated_at: now,
-              })
-              .where('id', '=', expired.id)
-              .execute();
-            await writeAudit(trx, { type: ENTITY_TYPE, id: expired.id }, 'WRITE_BACK_ABANDONED', actor, {
-              previousVersion: expired.version,
-              newVersion: expired.version + 1,
-              metadata: {
-                attemptId: expired.mreWriteBackAttemptId,
-                leaseUntil: expired.mreWriteBackLeaseUntil?.toISOString() ?? null,
-                takenOverBy: id,
-                from: expired.mreWriteBackState,
-              },
-            });
-          }
-          const attemptId = randomUUID();
-          const leaseUntil = new Date(now.getTime() + leaseMs);
-          await trx
-            .updateTable('rent_payment_reconciliation')
-            .set({
-              mre_write_back_state: target,
-              mre_write_back_attempt_id: attemptId,
-              mre_write_back_lease_until: leaseUntil,
-              // The last lease end only grows: a shorter lease never hides a longer one still running (§37.5).
-              mre_last_lease_until: sql<Date>`greatest(mre_last_lease_until, ${leaseUntil}::timestamptz)`,
-              mre_write_back_error: null,
-              mre_write_back_failed_at: null,
-              version: current.version + 1,
-              updated_at: now,
-            })
-            .where('id', '=', id)
-            .execute();
-          await writeAudit(trx, { type: ENTITY_TYPE, id }, action, actor, {
-            previousVersion: current.version,
-            newVersion: current.version + 1,
-            metadata: { attemptId, leaseUntil: leaseUntil.toISOString(), from: current.mreWriteBackState },
-          });
-          const tx = await trx
-            .selectFrom('ledger_transaction')
-            .select(sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'))
-            .where('id', '=', current.transactionId)
-            .executeTakeFirstOrThrow();
-          return { kind: 'CLAIMED', reconciliation: await readIn(trx, id), attemptId, bookingDate: tx.booking_date as BusinessDate };
-        });
-    } catch (error) {
-      // Another reconciliation of the same Tenant claimed first and committed: the Tenant index decides.
-      if ((error as { constraint?: string }).constraint !== 'rent_payment_reconciliation_write_back_tenant_key') throw error;
-      const named = await this.db.selectFrom('rent_payment_reconciliation').select('mre_tenant_id').where('id', '=', id).executeTakeFirstOrThrow();
-      const holder = await this.db
-        .selectFrom('rent_payment_reconciliation')
-        .select('id')
-        .where('mre_realm_id', '=', mreRealmId)
-        .where('mre_tenant_id', '=', named.mre_tenant_id)
-        .where('mre_write_back_state', 'in', ['PENDING', 'REMOVING'])
-        .executeTakeFirst();
-      return { kind: 'WRITE_BACK_IN_PROGRESS', reconciliationId: holder?.id ?? id };
-    }
+  recordWriteBack(id: string, mreRealmId: string, attemptId: string, result: WriteBackResult, actor: AuditActor): Promise<RecordOutcome> {
+    return leaseStore.recordWriteBack(this.db, id, mreRealmId, attemptId, result, actor);
   }
 
-  async recordWriteBack(id: string, mreRealmId: string, attemptId: string, result: WriteBackResult, actor: AuditActor): Promise<RecordOutcome> {
-    return this.recordLease(id, mreRealmId, attemptId, 'PENDING', actor, (now) => {
-      switch (result.kind) {
-        case 'WRITTEN':
-          return {
-            set: {
-              mre_write_back_state: 'WRITTEN',
-              mre_written_back_at: now,
-              mre_written_back_by: actor.actorId,
-              mre_payment: JSON.stringify(toPaymentColumn(result.payment)),
-            },
-            action: 'WRITE_BACK_WRITTEN',
-            metadata: { patched: result.patched, payment: toPaymentColumn(result.payment) },
-          };
-        case 'FAILED':
-          return {
-            set: { mre_write_back_state: 'FAILED', mre_write_back_error: result.error, mre_write_back_failed_at: now },
-            action: 'WRITE_BACK_FAILED',
-            metadata: { error: result.error },
-          };
-        case 'NOT_WRITTEN':
-          return { set: { mre_write_back_state: 'NOT_WRITTEN' }, action: 'WRITE_BACK_NOT_ROUND_TRIPPABLE', metadata: {} };
-      }
-    });
+  recordRemoval(id: string, mreRealmId: string, attemptId: string, result: RemovalResult, actor: AuditActor): Promise<RecordOutcome> {
+    return leaseStore.recordRemoval(this.db, id, mreRealmId, attemptId, result, actor);
   }
-
-  async recordRemoval(id: string, mreRealmId: string, attemptId: string, result: RemovalResult, actor: AuditActor): Promise<RecordOutcome> {
-    return this.recordLease(id, mreRealmId, attemptId, 'REMOVING', actor, (now) => {
-      switch (result.kind) {
-        case 'REMOVED':
-          return {
-            set: { mre_write_back_state: 'REMOVED', mre_removed_at: now, mre_removed_by: actor.actorId },
-            action: 'REMOVED',
-            metadata: { patched: result.patched },
-          };
-        case 'FAILED':
-          return {
-            set: { mre_write_back_state: 'REMOVAL_FAILED', mre_write_back_error: result.error, mre_write_back_failed_at: now },
-            action: 'REMOVAL_FAILED',
-            metadata: { error: result.error },
-          };
-        case 'NOT_REMOVED':
-          return { set: { mre_write_back_state: 'REMOVAL_REQUIRED' }, action: 'REMOVAL_NOT_ROUND_TRIPPABLE', metadata: {} };
-      }
-    });
-  }
-
-  /** §37.4 and §37.5 step 5: only the attempt holding the lease records; a taken-over one writes nothing. */
-  private async recordLease(
-    id: string,
-    mreRealmId: string,
-    attemptId: string,
-    state: 'PENDING' | 'REMOVING',
-    actor: AuditActor,
-    outcome: (now: Date) => { readonly set: Record<string, unknown>; readonly action: string; readonly metadata: Record<string, unknown> },
-  ): Promise<RecordOutcome> {
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx): Promise<RecordOutcome> => {
-        const row = await trx
-          .selectFrom('rent_payment_reconciliation')
-          .select(COLUMNS)
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (row === undefined || row.mre_write_back_state !== state || row.mre_write_back_attempt_id !== attemptId) return { kind: 'LEASE_LOST' };
-        const current = toReconciliation(row);
-        const now = new Date();
-        const { set, action, metadata } = outcome(now);
-        await trx
-          .updateTable('rent_payment_reconciliation')
-          .set({ ...set, mre_write_back_attempt_id: null, mre_write_back_lease_until: null, version: current.version + 1, updated_at: now })
-          .where('id', '=', id)
-          .execute();
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, action, actor, {
-          previousVersion: current.version,
-          newVersion: current.version + 1,
-          metadata: { attemptId, ...metadata },
-        });
-        return { kind: 'RECORDED', reconciliation: await readIn(trx, id) };
-      });
-  }
-}
-
-/** The database's clock, the one the frozen trigger compares leases with. */
-async function databaseNow(trx: Transaction<Database>): Promise<Date> {
-  return (await sql<{ now: Date }>`SELECT now() AS now`.execute(trx)).rows[0]?.now ?? new Date();
-}
-
-function toPaymentColumn(payment: MrePaymentSnapshot): PaymentColumn {
-  return { date: payment.date, amount: payment.amount.toJSON(), type: payment.type, reference: payment.reference };
-}
-
-function fromPaymentColumn(value: unknown): MrePaymentSnapshot | null {
-  if (value === null || value === undefined) return null;
-  const p = value as PaymentColumn;
-  return { date: p.date, amount: fromNumericAmount(p.amount.amount, p.amount.currency), type: p.type, reference: p.reference };
-}
-
-/** A confirm's cash refusal: the Transaction is known (the foreign key), so TRANSACTION_NOT_FOUND cannot occur. */
-function withTransaction<T extends { readonly kind: string }>(refusal: T): Exclude<T, { kind: 'TRANSACTION_NOT_FOUND' }> {
-  if (refusal.kind === 'TRANSACTION_NOT_FOUND') throw new Error('a reconciliation names an unknown Transaction');
-  return refusal as Exclude<T, { kind: 'TRANSACTION_NOT_FOUND' }>;
-}
-
-/**
- * P3-D8's no-op write of the Transaction row (0013 allows it on a confirmed row): it serialises every confirm and
- * release on the Transaction, and a stale one fails under REPEATABLE READ.
- */
-async function lockTransaction(trx: Transaction<Database>, transactionId: string, mreRealmId: string) {
-  return trx
-    .updateTable('ledger_transaction')
-    .set((eb) => ({ version: eb.ref('version') }))
-    .where('id', '=', transactionId)
-    .where('mre_realm_id', '=', mreRealmId)
-    .returning(['status', 'direction', 'correction_role'])
-    .executeTakeFirst();
-}
-
-/** The cash rules' view of a Transaction of the Realm (P4-D3); `lock` takes the Transaction row first. */
-async function cashOf(trx: Transaction<Database>, transactionId: string, mreRealmId: string, lock: boolean): Promise<MatchCash | undefined> {
-  if (!UUID.test(transactionId)) return undefined;
-  const tx = lock
-    ? await lockTransaction(trx, transactionId, mreRealmId)
-    : await trx
-        .selectFrom('ledger_transaction')
-        .select(['status', 'direction', 'correction_role'])
-        .where('id', '=', transactionId)
-        .where('mre_realm_id', '=', mreRealmId)
-        .executeTakeFirst();
-  if (tx === undefined) return undefined;
-  // New statements after the lock: under READ COMMITTED they see every confirm that committed before it.
-  const rent = await trx
-    .selectFrom('transaction_split as s')
-    .innerJoin('financial_category as c', 'c.id', 's.financial_category_id')
-    .select([sql<string | null>`sum(s.amount)::text`.as('total'), sql<string | null>`min(s.currency)`.as('currency')])
-    .where('s.transaction_id', '=', transactionId)
-    .where('c.code', 'in', RENT_CATEGORIES)
-    .executeTakeFirstOrThrow();
-  const confirmed = await trx
-    .selectFrom('rent_payment_reconciliation')
-    .select(['id', 'mre_tenant_id', 'mre_rent_term', sql<string>`matched_amount::text`.as('matched_amount'), 'currency'])
-    .where('transaction_id', '=', transactionId)
-    .where('status', '=', 'CONFIRMED')
-    .orderBy('id')
-    .execute();
-  return {
-    status: tx.status,
-    direction: tx.direction,
-    correctionRole: tx.correction_role,
-    rentCash: rent.total === null || rent.currency === null ? null : fromNumericAmount(rent.total, rent.currency),
-    confirmed: confirmed.map((c) => ({
-      id: c.id,
-      mreTenantId: c.mre_tenant_id,
-      mreRentTerm: c.mre_rent_term,
-      matchedAmount: fromNumericAmount(c.matched_amount, c.currency),
-    })),
-  };
-}
-
-async function readIn(trx: Transaction<Database>, id: string): Promise<RentPaymentReconciliation> {
-  return toReconciliation(await trx.selectFrom('rent_payment_reconciliation').select(COLUMNS).where('id', '=', id).executeTakeFirstOrThrow());
-}
-
-function toReconciliation(row: ReconciliationRow): RentPaymentReconciliation {
-  return {
-    id: row.id as RentPaymentReconciliationId,
-    mreRealmId: row.mre_realm_id,
-    status: row.status as ReconciliationStatus,
-    transactionId: row.transaction_id,
-    mreTenantId: row.mre_tenant_id,
-    mreRentTerm: row.mre_rent_term,
-    matchedAmount: fromNumericAmount(row.matched_amount, row.currency),
-    confidence: row.confidence,
-    suggestionReason: row.suggestion_reason,
-    confirmedAt: row.confirmed_at,
-    confirmedBy: row.confirmed_by,
-    releasedAt: row.released_at,
-    releasedBy: row.released_by,
-    releaseReason: row.release_reason,
-    rejectedAt: row.rejected_at,
-    rejectedBy: row.rejected_by,
-    rejectReason: row.reject_reason,
-    notes: row.notes,
-    mreWriteBackState: row.mre_write_back_state as MreWriteBackState,
-    mreWriteBackAttemptId: row.mre_write_back_attempt_id,
-    mreWriteBackLeaseUntil: row.mre_write_back_lease_until,
-    mreWrittenBackAt: row.mre_written_back_at,
-    mreWrittenBackBy: row.mre_written_back_by,
-    mrePayment: fromPaymentColumn(row.mre_payment),
-    mreWriteBackError: row.mre_write_back_error as WriteBackError | null,
-    mreWriteBackFailedAt: row.mre_write_back_failed_at,
-    mreLastLeaseUntil: row.mre_last_lease_until,
-    mreRemovedAt: row.mre_removed_at,
-    mreRemovedBy: row.mre_removed_by,
-    createdAt: row.created_at,
-    version: row.version,
-  };
-}
-
-/** The created reconciliation as JSON for the idempotency store. */
-function toSnapshot(r: RentPaymentReconciliation): unknown {
-  return {
-    ...r,
-    matchedAmount: r.matchedAmount.toJSON(),
-    confirmedAt: r.confirmedAt?.toISOString() ?? null,
-    releasedAt: r.releasedAt?.toISOString() ?? null,
-    rejectedAt: r.rejectedAt?.toISOString() ?? null,
-    createdAt: r.createdAt.toISOString(),
-    // A created reconciliation is NOT_WRITTEN: nothing of the write-back is stored with its replay.
-    mreWriteBackAttemptId: null,
-    mreWriteBackLeaseUntil: null,
-    mreWrittenBackAt: null,
-    mreWrittenBackBy: null,
-    mrePayment: null,
-    mreWriteBackError: null,
-    mreWriteBackFailedAt: null,
-    mreLastLeaseUntil: null,
-    mreRemovedAt: null,
-    mreRemovedBy: null,
-  };
-}
-
-/** Written by toSnapshot in the same codebase, so its shape is trusted. */
-function fromSnapshot(result: unknown): RentPaymentReconciliation {
-  const r = result as Omit<RentPaymentReconciliation, 'matchedAmount' | 'confirmedAt' | 'releasedAt' | 'rejectedAt' | 'createdAt'> & {
-    rejectedAt?: string | null;
-    matchedAmount: { amount: string; currency: string };
-    confirmedAt: string | null;
-    releasedAt: string | null;
-    createdAt: string;
-  };
-  return {
-    ...r,
-    matchedAmount: fromNumericAmount(r.matchedAmount.amount, r.matchedAmount.currency),
-    confirmedAt: r.confirmedAt === null ? null : new Date(r.confirmedAt),
-    releasedAt: r.releasedAt === null ? null : new Date(r.releasedAt),
-    rejectedAt: r.rejectedAt == null ? null : new Date(r.rejectedAt),
-    rejectedBy: r.rejectedBy ?? null,
-    rejectReason: r.rejectReason ?? null,
-    mreWriteBackAttemptId: null,
-    mreWriteBackLeaseUntil: null,
-    mreWrittenBackAt: null,
-    mreWrittenBackBy: null,
-    mrePayment: null,
-    mreWriteBackError: null,
-    mreWriteBackFailedAt: null,
-    mreLastLeaseUntil: null,
-    mreRemovedAt: null,
-    mreRemovedBy: null,
-    createdAt: new Date(r.createdAt),
-  };
 }
