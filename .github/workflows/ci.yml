@@ -62,29 +62,9 @@ jobs:
         run: |
           applied=$(docker compose exec -T de-postgres psql -U de -d de -tAc "SELECT name FROM kysely_migration ORDER BY name")
           echo "$applied"
-          echo "$applied" | grep -qx '0001_baseline'
-          echo "$applied" | grep -qx '0002_property_reference'
-          echo "$applied" | grep -qx '0003_property_reference_refresh'
-          echo "$applied" | grep -qx '0004_financial_account'
-          echo "$applied" | grep -qx '0005_ledger_transaction'
-          echo "$applied" | grep -qx '0006_bank_import'
-          echo "$applied" | grep -qx '0007_import_review'
-          echo "$applied" | grep -qx '0008_transaction_split'
-          echo "$applied" | grep -qx '0009_confirm_transaction'
-          echo "$applied" | grep -qx '0010_confirm_split_invariant'
-          echo "$applied" | grep -qx '0011_correct_transaction'
-          echo "$applied" | grep -qx '0012_reverse_transaction'
-          echo "$applied" | grep -qx '0013_freeze_transaction_version'
-          echo "$applied" | grep -qx '0014_reversal_mirrors_splits'
-          echo "$applied" | grep -qx '0015_transaction_page_index'
-          echo "$applied" | grep -qx '0016_party'
-          echo "$applied" | grep -qx '0017_party_external_reference'
-          echo "$applied" | grep -qx '0018_party_guards'
-          echo "$applied" | grep -qx '0019_ownership'
-          echo "$applied" | grep -qx '0020_acquisition'
-          echo "$applied" | grep -qx '0021_acquisition_cost'
-          echo "$applied" | grep -qx '0022_acquisition_confirm'
-          echo "$applied" | grep -qx '0023_land_building_allocation'
+          # Every migration file in the repository is applied, no more and no fewer: the list never needs updating.
+          expected=$(ls services/de-backend/src/infrastructure/postgres/migrations | grep -E '^[0-9]{4}_.*\.ts$' | sed 's/\.ts$//' | sort)
+          diff <(echo "$expected") <(echo "$applied" | sort)
       - name: MRE gateway health
         run: curl -fsS http://localhost:8080/health
       - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction → splits → confirm → correct → reverse → bank import → review)

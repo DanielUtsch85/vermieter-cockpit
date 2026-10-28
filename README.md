@@ -2,8 +2,8 @@
 
 A Germany-focused investment, finance, tax, and condominium-management extension for [MicroRealEstate](https://github.com/microrealestate/microrealestate).
 
-> **Project status:** Phases 0–1 complete; Phase 2 (Party, Ownership & Acquisition) in progress.  
-> The DE backend implements the cash ledger, Party management and temporal Ownership. Acquisition workflows and a DE cockpit UI are still pending. The project is not yet intended for production use. See [Project Status](#project-status).
+> **Project status:** Phases 0–4 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back); Phase 5 (Security Deposit) not started.  
+> There is no DE cockpit UI yet, and the system has not yet been run with a real landlord's data. The project is not yet intended for production use. See [Project Status](#project-status).
 
 ## Vision
 
@@ -181,6 +181,8 @@ Before implementing significant functionality, read the relevant documents rathe
 | [`docs/development/coding-guidelines.md`](docs/development/coding-guidelines.md) | Implementation conventions and coding rules |
 | [`docs/development/backlog.md`](docs/development/backlog.md) | Implementation backlog and item status |
 | [`docs/development/phase-2-plan.md`](docs/development/phase-2-plan.md) | Party, Ownership and Acquisition implementation plan |
+| [`docs/development/phase-3-plan.md`](docs/development/phase-3-plan.md) | Financing (Loans) implementation plan |
+| [`docs/development/phase-4-plan.md`](docs/development/phase-4-plan.md) | Rent reconciliation and MRE write-back implementation plan |
 | [`docs/development/invariant-suite.md`](docs/development/invariant-suite.md) | Implemented invariants and their test coverage |
 
 All documents now contain at least a first draft. The `docs/germany/*` domain documents are drafted as **versioned domain knowledge with statutory references and explicit `VERIFY` markers**; they are not legal or tax advice and must be verified against current law before implementation.
@@ -328,7 +330,7 @@ Historical `InvestmentMetricSnapshot` records may preserve derived results for c
 
 ## Project Status
 
-Phases 0 and 1 are complete. Phase 2 is in progress: Party management, MRE Tenant references and temporal Ownership are implemented (VC-2-01–04); Acquisition workflows and the full Phase-2 acceptance test remain pending. The [implementation backlog](docs/development/backlog.md) tracks individual items, and the [roadmap](docs/roadmap.md) defines phase exits.
+Phases 0–4 are implemented, each phase exit shown end to end through the API by an acceptance test (ACC, ACC2, ACC3, ACC4 in the [invariant suite](docs/development/invariant-suite.md)). Phase 5 (Security Deposit) has not started. The [implementation backlog](docs/development/backlog.md) tracks individual items, and the [roadmap](docs/roadmap.md) defines phase exits.
 
 ### Implemented
 
@@ -342,14 +344,17 @@ Phases 0 and 1 are complete. Phase 2 is in progress: Party management, MRE Tenan
 | Bank import | Generic CSV adapter, duplicate detection and explicit review of ambiguous rows |
 | Party management | Create, read, list, amend and deactivate persons and organizations; explicitly link and end MRE Tenant references |
 | Ownership | Exact fractional shares, inclusive validity periods, close or void records, history and date-specific reads, and atomic ownership changes |
+| Acquisition | Acquisition records with costs and linked payments, confirmation, land/building allocation and owner-level allocation |
+| Financing | Loans with terms and planned schedules, interest/principal splits into the ledger with `loanId`, allocation across properties, derived remaining debt, lender balance statements, closing and refinancing |
+| Rent reconciliation | Match rent Transactions to MRE rent terms (by hand or from suggestions confirmed by a human), coverage per term and per Transaction, release, write-back of DE's payment to MRE exactly once, and its removal after a release |
 | Integrity and audit | Exact Money arithmetic, Realm-scoped references, idempotency and version checks where specified, AuditRecords, and database constraints and triggers for financial and Ownership invariants |
 
 The public business API is under `/api/v1`. Its contracts are documented in [API Design](docs/architecture/api-design.md); code is in [`services/de-backend`](services/de-backend).
 
 ### Next work and current limits
 
-- **Phase 2:** Acquisition records, costs and payment links, confirmation, land/building allocation and owner-level allocation, followed by a complete Phase-2 acceptance test. See the [Phase-2 plan](docs/development/phase-2-plan.md).
-- **Later domains:** Financing, rent-payment reconciliation, Security Deposit workflows, WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
+- **Real data first:** before Phase 5, a run with a real bank export, a real loan and real rent payments is planned, to check the specification's assumptions against reality.
+- **Later domains:** Security Deposit workflows, WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
 - **User interface:** There is no DE cockpit UI yet. General read/list endpoints for FinancialAccounts and PropertyReferences are also pending.
 - **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
 - **German rules:** The `VERIFY` points in [the verification checklist](docs/germany/verification-checklist.md) must be resolved before implementing the affected tax, depreciation and WEG rules.

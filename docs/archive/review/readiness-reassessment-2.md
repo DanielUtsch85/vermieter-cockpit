@@ -1,5 +1,7 @@
 # Zweite Re-Review der Readiness — Vermieter Cockpit DE
 
+> **Archiv (Stand 2026-10):** Diese Bewertung prüfte die Dokumentation vor dem ersten Code. Ihre Befunde wurden mit Slice 1 geschlossen; das Verdikt unten gilt nicht mehr. Den aktuellen Stand nennen `README.md` und `docs/development/backlog.md`. Die Datei lag ursprünglich unter `docs/review/`.
+
 **Bewertungsstand:** 2026-08-14  
 **Prüfgegenstand:** unabhängige Nur-Lesen-Prüfung des zweiten Dokumentationsfixes. Die beiden vorherigen Bewertungen hatten jeweils das Verdikt `NICHT BEREIT` (`docs/review/readiness-assessment.md:6`; `docs/review/readiness-reassessment.md:6`).
 
