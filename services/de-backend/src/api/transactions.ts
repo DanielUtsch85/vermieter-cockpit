@@ -2,32 +2,11 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   CATEGORY_CODE,
-  CorrectionNoChangeError,
-  ImportedFieldsFixedError,
-  TransactionNotAmendableError,
-  TransactionNotIgnorableError,
-  TransactionNotIgnoredError,
   CurrencyMismatchError,
-  TransactionAlreadyCorrectedError,
-  TransactionNotCorrectableError,
-  TransactionRentReconciledError,
   FinancialCategoryNotFoundError,
-  InactiveCategoryError,
-  InvalidLoanSplitError,
   LoanClosedOnError,
   LoanNotActiveError,
-  LoanNotFoundError,
-  SplitsMissingError,
-  TransactionNotConfirmableError,
-  VersionConflictError,
-  SplitSumMismatchError,
-  TransactionFrozenError,
-  TransactionNotFoundError,
   DIRECTIONS,
-  FinancialAccountClosedError,
-  FinancialAccountNotFoundError,
-  IdempotencyKeyConflictError,
-  PropertyReferenceNotFoundError,
   checkBusinessDate,
   type ConfirmTransaction,
   type GetTransaction,
@@ -280,13 +259,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         page: { page: q.page, pageSize: q.pageSize },
       })
       .then((result) => sendPage(res, result))
-      .catch((error: unknown) => {
-        if (error instanceof PropertyReferenceNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: propertyReferenceId.toLowerCase() });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.get('/transactions/:transactionId', (req, res, next) => {
@@ -301,13 +274,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         setVersionTag(res, transaction.version);
         res.json({ ...toDto(transaction), splits: splits.map(toSplitDto) });
       })
-      .catch((error: unknown) => {
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.post('/transactions', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -341,19 +308,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         res.status(201).json(toDto(transaction));
       })
       .catch((error: unknown) => {
-        if (error instanceof FinancialAccountNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'FinancialAccount not found.', { financialAccountId: error.financialAccountId });
-        } else if (error instanceof PropertyReferenceNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
-        } else if (error instanceof FinancialAccountClosedError) {
-          sendError(res, 409, 'CONFLICT', 'FinancialAccount is closed; no new Transactions.', {
-            reason: 'ACCOUNT_CLOSED',
-            financialAccountId: error.financialAccountId,
-          });
-        } else if (error instanceof CurrencyMismatchError) {
+        if (error instanceof CurrencyMismatchError) {
           sendValidationError(res, [{ field: 'amount.currency', code: 'CURRENCY_MISMATCH' }]);
-        } else if (error instanceof IdempotencyKeyConflictError) {
-          sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
         } else {
           next(error);
         }
@@ -391,11 +347,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       })
       .catch((error: unknown) => {
         if (sendLoanSplitError(res, error)) return;
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else if (error instanceof PropertyReferenceNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
-        } else if (error instanceof FinancialCategoryNotFoundError) {
+        if (error instanceof FinancialCategoryNotFoundError) {
           sendValidationError(
             res,
             splits.flatMap((s, i) =>
@@ -405,20 +357,6 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         } else if (error instanceof CurrencyMismatchError) {
           const fields = error.where.splitPositions.map((p) => ({ field: `splits.${p - 1}.amount.currency`, code: 'CURRENCY_MISMATCH' }));
           sendValidationError(res, fields.length > 0 ? fields : [{ field: 'splits', code: 'CURRENCY_MISMATCH' }]);
-        } else if (error instanceof TransactionFrozenError) {
-          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status}; its splits cannot change.`, {
-            reason: 'TRANSACTION_FROZEN',
-            status: error.status,
-          });
-        } else if (error instanceof SplitSumMismatchError) {
-          sendError(res, 409, 'INVARIANT_VIOLATION', 'Splits do not add up to the Transaction amount.', {
-            reason: 'SPLIT_SUM_MISMATCH',
-            expected: error.expected.toJSON(),
-            actual: error.actual.toJSON(),
-            difference: error.expected.subtract(error.actual).toJSON(),
-          });
-        } else if (error instanceof VersionConflictError) {
-          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -444,36 +382,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         setVersionTag(res, transaction.version);
         res.json(toDto(transaction));
       })
-      .catch((error: unknown) => {
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else if (error instanceof TransactionNotConfirmableError) {
-          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status} and cannot be confirmed.`, {
-            reason: 'NOT_CONFIRMABLE',
-            status: error.status,
-          });
-        } else if (error instanceof SplitsMissingError) {
-          sendError(res, 409, 'INVARIANT_VIOLATION', 'Transaction has no splits; split it before confirming.', {
-            reason: 'SPLITS_MISSING',
-          });
-        } else if (error instanceof SplitSumMismatchError) {
-          sendError(res, 409, 'INVARIANT_VIOLATION', 'Splits do not add up to the Transaction amount.', {
-            reason: 'SPLIT_SUM_MISMATCH',
-            expected: error.expected.toJSON(),
-            actual: error.actual.toJSON(),
-            difference: error.expected.subtract(error.actual).toJSON(),
-          });
-        } else if (error instanceof InactiveCategoryError) {
-          sendError(res, 422, 'REVIEW_REQUIRED', 'A split uses an inactive financial category; split again before confirming.', {
-            reason: 'INACTIVE_CATEGORY',
-            financialCategoryCodes: error.codes,
-          });
-        } else if (error instanceof VersionConflictError) {
-          sendVersionConflict(res, error);
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.post('/transactions/:transactionId/correct', express.json({ limit: '64kb' }), (req, res, next) => {
@@ -522,41 +431,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
       })
       .catch((error: unknown) => {
         if (sendLoanSplitError(res, error)) return;
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else if (error instanceof FinancialAccountNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'FinancialAccount not found.', { financialAccountId: error.financialAccountId });
-        } else if (error instanceof PropertyReferenceNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
-        } else if (error instanceof TransactionAlreadyCorrectedError) {
-          sendError(res, 409, 'CONFLICT', 'Transaction is already corrected.', {
-            reason: 'ALREADY_CORRECTED',
-            reversalTransactionId: error.reversalTransactionId,
-            replacementTransactionId: error.replacementTransactionId,
-          });
-        } else if (error instanceof TransactionNotCorrectableError) {
-          const message =
-            error.correctionRole === 'REVERSAL'
-              ? 'A reversal cannot be corrected; correct its replacement.'
-              : `Transaction is ${error.status} and cannot be corrected.`;
-          sendError(res, 409, 'CONFLICT', message, {
-            reason: 'NOT_CORRECTABLE',
-            status: error.status,
-            ...(error.correctionRole === undefined ? {} : { correctionRole: error.correctionRole }),
-          });
-        } else if (error instanceof TransactionRentReconciledError) {
-          sendError(res, 409, 'CONFLICT', 'Confirmed rent reconciliations match this Transaction; release them first.', {
-            reason: 'TRANSACTION_RENT_RECONCILED',
-            reconciliationIds: error.reconciliationIds,
-          });
-        } else if (error instanceof CorrectionNoChangeError) {
-          sendError(res, 409, 'CONFLICT', 'The replacement equals the original; nothing to correct.', { reason: 'NO_CHANGE' });
-        } else if (error instanceof FinancialAccountClosedError) {
-          sendError(res, 409, 'CONFLICT', 'The target FinancialAccount is closed.', {
-            reason: 'ACCOUNT_CLOSED',
-            financialAccountId: error.financialAccountId,
-          });
-        } else if (error instanceof CurrencyMismatchError) {
+        if (error instanceof CurrencyMismatchError) {
           sendValidationError(res, replacementCurrencyFields(error, body));
         } else if (error instanceof FinancialCategoryNotFoundError) {
           const splits = replacement.splits ?? [];
@@ -566,22 +441,6 @@ export function transactionRoutes(commands: TransactionCommands): Router {
               error.codes.includes(s.financialCategoryCode) ? [{ field: `replacement.splits.${i}.financialCategoryCode`, code: 'UNKNOWN_CATEGORY' }] : [],
             ),
           );
-        } else if (error instanceof SplitSumMismatchError) {
-          sendError(res, 409, 'INVARIANT_VIOLATION', 'Replacement splits do not add up to its amount.', {
-            reason: 'SPLIT_SUM_MISMATCH',
-            expected: error.expected.toJSON(),
-            actual: error.actual.toJSON(),
-            difference: error.expected.subtract(error.actual).toJSON(),
-          });
-        } else if (error instanceof InactiveCategoryError) {
-          sendError(res, 422, 'REVIEW_REQUIRED', 'A copied split uses an inactive financial category; send new splits.', {
-            reason: 'INACTIVE_CATEGORY',
-            financialCategoryCodes: error.codes,
-          });
-        } else if (error instanceof IdempotencyKeyConflictError) {
-          sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-        } else if (error instanceof VersionConflictError) {
-          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -615,38 +474,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         res.status(201).json({ original: toDto(original), reversal: toDto(reversal), replacement: null });
       })
-      .catch((error: unknown) => {
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else if (error instanceof TransactionAlreadyCorrectedError) {
-          sendError(res, 409, 'CONFLICT', 'Transaction is already corrected or reversed.', {
-            reason: 'ALREADY_CORRECTED',
-            reversalTransactionId: error.reversalTransactionId,
-            replacementTransactionId: error.replacementTransactionId,
-          });
-        } else if (error instanceof TransactionNotCorrectableError) {
-          const message =
-            error.correctionRole === 'REVERSAL'
-              ? 'A reversal cannot be reversed; correct or reverse its original’s replacement.'
-              : `Transaction is ${error.status} and cannot be reversed.`;
-          sendError(res, 409, 'CONFLICT', message, {
-            reason: 'NOT_CORRECTABLE',
-            status: error.status,
-            ...(error.correctionRole === undefined ? {} : { correctionRole: error.correctionRole }),
-          });
-        } else if (error instanceof TransactionRentReconciledError) {
-          sendError(res, 409, 'CONFLICT', 'Confirmed rent reconciliations match this Transaction; release them first.', {
-            reason: 'TRANSACTION_RENT_RECONCILED',
-            reconciliationIds: error.reconciliationIds,
-          });
-        } else if (error instanceof IdempotencyKeyConflictError) {
-          sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-        } else if (error instanceof VersionConflictError) {
-          sendVersionConflict(res, error);
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.post('/transactions/:transactionId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -686,33 +514,10 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         res.json({ ...toDto(transaction), splitsDropped });
       })
       .catch((error: unknown) => {
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else if (error instanceof FinancialAccountNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'FinancialAccount not found.', { financialAccountId: error.financialAccountId });
-        } else if (error instanceof PropertyReferenceNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
-        } else if (error instanceof TransactionNotAmendableError) {
-          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status} and cannot be amended.`, {
-            reason: 'NOT_AMENDABLE',
-            status: error.status,
-          });
-        } else if (error instanceof ImportedFieldsFixedError) {
-          sendError(res, 409, 'CONFLICT', 'An imported Transaction keeps the values of its bank row.', {
-            reason: 'IMPORTED_FIELDS_FIXED',
-            fields: error.fields,
-          });
-        } else if (error instanceof FinancialAccountClosedError) {
-          sendError(res, 409, 'CONFLICT', 'The target FinancialAccount is closed.', {
-            reason: 'ACCOUNT_CLOSED',
-            financialAccountId: error.financialAccountId,
-          });
-        } else if (error instanceof CurrencyMismatchError) {
+        if (error instanceof CurrencyMismatchError) {
           sendValidationError(res, [{ field: 'amount.currency', code: 'CURRENCY_MISMATCH' }]);
         } else if (error instanceof LoanClosedOnError) {
           sendLoanClosed(res, error);
-        } else if (error instanceof VersionConflictError) {
-          sendVersionConflict(res, error);
         } else {
           next(error);
         }
@@ -744,20 +549,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         setVersionTag(res, transaction.version);
         res.json(toDto(transaction));
       })
-      .catch((error: unknown) => {
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else if (error instanceof TransactionNotIgnorableError) {
-          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status} and cannot be ignored; correct it instead.`, {
-            reason: 'NOT_IGNORABLE',
-            status: error.status,
-          });
-        } else if (error instanceof VersionConflictError) {
-          sendVersionConflict(res, error);
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.post('/transactions/:transactionId/restore', (req, res, next) => {
@@ -778,17 +570,7 @@ export function transactionRoutes(commands: TransactionCommands): Router {
         setVersionTag(res, transaction.version);
         res.json(toDto(transaction));
       })
-      .catch((error: unknown) => {
-        if (error instanceof TransactionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-        } else if (error instanceof TransactionNotIgnoredError) {
-          sendError(res, 409, 'CONFLICT', `Transaction is ${error.status}, not IGNORED.`, { reason: 'NOT_IGNORED', status: error.status });
-        } else if (error instanceof VersionConflictError) {
-          sendVersionConflict(res, error);
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   return router;
@@ -800,13 +582,6 @@ function setVersionTag(res: Response, version: number): void {
 }
 
 /** A stale `If-Match`: 412 Precondition Failed (RFC 9110 §13.2.2), with the versions to compare (§16.1). */
-function sendVersionConflict(res: Response, error: VersionConflictError): void {
-  sendError(res, 412, 'VERSION_CONFLICT', 'The Transaction changed since the version given in If-Match.', {
-    expectedVersions: error.expectedVersions,
-    currentVersion: error.currentVersion,
-  });
-}
-
 function toSplitsDto(transaction: SplitTransaction, splits: readonly TransactionSplit[]) {
   return {
     transactionId: transaction.id,
@@ -841,14 +616,7 @@ function sendLoanClosed(res: Response, error: LoanClosedOnError): void {
 
 /** The refusals of §41.5 on a split with `loanId` (splits and `correct`); false for anything else. */
 function sendLoanSplitError(res: Response, error: unknown): boolean {
-  if (error instanceof LoanNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId });
-  } else if (error instanceof InvalidLoanSplitError) {
-    sendError(res, 422, 'INVALID_LOAN_SPLIT', 'A split with a Loan is LOAN_INTEREST or LOAN_PRINCIPAL of an OUTFLOW.', {
-      position: error.position,
-      reason: error.reason,
-    });
-  } else if (error instanceof LoanNotActiveError) {
+  if (error instanceof LoanNotActiveError) {
     sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; no split can name it.`, {
       reason: 'LOAN_NOT_ACTIVE',
       loanId: error.loanId,

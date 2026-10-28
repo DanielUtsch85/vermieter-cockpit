@@ -2,16 +2,6 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   ACQUISITION_STATUSES,
-  AcquisitionCancelledError,
-  AcquisitionConfirmedError,
-  AcquisitionHasValidOwnershipsError,
-  AcquisitionNotFoundError,
-  ConfirmationBlockedError,
-  IdempotencyKeyConflictError,
-  OwnerInactiveError,
-  PartyNotFoundError,
-  PropertyReferenceNotFoundError,
-  VersionConflictError,
   checkBusinessDate,
   formatShare,
   parseShare,
@@ -19,7 +9,6 @@ import {
   type Acquisition,
   type CancelAcquisition,
   type ConfirmAcquisition,
-  type ConfirmationViolation,
   type CreateAcquisition,
   type GetAcquisition,
   type ListAcquisitions,
@@ -27,7 +16,6 @@ import {
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 export const businessDate = z.string().transform((value, ctx) => {
@@ -166,9 +154,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendAcquisition(res.status(201), acquisition);
       })
-      .catch((error: unknown) => {
-        if (!sendAcquisitionError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.get('/acquisitions', (req, res, next) => {
@@ -190,9 +176,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
     commands
       .get({ principal: principalOf(res), acquisitionId })
       .then((acquisition) => sendAcquisition(res, acquisition))
-      .catch((error: unknown) => {
-        if (!sendAcquisitionError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.post('/acquisitions/:acquisitionId/cancel', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -213,9 +197,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ acquisition }) => sendAcquisition(res, acquisition))
-      .catch((error: unknown) => {
-        if (!sendAcquisitionError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.post('/acquisitions/:acquisitionId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -235,9 +217,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
         if (!changed) res.setHeader('Idempotent-Replayed', 'true');
         sendAcquisition(res, acquisition);
       })
-      .catch((error: unknown) => {
-        if (!sendAcquisitionError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   router.get('/property-references/:propertyReferenceId/acquisitions', (req, res, next) => {
@@ -252,9 +232,7 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
     commands
       .listForPropertyReference({ principal: principalOf(res), propertyReferenceId, filter: definedOnly(filter), page: { page, pageSize } })
       .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
-      .catch((error: unknown) => {
-        if (!sendAcquisitionError(res, error)) next(error);
-      });
+      .catch(next);
   });
 
   return router;
@@ -275,42 +253,6 @@ export function readId(value: string | undefined, field: string, res: Response):
 function sendAcquisition(res: Response, acquisition: Acquisition): void {
   res.setHeader('ETag', `"${acquisition.version}"`);
   res.json(toDto(acquisition));
-}
-
-/** The refusals of §27.1; false for anything else (→ the error handler). */
-function sendAcquisitionError(res: Response, error: unknown): boolean {
-  if (error instanceof AcquisitionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId });
-  } else if (error instanceof PropertyReferenceNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId });
-  } else if (error instanceof PartyNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Party not found.', { partyId: error.partyId });
-  } else if (error instanceof OwnerInactiveError) {
-    sendError(res, 422, 'PARTY_INACTIVE', 'A buyer must be an active Party.', { partyId: error.partyId });
-  } else if (error instanceof AcquisitionConfirmedError) {
-    sendError(res, 409, 'CONFLICT', 'A confirmed Acquisition is final.', { reason: 'ACQUISITION_CONFIRMED', acquisitionId: error.acquisitionId });
-  } else if (error instanceof AcquisitionHasValidOwnershipsError) {
-    sendError(res, 409, 'CONFLICT', 'VALID Ownerships carry this Acquisition; void them first.', {
-      reason: 'ACQUISITION_HAS_VALID_OWNERSHIPS',
-      ownershipIds: error.ownershipIds,
-    });
-  } else if (error instanceof AcquisitionCancelledError) {
-    sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition is final.', { reason: 'ACQUISITION_CANCELLED', acquisitionId: error.acquisitionId });
-  } else if (error instanceof ConfirmationBlockedError) {
-    sendError(res, 422, 'CONFIRMATION_BLOCKED', 'The Acquisition does not meet the requirements of confirmation.', {
-      violations: error.violations.map(violationDto),
-    });
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The Acquisition changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(a: Acquisition) {
@@ -335,16 +277,4 @@ function toDto(a: Acquisition) {
     createdAt: a.createdAt.toISOString(),
     version: a.version,
   };
-}
-
-/** Fractions as reduced `n/d` strings (§26.1). */
-export function violationDto(v: ConfirmationViolation) {
-  switch (v.code) {
-    case 'SHARE_SUM_MISMATCH':
-      return { code: v.code, expected: formatShare(v.expected), actual: formatShare(v.actual) };
-    case 'OWNERSHIP_INCOMPLETE':
-      return { code: v.code, date: v.date, shareSum: formatShare(v.shareSum) };
-    default:
-      return v;
-  }
 }

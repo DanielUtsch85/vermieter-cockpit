@@ -1,17 +1,9 @@
 import express, { type Router } from 'express';
 import { z } from 'zod';
-import {
-  AcquisitionCancelledError,
-  AcquisitionNotFoundError,
-  OwnershipBasisIncompleteError,
-  formatShare,
-  type GetOwnerAllocation,
-  type OwnerPart,
-} from '../application/index.js';
+import { formatShare, type GetOwnerAllocation, type OwnerPart } from '../application/index.js';
 import type { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
-import { readId, violationDto } from './acquisitions.js';
-import { sendError } from './errors.js';
+import { readId } from './acquisitions.js';
 import { fieldErrors, sendValidationError } from './validation.js';
 
 export interface OwnerAllocationCommands {
@@ -48,23 +40,7 @@ export function ownerAllocationRoutes(commands: OwnerAllocationCommands): Router
           },
         }),
       )
-      .catch((error: unknown) => {
-        if (error instanceof AcquisitionNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId });
-        } else if (error instanceof AcquisitionCancelledError) {
-          sendError(res, 409, 'CONFLICT', 'A cancelled Acquisition is allocated to nobody.', {
-            reason: 'ACQUISITION_CANCELLED',
-            acquisitionId: error.acquisitionId,
-          });
-        } else if (error instanceof OwnershipBasisIncompleteError) {
-          sendError(res, 409, 'CONFLICT', "The draft's Ownerships do not yet form a complete basis.", {
-            reason: 'OWNERSHIP_BASIS_INCOMPLETE',
-            violations: error.violations.map(violationDto),
-          });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   return router;

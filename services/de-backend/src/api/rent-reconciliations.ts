@@ -1,36 +1,14 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  NotRemovableError,
-  RemovalTooEarlyError,
   type RemoveFromMre,
-  NotWritableError,
-  WriteBackFailedError,
-  WriteBackInProgressError,
   type GetReconciliationWithPresence,
   type WriteBackToMre,
-  AboveSuggestionError,
-  NotConfirmableError,
-  NotRejectableError,
-  SuggestionStaleError,
   type ConfirmReconciliation,
   type RejectReconciliation,
   type SuggestReconciliations,
-  AccessError,
-  AlreadyMatchedError,
-  IdempotencyKeyConflictError,
   MRE_EXTERNAL_ID,
-  MreRentTermNotFoundError,
-  MreUnavailableError,
-  NoRentCashError,
-  NotReleasableError,
   RECONCILIATION_STATUSES,
-  ReconciliationNotFoundError,
-  RentCashExceededError,
-  TransactionNotCountedError,
-  TransactionNotFoundError,
-  TransactionNotInflowError,
-  VersionConflictError,
   isTermKey,
   type CreateReconciliation,
   type GetReconciliation,
@@ -47,7 +25,6 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
-import { sendAccessError, sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const uuid = z
@@ -140,9 +117,6 @@ export interface RentReconciliationCommands {
 /** Rent reconciliation API (api-design.md §37.1, backlog VC-4-01). */
 export function rentReconciliationRoutes(commands: RentReconciliationCommands): Router {
   const router = express.Router();
-  const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
-    if (!sendReconciliationError(res, error)) next(error);
-  };
 
   router.post('/rent-reconciliations', express.json({ limit: '16kb' }), (req, res, next) => {
     const idempotency = readIdempotencyKey(req, res);
@@ -168,7 +142,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendReconciliation(res.status(201), reconciliation);
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/rent-reconciliations/suggest', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -180,7 +154,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     commands
       .suggest({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
       .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/rent-reconciliations/:reconciliationId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -202,7 +176,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/rent-reconciliations/:reconciliationId/reject', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -223,7 +197,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/rent-reconciliations', (req, res, next) => {
@@ -249,7 +223,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     commands
       .termCoverage({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
       .then((result) => res.json(toTermDto(result)))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/transactions/:transactionId/rent-reconciliations', (req, res, next) => {
@@ -263,7 +237,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     commands
       .transactionCoverage({ principal: principalOf(res), transactionId })
       .then((result) => res.json(toTransactionDto(result)))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/rent-reconciliations/:reconciliationId', (req, res, next) => {
@@ -283,7 +257,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         res.setHeader('ETag', `"${reconciliation.version}"`);
         res.json({ ...toDto(reconciliation), mrePresence });
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   // §37.4's write-back and §37.5's removal: no body or {}, If-Match optional.
@@ -308,7 +282,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
         .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
-        .catch(fail(res, next));
+        .catch(next);
     });
   }
 
@@ -330,7 +304,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ reconciliation }) => sendReconciliation(res, reconciliation))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   return router;
@@ -340,110 +314,6 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
 function sendReconciliation(res: Response, reconciliation: RentPaymentReconciliation): void {
   res.setHeader('ETag', `"${reconciliation.version}"`);
   res.json(toDto(reconciliation));
-}
-
-/** The refusals of §37.1; false for anything else (→ the error handler). */
-function sendReconciliationError(res: Response, error: unknown): boolean {
-  if (error instanceof ReconciliationNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Rent reconciliation not found.', { reconciliationId: error.reconciliationId });
-  } else if (error instanceof TransactionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-  } else if (error instanceof TransactionNotCountedError) {
-    sendError(res, 409, 'CONFLICT', 'Only a confirmed, current Transaction is cash that can be matched.', {
-      reason: 'TRANSACTION_NOT_COUNTED',
-      status: error.status,
-      correctionRole: error.correctionRole,
-    });
-  } else if (error instanceof TransactionNotInflowError) {
-    sendError(res, 422, 'TRANSACTION_NOT_INFLOW', 'Rent is matched only to an INFLOW.');
-  } else if (error instanceof NoRentCashError) {
-    sendError(res, 422, 'NO_RENT_CASH', 'The Transaction has no split in a rent category.');
-  } else if (error instanceof AlreadyMatchedError) {
-    sendError(res, 409, 'CONFLICT', 'This Transaction already matches this rent term.', {
-      reason: 'ALREADY_MATCHED',
-      reconciliationId: error.reconciliationId,
-    });
-  } else if (error instanceof RentCashExceededError) {
-    sendError(res, 409, 'CONFLICT', 'The matched amount exceeds the available rent cash.', {
-      reason: 'RENT_CASH_EXCEEDED',
-      rentCash: error.rentCash.toJSON(),
-      available: error.available.toJSON(),
-    });
-  } else if (error instanceof MreRentTermNotFoundError) {
-    // MRE also answers 404 when its own database read fails (review on #76), so the message stays neutral.
-    sendError(res, 422, 'MRE_RENT_TERM_NOT_FOUND', 'MRE did not return this rent term.', { mreTenantId: error.mreTenantId, mreRentTerm: error.mreRentTerm });
-  } else if (error instanceof AboveSuggestionError) {
-    sendError(res, 422, 'ABOVE_SUGGESTION', 'A confirmation may lower the suggested amount, never raise it.', { suggested: error.suggested.toJSON() });
-  } else if (error instanceof NotConfirmableError) {
-    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be confirmed.`, { reason: 'NOT_CONFIRMABLE', status: error.status });
-  } else if (error instanceof SuggestionStaleError) {
-    sendError(res, 409, 'CONFLICT', 'The term was matched in between; the amount is above its open amount now.', {
-      reason: 'SUGGESTION_STALE',
-      openAmount: error.openAmount.toJSON(),
-    });
-  } else if (error instanceof NotRejectableError) {
-    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be rejected.`, { reason: 'NOT_REJECTABLE', status: error.status });
-  } else if (error instanceof NotWritableError) {
-    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be written back to MRE.`, { reason: 'NOT_WRITABLE', status: error.status });
-  } else if (error instanceof NotRemovableError) {
-    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation in ${error.mreWriteBackState} has nothing to remove from MRE.`, {
-      reason: 'NOT_REMOVABLE',
-      status: error.status,
-      mreWriteBackState: error.mreWriteBackState,
-    });
-  } else if (error instanceof RemovalTooEarlyError) {
-    sendError(res, 409, 'CONFLICT', 'A late write-back to MRE could still land; the removal may start later.', {
-      reason: 'REMOVAL_TOO_EARLY',
-      notBefore: error.notBefore.toISOString(),
-    });
-  } else if (error instanceof WriteBackInProgressError) {
-    sendError(res, 409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', {
-      reason: 'WRITE_BACK_IN_PROGRESS',
-      reconciliationId: error.reconciliationId,
-    });
-  } else if (error instanceof WriteBackFailedError) {
-    sendWriteBackFailure(res, error);
-  } else if (error instanceof NotReleasableError) {
-    sendError(res, 409, 'CONFLICT', `A ${error.status} reconciliation cannot be released.`, { reason: 'NOT_RELEASABLE', status: error.status });
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The rent reconciliation changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else if (error instanceof AccessError) {
-    sendAccessError(res, error.code);
-  } else if (error instanceof MreUnavailableError) {
-    sendError(res, 503, 'EXTERNAL_SYSTEM_ERROR', 'MRE is unavailable; nothing was written.');
-  } else {
-    return false;
-  }
-  return true;
-}
-
-/** §37.4: each failure after the claim names its code and the state it left. */
-function sendWriteBackFailure(res: Response, error: WriteBackFailedError): void {
-  const details = { reason: error.code, mreWriteBackState: error.reconciliation.mreWriteBackState };
-  switch (error.code) {
-    case 'MRE_RENT_TERM_NOT_FOUND':
-      // MRE also answers 404 when its own database read fails (review on #76), so the message stays neutral.
-      sendError(res, 422, 'MRE_RENT_TERM_NOT_FOUND', 'MRE did not return this rent term.', {
-        ...details,
-        mreTenantId: error.reconciliation.mreTenantId,
-        mreRentTerm: error.reconciliation.mreRentTerm,
-      });
-      return;
-    case 'MRE_UNAVAILABLE':
-    case 'MRE_WRITE_REFUSED':
-      sendError(res, 503, 'EXTERNAL_SYSTEM_ERROR', 'MRE did not take the payment; the write-back can be retried.', details);
-      return;
-    case 'MRE_TERM_NOT_ROUND_TRIPPABLE':
-      sendError(res, 409, 'CONFLICT', 'Under a VAT ratio MRE would change the discount or extra charge; record this payment in MRE by hand.', details);
-      return;
-    default:
-      sendError(res, 409, 'CONFLICT', 'The term changed in MRE; nothing of it was repaired.', details);
-  }
 }
 
 function toDto(r: RentPaymentReconciliation) {

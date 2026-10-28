@@ -2,13 +2,6 @@ import busboy from 'busboy';
 import express, { type Request, type Router } from 'express';
 import { z } from 'zod';
 import {
-  FinancialAccountClosedError,
-  FinancialAccountNotFoundError,
-  ImportBatchNotFoundError,
-  ImportFileError,
-  ReviewItemNotFoundError,
-  ReviewResolutionConflictError,
-  UnsupportedAdapterError,
   type ConflictingTransaction,
   type GetImportBatch,
   type ImportBankStatement,
@@ -111,21 +104,7 @@ export function importRoutes(commands: ImportCommands): Router {
             res.status(201).json(toDto(batch));
           });
       })
-      .catch((error: unknown) => {
-        if (error instanceof FinancialAccountNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'FinancialAccount not found.', {
-            financialAccountId: error.financialAccountId,
-          });
-        } else if (error instanceof UnsupportedAdapterError) {
-          sendValidationError(res, [{ field: 'adapterId', code: 'NOT_SUPPORTED' }]);
-        } else if (error instanceof ImportFileError) {
-          sendError(res, 400, 'IMPORT_ERROR', error.error.message, {
-            reason: error.error.code,
-          });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.get('/imports/:importBatchId', (req, res, next) => {
@@ -142,15 +121,7 @@ export function importRoutes(commands: ImportCommands): Router {
       .then((batch) => {
         res.json(toDto(batch));
       })
-      .catch((error: unknown) => {
-        if (error instanceof ImportBatchNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'ImportBatch not found.', {
-            importBatchId: error.importBatchId,
-          });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.get('/imports/:importBatchId/review-items', (req, res, next) => {
@@ -173,13 +144,7 @@ export function importRoutes(commands: ImportCommands): Router {
         const byId = new Map(conflicting.map((t) => [t.id, t]));
         res.json({ importBatchId: id.toLowerCase(), items: items.map((item) => toItemDto(item, byId)) });
       })
-      .catch((error: unknown) => {
-        if (error instanceof ImportBatchNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'ImportBatch not found.', { importBatchId: error.importBatchId });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   router.post('/imports/:importBatchId/review-items/:reviewItemId/resolve', express.json({ limit: '1kb' }), (req, res, next) => {
@@ -210,23 +175,7 @@ export function importRoutes(commands: ImportCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         res.json(toItemDto(item, new Map()));
       })
-      .catch((error: unknown) => {
-        if (error instanceof ReviewItemNotFoundError) {
-          sendError(res, 404, 'NOT_FOUND', 'ImportReviewItem not found in this ImportBatch.', { reviewItemId: error.reviewItemId });
-        } else if (error instanceof ReviewResolutionConflictError) {
-          sendError(res, 409, 'CONFLICT', 'The review item is already resolved differently.', {
-            reason: 'ALREADY_RESOLVED',
-            resolution: error.item.resolution,
-          });
-        } else if (error instanceof FinancialAccountClosedError) {
-          sendError(res, 409, 'CONFLICT', 'FinancialAccount was closed before the row was booked.', {
-            reason: 'ACCOUNT_CLOSED',
-            financialAccountId: error.financialAccountId,
-          });
-        } else {
-          next(error);
-        }
-      });
+      .catch(next);
   });
 
   return router;

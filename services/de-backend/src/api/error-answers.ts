@@ -1,0 +1,561 @@
+import {
+  AboveSuggestionError,
+  AccessError,
+  AcquisitionCancelledError,
+  AcquisitionConfirmedError,
+  AcquisitionCostNotFoundError,
+  AcquisitionHasValidOwnershipsError,
+  AcquisitionNotDraftError,
+  AcquisitionNotFoundError,
+  AcquisitionPaymentNotFoundError,
+  AllocationNotLastError,
+  AllocationRefusedError,
+  AlreadyMatchedError,
+  ClosingBeforeDebtError,
+  ConcurrentUpdateError,
+  ConfirmationBlockedError,
+  type ConfirmationViolation,
+  CorrectionNoChangeError,
+  CostHasPaymentsError,
+  CurrentAllocationChangedError,
+  ExternalReferenceInUseError,
+  ExternalReferenceNotFoundError,
+  FinancialAccountClosedError,
+  FinancialAccountNotFoundError,
+  IdempotencyKeyConflictError,
+  ImportBatchNotFoundError,
+  ImportFileError,
+  ImportedFieldsFixedError,
+  InactiveCategoryError,
+  InvalidLoanSplitError,
+  InvalidOwnershipError,
+  type LinkRefusal,
+  LoanAllocationSetNotFoundError,
+  LoanBalanceStatementNotFoundError,
+  LoanClosedError,
+  LoanClosedOnError,
+  LoanFieldsInvalidError,
+  LoanHasSplitsError,
+  LoanNotActiveError,
+  LoanNotAllocatedError,
+  LoanNotFoundError,
+  LoanRefinancesError,
+  LoanTermsNotFoundError,
+  MrePropertyNotFoundError,
+  MreRentTermNotFoundError,
+  MreTenantNotFoundError,
+  MreUnavailableError,
+  NoRentCashError,
+  NoScheduleError,
+  NotConfirmableError,
+  NotRejectableError,
+  NotReleasableError,
+  NotRemovableError,
+  NotWritableError,
+  OverlappingOwnershipError,
+  OwnerInactiveError,
+  OwnershipBasisIncompleteError,
+  OwnershipIncompleteError,
+  OwnershipNotFoundError,
+  OwnershipOfConfirmedAcquisitionError,
+  OwnershipTotalExceedsOneError,
+  PartyFieldNotAllowedError,
+  PartyInactiveError,
+  PartyNotFoundError,
+  PaymentNotProposableError,
+  PaymentRefusedError,
+  PropertyReferenceNotFoundError,
+  ProposalTransactionNotFoundError,
+  ReconciliationNotFoundError,
+  RefinancingLoanNotActiveError,
+  RefinancingLoanNotFoundError,
+  RemainingDebtNotZeroError,
+  RemovalTooEarlyError,
+  RentCashExceededError,
+  ReviewItemNotFoundError,
+  ReviewResolutionConflictError,
+  SplitSumMismatchError,
+  SplitsAfterClosingError,
+  SplitsMissingError,
+  StatementAfterClosingError,
+  StatementBeforeDebtError,
+  SuggestionStaleError,
+  TermsNotLastError,
+  TermsRefusedError,
+  TransactionAlreadyCorrectedError,
+  TransactionFrozenError,
+  TransactionNotAmendableError,
+  TransactionNotConfirmableError,
+  TransactionNotCorrectableError,
+  TransactionNotCountedError,
+  TransactionNotFoundError,
+  TransactionNotIgnorableError,
+  TransactionNotIgnoredError,
+  TransactionNotInflowError,
+  TransactionRentReconciledError,
+  UnsupportedAdapterError,
+  VersionConflictError,
+  WriteBackFailedError,
+  WriteBackInProgressError,
+  formatShare,
+} from '../application/index.js';
+import { eurCents, signedEurCents } from './cents.js';
+import type { FieldError } from './validation.js';
+
+/**
+ * The central error table (#89, api-design.md §12–13): each error class a use case throws, mapped to its HTTP answer.
+ * The error handler answers from it; routes pass errors on with `next(error)`. A route keeps its own answer only where
+ * it depends on the request (field errors named after the request's body, a message naming what was not done).
+ */
+export interface ErrorAnswer {
+  readonly status: number;
+  readonly code: string;
+  readonly message: string;
+  readonly details?: Record<string, unknown>;
+  readonly headers?: Readonly<Record<string, string>>;
+}
+
+const answer = (status: number, code: string, message: string, details?: Record<string, unknown>): ErrorAnswer =>
+  details === undefined ? { status, code, message } : { status, code, message, details };
+
+const validation = (fields: readonly FieldError[]): ErrorAnswer => answer(400, 'VALIDATION_ERROR', 'Validation failed.', { fields });
+
+const ACCESS: Record<AccessError['code'], ErrorAnswer> = {
+  UNAUTHENTICATED: { status: 401, code: 'UNAUTHORIZED', message: 'A valid MRE access token is required.', headers: { 'WWW-Authenticate': 'Bearer' } },
+  FORBIDDEN: { status: 403, code: 'FORBIDDEN', message: 'No access to this Realm.' },
+  AUTH_UNAVAILABLE: { status: 503, code: 'EXTERNAL_SYSTEM_ERROR', message: 'Authentication service unavailable.' },
+};
+
+/** An access refusal (VC-0-08); 401 carries `WWW-Authenticate: Bearer`. */
+export const access = (code: AccessError['code']): ErrorAnswer => ACCESS[code];
+
+/** A confirmation violation as the API shows it (§27.3). */
+export function violationDto(v: ConfirmationViolation) {
+  switch (v.code) {
+    case 'SHARE_SUM_MISMATCH':
+      return { code: v.code, expected: formatShare(v.expected), actual: formatShare(v.actual) };
+    case 'OWNERSHIP_INCOMPLETE':
+      return { code: v.code, date: v.date, shareSum: formatShare(v.shareSum) };
+    default:
+      return v;
+  }
+}
+
+/** A refused payment link (§26.4). */
+function refusalAnswer(refusal: LinkRefusal): ErrorAnswer {
+  switch (refusal.kind) {
+    case 'ACQUISITION_CANCELLED':
+      return answer(409, 'CONFLICT', 'A cancelled Acquisition takes no cost or payment writes.', { reason: refusal.kind });
+    case 'COST_VOID':
+      return answer(409, 'CONFLICT', 'The cost is void.', { reason: refusal.kind });
+    case 'TRANSACTION_NOT_CURRENT':
+      return answer(422, refusal.kind, 'Only a current Transaction (CONFIRMED or RECONCILED, not a reversal) can be linked.', {
+        status: refusal.status,
+        correctionRole: refusal.correctionRole,
+      });
+    case 'NOT_OUTFLOW':
+      return answer(422, refusal.kind, 'Only an OUTFLOW Transaction pays an acquisition.');
+    case 'CURRENCY_MISMATCH':
+      return answer(422, refusal.kind, "The Transaction is not in the Acquisition's currency.");
+    case 'PAYMENT_EXCEEDS_TRANSACTION':
+      return answer(409, 'INVARIANT_VIOLATION', 'The payments would exceed the Transaction amount.', {
+        reason: refusal.kind,
+        transactionAmount: refusal.transactionAmount.toJSON(),
+        linkedAmount: refusal.linkedAmount.toJSON(),
+        available: refusal.available.toJSON(),
+      });
+    case 'PAYMENT_EXCEEDS_COST':
+    case 'PAYMENT_EXCEEDS_PRICE':
+      return answer(409, 'INVARIANT_VIOLATION', 'The payments would exceed the expected amount.', {
+        reason: refusal.kind,
+        expected: refusal.expected.toJSON(),
+        paid: refusal.paid.toJSON(),
+        remaining: refusal.remaining.toJSON(),
+      });
+  }
+}
+
+/** A write-back or removal MRE did not take (§37.4–§37.5); the reconciliation's state rides along. */
+function writeBackFailureAnswer(error: WriteBackFailedError): ErrorAnswer {
+  const details = { reason: error.code, mreWriteBackState: error.reconciliation.mreWriteBackState };
+  switch (error.code) {
+    case 'MRE_RENT_TERM_NOT_FOUND':
+      // MRE also answers 404 when its own database read fails (review on #76), so the message stays neutral.
+      return answer(422, 'MRE_RENT_TERM_NOT_FOUND', 'MRE did not return this rent term.', {
+        ...details,
+        mreTenantId: error.reconciliation.mreTenantId,
+        mreRentTerm: error.reconciliation.mreRentTerm,
+      });
+    case 'MRE_UNAVAILABLE':
+    case 'MRE_WRITE_REFUSED':
+      return answer(503, 'EXTERNAL_SYSTEM_ERROR', 'MRE did not take the payment; the write-back can be retried.', details);
+    case 'MRE_TERM_NOT_ROUND_TRIPPABLE':
+      return answer(409, 'CONFLICT', 'Under a VAT ratio MRE would change the discount or extra charge; record this payment in MRE by hand.', details);
+    default:
+      return answer(409, 'CONFLICT', 'The term changed in MRE; nothing of it was repaired.', details);
+  }
+}
+
+type ErrorClass<E> = new (...args: never[]) => E;
+const on = <E>(type: ErrorClass<E>, toAnswer: (error: E) => ErrorAnswer) => ({ type, toAnswer: toAnswer as (error: unknown) => ErrorAnswer });
+
+const TABLE = [
+  on(AboveSuggestionError, (error) =>
+    answer(422, 'ABOVE_SUGGESTION', 'A confirmation may lower the suggested amount, never raise it.', { suggested: error.suggested.toJSON() }),
+  ),
+  on(AccessError, (error) => access(error.code)),
+  on(AcquisitionCancelledError, (error) =>
+    answer(409, 'CONFLICT', 'A cancelled Acquisition is final.', {
+      reason: 'ACQUISITION_CANCELLED',
+      acquisitionId: error.acquisitionId,
+    }),
+  ),
+  on(AcquisitionConfirmedError, (error) =>
+    answer(409, 'CONFLICT', 'A confirmed Acquisition is final.', { reason: 'ACQUISITION_CONFIRMED', acquisitionId: error.acquisitionId }),
+  ),
+  on(AcquisitionCostNotFoundError, (error) => answer(404, 'NOT_FOUND', 'AcquisitionCost not found.', { acquisitionCostId: error.acquisitionCostId })),
+  on(AcquisitionHasValidOwnershipsError, (error) =>
+    answer(409, 'CONFLICT', 'VALID Ownerships carry this Acquisition; void them first.', {
+      reason: 'ACQUISITION_HAS_VALID_OWNERSHIPS',
+      ownershipIds: error.ownershipIds,
+    }),
+  ),
+  on(AcquisitionNotDraftError, (error) =>
+    answer(422, 'ACQUISITION_NOT_DRAFT', 'Only a DRAFT Acquisition takes new Ownerships.', {
+      acquisitionId: error.acquisitionId,
+      status: error.status,
+    }),
+  ),
+  on(AcquisitionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId })),
+  on(AcquisitionPaymentNotFoundError, (error) => answer(404, 'NOT_FOUND', 'AcquisitionPayment not found.', { paymentId: error.paymentId })),
+  on(AllocationNotLastError, (error) =>
+    answer(409, 'CONFLICT', 'Only the last set is voided.', { reason: 'ALLOCATION_NOT_LAST', laterAllocationSetId: error.laterAllocationSetId }),
+  ),
+  on(AllocationRefusedError, (error) => {
+    const r = error.refusal;
+    const details =
+      r.kind === 'ALLOCATION_BEFORE_DEBT'
+        ? { debtFrom: r.debtFrom }
+        : r.kind === 'ALLOCATION_NOT_APPENDED'
+          ? { lastValidFrom: r.lastValidFrom }
+          : { acquisitionId: r.acquisitionId };
+    return answer(422, r.kind, 'The set cannot be appended.', details);
+  }),
+  on(AlreadyMatchedError, (error) =>
+    answer(409, 'CONFLICT', 'This Transaction already matches this rent term.', {
+      reason: 'ALREADY_MATCHED',
+      reconciliationId: error.reconciliationId,
+    }),
+  ),
+  on(ClosingBeforeDebtError, (error) => answer(422, 'CLOSING_BEFORE_DEBT', 'The closing date is before the debt starts.', { debtFrom: error.debtFrom })),
+  on(ConcurrentUpdateError, () => ({
+    ...answer(503, 'CONCURRENT_UPDATE', 'The external reference kept changing concurrently; nothing was written. Retry.'),
+    headers: { 'Retry-After': '1' },
+  })),
+  on(ConfirmationBlockedError, (error) =>
+    answer(422, 'CONFIRMATION_BLOCKED', 'The Acquisition does not meet the requirements of confirmation.', {
+      violations: error.violations.map(violationDto),
+    }),
+  ),
+  on(CorrectionNoChangeError, () => answer(409, 'CONFLICT', 'The replacement equals the original; nothing to correct.', { reason: 'NO_CHANGE' })),
+  on(CostHasPaymentsError, (error) =>
+    answer(409, 'CONFLICT', 'Payments are linked to this cost; unlink them first.', {
+      reason: 'COST_HAS_PAYMENTS',
+      paymentIds: error.paymentIds,
+    }),
+  ),
+  on(CurrentAllocationChangedError, (error) =>
+    answer(409, 'CONFLICT', 'supersedes does not name the current allocation.', {
+      reason: 'CURRENT_ALLOCATION_CHANGED',
+      currentAllocationId: error.currentAllocationId,
+    }),
+  ),
+  on(ExternalReferenceInUseError, (error) =>
+    answer(409, 'CONFLICT', 'Another Party holds this external reference.', { reason: 'REFERENCE_IN_USE', partyId: error.partyId }),
+  ),
+  on(ExternalReferenceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'External reference not found.', { externalReferenceId: error.externalReferenceId })),
+  on(FinancialAccountClosedError, (error) =>
+    answer(409, 'CONFLICT', 'The FinancialAccount is closed.', {
+      reason: 'ACCOUNT_CLOSED',
+      financialAccountId: error.financialAccountId,
+    }),
+  ),
+  on(FinancialAccountNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', 'FinancialAccount not found.', {
+      financialAccountId: error.financialAccountId,
+    }),
+  ),
+  on(IdempotencyKeyConflictError, () => answer(409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.')),
+  on(ImportBatchNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', 'ImportBatch not found.', {
+      importBatchId: error.importBatchId,
+    }),
+  ),
+  on(ImportedFieldsFixedError, (error) =>
+    answer(409, 'CONFLICT', 'An imported Transaction keeps the values of its bank row.', {
+      reason: 'IMPORTED_FIELDS_FIXED',
+      fields: error.fields,
+    }),
+  ),
+  on(ImportFileError, (error) =>
+    answer(400, 'IMPORT_ERROR', error.error.message, {
+      reason: error.error.code,
+    }),
+  ),
+  on(InactiveCategoryError, (error) =>
+    answer(422, 'REVIEW_REQUIRED', 'A split uses an inactive financial category.', {
+      reason: 'INACTIVE_CATEGORY',
+      financialCategoryCodes: error.codes,
+    }),
+  ),
+  on(InvalidLoanSplitError, (error) =>
+    answer(422, 'INVALID_LOAN_SPLIT', 'A split with a Loan is LOAN_INTEREST or LOAN_PRINCIPAL of an OUTFLOW.', {
+      position: error.position,
+      reason: error.reason,
+    }),
+  ),
+  on(InvalidOwnershipError, (error) =>
+    answer(422, 'INVALID_OWNERSHIP', 'The Ownership cannot be closed so.', { ownershipId: error.ownershipId, reason: error.reason }),
+  ),
+  on(LoanAllocationSetNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Allocation set not found.', { allocationSetId: error.allocationSetId })),
+  on(LoanBalanceStatementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Balance statement not found.', { statementId: error.statementId })),
+  on(LoanClosedError, (error) => answer(409, 'CONFLICT', 'A closed Loan is final.', { reason: 'LOAN_CLOSED', loanId: error.loanId })),
+  on(LoanClosedOnError, (error) =>
+    answer(409, 'CONFLICT', `The Loan was closed on ${error.closingDate}.`, { reason: 'LOAN_CLOSED', closingDate: error.closingDate }),
+  ),
+  on(LoanFieldsInvalidError, (error) => validation(error.errors)),
+  on(LoanHasSplitsError, (error) => answer(409, 'CONFLICT', 'Splits reference the Loan.', { reason: 'LOAN_HAS_SPLITS', transactionIds: error.transactionIds })),
+  on(LoanNotActiveError, (error) => answer(409, 'CONFLICT', `The Loan is ${error.status}.`, { reason: 'LOAN_NOT_ACTIVE', status: error.status })),
+  on(LoanNotAllocatedError, (error) => answer(409, 'CONFLICT', 'No allocation set covers the day.', { reason: 'LOAN_NOT_ALLOCATED', ...error.details })),
+  on(LoanNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId })),
+  on(LoanRefinancesError, (error) =>
+    answer(409, 'CONFLICT', 'A closed Loan names this one as its refinancing.', { reason: 'LOAN_REFINANCES', loanIds: error.loanIds }),
+  ),
+  on(LoanTermsNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Loan terms not found.', { termsId: error.termsId })),
+  on(MrePropertyNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', 'MRE Property not found in this Realm.', {
+      mreRealmId: error.mreRealmId,
+      mrePropertyId: error.mrePropertyId,
+    }),
+  ),
+  on(MreRentTermNotFoundError, (error) =>
+    answer(422, 'MRE_RENT_TERM_NOT_FOUND', 'MRE did not return this rent term.', { mreTenantId: error.mreTenantId, mreRentTerm: error.mreRentTerm }),
+  ),
+  on(MreTenantNotFoundError, (error) => answer(404, 'NOT_FOUND', 'MRE Tenant not found in this Realm.', { externalId: error.externalId })),
+  on(MreUnavailableError, () => answer(503, 'EXTERNAL_SYSTEM_ERROR', 'MRE is unavailable; nothing was written.')),
+  on(NoRentCashError, () => answer(422, 'NO_RENT_CASH', 'The Transaction has no split in a rent category.')),
+  on(NoScheduleError, (error) => answer(409, 'CONFLICT', 'The Loan has no planned payment.', { reason: 'NO_SCHEDULE', endReason: error.endReason })),
+  on(NotConfirmableError, (error) =>
+    answer(409, 'CONFLICT', `A ${error.status} reconciliation cannot be confirmed.`, { reason: 'NOT_CONFIRMABLE', status: error.status }),
+  ),
+  on(NotRejectableError, (error) =>
+    answer(409, 'CONFLICT', `A ${error.status} reconciliation cannot be rejected.`, { reason: 'NOT_REJECTABLE', status: error.status }),
+  ),
+  on(NotReleasableError, (error) =>
+    answer(409, 'CONFLICT', `A ${error.status} reconciliation cannot be released.`, { reason: 'NOT_RELEASABLE', status: error.status }),
+  ),
+  on(NotRemovableError, (error) =>
+    answer(409, 'CONFLICT', `A ${error.status} reconciliation in ${error.mreWriteBackState} has nothing to remove from MRE.`, {
+      reason: 'NOT_REMOVABLE',
+      status: error.status,
+      mreWriteBackState: error.mreWriteBackState,
+    }),
+  ),
+  on(NotWritableError, (error) =>
+    answer(409, 'CONFLICT', `A ${error.status} reconciliation cannot be written back to MRE.`, { reason: 'NOT_WRITABLE', status: error.status }),
+  ),
+  on(OverlappingOwnershipError, (error) =>
+    answer(422, 'OVERLAPPING_OWNERSHIP', 'The owner already holds an overlapping Ownership of this PropertyReference.', {
+      ownershipId: error.ownershipId,
+    }),
+  ),
+  on(OwnerInactiveError, (error) => answer(422, 'PARTY_INACTIVE', 'A Party named here must be active.', { partyId: error.partyId })),
+  on(OwnershipBasisIncompleteError, (error) =>
+    answer(409, 'CONFLICT', "The draft's Ownerships do not yet form a complete basis.", {
+      reason: 'OWNERSHIP_BASIS_INCOMPLETE',
+      violations: error.violations.map(violationDto),
+    }),
+  ),
+  on(OwnershipIncompleteError, (error) =>
+    answer(422, 'OWNERSHIP_INCOMPLETE', 'The ownership was complete and would no longer be.', {
+      date: error.date,
+      shareSum: formatShare(error.shareSum),
+    }),
+  ),
+  on(OwnershipNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Ownership not found.', { ownershipId: error.ownershipId })),
+  on(OwnershipOfConfirmedAcquisitionError, (error) =>
+    answer(409, 'CONFLICT', 'The Ownership carries a confirmed Acquisition; close it instead of voiding it.', {
+      reason: 'ACQUISITION_CONFIRMED',
+      acquisitionId: error.acquisitionId,
+    }),
+  ),
+  on(OwnershipTotalExceedsOneError, (error) =>
+    answer(422, 'OWNERSHIP_TOTAL_EXCEEDS_ONE', 'The shares would sum above 1.', { date: error.date, shareSum: formatShare(error.shareSum) }),
+  ),
+  on(PartyFieldNotAllowedError, (error) => validation(error.fields.map((field) => ({ field, code: 'NOT_ALLOWED_FOR_TYPE' })))),
+  on(PartyInactiveError, (error) =>
+    answer(409, 'CONFLICT', 'An inactive Party gets no new external reference.', { reason: 'PARTY_INACTIVE', partyId: error.partyId }),
+  ),
+  on(PartyNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Party not found.', { partyId: error.partyId })),
+  on(PaymentNotProposableError, (error) =>
+    answer(409, 'CONFLICT', 'Only an unconfirmed OUTFLOW gets a payment proposal.', {
+      reason: 'NOT_PROPOSABLE',
+      direction: error.direction,
+      status: error.status,
+    }),
+  ),
+  on(PaymentRefusedError, (error) => refusalAnswer(error.refusal)),
+  on(PropertyReferenceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId })),
+  on(ProposalTransactionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId })),
+  on(ReconciliationNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Rent reconciliation not found.', { reconciliationId: error.reconciliationId })),
+  on(RefinancingLoanNotActiveError, (error) => answer(422, 'REFINANCING_LOAN_NOT_ACTIVE', 'The refinancing Loan must be ACTIVE.', { status: error.status })),
+  on(RefinancingLoanNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Refinancing Loan not found.', { refinancedByLoanId: error.refinancedByLoanId })),
+  on(RemainingDebtNotZeroError, (error) =>
+    answer(409, 'CONFLICT', 'The remaining debt on the closing date is not 0.', {
+      reason: 'REMAINING_DEBT_NOT_ZERO',
+      actual: signedEurCents(error.actual),
+    }),
+  ),
+  on(RemovalTooEarlyError, (error) =>
+    answer(409, 'CONFLICT', 'A late write-back to MRE could still land; the removal may start later.', {
+      reason: 'REMOVAL_TOO_EARLY',
+      notBefore: error.notBefore.toISOString(),
+    }),
+  ),
+  on(RentCashExceededError, (error) =>
+    answer(409, 'CONFLICT', 'The matched amount exceeds the available rent cash.', {
+      reason: 'RENT_CASH_EXCEEDED',
+      rentCash: error.rentCash.toJSON(),
+      available: error.available.toJSON(),
+    }),
+  ),
+  on(ReviewItemNotFoundError, (error) => answer(404, 'NOT_FOUND', 'ImportReviewItem not found in this ImportBatch.', { reviewItemId: error.reviewItemId })),
+  on(ReviewResolutionConflictError, (error) =>
+    answer(409, 'CONFLICT', 'The review item is already resolved differently.', {
+      reason: 'ALREADY_RESOLVED',
+      resolution: error.item.resolution,
+    }),
+  ),
+  on(SplitsAfterClosingError, (error) =>
+    answer(409, 'CONFLICT', 'Splits name the Loan after the closing date.', { reason: 'SPLITS_AFTER_CLOSING', transactionIds: error.transactionIds }),
+  ),
+  on(SplitsMissingError, () =>
+    answer(409, 'INVARIANT_VIOLATION', 'Transaction has no splits; split it before confirming.', {
+      reason: 'SPLITS_MISSING',
+    }),
+  ),
+  on(SplitSumMismatchError, (error) =>
+    answer(409, 'INVARIANT_VIOLATION', 'Splits do not add up to the Transaction amount.', {
+      reason: 'SPLIT_SUM_MISMATCH',
+      expected: error.expected.toJSON(),
+      actual: error.actual.toJSON(),
+      difference: error.expected.subtract(error.actual).toJSON(),
+    }),
+  ),
+  on(StatementAfterClosingError, (error) =>
+    answer(422, 'STATEMENT_AFTER_CLOSING', 'The statement is after the Loan was closed.', { closingDate: error.closingDate }),
+  ),
+  on(StatementBeforeDebtError, (error) => answer(422, 'STATEMENT_BEFORE_DEBT', 'The statement is before the debt starts.', { debtFrom: error.debtFrom })),
+  on(SuggestionStaleError, (error) =>
+    answer(409, 'CONFLICT', 'The term was matched in between; the amount is above its open amount now.', {
+      reason: 'SUGGESTION_STALE',
+      openAmount: error.openAmount.toJSON(),
+    }),
+  ),
+  on(TermsNotLastError, (error) => answer(409, 'CONFLICT', 'Only the last period is voided.', { reason: 'TERMS_NOT_LAST', laterTermsId: error.laterTermsId })),
+  on(TermsRefusedError, (error) => {
+    const r = error.refusal;
+    const details =
+      r.kind === 'TERMS_BEFORE_DEBT'
+        ? { debtFrom: r.debtFrom }
+        : r.kind === 'TERMS_NOT_APPENDED'
+          ? { lastValidFrom: r.lastValidFrom }
+          : r.kind === 'PREVIOUS_TERMS_WITHOUT_PAYMENT'
+            ? { termsId: r.termsId, firstPaymentDate: r.firstPaymentDate }
+            : r.kind === 'PRINCIPAL_AT_START_EXCEEDS_ORIGINAL'
+              ? { principalOriginal: r.principalOriginal.toJSON() }
+              : r.kind === 'PAYMENT_DOES_NOT_COVER_INTEREST'
+                ? { firstInterest: eurCents(r.firstInterest), balance: eurCents(r.balance) }
+                : undefined;
+    return answer(422, r.kind, 'The period cannot be appended.', details);
+  }),
+  on(TransactionAlreadyCorrectedError, (error) =>
+    answer(409, 'CONFLICT', 'Transaction is already corrected or reversed.', {
+      reason: 'ALREADY_CORRECTED',
+      reversalTransactionId: error.reversalTransactionId,
+      replacementTransactionId: error.replacementTransactionId,
+    }),
+  ),
+  on(TransactionFrozenError, (error) =>
+    answer(409, 'CONFLICT', `Transaction is ${error.status}; its splits cannot change.`, {
+      reason: 'TRANSACTION_FROZEN',
+      status: error.status,
+    }),
+  ),
+  on(TransactionNotAmendableError, (error) =>
+    answer(409, 'CONFLICT', `Transaction is ${error.status} and cannot be amended.`, {
+      reason: 'NOT_AMENDABLE',
+      status: error.status,
+    }),
+  ),
+  on(TransactionNotConfirmableError, (error) =>
+    answer(409, 'CONFLICT', `Transaction is ${error.status} and cannot be confirmed.`, {
+      reason: 'NOT_CONFIRMABLE',
+      status: error.status,
+    }),
+  ),
+  on(TransactionNotCorrectableError, (error) => {
+    const message =
+      error.correctionRole === 'REVERSAL'
+        ? 'A reversal cannot be corrected or reversed; correct or reverse its original’s replacement.'
+        : `Transaction is ${error.status} and cannot be corrected or reversed.`;
+    return answer(409, 'CONFLICT', message, {
+      reason: 'NOT_CORRECTABLE',
+      status: error.status,
+      ...(error.correctionRole === undefined ? {} : { correctionRole: error.correctionRole }),
+    });
+  }),
+  on(TransactionNotCountedError, (error) =>
+    answer(409, 'CONFLICT', 'Only a confirmed, current Transaction is cash that can be matched.', {
+      reason: 'TRANSACTION_NOT_COUNTED',
+      status: error.status,
+      correctionRole: error.correctionRole,
+    }),
+  ),
+  on(TransactionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId })),
+  on(TransactionNotIgnorableError, (error) =>
+    answer(409, 'CONFLICT', `Transaction is ${error.status} and cannot be ignored; correct it instead.`, {
+      reason: 'NOT_IGNORABLE',
+      status: error.status,
+    }),
+  ),
+  on(TransactionNotIgnoredError, (error) =>
+    answer(409, 'CONFLICT', `Transaction is ${error.status}, not IGNORED.`, { reason: 'NOT_IGNORED', status: error.status }),
+  ),
+  on(TransactionNotInflowError, () => answer(422, 'TRANSACTION_NOT_INFLOW', 'Rent is matched only to an INFLOW.')),
+  on(TransactionRentReconciledError, (error) =>
+    answer(409, 'CONFLICT', 'Confirmed rent reconciliations match this Transaction; release them first.', {
+      reason: 'TRANSACTION_RENT_RECONCILED',
+      reconciliationIds: error.reconciliationIds,
+    }),
+  ),
+  on(UnsupportedAdapterError, () => validation([{ field: 'adapterId', code: 'NOT_SUPPORTED' }])),
+  on(VersionConflictError, (error) =>
+    answer(412, 'VERSION_CONFLICT', 'The resource changed since the version given in If-Match.', {
+      expectedVersions: error.expectedVersions,
+      currentVersion: error.currentVersion,
+    }),
+  ),
+  on(WriteBackFailedError, (error) => writeBackFailureAnswer(error)),
+  on(WriteBackInProgressError, (error) =>
+    answer(409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', {
+      reason: 'WRITE_BACK_IN_PROGRESS',
+      reconciliationId: error.reconciliationId,
+    }),
+  ),
+];
+
+/** The answer for an error a use case threw, or undefined (→ 500). */
+export function answerFor(error: unknown): ErrorAnswer | undefined {
+  return TABLE.find((entry) => error instanceof entry.type)?.toAnswer(error);
+}

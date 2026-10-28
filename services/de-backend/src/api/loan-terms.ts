@@ -1,19 +1,8 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  IdempotencyKeyConflictError,
-  LoanClosedOnError,
-  LoanNotActiveError,
-  LoanNotFoundError,
-  LoanTermsNotFoundError,
-  NoScheduleError,
-  PaymentNotProposableError,
-  ProposalTransactionNotFoundError,
   REPAYMENT_MODELS,
   TERMS_STATUSES,
-  TermsNotLastError,
-  TermsRefusedError,
-  VersionConflictError,
   formatRate,
   parseRate,
   type CreateLoanTerms,
@@ -28,8 +17,8 @@ import {
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
+import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 /** Percent p.a. as a decimal string, at most three decimals, `0 ≤ r < 100`; a JSON number is refused (no float in transit). */
@@ -105,9 +94,6 @@ export interface LoanTermsCommands {
 /** Loan terms (api-design.md §41.2, backlog VC-3-02) and the schedule derived from them (§41.4, VC-3-04). */
 export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   const router = express.Router();
-  const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
-    if (!sendTermsError(res, error)) next(error);
-  };
 
   router.post('/loans/:loanId/terms', express.json({ limit: '16kb' }), (req, res, next) => {
     const loanId = readId(req.params['loanId'], 'loanId', res);
@@ -140,7 +126,7 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendTerms(res.status(201), terms);
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/loans/:loanId/terms/:termsId/void', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -164,7 +150,7 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ terms }) => sendTerms(res, terms))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/loans/:loanId/terms', (req, res, next) => {
@@ -178,7 +164,7 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
     commands
       .list({ principal: principalOf(res), loanId, ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }) })
       .then((items) => res.json({ items: items.map(toDto) }))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/loans/:loanId/schedule', (req, res, next) => {
@@ -193,7 +179,7 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
     commands
       .schedule({ principal: principalOf(res), loanId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) })
       .then((schedule) => res.json(toScheduleDto(loanId, from ?? null, to ?? null, schedule)))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/loans/:loanId/payment-proposal', (req, res, next) => {
@@ -207,14 +193,13 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
     commands
       .proposal({ principal: principalOf(res), loanId, transactionId: parsed.data.transactionId })
       .then((proposal) => res.json(toProposalDto(proposal)))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   return router;
 }
 
 /** Signed cents as Money (a difference may be negative). */
-const signedEurCents = (cents: bigint) => (cents < 0n ? { amount: `-${eurCents(-cents).amount}`, currency: 'EUR' } : eurCents(cents));
 
 function toProposalDto(p: PaymentProposalResult) {
   const splits = [
@@ -274,58 +259,6 @@ function toScheduleDto(loanId: string, from: string | null, to: string | null, {
 function sendTerms(res: Response, terms: LoanTermsView): void {
   res.setHeader('ETag', `"${terms.version}"`);
   res.json(toDto(terms));
-}
-
-const eurCents = (cents: bigint) => ({ amount: `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`, currency: 'EUR' });
-
-/** The refusals of §41.2; false for anything else (→ the error handler). */
-function sendTermsError(res: Response, error: unknown): boolean {
-  if (error instanceof LoanNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId });
-  } else if (error instanceof ProposalTransactionNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId });
-  } else if (error instanceof PaymentNotProposableError) {
-    sendError(res, 409, 'CONFLICT', 'Only an unconfirmed OUTFLOW gets a payment proposal.', {
-      reason: 'NOT_PROPOSABLE',
-      direction: error.direction,
-      status: error.status,
-    });
-  } else if (error instanceof LoanClosedOnError) {
-    sendError(res, 409, 'CONFLICT', `The Loan was closed on ${error.closingDate}.`, { reason: 'LOAN_CLOSED', closingDate: error.closingDate });
-  } else if (error instanceof NoScheduleError) {
-    sendError(res, 409, 'CONFLICT', 'The Loan has no planned payment.', { reason: 'NO_SCHEDULE', endReason: error.endReason });
-  } else if (error instanceof LoanTermsNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Loan terms not found.', { termsId: error.termsId });
-  } else if (error instanceof LoanNotActiveError) {
-    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}; its terms cannot change.`, { reason: 'LOAN_NOT_ACTIVE', status: error.status });
-  } else if (error instanceof TermsNotLastError) {
-    sendError(res, 409, 'CONFLICT', 'Only the last period is voided.', { reason: 'TERMS_NOT_LAST', laterTermsId: error.laterTermsId });
-  } else if (error instanceof TermsRefusedError) {
-    const r = error.refusal;
-    const details =
-      r.kind === 'TERMS_BEFORE_DEBT'
-        ? { debtFrom: r.debtFrom }
-        : r.kind === 'TERMS_NOT_APPENDED'
-          ? { lastValidFrom: r.lastValidFrom }
-          : r.kind === 'PREVIOUS_TERMS_WITHOUT_PAYMENT'
-            ? { termsId: r.termsId, firstPaymentDate: r.firstPaymentDate }
-            : r.kind === 'PRINCIPAL_AT_START_EXCEEDS_ORIGINAL'
-              ? { principalOriginal: r.principalOriginal.toJSON() }
-              : r.kind === 'PAYMENT_DOES_NOT_COVER_INTEREST'
-                ? { firstInterest: eurCents(r.firstInterest), balance: eurCents(r.balance) }
-                : undefined;
-    sendError(res, 422, r.kind, 'The period cannot be appended.', details);
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The period changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(t: LoanTermsView) {

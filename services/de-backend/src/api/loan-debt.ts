@@ -1,15 +1,7 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  IdempotencyKeyConflictError,
-  LoanBalanceStatementNotFoundError,
-  LoanNotActiveError,
-  LoanNotAllocatedError,
-  LoanNotFoundError,
   STATEMENT_STATUSES,
-  StatementAfterClosingError,
-  StatementBeforeDebtError,
-  VersionConflictError,
   formatShare,
   type CreateBalanceStatement,
   type GetLoanPayments,
@@ -21,8 +13,8 @@ import {
   type VoidBalanceStatement,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
+import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { sendError } from './errors.js';
 import { fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const perProperty = z
@@ -68,9 +60,6 @@ export interface LoanDebtCommands {
 /** Remaining debt, payments and lender statements (api-design.md §41.6, backlog VC-3-06). */
 export function loanDebtRoutes(commands: LoanDebtCommands): Router {
   const router = express.Router();
-  const fail = (res: Response, next: (error: unknown) => void) => (error: unknown) => {
-    if (!sendDebtError(res, error)) next(error);
-  };
 
   router.get('/loans/:loanId/remaining-debt', (req, res, next) => {
     const loanId = readId(req.params['loanId'], 'loanId', res);
@@ -84,7 +73,7 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
     commands
       .remainingDebt({ principal: principalOf(res), loanId, perProperty: parsed.data.perProperty ?? false, ...(asOf === undefined ? {} : { asOf }) })
       .then((debt) => res.json(toDebtDto(loanId, debt)))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/loans/:loanId/payments', (req, res, next) => {
@@ -111,7 +100,7 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
               }),
         }),
       )
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/loans/:loanId/balance-statements', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -139,7 +128,7 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendStatement(res.status(201), statement);
       })
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.post('/loans/:loanId/balance-statements/:statementId/void', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -163,7 +152,7 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ statement }) => sendStatement(res, statement))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   router.get('/loans/:loanId/balance-statements', (req, res, next) => {
@@ -177,15 +166,13 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
     commands
       .listStatements({ principal: principalOf(res), loanId, ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }) })
       .then((items) => res.json({ items: items.map(toStatementDto) }))
-      .catch(fail(res, next));
+      .catch(next);
   });
 
   return router;
 }
 
-const eurCents = (cents: bigint) => ({ amount: `${cents / 100n}.${(cents % 100n).toString().padStart(2, '0')}`, currency: 'EUR' });
 /** Signed cents as Money (an actual remaining debt or a difference may be negative). */
-const signedEurCents = (cents: bigint) => (cents < 0n ? { amount: `-${eurCents(-cents).amount}`, currency: 'EUR' } : eurCents(cents));
 const signedOrNull = (cents: bigint | null) => (cents === null ? null : signedEurCents(cents));
 
 function toDebtDto(loanId: string, d: RemainingDebt | RemainingDebtPerProperty) {
@@ -244,31 +231,4 @@ function toStatementDto(s: StatementView) {
     version: s.version,
     comparison: { actualOnDate: signedEurCents(s.comparison.actualOnDate), difference: signedEurCents(s.comparison.difference) },
   };
-}
-
-/** The refusals of §41.6; false for anything else (→ the error handler). */
-function sendDebtError(res: Response, error: unknown): boolean {
-  if (error instanceof LoanNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Loan not found.', { loanId: error.loanId });
-  } else if (error instanceof LoanBalanceStatementNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Balance statement not found.', { statementId: error.statementId });
-  } else if (error instanceof LoanNotActiveError) {
-    sendError(res, 409, 'CONFLICT', `The Loan is ${error.status}.`, { reason: 'LOAN_NOT_ACTIVE', status: error.status });
-  } else if (error instanceof LoanNotAllocatedError) {
-    sendError(res, 409, 'CONFLICT', 'No allocation set covers the day.', { reason: 'LOAN_NOT_ALLOCATED', ...error.details });
-  } else if (error instanceof StatementBeforeDebtError) {
-    sendError(res, 422, 'STATEMENT_BEFORE_DEBT', 'The statement is before the debt starts.', { debtFrom: error.debtFrom });
-  } else if (error instanceof StatementAfterClosingError) {
-    sendError(res, 422, 'STATEMENT_AFTER_CLOSING', 'The statement is after the Loan was closed.', { closingDate: error.closingDate });
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The statement changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }

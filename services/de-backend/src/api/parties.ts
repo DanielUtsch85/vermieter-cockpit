@@ -1,13 +1,9 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
-  IdempotencyKeyConflictError,
   MRE_EXTERNAL_ID,
   PARTY_STATUSES,
   PARTY_TYPES,
-  PartyFieldNotAllowedError,
-  PartyNotFoundError,
-  VersionConflictError,
   type AmendParty,
   type CreateParty,
   type DeactivateParty,
@@ -16,7 +12,6 @@ import {
   type Party,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 /** Trimmed, at most `max`; empty (or null) becomes null (api-design.md §19.1). */
@@ -119,9 +114,7 @@ export function partyRoutes(commands: PartyCommands): Router {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         sendParty(res.status(201), party);
       })
-      .catch((error: unknown) => {
-        if (!sendPartyError(res, error, '')) next(error);
-      });
+      .catch(next);
   });
 
   router.get('/parties', (req, res, next) => {
@@ -156,9 +149,7 @@ export function partyRoutes(commands: PartyCommands): Router {
     commands
       .get({ principal: principalOf(res), partyId })
       .then((party) => sendParty(res, party))
-      .catch((error: unknown) => {
-        if (!sendPartyError(res, error, partyId)) next(error);
-      });
+      .catch(next);
   });
 
   router.post('/parties/:partyId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -179,9 +170,7 @@ export function partyRoutes(commands: PartyCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ party }) => sendParty(res, party))
-      .catch((error: unknown) => {
-        if (!sendPartyError(res, error, partyId)) next(error);
-      });
+      .catch(next);
   });
 
   router.post('/parties/:partyId/deactivate', express.json({ limit: '16kb' }), (req, res, next) => {
@@ -202,9 +191,7 @@ export function partyRoutes(commands: PartyCommands): Router {
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
       .then(({ party }) => sendParty(res, party))
-      .catch((error: unknown) => {
-        if (!sendPartyError(res, error, partyId)) next(error);
-      });
+      .catch(next);
   });
 
   return router;
@@ -220,28 +207,6 @@ function readPartyId(value: string | undefined, res: Response): string | undefin
 function sendParty(res: Response, party: Party): void {
   res.setHeader('ETag', `"${party.version}"`);
   res.json(toDto(party));
-}
-
-/** The refusals of §19.1; false for anything else (→ the error handler). */
-function sendPartyError(res: Response, error: unknown, partyId: string): boolean {
-  if (error instanceof PartyNotFoundError) {
-    sendError(res, 404, 'NOT_FOUND', 'Party not found.', { partyId });
-  } else if (error instanceof PartyFieldNotAllowedError) {
-    sendValidationError(
-      res,
-      error.fields.map((field) => ({ field, code: 'NOT_ALLOWED_FOR_TYPE' })),
-    );
-  } else if (error instanceof VersionConflictError) {
-    sendError(res, 412, 'VERSION_CONFLICT', 'The Party changed since the version given in If-Match.', {
-      expectedVersions: error.expectedVersions,
-      currentVersion: error.currentVersion,
-    });
-  } else if (error instanceof IdempotencyKeyConflictError) {
-    sendError(res, 409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.');
-  } else {
-    return false;
-  }
-  return true;
 }
 
 function toDto(party: Party) {
