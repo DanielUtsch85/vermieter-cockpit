@@ -719,9 +719,9 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     ).json()) as { transactionId: string };
     const before = (await (await G('POST', '/rent-reconciliations/suggest', { from: '2028-03', to: '2028-03' })).json()) as {
       items: unknown[];
-      skipped: { unconfirmed: number; unsplit: number };
+      skipped: { unconfirmed: number; noRentCash: number };
     };
-    expect(before).toMatchObject({ items: [], skipped: { unconfirmed: 1, unsplit: 0 } });
+    expect(before).toMatchObject({ items: [], skipped: { unconfirmed: 1, noRentCash: 0 } });
 
     const res = await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${TENANT_G}&mreRentTerm=2028030100`);
     expect(res.status, await res.clone().text()).toBe(200);
@@ -746,9 +746,9 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     ).toBe(409);
     const after = (await (await G('POST', '/rent-reconciliations/suggest', { from: '2028-03', to: '2028-03' })).json()) as {
       items: { transactionId: string; mreRentTerm: string }[];
-      skipped: { unconfirmed: number; unsplit: number };
+      skipped: { unconfirmed: number; noRentCash: number };
     };
     expect(after.items.map((i) => [i.transactionId, i.mreRentTerm])).toEqual([[tx.transactionId, '2028030100']]);
-    expect(after.skipped).toEqual({ unconfirmed: 0, unsplit: 0 });
+    expect(after.skipped).toEqual({ unconfirmed: 0, noRentCash: 0 });
   });
 });

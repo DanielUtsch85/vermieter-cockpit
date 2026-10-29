@@ -226,7 +226,7 @@ describe('coverage reads (§37.2)', () => {
 });
 
 describe('suggestions (§37.3)', () => {
-  const empty = { candidates: [], confirmedByTerm: new Map(), handled: [], open: [], history: [], skipped: { unconfirmed: 0, unsplit: 0 } };
+  const empty = { candidates: [], confirmedByTerm: new Map(), handled: [], open: [], history: [], skipped: { unconfirmed: 0, noRentCash: 0 } };
 
   it("suggest: MRE months from-1 .. to+1 with the caller's header, the candidate dates of all their windows, open = due − confirmed, the neighbours never suggested", async () => {
     const asked: string[] = [];
@@ -263,7 +263,7 @@ describe('suggestions (§37.3)', () => {
       from: '2027-01',
       to: '2027-02',
       items: [reconciliation],
-      skipped: { unconfirmed: 0, unsplit: 0 },
+      skipped: { unconfirmed: 0, noRentCash: 0 },
     });
     expect(asked).toEqual([`Bearer t ${REALM} 2026-12`, `Bearer t ${REALM} 2027-1`, `Bearer t ${REALM} 2027-2`, `Bearer t ${REALM} 2027-3`]);
     expect(snapshots[0]?.slice(2)).toEqual(['2026-11-15', '2027-03-31', { from: '2026-12-15', to: '2027-02-28' }]);

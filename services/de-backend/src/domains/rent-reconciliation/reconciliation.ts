@@ -394,8 +394,8 @@ export interface SuggestionSnapshot {
 export interface SkippedInflows {
   /** `IMPORTED`, `UNREVIEWED` or `CLASSIFIED`. */
   readonly unconfirmed: number;
-  /** Counted, with no split in a rent category. */
-  readonly unsplit: number;
+  /** Counted, with no split in a rent category: a deposit, interest, a refund, or rent under another category (review on #137). */
+  readonly noRentCash: number;
 }
 
 export interface RentReconciliationRepository {

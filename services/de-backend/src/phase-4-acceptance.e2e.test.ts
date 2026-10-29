@@ -362,7 +362,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
       'POST /rent-reconciliations': [{ expect: 404, body: { transactionId: r1, mreTenantId: T1, mreRentTerm: APRIL, matchedAmount: eur('1.00') } }],
       'POST /rent-reconciliations/suggest': [
         {
-          expect: (body) => expect(body).toEqual({ from: '2027-03', to: '2027-04', items: [], skipped: { unconfirmed: 0, unsplit: 0 } }),
+          expect: (body) => expect(body).toEqual({ from: '2027-03', to: '2027-04', items: [], skipped: { unconfirmed: 0, noRentCash: 0 } }),
           body: { from: '2027-03', to: '2027-04' },
         },
       ],

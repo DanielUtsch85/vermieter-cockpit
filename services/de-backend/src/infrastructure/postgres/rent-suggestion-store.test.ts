@@ -45,7 +45,7 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestion
       return written;
     };
 
-    it('suggestionSnapshot skipped (§37.6): the window’s unconfirmed and unsplit INFLOWs; ignored, outflows, rent cash and other dates are not counted', async () => {
+    it('suggestionSnapshot skipped (§37.6): the window’s unconfirmed INFLOWs and the counted ones without rent cash; ignored, outflows, rent cash and other dates are not counted', async () => {
       const window = { from: day('2031-02-15'), to: day('2031-03-31') };
       await transaction([split('800.00')], { bookingDate: '2031-03-01', confirm: false });
       await transaction([split('800.00')], { bookingDate: '2031-02-15', confirm: false });
@@ -57,8 +57,8 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestion
       const ignored = await transaction([split('800.00')], { bookingDate: '2031-03-06', confirm: false });
       expect((await new PostgresUnconfirmedTransactionRepository(createDatabase(pool)).ignore(ignored, REALM, 'kein Mieteingang', actor)).kind).toBe('IGNORED');
       const snapshot = await repository.suggestionSnapshot(REALM, [], window.from, window.to, window);
-      expect(snapshot.skipped).toEqual({ unconfirmed: 2, unsplit: 1 });
-      expect((await repository.suggestionSnapshot(OTHER_REALM, [], window.from, window.to, window)).skipped).toEqual({ unconfirmed: 1, unsplit: 0 });
+      expect(snapshot.skipped).toEqual({ unconfirmed: 2, noRentCash: 1 });
+      expect((await repository.suggestionSnapshot(OTHER_REALM, [], window.from, window.to, window)).skipped).toEqual({ unconfirmed: 1, noRentCash: 0 });
     });
 
     it('suggestionSnapshot: counted INFLOW with available cash in the window; term sums; handled and open pairs; the IBAN history', async () => {
