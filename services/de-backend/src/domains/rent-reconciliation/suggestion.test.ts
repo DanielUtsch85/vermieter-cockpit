@@ -204,6 +204,17 @@ describe('early payers (#125)', () => {
     expect(reasons(input({ terms, candidates: chain(), open: may }))).toEqual(everyMonth('EXACT_AMOUNT_IN_ORDER').slice(1));
   });
 
+  it('the execution date in the text (DATUM 28.09.2027, 10.15 UHR) names the month before: it is not read, the walk decides (review on #127)', () => {
+    const months = ['202708', '202709', '202710'];
+    const terms = [term(X, '2027070100', '0.00', false), ...months.map((m) => term(X, `${m}0100`))];
+    const candidates = months.map((m, i) => tx(`t${i + 1}`, `2027-0${7 + i}-28`, '800.00', IBAN, `MIETE DATUM 28.0${7 + i}.2027, 10.15 UHR`));
+    expect(suggestPairs(input({ terms, candidates })).map((s) => [s.transactionId, s.mreRentTerm, s.suggestionReason])).toEqual([
+      ['t1', '2027080100', 'EXACT_AMOUNT_IN_ORDER'],
+      ['t2', '2027090100', 'EXACT_AMOUNT_IN_ORDER'],
+      ['t3', '2027100100', 'EXACT_AMOUNT_IN_ORDER'],
+    ]);
+  });
+
   it('on-time payments are unaffected: still EXACT_AMOUNT, unique by their windows', () => {
     const onTime = MONTHS.map((m) => tx(`p${m}`, `${m.slice(0, 4)}-${m.slice(4)}-01`, '800.00', IBAN));
     expect(reasons(input({ terms: MONTHS.map((m) => termOf(m)), candidates: onTime }))).toEqual(everyMonth('EXACT_AMOUNT'));
@@ -216,19 +227,22 @@ describe('early payers (#125)', () => {
 });
 
 describe('monthsInText (#125)', () => {
-  it('MM.YYYY, MM/YYYY, YYYY-MM, a full date, a German month name with a year', () => {
+  it('MM.YYYY, MM/YYYY, YYYY-MM, a German month name with a year', () => {
     expect([...monthsInText('Miete 10.2026 Mietzins 1247,00 EUR + Nebenkosten 174,00 EUR')]).toEqual(['202610']);
     expect([...monthsInText('Miete 3/2027')]).toEqual(['202703']);
     expect([...monthsInText('rent 2026-11')]).toEqual(['202611']);
-    expect([...monthsInText('Zahlung vom 01.10.2026')]).toEqual(['202610']);
     expect([...monthsInText('Miete Oktober 2026')]).toEqual(['202610']);
     expect([...monthsInText('Miete Okt. 2026 und März 2027')].sort()).toEqual(['202610', '202703']);
   });
 
-  it('no month: none, a name without a year, a first name, amounts, IBANs, 13.2026', () => {
+  it('no month: none, a full date (the execution date, review on #127), a name without a year, a first name, amounts, IBANs, 13.2026', () => {
     for (const text of [
       null,
       '',
+      'Zahlung vom 01.10.2026',
+      'DATUM 28.09.2027, 10.15 UHR',
+      '28/09/2027',
+      'am 2027-09-28',
       'Miete Oktober',
       'Jan Müller',
       'August Schmidt 2026x',

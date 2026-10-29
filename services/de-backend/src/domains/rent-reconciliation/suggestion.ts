@@ -96,7 +96,8 @@ const NAMED_MONTH = new RegExp(
 /**
  * The months (`YYYYMM`) a purpose text names (#125): `MM.YYYY`, `MM/YYYY`, `YYYY-MM`, or a German month name with a
  * four-digit year (`Oktober 2026`, `Okt. 2026`). A name without a year is not read: `Jan` and `August` are first names.
- * A full date `DD.MM.YYYY` names its month.
+ * A full date (`DD.MM.YYYY`, `YYYY-MM-DD`) is not read either: in a German transfer it is mostly the execution date
+ * (`DATUM 28.09.2027, 10.15 UHR`), which names the month before for a tenant who pays early (review on #127).
  */
 export function monthsInText(text: string | null): ReadonlySet<string> {
   const months = new Set<string>();
@@ -104,7 +105,7 @@ export function monthsInText(text: string | null): ReadonlySet<string> {
   const add = (year: string, month: number) => {
     if (month >= 1 && month <= 12) months.add(`${year}${String(month).padStart(2, '0')}`);
   };
-  for (const m of text.matchAll(/(?<!\d)(\d{1,2})[./](\d{4})(?!\d)/g)) add(m[2] as string, Number(m[1]));
+  for (const m of text.matchAll(/(?<!\d)(?<!\.)(?<!\/)(\d{1,2})[./](\d{4})(?!\d)/g)) add(m[2] as string, Number(m[1]));
   for (const m of text.matchAll(/(?<!\d)(\d{4})-(\d{2})(?![\d-])/g)) add(m[1] as string, Number(m[2]));
   for (const m of text.matchAll(NAMED_MONTH)) {
     const name = (m[1] as string).toLowerCase();
