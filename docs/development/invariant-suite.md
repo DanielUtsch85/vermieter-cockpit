@@ -136,6 +136,7 @@ Specified in API §35.6 and data-model §17.8.
 | Net effect per account, period, split category and split PropertyReference, over a chain T1 → T2 → T3 | CR "net effect …"; ACC "corrects a confirmed import …" |
 | Two concurrent corrections: one chain, the waiter gets `ALREADY_CORRECTED` with its ids (deterministic: both wait on a held lock) | CR "two concurrent corrections …" |
 | A re-import of a corrected original's row stays a duplicate | ACC "corrects a confirmed import …" |
+| Reversal and replacement keep the original's counterparty, along the chain and on `reverse`; their import identity stays empty; earlier corrections backfilled (#111, migration 0035) | CR "reversal and replacement keep the original's counterparty …", "writes a confirmed reversal and replacement …" (manual: none); `correction-counterparty-migration.test.ts` |
 | Must change something; closed account of the original; idempotency | CC "NO_CHANGE only when …"; CR "a correction must change something …", "the original’s closed account …", "Idempotency-Key …" |
 
 ## 8. Party (VC-2-01, api-design §19.1)
