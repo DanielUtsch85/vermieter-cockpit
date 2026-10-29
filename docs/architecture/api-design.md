@@ -3821,7 +3821,8 @@ Decision P6-D2. A Hausgeld or Rücklage debit is split as any Transaction (§33.
 - **Lock order (P6-D9, revised):** Transaction → PropertyReference. A split write with a WEG category writes the unit's PropertyReference row after the Transaction's lock (a no-op, as the membership writers do, §49.2), then reads the memberships. Membership end and void already write it first. So a split write and an end or void of the unit's membership serialise on the unit: under RC the later one sees the other (`NO_WEG_MEMBERSHIP` or `MEMBERSHIP_HAS_SPLITS`), under RR it fails to serialise. Plan P6-D2 named `FOR SHARE` on the membership rows; a share lock lets a REPEATABLE READ end through once the split's transaction committed (the lesson of §49.2), so the write replaces it. No path locks a PropertyReference before a Transaction.
 - **In the database (migration 0041):**
   - `transaction_split_weg` (before insert on `transaction_split`, after the existing split guards): for a WEG category on a Transaction that is not a reversal, the unit is set, the PropertyReference row is written (no-op), and an `ACTIVE` membership covers the booking date (`(NO_WEG_MEMBERSHIP)`);
-  - `weg_membership_splits` (before update of `valid_until` or `status` on `weg_membership`): the end or void leaves no WEG split of the unit outside the remaining period (`(MEMBERSHIP_HAS_SPLITS)`).
+  - `weg_membership_splits` (before update of `valid_until` or `status` on `weg_membership`): **first** writes the unit's PropertyReference row (a no-op, `UPDATE property_reference SET version = version WHERE id = NEW.property_reference_id`), **then** checks that the end or void leaves no WEG split of the unit outside the remaining period (`(MEMBERSHIP_HAS_SPLITS)`). The write must come first: 0040's PropertyReference write runs in the AFTER trigger, so a BEFORE check without it would read before waiting on a concurrent split writer and, under READ COMMITTED, miss its split (review on #146). Schema test under RC with raw SQL (a split in flight, then the end), counter-check: this write removed;
+  - the same write also precedes `transaction_split_weg`'s membership check (above), so both sides serialise on the unit before they read.
 
 ## 49.4 The category type `WEG_FUNDS` (VC-6-02)
 
@@ -3899,7 +3900,7 @@ GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (§49.6)
 
 - `weg_economic_plan`: the fields above (Money as `numeric` with scale ≤ 2 and `currency = 'EUR'`), the membership by composite foreign key, `status`, the void fields, `version`; `cost_lines jsonb` (an array; its shape is the API's, checked there); CHECKs for amounts ≥ 0 and at least one monthly amount > 0; a partial unique index `(membership_id, effective_from) WHERE status = 'ACTIVE'`.
 - `weg_economic_plan_frozen`: nothing changes but `ACTIVE` → `VOID` with its fields and `version` + 1; no delete; only inserted `ACTIVE` with `version` 1.
-- `weg_membership_plans` (with `weg_membership_splits`): an end or void leaves no `ACTIVE` plan outside the remaining period.
+- `weg_membership_plans` (one function with `weg_membership_splits`, after the same first PropertyReference write): an end or void leaves no `ACTIVE` plan outside the remaining period. A plan insert writes the PropertyReference first too (its own BEFORE trigger, `weg_economic_plan_membership`, which then checks the membership's status and period), so a raw plan insert and a raw end serialise under RC as well; RC schema test and counter-check as above.
 - `weg_frozen` gains `WEG_HAS_YEARS`.
 
 ## 49.6 The Hausgeld split proposal (VC-6-02)
@@ -3921,7 +3922,7 @@ A read, never a write (as §41.5's payment proposal). The client applies it thro
   - **A = H + R** (`FULL`): `WEG_RECOVERABLE` (the derived `recoverable`), `WEG_NON_RECOVERABLE` (`nonRecoverable`), `WEG_RESERVE_CONTRIBUTION` (R);
   - **A = R** (`RESERVE_ONLY`, the second debit of F5): `WEG_RESERVE_CONTRIBUTION` (A);
   - **A = H** (`HAUSGELD_ONLY`): `WEG_RECOVERABLE` and `WEG_NON_RECOVERABLE` as derived;
-  - **two of these at once** (e.g. H = R, or H = 0 and A = R): `AMBIGUOUS`, no splits, the flag `AMBIGUOUS_AMOUNT` with `details.cases`; the user decides;
+  - **several of these at once:** if they give the **same splits** (a split of 0 is left out), the first in the order `FULL`, `HAUSGELD_ONLY`, `RESERVE_ONLY` is the case. With R = 0, A = H matches `FULL` and `HAUSGELD_ONLY` with the same two splits: `FULL`. With H = 0, A = R matches `FULL` and `RESERVE_ONLY` with the same one split: `FULL`. Only if they give **different splits** (H = R > 0 and A = H: `HAUSGELD_ONLY` or `RESERVE_ONLY`) is it `AMBIGUOUS`: no splits, the flag `AMBIGUOUS_AMOUNT` with `details.cases`; the user decides (review on #146);
   - **otherwise** (`PROPORTIONAL`): A divided in the proportions recoverable : nonRecoverable : reserve, each rounded half-up to the cent, the rest on the largest part; the flag `AMOUNT_DIFFERS_FROM_PLAN` with `details.difference` (A − (H + R), signed).
   - Every split carries the unit's `propertyReferenceId`; a split of 0 is left out. `ALREADY_SPLIT` is set when the Transaction has splits already.
 - **Response `200`:** `transactionId`, `bookingDate`, `amount`, `propertyReferenceId`, `membershipId`, `economicPlanId`, `case`, `splits: [{ financialCategoryCode, propertyReferenceId, amount }]`, `flags`. One `REPEATABLE READ READ ONLY` snapshot.
@@ -3935,7 +3936,7 @@ A read, never a write (as §41.5's payment proposal). The client applies it thro
 
 ### Tests (VC-6-02)
 
-- **Domain:** the derived components and their rounding; each flag; every proposal case, ambiguous ones included; the plan chosen for a date and `PLAN_OF_EARLIER_YEAR`.
+- **Domain:** the derived components and their rounding; each flag; every proposal case, ambiguous ones included, and a plan with R = 0 (A = H is `FULL`) and one with H = 0 (A = R is `FULL`); the plan chosen for a date and `PLAN_OF_EARLIER_YEAR`.
 - **Repository and schema:** the split rule with and without unit, membership and reversal; the replacement; `MEMBERSHIP_HAS_SPLITS` and `MEMBERSHIP_HAS_PLANS` on end and void; `WEG_HAS_YEARS`; the type change and its `down`; every CHECK and guard of `weg_economic_plan` past the repository; concurrency as above.
 - **API:** every `400`; the error mapping; the proposal's response for each case.
 - **End to end:** a plan with a change of the amounts within the year (two plans, the second from a later month), the two debits of F5 imported and split by proposal, the Hausgeld debit after the change, Realm isolation on every new route.
