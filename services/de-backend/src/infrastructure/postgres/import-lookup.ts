@@ -300,7 +300,12 @@ export async function continuityReport(trx: Trx<Database>, input: NewImport, cha
         balanceAfter: t.source_balance_after,
       }) === oldest.identityKey,
   );
-  const continuesFromKnown = (await earlier.where('source_balance_after', '=', oldest.balanceBefore).select('id').limit(1).execute()).length > 0;
-  const anyEarlierBalance = (await earlier.select('id').limit(1).execute()).length > 0;
+  // Only a possible predecessor counts: a balance of the oldest row's day or of the last earlier day with a balance. A
+  // balance that merely occurred before (an account run down to 0.00) must not hide a gap (review on #114).
+  const lastEarlierDay = await earlier.where('booking_date', '<', oldest.bookingDate).orderBy('booking_date', 'desc').limit(1).executeTakeFirst();
+  const predecessorDays = [oldest.bookingDate, ...(lastEarlierDay === undefined ? [] : [lastEarlierDay.booking_date])];
+  const continuesFromKnown =
+    (await earlier.where('booking_date', 'in', predecessorDays).where('source_balance_after', '=', oldest.balanceBefore).limit(1).execute()).length > 0;
+  const anyEarlierBalance = sameDay.length > 0 || lastEarlierDay !== undefined;
   return { order: chain.order, breaks: chain.breaks, previousExport: previousExport({ oldestImported, continuesFromKnown, anyEarlierBalance }) };
 }

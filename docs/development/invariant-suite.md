@@ -102,6 +102,7 @@ service; also run locally with `default_transaction_isolation = repeatable read`
 | Identity repeated in one file → fallback; against an earlier file → review, never a duplicate | IL "a repeated identity in one file uses the fallback …"; BL "only an identity unique in its file is used …" |
 | Several existing matches → `AMBIGUOUS_CROSS_FILE_MATCH` naming all | IL "several existing matches …"; BI "several: …" |
 | Broken chain (filtered export) and gap → reported, outcomes unchanged | IL "a broken chain (filtered export) is reported …"; BL "continuity …" |
+| Only a possible predecessor chains: a balance recurring from before a gap is a gap (review on #114) | IL "a balance that only recurs from further back is no chain …" |
 | v1 rows, then an overlapping v2 file → review once, not dropped | IL "v1 rows, then an overlapping v2 file …" |
 | The balance is stored, kept by `CREATE`, fixed after creation (0034) | IL "a CREATE resolution keeps the balance …", "several existing matches …" |
 | Adapter v2: signed balance, empty cell none, row errors; fingerprint unchanged; v1 refuses the key | GC "generic-csv v2 …" |

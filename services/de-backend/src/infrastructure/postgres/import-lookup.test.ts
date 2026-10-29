@@ -200,6 +200,23 @@ describe.skipIf(databaseUrl === undefined)('balance identity and continuity (§7
     expect(chained.continuity).toMatchObject({ previousExport: 'CHAINS' });
   });
 
+  it('a balance that only recurs from further back is no chain: the last earlier day decides (recurring balance before a gap → GAP, review on #114)', async () => {
+    const account = await openAccount();
+    await run(
+      account,
+      file([
+        ['01-04', '100.00', '100.00'],
+        ['01-05', '-100.00', '0.00'],
+      ]),
+    );
+    await run(account, file([['02-10', '30.00', '30.00']]));
+    // March is missing: April starts from 0.00, a balance known from January, but the last known one is 30.00.
+    expect((await run(account, file([['04-01', '10.00', '10.00']]))).continuity).toMatchObject({ previousExport: 'GAP' });
+    // The same day counts too: an earlier export of that day ending on the balance before.
+    await run(account, file([['04-02', '5.00', '15.00']]));
+    expect((await run(account, file([['04-02', '-1.00', '14.00', 'später am Tag']]))).continuity).toMatchObject({ previousExport: 'CHAINS' });
+  });
+
   it('v1 rows, then an overlapping v2 file with balance: the shared rows are review once, not dropped', async () => {
     const account = await openAccount();
     const v1 = await run(account, file(september, '1'));
