@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { parseMea, type Mea, type NewMembership, type NewWeg } from '../../domains/weg/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import { createDatabase } from './database.js';
-import { migrateToLatest } from './migrate.js';
+import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
 import { PostgresPartyRepository } from './party-repository.js';
 import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresWegRepository } from './weg-repository.js';
@@ -25,6 +25,18 @@ const mea = (text: string): Mea => {
   return parsed.mea;
 };
 let counter = 0;
+
+/** Runs `work` under the session advisory lock that migrations and schema teardown take (migrate.ts). */
+async function withMigrationLock(work: () => Promise<unknown>): Promise<void> {
+  const lock = new pg.Client({ connectionString: databaseUrl });
+  await lock.connect();
+  try {
+    await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
+    await work();
+  } finally {
+    await lock.end().catch(() => undefined);
+  }
+}
 
 async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -423,8 +435,12 @@ describe.skipIf(databaseUrl === undefined)('PostgresWegRepository', () => {
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        const { down } = await import('./migrations/0040_weg.js');
-        await down(createDatabase(downPool) as never);
+        // 0041 builds on 0040's tables: it goes first. Dropping tables while another worker's Migrator introspects
+        // the database breaks it, so the downs hold the migration lock as every schema change of the tests does.
+        await withMigrationLock(async () => {
+          await (await import('./migrations/0041_weg_plan_and_splits.js')).down(createDatabase(downPool) as never);
+          await (await import('./migrations/0040_weg.js')).down(createDatabase(downPool) as never);
+        });
         const { rows: tables } = await downPool.query(`SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name LIKE 'weg%'`, [
           downSchema,
         ]);

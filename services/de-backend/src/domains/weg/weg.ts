@@ -205,6 +205,37 @@ export function planMembershipVoid(current: WegMembership, reason: string, at: D
   return { kind: 'VOID', next: { ...current, status: 'VOID', voidedAt: at, voidReason: reason, version: current.version + 1 } };
 }
 
+/** What hangs off a membership's period (§49.3, §49.5): its unit's WEG splits and its `ACTIVE` plans. */
+export interface MembershipHolds {
+  readonly splits: readonly { readonly transactionId: string; readonly bookingDate: BusinessDate }[];
+  readonly plans: readonly { readonly id: string; readonly effectiveFrom: BusinessDate }[];
+}
+
+export type MembershipHoldRefusal =
+  | { readonly kind: 'MEMBERSHIP_HAS_SPLITS'; readonly transactionIds: readonly string[] }
+  | { readonly kind: 'MEMBERSHIP_HAS_PLANS'; readonly economicPlanIds: readonly string[] };
+
+/**
+ * An end (`remaining` the shortened period) or a void (`remaining` null) refused because a WEG split of the unit or
+ * an `ACTIVE` plan would fall outside what remains of the membership's period: splits first, then plans.
+ */
+export function holdsOutside(
+  current: WegMembership,
+  remaining: Pick<WegMembership, 'validFrom' | 'validUntil'> | null,
+  holds: MembershipHolds,
+): MembershipHoldRefusal | undefined {
+  const old = periodOf(current);
+  const kept = (day: BusinessDate) => remaining !== null && covers(periodOf(remaining), day);
+  const splits = [...new Set(holds.splits.filter((s) => covers(old, s.bookingDate) && !kept(s.bookingDate)).map((s) => s.transactionId))].sort();
+  if (splits.length > 0) return { kind: 'MEMBERSHIP_HAS_SPLITS', transactionIds: splits };
+  const plans = holds.plans
+    .filter((p) => !kept(p.effectiveFrom))
+    .map((p) => p.id)
+    .sort();
+  if (plans.length > 0) return { kind: 'MEMBERSHIP_HAS_PLANS', economicPlanIds: plans };
+  return undefined;
+}
+
 /** The administrator named on create or amend (§49.1 check 2). */
 export type AdministratorRefusal =
   | { readonly kind: 'PARTY_NOT_FOUND'; readonly partyId: string }
@@ -220,6 +251,8 @@ export type AmendWegOutcome =
   | { readonly kind: 'AMENDED'; readonly weg: Weg; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'WEG_NOT_ACTIVE'; readonly status: WegStatus }
+  /** `financialYearStartMonth` while a membership has an `ACTIVE` plan (§49.5). */
+  | { readonly kind: 'WEG_HAS_YEARS' }
   | AdministratorRefusal
   | VersionConflict;
 
@@ -249,11 +282,13 @@ export type EndMembershipOutcome =
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'MEMBERSHIP_NOT_ACTIVE' }
   | { readonly kind: 'INVALID_MEMBERSHIP'; readonly reason: InvalidMembershipReason }
+  | MembershipHoldRefusal
   | VersionConflict;
 
 export type VoidMembershipOutcome =
   | { readonly kind: 'VOIDED'; readonly membership: WegMembership; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
+  | MembershipHoldRefusal
   | VersionConflict;
 
 export interface WegFilter {

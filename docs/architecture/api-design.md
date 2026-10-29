@@ -3801,7 +3801,7 @@ The Jahresabrechnung and the Sonderumlage get their routes with VC-6-03 and VC-6
 - **API:** every `400` code above; the error mapping; idempotent replays; the no-ops; the list filters and order; the `asOf` lookup with and without a membership; Realm isolation end to end on every §49 route.
 
 
-## 49.3 WEG splits name their unit (VC-6-02)
+## 49.3 WEG splits name their unit (VC-6-02, implemented: migration 0041)
 
 Decision P6-D2. A Hausgeld or Rücklage debit is split as any Transaction (§33.2); a WEG split additionally names its unit, and the unit's membership on the booking date names the WEG. There is no `wegId` on a split (§33.2 keeps its `NOT_SUPPORTED` for good).
 
@@ -3824,7 +3824,7 @@ Decision P6-D2. A Hausgeld or Rücklage debit is split as any Transaction (§33.
   - `weg_membership_splits` (before update of `valid_until` or `status` on `weg_membership`): **first** writes the unit's PropertyReference row (a no-op, `UPDATE property_reference SET version = version WHERE id = NEW.property_reference_id`), **then** checks that the end or void leaves no WEG split of the unit outside the remaining period (`(MEMBERSHIP_HAS_SPLITS)`). The write must come first: 0040's PropertyReference write runs in the AFTER trigger, so a BEFORE check without it would read before waiting on a concurrent split writer and, under READ COMMITTED, miss its split (review on #146). Schema test under RC with raw SQL (a split in flight, then the end), counter-check: this write removed;
   - the same write also precedes `transaction_split_weg`'s membership check (above), so both sides serialise on the unit before they read.
 
-## 49.4 The category type `WEG_FUNDS` (VC-6-02)
+## 49.4 The category type `WEG_FUNDS` (VC-6-02, implemented: migration 0041)
 
 Decision P6-D3 (BFH IX R 19/24, `docs/germany/weg.md` §5.2–§5.3).
 
@@ -3835,7 +3835,7 @@ Decision P6-D3 (BFH IX R 19/24, `docs/germany/weg.md` §5.2–§5.3).
 - **Retroactive on purpose:** the type belongs to the category, so every split of `WEG_RESERVE_CONTRIBUTION`, confirmed ones included, reads as `WEG_FUNDS` from the migration on. Today only `GET /financial-categories` (§36) returns `categoryType`, and no read filters by it, so no figure changes. The count of affected splits is part of the query above.
 - `GET /financial-categories` lists the new type like any other.
 
-## 49.5 The Wirtschaftsplan (VC-6-02)
+## 49.5 The Wirtschaftsplan (VC-6-02, implemented: migration 0041)
 
 Decision P6-D4, shaped by the real Einzelwirtschaftsplan of #93's owner (structure only):
 - the plan's cost lines come in two groups as the Verwalter prints them, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each line with an allocation key as printed (`Miteigentumsanteile`, `Einheit`, a consumption key such as cold water), the WEG total and the unit's share;
@@ -3903,7 +3903,7 @@ GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (§49.6)
 - `weg_membership_plans` (one function with `weg_membership_splits`, after the same first PropertyReference write): an end or void leaves no `ACTIVE` plan outside the remaining period. A plan insert writes the PropertyReference first too (its own BEFORE trigger, `weg_economic_plan_membership`, which then checks the membership's status and period), so a raw plan insert and a raw end serialise under RC as well; RC schema test and counter-check as above.
 - `weg_frozen` gains `WEG_HAS_YEARS`.
 
-## 49.6 The Hausgeld split proposal (VC-6-02)
+## 49.6 The Hausgeld split proposal (VC-6-02, implemented: migration 0041)
 
 ### `GET /api/v1/transactions/{transactionId}/hausgeld-proposal?propertyReferenceId=`
 

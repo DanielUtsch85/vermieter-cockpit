@@ -272,6 +272,36 @@ export interface WegMembershipTable {
   version: Generated<number>;
 }
 
+export interface WegEconomicPlanTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  membership_id: string;
+  financial_year: number;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  effective_from: string;
+  resolution_date: string | null;
+  /** `numeric` columns: written and read as text. */
+  monthly_hausgeld: string;
+  monthly_reserve_contribution: string;
+  recoverable_costs: string;
+  non_recoverable_costs: string;
+  income: string | null;
+  annual_reserve_contribution: string | null;
+  currency: string;
+  /** `jsonb`: an array of cost lines (api-design §49.5). */
+  cost_lines: Generated<unknown>;
+  status: string;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface LoanTermsTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -541,6 +571,7 @@ export interface Database {
   security_deposit: SecurityDepositTable;
   weg: WegTable;
   weg_membership: WegMembershipTable;
+  weg_economic_plan: WegEconomicPlanTable;
   loan_terms: LoanTermsTable;
   loan_allocation_set: LoanAllocationSetTable;
   loan_allocation: LoanAllocationTable;

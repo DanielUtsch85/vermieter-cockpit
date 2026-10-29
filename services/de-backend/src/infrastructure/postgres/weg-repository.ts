@@ -2,6 +2,7 @@ import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   meaFromColumns,
   overlappingMembership,
+  holdsOutside,
   planMembershipAmend,
   planMembershipEnd,
   planMembershipVoid,
@@ -15,6 +16,7 @@ import {
   type EndMembershipOutcome,
   type MembershipChanges,
   type MembershipFilter,
+  type MembershipHolds,
   type MembershipStatus,
   type NewMembership,
   type NewWeg,
@@ -31,6 +33,7 @@ import {
   type WegRepository,
   type WegStatus,
 } from '../../domains/weg/index.js';
+import { WEG_SPLIT_CATEGORIES, isWegSplit } from '../../domains/ledger/index.js';
 import { checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
@@ -234,6 +237,8 @@ export class PostgresWegRepository implements WegRepository {
         if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', weg: current, changed: false };
         if (plan.kind !== 'AMEND') return plan;
         if (plan.newAdministratorId !== null && refusal !== undefined) return refusal;
+        // §49.5: plans are filed by financial year; weg_financial_year_held is the backstop.
+        if (plan.changed.includes('financialYearStartMonth') && (await hasActivePlans(trx, id))) return { kind: 'WEG_HAS_YEARS' };
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
         await trx
@@ -505,6 +510,9 @@ export class PostgresWegRepository implements WegRepository {
         const plan = planMembershipEnd(current, validUntil);
         if (plan.kind === 'UNCHANGED') return { kind: 'ENDED', membership: current, changed: false };
         if (plan.kind !== 'END') return plan;
+        // §49.3, §49.5: read after the unit's write, so a concurrent split or plan writer committed before or waits.
+        const held = holdsOutside(current, plan.next, await holdsOf(trx, current));
+        if (held !== undefined) return held;
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
         await trx
@@ -540,6 +548,8 @@ export class PostgresWegRepository implements WegRepository {
         if (current === undefined) return { kind: 'NOT_FOUND' };
         const plan = planMembershipVoid(current, reason, at);
         if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', membership: current, changed: false };
+        const held = holdsOutside(current, null, await holdsOf(trx, current));
+        if (held !== undefined) return held;
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
         await trx
@@ -565,6 +575,39 @@ async function administratorRefusalOf(trx: Transaction<Database>, partyId: strin
   if (party === undefined) return { kind: 'PARTY_NOT_FOUND', partyId };
   if (party.status !== 'ACTIVE') return { kind: 'PARTY_INACTIVE', partyId };
   return undefined;
+}
+
+/** The unit's WEG splits (any status, reversals included) and the membership's `ACTIVE` plans (§49.3, §49.5). */
+async function holdsOf(trx: Transaction<Database>, membership: WegMembership): Promise<MembershipHolds> {
+  const splits = await trx
+    .selectFrom('transaction_split')
+    .innerJoin('financial_category', 'financial_category.id', 'transaction_split.financial_category_id')
+    .innerJoin('ledger_transaction', 'ledger_transaction.id', 'transaction_split.transaction_id')
+    .select(['transaction_split.transaction_id', sql<string>`to_char(ledger_transaction.booking_date, 'YYYY-MM-DD')`.as('booking_date')])
+    .where('transaction_split.property_reference_id', '=', membership.propertyReferenceId)
+    .where('financial_category.code', 'in', [...WEG_SPLIT_CATEGORIES])
+    .execute();
+  const plans = await trx
+    .selectFrom('weg_economic_plan')
+    .select(['id', sql<string>`to_char(effective_from, 'YYYY-MM-DD')`.as('effective_from')])
+    .where('membership_id', '=', membership.id)
+    .where('status', '=', 'ACTIVE')
+    .execute();
+  return {
+    splits: splits.map((s) => ({ transactionId: s.transaction_id, bookingDate: s.booking_date as BusinessDate })),
+    plans: plans.map((p) => ({ id: p.id, effectiveFrom: p.effective_from as BusinessDate })),
+  };
+}
+
+async function hasActivePlans(trx: Transaction<Database>, wegId: string): Promise<boolean> {
+  const row = await trx
+    .selectFrom('weg_economic_plan')
+    .innerJoin('weg_membership', 'weg_membership.id', 'weg_economic_plan.membership_id')
+    .select('weg_economic_plan.id')
+    .where('weg_membership.weg_id', '=', wegId)
+    .where('weg_economic_plan.status', '=', 'ACTIVE')
+    .executeTakeFirst();
+  return row !== undefined;
 }
 
 /** The no-op write of a unit that the trigger does too; false for an unknown or foreign PropertyReference. */
@@ -702,4 +745,32 @@ function toMembershipSnapshot(membership: WegMembership): Snapshot<WegMembership
 function fromMembershipSnapshot(result: unknown): WegMembership {
   const snapshot = result as Snapshot<WegMembership>;
   return { ...snapshot, createdAt: new Date(snapshot.createdAt), voidedAt: snapshot.voidedAt === null ? null : new Date(snapshot.voidedAt) };
+}
+
+/**
+ * §49.3 for a split set: the units of its WEG splits, each PropertyReference row written (a no-op) in id order after
+ * the Transaction's lock (Transaction → PropertyReference, P6-D9), then the units with an `ACTIVE` membership on the
+ * booking date. An end or void of a unit's membership writes the same row first, so it is waited for and seen.
+ */
+export async function unitsWithMembershipOn(
+  trx: Transaction<Database>,
+  mreRealmId: string,
+  splits: readonly { readonly financialCategoryCode: string; readonly propertyReferenceId: string | null }[],
+  bookingDate: BusinessDate,
+): Promise<Set<string>> {
+  const units = [
+    ...new Set(splits.filter(isWegSplit).flatMap((s) => (s.propertyReferenceId !== null && UUID.test(s.propertyReferenceId) ? [s.propertyReferenceId] : []))),
+  ].sort();
+  for (const unit of units) await touchPropertyReference(trx, unit, mreRealmId);
+  if (units.length === 0) return new Set();
+  const rows = await trx
+    .selectFrom('weg_membership')
+    .select('property_reference_id')
+    .where('property_reference_id', 'in', units)
+    .where('mre_realm_id', '=', mreRealmId)
+    .where('status', '=', 'ACTIVE')
+    .where('valid_from', '<=', bookingDate)
+    .where((eb) => eb.or([eb('valid_until', 'is', null), eb('valid_until', '>=', bookingDate)]))
+    .execute();
+  return new Set(rows.map((r) => r.property_reference_id));
 }

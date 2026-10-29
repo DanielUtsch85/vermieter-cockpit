@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money, type BusinessDate } from '../../shared/index.js';
-import { checkDepositSplits, checkLoanSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
+import { checkDepositSplits, checkLoanSplits, checkWegSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
 import type { TransactionStatus } from './transaction.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
@@ -168,5 +168,31 @@ describe('sameSplits with securityDepositId', () => {
   it('a changed securityDepositId is a change', () => {
     expect(sameSplits([split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })], [split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'b' })])).toBe(false);
     expect(sameSplits([split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })], [split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })])).toBe(true);
+  });
+});
+
+describe('checkWegSplits (api-design §49.3)', () => {
+  const weg = (financialCategoryCode: string, propertyReferenceId: string | null) => ({
+    amount: Money.of('60.00', 'EUR'),
+    financialCategoryCode,
+    propertyReferenceId,
+    loanId: null,
+    securityDepositId: null,
+    description: null,
+  });
+  const date = '2026-03-02' as BusinessDate;
+
+  it('NO_UNIT first, then NO_MEMBERSHIP, each for the first split; other categories and a reversal pass', () => {
+    const set = [weg('RENT_BASE', null), weg('WEG_RECOVERABLE', 'u2'), weg('WEG_RESERVE_CONTRIBUTION', null)];
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, set, new Set())).toEqual({ kind: 'NO_WEG_MEMBERSHIP', position: 3, reason: 'NO_UNIT' });
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, set.slice(0, 2), new Set())).toEqual({
+      kind: 'NO_WEG_MEMBERSHIP',
+      position: 2,
+      reason: 'NO_MEMBERSHIP',
+      propertyReferenceId: 'u2',
+      bookingDate: date,
+    });
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, set.slice(0, 2), new Set(['u2']))).toBeUndefined();
+    expect(checkWegSplits({ reversal: true, bookingDate: date }, set, new Set())).toBeUndefined();
   });
 });
