@@ -101,7 +101,7 @@ Scope: dedicated Security Deposit domain (ADR-013): expected amount, holding `Fi
 
 Scope: `WEG`, membership, Wirtschaftsplan, Jahresabrechnung, WEG cost lines, Erhaltungsrücklage, Sonderumlage; Hausgeld payments split into components.
 
-**Prerequisite:** `docs/germany/weg.md` (drafted — confirm its `VERIFY`-marked rules before coding); ADR-018 scope limits respected.
+**Prerequisite:** `docs/germany/weg.md` (verified 29.10.2026, v0.2); ADR-018 scope limits respected.
 
 **Exit:** a Jahresabrechnung is represented with preserved statement structure and split into ledger effects without losing provenance.
 
@@ -171,14 +171,14 @@ The architecture ADRs that previously blocked this roadmap are now **all resolve
 
 ## 5.2 Remaining prerequisites — legal verification of drafted specs
 
-Use `docs/germany/verification-checklist.md` — it consolidates every `VERIFY` point across the four specs as concrete confirmation questions for a tax/legal professional.
+`docs/germany/verification-checklist.md` consolidates every `VERIFY` point across the four specs. It was filled on 29.10.2026 (v0.2), with a result and sources per point.
 
 | Spec | Needed for | Status |
 |---|---|---|
-| `docs/germany/rent-and-operating-costs.md` | Phase 7 | Drafted; `VERIFY` markers need legal confirmation |
-| `docs/germany/taxation.md` | Phase 7 | Drafted; `VERIFY` markers need legal confirmation |
-| `docs/germany/depreciation.md` | Phase 8 | Drafted; `VERIFY` markers need legal confirmation |
-| `docs/germany/weg.md` | Phase 6 | Drafted; `VERIFY` markers need legal confirmation |
+| `docs/germany/rent-and-operating-costs.md` | Phase 7 | Checklist D filled; the spec still has to take over the results |
+| `docs/germany/taxation.md` | Phase 7 | Checklist A filled; the spec still has to take over the results |
+| `docs/germany/depreciation.md` | Phase 8 | Checklist B filled; the spec still has to take over the results |
+| `docs/germany/weg.md` | Phase 6 | **Verified** 29.10.2026 (v0.2) |
 
 Phases 0–5 have **no remaining roadmap-level blocker** and can proceed once scaffolding (Phase 0) is done.
 
