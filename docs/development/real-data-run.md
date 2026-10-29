@@ -2,7 +2,7 @@
 
 A time-boxed experiment: real data of a real landlord through the API, to check the specification's assumptions against reality before Phase 5. The goal is findings, not code. Personal data stays out of this note: no IBANs, names or references from the files used.
 
-**Status:** step 1 (bank import) done on 2026-10-28; step 2 (loan schedule) part 1 done on 2026-10-29, the comparison with the bank's plan open; step 3 (rent reconciliation against MRE terms) open.
+**Status:** step 1 (bank import) done on 2026-10-28; step 2 (loan schedule) part 1 done on 2026-10-29, the comparison with the bank's plan open; step 3 (rent reconciliation against MRE terms) done on 2026-10-29.
 
 ## Step 1: bank export (BBBank, CSV)
 
@@ -87,6 +87,39 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 **Still open (part 2):** the comparison with the bank's own plan to the cent, once the bank's amortization plan or the first debits (from the checking account already exported in step 1) are available; then F9 is settled.
 
-## Step 3: rent reconciliation (open)
+## Step 3: rent reconciliation (done)
 
-Needs one flat's MRE tenant and three months of real rent payments **received** (inflows on the landlord's account): reconcile them against the MRE terms and record whether the suggestions match. The second export above holds rent paid, not received (F7).
+**Input:** one export of the BBBank checking account from step 1, filtered to rent received: 6 inflows from May to October 2026, one standing order from one tenant for one flat, each the same amount of base rent plus operating-cost advance. The booking day is the 1st, or the next business day (2 of 6: a weekend, a public holiday). The purpose text names the month and the two parts of the amount. The running balance chains without a break.
+
+**How:**
+- PostgreSQL and the API as `main.ts` wires them. MRE is the fake of the test suite, since no Docker daemon was available. It holds one Tenant with the six monthly terms, each due the same amount as the transfer (`totalWithoutBalanceAmount`).
+- Import: `generic-csv` v2 with preset `vr-banking` into an account with the file's IBAN, imported twice.
+- Then for each Transaction: `PUT …/splits` (`RENT_BASE` + `RENT_OPERATING_COST_ADVANCE`, as the purpose text states), and `confirm`.
+- Then `POST /rent-reconciliations/suggest` for May–October, `confirm` of each suggestion, and the coverage read per term.
+- A second run used the same file with every booking moved to the 28th of the month before. This simulates a tenant who pays early; the change was made in memory only.
+
+**Results:**
+- Import: 6 created, 0 `needs_review`, 0 errors. The account IBAN check passed, and the continuity report says `NEWEST_FIRST`, no breaks, `NO_EARLIER_BALANCE`. The second import gave 6 duplicates (F1/ADR-043 holds for a clean chain too).
+- Suggestions: **6 of 6 correct** (`MEDIUM`, `EXACT_AMOUNT`). The two bookings shifted to the 3rd and 4th still fall into the window (from the 15th of the month before). After confirming, every term is `MATCHED` with an open amount of 0, and a second suggest run writes nothing (idempotent).
+- Suggest finds nothing before the split (no rent cash) and nothing before `confirm` (not counted cash), as P4-D3 says. Neither run says why.
+
+**Findings:**
+- **F10 — A tenant who pays before the month gets no suggestion at all (high).**
+  - With every booking on the 28th of the month before, suggest finds **0 of 6**, on every run.
+  - Each transfer falls into the windows of two terms (its own and the month before). Each term has two candidates of the same amount, so no pair is unique (P4-D4).
+  - The IBAN history cannot decide, because both terms belong to the same Tenant.
+  - Matching one by hand does not unlock the rest: the next term still has two candidates.
+  - Paying a few days early by standing order is common ("bis zum 3. Werktag" invites it).
+  - The purpose text names the month (`Miete 10.2026`) and goes unused.
+  - Proposals:
+    - assign in order: per Tenant and IBAN, the oldest open term to the oldest unmatched candidate, when the amounts fit one to one;
+    - or read a month (`MM.YYYY`, `MM/YYYY`, a month name) from the purpose text as a tie-breaker.
+- **F11 — Splitting and confirming by hand before any suggestion (medium).**
+  - Every rent payment needs two writes (`PUT …/splits`, `confirm`) before suggest sees it. A run without them silently returns nothing.
+  - The split always repeats MRE's own breakdown of the term (rent, charges).
+  - Proposals:
+    - a split proposal for a rent payment from the MRE term, as `payment-proposal` does for loans (§41.5);
+    - and a hint in the suggest response: the count of inflows skipped as unsplit or unconfirmed.
+
+### Follow-ups
+- F10 and F11: to be decided (issues on request).
