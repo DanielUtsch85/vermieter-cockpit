@@ -113,7 +113,7 @@ export class PostgresWegEconomicPlanRepository implements WegEconomicPlanReposit
             if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
             if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', plan: view(fromSnapshot(claim.result)) };
           }
-          // Locks as every membership writer (§49.5): the unit (no-op write), then the membership row.
+          // Locks as every membership writer (§49.5): the unit (no-op write), the WEG (no-op write), then the membership row.
           if (!UUID.test(plan.membershipId)) throw new Rejected({ kind: 'MEMBERSHIP_NOT_FOUND' });
           await trx
             .updateTable('property_reference')
@@ -122,23 +122,31 @@ export class PostgresWegEconomicPlanRepository implements WegEconomicPlanReposit
               eb.selectFrom('weg_membership').select('property_reference_id').where('id', '=', plan.membershipId).where('mre_realm_id', '=', plan.mreRealmId),
             )
             .execute();
+          // Then the WEG (a no-op), as the trigger does: an amend of the start month waits or is waited for, and the
+          // start month is read under that lock (WEG_HAS_YEARS, review on #147).
+          const weg = await trx
+            .updateTable('weg')
+            .set((eb) => ({ version: eb.ref('version') }))
+            .where('id', '=', (eb) =>
+              eb.selectFrom('weg_membership').select('weg_id').where('id', '=', plan.membershipId).where('mre_realm_id', '=', plan.mreRealmId),
+            )
+            .returning('financial_year_start_month')
+            .executeTakeFirst();
           const membership = await trx
             .selectFrom('weg_membership')
-            .innerJoin('weg', 'weg.id', 'weg_membership.weg_id')
             .select([
-              'weg_membership.id',
-              'weg_membership.status',
-              sql<string>`to_char(weg_membership.valid_from, 'YYYY-MM-DD')`.as('valid_from'),
-              sql<string | null>`to_char(weg_membership.valid_until, 'YYYY-MM-DD')`.as('valid_until'),
-              'weg.financial_year_start_month',
+              'id',
+              'status',
+              sql<string>`to_char(valid_from, 'YYYY-MM-DD')`.as('valid_from'),
+              sql<string | null>`to_char(valid_until, 'YYYY-MM-DD')`.as('valid_until'),
             ])
-            .where('weg_membership.id', '=', plan.membershipId)
-            .where('weg_membership.mre_realm_id', '=', plan.mreRealmId)
-            .forUpdate('weg_membership')
+            .where('id', '=', plan.membershipId)
+            .where('mre_realm_id', '=', plan.mreRealmId)
+            .forUpdate()
             .executeTakeFirst();
-          if (membership === undefined) throw new Rejected({ kind: 'MEMBERSHIP_NOT_FOUND' });
-          if (!inFinancialYear(plan.effectiveFrom, plan.financialYear, membership.financial_year_start_month)) {
-            throw new Rejected({ kind: 'EFFECTIVE_FROM_OUTSIDE_YEAR', ...financialYearOf(plan.financialYear, membership.financial_year_start_month) });
+          if (membership === undefined || weg === undefined) throw new Rejected({ kind: 'MEMBERSHIP_NOT_FOUND' });
+          if (!inFinancialYear(plan.effectiveFrom, plan.financialYear, weg.financial_year_start_month)) {
+            throw new Rejected({ kind: 'EFFECTIVE_FROM_OUTSIDE_YEAR', ...financialYearOf(plan.financialYear, weg.financial_year_start_month) });
           }
           if (membership.status !== 'ACTIVE') throw new Rejected({ kind: 'MEMBERSHIP_NOT_ACTIVE' });
           const validFrom = membership.valid_from as BusinessDate;

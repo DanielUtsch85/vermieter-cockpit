@@ -10,6 +10,7 @@ import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
 import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
+import { PostgresUnconfirmedTransactionRepository } from './unconfirmed-transaction-repository.js';
 import { PostgresWegEconomicPlanRepository } from './weg-economic-plan-repository.js';
 import { PostgresWegRepository } from './weg-repository.js';
 
@@ -73,6 +74,7 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
   let transactions: PostgresTransactionRepository;
   let splits: PostgresTransactionSplitRepository;
   let corrections: PostgresCorrectionRepository;
+  let unconfirmed: PostgresUnconfirmedTransactionRepository;
 
   beforeAll(async () => {
     const admin = new pg.Client({ connectionString: databaseUrl });
@@ -88,6 +90,7 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
     transactions = new PostgresTransactionRepository(db);
     splits = new PostgresTransactionSplitRepository(db);
     corrections = new PostgresCorrectionRepository(db);
+    unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
   });
 
   afterAll(async () => {
@@ -238,6 +241,23 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
       });
     });
 
+    it('amend: a booking date that leaves a kept WEG split without membership is refused (review on #147)', async () => {
+      const { unit: pr } = await member({ validFrom: '2026-03-01', validUntil: '2026-12-31' });
+      const tx = await transaction({ bookingDate: '2026-03-02' });
+      await splits.replaceSplits(tx, REALM, [split('300.00', 'WEG_RECOVERABLE', pr), split('60.00', 'WEG_RESERVE_CONTRIBUTION', pr)], actor);
+      expect(await unconfirmed.amend(tx, REALM, { bookingDate: day('2026-02-01') }, actor)).toEqual({
+        kind: 'NO_WEG_MEMBERSHIP',
+        position: 1,
+        reason: 'NO_MEMBERSHIP',
+        propertyReferenceId: pr,
+        bookingDate: '2026-02-01',
+      });
+      expect((await unconfirmed.amend(tx, REALM, { bookingDate: day('2027-01-01') }, actor)).kind).toBe('NO_WEG_MEMBERSHIP');
+      expect((await unconfirmed.amend(tx, REALM, { bookingDate: day('2026-03-03') }, actor)).kind).toBe('AMENDED');
+      // A changed amount drops the splits (§31.3): then any date is free.
+      expect((await unconfirmed.amend(tx, REALM, { bookingDate: day('2026-02-01'), amount: eur('361.00') }, actor)).kind).toBe('AMENDED');
+    });
+
     it('membership end and void: MEMBERSHIP_HAS_SPLITS for a split outside the rest, on any status; inside it the end passes', async () => {
       const { unit: pr, membership } = await member();
       const tx = await transaction({ bookingDate: '2026-09-01' });
@@ -364,6 +384,19 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
       expect(await insertSplit(pool, await transaction(), 'WEG_RESERVE_CONTRIBUTION', pr)).toBe('(NO_WEG_MEMBERSHIP)');
       expect(await insertSplit(pool, await transaction({ bookingDate: '2026-04-01' }), 'WEG_RESERVE_CONTRIBUTION', pr)).toBe('accepted');
       expect(await insertSplit(pool, await transaction(), 'OTHER_EXPENSE', null)).toBe('accepted');
+    });
+
+    it('ledger_transaction_weg_booking_date: a raw date change past the membership is refused; other splits do not matter', async () => {
+      const { unit: pr } = await member({ validFrom: '2026-03-01' });
+      const tx = await transaction({ bookingDate: '2026-03-02' });
+      await splits.replaceSplits(tx, REALM, [split('360.00', 'WEG_NON_RECOVERABLE', pr)], actor);
+      const move = (id: string, date: string) =>
+        pool.query(`UPDATE ledger_transaction SET booking_date = $2, version = version + 1 WHERE id = $1`, [id, date]).then(() => 'accepted', reasonOf);
+      expect(await move(tx, '2026-02-28')).toBe('(NO_WEG_MEMBERSHIP)');
+      expect(await move(tx, '2027-05-01')).toBe('accepted');
+      const plain = await transaction({ bookingDate: '2026-03-02' });
+      await splits.replaceSplits(plain, REALM, [split('360.00', 'OTHER_EXPENSE')], actor);
+      expect(await move(plain, '2020-01-01')).toBe('accepted');
     });
 
     it('weg_membership_guard, weg_economic_plan_membership, plan frozen, source references, WEG_HAS_YEARS', async () => {
@@ -523,6 +556,71 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
           (error: { code?: string }) => error.code,
         );
         await waitForLock('UPDATE weg_membership');
+        await first.query('COMMIT');
+        expect(await late).toBe('40001');
+        await second.query('ROLLBACK');
+      } finally {
+        first.release();
+        second.release();
+      }
+    });
+
+    it('RC (review on #147): a plan create waiting on an amend of the start month reads the new one and is refused', async () => {
+      const { wegId, membership } = await member();
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query(`UPDATE weg SET financial_year_start_month = 7, version = version + 1 WHERE id = $1`, [wegId]);
+        const creating = plans.createPlan(newPlan(membership.id), actor);
+        await waitForLock('"weg"');
+        await holder.query('COMMIT');
+        expect(await creating).toEqual({ kind: 'EFFECTIVE_FROM_OUTSIDE_YEAR', from: '2026-07-01', until: '2027-06-30' });
+      } finally {
+        holder.release();
+      }
+    });
+
+    it('RC, raw SQL: an amend of the start month waiting on a plan insert sees it and is refused (WEG_HAS_YEARS)', async () => {
+      const { wegId, membership } = await member();
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query(
+          `INSERT INTO weg_economic_plan (mre_realm_id, membership_id, financial_year, effective_from, monthly_hausgeld, monthly_reserve_contribution,
+             recoverable_costs, non_recoverable_costs, currency, status, created_by)
+           VALUES ($1, $2, 2026, '2026-03-01', 300, 60, 0, 0, 'EUR', 'ACTIVE', 'x')`,
+          [REALM, membership.id],
+        );
+        const amending = pool
+          .query(`UPDATE weg SET financial_year_start_month = 7, version = version + 1 WHERE id = $1`, [wegId])
+          .then(() => 'amended', reasonOf);
+        await waitForLock('UPDATE weg SET financial_year_start_month');
+        await holder.query('COMMIT');
+        expect(await amending).toBe('(WEG_HAS_YEARS)');
+      } finally {
+        holder.release();
+      }
+    });
+
+    it('RR: a plan insert and an amend of the start month; the later one fails to serialise', async () => {
+      const { wegId, membership } = await member();
+      const [first, second] = [await pool.connect(), await pool.connect()];
+      try {
+        await first.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+        await second.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+        await first.query('SELECT count(*) FROM weg_economic_plan');
+        await second.query('SELECT count(*) FROM weg');
+        await first.query(
+          `INSERT INTO weg_economic_plan (mre_realm_id, membership_id, financial_year, effective_from, monthly_hausgeld, monthly_reserve_contribution,
+             recoverable_costs, non_recoverable_costs, currency, status, created_by)
+           VALUES ($1, $2, 2026, '2026-03-01', 300, 60, 0, 0, 'EUR', 'ACTIVE', 'x')`,
+          [REALM, membership.id],
+        );
+        const late = second.query(`UPDATE weg SET financial_year_start_month = 7, version = version + 1 WHERE id = $1`, [wegId]).then(
+          () => 'amended',
+          (error: { code?: string }) => error.code,
+        );
+        await waitForLock('UPDATE weg SET financial_year_start_month');
         await first.query('COMMIT');
         expect(await late).toBe('40001');
         await second.query('ROLLBACK');

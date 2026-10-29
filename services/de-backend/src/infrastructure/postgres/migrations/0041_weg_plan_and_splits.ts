@@ -7,12 +7,15 @@ import { sql, type Kysely } from 'kysely';
  * - `WEG_FUNDS` joins the `category_type` CHECK of 0008; `WEG_RESERVE_CONTRIBUTION` moves to it (P6-D3, retroactive on
  *   purpose: the type belongs to the category). `down` moves it back.
  * - `weg_membership_source_references`: every entry is 1–500 characters (review on #145), by an IMMUTABLE function.
+ * - `ledger_transaction_weg_booking_date` (before update of `booking_date`, as 0029's Loan guard): the WEG splits a
+ *   Transaction keeps need their unit's membership on the new date (review on #147).
  * - `transaction_split_weg` (before insert or update on `transaction_split`, after the other split guards by name):
  *   a split in a WEG category on a Transaction that is not a reversal names a unit (NO_WEG_MEMBERSHIP), first writes
  *   the unit's PropertyReference row (a no-op; Transaction → PropertyReference), then needs an `ACTIVE` membership of
  *   the unit on the booking date (NO_WEG_MEMBERSHIP).
  * - `weg_economic_plan`: the unit's Wirtschaftsplan per membership and `effective_from`; at most one `ACTIVE` per
- *   membership and day. `weg_economic_plan_membership` (before insert) first writes the PropertyReference, then needs
+ *   membership and day. `weg_economic_plan_membership` (before insert) first writes the PropertyReference, then the
+ *   WEG (no-op; WEG_HAS_YEARS serialises with it, review on #147), then needs
  *   the membership `ACTIVE` and `effective_from` inside its period and inside the financial year.
  *   `weg_economic_plan_frozen`: only `ACTIVE` → `VOID`, with its fields and `version` + 1; P3-D8's no-op passes.
  * - `weg_membership_guard` (before update of `valid_until` or `status` on `weg_membership`): **first** writes the
@@ -75,6 +78,39 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   `.execute(db);
 
   await sql`
+    CREATE FUNCTION ledger_transaction_weg_booking_date() RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE
+      unit uuid;
+    BEGIN
+      IF NEW.correction_role IS NOT DISTINCT FROM 'REVERSAL' THEN
+        RETURN NEW;
+      END IF;
+      -- The kept WEG splits need their unit's membership on the new date (review on #147); units in id order, each
+      -- written first (Transaction → PropertyReference), as transaction_split_weg does.
+      FOR unit IN
+        SELECT DISTINCT s.property_reference_id FROM transaction_split s JOIN financial_category c ON c.id = s.financial_category_id
+         WHERE s.transaction_id = NEW.id AND s.property_reference_id IS NOT NULL
+           AND c.code IN ('WEG_RECOVERABLE', 'WEG_NON_RECOVERABLE', 'WEG_RESERVE_CONTRIBUTION')
+         ORDER BY 1
+      LOOP
+        UPDATE property_reference SET version = version WHERE id = unit;
+        IF NOT EXISTS (
+          SELECT 1 FROM weg_membership m WHERE m.property_reference_id = unit AND m.status = 'ACTIVE'
+             AND NEW.booking_date <@ daterange(m.valid_from, m.valid_until, '[]')
+        ) THEN
+          RAISE EXCEPTION 'Transaction %: unit % has no WEG membership on % (NO_WEG_MEMBERSHIP)', NEW.id, unit, NEW.booking_date
+            USING ERRCODE = 'integrity_constraint_violation';
+        END IF;
+      END LOOP;
+      RETURN NEW;
+    END $$
+  `.execute(db);
+  await sql`
+    CREATE TRIGGER ledger_transaction_weg_booking_date BEFORE UPDATE OF booking_date ON ledger_transaction
+      FOR EACH ROW WHEN (OLD.booking_date IS DISTINCT FROM NEW.booking_date) EXECUTE FUNCTION ledger_transaction_weg_booking_date()
+  `.execute(db);
+
+  await sql`
     CREATE TABLE weg_economic_plan (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       mre_realm_id text NOT NULL,
@@ -117,6 +153,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     DECLARE
       m record;
       year_start date;
+      start_month smallint;
     BEGIN
       SELECT wm.property_reference_id, wm.status, wm.valid_from, wm.valid_until, w.financial_year_start_month AS start_month INTO m
         FROM weg_membership wm JOIN weg w ON w.id = wm.weg_id WHERE wm.id = NEW.membership_id;
@@ -125,6 +162,10 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       END IF;
       -- First the unit, as every membership writer: an end or void of the membership waits, or this waits for it.
       UPDATE property_reference SET version = version WHERE id = m.property_reference_id;
+      -- Then the WEG (a no-op), so a concurrent amend of the start month waits or is waited for (WEG_HAS_YEARS, review
+      -- on #147); the start month is read under that lock.
+      UPDATE weg SET version = version WHERE id = (SELECT weg_id FROM weg_membership WHERE id = NEW.membership_id)
+        RETURNING financial_year_start_month INTO start_month;
       SELECT wm.status, wm.valid_from, wm.valid_until INTO m FROM weg_membership wm WHERE wm.id = NEW.membership_id;
       IF m.status <> 'ACTIVE' THEN
         RAISE EXCEPTION 'WegEconomicPlan: membership % is % (MEMBERSHIP_NOT_ACTIVE)', NEW.membership_id, m.status USING ERRCODE = 'integrity_constraint_violation';
@@ -133,8 +174,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
         RAISE EXCEPTION 'WegEconomicPlan: % is outside membership % (PLAN_OUTSIDE_MEMBERSHIP)', NEW.effective_from, NEW.membership_id
           USING ERRCODE = 'integrity_constraint_violation';
       END IF;
-      SELECT make_date(NEW.financial_year, w.financial_year_start_month, 1) INTO year_start
-        FROM weg_membership wm JOIN weg w ON w.id = wm.weg_id WHERE wm.id = NEW.membership_id;
+      year_start := make_date(NEW.financial_year, start_month, 1);
       IF NOT (NEW.effective_from <@ daterange(year_start, (year_start + interval '1 year')::date, '[)')) THEN
         RAISE EXCEPTION 'WegEconomicPlan: % is outside the financial year % (EFFECTIVE_FROM_OUTSIDE_YEAR)', NEW.effective_from, NEW.financial_year
           USING ERRCODE = 'integrity_constraint_violation';
@@ -235,6 +275,8 @@ export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`DROP TABLE weg_economic_plan`.execute(db);
   await sql`DROP FUNCTION weg_economic_plan_frozen()`.execute(db);
   await sql`DROP FUNCTION weg_economic_plan_membership()`.execute(db);
+  await sql`DROP TRIGGER ledger_transaction_weg_booking_date ON ledger_transaction`.execute(db);
+  await sql`DROP FUNCTION ledger_transaction_weg_booking_date()`.execute(db);
   await sql`DROP TRIGGER transaction_split_weg ON transaction_split`.execute(db);
   await sql`DROP FUNCTION transaction_split_weg()`.execute(db);
   await sql`ALTER TABLE weg_membership DROP CONSTRAINT weg_membership_realm_key`.execute(db);
