@@ -659,7 +659,7 @@ ACC4 also checks the traceability every write promises. On the reconciliations i
 | 0039 past the repository: the closing CHECKs, the frozen rule's steps, the close guard's three reasons, the split guard's `CLOSED` rule with both exemptions, and `down` | DC "migration 0039 past the repository …" |
 | Close against a split write, RC and RR; a correction waiting on a close is allowed | DC "concurrency (the deposit row, P5-D9)" |
 
-## 34. Phase 5 exit (VC-5-05, roadmap Phase 5)
+## 34. Phase 5 exit (VC-5-05, roadmap Phase 5; implemented)
 
 The exit of `docs/roadmap.md` Phase 5, claim by claim: *a deposit's expected vs actual cash is tracked without being mistaken for rental income.* Each claim is shown **end to end through the HTTP API** by **ACC5** (`phase-5-acceptance.e2e.test.ts`). It is one scenario against PostgreSQL and the fake MRE, as ACC4 does for Phase 4, and is backed by §30–§33. The figures are hand-computed and stated here, so the test checks them literally.
 
