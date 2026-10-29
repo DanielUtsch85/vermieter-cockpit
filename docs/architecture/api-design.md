@@ -4027,6 +4027,7 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 - **Guards:**
   - `weg_annual_statement_membership` (before insert): writes the PropertyReference first, then the WEG (a no-op, reading `financial_year_start_month` under that lock; as §49.5's plan, review on #147/#148), then needs the membership `ACTIVE` and the period inside it and inside the financial year. The repository's create takes the same locks in the same order (unit → WEG → membership `FOR UPDATE`);
   - `weg_annual_statement_frozen`: content changes only while `DRAFT`; the steps `DRAFT` → `CONFIRMED` | `VOID`, `CONFIRMED` → `SUPERSEDED` (only with `superseded_by_id` set); `version` + 1; P3-D8's no-op passes; no delete;
+  - `weg_annual_statement_successor` (a constraint trigger, deferred to commit; review on #150): a `SUPERSEDED` statement's successor is `CONFIRMED` (or superseded itself since), so neither a void of the successor nor a commit without its confirm leaves the year without a valid statement;
   - `weg_statement_cost_line_frozen`: lines are inserted, changed or deleted only while their statement is `DRAFT`;
   - the confirm writes the superseded statement first, then the new one (id order is not used: the old one is always locked first), so a second confirm superseding the same statement waits and is refused.
 

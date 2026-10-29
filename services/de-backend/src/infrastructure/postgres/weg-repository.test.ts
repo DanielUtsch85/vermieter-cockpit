@@ -426,7 +426,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresWegRepository', () => {
       expect(await pool.query(`DELETE FROM weg WHERE id = $1`, [w.id]).then(() => 'accepted', reasonOf)).toBe('never deleted');
     });
 
-    it('down drops both tables and their functions', async () => {
+    // Down tests wait on each other's migration lock when run in parallel: more than the default 5 s.
+    it('down drops both tables and their functions', { timeout: 30_000 }, async () => {
       const downSchema = testSchemaName('weg_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });
       await admin.connect();

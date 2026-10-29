@@ -433,7 +433,8 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
       expect(await insertPlan(voided.membership.id, '2026-03-01')).toBe('(MEMBERSHIP_NOT_ACTIVE)');
     });
 
-    it('down restores the category type and drops the plan table and the guards', async () => {
+    // Down tests wait on each other's migration lock when run in parallel: more than the default 5 s.
+    it('down restores the category type and drops the plan table and the guards', { timeout: 30_000 }, async () => {
       const downSchema = testSchemaName('weg_plan_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });
       await admin.connect();

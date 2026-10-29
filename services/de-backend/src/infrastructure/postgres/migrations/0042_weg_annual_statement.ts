@@ -44,6 +44,9 @@ const money = (column: string) => sql.raw(`CHECK (scale(${column}) <= 2 AND abs(
  * - `weg_annual_statement_frozen`: Realm, membership and creation never change; content only while `DRAFT`; the steps
  *   `DRAFT` → `CONFIRMED` (a named predecessor already `SUPERSEDED` by it) | `VOID`, `CONFIRMED` → `SUPERSEDED` (by a
  *   `DRAFT` naming it); `version` + 1; P3-D8's no-op passes. Only inserted `DRAFT` with `version` 1; never deleted.
+ * - `weg_annual_statement_successor` (constraint trigger, deferred to commit; review on #150): a `SUPERSEDED`
+ *   statement's successor is `CONFIRMED` (or superseded itself since). So neither a void of the successor nor a
+ *   commit without its confirm leaves a year without a valid one.
  * - `weg_statement_cost_line_frozen`: lines are inserted, changed or deleted only while their statement is `DRAFT`; the
  *   statement is written first (a no-op), so a concurrent confirm waits or is waited for.
  * - `weg_membership_statements` (after `weg_membership_guard` by name): an end or void that leaves a statement that is
@@ -240,6 +243,27 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     CREATE TRIGGER weg_annual_statement_frozen BEFORE UPDATE ON weg_annual_statement FOR EACH ROW EXECUTE FUNCTION weg_annual_statement_frozen()
   `.execute(db);
 
+  // At commit (review on #150): a SUPERSEDED statement's successor is CONFIRMED (or itself superseded since). Deferred,
+  // because the confirm writes the old one first; the frozen steps let a CONFIRMED successor go nowhere but SUPERSEDED.
+  await sql`
+    CREATE FUNCTION weg_annual_statement_successor() RETURNS trigger LANGUAGE plpgsql AS $$
+    DECLARE
+      row record;
+    BEGIN
+      SELECT s.id, s.status, s.superseded_by_id, n.status AS successor_status INTO row
+        FROM weg_annual_statement s LEFT JOIN weg_annual_statement n ON n.id = s.superseded_by_id WHERE s.id = NEW.id;
+      IF row.status = 'SUPERSEDED' AND row.successor_status NOT IN ('CONFIRMED', 'SUPERSEDED') THEN
+        RAISE EXCEPTION 'WegAnnualStatement %: superseded by %, which is % (UNCONFIRMED_SUCCESSOR)', row.id, row.superseded_by_id, row.successor_status
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      RETURN NULL;
+    END $$
+  `.execute(db);
+  await sql`
+    CREATE CONSTRAINT TRIGGER weg_annual_statement_successor AFTER UPDATE ON weg_annual_statement DEFERRABLE INITIALLY DEFERRED
+      FOR EACH ROW EXECUTE FUNCTION weg_annual_statement_successor()
+  `.execute(db);
+
   await sql`
     CREATE FUNCTION weg_statement_cost_line_frozen() RETURNS trigger LANGUAGE plpgsql AS $$
     DECLARE
@@ -315,6 +339,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`DROP TABLE weg_statement_cost_line`.execute(db);
   await sql`DROP TABLE weg_annual_statement`.execute(db);
   await sql`DROP FUNCTION weg_statement_cost_line_frozen()`.execute(db);
+  await sql`DROP FUNCTION weg_annual_statement_successor()`.execute(db);
   await sql`DROP FUNCTION weg_annual_statement_frozen()`.execute(db);
   await sql`DROP FUNCTION weg_annual_statement_membership()`.execute(db);
   await sql`DROP FUNCTION weg_annual_statement_initial()`.execute(db);

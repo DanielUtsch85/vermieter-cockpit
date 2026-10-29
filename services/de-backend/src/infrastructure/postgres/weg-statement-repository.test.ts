@@ -540,9 +540,39 @@ describe.skipIf(databaseUrl === undefined)('Jahresabrechnung (§50)', () => {
       expect(await update('weg_annual_statement', `status = 'SUPERSEDED', superseded_by_id = '${second}', version = version + 1`, id)).toBe(
         '(INVALID_SUPERSEDES)',
       );
-      expect(await update('weg_annual_statement', `status = 'SUPERSEDED', superseded_by_id = '${correction}', version = version + 1`, id)).toBe('accepted');
-      expect(await update('weg_annual_statement', confirmSql, correction)).toBe('accepted');
+      // At commit the successor must be CONFIRMED (review on #150): alone, the step is refused; then voided, too.
+      const supersede = `UPDATE weg_annual_statement SET status = 'SUPERSEDED', superseded_by_id = '${correction}', version = version + 1 WHERE id = '${id}'`;
+      const inOne = async (...statements: string[]) => {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          for (const statement of statements) await client.query(statement);
+          await client.query('COMMIT');
+          return 'accepted';
+        } catch (error) {
+          await client.query('ROLLBACK');
+          return reasonOf(error as { message?: string });
+        } finally {
+          client.release();
+        }
+      };
+      expect(await inOne(supersede)).toBe('(UNCONFIRMED_SUCCESSOR)');
+      expect(
+        await inOne(
+          supersede,
+          `UPDATE weg_annual_statement SET status = 'VOID', voided_at = now(), voided_by = 'x', void_reason = 'r', version = version + 1 WHERE id = '${correction}'`,
+        ),
+      ).toBe('(UNCONFIRMED_SUCCESSOR)');
+      expect(await inOne(supersede, `UPDATE weg_annual_statement SET ${confirmSql} WHERE id = '${correction}'`)).toBe('accepted');
       expect(await update('weg_annual_statement', `status = 'CONFIRMED', version = version + 1`, id)).toBe('is not a step');
+      // A chain: the successor superseded in turn keeps the first one valid.
+      const third = await insert(membership.id, { supersedes: correction });
+      expect(
+        await inOne(
+          `UPDATE weg_annual_statement SET status = 'SUPERSEDED', superseded_by_id = '${third}', version = version + 1 WHERE id = '${correction}'`,
+          `UPDATE weg_annual_statement SET ${confirmSql} WHERE id = '${third}'`,
+        ),
+      ).toBe('accepted');
     });
 
     it('weg_statement_cost_line: only while DRAFT; share ≤ total; the position unique; the Realm by key', async () => {
@@ -579,7 +609,8 @@ describe.skipIf(databaseUrl === undefined)('Jahresabrechnung (§50)', () => {
       ).toBe('accepted');
     });
 
-    it('down drops both tables and the functions of 0042 (under MIGRATION_ADVISORY_LOCK)', async () => {
+    // Down tests wait on each other's migration lock when run in parallel: more than the default 5 s.
+    it('down drops both tables and the functions of 0042 (under MIGRATION_ADVISORY_LOCK)', { timeout: 30_000 }, async () => {
       const downSchema = testSchemaName('weg_statement_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });
       await admin.connect();
