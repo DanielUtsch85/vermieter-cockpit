@@ -3524,7 +3524,7 @@ Reads only, in one snapshot. A split write or a correction that commits meanwhil
 - **API:** the new fields on every response; `cash` only on the single read; `state` in the list query (`400` for an unknown value).
 - **End to end:** the instalments and a mixed first transfer through the HTTP API, then the deposit read; a counter-check that counts unconfirmed Transactions too turns it red.
 
-## 47.4 Closing, reopening and the MRE comparison (VC-5-04)
+## 47.4 Closing, reopening and the MRE comparison (VC-5-04, implemented)
 
 Decisions P5-D7 and P5-D8. A deposit ends by `close`: returned in full, a part (or all) retained against claims, or for another reason. A wrong closing is undone by `reopen`, never by a void. MRE's `guaranty` and `guarantyPayback` are compared on demand and never written.
 

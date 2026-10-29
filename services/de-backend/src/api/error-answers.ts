@@ -18,10 +18,13 @@ import {
   CorrectionNoChangeError,
   CostHasPaymentsError,
   CurrentAllocationChangedError,
+  DepositCashAfterClosingDateError,
   DepositClosedError,
   DepositExistsError,
   DepositHasSplitsError,
   DepositNotActiveError,
+  DepositNotClosedError,
+  DepositStillHeldError,
   ExpectedAmountRequiredError,
   ExternalReferenceInUseError,
   ExternalReferenceNotFoundError,
@@ -61,6 +64,7 @@ import {
   NotReleasableError,
   NotRemovableError,
   NotWritableError,
+  NothingRetainedError,
   OverlappingOwnershipError,
   OwnerInactiveError,
   OwnershipBasisIncompleteError,
@@ -103,6 +107,7 @@ import {
   TransactionNotIgnoredError,
   TransactionNotInflowError,
   TransactionRentReconciledError,
+  UnconfirmedDepositCashError,
   UnsupportedAdapterError,
   VersionConflictError,
   WriteBackFailedError,
@@ -280,8 +285,14 @@ const TABLE = [
       currentAllocationId: error.currentAllocationId,
     }),
   ),
+  on(DepositCashAfterClosingDateError, (error) =>
+    answer(409, 'CONFLICT', 'Cash of the security deposit lies after the closing date.', {
+      reason: 'CASH_AFTER_CLOSING_DATE',
+      transactionIds: error.transactionIds,
+    }),
+  ),
   on(DepositClosedError, (error) =>
-    answer(409, 'CONFLICT', 'A closed security deposit is not voided.', { reason: 'DEPOSIT_CLOSED', securityDepositId: error.securityDepositId }),
+    answer(409, 'CONFLICT', 'The security deposit is closed.', { reason: 'DEPOSIT_CLOSED', securityDepositId: error.securityDepositId }),
   ),
   on(DepositExistsError, (error) =>
     answer(409, 'CONFLICT', 'The Tenant already has a security deposit.', { reason: 'DEPOSIT_EXISTS', securityDepositId: error.securityDepositId }),
@@ -295,6 +306,16 @@ const TABLE = [
       securityDepositId: error.securityDepositId,
       status: error.status,
     }),
+  ),
+  on(DepositNotClosedError, (error) =>
+    answer(409, 'CONFLICT', `The security deposit is ${error.status}, not CLOSED.`, {
+      reason: 'DEPOSIT_NOT_CLOSED',
+      securityDepositId: error.securityDepositId,
+      status: error.status,
+    }),
+  ),
+  on(DepositStillHeldError, (error) =>
+    answer(409, 'CONFLICT', 'The security deposit still holds cash; RETURNED needs held = 0.', { reason: 'DEPOSIT_STILL_HELD', held: error.held.toJSON() }),
   ),
   on(ExpectedAmountRequiredError, () =>
     answer(422, 'EXPECTED_AMOUNT_REQUIRED', 'No expectedAmount was given, and MRE has no guaranty for the Tenant; nothing was written.'),
@@ -412,6 +433,9 @@ const TABLE = [
   ),
   on(NotWritableError, (error) =>
     answer(409, 'CONFLICT', `A ${error.status} reconciliation cannot be written back to MRE.`, { reason: 'NOT_WRITABLE', status: error.status }),
+  ),
+  on(NothingRetainedError, (error) =>
+    answer(409, 'CONFLICT', 'Nothing is retained; RETAINED needs held > 0.', { reason: 'NOTHING_RETAINED', held: error.held.toJSON() }),
   ),
   on(OverlappingOwnershipError, (error) =>
     answer(422, 'OVERLAPPING_OWNERSHIP', 'The owner already holds an overlapping Ownership of this PropertyReference.', {
@@ -587,6 +611,12 @@ const TABLE = [
     answer(409, 'CONFLICT', 'Confirmed rent reconciliations match this Transaction; release them first.', {
       reason: 'TRANSACTION_RENT_RECONCILED',
       reconciliationIds: error.reconciliationIds,
+    }),
+  ),
+  on(UnconfirmedDepositCashError, (error) =>
+    answer(409, 'CONFLICT', 'Unconfirmed Transactions name the security deposit; confirm or unlink them first.', {
+      reason: 'UNCONFIRMED_CASH',
+      transactionIds: error.transactionIds,
     }),
   ),
   on(UnsupportedAdapterError, () => validation([{ field: 'adapterId', code: 'NOT_SUPPORTED' }])),

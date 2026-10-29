@@ -1,6 +1,8 @@
 import {
+  compareWithMre,
   createFingerprint,
   resolveNew,
+  type CloseRequest,
   type DepositChanges,
   type DepositFilter,
   type DepositPage,
@@ -12,11 +14,11 @@ import {
 } from '../domains/security-deposit/index.js';
 import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
-import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { IdempotencyKeyConflictError, MreUnavailableError, VersionConflictError } from './errors.js';
 import { MreTenantNotFoundError } from './party-external-references.js';
 
 /**
- * SecurityDeposit commands and reads (api-design.md §47.1, §47.3, backlog VC-5-01, VC-5-03), in the caller's verified Realm. Input
+ * SecurityDeposit commands and reads (api-design.md §47.1, §47.3, §47.4, backlog VC-5-01, VC-5-03, VC-5-04), in the caller's verified Realm. Input
  * arrives validated and normalized from the API boundary (`mreTenantId` a 24-hex MRE id, amounts > 0, texts trimmed).
  */
 
@@ -90,7 +92,7 @@ export class DepositNotActiveError extends Error {
   }
 }
 
-/** A closed deposit is not voided (→ 409 DEPOSIT_CLOSED). */
+/** A closed deposit is not voided and takes no new split (→ 409 DEPOSIT_CLOSED, §47.4). */
 export class DepositClosedError extends Error {
   override readonly name = 'DepositClosedError';
 
@@ -108,6 +110,54 @@ export class DepositHasSplitsError extends Error {
     readonly transactionIds: readonly string[],
   ) {
     super(`Security deposit ${securityDepositId} is referenced by splits of ${transactionIds.join(', ')}`);
+  }
+}
+
+/** Counted or open cash of the deposit lies after `closingDate` (→ 409 CASH_AFTER_CLOSING_DATE, §47.4 check 4). */
+export class DepositCashAfterClosingDateError extends Error {
+  override readonly name = 'DepositCashAfterClosingDateError';
+
+  constructor(readonly transactionIds: readonly string[]) {
+    super(`Cash of the security deposit lies after the closing date: ${transactionIds.join(', ')}`);
+  }
+}
+
+/** An open split names the deposit (→ 409 UNCONFIRMED_CASH, §47.4 check 5). */
+export class UnconfirmedDepositCashError extends Error {
+  override readonly name = 'UnconfirmedDepositCashError';
+
+  constructor(readonly transactionIds: readonly string[]) {
+    super(`Unconfirmed Transactions name the security deposit: ${transactionIds.join(', ')}`);
+  }
+}
+
+/** `RETURNED` while `held` ≠ 0 (→ 409 DEPOSIT_STILL_HELD). */
+export class DepositStillHeldError extends Error {
+  override readonly name = 'DepositStillHeldError';
+
+  constructor(readonly held: Money) {
+    super(`The security deposit still holds ${held.amount} ${held.currency}`);
+  }
+}
+
+/** `RETAINED` while `held` ≤ 0 (→ 409 NOTHING_RETAINED). */
+export class NothingRetainedError extends Error {
+  override readonly name = 'NothingRetainedError';
+
+  constructor(readonly held: Money) {
+    super(`Nothing is retained: the security deposit holds ${held.amount} ${held.currency}`);
+  }
+}
+
+/** A `VOID` deposit is not reopened (→ 409 DEPOSIT_NOT_CLOSED). */
+export class DepositNotClosedError extends Error {
+  override readonly name = 'DepositNotClosedError';
+
+  constructor(
+    readonly securityDepositId: string,
+    readonly status: DepositStatus,
+  ) {
+    super(`Security deposit ${securityDepositId} is ${status}, not CLOSED`);
   }
 }
 
@@ -162,14 +212,28 @@ export function createDeposit(deps: { readonly repository: SecurityDepositReposi
   };
 }
 
-export type GetDeposit = (input: { readonly principal: RealmPrincipal; readonly securityDepositId: string }) => Promise<DepositView>;
+export type GetDeposit = (input: {
+  readonly principal: RealmPrincipal;
+  readonly securityDepositId: string;
+  /** §47.4: compare with MRE's values, read with the caller's token. */
+  readonly checkMre?: { readonly authorizationHeader: string };
+}) => Promise<DepositView>;
 
-export function getDeposit(deps: { readonly repository: SecurityDepositRepository }): GetDeposit {
-  return async ({ principal, securityDepositId }) => {
+export function getDeposit(deps: { readonly repository: SecurityDepositRepository; readonly readMreTenant: MreTenantDepositReader }): GetDeposit {
+  return async ({ principal, securityDepositId, checkMre }) => {
     const deposit = await deps.repository.findById(securityDepositId, principal.mreRealmId);
     // Unknown and other-Realm deposits look the same, so existence does not leak.
     if (deposit === undefined) throw new SecurityDepositNotFoundError(securityDepositId);
-    return deposit;
+    if (checkMre === undefined) return deposit;
+    // After the snapshot, outside any database transaction (§47.4). MRE refusing the caller stays an error; MRE that
+    // cannot be asked is a flag, so the DE side stays readable (BR-MRE-004).
+    try {
+      const tenant = await deps.readMreTenant(checkMre.authorizationHeader, principal.mreRealmId, deposit.mreTenantId);
+      return compareWithMre(deposit, tenant === undefined ? { kind: 'TENANT_NOT_FOUND' } : { kind: 'FOUND', values: tenant });
+    } catch (error) {
+      if (error instanceof MreUnavailableError) return compareWithMre(deposit, { kind: 'UNAVAILABLE' });
+      throw error;
+    }
   };
 }
 
@@ -230,6 +294,61 @@ export function voidDeposit(deps: { readonly repository: SecurityDepositReposito
         throw new DepositClosedError(securityDepositId);
       case 'DEPOSIT_HAS_SPLITS':
         throw new DepositHasSplitsError(securityDepositId, outcome.transactionIds);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+    }
+  };
+}
+
+export type CloseDeposit = (input: {
+  readonly principal: RealmPrincipal;
+  readonly securityDepositId: string;
+  readonly request: CloseRequest;
+  readonly expectedVersions?: readonly number[];
+}) => Promise<{ readonly deposit: DepositView; readonly changed: boolean }>;
+
+/** §47.4's close; never calls MRE. */
+export function closeDeposit(deps: { readonly repository: SecurityDepositRepository }): CloseDeposit {
+  return async ({ principal, securityDepositId, request, expectedVersions }) => {
+    const outcome = await deps.repository.close(securityDepositId, principal.mreRealmId, request, actorOf(principal), expectedVersions);
+    switch (outcome.kind) {
+      case 'CLOSED':
+        return { deposit: outcome.deposit, changed: outcome.changed };
+      case 'NOT_FOUND':
+        throw new SecurityDepositNotFoundError(securityDepositId);
+      case 'DEPOSIT_NOT_ACTIVE':
+        throw new DepositNotActiveError(securityDepositId, outcome.status);
+      case 'CASH_AFTER_CLOSING_DATE':
+        throw new DepositCashAfterClosingDateError(outcome.transactionIds);
+      case 'UNCONFIRMED_CASH':
+        throw new UnconfirmedDepositCashError(outcome.transactionIds);
+      case 'DEPOSIT_STILL_HELD':
+        throw new DepositStillHeldError(outcome.held);
+      case 'NOTHING_RETAINED':
+        throw new NothingRetainedError(outcome.held);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+    }
+  };
+}
+
+export type ReopenDeposit = (input: {
+  readonly principal: RealmPrincipal;
+  readonly securityDepositId: string;
+  readonly expectedVersions?: readonly number[];
+}) => Promise<{ readonly deposit: DepositView; readonly changed: boolean }>;
+
+/** §47.4's reopen. */
+export function reopenDeposit(deps: { readonly repository: SecurityDepositRepository }): ReopenDeposit {
+  return async ({ principal, securityDepositId, expectedVersions }) => {
+    const outcome = await deps.repository.reopen(securityDepositId, principal.mreRealmId, actorOf(principal), expectedVersions);
+    switch (outcome.kind) {
+      case 'REOPENED':
+        return { deposit: outcome.deposit, changed: outcome.changed };
+      case 'NOT_FOUND':
+        throw new SecurityDepositNotFoundError(securityDepositId);
+      case 'DEPOSIT_NOT_CLOSED':
+        throw new DepositNotClosedError(securityDepositId, outcome.status);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

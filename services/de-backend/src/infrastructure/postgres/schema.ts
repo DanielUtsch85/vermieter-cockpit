@@ -221,6 +221,11 @@ export interface SecurityDepositTable {
   voided_at: Date | null;
   voided_by: string | null;
   void_reason: string | null;
+  /** `date` column: written as `YYYY-MM-DD`, read through `to_char`. */
+  closing_date: string | null;
+  closing_reason: string | null;
+  closing_note: string | null;
+  held_at_closing: string | null;
   created_at: Generated<Date>;
   created_by: string;
   updated_at: Generated<Date>;
