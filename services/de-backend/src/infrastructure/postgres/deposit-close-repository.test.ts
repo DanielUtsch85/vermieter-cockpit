@@ -11,6 +11,7 @@ import { PostgresSecurityDepositRepository } from './security-deposit-repository
 import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
+import { PostgresUnconfirmedTransactionRepository } from './unconfirmed-transaction-repository.js';
 
 /**
  * VC-5-04 persistence (api-design.md ยง47.4): close and reopen with their order of checks, what a `CLOSED` deposit
@@ -72,6 +73,7 @@ describe.skipIf(databaseUrl === undefined)('Security deposit close and reopen (ย
   let transactions: PostgresTransactionRepository;
   let splits: PostgresTransactionSplitRepository;
   let corrections: PostgresCorrectionRepository;
+  let unconfirmed: PostgresUnconfirmedTransactionRepository;
   let giro = '';
 
   beforeAll(async () => {
@@ -87,6 +89,7 @@ describe.skipIf(databaseUrl === undefined)('Security deposit close and reopen (ย
     transactions = new PostgresTransactionRepository(db);
     splits = new PostgresTransactionSplitRepository(db);
     corrections = new PostgresCorrectionRepository(db);
+    unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
     const created = await accounts.create({ mreRealmId: REALM, accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: null }, actor);
     if (created.kind !== 'CREATED') throw new Error(created.kind);
     giro = created.account.id;
@@ -486,6 +489,22 @@ describe.skipIf(databaseUrl === undefined)('Security deposit close and reopen (ย
       // Version + 1 and P3-D8's no-op write still hold.
       expect(await pool.query(`UPDATE security_deposit SET notes = 'z' WHERE id = $1`, [d.id]).then(() => 'accepted', reasonOf)).toBe('exactly one');
       expect(await pool.query(`UPDATE security_deposit SET version = version WHERE id = $1`, [d.id]).then(() => 'accepted', reasonOf)).toBe('accepted');
+    });
+
+    it('an IGNORED split naming the deposit is open cash: through the repository and past it (review on #139)', async () => {
+      const ignored = async (depositId: string, bookingDate: string) => {
+        const id = await booked(depositId, '1.00', { bookingDate, confirm: false });
+        expect((await unconfirmed.ignore(id, REALM, 'kein Kautionseingang', actor)).kind).toBe('IGNORED');
+        return id;
+      };
+      const before = await deposit();
+      const onTheDate = await ignored(before.id, '2027-06-30');
+      expect(await deposits.close(before.id, REALM, closeAs('OTHER'), actor)).toEqual({ kind: 'UNCONFIRMED_CASH', transactionIds: [onTheDate] });
+      expect(await update(before.id, close('OTHER', 'x', '0'))).toBe('(UNCONFIRMED_CASH)');
+      const after = await deposit();
+      const later = await ignored(after.id, '2027-07-01');
+      expect(await deposits.close(after.id, REALM, closeAs('OTHER'), actor)).toEqual({ kind: 'CASH_AFTER_CLOSING_DATE', transactionIds: [later] });
+      expect(await update(after.id, close('OTHER', 'x', '0'))).toBe('(CASH_AFTER_CLOSING_DATE)');
     });
 
     it('the close guard: cash after the date, open cash, and held_at_closing not the counted held', async () => {
