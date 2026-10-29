@@ -3774,16 +3774,16 @@ The Wirtschaftsplan, the Jahresabrechnung and the Sonderumlage get their routes 
 - **`weg_membership_invariants`** (after insert or update, as `ownership_invariants` of 0019; no exclusion constraint, which would need the `btree_gist` extension the schema does not have):
   - it first writes the PropertyReference row (`UPDATE property_reference SET version = version`). Under READ COMMITTED a second writer of the same unit waits there and then sees the first writer's row; under REPEATABLE READ it fails to serialise (`40001`);
   - an `ACTIVE` row overlapping another `ACTIVE` row of the same `property_reference_id` (`daterange(valid_from, valid_until, '[]') && …`, any WEG) raises `OVERLAPPING_WEG_MEMBERSHIP`;
-  - a new or changed `ACTIVE` row needs its WEG `ACTIVE`, read `FOR SHARE` (`WEG_NOT_ACTIVE`).
+  - a new or changed `ACTIVE` row writes its WEG (a no-op, `UPDATE weg SET version = version`), which must be `ACTIVE` (`WEG_NOT_ACTIVE`). A write, not `FOR SHARE`: a row that a committed transaction only locked lets a REPEATABLE READ void through, whose guard would then read its old snapshot and miss the membership.
 - **`weg_membership_frozen`** (before update): Realm, WEG, unit, MEA, `valid_from` and the creation fields are fixed; `valid_until` is only set or moved **earlier**; `VOID` is final; a change of a `VOID` row other than P3-D8's no-op is refused; every change sets `version` + 1. Only inserted `ACTIVE` with `version = 1`; never deleted.
 - **`weg_frozen`** (before update): Realm and creation fields are fixed; changes only while `ACTIVE`, each with `version` + 1; `ACTIVE` → `VOID` with an `ACTIVE` membership left → `WEG_HAS_MEMBERSHIPS`. Never deleted.
-- **Lock order (P6-D9):** a membership write locks the PropertyReference (the no-op write), then the WEG `FOR SHARE`, then its own row. A WEG void locks the WEG `FOR UPDATE` and then reads its memberships. A void and a membership create of one WEG therefore serialise on the WEG row: the create that waited sees `VOID`; the void that waited sees the new membership.
+- **Lock order (P6-D9):** a membership write locks the PropertyReference (the no-op write), then the WEG (the no-op write), then its own row. A WEG void locks the WEG `FOR UPDATE` and then reads its memberships. A void and a membership create of one WEG therefore serialise on the WEG row: under RC the create that waited sees `VOID` and the void that waited sees the new membership; under RR the later one fails to serialise (`40001`).
 - Not in the database: the order of checks, the no-ops, the reads.
 
 ### Concurrency (RC and RR, each with a counter-check)
 
 - **Two memberships of one unit in two WEGs, overlapping:** they serialise on the PropertyReference; the second answers `OVERLAPPING_WEG_MEMBERSHIP` under RC and fails with `40001` under RR. Counter-check: the PropertyReference write removed from the trigger lets both commit.
-- **WEG void against a membership create:** in both orders, either the create sees `WEG_NOT_ACTIVE` or the void sees `WEG_HAS_MEMBERSHIPS`; never a `VOID` WEG with an `ACTIVE` membership. Counter-check: the `FOR SHARE` removed.
+- **WEG void against a membership create:** in both orders, either the create sees `WEG_NOT_ACTIVE` or the void sees `WEG_HAS_MEMBERSHIPS` (RC), or the later one fails to serialise (RR); never a `VOID` WEG with an `ACTIVE` membership. Counter-check: the WEG write replaced by `FOR SHARE` lets an RR void through.
 - **End against void of one membership:** they serialise on the membership row; the one that waited sees the other's result (`412` with `If-Match`, or `MEMBERSHIP_NOT_ACTIVE`).
 
 ### Tests (VC-6-01)
