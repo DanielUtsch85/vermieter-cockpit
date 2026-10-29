@@ -67,13 +67,16 @@ export type {
 } from './bank-import.js';
 export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';
 export {
-  NoWegMembershipError,
   FinancialCategoryNotFoundError,
   InvalidLoanSplitError,
   InvalidSecurityDepositSplitError,
+  InvalidWegStatementSplitError,
+  NoWegMembershipError,
   SplitSumMismatchError,
+  StatementNotCurrentError,
   TransactionFrozenError,
   TransactionNotFoundError,
+  WegStatementNotFoundError,
   getFinancialCategory,
   listFinancialCategories,
   setTransactionSplits,
@@ -496,6 +499,10 @@ export type { CostGroup, PlanCostLine, PlanFlag, PlanView } from '../domains/weg
 export {
   AnnualStatementNotFoundError,
   InvalidSupersedesError,
+  NothingToSettleError,
+  SettlementDirectionMismatchError,
+  SettlementNotProposableError,
+  StatementNotConfirmedError,
   PeriodOutsideYearError,
   StatementExistsError,
   StatementNotDraftError,
@@ -503,6 +510,8 @@ export {
   confirmAnnualStatement,
   createAnnualStatement,
   getAnnualStatement,
+  getSettlementProposal,
+  getStatementComparison,
   listAnnualStatements,
   replaceAnnualStatement,
   voidAnnualStatement,
@@ -512,8 +521,13 @@ export type {
   CreateAnnualStatement,
   CreateAnnualStatementInput,
   GetAnnualStatement,
+  GetSettlementProposal,
+  GetStatementComparison,
   ListAnnualStatements,
   ReplaceAnnualStatement,
+  SettlementProposal,
+  SettlementProposalFlag,
+  StatementComparison,
   VoidAnnualStatement,
 } from './weg-annual-statements.js';
 export {

@@ -4048,7 +4048,7 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 
 ---
 
-# 51. WEG Statement Ledger Effects (VC-6-04)
+# 51. WEG Statement Ledger Effects (VC-6-04, implemented: migration 0043)
 
 Decision P6-D6 (DF-013). A statement never creates cash and never re-splits a confirmed split (BR-WEG-007, ADR-037). Its ledger effects are three reads and one link:
 1. **the comparison** of the year's counted advances with the statement's actual costs, per class (a read);
@@ -4072,15 +4072,15 @@ PUT /api/v1/transactions/{id}/splits                     (wegAnnualStatementId: 
 
 - **Which statements:** a `CONFIRMED` or `SUPERSEDED` one. A `DRAFT` or `VOID` one → `409 CONFLICT` with `reason = "STATEMENT_NOT_CONFIRMED"` and `details.status`. Unknown or of another Realm → `404`.
 - **paid, per class:** the counted WEG splits of the statement's unit (the membership's PropertyReference). They count as cash counts everywhere (§47.2): splits on **current** Transactions (`CONFIRMED` or `RECONCILED`, not a reversal), with a booking date inside the statement's period (`periodFrom`–`periodUntil`), **not** naming a statement (a settlement is not an advance) and, from VC-6-05, not naming a Sonderumlage. A correction of a counted split moves them on read.
-- **actual, per class:** the statement's `byClassification` (§50, the lines' `unitShare` by stored classification). For `RESERVE`, plus the printed `reserveRequested` (`0.00` when not printed): the reserve advance owed for the year is the owner's reserve cost of the year (P6-D3).
+- **actual, per class:** the statement's `byClassification` (§50, the lines' `unitShare` by stored classification). For `RESERVE`, plus the printed `reserveRequested` (`0.00` when not printed): the reserve advance owed for the year is the owner's reserve cost of the year (P6-D3). **But only when no line is classified `RESERVE`** (review on #151): a reserve contribution printed among the costs and in the reserve block would count twice; then the lines are the reserve's actual, and the flag `RESERVE_COUNTED_TWICE` with `details.lines` and `details.printed` shows the choice.
 - **difference, per class:** `actual − paid`.
 - **The advances:**
-  - `requested`: `hausgeldRequested` + `reserveRequested` (printed; the latter `0.00` when not printed);
+  - `requested`: `hausgeldRequested` + the reserve advance added to `RESERVE`'s actual above (`reserveRequested`, or `0.00` when not printed or when lines are classified `RESERVE`);
   - `counted`: the sum of paid over the three classes;
   - `unpaidAdvances`: `requested − counted` (signed: < 0 when more was counted than requested).
-- **The identity (P6-D6):** `Σ difference = settlementPeak + unpaidAdvances`, exactly, whenever the lines sum to `totalCosts` (§50's `LINES_DIFFER_FROM_SUBTOTAL` and `SUBTOTALS_DIFFER_FROM_TOTAL` absent). Derivation: Σ actual = totalCosts + reserveRequested, Σ paid = counted, settlementPeak = totalCosts − hausgeldRequested. When it does not hold, the flag `PEAK_IDENTITY_DIFFERS` with `details.derived` (Σ difference − unpaidAdvances) and `details.printed` (settlementPeak). The printed statement wins (BR-WEG-006): nothing is refused.
+- **The identity (P6-D6):** `Σ difference = settlementPeak + unpaidAdvances`, exactly, whenever the lines sum to `totalCosts` (§50's `LINES_DIFFER_FROM_SUBTOTAL` and `SUBTOTALS_DIFFER_FROM_TOTAL` absent). Derivation: Σ actual = totalCosts + the reserve advance added, Σ paid = counted, settlementPeak = totalCosts − hausgeldRequested. When it does not hold, the flag `PEAK_IDENTITY_DIFFERS` with `details.derived` (Σ difference − unpaidAdvances) and `details.printed` (settlementPeak). The printed statement wins (BR-WEG-006): nothing is refused.
 - **The settlement:**
-  - `settledBy`: the current splits naming this statement **or a statement it supersedes, transitively** (a superseding statement takes over, P6-D6), each `{ transactionId, statementId, bookingDate, amount }` (signed as above), by booking date, then transaction id;
+  - `settledBy`: the current splits naming this statement **or a statement it supersedes, transitively** (a superseding statement takes over, P6-D6), one entry per Transaction and statement `{ transactionId, statementId, bookingDate, amount }` (its splits summed, signed as above), by booking date, then transaction id;
   - `settled`: their sum; `open`: `settlementPeak − settled`;
   - flag `SETTLED_AGAINST_SUPERSEDED` with `details.transactionIds` when one of them names an older statement of the chain.
   - On a `SUPERSEDED` statement the comparison shows its own figures and only the splits naming it or its predecessors, with the flag `SUPERSEDED` and `details.supersededBy`.

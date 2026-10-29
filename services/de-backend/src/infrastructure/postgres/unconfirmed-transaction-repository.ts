@@ -93,7 +93,11 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
             const kept = await trx
               .selectFrom('transaction_split')
               .innerJoin('financial_category', 'financial_category.id', 'transaction_split.financial_category_id')
-              .select(['financial_category.code as financialCategoryCode', 'transaction_split.property_reference_id as propertyReferenceId'])
+              .select([
+                'financial_category.code as financialCategoryCode',
+                'transaction_split.property_reference_id as propertyReferenceId',
+                'transaction_split.weg_annual_statement_id as wegAnnualStatementId',
+              ])
               .where('transaction_split.transaction_id', '=', id)
               .orderBy('transaction_split.position')
               .execute();

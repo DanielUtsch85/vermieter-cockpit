@@ -29,7 +29,16 @@ export const unusedCommands: AppCommands = {
     voidMembership: unused,
   },
   wegEconomicPlans: { create: unused, get: unused, list: unused, void: unused, hausgeldProposal: unused },
-  wegAnnualStatements: { create: unused, get: unused, list: unused, replace: unused, confirm: unused, void: unused },
+  wegAnnualStatements: {
+    create: unused,
+    get: unused,
+    list: unused,
+    replace: unused,
+    confirm: unused,
+    void: unused,
+    comparison: unused,
+    settlementProposal: unused,
+  },
   rentReconciliations: {
     create: unused,
     get: unused,

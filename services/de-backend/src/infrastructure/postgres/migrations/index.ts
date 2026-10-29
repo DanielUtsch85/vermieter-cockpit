@@ -41,6 +41,7 @@ import * as m0039 from './0039_security_deposit_close.js';
 import * as m0040 from './0040_weg.js';
 import * as m0041 from './0041_weg_plan_and_splits.js';
 import * as m0042 from './0042_weg_annual_statement.js';
+import * as m0043 from './0043_weg_statement_settlement.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -91,4 +92,5 @@ export const migrations: Record<string, Migration> = {
   '0040_weg': m0040,
   '0041_weg_plan_and_splits': m0041,
   '0042_weg_annual_statement': m0042,
+  '0043_weg_statement_settlement': m0043,
 };

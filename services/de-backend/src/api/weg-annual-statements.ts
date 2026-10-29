@@ -12,8 +12,12 @@ import {
   type ConfirmAnnualStatement,
   type CreateAnnualStatement,
   type GetAnnualStatement,
+  type GetSettlementProposal,
+  type GetStatementComparison,
   type ListAnnualStatements,
   type ReplaceAnnualStatement,
+  type SettlementProposal,
+  type StatementComparison,
   type StatementContent,
   type VoidAnnualStatement,
 } from '../application/index.js';
@@ -198,6 +202,8 @@ export interface WegAnnualStatementCommands {
   readonly replace: ReplaceAnnualStatement;
   readonly confirm: ConfirmAnnualStatement;
   readonly void: VoidAnnualStatement;
+  readonly comparison: GetStatementComparison;
+  readonly settlementProposal: GetSettlementProposal;
 }
 
 /** Jahresabrechnung API (api-design.md §50, backlog VC-6-03). */
@@ -318,7 +324,84 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
       .catch(next);
   });
 
+  router.get('/weg-annual-statements/:statementId/comparison', (req, res, next) => {
+    const statementId = readId(req.params['statementId'], 'statementId', res);
+    if (statementId === undefined) return;
+    commands
+      .comparison({ principal: principalOf(res), statementId })
+      .then((comparison) => res.json(comparisonDto(comparison)))
+      .catch(next);
+  });
+
+  router.get('/transactions/:transactionId/settlement-proposal', (req, res, next) => {
+    const transactionId = readId(req.params['transactionId'], 'transactionId', res);
+    if (transactionId === undefined) return;
+    const parsed = settlementQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .settlementProposal({ principal: principalOf(res), transactionId, statementId: parsed.data.statementId })
+      .then((proposal) => res.json(settlementDto(proposal)))
+      .catch(next);
+  });
+
   return router;
+}
+
+const settlementQuery = z.object({ statementId: uuid }).strict();
+
+function comparisonDto(comparison: StatementComparison) {
+  const figures = (c: StatementComparison['classes']['RECOVERABLE']) => ({
+    paid: c.paid.toJSON(),
+    actual: c.actual.toJSON(),
+    difference: c.difference.toJSON(),
+  });
+  return {
+    statementId: comparison.statementId,
+    membershipId: comparison.membershipId,
+    propertyReferenceId: comparison.propertyReferenceId,
+    financialYear: comparison.financialYear,
+    periodFrom: comparison.periodFrom,
+    periodUntil: comparison.periodUntil,
+    status: comparison.status,
+    classes: {
+      RECOVERABLE: figures(comparison.classes.RECOVERABLE),
+      NON_RECOVERABLE: figures(comparison.classes.NON_RECOVERABLE),
+      RESERVE: figures(comparison.classes.RESERVE),
+    },
+    advances: {
+      requested: comparison.advances.requested.toJSON(),
+      counted: comparison.advances.counted.toJSON(),
+      unpaidAdvances: comparison.advances.unpaidAdvances.toJSON(),
+    },
+    settlementPeak: comparison.settlementPeak.toJSON(),
+    settlement: {
+      settledBy: comparison.settlement.settledBy.map((s) => ({ ...s, amount: s.amount.toJSON() })),
+      settled: comparison.settlement.settled.toJSON(),
+      open: comparison.settlement.open.toJSON(),
+    },
+    reserveWithdrawals: comparison.reserveWithdrawals.map((w) => ({ ...w, withdrawal: w.withdrawal.toJSON(), unitShare: w.unitShare.toJSON() })),
+    flags: comparison.flags.map((flag) => ({ code: flag.code, details: detailsDto(flag.details) })),
+  };
+}
+
+function settlementDto(proposal: SettlementProposal) {
+  return {
+    transactionId: proposal.transactionId,
+    statementId: proposal.statementId,
+    amount: proposal.amount.toJSON(),
+    direction: proposal.direction,
+    settlementPeak: proposal.settlementPeak.toJSON(),
+    splits: proposal.splits.map((s) => ({
+      financialCategoryCode: s.financialCategoryCode,
+      propertyReferenceId: s.propertyReferenceId,
+      wegAnnualStatementId: s.wegAnnualStatementId,
+      amount: s.amount.toJSON(),
+    })),
+    flags: proposal.flags.map((flag) => ({ code: flag.code, details: detailsDto(flag.details) })),
+  };
 }
 
 function sendStatement(res: Response, statement: AnnualStatementView): void {

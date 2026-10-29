@@ -620,7 +620,11 @@ describe.skipIf(databaseUrl === undefined)('Jahresabrechnung (§50)', () => {
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         // Dropping a table while another worker's Migrator introspects the database breaks it: hold the migration lock.
-        await withMigrationLock(async () => (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never));
+        // 0043 builds on 0042's table: it goes first.
+        await withMigrationLock(async () => {
+          await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);
+          await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);
+        });
         expect((await downPool.query(`SELECT to_regclass('weg_annual_statement') AS a, to_regclass('weg_statement_cost_line') AS b`)).rows[0]).toEqual({
           a: null,
           b: null,
