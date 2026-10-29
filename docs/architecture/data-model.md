@@ -994,6 +994,7 @@ Represent one economically distinct component of a Transaction.
 - `maintenanceProjectId`
 - `securityDepositId`
 - `wegAnnualStatementId`
+- `wegSpecialAssessmentId`
 - `description`
 - `taxClassificationId`
 - `sourceReferences`
@@ -1036,6 +1037,12 @@ same Realm (a reversal mirrors its original's, whatever the statement's status s
 `loanId` or `securityDepositId`. Such a split is checked against the statement's membership, not against a membership
 on its booking date, and it is no advance: the comparison (API §51) leaves it out of the paid advances. A reversal
 mirrors `wegAnnualStatementId` (0014). Database-enforced (migration 0043).
+
+**`wegSpecialAssessmentId` (P6-D7, VC-6-05, API §51A):** a payment (an `OUTFLOW`) or refund (an `INFLOW`) of a
+Sonderumlage, only on a `WEG_SPECIAL_ASSESSMENT` split whose `propertyReferenceId` is the assessment's unit, of an
+assessment of the same Realm that is not `VOID` (a reversal mirrors its original's), and never together with `loanId`,
+`securityDepositId` or `wegAnnualStatementId`. Checked against the assessment's membership, not a membership on the
+booking date. A reversal mirrors it (0014). Database-enforced (migration 0044).
 
 ---
 
@@ -1759,6 +1766,8 @@ Represent one economically distinguishable line in a WEG plan or annual statemen
 ---
 
 # 32. WEGSpecialAssessment
+
+**Phase 6 (VC-6-05, api-design §51A, P6-D7):** per membership: description, resolution date, purpose as resolved (`MAINTENANCE`, `MODERNISATION`, `LIQUIDITY`, `OTHER`), the WEG total and the unit's share, instalments (due date and amount, summing to the share) and, later, its uses (date, description, unit's share) for Phase 7. Stored `ACTIVE` → `VOID`; `SETTLED`, paid and outstanding are derived from the counted splits naming it (`wegSpecialAssessmentId`, category `WEG_SPECIAL_ASSESSMENT` of type `WEG_FUNDS`). The WEG is reached through the membership; `dueDate` became the instalments.
 
 **Domain:** WEG  
 **Stability:** Stable
