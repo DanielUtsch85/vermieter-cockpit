@@ -1560,6 +1560,8 @@ SecurityDeposit may reference multiple actual Ledger Transactions.
 
 Represent a German Wohnungseigentümergemeinschaft.
 
+**Phase 6 (VC-6-01, api-design §49.1, P6-D1):** implemented as `weg` with `displayName`, `administratorPartyId`, `financialYearStartMonth`, `notes` and the statuses `ACTIVE` → `VOID`. `address`, `administratorContractDocumentId` and `externalReferences` are not stored: the address lives in MRE behind the PropertyReference, documents do not exist yet, and a WEG has no external id.
+
 ---
 
 ## Required Fields
@@ -1608,6 +1610,8 @@ Represent a German Wohnungseigentümergemeinschaft.
 ## Invariants
 
 Miteigentumsanteil is distinct from Ownership Share.
+
+**Phase 6 (VC-6-01, api-design §49.2, P6-D1):** a period (`validFrom`, optional `validUntil`, inclusive) with statuses `ACTIVE` → `VOID`. The Miteigentumsanteil is stored as printed, numerator and denominator each with up to three decimals (`numeric(12,3)`), never reduced and never as a percentage. A PropertyReference has at most one `ACTIVE` membership valid on any day, across all WEGs of the Realm. `allocationUnit` is not stored here (the key is printed per cost line, P6-D5); `sourceDocumentId` waits for documents.
 
 ---
 

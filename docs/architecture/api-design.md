@@ -3623,23 +3623,176 @@ Decisions P5-D7 and P5-D8. A deposit ends by `close`: returned in full, a part (
 
 # 49. WEG API
 
-### Queries
+Decisions P6-D1…D9 of `docs/development/phase-6-plan.md` (ADR-017, ADR-018, BR-WEG-001…010, `docs/germany/weg.md` v0.2). A `Weg` is the landlord-side record of one Wohnungseigentümergemeinschaft (GdWE). A `WegMembership` places one unit (a PropertyReference) in a WEG for a period, with its Miteigentumsanteil. DE records what the owner receives from the Verwalter; it never runs a WEG's books (§0 of the plan). There is no MRE counterpart and no MRE call anywhere in §49 (BR-WEG-001, P6-D9).
+
+### Routes (Phase 6)
 
 ```text
-GET /api/v1/weg-associations
-GET /api/v1/weg-associations/{id}
-GET /api/v1/property-references/{propertyReferenceId}/weg
+POST /api/v1/wegs                                                  (VC-6-01, §49.1)
+GET  /api/v1/wegs                                                  (VC-6-01, §49.1)
+GET  /api/v1/wegs/{wegId}                                          (VC-6-01, §49.1)
+POST /api/v1/wegs/{wegId}/amend                                    (VC-6-01, §49.1)
+POST /api/v1/wegs/{wegId}/void                                     (VC-6-01, §49.1)
+POST /api/v1/wegs/{wegId}/memberships                              (VC-6-01, §49.2)
+GET  /api/v1/wegs/{wegId}/memberships                              (VC-6-01, §49.2)
+GET  /api/v1/weg-memberships/{membershipId}                        (VC-6-01, §49.2)
+POST /api/v1/weg-memberships/{membershipId}/amend                  (VC-6-01, §49.2)
+POST /api/v1/weg-memberships/{membershipId}/end                    (VC-6-01, §49.2; MEMBERSHIP_HAS_SPLITS VC-6-02)
+POST /api/v1/weg-memberships/{membershipId}/void                   (VC-6-01, §49.2; MEMBERSHIP_HAS_SPLITS VC-6-02)
+GET  /api/v1/property-references/{propertyReferenceId}/weg-memberships   (VC-6-01, §49.2)
 ```
 
-### Commands
+The Wirtschaftsplan, the Jahresabrechnung and the Sonderumlage get their routes with VC-6-02, VC-6-03 and VC-6-05 (§49.3 ff., §50, §51). The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
 
-```text
-POST /api/v1/weg-associations
-POST /api/v1/weg-associations/{id}/memberships
-POST /api/v1/weg-associations/{id}/economic-plans
-POST /api/v1/weg-associations/{id}/annual-statements
-POST /api/v1/weg-associations/{id}/special-assessments
-```
+## 49.1 WEG: create, read, list, amend, void (VC-6-01)
+
+- **Domain owner:** WEG. **Authorization:** as §19.1. The WEG and its administrator Party belong to the caller's Realm. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **Status (P6-D1):** `ACTIVE` → `VOID` (final).
+- **Response:**
+  - `wegId`, `mreRealmId`, `status`;
+  - `displayName`;
+  - `administratorPartyId` (the Verwalter as a Party of Phase 2, or `null`);
+  - `financialYearStartMonth` (1–12);
+  - `notes`;
+  - `voidedAt`, `voidReason` (`null` unless `VOID`);
+  - `createdAt`, `version`.
+  - Single-WEG responses carry `ETag: "<version>"` (§16.1).
+
+### `POST /api/v1/wegs`
+
+- **Body** (strict; unknown keys `400`):
+  - `displayName` (required, trimmed, 1–200), e.g. the WEG's street address as the Verwalter names it;
+  - `administratorPartyId` (UUID, optional);
+  - `financialYearStartMonth` (integer 1–12, optional, default `1`). The real statements of #93's owner run on the calendar year; a different Wirtschaftsjahr is allowed (data-model §27);
+  - `notes` (optional, trimmed, ≤ 2000).
+  - Data-model §27's `address`, `administratorContractDocumentId` and `externalReferences` are not accepted. The unit's address lives in MRE behind the PropertyReference; documents do not exist yet (`documentId`-like keys are `400 NOT_SUPPORTED`, as §33.2); a WEG has no external system id.
+- **Order of checks:**
+  1. `400`;
+  2. the administrator: unknown or foreign → `404` (`details.partyId`); `INACTIVE` → `409 CONFLICT` with `reason = "PARTY_INACTIVE"` (as §20.1: no new reference to an inactive Party, P2-D1). The Party is read `FOR SHARE`, so a concurrent `deactivate` comes first or waits.
+- **Success:** `201` with the WEG (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` with the fields.
+- **No uniqueness on `displayName`:** two WEGs may share a name (two owners' records of buildings with the same name are rare, but a uniqueness rule on free text would refuse a legitimate record). The idempotency key prevents a retried duplicate.
+- **Idempotency (§15):** `Idempotency-Key` with scope `weg.create`, fingerprint of the normalized body. A replay answers `201` with the recorded body and `Idempotent-Replayed: true`; the same key with another payload is `409`. Clients should always send one: without a key a retry creates a second WEG.
+
+### `POST /api/v1/wegs/{wegId}/amend`
+
+- **Body:** the fields to change, at least one; `null` clears an optional field. Amendable: `displayName` (not `null`), `administratorPartyId`, `financialYearStartMonth` (not `null`), `notes`.
+- **`financialYearStartMonth`** is amendable only while the WEG has no Wirtschaftsplan, Jahresabrechnung or Sonderumlage (they are filed by financial year). Those come with VC-6-02, VC-6-03 and VC-6-05, which add the refusal `409 CONFLICT` with `reason = "WEG_HAS_YEARS"`; in VC-6-01 it is always amendable.
+- **Order of checks:**
+  1. `400`;
+  2. unknown or foreign → `404`;
+  3. `VOID` → `409 CONFLICT` with `reason = "WEG_NOT_ACTIVE"` and `details.status`;
+  4. a newly named administrator: as on create (`404`, `PARTY_INACTIVE`). Keeping an administrator who became inactive later is allowed (as Ownerships keep an inactive owner);
+  5. values equal to the current ones → `200` no-op without a new version or AuditRecord, answered regardless of `If-Match`;
+  6. `If-Match` → `412`.
+- **Success:** `200` with the WEG (`version` + 1); AuditRecord `AMENDED` with each changed field's old and new value.
+
+### `POST /api/v1/wegs/{wegId}/void`
+
+- **Body:** `{ "reason": "..." }` (required, trimmed, 1–500): a recording error.
+- **Order of checks:** `400` → `404` → `VOID` → `200` no-op keeping the first reason and time, answered regardless of `If-Match` → a membership that is not `VOID` → `409 CONFLICT` with `reason = "WEG_HAS_MEMBERSHIPS"` and `details.membershipIds` (P6-D1; VC-6-02, VC-6-03 and VC-6-05 add plans, statements and assessments to the same rule, which all hang off a membership) → `If-Match` → `412`.
+- **Success:** `200` with the WEG (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1); AuditRecord `VOIDED` with the reason. An ended WEG relationship (the unit was sold) is an ended membership, not a void.
+
+### Reads
+
+- `GET /wegs/{wegId}`: one WEG with `ETag`.
+- `GET /wegs`: `{ items, page, pageSize, total }` (§11), ordered by `displayName`, then `wegId`; count and page in one snapshot.
+  - Filters, optional and combined with AND: `status` (a comma-separated list), `administratorPartyId`, `propertyReferenceId` (WEGs with a membership of that unit, any status and period).
+  - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`. An unknown or foreign filter id is an empty page, not `404` (§30.1).
+
+## 49.2 WEG membership (VC-6-01)
+
+- **Domain owner:** WEG. **Authorization:** as §49.1; the membership, its WEG and its PropertyReference belong to the caller's Realm (composite foreign keys).
+- **A membership is a period** (as an Ownership, §26.1): `validFrom` and an optional `validUntil`, both **inclusive** business dates (`YYYY-MM-DD`). `wegId`, `propertyReferenceId`, `miteigentumsanteil` and `validFrom` never change. A wrongly recorded membership is voided and recorded again.
+- **Status:** `ACTIVE` | `VOID` (final). Only `ACTIVE` memberships count anywhere (the overlap rule, `asOf`, and from VC-6-02 the split rule of P6-D2).
+- **Miteigentumsanteil (P6-D1):** a string `"n/d"`, numerator and denominator each a decimal with up to **3 decimal places** and at most 9 integer digits (`^\d{1,9}(\.\d{1,3})?$`), with `0 < n ≤ d`.
+  - The real statements of #93's owner print the MEA with three decimals over a base of `10.000,000`, so an integer fraction (as Ownership's `"n/d"` with `d ≤ 10000`, P2-D3) cannot hold it. Input uses a decimal point, never a thousands separator (`"125.5/10000"`, not `"125,500/10.000,000"`).
+  - It is stored and returned as printed, **not reduced**: the statements compute each unit's share from the printed MEA and base, so they stay comparable line by line. Trailing zeros are dropped (`"125.500/10000.000"` → `"125.5/10000"`); fingerprints compare that form. Where a share is computed (VC-6-03), it is the exact rational `n/d`, never a rounded percentage.
+  - It is distinct from the Ownership share (data-model §28): the MEA divides the WEG's costs among units; the Ownership share divides one unit among owners.
+  - There is no Σ rule: DE knows only the owner's own units, never the whole WEG.
+- **One WEG per unit at a time (P6-D1):** a PropertyReference has at most one `ACTIVE` membership valid on any day, in any WEG of the Realm. Otherwise `409 CONFLICT` with `reason = "OVERLAPPING_WEG_MEMBERSHIP"` and `details.membershipId` (the membership it overlaps) and `details.wegId`.
+- **Response:** `membershipId`, `mreRealmId`, `wegId`, `propertyReferenceId`, `miteigentumsanteil`, `validFrom`, `validUntil` (or `null`), `status`, `voidedAt`, `voidReason`, `sourceReferences`, `notes`, `createdAt`, `version`. Single-membership responses carry `ETag: "<version>"`.
+
+### `POST /api/v1/wegs/{wegId}/memberships`
+
+- **Body** (strict; unknown keys `400`):
+  - `propertyReferenceId` (UUID, required);
+  - `miteigentumsanteil` (required; not of the form → `INVALID_FORMAT`, `n = 0` → `NOT_POSITIVE`, `n > d` → `OUT_OF_RANGE`);
+  - `validFrom` (required), `validUntil` (optional, `≥ validFrom`, else `400` `field = validUntil`, `BEFORE_VALID_FROM`);
+  - `sourceReferences` (optional; up to 10 strings of 1–500, e.g. "Teilungserklärung, Einheit Nr. 4"), `notes` (optional, ≤ 2000). Both trimmed, empty → absent.
+  - Data-model §28's `allocationUnit` and `sourceDocumentId` are not accepted: the allocation key is printed per cost line and stored there (P6-D5); documents do not exist yet (`400 NOT_SUPPORTED`).
+- **Order of checks:**
+  1. `400`;
+  2. the WEG: unknown or foreign → `404`; `VOID` → `409 CONFLICT` with `reason = "WEG_NOT_ACTIVE"`;
+  3. the PropertyReference: unknown or foreign → `404` (`details.propertyReferenceId`);
+  4. the overlap → `409 OVERLAPPING_WEG_MEMBERSHIP`.
+- **Success:** `201` with the membership (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` on the membership with the MEA and dates, and `MEMBERSHIP_ADDED` on the WEG with the membership id.
+- **Idempotency (§15):** `Idempotency-Key` with scope `weg-membership.create`, fingerprint of the normalized body including `wegId`. Replay `201` with `Idempotent-Replayed: true`; the same key with another payload is `409`. Without a key a repeated create is refused as `OVERLAPPING_WEG_MEMBERSHIP`, never a duplicate.
+
+### `POST /api/v1/weg-memberships/{membershipId}/amend`
+
+- **Body:** at least one of `sourceReferences`, `notes`; `null` clears. Any other field is `400` with code `NOT_AMENDABLE`: the MEA, the unit, the WEG and `validFrom` are fixed; `validUntil` changes only through `end`.
+- **Order of checks:** `400` → `404` → `VOID` → `409 CONFLICT` with `reason = "MEMBERSHIP_NOT_ACTIVE"` → no-op (`200`, regardless of `If-Match`) → `If-Match` → `412`.
+- **Success:** `200` (`version` + 1); AuditRecord `AMENDED`.
+
+### `POST /api/v1/weg-memberships/{membershipId}/end`
+
+- **Body:** `{ "validUntil": "YYYY-MM-DD" }`: the unit leaves the WEG (sale, a change of the Teilungserklärung). History before it stays as it was.
+- **Refusals**, as §26.1's close: `VOID` → `409 MEMBERSHIP_NOT_ACTIVE`; `validUntil < validFrom` → `422 INVALID_MEMBERSHIP` with `details.reason = "STARTS_AFTER_END"`; the membership already ends **before** the given day → `422 INVALID_MEMBERSHIP` with `details.reason = "ALREADY_ENDED"` (an end never extends a period).
+- A planned later end is shortened; the same `validUntil` again is a `200` no-op. Shortening never creates an overlap.
+- From VC-6-02, an end that would leave a WEG split of the unit after the new `validUntil` is `409 CONFLICT` with `reason = "MEMBERSHIP_HAS_SPLITS"` and `details.transactionIds` (P6-D2).
+- **Success:** `200` (`version` + 1); AuditRecord `ENDED` with the old and new `validUntil`. `If-Match` as §16.1; a no-op answers regardless of the version.
+
+### `POST /api/v1/weg-memberships/{membershipId}/void`
+
+- **Body:** `{ "reason": "..." }` (required, trimmed, 1–500).
+- Voiding a `VOID` membership is a `200` no-op keeping the first reason and time. From VC-6-02, a membership covering a WEG split is `409 MEMBERSHIP_HAS_SPLITS`; VC-6-02, VC-6-03 and VC-6-05 add its plans, statements and assessments to that rule.
+- **Success:** `200` (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1); AuditRecord `VOIDED`. The correct membership is then created with the original dates.
+
+### Reads
+
+- `GET /weg-memberships/{membershipId}`: one membership with `ETag`.
+- `GET /wegs/{wegId}/memberships`: the WEG's memberships, `VOID` included (marked by `status`), `{ items, page, pageSize, total }`, ordered by `validFrom`, then `createdAt`, then `membershipId`. Filters: `status`, `propertyReferenceId`. An unknown or foreign WEG is `404`.
+- `GET /property-references/{propertyReferenceId}/weg-memberships`:
+  - with `?asOf=YYYY-MM-DD`: `{ propertyReferenceId, asOf, membership }`, the one `ACTIVE` membership valid that day, or `membership: null`. Not paged; this is the lookup VC-6-02 uses for a split's booking date;
+  - without `asOf`: the unit's history across WEGs, paged and ordered as above.
+  - An unknown or foreign PropertyReference is `404`; unknown parameters and a malformed `asOf` are `400`.
+
+### In the database (VC-6-01, migration 0040)
+
+- **`weg`:**
+  - `id uuid`, `mre_realm_id text`, `status text` in (`ACTIVE`, `VOID`);
+  - `display_name text` (1–200), `administrator_party_id uuid` with a composite foreign key `(administrator_party_id, mre_realm_id)` to `party`;
+  - `financial_year_start_month smallint` (1–12), `notes text` (≤ 2000);
+  - `voided_at`, `voided_by`, `void_reason` (1–500): set exactly with `VOID` (CHECK);
+  - `created_at`, `created_by`, `version`.
+- **`weg_membership`:**
+  - `id uuid`, `mre_realm_id text`, `weg_id uuid` and `property_reference_id uuid`, each with a composite foreign key with `mre_realm_id`;
+  - `mea_numerator numeric(12,3)` and `mea_denominator numeric(12,3)` with `0 < mea_numerator ≤ mea_denominator` and `mea_denominator < 1e9` (CHECK);
+  - `valid_from date`, `valid_until date` (`≥ valid_from`);
+  - `status text` in (`ACTIVE`, `VOID`); `voided_at`, `voided_by`, `void_reason` exactly with `VOID`;
+  - `source_references text[]` (≤ 10, each 1–500), `notes`, `created_at`, `created_by`, `version`.
+- **`weg_membership_invariants`** (after insert or update, as `ownership_invariants` of 0019; no exclusion constraint, which would need the `btree_gist` extension the schema does not have):
+  - it first writes the PropertyReference row (`UPDATE property_reference SET version = version`). Under READ COMMITTED a second writer of the same unit waits there and then sees the first writer's row; under REPEATABLE READ it fails to serialise (`40001`);
+  - an `ACTIVE` row overlapping another `ACTIVE` row of the same `property_reference_id` (`daterange(valid_from, valid_until, '[]') && …`, any WEG) raises `OVERLAPPING_WEG_MEMBERSHIP`;
+  - a new or changed `ACTIVE` row needs its WEG `ACTIVE`, read `FOR SHARE` (`WEG_NOT_ACTIVE`).
+- **`weg_membership_frozen`** (before update): Realm, WEG, unit, MEA, `valid_from` and the creation fields are fixed; `valid_until` is only set or moved **earlier**; `VOID` is final; a change of a `VOID` row other than P3-D8's no-op is refused; every change sets `version` + 1. Only inserted `ACTIVE` with `version = 1`; never deleted.
+- **`weg_frozen`** (before update): Realm and creation fields are fixed; changes only while `ACTIVE`, each with `version` + 1; `ACTIVE` → `VOID` with an `ACTIVE` membership left → `WEG_HAS_MEMBERSHIPS`. Never deleted.
+- **Lock order (P6-D9):** a membership write locks the PropertyReference (the no-op write), then the WEG `FOR SHARE`, then its own row. A WEG void locks the WEG `FOR UPDATE` and then reads its memberships. A void and a membership create of one WEG therefore serialise on the WEG row: the create that waited sees `VOID`; the void that waited sees the new membership.
+- Not in the database: the order of checks, the no-ops, the reads.
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Two memberships of one unit in two WEGs, overlapping:** they serialise on the PropertyReference; the second answers `OVERLAPPING_WEG_MEMBERSHIP` under RC and fails with `40001` under RR. Counter-check: the PropertyReference write removed from the trigger lets both commit.
+- **WEG void against a membership create:** in both orders, either the create sees `WEG_NOT_ACTIVE` or the void sees `WEG_HAS_MEMBERSHIPS`; never a `VOID` WEG with an `ACTIVE` membership. Counter-check: the `FOR SHARE` removed.
+- **End against void of one membership:** they serialise on the membership row; the one that waited sees the other's result (`412` with `If-Match`, or `MEMBERSHIP_NOT_ACTIVE`).
+
+### Tests (VC-6-01)
+
+- **Domain:** the MEA format (three decimals, trailing zeros dropped, `0`, `n > d`, more than three decimals, a comma); the period rules; the amend, end and void no-ops.
+- **Repository:** Realm isolation (a foreign WEG, unit or administrator is `404`); `PARTY_INACTIVE`; `WEG_NOT_ACTIVE`; the overlap within one WEG and across two, and a new membership the day after an end; `WEG_HAS_MEMBERSHIPS`, and void after the membership is voided; `412`; every AuditRecord.
+- **Schema past the repository**, each with a counter-check: every CHECK; the frozen fields; `valid_until` moved later or cleared; `VOID` final; `DELETE`; the overlap trigger; the WEG void guard; `down`.
+- **Concurrency** as above, under RC and RR.
+- **API:** every `400` code above; the error mapping; idempotent replays; the no-ops; the list filters and order; the `asOf` lookup with and without a membership; Realm isolation end to end on every §49 route.
 
 ---
 
