@@ -111,7 +111,7 @@ Scope: `WEG`, membership, Wirtschaftsplan, Jahresabrechnung, WEG cost lines, Erh
 
 Scope: Werbungskosten classification, acquisition-cost classification, umlagefähig/nicht umlagefähig, versioned tax rules (ADR-022).
 
-**Prerequisite:** `docs/germany/taxation.md` and `docs/germany/rent-and-operating-costs.md` (drafted — confirm `VERIFY` rules before coding). Rule execution model resolved: **ADR-041** (versioned code modules).
+**Prerequisite:** `docs/germany/taxation.md` and `docs/germany/rent-and-operating-costs.md` (verified 29.10.2026, v0.2). Rule execution model resolved: **ADR-041** (versioned code modules).
 
 **Exit:** a tax-year view derives Einkünfte aus Vermietung und Verpachtung from classified cash + AfA, every figure traceable, no cash mutated.
 
@@ -121,7 +121,7 @@ Scope: Werbungskosten classification, acquisition-cost classification, umlagefä
 
 Scope: AfA schedules from acquisition + land/building allocation; version-aware AfA rules.
 
-**Prerequisite:** `docs/germany/depreciation.md` (drafted — confirm `VERIFY` rules before coding).
+**Prerequisite:** `docs/germany/depreciation.md` (verified 29.10.2026, v0.2).
 
 **Exit:** an AfA schedule is reproducible from acquisition truth, stored as derivation (not cash), and feeds the tax-year view.
 
@@ -175,9 +175,9 @@ The architecture ADRs that previously blocked this roadmap are now **all resolve
 
 | Spec | Needed for | Status |
 |---|---|---|
-| `docs/germany/rent-and-operating-costs.md` | Phase 7 | Checklist D filled; the spec still has to take over the results |
-| `docs/germany/taxation.md` | Phase 7 | Checklist A filled; the spec still has to take over the results |
-| `docs/germany/depreciation.md` | Phase 8 | Checklist B filled; the spec still has to take over the results |
+| `docs/germany/rent-and-operating-costs.md` | Phase 7 | **Verified** 29.10.2026 (v0.2, checklist D, E3, E4) |
+| `docs/germany/taxation.md` | Phase 7 | **Verified** 29.10.2026 (v0.2, checklist A, E1, E2, E5, E6) |
+| `docs/germany/depreciation.md` | Phase 8 | **Verified** 29.10.2026 (v0.2, checklist B) |
 | `docs/germany/weg.md` | Phase 6 | **Verified** 29.10.2026 (v0.2) |
 
 Phases 0–5 have **no remaining roadmap-level blocker** and can proceed once scaffolding (Phase 0) is done.
