@@ -3640,9 +3640,15 @@ POST /api/v1/weg-memberships/{membershipId}/amend                  (VC-6-01, §4
 POST /api/v1/weg-memberships/{membershipId}/end                    (VC-6-01, §49.2; MEMBERSHIP_HAS_SPLITS VC-6-02)
 POST /api/v1/weg-memberships/{membershipId}/void                   (VC-6-01, §49.2; MEMBERSHIP_HAS_SPLITS VC-6-02)
 GET  /api/v1/property-references/{propertyReferenceId}/weg-memberships   (VC-6-01, §49.2)
+PUT  /api/v1/transactions/{id}/splits                              (WEG split rule: VC-6-02, §49.3; also correct)
+POST /api/v1/weg-memberships/{membershipId}/economic-plans         (VC-6-02, §49.5)
+GET  /api/v1/weg-memberships/{membershipId}/economic-plans         (VC-6-02, §49.5)
+GET  /api/v1/weg-economic-plans/{planId}                           (VC-6-02, §49.5)
+POST /api/v1/weg-economic-plans/{planId}/void                      (VC-6-02, §49.5)
+GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (VC-6-02, §49.6)
 ```
 
-The Wirtschaftsplan, the Jahresabrechnung and the Sonderumlage get their routes with VC-6-02, VC-6-03 and VC-6-05 (§49.3 ff., §50, §51). The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
+The Jahresabrechnung and the Sonderumlage get their routes with VC-6-03 and VC-6-05 (§50, §51). The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
 
 ## 49.1 WEG: create, read, list, amend, void (VC-6-01)
 
@@ -3793,6 +3799,146 @@ The Wirtschaftsplan, the Jahresabrechnung and the Sonderumlage get their routes 
 - **Schema past the repository**, each with a counter-check: every CHECK; the frozen fields; `valid_until` moved later or cleared; `VOID` final; `DELETE`; the overlap trigger; the WEG void guard; `down`.
 - **Concurrency** as above, under RC and RR.
 - **API:** every `400` code above; the error mapping; idempotent replays; the no-ops; the list filters and order; the `asOf` lookup with and without a membership; Realm isolation end to end on every §49 route.
+
+
+## 49.3 WEG splits name their unit (VC-6-02)
+
+Decision P6-D2. A Hausgeld or Rücklage debit is split as any Transaction (§33.2); a WEG split additionally names its unit, and the unit's membership on the booking date names the WEG. There is no `wegId` on a split (§33.2 keeps its `NOT_SUPPORTED` for good).
+
+- **The WEG categories:** `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE`, `WEG_RESERVE_CONTRIBUTION` (0008), and `WEG_SPECIAL_ASSESSMENT` from VC-6-05.
+- **Rule for a split in a WEG category** (`PUT …/splits` and `correct`'s replacement, §35.2):
+  - it needs a `propertyReferenceId`, else `422 NO_WEG_MEMBERSHIP` with `details.position` and `details.reason = "NO_UNIT"`;
+  - the unit has an `ACTIVE` membership valid on the Transaction's `bookingDate`, else `422 NO_WEG_MEMBERSHIP` with `details.position`, `details.propertyReferenceId`, `details.bookingDate` and `details.reason = "NO_MEMBERSHIP"`;
+  - the first such split in position order answers.
+  - A WEG split with `securityDepositId` is already `400 NOT_ALLOWED_WITH_SECURITY_DEPOSIT` (§47.2); with `loanId` it is refused by §41.5's category rule. Nothing changes there.
+- **Order of checks:** after §47.2's, as step 5: `NO_UNIT`, then `NO_MEMBERSHIP`, each for the first split in position order.
+- **A reversal is exempt** (§35.3): it mirrors its original's splits, which may predate Phase 6 and name no unit, and it never counts. A **replacement** follows the rule, whether its splits are copied from the original or given in the request: a copied pre-Phase-6 split without a unit is refused, and the client sends the replacement's splits.
+- **Splits written before VC-6-02** stay as they are (confirmed splits are frozen, ADR-037). The migration does not touch them. The PR of VC-6-02 gives the query that counts them (WEG categories, `property_reference_id IS NULL`, not a reversal), so the user can see how many of their own there are; they count for no membership.
+- **Membership end and void (lifting §49.2's note):**
+  - an end whose new `validUntil` leaves a WEG split of the unit with a later booking date inside the old period → `409 CONFLICT` with `reason = "MEMBERSHIP_HAS_SPLITS"` and `details.transactionIds`;
+  - a void of a membership whose period holds a WEG split of the unit → the same;
+  - every split counts here, on a Transaction of any status, a reversal included: each one was written under this membership.
+- **Lock order (P6-D9, revised):** Transaction → PropertyReference. A split write with a WEG category writes the unit's PropertyReference row after the Transaction's lock (a no-op, as the membership writers do, §49.2), then reads the memberships. Membership end and void already write it first. So a split write and an end or void of the unit's membership serialise on the unit: under RC the later one sees the other (`NO_WEG_MEMBERSHIP` or `MEMBERSHIP_HAS_SPLITS`), under RR it fails to serialise. Plan P6-D2 named `FOR SHARE` on the membership rows; a share lock lets a REPEATABLE READ end through once the split's transaction committed (the lesson of §49.2), so the write replaces it. No path locks a PropertyReference before a Transaction.
+- **In the database (migration 0041):**
+  - `transaction_split_weg` (before insert on `transaction_split`, after the existing split guards): for a WEG category on a Transaction that is not a reversal, the unit is set, the PropertyReference row is written (no-op), and an `ACTIVE` membership covers the booking date (`(NO_WEG_MEMBERSHIP)`);
+  - `weg_membership_splits` (before update of `valid_until` or `status` on `weg_membership`): the end or void leaves no WEG split of the unit outside the remaining period (`(MEMBERSHIP_HAS_SPLITS)`).
+
+## 49.4 The category type `WEG_FUNDS` (VC-6-02)
+
+Decision P6-D3 (BFH IX R 19/24, `docs/germany/weg.md` §5.2–§5.3).
+
+- **Migration 0041:**
+  - `WEG_FUNDS` joins the `category_type` CHECK of `financial_category` (0008) and `CATEGORY_TYPES` (`domains/ledger/financial-category.ts`);
+  - `WEG_RESERVE_CONTRIBUTION` moves from `OPERATING_EXPENSE` to `WEG_FUNDS`. VC-6-05 seeds `WEG_SPECIAL_ASSESSMENT` with the same type;
+  - `down` moves it back and restores the CHECK.
+- **Retroactive on purpose:** the type belongs to the category, so every split of `WEG_RESERVE_CONTRIBUTION`, confirmed ones included, reads as `WEG_FUNDS` from the migration on. Today only `GET /financial-categories` (§36) returns `categoryType`, and no read filters by it, so no figure changes. The count of affected splits is part of the query above.
+- `GET /financial-categories` lists the new type like any other.
+
+## 49.5 The Wirtschaftsplan (VC-6-02)
+
+Decision P6-D4, shaped by the real Einzelwirtschaftsplan of #93's owner (structure only):
+- the plan's cost lines come in two groups as the Verwalter prints them, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each line with an allocation key as printed (`Miteigentumsanteile`, `Einheit`, a consumption key such as cold water), the WEG total and the unit's share;
+- an income line ("Einnahmen Voranschlag") and a separate section for the reserve advance;
+- the resolution sets the **monthly** Hausgeld and Rücklage **from a date within the year** ("ab 1.3."), with the previous amounts until then.
+
+So a plan is filed per membership and financial year, carries the monthly amounts and the date they apply from, and derives the recoverable part of the Hausgeld from the two groups.
+
+- **Domain owner:** WEG. **Authorization:** as §49.2.
+- **Status:** `ACTIVE` → `VOID` (final). A wrong plan is voided and entered again; a later resolution with new amounts is a new plan with a later `effectiveFrom`. There is no amend.
+- **Fields:**
+  - `membershipId`; `financialYear` (integer, the Wirtschaftsjahr that starts in that calendar year at the WEG's `financialYearStartMonth`);
+  - `effectiveFrom` (business date): the first day the monthly amounts apply; inside the financial year and inside the membership's period;
+  - `resolutionDate` (business date, optional): the date of the Vorschussbeschluss, which makes the advances owed (§ 28 Abs. 1 WEG);
+  - `monthlyHausgeld` and `monthlyReserveContribution` (Money ≥ 0, EUR, at least one > 0): the amounts of the resolution;
+  - `recoverableCosts` and `nonRecoverableCosts` (Money ≥ 0): the unit's annual share of each group's subtotal, as printed; `income` (Money ≥ 0, optional): the unit's share of the income line; `annualReserveContribution` (Money ≥ 0, optional): the unit's share of the reserve section;
+  - `costLines` (optional, up to 100): `{ position, description (1–200), allocationKey (1–100, as printed), totalAmount, unitShare (Money ≥ 0), group: RECOVERABLE | NON_RECOVERABLE }`, kept as the source structure (BR-WEG-006);
+  - `sourceReferences`, `notes` as §49.2.
+- **Derived monthly components** (in every response):
+  - `recoverable` = `monthlyHausgeld` × `recoverableCosts` / (`recoverableCosts` + `nonRecoverableCosts`), rounded half-up to the cent; `nonRecoverable` = `monthlyHausgeld` − `recoverable`; `reserve` = `monthlyReserveContribution`;
+  - both group totals 0 with a Hausgeld > 0: everything is `nonRecoverable` and the flag `NO_COST_GROUPS` is set (nothing is claimed recoverable that the plan does not show);
+  - the income line does not enter the ratio: the Verwalter's statements net it against the total, not against a group.
+- **Flags** (a list, never a refusal; the printed plan wins, BR-WEG-006):
+  - `LINES_DIFFER_FROM_GROUPS` with `details.group`, `details.lines` and `details.printed`: the cost lines of a group do not sum to its subtotal;
+  - `HAUSGELD_DIFFERS_FROM_PLAN` with `details.annual` and `details.planned`: 12 × `monthlyHausgeld` differs from `recoverableCosts` + `nonRecoverableCosts` − `income` by more than 12 cents (the Verwalter rounds the monthly amount);
+  - `RESERVE_DIFFERS_FROM_PLAN`: the same for the reserve, when `annualReserveContribution` is given;
+  - `NO_COST_GROUPS` (above).
+
+### Routes
+
+```text
+POST /api/v1/weg-memberships/{membershipId}/economic-plans
+GET  /api/v1/weg-memberships/{membershipId}/economic-plans
+GET  /api/v1/weg-economic-plans/{planId}
+POST /api/v1/weg-economic-plans/{planId}/void
+GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (§49.6)
+```
+
+### `POST /api/v1/weg-memberships/{membershipId}/economic-plans`
+
+- **Body** (strict): the fields above; Money as §31 with at most two decimals; `costLines[].position` unique (`400 DUPLICATE`).
+- **Order of checks:**
+  1. `400`, `effectiveFrom` outside the financial year among them (`OUT_OF_RANGE` at `effectiveFrom`);
+  2. the membership: unknown or foreign → `404`; `VOID` → `409 MEMBERSHIP_NOT_ACTIVE`;
+  3. `effectiveFrom` outside the membership's period → `422 PLAN_OUTSIDE_MEMBERSHIP` with `details.validFrom`, `details.validUntil`;
+  4. an `ACTIVE` plan of the membership with the same `effectiveFrom` → `409 CONFLICT` with `reason = "PLAN_EXISTS"` and `details.economicPlanId`.
+- **Success:** `201` with the plan (`version = 1`) and its derived components and flags; AuditRecord `CREATED`, and `ECONOMIC_PLAN_ADDED` on the membership.
+- **Idempotency:** scope `weg-economic-plan.create`, as §49.2.
+- **Locks:** the PropertyReference (no-op write), then the membership `FOR UPDATE`, then the insert. A membership end or void writes the same rows first, so it either sees the plan (`MEMBERSHIP_HAS_PLANS`, below) or the create sees the end (`PLAN_OUTSIDE_MEMBERSHIP`) or the void (`MEMBERSHIP_NOT_ACTIVE`).
+
+### Void and reads
+
+- `POST /weg-economic-plans/{planId}/void` with `{ "reason" }`: as §49.2's void; a no-op once `VOID`. A plan is never referenced by a write (the proposal is a read), so there is no further guard.
+- `GET /weg-economic-plans/{planId}` with `ETag`; `GET /weg-memberships/{id}/economic-plans` (paged, `VOID` included, ordered by `effectiveFrom`, then `createdAt`, then id; filter `status`, `financialYear`).
+
+### Rules this adds elsewhere
+
+- **Membership end and void (§49.2):** an end before an `ACTIVE` plan's `effectiveFrom`, or a void with an `ACTIVE` plan → `409 CONFLICT` with `reason = "MEMBERSHIP_HAS_PLANS"` and `details.economicPlanIds`. Checked after `MEMBERSHIP_HAS_SPLITS`.
+- **WEG amend (§49.1):** `financialYearStartMonth` while a membership of the WEG has an `ACTIVE` plan → `409 CONFLICT` with `reason = "WEG_HAS_YEARS"`.
+
+### In the database (migration 0041)
+
+- `weg_economic_plan`: the fields above (Money as `numeric` with scale ≤ 2 and `currency = 'EUR'`), the membership by composite foreign key, `status`, the void fields, `version`; `cost_lines jsonb` (an array; its shape is the API's, checked there); CHECKs for amounts ≥ 0 and at least one monthly amount > 0; a partial unique index `(membership_id, effective_from) WHERE status = 'ACTIVE'`.
+- `weg_economic_plan_frozen`: nothing changes but `ACTIVE` → `VOID` with its fields and `version` + 1; no delete; only inserted `ACTIVE` with `version` 1.
+- `weg_membership_plans` (with `weg_membership_splits`): an end or void leaves no `ACTIVE` plan outside the remaining period.
+- `weg_frozen` gains `WEG_HAS_YEARS`.
+
+## 49.6 The Hausgeld split proposal (VC-6-02)
+
+### `GET /api/v1/transactions/{transactionId}/hausgeld-proposal?propertyReferenceId=`
+
+A read, never a write (as §41.5's payment proposal). The client applies it through `PUT …/splits`.
+
+- **Query** (strict): `propertyReferenceId` (optional): the unit; without it, the Transaction's own `propertyReferenceId`.
+- **Refusals**, in this order:
+  1. `400`;
+  2. Transaction unknown or foreign → `404`; a given PropertyReference unknown or foreign → `404`;
+  3. the Transaction is not an unconfirmed `OUTFLOW` (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`) → `409 CONFLICT` with `reason = "NOT_PROPOSABLE"`, `details.direction`, `details.status`;
+  4. no unit (neither given nor on the Transaction) → `422 NO_WEG_MEMBERSHIP` with `details.reason = "NO_UNIT"`;
+  5. no `ACTIVE` membership on the booking date → `422 NO_WEG_MEMBERSHIP` with `details.reason = "NO_MEMBERSHIP"`;
+  6. no `ACTIVE` plan of that membership with `effectiveFrom` ≤ the booking date → `422 NO_ECONOMIC_PLAN`.
+- **The plan:** of the unit's membership on the booking date, the `ACTIVE` plan with the latest `effectiveFrom` ≤ the booking date. If its financial year does not contain the booking date, the flag `PLAN_OF_EARLIER_YEAR` with `details.financialYear` is set (`docs/germany/weg.md` v0.2 does not decide whether a resolution keeps the advances owed; DE shows which plan it used).
+- **The proposal**, with H = `monthlyHausgeld`, R = `monthlyReserveContribution`, A = the Transaction's amount:
+  - **A = H + R** (`FULL`): `WEG_RECOVERABLE` (the derived `recoverable`), `WEG_NON_RECOVERABLE` (`nonRecoverable`), `WEG_RESERVE_CONTRIBUTION` (R);
+  - **A = R** (`RESERVE_ONLY`, the second debit of F5): `WEG_RESERVE_CONTRIBUTION` (A);
+  - **A = H** (`HAUSGELD_ONLY`): `WEG_RECOVERABLE` and `WEG_NON_RECOVERABLE` as derived;
+  - **two of these at once** (e.g. H = R, or H = 0 and A = R): `AMBIGUOUS`, no splits, the flag `AMBIGUOUS_AMOUNT` with `details.cases`; the user decides;
+  - **otherwise** (`PROPORTIONAL`): A divided in the proportions recoverable : nonRecoverable : reserve, each rounded half-up to the cent, the rest on the largest part; the flag `AMOUNT_DIFFERS_FROM_PLAN` with `details.difference` (A − (H + R), signed).
+  - Every split carries the unit's `propertyReferenceId`; a split of 0 is left out. `ALREADY_SPLIT` is set when the Transaction has splits already.
+- **Response `200`:** `transactionId`, `bookingDate`, `amount`, `propertyReferenceId`, `membershipId`, `economicPlanId`, `case`, `splits: [{ financialCategoryCode, propertyReferenceId, amount }]`, `flags`. One `REPEATABLE READ READ ONLY` snapshot.
+- **Not proposed:** a suggestion from the WEG's IBAN history (out of scope, plan §2).
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Split write against membership end or void:** serialise on the PropertyReference (§49.3).
+- **Plan create against membership end or void:** serialise on the PropertyReference and the membership row.
+- **Plan create against plan create with the same `effectiveFrom`:** the partial unique index; the loser answers `PLAN_EXISTS`.
+
+### Tests (VC-6-02)
+
+- **Domain:** the derived components and their rounding; each flag; every proposal case, ambiguous ones included; the plan chosen for a date and `PLAN_OF_EARLIER_YEAR`.
+- **Repository and schema:** the split rule with and without unit, membership and reversal; the replacement; `MEMBERSHIP_HAS_SPLITS` and `MEMBERSHIP_HAS_PLANS` on end and void; `WEG_HAS_YEARS`; the type change and its `down`; every CHECK and guard of `weg_economic_plan` past the repository; concurrency as above.
+- **API:** every `400`; the error mapping; the proposal's response for each case.
+- **End to end:** a plan with a change of the amounts within the year (two plans, the second from a later month), the two debits of F5 imported and split by proposal, the Hausgeld debit after the change, Realm isolation on every new route.
 
 ---
 

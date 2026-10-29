@@ -1625,6 +1625,8 @@ Miteigentumsanteil is distinct from Ownership Share.
 
 Represent a Wirtschaftsplan for a WEG period.
 
+**Phase 6 (VC-6-02, api-design §49.5, P6-D4):** filed per membership (the unit's Einzelwirtschaftsplan) and financial year, with `effectiveFrom` (the resolution's "ab" date), the monthly Hausgeld and Rücklage, the unit's annual share of the recoverable and non-recoverable cost groups as printed, optional income and reserve figures and cost lines. Statuses `ACTIVE` → `VOID`; the lifecycle below (`DRAFT`, `PROPOSED`, `APPROVED`, `SUPERSEDED`) and `totalPlannedAmount` / `propertyPlannedAmount` are replaced: the owner records the resolved plan, and a later resolution is a new plan with a later `effectiveFrom`.
+
 ---
 
 ## Required Fields
