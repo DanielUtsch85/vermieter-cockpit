@@ -1500,41 +1500,30 @@ MRE `Tenant.guaranty` and `guarantyPayback` remain operational rental-management
 
 ## Required Fields
 
+Per `phase-5-plan.md` P5-D1/D2 (api-design §47.1):
+
 - `id`
-- `rentalContractReferenceId`
-- `requiredAmount`
-- `currency`
-- `status`
+- `mreTenantId` (the MRE Tenant is the lease, P5-D1; was `rentalContractReferenceId`)
+- `expectedAmount` (was `requiredAmount`), `expectedAmountSource` (`REQUEST` | `MRE_GUARANTY`)
+- `currency` (EUR)
+- `interestBearing` (P5-D5)
+- `status`: `ACTIVE` ⇄ `CLOSED`, `ACTIVE` → `VOID` (P5-D2)
 
 ---
 
 ## Optional Fields
 
-- `tenantPartyIds`
-- `holdingFinancialAccountId`
-- `receivedAmount`
-- `receivedDate`
-- `payerPartyId`
-- `sourceIban`
-- `destinationIban`
-- `returnedAmount`
-- `returnedDate`
-- `outstandingAmount`
-- `documentIds`
+- `holdingFinancialAccountId` (a `SECURITY_DEPOSIT` account, P5-D4)
 - `notes`
+- `voidedAt`, `voidReason`; the closing fields of P5-D8 (VC-5-04)
+
+Dropped by P5-D1: `tenantPartyIds`, `payerPartyId`, `sourceIban`, `destinationIban` (the payer and IBANs are on the linked Transactions), `documentIds`. Derived on read, never stored (P5-D2): `receivedAmount`, `receivedDate`, `returnedAmount`, `returnedDate`, `outstandingAmount`.
 
 ---
 
-## Suggested Lifecycle
+## Lifecycle
 
-- `EXPECTED`
-- `PARTIALLY_RECEIVED`
-- `RECEIVED`
-- `HELD`
-- `PARTIALLY_RETURNED`
-- `RETURNED`
-- `OFFSET`
-- `CLOSED`
+The stored status has three values (above). The suggested states `EXPECTED`, `PARTIALLY_RECEIVED`, `RECEIVED` (= `HELD`), `PARTIALLY_RETURNED`, `RETURNED` and `CLOSED` are a derived `state` (P5-D2); `OFFSET` is a closing with a retained part (P5-D8).
 
 ---
 

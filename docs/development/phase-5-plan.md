@@ -45,7 +45,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
 
 ### P5-D1 A deposit belongs to one MRE Tenant, referenced by id (resolves data-model §26's `rentalContractReferenceId`, ADR-013's scope)
 
-- **As P4-D1: the MRE Tenant is the lease.** A `SecurityDeposit` keeps `mreTenantId`, checked against MRE with the caller's token through `GET /tenants/:id`:
+- **As P4-D1: the MRE Tenant is the lease.** A `SecurityDeposit` keeps `mreTenantId`, checked against MRE with the caller's token through the Realm's Tenant list `GET /tenants` (VC-5-01's spec: at the baseline `GET /tenants/:id` answers `500` for an unknown id, api-design §47.1):
   - an unknown Tenant is the existing `MreTenantNotFoundError`, answered `404 NOT_FOUND` with `details.externalId` (`error-answers.ts`, #100: one answer per error class). This is the same answer as for a Party's external reference, where the Tenant id is in the body too. Phase 4's `422 MRE_RENT_TERM_NOT_FOUND` is a different class, for a term, and is not reused;
   - MRE unavailable is `503`, and nothing is written.
 - **`RentalContractReference` is still not introduced.** Data-model §26 and §71 change `rentalContractReferenceId` to `mreTenantId`. The 1 : 0..1 of data-model's relationship table holds per Tenant.
