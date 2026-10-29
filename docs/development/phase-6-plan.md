@@ -35,7 +35,7 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
 **The real documents** (supplied 29.10.2026: three Jahresabrechnungen, one Wirtschaftsplan, one protocol; not committed, structure only):
 - **Einzelwirtschaftsplan:** cost lines in two groups as printed, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each with an allocation key as printed (Miteigentumsanteile, Einheit, a consumption key), the WEG total and the unit's share, and a subtotal per group; an income line; a separate section for the reserve advance; and a "Neufestsetzung" of the **monthly** Hausgeld and Rücklage **from a date within the year**. This shapes VC-6-02 (api-design §49.5).
 - **MEA:** printed with three decimals over 10.000,000 (api-design §49.2).
-- **Jahresabrechnung:** analysed for VC-6-03 when it is specified.
+- **Jahresabrechnung (three years):** the same two cost groups with subtotals; per line the allocation key, the allocation quantities (total and the unit's) and the amounts (total and the unit's); the advances in two blocks (Hausgeld and Rücklage, each requested, paid and balance); the result (costs − Hausgeld requested = Abrechnungsspitze, a back-payment or a credit; the Abrechnungsergebnis; the reserve balance apart); the reserve development (opening, contributions, interest, withdrawals; the unit's share computed by MEA); the WEG's bank accounts and an annex on household-related services (§ 35a EStG), neither stored. This shapes VC-6-03 (api-design §50).
 
 ---
 
@@ -98,10 +98,11 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
     4. the tax class: Phase 7;
   - **the unit's totals as printed:** costs, advances owed under the plan, and the Abrechnungsspitze (back-payment or credit);
   - **the reserve section, optional:** the unit's share at the start and end of the year, contributions and withdrawals, each withdrawal with its description. Its source is the statement or the Vermögensbericht (§ 28 Abs. 4 WEG), recorded as `ANNUAL_STATEMENT` or `ASSET_REPORT`. What neither shows stays `null` (BR-WEG-009, ADR-018); nothing is estimated.
-- **The statement's own check:** the cost lines' shares sum to the printed costs, and costs − advances = the Abrechnungsspitze. A mismatch is a flag (`LINES_DIFFER_FROM_TOTAL`, `SETTLEMENT_DIFFERS`), never a refusal: the printed statement wins, and the flag points to a typo or to the Verwalter.
+- **The statement's own check:** the cost lines' shares sum to the printed subtotals and total, costs − Hausgeld requested = the Abrechnungsspitze, a line's share matches its allocation quantities, and the reserve development adds up. A mismatch is a flag (api-design §50: `LINES_DIFFER_FROM_SUBTOTAL`, `SUBTOTALS_DIFFER_FROM_TOTAL`, `SETTLEMENT_DIFFERS`, `RESULT_DIFFERS`, `LINE_SHARE_DIFFERS`, `RESERVE_DIFFERS`), never a refusal: the printed statement wins, and the flag points to a typo or to the Verwalter.
 - **Lifecycle:**
   - `DRAFT` (entered, editable) → `CONFIRMED` (frozen) → `SUPERSEDED` by a corrected statement for the same membership and year, which keeps the old one readable (BR-WEG-008); also `VOID` from `DRAFT`.
-  - One `CONFIRMED` statement per membership and year.
+  - One `CONFIRMED` statement per membership and year; a corrected statement is confirmed with `supersedes`, which makes the old one `SUPERSEDED` in the same transaction.
+- **Classification default** (P6-D8): a line without one takes the classification of the same account in the last confirmed statement of an earlier year, else its printed group.
 - **Entry:** structured JSON through the API (WF-OPEN-005: a structured import, and OCR later, are out of scope).
 - Docs: data-model §30–§31, api-design §50–§51.
 

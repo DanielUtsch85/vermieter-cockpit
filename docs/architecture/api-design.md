@@ -3648,7 +3648,7 @@ POST /api/v1/weg-economic-plans/{planId}/void                      (VC-6-02, §4
 GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (VC-6-02, §49.6)
 ```
 
-The Jahresabrechnung and the Sonderumlage get their routes with VC-6-03 and VC-6-05 (§50, §51). The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
+The Jahresabrechnung gets its routes with VC-6-03 (§50), its ledger effects with VC-6-04 (§51), the Sonderumlage with VC-6-05. The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
 
 ## 49.1 WEG: create, read, list, amend, void (VC-6-01, implemented: migration 0040)
 
@@ -3944,35 +3944,112 @@ A read, never a write (as §41.5's payment proposal). The client applies it thro
 
 ---
 
-# 50. WEG Annual Statement Import
+# 50. WEG Annual Statement (Jahresabrechnung) (VC-6-03)
+
+Decision P6-D5, shaped by the real Einzelabrechnungen of #93's owner (three years; structure only, no amounts):
+- **Cost lines** in the two groups the Verwalter prints, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each line with its account name, the allocation key as printed (`Miteigentumsanteile`, `Einheit`, a consumption key), the **allocation quantities** (total and the unit's share, e.g. the MEA base and the unit's MEA), and the **amounts** (WEG total and the unit's share); a subtotal per group and a total of the unit's costs;
+- **the advances** in two blocks, Hausgeld and Erhaltungsrücklage, each with *requested*, *paid* and *balance*;
+- **the result**: the unit's costs minus the Hausgeld requested is the **Abrechnungsspitze** (back-payment or credit); the **Abrechnungsergebnis** also takes in what was requested but not paid; the reserve's balance is printed apart;
+- **the development of the reserve**: lines such as the opening balance, contributions, interest and withdrawals, each with *opening*, *addition*, *withdrawal*, *closing* for the WEG, and the unit's share computed by MEA;
+- printed apart and **not** stored here: the WEG's bank accounts (the WEG's books, out of scope, plan §0) and the annex on household-related services (§ 35a EStG; Phase 7/9 with the tenant's statement).
+
+The statement never creates cash and never re-splits a confirmed split (BR-WEG-007, ADR-037); its ledger effects are VC-6-04's (§51).
+
+### Routes
 
 ```text
-POST /api/v1/weg-associations/{id}/annual-statements
+POST /api/v1/weg-memberships/{membershipId}/annual-statements      (VC-6-03, §50)
+GET  /api/v1/weg-memberships/{membershipId}/annual-statements      (VC-6-03, §50)
+GET  /api/v1/weg-annual-statements/{statementId}                   (VC-6-03, §50)
+PUT  /api/v1/weg-annual-statements/{statementId}                   (VC-6-03, §50; DRAFT only)
+POST /api/v1/weg-annual-statements/{statementId}/confirm           (VC-6-03, §50)
+POST /api/v1/weg-annual-statements/{statementId}/void              (VC-6-03, §50; DRAFT only)
 ```
 
-May initially accept:
+The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-cost-lines/{id}/classify`) are superseded: a statement hangs off a membership (P6-D5), and a line's classification is part of the statement's content while `DRAFT`. A CSV import and OCR stay out of scope (WF-OPEN-005).
 
-- manual structured input
-- imported CSV
-- document reference + manual lines
+### The statement
 
-OCR is future work.
+- **Domain owner:** WEG. **Authorization:** as §49.2.
+- **Lifecycle (P6-D5, BR-WEG-008):**
+  - `DRAFT`: entered and editable (`PUT` replaces the content as a whole);
+  - `CONFIRMED`: frozen; at most one per membership and financial year;
+  - `SUPERSEDED`: a corrected statement confirmed with `supersedes` naming it; it stays readable;
+  - `VOID`: from `DRAFT` only (a wrong draft). A `CONFIRMED` statement is never voided; a correction supersedes it.
+- **Header fields:** `membershipId`; `financialYear` (the Wirtschaftsjahr, as §49.5); `periodFrom` and `periodUntil` (the "Nutzungszeitraum": inside the financial year and the membership's period, e.g. part of the year after a purchase); `documentDate` (optional); `resolutionDate` and `dueDate` (optional, § 28 Abs. 2–3 WEG); `supersedes` (optional, a `CONFIRMED` statement of the same membership and year); `sourceReferences`, `notes` as §49.2.
+- **Cost lines** (1–200; data-model §31), each:
+  - `position` (unique), `account` (1–200, as printed), `group`: `RECOVERABLE` | `NON_RECOVERABLE` (the printed group);
+  - `allocationKey` (1–100, as printed); `allocationTotal` and `allocationShare` (optional decimals with up to 3 places, `0 ≤ share ≤ total`, as the MEA, §49.2);
+  - `totalAmount` and `unitShare` (Money, signed: a credit line such as an income is negative);
+  - `classification`: `RECOVERABLE` | `NON_RECOVERABLE` | `RESERVE` (P6-D5), optional on input. Without it, DE takes the classification of the line with the same `account` in the membership's last `CONFIRMED` statement of an earlier year (P6-D8), else the printed `group`. The default is **resolved on create and replace and stored with its source** (`classificationSource`: `USER`, `PREVIOUS_STATEMENT` or `PRINTED_GROUP`), and frozen with the statement: a statement of an earlier year confirmed later never changes it, so §51's `byClassification` stays what was confirmed (review on #148).
+- **Totals as printed** (Money): `recoverableSubtotal`, `nonRecoverableSubtotal`, `totalCosts` (the unit's); `hausgeldRequested`, `hausgeldPaid`; `reserveRequested`, `reservePaid` (optional: some statements print no reserve block); `settlementPeak` (the Abrechnungsspitze, signed: > 0 a back-payment, < 0 a credit); `settlementResult` (the Abrechnungsergebnis, signed, optional).
+- **Reserve section** (optional, BR-WEG-009, ADR-018): `source`: `ANNUAL_STATEMENT` | `ASSET_REPORT` (§ 28 Abs. 4 WEG); `lines` (up to 20), each `{ position, description (1–200), kind: OPENING | CONTRIBUTION | INTEREST | WITHDRAWAL | OTHER, opening, addition, withdrawal, closing }` for the WEG (Money, any of them `null` where not printed); `unitShareOpening`, `unitShareClosing` (Money or `null`). Nothing is estimated: what is not printed stays `null`.
+
+### The statement's own check (flags, never refusals; the printed statement wins, BR-WEG-006)
+
+- `LINES_DIFFER_FROM_SUBTOTAL` with `details.group`, `details.lines`, `details.printed`: the `unitShare` of a group's lines does not sum to its subtotal;
+- `SUBTOTALS_DIFFER_FROM_TOTAL`: `recoverableSubtotal` + `nonRecoverableSubtotal` ≠ `totalCosts`;
+- `SETTLEMENT_DIFFERS` with `details.derived`, `details.printed`: `totalCosts` − `hausgeldRequested` ≠ `settlementPeak`;
+- `RESULT_DIFFERS`: `totalCosts` − `hausgeldPaid` ≠ `settlementResult` (when printed);
+- `LINE_SHARE_DIFFERS` with `details.position`, `details.derived`: with both quantities given, `totalAmount` × `allocationShare` / `allocationTotal`, rounded half-up, differs from `unitShare` by more than one cent;
+- `RESERVE_DIFFERS`: a reserve line's `opening` + `addition` − `withdrawal` ≠ `closing`;
+- `CLASSIFIED_AGAINST_GROUP` with `details.positions`: lines whose `classification` is not their printed `group` (e.g. a reserve contribution printed among the costs); informative.
+- All amounts compare exactly in cents; the flags are derived on read, never stored.
+
+### Commands
+
+- **Create** (`POST …/annual-statements`, `201`, `Idempotency-Key` scope `weg-annual-statement.create`): a `DRAFT` with the content above.
+  - **Order of checks:** `400` (the body; positions unique; `periodFrom ≤ periodUntil`; quantities) → membership `404` → `400 OUT_OF_RANGE` at `periodFrom`/`periodUntil` outside the financial year (it needs the WEG's start month) → `409 MEMBERSHIP_NOT_ACTIVE` → `422 STATEMENT_OUTSIDE_MEMBERSHIP` (the period not inside the membership's) → `supersedes` unknown, of another membership or year, or not `CONFIRMED` → `422 INVALID_SUPERSEDES` with `details.reason`.
+  - Several `DRAFT`s of one year are allowed (e.g. a draft and its correction).
+- **Replace** (`PUT /weg-annual-statements/{id}`, `If-Match`): the whole content again, as on create; only while `DRAFT`, else `409 CONFLICT` with `reason = "STATEMENT_NOT_DRAFT"`; the same content is a `200` no-op.
+- **Confirm** (`POST …/confirm`, `If-Match`, empty body):
+  - `DRAFT` → `CONFIRMED`; a `CONFIRMED` statement is a `200` no-op; `SUPERSEDED` or `VOID` → `409 STATEMENT_NOT_DRAFT`;
+  - with `supersedes`: the named statement becomes `SUPERSEDED` in the same transaction (it must still be `CONFIRMED`, else `422 INVALID_SUPERSEDES`);
+  - without it, another `CONFIRMED` statement of the membership and year → `409 CONFLICT` with `reason = "STATEMENT_EXISTS"` and `details.statementId` (supersede it instead);
+  - the flags do not block a confirm.
+- **Void** (`POST …/void`, `{ reason }`): `DRAFT` → `VOID`; a no-op once `VOID`; `CONFIRMED` or `SUPERSEDED` → `409 STATEMENT_NOT_DRAFT`.
+- **AuditRecords:** `CREATED`, `REPLACED` (with the changed header fields and the line count), `CONFIRMED` (with `supersedes`), `SUPERSEDED` (on the old one, with the new id), `VOIDED`; on the membership `ANNUAL_STATEMENT_ADDED`.
+
+### Reads
+
+- `GET /weg-annual-statements/{id}` with `ETag`: the statement, its lines, its reserve section, `flags`, and the derived sums per classification (`byClassification: { RECOVERABLE, NON_RECOVERABLE, RESERVE }`, the lines' `unitShare` summed), which §51 builds on.
+- `GET /weg-memberships/{id}/annual-statements`: paged, ordered by `financialYear`, then `createdAt`, then id; filters `status`, `financialYear`; lines left out of the list (the single read carries them).
+
+### Rules this adds elsewhere
+
+- **Membership end and void (§49.2):** a statement that is not `VOID` whose period lies outside what would remain → `409 CONFLICT` with `reason = "MEMBERSHIP_HAS_STATEMENTS"` and `details.statementIds`, after `MEMBERSHIP_HAS_PLANS`; `weg_membership_guard` (0041) gains the check.
+- **WEG amend (§49.1):** `WEG_HAS_YEARS` also for a statement that is not `VOID`.
+
+### In the database (migration 0042)
+
+- `weg_annual_statement`: the header and totals (Money `numeric`, scale ≤ 2, `EUR`), the membership by composite foreign key, `status`, `supersedes_id` (self-reference, same membership), `superseded_by_id`, the void fields, `reserve` (`jsonb`, nullable, shape checked by the API), `version`; a partial unique index `(membership_id, financial_year) WHERE status = 'CONFIRMED'`.
+- `weg_statement_cost_line`: one row per line (`statement_id`, `position` unique per statement, the fields above, quantities `numeric(15,3)`), so §51's per-class sums are SQL; Realm by composite foreign key.
+- **Guards:**
+  - `weg_annual_statement_membership` (before insert): writes the PropertyReference first, then the WEG (a no-op, reading `financial_year_start_month` under that lock; as §49.5's plan, review on #147/#148), then needs the membership `ACTIVE` and the period inside it and inside the financial year. The repository's create takes the same locks in the same order (unit → WEG → membership `FOR UPDATE`);
+  - `weg_annual_statement_frozen`: content changes only while `DRAFT`; the steps `DRAFT` → `CONFIRMED` | `VOID`, `CONFIRMED` → `SUPERSEDED` (only with `superseded_by_id` set); `version` + 1; P3-D8's no-op passes; no delete;
+  - `weg_statement_cost_line_frozen`: lines are inserted, changed or deleted only while their statement is `DRAFT`;
+  - the confirm writes the superseded statement first, then the new one (id order is not used: the old one is always locked first), so a second confirm superseding the same statement waits and is refused.
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Two confirms for one membership and year:** the partial unique index; the loser answers `STATEMENT_EXISTS` (RC) or fails to serialise (RR).
+- **Two confirms superseding the same statement:** they serialise on it; the second sees `SUPERSEDED` (`INVALID_SUPERSEDES`).
+- **Statement create against membership end or void:** serialise on the unit, as §49.5.
+- **Statement create against a WEG amend of `financialYearStartMonth`:** serialise on the WEG row; under RC the later one sees the other (`OUT_OF_RANGE` at `periodFrom`, or `WEG_HAS_YEARS`), under RR it fails to serialise. Counter-check: the WEG read instead of written lets an amend and a create commit side by side (review on #148).
+- **Replace against confirm:** they serialise on the statement row; the one that waited sees the other (`412` or `STATEMENT_NOT_DRAFT`).
+
+### Tests (VC-6-03)
+
+- **Domain:** every flag with its details, exact in cents and with signed lines; the classification fallback (user, previous statement, printed group); the lifecycle steps.
+- **Repository and schema:** the order of checks; replace, confirm, supersede, void, with their AuditRecords; every guard past the repository; `down` (under `MIGRATION_ADVISORY_LOCK`); concurrency as above.
+- **API:** every `400`; the error mapping; the DTOs with Money and flags.
+- **End to end:** a statement entered from the structure of the real Einzelabrechnung (two groups, MEA and unit keys, Hausgeld and reserve blocks, a credit as Abrechnungsspitze, the reserve development), confirmed; a corrected one superseding it; the classification proposed from the previous year; Realm isolation on every §50 route.
 
 ---
 
-# 51. WEG Cost Line Classification
+# 51. WEG Statement Ledger Effects (VC-6-04)
 
-```text
-POST /api/v1/weg-cost-lines/{id}/classify
-```
-
-Classification may include:
-
-- financial category
-- recoverability
-- reserve impact
-
-Tax classification remains a separate Taxation command.
+Specified with VC-6-04 (P6-D6): the comparison of the year's counted WEG splits with the statement's classes, the settlement split naming the statement, and the reserve withdrawals for Phase 7.
 
 ---
 
