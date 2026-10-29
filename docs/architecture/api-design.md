@@ -3293,7 +3293,7 @@ Superseded by the plan: `GET /rental-contract-references/{id}/security-deposit` 
 - **MRE client:** the Tenant read from the list, parsed to `_id`, `guaranty` and `guarantyPayback` (each a number or `null`; `guaranty` `0` → `null`, a missing `guarantyPayback` → `null`, P5-D7). The fake MRE's Tenants gain the two fields. `mre.contract.test.ts` pins against the baseline: a Tenant with a `guaranty`, one with MRE's default `0`, and `guarantyPayback` missing until set.
 - **API:** every `400` code above; the error mapping (`404 NOT_FOUND` for an unknown Tenant, `422 EXPECTED_AMOUNT_REQUIRED`, `503 EXTERNAL_SYSTEM_ERROR`, nothing written on any of them, end to end against the fake MRE); a refusal and an idempotent replay without an MRE call; amend and void no-ops, `412`; the list filters and order; Realm isolation end to end.
 
-## 47.2 `securityDepositId` on splits (VC-5-02)
+## 47.2 `securityDepositId` on splits (VC-5-02, implemented: migration 0038)
 
 Decisions P5-D3, P5-D5 and P5-D6. The split is the deposit's link to cash, as `loanId` is a Loan's (§41.5). There is no `link-transaction` or `return` command. A receipt, a repayment and an interest credit are each a `TransactionSplit` that carries the deposit's `securityDepositId`. What they add up to is derived on read (P5-D2, VC-5-03).
 

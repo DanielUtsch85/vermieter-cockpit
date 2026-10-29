@@ -122,4 +122,13 @@ describe('planCorrection (api-design.md §35)', () => {
     );
     expect(correctionFingerprint('a', { reason: 'r2', replacement: {} })).not.toBe(correctionFingerprint('a', base));
   });
+
+  it('securityDepositId is part of the fingerprint only when set, never confused with the same id as loanId (§47.2)', () => {
+    const withSplits = (extra: Partial<SplitInput>) =>
+      correctionFingerprint('a', { reason: 'r', replacement: { splits: [{ ...split('1.00', 'SECURITY_DEPOSIT'), ...extra }] } });
+    expect(withSplits({})).toBe(withSplits({ securityDepositId: null }));
+    expect(withSplits({ securityDepositId: 'D1' })).toBe(withSplits({ securityDepositId: 'd1' }));
+    expect(withSplits({ securityDepositId: 'd1' })).not.toBe(withSplits({}));
+    expect(withSplits({ securityDepositId: 'd1' })).not.toBe(withSplits({ loanId: 'd1' }));
+  });
 });

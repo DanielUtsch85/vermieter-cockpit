@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money, type BusinessDate } from '../../shared/index.js';
-import { checkLoanSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
+import { checkDepositSplits, checkLoanSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
 import type { TransactionStatus } from './transaction.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
@@ -99,5 +99,55 @@ describe('checkLoanSplits (api-design §41.5)', () => {
     expect(checkLoanSplits(outflow, [withLoan('l4')], loans)).toBeUndefined();
     expect(checkLoanSplits(outflow, [withLoan('l3'), withLoan('l2')], loans)).toEqual({ kind: 'LOAN_NOT_ACTIVE', loanId: 'l2', status: 'VOID' });
     expect(checkLoanSplits({ direction: 'INFLOW', reversal: true, bookingDate }, [withLoan('l3')], loans)).toBeUndefined();
+  });
+});
+
+describe('checkDepositSplits (api-design §47.2)', () => {
+  const inflow = { direction: 'INFLOW', reversal: false } as const;
+  const outflow = { direction: 'OUTFLOW', reversal: false } as const;
+  const deposits = new Map([
+    ['a', 'ACTIVE'],
+    ['v', 'VOID'],
+  ]);
+  const dep = (amount: string, code: string, securityDepositId: string) => split(amount, code, { securityDepositId });
+
+  it('a receipt, a repayment and an interest credit pass; a set without deposits is not checked', () => {
+    expect(checkDepositSplits(inflow, [dep('1500', 'SECURITY_DEPOSIT', 'a'), dep('1.20', 'SECURITY_DEPOSIT_INTEREST', 'a')], deposits)).toBeUndefined();
+    expect(checkDepositSplits(outflow, [dep('1500', 'SECURITY_DEPOSIT', 'a')], deposits)).toBeUndefined();
+    expect(checkDepositSplits(outflow, [split('1', 'RENT_BASE')], new Map())).toBeUndefined();
+  });
+
+  it('order: unknown first, then the category, then the interest direction, then VOID; each for the first split', () => {
+    expect(checkDepositSplits(outflow, [dep('1', 'RENT_BASE', 'v'), dep('1', 'SECURITY_DEPOSIT_INTEREST', 'x')], deposits)).toEqual({
+      kind: 'SECURITY_DEPOSIT_NOT_FOUND',
+      securityDepositId: 'x',
+    });
+    expect(checkDepositSplits(outflow, [dep('1', 'SECURITY_DEPOSIT_INTEREST', 'v'), dep('1', 'RENT_BASE', 'a')], deposits)).toEqual({
+      kind: 'INVALID_SECURITY_DEPOSIT_SPLIT',
+      position: 2,
+      reason: 'CATEGORY',
+    });
+    expect(checkDepositSplits(outflow, [dep('1', 'SECURITY_DEPOSIT', 'a'), dep('1', 'SECURITY_DEPOSIT_INTEREST', 'v')], deposits)).toEqual({
+      kind: 'INVALID_SECURITY_DEPOSIT_SPLIT',
+      position: 2,
+      reason: 'DIRECTION',
+    });
+    expect(checkDepositSplits(inflow, [dep('1', 'SECURITY_DEPOSIT', 'a'), dep('1', 'SECURITY_DEPOSIT', 'v')], deposits)).toEqual({
+      kind: 'DEPOSIT_NOT_ACTIVE',
+      securityDepositId: 'v',
+      status: 'VOID',
+    });
+  });
+
+  it('a reversal is exempt from the direction rule only', () => {
+    expect(checkDepositSplits({ direction: 'OUTFLOW', reversal: true }, [dep('1', 'SECURITY_DEPOSIT_INTEREST', 'a')], deposits)).toBeUndefined();
+    expect(checkDepositSplits({ direction: 'OUTFLOW', reversal: true }, [dep('1', 'RENT_BASE', 'a')], deposits)).toMatchObject({ reason: 'CATEGORY' });
+  });
+});
+
+describe('sameSplits with securityDepositId', () => {
+  it('a changed securityDepositId is a change', () => {
+    expect(sameSplits([split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })], [split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'b' })])).toBe(false);
+    expect(sameSplits([split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })], [split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })])).toBe(true);
   });
 });
