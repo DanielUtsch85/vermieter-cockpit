@@ -3302,7 +3302,7 @@ Decisions P5-D3, P5-D5 and P5-D6. The split is the deposit's link to cash, as `l
 `PUT /api/v1/transactions/{id}/splits` (§33.2) accepts `securityDepositId` on a split, lifting its `NOT_SUPPORTED`. `correct` accepts it in `replacement.splits` (§35.2), and a reversal mirrors it (below). Every split in a response carries `securityDepositId` (`null` without one), as do the Transaction reads (§30).
 
 - **Rules for a split with `securityDepositId`:**
-  - **The deposit:** of the caller's Realm, else `404 NOT_FOUND` with `details.securityDepositId`, for the first such split in position order. It must not be `VOID`, else `409 CONFLICT` with `reason = "SECURITY_DEPOSIT_NOT_ACTIVE"` and `details.securityDepositId` and `details.status`. VC-5-04 adds `409 SECURITY_DEPOSIT_CLOSED` for a `CLOSED` deposit right after this check (P5-D8); until then no deposit can be `CLOSED` (0037).
+  - **The deposit:** of the caller's Realm, else `404 NOT_FOUND` with `details.securityDepositId`, for the first such split in position order. It must not be `VOID`, else `409 CONFLICT` with `reason = "DEPOSIT_NOT_ACTIVE"` and `details.securityDepositId` and `details.status`. This is §47.1's code, as `LOAN_NOT_ACTIVE` serves both a Loan's amend and its splits (§41.1, §41.5): one family of deposit codes (`DEPOSIT_NOT_ACTIVE`, `DEPOSIT_CLOSED`) for amend, void and split (review on #132). VC-5-04 adds `409 DEPOSIT_CLOSED` for a `CLOSED` deposit right after this check (P5-D8); until then no deposit can be `CLOSED` (0037).
   - **The category and the direction** (P5-D3, P5-D5):
     - `SECURITY_DEPOSIT` on an `INFLOW` is a **receipt**;
     - `SECURITY_DEPOSIT` on an `OUTFLOW` is a **repayment**;
@@ -3317,7 +3317,7 @@ Decisions P5-D3, P5-D5 and P5-D6. The split is the deposit's link to cash, as `l
   1. `400`, `NOT_ALLOWED_WITH_SECURITY_DEPOSIT` among them;
   2. Transaction `404`; `409 TRANSACTION_FROZEN`; `409 SPLIT_SUM_MISMATCH`; `412`; `UNKNOWN_CATEGORY`; PropertyReference `404`, all unchanged;
   3. the Loan checks of §41.5 and §41.7, unchanged;
-  4. deposit `404` → `422 INVALID_SECURITY_DEPOSIT_SPLIT` (`CATEGORY`, then `DIRECTION`) → `409 SECURITY_DEPOSIT_NOT_ACTIVE`, each for the first split in position order.
+  4. deposit `404` → `422 INVALID_SECURITY_DEPOSIT_SPLIT` (`CATEGORY`, then `DIRECTION`) → `409 DEPOSIT_NOT_ACTIVE`, each for the first split in position order.
 - **Same set again** (§33.2's no-op): `securityDepositId` is part of the comparison. Changing only a split's `securityDepositId` is a change: it gets a new version and the AuditRecord `SPLITS_REPLACED`, and it is refused once the Transaction is frozen.
 - **Confirm (§34):** unchanged. A confirmed Transaction's splits, `securityDepositId` included, are frozen (0009). A forgotten or wrong link is fixed by `correct`, whose replacement carries the right splits.
 
@@ -3329,7 +3329,7 @@ Decisions P5-D3, P5-D5 and P5-D6. The split is the deposit's link to cash, as `l
 ### Corrections of deposit cash
 
 - **Reversal** (`correct` and `reverse`, §35.3, §35.9): its splits mirror the original's `securityDepositId` together with category, PropertyReference, `loanId` and amount. 0014's comparison gains `security_deposit_id`, so a reversal cannot drop or change it, and each deposit's history stays complete.
-- **Replacement:** its splits follow the rules above, whether copied from the original (§35.2) or given in the request. A copied split whose deposit has become `VOID` is refused like any other (`409 SECURITY_DEPOSIT_NOT_ACTIVE`); the client then sends the replacement's splits. (A deposit with splits cannot be voided, below, so this needs a deposit voided before any of its splits was written.)
+- **Replacement:** its splits follow the rules above, whether copied from the original (§35.2) or given in the request. A copied split whose deposit has become `VOID` is refused like any other (`409 DEPOSIT_NOT_ACTIVE`); the client then sends the replacement's splits. (A deposit with splits cannot be voided, below, so a copied split never meets a `VOID` deposit; the refusal is defence in depth.)
 
 ### What counts
 
@@ -3344,7 +3344,7 @@ A deposit's cash is the splits with its `securityDepositId` on **current** Trans
 
 - **Lock order Transaction → SecurityDeposit**, as Transaction → Loan in §41.5. `securityDepositId` is written through the ledger's own path (`PUT …/splits`, `correct`, `reverse`), which locks the Transaction first (§34.2, §35.5). After that lock, the repository locks the split set's Loans in id order (§41.5) and then its deposits `FOR UPDATE` in id order, and checks them. `correct` and `reverse` lock every deposit they write in one id-ordered step: the original's, which the reversal mirrors, and the replacement's. Past the repository the split guard **writes** the deposit row (P3-D8's no-op), so a stale `void` under REPEATABLE READ fails to serialise (`40001`) instead of passing a share lock.
 - **Deposit writers never lock a Transaction or a Loan:** amend and void (and VC-5-04's close and reopen) lock only the deposit row and read splits. Loan writers never lock a deposit. No cycle can arise.
-- **Void against a split write:** they serialise on the deposit row. Whichever comes second sees the other's result under READ COMMITTED (the void is refused with `DEPOSIT_HAS_SPLITS`, or the split with `SECURITY_DEPOSIT_NOT_ACTIVE`), or fails to serialise under REPEATABLE READ.
+- **Void against a split write:** they serialise on the deposit row. Whichever comes second sees the other's result under READ COMMITTED (the void is refused with `DEPOSIT_HAS_SPLITS`, or the split with `DEPOSIT_NOT_ACTIVE`), or fails to serialise under REPEATABLE READ.
 - **The import path writes no splits** (§32), so it never reaches a deposit row.
 
 ### In the database (VC-5-02)
@@ -3367,7 +3367,7 @@ A deposit's cash is the splits with its `securityDepositId` on **current** Trans
 
 - **API:**
   - every `400` (`NOT_ALLOWED_WITH_SECURITY_DEPOSIT` with a PropertyReference and with a Loan, a malformed `securityDepositId`);
-  - the error mapping (`404` deposit, `INVALID_SECURITY_DEPOSIT_SPLIT` with both reasons, `SECURITY_DEPOSIT_NOT_ACTIVE`, `DEPOSIT_HAS_SPLITS` on void);
+  - the error mapping (`404` deposit, `INVALID_SECURITY_DEPOSIT_SPLIT` with both reasons, `DEPOSIT_NOT_ACTIVE`, `DEPOSIT_HAS_SPLITS` on void);
   - `securityDepositId` in the split responses and in `GET /transactions/{id}`.
 - **Repository:**
   - the order of checks, including a set with a Loan split and a deposit split;
