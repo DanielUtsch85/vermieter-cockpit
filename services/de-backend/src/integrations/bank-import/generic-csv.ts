@@ -26,6 +26,7 @@ import { normalizeIbanRaw, normalizeReference, normalizeText, parseSignedAmount,
  * everything else, the fingerprint field set included, is as in version 1. It
  * also reads the optional `accountIban` column, the file's own account, which
  * the import checks against the FinancialAccount (#107); rows are not changed by it.
+ * Version 2 also takes a named `preset` in place of the `columnMapping` (#108).
  */
 
 export const GENERIC_CSV_ID = 'generic-csv';
@@ -65,16 +66,51 @@ export const genericCsvOptionsV2 = z
   .strict();
 export type GenericCsvOptions = z.infer<typeof genericCsvOptionsV2>;
 
-export const genericCsvAdapter: BankStatementAdapter = genericCsv(GENERIC_CSV_VERSION, genericCsvOptions);
-export const genericCsvAdapterV2: BankStatementAdapter = genericCsv(GENERIC_CSV_VERSION_2, genericCsvOptionsV2);
+/**
+ * Column mappings shipped with version 2 (#108), chosen by name with `preset` instead of a `columnMapping`. They are
+ * part of the adapter version: a preset never changes under a released version, a changed one is a new name.
+ */
+export const GENERIC_CSV_PRESETS = {
+  /** The export of the cooperative banks' online banking (BBBank, Volksbanken, Raiffeisenbanken): `;`, `1.234,56`, `DD.MM.YYYY`. */
+  'vr-banking': {
+    bookingDate: 'Buchungstag',
+    valueDate: 'Valutadatum',
+    amount: 'Betrag',
+    currency: 'Waehrung',
+    counterpartyName: 'Name Zahlungsbeteiligter',
+    counterpartyIban: 'IBAN Zahlungsbeteiligter',
+    description: 'Verwendungszweck',
+    balanceAfter: 'Saldo nach Buchung',
+    accountIban: 'IBAN Auftragskonto',
+  },
+} as const satisfies Record<string, GenericCsvOptions['columnMapping']>;
 
-function genericCsv(version: string, schema: typeof genericCsvOptions | typeof genericCsvOptionsV2): BankStatementAdapter {
+/**
+ * Version 2's `preset`: replaced by its column mapping before validation. A preset together with a `columnMapping`, or
+ * an unknown preset, is refused (`INVALID_OPTIONS`), never merged or guessed.
+ */
+function withPreset(rawOptions: unknown): { readonly options: unknown } | { readonly error: StatementError } {
+  if (typeof rawOptions !== 'object' || rawOptions === null || !('preset' in rawOptions)) return { options: rawOptions };
+  const { preset, ...rest } = rawOptions as Record<string, unknown>;
+  if ('columnMapping' in rest) return { error: { code: 'INVALID_OPTIONS', message: 'Invalid adapter options: preset and columnMapping together' } };
+  if (typeof preset !== 'string' || !Object.hasOwn(GENERIC_CSV_PRESETS, preset)) {
+    return { error: { code: 'INVALID_OPTIONS', message: `Invalid adapter options: preset (known: ${Object.keys(GENERIC_CSV_PRESETS).join(', ')})` } };
+  }
+  return { options: { ...rest, columnMapping: GENERIC_CSV_PRESETS[preset as keyof typeof GENERIC_CSV_PRESETS] } };
+}
+
+export const genericCsvAdapter: BankStatementAdapter = genericCsv(GENERIC_CSV_VERSION, genericCsvOptions, false);
+export const genericCsvAdapterV2: BankStatementAdapter = genericCsv(GENERIC_CSV_VERSION_2, genericCsvOptionsV2, true);
+
+function genericCsv(version: string, schema: typeof genericCsvOptions | typeof genericCsvOptionsV2, presets: boolean): BankStatementAdapter {
   return {
     id: GENERIC_CSV_ID,
     version,
     provenance: 'BANK_CSV',
     parse(file, rawOptions, accountCurrency) {
-      const parsedOptions = schema.safeParse(rawOptions);
+      const resolved = presets ? withPreset(rawOptions) : { options: rawOptions };
+      if ('error' in resolved) return { error: resolved.error };
+      const parsedOptions = schema.safeParse(resolved.options);
       if (!parsedOptions.success) {
         const fields = parsedOptions.error.issues.map((i) => i.path.join('.') || '(options)').join(', ');
         return fail('INVALID_OPTIONS', `Invalid adapter options: ${fields}`);

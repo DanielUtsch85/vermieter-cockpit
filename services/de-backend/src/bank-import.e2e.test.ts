@@ -229,6 +229,22 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
     expect(await stored()).toBe(1);
   });
 
+  it('v2 preset vr-banking (#108): a cooperative-bank export imports without a hand-typed mapping', async () => {
+    const created = await fetch(`${base}/api/v1/financial-accounts`, {
+      method: 'POST',
+      headers: { ...headers(REALM_A), 'content-type': 'application/json' },
+      body: JSON.stringify({ accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: 'DE02120300000000202051' }),
+    });
+    const { financialAccountId } = (await created.json()) as { financialAccountId: string };
+    const export_ = [
+      'Bezeichnung Auftragskonto;IBAN Auftragskonto;BIC Auftragskonto;Bankname Auftragskonto;Buchungstag;Valutadatum;Name Zahlungsbeteiligter;IBAN Zahlungsbeteiligter;BIC (SWIFT-Code) Zahlungsbeteiligter;Buchungstext;Verwendungszweck;Betrag;Waehrung;Saldo nach Buchung;Bemerkung;Gekennzeichneter Umsatz;Glaeubiger ID;Mandatsreferenz',
+      'Giro;DE02120300000000202051;BYLADEM1001;Bank;01.10.2026;01.10.2026;Erika Mieterin;DE89370400440532013000;COBADEFFXXX;Gutschrift;Miete Oktober;850,00;EUR;1.850,00;;;;',
+    ].join('\n');
+    const res = await upload(REALM_A, financialAccountId, export_, { adapterVersion: '2', preset: 'vr-banking' });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ adapterVersion: '2', transactionCount: 1, continuity: { previousExport: 'NO_EARLIER_BALANCE' } });
+  });
+
   it("another Realm's account is 404 and a broken file is 400 IMPORT_ERROR; neither stores a batch", async () => {
     const foreign = await newAccount(REALM_B);
     expect((await upload(REALM_A, foreign, csv)).status).toBe(404);
