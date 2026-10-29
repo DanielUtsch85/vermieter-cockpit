@@ -2,7 +2,7 @@
 
 A Germany-focused investment, finance, tax, and condominium-management extension for [MicroRealEstate](https://github.com/microrealestate/microrealestate).
 
-> **Project status:** Phases 0–4 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back). A [run with real landlord data](docs/development/real-data-run.md) has checked the bank import, the loan schedule and the rent reconciliation against reality; its findings are fixed or tracked. Phase 5 (Security Deposit) is [planned](docs/development/phase-5-plan.md) and not started.  
+> **Project status:** Phases 0–4 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back). A [run with real landlord data](docs/development/real-data-run.md) has checked the bank import and the rent reconciliation against reality, and the loan schedule in part (the comparison with the bank's own plan is still open); its findings are fixed or tracked in issues. Phase 5 (Security Deposit) is [planned](docs/development/phase-5-plan.md) and not started.  
 > There is no DE cockpit UI yet. The project is not yet intended for production use. See [Project Status](#project-status).
 
 ## Vision
@@ -358,7 +358,7 @@ The public business API is under `/api/v1`. Its contracts are documented in [API
 ### Next work and current limits
 
 - **Phase 5:** Security Deposit per the [Phase-5 plan](docs/development/phase-5-plan.md) (VC-5-01 to VC-5-05): deposits the landlord holds, linked to cash through splits, never mistaken for rent.
-- **Real-data run, open part:** the comparison of the computed loan schedule with the bank's own amortization plan (step 2, part 2) is still open; see the [real-data run](docs/development/real-data-run.md).
+- **Real-data run, open part:** the comparison of the computed loan schedule with the bank's own amortization plan (step 2, part 2), and with it F9, the first interest period ([#121](https://github.com/DanielUtsch85/vermieter-cockpit/issues/121)); F11, a split proposal from the MRE term for rent payments ([#126](https://github.com/DanielUtsch85/vermieter-cockpit/issues/126)), is tracked and not yet decided. See the [real-data run](docs/development/real-data-run.md).
 - **Later domains:** WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
 - **User interface:** There is no DE cockpit UI yet. General read/list endpoints for FinancialAccounts and PropertyReferences are also pending.
 - **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
