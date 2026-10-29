@@ -81,6 +81,7 @@ import {
   RemainingDebtNotZeroError,
   RemovalTooEarlyError,
   RentCashExceededError,
+  RentNotProposableError,
   ReviewItemNotFoundError,
   ReviewResolutionConflictError,
   SecurityDepositNotFoundError,
@@ -476,6 +477,13 @@ const TABLE = [
       reason: 'RENT_CASH_EXCEEDED',
       rentCash: error.rentCash.toJSON(),
       available: error.available.toJSON(),
+    }),
+  ),
+  on(RentNotProposableError, (error) =>
+    answer(409, 'CONFLICT', 'Only an unconfirmed INFLOW gets a rent split proposal.', {
+      reason: 'NOT_PROPOSABLE',
+      direction: error.direction,
+      status: error.status,
     }),
   ),
   on(ReviewItemNotFoundError, (error) => answer(404, 'NOT_FOUND', 'ImportReviewItem not found in this ImportBatch.', { reviewItemId: error.reviewItemId })),

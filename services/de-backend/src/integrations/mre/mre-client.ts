@@ -124,6 +124,20 @@ export interface MreTenantDeposit {
   readonly guarantyPayback: Money | null;
 }
 
+/**
+ * One stored rent term's totals as `computeRent` wrote them (baseline `479d0ad`, `tasks/7_total.js`), each rounded
+ * half-up to the cent once (api-design.md §37.6). `toRentData` has no separate rent and charges.
+ */
+export interface MreRentBreakdown {
+  readonly preTaxAmount: Money;
+  readonly charges: Money;
+  readonly debts: Money;
+  readonly discount: Money;
+  readonly vat: Money;
+  readonly balance: Money;
+  readonly grandTotal: Money;
+}
+
 export type MreClientErrorCode =
   /** MRE rejected the token (missing, malformed, expired, bad signature): HTTP 401. */
   | 'UNAUTHENTICATED'
@@ -169,6 +183,12 @@ export interface MreClient {
    * half-up to the cent once; `guaranty` `0` (MRE's default) and a missing `guarantyPayback` are `null`.
    */
   readTenantDeposit(accessToken: string, mreRealmId: string, mreTenantId: string): Promise<MreTenantDeposit | undefined>;
+
+  /**
+   * One rent term's totals of a Tenant, read from the Realm's list `GET /tenants` (its stored `rents[]`, api-design.md
+   * §37.6); undefined when the list has no such Tenant or the Tenant no such term. Only the term's totals are kept.
+   */
+  readRentBreakdown(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRentBreakdown | undefined>;
 
   /**
    * Whether the MRE Tenant `mreTenantId` of the Realm has the rent term `term` (`YYYYMMDDHH`), read through

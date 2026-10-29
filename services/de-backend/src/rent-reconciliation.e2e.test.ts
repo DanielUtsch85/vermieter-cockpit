@@ -19,6 +19,7 @@ import {
   rejectReconciliation,
   writeBackToMre,
   getReconciliationWithPresence,
+  getRentSplitProposal,
   removeFromMre,
   reverseTransaction,
   setTransactionSplits,
@@ -27,6 +28,7 @@ import {
   PostgresCorrectionRepository,
   PostgresFinancialAccountRepository,
   PostgresRentReconciliationRepository,
+  PostgresTransactionQueries,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
   createDatabase,
@@ -35,7 +37,15 @@ import {
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre, type FakeRealm } from './integrations/mre/fake-mre.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
-import { mreMonthReader, mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
+import {
+  mreMonthReader,
+  mrePrincipalVerifier,
+  mreRentTermLookup,
+  mreRentTermReader,
+  mreRentBreakdownReader,
+  mreWriteBackTermReader,
+  mreWriteBackTermWriter,
+} from './wiring.js';
 
 /**
  * VC-4-01 end to end (api-design.md §37.1), wired as in main.ts, against a fake MRE and PostgreSQL: the MRE term read
@@ -62,6 +72,23 @@ const TENANT_F2 = '6512f0c2a1b2c3d4e5f60f02';
 // Realm E for the removal (§37.5): MRE's own cash payment next to DE's.
 const REALM_E = '64b0c0ffee0000000000001c';
 const TENANT_E = '6512f0c2a1b2c3d4e5f60e01';
+// Realm G for the split proposal (#126, §37.6): rent 650 and charges 150 stored on the Tenant, as MRE's list carries them.
+const REALM_G = '64b0c0ffee0000000000001e';
+const TENANT_G = '6512f0c2a1b2c3d4e5f60e71';
+const realmG: FakeRealm = {
+  _id: REALM_G,
+  name: 'G',
+  members: [{ name: 'Anna', email: 'anna@example.com', role: 'administrator', registered: true }],
+  applications: [],
+  rents: { [TENANT_G]: [2028030100] },
+  tenants: [
+    {
+      _id: TENANT_G,
+      name: 'Mieterin G',
+      rents: [{ term: 2028030100, total: { preTaxAmount: 650, charges: 150, debts: 0, discount: 0, vat: 0, balance: 0, grandTotal: 800 } }],
+    },
+  ],
+};
 const realmE: FakeRealm = {
   _id: REALM_E,
   name: 'E',
@@ -128,6 +155,7 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
       },
       realmD,
       realmE,
+      realmG,
       {
         _id: REALM_F,
         name: 'F',
@@ -164,6 +192,7 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
             leaseMs: 300,
           }),
           getWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(lookupClient) }),
+          splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(lookupClient) }),
           removeFromMre: removeFromMre({
             repository: reconciliations,
             readTerm: mreWriteBackTermReader(lookupClient),
@@ -665,5 +694,53 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
       { action: 'REMOVAL_STARTED', patched: null },
       { action: 'REMOVED', patched: 'false' },
     ]);
+  });
+
+  it('#126 (§37.6): suggest says why it found nothing; the split proposal from the stored term, applied and confirmed, is then suggested', async () => {
+    const G = (method: string, path: string, body?: unknown) => call(REALM_G, method, path, body);
+    const account = (await (await G('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro G', currency: 'EUR' })).json()) as {
+      financialAccountId: string;
+    };
+    const tx = (await (
+      await G('POST', '/transactions', {
+        financialAccountId: account.financialAccountId,
+        amount: eur('800.00'),
+        direction: 'INFLOW',
+        bookingDate: '2028-03-01',
+      })
+    ).json()) as { transactionId: string };
+    const before = (await (await G('POST', '/rent-reconciliations/suggest', { from: '2028-03', to: '2028-03' })).json()) as {
+      items: unknown[];
+      skipped: { unconfirmed: number; unsplit: number };
+    };
+    expect(before).toMatchObject({ items: [], skipped: { unconfirmed: 1, unsplit: 0 } });
+
+    const res = await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${TENANT_G}&mreRentTerm=2028030100`);
+    expect(res.status, await res.clone().text()).toBe(200);
+    const proposal = (await res.json()) as { splits: { financialCategoryCode: string; amount: { amount: string; currency: string } }[]; flags: unknown[] };
+    expect(proposal).toMatchObject({
+      splits: [
+        { financialCategoryCode: 'RENT_BASE', amount: eur('650.00') },
+        { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: eur('150.00') },
+      ],
+      unallocated: eur('0.00'),
+      flags: [],
+    });
+    // A term MRE does not hold is 422 MRE_RENT_TERM_NOT_FOUND.
+    expect(
+      (await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${TENANT_G}&mreRentTerm=2028040100`)).status,
+    ).toBe(422);
+    expect((await G('PUT', `/transactions/${tx.transactionId}/splits`, { splits: proposal.splits })).status).toBe(200);
+    expect((await G('POST', `/transactions/${tx.transactionId}/confirm`)).status).toBe(200);
+    // Confirmed now: no more proposal; and suggest finds the payment.
+    expect(
+      (await G('GET', `/rent-reconciliations/split-proposal?transactionId=${tx.transactionId}&mreTenantId=${TENANT_G}&mreRentTerm=2028030100`)).status,
+    ).toBe(409);
+    const after = (await (await G('POST', '/rent-reconciliations/suggest', { from: '2028-03', to: '2028-03' })).json()) as {
+      items: { transactionId: string; mreRentTerm: string }[];
+      skipped: { unconfirmed: number; unsplit: number };
+    };
+    expect(after.items.map((i) => [i.transactionId, i.mreRentTerm])).toEqual([[tx.transactionId, '2028030100']]);
+    expect(after.skipped).toEqual({ unconfirmed: 0, unsplit: 0 });
   });
 });

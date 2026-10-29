@@ -28,6 +28,7 @@ export async function suggestionSnapshot(
   terms: readonly { readonly mreTenantId: string; readonly mreRentTerm: string }[],
   from: BusinessDate,
   to: BusinessDate,
+  window: { readonly from: BusinessDate; readonly to: BusinessDate },
 ): Promise<SuggestionSnapshot> {
   return db
     .transaction()
@@ -91,7 +92,18 @@ export async function suggestionSnapshot(
         .where('r.status', '=', 'CONFIRMED')
         .where('t.counterparty_iban_raw', 'is not', null)
         .execute();
+      // §37.6: the window's INFLOWs no rule could see; IGNORED ones are out of the ledger and not counted.
+      const skipped = await sql<{ unconfirmed: number; unsplit: number }>`
+      SELECT
+        count(*) FILTER (WHERE t.status IN ('IMPORTED', 'UNREVIEWED', 'CLASSIFIED'))::int AS unconfirmed,
+        count(*) FILTER (WHERE t.status IN ('CONFIRMED', 'RECONCILED') AND t.correction_role IS DISTINCT FROM 'REVERSAL'
+          AND NOT EXISTS (SELECT 1 FROM transaction_split s JOIN financial_category c ON c.id = s.financial_category_id
+            WHERE s.transaction_id = t.id AND c.code IN (${sql.join(RENT_CATEGORIES.map((c) => sql`${c}`))})))::int AS unsplit
+      FROM ledger_transaction t
+      WHERE t.mre_realm_id = ${mreRealmId} AND t.direction = 'INFLOW' AND t.booking_date BETWEEN ${window.from} AND ${window.to}`.execute(trx);
+      const counts = skipped.rows[0] ?? { unconfirmed: 0, unsplit: 0 };
       return {
+        skipped: { unconfirmed: counts.unconfirmed, unsplit: counts.unsplit },
         candidates,
         confirmedByTerm,
         handled,

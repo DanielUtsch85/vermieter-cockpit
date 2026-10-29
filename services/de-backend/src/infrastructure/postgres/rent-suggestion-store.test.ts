@@ -2,6 +2,8 @@ import type pg from 'pg';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { PostgresCorrectionRepository } from './correction-repository.js';
 import type { PostgresRentReconciliationRepository } from './rent-reconciliation-repository.js';
+import { createDatabase } from './database.js';
+import { PostgresUnconfirmedTransactionRepository } from './unconfirmed-transaction-repository.js';
 import {
   databaseUrl,
   REALM,
@@ -43,6 +45,22 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestion
       return written;
     };
 
+    it('suggestionSnapshot skipped (§37.6): the window’s unconfirmed and unsplit INFLOWs; ignored, outflows, rent cash and other dates are not counted', async () => {
+      const window = { from: day('2031-02-15'), to: day('2031-03-31') };
+      await transaction([split('800.00')], { bookingDate: '2031-03-01', confirm: false });
+      await transaction([split('800.00')], { bookingDate: '2031-02-15', confirm: false });
+      await transaction([split('800.00', 'OTHER_INCOME')], { bookingDate: '2031-03-02' });
+      await transaction([split('800.00')], { bookingDate: '2031-03-03' });
+      await transaction([split('800.00', 'OTHER_INCOME')], { bookingDate: '2031-03-04', direction: 'OUTFLOW' });
+      await transaction([split('800.00', 'OTHER_INCOME')], { bookingDate: '2031-04-01' });
+      await transaction([split('800.00')], { bookingDate: '2031-03-05', confirm: false, realm: OTHER_REALM });
+      const ignored = await transaction([split('800.00')], { bookingDate: '2031-03-06', confirm: false });
+      expect((await new PostgresUnconfirmedTransactionRepository(createDatabase(pool)).ignore(ignored, REALM, 'kein Mieteingang', actor)).kind).toBe('IGNORED');
+      const snapshot = await repository.suggestionSnapshot(REALM, [], window.from, window.to, window);
+      expect(snapshot.skipped).toEqual({ unconfirmed: 2, unsplit: 1 });
+      expect((await repository.suggestionSnapshot(OTHER_REALM, [], window.from, window.to, window)).skipped).toEqual({ unconfirmed: 1, unsplit: 0 });
+    });
+
     it('suggestionSnapshot: counted INFLOW with available cash in the window; term sums; handled and open pairs; the IBAN history', async () => {
       const inWindow = await transaction([split('800.00')], { bookingDate: '2027-05-03', iban: 'DE11' });
       const consumed = await transaction([split('800.00')], { bookingDate: '2027-05-04' });
@@ -58,6 +76,7 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestion
         [{ mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100' }],
         day('2027-04-15'),
         day('2027-06-30'),
+        { from: day('2027-04-15'), to: day('2027-06-30') },
       );
       const ids = snapshot.candidates.map((c) => c.transactionId);
       expect(ids).toContain(inWindow);
@@ -72,7 +91,10 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestion
       expect(snapshot.open).toContainEqual({ transactionId: pending.transactionId, mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027060100' });
       expect(snapshot.handled).toContainEqual({ transactionId: partly, mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100' });
       expect(snapshot.history).toContainEqual({ mreTenantId: SUG_REALM_TENANT, counterpartyIban: 'DE22' });
-      expect((await repository.suggestionSnapshot(OTHER_REALM, [], day('2027-04-15'), day('2027-06-30'))).candidates).toEqual([]);
+      expect(
+        (await repository.suggestionSnapshot(OTHER_REALM, [], day('2027-04-15'), day('2027-06-30'), { from: day('2027-04-15'), to: day('2027-06-30') }))
+          .candidates,
+      ).toEqual([]);
     });
 
     it('writeSuggestions: SUGGESTED with an AuditRecord; a pair changed in between or already handled is skipped', async () => {
@@ -162,7 +184,7 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation suggestion
       const audit = await pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at`, [s1.id]);
       expect(audit.rows.map((r) => r.action)).toEqual(['SUGGESTED', 'REJECTED']);
       // A rejected pair is handled: in the snapshot, and never written again while its cash is still all available.
-      const snapshot = await repository.suggestionSnapshot(REALM, [], day('2027-05-01'), day('2027-05-31'));
+      const snapshot = await repository.suggestionSnapshot(REALM, [], day('2027-05-01'), day('2027-05-31'), { from: day('2027-05-01'), to: day('2027-05-31') });
       expect(snapshot.handled).toContainEqual({ transactionId: t, mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100' });
       expect(snapshot.open).not.toContainEqual({ transactionId: t, mreTenantId: SUG_REALM_TENANT, mreRentTerm: '2027050100' });
       expect(await repository.writeSuggestions(REALM, [suggestion(t)], actor)).toEqual([]);

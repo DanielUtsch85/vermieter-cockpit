@@ -386,15 +386,29 @@ export interface SuggestionSnapshot {
   readonly handled: readonly SuggestionPair[];
   readonly open: readonly SuggestionPair[];
   readonly history: readonly { readonly mreTenantId: string; readonly counterpartyIban: string }[];
+  /** §37.6: the window's `INFLOW` Transactions no rule could see. */
+  readonly skipped: SkippedInflows;
+}
+
+/** §37.6's suggest hint: counts, a Transaction in at most one. */
+export interface SkippedInflows {
+  /** `IMPORTED`, `UNREVIEWED` or `CLASSIFIED`. */
+  readonly unconfirmed: number;
+  /** Counted, with no split in a rent category. */
+  readonly unsplit: number;
 }
 
 export interface RentReconciliationRepository {
-  /** §37.3 step 2: candidates booked from `from` to `to`, the terms' confirmed sums, handled and open pairs, the IBAN history. */
+  /**
+   * §37.3 step 2: candidates booked from `from` to `to`, the terms' confirmed sums, handled and open pairs, the IBAN
+   * history; and §37.6's skipped inflows booked within `window`.
+   */
   suggestionSnapshot(
     mreRealmId: string,
     terms: readonly { readonly mreTenantId: string; readonly mreRentTerm: string }[],
     from: BusinessDate,
     to: BusinessDate,
+    window: { readonly from: BusinessDate; readonly to: BusinessDate },
   ): Promise<SuggestionSnapshot>;
   /** §37.3 step 4: the Transactions in id order, each pair re-checked; returns the reconciliations written. */
   writeSuggestions(mreRealmId: string, suggestions: readonly Suggestion[], actor: AuditActor): Promise<readonly RentPaymentReconciliation[]>;

@@ -391,3 +391,5 @@ export type {
 } from './rent-write-back.js';
 export { RECONCILIATION_STATUSES, WRITE_BACK_STATES, isTermKey } from '../domains/rent-reconciliation/index.js';
 export type { Coverage, ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';
+export { RentNotProposableError, getRentSplitProposal } from './rent-split-proposal.js';
+export type { GetRentSplitProposal, MreRentBreakdownReader, RentSplitProposalView } from './rent-split-proposal.js';

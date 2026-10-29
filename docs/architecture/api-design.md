@@ -2307,7 +2307,7 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
   - the record without the attempt check;
   - the release's lease check on the application's clock.
 
-## 37.6 Rent split proposal and the suggest hint (#126, real-data run F11)
+## 37.6 Rent split proposal and the suggest hint (#126, real-data run F11, implemented)
 
 Finding F11 of `real-data-run.md`: every rent payment needs `PUT …/splits` (`RENT_BASE` + `RENT_OPERATING_COST_ADVANCE`) and `confirm` before `suggest` sees it (P4-D3), and the split always repeats MRE's own breakdown of the term. A suggest run over unsplit or unconfirmed inflows answered an empty list without saying why.
 

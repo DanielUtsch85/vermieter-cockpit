@@ -57,7 +57,19 @@ describe('HttpMreClient against a fake MRE', () => {
           { _id: PROPERTY_B, name: 'Stellplatz' },
         ],
         // A float `guaranty` and no `guarantyPayback`, as MRE keeps a Tenant before its lease ends (§47.1).
-        tenants: [{ _id: TENANT_A, name: 'Tina Mieterin', contacts: [{ email: 'tina@example.com' }], guaranty: 2999.995 }],
+        tenants: [
+          {
+            _id: TENANT_A,
+            name: 'Tina Mieterin',
+            contacts: [{ email: 'tina@example.com' }],
+            guaranty: 2999.995,
+            // The stored rents as computeRent writes them (§37.6); more than the client keeps.
+            rents: [
+              { term: 2027010100, total: { preTaxAmount: 650.004, charges: 150, debts: 0, discount: 0, vat: 0, balance: 0, grandTotal: 800, payment: 800 } },
+              { term: 2027020100, total: { preTaxAmount: 650, charges: 150, debts: 25, discount: 5, vat: 0, balance: 100.005, grandTotal: 920.005 } },
+            ],
+          },
+        ],
         rents: { [TENANT_A]: [2027010100, 2027020100] },
         rentTerms: {
           [`${TENANT_A}/2027020100`]: {
@@ -156,6 +168,58 @@ describe('HttpMreClient against a fake MRE', () => {
       const read = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readTenantDeposit('a.b.c', 'r', TENANT_A);
       await expectCode(read, 'UNAVAILABLE');
       await expect(read).rejects.not.toThrow(/Tina/);
+    } finally {
+      stub.close();
+    }
+  });
+
+  it('readRentBreakdown reads one stored term of the Realm list, half-up to the cent; an unknown term or Tenant undefined (§37.6)', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    const eur = (a: string) => Money.of(a, 'EUR');
+    expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027010100')).toEqual({
+      preTaxAmount: eur('650.00'),
+      charges: eur('150.00'),
+      debts: eur('0.00'),
+      discount: eur('0.00'),
+      vat: eur('0.00'),
+      balance: eur('0.00'),
+      grandTotal: eur('800.00'),
+    });
+    expect(mre.requests.at(-1)).toMatchObject({ path: '/api/v2/tenants', organizationid: 'realm-a' });
+    expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027020100')).toMatchObject({
+      debts: eur('25.00'),
+      discount: eur('5.00'),
+      balance: eur('100.01'),
+    });
+    expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027030100')).toBeUndefined();
+    expect(await client.readRentBreakdown(token, 'realm-a', '6512f0c2a1b2c3d4e5f60aff', '2027010100')).toBeUndefined();
+    await expectCode(client.readRentBreakdown(token, 'realm-b', TENANT_A, '2027010100'), 'FORBIDDEN');
+  });
+
+  it.each([
+    [
+      'missing debts, discount, VAT and balance are 0',
+      '[{"_id":"6512f0c2a1b2c3d4e5f60a01","rents":[{"term":2027010100,"total":{"preTaxAmount":500,"charges":100,"grandTotal":600}}]}]',
+      'ok',
+    ],
+    ['a Tenant without rents has no term', '[{"_id":"6512f0c2a1b2c3d4e5f60a01"}]', 'none'],
+    [
+      'a total without charges is an unexpected shape',
+      '[{"_id":"6512f0c2a1b2c3d4e5f60a01","name":"Tina","rents":[{"term":2027010100,"total":{"preTaxAmount":500}}]}]',
+      'UNAVAILABLE',
+    ],
+  ])('readRentBreakdown: %s', async (_label, body, expected) => {
+    const stub = await startStub(200, body);
+    try {
+      const read = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readRentBreakdown('a.b.c', 'r', TENANT_A, '2027010100');
+      if (expected === 'UNAVAILABLE') {
+        await expectCode(read, 'UNAVAILABLE');
+        await expect(read).rejects.not.toThrow(/Tina/);
+      } else if (expected === 'none') {
+        expect(await read).toBeUndefined();
+      } else {
+        expect(await read).toMatchObject({ debts: Money.of('0', 'EUR'), balance: Money.of('0', 'EUR'), grandTotal: Money.of('600', 'EUR') });
+      }
     } finally {
       stub.close();
     }

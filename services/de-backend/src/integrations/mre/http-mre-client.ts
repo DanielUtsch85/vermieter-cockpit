@@ -7,6 +7,7 @@ import {
   type MreClientErrorCode,
   type MreProperty,
   type MreRealmMembership,
+  type MreRentBreakdown,
   type MreTenantDeposit,
   type MreMonthRent,
   type MreRawTerm,
@@ -67,6 +68,28 @@ const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough()
 const tenantsDto = z.array(z.object({ _id: z.string().min(1) }));
 /** The same list for one Tenant's deposit fields (api-design.md §47.1): anything but a finite number is no value. */
 const tenantDepositsDto = z.array(z.object({ _id: z.string().min(1), guaranty: z.unknown().optional(), guarantyPayback: z.unknown().optional() }));
+/** The Tenant list's stored rents (§37.6): of each only the term and its totals; missing debts, discount, VAT, balance are 0. */
+const tenantRentsDto = z.array(
+  z.object({
+    _id: z.string().min(1),
+    rents: z
+      .array(
+        z.object({
+          term: z.number().int(),
+          total: z.object({
+            preTaxAmount: z.number(),
+            charges: z.number(),
+            debts: z.number().optional(),
+            discount: z.number().optional(),
+            vat: z.number().optional(),
+            balance: z.number().optional(),
+            grandTotal: z.number(),
+          }),
+        }),
+      )
+      .optional(),
+  }),
+);
 /** A rent term of `GET /rents/tenant/:id/:term`: only its key, its amount due and its payments are read. */
 const rentTermDto = z.object({
   term: z.number().int(),
@@ -183,6 +206,32 @@ export class HttpMreClient implements MreClient {
     const amount = (value: unknown) => (typeof value === 'number' ? (toCents(value) ?? null) : null);
     const guaranty = amount(tenant.guaranty);
     return { guaranty: guaranty !== null && guaranty.isPositive() ? guaranty : null, guarantyPayback: amount(tenant.guarantyPayback) };
+  }
+
+  async readRentBreakdown(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRentBreakdown | undefined> {
+    const body = await this.get('/tenants', accessToken, mreRealmId, 'FORBIDDEN');
+    const parsed = tenantRentsDto.safeParse(body);
+    if (!parsed.success) {
+      // The issue paths only, never the values: the body holds personal data.
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE tenants shape at ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
+    }
+    const rent = parsed.data.find((t) => t._id === mreTenantId)?.rents?.find((r) => String(r.term) === term);
+    if (rent === undefined) return undefined;
+    const cents = (value: number | undefined) => {
+      const money = toCents(value ?? 0);
+      if (money === undefined) throw new MreClientError('UNAVAILABLE', 'Unexpected MRE rent total');
+      return money;
+    };
+    const t = rent.total;
+    return {
+      preTaxAmount: cents(t.preTaxAmount),
+      charges: cents(t.charges),
+      debts: cents(t.debts),
+      discount: cents(t.discount),
+      vat: cents(t.vat),
+      balance: cents(t.balance),
+      grandTotal: cents(t.grandTotal),
+    };
   }
 
   async rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean> {

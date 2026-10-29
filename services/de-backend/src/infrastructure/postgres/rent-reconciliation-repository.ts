@@ -196,8 +196,9 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
     terms: readonly { readonly mreTenantId: string; readonly mreRentTerm: string }[],
     from: BusinessDate,
     to: BusinessDate,
+    window: { readonly from: BusinessDate; readonly to: BusinessDate },
   ): Promise<SuggestionSnapshot> {
-    return suggestionStore.suggestionSnapshot(this.db, mreRealmId, terms, from, to);
+    return suggestionStore.suggestionSnapshot(this.db, mreRealmId, terms, from, to, window);
   }
 
   writeSuggestions(mreRealmId: string, suggestions: readonly Suggestion[], actor: AuditActor): Promise<readonly RentPaymentReconciliation[]> {

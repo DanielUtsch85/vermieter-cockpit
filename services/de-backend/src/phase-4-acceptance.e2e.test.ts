@@ -12,6 +12,7 @@ import {
   createReconciliation,
   getReconciliation,
   getReconciliationWithPresence,
+  getRentSplitProposal,
   getTermCoverage,
   getTransaction,
   getTransactionCoverage,
@@ -40,7 +41,15 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre, type FakeRealm } from './integrations/mre/fake-mre.test-support.js';
-import { mreMonthReader, mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
+import {
+  mreMonthReader,
+  mrePrincipalVerifier,
+  mreRentTermLookup,
+  mreRentTermReader,
+  mreRentBreakdownReader,
+  mreWriteBackTermReader,
+  mreWriteBackTermWriter,
+} from './wiring.js';
 
 /**
  * VC-4-06: the Phase-4 exit of `docs/roadmap.md` as one acceptance run through the HTTP API (ACC4,
@@ -136,6 +145,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
           reject: rejectReconciliation({ repository: reconciliations }),
           writeBack: writeBackToMre(writeBack),
           getWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(client) }),
+          splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(client) }),
           removeFromMre: removeFromMre({ ...writeBack, marginMs: 0 }),
         },
         financialAccounts: { create: createFinancialAccount({ repository: accounts }) },

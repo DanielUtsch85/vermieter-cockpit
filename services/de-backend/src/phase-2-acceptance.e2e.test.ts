@@ -56,6 +56,7 @@ import {
   rejectReconciliation,
   writeBackToMre,
   getReconciliationWithPresence,
+  getRentSplitProposal,
   removeFromMre,
   createLoanTerms,
   listLoanTerms,
@@ -132,6 +133,7 @@ import {
   mreMonthReader,
   mreRentTermReader,
   mreTenantLookup,
+  mreRentBreakdownReader,
   mreWriteBackTermReader,
   mreWriteBackTermWriter,
 } from './wiring.js';
@@ -286,6 +288,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
           leaseMs: 4000,
         }),
         getWithPresence: getReconciliationWithPresence({ repository: new PostgresRentReconciliationRepository(db), readTerm: mreWriteBackTermReader(client) }),
+        splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(client) }),
         removeFromMre: removeFromMre({
           repository: new PostgresRentReconciliationRepository(db),
           readTerm: mreWriteBackTermReader(client),
