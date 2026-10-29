@@ -42,14 +42,17 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
 
 - **`Weg`:** `displayName`, `administratorPartyId` (a Party of Phase 2, optional), `financialYearStartMonth` (1–12, default 1), `notes`. Statuses `ACTIVE` → `VOID`. A WEG with memberships, plans, statements or assessments is never voided (as P5's `DEPOSIT_HAS_SPLITS`).
 - **`WegMembership`:** a PropertyReference (a unit) in a WEG, from `validFrom` to an optional `validUntil`. The `Miteigentumsanteil` is stored as a fraction (`meaNumerator`/`meaDenominator`, e.g. 125/10,000), never as a rounded percentage. It is distinct from the Ownership share (data-model §28).
-- **One WEG per unit at a time:** a PropertyReference has at most one membership valid on any day (an exclusion constraint on the date range). The Realm is checked through composite foreign keys, as everywhere.
+- **One WEG per unit at a time:** a PropertyReference has at most one `ACTIVE` membership valid on any day, else `409 OVERLAPPING_WEG_MEMBERSHIP`. This is a trigger after the Ownership's (0019), not an exclusion constraint, which would need the `btree_gist` extension that the schema does not have:
+  - the trigger first locks the PropertyReference row (`UPDATE property_reference SET version = version`, as `ownership_invariants`), so two concurrent memberships of one unit are serialised;
+  - it then refuses an overlap with `daterange(valid_from, valid_until, '[]') && …`.
+- The Realm is checked through composite foreign keys, as everywhere.
 - No MRE call: a WEG has no MRE counterpart (BR-WEG-001). The unit comes in through the PropertyReference.
 - Docs: data-model §27–§28, api-design §49.
 
 ### P6-D2 A WEG split names its unit (resolves the missing link)
 
 - A split in `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE`, `WEG_RESERVE_CONTRIBUTION` or `WEG_SPECIAL_ASSESSMENT` (P6-D7) **requires a `propertyReferenceId`**. That unit has a membership valid on the Transaction's booking date, else `422 NO_WEG_MEMBERSHIP`.
-- The WEG is derived from the membership, so there is no `wegId` on the split. This keeps one source of truth and lets Phase 7 read costs per unit, as all other operating expenses are read.
+- The WEG is derived from the membership, so there is no `wegId` on the split. This keeps one source of truth and lets Phase 7 read costs per unit, as all other operating expenses are read. So §33.2's `NOT_SUPPORTED` for `wegId` stays for good, as for `acquisitionId`.
 - The rule holds for new writes, through the split command and `correct`. Existing splits of these categories (written before Phase 6) are left as they are, since confirmed splits are frozen. VC-6-02 counts them and reports the number in its PR.
 - **Lock order:** Transaction → membership rows (`FOR SHARE`). A membership's validity is changed only while no split falls outside the new range, else `409 MEMBERSHIP_HAS_SPLITS`.
 - Docs: api-design §34/§35 (split rule), data-model §18.
@@ -58,6 +61,8 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
 
 - A new `category_type = WEG_FUNDS`: money the owner pays to the WEG that is not yet the owner's expense. `WEG_RESERVE_CONTRIBUTION` moves to it, no longer `OPERATING_EXPENSE`, and so does `WEG_SPECIAL_ASSESSMENT` (P6-D7). Phase 7 then can never read a contribution or a Sonderumlage as Werbungskosten at payment.
 - **Verified (BFH IX R 19/24 of 14.01.2025, also under the WEG law since 01.12.2020):** a contribution is not deductible when it is paid. It becomes deductible only when and as far as the WEG spends the money on measures that would be Werbungskosten if paid directly. So the contribution and the later spending are kept apart (P6-D6 (3)). Whether a spending is Erhaltungsaufwand or Herstellungskosten is Phase 7's.
+- **Schema:** `WEG_FUNDS` is a new value of the `category_type` CHECK of 0008 and of `CATEGORY_TYPES` (`domains/ledger/financial-category.ts`). The migration updates `WEG_RESERVE_CONTRIBUTION`'s row; `down` restores `OPERATING_EXPENSE`.
+- **Retroactive on purpose:** the type belongs to the category, not to the split. So every split of `WEG_RESERVE_CONTRIBUTION`, including confirmed ones written before Phase 6, reads as `WEG_FUNDS` from the migration on. That is intended, since all contributions are then read alike. Today only `GET /financial-categories` returns `categoryType`; no read filters by it yet, so no figure changes now. VC-6-02 counts the affected splits (confirmed and unconfirmed) and reports the number in its PR, as for P6-D2.
 - This mirrors P5-D6: the category type carries the rule, not a convention.
 - Docs: data-model §18 (categories), weg.md §5.2.
 
@@ -73,6 +78,7 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
   - **= the full advance:** the three components;
   - **= the reserve contribution only:** `WEG_RESERVE_CONTRIBUTION`. This is the second debit of F5;
   - **= the advance without the reserve:** the recoverable and non-recoverable parts;
+  - **two of these cases at once** (e.g. the reserve contribution equals the advance without the reserve): no proposed split, only the matching cases and the flag `AMBIGUOUS_AMOUNT`, so the user decides;
   - **otherwise:** the components in the plan's proportions, rounded half-up to the cent, with the rest on the largest part, and the flag `AMOUNT_DIFFERS_FROM_PLAN`.
 - A plan's `reserveContribution` is never split into `WEG_RECOVERABLE`: the reserve is not recoverable (weg.md §6, checklist C7).
 - Docs: data-model §29, api-design §50.
@@ -128,7 +134,7 @@ A statement never re-splits the year's cash, and never creates cash. Its ledger 
 ### P6-D9 Conventions carried over (as P5-D9)
 
 - Creates take `Idempotency-Key` (§15), changes take `If-Match` (§16.1), and every write writes an AuditRecord. Every row is Realm-scoped by composite foreign keys.
-- **Lock order:** Transaction → membership (`FOR SHARE`) → statement or assessment rows, in id order. Writers of a plan, statement or assessment lock only their own row and read splits. Each guard gets a concurrency test under RC and RR.
+- **Lock order:** Transaction → membership (`FOR SHARE`) → statement or assessment rows, in id order. A membership write locks its PropertyReference first (P6-D1), then the membership row. Writers of a plan, statement or assessment lock only their own row and read splits. Each guard gets a concurrency test under RC and RR.
 - No MRE call anywhere in Phase 6.
 
 ---
