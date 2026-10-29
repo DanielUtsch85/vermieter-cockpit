@@ -77,9 +77,13 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 - Plausibility: the first payment splits into interest and principal such that the principal share is exactly the contract's initial repayment rate (7.5 % p.a.). The payment on the bank page is consistent with principal and rate.
 
 **Findings:**
-- **F8 — The plan runs past the end of the fixed-rate period (medium).** `fixedRateUntil` is informational only (§41.2), so the plan simply continues at the same rate until paid off, months after the fixed period ends. What a landlord plans with is the balance at the end of the fixed period (Restschuld nach Zinsbindung): it is in the plan as the `balanceAfter` of the last payment before `fixedRateUntil`, but nowhere stated. Proposal: `summary.balanceAtFixedRateEnd` (and its date) in the schedule, and the same figure in the remaining-debt read.
-- **F9 — The first interest period is always a full month (verify).** The plan charges interest for a whole month on the first payment, whatever the payout date. Banks often charge pro-rata interest for a payout within the month (Teilzinsen), either inside the first payment or as a separate debit. Open until the bank's plan or the first debits are there.
+- **F8 — The plan runs past the end of the fixed-rate period (medium).** `fixedRateUntil` is informational only (§41.2), so the plan simply continues at the same rate until paid off, months after the fixed period ends. What a landlord plans with is the balance at the end of the fixed period (Restschuld nach Zinsbindung): it is in the plan as the `balanceAfter` of the last payment before `fixedRateUntil`, but nowhere stated. **Done** (#119, VC-3-09): `summary.fixedRateEnd = { date, balance }` in the schedule, and the same figure in the remaining-debt read; for the real loan it matches the independent calculation to the cent.
+- **F9 — The first interest period is always a full month (verify).** The plan charges interest for a whole month on the first payment, whatever the payout date. Banks often charge pro-rata interest for a payout within the month (Teilzinsen), either inside the first payment or as a separate debit. Open until the bank's plan or the first debits are there (#121).
 - The special-repayment allowance is stored but not used, as specified: special repayments are actual cash (`LOAN_PRINCIPAL` splits), and the remaining-debt read shows their effect against the plan (§41.6).
+
+### Follow-ups
+- F8: balance at the end of the fixed-rate period (#119, VC-3-09: `summary.fixedRateEnd`).
+- F9: verify the first interest period against the bank (#121).
 
 **Still open (part 2):** the comparison with the bank's own plan to the cent, once the bank's amortization plan or the first debits (from the checking account already exported in step 1) are available; then F9 is settled.
 
