@@ -23,7 +23,10 @@ const tx = (overrides: Partial<Transaction> = {}) =>
   ({ id: 't1', amount: eur('800.00'), direction: 'INFLOW', status: 'IMPORTED', ...overrides }) as unknown as Transaction;
 const input = { principal, authorizationHeader: 'Bearer t', transactionId: 't1', mreTenantId: '6512f0c2a1b2c3d4e5f60a01', mreRentTerm: '2027020100' };
 
-function setup(found: { transaction: Transaction; splits: TransactionSplit[] } | undefined, breakdown: RentTermTotals | 'none' = totals) {
+function setup(
+  found: { readonly transaction: Transaction; readonly splits: readonly TransactionSplit[] } | undefined,
+  breakdown: RentTermTotals | 'none' = totals,
+) {
   const asked: unknown[] = [];
   const queries = { get: async () => found } as unknown as TransactionQueries;
   const propose = getRentSplitProposal({
