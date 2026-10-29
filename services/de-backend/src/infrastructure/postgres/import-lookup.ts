@@ -1,6 +1,12 @@
-import { type Insertable, type Transaction as Trx } from 'kysely';
+import { sql, type Insertable, type Transaction as Trx } from 'kysely';
 import {
   type AmbiguityReason,
+  balanceIdentityKey,
+  type BusinessDate,
+  type Direction,
+  type ContinuityReport,
+  type InFileContinuity,
+  previousExport,
   sourceRowKey,
   type KnownReviewItem,
   type NewImport,
@@ -11,7 +17,7 @@ import {
   type TransactionStatus,
 } from '../../domains/ledger/index.js';
 import { type AuditActor } from '../../shared/index.js';
-import { toNumericAmount } from './money-column.js';
+import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database, LedgerTransactionTable } from './schema.js';
 
 /** The look-up of one import run (data-model §70): everything the row decisions depend on, read up front in a few set-based queries, and the Transaction a created row becomes. */
@@ -37,9 +43,13 @@ export interface Known {
   readonly byFingerprint: Map<string, FingerprintMatch[]>;
   readonly reasons: Map<string, AmbiguityReason>;
   readonly conflicts: Map<string, readonly string[]>;
+  /** The positions whose balance identity is unique in the file (§70.6); only they use the balance branch. */
+  readonly uniqueBalances: ReadonlySet<number>;
+  /** Transactions of the account by balance identity (`balanceIdentityKey`), any adapter. */
+  readonly byBalance: Map<string, { readonly id: string; readonly contentFingerprint: string }[]>;
 }
 
-export async function prefetch(trx: Trx<Database>, input: NewImport): Promise<Known> {
+export async function prefetch(trx: Trx<Database>, input: NewImport, uniqueBalances: ReadonlySet<number>): Promise<Known> {
   const { statement } = input;
   const dataRows = statement.rows.filter((r): r is ParsedDataRow => r.kind === 'ROW');
   const statementKey = sourceRowKey(statement, { position: 0, sourceRowId: null }).statementKey;
@@ -54,7 +64,41 @@ export async function prefetch(trx: Trx<Database>, input: NewImport): Promise<Kn
     byFingerprint: new Map(),
     reasons: new Map(),
     conflicts: new Map(),
+    uniqueBalances,
+    byBalance: new Map(),
   };
+
+  const balanced = dataRows.filter((r) => r.row.balanceAfter !== null && uniqueBalances.has(r.position));
+  if (balanced.length > 0) {
+    const matches = await trx
+      .selectFrom('ledger_transaction')
+      .select([
+        'id',
+        sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'),
+        'amount',
+        'currency',
+        'direction',
+        'source_balance_after',
+        'content_fingerprint',
+      ])
+      .where('mre_realm_id', '=', scope.realm)
+      .where('financial_account_id', '=', scope.account)
+      .where('booking_date', 'in', [...new Set(balanced.map((r) => r.row.bookingDate))])
+      .where('source_balance_after', 'in', [...new Set(balanced.map((r) => r.row.balanceAfter ?? ''))])
+      .orderBy('created_at')
+      .orderBy('id')
+      .execute();
+    for (const m of matches) {
+      if (m.source_balance_after === null || m.content_fingerprint === null) continue;
+      const key = balanceIdentityKey({
+        bookingDate: m.booking_date as BusinessDate,
+        amount: fromNumericAmount(m.amount, m.currency),
+        direction: m.direction as Direction,
+        balanceAfter: m.source_balance_after,
+      });
+      known.byBalance.set(key, [...(known.byBalance.get(key) ?? []), { id: m.id, contentFingerprint: m.content_fingerprint }]);
+    }
+  }
 
   if (externalIds.length > 0) {
     const byExternal = await trx
@@ -145,6 +189,15 @@ export function lookupFor(known: Known, statement: NewImport['statement'], parse
   const ownItem = recorded.items.find(sameAdapter);
   const sameContent = known.byFingerprint.get(parsed.contentFingerprint) ?? [];
 
+  const balanceAfter = parsed.row.balanceAfter;
+  const balance =
+    balanceAfter !== null && known.uniqueBalances.has(parsed.position)
+      ? {
+          balanceMatches: known.byBalance.get(balanceIdentityKey({ ...parsed.row, balanceAfter })) ?? [],
+          balanceFingerprint: parsed.contentFingerprint,
+        }
+      : {};
+
   const externalId = parsed.row.externalTransactionId;
   if (externalId !== null) {
     const byId = known.byExternalId.get(externalId);
@@ -161,6 +214,7 @@ export function lookupFor(known: Known, statement: NewImport['statement'], parse
   const otherTransactions = recorded.transactions.filter((t) => !sameAdapter(t));
   const otherItems = recorded.items.filter((i) => !sameAdapter(i));
   return {
+    ...balance,
     ...(ownTransaction === undefined ? {} : { transactionByIdentity: ownTransaction.id }),
     ...(ownItem === undefined ? {} : { reviewItemByIdentity: ownItem }),
     otherAdapterVersion: {
@@ -217,5 +271,41 @@ export function newTransaction(
     source_statement_key: key.statementKey,
     source_row_key: key.rowKey,
     content_fingerprint: parsed.contentFingerprint,
+    source_balance_after: row.balanceAfter,
   };
+}
+
+/**
+ * The batch's continuity report (§70.6): the in-file chain, and how the file's oldest row relates to the balances the
+ * account already holds. Read before the batch's own Transactions are written.
+ */
+export async function continuityReport(trx: Trx<Database>, input: NewImport, chain: InFileContinuity | undefined): Promise<ContinuityReport | null> {
+  if (chain === undefined) return null;
+  const { oldest } = chain;
+  const earlier = trx
+    .selectFrom('ledger_transaction')
+    .select(['id', sql<string>`to_char(booking_date, 'YYYY-MM-DD')`.as('booking_date'), 'amount', 'currency', 'direction', 'source_balance_after'])
+    .where('mre_realm_id', '=', input.mreRealmId)
+    .where('financial_account_id', '=', input.financialAccountId)
+    .where('source_balance_after', 'is not', null)
+    .where('booking_date', '<=', oldest.bookingDate);
+  const sameDay = await earlier.where('booking_date', '=', oldest.bookingDate).execute();
+  const oldestImported = sameDay.some(
+    (t) =>
+      t.source_balance_after !== null &&
+      balanceIdentityKey({
+        bookingDate: t.booking_date as BusinessDate,
+        amount: fromNumericAmount(t.amount, t.currency),
+        direction: t.direction as Direction,
+        balanceAfter: t.source_balance_after,
+      }) === oldest.identityKey,
+  );
+  // Only a possible predecessor counts: a balance of the oldest row's day or of the last earlier day with a balance. A
+  // balance that merely occurred before (an account run down to 0.00) must not hide a gap (review on #114).
+  const lastEarlierDay = await earlier.where('booking_date', '<', oldest.bookingDate).orderBy('booking_date', 'desc').limit(1).executeTakeFirst();
+  const predecessorDays = [oldest.bookingDate, ...(lastEarlierDay === undefined ? [] : [lastEarlierDay.booking_date])];
+  const continuesFromKnown =
+    (await earlier.where('booking_date', 'in', predecessorDays).where('source_balance_after', '=', oldest.balanceBefore).limit(1).execute()).length > 0;
+  const anyEarlierBalance = sameDay.length > 0 || lastEarlierDay !== undefined;
+  return { order: chain.order, breaks: chain.breaks, previousExport: previousExport({ oldestImported, continuesFromKnown, anyEarlierBalance }) };
 }

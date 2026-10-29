@@ -14,18 +14,21 @@ import { Money, MoneyError, type CurrencyCode } from '../../shared/index.js';
 import { normalizeIbanRaw, normalizeReference, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
 
 /**
- * `generic-csv` version 1: any bank's CSV export with a header row, configured
+ * `generic-csv`: any bank's CSV export with a header row, configured
  * by a column mapping and a few format options (api-design.md §32.1). It
  * treats the file as untrusted input (technology.md §36): values are parsed,
  * never evaluated, and nothing is guessed.
  *
  * Version 1 fixes: one signed amount column (leading `-` = OUTFLOW), the
- * normalization rules in normalize.ts, and fingerprint field set v1. Any change
- * to these is version 2.
+ * normalization rules in normalize.ts, and fingerprint field set v1.
+ * Version 2 (ADR-043, data-model.md §70.6) adds the optional `balanceAfter`
+ * column, the bank's running balance after the booking, parsed like the amount;
+ * everything else, the fingerprint field set included, is as in version 1.
  */
 
 export const GENERIC_CSV_ID = 'generic-csv';
 export const GENERIC_CSV_VERSION = '1';
+export const GENERIC_CSV_VERSION_2 = '2';
 
 /** Upper bound per file; larger statements are split by the user. */
 export const MAX_ROWS = 10_000;
@@ -33,81 +36,86 @@ const MAX_TEXT_LENGTH = 2_000;
 
 const column = z.string().trim().min(1).max(200);
 
-export const genericCsvOptions = z
-  .object({
-    columnMapping: z
-      .object({
-        bookingDate: column,
-        amount: column,
-        valueDate: column.optional(),
-        currency: column.optional(),
-        counterpartyName: column.optional(),
-        counterpartyIban: column.optional(),
-        description: column.optional(),
-        externalTransactionId: column.optional(),
-        sourceRowId: column.optional(),
-      })
-      .strict(),
-    delimiter: z.enum([';', ',', '\t']).default(';'),
-    decimalSeparator: z.enum([',', '.']).default(','),
-    dateFormat: z.enum(['DD.MM.YYYY', 'DD.MM.YY', 'YYYY-MM-DD']).default('DD.MM.YYYY'),
-    encoding: z.enum(['utf-8', 'windows-1252']).default('utf-8'),
-    /** Lines before the header row (bank exports often start with account metadata). */
-    skipLines: z.number().int().min(0).max(50).default(0),
-  })
-  .strict();
-export type GenericCsvOptions = z.infer<typeof genericCsvOptions>;
-
-export const genericCsvAdapter: BankStatementAdapter = {
-  id: GENERIC_CSV_ID,
-  version: GENERIC_CSV_VERSION,
-  provenance: 'BANK_CSV',
-  parse(file, rawOptions, accountCurrency) {
-    const parsedOptions = genericCsvOptions.safeParse(rawOptions);
-    if (!parsedOptions.success) {
-      const fields = parsedOptions.error.issues.map((i) => i.path.join('.') || '(options)').join(', ');
-      return fail('INVALID_OPTIONS', `Invalid adapter options: ${fields}`);
-    }
-    const options = parsedOptions.data;
-
-    const text = decode(file, options.encoding);
-    if (text === undefined) return fail('UNSUPPORTED_ENCODING', `The file is not valid ${options.encoding}; try windows-1252`);
-
-    let records: string[][];
-    try {
-      records = parse(text, {
-        delimiter: options.delimiter,
-        from_line: options.skipLines + 1,
-        skip_empty_lines: true,
-        relax_column_count: true,
-        bom: true,
-      });
-    } catch (error) {
-      return fail('UNPARSEABLE', `The file is not valid CSV: ${error instanceof Error ? error.message : String(error)}`);
-    }
-
-    const [header, ...dataRows] = records;
-    if (header === undefined) return fail('EMPTY', 'The file has no header row');
-    if (dataRows.length > MAX_ROWS) return fail('TOO_MANY_ROWS', `More than ${MAX_ROWS} rows; split the statement`);
-
-    const indexes = resolveColumns(
-      header.map((h) => h.trim()),
-      options.columnMapping,
-    );
-    if ('error' in indexes) return { error: indexes.error };
-
-    const rows: ParsedRow[] = dataRows.map((cells, i) => parseRow(cells, i + 1, header.length, indexes.columns, options, accountCurrency));
-    const statement: ParsedStatement = {
-      adapterId: GENERIC_CSV_ID,
-      adapterVersion: GENERIC_CSV_VERSION,
-      contentHash: createHash('sha256').update(file).digest('hex'),
-      // A plain CSV export carries no statement id: the file content identifies it (§70.2).
-      sourceStatementId: null,
-      rows,
-    };
-    return { statement };
-  },
+const columnsV1 = {
+  bookingDate: column,
+  amount: column,
+  valueDate: column.optional(),
+  currency: column.optional(),
+  counterpartyName: column.optional(),
+  counterpartyIban: column.optional(),
+  description: column.optional(),
+  externalTransactionId: column.optional(),
+  sourceRowId: column.optional(),
 };
+
+const formatOptions = {
+  delimiter: z.enum([';', ',', '\t']).default(';'),
+  decimalSeparator: z.enum([',', '.']).default(','),
+  dateFormat: z.enum(['DD.MM.YYYY', 'DD.MM.YY', 'YYYY-MM-DD']).default('DD.MM.YYYY'),
+  encoding: z.enum(['utf-8', 'windows-1252']).default('utf-8'),
+  /** Lines before the header row (bank exports often start with account metadata). */
+  skipLines: z.number().int().min(0).max(50).default(0),
+};
+
+export const genericCsvOptions = z.object({ columnMapping: z.object(columnsV1).strict(), ...formatOptions }).strict();
+export const genericCsvOptionsV2 = z.object({ columnMapping: z.object({ ...columnsV1, balanceAfter: column.optional() }).strict(), ...formatOptions }).strict();
+export type GenericCsvOptions = z.infer<typeof genericCsvOptionsV2>;
+
+export const genericCsvAdapter: BankStatementAdapter = genericCsv(GENERIC_CSV_VERSION, genericCsvOptions);
+export const genericCsvAdapterV2: BankStatementAdapter = genericCsv(GENERIC_CSV_VERSION_2, genericCsvOptionsV2);
+
+function genericCsv(version: string, schema: typeof genericCsvOptions | typeof genericCsvOptionsV2): BankStatementAdapter {
+  return {
+    id: GENERIC_CSV_ID,
+    version,
+    provenance: 'BANK_CSV',
+    parse(file, rawOptions, accountCurrency) {
+      const parsedOptions = schema.safeParse(rawOptions);
+      if (!parsedOptions.success) {
+        const fields = parsedOptions.error.issues.map((i) => i.path.join('.') || '(options)').join(', ');
+        return fail('INVALID_OPTIONS', `Invalid adapter options: ${fields}`);
+      }
+      const options = parsedOptions.data;
+
+      const text = decode(file, options.encoding);
+      if (text === undefined) return fail('UNSUPPORTED_ENCODING', `The file is not valid ${options.encoding}; try windows-1252`);
+
+      let records: string[][];
+      try {
+        records = parse(text, {
+          delimiter: options.delimiter,
+          from_line: options.skipLines + 1,
+          skip_empty_lines: true,
+          relax_column_count: true,
+          bom: true,
+        });
+      } catch (error) {
+        return fail('UNPARSEABLE', `The file is not valid CSV: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      const [header, ...dataRows] = records;
+      if (header === undefined) return fail('EMPTY', 'The file has no header row');
+      if (dataRows.length > MAX_ROWS) return fail('TOO_MANY_ROWS', `More than ${MAX_ROWS} rows; split the statement`);
+
+      const indexes = resolveColumns(
+        header.map((h) => h.trim()),
+        options.columnMapping,
+      );
+      if ('error' in indexes) return { error: indexes.error };
+
+      const rows: ParsedRow[] = dataRows.map((cells, i) => parseRow(cells, i + 1, header.length, indexes.columns, options, accountCurrency));
+      const statement: ParsedStatement = {
+        adapterId: GENERIC_CSV_ID,
+        adapterVersion: version,
+        contentHash: createHash('sha256').update(file).digest('hex'),
+        // A plain CSV export carries no statement id: the file content identifies it (§70.2).
+        sourceStatementId: null,
+        rows,
+      };
+      return { statement };
+    },
+  };
+}
 
 type MappedField = keyof GenericCsvOptions['columnMapping'];
 type ColumnIndexes = Partial<Record<MappedField, number>>;
@@ -172,6 +180,21 @@ function parseRow(
     }
   }
 
+  // Version 2: the running balance after the booking, signed, in the account currency's scale (§70.6).
+  const balanceRaw = normalizeText(cell('balanceAfter'));
+  const signedBalance = balanceRaw === null ? undefined : parseSignedAmount(balanceRaw, options.decimalSeparator);
+  let balanceAfter: string | null = null;
+  if (balanceRaw !== null && signedBalance === undefined) errors.push({ field: 'balanceAfter', code: 'INVALID_FORMAT' });
+  else if (signedBalance !== undefined) {
+    try {
+      const balance = Money.of(signedBalance.magnitude, accountCurrency);
+      balanceAfter = (signedBalance.negative && !balance.isZero() ? balance.negate() : balance).amount;
+    } catch (error) {
+      if (!(error instanceof MoneyError)) throw error;
+      errors.push({ field: 'balanceAfter', code: error.code === 'SCALE_EXCEEDED' ? 'SCALE_EXCEEDED' : 'AMOUNT_OUT_OF_RANGE' });
+    }
+  }
+
   const texts = {
     counterpartyNameRaw: normalizeText(cell('counterpartyName')),
     description: normalizeText(cell('description')),
@@ -191,6 +214,7 @@ function parseRow(
     direction: signed.negative ? 'OUTFLOW' : 'INFLOW',
     counterpartyIbanRaw: normalizeIbanRaw(cell('counterpartyIban')),
     ...texts,
+    balanceAfter,
   };
   return {
     kind: 'ROW',

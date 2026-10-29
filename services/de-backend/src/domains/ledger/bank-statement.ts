@@ -20,6 +20,11 @@ export interface NormalizedBankRow {
   readonly description: string | null;
   /** A bank-assigned stable transaction reference, if the source provides one (§70.1 branch 1). */
   readonly externalTransactionId: string | null;
+  /**
+   * The bank's running balance after the booking, signed, as a canonical decimal in the account currency's scale
+   * (e.g. `"-12.50"`); null when the source has none (§70.6). Not part of the content fingerprint.
+   */
+  readonly balanceAfter: string | null;
 }
 
 /** A field-level problem of one row; the row then creates nothing (api-design.md §32.1 `error`). */

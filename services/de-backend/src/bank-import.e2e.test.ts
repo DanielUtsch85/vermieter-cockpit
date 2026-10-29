@@ -93,24 +93,14 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
         })
       ).json()) as { financialAccountId: string }
     ).financialAccountId;
-  const upload = (realm: string, financialAccountId: string, file: string) => {
+  const v1 = {
+    adapterVersion: '1',
+    skipLines: 1,
+    columnMapping: { bookingDate: 'Buchungstag', valueDate: 'Wertstellung', amount: 'Betrag', counterpartyName: 'Empfaenger', description: 'Verwendungszweck' },
+  };
+  const upload = (realm: string, financialAccountId: string, file: string, options: Record<string, unknown> = v1) => {
     const form = new FormData();
-    form.append(
-      'metadata',
-      JSON.stringify({
-        financialAccountId,
-        adapterId: 'generic-csv',
-        adapterVersion: '1',
-        skipLines: 1,
-        columnMapping: {
-          bookingDate: 'Buchungstag',
-          valueDate: 'Wertstellung',
-          amount: 'Betrag',
-          counterpartyName: 'Empfaenger',
-          description: 'Verwendungszweck',
-        },
-      }),
-    );
+    form.append('metadata', JSON.stringify({ financialAccountId, adapterId: 'generic-csv', ...options }));
     form.append('file', new Blob([file]), 'umsatz.csv');
     return fetch(`${base}/api/v1/imports/bank-transactions`, { method: 'POST', headers: headers(realm), body: form });
   };
@@ -180,6 +170,38 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
     ]);
     const count = await pool.query('SELECT count(*) FROM ledger_transaction WHERE financial_account_id = $1', [accountId]);
     expect(Number(count.rows[0].count)).toBe(3);
+  });
+
+  it('generic-csv v2 (ADR-043): overlapping exports with a balance column dedupe without review; the batch reports continuity', async () => {
+    const accountId = await newAccount();
+    const v2 = {
+      adapterVersion: '2',
+      columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', balanceAfter: 'Saldo nach Buchung', description: 'Verwendungszweck' },
+    };
+    const header = 'Buchungstag;Verwendungszweck;Betrag;Saldo nach Buchung';
+    const october = [header, '02.10.2026;Hausgeld;-213,04;1.086,96', '01.10.2026;Einzahlung;1.300,00;1.300,00'].join('\n');
+    const november = [header, '03.11.2026;Rücklage;-9,96;1.077,00', '02.10.2026;Hausgeld;-213,04;1.086,96'].join('\n');
+
+    const first = (await (await upload(REALM_A, accountId, october, v2)).json()) as { adapterVersion: string; transactionCount: number; continuity: unknown };
+    expect(first).toMatchObject({
+      adapterVersion: '2',
+      transactionCount: 2,
+      continuity: { order: 'NEWEST_FIRST', breaks: [], previousExport: 'NO_EARLIER_BALANCE' },
+    });
+    const second = await (await upload(REALM_A, accountId, november, v2)).json();
+    expect(second).toMatchObject({
+      status: 'COMPLETED',
+      transactionCount: 1,
+      duplicateCount: 1,
+      needsReviewCount: 0,
+      continuity: { order: 'NEWEST_FIRST', breaks: [], previousExport: 'OVERLAPS' },
+    });
+    const stored = await pool.query(
+      `SELECT source_balance_after::text AS balance FROM ledger_transaction WHERE financial_account_id = $1 ORDER BY booking_date`,
+      [accountId],
+    );
+    expect(stored.rows).toEqual([{ balance: '1300.00' }, { balance: '1086.96' }, { balance: '1077.00' }]);
+    expect((await upload(REALM_A, accountId, november, { ...v2, adapterVersion: '1' })).status).toBe(400);
   });
 
   it("another Realm's account is 404 and a broken file is 400 IMPORT_ERROR; neither stores a batch", async () => {

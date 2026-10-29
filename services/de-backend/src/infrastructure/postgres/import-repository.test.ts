@@ -46,6 +46,7 @@ function bankRow(spec: RowSpec): NormalizedBankRow {
     counterpartyNameRaw: 'Max Mieter',
     description: 'Miete September',
     externalTransactionId: null,
+    balanceAfter: null,
     ...rest,
   };
 }

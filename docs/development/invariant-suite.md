@@ -91,6 +91,24 @@ service; also run locally with `default_transaction_isolation = repeatable read`
 | First without, then with external id | IR "a row imported first without, then with its external id is a review item …" |
 | Never auto-merged nor auto-duplicated | all of the above: an ambiguous row is always `needs_review`, never `created` or `duplicate` |
 
+## 5a. Balance identity and continuity (VC-1-12, data-model §70.6, ADR-043)
+
+`IL` = `infrastructure/postgres/import-lookup.test.ts`, `BL` = `domains/ledger/balance-identity.test.ts`, `GC` = `integrations/bank-import/generic-csv.test.ts`; `BI`, `IR` as §5.
+
+| Case | Tests |
+|---|---|
+| Overlapping exports with balance → shared rows `duplicate`, new rows created, no review item | IL "overlapping exports with balance …"; `bank-import.e2e.test.ts` "generic-csv v2 (ADR-043) …" |
+| Same balance identity, other content → `BALANCE_IDENTITY_CONTENT_CONFLICT` | IL "the same balance identity with other content …"; BI "one with other content …" |
+| Identity repeated in one file → fallback; against an earlier file → review, never a duplicate | IL "a repeated identity in one file uses the fallback …"; BL "only an identity unique in its file is used …" |
+| Several existing matches → `AMBIGUOUS_CROSS_FILE_MATCH` naming all | IL "several existing matches …"; BI "several: …" |
+| Broken chain (filtered export) and gap → reported, outcomes unchanged | IL "a broken chain (filtered export) is reported …"; BL "continuity …" |
+| Only a possible predecessor chains: a balance recurring from before a gap is a gap (review on #114) | IL "a balance that only recurs from further back is no chain …" |
+| v1 rows, then an overlapping v2 file → review once, not dropped | IL "v1 rows, then an overlapping v2 file …" |
+| The balance is stored, kept by `CREATE`, fixed after creation (0034) | IL "a CREATE resolution keeps the balance …", "several existing matches …" |
+| Adapter v2: signed balance, empty cell none, row errors; fingerprint unchanged; v1 refuses the key | GC "generic-csv v2 …" |
+
+Counter-checked (8 mutants, each red): several matches taken as a duplicate; the content check dropped; the in-file uniqueness dropped; the balance not stored on import or on `CREATE`; `OVERLAPS` reported as `CHAINS`; the cross-file check not limited to earlier days; chain breaks never reported.
+
 ## 6. Confirmed Transactions are immutable (ADR-037)
 
 TR confirm "the database keeps a confirmed Transaction and its splits immutable (ADR-037)", "the status of a confirmed Transaction only moves forward; CORRECTED is terminal"; SR "a replacement waiting on a confirm in progress finds the Transaction frozen"; ACC (splits refused after confirm).

@@ -7,12 +7,15 @@ import {
   type AmbiguityReason,
   type BusinessDate,
   type ConflictingTransaction,
+  type ContinuityReport,
   type Direction,
   type ResolveOutcome,
   type ReviewItem,
   type ReviewItemId,
   importPostable,
+  inFileContinuity,
   isSkippable,
+  uniqueBalanceIdentities,
   normalizedRowJson,
   sourceRowKey,
   summarize,
@@ -32,7 +35,7 @@ import { writeAudit } from './audit.js';
 import { toFinancialAccount } from './financial-account-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database, ImportBatchTable, ImportReviewItemTable, LedgerTransactionTable } from './schema.js';
-import { prefetch, lookupFor, positionOf, newTransaction } from './import-lookup.js';
+import { prefetch, lookupFor, positionOf, newTransaction, continuityReport } from './import-lookup.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Rows per INSERT statement: keeps bind parameters far below PostgreSQL's 65,535. */
@@ -91,7 +94,8 @@ export class PostgresImportRepository implements ImportRepository {
           })
           .execute();
 
-        const known = await prefetch(trx, input);
+        const known = await prefetch(trx, input, uniqueBalanceIdentities(statement.rows));
+        const continuity = await continuityReport(trx, input, inFileContinuity(statement.rows));
         const transactions: Insertable<LedgerTransactionTable>[] = [];
         const reviewItems: Insertable<ImportReviewItemTable>[] = [];
         const rows: RowOutcome[] = [];
@@ -213,6 +217,7 @@ export class PostgresImportRepository implements ImportRepository {
             error_count: summary.errorCount,
             skipped_count: summary.skippedCount,
             rows: JSON.stringify(rows),
+            continuity: continuity === null ? null : JSON.stringify(continuity),
           })
           .where('id', '=', batchId)
           .returningAll()
@@ -374,6 +379,7 @@ export class PostgresImportRepository implements ImportRepository {
               source_statement_key: item.sourceStatementKey,
               source_row_key: item.sourceRowKey,
               content_fingerprint: row.content_fingerprint,
+              source_balance_after: normalized.balanceAfter ?? null,
               import_review_item_id: item.id,
             })
             .execute();
@@ -427,6 +433,8 @@ function storedRow(item: ReviewItem) {
     counterpartyIbanRaw: string | null;
     description: string | null;
     externalTransactionId: string | null;
+    /** Absent on items stored before generic-csv v2 (§70.6). */
+    balanceAfter?: string | null;
   };
   return { ...row, amount: Money.of(row.amount.amount, row.amount.currency) };
 }
@@ -476,5 +484,6 @@ function toDomain(row: Selectable<ImportBatchTable>): ImportBatch {
     importedAt: row.imported_at,
     importedBy: row.imported_by,
     rows: row.rows as RowOutcome[],
+    continuity: row.continuity as ContinuityReport | null,
   };
 }

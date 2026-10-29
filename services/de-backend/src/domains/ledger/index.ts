@@ -40,6 +40,8 @@ export type {
   VersionConflict,
 } from './transaction.js';
 export { contentFingerprintFieldsV1 } from './bank-statement.js';
+export { balanceIdentityKey, canonicalBalance, inFileContinuity, previousExport, uniqueBalanceIdentities } from './balance-identity.js';
+export type { ChainBreak, ContinuityReport, FileOrder, InFileContinuity, KnownBalances, OldestBooking, PreviousExport } from './balance-identity.js';
 export type { BankStatementAdapter, NormalizedBankRow, ParsedRow, ParsedStatement, RowError, StatementError } from './bank-statement.js';
 export {
   businessDayOf,

@@ -3126,7 +3126,7 @@ Before computing the content fingerprint: trim and collapse whitespace, uppercas
 
 ## 70.6 Balance identity and continuity (ADR-043, `generic-csv` v2)
 
-Applies to rows whose import maps the bank's **running balance after the booking** (`balanceAfter`, a signed Money value in the account currency). Implementation: backlog VC-1-12.
+Applies to rows whose import maps the bank's **running balance after the booking** (`balanceAfter`, a signed Money value in the account currency). Implementation: backlog VC-1-12 (migration 0034, `api-design.md` §32.5).
 
 - **Identity:** `(realm, financialAccountId, bookingDate, amount, direction, balanceAfter)`, ranked after the stable external id and before the fallback (§70.1). It is adapter-independent: the same booking under another adapter or version with the same balance is the same identity.
 - **Matched against:** every Transaction of the account that carries a `sourceBalanceAfter` — also those created through the fallback because their identity repeated in their own file.
@@ -3134,7 +3134,7 @@ Applies to rows whose import maps the bank's **running balance after the booking
 - **Several matches:** if more than one existing Transaction of the account has the row's balance identity, the row is `needs_review` (`AMBIGUOUS_CROSS_FILE_MATCH`, all of them in `conflictingTransactionIds`), never a duplicate: the file cannot tell which payment it is.
 - **In-file uniqueness:** a balance identity that occurs more than once in one file is not used for any of those rows; they keep the fallback identity (§70.2) and its ambiguity rules (§70.4).
 - **In-file continuity:** in file order (oldest-first or newest-first, detected from the dates), each row should satisfy `balance before + signed amount = balanceAfter`, with `balance before` the neighbouring row's `balanceAfter`. A break (e.g. a filtered export) is **reported on the batch** (positions); it does not change row identities or outcomes.
-- **Cross-file continuity:** the oldest row of the file is checked against the account's known balances (the `sourceBalanceAfter` of its Transactions). A gap or an overlap that does not chain is **reported on the batch**; it neither refuses the file nor changes row outcomes.
+- **Cross-file continuity:** the oldest row of the file is checked against the account's known balances (the `sourceBalanceAfter` of its Transactions): it continues the chain only from a possible predecessor, a balance of its own day or of the last earlier day with a balance — a balance that merely occurred further back (an account run down to 0.00) does not count. A gap or an overlap that does not chain is **reported on the batch**; it neither refuses the file nor changes row outcomes.
 - **Storage:** every Transaction created from a row with a balance keeps the raw `balanceAfter` as `sourceBalanceAfter`, also when the row took the fallback identity; it is import evidence, never a ledger balance.
 - A row without a balance, or a file without a mapped balance column, behaves as in §70.1–70.4.
 
@@ -3146,6 +3146,7 @@ Required test cases (in addition to §70.5):
 - **several existing matches** (both debits of the case above already imported, then a file holding the identity once) → `needs_review` (`AMBIGUOUS_CROSS_FILE_MATCH`) naming both Transactions, never a duplicate;
 - **broken chain in a file** (filtered export) → rows identified and deduped as usual, the batch reports the break;
 - **gap between exports** → rows created as usual, the batch reports the gap;
+- **a balance that recurs from before a gap** (the oldest row continues from 0.00, known from January, but the last known balance is another) → the batch reports a gap, not a chain;
 - **v1 rows, then an overlapping v2 file with balance** → the shared rows are `needs_review` once (§70.4), not dropped.
 
 ---
