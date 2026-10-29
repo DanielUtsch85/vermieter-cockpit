@@ -81,7 +81,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 - **F9 — The first interest period is always a full month (verify).** The plan charges interest for a whole month on the first payment, whatever the payout date. Banks often charge pro-rata interest for a payout within the month (Teilzinsen), either inside the first payment or as a separate debit. Open until the bank's plan or the first debits are there (#121).
 - The special-repayment allowance is stored but not used, as specified: special repayments are actual cash (`LOAN_PRINCIPAL` splits), and the remaining-debt read shows their effect against the plan (§41.6).
 
-### Follow-ups
+**Follow-ups:**
 - F8: balance at the end of the fixed-rate period (#119, VC-3-09: `summary.fixedRateEnd`).
 - F9: verify the first interest period against the bank (#121).
 
@@ -90,3 +90,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 ## Step 3: rent reconciliation (open)
 
 Needs one flat's MRE tenant and three months of real rent payments **received** (inflows on the landlord's account): reconcile them against the MRE terms and record whether the suggestions match. The second export above holds rent paid, not received (F7).
+
+## Into Phase 5
+
+`phase-5-plan.md` §0 takes these findings into the Security Deposit plan: imports as the normal path for cash (step 1), the visible counterparty (F4), deposits the landlord **holds** only (F7), overlap dedup before any split (F1), and step 3 as the check of the rent side that P5-D6 relies on.
