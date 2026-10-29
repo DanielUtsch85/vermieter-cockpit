@@ -87,8 +87,15 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
       id,
       REALM,
       [
-        { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: 'Kalt' },
-        { amount: eur('250.00'), financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: null, loanId: null, description: null },
+        { amount: eur('1000.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, securityDepositId: null, description: 'Kalt' },
+        {
+          amount: eur('250.00'),
+          financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE',
+          propertyReferenceId: null,
+          loanId: null,
+          securityDepositId: null,
+          description: null,
+        },
       ],
       actor,
     );
@@ -157,7 +164,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     await splits.replaceSplits(
       viaSplit,
       REALM,
-      [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: reference, loanId: null, description: null }],
+      [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: reference, loanId: null, securityDepositId: null, description: null }],
       actor,
     );
     await book(account, '2026-07-03');
@@ -173,6 +180,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
       financialCategoryCode,
       propertyReferenceId: null,
       loanId: null,
+      securityDepositId: null,
       description: null,
     });
     const rent = await book(account, '2026-05-01', '1250.00');
@@ -192,7 +200,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
     await splits.replaceSplits(
       original,
       REALM,
-      [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }],
+      [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, securityDepositId: null, description: null }],
       actor,
     );
     await transactions.confirm(original, REALM, actor);
@@ -213,7 +221,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
       await splits.replaceSplits(
         id,
         REALM,
-        [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }],
+        [{ amount: eur('10.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, securityDepositId: null, description: null }],
         actor,
       );
       await transactions.confirm(id, REALM, actor);
@@ -228,7 +236,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionQueries', () => {
         reason: 'Betrag',
         replacement: {
           amount: eur('12.00'),
-          splits: [{ amount: eur('12.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }],
+          splits: [
+            { amount: eur('12.00'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, securityDepositId: null, description: null },
+          ],
         },
       },
       actor,

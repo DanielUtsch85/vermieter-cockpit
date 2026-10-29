@@ -58,7 +58,14 @@ describe.skipIf(databaseUrl === undefined)('migration 0035: counterparty of corr
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
     const original = created.transaction.id;
-    const split = { amount: eur('800.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: null };
+    const split = {
+      amount: eur('800.00'),
+      financialCategoryCode: 'RENT_BASE',
+      propertyReferenceId: null,
+      loanId: null,
+      securityDepositId: null,
+      description: null,
+    };
     await splits.replaceSplits(original, REALM, [split], actor);
     await transactions.confirm(original, REALM, actor);
     await pool.query(`UPDATE ledger_transaction SET counterparty_name_raw = 'Erika Mieterin', counterparty_iban_raw = 'DE89370400440532013000' WHERE id = $1`, [

@@ -266,8 +266,15 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
           .executeTakeFirst();
         if (row === undefined) return { kind: 'NOT_FOUND' };
         const current = toDeposit(row);
-        // Splits naming the deposit come with VC-5-02 (P5-D3); until then none can.
-        const plan = planVoid(current, reason, at, []);
+        // §47.2: every split naming it, a reversal's included, read after the deposit's lock; a split write locks the
+        // deposit too (P5-D9), so none can appear meanwhile. security_deposit_void_unreferenced is the backstop.
+        const referencing = await trx.selectFrom('transaction_split').select('transaction_id').where('security_deposit_id', '=', id).execute();
+        const plan = planVoid(
+          current,
+          reason,
+          at,
+          referencing.map((r) => r.transaction_id),
+        );
         if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', deposit: current, changed: false };
         if (plan.kind !== 'VOID') return plan;
         const conflict = checkVersion(current.version, expectedVersions);
@@ -310,6 +317,24 @@ async function accountOf(trx: Transaction<Database>, id: string, mreRealmId: str
   const query = trx.selectFrom('financial_account').select('account_type').where('id', '=', id).where('mre_realm_id', '=', mreRealmId);
   const row = await (lock ? query.forShare() : query).executeTakeFirst();
   return row === undefined ? undefined : { accountType: row.account_type };
+}
+
+/**
+ * The deposits a split write names, locked `FOR UPDATE` in id order after the Transaction and its Loans (P5-D9), with
+ * their status; unknown, foreign and malformed ids are left out (§47.2's 404).
+ */
+export async function lockDepositsOf(trx: Transaction<Database>, mreRealmId: string, depositIds: readonly string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(depositIds)].filter((id) => UUID.test(id)).sort();
+  if (ids.length === 0) return new Map();
+  const rows = await trx
+    .selectFrom('security_deposit')
+    .select(['id', 'status'])
+    .where('id', 'in', ids)
+    .where('mre_realm_id', '=', mreRealmId)
+    .orderBy('id')
+    .forUpdate()
+    .execute();
+  return new Map(rows.map((r) => [r.id, r.status]));
 }
 
 async function activeDepositOf(trx: Transaction<Database>, mreRealmId: string, mreTenantId: string): Promise<string | undefined> {

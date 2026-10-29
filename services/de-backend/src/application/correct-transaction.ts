@@ -9,7 +9,7 @@ import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
-import { FinancialCategoryNotFoundError, SplitSumMismatchError, TransactionNotFoundError, throwLoanSplitRefusal } from './transaction-splits.js';
+import { FinancialCategoryNotFoundError, SplitSumMismatchError, TransactionNotFoundError, throwSplitRefusal } from './transaction-splits.js';
 import { CurrencyMismatchError, FinancialAccountClosedError, InactiveCategoryError } from './transactions.js';
 
 /**
@@ -142,6 +142,6 @@ async function run(
     case 'VERSION_CONFLICT':
       throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     default:
-      return throwLoanSplitRefusal(outcome);
+      return throwSplitRefusal(outcome);
   }
 }

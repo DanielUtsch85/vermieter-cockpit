@@ -3,12 +3,15 @@ import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   CurrencyMismatchError,
+  DepositNotActiveError,
   FinancialCategoryNotFoundError,
   InvalidLoanSplitError,
+  InvalidSecurityDepositSplitError,
   LoanClosedOnError,
   LoanNotActiveError,
   LoanNotFoundError,
   PropertyReferenceNotFoundError,
+  SecurityDepositNotFoundError,
   SplitSumMismatchError,
   TransactionFrozenError,
   TransactionNotFoundError,
@@ -23,6 +26,7 @@ const REALM = '64b0c0ffee0000000000000a';
 const TX = '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 const PROPERTY = 'f0e1d2c3-b4a5-4697-8879-6a5b4c3d2e1f';
 const LOAN = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
+const DEPOSIT = '5c6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({
   email: 'anna@example.com',
   mreRealmId: mreRealmId ?? '',
@@ -91,6 +95,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           financialCategoryCode: 'LOAN_INTEREST',
           propertyReferenceId: PROPERTY,
           loanId: null,
+          securityDepositId: null,
           description: null,
         },
         {
@@ -100,6 +105,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           financialCategoryCode: 'LOAN_PRINCIPAL',
           propertyReferenceId: null,
           loanId: LOAN,
+          securityDepositId: null,
           description: 'Rate 10',
         },
       ],
@@ -173,6 +179,80 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
     for (const [error, status, body] of cases) {
       const base = await start({ transactions: { setSplits: () => Promise.reject(error) } });
       const res = await put(base, loanSplits);
+      expect(res.status).toBe(status);
+      expect(await errorOf(res)).toMatchObject(body);
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      server = undefined;
+    }
+  });
+});
+
+describe('PUT /api/v1/transactions/{transactionId}/splits with securityDepositId (§47.2)', () => {
+  const depositSplits = {
+    splits: [
+      { amount: { amount: '650.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' },
+      { amount: { amount: '1500.00', currency: 'EUR' }, financialCategoryCode: 'SECURITY_DEPOSIT', securityDepositId: DEPOSIT.toUpperCase() },
+    ],
+  };
+
+  it('200: the id reaches the use case lower-cased and comes back on each split', async () => {
+    const seen: Parameters<SetTransactionSplits>[0][] = [];
+    const base = await start({
+      transactions: {
+        setSplits: async (input) => {
+          seen.push(input);
+          return {
+            transaction: { id: TX, amount: Money.of('2150.00', 'EUR'), direction: 'INFLOW', status: 'CLASSIFIED', version: 2 } as never,
+            splits: input.splits.map((s, i) => ({ ...s, id: `s-${i + 1}`, position: i + 1 })),
+          };
+        },
+      },
+    });
+    const res = await put(base, depositSplits);
+    expect(res.status).toBe(200);
+    expect(seen[0]?.splits.map((s) => [s.loanId, s.securityDepositId])).toEqual([
+      [null, null],
+      [null, DEPOSIT],
+    ]);
+    expect(((await res.json()) as { splits: { securityDepositId: string | null }[] }).splits.map((s) => s.securityDepositId)).toEqual([null, DEPOSIT]);
+  });
+
+  it('400: a malformed id; never with a PropertyReference or a Loan', async () => {
+    const base = await start({});
+    const one = (extra: Record<string, unknown>) => ({
+      splits: [{ amount: { amount: '1.00', currency: 'EUR' }, financialCategoryCode: 'SECURITY_DEPOSIT', ...extra }],
+    });
+    const cases: [unknown, { field: string; code: string }[]][] = [
+      [one({ securityDepositId: 'x' }), [{ field: 'splits.0.securityDepositId', code: 'INVALID_FORMAT' }]],
+      [
+        one({ securityDepositId: DEPOSIT, propertyReferenceId: PROPERTY }),
+        [{ field: 'splits.0.propertyReferenceId', code: 'NOT_ALLOWED_WITH_SECURITY_DEPOSIT' }],
+      ],
+      [one({ securityDepositId: DEPOSIT, loanId: LOAN }), [{ field: 'splits.0.loanId', code: 'NOT_ALLOWED_WITH_SECURITY_DEPOSIT' }]],
+    ];
+    for (const [body, fields] of cases) {
+      const res = await put(base, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect((await errorOf(res)).details['fields']).toEqual(fields);
+    }
+    // A null id is no deposit and passes the schema.
+    expect((await put(base, one({ securityDepositId: null, propertyReferenceId: PROPERTY }))).status).not.toBe(400);
+  });
+
+  it('maps the deposit refusals of §47.2', async () => {
+    const cases = [
+      [new SecurityDepositNotFoundError(DEPOSIT), 404, { code: 'NOT_FOUND', details: { securityDepositId: DEPOSIT } }],
+      [new InvalidSecurityDepositSplitError(2, 'CATEGORY'), 422, { code: 'INVALID_SECURITY_DEPOSIT_SPLIT', details: { position: 2, reason: 'CATEGORY' } }],
+      [new InvalidSecurityDepositSplitError(1, 'DIRECTION'), 422, { code: 'INVALID_SECURITY_DEPOSIT_SPLIT', details: { position: 1, reason: 'DIRECTION' } }],
+      [
+        new DepositNotActiveError(DEPOSIT, 'VOID'),
+        409,
+        { code: 'CONFLICT', details: { reason: 'DEPOSIT_NOT_ACTIVE', securityDepositId: DEPOSIT, status: 'VOID' } },
+      ],
+    ] as const;
+    for (const [error, status, body] of cases) {
+      const base = await start({ transactions: { setSplits: () => Promise.reject(error) } });
+      const res = await put(base, depositSplits);
       expect(res.status).toBe(status);
       expect(await errorOf(res)).toMatchObject(body);
       await new Promise<void>((resolve) => server?.close(() => resolve()));

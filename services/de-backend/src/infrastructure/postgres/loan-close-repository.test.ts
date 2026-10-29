@@ -35,6 +35,7 @@ const split = (amount: string, financialCategoryCode: string, loanId: string | n
   financialCategoryCode,
   propertyReferenceId: null,
   loanId,
+  securityDepositId: null,
   description: null,
 });
 const closing = (closingDate: string, reason: CloseRequest['reason'] = 'OTHER', refinancedByLoanId: string | null = null): CloseRequest => ({

@@ -4,8 +4,26 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
-import { amendDeposit, createDeposit, createFinancialAccount, getDeposit, listDeposits, voidDeposit } from './application/index.js';
-import { PostgresFinancialAccountRepository, PostgresSecurityDepositRepository, createDatabase, migrateToLatest } from './infrastructure/postgres/index.js';
+import {
+  amendDeposit,
+  createDeposit,
+  createFinancialAccount,
+  createManualTransaction,
+  getDeposit,
+  getTransaction,
+  listDeposits,
+  setTransactionSplits,
+  voidDeposit,
+} from './application/index.js';
+import {
+  PostgresFinancialAccountRepository,
+  PostgresSecurityDepositRepository,
+  PostgresTransactionQueries,
+  PostgresTransactionRepository,
+  PostgresTransactionSplitRepository,
+  createDatabase,
+  migrateToLatest,
+} from './infrastructure/postgres/index.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -15,7 +33,7 @@ import { mrePrincipalVerifier, mreTenantDepositReader } from './wiring.js';
  * VC-5-01 end to end (api-design.md §47.1), wired as in main.ts against the fake MRE: the amount defaults to MRE's
  * `guaranty` (rounded once to the cent), an explicit amount wins, a Tenant without guaranty needs one; one deposit per
  * Tenant; the holding account must be a deposit account; amend, void and a new deposit after the void; Realm isolation;
- * MRE is never asked for a replay or a refusal DE can decide itself.
+ * MRE is never asked for a replay or a refusal DE can decide itself; and (VC-5-02, §47.2) a deposit split on a mixed transfer.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
@@ -24,6 +42,7 @@ const REALM_B = '64b0c0ffee0000000000005b';
 const T_GUARANTY = '6512f0c2a1b2c3d4e5f65a01';
 const T_NONE = '6512f0c2a1b2c3d4e5f65a02';
 const T_OTHER = '6512f0c2a1b2c3d4e5f65a03';
+const T_SPLIT = '6512f0c2a1b2c3d4e5f65a04';
 const T_B = '6512f0c2a1b2c3d4e5f65b01';
 
 describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end', () => {
@@ -54,6 +73,7 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
           { _id: T_GUARANTY, name: 'Mieterin K', guaranty: 2999.995 },
           { _id: T_NONE, name: 'Mieter N', guaranty: 0 },
           { _id: T_OTHER, name: 'Mieter O' },
+          { _id: T_SPLIT, name: 'Mieterin S', guaranty: 1500 },
         ],
       },
       { _id: REALM_B, name: 'B', members: member, applications: [], tenants: [{ _id: T_B, name: 'Mieter B', guaranty: 900 }] },
@@ -80,6 +100,11 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
           void: voidDeposit({ repository: deposits }),
         },
         financialAccounts: { create: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }) },
+        transactions: {
+          createManual: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
+          setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
+          get: getTransaction({ queries: new PostgresTransactionQueries(db) }),
+        },
       }),
     });
     server = app.listen(0, '127.0.0.1');
@@ -230,5 +255,45 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
     // A holding account of Realm A is unknown in Realm B.
     const kautionA = await account('SECURITY_DEPOSIT', 'Kaution A');
     expect((await B('POST', `/security-deposits`, { mreTenantId: T_B, holdingFinancialAccountId: kautionA })).status).toBe(404);
+  });
+
+  it('VC-5-02: a mixed first transfer links its deposit split; a void is then DEPOSIT_HAS_SPLITS; interest on an OUTFLOW is refused', async () => {
+    const deposit = await json<Deposit>(await A('POST', '/security-deposits', { mreTenantId: T_SPLIT }), 201);
+    const giro = await account('BANK', 'Giro Kaution');
+    const transfer = async (direction: string, amount: string) =>
+      (
+        await json<{ transactionId: string }>(
+          await A('POST', '/transactions', { financialAccountId: giro, amount: { amount, currency: 'EUR' }, direction, bookingDate: '2027-02-01' }),
+          201,
+        )
+      ).transactionId;
+    const first = await transfer('INFLOW', '2300.00');
+    const set = await json<{ splits: { financialCategoryCode: string; securityDepositId: string | null }[] }>(
+      await A('PUT', `/transactions/${first}/splits`, {
+        splits: [
+          { amount: { amount: '650.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE' },
+          { amount: { amount: '150.00', currency: 'EUR' }, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE' },
+          { amount: { amount: '1500.00', currency: 'EUR' }, financialCategoryCode: 'SECURITY_DEPOSIT', securityDepositId: deposit.securityDepositId },
+        ],
+      }),
+      200,
+    );
+    expect(set.splits.map((s) => s.securityDepositId)).toEqual([null, null, deposit.securityDepositId]);
+    const read = await json<{ splits: { securityDepositId: string | null }[] }>(await A('GET', `/transactions/${first}`), 200);
+    expect(read.splits.map((s) => s.securityDepositId)).toEqual([null, null, deposit.securityDepositId]);
+    expect(await errorOf(await A('POST', `/security-deposits/${deposit.securityDepositId}/void`, { reason: 'x' }), 409)).toMatchObject({
+      details: { reason: 'DEPOSIT_HAS_SPLITS', transactionIds: [first] },
+    });
+    const outflow = await transfer('OUTFLOW', '1.00');
+    expect(
+      await errorOf(
+        await A('PUT', `/transactions/${outflow}/splits`, {
+          splits: [
+            { amount: { amount: '1.00', currency: 'EUR' }, financialCategoryCode: 'SECURITY_DEPOSIT_INTEREST', securityDepositId: deposit.securityDepositId },
+          ],
+        }),
+        422,
+      ),
+    ).toMatchObject({ code: 'INVALID_SECURITY_DEPOSIT_SPLIT', details: { position: 1, reason: 'DIRECTION' } });
   });
 });

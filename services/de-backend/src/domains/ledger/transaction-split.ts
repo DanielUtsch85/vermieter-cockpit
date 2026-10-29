@@ -16,6 +16,11 @@ export interface SplitInput {
   readonly propertyReferenceId: string | null;
   /** A Loan payment's interest or principal (P3-D4, api-design §41.5); never together with `propertyReferenceId`. */
   readonly loanId: string | null;
+  /**
+   * A security deposit's receipt, repayment or interest credit (P5-D3, api-design §47.2); never together with
+   * `propertyReferenceId` or `loanId`.
+   */
+  readonly securityDepositId: string | null;
   readonly description: string | null;
 }
 
@@ -67,6 +72,7 @@ export function sameSplits(current: readonly SplitInput[], next: readonly SplitI
         c.financialCategoryCode === n.financialCategoryCode &&
         c.propertyReferenceId === n.propertyReferenceId &&
         c.loanId === n.loanId &&
+        c.securityDepositId === n.securityDepositId &&
         c.description === n.description
       );
     })
@@ -123,6 +129,42 @@ export function checkLoanSplits(
   return undefined;
 }
 
+/** The categories a split with `securityDepositId` may carry (§47.2, P5-D5). */
+export const DEPOSIT_SPLIT_CATEGORIES = ['SECURITY_DEPOSIT', 'SECURITY_DEPOSIT_INTEREST'] as const;
+
+/** Why a split set's security deposits refuse it (api-design §47.2): 404, 422 INVALID_SECURITY_DEPOSIT_SPLIT, 409 DEPOSIT_NOT_ACTIVE. */
+export type DepositSplitRefusal =
+  | { readonly kind: 'SECURITY_DEPOSIT_NOT_FOUND'; readonly securityDepositId: string }
+  | { readonly kind: 'INVALID_SECURITY_DEPOSIT_SPLIT'; readonly position: number; readonly reason: 'CATEGORY' | 'DIRECTION' }
+  | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly securityDepositId: string; readonly status: string };
+
+/**
+ * The rules of §47.2 for the splits with `securityDepositId`, in its order: every unknown or foreign deposit first, then
+ * the category, then the direction of an interest credit (a reversal is exempt), then a `VOID` deposit; each for the
+ * first split in position order. `deposits` holds the statuses of the deposits found in the Realm.
+ */
+export function checkDepositSplits(
+  transaction: { readonly direction: Direction; readonly reversal: boolean },
+  splits: readonly SplitInput[],
+  deposits: ReadonlyMap<string, string>,
+): DepositSplitRefusal | undefined {
+  const withDeposit = splits.flatMap((split, i) =>
+    split.securityDepositId === null ? [] : [{ split, securityDepositId: split.securityDepositId, position: i + 1 }],
+  );
+  const unknown = withDeposit.find((s) => !deposits.has(s.securityDepositId));
+  if (unknown !== undefined) return { kind: 'SECURITY_DEPOSIT_NOT_FOUND', securityDepositId: unknown.securityDepositId };
+  const category = withDeposit.find((s) => !(DEPOSIT_SPLIT_CATEGORIES as readonly string[]).includes(s.split.financialCategoryCode));
+  if (category !== undefined) return { kind: 'INVALID_SECURITY_DEPOSIT_SPLIT', position: category.position, reason: 'CATEGORY' };
+  // A receipt (INFLOW) and a repayment (OUTFLOW) are both SECURITY_DEPOSIT; only interest has a direction rule.
+  const interest = withDeposit.find((s) => s.split.financialCategoryCode === 'SECURITY_DEPOSIT_INTEREST');
+  if (interest !== undefined && transaction.direction !== 'INFLOW' && !transaction.reversal) {
+    return { kind: 'INVALID_SECURITY_DEPOSIT_SPLIT', position: interest.position, reason: 'DIRECTION' };
+  }
+  const inactive = withDeposit.find((s) => deposits.get(s.securityDepositId) === 'VOID');
+  if (inactive !== undefined) return { kind: 'DEPOSIT_NOT_ACTIVE', securityDepositId: inactive.securityDepositId, status: 'VOID' };
+  return undefined;
+}
+
 /** The Transaction as far as a split response needs it. */
 export interface SplitTransaction {
   readonly id: TransactionId;
@@ -146,7 +188,8 @@ export type ReplaceSplitsOutcome =
   /** Unknown or inactive category codes. */
   | { readonly kind: 'UNKNOWN_CATEGORY'; readonly codes: readonly string[] }
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceIds: readonly string[] }
-  | LoanSplitRefusal;
+  | LoanSplitRefusal
+  | DepositSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface TransactionSplitRepository {
@@ -154,7 +197,8 @@ export interface TransactionSplitRepository {
    * In one transaction, under the Transaction's row lock: applies `planSplits`,
    * resolves categories and PropertyReferences in the Realm, then locks the
    * Loans `FOR UPDATE` in id order and applies `checkLoanSplits` (Transaction →
-   * Loan, P3-D8), replaces the split
+   * Loan, P3-D8), then the security deposits in id order and `checkDepositSplits`
+   * (→ SecurityDeposit, P5-D9), replaces the split
    * set atomically, sets the status and version and writes the AuditRecord.
    */
   replaceSplits(

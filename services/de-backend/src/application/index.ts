@@ -69,6 +69,7 @@ export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution,
 export {
   FinancialCategoryNotFoundError,
   InvalidLoanSplitError,
+  InvalidSecurityDepositSplitError,
   SplitSumMismatchError,
   TransactionFrozenError,
   TransactionNotFoundError,

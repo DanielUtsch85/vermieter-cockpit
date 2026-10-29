@@ -36,6 +36,7 @@ const split = (amount: string, financialCategoryCode = 'LOAN_INTEREST', extra: P
   financialCategoryCode,
   propertyReferenceId: null,
   loanId: null,
+  securityDepositId: null,
   description: null,
   ...extra,
 });
@@ -182,10 +183,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
       await splits.replaceSplits(
         id,
         REALM,
-        [split('1200', 'LOAN_INTEREST', { propertyReferenceId: own.reference.id, loanId: null, description: 'Whg 1' })],
+        [split('1200', 'LOAN_INTEREST', { propertyReferenceId: own.reference.id, loanId: null, securityDepositId: null, description: 'Whg 1' })],
         actor,
       ),
-    ).toMatchObject({ kind: 'REPLACED', splits: [{ propertyReferenceId: own.reference.id, loanId: null, description: 'Whg 1' }] });
+    ).toMatchObject({ kind: 'REPLACED', splits: [{ propertyReferenceId: own.reference.id, loanId: null, securityDepositId: null, description: 'Whg 1' }] });
 
     const elsewhere = await loanPayment(OTHER_REALM);
     expect(await splits.replaceSplits(elsewhere, REALM, loanSplits, actor)).toEqual({ kind: 'NOT_FOUND' });

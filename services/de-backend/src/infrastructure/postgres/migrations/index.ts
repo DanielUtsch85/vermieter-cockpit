@@ -36,6 +36,7 @@ import * as m0034 from './0034_import_balance_identity.js';
 import * as m0035 from './0035_correction_counterparty.js';
 import * as m0036 from './0036_rent_suggestion_reasons.js';
 import * as m0037 from './0037_security_deposit.js';
+import * as m0038 from './0038_security_deposit_split.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -81,4 +82,5 @@ export const migrations: Record<string, Migration> = {
   '0035_correction_counterparty': m0035,
   '0036_rent_suggestion_reasons': m0036,
   '0037_security_deposit': m0037,
+  '0038_security_deposit_split': m0038,
 };

@@ -65,7 +65,7 @@ describe.skipIf(databaseUrl === undefined)('migration 0033: the backfill of mre_
       await splits.replaceSplits(
         tx.transaction.id,
         REALM,
-        [{ amount: eur('800.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, description: null }],
+        [{ amount: eur('800.00'), financialCategoryCode: 'RENT_BASE', propertyReferenceId: null, loanId: null, securityDepositId: null, description: null }],
         actor,
       );
       await transactions.confirm(tx.transaction.id, REALM, actor);

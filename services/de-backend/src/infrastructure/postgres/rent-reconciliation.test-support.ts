@@ -30,6 +30,7 @@ export const split = (amount: string, financialCategoryCode = 'RENT_BASE'): Spli
   financialCategoryCode,
   propertyReferenceId: null,
   loanId: null,
+  securityDepositId: null,
   description: null,
 });
 

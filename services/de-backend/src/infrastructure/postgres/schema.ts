@@ -472,6 +472,8 @@ export interface TransactionSplitTable {
   property_reference_id: string | null;
   /** VC-3-05; optional on insert (NULL: no Loan). */
   loan_id: Generated<string | null>;
+  /** VC-5-02; optional on insert (NULL: no SecurityDeposit). */
+  security_deposit_id: Generated<string | null>;
   description: string | null;
   created_at: Generated<Date>;
   created_by: string;
