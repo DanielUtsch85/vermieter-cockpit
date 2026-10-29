@@ -52,7 +52,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 ### Follow-ups
 - F1: ADR-043 (D with C); implementation VC-1-12 (#106).
-- F2: account IBAN check on import (#107).
+- F2: account IBAN check on import (#107, VC-1-13).
 - F3: mapping presets per bank (#108).
 - F4: counterparty in the Transaction reads (#109).
 

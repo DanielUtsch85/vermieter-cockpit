@@ -55,6 +55,35 @@ export interface ParsedStatement {
   /** A stable statement/source id, if the source provides one (§70.2). */
   readonly sourceStatementId: string | null;
   readonly rows: readonly ParsedRow[];
+  /**
+   * The distinct IBANs of the file's own account column (normalized, in order of first appearance), when the adapter
+   * reads one; absent otherwise. Checked against the FinancialAccount before anything is imported (#107).
+   */
+  readonly accountIbans?: readonly string[];
+}
+
+export type StatementAccountMismatch =
+  /** The file names its account, but the FinancialAccount has no IBAN to compare with. */
+  | 'ACCOUNT_HAS_NO_IBAN'
+  /** The account column is mapped, but no row fills it. */
+  | 'ACCOUNT_IBAN_MISSING'
+  /** The rows name more than one account. */
+  | 'MIXED_ACCOUNT_IBANS'
+  /** The file's account is another one. */
+  | 'ACCOUNT_IBAN_MISMATCH';
+
+/**
+ * Whether a statement may be imported into an account with this IBAN (#107): only checked when the statement names its
+ * own account. A file of account X must never land in account Y silently.
+ */
+export function checkStatementAccount(accountIban: string | null, statement: Pick<ParsedStatement, 'accountIbans'>): StatementAccountMismatch | undefined {
+  const named = statement.accountIbans;
+  if (named === undefined) return undefined;
+  if (accountIban === null) return 'ACCOUNT_HAS_NO_IBAN';
+  const [only, ...more] = named;
+  if (only === undefined) return 'ACCOUNT_IBAN_MISSING';
+  if (more.length > 0) return 'MIXED_ACCOUNT_IBANS';
+  return only === accountIban.replace(/\s/g, '').toUpperCase() ? undefined : 'ACCOUNT_IBAN_MISMATCH';
 }
 
 /** The file as a whole cannot be read (api-design.md §32.1 → 400); no row is imported. */

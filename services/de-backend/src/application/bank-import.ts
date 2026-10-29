@@ -6,8 +6,10 @@ import type {
   ImportRepository,
   ReviewItem,
   ReviewResolution,
+  StatementAccountMismatch,
   StatementError,
 } from '../domains/ledger/index.js';
+import { checkStatementAccount } from '../domains/ledger/index.js';
 import type { RealmPrincipal } from './access.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { FinancialAccountClosedError } from './transactions.js';
@@ -40,6 +42,19 @@ export class ImportFileError extends Error {
   }
 }
 
+/** The file names another account than the FinancialAccount, or cannot be checked (#107); nothing was imported (→ 422). */
+export class ImportAccountMismatchError extends Error {
+  override readonly name = 'ImportAccountMismatchError';
+
+  constructor(
+    readonly reason: StatementAccountMismatch,
+    readonly accountIban: string | null,
+    readonly fileIbans: readonly string[],
+  ) {
+    super(`The file's account does not match the FinancialAccount (${reason})`);
+  }
+}
+
 export interface ImportBankStatementInput {
   readonly principal: RealmPrincipal;
   readonly financialAccountId: string;
@@ -69,6 +84,8 @@ export function importBankStatement(deps: ImportBankStatementDeps): ImportBankSt
 
     const parsed = adapter.parse(file, options, account.currency);
     if ('error' in parsed) throw new ImportFileError(parsed.error);
+    const mismatch = checkStatementAccount(account.iban, parsed.statement);
+    if (mismatch !== undefined) throw new ImportAccountMismatchError(mismatch, account.iban, parsed.statement.accountIbans ?? []);
 
     const outcome = await deps.imports.importStatement(
       {

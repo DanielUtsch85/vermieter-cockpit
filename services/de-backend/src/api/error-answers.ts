@@ -24,6 +24,7 @@ import {
   FinancialAccountNotFoundError,
   IdempotencyKeyConflictError,
   ImportBatchNotFoundError,
+  ImportAccountMismatchError,
   ImportFileError,
   ImportedFieldsFixedError,
   InactiveCategoryError,
@@ -295,6 +296,13 @@ const TABLE = [
     answer(409, 'CONFLICT', 'An imported Transaction keeps the values of its bank row.', {
       reason: 'IMPORTED_FIELDS_FIXED',
       fields: error.fields,
+    }),
+  ),
+  on(ImportAccountMismatchError, (error) =>
+    answer(422, 'ACCOUNT_IBAN_MISMATCH', "The file's own account does not match the FinancialAccount; nothing was imported.", {
+      reason: error.reason,
+      accountIban: error.accountIban,
+      fileIbans: error.fileIbans,
     }),
   ),
   on(ImportFileError, (error) =>

@@ -23,7 +23,9 @@ import { normalizeIbanRaw, normalizeReference, normalizeText, parseSignedAmount,
  * normalization rules in normalize.ts, and fingerprint field set v1.
  * Version 2 (ADR-043, data-model.md §70.6) adds the optional `balanceAfter`
  * column, the bank's running balance after the booking, parsed like the amount;
- * everything else, the fingerprint field set included, is as in version 1.
+ * everything else, the fingerprint field set included, is as in version 1. It
+ * also reads the optional `accountIban` column, the file's own account, which
+ * the import checks against the FinancialAccount (#107); rows are not changed by it.
  */
 
 export const GENERIC_CSV_ID = 'generic-csv';
@@ -58,7 +60,9 @@ const formatOptions = {
 };
 
 export const genericCsvOptions = z.object({ columnMapping: z.object(columnsV1).strict(), ...formatOptions }).strict();
-export const genericCsvOptionsV2 = z.object({ columnMapping: z.object({ ...columnsV1, balanceAfter: column.optional() }).strict(), ...formatOptions }).strict();
+export const genericCsvOptionsV2 = z
+  .object({ columnMapping: z.object({ ...columnsV1, balanceAfter: column.optional(), accountIban: column.optional() }).strict(), ...formatOptions })
+  .strict();
 export type GenericCsvOptions = z.infer<typeof genericCsvOptionsV2>;
 
 export const genericCsvAdapter: BankStatementAdapter = genericCsv(GENERIC_CSV_VERSION, genericCsvOptions);
@@ -111,6 +115,8 @@ function genericCsv(version: string, schema: typeof genericCsvOptions | typeof g
         // A plain CSV export carries no statement id: the file content identifies it (§70.2).
         sourceStatementId: null,
         rows,
+        // Version 2: the file's own account, checked against the FinancialAccount (#107).
+        ...(indexes.columns.accountIban === undefined ? {} : { accountIbans: accountIbansOf(dataRows, indexes.columns.accountIban) }),
       };
       return { statement };
     },
@@ -223,6 +229,11 @@ function parseRow(
     row,
     contentFingerprint: createHash('sha256').update(contentFingerprintFieldsV1(row)).digest('hex'),
   };
+}
+
+/** The distinct non-empty IBANs of the account column, in order of first appearance. */
+function accountIbansOf(dataRows: readonly (readonly string[])[], index: number): string[] {
+  return [...new Set(dataRows.flatMap((cells) => normalizeIbanRaw(cells[index]) ?? []))];
 }
 
 function decode(file: Uint8Array, encoding: GenericCsvOptions['encoding']): string | undefined {

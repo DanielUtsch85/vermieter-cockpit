@@ -14,6 +14,7 @@ import type {
 import type { AuditActor } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import {
+  ImportAccountMismatchError,
   ImportBatchNotFoundError,
   ImportFileError,
   ReviewItemNotFoundError,
@@ -99,6 +100,17 @@ describe('importBankStatement', () => {
   it('an unknown or foreign account is not found, also when it vanishes before the import', async () => {
     await expect(setup().run({ ...input, principal: { ...principal, mreRealmId: 'other' } })).rejects.toBeInstanceOf(FinancialAccountNotFoundError);
     await expect(setup({ outcome: { kind: 'ACCOUNT_NOT_FOUND' } }).run(input)).rejects.toBeInstanceOf(FinancialAccountNotFoundError);
+  });
+
+  it('a file naming another account is refused before anything is imported (#107)', async () => {
+    const named = (accountIbans: string[]) => () => ({ statement: { ...statement, accountIbans } });
+    const withIban = { ...account, iban: 'DE72660908000003061329' } as FinancialAccount;
+    const { run, imported } = setup({ parse: named(['DE02120300000000202051']), account: withIban });
+    const error = await run(input).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ImportAccountMismatchError);
+    expect(error).toMatchObject({ reason: 'ACCOUNT_IBAN_MISMATCH', accountIban: 'DE72660908000003061329', fileIbans: ['DE02120300000000202051'] });
+    expect(imported).toHaveLength(0);
+    expect(await setup({ parse: named(['DE72660908000003061329']), account: withIban }).run(input)).toBe(batch);
   });
 
   it('a file-level adapter error imports nothing', async () => {
