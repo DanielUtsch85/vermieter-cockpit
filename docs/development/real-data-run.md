@@ -50,7 +50,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 **What worked without friction:** UTF-8 with BOM and umlauts, CRLF, decimal comma, German dates, newest-first order, signed amounts → direction, the second import of the same file, and the empty `needs_review` list on a first import.
 
-### Follow-ups
+**Follow-ups:**
 - F1: ADR-043 (D with C); implementation VC-1-12 (#106).
 - F2: account IBAN check on import (#107, VC-1-13).
 - F3: mapping presets per bank (#108, VC-1-14: preset `vr-banking`).
@@ -122,8 +122,8 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
     - and a hint in the suggest response: the count of inflows skipped as unsplit or unconfirmed.
 
 **Follow-ups:**
-- F10: suggestions for tenants who pay before the month (#125); fixed before ACC5 (`phase-5-plan.md` §0).
-- F11: to be decided.
+- F10: suggestions for tenants who pay before the month (#125, VC-4-07): **done** in #127. The month in the purpose text comes first, then the chain is assigned in order from an anchor (api-design §37.3, migration 0036). A full date is not read as a month: it is the execution date.
+- F11: split proposal from the MRE term, and a hint when suggest skips inflows (#126).
 
 ## Into Phase 5
 
