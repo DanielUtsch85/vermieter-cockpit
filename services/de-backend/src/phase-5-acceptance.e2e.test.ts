@@ -318,15 +318,15 @@ describe.skipIf(databaseUrl === undefined)('Phase 5 acceptance (roadmap exit)', 
     expect(await json(await A('GET', `/transactions/${r1}/rent-reconciliations`), 200)).toMatchObject({ available: eur('800.00') });
     await json(await A('POST', '/rent-reconciliations', { transactionId: r0, mreTenantId: T1, mreRentTerm: JAN, matchedAmount: eur('800.00') }), 201);
     const suggested = await json<{
-      items: { reconciliationId: string; transactionId: string; mreRentTerm: string; matchedAmount: Money; suggestionReason: string }[];
+      items: { reconciliationId: string; transactionId: string; mreRentTerm: string; matchedAmount: Money; suggestionReason: string; confidence: string }[];
     }>(await A('POST', '/rent-reconciliations/suggest', { from: '2027-02', to: '2027-03' }), 200);
     expect(
       suggested.items
-        .map((i) => [i.transactionId, i.mreRentTerm, i.matchedAmount, i.suggestionReason])
+        .map((i) => [i.transactionId, i.mreRentTerm, i.matchedAmount, i.suggestionReason, i.confidence])
         .sort((x, y) => String(x[1]).localeCompare(String(y[1]))),
     ).toEqual([
-      [r1, FEB, eur('800.00'), 'EXACT_AMOUNT_IN_ORDER'],
-      [r2, MARCH, eur('800.00'), 'EXACT_AMOUNT_IN_ORDER'],
+      [r1, FEB, eur('800.00'), 'EXACT_AMOUNT_IN_ORDER', 'HIGH'],
+      [r2, MARCH, eur('800.00'), 'EXACT_AMOUNT_IN_ORDER', 'HIGH'],
     ]);
     expect(
       await errorOf(await A('POST', '/rent-reconciliations', { transactionId: r3, mreTenantId: T1, mreRentTerm: MARCH, matchedAmount: eur('800.00') }), 422),
