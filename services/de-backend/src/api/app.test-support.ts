@@ -13,6 +13,7 @@ export const unusedCommands: AppCommands = {
   landBuildingAllocations: { create: unused, list: unused },
   acquisitionCosts: { createCost: unused, voidCost: unused, listCosts: unused, linkPayment: unused, unlinkPayment: unused, listPayments: unused },
   loans: { create: unused, get: unused, list: unused, amend: unused, void: unused, close: unused },
+  securityDeposits: { create: unused, get: unused, list: unused, amend: unused, void: unused },
   rentReconciliations: {
     create: unused,
     get: unused,

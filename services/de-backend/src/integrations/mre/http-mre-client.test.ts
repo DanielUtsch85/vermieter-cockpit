@@ -56,7 +56,8 @@ describe('HttpMreClient against a fake MRE', () => {
           },
           { _id: PROPERTY_B, name: 'Stellplatz' },
         ],
-        tenants: [{ _id: TENANT_A, name: 'Tina Mieterin', contacts: [{ email: 'tina@example.com' }] }],
+        // A float `guaranty` and no `guarantyPayback`, as MRE keeps a Tenant before its lease ends (§47.1).
+        tenants: [{ _id: TENANT_A, name: 'Tina Mieterin', contacts: [{ email: 'tina@example.com' }], guaranty: 2999.995 }],
         rents: { [TENANT_A]: [2027010100, 2027020100] },
         rentTerms: {
           [`${TENANT_A}/2027020100`]: {
@@ -123,6 +124,41 @@ describe('HttpMreClient against a fake MRE', () => {
     expect(await client.listTenantIds(token, 'realm-a')).toEqual([TENANT_A]);
     expect(mre.requests.at(-1)).toMatchObject({ path: '/api/v2/tenants', organizationid: 'realm-a' });
     await expectCode(client.listTenantIds(token, 'realm-b'), 'FORBIDDEN');
+  });
+
+  it('readTenantDeposit reads the Realm list: guaranty half-up to the cent, a missing payback null, an unknown Tenant undefined', async () => {
+    const token = signJwt({ account: { email: 'anna@example.com' } });
+    expect(await client.readTenantDeposit(token, 'realm-a', TENANT_A)).toEqual({ guaranty: Money.of('3000.00', 'EUR'), guarantyPayback: null });
+    expect(mre.requests.at(-1)).toMatchObject({ path: '/api/v2/tenants', organizationid: 'realm-a' });
+    expect(await client.readTenantDeposit(token, 'realm-a', '6512f0c2a1b2c3d4e5f60aff')).toBeUndefined();
+    await expectCode(client.readTenantDeposit(token, 'realm-b', TENANT_A), 'FORBIDDEN');
+  });
+
+  it.each([
+    ["MRE's default guaranty 0 → null; a payback 0 is a value", '[{"_id":"6512f0c2a1b2c3d4e5f60a01","guaranty":0,"guarantyPayback":0}]', null, '0.00'],
+    ['both present', '[{"_id":"6512f0c2a1b2c3d4e5f60a01","guaranty":1500,"guarantyPayback":1234.565}]', '1500.00', '1234.57'],
+    ['text values are no values', '[{"_id":"6512f0c2a1b2c3d4e5f60a01","guaranty":"1500","guarantyPayback":"x"}]', null, null],
+  ])('readTenantDeposit: %s', async (_label, body, guaranty, payback) => {
+    const stub = await startStub(200, body);
+    try {
+      expect(await new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readTenantDeposit('a.b.c', 'r', TENANT_A)).toEqual({
+        guaranty: guaranty === null ? null : Money.of(guaranty, 'EUR'),
+        guarantyPayback: payback === null ? null : Money.of(payback, 'EUR'),
+      });
+    } finally {
+      stub.close();
+    }
+  });
+
+  it('readTenantDeposit: an unexpected list shape → UNAVAILABLE, without the body in the message', async () => {
+    const stub = await startStub(200, '[{"name":"Tina"}]');
+    try {
+      const read = new HttpMreClient({ apiBaseUrl: stub.url, timeoutMs: 2000 }).readTenantDeposit('a.b.c', 'r', TENANT_A);
+      await expectCode(read, 'UNAVAILABLE');
+      await expect(read).rejects.not.toThrow(/Tina/);
+    } finally {
+      stub.close();
+    }
   });
 
   it('rentTermExists reads GET /rents/tenant/:id/:term of the Realm; an unknown term, Tenant or Realm is false', async () => {

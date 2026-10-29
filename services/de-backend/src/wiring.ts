@@ -7,6 +7,7 @@ import {
   type MreMonthReader,
   type MreWriteBackTermReader,
   type MreWriteBackTermWriter,
+  type MreTenantDepositReader,
   type MreTenantLookup,
   type PrincipalVerifier,
 } from './application/index.js';
@@ -61,6 +62,19 @@ export function mreTenantLookup(client: MreClient): MreTenantLookup {
     if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
     try {
       return (await client.listTenantIds(token, mreRealmId)).includes(mreTenantId);
+    } catch (error) {
+      throw mreError(error);
+    }
+  };
+}
+
+/** One Tenant's deposit fields from the Realm's list `GET /tenants`, with the caller's own token (api-design.md §47.1). */
+export function mreTenantDepositReader(client: MreClient): MreTenantDepositReader {
+  return async (authorizationHeader, mreRealmId, mreTenantId) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
+    try {
+      return await client.readTenantDeposit(token, mreRealmId, mreTenantId);
     } catch (error) {
       throw mreError(error);
     }

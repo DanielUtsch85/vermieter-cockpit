@@ -237,6 +237,35 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
     });
   });
 
+  describe("a Tenant's deposit fields (needed for the SecurityDeposit, VC-5-01)", () => {
+    let withGuaranty = '';
+    let withoutGuaranty = '';
+
+    beforeAll(async () => {
+      const id = z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/) });
+      const a = await call('/tenants', { method: 'POST', token: await token(), realm: realmA, body: { name: 'Mieter Kaution', guaranty: 1500.5 } });
+      expect(a.status).toBe(200);
+      withGuaranty = id.parse(a.json)._id;
+      const b = await call('/tenants', { method: 'POST', token: await token(), realm: realmA, body: { name: 'Mieter ohne Kaution' } });
+      expect(b.status).toBe(200);
+      withoutGuaranty = id.parse(b.json)._id;
+    });
+
+    it('HttpMreClient.readTenantDeposit reads guaranty from the Tenant list; an unset payback is null (P5-D1/D7)', async () => {
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      const deposit = await client.readTenantDeposit(await token(), realmA, withGuaranty);
+      expect(deposit?.guaranty?.toJSON()).toEqual({ amount: '1500.50', currency: 'EUR' });
+      expect(deposit?.guarantyPayback).toBeNull();
+    });
+
+    it("a Tenant without guaranty (MRE's default 0) has none; an unknown id and another Realm's Tenant are undefined", async () => {
+      const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
+      expect((await client.readTenantDeposit(await token(), realmA, withoutGuaranty))?.guaranty).toBeNull();
+      expect(await client.readTenantDeposit(await token(), realmA, '000000000000000000000000')).toBeUndefined();
+      expect(await client.readTenantDeposit(await token(), realmB, withGuaranty)).toBeUndefined();
+    });
+  });
+
   describe('rent terms (needed for the rent reconciliation, VC-4-01)', () => {
     let tenantId = '';
 

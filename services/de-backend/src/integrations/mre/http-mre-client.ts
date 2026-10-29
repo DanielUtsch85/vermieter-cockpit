@@ -7,6 +7,7 @@ import {
   type MreClientErrorCode,
   type MreProperty,
   type MreRealmMembership,
+  type MreTenantDeposit,
   type MreMonthRent,
   type MreRawTerm,
   type MreRentPayment,
@@ -64,6 +65,8 @@ const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough()
  * (mre-integration.md §20.1). A Tenant without `_id` rejects the whole response, as for properties.
  */
 const tenantsDto = z.array(z.object({ _id: z.string().min(1) }));
+/** The same list for one Tenant's deposit fields (api-design.md §47.1): anything but a finite number is no value. */
+const tenantDepositsDto = z.array(z.object({ _id: z.string().min(1), guaranty: z.unknown().optional(), guarantyPayback: z.unknown().optional() }));
 /** A rent term of `GET /rents/tenant/:id/:term`: only its key, its amount due and its payments are read. */
 const rentTermDto = z.object({
   term: z.number().int(),
@@ -166,6 +169,20 @@ export class HttpMreClient implements MreClient {
       throw new MreClientError('UNAVAILABLE', `Unexpected MRE tenants shape at ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
     }
     return parsed.data.map((tenant) => tenant._id);
+  }
+
+  async readTenantDeposit(accessToken: string, mreRealmId: string, mreTenantId: string): Promise<MreTenantDeposit | undefined> {
+    const body = await this.get('/tenants', accessToken, mreRealmId, 'FORBIDDEN');
+    const parsed = tenantDepositsDto.safeParse(body);
+    if (!parsed.success) {
+      // The issue paths only, never the values: the body holds personal data.
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE tenants shape at ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
+    }
+    const tenant = parsed.data.find((t) => t._id === mreTenantId);
+    if (tenant === undefined) return undefined;
+    const amount = (value: unknown) => (typeof value === 'number' ? (toCents(value) ?? null) : null);
+    const guaranty = amount(tenant.guaranty);
+    return { guaranty: guaranty !== null && guaranty.isPositive() ? guaranty : null, guarantyPayback: amount(tenant.guarantyPayback) };
   }
 
   async rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean> {

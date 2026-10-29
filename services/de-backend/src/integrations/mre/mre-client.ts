@@ -118,6 +118,12 @@ export type MreTermWriteResult =
   | { readonly kind: 'NO_ANSWER'; readonly message: string }
   | { readonly kind: 'REFUSED'; readonly status: number };
 
+/** A Tenant's deposit fields as MRE keeps them (operational context only, BR-DEP-007). */
+export interface MreTenantDeposit {
+  readonly guaranty: Money | null;
+  readonly guarantyPayback: Money | null;
+}
+
 export type MreClientErrorCode =
   /** MRE rejected the token (missing, malformed, expired, bad signature): HTTP 401. */
   | 'UNAUTHENTICATED'
@@ -155,6 +161,14 @@ export interface MreClient {
    * caller looks for the id itself (mre-integration.md §20.1); nothing else of a Tenant is read.
    */
   listTenantIds(accessToken: string, mreRealmId: string): Promise<readonly string[]>;
+
+  /**
+   * One Tenant's deposit fields, read from the Realm's list `GET /tenants` (api-design.md §47.1): at the baseline
+   * `GET /tenants/:id` answers `500` for an unknown or malformed id, so a missing Tenant would read as an outage.
+   * Undefined when the list has no such Tenant. Only `guaranty` and `guarantyPayback` are kept (P5-D7), each rounded
+   * half-up to the cent once; `guaranty` `0` (MRE's default) and a missing `guarantyPayback` are `null`.
+   */
+  readTenantDeposit(accessToken: string, mreRealmId: string, mreTenantId: string): Promise<MreTenantDeposit | undefined>;
 
   /**
    * Whether the MRE Tenant `mreTenantId` of the Realm has the rent term `term` (`YYYYMMDDHH`), read through
