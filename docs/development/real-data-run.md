@@ -123,7 +123,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 **Follow-ups:**
 - F10: suggestions for tenants who pay before the month (#125, VC-4-07): **done** in #127. The month in the purpose text comes first, then the chain is assigned in order from an anchor (api-design §37.3, migration 0036). A full date is not read as a month: it is the execution date.
-- F11: split proposal from the MRE term, and a hint when suggest skips inflows (#126).
+- F11: split proposal from the MRE term, and a hint when suggest skips inflows (#126). Specified in api-design §37.6.
 
 ## Into Phase 5
 

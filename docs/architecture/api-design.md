@@ -1965,7 +1965,7 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
   - lock the chosen pairs' Transaction rows in id order (P3-D8's no-op write; Transaction → reconciliation);
   - re-check each pair: still counted, still the same available rent cash, still no reconciliation for the pair. A pair that changed is skipped, not refused;
   - insert it `SUGGESTED` with `version = 1` and one AuditRecord `SUGGESTED` (Transaction, Tenant, term, amount, confidence, reason).
-- **Success:** `200 { from, to, items }`. `items` are the reconciliations written by this run, in Transaction id order. A repeat over the same window writes nothing new and answers `items: []`.
+- **Success:** `200 { from, to, items, skipped }`. `items` are the reconciliations written by this run, in Transaction id order. A repeat over the same window writes nothing new and answers `items: []`. `skipped` counts the inflows no rule could see (#126, §37.6).
 - **Concurrency:** two runs over one window cannot both write a pair. The partial unique index `(transaction_id, mre_tenant_id, mre_rent_term) WHERE status = 'SUGGESTED'` (0031) is the arbiter, and the loser skips (`ON CONFLICT … DO NOTHING`).
 
 ### `POST /api/v1/rent-reconciliations/{reconciliationId}/confirm`
@@ -2306,6 +2306,53 @@ Decision P4-D7 of `docs/development/phase-4-plan.md`: the protocol of §37.4 in 
   - the backfill without `released_at`, and `REMOVAL_REQUIRED` left out of the CHECK;
   - the record without the attempt check;
   - the release's lease check on the application's clock.
+
+## 37.6 Rent split proposal and the suggest hint (#126, real-data run F11)
+
+Finding F11 of `real-data-run.md`: every rent payment needs `PUT …/splits` (`RENT_BASE` + `RENT_OPERATING_COST_ADVANCE`) and `confirm` before `suggest` sees it (P4-D3), and the split always repeats MRE's own breakdown of the term. A suggest run over unsplit or unconfirmed inflows answered an empty list without saying why.
+
+### `GET /api/v1/rent-reconciliations/split-proposal?transactionId=&mreTenantId=&mreRentTerm=`
+
+A read, never a write, as §41.5's payment proposal. The client applies a proposal through `PUT …/splits`.
+
+- **Query** (strict): `transactionId` (UUID), `mreTenantId` (24-hex), `mreRentTerm` (`YYYYMMDDHH`), all required (`400 REQUIRED`, malformed `400 INVALID_FORMAT`).
+- **Refusals**, in this order:
+  1. `400`;
+  2. Transaction unknown or foreign → `404` (`details.transactionId`);
+  3. the Transaction is not `INFLOW`, or not unconfirmed (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`) → `409 CONFLICT` with `reason = "NOT_PROPOSABLE"` and `details.direction`, `details.status`: a confirmed Transaction's splits are frozen (0009), so a proposal could not be applied;
+  4. the MRE term, read with the caller's token outside any database transaction (P4-D8): the Tenant or the term not in the Realm → `422 MRE_RENT_TERM_NOT_FOUND` (§37.1's code and details); MRE unavailable → `503`; `401`/`403` as §37.1.
+- **The breakdown, from MRE (baseline `479d0ad`):** `GET /rents/tenant/:id/:term` (§37.1) answers `toRentData`, which has no separate rent and charges. The Realm's Tenant list `GET /tenants` (already read for §20.1 and §47.1) carries each Tenant's stored `rents[]` with `term` and `total` as `computeRent` wrote them (`businesslogic/tasks/7_total.js`): `preTaxAmount`, `charges`, `debts`, `discount`, `vat`, `balance`, `grandTotal`. The client keeps only the Tenant's `_id` and, of the one term asked for, those seven numbers (half-up to the cent once, P4-D8); the rest of the Tenant (name, contacts) is dropped and never logged.
+  - `rent` = `preTaxAmount`; `charges` = `charges`;
+  - `due` = `grandTotal` − `balance`: the same as `totalWithoutBalanceAmount`, the amount §37.1 and §37.3 work with;
+  - `adjustments` = `due` − `rent` − `charges` (debts, discounts, VAT). Usually 0 for a residential lease.
+- **The proposal** for the Transaction's `amount`:
+  - `RENT_BASE` = min(`rent`, `amount`);
+  - `RENT_OPERATING_COST_ADVANCE` = min(`charges`, `amount` − `RENT_BASE`);
+  - `unallocated` = `amount` − both. A split of amount 0 is left out. Their sum plus `unallocated` is `amount`.
+- **Flags** (a list, possibly empty):
+  - `AMOUNT_DIFFERS_FROM_TERM` with `details.difference` (`amount` − `due`, signed Money);
+  - `TERM_HAS_ADJUSTMENTS` with `details.adjustments`: MRE's term has debts, discounts or VAT; they are not split, and any part of `amount` for them stays `unallocated`;
+  - `ALREADY_SPLIT`: the Transaction has splits; the proposal ignores them.
+- **Response `200`:** `{ transactionId, mreTenantId, mreRentTerm, amount, term: { rent, charges, adjustments, due }, splits: [{ financialCategoryCode, amount }], unallocated, flags }`. The DE side is read in one `REPEATABLE READ READ ONLY` snapshot before the MRE read.
+- **Example** (the real-data case, anonymized): a term of rent R and charges C with no adjustments, and an inflow of R + C: `RENT_BASE` R and `RENT_OPERATING_COST_ADVANCE` C, `unallocated` 0, no flags. An inflow of R + C − 10.00: `RENT_BASE` R, the advance C − 10.00, `AMOUNT_DIFFERS_FROM_TERM` with −10.00.
+- **Not in #126:** a proposal in bulk over a window; proposing the Tenant or term for a Transaction (that is `suggest`, §37.3, once the Transaction is split and confirmed).
+
+### The suggest hint (§37.3)
+
+`POST /rent-reconciliations/suggest` answers `{ from, to, items, skipped }`. `skipped` counts the Realm's `INFLOW` Transactions booked in the window's booking range (§37.3: from the 15th of the month before `from` to the last day of `to`) that no rule could see:
+
+- `unconfirmed`: status `IMPORTED`, `UNREVIEWED` or `CLASSIFIED`; `IGNORED` ones are not counted;
+- `unsplit`: counted (§37.1: `CONFIRMED` or `RECONCILED`, not a reversal) with no split in a rent category (P4-D3), so no rent cash at all.
+
+Both are counts (non-negative integers), read in §37.3's snapshot; a Transaction is in at most one. An empty `items` with `skipped.unconfirmed` > 0 tells the user to split and confirm first, and the split proposal above does the split. Nothing else in §37.3 changes.
+
+### Tests (#126)
+
+- **Domain:** the proposal with an exact amount, a lower and a higher one, adjustments, `ALREADY_SPLIT`; zero splits left out; the sum identity.
+- **MRE client:** the Tenant list parsed to the one term's seven numbers (floats rounded half-up once); a Tenant without the term; the fake MRE's Tenants gain `rents[]`; `mre.contract.test.ts` pins `rents[].term` and `rents[].total` with `preTaxAmount` and `charges` at the baseline.
+- **Repository / application:** the refusals in order; the DE snapshot; no MRE call on a `400`, `404` or `NOT_PROPOSABLE`.
+- **Suggest:** `skipped` with an unconfirmed, an unsplit and a counted rent inflow in the window, one outside it, an ignored one, and one of another Realm.
+- **End to end:** the real-data shape (rent plus advance) through the proposal, `PUT …/splits` with it, `confirm`, then `suggest` finds it.
 
 ---
 
