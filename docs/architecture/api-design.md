@@ -3494,9 +3494,9 @@ Decisions P5-D7 and P5-D8. A deposit ends by `close`: returned in full, a part (
   2. deposit unknown or foreign → `404` (`details.securityDepositId`);
   3. the deposit `CLOSED` with exactly these values → `200` no-op (below); `CLOSED` with others, or `VOID` → `409 CONFLICT` with `reason = "DEPOSIT_NOT_ACTIVE"` and `details.status`;
   4. a split with this deposit's id on a Transaction booked **after** `closingDate` that counts or is open → `409 CONFLICT` with `reason = "CASH_AFTER_CLOSING_DATE"` and `details.transactionIds` (booking-date order). As §41.7's check 6: current Transactions (`CONFIRMED`, `RECONCILED`, not a reversal) and open ones (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`, `IGNORED`); a `CORRECTED` original and its reversal do not;
-  5. an **open** split with this deposit's id, on or before `closingDate` → `409 CONFLICT` with `reason = "UNCONFIRMED_CASH"` and `details.transactionIds`. Its confirmation would change `held` behind the closing; the user confirms it (or removes the link) first. (A refinement of P5-D8, which speaks of counted cash only.)
+  5. an **open** split with this deposit's id, on or before `closingDate` → `409 CONFLICT` with `reason = "UNCONFIRMED_CASH"` and `details.transactionIds`. Its confirmation would change `held` behind the closing; the user confirms it (or removes the link) first; an `IGNORED` one can be neither confirmed nor re-split, so the user restores it, removes the link and ignores it again. (A refinement of P5-D8, which speaks of counted cash only.)
   6. by `reason`, on `held` as §47.3 derives it (all counted cash, none lies after `closingDate` by check 4):
-     - `RETURNED`: `held` ≠ 0 → `409 CONFLICT` with `reason = "DEPOSIT_STILL_HELD"` and `details.held` (signed Money);
+     - `RETURNED`: `held` > 0 → `409 CONFLICT` with `reason = "DEPOSIT_STILL_HELD"` and `details.held` (signed Money). A negative `held` (more repaid than held, §47.3's `RETURNED` with `RETURNED_EXCEEDS_HELD`) closes as `RETURNED` (review on #136);
      - `RETAINED`: `held` ≤ 0 → `409 CONFLICT` with `reason = "NOTHING_RETAINED"` and `details.held`;
      - `OTHER`: any `held`;
   7. `If-Match` → `412`.
@@ -3504,7 +3504,7 @@ Decisions P5-D7 and P5-D8. A deposit ends by `close`: returned in full, a part (
   - A repeat with the same values (`closingDate`, `reason`, `closingNote`) is a `200` no-op without a new version or AuditRecord, answered regardless of `If-Match`.
 - **`closing`** on every deposit response: `{ closingDate, reason, closingNote, heldAtClosing, retainedAmount }`, or `null` while not `CLOSED`.
   - `heldAtClosing` (Money, signed) is `held` at the moment of closing, **stored** with the closing for the comparison below;
-  - `retainedAmount` = `heldAtClosing` for `RETAINED` and `OTHER`, 0 for `RETURNED`. It stays deposit cash in DE; whether and when it becomes income is Phase 7's (`VERIFY`, P5-D6).
+  - `retainedAmount` = max(`heldAtClosing`, 0) for `RETAINED` and `OTHER`, 0 for `RETURNED`: never negative, since nothing is kept when more was repaid than held (review on #136). It stays deposit cash in DE; whether and when it becomes income is Phase 7's (`VERIFY`, P5-D6).
 - **Locks (P5-D9):** the deposit `FOR UPDATE`, then its splits and their Transactions are read. No Transaction is locked: deposit writers never do. A split write locks the deposit after its Transaction (§47.2), so a close and a split write serialise on the deposit row.
 
 ### `POST /api/v1/security-deposits/{id}/reopen`
@@ -3534,7 +3534,7 @@ Decisions P5-D7 and P5-D8. A deposit ends by `close`: returned in full, a part (
   - `null` when MRE cannot be asked or no longer has the Tenant.
 - **Flags** (after the others):
   - `EXPECTED_DIFFERS_FROM_MRE`: `guaranty` is not `null` and ≠ `expectedAmount`; `details.guaranty`, `details.expectedAmount`;
-  - `RETURNED_DIFFERS_FROM_MRE`: the deposit is `CLOSED`, `guarantyPayback` is not `null` and ≠ `returned`; `details.guarantyPayback`, `details.returned`. A value is needed on both sides; a missing one raises no flag;
+  - `RETURNED_DIFFERS_FROM_MRE`: the deposit is `CLOSED`, `guarantyPayback` is not `null` and ≠ `returned`; `details.guarantyPayback`, `details.returned`. A value is needed on both sides; a missing one raises no flag. `returned` includes interest repaid with the deposit (P5-D5): `guarantyPayback` is what the tenant got back, so a landlord who enters only the deposit sees the flag, which is meant (the flag shows, it never refuses);
   - `MRE_UNAVAILABLE`: MRE timed out or answered `5xx` (`mre = null`, never an error: the DE side stays readable, BR-MRE-004);
   - `MRE_TENANT_NOT_FOUND`: the Tenant is no longer in the Realm's list (`mre = null`).
 - MRE refusing the caller (`401`/`403`) is answered as §47.1's create does: the caller has no business reading MRE's values.
@@ -3544,7 +3544,7 @@ Decisions P5-D7 and P5-D8. A deposit ends by `close`: returned in full, a part (
 
 - **`security_deposit` gains:**
   - `closing_date date`, `closing_reason text` in (`RETURNED`, `RETAINED`, `OTHER`), `closing_note text` (1–500), `held_at_closing numeric` (scale ≤ 2);
-  - CHECKs: `(status = 'CLOSED') = (closing_date IS NOT NULL)`, the same for `closing_reason` and `held_at_closing`; `closing_reason = 'RETURNED'` → `held_at_closing = 0`; `closing_reason = 'RETAINED'` → `held_at_closing > 0` and `closing_note IS NOT NULL`; `closing_reason = 'OTHER'` → `closing_note IS NOT NULL`.
+  - CHECKs: `(status = 'CLOSED') = (closing_date IS NOT NULL)`, the same for `closing_reason` and `held_at_closing`; `closing_reason = 'RETURNED'` → `held_at_closing <= 0`; `closing_reason = 'RETAINED'` → `held_at_closing > 0` and `closing_note IS NOT NULL`; `closing_reason = 'OTHER'` → `closing_note IS NOT NULL`.
 - **`security_deposit_frozen` (0037) is replaced:** the steps are `ACTIVE` → `CLOSED`, `CLOSED` → `ACTIVE` and `ACTIVE` → `VOID`. The closing columns are set only in the step to `CLOSED`, cleared only in the step back, and fixed otherwise. While `CLOSED`, only `notes` may change besides a step. The rest of 0037's rules stay (`version` + 1, `VOID` final, P3-D8's no-op).
 - **`security_deposit_close_guard`** (before update, `WHEN (OLD.status <> 'CLOSED' AND NEW.status = 'CLOSED')`): refuses a split of the deposit on a Transaction booked after `closing_date` that counts or is open (`CASH_AFTER_CLOSING_DATE`), an open split on or before it (`UNCONFIRMED_CASH`), and a `held_at_closing` that is not the `held` of the counted cash (`HELD_AT_CLOSING`). So a raw writer cannot close past the rules either.
 - **`transaction_split_security_deposit` (0038) gains** the `CLOSED` rule above: a `CLOSED` deposit refuses the split, unless the Transaction is a reversal, or a replacement whose original has a split with the same deposit (`DEPOSIT_CLOSED`). It still writes the deposit row first, so a close and a split write serialise on it.
