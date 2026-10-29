@@ -5,7 +5,7 @@ import type { BusinessDate } from '../../domains/ledger/index.js';
 import { Money } from '../../shared/index.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
-import { migrateToLatest } from './migrate.js';
+import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
 import * as m0033 from './migrations/0033_rent_reconciliation_removal.js';
 import { PostgresRentReconciliationRepository } from './rent-reconciliation-repository.js';
 import { testSchemaName } from './test-schema.test-support.js';
@@ -76,26 +76,34 @@ describe.skipIf(databaseUrl === undefined)('migration 0033: the backfill of mre_
       if (created.kind !== 'CREATED') throw new Error(created.kind);
       ids[name] = created.reconciliation.id;
     }
-    // Back to 0032, and the rows' history there with 0032's own steps.
-    await m0033.down(db as unknown as Kysely<unknown>);
-    const step = (id: string | undefined, assignment: string) =>
-      pool.query(`UPDATE rent_payment_reconciliation SET ${assignment}, version = version + 1 WHERE id = $1`, [id]);
-    const claim = `mre_write_back_state = 'PENDING', mre_write_back_attempt_id = gen_random_uuid(), mre_write_back_lease_until = now() + interval '1 second'`;
-    const cleared = `mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL`;
-    await step(ids['failed'], claim);
-    await step(ids['failed'], `mre_write_back_state = 'FAILED', mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now(), ${cleared}`);
-    // 0032's release clears the failure: the lease, the failure time and the written time are all NULL here.
-    await step(
-      ids['failed'],
-      `status = 'RELEASED', released_at = now() + interval '5 seconds', released_by = 'x', release_reason = 'x', mre_write_back_state = 'REMOVAL_REQUIRED', mre_write_back_error = NULL, mre_write_back_failed_at = NULL`,
-    );
-    await step(ids['written'], claim);
-    await step(
-      ids['written'],
-      `mre_write_back_state = 'WRITTEN', mre_written_back_at = now() + interval '3 seconds', mre_written_back_by = 'x', ${cleared},
+    // Back to 0032, and the rows' history there with 0032's own steps. Under the migration lock: a migration of another
+    // test file introspects every schema, and a column dropped meanwhile fails it (the CI race of #114).
+    const lock = new pg.Client({ connectionString: databaseUrl });
+    await lock.connect();
+    await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
+    try {
+      await m0033.down(db as unknown as Kysely<unknown>);
+      const step = (id: string | undefined, assignment: string) =>
+        pool.query(`UPDATE rent_payment_reconciliation SET ${assignment}, version = version + 1 WHERE id = $1`, [id]);
+      const claim = `mre_write_back_state = 'PENDING', mre_write_back_attempt_id = gen_random_uuid(), mre_write_back_lease_until = now() + interval '1 second'`;
+      const cleared = `mre_write_back_attempt_id = NULL, mre_write_back_lease_until = NULL`;
+      await step(ids['failed'], claim);
+      await step(ids['failed'], `mre_write_back_state = 'FAILED', mre_write_back_error = 'MRE_UNAVAILABLE', mre_write_back_failed_at = now(), ${cleared}`);
+      // 0032's release clears the failure: the lease, the failure time and the written time are all NULL here.
+      await step(
+        ids['failed'],
+        `status = 'RELEASED', released_at = now() + interval '5 seconds', released_by = 'x', release_reason = 'x', mre_write_back_state = 'REMOVAL_REQUIRED', mre_write_back_error = NULL, mre_write_back_failed_at = NULL`,
+      );
+      await step(ids['written'], claim);
+      await step(
+        ids['written'],
+        `mre_write_back_state = 'WRITTEN', mre_written_back_at = now() + interval '3 seconds', mre_written_back_by = 'x', ${cleared},
        mre_payment = '{"date":"03/01/2027","amount":{"amount":"800.00","currency":"EUR"},"type":"transfer","reference":"DE-RPR-x"}'`,
-    );
-    await m0033.up(db as unknown as Kysely<unknown>);
+      );
+      await m0033.up(db as unknown as Kysely<unknown>);
+    } finally {
+      await lock.end();
+    }
   });
 
   afterAll(async () => {

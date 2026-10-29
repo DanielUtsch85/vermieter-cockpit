@@ -165,14 +165,16 @@ describe.skipIf(databaseUrl === undefined)('balance identity and continuity (§7
     expect(stored.rows).toEqual([{ balance: '900.00' }, { balance: '900.00' }]);
 
     const once = await run(account, file([debit, ['10-02', '-1.00', '899.00']]));
+    // Both were created in one statement, so their order is not defined: compare as a set.
     expect(once.rows[0]).toEqual({
       outcome: 'needs_review',
       position: 1,
       reviewItemId: expect.any(String),
       importBatchId: once.id,
       reason: 'AMBIGUOUS_CROSS_FILE_MATCH',
-      conflictingTransactionIds: [first, second],
+      conflictingTransactionIds: expect.arrayContaining([first, second]),
     });
+    expect(once.rows[0]).toMatchObject({ conflictingTransactionIds: { length: 2 } });
     expect(once.rows[1]).toMatchObject({ outcome: 'created' });
   });
 
