@@ -6,6 +6,7 @@ import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
 import {
   amendDeposit,
+  confirmTransaction,
   createDeposit,
   createFinancialAccount,
   createManualTransaction,
@@ -43,6 +44,7 @@ const T_GUARANTY = '6512f0c2a1b2c3d4e5f65a01';
 const T_NONE = '6512f0c2a1b2c3d4e5f65a02';
 const T_OTHER = '6512f0c2a1b2c3d4e5f65a03';
 const T_SPLIT = '6512f0c2a1b2c3d4e5f65a04';
+const T_FIGURES = '6512f0c2a1b2c3d4e5f65a05';
 const T_B = '6512f0c2a1b2c3d4e5f65b01';
 
 describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end', () => {
@@ -74,6 +76,7 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
           { _id: T_NONE, name: 'Mieter N', guaranty: 0 },
           { _id: T_OTHER, name: 'Mieter O' },
           { _id: T_SPLIT, name: 'Mieterin S', guaranty: 1500 },
+          { _id: T_FIGURES, name: 'Mieter F', guaranty: 2400 },
         ],
       },
       { _id: REALM_B, name: 'B', members: member, applications: [], tenants: [{ _id: T_B, name: 'Mieter B', guaranty: 900 }] },
@@ -103,6 +106,7 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
         transactions: {
           createManual: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
           setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
+          confirm: confirmTransaction({ repository: new PostgresTransactionRepository(db) }),
           get: getTransaction({ queries: new PostgresTransactionQueries(db) }),
         },
       }),
@@ -295,5 +299,61 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
         422,
       ),
     ).toMatchObject({ code: 'INVALID_SECURITY_DEPOSIT_SPLIT', details: { position: 1, reason: 'DIRECTION' } });
+  });
+
+  it('VC-5-03: instalments and a mixed first transfer through the API; only confirmed cash counts; the state filter', async () => {
+    type Figures = Deposit & {
+      received: { amount: string };
+      outstanding: { amount: string };
+      state: string;
+      flags: { code: string }[];
+      cash?: { kind: string; amount: { amount: string } }[];
+    };
+    const kaution = await account('SECURITY_DEPOSIT', 'Kaution F');
+    const giro = await account('BANK', 'Giro F');
+    const deposit = await json<Deposit>(await A('POST', '/security-deposits', { mreTenantId: T_FIGURES, holdingFinancialAccountId: kaution }), 201);
+    const pay = async (on: string, bookingDate: string, splits: { amount: string; code: string; deposit?: boolean }[], confirm = true) => {
+      const total = splits.reduce((sum, s) => sum + Number(s.amount), 0).toFixed(2);
+      const id = (
+        await json<{ transactionId: string }>(
+          await A('POST', '/transactions', { financialAccountId: on, amount: { amount: total, currency: 'EUR' }, direction: 'INFLOW', bookingDate }),
+          201,
+        )
+      ).transactionId;
+      await json(
+        await A('PUT', `/transactions/${id}/splits`, {
+          splits: splits.map((s) => ({
+            amount: { amount: s.amount, currency: 'EUR' },
+            financialCategoryCode: s.code,
+            ...(s.deposit === true ? { securityDepositId: deposit.securityDepositId } : {}),
+          })),
+        }),
+        200,
+      );
+      if (confirm) await json(await A('POST', `/transactions/${id}/confirm`), 200);
+      return id;
+    };
+    // The first transfer on the Girokonto: rent plus the first instalment; only the deposit split counts.
+    await pay(giro, '2027-02-01', [
+      { amount: '650.00', code: 'RENT_BASE' },
+      { amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true },
+    ]);
+    // An unconfirmed instalment does not count yet.
+    await pay(kaution, '2027-03-01', [{ amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true }], false);
+    let read = await json<Figures>(await A('GET', `/security-deposits/${deposit.securityDepositId}`), 200);
+    expect([read.received.amount, read.outstanding.amount, read.state]).toEqual(['800.00', '1600.00', 'PARTIALLY_RECEIVED']);
+    expect(read.flags.map((f) => f.code)).toEqual(['RECEIVED_OUTSIDE_HOLDING_ACCOUNT']);
+    await pay(kaution, '2027-04-01', [{ amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true }]);
+    await pay(kaution, '2027-05-01', [{ amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true }]);
+    read = await json<Figures>(await A('GET', `/security-deposits/${deposit.securityDepositId}`), 200);
+    expect([read.received.amount, read.outstanding.amount, read.state]).toEqual(['2400.00', '0.00', 'RECEIVED']);
+    expect(read.cash?.map((c) => [c.kind, c.amount.amount])).toEqual([
+      ['RECEIPT', '800.00'],
+      ['RECEIPT', '800.00'],
+      ['RECEIPT', '800.00'],
+    ]);
+    const listed = await json<{ items: Figures[] }>(await A('GET', `/security-deposits?state=RECEIVED&mreTenantId=${T_FIGURES}`), 200);
+    expect(listed.items.map((d) => [d.securityDepositId, d.state, d.cash])).toEqual([[deposit.securityDepositId, 'RECEIVED', undefined]]);
+    expect((await A('GET', '/security-deposits?state=HELD')).status).toBe(400);
   });
 });

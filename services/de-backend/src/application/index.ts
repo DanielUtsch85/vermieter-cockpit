@@ -251,8 +251,19 @@ export {
   voidDeposit,
 } from './security-deposits.js';
 export type { AmendDeposit, CreateDeposit, CreateDepositInput, GetDeposit, ListDeposits, MreTenantDepositReader, VoidDeposit } from './security-deposits.js';
-export { DEPOSIT_STATUSES } from '../domains/security-deposit/index.js';
-export type { DepositChanges, DepositFilter, DepositPage, DepositStatus, SecurityDeposit } from '../domains/security-deposit/index.js';
+export { DEPOSIT_STATES, DEPOSIT_STATUSES } from '../domains/security-deposit/index.js';
+export type {
+  CountedCash,
+  DepositChanges,
+  DepositFigures,
+  DepositFilter,
+  DepositFlag,
+  DepositPage,
+  DepositState,
+  DepositStatus,
+  DepositView,
+  SecurityDeposit,
+} from '../domains/security-deposit/index.js';
 export { CLOSING_REASONS, LOAN_STATUSES, debtFrom, fieldErrors as loanFieldErrors } from '../domains/financing/index.js';
 export type { ClosingReason, Loan, LoanChanges, LoanFilter, LoanPage, LoanStatus } from '../domains/financing/index.js';
 export {

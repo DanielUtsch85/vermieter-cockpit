@@ -1,9 +1,12 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
+  cashKindOf,
+  deriveFigures,
   planAmend,
   planVoid,
   type AmendDepositOutcome,
   type CreateDepositOutcome,
+  type CountedCash,
   type CreatePrecheck,
   type DepositChanges,
   type DepositFilter,
@@ -11,6 +14,7 @@ import {
   type DepositRefusal,
   type DepositRequest,
   type DepositStatus,
+  type DepositView,
   type ExpectedAmountSource,
   type NewDeposit,
   type SecurityDeposit,
@@ -18,7 +22,7 @@ import {
   type SecurityDepositRepository,
   type VoidDepositOutcome,
 } from '../../domains/security-deposit/index.js';
-import { checkVersion, type AuditActor } from '../../shared/index.js';
+import { checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
@@ -90,7 +94,7 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
             .executeTakeFirst();
           // A key claimed but not yet recorded belongs to a request still running: create decides.
           if (existing !== undefined && existing.request_fingerprint !== idempotency.fingerprint) return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (existing?.result != null) return { kind: 'REPLAYED', deposit: fromSnapshot(existing.result) };
+          if (existing?.result != null) return { kind: 'REPLAYED', deposit: asCreated(fromSnapshot(existing.result)) };
         }
         const refusal = await accountRefusalOf(trx, request.mreRealmId, request.holdingFinancialAccountId, false);
         if (refusal !== undefined) return refusal;
@@ -113,7 +117,7 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
           if (keyed !== undefined) {
             const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
             if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', deposit: fromSnapshot(claim.result) };
+            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', deposit: asCreated(fromSnapshot(claim.result)) };
           }
           // Check 2 again, the holding account FOR SHARE (its type cannot change meanwhile).
           const refusal = await accountRefusalOf(trx, deposit.mreRealmId, deposit.holdingFinancialAccountId, true);
@@ -153,7 +157,7 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
               interestBearing: created.interestBearing,
             },
           });
-          return { kind: 'CREATED', deposit: created };
+          return { kind: 'CREATED', deposit: asCreated(created) };
         });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome;
@@ -161,10 +165,20 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
     }
   }
 
-  async findById(id: string, mreRealmId: string): Promise<SecurityDeposit | undefined> {
+  async findById(id: string, mreRealmId: string): Promise<DepositView | undefined> {
     if (!UUID.test(id)) return undefined;
-    const row = await this.db.selectFrom('security_deposit').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-    return row === undefined ? undefined : toDeposit(row);
+    // The record and its cash in one snapshot (§47.3).
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const row = await trx.selectFrom('security_deposit').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+        if (row === undefined) return undefined;
+        const deposit = toDeposit(row);
+        const cash = (await countedCashOf(trx, [deposit.id])).get(deposit.id) ?? [];
+        return { ...deposit, figures: deriveFigures(deposit, cash), cash };
+      });
   }
 
   async list(mreRealmId: string, filter: DepositFilter, page: { readonly page: number; readonly pageSize: number }): Promise<DepositPage> {
@@ -183,17 +197,20 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
           if (account !== undefined) query = UUID.test(account) ? query.where('holding_financial_account_id', '=', account) : query.where(sql<boolean>`false`);
           return query;
         };
-        const { n } = await filtered()
-          .select((eb) => eb.fn.countAll<string>().as('n'))
-          .executeTakeFirstOrThrow();
-        const rows = await filtered()
-          .select(COLUMNS)
-          .orderBy('created_at', 'desc')
-          .orderBy('id')
-          .limit(page.pageSize)
-          .offset((page.page - 1) * page.pageSize)
-          .execute();
-        return { items: rows.map(toDeposit), page: page.page, pageSize: page.pageSize, total: Number(n) };
+        const ordered = () => filtered().select(COLUMNS).orderBy('created_at', 'desc').orderBy('id');
+        const offset = (page.page - 1) * page.pageSize;
+        if (filter.states === undefined || filter.states.length === 0) {
+          const { n } = await filtered()
+            .select((eb) => eb.fn.countAll<string>().as('n'))
+            .executeTakeFirstOrThrow();
+          const rows = (await ordered().limit(page.pageSize).offset(offset).execute()).map(toDeposit);
+          return { items: await viewsOf(trx, rows), page: page.page, pageSize: page.pageSize, total: Number(n) };
+        }
+        // The state is derived (§47.3): every deposit the other filters leave, then the state, then the page. A Realm
+        // holds one deposit per lease, so this stays small.
+        const states = new Set(filter.states);
+        const matching = (await viewsOf(trx, (await ordered().execute()).map(toDeposit))).filter((d) => states.has(d.figures.state));
+        return { items: matching.slice(offset, offset + page.pageSize), page: page.page, pageSize: page.pageSize, total: matching.length };
       });
   }
 
@@ -216,7 +233,7 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
         if (row === undefined) return { kind: 'NOT_FOUND' };
         const current = toDeposit(row);
         const plan = planAmend(current, changes);
-        if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', deposit: current, changed: false };
+        if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
         if (plan.kind !== 'AMEND') return plan;
         if (plan.newHoldingAccountId !== null) {
           if (account === undefined) return { kind: 'ACCOUNT_NOT_FOUND', financialAccountId: plan.newHoldingAccountId };
@@ -247,7 +264,7 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
           newVersion: amended.version,
           metadata: { changes: Object.fromEntries(plan.changed.map((field) => [field, { from: json(field, current), to: json(field, amended) }])) },
         });
-        return { kind: 'AMENDED', deposit: amended, changed: true };
+        return { kind: 'AMENDED', deposit: (await viewsOf(trx, [amended]))[0] as DepositView, changed: true };
       });
   }
 
@@ -275,7 +292,7 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
           at,
           referencing.map((r) => r.transaction_id),
         );
-        if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', deposit: current, changed: false };
+        if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
         if (plan.kind !== 'VOID') return plan;
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
@@ -290,7 +307,7 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
           newVersion: voided.version,
           metadata: { reason },
         });
-        return { kind: 'VOIDED', deposit: voided, changed: true };
+        return { kind: 'VOIDED', deposit: (await viewsOf(trx, [voided]))[0] as DepositView, changed: true };
       });
   }
 }
@@ -346,6 +363,65 @@ async function activeDepositOf(trx: Transaction<Database>, mreRealmId: string, m
     .where('status', '<>', 'VOID')
     .executeTakeFirst();
   return row?.id;
+}
+
+/** A new deposit has no cash yet: zeros, `EXPECTED`, no flags; a replay answers it as created. */
+function asCreated(deposit: SecurityDeposit): DepositView {
+  return { ...deposit, figures: deriveFigures(deposit, []) };
+}
+
+/** The deposits with their figures, from one read of their counted cash. */
+async function viewsOf(trx: Transaction<Database>, deposits: readonly SecurityDeposit[]): Promise<DepositView[]> {
+  const cash = await countedCashOf(
+    trx,
+    deposits.map((d) => d.id),
+  );
+  return deposits.map((d) => ({ ...d, figures: deriveFigures(d, cash.get(d.id) ?? []) }));
+}
+
+/**
+ * §47.3's cash that counts, per deposit: its splits on current Transactions (`CONFIRMED`, `RECONCILED`, not a
+ * reversal), in booking-date order, then Transaction id and position.
+ */
+async function countedCashOf(trx: Transaction<Database>, depositIds: readonly string[]): Promise<Map<string, CountedCash[]>> {
+  const out = new Map<string, CountedCash[]>();
+  if (depositIds.length === 0) return out;
+  const rows = await trx
+    .selectFrom('transaction_split as s')
+    .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
+    .innerJoin('financial_category as c', 'c.id', 's.financial_category_id')
+    .select([
+      's.security_deposit_id',
+      's.amount',
+      's.currency',
+      'c.code',
+      't.id as transaction_id',
+      't.direction',
+      't.financial_account_id',
+      sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date'),
+    ])
+    .where('s.security_deposit_id', 'in', [...depositIds])
+    .where('t.status', 'in', ['CONFIRMED', 'RECONCILED'])
+    .where(sql<boolean>`t.correction_role IS DISTINCT FROM 'REVERSAL'`)
+    .orderBy('t.booking_date')
+    .orderBy('t.id')
+    .orderBy('s.position')
+    .execute();
+  for (const r of rows) {
+    const kind = cashKindOf(r.code, r.direction);
+    // The split guard admits nothing else on a counted Transaction (0038); skip rather than miscount.
+    if (kind === undefined || r.security_deposit_id === null) continue;
+    const list = out.get(r.security_deposit_id) ?? [];
+    list.push({
+      transactionId: r.transaction_id,
+      bookingDate: r.booking_date as BusinessDate,
+      financialAccountId: r.financial_account_id,
+      kind,
+      amount: fromNumericAmount(r.amount, r.currency),
+    });
+    out.set(r.security_deposit_id, list);
+  }
+  return out;
 }
 
 async function readOne(trx: Transaction<Database>, id: string): Promise<SecurityDeposit> {

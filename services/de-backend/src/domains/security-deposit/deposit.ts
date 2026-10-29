@@ -1,4 +1,5 @@
 import type { AuditActor, Money, VersionConflict } from '../../shared/index.js';
+import type { DepositState, DepositView } from './figures.js';
 
 /**
  * SecurityDeposit (data-model.md §26, api-design.md §47.1, phase-5-plan P5-D1/D2/D4): the landlord-side record of one
@@ -139,8 +140,8 @@ export type DepositRefusal =
   | { readonly kind: 'DEPOSIT_EXISTS'; readonly securityDepositId: string };
 
 export type CreateDepositOutcome =
-  | { readonly kind: 'CREATED'; readonly deposit: SecurityDeposit }
-  | { readonly kind: 'REPLAYED'; readonly deposit: SecurityDeposit }
+  | { readonly kind: 'CREATED'; readonly deposit: DepositView }
+  | { readonly kind: 'REPLAYED'; readonly deposit: DepositView }
   | { readonly kind: 'IDEMPOTENCY_CONFLICT' }
   | DepositRefusal;
 
@@ -148,14 +149,14 @@ export type CreateDepositOutcome =
 export type CreatePrecheck = { readonly kind: 'PROCEED' } | Exclude<CreateDepositOutcome, { kind: 'CREATED' }>;
 
 export type AmendDepositOutcome =
-  | { readonly kind: 'AMENDED'; readonly deposit: SecurityDeposit; readonly changed: boolean }
+  | { readonly kind: 'AMENDED'; readonly deposit: DepositView; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly status: DepositStatus }
   | Extract<DepositRefusal, { kind: 'ACCOUNT_NOT_FOUND' | 'NOT_A_SECURITY_DEPOSIT_ACCOUNT' }>
   | VersionConflict;
 
 export type VoidDepositOutcome =
-  | { readonly kind: 'VOIDED'; readonly deposit: SecurityDeposit; readonly changed: boolean }
+  | { readonly kind: 'VOIDED'; readonly deposit: DepositView; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | Exclude<VoidPlan, { kind: 'VOID' | 'UNCHANGED' }>
   | VersionConflict;
@@ -164,10 +165,12 @@ export interface DepositFilter {
   readonly statuses?: readonly DepositStatus[];
   readonly mreTenantId?: string;
   readonly holdingFinancialAccountId?: string;
+  /** The derived state (§47.3), any of them; applied before paging. */
+  readonly states?: readonly DepositState[];
 }
 
 export interface DepositPage {
-  readonly items: readonly SecurityDeposit[];
+  readonly items: readonly DepositView[];
   readonly page: number;
   readonly pageSize: number;
   readonly total: number;
@@ -179,8 +182,9 @@ export interface SecurityDepositRepository {
   createPrecheck(request: DepositRequest, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreatePrecheck>;
   /** Claims the key, repeats checks 2–3 under the write's locks, writes the deposit and an AuditRecord. */
   create(deposit: NewDeposit, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateDepositOutcome>;
-  findById(id: string, mreRealmId: string): Promise<SecurityDeposit | undefined>;
-  /** Newest `createdAt` first, then id; count and page in one snapshot. */
+  /** The deposit, its figures and the counted cash (§47.3), in one snapshot. */
+  findById(id: string, mreRealmId: string): Promise<DepositView | undefined>;
+  /** Newest `createdAt` first, then id; filter, figures, count and page in one snapshot. */
   list(mreRealmId: string, filter: DepositFilter, page: { readonly page: number; readonly pageSize: number }): Promise<DepositPage>;
   /** A newly named holding account `FOR SHARE`, then the deposit `FOR UPDATE`, then `planAmend`. */
   amend(id: string, mreRealmId: string, changes: DepositChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendDepositOutcome>;

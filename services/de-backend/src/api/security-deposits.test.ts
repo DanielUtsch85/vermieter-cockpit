@@ -18,7 +18,7 @@ import {
   type CreateDepositInput,
   type DepositChanges,
   type PrincipalVerifier,
-  type SecurityDeposit,
+  type DepositView,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { createApp } from './app.js';
@@ -29,6 +29,7 @@ const REALM = '64b0c0ffee0000000000000a';
 const ID = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const ACCOUNT = '1b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
+const TX = '2b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const deposit = {
   id: ID,
   mreRealmId: REALM,
@@ -43,7 +44,16 @@ const deposit = {
   voidReason: null,
   createdAt: new Date('2027-01-15T10:00:00Z'),
   version: 1,
-} as unknown as SecurityDeposit;
+  figures: {
+    received: Money.of('1500.00', 'EUR'),
+    interestCredited: Money.of('1.20', 'EUR'),
+    returned: Money.of('0.00', 'EUR'),
+    outstanding: Money.of('1500.00', 'EUR'),
+    held: Money.of('1501.20', 'EUR'),
+    state: 'PARTIALLY_RECEIVED',
+    flags: [{ code: 'RECEIVED_OUTSIDE_HOLDING_ACCOUNT', details: { transactionIds: [TX] } }],
+  },
+} as unknown as DepositView;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
@@ -77,6 +87,13 @@ const dto = {
   voidReason: null,
   createdAt: '2027-01-15T10:00:00.000Z',
   version: 1,
+  received: { amount: '1500.00', currency: 'EUR' },
+  interestCredited: { amount: '1.20', currency: 'EUR' },
+  returned: { amount: '0.00', currency: 'EUR' },
+  outstanding: { amount: '1500.00', currency: 'EUR' },
+  held: { amount: '1501.20', currency: 'EUR' },
+  state: 'PARTIALLY_RECEIVED',
+  flags: [{ code: 'RECEIVED_OUTSIDE_HOLDING_ACCOUNT', details: { transactionIds: [TX] } }],
 };
 
 describe('POST /api/v1/security-deposits', () => {
@@ -219,7 +236,7 @@ describe('POST /api/v1/security-deposits/{id}/amend', () => {
   it('passes only the given fields; null clears; If-Match carries the versions', async () => {
     const seen: { changes: DepositChanges; expectedVersions?: readonly number[] }[] = [];
     const base = await start({
-      securityDeposits: { amend: async (input) => (seen.push(input), { deposit: { ...deposit, version: 2 } as SecurityDeposit, changed: true }) },
+      securityDeposits: { amend: async (input) => (seen.push(input), { deposit: { ...deposit, version: 2 } as DepositView, changed: true }) },
     });
     const res = await call(base, 'POST', `/security-deposits/${ID}/amend`, { holdingFinancialAccountId: null, notes: '' }, { 'if-match': '"1"' });
     expect(res.status).toBe(200);
@@ -260,7 +277,7 @@ describe('POST /api/v1/security-deposits/{id}/void', () => {
     const base = await start({
       securityDeposits: {
         void: async ({ reason }) => ({
-          deposit: { ...deposit, status: 'VOID', voidReason: reason, voidedAt: new Date('2027-02-01T00:00:00Z'), version: 2 } as SecurityDeposit,
+          deposit: { ...deposit, status: 'VOID', voidReason: reason, voidedAt: new Date('2027-02-01T00:00:00Z'), version: 2 } as DepositView,
           changed: true,
         }),
       },
@@ -284,5 +301,31 @@ describe('POST /api/v1/security-deposits/{id}/void', () => {
     const res = await call(base, 'POST', `/security-deposits/${ID}/void`, { reason: 'x' });
     expect(res.status).toBe(status);
     expect(await errorOf(res)).toMatchObject({ code, details });
+  });
+});
+
+describe('derived figures (§47.3)', () => {
+  it('the single read adds cash; a flag with an amount is Money; the list passes the state filter', async () => {
+    const withCash = {
+      ...deposit,
+      figures: { ...deposit.figures, flags: [{ code: 'RETURNED_EXCEEDS_HELD', details: { excess: Money.of('10.00', 'EUR') } }] },
+      cash: [{ transactionId: TX, bookingDate: '2027-02-01', financialAccountId: ACCOUNT, kind: 'RECEIPT', amount: Money.of('1500.00', 'EUR') }],
+    } as unknown as DepositView;
+    const seen: unknown[] = [];
+    const base = await start({
+      securityDeposits: {
+        get: async () => withCash,
+        list: async (input) => (seen.push(input), { items: [deposit], page: 1, pageSize: 50, total: 1 }),
+      },
+    });
+    const one = (await (await call(base, 'GET', `/security-deposits/${ID}`)).json()) as Record<string, unknown>;
+    expect(one['cash']).toEqual([
+      { transactionId: TX, bookingDate: '2027-02-01', financialAccountId: ACCOUNT, kind: 'RECEIPT', amount: { amount: '1500.00', currency: 'EUR' } },
+    ]);
+    expect(one['flags']).toEqual([{ code: 'RETURNED_EXCEEDS_HELD', details: { excess: { amount: '10.00', currency: 'EUR' } } }]);
+    const listed = (await (await call(base, 'GET', '/security-deposits?state=RECEIVED,PARTIALLY_RECEIVED')).json()) as { items: Record<string, unknown>[] };
+    expect(listed.items[0]).not.toHaveProperty('cash');
+    expect(seen[0]).toMatchObject({ filter: { states: ['RECEIVED', 'PARTIALLY_RECEIVED'] } });
+    for (const query of ['state=HELD', 'state=', 'state=OFFSET']) expect((await call(base, 'GET', `/security-deposits?${query}`)).status, query).toBe(400);
   });
 });
