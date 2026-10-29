@@ -169,7 +169,7 @@ export type ClosePlan =
   | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly status: DepositStatus }
   | { readonly kind: 'CASH_AFTER_CLOSING_DATE'; readonly transactionIds: readonly string[] }
   | { readonly kind: 'UNCONFIRMED_CASH'; readonly transactionIds: readonly string[] }
-  /** `RETURNED` and `held` ≠ 0. */
+  /** `RETURNED` and `held` > 0. */
   | { readonly kind: 'DEPOSIT_STILL_HELD'; readonly held: Money }
   /** `RETAINED` and `held` ≤ 0. */
   | { readonly kind: 'NOTHING_RETAINED'; readonly held: Money };
@@ -195,7 +195,8 @@ export function planClose(current: SecurityDeposit, request: CloseRequest, cash:
   if (after.length > 0) return { kind: 'CASH_AFTER_CLOSING_DATE', transactionIds: distinctIds(after) };
   if (cash.open.length > 0) return { kind: 'UNCONFIRMED_CASH', transactionIds: distinctIds(cash.open) };
   const { held } = deriveFigures(current, cash.counted);
-  if (request.reason === 'RETURNED' && !held.isZero()) return { kind: 'DEPOSIT_STILL_HELD', held };
+  // RETURNED at held ≤ 0: more repaid than held is §47.3's RETURNED too (review on #136).
+  if (request.reason === 'RETURNED' && held.isPositive()) return { kind: 'DEPOSIT_STILL_HELD', held };
   if (request.reason === 'RETAINED' && !held.isPositive()) return { kind: 'NOTHING_RETAINED', held };
   return { kind: 'CLOSE', closing: { ...request, heldAtClosing: held } };
 }
@@ -213,9 +214,10 @@ export function planReopen(current: SecurityDeposit): ReopenPlan {
   return { kind: 'REOPEN' };
 }
 
-/** §47.4: what a closing keeps against claims; nothing for `RETURNED`. */
+/** §47.4: what a closing keeps against claims, never negative; nothing for `RETURNED`. */
 export function retainedAmountOf(closing: DepositClosing): Money {
-  return closing.reason === 'RETURNED' ? Money.zero(closing.heldAtClosing.currency) : closing.heldAtClosing;
+  const held = closing.heldAtClosing;
+  return closing.reason === 'RETURNED' || !held.isPositive() ? Money.zero(held.currency) : held;
 }
 
 /** The create's checks 2–3 (§47.1), before MRE is asked and again under the write's locks. */
