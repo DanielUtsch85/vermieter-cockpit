@@ -18,7 +18,8 @@ The API is a list of routes (api-design §47–48). Several points are open, or 
 - **Interest (§ 551 Abs. 3 BGB).** ADR-039 asks for a minimal flag in the MVP. What is shown, and what a linked interest credit means, is open.
 - **What happens at the end.** Full repayment, partial repayment with a retained part (unpaid rent, damage), and the `OFFSET` status.
 - **MRE's `guaranty` and `guarantyPayback`** (mre-integration §31, BR-DEP-007), on the Tenant at the pinned baseline `479d0ad`:
-  - `guaranty` is a number, defaulted to `0` (`frontdata.js`), and `guarantyPayback` is set in MRE's terminate-lease dialog;
+  - `guaranty` is a number, defaulted to `0` (`frontdata.js` `toOccupantData`);
+  - `guarantyPayback` has no default: it is missing until MRE's terminate-lease dialog sets it;
   - both are floats, read through `GET /api/v2/tenants/:id`;
   - whether DE only reads them, or also writes them back like Phase 4, is open.
 - **Rent reconciliation.** A tenant's deposit inflow looks like rent cash. Nothing must suggest it as rent (BR-DEP-001, ADR-013's critical rule).
@@ -36,7 +37,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
 - **The counterparty is visible (F4, #109/#111).** The Transaction reads show the payer's name and IBAN, also on corrections. That is enough to pick the right deposit by hand. A deposit **suggestion** from the tenant's IBAN history (as P4-D4 does for rent) is left out of Phase 5: three instalments per lease make it rare, and rent suggestions already use the same history.
 - **The direction matters (F7).** Rent the landlord pays for their own home is a private outflow and out of scope. The same holds for a deposit the landlord paid as a tenant. Phase 5 covers deposits a landlord **holds**: receipts are inflows, repayments are outflows.
 - **Overlapping exports (F1, ADR-043)** are deduplicated before any split exists, so a deposit can never count one bank booking twice through two imports.
-- **Still open from #93:** step 3 (real rent inflows against MRE) checks the rent side, whose separation from deposits P5-D6 relies on. If step 3 finds a rent-matching problem, it is fixed in Phase 4's code before VC-5-05 (ACC5) is closed.
+- **Rent side (step 3, F10):** real rent inflows matched 6 of 6. But a tenant who pays before the month gets no suggestion at all (F10, #125). P5-D6 relies on the rent side, so #125 is fixed in Phase 4's code before VC-5-05 (ACC5) is closed. ACC5 then runs its rent steps with an early payment too.
 
 ---
 
@@ -45,7 +46,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
 ### P5-D1 A deposit belongs to one MRE Tenant, referenced by id (resolves data-model §26's `rentalContractReferenceId`, ADR-013's scope)
 
 - **As P4-D1: the MRE Tenant is the lease.** A `SecurityDeposit` keeps `mreTenantId`, checked against MRE with the caller's token through `GET /tenants/:id`:
-  - an unknown Tenant is `422 MRE_TENANT_NOT_FOUND`;
+  - an unknown Tenant is the existing `MreTenantNotFoundError`, answered `404 NOT_FOUND` with `details.externalId` (`error-answers.ts`, #100: one answer per error class). This is the same answer as for a Party's external reference, where the Tenant id is in the body too. Phase 4's `422 MRE_RENT_TERM_NOT_FOUND` is a different class, for a term, and is not reused;
   - MRE unavailable is `503`, and nothing is written.
 - **`RentalContractReference` is still not introduced.** Data-model §26 and §71 change `rentalContractReferenceId` to `mreTenantId`. The 1 : 0..1 of data-model's relationship table holds per Tenant.
 - **At most one deposit per Tenant that is not `VOID`** (a partial unique index). A new lease in MRE is a new Tenant, so it gets its own deposit.
@@ -60,12 +61,12 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
   - `interestBearing` (boolean, P5-D5);
   - `notes`, `status` (P5-D2), `version`.
   - `propertyReferenceId` is not stored. A deposit reaches its property through the Tenant, and Phase 9 attributes it when it needs to.
-- **Default from MRE (BR-DEP-007).** A create without `expectedAmount` takes MRE's `guaranty`, rounded half-up to the cent, when it is > 0. Otherwise it is `422 EXPECTED_AMOUNT_REQUIRED`. The value is copied once and never followed; P5-D7 compares it later.
+- **Default from MRE (BR-DEP-007).** A create without `expectedAmount` takes MRE's `guaranty`, rounded half-up to the cent, when it is > 0. MRE's default `0` counts as "not set", so it is `422 EXPECTED_AMOUNT_REQUIRED`. The value is copied once and never followed; P5-D7 compares it later.
 - Docs: data-model §26 and §71, api-design §47–48, mre-integration §31.
 
 ### P5-D2 Three statuses; the lifecycle is derived (resolves data-model §26's lifecycle, BR-DEP-002/004)
 
-- **Stored status:** `ACTIVE` → `CLOSED`, and `ACTIVE` → `VOID`. Nothing else is stored.
+- **Stored status:** `ACTIVE` ⇄ `CLOSED` (close, reopen), and `ACTIVE` → `VOID`. Nothing else is stored.
   - `VOID` is for a deposit recorded by mistake. It is refused while a split references it, as for a Loan (`loan_void_unreferenced`, §41.5).
   - `CLOSED` is P5-D8.
 - **Derived from counted cash (P5-D3), on every read:**
@@ -93,7 +94,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
 
 - **As P3-D4:** `securityDepositId` on a split, lifting its `NOT_SUPPORTED` (§33.2's list). There is no `link-transaction` or `return` command. §47 is changed accordingly.
 - **Rules for a split with `securityDepositId`:**
-  - **The deposit:** of the caller's Realm, else `404`. It must not be `VOID` (`409 SECURITY_DEPOSIT_NOT_ACTIVE`). For a `CLOSED` one, a split on a Transaction booked after `closingDate` is `409 SECURITY_DEPOSIT_CLOSED` (P5-D8).
+  - **The deposit:** of the caller's Realm, else `404`. It must not be `VOID` (`409 SECURITY_DEPOSIT_NOT_ACTIVE`). A `CLOSED` one takes no new links, whatever the booking date (`409 SECURITY_DEPOSIT_CLOSED`, P5-D8). Corrections of cash already linked are exempt (P5-D8).
   - **The category and direction:**
     - `SECURITY_DEPOSIT` on an `INFLOW` is a receipt;
     - `SECURITY_DEPOSIT` on an `OUTFLOW` is a repayment;
@@ -157,21 +158,27 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
   - `RETURNED_DIFFERS_FROM_MRE` when the deposit is `CLOSED` and `guarantyPayback` ≠ `returned`.
   - MRE unavailable gives `mre: null` and the flag `MRE_UNAVAILABLE`, never an error: the DE side stays readable (BR-MRE-004).
 - §47's `POST …/reconcile-with-mre` is dropped. A difference is fixed in MRE's UI, or by amending `expectedAmount` (P5-D2).
-- **The MRE client gains one call:** the Tenant read, parsed to `_id`, `guaranty` and `guarantyPayback` only. It is pinned by the contract suite. The fake MRE gains the two fields.
+- **Missing or zero values** (`479d0ad`):
+  - `guaranty` `0` is MRE's default and reads as `null` ("not set"), so it raises no `EXPECTED_DIFFERS_FROM_MRE`;
+  - a missing `guarantyPayback` reads as `null`, never `0`, and raises no `RETURNED_DIFFERS_FROM_MRE`. The flag needs a value present on both sides.
+- **The MRE client gains one call:** the Tenant read, parsed to `_id`, `guaranty` and `guarantyPayback` only (each a number or `null`). It is pinned by the contract suite, with both fields present, `guaranty` `0`, and `guarantyPayback` missing. The fake MRE gains the two fields and can omit `guarantyPayback`.
 - Docs: api-design §47, mre-integration §31, §47.
 
 ### P5-D8 Closing: returned, retained, or both (resolves data-model §26's `OFFSET` and `CLOSED`, UC-022)
 
-- **`POST /security-deposits/{id}/close`** with `closingDate` and `reason`, while `ACTIVE`:
-  - `RETURNED`: `held` is 0;
-  - `RETAINED`: a part or all is kept against claims; `notes` is required;
-  - `OTHER`: `notes` is required.
-  - `retainedAmount` = `held` on the closing date, derived, never typed. For `RETURNED` it must be 0, else `409 DEPOSIT_STILL_HELD` with `details.held`.
-- **After closing:**
-  - no new split may name the deposit on a Transaction booked after `closingDate`;
-  - corrections of earlier cash still work, as for a closed Loan (§41.7);
+- **`POST /security-deposits/{id}/close`** with `closingDate` and `reason`, while `ACTIVE`. The rules hold **at the moment of closing**, on `held` as of `closingDate` (cash booked on or before it). A linked split on cash booked after `closingDate` refuses the closing (`409 CASH_AFTER_CLOSING_DATE`), so `held` at closing is all the deposit's cash:
+  - `RETURNED`: `held` is 0, else `409 DEPOSIT_STILL_HELD` with `details.held`;
+  - `RETAINED`: `held` is > 0, a part or all kept against claims, else `409 NOTHING_RETAINED`; `notes` is required;
+  - `OTHER`: `notes` is required, `held` may be anything.
+  - `retainedAmount` = `held` on the closing date, derived, never typed. It is 0 for `RETURNED`.
+- **After closing, no new links** (review on #123): a `CLOSED` deposit takes no new split, whatever the Transaction's booking date (`409 SECURITY_DEPOSIT_CLOSED`, P5-D3). This makes the closing a cut, not a date filter. Cash found later (a late statement) is linked after a reopen (below).
+- **Corrections stay possible**, so that a wrong amount is never locked in:
+  - a reversal mirrors its original's link, as everywhere (P5-D3);
+  - a replacement may keep the link when its original had a split with the same deposit, with any amount;
   - `retainedAmount` follows them, since it is derived on read.
-- **Reopen:** none. A wrong closing is voided only if nothing references the deposit, which a closed one usually has. So `closingDate`, `reason` and `notes` may be amended (`PATCH`, `If-Match`), each with an AuditRecord. This is the same approach as §41.7.
+- **A correction can still move `held`.** It is shown, not refused, as Phase 3 shows deviations: the read flags `HELD_CHANGED_AFTER_CLOSING` with `details.heldAtClosing` and `details.held` whenever the current `held` differs from the value stored at closing. `heldAtClosing` is stored with the closing for exactly this comparison. A `RETURNED` deposit with the flag means "returned, but the books now say otherwise"; the user corrects the cash, or reopens and closes with another reason.
+- **Reopen:** `POST /security-deposits/{id}/reopen` (`If-Match`) moves `CLOSED` → `ACTIVE`. It clears `closingDate`, `reason` and `heldAtClosing` and writes an AuditRecord that keeps them. Cash found after the closing is linked in between, then the deposit is closed again with the closing's checks. A wrong closing is never voided: a closed deposit usually has links.
+- **Amend:** `notes` of a closed deposit may be amended (`PATCH`, `If-Match`). `closingDate` and `reason` change only through reopen and close, so their checks always run.
 - Docs: data-model §26, api-design §47, UC-022.
 
 ### P5-D9 Conventions carried over (as P4-D8)
@@ -192,14 +199,15 @@ See `backlog.md` §3d. The order follows the dependencies:
 1. **VC-5-01:** the record (create with the MRE Tenant check and the `guaranty` default, read, list, amend, void), the holding account rule, migration.
 2. **VC-5-02:** `securityDepositId` on splits, the categories, the ledger rules and corrections, migration.
 3. **VC-5-03:** the derived amounts, `state` and flags in the reads, and the list's filters (`state`, `mreTenantId`, `holdingFinancialAccountId`).
-4. **VC-5-04:** closing (P5-D8) and the MRE comparison (`checkMre`, P5-D7).
+4. **VC-5-04:** closing and reopening (P5-D8, with `heldAtClosing` and `HELD_CHANGED_AFTER_CLOSING`) and the MRE comparison (`checkMre`, P5-D7).
 5. **VC-5-05:** the Phase-5 invariant suite and ACC5:
    - expected vs received in three instalments;
    - a mixed first transfer split into rent and deposit, where only the rent is matched;
    - interest credited;
    - a partial repayment with a retained part and a closing;
    - a correction of a receipt;
-   - the rent separation of P5-D6 with its counter-check.
+   - the rent separation of P5-D6 with its counter-check;
+   - its rent steps with an early payment as well (after #125).
 
 **Out of scope for Phase 5:**
 - non-cash deposits (Bürgschaft, a pledged savings book);
