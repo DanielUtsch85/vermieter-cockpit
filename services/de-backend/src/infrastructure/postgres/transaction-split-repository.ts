@@ -1,5 +1,6 @@
 import { sql, type Kysely, type Transaction as Trx } from 'kysely';
 import {
+  checkDepositSplits,
   checkLoanSplits,
   checkVersion,
   planSplits,
@@ -16,6 +17,7 @@ import {
 import type { AuditActor, BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { lockLoansOf } from './loan-repository.js';
+import { lockDepositsOf } from './security-deposit-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -103,6 +105,12 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
           );
           if (refusal !== undefined) return refusal;
         }
+        // §47.2: then the security deposits, in id order (P5-D9: Transaction → Loan → SecurityDeposit).
+        const depositIds = splits.flatMap((s) => (s.securityDepositId === null ? [] : [s.securityDepositId]));
+        if (depositIds.length > 0) {
+          const refusal = checkDepositSplits({ direction: transaction.direction, reversal: false }, splits, await lockDepositsOf(trx, mreRealmId, depositIds));
+          if (refusal !== undefined) return refusal;
+        }
 
         await trx.deleteFrom('transaction_split').where('transaction_id', '=', transaction.id).execute();
         const inserted = await trx
@@ -117,6 +125,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
               financial_category_id: categoryIds.get(split.financialCategoryCode) as string,
               property_reference_id: split.propertyReferenceId,
               loan_id: split.loanId,
+              security_deposit_id: split.securityDepositId,
               description: split.description,
               created_by: actor.actorId,
             })),
@@ -142,6 +151,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
               financialCategoryCode: s.financialCategoryCode,
               ...(s.propertyReferenceId === null ? {} : { propertyReferenceId: s.propertyReferenceId }),
               ...(s.loanId === null ? {} : { loanId: s.loanId }),
+              ...(s.securityDepositId === null ? {} : { securityDepositId: s.securityDepositId }),
             })),
           },
         });
@@ -166,6 +176,7 @@ async function currentSplits(trx: Trx<Database>, transactionId: string): Promise
       'transaction_split.currency',
       'transaction_split.property_reference_id',
       'transaction_split.loan_id',
+      'transaction_split.security_deposit_id',
       'transaction_split.description',
       'financial_category.code',
     ])
@@ -179,6 +190,7 @@ async function currentSplits(trx: Trx<Database>, transactionId: string): Promise
     financialCategoryCode: r.code,
     propertyReferenceId: r.property_reference_id,
     loanId: r.loan_id,
+    securityDepositId: r.security_deposit_id,
     description: r.description,
   }));
 }

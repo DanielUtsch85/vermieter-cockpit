@@ -36,6 +36,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
             'transaction_split.currency',
             'transaction_split.property_reference_id',
             'transaction_split.loan_id',
+            'transaction_split.security_deposit_id',
             'transaction_split.description',
             'financial_category.code',
           ])
@@ -51,6 +52,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
             financialCategoryCode: s.code,
             propertyReferenceId: s.property_reference_id,
             loanId: s.loan_id,
+            securityDepositId: s.security_deposit_id,
             description: s.description,
           })),
         };

@@ -91,6 +91,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           financialCategoryCode: 'LOAN_INTEREST',
           propertyReferenceId: PROPERTY,
           loanId: null,
+          securityDepositId: null,
           description: null,
         },
         {
@@ -100,6 +101,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           financialCategoryCode: 'LOAN_PRINCIPAL',
           propertyReferenceId: null,
           loanId: LOAN,
+          securityDepositId: null,
           description: 'Rate 10',
         },
       ],

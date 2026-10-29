@@ -35,6 +35,7 @@ import {
   ImportedFieldsFixedError,
   InactiveCategoryError,
   InvalidLoanSplitError,
+  InvalidSecurityDepositSplitError,
   InvalidOwnershipError,
   type LinkRefusal,
   LoanAllocationSetNotFoundError,
@@ -289,7 +290,11 @@ const TABLE = [
     answer(409, 'CONFLICT', 'Splits reference the security deposit.', { reason: 'DEPOSIT_HAS_SPLITS', transactionIds: error.transactionIds }),
   ),
   on(DepositNotActiveError, (error) =>
-    answer(409, 'CONFLICT', `The security deposit is ${error.status}.`, { reason: 'DEPOSIT_NOT_ACTIVE', status: error.status }),
+    answer(409, 'CONFLICT', `The security deposit is ${error.status}.`, {
+      reason: 'DEPOSIT_NOT_ACTIVE',
+      securityDepositId: error.securityDepositId,
+      status: error.status,
+    }),
   ),
   on(ExpectedAmountRequiredError, () =>
     answer(422, 'EXPECTED_AMOUNT_REQUIRED', 'No expectedAmount was given, and MRE has no guaranty for the Tenant; nothing was written.'),
@@ -342,6 +347,12 @@ const TABLE = [
   ),
   on(InvalidLoanSplitError, (error) =>
     answer(422, 'INVALID_LOAN_SPLIT', 'A split with a Loan is LOAN_INTEREST or LOAN_PRINCIPAL of an OUTFLOW.', {
+      position: error.position,
+      reason: error.reason,
+    }),
+  ),
+  on(InvalidSecurityDepositSplitError, (error) =>
+    answer(422, 'INVALID_SECURITY_DEPOSIT_SPLIT', 'A split with a security deposit is SECURITY_DEPOSIT, or SECURITY_DEPOSIT_INTEREST of an INFLOW.', {
       position: error.position,
       reason: error.reason,
     }),

@@ -9,6 +9,7 @@ const split = (amount: string, financialCategoryCode = 'LOAN_INTEREST', extra: P
   financialCategoryCode,
   propertyReferenceId: null,
   loanId: null,
+  securityDepositId: null,
   description: null,
   ...extra,
 });

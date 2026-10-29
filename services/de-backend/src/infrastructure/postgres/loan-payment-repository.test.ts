@@ -32,6 +32,7 @@ const split = (amount: string, financialCategoryCode: string, loanId: string | n
   financialCategoryCode,
   propertyReferenceId: null,
   loanId,
+  securityDepositId: null,
   description: null,
 });
 const payment = (loanId: string | null, interest = '3.53', principal = '296.47') => [

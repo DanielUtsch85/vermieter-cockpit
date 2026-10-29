@@ -167,6 +167,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
       financialCategoryCode: 'RENT_BASE',
       propertyReferenceId: null,
       loanId: null,
+      securityDepositId: null,
       description: null,
     };
     const base = await startWith({

@@ -1,4 +1,5 @@
 import type {
+  DepositSplitRefusal,
   FinancialCategory,
   FinancialCategoryRepository,
   LoanSplitRefusal,
@@ -14,6 +15,7 @@ import type { RealmPrincipal } from './access.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { VersionConflictError } from './errors.js';
 import { LoanClosedOnError, LoanNotActiveError, LoanNotFoundError } from './loans.js';
+import { DepositNotActiveError, SecurityDepositNotFoundError } from './security-deposits.js';
 import { CurrencyMismatchError } from './transactions.js';
 
 /**
@@ -74,9 +76,27 @@ export class InvalidLoanSplitError extends Error {
   }
 }
 
-/** The refusals of §41.5 as errors, shared by the splits command and `correct`. */
-export function throwLoanSplitRefusal(refusal: LoanSplitRefusal): never {
+/** A split with `securityDepositId` breaks a rule of §47.2 (→ 422 INVALID_SECURITY_DEPOSIT_SPLIT). */
+export class InvalidSecurityDepositSplitError extends Error {
+  override readonly name = 'InvalidSecurityDepositSplitError';
+
+  constructor(
+    readonly position: number,
+    readonly reason: 'CATEGORY' | 'DIRECTION',
+  ) {
+    super(`Split ${position}: a split with a security deposit is SECURITY_DEPOSIT, or SECURITY_DEPOSIT_INTEREST of an INFLOW (${reason})`);
+  }
+}
+
+/** The refusals of §41.5 and §47.2 as errors, shared by the splits command and `correct`. */
+export function throwSplitRefusal(refusal: LoanSplitRefusal | DepositSplitRefusal): never {
   switch (refusal.kind) {
+    case 'SECURITY_DEPOSIT_NOT_FOUND':
+      throw new SecurityDepositNotFoundError(refusal.securityDepositId);
+    case 'INVALID_SECURITY_DEPOSIT_SPLIT':
+      throw new InvalidSecurityDepositSplitError(refusal.position, refusal.reason);
+    case 'DEPOSIT_NOT_ACTIVE':
+      throw new DepositNotActiveError(refusal.securityDepositId, 'VOID');
     case 'LOAN_NOT_FOUND':
       throw new LoanNotFoundError(refusal.loanId);
     case 'INVALID_LOAN_SPLIT':
@@ -131,7 +151,7 @@ export function setTransactionSplits(deps: { readonly repository: TransactionSpl
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
       default:
-        return throwLoanSplitRefusal(outcome);
+        return throwSplitRefusal(outcome);
     }
   };
 }

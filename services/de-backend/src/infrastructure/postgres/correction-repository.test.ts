@@ -34,6 +34,7 @@ const split = (amount: string, financialCategoryCode: string, propertyReferenceI
   financialCategoryCode,
   propertyReferenceId,
   loanId: null,
+  securityDepositId: null,
   description: null,
 });
 const date = (value: string) => value as BusinessDate;

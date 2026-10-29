@@ -15,7 +15,9 @@ import {
 import { CurrencyMismatchError } from './transactions.js';
 
 const principal: RealmPrincipal = { email: 'anna@example.com', mreRealmId: '64b0c0ffee0000000000000a', mreRole: 'administrator' };
-const splits: SplitInput[] = [{ amount: Money.of('1.00', 'EUR'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, description: null }];
+const splits: SplitInput[] = [
+  { amount: Money.of('1.00', 'EUR'), financialCategoryCode: 'OTHER', propertyReferenceId: null, loanId: null, securityDepositId: null, description: null },
+];
 
 function repositoryAnswering(outcome: ReplaceSplitsOutcome) {
   const calls: { transactionId: string; mreRealmId: string; actor: AuditActor }[] = [];

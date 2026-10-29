@@ -33,6 +33,7 @@ const split = (amount: string, financialCategoryCode: string, loanId: string | n
   financialCategoryCode,
   propertyReferenceId: null,
   loanId,
+  securityDepositId: null,
   description: null,
 });
 const statement = (statementDate: string, balance: string, source = 'Jahreskontoauszug 2027'): StatementData => ({

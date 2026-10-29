@@ -140,7 +140,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
     const id = created.transaction.id;
-    const split: SplitInput = { amount: eur(amount), financialCategoryCode: 'ACQUISITION', propertyReferenceId: null, loanId: null, description: null };
+    const split: SplitInput = {
+      amount: eur(amount),
+      financialCategoryCode: 'ACQUISITION',
+      propertyReferenceId: null,
+      loanId: null,
+      securityDepositId: null,
+      description: null,
+    };
     const replaced = await splits.replaceSplits(id, realm, [split], actor);
     if (replaced.kind !== 'REPLACED') throw new Error(replaced.kind);
     if (options.confirm === false) return id;

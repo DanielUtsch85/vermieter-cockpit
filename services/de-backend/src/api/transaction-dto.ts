@@ -45,7 +45,7 @@ export const createBody = z.object({
 });
 
 /** References of a split whose entities do not exist yet (data-model.md §18): refused, not stored unchecked. */
-const NOT_YET_SUPPORTED = ['rentalContractReferenceId', 'wegId', 'maintenanceProjectId', 'acquisitionId', 'securityDepositId', 'taxClassificationId'] as const;
+const NOT_YET_SUPPORTED = ['rentalContractReferenceId', 'wegId', 'maintenanceProjectId', 'acquisitionId', 'taxClassificationId'] as const;
 
 export const split = z
   .object({
@@ -54,6 +54,8 @@ export const split = z
     propertyReferenceId: z.string().regex(RESOURCE_ID).nullish(),
     // A Loan payment's interest or principal (§41.5); the rest of its rules need the database.
     loanId: z.string().regex(RESOURCE_ID).nullish(),
+    // A security deposit's receipt, repayment or interest credit (§47.2); the rest of its rules need the database.
+    securityDepositId: z.string().regex(RESOURCE_ID).nullish(),
     description: z.string().trim().max(500).nullish(),
     // A split has no direction of its own: it inherits the Transaction's (§17.4).
     direction: z.undefined(),
@@ -64,6 +66,12 @@ export const split = z
   .superRefine((s, ctx) => {
     if (typeof s.loanId === 'string' && typeof s.propertyReferenceId === 'string') {
       ctx.addIssue({ code: 'custom', path: ['propertyReferenceId'], params: { code: 'NOT_ALLOWED_WITH_LOAN' } });
+    }
+    // A deposit is neither a property's income or cost nor a Loan's cash (BR-DEP-001, §47.2).
+    if (typeof s.securityDepositId === 'string') {
+      for (const field of ['propertyReferenceId', 'loanId'] as const) {
+        if (typeof s[field] === 'string') ctx.addIssue({ code: 'custom', path: [field], params: { code: 'NOT_ALLOWED_WITH_SECURITY_DEPOSIT' } });
+      }
     }
   });
 
@@ -76,6 +84,7 @@ export function toSplitInput(s: SplitBody) {
     financialCategoryCode: s.financialCategoryCode,
     propertyReferenceId: s.propertyReferenceId?.toLowerCase() ?? null,
     loanId: s.loanId?.toLowerCase() ?? null,
+    securityDepositId: s.securityDepositId?.toLowerCase() ?? null,
     description: s.description === undefined || s.description === null || s.description === '' ? null : s.description,
   };
 }
@@ -203,6 +212,7 @@ export function toSplitDto(s: TransactionSplit) {
     financialCategoryCode: s.financialCategoryCode,
     propertyReferenceId: s.propertyReferenceId,
     loanId: s.loanId,
+    securityDepositId: s.securityDepositId,
     description: s.description,
   };
 }

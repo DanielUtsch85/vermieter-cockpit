@@ -1,5 +1,6 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
+  checkDepositSplits,
   checkLoanSplits,
   type SplitLoan,
   checkVersion,
@@ -22,6 +23,7 @@ import { writeAudit } from './audit.js';
 import { toFinancialAccount } from './financial-account-repository.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { lockLoansOf } from './loan-repository.js';
+import { lockDepositsOf } from './security-deposit-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { COLUMNS, UUID, fromSnapshot, toDomain, toSnapshot } from './transaction-repository.js';
@@ -118,8 +120,13 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
           // replacement's, locked FOR UPDATE in id order after the original, before any split is inserted. The split
           // trigger writes them again in position order, which is then a no-op on rows already held (review on #68).
           const loans = await lockLoansOf(trx, mreRealmId, [...loanIdsOf(originalSplits), ...(replacement === null ? [] : loanIdsOf(replacement.splits))]);
+          // §47.2, P5-D9: then every security deposit the correction writes, the same way.
+          const deposits = await lockDepositsOf(trx, mreRealmId, [
+            ...depositIdsOf(originalSplits),
+            ...(replacement === null ? [] : depositIdsOf(replacement.splits)),
+          ]);
           // Reverse only (§35.9): no replacement to check; the reversal goes to the original's account, closed or not.
-          const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement, loans);
+          const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement, loans, deposits);
 
           const reversalId = await insertCorrection(trx, actor, original, 'REVERSAL', {
             financialAccountId: original.financialAccountId,
@@ -188,6 +195,7 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     original: Transaction,
     replacement: PlannedReplacement,
     loans: ReadonlyMap<string, SplitLoan>,
+    deposits: ReadonlyMap<string, string>,
   ): Promise<Map<string, string>> {
     await this.check(trx, mreRealmId, original, replacement);
     const categoryIds = await this.categoryIds(trx, replacement);
@@ -195,6 +203,9 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     // original's splits and needs no check: a Loan with splits is never VOID (loan_void_unreferenced).
     const refusal = checkLoanSplits({ direction: replacement.direction, reversal: false, bookingDate: replacement.bookingDate }, replacement.splits, loans);
     if (refusal !== undefined) throw new Rejected(refusal);
+    // §47.2: the same for its splits with securityDepositId; a deposit with splits is never VOID either.
+    const depositRefusal = checkDepositSplits({ direction: replacement.direction, reversal: false }, replacement.splits, deposits);
+    if (depositRefusal !== undefined) throw new Rejected(depositRefusal);
     return categoryIds;
   }
 
@@ -300,6 +311,7 @@ async function insertCorrection(trx: Trx<Database>, actor: AuditActor, original:
         financial_category_id: split.financialCategoryId,
         property_reference_id: split.propertyReferenceId,
         loan_id: split.loanId,
+        security_deposit_id: split.securityDepositId,
         description: split.description,
         created_by: actor.actorId,
       })),
@@ -314,6 +326,7 @@ async function insertCorrection(trx: Trx<Database>, actor: AuditActor, original:
 }
 
 const loanIdsOf = (splits: readonly SplitInput[]) => splits.flatMap((s) => (s.loanId === null ? [] : [s.loanId]));
+const depositIdsOf = (splits: readonly SplitInput[]) => splits.flatMap((s) => (s.securityDepositId === null ? [] : [s.securityDepositId]));
 
 async function storedSplits(trx: Trx<Database>, transactionId: string): Promise<StoredSplit[]> {
   const rows = await trx
@@ -324,6 +337,7 @@ async function storedSplits(trx: Trx<Database>, transactionId: string): Promise<
       'transaction_split.currency',
       'transaction_split.property_reference_id',
       'transaction_split.loan_id',
+      'transaction_split.security_deposit_id',
       'transaction_split.description',
       'transaction_split.financial_category_id',
       'financial_category.code',
@@ -337,6 +351,7 @@ async function storedSplits(trx: Trx<Database>, transactionId: string): Promise<
     financialCategoryCode: r.code,
     propertyReferenceId: r.property_reference_id,
     loanId: r.loan_id,
+    securityDepositId: r.security_deposit_id,
     description: r.description,
     financialCategoryId: r.financial_category_id,
     categoryActive: r.active,
@@ -362,6 +377,7 @@ function changes(original: Transaction, originalSplits: readonly SplitInput[], r
       financialCategoryCode: s.financialCategoryCode,
       propertyReferenceId: s.propertyReferenceId,
       loanId: s.loanId,
+      securityDepositId: s.securityDepositId,
       description: s.description,
     }));
   scalar('splits', splitJson(originalSplits), splitJson(replacement.splits));
