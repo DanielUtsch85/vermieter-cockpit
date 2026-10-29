@@ -77,7 +77,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
   - `held` = `received` + `interestCredited` − `returned`.
 - **`state`** (derived, not stored), in this order:
   - `CLOSED` when the status says so;
-  - `RETURNED` when `returned` > 0 and `held` = 0;
+  - `RETURNED` when `returned` > 0 and `held` ≤ 0 (a negative `held` flags `RETURNED_EXCEEDS_HELD`, api-design §47.3);
   - `PARTIALLY_RETURNED` when `returned` > 0;
   - `RECEIVED` when `outstanding` = 0;
   - `PARTIALLY_RECEIVED` when `received` > 0;
