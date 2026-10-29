@@ -17,6 +17,7 @@ export { PostgresAcquisitionCostRepository } from './acquisition-cost-repository
 export { PostgresLandBuildingAllocationRepository } from './land-building-allocation-repository.js';
 export { PostgresLoanRepository } from './loan-repository.js';
 export { PostgresSecurityDepositRepository } from './security-deposit-repository.js';
+export { PostgresWegRepository } from './weg-repository.js';
 export { PostgresLoanAllocationRepository } from './loan-allocation-repository.js';
 export { PostgresLoanDebtRepository } from './loan-debt-repository.js';
 export { PostgresLoanTermsRepository } from './loan-terms-repository.js';

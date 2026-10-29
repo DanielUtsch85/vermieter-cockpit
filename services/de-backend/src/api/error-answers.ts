@@ -8,6 +8,7 @@ import {
   AcquisitionNotDraftError,
   AcquisitionNotFoundError,
   AcquisitionPaymentNotFoundError,
+  AdministratorInactiveError,
   AllocationNotLastError,
   AllocationRefusedError,
   AlreadyMatchedError,
@@ -39,6 +40,7 @@ import {
   InactiveCategoryError,
   InvalidLoanSplitError,
   InvalidSecurityDepositSplitError,
+  InvalidMembershipError,
   InvalidOwnershipError,
   type LinkRefusal,
   LoanAllocationSetNotFoundError,
@@ -52,6 +54,7 @@ import {
   LoanNotFoundError,
   LoanRefinancesError,
   LoanTermsNotFoundError,
+  MembershipNotActiveError,
   MrePropertyNotFoundError,
   MreRentTermNotFoundError,
   MreTenantNotFoundError,
@@ -66,6 +69,7 @@ import {
   NotWritableError,
   NothingRetainedError,
   OverlappingOwnershipError,
+  OverlappingWegMembershipError,
   OwnerInactiveError,
   OwnershipBasisIncompleteError,
   OwnershipIncompleteError,
@@ -111,6 +115,10 @@ import {
   UnconfirmedDepositCashError,
   UnsupportedAdapterError,
   VersionConflictError,
+  WegHasMembershipsError,
+  WegMembershipNotFoundError,
+  WegNotActiveError,
+  WegNotFoundError,
   WriteBackFailedError,
   WriteBackInProgressError,
   formatShare,
@@ -244,6 +252,9 @@ const TABLE = [
   ),
   on(AcquisitionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Acquisition not found.', { acquisitionId: error.acquisitionId })),
   on(AcquisitionPaymentNotFoundError, (error) => answer(404, 'NOT_FOUND', 'AcquisitionPayment not found.', { paymentId: error.paymentId })),
+  on(AdministratorInactiveError, (error) =>
+    answer(409, 'CONFLICT', 'An inactive Party does not become the administrator of a WEG.', { reason: 'PARTY_INACTIVE', partyId: error.partyId }),
+  ),
   on(AllocationNotLastError, (error) =>
     answer(409, 'CONFLICT', 'Only the last set is voided.', { reason: 'ALLOCATION_NOT_LAST', laterAllocationSetId: error.laterAllocationSetId }),
   ),
@@ -379,6 +390,9 @@ const TABLE = [
       reason: error.reason,
     }),
   ),
+  on(InvalidMembershipError, (error) =>
+    answer(422, 'INVALID_MEMBERSHIP', 'The WEG membership cannot end on that day.', { membershipId: error.membershipId, reason: error.reason }),
+  ),
   on(InvalidOwnershipError, (error) =>
     answer(422, 'INVALID_OWNERSHIP', 'The Ownership cannot be closed so.', { ownershipId: error.ownershipId, reason: error.reason }),
   ),
@@ -397,6 +411,9 @@ const TABLE = [
     answer(409, 'CONFLICT', 'A closed Loan names this one as its refinancing.', { reason: 'LOAN_REFINANCES', loanIds: error.loanIds }),
   ),
   on(LoanTermsNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Loan terms not found.', { termsId: error.termsId })),
+  on(MembershipNotActiveError, (error) =>
+    answer(409, 'CONFLICT', 'The WEG membership is VOID.', { reason: 'MEMBERSHIP_NOT_ACTIVE', membershipId: error.membershipId }),
+  ),
   on(MrePropertyNotFoundError, (error) =>
     answer(404, 'NOT_FOUND', 'MRE Property not found in this Realm.', {
       mreRealmId: error.mreRealmId,
@@ -441,6 +458,13 @@ const TABLE = [
   on(OverlappingOwnershipError, (error) =>
     answer(422, 'OVERLAPPING_OWNERSHIP', 'The owner already holds an overlapping Ownership of this PropertyReference.', {
       ownershipId: error.ownershipId,
+    }),
+  ),
+  on(OverlappingWegMembershipError, (error) =>
+    answer(409, 'CONFLICT', 'The unit already belongs to a WEG on an overlapping day.', {
+      reason: 'OVERLAPPING_WEG_MEMBERSHIP',
+      membershipId: error.membershipId,
+      wegId: error.wegId,
     }),
   ),
   on(OwnerInactiveError, (error) => answer(422, 'PARTY_INACTIVE', 'A Party named here must be active.', { partyId: error.partyId })),
@@ -634,6 +658,14 @@ const TABLE = [
       currentVersion: error.currentVersion,
     }),
   ),
+  on(WegHasMembershipsError, (error) =>
+    answer(409, 'CONFLICT', 'Active memberships hang off the WEG; void them first.', { reason: 'WEG_HAS_MEMBERSHIPS', membershipIds: error.membershipIds }),
+  ),
+  on(WegMembershipNotFoundError, (error) => answer(404, 'NOT_FOUND', 'WEG membership not found.', { membershipId: error.membershipId })),
+  on(WegNotActiveError, (error) =>
+    answer(409, 'CONFLICT', `The WEG is ${error.status}.`, { reason: 'WEG_NOT_ACTIVE', wegId: error.wegId, status: error.status }),
+  ),
+  on(WegNotFoundError, (error) => answer(404, 'NOT_FOUND', 'WEG not found.', { wegId: error.wegId })),
   on(WriteBackFailedError, (error) => writeBackFailureAnswer(error)),
   on(WriteBackInProgressError, (error) =>
     answer(409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', {

@@ -232,6 +232,46 @@ export interface SecurityDepositTable {
   version: Generated<number>;
 }
 
+export interface WegTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  status: string;
+  display_name: string;
+  administrator_party_id: string | null;
+  financial_year_start_month: number;
+  notes: string | null;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface WegMembershipTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  weg_id: string;
+  property_reference_id: string;
+  /** `numeric(12,3)`: written and read as text. */
+  mea_numerator: string;
+  mea_denominator: string;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  valid_from: string;
+  valid_until: string | null;
+  status: string;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface LoanTermsTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -499,6 +539,8 @@ export interface Database {
   land_building_allocation: LandBuildingAllocationTable;
   loan: LoanTable;
   security_deposit: SecurityDepositTable;
+  weg: WegTable;
+  weg_membership: WegMembershipTable;
   loan_terms: LoanTermsTable;
   loan_allocation_set: LoanAllocationSetTable;
   loan_allocation: LoanAllocationTable;
