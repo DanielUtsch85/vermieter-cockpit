@@ -8,7 +8,9 @@ import { sql, type Kysely } from 'kysely';
  *   PropertyReference and never with a Loan or a security deposit.
  * - `transaction_split_weg` (0041) is replaced: a split naming a statement still writes its unit first, but skips the
  *   check of a membership on the booking date (a statement often arrives after a sale; it is checked against its own
- *   membership instead). `ledger_transaction_weg_booking_date` (0041) skips such splits likewise. `down` restores both.
+ *   membership instead). `ledger_transaction_weg_booking_date` (0041) skips such splits likewise, and so does
+ *   `weg_membership_guard` (0041): a settlement booked after a sale does not hold the membership, its statement does
+ *   (MEMBERSHIP_HAS_STATEMENTS; review on #152). `down` restores all three.
  * - `transaction_split_weg_statement` (before insert or update of a split with a statement; sorts after
  *   `transaction_split_weg`): writes the unit (no-op), then the statement (no-op, `RETURNING status, membership_id`, so a
  *   stale writer under REPEATABLE READ fails to serialise), and refuses a category outside the three WEG categories or a
@@ -30,6 +32,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
   await sql`CREATE OR REPLACE FUNCTION transaction_split_weg() RETURNS trigger LANGUAGE plpgsql AS $$${splitWegBody(true)}$$`.execute(db);
   await sql`CREATE OR REPLACE FUNCTION ledger_transaction_weg_booking_date() RETURNS trigger LANGUAGE plpgsql AS $$${bookingDateBody(true)}$$`.execute(db);
+  await sql`CREATE OR REPLACE FUNCTION weg_membership_guard() RETURNS trigger LANGUAGE plpgsql AS $$${membershipGuardBody(true)}$$`.execute(db);
 
   await sql`
     CREATE FUNCTION transaction_split_weg_statement() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -79,6 +82,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`CREATE OR REPLACE FUNCTION ledger_transaction_reversal_mirror() RETURNS trigger LANGUAGE plpgsql AS $$${mirrorBody(false)}$$`.execute(db);
   await sql`DROP TRIGGER transaction_split_weg_statement ON transaction_split`.execute(db);
   await sql`DROP FUNCTION transaction_split_weg_statement()`.execute(db);
+  await sql`CREATE OR REPLACE FUNCTION weg_membership_guard() RETURNS trigger LANGUAGE plpgsql AS $$${membershipGuardBody(false)}$$`.execute(db);
   await sql`CREATE OR REPLACE FUNCTION ledger_transaction_weg_booking_date() RETURNS trigger LANGUAGE plpgsql AS $$${bookingDateBody(false)}$$`.execute(db);
   await sql`CREATE OR REPLACE FUNCTION transaction_split_weg() RETURNS trigger LANGUAGE plpgsql AS $$${splitWegBody(false)}$$`.execute(db);
   await sql`ALTER TABLE transaction_split DROP COLUMN weg_annual_statement_id`.execute(db);
@@ -187,5 +191,46 @@ function mirrorBody(statements: boolean) {
           USING ERRCODE = 'integrity_constraint_violation';
       END IF;
       RETURN NULL;
+    END`);
+}
+
+/** 0041's `weg_membership_guard`; with `statements`, splits naming a statement do not hold the membership (§51). */
+function membershipGuardBody(statements: boolean) {
+  return sql.raw(`
+    DECLARE
+      kept daterange;
+      old_period daterange := daterange(OLD.valid_from, OLD.valid_until, '[]');
+      held uuid;
+    BEGIN
+      IF OLD.status <> 'ACTIVE' OR (NEW.status, NEW.valid_until) IS NOT DISTINCT FROM (OLD.status, OLD.valid_until) THEN
+        RETURN NEW;
+      END IF;
+      -- First the unit: a concurrent split or plan writer is waited for and seen (review on #146).
+      UPDATE property_reference SET version = version WHERE id = NEW.property_reference_id;
+      kept := CASE WHEN NEW.status = 'VOID' THEN 'empty'::daterange ELSE daterange(NEW.valid_from, NEW.valid_until, '[]') END;
+      SELECT s.transaction_id INTO held FROM transaction_split s
+        JOIN financial_category c ON c.id = s.financial_category_id
+        JOIN ledger_transaction t ON t.id = s.transaction_id
+       WHERE s.property_reference_id = NEW.property_reference_id
+         AND c.code IN ('WEG_RECOVERABLE', 'WEG_NON_RECOVERABLE', 'WEG_RESERVE_CONTRIBUTION')${
+           statements
+             ? `
+         AND s.weg_annual_statement_id IS NULL`
+             : ''
+         }
+         AND t.booking_date <@ old_period AND NOT (t.booking_date <@ kept)
+       LIMIT 1;
+      IF held IS NOT NULL THEN
+        RAISE EXCEPTION 'WegMembership %: Transaction % has a WEG split of the unit outside the remaining period (MEMBERSHIP_HAS_SPLITS)', OLD.id, held
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      SELECT p.id INTO held FROM weg_economic_plan p
+       WHERE p.membership_id = OLD.id AND p.status = 'ACTIVE' AND NOT (p.effective_from <@ kept)
+       LIMIT 1;
+      IF held IS NOT NULL THEN
+        RAISE EXCEPTION 'WegMembership %: plan % lies outside the remaining period (MEMBERSHIP_HAS_PLANS)', OLD.id, held
+          USING ERRCODE = 'integrity_constraint_violation';
+      END IF;
+      RETURN NEW;
     END`);
 }

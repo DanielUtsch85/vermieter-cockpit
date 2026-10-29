@@ -270,6 +270,32 @@ describe.skipIf(databaseUrl === undefined)('Ledger effects of a statement (§51)
       expect((await transactions.confirm(refund, REALM, actor)).kind).toBe('CONFIRMED');
     });
 
+    it('a settlement booked after the sale does not hold the membership; its statement does (review on #152)', async () => {
+      // Through the repository: the refund of 2026-08-03 does not refuse a sale on 2026-06-30.
+      const { unit: pr, membership } = await member();
+      const st = await statement(membership.id);
+      await booked({ amount: '300.00', bookingDate: '2026-08-03' }, [split('300.00', 'WEG_NON_RECOVERABLE', pr, st.id)]);
+      expect((await wegs.endMembership(membership.id, REALM, day('2026-06-30'), actor)).kind).toBe('ENDED');
+      // The statement itself still holds its period.
+      expect(await wegs.endMembership(membership.id, REALM, day('2025-06-30'), actor)).toEqual({ kind: 'MEMBERSHIP_HAS_STATEMENTS', statementIds: [st.id] });
+      // A plain WEG split after the new end still holds it.
+      const other = await member();
+      const plain = await booked({ direction: 'OUTFLOW', amount: '10.00', bookingDate: '2026-07-01' }, [split('10.00', 'WEG_RECOVERABLE', other.unit)]);
+      expect(await wegs.endMembership(other.membership.id, REALM, day('2026-06-30'), actor)).toEqual({
+        kind: 'MEMBERSHIP_HAS_SPLITS',
+        transactionIds: [plain],
+      });
+      // Past the repository, the guard of 0041 as replaced by 0043: the settlement alone does not refuse the end.
+      const sold = await member();
+      const sale = await statement(sold.membership.id);
+      await booked({ amount: '300.00', bookingDate: '2026-08-03' }, [split('300.00', 'WEG_NON_RECOVERABLE', sold.unit, sale.id)]);
+      expect(
+        await pool
+          .query(`UPDATE weg_membership SET valid_until = '2026-06-30', version = version + 1 WHERE id = $1`, [sold.membership.id])
+          .then(() => 'accepted', reasonOf),
+      ).toBe('accepted');
+    });
+
     it('corrections: the reversal mirrors a superseded statement; a copied replacement must name the current one', async () => {
       const { unit: pr, membership } = await member();
       const old = await statement(membership.id);
@@ -469,6 +495,8 @@ describe.skipIf(databaseUrl === undefined)('Ledger effects of a statement (§51)
         expect(await source('transaction_split_weg_statement')).toBeUndefined();
         expect(await source('transaction_split_weg')).not.toContain('weg_annual_statement_id');
         expect(await source('ledger_transaction_weg_booking_date')).not.toContain('weg_annual_statement_id');
+        expect(await source('weg_membership_guard')).not.toContain('weg_annual_statement_id');
+        expect(await source('weg_membership_guard')).toContain('MEMBERSHIP_HAS_PLANS');
         expect(await source('ledger_transaction_reversal_mirror')).toContain('security_deposit_id');
         expect(await source('ledger_transaction_reversal_mirror')).not.toContain('weg_annual_statement_id');
       } finally {

@@ -586,6 +586,8 @@ async function holdsOf(trx: Transaction<Database>, membership: WegMembership): P
     .select(['transaction_split.transaction_id', sql<string>`to_char(ledger_transaction.booking_date, 'YYYY-MM-DD')`.as('booking_date')])
     .where('transaction_split.property_reference_id', '=', membership.propertyReferenceId)
     .where('financial_category.code', 'in', [...WEG_SPLIT_CATEGORIES])
+    // A settlement follows its statement, not its booking date (§51, review on #152): the statement holds the period.
+    .where('transaction_split.weg_annual_statement_id', 'is', null)
     .execute();
   const plans = await trx
     .selectFrom('weg_economic_plan')
