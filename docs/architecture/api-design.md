@@ -3644,7 +3644,7 @@ GET  /api/v1/property-references/{propertyReferenceId}/weg-memberships   (VC-6-0
 
 The Wirtschaftsplan, the Jahresabrechnung and the Sonderumlage get their routes with VC-6-02, VC-6-03 and VC-6-05 (§49.3 ff., §50, §51). The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
 
-## 49.1 WEG: create, read, list, amend, void (VC-6-01)
+## 49.1 WEG: create, read, list, amend, void (VC-6-01, implemented: migration 0040)
 
 - **Domain owner:** WEG. **Authorization:** as §19.1. The WEG and its administrator Party belong to the caller's Realm. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
 - **Status (P6-D1):** `ACTIVE` → `VOID` (final).
@@ -3699,7 +3699,7 @@ The Wirtschaftsplan, the Jahresabrechnung and the Sonderumlage get their routes 
   - Filters, optional and combined with AND: `status` (a comma-separated list), `administratorPartyId`, `propertyReferenceId` (WEGs with a membership of that unit, any status and period).
   - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`. An unknown or foreign filter id is an empty page, not `404` (§30.1).
 
-## 49.2 WEG membership (VC-6-01)
+## 49.2 WEG membership (VC-6-01, implemented: migration 0040)
 
 - **Domain owner:** WEG. **Authorization:** as §49.1; the membership, its WEG and its PropertyReference belong to the caller's Realm (composite foreign keys).
 - **A membership is a period** (as an Ownership, §26.1): `validFrom` and an optional `validUntil`, both **inclusive** business dates (`YYYY-MM-DD`). `wegId`, `propertyReferenceId`, `miteigentumsanteil` and `validFrom` never change. A wrongly recorded membership is voided and recorded again.
