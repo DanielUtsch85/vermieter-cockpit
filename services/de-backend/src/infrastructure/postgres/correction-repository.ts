@@ -281,6 +281,10 @@ async function insertCorrection(trx: Trx<Database>, actor: AuditActor, original:
       created_by: actor.actorId,
       correction_of_transaction_id: original.id,
       correction_role: role,
+      // A correction changes amount, dates or splits, never who paid: it keeps the original's counterparty (#111). The
+      // import identity (§70) stays on the original alone, so re-imports still dedupe against it.
+      counterparty_name_raw: original.counterpartyNameRaw,
+      counterparty_iban_raw: original.counterpartyIbanRaw,
     })
     .returning('id')
     .executeTakeFirstOrThrow();

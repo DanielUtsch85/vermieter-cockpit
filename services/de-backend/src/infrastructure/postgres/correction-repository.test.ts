@@ -178,6 +178,9 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
       correctionRole: 'REVERSAL',
       reversalTransactionId: null,
       replacementTransactionId: null,
+      // A manual original has no counterparty, so its corrections have none either (#111).
+      counterpartyNameRaw: null,
+      counterpartyIbanRaw: null,
     });
     expect(reversal.amount.equals(original.amount)).toBe(true);
     expect(replacement).toMatchObject({
@@ -378,6 +381,34 @@ describe.skipIf(databaseUrl === undefined)('PostgresCorrectionRepository', () =>
     }
     // Nothing of the refused attempts was written.
     expect(Number((await pool.query(`SELECT count(*) FROM ledger_transaction WHERE correction_of_transaction_id = $1`, [id])).rows[0].count)).toBe(2);
+  });
+
+  it("reversal and replacement keep the original's counterparty, along the chain and on reverse (#111)", async () => {
+    const withPayer = async () => {
+      const id = await confirmedRent();
+      await pool.query(
+        `UPDATE ledger_transaction SET counterparty_name_raw = 'Erika Mieterin', counterparty_iban_raw = 'DE89370400440532013000' WHERE id = $1`,
+        [id],
+      );
+      return id;
+    };
+    const payer = { counterpartyNameRaw: 'Erika Mieterin', counterpartyIbanRaw: 'DE89370400440532013000' };
+    const { reversal, replacement } = await correctOk(await withPayer(), { reason: 'Datum', replacement: { bookingDate: date('2026-09-03') } });
+    expect(reversal).toMatchObject(payer);
+    expect(replacement).toMatchObject(payer);
+    // Corrected again: the replacement passes it on.
+    const { replacement: again } = await correctOk(replacement.id, { reason: 'Beschreibung', replacement: { description: 'Miete 09/2026' } });
+    expect(again).toMatchObject(payer);
+    // The import identity stays on the original alone.
+    const identity = await pool.query(`SELECT content_fingerprint, source_row_key FROM ledger_transaction WHERE id = ANY($1)`, [[reversal.id, replacement.id]]);
+    expect(identity.rows).toEqual([
+      { content_fingerprint: null, source_row_key: null },
+      { content_fingerprint: null, source_row_key: null },
+    ]);
+
+    const reversed = await corrections.correct(await withPayer(), REALM, { reason: 'Doppelt', replacement: null }, actor);
+    if (reversed.kind !== 'CORRECTED') throw new Error(reversed.kind);
+    expect(reversed.result.reversal).toMatchObject(payer);
   });
 
   it('net effect: over a chain T1 → T2 → T3 the signed sums equal those of the current Transactions alone (§35.3)', async () => {
