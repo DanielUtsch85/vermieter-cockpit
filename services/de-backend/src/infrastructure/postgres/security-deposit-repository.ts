@@ -3,8 +3,14 @@ import {
   cashKindOf,
   deriveFigures,
   planAmend,
+  planClose,
+  planReopen,
   planVoid,
   type AmendDepositOutcome,
+  type CloseCash,
+  type CloseDepositOutcome,
+  type CloseRequest,
+  type DepositClosingReason,
   type CreateDepositOutcome,
   type CountedCash,
   type CreatePrecheck,
@@ -17,6 +23,7 @@ import {
   type DepositView,
   type ExpectedAmountSource,
   type NewDeposit,
+  type ReopenDepositOutcome,
   type SecurityDeposit,
   type SecurityDepositId,
   type SecurityDepositRepository,
@@ -46,6 +53,10 @@ const COLUMNS = [
   'notes',
   'voided_at',
   'void_reason',
+  sql<string | null>`to_char(closing_date, 'YYYY-MM-DD')`.as('closing_date'),
+  'closing_reason',
+  'closing_note',
+  sql<string | null>`held_at_closing::text`.as('held_at_closing'),
   'created_at',
   'version',
 ] as const;
@@ -63,6 +74,10 @@ interface DepositRow {
   notes: string | null;
   voided_at: Date | null;
   void_reason: string | null;
+  closing_date: string | null;
+  closing_reason: string | null;
+  closing_note: string | null;
+  held_at_closing: string | null;
   created_at: Date;
   version: number;
 }
@@ -310,7 +325,121 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
         return { kind: 'VOIDED', deposit: (await viewsOf(trx, [voided]))[0] as DepositView, changed: true };
       });
   }
+
+  async close(id: string, mreRealmId: string, request: CloseRequest, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseDepositOutcome> {
+    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<CloseDepositOutcome> => {
+        const row = await trx
+          .selectFrom('security_deposit')
+          .select(COLUMNS)
+          .where('id', '=', id)
+          .where('mre_realm_id', '=', mreRealmId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const current = toDeposit(row);
+        // P5-D9: the splits after the deposit's lock; a split write locks the deposit too, so none changes meanwhile.
+        // security_deposit_close_guard is the backstop.
+        const plan = planClose(current, request, await closeCashOf(trx, id));
+        if (plan.kind === 'UNCHANGED') return { kind: 'CLOSED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
+        if (plan.kind !== 'CLOSE') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        const { closing } = plan;
+        await trx
+          .updateTable('security_deposit')
+          .set((eb) => ({
+            status: 'CLOSED' satisfies DepositStatus,
+            closing_date: closing.closingDate,
+            closing_reason: closing.reason,
+            closing_note: closing.closingNote,
+            held_at_closing: toNumericAmount(closing.heldAtClosing),
+            version: eb('version', '+', 1),
+            updated_at: new Date(),
+          }))
+          .where('id', '=', id)
+          .execute();
+        const closed = await readOne(trx, id);
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CLOSED', actor, {
+          previousVersion: current.version,
+          newVersion: closed.version,
+          metadata: closingJson(closing),
+        });
+        return { kind: 'CLOSED', deposit: (await viewsOf(trx, [closed]))[0] as DepositView, changed: true };
+      });
+  }
+
+  async reopen(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ReopenDepositOutcome> {
+    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
+    return this.db
+      .transaction()
+      .setIsolationLevel('read committed')
+      .execute(async (trx): Promise<ReopenDepositOutcome> => {
+        const row = await trx
+          .selectFrom('security_deposit')
+          .select(COLUMNS)
+          .where('id', '=', id)
+          .where('mre_realm_id', '=', mreRealmId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (row === undefined) return { kind: 'NOT_FOUND' };
+        const current = toDeposit(row);
+        const plan = planReopen(current);
+        if (plan.kind === 'UNCHANGED') return { kind: 'REOPENED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
+        if (plan.kind !== 'REOPEN') return plan;
+        const conflict = checkVersion(current.version, expectedVersions);
+        if (conflict !== undefined) return conflict;
+        await trx
+          .updateTable('security_deposit')
+          .set((eb) => ({
+            status: 'ACTIVE' satisfies DepositStatus,
+            closing_date: null,
+            closing_reason: null,
+            closing_note: null,
+            held_at_closing: null,
+            version: eb('version', '+', 1),
+            updated_at: new Date(),
+          }))
+          .where('id', '=', id)
+          .execute();
+        const reopened = await readOne(trx, id);
+        // The cleared closing stays in the audit trail (§47.4).
+        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'REOPENED', actor, {
+          previousVersion: current.version,
+          newVersion: reopened.version,
+          metadata: { cleared: current.closing === null ? null : closingJson(current.closing) },
+        });
+        return { kind: 'REOPENED', deposit: (await viewsOf(trx, [reopened]))[0] as DepositView, changed: true };
+      });
+  }
 }
+
+/** §47.4: the deposit's counted cash and its open splits, read after the deposit's lock (P5-D9). */
+async function closeCashOf(trx: Transaction<Database>, id: string): Promise<CloseCash> {
+  const counted = (await countedCashOf(trx, [id])).get(id) ?? [];
+  const open = await trx
+    .selectFrom('transaction_split as s')
+    .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
+    .select(['t.id as transaction_id', sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date')])
+    .where('s.security_deposit_id', '=', id)
+    .where('t.status', 'in', ['IMPORTED', 'UNREVIEWED', 'CLASSIFIED', 'IGNORED'])
+    .where(sql<boolean>`t.correction_role IS DISTINCT FROM 'REVERSAL'`)
+    .orderBy('t.booking_date')
+    .orderBy('t.id')
+    .orderBy('s.position')
+    .execute();
+  return { counted, open: open.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate })) };
+}
+
+const closingJson = (closing: NonNullable<SecurityDeposit['closing']>) => ({
+  closingDate: closing.closingDate,
+  reason: closing.reason,
+  closingNote: closing.closingNote,
+  heldAtClosing: closing.heldAtClosing.toJSON(),
+});
 
 /** §47.1 check 2: the holding account, if one is named. */
 async function accountRefusalOf(
@@ -441,19 +570,29 @@ function toDeposit(row: DepositRow): SecurityDeposit {
     notes: row.notes,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,
+    // The closing columns are set together while CLOSED (security_deposit_closing_fields).
+    closing:
+      row.closing_date === null || row.held_at_closing === null
+        ? null
+        : {
+            closingDate: row.closing_date as BusinessDate,
+            reason: row.closing_reason as DepositClosingReason,
+            closingNote: row.closing_note,
+            heldAtClosing: fromNumericAmount(row.held_at_closing, row.currency),
+          },
     createdAt: row.created_at,
     version: row.version,
   };
 }
 
 /** The created deposit as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
-interface DepositSnapshot extends Omit<SecurityDeposit, 'expectedAmount' | 'createdAt' | 'voidedAt'> {
+interface DepositSnapshot extends Omit<SecurityDeposit, 'expectedAmount' | 'createdAt' | 'voidedAt' | 'closing'> {
   readonly expectedAmount: { readonly amount: string; readonly currency: string };
   readonly createdAt: string;
   readonly voidedAt: string | null;
 }
 
-function toSnapshot(deposit: SecurityDeposit): DepositSnapshot {
+function toSnapshot({ closing: _closing, ...deposit }: SecurityDeposit): DepositSnapshot {
   return {
     ...deposit,
     expectedAmount: { amount: deposit.expectedAmount.amount, currency: deposit.expectedAmount.currency },
@@ -470,5 +609,7 @@ function fromSnapshot(result: unknown): SecurityDeposit {
     expectedAmount: fromNumericAmount(s.expectedAmount.amount, s.expectedAmount.currency),
     createdAt: new Date(s.createdAt),
     voidedAt: s.voidedAt === null ? null : new Date(s.voidedAt),
+    // A created deposit is ACTIVE, never closed.
+    closing: null,
   };
 }

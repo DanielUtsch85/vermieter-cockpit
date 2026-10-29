@@ -15,7 +15,7 @@ import type { RealmPrincipal } from './access.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { VersionConflictError } from './errors.js';
 import { LoanClosedOnError, LoanNotActiveError, LoanNotFoundError } from './loans.js';
-import { DepositNotActiveError, SecurityDepositNotFoundError } from './security-deposits.js';
+import { DepositClosedError, DepositNotActiveError, SecurityDepositNotFoundError } from './security-deposits.js';
 import { CurrencyMismatchError } from './transactions.js';
 
 /**
@@ -97,6 +97,8 @@ export function throwSplitRefusal(refusal: LoanSplitRefusal | DepositSplitRefusa
       throw new InvalidSecurityDepositSplitError(refusal.position, refusal.reason);
     case 'DEPOSIT_NOT_ACTIVE':
       throw new DepositNotActiveError(refusal.securityDepositId, 'VOID');
+    case 'DEPOSIT_CLOSED':
+      throw new DepositClosedError(refusal.securityDepositId);
     case 'LOAN_NOT_FOUND':
       throw new LoanNotFoundError(refusal.loanId);
     case 'INVALID_LOAN_SPLIT':

@@ -126,7 +126,8 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
             ...(replacement === null ? [] : depositIdsOf(replacement.splits)),
           ]);
           // Reverse only (§35.9): no replacement to check; the reversal goes to the original's account, closed or not.
-          const categoryIds = replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement, loans, deposits);
+          const categoryIds =
+            replacement === null ? undefined : await this.checkReplacement(trx, mreRealmId, original, replacement, loans, deposits, originalSplits);
 
           const reversalId = await insertCorrection(trx, actor, original, 'REVERSAL', {
             financialAccountId: original.financialAccountId,
@@ -196,6 +197,7 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     replacement: PlannedReplacement,
     loans: ReadonlyMap<string, SplitLoan>,
     deposits: ReadonlyMap<string, string>,
+    originalSplits: readonly SplitInput[],
   ): Promise<Map<string, string>> {
     await this.check(trx, mreRealmId, original, replacement);
     const categoryIds = await this.categoryIds(trx, replacement);
@@ -203,8 +205,13 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
     // original's splits and needs no check: a Loan with splits is never VOID (loan_void_unreferenced).
     const refusal = checkLoanSplits({ direction: replacement.direction, reversal: false, bookingDate: replacement.bookingDate }, replacement.splits, loans);
     if (refusal !== undefined) throw new Rejected(refusal);
-    // §47.2: the same for its splits with securityDepositId; a deposit with splits is never VOID either.
-    const depositRefusal = checkDepositSplits({ direction: replacement.direction, reversal: false }, replacement.splits, deposits);
+    // §47.2: the same for its splits with securityDepositId; a deposit with splits is never VOID either. §47.4: a CLOSED
+    // deposit the original names may be kept, with any amount.
+    const depositRefusal = checkDepositSplits(
+      { direction: replacement.direction, reversal: false, keeps: new Set(depositIdsOf(originalSplits)) },
+      replacement.splits,
+      deposits,
+    );
     if (depositRefusal !== undefined) throw new Rejected(depositRefusal);
     return categoryIds;
   }

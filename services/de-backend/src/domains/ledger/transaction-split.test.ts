@@ -139,6 +139,25 @@ describe('checkDepositSplits (api-design §47.2)', () => {
     });
   });
 
+  it('CLOSED (§47.4): after VOID; a reversal and a replacement keeping it are exempt, one naming another closed deposit is not', () => {
+    const withClosed = new Map([...deposits, ['c', 'CLOSED'], ['d', 'CLOSED']]);
+    expect(checkDepositSplits(inflow, [dep('1', 'SECURITY_DEPOSIT', 'c'), dep('1', 'SECURITY_DEPOSIT', 'v')], withClosed)).toMatchObject({
+      kind: 'DEPOSIT_NOT_ACTIVE',
+    });
+    expect(checkDepositSplits(inflow, [dep('1', 'SECURITY_DEPOSIT', 'a'), dep('1', 'SECURITY_DEPOSIT', 'c')], withClosed)).toEqual({
+      kind: 'DEPOSIT_CLOSED',
+      securityDepositId: 'c',
+    });
+    expect(checkDepositSplits({ ...inflow, reversal: true }, [dep('1', 'SECURITY_DEPOSIT', 'c')], withClosed)).toBeUndefined();
+    expect(checkDepositSplits({ ...inflow, keeps: new Set(['c']) }, [dep('1', 'SECURITY_DEPOSIT', 'c')], withClosed)).toBeUndefined();
+    expect(
+      checkDepositSplits({ ...inflow, keeps: new Set(['c']) }, [dep('1', 'SECURITY_DEPOSIT', 'c'), dep('1', 'SECURITY_DEPOSIT', 'd')], withClosed),
+    ).toEqual({
+      kind: 'DEPOSIT_CLOSED',
+      securityDepositId: 'd',
+    });
+  });
+
   it('a reversal is exempt from the direction rule only', () => {
     expect(checkDepositSplits({ direction: 'OUTFLOW', reversal: true }, [dep('1', 'SECURITY_DEPOSIT_INTEREST', 'a')], deposits)).toBeUndefined();
     expect(checkDepositSplits({ direction: 'OUTFLOW', reversal: true }, [dep('1', 'RENT_BASE', 'a')], deposits)).toMatchObject({ reason: 'CATEGORY' });

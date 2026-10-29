@@ -132,19 +132,24 @@ export function checkLoanSplits(
 /** The categories a split with `securityDepositId` may carry (§47.2, P5-D5). */
 export const DEPOSIT_SPLIT_CATEGORIES = ['SECURITY_DEPOSIT', 'SECURITY_DEPOSIT_INTEREST'] as const;
 
-/** Why a split set's security deposits refuse it (api-design §47.2): 404, 422 INVALID_SECURITY_DEPOSIT_SPLIT, 409 DEPOSIT_NOT_ACTIVE. */
+/**
+ * Why a split set's security deposits refuse it (api-design §47.2, §47.4): 404, 422 INVALID_SECURITY_DEPOSIT_SPLIT,
+ * 409 DEPOSIT_NOT_ACTIVE, 409 DEPOSIT_CLOSED.
+ */
 export type DepositSplitRefusal =
   | { readonly kind: 'SECURITY_DEPOSIT_NOT_FOUND'; readonly securityDepositId: string }
   | { readonly kind: 'INVALID_SECURITY_DEPOSIT_SPLIT'; readonly position: number; readonly reason: 'CATEGORY' | 'DIRECTION' }
-  | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly securityDepositId: string; readonly status: string };
+  | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly securityDepositId: string; readonly status: string }
+  | { readonly kind: 'DEPOSIT_CLOSED'; readonly securityDepositId: string };
 
 /**
  * The rules of §47.2 for the splits with `securityDepositId`, in its order: every unknown or foreign deposit first, then
- * the category, then the direction of an interest credit (a reversal is exempt), then a `VOID` deposit; each for the
- * first split in position order. `deposits` holds the statuses of the deposits found in the Realm.
+ * the category, then the direction of an interest credit (a reversal is exempt), then a `VOID` deposit, then a
+ * `CLOSED` one (§47.4: a reversal is exempt, and a replacement for the deposits its original names, `keeps`); each for
+ * the first split in position order. `deposits` holds the statuses of the deposits found in the Realm.
  */
 export function checkDepositSplits(
-  transaction: { readonly direction: Direction; readonly reversal: boolean },
+  transaction: { readonly direction: Direction; readonly reversal: boolean; readonly keeps?: ReadonlySet<string> },
   splits: readonly SplitInput[],
   deposits: ReadonlyMap<string, string>,
 ): DepositSplitRefusal | undefined {
@@ -162,6 +167,10 @@ export function checkDepositSplits(
   }
   const inactive = withDeposit.find((s) => deposits.get(s.securityDepositId) === 'VOID');
   if (inactive !== undefined) return { kind: 'DEPOSIT_NOT_ACTIVE', securityDepositId: inactive.securityDepositId, status: 'VOID' };
+  const closed = withDeposit.find(
+    (s) => deposits.get(s.securityDepositId) === 'CLOSED' && !transaction.reversal && !(transaction.keeps?.has(s.securityDepositId) ?? false),
+  );
+  if (closed !== undefined) return { kind: 'DEPOSIT_CLOSED', securityDepositId: closed.securityDepositId };
   return undefined;
 }
 
