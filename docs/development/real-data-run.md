@@ -119,11 +119,11 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
   - The split always repeats MRE's own breakdown of the term (rent, charges).
   - Proposals:
     - a split proposal for a rent payment from the MRE term, as `payment-proposal` does for loans (§41.5);
-    - and a hint in the suggest response: the count of inflows skipped as unsplit or unconfirmed.
+    - and a hint in the suggest response: the count of inflows skipped as unconfirmed or as confirmed without rent cash (`noRentCash`).
 
 **Follow-ups:**
 - F10: suggestions for tenants who pay before the month (#125, VC-4-07): **done** in #127. The month in the purpose text comes first, then the chain is assigned in order from an anchor (api-design §37.3, migration 0036). A full date is not read as a month: it is the execution date.
-- F11: split proposal from the MRE term, and a hint when suggest skips inflows (#126).
+- F11: split proposal from the MRE term, and a hint when suggest skips inflows (#126). Specified in api-design §37.6.
 
 ## Into Phase 5
 
