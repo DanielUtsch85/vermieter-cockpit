@@ -32,7 +32,10 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
 - **Imports are the normal path for cash.** A Hausgeld debit arrives as an imported Transaction with the WEG's IBAN. A suggestion from that IBAN, as P4-D4 does for rent, is left out of Phase 6: one debit per month and WEG makes the proposal by amount enough (P6-D4).
 - **The landlord is a member, never the administrator.** DE records what the owner receives from the Verwalter (Wirtschaftsplan, Jahresabrechnung, Sonderumlage resolutions) and pays. It does not run a WEG's books.
 
-**What the real data needs from the user** before VC-6-03 is specified: the structure (not the amounts) of one real Jahresabrechnung and Einzelwirtschaftsplan from the owner's Verwalter. That means the column headings, how the cost lines are grouped, whether recoverability is marked per line, and how the reserve section looks. Anonymised notes only, as for #93.
+**The real documents** (supplied 29.10.2026: three Jahresabrechnungen, one Wirtschaftsplan, one protocol; not committed, structure only):
+- **Einzelwirtschaftsplan:** cost lines in two groups as printed, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each with an allocation key as printed (Miteigentumsanteile, Einheit, a consumption key), the WEG total and the unit's share, and a subtotal per group; an income line; a separate section for the reserve advance; and a "Neufestsetzung" of the **monthly** Hausgeld and Rücklage **from a date within the year**. This shapes VC-6-02 (api-design §49.5).
+- **MEA:** printed with three decimals over 10.000,000 (api-design §49.2).
+- **Jahresabrechnung:** analysed for VC-6-03 when it is specified.
 
 ---
 
@@ -54,7 +57,7 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
 - A split in `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE`, `WEG_RESERVE_CONTRIBUTION` or `WEG_SPECIAL_ASSESSMENT` (P6-D7) **requires a `propertyReferenceId`**. That unit has a membership valid on the Transaction's booking date, else `422 NO_WEG_MEMBERSHIP`.
 - The WEG is derived from the membership, so there is no `wegId` on the split. This keeps one source of truth and lets Phase 7 read costs per unit, as all other operating expenses are read. So §33.2's `NOT_SUPPORTED` for `wegId` stays for good, as for `acquisitionId`.
 - The rule holds for new writes, through the split command and `correct`. Existing splits of these categories (written before Phase 6) are left as they are, since confirmed splits are frozen. VC-6-02 counts them and reports the number in its PR.
-- **Lock order:** Transaction → membership rows (`FOR SHARE`). A membership's validity is changed only while no split falls outside the new range, else `409 MEMBERSHIP_HAS_SPLITS`.
+- **Lock order:** Transaction → PropertyReference (a no-op write; revised in VC-6-02's spec, api-design §49.3: a share lock on the membership rows would let a REPEATABLE READ end through). A membership's validity is changed only while no split falls outside the new range, else `409 MEMBERSHIP_HAS_SPLITS`.
 - Docs: api-design §34/§35 (split rule), data-model §18.
 
 ### P6-D3 Money paid into WEG funds is not an expense when paid (resolves weg.md §5.2–§5.3 in the model)
@@ -72,9 +75,9 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
   - the monthly advance, split into `recoverable`, `nonRecoverable` and `reserveContribution` (Money; they sum to the advance);
   - the date of the Vorschussbeschluss. The resolution on the advances, not the plan as a document, makes them owed (§ 28 Abs. 1 WEG, checklist C3). The plan is the resolution's basis and is stored with it;
   - optional plan cost lines (description, total, the unit's share, recoverability), kept as the source structure (BR-WEG-006).
-- Statuses `ACTIVE` → `SUPERSEDED` (a new plan for the same year, keeping the old one, BR-WEG-008) or `VOID`. A plan is planning data: it never creates a Transaction (BR-WEG-003).
-- **The plan for a booking date** is the `ACTIVE` plan of that financial year. If there is none, the latest earlier `ACTIVE` plan is used, and the proposal carries the flag `PLAN_OF_EARLIER_YEAR`. Whether a resolution keeps the advances owed into the next year depends on the resolution itself; weg.md v0.2 does not state a general rule. So DE never decides it: it proposes and shows which plan it used.
-- **Hausgeld split proposal** (a read, never a write, like §37.6 and §41.5): `GET …/hausgeld-proposal?transactionId=` for an unconfirmed `OUTFLOW`. The unit is the membership of the Transaction's PropertyReference, or is given in the query. The proposal by amount:
+- Statuses `ACTIVE` → `VOID`. A later resolution with new amounts is a new plan with a later `effectiveFrom` (the real plans set the monthly amounts "ab 1.3."), so the old one stays as it is (BR-WEG-008) without a `SUPERSEDED` status; a wrong plan is voided. A plan is planning data: it never creates a Transaction (BR-WEG-003).
+- **The plan for a booking date** is the membership's `ACTIVE` plan with the latest `effectiveFrom` on or before it. If its financial year does not contain the date, the proposal carries the flag `PLAN_OF_EARLIER_YEAR`. Whether a resolution keeps the advances owed into the next year depends on the resolution itself; weg.md v0.2 does not state a general rule. So DE never decides it: it proposes and shows which plan it used.
+- **Hausgeld split proposal** (a read, never a write, like §37.6 and §41.5): `GET /api/v1/transactions/{id}/hausgeld-proposal` for an unconfirmed `OUTFLOW`. The unit is the membership of the Transaction's PropertyReference, or is given in the query. The proposal by amount:
   - **= the full advance:** the three components;
   - **= the reserve contribution only:** `WEG_RESERVE_CONTRIBUTION`. This is the second debit of F5;
   - **= the advance without the reserve:** the recoverable and non-recoverable parts;
@@ -134,7 +137,7 @@ A statement never re-splits the year's cash, and never creates cash. Its ledger 
 ### P6-D9 Conventions carried over (as P5-D9)
 
 - Creates take `Idempotency-Key` (§15), changes take `If-Match` (§16.1), and every write writes an AuditRecord. Every row is Realm-scoped by composite foreign keys.
-- **Lock order:** Transaction → membership (`FOR SHARE`) → statement or assessment rows, in id order. A membership write locks its PropertyReference first (P6-D1), then the membership row. Writers of a plan, statement or assessment lock only their own row and read splits. Each guard gets a concurrency test under RC and RR.
+- **Lock order:** Transaction → PropertyReference (no-op write) → membership → statement or assessment rows, in id order. A membership write locks its PropertyReference first (P6-D1), then the membership row. Writers of a plan, statement or assessment lock only their own row and read splits. Each guard gets a concurrency test under RC and RR.
 - No MRE call anywhere in Phase 6.
 
 ---
