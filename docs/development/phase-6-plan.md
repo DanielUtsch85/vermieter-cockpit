@@ -119,6 +119,7 @@ A statement never re-splits the year's cash, and never creates cash. Its ledger 
 3. **The reserve withdrawals** of the reserve section, kept on the statement with their descriptions. By BFH IX R 19/24 they are where a deduction can arise, so Phase 7 classifies each one (Erhaltungsaufwand, Herstellungskosten). They are not booked: the owner paid no cash for them.
 
 - A later correction of a counted split moves (1) on read. A superseding statement takes over (1)–(3), and the settlement split keeps naming the statement it was booked against. A flag `SETTLED_AGAINST_SUPERSEDED` shows when that is not the current one.
+- **Refined by the spec of VC-6-04 (api-design §51):** the `RESERVE` class's actual includes the printed reserve advance, so `Σ difference = Abrechnungsspitze + unpaidAdvances` holds exactly; the settlement proposal splits only over the two Hausgeld classes (the Abrechnungsspitze settles the Hausgeld); a split naming a statement is checked against the statement's membership, not a membership on its booking date (a statement often arrives after a sale).
 - Docs: data-flow DF-013, api-design §51.
 
 ### P6-D7 The Sonderumlage (resolves data-model §32)
