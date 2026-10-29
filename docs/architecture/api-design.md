@@ -2530,7 +2530,7 @@ Decision P3-D2 of `docs/development/phase-3-plan.md`. Terms are the Loan's condi
   - `scheduledPayment` (Money, > 0, EUR): **required** for `ANNUITY` (`400` `REQUIRED`), **not allowed** for `INTEREST_ONLY` (`400` `NOT_ALLOWED_FOR_MODEL`), whose payment is the period's interest. Entered as on the contract; DE does not compute it from `initialRepaymentRate` (P3-D2).
   - `firstPaymentDate` (business date, required): not before `validFrom` (`400` `BEFORE_VALID_FROM`). Later payments fall on the same day of each following month, clamped to the month's last day and always counted from `firstPaymentDate` (31 Jan → 28/29 Feb → 31 Mar). VC-3-02 implements this already, since the annuity check needs the carried-over balance; VC-3-04 exposes the schedule.
   - `principalAtStart` (Money, > 0, optional): the balance this period starts from, as the follow-up contract states it (e.g. after special repayments). Not on a Loan's first period, which starts from `principalOriginal` (`422` `PRINCIPAL_AT_START_ON_FIRST_TERMS`); never above `principalOriginal` (`422` `PRINCIPAL_AT_START_EXCEEDS_ORIGINAL`, since Phase 3 has no further disbursement, P3-D1).
-  - `fixedRateUntil` (business date, optional; not before `validFrom`, `400` `BEFORE_VALID_FROM`), `initialRepaymentRate` (decimal string as `interestRate`, optional), `specialRepaymentLimit` (Money ≥ 0, optional), `notes` (≤ 2000, trimmed): informational only, they change nothing in the schedule.
+  - `fixedRateUntil` (business date, optional; not before `validFrom`, `400` `BEFORE_VALID_FROM`), `initialRepaymentRate` (decimal string as `interestRate`, optional), `specialRepaymentLimit` (Money ≥ 0, optional), `notes` (≤ 2000, trimmed): informational only, they change nothing in the schedule's entries; the last period's `fixedRateUntil` dates §41.4's `summary.fixedRateEnd` (#119).
   - `paymentFrequency`: unknown key; Phase 3 is monthly only (P3-D2).
 - **Order of checks:**
   1. `400`;
@@ -2707,6 +2707,10 @@ Decision P3-D5 of `docs/development/phase-3-plan.md`, ADR-015. The schedule is t
       - `NO_TERMS`: no `VALID` period, so no payments, and `balanceDue` is `principalOriginal`. A Loan without terms has no plan, which is not an error.
     - **Ties (review on #65):** `PAID_OFF` before `MATURITY` before `PAYMENT_CAP`. A plan paid off by a payment on `maturityDate`, or by its 600th payment, is `PAID_OFF`. A 600th payment after which the next one would fall after `maturityDate` ends the plan with `MATURITY`.
     - **A follow-up period after the plan reached 0** (review on #65): when it states no `principalAtStart`, it starts from 0 and has no payments, and the plan stays `PAID_OFF`. §41.2 lets such a period be appended (its first interest is 0); it is shown in the terms and has no entries here.
+    - `fixedRateEnd` (#119): the balance at the end of the fixed-rate period (Restschuld nach Zinsbindung), `{ date, balance }` or `null`.
+      - `date` is the **last** `VALID` period's `fixedRateUntil`. An earlier period's date is history; `null` when the last period states none.
+      - `balance` is the planned remaining debt of §41.6 on that date: the balance after every payment on or before it (before the first payment, the balance the period starts from), 0 when paid off before it, 0 from `maturityDate` on with `MATURITY`, and 0 when a `CLOSED` Loan's closing date is before it (§41.7).
+      - The plan itself does not change at that date: it goes on at the same rate, since the follow-up rate is unknown (`fixedRateUntil` stays informational for the entries, §41.2).
   - Unpaged: at most 600 items. One snapshot (`REPEATABLE READ READ ONLY`) of the Loan and its periods.
 - **Example** (hand-computed; the reference for the tests):
   - The Loan: `principalOriginal` 1 000.00, one `ANNUITY` period at `"6.000"` with payment 300.00, `firstPaymentDate` 2027-01-31, no `maturityDate`. A monthly rate of 0.5 %.
@@ -2729,6 +2733,7 @@ Decision P3-D5 of `docs/development/phase-3-plan.md`, ADR-015. The schedule is t
   - `INTEREST_ONLY` up to `maturityDate` (`MATURITY`, the principal as `balanceDue`), and without a `maturityDate` (`PAYMENT_CAP` at 600);
   - an annuity cut by `maturityDate` with a `balanceDue`;
   - month-end clamping; `NO_TERMS`.
+  - `fixedRateEnd` (#119): `fixedRateUntil` before the first payment, on a due date, between two, after the payoff; `MATURITY`; the last period's date with a `principalAtStart`; a `CLOSED` Loan; the property test against the oracle.
 - **Property test** (seeded, deterministic, no new dependency), over a few hundred random full annuities (principal, rate, a payment above the first interest, no `maturityDate`):
   - Σ principal = `principalOriginal` exactly, and `endReason = PAID_OFF`;
   - every row has `payment = interest + principal` and `balanceAfter = balanceBefore − principal`, and each row's `balanceBefore` is the previous row's `balanceAfter`;
@@ -2897,6 +2902,7 @@ Decision P3-D6 of `docs/development/phase-3-plan.md`, ADR-016, BR-FIN-006. Remai
   - `principalOriginal`, `principalPaid`, `actual`;
   - `planned` (Money or `null`), `difference` (signed Money or `null`), `planEndReason` (§41.4's `endReason`);
   - `latestStatement`: the `VALID` statement with the latest `statementDate` on or before `asOf` (of several that day, the last created), with its comparison (below), or `null`;
+  - `fixedRateEnd` (#119): §41.4's `summary.fixedRateEnd`, the same whatever `asOf`; it is the plan's figure, so a special repayment shows as `actual` below `planned`, not here;
   - with `perProperty=true`: `allocationSetId`, `items: [{ propertyReferenceId, share, actual, planned, difference }]` in the set's order.
 - **Order of refusals:** `400` → Loan `404` → `VOID` `409 LOAN_NOT_ACTIVE` → `409 LOAN_NOT_ALLOCATED`.
 - **Example** (§41.4's Loan of 1 000.00, debt from 2027-01-01):

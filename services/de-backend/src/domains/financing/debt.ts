@@ -3,7 +3,7 @@ import { largestRemainder } from '../acquisition/index.js';
 import type { Fraction } from '../ownership/index.js';
 import { setOn, type LoanAllocationSetView } from './allocation.js';
 import { debtFrom, type ClosingReason, type Loan, type LoanStatus } from './loan.js';
-import { loanSchedule, plannedBalanceOn, scheduleOf, toCents, type ScheduleEndReason, type SchedulePeriod } from './terms.js';
+import { loanSchedule, plannedBalanceOn, scheduleOf, toCents, type FixedRateEnd, type ScheduleEndReason, type SchedulePeriod } from './terms.js';
 
 /**
  * Remaining debt, payments and lender statements (api-design.md §41.6, backlog VC-3-06, phase-3-plan P3-D6, ADR-016).
@@ -143,6 +143,8 @@ export type RemainingDebt = DebtOnDay & {
   readonly principalOriginal: Money;
   readonly latestStatement: StatementView | null;
   readonly closing: Closing | null;
+  /** The plan's balance at the end of the fixed-rate period, as in the schedule's summary (#119). */
+  readonly fixedRateEnd: FixedRateEnd | null;
 };
 
 export type RemainingDebtPerProperty = RemainingDebt & { readonly allocationSetId: string; readonly items: readonly PropertyDebt[] };
@@ -173,6 +175,7 @@ export function remainingDebt(inputs: DebtInputs, asOf: BusinessDate, perPropert
             actualOnClosingDate: actualOn(loan, splits, loan.closingDate),
           }
         : null,
+    fixedRateEnd: loanSchedule(loan, periods).summary.fixedRateEnd,
   };
   if (!perProperty) return { kind: 'LOAN_LEVEL', debt };
   const set = setOn(sets, asOf);

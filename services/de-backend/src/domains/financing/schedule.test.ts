@@ -14,6 +14,7 @@ const period = (overrides: Partial<SchedulePeriod> = {}): SchedulePeriod => ({
   scheduledPayment: eur('300.00'),
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
+  fixedRateUntil: null,
   ...overrides,
 });
 const rows = (principal: string, maturity: string | null, periods: SchedulePeriod[]) =>
@@ -43,6 +44,7 @@ describe('scheduleOf (§41.4)', () => {
       totalPrincipal: 100_000n,
       balanceDue: 0n,
       endReason: 'PAID_OFF',
+      fixedRateEnd: null,
     });
   });
 
@@ -130,8 +132,40 @@ describe('scheduleOf (§41.4)', () => {
         totalPrincipal: 0n,
         balanceDue: 100_000n,
         endReason: 'NO_TERMS',
+        fixedRateEnd: null,
       },
     });
+  });
+
+  it('fixedRateEnd (#119): the planned balance after every payment on or before fixedRateUntil, of the last period', () => {
+    const end = (fixedRateUntil: string, maturity: string | null = null, periods = [period({ fixedRateUntil: day(fixedRateUntil) })]) =>
+      scheduleOf(eur('1000.00'), maturity === null ? null : day(maturity), periods).summary.fixedRateEnd;
+    // Before the first payment: the principal; on a due date: after it; between two: after the earlier one.
+    expect(end('2027-01-15')).toEqual({ date: '2027-01-15', balance: 100_000n });
+    expect(end('2027-01-31')).toEqual({ date: '2027-01-31', balance: 70_500n });
+    expect(end('2027-02-28')).toEqual({ date: '2027-02-28', balance: 40_853n });
+    expect(end('2027-03-30')).toEqual({ date: '2027-03-30', balance: 40_853n });
+    // Paid off before it: 0.
+    expect(end('2036-12-31')).toEqual({ date: '2036-12-31', balance: 0n });
+    // MATURITY: 0 from maturityDate on, as the planned remaining debt (§41.6).
+    const interestOnly = [period({ repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, fixedRateUntil: day('2027-06-30') })];
+    expect(end('', '2027-03-31', interestOnly)).toEqual({ date: '2027-06-30', balance: 0n });
+    expect(end('', '2027-07-31', interestOnly)).toEqual({ date: '2027-06-30', balance: 100_000n });
+    // The last period's date counts; an earlier period's is history. A follow-up's principalAtStart restarts the balance.
+    const second = period({
+      id: 't2' as LoanTermsId,
+      validFrom: day('2027-03-01'),
+      interestRate: 0n,
+      scheduledPayment: eur('100.00'),
+      firstPaymentDate: day('2027-03-15'),
+      principalAtStart: eur('500.00'),
+    });
+    expect(end('', null, [period({ fixedRateUntil: day('2027-01-31') }), second])).toBeNull();
+    expect(end('', null, [period({ fixedRateUntil: day('2027-01-31') }), { ...second, fixedRateUntil: day('2027-03-01') }])).toEqual({
+      date: '2027-03-01',
+      balance: 50_000n,
+    });
+    expect(end('', null, [period(), { ...second, fixedRateUntil: day('2027-04-15') }])).toEqual({ date: '2027-04-15', balance: 30_000n });
   });
 
   it('a window keeps the numbers and the summary', () => {
@@ -237,6 +271,14 @@ describe('property: the plan against an independent oracle (§41.4)', () => {
           }),
         );
       }
+      // A fixed-rate end on the last period half the time, on a payment date or between two.
+      const lastPeriod = periods.at(-1) as SchedulePeriod;
+      const fixedRateUntil = chance(0.5)
+        ? null
+        : chance(0.5)
+          ? oracleDate(lastPeriod.firstPaymentDate, between(0, 60))
+          : plusDays(lastPeriod.validFrom, between(0, 2000));
+      periods[periods.length - 1] = { ...lastPeriod, fixedRateUntil };
       // A maturity on one of the payment dates half the time, so the boundary is exercised.
       const maturity = chance(0.5) ? null : chance(0.5) ? oracleDate(firstPayment, between(0, 40)) : plusDays(firstPayment, between(0, 1500));
       const { entries, summary } = scheduleOf(cents(principal), maturity, periods);
@@ -277,6 +319,18 @@ describe('property: the plan against an independent oracle (§41.4)', () => {
       const reason = balance === 0n ? 'PAID_OFF' : maturity !== null && (stops.at(-1) ?? '') > maturity ? 'MATURITY' : 'PAYMENT_CAP';
       expect(summary.endReason, context).toBe(reason);
       if (reason === 'PAYMENT_CAP') expect(entries.length, context).toBe(CAP);
+      if (fixedRateUntil === null) expect(summary.fixedRateEnd, context).toBeNull();
+      else {
+        // The balance after the last payment on or before the date, restarts of periods from it included; 0 once matured.
+        let planned = principal;
+        for (const p of periods) {
+          if (p.validFrom > fixedRateUntil) break;
+          if (p.principalAtStart !== null) planned = BigInt(p.principalAtStart.amount.replace('.', ''));
+          for (const e of entries) if (e.termsId === p.id && e.paymentDate <= fixedRateUntil) planned = e.balanceAfter;
+        }
+        if (reason === 'MATURITY' && maturity !== null && fixedRateUntil >= maturity) planned = 0n;
+        expect(summary.fixedRateEnd, context).toEqual({ date: fixedRateUntil, balance: planned });
+      }
     }
   });
 });

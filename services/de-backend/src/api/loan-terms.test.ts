@@ -262,6 +262,7 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
       totalPrincipal: 100_000n,
       balanceDue: 0n,
       endReason: 'PAID_OFF',
+      fixedRateEnd: { date: '2027-02-28', balance: 40_853n },
     },
   } as unknown as Schedule;
 
@@ -302,6 +303,7 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
         totalPrincipal: { amount: '1000.00', currency: 'EUR' },
         balanceDue: { amount: '0.00', currency: 'EUR' },
         endReason: 'PAID_OFF',
+        fixedRateEnd: { date: '2027-02-28', balance: { amount: '408.53', currency: 'EUR' } },
       },
     });
     expect(seen[0]).toMatchObject({ loanId: LOAN, from: '2027-02-01', to: '2027-02-28' });

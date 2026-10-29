@@ -55,6 +55,7 @@ const period = (overrides: Partial<SchedulePeriod> = {}): SchedulePeriod => ({
   scheduledPayment: eur('300.00'),
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
+  fixedRateUntil: null,
   ...overrides,
 });
 const annuity = [period()];
@@ -294,6 +295,16 @@ describe('remainingDebt (§41.6)', () => {
       kind: 'PER_PROPERTY',
       debt: { allocationSetId: twoThirds.id, items: [{ actual: 27_235n }, { actual: 13_618n }] },
     });
+  });
+
+  it("fixedRateEnd (#119): the plan's, whatever asOf and the payments; null without a fixed-rate end", () => {
+    expect(remainingDebt(inputs(), day('2027-03-15'), false)).toMatchObject({ debt: { fixedRateEnd: null } });
+    const fixed = inputs({ periods: [period({ fixedRateUntil: day('2027-02-28') })], splits: [] });
+    expect(remainingDebt(fixed, day('2027-01-15'), false)).toMatchObject({ debt: { fixedRateEnd: { date: '2027-02-28', balance: 40_853n } } });
+    expect(remainingDebt(fixed, day('2027-03-15'), true)).toMatchObject({ debt: { fixedRateEnd: { date: '2027-02-28', balance: 40_853n } } });
+    // §41.7: closed before the fixed-rate end, nothing is owed at it.
+    const closed = { ...fixed, loan: loanOf({ status: 'CLOSED', closingDate: day('2027-02-15'), closingReason: 'REPAID' }) };
+    expect(remainingDebt(closed, day('2027-01-15'), false)).toMatchObject({ debt: { fixedRateEnd: { date: '2027-02-28', balance: 0n } } });
   });
 
   it('per property without a set covering asOf: LOAN_NOT_ALLOCATED with asOf', () => {
