@@ -20,7 +20,7 @@ The API is a list of routes (api-design §47–48). Several points are open, or 
 - **MRE's `guaranty` and `guarantyPayback`** (mre-integration §31, BR-DEP-007), on the Tenant at the pinned baseline `479d0ad`:
   - `guaranty` is a number, defaulted to `0` (`frontdata.js` `toOccupantData`);
   - `guarantyPayback` has no default: it is missing until MRE's terminate-lease dialog sets it;
-  - both are floats, read through `GET /api/v2/tenants/:id`;
+  - both are floats. DE reads them through the Realm's Tenant list `GET /api/v2/tenants` (P5-D1): at the baseline `GET /api/v2/tenants/:id` answers `500` for an unknown or malformed id;
   - whether DE only reads them, or also writes them back like Phase 4, is open.
 - **Rent reconciliation.** A tenant's deposit inflow looks like rent cash. Nothing must suggest it as rent (BR-DEP-001, ADR-013's critical rule).
 
@@ -45,7 +45,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
 
 ### P5-D1 A deposit belongs to one MRE Tenant, referenced by id (resolves data-model §26's `rentalContractReferenceId`, ADR-013's scope)
 
-- **As P4-D1: the MRE Tenant is the lease.** A `SecurityDeposit` keeps `mreTenantId`, checked against MRE with the caller's token through `GET /tenants/:id`:
+- **As P4-D1: the MRE Tenant is the lease.** A `SecurityDeposit` keeps `mreTenantId`, checked against MRE with the caller's token through the Realm's Tenant list `GET /tenants` (VC-5-01's spec: at the baseline `GET /tenants/:id` answers `500` for an unknown id, api-design §47.1):
   - an unknown Tenant is the existing `MreTenantNotFoundError`, answered `404 NOT_FOUND` with `details.externalId` (`error-answers.ts`, #100: one answer per error class). This is the same answer as for a Party's external reference, where the Tenant id is in the body too. Phase 4's `422 MRE_RENT_TERM_NOT_FOUND` is a different class, for a term, and is not reused;
   - MRE unavailable is `503`, and nothing is written.
 - **`RentalContractReference` is still not introduced.** Data-model §26 and §71 change `rentalContractReferenceId` to `mreTenantId`. The 1 : 0..1 of data-model's relationship table holds per Tenant.

@@ -3179,34 +3179,118 @@ Superseded by §41.5 (P3-D4): the split's `loanId` is the link, so there is no `
 
 # 47. Security Deposit API
 
-### Queries
+Decisions P5-D1…D9 of `docs/development/phase-5-plan.md` (ADR-013, ADR-039, BR-DEP-001…008). A `SecurityDeposit` is the landlord-side record of one rental deposit (Kaution) held for one MRE Tenant. Its cash is ledger cash only, linked through splits (P5-D3, VC-5-02); its amounts and state are derived on read (P5-D2, VC-5-03). It never changes MRE (P5-D7).
+
+### Routes (Phase 5)
 
 ```text
-GET /api/v1/security-deposits
-GET /api/v1/security-deposits/{id}
-GET /api/v1/rental-contract-references/{id}/security-deposit
+POST /api/v1/security-deposits                          (VC-5-01, §47.1)
+GET  /api/v1/security-deposits                          (VC-5-01, §47.1; derived fields and filters VC-5-03)
+GET  /api/v1/security-deposits/{id}                     (VC-5-01, §47.1; ?checkMre=true VC-5-04)
+POST /api/v1/security-deposits/{id}/amend               (VC-5-01, §47.1)
+POST /api/v1/security-deposits/{id}/void                (VC-5-01, §47.1)
+POST /api/v1/security-deposits/{id}/close               (VC-5-04)
+POST /api/v1/security-deposits/{id}/reopen              (VC-5-04)
 ```
 
-### Commands
+Superseded by the plan: `GET /rental-contract-references/{id}/security-deposit` (no `RentalContractReference`, P5-D1; `GET /security-deposits?mreTenantId=` instead), `link-transaction` and `return` (the split is the link, P5-D3), and `reconcile-with-mre` (a comparison read, P5-D7). The plan's `PATCH` is this API's amend command (as §41.1).
 
-```text
-POST /api/v1/security-deposits
-POST /api/v1/security-deposits/{id}/link-transaction
-POST /api/v1/security-deposits/{id}/return
-POST /api/v1/security-deposits/{id}/reconcile-with-mre
-```
+## 47.1 Create, read, list, amend, void (VC-5-01)
 
----
+- **Domain owner:** Security Deposit. **Authorization:** as §19.1. The deposit, its holding account and its MRE Tenant belong to the caller's Realm. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **Status (P5-D2):** `ACTIVE` → `VOID` (here; final). `ACTIVE` ⇄ `CLOSED` comes with VC-5-04.
+- **Fixed after creation:** Realm, `mreTenantId`. A deposit recorded for the wrong Tenant is voided and recorded again.
+- **Response:**
+  - `securityDepositId`, `mreRealmId`, `status`;
+  - `mreTenantId`;
+  - `expectedAmount` (Money as §31), `expectedAmountSource`: `REQUEST` or `MRE_GUARANTY` (where the value came from on create; an amend sets `REQUEST`);
+  - `holdingFinancialAccountId` (or `null`), `interestBearing`, `notes`;
+  - `voidedAt`, `voidReason` (`null` unless `VOID`);
+  - `createdAt`, `version`.
+  - The derived amounts, `state` and `flags` (P5-D2) come with VC-5-03; VC-5-01 answers without them.
+  - Single-deposit responses carry `ETag: "<version>"` (§16.1).
 
-# 48. Security Deposit Creation
+### `POST /api/v1/security-deposits`
 
-May initialize expected amount from MRE Tenant.guaranty.
+- **Body** (strict; unknown keys `400`):
+  - `mreTenantId` (required): an MRE id, `^[0-9a-f]{24}$` as §20.1;
+  - `expectedAmount` (Money as §31, optional): **> 0** (`400 NOT_POSITIVE`), EUR. Without it, the default from MRE below;
+  - `holdingFinancialAccountId` (UUID, optional);
+  - `interestBearing` (boolean, optional, default `true`, P5-D5);
+  - `notes` (optional, trimmed, ≤ 2000).
+  - Data-model §26's `tenantPartyIds`, `payerPartyId`, `sourceIban`, `destinationIban`, `documentIds`, `receivedAmount`, `returnedAmount` and `outstandingAmount` are unknown keys: dropped or derived (P5-D1, P5-D2).
+- **Order of checks:**
+  1. `400`;
+  2. the holding account: unknown or foreign → `404` (`details.financialAccountId`); not `accountType = SECURITY_DEPOSIT` → `422 NOT_A_SECURITY_DEPOSIT_ACCOUNT` with `details.accountType` (P5-D4). A `CLOSED` account is allowed: it may still hold the cash it held;
+  3. a deposit of the Tenant that is not `VOID` exists → `409 CONFLICT` with `reason = "DEPOSIT_EXISTS"` and `details.securityDepositId` (P5-D1);
+  4. **the MRE Tenant**, read live with the caller's token, outside any database transaction (P5-D9):
+     - read through `GET /tenants` (the Realm's list, as the Party external references do, §20.1), and the Tenant picked by `_id`. **Not** through `GET /tenants/:id`: at the baseline `479d0ad` that route answers `500` for an unknown or malformed id (`toOccupantData(null)` throws, `ObjectId(...)` throws), so a missing Tenant would read as an MRE outage;
+     - the Tenant not in the list → `404 NOT_FOUND` with `details.externalId` (`MreTenantNotFoundError`, #100, P5-D1);
+     - MRE refuses the token → `401`, refuses the caller → `403`, as every MRE call;
+     - MRE unavailable, or an unexpected answer → `503 EXTERNAL_SYSTEM_ERROR`. Nothing is written;
+  5. without `expectedAmount`: MRE's `guaranty`, rounded half-up to the cent once at the client (P5-D9), when it is > 0. MRE's default `0`, or a missing value, is `422 EXPECTED_AMOUNT_REQUIRED` (P5-D1).
+- **Where the MRE read sits:** checks 2 and 3 are read first in one snapshot, so a request DE refuses anyway never calls MRE. The write transaction repeats them under its locks.
+- **Success:** `201` with the deposit (`status = ACTIVE`, `version = 1`); AuditRecord `CREATED` with the Tenant id, `expectedAmount`, `expectedAmountSource`, the holding account and `interestBearing`. Only the Tenant's id and the amount are kept: the client parses the list to `_id`, `guaranty` and `guarantyPayback` and drops the rest; nothing of the Tenant's name or contacts is stored or logged (mre-integration §20.1).
+- **Idempotency (§15):** `Idempotency-Key` with scope `security-deposit.create`, fingerprint of the normalized body. A replay answers `201` with the recorded body and `Idempotent-Replayed: true`, without an MRE call; the same key with another payload is `409`.
 
-The API must distinguish:
+### `POST /api/v1/security-deposits/{securityDepositId}/amend`
 
-- expected amount
-- actual received cash
-- actual return cash
+- **Body:** the fields to change, at least one; `null` clears an optional field. Amendable: `expectedAmount` (> 0, not `null`), `holdingFinancialAccountId`, `interestBearing`, `notes`. `mreTenantId` is `400` with code `NOT_AMENDABLE`.
+- **Order of checks:**
+  1. `400`;
+  2. unknown or foreign → `404`;
+  3. not `ACTIVE` → `409 CONFLICT` with `reason = "DEPOSIT_NOT_ACTIVE"` and `details.status` (P5-D2: amend while `ACTIVE`; VC-5-04 lets a `CLOSED` deposit amend its `notes` only);
+  4. a newly named holding account: as on create (`404`, `422 NOT_A_SECURITY_DEPOSIT_ACCOUNT`);
+  5. values equal to the current ones → `200` no-op without a new version or AuditRecord, answered regardless of `If-Match`;
+  6. `If-Match` → `412`.
+- **Success:** `200` with the deposit (`version` + 1); AuditRecord `AMENDED` with each changed field's old and new value. Amend never calls MRE.
+
+### `POST /api/v1/security-deposits/{securityDepositId}/void`
+
+- **Body:** `{ "reason": "..." }` (required, trimmed, 1–500).
+- **Success:** `200` with the deposit (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1); AuditRecord `VOIDED` with the reason. A `VOID` deposit no longer blocks a new one for the Tenant.
+- Voiding a `VOID` deposit is a `200` no-op keeping the first reason and time, answered regardless of `If-Match`.
+- A `CLOSED` one (VC-5-04) is `409 CONFLICT` with `reason = "DEPOSIT_CLOSED"`.
+- While a split references the deposit (from VC-5-02; before it, none can), void is `409 CONFLICT` with `reason = "DEPOSIT_HAS_SPLITS"` and `details.transactionIds`, a reversal's splits included (as `LOAN_HAS_SPLITS`, §41.1).
+- `If-Match` as §16.1.
+
+### Reads
+
+- `GET /security-deposits/{securityDepositId}`: one deposit with `ETag`.
+- `GET /security-deposits`: `{ items, page, pageSize, total }` (§11), newest `createdAt` first, then `securityDepositId`; count and page in one snapshot.
+  - Filters, optional and combined with AND: `status` (a comma-separated list), `mreTenantId`, `holdingFinancialAccountId`. `state` comes with VC-5-03.
+  - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`. An unknown or foreign filter id is an empty page, not `404` (§30.1).
+- Reads never call MRE (the comparison is VC-5-04's `?checkMre=true`).
+
+### In the database (VC-5-01)
+
+- **`security_deposit`:**
+  - `id uuid`, `mre_realm_id text`, `status text` in (`ACTIVE`, `CLOSED`, `VOID`); `CLOSED` is reached only from VC-5-04;
+  - `mre_tenant_id text` (`^[0-9a-f]{24}$`);
+  - `expected_amount numeric` (scale ≤ 2, > 0, < 1e18) and `currency text = 'EUR'`; `expected_amount_source text` in (`REQUEST`, `MRE_GUARANTY`);
+  - `holding_financial_account_id uuid` with a composite foreign key `(holding_financial_account_id, mre_realm_id)` to `financial_account`;
+  - `interest_bearing boolean NOT NULL`, `notes text` (≤ 2000);
+  - `voided_at`, `voided_by`, `void_reason` (1–500): set exactly with `VOID` (CHECK);
+  - `created_at`, `created_by`, `version`.
+- **Partial unique index** `(mre_realm_id, mre_tenant_id) WHERE status <> 'VOID'`. Two concurrent creates for one Tenant cannot both commit; the repository answers the loser `DEPOSIT_EXISTS` (`ON CONFLICT … DO NOTHING` and a re-read).
+- **`security_deposit_holding_account`** (before insert, and before update of `holding_financial_account_id` to another non-null value): the account's `account_type` is `SECURITY_DEPOSIT`, read `FOR SHARE`. No route changes an account's type (§16), but nothing in the database forbids it yet; so the migration adds `financial_account_type_held` (before update of `account_type` on `financial_account`), which refuses a change while a deposit that is not `VOID` names the account. The check at write time then stays true.
+- **`security_deposit_frozen`** (before update): Realm, `mre_tenant_id`, `currency`, `created_at` and `created_by` are fixed; the amendable fields change only while `ACTIVE`, each change with `version` + 1; the status steps are `ACTIVE` → `VOID` here (VC-5-04 adds close and reopen), with `version` + 1; `VOID` is final; P3-D8's no-op `UPDATE … SET version = version` passes. Only inserted `ACTIVE` with `version = 1`; never deleted.
+- Not in the database: the MRE check and default (P5-D1), the order of checks, the reads.
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Two creates for one Tenant:** the partial unique index; the loser answers `DEPOSIT_EXISTS`. Counter-check: the index dropped lets both commit.
+- **Void against amend:** they serialise on the deposit row (`FOR UPDATE`); the one that waited sees `VOID` (`DEPOSIT_NOT_ACTIVE`) or a new version (`412`) under RC, or fails to serialise (`40001`) under RR.
+- **Void and a new create for the Tenant:** a create that waited on the index sees the void committed and succeeds; without the void it answers `DEPOSIT_EXISTS`.
+
+### Tests (VC-5-01)
+
+- **Domain:** the body rules; the default from `guaranty` (a float such as `2999.995` rounded half-up once, `0` and a missing value refused); the amend no-op; the void no-op.
+- **Repository:** Realm isolation (a foreign holding account is `404`); `NOT_A_SECURITY_DEPOSIT_ACCOUNT`; `DEPOSIT_EXISTS` and a new deposit after a void; amend with `412`; the AuditRecords `CREATED`, `AMENDED`, `VOIDED`.
+- **Schema past the repository**, each with a counter-check: every CHECK; the frozen fields and status steps; `DELETE`; the holding-account guard; the unique index.
+- **Concurrency** as above, under RC and RR.
+- **MRE client:** the Tenant read from the list, parsed to `_id`, `guaranty` and `guarantyPayback` (each a number or `null`; `guaranty` `0` → `null`, a missing `guarantyPayback` → `null`, P5-D7). The fake MRE's Tenants gain the two fields. `mre.contract.test.ts` pins against the baseline: a Tenant with a `guaranty`, one with MRE's default `0`, and `guarantyPayback` missing until set.
+- **API:** every `400` code above; the error mapping (`404 NOT_FOUND` for an unknown Tenant, `422 EXPECTED_AMOUNT_REQUIRED`, `503 EXTERNAL_SYSTEM_ERROR`, nothing written on any of them, end to end against the fake MRE); a refusal and an idempotent replay without an MRE call; amend and void no-ops, `412`; the list filters and order; Realm isolation end to end.
 
 ---
 

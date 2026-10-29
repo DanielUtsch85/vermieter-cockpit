@@ -643,15 +643,20 @@ MRE Tenant already contains:
 
 These represent useful operational deposit amounts.
 
-Our DE `SecurityDeposit` remains necessary because it owns the actual financial lifecycle:
+Our DE `SecurityDeposit` remains necessary because it owns the actual financial lifecycle (phase-5-plan P5-D1…D8,
+api-design §47):
 
-- required amount
-- received cash
-- partial receipt
-- source/destination IBAN
-- deposit FinancialAccount
-- linked Transactions
-- repayment cash
+- `mreTenantId`: the Tenant by id only; its name and contact data are not stored (P5-D1);
+- `expectedAmount`: given on create, or copied **once** from `guaranty` (rounded half-up to the cent, `0` = not set),
+  never followed afterwards;
+- the holding account (a `SECURITY_DEPOSIT` FinancialAccount, P5-D4);
+- the linked cash: receipt, interest and repayment splits (P5-D3); payer and IBANs stay on those Transactions, not on
+  the deposit.
+
+DE reads the two fields from the Realm's Tenant list `GET /api/v2/tenants` and picks the Tenant by `_id`, as for the
+Party references (§20.1): at the baseline `GET /api/v2/tenants/:id` answers `500` for an unknown or malformed id.
+`guarantyPayback` is read only for the comparison of P5-D7 (`checkMre`, VC-5-04); a missing value reads as `null`.
+DE never writes either field.
 
 Mapping:
 
