@@ -435,9 +435,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresWegRepository', () => {
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        // 0041 builds on 0040's tables: it goes first. Dropping tables while another worker's Migrator introspects
+        // 0042 and 0041 build on 0040's tables: they go first. Dropping tables while another worker's Migrator introspects
         // the database breaks it, so the downs hold the migration lock as every schema change of the tests does.
         await withMigrationLock(async () => {
+          await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0041_weg_plan_and_splits.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0040_weg.js')).down(createDatabase(downPool) as never);
         });

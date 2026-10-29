@@ -30,4 +30,5 @@ export { PostgresCorrectionRepository } from './correction-repository.js';
 export { PostgresUnconfirmedTransactionRepository } from './unconfirmed-transaction-repository.js';
 export { PostgresTransactionQueries } from './transaction-query-repository.js';
 export { PostgresRentReconciliationRepository } from './rent-reconciliation-repository.js';
+export { PostgresWegAnnualStatementRepository } from './weg-annual-statement-repository.js';
 export { PostgresWegEconomicPlanRepository } from './weg-economic-plan-repository.js';

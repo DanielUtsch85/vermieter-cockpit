@@ -127,3 +127,15 @@ export const money = z.object({ amount: z.string(), currency: z.string() }).tran
     return z.NEVER;
   }
 });
+
+/** Money that may be negative, where the sign is part of the figure (a credit line, an Abrechnungsspitze; api-design.md §50). */
+export const signedMoney = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
+  try {
+    return Money.of(value.amount, value.currency);
+  } catch (error) {
+    if (!(error instanceof MoneyError)) throw error;
+    const path = error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'];
+    ctx.addIssue({ code: 'custom', path, params: { code: MONEY_CODES[error.code] } });
+    return z.NEVER;
+  }
+});

@@ -302,6 +302,64 @@ export interface WegEconomicPlanTable {
   version: Generated<number>;
 }
 
+export interface WegAnnualStatementTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  membership_id: string;
+  financial_year: number;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  period_from: string;
+  period_until: string;
+  document_date: string | null;
+  resolution_date: string | null;
+  due_date: string | null;
+  supersedes_id: string | null;
+  superseded_by_id: string | null;
+  /** `numeric` columns: written and read as text, signed. */
+  recoverable_subtotal: string;
+  non_recoverable_subtotal: string;
+  total_costs: string;
+  hausgeld_requested: string;
+  hausgeld_paid: string;
+  reserve_requested: string | null;
+  reserve_paid: string | null;
+  settlement_peak: string;
+  settlement_result: string | null;
+  currency: string;
+  /** `jsonb`: the reserve section (api-design §50) or null. */
+  reserve: unknown;
+  status: string;
+  confirmed_at: Date | null;
+  confirmed_by: string | null;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface WegStatementCostLineTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  statement_id: string;
+  position: number;
+  account: string;
+  cost_group: string;
+  allocation_key: string;
+  /** `numeric(15,3)`, written and read as text. */
+  allocation_total: string | null;
+  allocation_share: string | null;
+  total_amount: string;
+  unit_share: string;
+  currency: string;
+  classification: string;
+  classification_source: string;
+}
+
 export interface LoanTermsTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -572,6 +630,8 @@ export interface Database {
   weg: WegTable;
   weg_membership: WegMembershipTable;
   weg_economic_plan: WegEconomicPlanTable;
+  weg_annual_statement: WegAnnualStatementTable;
+  weg_statement_cost_line: WegStatementCostLineTable;
   loan_terms: LoanTermsTable;
   loan_allocation_set: LoanAllocationSetTable;
   loan_allocation: LoanAllocationTable;
