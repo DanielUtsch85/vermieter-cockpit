@@ -167,17 +167,18 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
 ### P5-D8 Closing: returned, retained, or both (resolves data-model §26's `OFFSET` and `CLOSED`, UC-022)
 
 - **`POST /security-deposits/{id}/close`** with `closingDate` and `reason`, while `ACTIVE`. The rules hold **at the moment of closing**, on `held` as of `closingDate` (cash booked on or before it). A linked split on cash booked after `closingDate` refuses the closing (`409 CASH_AFTER_CLOSING_DATE`), so `held` at closing is all the deposit's cash:
-  - `RETURNED`: `held` is 0, else `409 DEPOSIT_STILL_HELD` with `details.held`;
-  - `RETAINED`: `held` is > 0, a part or all kept against claims, else `409 NOTHING_RETAINED`; `notes` is required;
-  - `OTHER`: `notes` is required, `held` may be anything.
-  - `retainedAmount` = `held` on the closing date, derived, never typed. It is 0 for `RETURNED`.
+  - `RETURNED`: `held` is ≤ 0 (more repaid than held stays `RETURNED`, as P5-D2), else `409 DEPOSIT_STILL_HELD` with `details.held`;
+  - `RETAINED`: `held` is > 0, a part or all kept against claims, else `409 NOTHING_RETAINED`; `closingNote` is required;
+  - `OTHER`: `closingNote` is required, `held` may be anything.
+  - Open (unconfirmed) cash naming the deposit refuses the closing too (`409 UNCONFIRMED_CASH`, api-design §47.4): its confirmation would move `held` behind the closing.
+  - `retainedAmount` = max(`held` on the closing date, 0), derived, never typed. It is 0 for `RETURNED`.
 - **After closing, no new links** (review on #123): a `CLOSED` deposit takes no new split, whatever the Transaction's booking date (`409 DEPOSIT_CLOSED`, P5-D3). This makes the closing a cut, not a date filter. Cash found later (a late statement) is linked after a reopen (below).
 - **Corrections stay possible**, so that a wrong amount is never locked in:
   - a reversal mirrors its original's link, as everywhere (P5-D3);
   - a replacement may keep the link when its original had a split with the same deposit, with any amount;
   - `retainedAmount` follows them, since it is derived on read.
 - **A correction can still move `held`.** It is shown, not refused, as Phase 3 shows deviations: the read flags `HELD_CHANGED_AFTER_CLOSING` with `details.heldAtClosing` and `details.held` whenever the current `held` differs from the value stored at closing. `heldAtClosing` is stored with the closing for exactly this comparison. A `RETURNED` deposit with the flag means "returned, but the books now say otherwise"; the user corrects the cash, or reopens and closes with another reason.
-- **Reopen:** `POST /security-deposits/{id}/reopen` (`If-Match`) moves `CLOSED` → `ACTIVE`. It clears `closingDate`, `reason` and `heldAtClosing` and writes an AuditRecord that keeps them. Cash found after the closing is linked in between, then the deposit is closed again with the closing's checks. A wrong closing is never voided: a closed deposit usually has links.
+- **Reopen:** `POST /security-deposits/{id}/reopen` (`If-Match`) moves `CLOSED` → `ACTIVE`. It clears `closingDate`, `reason`, `closingNote` and `heldAtClosing` and writes an AuditRecord that keeps them. Cash found after the closing is linked in between, then the deposit is closed again with the closing's checks. A wrong closing is never voided: a closed deposit usually has links.
 - **Amend:** `notes` of a closed deposit may be amended (`PATCH`, `If-Match`). `closingDate` and `reason` change only through reopen and close, so their checks always run.
 - Docs: data-model §26, api-design §47, UC-022.
 

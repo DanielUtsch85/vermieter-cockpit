@@ -3186,12 +3186,12 @@ Decisions P5-D1…D9 of `docs/development/phase-5-plan.md` (ADR-013, ADR-039, BR
 ```text
 POST /api/v1/security-deposits                          (VC-5-01, §47.1)
 GET  /api/v1/security-deposits                          (VC-5-01, §47.1; derived fields and the state filter VC-5-03, §47.3)
-GET  /api/v1/security-deposits/{id}                     (VC-5-01, §47.1; derived fields and cash VC-5-03, §47.3; ?checkMre=true VC-5-04)
+GET  /api/v1/security-deposits/{id}                     (VC-5-01, §47.1; derived fields and cash VC-5-03, §47.3; ?checkMre=true VC-5-04, §47.4)
 POST /api/v1/security-deposits/{id}/amend               (VC-5-01, §47.1)
 POST /api/v1/security-deposits/{id}/void                (VC-5-01, §47.1; DEPOSIT_HAS_SPLITS VC-5-02, §47.2)
 PUT  /api/v1/transactions/{id}/splits                   (securityDepositId: VC-5-02, §47.2; also correct and reverse)
-POST /api/v1/security-deposits/{id}/close               (VC-5-04)
-POST /api/v1/security-deposits/{id}/reopen              (VC-5-04)
+POST /api/v1/security-deposits/{id}/close               (VC-5-04, §47.4)
+POST /api/v1/security-deposits/{id}/reopen              (VC-5-04, §47.4)
 ```
 
 Superseded by the plan: `GET /rental-contract-references/{id}/security-deposit` (no `RentalContractReference`, P5-D1; `GET /security-deposits?mreTenantId=` instead), `link-transaction` and `return` (the split is the link, P5-D3), and `reconcile-with-mre` (a comparison read, P5-D7). The plan's `PATCH` is this API's amend command (as §41.1).
@@ -3475,6 +3475,101 @@ Reads only, in one snapshot. A split write or a correction that commits meanwhil
   - the list filter by `state` with `total`, combined with `status` and `mreTenantId`; Realm isolation.
 - **API:** the new fields on every response; `cash` only on the single read; `state` in the list query (`400` for an unknown value).
 - **End to end:** the instalments and a mixed first transfer through the HTTP API, then the deposit read; a counter-check that counts unconfirmed Transactions too turns it red.
+
+## 47.4 Closing, reopening and the MRE comparison (VC-5-04)
+
+Decisions P5-D7 and P5-D8. A deposit ends by `close`: returned in full, a part (or all) retained against claims, or for another reason. A wrong closing is undone by `reopen`, never by a void. MRE's `guaranty` and `guarantyPayback` are compared on demand and never written.
+
+- **Domain owner:** Security Deposit. **Authorization:** as §47.1.
+- **Status:** `ACTIVE` → `CLOSED` (close), `CLOSED` → `ACTIVE` (reopen), `ACTIVE` → `VOID` (§47.1). A `CLOSED` deposit is never voided (`409 DEPOSIT_CLOSED`, §47.1).
+
+### `POST /api/v1/security-deposits/{id}/close`
+
+- **Body** (strict):
+  - `closingDate` (business date, required): the last day whose cash belongs to the deposit;
+  - `reason` (`RETURNED` | `RETAINED` | `OTHER`, required);
+  - `closingNote` (trimmed, 1–500): required for `RETAINED` and `OTHER` (`400 REQUIRED`), optional for `RETURNED`. It names the claims a retained part covers (unpaid rent, damage) or the other reason.
+- **Order of checks:**
+  1. `400`;
+  2. deposit unknown or foreign → `404` (`details.securityDepositId`);
+  3. the deposit `CLOSED` with exactly these values → `200` no-op (below); `CLOSED` with others, or `VOID` → `409 CONFLICT` with `reason = "DEPOSIT_NOT_ACTIVE"` and `details.status`;
+  4. a split with this deposit's id on a Transaction booked **after** `closingDate` that counts or is open → `409 CONFLICT` with `reason = "CASH_AFTER_CLOSING_DATE"` and `details.transactionIds` (booking-date order). As §41.7's check 6: current Transactions (`CONFIRMED`, `RECONCILED`, not a reversal) and open ones (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`, `IGNORED`); a `CORRECTED` original and its reversal do not;
+  5. an **open** split with this deposit's id, on or before `closingDate` → `409 CONFLICT` with `reason = "UNCONFIRMED_CASH"` and `details.transactionIds`. Its confirmation would change `held` behind the closing; the user confirms it (or removes the link) first; an `IGNORED` one can be neither confirmed nor re-split, so the user restores it, removes the link and ignores it again. (A refinement of P5-D8, which speaks of counted cash only.)
+  6. by `reason`, on `held` as §47.3 derives it (all counted cash, none lies after `closingDate` by check 4):
+     - `RETURNED`: `held` > 0 → `409 CONFLICT` with `reason = "DEPOSIT_STILL_HELD"` and `details.held` (signed Money). A negative `held` (more repaid than held, §47.3's `RETURNED` with `RETURNED_EXCEEDS_HELD`) closes as `RETURNED` (review on #136);
+     - `RETAINED`: `held` ≤ 0 → `409 CONFLICT` with `reason = "NOTHING_RETAINED"` and `details.held`;
+     - `OTHER`: any `held`;
+  7. `If-Match` → `412`.
+- **Success:** `200` with the deposit (`status = CLOSED`, `state = CLOSED`, `closing` below, `version` + 1). AuditRecord `CLOSED` with the values and `heldAtClosing`.
+  - A repeat with the same values (`closingDate`, `reason`, `closingNote`) is a `200` no-op without a new version or AuditRecord, answered regardless of `If-Match`.
+- **`closing`** on every deposit response: `{ closingDate, reason, closingNote, heldAtClosing, retainedAmount }`, or `null` while not `CLOSED`.
+  - `heldAtClosing` (Money, signed) is `held` at the moment of closing, **stored** with the closing for the comparison below;
+  - `retainedAmount` = max(`heldAtClosing`, 0) for `RETAINED` and `OTHER`, 0 for `RETURNED`: never negative, since nothing is kept when more was repaid than held (review on #136). It stays deposit cash in DE; whether and when it becomes income is Phase 7's (`VERIFY`, P5-D6).
+- **Locks (P5-D9):** the deposit `FOR UPDATE`, then its splits and their Transactions are read. No Transaction is locked: deposit writers never do. A split write locks the deposit after its Transaction (§47.2), so a close and a split write serialise on the deposit row.
+
+### `POST /api/v1/security-deposits/{id}/reopen`
+
+- **Body:** empty or `{}` (strict). `If-Match` as everywhere.
+- **Order:** `404` → `ACTIVE` → `200` no-op → `VOID` → `409 CONFLICT` with `reason = "DEPOSIT_NOT_CLOSED"` and `details.status` → `412`.
+- **Success:** `200` with the deposit `ACTIVE`, `closing = null`, `version` + 1. AuditRecord `REOPENED` that keeps the cleared `closingDate`, `reason`, `closingNote` and `heldAtClosing`.
+- Cash found after a closing is linked in between; then the deposit is closed again, through every check above.
+
+### Effects of `CLOSED`
+
+- **Splits (§47.2):** a split with the deposit's id is refused while it is `CLOSED`, **whatever the booking date**: `409 CONFLICT` with `reason = "DEPOSIT_CLOSED"` and `details.securityDepositId`, right after §47.2's `DEPOSIT_NOT_ACTIVE` check. A closing is a cut, not a date filter (review on #123). Exempt, so that a wrong amount is never locked in:
+  - a **reversal**: it mirrors its original (0014);
+  - a **replacement** whose original has a split with the same deposit: it may keep the link, with any amount (`correct`, §35.2).
+  - A late statement is linked after a `reopen`.
+- **`HELD_CHANGED_AFTER_CLOSING`** (a flag, §47.3's list, after the others): the deposit is `CLOSED` and the current `held` differs from `heldAtClosing`; `details.heldAtClosing`, `details.held`. A correction after the closing shows here and is never refused. A `RETURNED` deposit with the flag reads "returned, but the books now say otherwise"; the user corrects the cash, or reopens and closes again.
+- **Amend (§47.1):** only `notes` may change while `CLOSED`; any other field → `409 DEPOSIT_NOT_ACTIVE` (`details.status = CLOSED`). `closingDate`, `reason` and `closingNote` change only through `reopen` and `close`, so their checks always run.
+- **Void:** refused (`DEPOSIT_CLOSED`, §47.1, unchanged).
+- **`state`:** `CLOSED` (§47.3).
+
+### `GET /api/v1/security-deposits/{id}?checkMre=true` (P5-D7)
+
+- **Query:** `checkMre` (`true` | `false`, default `false`; anything else `400`). The list has no `checkMre`.
+- **Order:** the deposit and its figures are read in one snapshot first (§47.3); then MRE's Tenant list is read with the caller's token, outside any database transaction (as §47.1's create). Nothing is written.
+- **Response** adds `mre`:
+  - `{ guaranty, guarantyPayback }`, each Money (half-up to the cent once, P5-D9) or `null` (`guaranty` `0` and a missing `guarantyPayback` read as `null`, as §47.1's client);
+  - `null` when MRE cannot be asked or no longer has the Tenant.
+- **Flags** (after the others):
+  - `EXPECTED_DIFFERS_FROM_MRE`: `guaranty` is not `null` and ≠ `expectedAmount`; `details.guaranty`, `details.expectedAmount`;
+  - `RETURNED_DIFFERS_FROM_MRE`: the deposit is `CLOSED`, `guarantyPayback` is not `null` and ≠ `returned`; `details.guarantyPayback`, `details.returned`. A value is needed on both sides; a missing one raises no flag. `returned` includes interest repaid with the deposit (P5-D5): `guarantyPayback` is what the tenant got back, so a landlord who enters only the deposit sees the flag, which is meant (the flag shows, it never refuses);
+  - `MRE_UNAVAILABLE`: MRE timed out or answered `5xx` (`mre = null`, never an error: the DE side stays readable, BR-MRE-004);
+  - `MRE_TENANT_NOT_FOUND`: the Tenant is no longer in the Realm's list (`mre = null`).
+- MRE refusing the caller (`401`/`403`) is answered as §47.1's create does: the caller has no business reading MRE's values.
+- Without `checkMre` the response has no `mre` key and no MRE flag, and MRE is not asked.
+
+### In the database (migration 0039)
+
+- **`security_deposit` gains:**
+  - `closing_date date`, `closing_reason text` in (`RETURNED`, `RETAINED`, `OTHER`), `closing_note text` (1–500), `held_at_closing numeric` (scale ≤ 2);
+  - CHECKs: `(status = 'CLOSED') = (closing_date IS NOT NULL)`, the same for `closing_reason` and `held_at_closing`; `closing_reason = 'RETURNED'` → `held_at_closing <= 0`; `closing_reason = 'RETAINED'` → `held_at_closing > 0` and `closing_note IS NOT NULL`; `closing_reason = 'OTHER'` → `closing_note IS NOT NULL`.
+- **`security_deposit_frozen` (0037) is replaced:** the steps are `ACTIVE` → `CLOSED`, `CLOSED` → `ACTIVE` and `ACTIVE` → `VOID`. The closing columns are set only in the step to `CLOSED`, cleared only in the step back, and fixed otherwise. While `CLOSED`, only `notes` may change besides a step. The rest of 0037's rules stay (`version` + 1, `VOID` final, P3-D8's no-op).
+- **`security_deposit_close_guard`** (before update, `WHEN (OLD.status <> 'CLOSED' AND NEW.status = 'CLOSED')`): refuses a split of the deposit on a Transaction booked after `closing_date` that counts or is open (`CASH_AFTER_CLOSING_DATE`), an open split on or before it (`UNCONFIRMED_CASH`), and a `held_at_closing` that is not the `held` of the counted cash (`HELD_AT_CLOSING`). So a raw writer cannot close past the rules either.
+- **`transaction_split_security_deposit` (0038) gains** the `CLOSED` rule above: a `CLOSED` deposit refuses the split, unless the Transaction is a reversal, or a replacement whose original has a split with the same deposit (`DEPOSIT_CLOSED`). It still writes the deposit row first, so a close and a split write serialise on it.
+- Not in the database: the MRE comparison (a read) and the order of checks (the API).
+
+### Concurrency (RC and RR, each with a counter-check)
+
+- **Close against a split write naming the deposit:** they serialise on the deposit row. Under RC the one that waited sees the other: the close then refuses with `UNCONFIRMED_CASH` (or `CASH_AFTER_CLOSING_DATE`), or the split with `DEPOSIT_CLOSED`. Under RR past the repository the later one fails to serialise (`40001`).
+- **Close against a confirm of an open receipt:** the close refuses the open split (check 5); a confirm after the close finds no open split of the deposit left.
+- **Close against a correction of a counted receipt:** both write the deposit row (the correction through its splits), so they serialise; a correction that comes second is allowed (exempt above) and shows as `HELD_CHANGED_AFTER_CLOSING`.
+- **Reopen against a split write:** they serialise; the split that waited is then allowed.
+
+### Tests (VC-5-04)
+
+- **Domain:** the close plan in its order (each refusal, the no-op), `retainedAmount`, `HELD_CHANGED_AFTER_CLOSING`, the MRE flags with values present, missing and `0`.
+- **Repository:**
+  - `RETURNED` after full repayment; `RETAINED` with a part kept; `OTHER`;
+  - each refusal with its details; the no-op; `412`;
+  - reopen, link late cash, close again; the AuditRecords `CLOSED` and `REOPENED`;
+  - after closing: a new split refused, a reversal and a keeping replacement allowed, then `HELD_CHANGED_AFTER_CLOSING`;
+  - amend of `notes` only; void refused.
+- **Schema past the repository**, each with a counter-check: every new CHECK, the new steps of the frozen trigger, the close guard (each of its three reasons), the split trigger's `CLOSED` rule with both exemptions.
+- **Concurrency** as above, under RC and RR.
+- **MRE:** the fake MRE's Tenants carry `guarantyPayback` or omit it; `checkMre` with equal and different values, with MRE down (`MRE_UNAVAILABLE`), with the Tenant gone, and without `checkMre` (MRE not asked).
+- **API:** every `400`, the error mapping, `closing` on every response, `reopen`.
 
 ---
 
