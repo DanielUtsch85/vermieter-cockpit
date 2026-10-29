@@ -130,6 +130,22 @@ Reference: `docs/roadmap.md` Phase 4, `docs/development/phase-4-plan.md` (decisi
 
 ---
 
+# 3d. Phase 5 — Security Deposit
+
+Reference: `docs/roadmap.md` Phase 5, `docs/development/phase-5-plan.md` (decisions P5-D1…D9). Each item starts with a spec PR for its API section, as in Phases 2–4.
+
+| ID | Type | Item | API | Exit |
+|---|---|---|---|---|
+| VC-5-01 | feature | `SecurityDeposit`: create, read, list, amend, void (P5-D1, P5-D2's stored statuses, P5-D4) | `POST /api/v1/security-deposits`, `GET …`, `GET …/{id}`, `PATCH …/{id}`, `POST …/{id}/void` | One non-`VOID` deposit per MRE Tenant, checked against MRE (`404 NOT_FOUND` via `MreTenantNotFoundError`, `503`); `expectedAmount` defaulted from MRE `guaranty` (`0` = not set); holding account of type `SECURITY_DEPOSIT`; Idempotency-Key, If-Match, AuditRecords; no personal data stored or logged |
+| VC-5-02 | feature | `securityDepositId` on splits (P5-D3, P5-D5's category) | `PUT /api/v1/transactions/{id}/splits`, `correct`, `reverse` | Receipt, repayment and interest splits by category and direction; not with `loanId`/`propertyReferenceId`; reversals mirror it; split trigger, void guard, lock order Transaction → deposit with RC/RR tests |
+| VC-5-03 | feature | Derived amounts and state (P5-D2, P5-D4's flag) | `GET /api/v1/security-deposits[/{id}]` | `received`, `interestCredited`, `returned`, `outstanding`, `held`, `state` and flags from counted cash only; instalments, corrections, cash outside the holding account |
+| VC-5-04 | feature | Closing and the MRE comparison (P5-D8, P5-D7) | `POST /api/v1/security-deposits/{id}/close`, `POST …/{id}/reopen`, `GET …/{id}?checkMre=true` | `RETURNED` / `RETAINED` / `OTHER` checked at closing, derived `retainedAmount`; no new links on a closed deposit (corrections exempt); `HELD_CHANGED_AFTER_CLOSING` against the stored `heldAtClosing`; MRE Tenant read pinned by the contract suite (`guaranty` 0, `guarantyPayback` missing → `null`); MRE unavailable never fails the read |
+| VC-5-05 | test | Phase-5 invariant suite + acceptance test (ACC5) | — | Needs #125 first. Each exit claim mapped to an ACC5 step; a deposit is never rent cash or a rent suggestion, with a counter-check that turns ACC5 red |
+
+**Phase 5 exit:** `docs/roadmap.md` Phase 5 — VC-5-02 + VC-5-03 together, shown end to end by ACC5 (VC-5-05).
+
+---
+
 # 4. Later-phase epics (blocked or spec-gated)
 
 Listed for visibility; expand into items when their blocker clears.
@@ -139,7 +155,7 @@ Listed for visibility; expand into items when their blocker clears.
 | Party, Ownership, Acquisition | 2 | **expanded** into §3a (VC-2-01…10) |
 | Loans + planned vs actual + `LoanAllocation` + remaining debt | 3 | **expanded** into §3b (VC-3-01…08, `phase-3-plan.md`) |
 | Rent reconciliation suggest/confirm/write-back | 4 | **expanded** into §3c (VC-4-01…06, `phase-4-plan.md`) |
-| Security Deposit domain | 5 | ready (account model: ADR-039) |
+| Security Deposit domain | 5 | **expanded** into §3d (VC-5-01…05, `phase-5-plan.md`) |
 | WEG (Wirtschaftsplan, Jahresabrechnung, Rücklage, Sonderumlage) | 6 | verify `germany/weg.md` |
 | Taxation (Werbungskosten, classification, versioned rules) | 7 | verify `germany/taxation.md` + `germany/rent-and-operating-costs.md` (rules: ADR-041) |
 | Depreciation (AfA schedules) | 8 | verify `germany/depreciation.md` |
