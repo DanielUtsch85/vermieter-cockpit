@@ -147,6 +147,23 @@ Reference: `docs/roadmap.md` Phase 5, `docs/development/phase-5-plan.md` (decisi
 
 ---
 
+# 3e. Phase 6 — WEG
+
+Reference: `docs/roadmap.md` Phase 6, `docs/development/phase-6-plan.md` (decisions P6-D1…D9). Each item starts with a spec PR for its API section, as in Phases 2–5.
+
+| ID | Type | Item | API | Exit |
+|---|---|---|---|---|
+| VC-6-01 | feature | `Weg` and `WegMembership` (P6-D1) | `POST /api/v1/wegs`, `GET …`, `POST /api/v1/wegs/{id}/memberships`, … | One WEG per unit at a time; the Miteigentumsanteil as a fraction; Realm-scoped; Idempotency-Key, If-Match, AuditRecords |
+| VC-6-02 | feature | WEG splits name their unit; the reserve's category type; the Wirtschaftsplan and the Hausgeld split proposal (P6-D2…D4) | `PUT /api/v1/transactions/{id}/splits`, `POST …/economic-plans`, `GET …/hausgeld-proposal` | `422 NO_WEG_MEMBERSHIP`; `WEG_RESERVE` never an operating expense; the two debits of F5 proposed correctly |
+| VC-6-03 | feature | The Jahresabrechnung with its structure (P6-D5) | `POST …/annual-statements`, confirm, supersede, void | Cost lines with classification and provenance; the statement's own check as flags; one `CONFIRMED` per unit and year; corrections keep the old statement |
+| VC-6-04 | feature | The ledger effects of a statement (P6-D6) | `GET …/annual-statements/{id}/comparison`, `GET …/settlement-proposal`, `wegAnnualStatementId` on splits | Differences per class sum to the Abrechnungsspitze; the settlement split names its statement; no confirmed split re-split |
+| VC-6-05 | feature | The Sonderumlage (P6-D7) | `POST …/special-assessments`, `wegSpecialAssessmentId` on splits | Paid and outstanding derived from counted cash; instalments |
+| VC-6-06 | test | Phase-6 invariant suite + acceptance test (ACC6) | — | Each exit claim mapped to an ACC6 step, with counter-checks |
+
+**Phase 6 exit:** `docs/roadmap.md` Phase 6 — VC-6-03 + VC-6-04 together, shown end to end by ACC6 (VC-6-06).
+
+---
+
 # 4. Later-phase epics (blocked or spec-gated)
 
 Listed for visibility; expand into items when their blocker clears.
@@ -157,7 +174,7 @@ Listed for visibility; expand into items when their blocker clears.
 | Loans + planned vs actual + `LoanAllocation` + remaining debt | 3 | **expanded** into §3b (VC-3-01…08, `phase-3-plan.md`) |
 | Rent reconciliation suggest/confirm/write-back | 4 | **expanded** into §3c (VC-4-01…06, `phase-4-plan.md`) |
 | Security Deposit domain | 5 | **expanded** into §3d (VC-5-01…05, `phase-5-plan.md`) |
-| WEG (Wirtschaftsplan, Jahresabrechnung, Rücklage, Sonderumlage) | 6 | verify `germany/weg.md` |
+| WEG (Wirtschaftsplan, Jahresabrechnung, Rücklage, Sonderumlage) | 6 | **expanded** into §3e (VC-6-01…06, `phase-6-plan.md`); `VERIFY` list in its §3 |
 | Taxation (Werbungskosten, classification, versioned rules) | 7 | verify `germany/taxation.md` + `germany/rent-and-operating-costs.md` (rules: ADR-041) |
 | Depreciation (AfA schedules) | 8 | verify `germany/depreciation.md` |
 | Investment metrics + snapshots + scenarios | 9 | ready (ADR-040 triggers, ADR-042 versioning) |
