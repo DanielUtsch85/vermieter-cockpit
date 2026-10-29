@@ -55,6 +55,10 @@ const TENANT_C2 = '6512f0c2a1b2c3d4e5f60c02';
 const REALM_D = '64b0c0ffee0000000000001b';
 const TENANT_D = '6512f0c2a1b2c3d4e5f60d01';
 const MRE_CASH = { date: '02/06/2027', amount: 100, type: 'cash', reference: '', description: 'Bar' };
+// Realm F for early payers (#125): two Tenants paying on the 28th of the month before, with and without the month in the text.
+const REALM_F = '64b0c0ffee0000000000001d';
+const TENANT_F1 = '6512f0c2a1b2c3d4e5f60f01';
+const TENANT_F2 = '6512f0c2a1b2c3d4e5f60f02';
 // Realm E for the removal (§37.5): MRE's own cash payment next to DE's.
 const REALM_E = '64b0c0ffee0000000000001c';
 const TENANT_E = '6512f0c2a1b2c3d4e5f60e01';
@@ -124,6 +128,14 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
       },
       realmD,
       realmE,
+      {
+        _id: REALM_F,
+        name: 'F',
+        members: member,
+        applications: [],
+        rents: { [TENANT_F1]: [2027080100, 2027090100, 2027100100], [TENANT_F2]: [2027080100, 2027090100, 2027100100] },
+        rentTerms: Object.fromEntries(['2027080100', '2027090100', '2027100100'].map((t) => [`${TENANT_F2}/${t}`, { totalWithoutBalanceAmount: 650 }])),
+      },
     ]);
     const db = createDatabase(pool);
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
@@ -196,12 +208,18 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     (await pool.query(`SELECT count(*)::int AS n FROM rent_payment_reconciliation WHERE transaction_id = $1`, [transactionId])).rows[0].n as number;
 
   /** A confirmed INFLOW split as rent (800.00 by default). */
-  async function rent(realm = REALM_A, amount = '800.00', bookingDate = '2027-01-03'): Promise<string> {
+  async function rent(realm = REALM_A, amount = '800.00', bookingDate = '2027-01-03', description?: string): Promise<string> {
     const account = (await (await call(realm, 'POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' })).json()) as {
       financialAccountId: string;
     };
     const tx = (await (
-      await call(realm, 'POST', '/transactions', { financialAccountId: account.financialAccountId, amount: eur(amount), direction: 'INFLOW', bookingDate })
+      await call(realm, 'POST', '/transactions', {
+        financialAccountId: account.financialAccountId,
+        amount: eur(amount),
+        direction: 'INFLOW',
+        bookingDate,
+        ...(description === undefined ? {} : { description }),
+      })
     ).json()) as { transactionId: string };
     expect(
       (await call(realm, 'PUT', `/transactions/${tx.transactionId}/splits`, { splits: [{ amount: eur(amount), financialCategoryCode: 'RENT_BASE' }] })).status,
@@ -389,6 +407,55 @@ describe.skipIf(databaseUrl === undefined)('rent reconciliation end to end', () 
     });
     // Realm A cannot see or confirm C's suggestions.
     expect((await call(REALM_A, 'POST', `/rent-reconciliations/${by(t2).reconciliationId}/confirm`)).status).toBe(404);
+  });
+
+  it('early payers (#125): the month in the purpose text decides; without it, a confirmed month anchors the rest in order', async () => {
+    const iban = async (t: string, value: string) => pool.query(`UPDATE ledger_transaction SET counterparty_iban_raw = $1 WHERE id = $2`, [value, t]);
+    const f1 = [
+      await rent(REALM_F, '800.00', '2027-07-28', 'Miete 08.2027'),
+      await rent(REALM_F, '800.00', '2027-08-28', 'Miete 09.2027'),
+      await rent(REALM_F, '800.00', '2027-09-28', 'Miete 10.2027'),
+    ];
+    const f2 = [await rent(REALM_F, '650.00', '2027-07-28'), await rent(REALM_F, '650.00', '2027-08-28'), await rent(REALM_F, '650.00', '2027-09-28')];
+    for (const t of [...f1, ...f2]) await iban(t, 'DE02120300000000202051');
+    type Item = { transactionId: string; mreTenantId: string; mreRentTerm: string; suggestionReason: string };
+    const suggest = async () =>
+      ((await (await call(REALM_F, 'POST', '/rent-reconciliations/suggest', { from: '2027-08', to: '2027-10' })).json()) as { items: Item[] }).items;
+    const view = (items: Item[]) => items.map((i) => [i.transactionId, i.mreTenantId, i.mreRentTerm, i.suggestionReason]).sort();
+    // F1: the text decides (August's payment fits August only); F2 without text: a chain with no anchor, nothing.
+    expect(view(await suggest())).toEqual(
+      [
+        [f1[0], TENANT_F1, '2027080100', 'EXACT_AMOUNT'],
+        [f1[1], TENANT_F1, '2027090100', 'EXACT_AMOUNT_PURPOSE_MONTH'],
+        [f1[2], TENANT_F1, '2027100100', 'EXACT_AMOUNT_PURPOSE_MONTH'],
+      ].sort(),
+    );
+    // F2's August matched by hand: September and October follow in order.
+    const manual = await call(REALM_F, 'POST', '/rent-reconciliations', {
+      transactionId: f2[0],
+      mreTenantId: TENANT_F2,
+      mreRentTerm: '2027080100',
+      matchedAmount: eur('650.00'),
+    });
+    expect(manual.status).toBe(201);
+    expect(view(await suggest())).toEqual(
+      [
+        [f2[1], TENANT_F2, '2027090100', 'EXACT_AMOUNT_IN_ORDER'],
+        [f2[2], TENANT_F2, '2027100100', 'EXACT_AMOUNT_IN_ORDER'],
+      ].sort(),
+    );
+    // Stored as such (0036), and a repeat writes nothing.
+    const stored = await pool.query(`SELECT suggestion_reason FROM rent_payment_reconciliation WHERE mre_realm_id = $1 AND status = 'SUGGESTED' ORDER BY 1`, [
+      REALM_F,
+    ]);
+    expect(stored.rows.map((r) => r.suggestion_reason)).toEqual([
+      'EXACT_AMOUNT',
+      'EXACT_AMOUNT_IN_ORDER',
+      'EXACT_AMOUNT_IN_ORDER',
+      'EXACT_AMOUNT_PURPOSE_MONTH',
+      'EXACT_AMOUNT_PURPOSE_MONTH',
+    ]);
+    expect(await suggest()).toEqual([]);
   });
 
   it('write-back (§37.4): DE’s payment next to MRE’s own, once; coverage unchanged; presence; MRE down → FAILED, retry → WRITTEN; release → REMOVAL_REQUIRED; Realm isolation', async () => {

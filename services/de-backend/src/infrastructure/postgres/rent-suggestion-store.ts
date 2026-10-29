@@ -35,8 +35,8 @@ export async function suggestionSnapshot(
     .setAccessMode('read only')
     .execute(async (trx) => {
       // Counted INFLOW Transactions of the Realm booked in the window, with their rent cash and CONFIRMED matches.
-      const rows = await sql<{ id: string; booking_date: string; iban: string | null; rent: string | null; matched: string }>`
-      SELECT t.id, to_char(t.booking_date, 'YYYY-MM-DD') AS booking_date, t.counterparty_iban_raw AS iban,
+      const rows = await sql<{ id: string; booking_date: string; iban: string | null; description: string | null; rent: string | null; matched: string }>`
+      SELECT t.id, to_char(t.booking_date, 'YYYY-MM-DD') AS booking_date, t.counterparty_iban_raw AS iban, t.description,
         (SELECT sum(s.amount)::text FROM transaction_split s JOIN financial_category c ON c.id = s.financial_category_id
           WHERE s.transaction_id = t.id AND c.code IN (${sql.join(RENT_CATEGORIES.map((c) => sql`${c}`))})) AS rent,
         (SELECT coalesce(sum(r.matched_amount), 0)::text FROM rent_payment_reconciliation r WHERE r.transaction_id = t.id AND r.status = 'CONFIRMED') AS matched
@@ -47,7 +47,9 @@ export async function suggestionSnapshot(
       const candidates = rows.rows.flatMap((r) => {
         if (r.rent === null) return [];
         const available = fromNumericAmount(r.rent, 'EUR').subtract(fromNumericAmount(r.matched, 'EUR'));
-        return available.isPositive() ? [{ transactionId: r.id, bookingDate: r.booking_date as BusinessDate, available, counterpartyIban: r.iban }] : [];
+        return available.isPositive()
+          ? [{ transactionId: r.id, bookingDate: r.booking_date as BusinessDate, available, counterpartyIban: r.iban, description: r.description }]
+          : [];
       });
       const ids = candidates.map((c) => c.transactionId);
       const termKeys = terms.map((t) => `${t.mreTenantId}/${t.mreRentTerm}`);
