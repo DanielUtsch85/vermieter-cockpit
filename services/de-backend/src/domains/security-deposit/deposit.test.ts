@@ -177,7 +177,8 @@ describe('planClose (§47.4)', () => {
       held: eur('10.00'),
     });
     const over: CloseCash = { counted: [counted('RECEIPT', '10.00'), counted('REPAYMENT', '15.00')], open: [] };
-    expect(planClose(deposit(), request('RETURNED'), over)).toEqual({ kind: 'DEPOSIT_STILL_HELD', held: eur('-5.00') });
+    // More repaid than held is RETURNED, as §47.3's state (review on #136).
+    expect(planClose(deposit(), request('RETURNED'), over)).toEqual({ kind: 'CLOSE', closing: { ...request('RETURNED'), heldAtClosing: eur('-5.00') } });
     expect(planClose(deposit(), request('RETAINED', 'x'), over)).toEqual({ kind: 'NOTHING_RETAINED', held: eur('-5.00') });
     expect(planClose(deposit(), request('RETAINED', 'x'), none)).toEqual({ kind: 'NOTHING_RETAINED', held: eur('0.00') });
   });
@@ -190,7 +191,7 @@ describe('planReopen and retainedAmountOf (§47.4)', () => {
     expect(planReopen(deposit({ status: 'VOID' }))).toEqual({ kind: 'DEPOSIT_NOT_CLOSED', status: 'VOID' });
   });
 
-  it('retainedAmount: heldAtClosing for RETAINED and OTHER, 0 for RETURNED', () => {
+  it('retainedAmount: heldAtClosing for RETAINED and OTHER, never negative; 0 for RETURNED', () => {
     const closing = (reason: CloseRequest['reason'], held: string) => ({
       closingDate: '2027-06-30' as BusinessDate,
       reason,
@@ -198,7 +199,9 @@ describe('planReopen and retainedAmountOf (§47.4)', () => {
       heldAtClosing: eur(held),
     });
     expect(retainedAmountOf(closing('RETAINED', '500.00'))).toEqual(eur('500.00'));
-    expect(retainedAmountOf(closing('OTHER', '-5.00'))).toEqual(eur('-5.00'));
+    expect(retainedAmountOf(closing('OTHER', '12.00'))).toEqual(eur('12.00'));
+    expect(retainedAmountOf(closing('OTHER', '-5.00'))).toEqual(eur('0.00'));
     expect(retainedAmountOf(closing('RETURNED', '0.00'))).toEqual(eur('0.00'));
+    expect(retainedAmountOf(closing('RETURNED', '-5.00'))).toEqual(eur('0.00'));
   });
 });

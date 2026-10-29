@@ -4,7 +4,7 @@ import { sql, type Kysely } from 'kysely';
  * VC-5-04: closing and reopening a SecurityDeposit (api-design.md §47.4, phase-5-plan P5-D8).
  *
  * - `security_deposit` gains `closing_date`, `closing_reason` (`RETURNED` | `RETAINED` | `OTHER`), `closing_note` and
- *   `held_at_closing`, set exactly while `CLOSED`; `RETURNED` holds 0, `RETAINED` more than 0 with a note, `OTHER` a note.
+ *   `held_at_closing`, set exactly while `CLOSED`; `RETURNED` holds 0 or less, `RETAINED` more than 0 with a note, `OTHER` a note.
  * - `security_deposit_frozen` (0037) is replaced: the steps are `ACTIVE` → `CLOSED`, `CLOSED` → `ACTIVE` and
  *   `ACTIVE` → `VOID`; while `CLOSED` only `notes` change; the closing columns change only in a step.
  * - `security_deposit_close_guard` (the step to `CLOSED`): no split of the deposit after `closing_date` that counts or
@@ -24,7 +24,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
           AND (status = 'CLOSED') = (held_at_closing IS NOT NULL) AND (closing_note IS NULL OR status = 'CLOSED')
       ),
       ADD CONSTRAINT security_deposit_closing_reason CHECK (
-        (closing_reason IS DISTINCT FROM 'RETURNED' OR held_at_closing = 0)
+        (closing_reason IS DISTINCT FROM 'RETURNED' OR held_at_closing <= 0)
           AND (closing_reason IS DISTINCT FROM 'RETAINED' OR (held_at_closing > 0 AND closing_note IS NOT NULL))
           AND (closing_reason IS DISTINCT FROM 'OTHER' OR closing_note IS NOT NULL)
       )

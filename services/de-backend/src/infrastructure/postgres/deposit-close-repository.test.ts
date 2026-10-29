@@ -191,16 +191,17 @@ describe.skipIf(databaseUrl === undefined)('Security deposit close and reopen (ย
       expect(closingOf(await closed(other.id, closeAs('OTHER')))).toMatchObject({ reason: 'OTHER', heldAtClosing: '3000.00' });
     });
 
-    it('RETAINED with nothing held, or with more repaid than held: NOTHING_RETAINED with the signed held', async () => {
+    it('RETAINED with nothing held, or with more repaid than held: NOTHING_RETAINED with the signed held; RETURNED then closes', async () => {
       const empty = await deposit();
       expect(await deposits.close(empty.id, REALM, closeAs('RETAINED'), actor)).toEqual({ kind: 'NOTHING_RETAINED', held: eur('0.00') });
       const over = await deposit();
       await booked(over.id, '100.00');
       await booked(over.id, '105.00', { direction: 'OUTFLOW' });
       expect(await deposits.close(over.id, REALM, closeAs('RETAINED'), actor)).toEqual({ kind: 'NOTHING_RETAINED', held: eur('-5.00') });
-      // RETURNED needs held = 0 exactly, so an over-repaid deposit is closed as OTHER.
-      expect(await deposits.close(over.id, REALM, closeAs('RETURNED'), actor)).toEqual({ kind: 'DEPOSIT_STILL_HELD', held: eur('-5.00') });
-      expect(closingOf(await closed(over.id, closeAs('OTHER')))).toMatchObject({ heldAtClosing: '-5.00' });
+      // More repaid than held is RETURNED (review on #136), with the flag of ยง47.3 and nothing retained.
+      const c = await closed(over.id, closeAs('RETURNED'));
+      expect(closingOf(c)).toMatchObject({ reason: 'RETURNED', heldAtClosing: '-5.00' });
+      expect(c.figures.flags.map((f) => f.code)).toEqual(['RETURNED_EXCEEDS_HELD']);
     });
 
     it('CASH_AFTER_CLOSING_DATE: counted and open cash after the date, in booking-date order; a reversed one drops out', async () => {
@@ -448,6 +449,11 @@ describe.skipIf(databaseUrl === undefined)('Security deposit close and reopen (ย
       expect(await update(d.id, close('RETAINED', 'x', '500'))).toBe('accepted');
       const empty = await deposit();
       expect(await update(empty.id, close('RETAINED', 'x', '0'))).toBe('security_deposit_closing_reason');
+      // RETURNED holds 0 or less: more repaid than held passes (review on #136).
+      const over = await deposit();
+      await booked(over.id, '100.00');
+      await booked(over.id, '105.00', { direction: 'OUTFLOW' });
+      expect(await update(over.id, close('RETURNED', null, '-5'))).toBe('accepted');
       // The close guard sorts first and compares held_at_closing exactly; the scale CHECK is shown with it disabled in a
       // transaction that is rolled back.
       const client = await pool.connect();
