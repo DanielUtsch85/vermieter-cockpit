@@ -8,6 +8,7 @@ import { genericCsvAdapter, genericCsvAdapterV2 } from './generic-csv.js';
 
 export {
   GENERIC_CSV_ID,
+  GENERIC_CSV_PRESETS,
   GENERIC_CSV_VERSION,
   GENERIC_CSV_VERSION_2,
   MAX_ROWS,

@@ -241,3 +241,58 @@ describe('generic-csv v2 (ADR-043, data-model §70.6)', () => {
     expect(parse(withBalance, { columnMapping: balanceMapping })).toMatchObject({ error: { code: 'INVALID_OPTIONS' } });
   });
 });
+
+describe('generic-csv v2 presets (#108)', () => {
+  // The layout of the cooperative banks' export (BBBank, Volksbank); a made-up booking.
+  const vrHeader =
+    'Bezeichnung Auftragskonto;IBAN Auftragskonto;BIC Auftragskonto;Bankname Auftragskonto;Buchungstag;Valutadatum;Name Zahlungsbeteiligter;IBAN Zahlungsbeteiligter;BIC (SWIFT-Code) Zahlungsbeteiligter;Buchungstext;Verwendungszweck;Betrag;Waehrung;Saldo nach Buchung;Bemerkung;Gekennzeichneter Umsatz;Glaeubiger ID;Mandatsreferenz';
+  const vr = [
+    vrHeader,
+    'Giro;DE02120300000000202051;BYLADEM1001;Bank;01.10.2026;02.10.2026;Erika Mieterin;DE89 3704 0044 0532 0130 00;COBADEFFXXX;Gutschrift;Miete Oktober;850,00;EUR;1.850,00;;;;',
+  ].join('\n');
+  const parseV2 = (options: unknown) => genericCsvAdapterV2.parse(new TextEncoder().encode(vr), options, 'EUR');
+
+  it('vr-banking maps the export as typing its columns by hand does', () => {
+    const byPreset = statementOf(parseV2({ preset: 'vr-banking' }));
+    const byHand = statementOf(
+      parseV2({
+        columnMapping: {
+          bookingDate: 'Buchungstag',
+          valueDate: 'Valutadatum',
+          amount: 'Betrag',
+          currency: 'Waehrung',
+          counterpartyName: 'Name Zahlungsbeteiligter',
+          counterpartyIban: 'IBAN Zahlungsbeteiligter',
+          description: 'Verwendungszweck',
+          balanceAfter: 'Saldo nach Buchung',
+          accountIban: 'IBAN Auftragskonto',
+        },
+      }),
+    );
+    expect(byPreset).toEqual(byHand);
+    expect(byPreset.accountIbans).toEqual(['DE02120300000000202051']);
+    expect(rowsOf(parseV2({ preset: 'vr-banking' }))[0]?.row).toMatchObject({
+      bookingDate: '2026-10-01',
+      valueDate: '2026-10-02',
+      direction: 'INFLOW',
+      counterpartyNameRaw: 'Erika Mieterin',
+      counterpartyIbanRaw: 'DE89370400440532013000',
+      description: 'Miete Oktober',
+      balanceAfter: '1850.00',
+    });
+  });
+
+  it('a preset with a columnMapping, an unknown preset, or a preset in v1 is refused', () => {
+    expect(parseV2({ preset: 'vr-banking', columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag' } })).toMatchObject({
+      error: { code: 'INVALID_OPTIONS' },
+    });
+    expect(parseV2({ preset: 'sparkasse' })).toMatchObject({ error: { code: 'INVALID_OPTIONS', message: expect.stringContaining('vr-banking') } });
+    // An inherited name is no preset either: refused as unknown, not as a broken mapping.
+    expect(parseV2({ preset: 'toString' })).toMatchObject({ error: { code: 'INVALID_OPTIONS', message: expect.stringContaining('vr-banking') } });
+    expect(parse(vr, { preset: 'vr-banking' })).toMatchObject({ error: { code: 'INVALID_OPTIONS' } });
+  });
+
+  it('format options still apply next to a preset', () => {
+    expect(parseV2({ preset: 'vr-banking', skipLines: 1 })).toMatchObject({ error: { code: 'MISSING_COLUMN' } });
+  });
+});

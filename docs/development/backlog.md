@@ -62,6 +62,7 @@ Reference: `docs/project-brief.md` §7, `api-design.md`.
 | VC-1-10 | infra | **done** · Bank CSV adapter interface + first concrete format (`generic-csv` v1, api-design §32.4) | — | New formats pluggable; ledger format-agnostic |
 | VC-1-12 | feature | **done** · `generic-csv` v2: balance identity + continuity report (ADR-043, #93 F1) | `POST /api/v1/imports/bank-transactions` | Optional `balanceAfter` column; overlapping exports dedupe by balance identity with matching content (`data-model.md` §70.6); repeated identity in a file → fallback; chain breaks (filtered exports) and gaps reported on the batch; never drops a payment; `api-design.md` §32.5 documents v2; migration 0034 |
 | VC-1-13 | feature | **done** · Import checks the file's own account IBAN (#107, #93 F2) | `POST /api/v1/imports/bank-transactions` | `generic-csv` v2 `columnMapping.accountIban`; another, several or no account in the file, or an account without IBAN → `422 ACCOUNT_IBAN_MISMATCH` before anything is written (`api-design.md` §32.1a, §32.5) |
+| VC-1-14 | feature | **done** · Column-mapping presets per bank (#108, #93 F3) | `POST /api/v1/imports/bank-transactions` | `generic-csv` v2 `preset` in place of `columnMapping`, shipped with the adapter version; first preset `vr-banking` (BBBank, Volksbank) maps the export including balance and own account (`api-design.md` §32.5) |
 
 **Phase 1 exit:** see `docs/project-brief.md` §7 "Definition of done."
 
