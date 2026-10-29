@@ -125,8 +125,8 @@ Before implementing anything that touches these, **stop and surface the gap** ra
 - **ADR-041** Country rules are versioned code modules, not a generic rule engine (was ADR-OPEN-009).
 - **ADR-042** Investment formulas are versioned; snapshots pin their formula version (was ADR-OPEN-010).
 
-**German specs — drafted, pending legal verification** (per `AGENTS.md` §30, confirm before coding; do not implement an unverified `VERIFY` rule):
-- `docs/germany/taxation.md`, `docs/germany/depreciation.md`, `docs/germany/weg.md`, `docs/germany/rent-and-operating-costs.md` — the product differentiator; drafted as versioned domain knowledge with `§` references and `VERIFY` markers. `weg.md` is **verified** (29.10.2026, v0.2); for the other three the filled `verification-checklist.md` (v0.2) holds the results, which the specs still have to take over.
+**German specs — verified 29.10.2026** (per `AGENTS.md` §30; a rule that is still case-dependent is listed in its spec's open points and is not implemented as a fixed rule):
+- `docs/germany/taxation.md`, `docs/germany/depreciation.md`, `docs/germany/weg.md`, `docs/germany/rent-and-operating-costs.md` — the product differentiator; versioned domain knowledge with `§` references, **verified** on 29.10.2026 (v0.2) against `verification-checklist.md` v0.2.
 
 All other former stubs (`roadmap`, `reports`, `dashboards`, `coding-guidelines`, `backlog`) now have first drafts.
 
