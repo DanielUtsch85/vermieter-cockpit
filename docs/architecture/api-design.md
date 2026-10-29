@@ -2322,7 +2322,7 @@ A read, never a write, as §41.5's payment proposal. The client applies a propos
   3. the Transaction is not `INFLOW`, or not unconfirmed (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`) → `409 CONFLICT` with `reason = "NOT_PROPOSABLE"` and `details.direction`, `details.status`: a confirmed Transaction's splits are frozen (0009), so a proposal could not be applied;
   4. the MRE term, read with the caller's token outside any database transaction (P4-D8): the Tenant or the term not in the Realm → `422 MRE_RENT_TERM_NOT_FOUND` (§37.1's code and details); MRE unavailable → `503`; `401`/`403` as §37.1.
 - **The breakdown, from MRE (baseline `479d0ad`):** `GET /rents/tenant/:id/:term` (§37.1) answers `toRentData`, which has no separate rent and charges. The Realm's Tenant list `GET /tenants` (already read for §20.1 and §47.1) answers each Tenant through `toOccupantData`, which **drops the stored `rents[]`** (`delete occupant.rents`) but keeps the lease: `frequency` and `properties[]`, each with `rent`, `entryDate`, `exitDate` and `expenses[]` (`amount`, `beginDate`, `endDate`), dates as `DD/MM/YYYY`. (The first draft read `rents[].total`; the contract suite against the pinned images refused it on #138.)
-  - `rent` and `charges` are the lease's for the term, as `computeRent` takes them (`businesslogic/tasks/1_base.js`): the properties whose `entryDate`–`exitDate` encloses the term, and of each the expenses whose `beginDate`–`endDate` (else the property's dates) encloses it, compared at the lease's frequency (the month for `months`, else the day); a property without its record is skipped. Summed, then half-up to the cent once (P4-D8);
+  - `rent` and `charges` are the lease's for the term, as `computeRent` takes them (`businesslogic/tasks/1_base.js`): the properties whose `entryDate`–`exitDate` encloses the term, and of each the expenses whose `beginDate`–`endDate` (else the property's dates) encloses it, compared at the lease's frequency (the month for `months`, else the day); a property without its record is skipped. Summed, then half-up to the cent once (P4-D8). These are the **current** lease values: a lease changed after the term was computed differs from the stored term, which shows through `due` as `TERM_HAS_ADJUSTMENTS` or `AMOUNT_DIFFERS_FROM_TERM` (review on #137);
   - `due` = the term's `totalWithoutBalanceAmount` from `GET /rents/tenant/:id/:term`, the amount §37.1 and §37.3 work with (`grandTotal` − `balance`);
   - the client keeps only these amounts and dates; the rest of the Tenant (name, contacts) is dropped and never logged. A Tenant not in the list, or a term MRE does not have (`404`), is `422 MRE_RENT_TERM_NOT_FOUND`;
   - `adjustments` = `due` − `rent` − `charges` (debts, discounts, VAT). Usually 0 for a residential lease.
@@ -2343,16 +2343,16 @@ A read, never a write, as §41.5's payment proposal. The client applies a propos
 `POST /rent-reconciliations/suggest` answers `{ from, to, items, skipped }`. `skipped` counts the Realm's `INFLOW` Transactions booked in the window's booking range (§37.3: from the 15th of the month before `from` to the last day of `to`) that no rule could see:
 
 - `unconfirmed`: status `IMPORTED`, `UNREVIEWED` or `CLASSIFIED`; `IGNORED` ones are not counted;
-- `unsplit`: counted (§37.1: `CONFIRMED` or `RECONCILED`, not a reversal) with no split in a rent category (P4-D3), so no rent cash at all.
+- `noRentCash`: counted (§37.1: `CONFIRMED` or `RECONCILED`, not a reversal) with no split in a rent category (P4-D3), so no rent cash at all. A counted Transaction is always split (§34), so this is every confirmed inflow that is not rent: a deposit receipt, deposit interest, a refund, and also a rent payment classified under another category. It says "check whether one of these is rent", not "split first" (review on #137).
 
-Both are counts (non-negative integers), read in §37.3's snapshot; a Transaction is in at most one. An empty `items` with `skipped.unconfirmed` > 0 tells the user to split and confirm first, and the split proposal above does the split. Nothing else in §37.3 changes.
+Both are counts (non-negative integers), read in §37.3's snapshot; a Transaction is in at most one. An empty `items` with `skipped.unconfirmed` > 0 tells the user to split and confirm first, and the split proposal above does the split; `skipped.noRentCash` > 0 asks to check the categories of those inflows. Nothing else in §37.3 changes.
 
 ### Tests (#126)
 
 - **Domain:** the proposal with an exact amount, a lower and a higher one, adjustments, `ALREADY_SPLIT`; zero splits left out; the sum identity.
 - **MRE client:** the lease of the Tenant list for the term (entry, exit and expense dates at the month boundary, a property without its record), then the term's `totalWithoutBalanceAmount` (floats rounded half-up once); a Tenant or term MRE does not have; the fake MRE's Tenants gain `properties[]` in `toOccupantData`'s shape; `mre.contract.test.ts` pins that shape (no `rents[]`, dates `DD/MM/YYYY`) at the baseline.
 - **Repository / application:** the refusals in order; the DE snapshot; no MRE call on a `400`, `404` or `NOT_PROPOSABLE`.
-- **Suggest:** `skipped` with an unconfirmed, an unsplit and a counted rent inflow in the window, one outside it, an ignored one, and one of another Realm.
+- **Suggest:** `skipped` with an unconfirmed, a counted non-rent (a deposit receipt) and a counted rent inflow in the window, one outside it, an ignored one, and one of another Realm.
 - **End to end:** the real-data shape (rent plus advance) through the proposal, `PUT …/splits` with it, `confirm`, then `suggest` finds it.
 
 ---
