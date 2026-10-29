@@ -170,6 +170,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
   - `RETURNED`: `held` is 0, else `409 DEPOSIT_STILL_HELD` with `details.held`;
   - `RETAINED`: `held` is > 0, a part or all kept against claims, else `409 NOTHING_RETAINED`; `notes` is required;
   - `OTHER`: `notes` is required, `held` may be anything.
+  - Open (unconfirmed) cash naming the deposit refuses the closing too (`409 UNCONFIRMED_CASH`, api-design §47.4): its confirmation would move `held` behind the closing.
   - `retainedAmount` = `held` on the closing date, derived, never typed. It is 0 for `RETURNED`.
 - **After closing, no new links** (review on #123): a `CLOSED` deposit takes no new split, whatever the Transaction's booking date (`409 DEPOSIT_CLOSED`, P5-D3). This makes the closing a cut, not a date filter. Cash found later (a late statement) is linked after a reopen (below).
 - **Corrections stay possible**, so that a wrong amount is never locked in:
