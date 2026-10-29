@@ -96,7 +96,7 @@ export const MAX_PAYMENTS = 600;
 /** A `VALID` period as the schedule reads it. */
 export type SchedulePeriod = Pick<
   LoanTerms,
-  'id' | 'validFrom' | 'interestRate' | 'repaymentModel' | 'scheduledPayment' | 'firstPaymentDate' | 'principalAtStart'
+  'id' | 'validFrom' | 'interestRate' | 'repaymentModel' | 'scheduledPayment' | 'firstPaymentDate' | 'principalAtStart' | 'fixedRateUntil'
 >;
 
 /**
@@ -170,6 +170,18 @@ export interface ScheduleSummary {
   /** The balance after the last payment, due on `maturityDate` for `MATURITY`. */
   readonly balanceDue: bigint;
   readonly endReason: ScheduleEndReason;
+  /** The end of the fixed-rate period of the last period (#119); null when it states none. */
+  readonly fixedRateEnd: FixedRateEnd | null;
+}
+
+/**
+ * The balance at the end of the fixed-rate period (Restschuld nach Zinsbindung, #119): the planned remaining debt of
+ * §41.6 on `fixedRateUntil`, i.e. after every payment on or before it. The plan itself does not change at that date.
+ */
+export interface FixedRateEnd {
+  readonly date: BusinessDate;
+  /** Cents. */
+  readonly balance: bigint;
 }
 
 export interface Schedule {
@@ -201,8 +213,22 @@ export function scheduleOf(principalOriginal: Money, maturityDate: BusinessDate 
       totalPrincipal: entries.reduce((sum, e) => sum + e.principal, 0n),
       balanceDue: balance,
       endReason,
+      fixedRateEnd: fixedRateEndOf(principalOriginal, maturityDate, periods, endReason),
     },
   };
+}
+
+/** As `debtOn`'s `planned` (§41.6): with `MATURITY` 0 from `maturityDate` on, else the balance after the day's payments. */
+function fixedRateEndOf(
+  principalOriginal: Money,
+  maturityDate: BusinessDate | null,
+  periods: readonly SchedulePeriod[],
+  endReason: ScheduleEndReason,
+): FixedRateEnd | null {
+  const date = periods.at(-1)?.fixedRateUntil ?? null;
+  if (date === null) return null;
+  const matured = endReason === 'MATURITY' && maturityDate !== null && date >= maturityDate;
+  return { date, balance: matured ? 0n : plannedBalanceOn(principalOriginal, maturityDate, periods, addDays(date, 1)) };
 }
 
 /**
@@ -213,6 +239,7 @@ export function closedSchedule(schedule: Schedule, closingDate: BusinessDate): S
   const kept = schedule.entries.filter((e) => e.paymentDate <= closingDate);
   const omitted = schedule.entries[kept.length];
   if (omitted === undefined) return schedule;
+  const { fixedRateEnd } = schedule.summary;
   return {
     entries: kept,
     summary: {
@@ -223,6 +250,8 @@ export function closedSchedule(schedule: Schedule, closingDate: BusinessDate): S
       totalPrincipal: kept.reduce((sum, e) => sum + e.principal, 0n),
       balanceDue: omitted.balanceBefore,
       endReason: 'CLOSED',
+      // §41.7: nothing is owed after the closing date.
+      fixedRateEnd: fixedRateEnd === null || fixedRateEnd.date <= closingDate ? fixedRateEnd : { date: fixedRateEnd.date, balance: 0n },
     },
   };
 }

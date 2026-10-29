@@ -252,6 +252,7 @@ function toScheduleDto(loanId: string, from: string | null, to: string | null, {
       totalPrincipal: eurCents(summary.totalPrincipal),
       balanceDue: eurCents(summary.balanceDue),
       endReason: summary.endReason,
+      fixedRateEnd: summary.fixedRateEnd === null ? null : { date: summary.fixedRateEnd.date, balance: eurCents(summary.fixedRateEnd.balance) },
     },
   };
 }

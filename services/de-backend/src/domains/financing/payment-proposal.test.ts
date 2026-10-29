@@ -14,6 +14,7 @@ const period = (overrides: Partial<SchedulePeriod> = {}): SchedulePeriod => ({
   scheduledPayment: eur('300.00'),
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
+  fixedRateUntil: null,
   ...overrides,
 });
 const annuity = scheduleOf(eur('1000.00'), null, [period()]);

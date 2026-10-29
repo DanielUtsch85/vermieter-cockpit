@@ -57,6 +57,7 @@ const period: SchedulePeriod = {
   scheduledPayment: eur('300.00'),
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
+  fixedRateUntil: null,
 };
 
 describe('planClose (§41.7)', () => {
@@ -194,6 +195,7 @@ describe('effects of CLOSED (§41.7)', () => {
       totalPrincipal: 59_147n,
       balanceDue: 40_853n,
       endReason: 'CLOSED',
+      fixedRateEnd: null,
     });
     expect(closedSchedule(scheduleOf(eur('1000.00'), null, [period]), day('2026-12-31')).summary).toMatchObject({
       payments: 0,
@@ -203,6 +205,11 @@ describe('effects of CLOSED (§41.7)', () => {
     expect(loanSchedule(done('2027-05-01'), [period]).summary).toMatchObject({ payments: 4, endReason: 'PAID_OFF' });
     expect(loanSchedule(done('2027-03-15'), [period]).summary.endReason).toBe('CLOSED');
     expect(loanSchedule(loanOf(), [period]).summary.endReason).toBe('PAID_OFF');
+    // #119: a fixed-rate end after the closing date owes nothing; on or before it, it stays.
+    const fixed = (date: string) => closedSchedule(scheduleOf(eur('1000.00'), null, [{ ...period, fixedRateUntil: day(date) }]), day('2027-03-15')).summary;
+    expect(fixed('2027-02-28').fixedRateEnd).toEqual({ date: '2027-02-28', balance: 40_853n });
+    expect(fixed('2027-03-15').fixedRateEnd).toEqual({ date: '2027-03-15', balance: 40_853n });
+    expect(fixed('2027-03-16').fixedRateEnd).toEqual({ date: '2027-03-16', balance: 0n });
   });
 
   it('statements: on the closing date allowed, after it refused, after the debt check', () => {

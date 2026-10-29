@@ -50,6 +50,7 @@ const debt = {
   planEndReason: 'PAID_OFF',
   latestStatement: null,
   closing: null,
+  fixedRateEnd: null,
 } as unknown as RemainingDebt;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
@@ -97,6 +98,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
       planEndReason: 'PAID_OFF',
       latestStatement: null,
       closing: null,
+      fixedRateEnd: null,
     });
     await call(base, 'GET', `/loans/${LOAN}/remaining-debt`);
     expect(seen).toEqual([
@@ -114,6 +116,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
       planEndReason: 'NO_TERMS',
       latestStatement: statementView,
       closing: { closingDate: '2027-02-28', reason: 'REFINANCED', refinancedByLoanId: 'new', actualOnClosingDate: -1n },
+      fixedRateEnd: { date: '2036-09-30', balance: 0n },
       allocationSetId: 'set',
       items: [
         { propertyReferenceId: 'p-a', share: { numerator: 2n, denominator: 3n }, actual: -1n, planned: null, difference: null },
@@ -136,6 +139,7 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
         comparison: { actualOnDate: { amount: '408.53', currency: 'EUR' }, difference: { amount: '-0.53', currency: 'EUR' } },
       },
       closing: { closingDate: '2027-02-28', reason: 'REFINANCED', refinancedByLoanId: 'new', actualOnClosingDate: { amount: '-0.01', currency: 'EUR' } },
+      fixedRateEnd: { date: '2036-09-30', balance: { amount: '0.00', currency: 'EUR' } },
     });
   });
 

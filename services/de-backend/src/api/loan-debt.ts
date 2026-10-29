@@ -196,6 +196,7 @@ function toDebtDto(loanId: string, d: RemainingDebt | RemainingDebtPerProperty) 
             refinancedByLoanId: d.closing.refinancedByLoanId,
             actualOnClosingDate: signedEurCents(d.closing.actualOnClosingDate),
           },
+    fixedRateEnd: d.fixedRateEnd === null ? null : { date: d.fixedRateEnd.date, balance: eurCents(d.fixedRateEnd.balance) },
     ...('items' in d
       ? {
           allocationSetId: d.allocationSetId,
