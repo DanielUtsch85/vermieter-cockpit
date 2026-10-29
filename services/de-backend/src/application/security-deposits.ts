@@ -7,7 +7,7 @@ import {
   type DepositRefusal,
   type DepositRequest,
   type DepositStatus,
-  type SecurityDeposit,
+  type DepositView,
   type SecurityDepositRepository,
 } from '../domains/security-deposit/index.js';
 import type { Money } from '../shared/index.js';
@@ -16,7 +16,7 @@ import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { MreTenantNotFoundError } from './party-external-references.js';
 
 /**
- * SecurityDeposit commands and reads (api-design.md §47.1, backlog VC-5-01), in the caller's verified Realm. Input
+ * SecurityDeposit commands and reads (api-design.md §47.1, §47.3, backlog VC-5-01, VC-5-03), in the caller's verified Realm. Input
  * arrives validated and normalized from the API boundary (`mreTenantId` a 24-hex MRE id, amounts > 0, texts trimmed).
  */
 
@@ -130,7 +130,7 @@ export interface CreateDepositInput extends Omit<DepositRequest, 'mreRealmId'> {
   readonly idempotencyKey?: string;
 }
 
-export type CreateDeposit = (input: CreateDepositInput) => Promise<{ readonly deposit: SecurityDeposit; readonly replayed: boolean }>;
+export type CreateDeposit = (input: CreateDepositInput) => Promise<{ readonly deposit: DepositView; readonly replayed: boolean }>;
 
 /**
  * §47.1's create: DE's checks first (a replay, a key conflict or a refusal never asks MRE), then the MRE Tenant outside
@@ -162,7 +162,7 @@ export function createDeposit(deps: { readonly repository: SecurityDepositReposi
   };
 }
 
-export type GetDeposit = (input: { readonly principal: RealmPrincipal; readonly securityDepositId: string }) => Promise<SecurityDeposit>;
+export type GetDeposit = (input: { readonly principal: RealmPrincipal; readonly securityDepositId: string }) => Promise<DepositView>;
 
 export function getDeposit(deps: { readonly repository: SecurityDepositRepository }): GetDeposit {
   return async ({ principal, securityDepositId }) => {
@@ -188,7 +188,7 @@ export type AmendDeposit = (input: {
   readonly securityDepositId: string;
   readonly changes: DepositChanges;
   readonly expectedVersions?: readonly number[];
-}) => Promise<{ readonly deposit: SecurityDeposit; readonly changed: boolean }>;
+}) => Promise<{ readonly deposit: DepositView; readonly changed: boolean }>;
 
 /** §47.1's amend; never calls MRE. */
 export function amendDeposit(deps: { readonly repository: SecurityDepositRepository }): AmendDeposit {
@@ -215,7 +215,7 @@ export type VoidDeposit = (input: {
   readonly securityDepositId: string;
   readonly reason: string;
   readonly expectedVersions?: readonly number[];
-}) => Promise<{ readonly deposit: SecurityDeposit; readonly changed: boolean }>;
+}) => Promise<{ readonly deposit: DepositView; readonly changed: boolean }>;
 
 export function voidDeposit(deps: { readonly repository: SecurityDepositRepository; readonly now?: () => Date }): VoidDeposit {
   const now = deps.now ?? (() => new Date());

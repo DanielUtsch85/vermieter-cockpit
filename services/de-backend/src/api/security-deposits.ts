@@ -1,6 +1,7 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  DEPOSIT_STATES,
   DEPOSIT_STATUSES,
   MRE_EXTERNAL_ID,
   type AmendDeposit,
@@ -8,7 +9,8 @@ import {
   type DepositChanges,
   type GetDeposit,
   type ListDeposits,
-  type SecurityDeposit,
+  type DepositFlag,
+  type DepositView,
   type VoidDeposit,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
@@ -63,15 +65,18 @@ const amendBody = z
 
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
-/** `status` as a comma-separated list, any of them. */
-const statusList = z
-  .string()
-  .transform((value) => value.split(','))
-  .pipe(z.array(z.enum(DEPOSIT_STATUSES)).min(1));
+/** A comma-separated list of the given values, any of them. */
+const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
+  z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(values)).min(1));
 
 const listQuery = z
   .object({
-    status: statusList.optional(),
+    status: commaList(DEPOSIT_STATUSES).optional(),
+    // The derived state (§47.3), applied before paging.
+    state: commaList(DEPOSIT_STATES).optional(),
     mreTenantId: mreTenantId.optional(),
     holdingFinancialAccountId: uuid.optional(),
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
@@ -125,9 +130,9 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
       sendValidationError(res, fieldErrors(parsed.error));
       return;
     }
-    const { page, pageSize, status, ...rest } = parsed.data;
+    const { page, pageSize, status, state, ...rest } = parsed.data;
     commands
-      .list({ principal: principalOf(res), filter: definedOnly({ statuses: status, ...rest }), page: { page, pageSize } })
+      .list({ principal: principalOf(res), filter: definedOnly({ statuses: status, states: state, ...rest }), page: { page, pageSize } })
       .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
       .catch(next);
   });
@@ -189,12 +194,17 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
 }
 
 /** A single deposit with its version as `ETag` for the next `If-Match` (api-design.md §16.1). */
-function sendDeposit(res: Response, deposit: SecurityDeposit): void {
+function sendDeposit(res: Response, deposit: DepositView): void {
   res.setHeader('ETag', `"${deposit.version}"`);
   res.json(toDto(deposit));
 }
 
-function toDto(deposit: SecurityDeposit) {
+const flagDto = (flag: DepositFlag) =>
+  flag.code === 'RECEIVED_OUTSIDE_HOLDING_ACCOUNT' ? flag : { code: flag.code, details: { excess: flag.details.excess.toJSON() } };
+
+/** §47.1's fields and §47.3's figures; `cash` only where the read carries it (the single read). */
+function toDto(deposit: DepositView) {
+  const { figures } = deposit;
   return {
     securityDepositId: deposit.id,
     mreRealmId: deposit.mreRealmId,
@@ -209,5 +219,23 @@ function toDto(deposit: SecurityDeposit) {
     voidReason: deposit.voidReason,
     createdAt: deposit.createdAt.toISOString(),
     version: deposit.version,
+    received: figures.received.toJSON(),
+    interestCredited: figures.interestCredited.toJSON(),
+    returned: figures.returned.toJSON(),
+    outstanding: figures.outstanding.toJSON(),
+    held: figures.held.toJSON(),
+    state: figures.state,
+    flags: figures.flags.map(flagDto),
+    ...(deposit.cash === undefined
+      ? {}
+      : {
+          cash: deposit.cash.map((c) => ({
+            transactionId: c.transactionId,
+            bookingDate: c.bookingDate,
+            financialAccountId: c.financialAccountId,
+            kind: c.kind,
+            amount: c.amount.toJSON(),
+          })),
+        }),
   };
 }

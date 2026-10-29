@@ -24,3 +24,5 @@ export type {
   VoidDepositOutcome,
   VoidPlan,
 } from './deposit.js';
+export { CASH_KINDS, DEPOSIT_STATES, cashKindOf, deriveFigures } from './figures.js';
+export type { CashKind, CountedCash, DepositFigures, DepositFlag, DepositState, DepositView } from './figures.js';

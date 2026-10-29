@@ -3395,7 +3395,7 @@ A deposit's cash is the splits with its `securityDepositId` on **current** Trans
   - the trigger order in `pg_trigger`.
 - **Rent separation (P5-D6), carried into ACC5 (VC-5-05):** a deposit split is not rent cash; a deposit-only Transaction is `422 NO_RENT_CASH` on a manual match; the mixed transfer's suggestion covers only its rent splits.
 
-## 47.3 Derived amounts, state and flags (VC-5-03)
+## 47.3 Derived amounts, state and flags (VC-5-03, implemented)
 
 Decisions P5-D2 and P5-D4. A deposit's figures are never stored. Every read derives them from the cash that counts (§47.2), so a correction of a receipt moves them at once and nothing can drift.
 
