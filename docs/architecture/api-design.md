@@ -1950,10 +1950,16 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
     - a pair with an **open `SUGGESTED`** reconciliation **stays in the graph as competition**, whether or not its amounts still match. It is never written again, but its Transaction and its term are not unique for any other pair (review on #80). Without that rule, two runs would suggest two Transactions for one term, or one Transaction for two terms, where a single run over both would have suggested nothing.
 - **3. The rule** (deterministic, independent of input order):
   - The fits and the open suggestions form a bipartite graph between Transactions and terms, the neighbouring months' terms included. A fit whose Transaction and term have no other edge is **unique** → suggested.
+  - **The month in the purpose text** (#125, real-data run F10), before the uniqueness check: a candidate whose description names the month of some of its fits keeps only those fits. Read are `MM.YYYY`, `MM/YYYY`, `YYYY-MM`, a full date `DD.MM.YYYY`, and a German month name with a four-digit year (`Oktober 2026`, `Okt. 2026`). A name without a year is not read, since `Jan` and `August` are first names. A text naming none of its fits' months changes nothing.
   - **IBAN history decides the rest:** a fit is a *history fit* when an earlier `CONFIRMED` reconciliation of the same Tenant names a Transaction with the same `counterparty_iban_raw` (not null). Among the non-unique fits, keep only the history fits, and keep the open suggestions as edges. A history fit whose Transaction and term have no other edge → suggested. A term of a neighbouring month is never suggested, but its edges block.
+  - **In order from an anchor** (#125): a tenant who pays before the month (e.g. on the 28th) makes a chain in which every payment fits two terms of the same Tenant, so no pair is unique and the IBAN history cannot decide. The remaining fits are assigned in order, per Tenant:
+    - a walk starts only at an open term whose **month before is done** for that Tenant: its term's open amount is ≤ 0, it was decided in this run, or it has an open suggestion;
+    - a lease start (no term the month before) is **no anchor**, and neither is an open month before: read from the middle of a chain, or with the first payment not imported, the whole chain would shift by one month;
+    - each consecutive month takes the **oldest** remaining candidate (booking date, then id) that fits it, as long as it has a counterparty IBAN (the same for all of the Tenant's walks), fits no other Tenant's term and no earlier open term, and has no open suggestion;
+    - the walk stops at the first month without such a candidate. A Tenant who skipped a month is therefore placed one month late until the user corrects it: the suggestion is `MEDIUM` and never authoritative.
   - Everything else is left alone: partial and combined payments, overpayments, and ambiguous amounts. The user matches those by hand (§37.1).
   - **`confidence`:** `HIGH` for a history fit (whether it was unique or decided by the history), `MEDIUM` for a unique fit without history.
-  - **`suggestionReason`:** `EXACT_AMOUNT` or `EXACT_AMOUNT_IBAN_HISTORY`.
+  - **`suggestionReason`:** `EXACT_AMOUNT_IN_ORDER` for the walk; else `EXACT_AMOUNT_PURPOSE_MONTH` when the text's month removed other fits of the candidate; else `EXACT_AMOUNT_IBAN_HISTORY` for a history fit; else `EXACT_AMOUNT`. `confidence` stays as above.
   - **`matchedAmount`:** the open amount.
 - **4. Write** (one READ COMMITTED transaction):
   - lock the chosen pairs' Transaction rows in id order (P3-D8's no-op write; Transaction → reconciliation);
@@ -1997,7 +2003,7 @@ Decisions P4-D4 and P4-D5 of `docs/development/phase-4-plan.md`, BR-RENT-004. A 
 ### In the database (migration 0031)
 
 - **`rent_payment_reconciliation` gains** `rejected_at`, `rejected_by` and `reject_reason` (1–500, trimmed). CHECK `(status = 'REJECTED') =` each of them `IS NOT NULL`.
-- **CHECK:** `status <> 'SUGGESTED' OR (confidence IS NOT NULL AND suggestion_reason IS NOT NULL)`. `suggestion_reason` must be one of `EXACT_AMOUNT` or `EXACT_AMOUNT_IBAN_HISTORY` when set.
+- **CHECK:** `status <> 'SUGGESTED' OR (confidence IS NOT NULL AND suggestion_reason IS NOT NULL)`. `suggestion_reason` must be one of `EXACT_AMOUNT`, `EXACT_AMOUNT_IBAN_HISTORY`, `EXACT_AMOUNT_PURPOSE_MONTH` or `EXACT_AMOUNT_IN_ORDER` when set (the last two from migration 0036, #125).
 - **Partial unique index** `(transaction_id, mre_tenant_id, mre_rent_term) WHERE status = 'SUGGESTED'`.
 - **`rent_payment_reconciliation_frozen`:** `matched_amount` may change only in the step `SUGGESTED` → `CONFIRMED`, and only to a lower positive amount. The other fixed fields are unchanged.
 - **`rent_payment_reconciliation_cash` on a `SUGGESTED` insert:** it writes the Transaction row as for a confirm, then refuses a Transaction not counted, not `INFLOW`, or without rent cash. There is no sum check, because a suggestion consumes nothing. The step into `CONFIRMED` gets the full check of §37.1, as today.

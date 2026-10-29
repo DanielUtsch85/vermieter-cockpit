@@ -247,8 +247,8 @@ describe('suggestions (§37.3)', () => {
             ...empty,
             // t1 pays the open rest of January; t0 fits the neighbour December only.
             candidates: [
-              { transactionId: 't0', bookingDate: '2026-12-02' as never, available: eur('800.00'), counterpartyIban: null },
-              { transactionId: 't1', bookingDate: '2027-01-03' as never, available: eur('300.00'), counterpartyIban: null },
+              { transactionId: 't0', bookingDate: '2026-12-02' as never, available: eur('800.00'), counterpartyIban: null, description: null },
+              { transactionId: 't1', bookingDate: '2027-01-03' as never, available: eur('300.00'), counterpartyIban: null, description: null },
             ],
             confirmedByTerm: new Map([[`${TENANT}/2027010100`, eur('500.00')]]),
           };

@@ -4,7 +4,8 @@ import { sql, type Kysely } from 'kysely';
  * #111: reversals and replacements keep the counterparty of the Transaction they correct. Backfill for corrections
  * written before: each takes its original's raw counterparty name and IBAN, along the chain (a replacement corrected
  * again gets it from its own original, which got it first). The counterparty columns are not among the frozen fields
- * of ledger_transaction_immutable, so confirmed corrections take the update.
+ * of ledger_transaction_immutable, so confirmed corrections take the update. The backfill deliberately leaves `version`
+ * as it is: it adds import evidence and changes nothing in the booking (review on #117).
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`
