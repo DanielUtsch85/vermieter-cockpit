@@ -126,7 +126,7 @@ Before implementing anything that touches these, **stop and surface the gap** ra
 - **ADR-042** Investment formulas are versioned; snapshots pin their formula version (was ADR-OPEN-010).
 
 **German specs — drafted, pending legal verification** (per `AGENTS.md` §30, confirm before coding; do not implement an unverified `VERIFY` rule):
-- `docs/germany/taxation.md`, `docs/germany/depreciation.md`, `docs/germany/weg.md`, `docs/germany/rent-and-operating-costs.md` — the product differentiator; drafted as versioned domain knowledge with `§` references and `VERIFY` markers, **not yet legally confirmed**.
+- `docs/germany/taxation.md`, `docs/germany/depreciation.md`, `docs/germany/weg.md`, `docs/germany/rent-and-operating-costs.md` — the product differentiator; drafted as versioned domain knowledge with `§` references and `VERIFY` markers. `weg.md` is **verified** (29.10.2026, v0.2); for the other three the filled `verification-checklist.md` (v0.2) holds the results, which the specs still have to take over.
 
 All other former stubs (`roadmap`, `reports`, `dashboards`, `coding-guidelines`, `backlog`) now have first drafts.
 

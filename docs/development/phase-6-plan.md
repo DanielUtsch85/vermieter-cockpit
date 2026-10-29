@@ -5,7 +5,7 @@
 
 Phase 6 is modelled conceptually in several places:
 - ADR-017 (WEG is a dedicated German domain) and ADR-018 (incomplete reserve data out of the MVP);
-- `docs/germany/weg.md`, the domain's legal draft, every rule `VERIFY`-marked;
+- `docs/germany/weg.md`, the domain's legal rules, verified on 29.10.2026 (v0.2; `verification-checklist.md` C1–C7, E1, E4);
 - data-model §27–§32 and §73; domain-model §31–§37 and its WEG aggregate;
 - BR-WEG-001…010, UC-030…033, WF-008/009, DF-012/013, `reports.md` §2.5;
 - api-design §49–§51, a list of routes.
@@ -14,8 +14,8 @@ Several points are open, or would not fit what Phases 1–5 built:
 - **How a Hausgeld payment is tied to its WEG.** The categories `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` and `WEG_RESERVE_CONTRIBUTION` exist since 0008, but nothing links such a split to a WEG or a unit.
 - **What the Wirtschaftsplan is for DE.** Data-model §29 carries totals only (`totalPlannedAmount`, `propertyPlannedAmount`). Splitting a payment needs the unit's monthly components.
 - **What "split into ledger effects" means for a Jahresabrechnung** (the roadmap's exit). A statement creates no cash (BR-WEG-007, anti-pattern 3 of data-flow). Confirmed splits are frozen (ADR-037), so the year's Hausgeld cannot be re-split in place either.
-- **The Erhaltungsrücklage.** `WEG_RESERVE_CONTRIBUTION` has `category_type = OPERATING_EXPENSE`. A contribution is regularly not yet a deductible expense when it is paid (weg.md §5.2, `VERIFY`). Phase 7 reads the type, as P5-D6 relies on for deposits.
-- **The Sonderumlage.** Data-model §32 has the record, but no category and no link to its payments.
+- **The Erhaltungsrücklage.** `WEG_RESERVE_CONTRIBUTION` has `category_type = OPERATING_EXPENSE`. A contribution is not yet a deductible expense when it is paid (weg.md §5.2, BFH IX R 19/24). Phase 7 reads the type, as P5-D6 relies on for deposits.
+- **The Sonderumlage.** Data-model §32 has the record, but no category and no link to its payments. Its payment is not automatically an expense either (weg.md §5.3).
 - **Corrected statements** (BR-WEG-008) and **missing reserve data** (BR-WEG-009, ADR-018).
 
 This plan fixes those points **before** the items are specified, as `phase-5-plan.md` did for Phase 5. Each item's spec PR then only has to write out the contract.
@@ -54,35 +54,41 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
 - **Lock order:** Transaction → membership rows (`FOR SHARE`). A membership's validity is changed only while no split falls outside the new range, else `409 MEMBERSHIP_HAS_SPLITS`.
 - Docs: api-design §34/§35 (split rule), data-model §18.
 
-### P6-D3 The Erhaltungsrücklage is not an expense when paid (resolves weg.md §5.2 in the model)
+### P6-D3 Money paid into WEG funds is not an expense when paid (resolves weg.md §5.2–§5.3 in the model)
 
-- `WEG_RESERVE_CONTRIBUTION` moves to a new `category_type = WEG_RESERVE`, no longer `OPERATING_EXPENSE`. Phase 7 then can never read a contribution as Werbungskosten at payment. When the WEG spends the reserve, the deductible amount comes from the Jahresabrechnung's reserve section (P6-D6), and its tax meaning is Phase 7's (`VERIFY`).
+- A new `category_type = WEG_FUNDS`: money the owner pays to the WEG that is not yet the owner's expense. `WEG_RESERVE_CONTRIBUTION` moves to it, no longer `OPERATING_EXPENSE`, and so does `WEG_SPECIAL_ASSESSMENT` (P6-D7). Phase 7 then can never read a contribution or a Sonderumlage as Werbungskosten at payment.
+- **Verified (BFH IX R 19/24 of 14.01.2025, also under the WEG law since 01.12.2020):** a contribution is not deductible when it is paid. It becomes deductible only when and as far as the WEG spends the money on measures that would be Werbungskosten if paid directly. So the contribution and the later spending are kept apart (P6-D6 (3)). Whether a spending is Erhaltungsaufwand or Herstellungskosten is Phase 7's.
 - This mirrors P5-D6: the category type carries the rule, not a convention.
-- Docs: data-model §18 (categories), weg.md §5.2, verification-checklist (one line).
+- Docs: data-model §18 (categories), weg.md §5.2.
 
 ### P6-D4 The Wirtschaftsplan gives the unit's monthly components (resolves data-model §29, DF-012)
 
 - **`WegEconomicPlan`** for one membership (the unit's Einzelwirtschaftsplan) and one financial year:
   - the monthly advance, split into `recoverable`, `nonRecoverable` and `reserveContribution` (Money; they sum to the advance);
-  - the approval date of the resolution;
+  - the date of the Vorschussbeschluss. The resolution on the advances, not the plan as a document, makes them owed (§ 28 Abs. 1 WEG, checklist C3). The plan is the resolution's basis and is stored with it;
   - optional plan cost lines (description, total, the unit's share, recoverability), kept as the source structure (BR-WEG-006).
 - Statuses `ACTIVE` → `SUPERSEDED` (a new plan for the same year, keeping the old one, BR-WEG-008) or `VOID`. A plan is planning data: it never creates a Transaction (BR-WEG-003).
-- A plan stays in force until the next one is approved, as is common practice (`VERIFY`, weg.md §3). So the plan for a booking date is the latest `ACTIVE` plan whose year starts on or before it.
+- **The plan for a booking date** is the `ACTIVE` plan of that financial year. If there is none, the latest earlier `ACTIVE` plan is used, and the proposal carries the flag `PLAN_OF_EARLIER_YEAR`. Whether a resolution keeps the advances owed into the next year depends on the resolution itself; weg.md v0.2 does not state a general rule. So DE never decides it: it proposes and shows which plan it used.
 - **Hausgeld split proposal** (a read, never a write, like §37.6 and §41.5): `GET …/hausgeld-proposal?transactionId=` for an unconfirmed `OUTFLOW`. The unit is the membership of the Transaction's PropertyReference, or is given in the query. The proposal by amount:
   - **= the full advance:** the three components;
   - **= the reserve contribution only:** `WEG_RESERVE_CONTRIBUTION`. This is the second debit of F5;
   - **= the advance without the reserve:** the recoverable and non-recoverable parts;
   - **otherwise:** the components in the plan's proportions, rounded half-up to the cent, with the rest on the largest part, and the flag `AMOUNT_DIFFERS_FROM_PLAN`.
+- A plan's `reserveContribution` is never split into `WEG_RECOVERABLE`: the reserve is not recoverable (weg.md §6, checklist C7).
 - Docs: data-model §29, api-design §50.
 
 ### P6-D5 The Jahresabrechnung is stored with its structure (resolves data-model §30–§31, BR-WEG-006/008)
 
 - **`WegAnnualStatement`** for one membership and one financial year:
   - the source document reference;
-  - the resolution date (since WEMoG the owners resolve on the **Abrechnungsspitze**: the advances' adjustment and the back-payments, weg.md §4, `VERIFY`);
-  - **cost lines** (data-model §31): position, description, the WEG total, the allocation key as printed, the unit's share, and a classification of `RECOVERABLE`, `NON_RECOVERABLE` or `RESERVE`. The classification is the user's, may be refined later, and is kept apart from tax (BR-WEG-010);
+  - the resolution date, and an optional due date (§ 28 Abs. 3 WEG). **Verified (§ 28 Abs. 2 WEG, checklist C2):** the owners resolve on the back-payments (Nachschüsse) or on the adjustment of the advances, the **Abrechnungsspitze**. The statement is the arithmetic basis of that resolution, not its object, as it was before 01.12.2020;
+  - **cost lines** (data-model §31): position, description, the WEG total, the allocation key as printed, the unit's share, and a classification of `RECOVERABLE`, `NON_RECOVERABLE` or `RESERVE`. The classification is the user's, may be refined later, and is kept apart from tax (BR-WEG-010). weg.md §6 asks for four separate attributes per line; Phase 6 stores the first two:
+    1. the WEG allocation (the printed key and the unit's share);
+    2. the recoverability from the tenant;
+    3. the lease's allocation key: Phase 7/9, with the tenant's operating-cost statement. By § 556a Abs. 3 BGB the WEG key applies unless the lease agrees otherwise, which is why (1) is kept as printed;
+    4. the tax class: Phase 7;
   - **the unit's totals as printed:** costs, advances owed under the plan, and the Abrechnungsspitze (back-payment or credit);
-  - **the reserve section, optional:** the unit's share at the start and end of the year, contributions and withdrawals. What the statement does not show stays `null` (BR-WEG-009, ADR-018); nothing is estimated.
+  - **the reserve section, optional:** the unit's share at the start and end of the year, contributions and withdrawals, each withdrawal with its description. Its source is the statement or the Vermögensbericht (§ 28 Abs. 4 WEG), recorded as `ANNUAL_STATEMENT` or `ASSET_REPORT`. What neither shows stays `null` (BR-WEG-009, ADR-018); nothing is estimated.
 - **The statement's own check:** the cost lines' shares sum to the printed costs, and costs − advances = the Abrechnungsspitze. A mismatch is a flag (`LINES_DIFFER_FROM_TOTAL`, `SETTLEMENT_DIFFERS`), never a refusal: the printed statement wins, and the flag points to a typo or to the Verwalter.
 - **Lifecycle:**
   - `DRAFT` (entered, editable) → `CONFIRMED` (frozen) → `SUPERSEDED` by a corrected statement for the same membership and year, which keeps the old one readable (BR-WEG-008); also `VOID` from `DRAFT`.
@@ -99,22 +105,24 @@ A statement never re-splits the year's cash, and never creates cash. Its ledger 
    - **difference:** actual − paid.
 
    The sum of the differences equals the Abrechnungsspitze (up to advances owed but not paid, shown separately as `unpaidAdvances`). This tells Phase 7 and the tenant's operating-cost statement how much of the year was really recoverable, without touching a confirmed split.
-2. **The settlement payment:** the Abrechnungsspitze arrives as one Transaction (a debit for a back-payment, a credit for a refund). Its split proposal comes from the differences of (1), in the same categories. The split names the statement (`wegAnnualStatementId` on the split, like `loanId`), so the payment is traced to its source. A credit is an `INFLOW` in the same expense categories, a reduction of the year's cost (`VERIFY` with Phase 7).
-3. **The reserve withdrawals** of the reserve section, kept on the statement as the later deductible amount for Phase 7. They are not booked: the owner paid no cash for them.
+2. **The settlement payment:** the Abrechnungsspitze arrives as one Transaction (a debit for a back-payment, a credit for a refund). Its split proposal comes from the differences of (1), in the same categories. The split names the statement (`wegAnnualStatementId` on the split, like `loanId`), so the payment is traced to its source. A credit is an `INFLOW` in the same expense categories and names the statement, so its year is known. Its tax effect is Phase 7's: a refund of Werbungskosten offsets them in the same year and is income in a later year (checklist A10).
+3. **The reserve withdrawals** of the reserve section, kept on the statement with their descriptions. By BFH IX R 19/24 they are where a deduction can arise, so Phase 7 classifies each one (Erhaltungsaufwand, Herstellungskosten). They are not booked: the owner paid no cash for them.
 
 - A later correction of a counted split moves (1) on read. A superseding statement takes over (1)–(3), and the settlement split keeps naming the statement it was booked against. A flag `SETTLED_AGAINST_SUPERSEDED` shows when that is not the current one.
 - Docs: data-flow DF-013, api-design §51.
 
 ### P6-D7 The Sonderumlage (resolves data-model §32)
 
-- **`WegSpecialAssessment`** for one membership: description, the resolution date, the WEG total, the unit's share, due dates (one or several instalments), and a purpose (`MAINTENANCE`, `MODERNISATION`, `LIQUIDITY`, `OTHER`, as resolved; its tax meaning is Phase 7's, weg.md §5.3).
-- A new category `WEG_SPECIAL_ASSESSMENT` (type `WEG_RESERVE` when it goes into the reserve, else `OPERATING_EXPENSE`; decided per assessment at its purpose, `VERIFY`). Its splits name the assessment (`wegSpecialAssessmentId`). Paid and outstanding are derived from counted cash, as P5-D2.
+- **`WegSpecialAssessment`** for one membership: description, the resolution date, the WEG total, the unit's share, due dates (one or several instalments), and a purpose as resolved (`MAINTENANCE`, `MODERNISATION`, `LIQUIDITY`, `OTHER`).
+- **Its use**, optional and added later: what the WEG actually spent the money on, with date, description and the unit's share, from the statement or the Verwalter. **Verified (weg.md §5.3, checklist C6):** the payment alone is no deductible expense. What counts is when and for what the WEG uses the money. So the purpose is not the tax meaning; the use is the input for Phase 7.
+- A new category `WEG_SPECIAL_ASSESSMENT` of type `WEG_FUNDS` (P6-D3), whatever the purpose. Its splits name the assessment (`wegSpecialAssessmentId`). Paid and outstanding are derived from counted cash, as P5-D2.
 - Statuses `ACTIVE` → `SETTLED` (derived when fully paid) / `VOID` (unreferenced only).
 - Docs: data-model §32, api-design §49.
 
 ### P6-D8 Recoverability is DE's classification, tax is Phase 7's (BR-WEG-010)
 
 - Phase 6 records recoverability (`RECOVERABLE` / `NON_RECOVERABLE`, BetrKV, rent-and-operating-costs.md §4) on plan and statement lines and on the split categories. It records no tax class.
+- **Verified (weg.md §6, checklist C7, E4):** WEG costs and operating costs are not the same. Administration, Instandhaltung and Instandsetzung, and the reserve contribution are never recoverable from a tenant. Other costs are recoverable only if the lease validly agrees it and BetrKV § 2 covers them. TV and broadband basic fees are no longer recoverable since 01.07.2024, a dated rule for Phase 7/9. A WEG statement is not the tenant's operating-cost statement.
 - A catalogue that pre-classifies typical line descriptions (BR-OPEN-008) is out of scope: the user classifies each line once per statement. The next statement proposes the previous year's classification for a line with the same description.
 
 ### P6-D9 Conventions carried over (as P5-D9)
@@ -158,11 +166,13 @@ See `backlog.md` §3e. The order follows the dependencies:
 - the WEG report (`reports.md` §2.5), which is Phase 9's;
 - every tax meaning (Phase 7).
 
-# 3. `VERIFY` before the items are specified
+# 3. Verification (29.10.2026)
 
-The roadmap asks to confirm `weg.md`'s `VERIFY` rules before coding. These are the ones the plan relies on, for the user (and, where marked, a tax adviser):
-1. **Since WEMoG, the owners resolve on the Abrechnungsspitze** (§ 28 Abs. 2 WEG). P6-D5 stores the printed totals and the resolution date; it does not need the exact legal effect.
-2. **A Wirtschaftsplan stays in force until the next one** (P6-D4's choice of the plan for a date).
-3. **A reserve contribution is not deductible when paid, only when the WEG spends it** (BFH; tax adviser). P6-D3 only keeps the two apart, so either answer of Phase 7 remains possible.
-4. **Typical recoverable lines** (BetrKV § 2) and that administration and the reserve are never recoverable (weg.md §6).
-5. **A Sonderumlage's tax meaning follows its purpose** (weg.md §5.3; tax adviser). P6-D7 only records the purpose.
+The roadmap asks to confirm `weg.md`'s `VERIFY` rules before coding. The user supplied the verified `weg.md` v0.2 and the filled `verification-checklist.md` v0.2 on 29.10.2026. The five points this plan relied on:
+1. **The resolution on the Abrechnungsspitze** (§ 28 Abs. 2 WEG): confirmed, with a precise wording (checklist C2). The owners resolve on back-payments or on the adjustment of the advances; the statement is the basis. P6-D5 stores the printed totals, the resolution date and an optional due date (§ 28 Abs. 3).
+2. **A Wirtschaftsplan stays in force until the next one:** not confirmed as a general rule; it depends on the resolution. P6-D4 now prefers the plan of the booking year and flags `PLAN_OF_EARLIER_YEAR` otherwise. DE does not decide the legal question.
+3. **A reserve contribution is deductible only when the WEG spends it:** confirmed by BFH IX R 19/24 of 14.01.2025 (checklist C1, E1). P6-D3 keeps contribution and spending apart; P6-D6 (3) keeps the withdrawals with their descriptions.
+4. **Recoverable lines:** confirmed (checklist C7, E4). Administration, Instandhaltung/Instandsetzung and the reserve are never recoverable. New for the model: § 556a Abs. 3 BGB makes the WEG key the tenant's key unless the lease agrees otherwise (P6-D5, P6-D8).
+5. **A Sonderumlage's tax meaning:** corrected (checklist C6). It follows the WEG's actual use, not the payment and not the resolved purpose alone. P6-D7 now records the use, and the category is of type `WEG_FUNDS`.
+
+Still open, and handled conservatively in the MVP (weg.md §8): the tax class of a specific Sonderumlage or reserve spending, Erhaltungsaufwand vs. Herstellungskosten, cost allocation resolutions under § 16 WEG, structural changes, and commercial leases. None of them is needed by Phase 6, which records no tax meaning.

@@ -46,7 +46,7 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 
 **F4 — The reads do not show the counterparty (low).** The import stores counterparty name and IBAN (they feed the content fingerprint and rent suggestions), but `GET /transactions` does not return them. Checking an import by hand ("who paid this?") needs the description text only. Proposal: return the raw counterparty name and IBAN in the Transaction reads.
 
-**F5 — Domain: WEG Hausgeld arrives as two debits (information for the WEG phase).** One debit for the Erhaltungsrücklage (fits `WEG_RESERVE_CONTRIBUTION`) and one for the Hausgeld. How much of the Hausgeld is recoverable (`WEG_RECOVERABLE` vs `WEG_NON_RECOVERABLE`) is only known from the annual WEG settlement, not when it is paid. The split categories exist; the workflow "book against the Wirtschaftsplan now, correct with the Jahresabrechnung" is not specified yet (`VERIFY`, docs/germany/weg.md).
+**F5 — Domain: WEG Hausgeld arrives as two debits (information for the WEG phase).** One debit for the Erhaltungsrücklage (fits `WEG_RESERVE_CONTRIBUTION`) and one for the Hausgeld. How much of the Hausgeld is recoverable (`WEG_RECOVERABLE` vs `WEG_NON_RECOVERABLE`) is only known from the annual WEG settlement, not when it is paid. The split categories exist; the workflow "book against the Wirtschaftsplan now, account for the difference with the Jahresabrechnung" is planned in `phase-6-plan.md` (P6-D4, P6-D6), on the verified `docs/germany/weg.md` v0.2.
 
 **What worked without friction:** UTF-8 with BOM and umlauts, CRLF, decimal comma, German dates, newest-first order, signed amounts → direction, the second import of the same file, and the empty `needs_review` list on a first import.
 

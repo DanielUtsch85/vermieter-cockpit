@@ -1,110 +1,132 @@
 # Prüfliste: rechtliche/steuerliche Verifikation der germany/*-Entwürfe
 
 **Projekt:** Vermieter Cockpit DE
-**Version:** 0.1
-**Status:** Arbeitsdokument (zur Vorlage bei fachkundiger Person)
+**Version:** 0.2 (recherchiert und ausgefüllt)
+**Prüfstand:** 29.10.2026
 **Bezug:** `docs/germany/taxation.md`, `depreciation.md`, `weg.md`, `rent-and-operating-costs.md`
 
----
+> **Einordnung:** Die Ergebnisse beruhen auf dem beigefügten Merkblatt, aktuellem Gesetzesrecht, BMF-Verwaltungsquellen und BFH-Rechtsprechung. Das Merkblatt ist eine nützliche Sekundärquelle, aber nicht in jedem Punkt aktuell und enthält mindestens einen offensichtlichen Rechen-/Redaktionsfehler bei der AfA-Beispielrechnung (Gebäudeanteil 400.000 €, danach wird dennoch 600.000 € × 3 % gerechnet). Für die Implementierung haben Gesetz, aktuelle Verwaltungshinweise und Rechtsprechung Vorrang.
 
-## Zweck und Nutzung
+**Scope:** Vermietung im Privatvermögen (§ 21 EStG), Buy-and-Hold, vermietete Eigentumswohnung in einer WEG. Kein gewerblicher Grundstückshandel, kein Betriebsvermögen, keine USt-Option, keine ELSTER-Implementierung.
 
-Die vier `germany/*`-Dokumente sind **Erst-Entwürfe** mit Gesetzesbezug, die vor der Implementierung fachlich bestätigt werden müssen. Diese Liste bündelt **alle `VERIFY`-Punkte** als konkrete Prüffragen. Sie ist **keine** eigene Rechtsauffassung, sondern die Bitte um Bestätigung/Korrektur.
-
-**Wichtig für die Software:** Das System speichert jede Regel als **versioniertes Fachwissen mit Geltungszeitraum und Quelle**. Bitte je Satz/Grenze **nicht nur den aktuellen Wert, sondern auch dessen Stichtag/Geltungszeitraum** angeben (z. B. „3 % gilt für Fertigstellung ab 01.01.2023"), damit auch Altfälle korrekt gerechnet werden.
-
-**Ausdrücklicher Scope (Annahme):** Vermietung im **Privatvermögen** (Einkünfte aus Vermietung und Verpachtung, § 21 EStG), Buy-and-Hold, Beispiel „eine vermietete Eigentumswohnung in einer WEG, fremdfinanziert". Gewerblicher Grundstückshandel, Betriebsvermögen, USt-Option und ELSTER sind **nicht** Gegenstand.
-
-**Zuständigkeiten (Vorschlag):**
-- Abschnitte **A (Steuer)** und **B (AfA)** sowie die steuerlichen Fragen in C/D: **Steuerberater/in**.
-- Zivilrechtliche Mechanik in **C (WEG)** und **D (Betriebskosten)**: ggf. **Fachanwält/in für Miet- und WEG-Recht** (die meisten Punkte kann aber auch die/der Steuerberater/in einordnen).
-
-**Legende Priorität:** 🔴 hoch (kernrelevant / kürzlich geändert / umstritten) · 🟡 mittel · ⚪ überwiegend faktisch.
-**Spalte „Ergebnis":** bitte `OK` / `Korrektur:` … / `+ Geltung ab TT.MM.JJJJ`.
+**Legende:**
+- `OK` = Aussage kann in dieser Form verwendet werden.
+- `KORREKTUR` = Aussage ist falsch, zu pauschal oder benötigt eine entscheidende Ergänzung.
+- `NUANCE` = Grundgedanke stimmt, aber Implementierung muss weitere Voraussetzungen abbilden.
 
 ---
 
 ## A. Besteuerung der Vermietung (`taxation.md`)
 
-| Nr. | Aussage im Entwurf (§) | Prüffrage | Prio | Ergebnis |
-|---|---|---|---|---|
-| A1 | Schuldzinsen des Immobiliendarlehens sind Werbungskosten, **nur der Zinsanteil, nicht die Tilgung** (§ 9 EStG). | Korrekt so? Sonderfälle (Damnum/Disagio, Bereitstellungszinsen, vorab entstandene WK)? | 🔴 | |
-| A2 | **Anschaffungsnahe Herstellungskosten** (§ 6 Abs. 1 Nr. 1a EStG): Instandsetzung/Modernisierung **innerhalb 3 Jahren** nach Anschaffung, **netto > 15 %** der **Gebäude**-Anschaffungskosten → Herstellungskosten (nur über AfA). | 15 %-Grenze, 3-Jahres-Zeitraum und Ausnahmen (jährlich üblicher Erhaltungsaufwand, Erweiterungen) korrekt? Bezugsgröße = Gebäudeanteil? | 🔴 | |
-| A3 | **Kaufpreisaufteilung** Grund/Gebäude ist maßgeblich (Grund und Boden nicht abschreibbar); Orientierung BMF-Arbeitshilfe bzw. Gutachten, im Streit BFH. | Welche Methode ist derzeit akzeptiert/empfohlen? Ist die BMF-Arbeitshilfe weiterhin nutzbar oder nur eingeschränkt? | 🔴 | |
-| A4 | **Zufluss-/Abflussprinzip** (§ 11 EStG) inkl. **10-Tage-Regel** für regelmäßig wiederkehrende Einnahmen/Ausgaben um den Jahreswechsel. | 10-Tage-Regel korrekt beschrieben? Gilt sie z. B. für Miete/Nebenkostenvorauszahlungen? | 🔴 | |
-| A5 | **Erhaltungsaufwand** sofort abziehbar; auf Antrag **Verteilung auf 2–5 Jahre** (§ 82b EStDV). | Voraussetzungen/Höchstbetrag der Verteilung korrekt? Abgrenzung Erhaltung vs. Herstellung? | 🟡 | |
-| A6 | **Anschaffungsnebenkosten** (Grunderwerbsteuer, Notar, Grundbuch, Makler) sind Teil der Anschaffungskosten und auf Grund/Gebäude aufzuteilen; Gebäudeanteil erhöht die AfA-Basis. | Zuordnung/Aktivierung korrekt? Makler stets aktivierungspflichtig? | 🟡 | |
-| A7 | **Grunderwerbsteuer**: im Beispiel 6,5 % (Satz **je Bundesland verschieden**). | Aktuelle Sätze je Bundesland (mit Stichtag) bestätigen bzw. Quelle nennen. | 🟡 | |
-| A8 | **Einkünfteerzielungsabsicht** bei dauerhafter Vermietung grds. unterstellt; bei Verlusten mögliche Prüfung („Liebhaberei"). | Korrekt? Ab wann wird die Absicht typischerweise hinterfragt (z. B. befristete Vermietung, Ferienwohnung)? | 🟡 | |
-| A9 | Steuerberatungs-/Rechtskosten als WK, soweit der Einkunftsart zurechenbar. | Abgrenzung/Umfang korrekt? | ⚪ | |
-| A10 | Erstattungen (z. B. Finanzamt) — Behandlung noch offen markiert. | Wie sind Erstattungen einzuordnen (Einnahme/Minderung/neutral)? | ⚪ | |
-| A11 | **Kaution ist keine Einnahme** (eigene Domäne). | Bestätigt? | ⚪ | |
-| A12 | Verlustverrechnung/-vortrag: MVP-Umfang noch offen. | Grundmechanik (horizontaler/vertikaler Ausgleich, § 10d EStG) für V+V wie? | 🟡 | |
+| Nr. | Ergebnis | Verifizierte Fassung / Implementierungshinweis |
+|---|---|---|
+| **A1** | **OK + NUANCE** | Schuldzinsen sind nach § 9 Abs. 1 S. 3 Nr. 1 EStG Werbungskosten, soweit sie wirtschaftlich der Vermietung zugeordnet sind; Tilgung ist nicht abziehbar. Vorab entstandene WK sind bei hinreichend konkreter Vermietungsabsicht möglich. Marktübliches Damnum/Disagio wird von § 11 Abs. 2 S. 3 nicht über die Nutzungsdauer verteilt (§ 11 Abs. 2 S. 4). Bereitstellungszinsen sind bei Finanzierungszusammenhang grundsätzlich ebenfalls als Finanzierungskosten einzuordnen. |
+| **A2** | **KORREKTUR (Schwelle)** | § 6 Abs. 1 Nr. 1a EStG: Instandsetzungs-/Modernisierungsmaßnahmen innerhalb von drei Jahren nach Anschaffung sind anschaffungsnahe Herstellungskosten, wenn die Aufwendungen **ohne USt mehr als 15 %** der Anschaffungskosten **des Gebäudes** betragen. Nicht „mindestens 15 %“. Ausgenommen sind Erweiterungen und jährlich üblicherweise anfallende Erhaltungsarbeiten. |
+| **A3** | **OK + NUANCE** | Grund und Boden ist nicht abschreibbar; Kaufpreis ist nach dem Verhältnis der Verkehrswerte/Teilwerte aufzuteilen. Die **BMF-Arbeitshilfe Stand März 2026** ist weiterhin als typisiertes Plausibilisierungs-/Aufteilungsinstrument vorgesehen. Vertragliche Aufteilungen und Gutachten sind gesondert zu würdigen; bei Streit ist eine sachgerechte Verkehrswertaufteilung maßgeblich. |
+| **A4** | **OK + KORREKTUR** | § 11 EStG: Zu-/Abflussprinzip. „Kurze Zeit“ = regelmäßig **bis zu 10 Tage** rund um den Jahreswechsel. Nach BFH/BMF müssen regelmäßig wiederkehrende Beträge innerhalb dieses Zeitraums **sowohl fällig als auch gezahlt/zugeflossen** sein. Regelmäßig wiederkehrende Mieten oder Nebenkostenvorauszahlungen können grundsätzlich darunter fallen, wenn die Voraussetzungen im Einzelfall erfüllt sind. |
+| **A5** | **OK + NUANCE** | § 82b EStDV erlaubt größeren Erhaltungsaufwand bei Gebäuden im Privatvermögen, die überwiegend Wohnzwecken dienen (> 50 % der Nutzfläche), gleichmäßig auf **2 bis 5 Jahre** zu verteilen. Gesetzlicher Höchstbetrag: **keiner**. Bei Verkauf, Einlage ins Betriebsvermögen oder Ende der Einkunftsnutzung ist der Rest sofort abzuziehen. |
+| **A6** | **OK + NUANCE** | Erwerbsbezogene GrESt, Kaufvertrags-/Auflassungsnotar, Grundbuchkosten des Eigentumserwerbs und Maklerprovision sind grundsätzlich Anschaffungsnebenkosten und anteilig Grund/Gebäude zuzuordnen. **Nicht sämtliche Notar-/Grundbuchkosten** sind Anschaffungskosten: Kosten der Darlehens-/Grundschuldfinanzierung sind regelmäßig Finanzierungskosten/Werbungskosten. |
+| **A7** | **KORREKTUR / PARAMETER** | 6,5 % ist nur für einzelne Länder richtig. **Stand 29.10.2026:** BW 5,0; BY 3,5; BE 6,0; BB 6,5; HB **5,5 seit 01.07.2025**; HH 5,5; HE 6,0; MV 6,0; NI 5,0; NW 6,5; RP 5,0; SL 6,5; SN 5,5; ST 5,0; SH 6,5; TH **5,0 seit 01.01.2024**. Als datierte Landesparameter modellieren. |
+| **A8** | **OK + NUANCE** | Bei auf Dauer angelegter Wohnungsvermietung wird die Einkünfteerzielungsabsicht grundsätzlich typisiert angenommen. Prüfung insbesondere bei zeitlich begrenzter Vermietung, gemischter Selbst-/Fremdnutzung, bestimmten Ferienwohnungen, außergewöhnlichen Gestaltungen und nach BFH auch bei Wohnobjekten **über 250 m²**. Totalüberschussprognose typischerweise über 30 Jahre. |
+| **A9** | **OK + NUANCE** | Steuerberatungs- und Rechtskosten sind Werbungskosten, soweit sie unmittelbar der Einkunftsart V+V zuzurechnen sind. Erwerbsbezogene Rechtskosten können dagegen Anschaffungsnebenkosten sein; private oder einkommensteuerliche Allgemeinberatung ist abzugrenzen. |
+| **A10** | **KORREKTUR** | Erstattungen sind nicht pauschal „neutral“: Erstattete Werbungskosten sind im selben Jahr mit den Aufwendungen zu verrechnen; bei Erstattung in einem späteren Jahr regelmäßig als Einnahme zu erfassen. Zuschüsse/Versicherungsleistungen können je nach Sachverhalt Anschaffungs-/Herstellungskosten oder abziehbaren Aufwand mindern. |
+| **A11** | **OK + NUANCE** | Eine rückzahlbare Mietkaution ist bei Entgegennahme grundsätzlich keine Mieteinnahme; sie ist fremd-/treuhandähnlich gebunden. Wird sie später berechtigt zur Erfüllung von Ansprüchen des Vermieters verwendet/einbehalten, ist der konkrete Vorgang neu steuerlich zu klassifizieren. |
+| **A12** | **OK + AKTUALISIEREN** | Verluste aus V+V werden grundsätzlich im laufenden VZ mit positiven Einkünften verrechnet. Nicht ausgeglichene negative Einkünfte unterliegen § 10d EStG. Stand 2026: Verlustrücktrag grundsätzlich in die **zwei** vorangegangenen VZ bis 1 Mio. € (Zusammenveranlagung 2 Mio. €); Verlustvortrag bis 1 Mio. € unbeschränkt, darüber **70 %** des übersteigenden Gesamtbetrags der Einkünfte. Sonderrestriktionen außerhalb des MVP separat behandeln. |
 
 ---
 
 ## B. Abschreibung / AfA (`depreciation.md`)
 
-> Besonders zeitkritisch: die AfA-Sätze wurden mehrfach geändert. Bitte **Satz + Geltungszeitraum** je Fall.
-
-| Nr. | Aussage im Entwurf (§) | Prüffrage | Prio | Ergebnis |
-|---|---|---|---|---|
-| B1 | Lineare Wohngebäude-AfA **3 %** bei Fertigstellung **nach 31.12.2022** (§ 7 Abs. 4 Nr. 2 Buchst. a EStG, JStG 2022). | Satz, Stichtag und Buchstaben-Zuordnung korrekt? | 🔴 | |
-| B2 | Lineare Wohngebäude-AfA **2 %** bei Fertigstellung **1925–2022** (Buchst. b). | Korrekt (genaue Datumsgrenzen)? | 🔴 | |
-| B3 | Lineare Wohngebäude-AfA **2,5 %** bei Fertigstellung **vor 1925** (Buchst. c). | Korrekt? | 🟡 | |
-| B4 | **Degressive** Wohngebäude-AfA **5 %** vom Restwert, an **Baubeginn-Fenster** gebunden (ca. **01.10.2023–30.09.2029**, Wachstumschancengesetz); Wechsel zur linearen AfA möglich. | Satz, exaktes Zeitfenster, Definition „Baubeginn", Voraussetzungen und Wechseloption bestätigen. | 🔴 | |
-| B5 | **AfA-Bemessungsgrundlage = nur Gebäudeanteil** (inkl. anteiliger Nebenkosten); Grund und Boden nicht. | Bestätigt? | 🔴 | |
-| B6 | Im **Anschaffungsjahr monatsgenaue** (pro rata temporis) AfA (§ 7 Abs. 1 Satz 4 EStG, sinngemäß); AfA-Beginn = Übergang Nutzen/Lasten bzw. Fertigstellung. | Monatsgenauigkeit und Beginn korrekt? | 🟡 | |
-| B7 | **Kürzere tatsächliche Nutzungsdauer** kann höheren Satz rechtfertigen (§ 7 Abs. 4 Satz 2 EStG; Nachweis, z. B. Gutachten). | Aktuelle Nachweisanforderungen (BFH/BMF-Schreiben) bestätigen. | 🟡 | |
-| B8 | **Bewegliche Wirtschaftsgüter** (z. B. selbständige Einbauküche): lineare AfA über Nutzungsdauer (§ 7 Abs. 1 EStG), AfA-Tabellen als Orientierung. | Abgrenzung selbständig vs. Gebäudebestandteil korrekt? Übliche Nutzungsdauern? | ⚪ | |
-| B9 | **GWG** (§ 6 Abs. 2 EStG): Sofortabzug bis **netto 800 €** bzw. Sammelposten. | Aktuelle Grenze(n) und Sammelposten-Regel bestätigen. | 🟡 | |
-| B10 | **Denkmal-/Sanierungs-AfA** (§ 7i, § 7h EStG) als späterer Sonderfall. | Für den Nutzerkreis relevant? Grundvoraussetzungen? | ⚪ | |
-| B11 | Nachträgliche Anschaffungs-/Herstellungskosten erhöhen die Bemessungsgrundlage. | Behandlung (Weiterführung AfA, Restwert-AfA) korrekt? | 🟡 | |
+| Nr. | Ergebnis | Verifizierte Fassung / Implementierungshinweis |
+|---|---|---|
+| **B1** | **OK** | § 7 Abs. 4 S. 1 Nr. 2 Buchst. a EStG: **3 %** p. a. für Gebäude, die **nach dem 31.12.2022** fertiggestellt wurden. |
+| **B2** | **OK** | § 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG: **2 %** p. a. für Gebäude, die **vor dem 01.01.2023 und nach dem 31.12.1924** fertiggestellt wurden. |
+| **B3** | **OK** | § 7 Abs. 4 S. 1 Nr. 2 Buchst. c EStG: **2,5 %** p. a. bei Fertigstellung **vor dem 01.01.1925**. |
+| **B4** | **OK + PRÄZISIERUNG** | § 7 Abs. 5a EStG: degressive Wohngebäude-AfA **5 % vom jeweiligen Restwert**. Herstellung: Baubeginn **nach 30.09.2023 und vor 01.10.2029**; maßgeblich ist grundsätzlich die Baubeginnsanzeige. Anschaffung nur bis Ende des Fertigstellungsjahres und aufgrund eines obligatorischen Vertrags im selben Zeitfenster. Wechsel zur linearen AfA zulässig. |
+| **B5** | **OK** | AfA nur auf den Gebäudeanteil einschließlich der diesem zugeordneten Anschaffungsnebenkosten; Grund und Boden ist nicht abnutzbar und nicht abschreibbar. |
+| **B6** | **OK + PRÄZISIERUNG** | § 7 Abs. 1 S. 4 EStG: im Anschaffungs-/Herstellungsjahr Kürzung um 1/12 für jeden **vollen Monat vor** dem Anschaffungs-/Herstellungsmonat; der Monat selbst zählt voll. Bei Erwerb eines vermieteten Gebäudes ist der Übergang des wirtschaftlichen Eigentums (regelmäßig Nutzen/Lasten/Gefahr) entscheidend; bei Neubau die Fertigstellung. |
+| **B7** | **OK; Verwaltungsstand geändert** | § 7 Abs. 4 S. 2 EStG erlaubt AfA nach kürzerer tatsächlicher Nutzungsdauer. Das restriktive BMF-Schreiben vom 22.02.2023 wurde mit Schreiben vom **01.12.2025 aufgehoben**. Damit sind die gesetzlichen Vorgaben und die BFH-Rechtsprechung maßgeblich; Nachweise sind weiterhin belastbar zu dokumentieren, aber die aufgehobenen 2023er Verwaltungsanforderungen dürfen nicht als aktuelle Muss-Regeln hardcodiert werden. |
+| **B8** | **KORREKTUR** | BFH IX R 14/15: Eine vollständige Einbauküche in einer vermieteten Wohnung ist ein **einheitliches Wirtschaftsgut** und über **10 Jahre** abzuschreiben; nicht als sofortiger Erhaltungsaufwand. Andere bewegliche Wirtschaftsgüter nach § 7 Abs. 1 EStG über ihre Nutzungsdauer. |
+| **B9** | **KORREKTUR** | Für Werbungskosten verweist § 9 Abs. 1 S. 3 Nr. 7 S. 2 EStG auf **§ 6 Abs. 2 S. 1–3**: selbständig nutzbare bewegliche WG bis **800 € netto** können sofort abgezogen werden. Der **Sammelposten nach § 6 Abs. 2a** ist in dieser Verweisung gerade **nicht** enthalten und sollte für reine V+V-Einkünfte nicht als Standardregel modelliert werden. |
+| **B10** | **OK als Sonderfall** | § 7h/§ 7i EStG: bei qualifizierten Sanierungs-/Denkmalschutzmaßnahmen erhöhte AfA, grundsätzlich bis zu **9 % in Jahr der Maßnahme + 7 Folgejahren** und **7 % in den folgenden 4 Jahren**, mit gesetzlich geforderter Bescheinigung. Für MVP optional, aber fachlich relevant. |
+| **B11** | **OK + NUANCE** | Nachträgliche Anschaffungs-/Herstellungskosten erhöhen die AfA-Bemessungsgrundlage. Sie sind nicht pauschal „Restwert-AfA“ als eigener Modus; die weitere AfA richtet sich nach der für das Gebäude einschlägigen gesetzlichen Methode und den zeitlichen Regeln. Sonderregeln (z. B. § 7h/7i) separat modellieren. |
 
 ---
 
 ## C. WEG / Wohnungseigentum (`weg.md`)
 
-| Nr. | Aussage im Entwurf (§) | Prüffrage | Prio | Ergebnis |
-|---|---|---|---|---|
-| C1 | **Zuführung zur Erhaltungsrücklage ist beim Vermieter noch kein Werbungskosten**; WK erst bei **tatsächlicher Verausgabung durch die GdWE** für Erhaltungsmaßnahmen (BFH). | **Umstritten/nuanciert** — bitte aktuelle Rechtslage/Rechtsprechung bestätigen. Gibt es abweichende Sichtweisen/Entwicklungen? | 🔴 | |
-| C2 | **Seit WEMoG (01.12.2020)** beschließt die Eigentümerversammlung regelmäßig nur noch die **Abrechnungsspitze** (Nachschüsse/Anpassung der Vorschüsse), nicht die gesamte Jahresabrechnung. | Korrekt? Auswirkung auf Fälligkeit/Verbuchung? | 🟡 | |
-| C3 | **Wirtschaftsplan** (§ 28 Abs. 1 WEG) begründet die Vorschüsse (Hausgeld); **Jahresabrechnung** (§ 28 Abs. 2 WEG) rechnet ab. | Paragraphenbezug und Grundmechanik korrekt (nach aktueller Fassung)? | 🟡 | |
-| C4 | **GdWE seit WEMoG rechtsfähig** (§ 9a WEG); **Verwalter** vertritt die GdWE (§ 9b WEG). | Bestätigt? | ⚪ | |
-| C5 | **Erhaltungsrücklage** (§ 19 Abs. 2 Nr. 4 WEG), früher „Instandhaltungsrücklage". | Begriff/Fundstelle korrekt? | ⚪ | |
-| C6 | **Sonderumlage** folgt steuerlich dem zugrunde liegenden Aufwand (Erhaltung vs. Herstellung). | Korrekt? WK-Zeitpunkt bei Sonderumlage (Zahlung vs. Verausgabung durch WEG)? | 🟡 | |
-| C7 | Aus WEG-Kostenlinien ist gegenüber dem Mieter **umlagefähig/nicht umlagefähig** zu trennen (Verwaltung/Rücklage nicht umlagefähig). | Konsistent mit BetrKV (Abschnitt D)? | 🟡 | |
+| Nr. | Ergebnis | Verifizierte Fassung / Implementierungshinweis |
+|---|---|---|
+| **C1** | **OK – nun höchstrichterlich ausdrücklich bestätigt** | BFH, Urteil **14.01.2025 – IX R 19/24**: Zuführung zur Erhaltungsrücklage ist auch nach dem WEMoG noch kein WK-Abzug. Abzug erst, wenn und soweit die GdWE die Mittel für einkunftsbezogene Erhaltungsmaßnahmen tatsächlich verausgabt. |
+| **C2** | **OK + PRÄZISIERUNG** | § 28 Abs. 2 WEG: Beschlossen werden Nachschüsse bzw. Anpassungen der beschlossenen Vorschüsse. Die Jahresabrechnung ist die Grundlage, nicht mehr als Ganzes Genehmigungsgegenstand wie nach altem Recht. Fälligkeit kann nach § 28 Abs. 3 beschlossen werden. |
+| **C3** | **KORREKTUR der Formulierung** | § 28 Abs. 1: Eigentümer beschließen **über Vorschüsse**; der Verwalter stellt hierzu den Wirtschaftsplan auf. § 28 Abs. 2: Nach Ablauf des Jahres Beschluss über Nachschüsse/Anpassung; der Verwalter erstellt hierzu die Jahresabrechnung. Nicht der Plan/die Abrechnung allein begründet die Zahlungspflicht. |
+| **C4** | **KORREKTUR** | Aktuell richtig: GdWE kann nach § 9a WEG Rechte erwerben/Verbindlichkeiten eingehen und klagen/verklagt werden; Verwalter vertritt sie nach § 9b. **Falsch/irreführend ist „seit WEMoG rechtsfähig“**: Rechtsfähigkeit war schon vor 2020 anerkannt und gesetzlich verankert; WEMoG hat sie neu systematisiert. |
+| **C5** | **OK** | § 19 Abs. 2 Nr. 4 WEG nennt die „Ansammlung einer angemessenen **Erhaltungsrücklage**“. Ältere Begriffe: Instandhaltungsrücklage/-rückstellung. |
+| **C6** | **NUANCE / KORREKTUR** | Sonderumlage steuerlich nicht allein nach Zahlungsdatum behandeln. Maßgeblich sind tatsächliche Verwendung durch die GdWE und Art des zugrunde liegenden Aufwands. Erhaltung kann WK sein; Herstellung/Anschaffung nur über AfA. |
+| **C7** | **OK + wichtige Ergänzung** | Verwaltung, Instandhaltung/Instandsetzung und Rücklagenzuführung sind nicht umlagefähige laufende Betriebskosten. Betriebskosten nur bei wirksamer mietvertraglicher Vereinbarung. Bei vermietetem Wohnungseigentum gilt ohne abweichende Vereinbarung **§ 556a Abs. 3 BGB**: grundsätzlich der WEG-Verteilungsschlüssel. |
 
 ---
 
 ## D. Miete & Betriebskosten (`rent-and-operating-costs.md`)
 
-| Nr. | Aussage im Entwurf (§) | Prüffrage | Prio | Ergebnis |
-|---|---|---|---|---|
-| D1 | Umlagefähige Betriebskosten nach **§ 556 BGB i. V. m. § 2 BetrKV** (17-Positionen-Katalog). | Katalog vollständig/aktuell? Einzelpositionen korrekt zugeordnet? | 🟡 | |
-| D2 | **Umlage von TV/Breitband/Gemeinschaftsantenne** — Rechtslage hat sich geändert. | Aktueller Stand (Wegfall Nebenkostenprivileg) und Übergangsfristen bestätigen. | 🔴 | |
-| D3 | **Umlagefähig nur bei wirksamer Vereinbarung** im Mietvertrag; sonst trägt Vermieter. | Korrekt? Anforderungen an die Umlagevereinbarung? | 🟡 | |
-| D4 | **Abrechnungsfrist**: spätestens **12 Monate** nach Ende des Abrechnungszeitraums (§ 556 Abs. 3 BGB); verspätete Nachforderungen grds. ausgeschlossen. | Frist und Ausschlusswirkung korrekt? | 🟡 | |
-| D5 | **Einwendungsfrist des Mieters**: 12 Monate nach Zugang der Abrechnung. | Bestätigt? | ⚪ | |
-| D6 | **Umlageschlüssel**: ohne Vereinbarung Auffangschlüssel **Wohnfläche** (§ 556a Abs. 1 BGB); verbrauchsabhängige Kosten nach Verbrauch. | Korrekt? | 🟡 | |
-| D7 | **Heizkosten**: HeizkostenV verlangt überwiegend verbrauchsabhängige Abrechnung (**regelmäßig 50–70 %**). | Genaue Quote, Rechtsgrundlage (§ 7 HeizkostenV) und Ausnahmen bestätigen. | 🟡 | |
-| D8 | Steuerlich: umlagefähige Betriebskosten sind für den Vermieter **durchlaufende Posten** (Einnahme + WK), nicht umlagefähige Kosten mindern das Ergebnis unmittelbar. | Steuerliche Sicht korrekt? | 🟡 | |
-
----
-
-## E. Übergreifende offene Fragen (aus den „Offene Punkte"-Abschnitten)
-
-| Nr. | Frage | Betrifft |
+| Nr. | Ergebnis | Verifizierte Fassung / Implementierungshinweis |
 |---|---|---|
-| E1 | Zeitpunkt des Werbungskostenabzugs der **Erhaltungsrücklage** endgültig klären (Zuführung vs. Verausgabung) — Kernfrage, wirkt in Steuer **und** WEG. | A/C |
-| E2 | Methodik der **Kaufpreisaufteilung** (BMF-Arbeitshilfe vs. Gutachten) und die dafür nötigen Eingabefelder. | A/B |
-| E3 | Behandlung **Betriebskostenpauschale vs. Vorauszahlung** im Datenmodell. | D |
-| E4 | Verhältnis **WEG-Jahresabrechnung ↔ mieterseitige Betriebskostenabrechnung** (welche WEG-Kostenlinie ist gegenüber dem Mieter umlagefähig). | C/D |
-| E5 | Sollen **Grunderwerbsteuersätze je Bundesland** als gepflegte, datierte Parameter geführt werden? | A |
-| E6 | **Zinsen auf die Mietkaution** (§ 551 Abs. 3 BGB): stehen dem Mieter zu und werden mit der Kaution zurückgezahlt; steuerlich Kapitalerträge des Mieters (Abgeltungsteuer der Bank)? Wie sind sie beim Vermieter auszuweisen (Kategorie `SECURITY_DEPOSIT_INTEREST`, nie Einnahme, Phase 5 P5-D5)? Gilt Gleiches für Gewerbekautionen? | A |
+| **D1** | **OK** | § 2 BetrKV enthält **17 Nummern**; Nr. 17 ist die Auffangposition „sonstige Betriebskosten“. Nr. 15 (Antennen-/Breitband-/Glasfaseranlagen) wurde materiell geändert. |
+| **D2** | **KORREKTUR / Stichtag 01.07.2024** | Das frühere Nebenkostenprivileg für laufende TV-/Breitbandentgelte endete **30.06.2024**. Ab **01.07.2024** dürfen monatliche Anschluss-/Grundentgelte nicht mehr wie früher über die Betriebskosten abgerechnet werden. Umlagefähig bleiben nur die in § 2 Nr. 15 BetrKV genannten begrenzten Betriebskosten; für Glasfaser kann unter § 556 Abs. 3a BGB/§ 72 TKG ein Bereitstellungsentgelt gelten. |
+| **D3** | **OK** | § 556 Abs. 1 BGB: Betriebskosten trägt der Mieter nur aufgrund Vereinbarung. Eine zulässige allgemeine Verweisung auf die BetrKV kann genügen; „sonstige Betriebskosten“ müssen hinreichend bestimmt vereinbart werden. |
+| **D4** | **OK** | § 556 Abs. 3 BGB: Jahresabrechnung über Vorauszahlungen; Zugang spätestens bis Ablauf des **12. Monats** nach Ende des Abrechnungszeitraums. Nachforderungen danach grundsätzlich ausgeschlossen, außer der Vermieter hat die Verspätung nicht zu vertreten. |
+| **D5** | **OK** | Einwendungen des Mieters spätestens **12 Monate nach Zugang** der Abrechnung; Ausnahme, wenn verspätete Geltendmachung nicht zu vertreten ist. |
+| **D6** | **KORREKTUR** | § 556a Abs. 1 BGB: ohne Vereinbarung grundsätzlich Wohnfläche, verbrauchs-/verursachungsabhängige Kosten entsprechend Verbrauch/Verursachung. **Aber bei vermietetem Wohnungseigentum gilt § 556a Abs. 3:** ohne abweichende Vereinbarung grundsätzlich der WEG-Verteilungsschlüssel; bei Verstoß gegen billiges Ermessen Rückfall auf Abs. 1. |
+| **D7** | **OK + NUANCE** | § 7 HeizkostenV: grundsätzlich **mindestens 50 %, höchstens 70 %** der Heizkosten nach erfasstem Verbrauch; in bestimmten älteren öl-/gasbeheizten Gebäuden zwingend 70 %. Ausnahmen ergeben sich insbesondere aus § 11 HeizkostenV. |
+| **D8** | **KORREKTUR der Terminologie** | Umlagen/Nebenkostenvorauszahlungen des Mieters sind steuerlich **Einnahmen**; die vom Vermieter getragenen umlagefähigen Kosten sind grundsätzlich **Werbungskosten**. Bei gleicher Höhe entsteht wirtschaftlich oft Neutralität, aber es sind steuerlich nicht einfach „durchlaufende Posten“ außerhalb der Einnahmen-/WK-Erfassung. Nicht umlagefähige, einkunftsbezogene Kosten können ebenfalls WK sein. |
 
 ---
 
-## Hinweis
+## E. Übergreifende offene Fragen – Ergebnis
 
-Bitte je Korrektur möglichst **Fundstelle und Geltungszeitraum** angeben. Punkte ohne Bestätigung bleiben im System als `VERIFY` markiert und werden **nicht** implementiert (Projektregel: keine erfundenen oder unbestätigten Rechtsregeln). Diese Prüfung ersetzt keine individuelle Beratung im Einzelfall.
+| Nr. | Ergebnis |
+|---|---|
+| **E1** | **Geklärt:** BFH IX R 19/24. Rücklagenzuführung ≠ WK; WK erst bei tatsächlicher Verwendung für eine einkunftsbezogene Maßnahme. |
+| **E2** | **Geklärt für MVP:** Verkehrswertverhältnis; BMF-Arbeitshilfe **Stand März 2026** als typisiertes Verfahren/Plausibilisierung. Eingaben sollten mindestens Gesamtkaufpreis, Erwerbsnebenkosten, Bodenwert-/Grundstücksdaten, Gebäudedaten und ggf. abweichende vertragliche/gutachterliche Werte samt Quelle erfassen. |
+| **E3** | **Geklärt:** Betriebskosten-**Vorauszahlung** → jährliche Abrechnung nach § 556 Abs. 3 BGB. Betriebskosten-**Pauschale** → grundsätzlich keine verbrauchs-/kostenbezogene Jahresabrechnung wie bei Vorauszahlungen; Spezialrecht (insb. HeizkostenV) bleibt zu beachten. Datenmodell muss `PAUSCHALE` und `VORAUSZAHLUNG` trennen. |
+| **E4** | **Geklärt:** WEG-Jahresabrechnung ist keine mieterseitige Betriebskostenabrechnung. WEG-Kostenlinien müssen nach Mietvertrag/BetrKV/Spezialrecht klassifiziert und ggf. nach § 556a Abs. 3 BGB mit dem WEG-Schlüssel auf den Mieter übertragen werden. |
+| **E5** | **Empfehlung: JA.** GrESt-Sätze als datierte Länderparameter (`state`, `rate`, `validFrom`, `validTo`, `source`) führen. Bremen und Thüringen zeigen, warum Stichtage zwingend sind. |
+| **E6** | **KORREKTUR/NUANCE:** Bei Wohnraummiete schreibt § 551 Abs. 3 BGB getrennte Anlage vor; Erträge **stehen dem Mieter zu und erhöhen die Sicherheit**. Daher sind sie nicht als eigene Mieteinnahme des Vermieters zu behandeln. Ob und wie Kapitalertragsteuer technisch einbehalten wird, hängt von Konto-/Anlageform und steuerlicher Zurechnung ab und darf nicht pauschal als „Abgeltungsteuer der Bank beim Mieter“ hardcodiert werden. Für **Gewerberaummiete** gilt § 551 BGB nicht; Verzinsung und Zurechnung richten sich primär nach Vertrag und allgemeinen Regeln. |
+
+---
+
+## Zusätzliche Feststellung zum beigefügten Merkblatt
+
+Das Merkblatt stützt mehrere Kernaussagen (Werbungskostenbegriff, Schuldzinsen, AfA nur Gebäude, Anschaffungsnebenkosten, Erhaltungsaufwand, anschaffungsnahe Herstellungskosten, Rücklagenzuführung erst bei Verwendung). Es darf aber **nicht ungeprüft als aktuelle Rechtsquelle implementiert werden**:
+
+1. Im AfA-Beispiel werden zunächst 2/3 von 600.000 € = 400.000 € als abschreibbare Gebäude-Anschaffungskosten ermittelt, anschließend aber fälschlich **600.000 € × 3 %** gerechnet. Richtig wären bei 400.000 € Bemessungsgrundlage 12.000 € Jahres-AfA (vor zeitanteiliger Kürzung), sofern 3 % einschlägig sind.
+2. Zeitabhängige Förderregeln (§ 7b EStG) und andere Stichtagsangaben in Merkblättern altern schnell.
+3. Die Aussage zur Erhaltungsrücklage ist dagegen durch BFH IX R 19/24 aus 2025 aktuell bestätigt.
+
+---
+
+# Primärquellen / belastbare Fundstellen
+
+- EStG § 6: https://www.gesetze-im-internet.de/estg/__6.html
+- EStG § 7: https://www.gesetze-im-internet.de/estg/__7.html
+- EStG § 9: https://www.gesetze-im-internet.de/estg/__9.html
+- EStG § 10d: https://www.gesetze-im-internet.de/estg/__10d.html
+- EStG § 11: https://www.gesetze-im-internet.de/estg/__11.html
+- EStDV § 82b: https://www.gesetze-im-internet.de/estdv_1955/__82b.html
+- BMF Kaufpreisaufteilung, Stand März 2026: https://www.bundesfinanzministerium.de/Content/DE/Downloads/Steuern/Berechnung-Aufteilung-Grundstueckskaufpreis.html
+- BMF Aufhebung Schreiben zur kürzeren tatsächlichen Nutzungsdauer, 01.12.2025: https://www.bundesfinanzministerium.de/Content/DE/Downloads/BMF_Schreiben/Steuerarten/Einkommensteuer/2025-12-01-afa-von-gebaeuden.html
+- BFH IX R 19/24 (Erhaltungsrücklage): https://www.bundesfinanzhof.de/de/entscheidung/entscheidungen-online/detail/STRE202510025/
+- BFH IX R 14/15 (Einbauküche): https://www.bundesfinanzhof.de/de/entscheidung/entscheidungen-online/detail/STRE201610271/
+- BFH IX R 17/21 (Einkünfteerzielungsabsicht, >250 m²): https://www.bundesfinanzhof.de/de/entscheidung/entscheidungen-online/detail/STRE202310225/
+- WEG § 9a: https://www.gesetze-im-internet.de/woeigg/__9a.html
+- WEG § 9b: https://www.gesetze-im-internet.de/woeigg/__9b.html
+- WEG § 19: https://www.gesetze-im-internet.de/woeigg/__19.html
+- WEG § 28: https://www.gesetze-im-internet.de/woeigg/__28.html
+- BGB § 551: https://www.gesetze-im-internet.de/bgb/__551.html
+- BGB § 556: https://www.gesetze-im-internet.de/bgb/__556.html
+- BGB § 556a: https://www.gesetze-im-internet.de/bgb/__556a.html
+- BetrKV § 2: https://www.gesetze-im-internet.de/betrkv/__2.html
+- HeizkostenV § 7: https://www.gesetze-im-internet.de/heizkostenv/__7.html
+- Bundesnetzagentur zum Ende des Nebenkostenprivilegs: https://www.bundesnetzagentur.de/DE/Vportal/TK/InternetTelefon/Nebenkostenprivileg/artikel.html
+- Bremen, GrESt 5,5 % seit 01.07.2025: Jahresbericht Steuerverwaltung 2024 (Senator für Finanzen)
+- Thüringen, GrESt 5,0 % seit 01.01.2024: Thüringer Finanzministerium
