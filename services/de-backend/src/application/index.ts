@@ -46,6 +46,7 @@ export { DIRECTIONS, checkBusinessDate, parseBusinessDate } from '../domains/led
 export type { BusinessDate, Direction, Transaction } from '../domains/ledger/index.js';
 export {
   ImportBatchNotFoundError,
+  ImportAccountMismatchError,
   ImportFileError,
   ReviewItemNotFoundError,
   ReviewResolutionConflictError,

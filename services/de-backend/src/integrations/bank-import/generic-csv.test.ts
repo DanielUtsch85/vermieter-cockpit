@@ -218,6 +218,20 @@ describe('generic-csv v2 (ADR-043, data-model §70.6)', () => {
     expect(v1.map((r) => r.row.balanceAfter)).toEqual([null, null, null]);
   });
 
+  it("reads the file's own account column as distinct normalized IBANs; absent when not mapped (#107)", () => {
+    const csv = [
+      'IBAN Auftragskonto;Buchungstag;Betrag',
+      'DE72 6609 0800 0003 0613 29;01.10.2026;-1,00',
+      'de72660908000003061329;02.10.2026;-2,00',
+      ';03.10.2026;-3,00',
+      'DE02120300000000202051;04.10.2026;-4,00',
+    ].join('\n');
+    const statement = statementOf(parseV2(csv, { columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', accountIban: 'IBAN Auftragskonto' } }));
+    expect(statement.accountIbans).toEqual(['DE72660908000003061329', 'DE02120300000000202051']);
+    expect(statement.rows).toHaveLength(4);
+    expect(statementOf(parseV2(withBalance)).accountIbans).toBeUndefined();
+  });
+
   it('a malformed or too precise balance is a row error; v1 refuses the balanceAfter mapping', () => {
     const csv = 'Buchungstag;Betrag;Saldo nach Buchung;Verwendungszweck\n01.10.2026;-1,00;abc;x\n01.10.2026;-1,00;1,005;y\n';
     expect(statementOf(parseV2(csv)).rows).toEqual([

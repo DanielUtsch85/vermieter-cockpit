@@ -204,6 +204,31 @@ describe.skipIf(databaseUrl === undefined)('bank import end to end', () => {
     expect((await upload(REALM_A, accountId, november, { ...v2, adapterVersion: '1' })).status).toBe(400);
   });
 
+  it("v2 with the file's own account column (#107): another account's file is 422 and stores nothing; the right one imports", async () => {
+    const created = await fetch(`${base}/api/v1/financial-accounts`, {
+      method: 'POST',
+      headers: { ...headers(REALM_A), 'content-type': 'application/json' },
+      body: JSON.stringify({ accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: 'DE72 6609 0800 0003 0613 29' }),
+    });
+    const { financialAccountId } = (await created.json()) as { financialAccountId: string };
+    const options = { adapterVersion: '2', columnMapping: { bookingDate: 'Buchungstag', amount: 'Betrag', accountIban: 'IBAN Auftragskonto' } };
+    const fileOf = (iban: string) => ['IBAN Auftragskonto;Buchungstag;Betrag', `${iban};01.10.2026;-9,96`].join('\n');
+
+    const wrong = await upload(REALM_A, financialAccountId, fileOf('DE02120300000000202051'), options);
+    expect(wrong.status).toBe(422);
+    expect(((await wrong.json()) as { error: unknown }).error).toMatchObject({
+      code: 'ACCOUNT_IBAN_MISMATCH',
+      details: { reason: 'ACCOUNT_IBAN_MISMATCH', accountIban: 'DE72660908000003061329', fileIbans: ['DE02120300000000202051'] },
+    });
+    const stored = async () =>
+      Number((await pool.query(`SELECT count(*) FROM import_batch WHERE financial_account_id = $1`, [financialAccountId])).rows[0].count);
+    expect(await stored()).toBe(0);
+
+    const right = await upload(REALM_A, financialAccountId, fileOf('DE72660908000003061329'), options);
+    expect(right.status).toBe(201);
+    expect(await stored()).toBe(1);
+  });
+
   it("another Realm's account is 404 and a broken file is 400 IMPORT_ERROR; neither stores a batch", async () => {
     const foreign = await newAccount(REALM_B);
     expect((await upload(REALM_A, foreign, csv)).status).toBe(404);

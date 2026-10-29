@@ -5,6 +5,7 @@ import {
   FinancialAccountClosedError,
   FinancialAccountNotFoundError,
   ImportBatchNotFoundError,
+  ImportAccountMismatchError,
   ImportFileError,
   ReviewItemNotFoundError,
   ReviewResolutionConflictError,
@@ -176,7 +177,7 @@ describe('POST /api/v1/imports/bank-transactions', () => {
     expect(called).toBe(false);
   });
 
-  it('maps use-case errors: 404 account, 400 adapter, 400 IMPORT_ERROR with the file-level reason', async () => {
+  it('maps use-case errors: 404 account, 400 adapter, 400 IMPORT_ERROR with the file-level reason, 422 another account', async () => {
     const errors = [
       [new FinancialAccountNotFoundError(ACCOUNT), 404, { code: 'NOT_FOUND', details: { financialAccountId: ACCOUNT } }],
       [new UnsupportedAdapterError('mt940', '1'), 400, { code: 'VALIDATION_ERROR', details: { fields: [{ field: 'adapterId', code: 'NOT_SUPPORTED' }] } }],
@@ -184,6 +185,14 @@ describe('POST /api/v1/imports/bank-transactions', () => {
         new ImportFileError({ code: 'MISSING_COLUMN', message: 'Column "Betrag" not found' }),
         400,
         { code: 'IMPORT_ERROR', message: 'Column "Betrag" not found', details: { reason: 'MISSING_COLUMN' } },
+      ],
+      [
+        new ImportAccountMismatchError('ACCOUNT_IBAN_MISMATCH', 'DE72660908000003061329', ['DE02120300000000202051']),
+        422,
+        {
+          code: 'ACCOUNT_IBAN_MISMATCH',
+          details: { reason: 'ACCOUNT_IBAN_MISMATCH', accountIban: 'DE72660908000003061329', fileIbans: ['DE02120300000000202051'] },
+        },
       ],
     ] as const;
     for (const [error, status, body] of errors) {

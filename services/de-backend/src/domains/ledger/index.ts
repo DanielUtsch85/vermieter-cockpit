@@ -39,10 +39,18 @@ export type {
   TransactionStatus,
   VersionConflict,
 } from './transaction.js';
-export { contentFingerprintFieldsV1 } from './bank-statement.js';
+export { checkStatementAccount, contentFingerprintFieldsV1 } from './bank-statement.js';
 export { balanceIdentityKey, canonicalBalance, inFileContinuity, previousExport, uniqueBalanceIdentities } from './balance-identity.js';
 export type { ChainBreak, ContinuityReport, FileOrder, InFileContinuity, KnownBalances, OldestBooking, PreviousExport } from './balance-identity.js';
-export type { BankStatementAdapter, NormalizedBankRow, ParsedRow, ParsedStatement, RowError, StatementError } from './bank-statement.js';
+export type {
+  BankStatementAdapter,
+  NormalizedBankRow,
+  ParsedRow,
+  ParsedStatement,
+  RowError,
+  StatementAccountMismatch,
+  StatementError,
+} from './bank-statement.js';
 export {
   businessDayOf,
   decideRow,
