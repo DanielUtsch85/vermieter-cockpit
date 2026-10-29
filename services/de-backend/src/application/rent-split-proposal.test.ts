@@ -10,15 +10,7 @@ import { TransactionNotFoundError } from './transaction-splits.js';
 /** §37.6's split proposal use case (#126): refusals in order, MRE asked only after the DE checks. */
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const principal: RealmPrincipal = { email: 'anna@example.com', mreRealmId: 'r', mreRole: 'administrator' };
-const totals: RentTermTotals = {
-  preTaxAmount: eur('650.00'),
-  charges: eur('150.00'),
-  debts: eur('0.00'),
-  discount: eur('0.00'),
-  vat: eur('0.00'),
-  balance: eur('0.00'),
-  grandTotal: eur('800.00'),
-};
+const totals: RentTermTotals = { rent: eur('650.00'), charges: eur('150.00'), due: eur('800.00') };
 const tx = (overrides: Partial<Transaction> = {}) =>
   ({ id: 't1', amount: eur('800.00'), direction: 'INFLOW', status: 'IMPORTED', ...overrides }) as unknown as Transaction;
 const input = { principal, authorizationHeader: 'Bearer t', transactionId: 't1', mreTenantId: '6512f0c2a1b2c3d4e5f60a01', mreRentTerm: '2027020100' };

@@ -85,7 +85,15 @@ const realmG: FakeRealm = {
     {
       _id: TENANT_G,
       name: 'Mieterin G',
-      rents: [{ term: 2028030100, total: { preTaxAmount: 650, charges: 150, debts: 0, discount: 0, vat: 0, balance: 0, grandTotal: 800 } }],
+      properties: [
+        {
+          property: { name: 'Wohnung G' },
+          rent: 650,
+          entryDate: '01/01/2028',
+          exitDate: '31/12/2028',
+          expenses: [{ title: 'Nebenkosten', amount: 150, beginDate: '01/01/2028', endDate: '31/12/2028' }],
+        },
+      ],
     },
   ],
 };

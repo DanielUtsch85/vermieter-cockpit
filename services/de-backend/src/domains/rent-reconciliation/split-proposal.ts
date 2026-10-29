@@ -5,15 +5,14 @@ import { Money } from '../../shared/index.js';
  * `RENT_BASE` and `RENT_OPERATING_COST_ADVANCE` for the Transaction's amount. A read, never a write.
  */
 
-/** A term's totals as the MRE client reads them (§37.6), each Money rounded half-up to the cent. */
+/**
+ * A term as the MRE client reads it (§37.6), each Money rounded half-up to the cent: the lease's rent and charges for
+ * the term, and the amount due without the balance carried over.
+ */
 export interface RentTermTotals {
-  readonly preTaxAmount: Money;
+  readonly rent: Money;
   readonly charges: Money;
-  readonly debts: Money;
-  readonly discount: Money;
-  readonly vat: Money;
-  readonly balance: Money;
-  readonly grandTotal: Money;
+  readonly due: Money;
 }
 
 export type SplitProposalFlag =
@@ -33,9 +32,7 @@ const min = (a: Money, b: Money) => (a.compare(b) <= 0 ? a : b);
 
 /** §37.6: `RENT_BASE` = min(rent, amount), the advance = min(charges, the rest), the rest `unallocated`; zero splits left out. */
 export function proposeRentSplit(amount: Money, totals: RentTermTotals, alreadySplit: boolean): RentSplitProposal {
-  const rent = totals.preTaxAmount;
-  const charges = totals.charges;
-  const due = totals.grandTotal.subtract(totals.balance);
+  const { rent, charges, due } = totals;
   const adjustments = due.subtract(rent).subtract(charges);
   const base = min(nonNegative(rent), amount);
   const advance = min(nonNegative(charges), amount.subtract(base));

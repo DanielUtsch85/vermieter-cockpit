@@ -63,10 +63,33 @@ describe('HttpMreClient against a fake MRE', () => {
             name: 'Tina Mieterin',
             contacts: [{ email: 'tina@example.com' }],
             guaranty: 2999.995,
-            // The stored rents as computeRent writes them (§37.6); more than the client keeps.
-            rents: [
-              { term: 2027010100, total: { preTaxAmount: 650.004, charges: 150, debts: 0, discount: 0, vat: 0, balance: 0, grandTotal: 800, payment: 800 } },
-              { term: 2027020100, total: { preTaxAmount: 650, charges: 150, debts: 25, discount: 5, vat: 0, balance: 100.005, grandTotal: 920.005 } },
+            // The lease as toOccupantData answers it (§37.6): the stored rents[] are dropped, the properties kept with
+            // their dates formatted DD/MM/YYYY. The parking space and the garden charge join in February.
+            frequency: 'months',
+            properties: [
+              {
+                propertyId: PROPERTY_A,
+                property: { _id: PROPERTY_A, name: 'Wohnung 1' },
+                rent: 650.004,
+                entryDate: '01/01/2027',
+                exitDate: '31/12/2027',
+                expenses: [
+                  { title: 'Nebenkosten', amount: 150, beginDate: '01/01/2027', endDate: '31/12/2027' },
+                  { title: 'Garten', amount: 20, beginDate: '01/02/2027', endDate: '31/12/2027' },
+                ],
+              },
+              {
+                propertyId: PROPERTY_B,
+                property: { _id: PROPERTY_B, name: 'Stellplatz' },
+                rent: 50,
+                entryDate: '01/02/2027',
+                exitDate: '31/12/2027',
+                expenses: [],
+              },
+              // A cellar for the second half of January only: the month counts whole (the lease's frequency is months).
+              { propertyId: 'cellar', property: { _id: 'cellar' }, rent: 30, entryDate: '15/01/2027', exitDate: '31/01/2027', expenses: [] },
+              // A property whose record is gone is skipped, as computeRent does.
+              { propertyId: 'gone', rent: 999, entryDate: '01/01/2027', exitDate: '31/12/2027', expenses: [] },
             ],
           },
         ],
@@ -173,23 +196,24 @@ describe('HttpMreClient against a fake MRE', () => {
     }
   });
 
-  it('readRentBreakdown reads one stored term of the Realm list, half-up to the cent; an unknown term or Tenant undefined (§37.6)', async () => {
+  it('readRentBreakdown: the lease of the Realm list for the term, then the term’s amount due, half-up to the cent; an unknown term or Tenant undefined (§37.6)', async () => {
     const token = signJwt({ account: { email: 'anna@example.com' } });
     const eur = (a: string) => Money.of(a, 'EUR');
+    const before = mre.requests.length;
     expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027010100')).toEqual({
-      preTaxAmount: eur('650.00'),
+      rent: eur('680.00'),
       charges: eur('150.00'),
-      debts: eur('0.00'),
-      discount: eur('0.00'),
-      vat: eur('0.00'),
-      balance: eur('0.00'),
-      grandTotal: eur('800.00'),
+      due: eur('800.00'),
     });
-    expect(mre.requests.at(-1)).toMatchObject({ path: '/api/v2/tenants', organizationid: 'realm-a' });
-    expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027020100')).toMatchObject({
-      debts: eur('25.00'),
-      discount: eur('5.00'),
-      balance: eur('100.01'),
+    expect(mre.requests.slice(before)).toMatchObject([
+      { path: '/api/v2/tenants', organizationid: 'realm-a' },
+      { path: `/api/v2/rents/tenant/${TENANT_A}/2027010100`, organizationid: 'realm-a' },
+    ]);
+    // February: the parking space and the garden join; the term's due is MRE's own (a float, rounded once), not the sum.
+    expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027020100')).toEqual({
+      rent: eur('700.00'),
+      charges: eur('170.00'),
+      due: eur('800.00'),
     });
     expect(await client.readRentBreakdown(token, 'realm-a', TENANT_A, '2027030100')).toBeUndefined();
     expect(await client.readRentBreakdown(token, 'realm-a', '6512f0c2a1b2c3d4e5f60aff', '2027010100')).toBeUndefined();
@@ -197,15 +221,15 @@ describe('HttpMreClient against a fake MRE', () => {
   });
 
   it.each([
+    ['a Tenant not in the list has no term, and the term is not asked', '[{"_id":"6512f0c2a1b2c3d4e5f60aff"}]', 'none'],
     [
-      'missing debts, discount, VAT and balance are 0',
-      '[{"_id":"6512f0c2a1b2c3d4e5f60a01","rents":[{"term":2027010100,"total":{"preTaxAmount":500,"charges":100,"grandTotal":600}}]}]',
-      'ok',
+      'an expense without an amount is an unexpected shape',
+      '[{"_id":"6512f0c2a1b2c3d4e5f60a01","name":"Tina","properties":[{"rent":500,"expenses":[{"title":"x"}]}]}]',
+      'UNAVAILABLE',
     ],
-    ['a Tenant without rents has no term', '[{"_id":"6512f0c2a1b2c3d4e5f60a01"}]', 'none'],
     [
-      'a total without charges is an unexpected shape',
-      '[{"_id":"6512f0c2a1b2c3d4e5f60a01","name":"Tina","rents":[{"term":2027010100,"total":{"preTaxAmount":500}}]}]',
+      'a date not as toOccupantData formats it is an unexpected shape',
+      '[{"_id":"6512f0c2a1b2c3d4e5f60a01","name":"Tina","properties":[{"rent":500,"entryDate":"2027-01-01T00:00:00Z"}]}]',
       'UNAVAILABLE',
     ],
   ])('readRentBreakdown: %s', async (_label, body, expected) => {
@@ -215,10 +239,8 @@ describe('HttpMreClient against a fake MRE', () => {
       if (expected === 'UNAVAILABLE') {
         await expectCode(read, 'UNAVAILABLE');
         await expect(read).rejects.not.toThrow(/Tina/);
-      } else if (expected === 'none') {
-        expect(await read).toBeUndefined();
       } else {
-        expect(await read).toMatchObject({ debts: Money.of('0', 'EUR'), balance: Money.of('0', 'EUR'), grandTotal: Money.of('600', 'EUR') });
+        expect(await read).toBeUndefined();
       }
     } finally {
       stub.close();

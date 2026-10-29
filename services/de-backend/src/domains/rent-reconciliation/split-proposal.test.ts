@@ -5,7 +5,7 @@ import { proposeRentSplit, type RentTermTotals } from './split-proposal.js';
 /** §37.6's split proposal (#126). */
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const totals = (overrides: Partial<Record<keyof RentTermTotals, string>> = {}): RentTermTotals => {
-  const v = { preTaxAmount: '650.00', charges: '150.00', debts: '0.00', discount: '0.00', vat: '0.00', balance: '0.00', grandTotal: '800.00', ...overrides };
+  const v = { rent: '650.00', charges: '150.00', due: '800.00', ...overrides };
   return Object.fromEntries(Object.entries(v).map(([k, a]) => [k, eur(a)])) as unknown as RentTermTotals;
 };
 const view = (p: ReturnType<typeof proposeRentSplit>) => ({
@@ -48,7 +48,7 @@ describe('proposeRentSplit (§37.6)', () => {
   });
 
   it('a term with adjustments (VAT, debts, discount): flagged; due includes them; their part stays unallocated', () => {
-    const p = proposeRentSplit(eur('820.00'), totals({ debts: '30.00', discount: '10.00', grandTotal: '820.00' }), false);
+    const p = proposeRentSplit(eur('820.00'), totals({ due: '820.00' }), false);
     expect(view(p)).toEqual({
       splits: [
         ['RENT_BASE', '650.00'],
@@ -57,10 +57,6 @@ describe('proposeRentSplit (§37.6)', () => {
       unallocated: '20.00',
       flags: [['TERM_HAS_ADJUSTMENTS', '20.00']],
     });
-  });
-
-  it('a balance carried from earlier months is not due for this term', () => {
-    expect(proposeRentSplit(eur('800.00'), totals({ balance: '100.00', grandTotal: '900.00' }), false).term.due.amount).toBe('800.00');
   });
 
   it('ALREADY_SPLIT last; splits plus unallocated always equal the amount', () => {

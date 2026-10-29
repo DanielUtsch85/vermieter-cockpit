@@ -266,7 +266,7 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
     });
   });
 
-  describe("a Tenant's stored rents in the list (needed for the rent split proposal, #126, api-design §37.6)", () => {
+  describe("a Tenant's lease in the list (needed for the rent split proposal, #126, api-design §37.6)", () => {
     let tenantId = '';
 
     beforeAll(async () => {
@@ -295,14 +295,27 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
       tenantId = z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/) }).parse(json)._id;
     });
 
-    it('GET /tenants carries rents[] with term and total (preTaxAmount, charges, grandTotal, balance); toRentData has no separate charges', async () => {
+    it('GET /tenants drops the stored rents[] but keeps the properties with rent, dates (DD/MM/YYYY) and expenses; toRentData has no separate charges', async () => {
       const { status, json } = await call('/tenants', { token: await token(), realm: realmA });
       expect(status).toBe(200);
       const tenant = z
-        .array(z.object({ _id: z.string(), rents: z.array(z.object({ term: z.number(), total: z.object({}).passthrough() })).optional() }).passthrough())
+        .array(z.object({ _id: z.string() }).passthrough())
         .parse(json)
         .find((t) => t._id === tenantId);
-      expect(tenant?.rents?.find((r) => r.term === 2027020100)?.total).toMatchObject({ preTaxAmount: 650, charges: 150, debts: 0, discount: 0, vat: 0 });
+      // toOccupantData: `delete occupant.rents` (review of #138's first CI run).
+      expect(tenant).not.toHaveProperty('rents');
+      expect(tenant).toMatchObject({
+        frequency: 'months',
+        properties: [
+          {
+            property: expect.objectContaining({ _id: expect.any(String) }),
+            rent: 650,
+            entryDate: '01/01/2027',
+            exitDate: '31/12/2027',
+            expenses: [expect.objectContaining({ amount: 150, beginDate: '01/01/2027', endDate: '31/12/2027' })],
+          },
+        ],
+      });
       const single = await call(`/rents/tenant/${tenantId}/2027020100`, { token: await token(), realm: realmA });
       expect(Object.keys(z.object({}).passthrough().parse(single.json))).not.toContain('charges');
     });
@@ -310,11 +323,7 @@ describe.skipIf(apiUrl === undefined)('MRE landlord API contract (pinned baselin
     it('HttpMreClient.readRentBreakdown reads the term of its Tenant and Realm only', async () => {
       const client = new HttpMreClient({ apiBaseUrl: base, timeoutMs: 5000 });
       const breakdown = await client.readRentBreakdown(await token(), realmA, tenantId, '2027020100');
-      expect([breakdown?.preTaxAmount.amount, breakdown?.charges.amount, breakdown?.grandTotal.subtract(breakdown.balance).amount]).toEqual([
-        '650.00',
-        '150.00',
-        '800.00',
-      ]);
+      expect([breakdown?.rent.amount, breakdown?.charges.amount, breakdown?.due.amount]).toEqual(['650.00', '150.00', '800.00']);
       expect(await client.readRentBreakdown(await token(), realmA, tenantId, '2028010100')).toBeUndefined();
       expect(await client.readRentBreakdown(await token(), realmB, tenantId, '2027020100')).toBeUndefined();
     });
