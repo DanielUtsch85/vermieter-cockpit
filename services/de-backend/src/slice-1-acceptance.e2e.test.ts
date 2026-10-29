@@ -45,6 +45,8 @@ import {
   getDeposit,
   listDeposits,
   voidDeposit,
+  closeDeposit,
+  reopenDeposit,
   getReconciliation,
   listReconciliations,
   releaseReconciliation,
@@ -249,10 +251,12 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
       },
       securityDeposits: {
         create: createDeposit({ repository: new PostgresSecurityDepositRepository(db), readMreTenant: mreTenantDepositReader(client) }),
-        get: getDeposit({ repository: new PostgresSecurityDepositRepository(db) }),
+        get: getDeposit({ repository: new PostgresSecurityDepositRepository(db), readMreTenant: mreTenantDepositReader(client) }),
         list: listDeposits({ repository: new PostgresSecurityDepositRepository(db) }),
         amend: amendDeposit({ repository: new PostgresSecurityDepositRepository(db) }),
         void: voidDeposit({ repository: new PostgresSecurityDepositRepository(db) }),
+        close: closeDeposit({ repository: new PostgresSecurityDepositRepository(db) }),
+        reopen: reopenDeposit({ repository: new PostgresSecurityDepositRepository(db) }),
       },
       rentReconciliations: {
         create: createReconciliation({ repository: new PostgresRentReconciliationRepository(db), lookupMreRentTerm: mreRentTermLookup(client) }),

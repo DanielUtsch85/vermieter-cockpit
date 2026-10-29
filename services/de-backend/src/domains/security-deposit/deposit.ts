@@ -1,9 +1,10 @@
-import type { AuditActor, Money, VersionConflict } from '../../shared/index.js';
+import { Money, type AuditActor, type BusinessDate, type VersionConflict } from '../../shared/index.js';
+import { deriveFigures, type CountedCash, type DepositState, type DepositView } from './figures.js';
 
 /**
  * SecurityDeposit (data-model.md §26, api-design.md §47.1, phase-5-plan P5-D1/D2/D4): the landlord-side record of one
  * rental deposit (Kaution) held for one MRE Tenant (the lease, P5-D1). Its cash is ledger cash, linked through splits
- * (VC-5-02); its amounts are derived on read (VC-5-03). Status `ACTIVE` → `VOID` here; `CLOSED` comes with VC-5-04.
+ * (VC-5-02); its amounts are derived on read (VC-5-03). Status `ACTIVE` → `VOID`, `ACTIVE` ⇄ `CLOSED` (VC-5-04).
  */
 
 export type SecurityDepositId = string & { readonly __brand: 'SecurityDepositId' };
@@ -24,6 +25,24 @@ export interface DepositAmendable {
   readonly notes: string | null;
 }
 
+/** How a deposit ended (§47.4, P5-D8). */
+export const DEPOSIT_CLOSING_REASONS = ['RETURNED', 'RETAINED', 'OTHER'] as const;
+export type DepositClosingReason = (typeof DEPOSIT_CLOSING_REASONS)[number];
+
+/** What `close` is asked for; `closingNote` required for `RETAINED` and `OTHER` (the API checks it). */
+export interface CloseRequest {
+  /** The last day whose cash belongs to the deposit. */
+  readonly closingDate: BusinessDate;
+  readonly reason: DepositClosingReason;
+  readonly closingNote: string | null;
+}
+
+/** The closing of a `CLOSED` deposit, with `held` at that moment, stored (§47.4). */
+export interface DepositClosing extends CloseRequest {
+  /** Signed. */
+  readonly heldAtClosing: Money;
+}
+
 export interface SecurityDeposit extends DepositAmendable {
   readonly id: SecurityDepositId;
   readonly mreRealmId: string;
@@ -32,6 +51,8 @@ export interface SecurityDeposit extends DepositAmendable {
   readonly expectedAmountSource: ExpectedAmountSource;
   readonly voidedAt: Date | null;
   readonly voidReason: string | null;
+  /** Set exactly while `CLOSED`. */
+  readonly closing: DepositClosing | null;
   readonly createdAt: Date;
   readonly version: number;
 }
@@ -99,11 +120,11 @@ export type AmendPlan =
     }
   /** Every given value equals the current one: a 200 no-op, answered whatever the version (§16.1). */
   | { readonly kind: 'UNCHANGED' }
-  /** Not `ACTIVE` (→ 409 DEPOSIT_NOT_ACTIVE). */
+  /** `VOID`, or `CLOSED` and a field other than `notes` changes (→ 409 DEPOSIT_NOT_ACTIVE, §47.4). */
   | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly status: DepositStatus };
 
 export function planAmend(current: SecurityDeposit, changes: DepositChanges): AmendPlan {
-  if (current.status !== 'ACTIVE') return { kind: 'DEPOSIT_NOT_ACTIVE', status: current.status };
+  if (current.status === 'VOID') return { kind: 'DEPOSIT_NOT_ACTIVE', status: current.status };
   const values: DepositAmendable = {
     expectedAmount: changes.expectedAmount ?? current.expectedAmount,
     holdingFinancialAccountId: changes.holdingFinancialAccountId === undefined ? current.holdingFinancialAccountId : changes.holdingFinancialAccountId,
@@ -112,6 +133,8 @@ export function planAmend(current: SecurityDeposit, changes: DepositChanges): Am
   };
   const changed = AMENDABLE_FIELDS.filter((field) => !same(field, values, current));
   if (changed.length === 0) return { kind: 'UNCHANGED' };
+  // While CLOSED only notes change; the rest waits for a reopen, so the closing's checks always run (§47.4).
+  if (current.status === 'CLOSED' && changed.some((field) => field !== 'notes')) return { kind: 'DEPOSIT_NOT_ACTIVE', status: current.status };
   const newHoldingAccountId = changed.includes('holdingFinancialAccountId') ? values.holdingFinancialAccountId : null;
   return { kind: 'AMEND', values, changed, newHoldingAccountId };
 }
@@ -132,6 +155,71 @@ export function planVoid(current: SecurityDeposit, reason: string, at: Date, spl
   return { kind: 'VOID', next: { ...current, status: 'VOID', voidedAt: at, voidReason: reason, version: current.version + 1 } };
 }
 
+/** The cash a close looks at (§47.4): the counted cash (§47.3) and the open splits naming the deposit. */
+export interface CloseCash {
+  readonly counted: readonly CountedCash[];
+  /** Splits on `IMPORTED`, `UNREVIEWED`, `CLASSIFIED` or `IGNORED` Transactions (not a reversal), booking-date order. */
+  readonly open: readonly { readonly transactionId: string; readonly bookingDate: BusinessDate }[];
+}
+
+export type ClosePlan =
+  | { readonly kind: 'CLOSE'; readonly closing: DepositClosing }
+  /** `CLOSED` with exactly these values: a 200 no-op whatever the version. */
+  | { readonly kind: 'UNCHANGED' }
+  | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly status: DepositStatus }
+  | { readonly kind: 'CASH_AFTER_CLOSING_DATE'; readonly transactionIds: readonly string[] }
+  | { readonly kind: 'UNCONFIRMED_CASH'; readonly transactionIds: readonly string[] }
+  /** `RETURNED` and `held` > 0. */
+  | { readonly kind: 'DEPOSIT_STILL_HELD'; readonly held: Money }
+  /** `RETAINED` and `held` ≤ 0. */
+  | { readonly kind: 'NOTHING_RETAINED'; readonly held: Money };
+
+const distinctIds = (cash: readonly { readonly transactionId: string }[]) => [...new Set(cash.map((c) => c.transactionId))];
+
+/** §47.4's checks 3–6 in their order, on the cash read after the deposit's lock. */
+export function planClose(current: SecurityDeposit, request: CloseRequest, cash: CloseCash): ClosePlan {
+  const c = current.closing;
+  if (
+    current.status === 'CLOSED' &&
+    c !== null &&
+    c.closingDate === request.closingDate &&
+    c.reason === request.reason &&
+    c.closingNote === request.closingNote
+  ) {
+    return { kind: 'UNCHANGED' };
+  }
+  if (current.status !== 'ACTIVE') return { kind: 'DEPOSIT_NOT_ACTIVE', status: current.status };
+  const after = [...cash.counted, ...cash.open]
+    .filter((x) => x.bookingDate > request.closingDate)
+    .sort((x, y) => (x.bookingDate < y.bookingDate ? -1 : x.bookingDate > y.bookingDate ? 1 : x.transactionId < y.transactionId ? -1 : 1));
+  if (after.length > 0) return { kind: 'CASH_AFTER_CLOSING_DATE', transactionIds: distinctIds(after) };
+  if (cash.open.length > 0) return { kind: 'UNCONFIRMED_CASH', transactionIds: distinctIds(cash.open) };
+  const { held } = deriveFigures(current, cash.counted);
+  // RETURNED at held ≤ 0: more repaid than held is §47.3's RETURNED too (review on #136).
+  if (request.reason === 'RETURNED' && held.isPositive()) return { kind: 'DEPOSIT_STILL_HELD', held };
+  if (request.reason === 'RETAINED' && !held.isPositive()) return { kind: 'NOTHING_RETAINED', held };
+  return { kind: 'CLOSE', closing: { ...request, heldAtClosing: held } };
+}
+
+export type ReopenPlan =
+  | { readonly kind: 'REOPEN' }
+  /** `ACTIVE`: a 200 no-op whatever the version. */
+  | { readonly kind: 'UNCHANGED' }
+  /** `VOID` (→ 409 DEPOSIT_NOT_CLOSED). */
+  | { readonly kind: 'DEPOSIT_NOT_CLOSED'; readonly status: DepositStatus };
+
+export function planReopen(current: SecurityDeposit): ReopenPlan {
+  if (current.status === 'ACTIVE') return { kind: 'UNCHANGED' };
+  if (current.status === 'VOID') return { kind: 'DEPOSIT_NOT_CLOSED', status: current.status };
+  return { kind: 'REOPEN' };
+}
+
+/** §47.4: what a closing keeps against claims, never negative; nothing for `RETURNED`. */
+export function retainedAmountOf(closing: DepositClosing): Money {
+  const held = closing.heldAtClosing;
+  return closing.reason === 'RETURNED' || !held.isPositive() ? Money.zero(held.currency) : held;
+}
+
 /** The create's checks 2–3 (§47.1), before MRE is asked and again under the write's locks. */
 export type DepositRefusal =
   | { readonly kind: 'ACCOUNT_NOT_FOUND'; readonly financialAccountId: string }
@@ -139,8 +227,8 @@ export type DepositRefusal =
   | { readonly kind: 'DEPOSIT_EXISTS'; readonly securityDepositId: string };
 
 export type CreateDepositOutcome =
-  | { readonly kind: 'CREATED'; readonly deposit: SecurityDeposit }
-  | { readonly kind: 'REPLAYED'; readonly deposit: SecurityDeposit }
+  | { readonly kind: 'CREATED'; readonly deposit: DepositView }
+  | { readonly kind: 'REPLAYED'; readonly deposit: DepositView }
   | { readonly kind: 'IDEMPOTENCY_CONFLICT' }
   | DepositRefusal;
 
@@ -148,26 +236,40 @@ export type CreateDepositOutcome =
 export type CreatePrecheck = { readonly kind: 'PROCEED' } | Exclude<CreateDepositOutcome, { kind: 'CREATED' }>;
 
 export type AmendDepositOutcome =
-  | { readonly kind: 'AMENDED'; readonly deposit: SecurityDeposit; readonly changed: boolean }
+  | { readonly kind: 'AMENDED'; readonly deposit: DepositView; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'DEPOSIT_NOT_ACTIVE'; readonly status: DepositStatus }
   | Extract<DepositRefusal, { kind: 'ACCOUNT_NOT_FOUND' | 'NOT_A_SECURITY_DEPOSIT_ACCOUNT' }>
   | VersionConflict;
 
 export type VoidDepositOutcome =
-  | { readonly kind: 'VOIDED'; readonly deposit: SecurityDeposit; readonly changed: boolean }
+  | { readonly kind: 'VOIDED'; readonly deposit: DepositView; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | Exclude<VoidPlan, { kind: 'VOID' | 'UNCHANGED' }>
+  | VersionConflict;
+
+export type CloseDepositOutcome =
+  | { readonly kind: 'CLOSED'; readonly deposit: DepositView; readonly changed: boolean }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<ClosePlan, { kind: 'CLOSE' | 'UNCHANGED' }>
+  | VersionConflict;
+
+export type ReopenDepositOutcome =
+  | { readonly kind: 'REOPENED'; readonly deposit: DepositView; readonly changed: boolean }
+  | { readonly kind: 'NOT_FOUND' }
+  | Exclude<ReopenPlan, { kind: 'REOPEN' | 'UNCHANGED' }>
   | VersionConflict;
 
 export interface DepositFilter {
   readonly statuses?: readonly DepositStatus[];
   readonly mreTenantId?: string;
   readonly holdingFinancialAccountId?: string;
+  /** The derived state (§47.3), any of them; applied before paging. */
+  readonly states?: readonly DepositState[];
 }
 
 export interface DepositPage {
-  readonly items: readonly SecurityDeposit[];
+  readonly items: readonly DepositView[];
   readonly page: number;
   readonly pageSize: number;
   readonly total: number;
@@ -179,11 +281,16 @@ export interface SecurityDepositRepository {
   createPrecheck(request: DepositRequest, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreatePrecheck>;
   /** Claims the key, repeats checks 2–3 under the write's locks, writes the deposit and an AuditRecord. */
   create(deposit: NewDeposit, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateDepositOutcome>;
-  findById(id: string, mreRealmId: string): Promise<SecurityDeposit | undefined>;
-  /** Newest `createdAt` first, then id; count and page in one snapshot. */
+  /** The deposit, its figures and the counted cash (§47.3), in one snapshot. */
+  findById(id: string, mreRealmId: string): Promise<DepositView | undefined>;
+  /** Newest `createdAt` first, then id; filter, figures, count and page in one snapshot. */
   list(mreRealmId: string, filter: DepositFilter, page: { readonly page: number; readonly pageSize: number }): Promise<DepositPage>;
   /** A newly named holding account `FOR SHARE`, then the deposit `FOR UPDATE`, then `planAmend`. */
   amend(id: string, mreRealmId: string, changes: DepositChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendDepositOutcome>;
   /** The deposit `FOR UPDATE`, then its splits are read; no Transaction is locked (P5-D9). */
   void(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidDepositOutcome>;
+  /** The deposit `FOR UPDATE`, then its splits and their Transactions are read, then `planClose` (§47.4). */
+  close(id: string, mreRealmId: string, request: CloseRequest, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseDepositOutcome>;
+  /** The deposit `FOR UPDATE`, then `planReopen`; the AuditRecord keeps the cleared closing (§47.4). */
+  reopen(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ReopenDepositOutcome>;
 }

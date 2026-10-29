@@ -37,6 +37,8 @@ import {
   listDeposits,
   amendDeposit,
   voidDeposit,
+  closeDeposit,
+  reopenDeposit,
   getLoan,
   listLoans,
   voidLoan,
@@ -214,10 +216,12 @@ const app = createApp({
   },
   securityDeposits: {
     create: createDeposit({ repository: securityDeposits, readMreTenant: mreTenantDepositReader(mreClient) }),
-    get: getDeposit({ repository: securityDeposits }),
+    get: getDeposit({ repository: securityDeposits, readMreTenant: mreTenantDepositReader(mreClient) }),
     list: listDeposits({ repository: securityDeposits }),
     amend: amendDeposit({ repository: securityDeposits }),
     void: voidDeposit({ repository: securityDeposits }),
+    close: closeDeposit({ repository: securityDeposits }),
+    reopen: reopenDeposit({ repository: securityDeposits }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

@@ -236,23 +236,53 @@ export {
 } from './loans.js';
 export type { AmendLoan, CloseLoan, CreateLoan, CreateLoanInput, GetLoan, ListLoans, VoidLoan } from './loans.js';
 export {
+  DepositCashAfterClosingDateError,
   DepositClosedError,
   DepositExistsError,
   DepositHasSplitsError,
   DepositNotActiveError,
+  DepositNotClosedError,
+  DepositStillHeldError,
   ExpectedAmountRequiredError,
   HoldingAccountNotFoundError,
   NotASecurityDepositAccountError,
+  NothingRetainedError,
   SecurityDepositNotFoundError,
+  UnconfirmedDepositCashError,
   amendDeposit,
+  closeDeposit,
   createDeposit,
   getDeposit,
   listDeposits,
+  reopenDeposit,
   voidDeposit,
 } from './security-deposits.js';
-export type { AmendDeposit, CreateDeposit, CreateDepositInput, GetDeposit, ListDeposits, MreTenantDepositReader, VoidDeposit } from './security-deposits.js';
-export { DEPOSIT_STATUSES } from '../domains/security-deposit/index.js';
-export type { DepositChanges, DepositFilter, DepositPage, DepositStatus, SecurityDeposit } from '../domains/security-deposit/index.js';
+export type {
+  AmendDeposit,
+  CloseDeposit,
+  CreateDeposit,
+  CreateDepositInput,
+  GetDeposit,
+  ListDeposits,
+  MreTenantDepositReader,
+  ReopenDeposit,
+  VoidDeposit,
+} from './security-deposits.js';
+export { DEPOSIT_CLOSING_REASONS, DEPOSIT_STATES, DEPOSIT_STATUSES, retainedAmountOf } from '../domains/security-deposit/index.js';
+export type {
+  CountedCash,
+  DepositChanges,
+  DepositClosing,
+  DepositClosingReason,
+  DepositFigures,
+  DepositFilter,
+  DepositFlag,
+  DepositPage,
+  DepositState,
+  DepositStatus,
+  DepositView,
+  SecurityDeposit,
+} from '../domains/security-deposit/index.js';
 export { CLOSING_REASONS, LOAN_STATUSES, debtFrom, fieldErrors as loanFieldErrors } from '../domains/financing/index.js';
 export type { ClosingReason, Loan, LoanChanges, LoanFilter, LoanPage, LoanStatus } from '../domains/financing/index.js';
 export {

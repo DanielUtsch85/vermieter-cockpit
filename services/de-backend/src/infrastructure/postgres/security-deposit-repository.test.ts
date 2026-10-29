@@ -98,7 +98,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresSecurityDepositRepository', 
         version: 1,
       });
       expect(deposit.expectedAmount.toJSON()).toEqual({ amount: '2999.99', currency: 'EUR' });
-      expect(await repository.findById(deposit.id, REALM)).toEqual(deposit);
+      expect(await repository.findById(deposit.id, REALM)).toEqual({ ...deposit, cash: [] });
       expect(await repository.findById(deposit.id, OTHER_REALM)).toBeUndefined();
       expect(await repository.findById('not-a-uuid', REALM)).toBeUndefined();
       expect(await audits(deposit.id)).toMatchObject([{ action: 'CREATED', previous_version: null, new_version: 1 }]);
@@ -396,7 +396,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresSecurityDepositRepository', 
       const deposit = await created();
       await fails('UPDATE security_deposit SET mre_tenant_id = $2, version = version + 1 WHERE id = $1', [deposit.id, nextTenant()], /never changes/);
       await fails('UPDATE security_deposit SET notes = $2 WHERE id = $1', [deposit.id, 'x'], /exactly one/);
-      await fails('UPDATE security_deposit SET status = $2, version = version + 1 WHERE id = $1', [deposit.id, 'CLOSED'], /not a step/);
+      // A step since 0039; without the closing columns its close guard refuses it (the 0039 tests cover the rest).
+      await fails('UPDATE security_deposit SET status = $2, version = version + 1 WHERE id = $1', [deposit.id, 'CLOSED'], /HELD_AT_CLOSING/);
       await fails(
         `UPDATE security_deposit SET status = 'VOID', voided_at = now(), voided_by = 'x', void_reason = 'x', notes = 'y', version = version + 1 WHERE id = $1`,
         [deposit.id],

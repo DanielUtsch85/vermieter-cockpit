@@ -6,6 +6,7 @@ import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
 import {
   amendDeposit,
+  confirmTransaction,
   createDeposit,
   createFinancialAccount,
   createManualTransaction,
@@ -14,6 +15,9 @@ import {
   listDeposits,
   setTransactionSplits,
   voidDeposit,
+  closeDeposit,
+  reopenDeposit,
+  type MreTenantDepositReader,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
@@ -33,7 +37,8 @@ import { mrePrincipalVerifier, mreTenantDepositReader } from './wiring.js';
  * VC-5-01 end to end (api-design.md §47.1), wired as in main.ts against the fake MRE: the amount defaults to MRE's
  * `guaranty` (rounded once to the cent), an explicit amount wins, a Tenant without guaranty needs one; one deposit per
  * Tenant; the holding account must be a deposit account; amend, void and a new deposit after the void; Realm isolation;
- * MRE is never asked for a replay or a refusal DE can decide itself; and (VC-5-02, §47.2) a deposit split on a mixed transfer.
+ * MRE is never asked for a replay or a refusal DE can decide itself; and (VC-5-02, §47.2) a deposit split on a mixed transfer;
+ * (VC-5-03, §47.3) the figures; (VC-5-04, §47.4) close, reopen and the comparison with MRE.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
@@ -43,6 +48,8 @@ const T_GUARANTY = '6512f0c2a1b2c3d4e5f65a01';
 const T_NONE = '6512f0c2a1b2c3d4e5f65a02';
 const T_OTHER = '6512f0c2a1b2c3d4e5f65a03';
 const T_SPLIT = '6512f0c2a1b2c3d4e5f65a04';
+const T_FIGURES = '6512f0c2a1b2c3d4e5f65a05';
+const T_CLOSE = '6512f0c2a1b2c3d4e5f65a06';
 const T_B = '6512f0c2a1b2c3d4e5f65b01';
 
 describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end', () => {
@@ -52,6 +59,8 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
   let server: Server;
   let base: string;
   let tenantReads = 0;
+  // Realm A's Tenant list as the fake MRE serves it; VC-5-04 changes it between reads.
+  const tenantsA: Record<string, unknown>[] = [];
   const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
 
   beforeAll(async () => {
@@ -69,12 +78,14 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
         members: member,
         applications: [],
         // MRE stores floats: 2999.995 is 3000.00 once rounded half-up to the cent; 0 is MRE's default for "none".
-        tenants: [
+        tenants: Object.assign(tenantsA, [
           { _id: T_GUARANTY, name: 'Mieterin K', guaranty: 2999.995 },
           { _id: T_NONE, name: 'Mieter N', guaranty: 0 },
           { _id: T_OTHER, name: 'Mieter O' },
           { _id: T_SPLIT, name: 'Mieterin S', guaranty: 1500 },
-        ],
+          { _id: T_FIGURES, name: 'Mieter F', guaranty: 2400 },
+          { _id: T_CLOSE, name: 'Mieterin C', guaranty: 1000, guarantyPayback: 950 },
+        ]),
       },
       { _id: REALM_B, name: 'B', members: member, applications: [], tenants: [{ _id: T_B, name: 'Mieter B', guaranty: 900 }] },
     ]);
@@ -82,27 +93,28 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
     const reader = mreTenantDepositReader(client);
     const db = createDatabase(pool);
     const deposits = new PostgresSecurityDepositRepository(db);
+    const countedReader: MreTenantDepositReader = async (...args) => {
+      tenantReads += 1;
+      return reader(...args);
+    };
     const app = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(client),
       ...commandsWith({
         securityDeposits: {
-          create: createDeposit({
-            repository: deposits,
-            readMreTenant: async (...args) => {
-              tenantReads += 1;
-              return reader(...args);
-            },
-          }),
-          get: getDeposit({ repository: deposits }),
+          create: createDeposit({ repository: deposits, readMreTenant: countedReader }),
+          get: getDeposit({ repository: deposits, readMreTenant: countedReader }),
           list: listDeposits({ repository: deposits }),
           amend: amendDeposit({ repository: deposits }),
           void: voidDeposit({ repository: deposits }),
+          close: closeDeposit({ repository: deposits }),
+          reopen: reopenDeposit({ repository: deposits }),
         },
         financialAccounts: { create: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }) },
         transactions: {
           createManual: createManualTransaction({ repository: new PostgresTransactionRepository(db) }),
           setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
+          confirm: confirmTransaction({ repository: new PostgresTransactionRepository(db) }),
           get: getTransaction({ queries: new PostgresTransactionQueries(db) }),
         },
       }),
@@ -295,5 +307,155 @@ describe.skipIf(databaseUrl === undefined)('SecurityDeposit (VC-5-01) end to end
         422,
       ),
     ).toMatchObject({ code: 'INVALID_SECURITY_DEPOSIT_SPLIT', details: { position: 1, reason: 'DIRECTION' } });
+  });
+
+  it('VC-5-03: instalments and a mixed first transfer through the API; only confirmed cash counts; the state filter', async () => {
+    type Figures = Deposit & {
+      received: { amount: string };
+      outstanding: { amount: string };
+      state: string;
+      flags: { code: string }[];
+      cash?: { kind: string; amount: { amount: string } }[];
+    };
+    const kaution = await account('SECURITY_DEPOSIT', 'Kaution F');
+    const giro = await account('BANK', 'Giro F');
+    const deposit = await json<Deposit>(await A('POST', '/security-deposits', { mreTenantId: T_FIGURES, holdingFinancialAccountId: kaution }), 201);
+    const pay = async (on: string, bookingDate: string, splits: { amount: string; code: string; deposit?: boolean }[], confirm = true) => {
+      const total = splits.reduce((sum, s) => sum + Number(s.amount), 0).toFixed(2);
+      const id = (
+        await json<{ transactionId: string }>(
+          await A('POST', '/transactions', { financialAccountId: on, amount: { amount: total, currency: 'EUR' }, direction: 'INFLOW', bookingDate }),
+          201,
+        )
+      ).transactionId;
+      await json(
+        await A('PUT', `/transactions/${id}/splits`, {
+          splits: splits.map((s) => ({
+            amount: { amount: s.amount, currency: 'EUR' },
+            financialCategoryCode: s.code,
+            ...(s.deposit === true ? { securityDepositId: deposit.securityDepositId } : {}),
+          })),
+        }),
+        200,
+      );
+      if (confirm) await json(await A('POST', `/transactions/${id}/confirm`), 200);
+      return id;
+    };
+    // The first transfer on the Girokonto: rent plus the first instalment; only the deposit split counts.
+    await pay(giro, '2027-02-01', [
+      { amount: '650.00', code: 'RENT_BASE' },
+      { amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true },
+    ]);
+    // An unconfirmed instalment does not count yet.
+    await pay(kaution, '2027-03-01', [{ amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true }], false);
+    let read = await json<Figures>(await A('GET', `/security-deposits/${deposit.securityDepositId}`), 200);
+    expect([read.received.amount, read.outstanding.amount, read.state]).toEqual(['800.00', '1600.00', 'PARTIALLY_RECEIVED']);
+    expect(read.flags.map((f) => f.code)).toEqual(['RECEIVED_OUTSIDE_HOLDING_ACCOUNT']);
+    await pay(kaution, '2027-04-01', [{ amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true }]);
+    await pay(kaution, '2027-05-01', [{ amount: '800.00', code: 'SECURITY_DEPOSIT', deposit: true }]);
+    read = await json<Figures>(await A('GET', `/security-deposits/${deposit.securityDepositId}`), 200);
+    expect([read.received.amount, read.outstanding.amount, read.state]).toEqual(['2400.00', '0.00', 'RECEIVED']);
+    expect(read.cash?.map((c) => [c.kind, c.amount.amount])).toEqual([
+      ['RECEIPT', '800.00'],
+      ['RECEIPT', '800.00'],
+      ['RECEIPT', '800.00'],
+    ]);
+    const listed = await json<{ items: Figures[] }>(await A('GET', `/security-deposits?state=RECEIVED&mreTenantId=${T_FIGURES}`), 200);
+    expect(listed.items.map((d) => [d.securityDepositId, d.state, d.cash])).toEqual([[deposit.securityDepositId, 'RECEIVED', undefined]]);
+    expect((await A('GET', '/security-deposits?state=HELD')).status).toBe(400);
+  });
+
+  it('VC-5-04: checkMre compares with MRE; close RETAINED, a new split refused, reopen; MRE gone or unreadable is a flag', async () => {
+    type Closable = Deposit & {
+      held: { amount: string };
+      state: string;
+      flags: { code: string; details: Record<string, unknown> }[];
+      closing: Record<string, unknown> | null;
+      mre?: { guaranty: { amount: string } | null; guarantyPayback: { amount: string } | null } | null;
+    };
+    const giro = await account('BANK', 'Giro C');
+    const deposit = await json<Deposit>(await A('POST', '/security-deposits', { mreTenantId: T_CLOSE }), 201);
+    const id = deposit.securityDepositId;
+    const book = async (direction: 'INFLOW' | 'OUTFLOW', amount: string, bookingDate: string, withDeposit = true) => {
+      const tx = (
+        await json<{ transactionId: string }>(
+          await A('POST', '/transactions', { financialAccountId: giro, amount: { amount, currency: 'EUR' }, direction, bookingDate }),
+          201,
+        )
+      ).transactionId;
+      const res = await A('PUT', `/transactions/${tx}/splits`, {
+        splits: [{ amount: { amount, currency: 'EUR' }, financialCategoryCode: 'SECURITY_DEPOSIT', ...(withDeposit ? { securityDepositId: id } : {}) }],
+      });
+      if (res.status !== 200) return { tx, res };
+      await json(await A('POST', `/transactions/${tx}/confirm`), 200);
+      return { tx, res };
+    };
+    const read = async (query = '') => json<Closable>(await A('GET', `/security-deposits/${id}${query}`), 200);
+    const mreFlags = (d: Closable) => d.flags.filter((f) => f.code.includes('MRE')).map((f) => f.code);
+    await book('INFLOW', '1000.00', '2027-02-01');
+
+    // Without checkMre MRE is not asked; with it, the values and no flag while they agree.
+    const reads = tenantReads;
+    expect(await read()).not.toHaveProperty('mre');
+    expect(tenantReads).toBe(reads);
+    let d = await read('?checkMre=true');
+    expect(tenantReads).toBe(reads + 1);
+    expect(d.mre).toEqual({ guaranty: { amount: '1000.00', currency: 'EUR' }, guarantyPayback: { amount: '950.00', currency: 'EUR' } });
+    expect(mreFlags(d)).toEqual([]);
+    await json(await A('POST', `/security-deposits/${id}/amend`, { expectedAmount: { amount: '1100.00', currency: 'EUR' } }), 200);
+    expect(mreFlags(await read('?checkMre=true'))).toEqual(['EXPECTED_DIFFERS_FROM_MRE']);
+
+    // 950 repaid, 50 kept against the utility bill.
+    await book('OUTFLOW', '950.00', '2027-06-15');
+    expect(await errorOf(await A('POST', `/security-deposits/${id}/close`, { closingDate: '2027-06-30', reason: 'RETURNED' }), 409)).toMatchObject({
+      details: { reason: 'DEPOSIT_STILL_HELD', held: { amount: '50.00', currency: 'EUR' } },
+    });
+    expect((await A('POST', `/security-deposits/${id}/close`, { closingDate: '2027-06-30', reason: 'RETAINED' })).status).toBe(400);
+    const closed = await A(
+      'POST',
+      `/security-deposits/${id}/close`,
+      { closingDate: '2027-06-30', reason: 'RETAINED', closingNote: 'Nebenkosten' },
+      { 'if-match': '"2"' },
+    );
+    const c = await json<Closable>(closed, 200);
+    expect(closed.headers.get('etag')).toBe('"3"');
+    expect([c.status, c.state, c.closing]).toEqual([
+      'CLOSED',
+      'CLOSED',
+      {
+        closingDate: '2027-06-30',
+        reason: 'RETAINED',
+        closingNote: 'Nebenkosten',
+        heldAtClosing: { amount: '50.00', currency: 'EUR' },
+        retainedAmount: { amount: '50.00', currency: 'EUR' },
+      },
+    ]);
+    // MRE's payback agrees with the 950 returned; once MRE says otherwise, the flag shows it.
+    expect(mreFlags(await read('?checkMre=true'))).toEqual(['EXPECTED_DIFFERS_FROM_MRE']);
+    const tenant = tenantsA.find((t) => t['_id'] === T_CLOSE) as Record<string, unknown>;
+    tenant['guarantyPayback'] = 1000;
+    d = await read('?checkMre=true');
+    expect(d.flags.find((f) => f.code === 'RETURNED_DIFFERS_FROM_MRE')?.details).toEqual({
+      guarantyPayback: { amount: '1000.00', currency: 'EUR' },
+      returned: { amount: '950.00', currency: 'EUR' },
+    });
+
+    // The closing is a cut: a late receipt is refused until a reopen.
+    const late = await book('INFLOW', '5.00', '2027-06-20');
+    expect(await errorOf(late.res, 409)).toMatchObject({ details: { reason: 'DEPOSIT_CLOSED', securityDepositId: id } });
+    expect(await errorOf(await A('POST', `/security-deposits/${id}/void`, { reason: 'x' }), 409)).toMatchObject({ details: { reason: 'DEPOSIT_CLOSED' } });
+    const reopened = await json<Closable>(await A('POST', `/security-deposits/${id}/reopen`), 200);
+    expect([reopened.status, reopened.closing, reopened.version]).toEqual(['ACTIVE', null, 4]);
+    expect(await audits(id)).toEqual(['CREATED', 'AMENDED', 'CLOSED', 'REOPENED']);
+
+    // The Tenant gone from MRE, then a list DE cannot read: flags, never an error.
+    tenantsA.splice(tenantsA.indexOf(tenant), 1);
+    d = await read('?checkMre=true');
+    expect([d.mre, mreFlags(d)]).toEqual([null, ['MRE_TENANT_NOT_FOUND']]);
+    tenantsA.push({ _id: 7 });
+    d = await read('?checkMre=true');
+    expect([d.mre, mreFlags(d)]).toEqual([null, ['MRE_UNAVAILABLE']]);
+    tenantsA.pop();
+    tenantsA.push(tenant);
   });
 });
