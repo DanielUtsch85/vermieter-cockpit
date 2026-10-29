@@ -423,3 +423,43 @@ export { RECONCILIATION_STATUSES, WRITE_BACK_STATES, isTermKey } from '../domain
 export type { Coverage, ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';
 export { RentNotProposableError, getRentSplitProposal } from './rent-split-proposal.js';
 export type { GetRentSplitProposal, MreRentBreakdownReader, RentSplitProposalView } from './rent-split-proposal.js';
+export {
+  AdministratorInactiveError,
+  InvalidMembershipError,
+  MembershipNotActiveError,
+  OverlappingWegMembershipError,
+  WegHasMembershipsError,
+  WegMembershipNotFoundError,
+  WegNotActiveError,
+  WegNotFoundError,
+  amendMembership,
+  amendWeg,
+  createMembership,
+  createWeg,
+  endMembership,
+  getMembership,
+  getWeg,
+  listMemberships,
+  listWegs,
+  readUnitMemberships,
+  voidMembership,
+  voidWeg,
+} from './wegs.js';
+export type {
+  AmendMembership,
+  AmendWeg,
+  CreateMembership,
+  CreateMembershipInput,
+  CreateWeg,
+  CreateWegInput,
+  EndMembership,
+  GetMembership,
+  GetWeg,
+  ListMemberships,
+  ListWegs,
+  ReadUnitMemberships,
+  VoidMembership,
+  VoidWeg,
+} from './wegs.js';
+export { MEMBERSHIP_STATUSES, WEG_STATUSES, formatMea, parseMea } from '../domains/weg/index.js';
+export type { MembershipChanges, MembershipFilter, Mea, Weg, WegChanges, WegFilter, WegMembership } from '../domains/weg/index.js';
