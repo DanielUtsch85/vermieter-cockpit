@@ -23,6 +23,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) |
 | **ACC3** | `phase-3-acceptance.e2e.test.ts` (Phase-3 exit through the API, VC-3-08) |
 | **ACC4** | `phase-4-acceptance.e2e.test.ts` (Phase-4 exit through the API, VC-4-06) |
+| **ACC5** | `phase-5-acceptance.e2e.test.ts` (Phase-5 exit through the API, VC-5-05) |
 | **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
 | **TM / TR2 / TA** | the Loan terms' domain, repository and API tests (VC-3-02, §17) |
 
@@ -609,6 +610,94 @@ ACC4 also checks the traceability every write promises. On the reconciliations i
 - the Realm filter dropped from the coverage read of a term;
 - an extra Phase-4 route without a row;
 - a missing `WRITE_BACK_WRITTEN` AuditRecord.
+
+## 30. Security deposit: the record (VC-5-01, api-design §47.1)
+
+`DD` = `domains/security-deposit/deposit.test.ts`, `DR` = `infrastructure/postgres/security-deposit-repository.test.ts`, `DA` = `api/security-deposits.test.ts`, `DE` = `security-deposit.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| One deposit per MRE Tenant that is not `VOID` (P5-D1), by the partial unique index alone: concurrent creates give one `CREATED`, the rest `DEPOSIT_EXISTS`; a create waiting on a void of the Tenant's deposit succeeds once it commits | DR "one deposit per Tenant …", "concurrent creates …", "a void and a new create …" |
+| `expectedAmount` from MRE's `guaranty` when not given (half-up to the cent once; `0` is no value → `422 EXPECTED_AMOUNT_REQUIRED`); MRE is never asked for a replay or a refusal DE decides itself | DD "resolveNew …"; DE "creates from MRE's guaranty …" |
+| The holding account is the Realm's and of type `SECURITY_DEPOSIT` (P5-D4), and keeps that type while a deposit names it | DR "precheck and create refuse …", "database guards (migration 0037)"; DE |
+| Amend only while `ACTIVE`; a no-op answers whatever the version; `VOID` is final and changes nothing else; the Tenant, Realm and creation never change; `version` + 1 per change; never deleted | DD "planAmend …", "planVoid …"; DR "amend", "void", "database guards (migration 0037)" |
+| RC and RR: void against amend and two voids serialise on the deposit row | DR "concurrency (§47.1, RC and RR)" |
+
+## 31. Security deposit: splits (VC-5-02, api-design §47.2)
+
+`DS` = `infrastructure/postgres/deposit-split-repository.test.ts`, `TS` as above.
+
+| Invariant | Tests |
+|---|---|
+| A split with `securityDepositId` is `SECURITY_DEPOSIT` (receipt on `INFLOW`, repayment on `OUTFLOW`) or `SECURITY_DEPOSIT_INTEREST` on an `INFLOW` (a reversal exempt); never with a PropertyReference or a Loan; the order of checks: unknown, category, direction, `VOID` | TS "checkDepositSplits …"; DS "the splits command", "the schema past the repository …" |
+| The categories have `category_type = SECURITY_DEPOSIT`, never `INCOME` (P5-D6) | DS "the category SECURITY_DEPOSIT_INTEREST is seeded …" |
+| Corrections: copied splits keep the id, a reversal mirrors it, a replacement may name another deposit | DS "corrections of deposit cash" |
+| A deposit with splits (reversals included) is never voided (`DEPOSIT_HAS_SPLITS`) | DS "void of a deposit with splits" |
+| P5-D9: Transaction → Loan → SecurityDeposit, the split trigger writing the deposit row; RC sees the other writer, RR `40001`; no deadlock in opposite orders | DS "concurrency (Transaction → Loan → SecurityDeposit …)" |
+
+## 32. Security deposit: derived amounts, state and flags (VC-5-03, api-design §47.3)
+
+`DF` = `domains/security-deposit/figures.test.ts`, `DFR` = `infrastructure/postgres/deposit-figures-repository.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Only current cash counts: splits on `CONFIRMED`/`RECONCILED` Transactions, not a reversal; a correction moves the amounts at once, nothing is stored | DFR "only current Transactions count …"; DF "deriveFigures …" |
+| `outstanding` = max(expected − received, 0); interest never reduces it; `held` signed; the `state` in §47.3's order (`RETURNED` at `held` ≤ 0) | DF "three instalments …", "repayments …", "a repayment before any receipt …" |
+| The flags `RECEIVED_EXCEEDS_EXPECTED`, `RETURNED_EXCEEDS_HELD` (`excess`) and `RECEIVED_OUTSIDE_HOLDING_ACCOUNT` (receipts only) in their order | DF "flags in order …"; DFR "RECEIVED_OUTSIDE_HOLDING_ACCOUNT …" |
+| The figures and `cash` read in one snapshot with the record; the list's `state` filter before paging | DFR; DA "derived figures (§47.3) …" |
+
+## 33. Security deposit: closing, reopening, the MRE comparison (VC-5-04, api-design §47.4)
+
+`DC` = `infrastructure/postgres/deposit-close-repository.test.ts`, `DAP` = `application/security-deposits.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Close in §47.4's order: no-op, `DEPOSIT_NOT_ACTIVE`, `CASH_AFTER_CLOSING_DATE`, `UNCONFIRMED_CASH`, then `held` by reason (`RETURNED` = 0, `RETAINED` > 0); `heldAtClosing` stored, `retainedAmount` derived | DD "planClose …"; DC "close" |
+| A `CLOSED` deposit takes no new split, whatever the date; a reversal and a replacement whose original names it pass; a later correction shows as `HELD_CHANGED_AFTER_CLOSING`; amend only `notes`; never voided | TS "CLOSED (§47.4) …"; DC "effects of CLOSED" |
+| Reopen clears the closing and keeps it in the AuditRecord `REOPENED` | DC "reopen" |
+| `checkMre` reads MRE after the snapshot; MRE down or the Tenant gone is a flag, never an error; MRE refusing the caller is | DF "HELD_CHANGED_AFTER_CLOSING and the MRE comparison …"; DAP; DE "VC-5-04 …" |
+| 0039 past the repository: the closing CHECKs, the frozen rule's steps, the close guard's three reasons, the split guard's `CLOSED` rule with both exemptions, and `down` | DC "migration 0039 past the repository …" |
+| Close against a split write, RC and RR; a correction waiting on a close is allowed | DC "concurrency (the deposit row, P5-D9)" |
+
+## 34. Phase 5 exit (VC-5-05, roadmap Phase 5; implemented)
+
+The exit of `docs/roadmap.md` Phase 5, claim by claim: *a deposit's expected vs actual cash is tracked without being mistaken for rental income.* Each claim is shown **end to end through the HTTP API** by **ACC5** (`phase-5-acceptance.e2e.test.ts`). It is one scenario against PostgreSQL and the fake MRE, as ACC4 does for Phase 4, and is backed by §30–§33. The figures are hand-computed and stated here, so the test checks them literally.
+
+**The scenario (Realm A, the fake MRE's Realm A):**
+- One MRE Tenant T1 with `guaranty` 2400 (three net rents of 800, as MRE stores it). Its lease is rent 650.00 and charges 150.00, and its terms `2027010100`, `2027020100` and `2027030100` are each 800.00 due. After the move-out, `guarantyPayback` 2254.20.
+- Two FinancialAccounts: a `BANK` Girokonto and a `SECURITY_DEPOSIT` Kautionskonto.
+- Transactions, each split, confirmed. R0–R2 come from a bank CSV import into the Girokonto (`generic-csv`, as ACC4) with the tenant's IBAN, which the in-order rule of #125 needs, and purposes that name no month (`Miete`, `Miete und Kaution`), so that no purpose month decides first (§37.3); R3–R6 are entered by hand. The order matters: import R0–R2, split and confirm R0, match R0 → January by hand, split and confirm R1 and R2, then `suggest`:
+
+  | Row | Account | Booking date | Direction | Amount | Splits | Meaning |
+  |---|---|---|---|---|---|---|
+  | R0 | Giro | 2027-01-04 | INFLOW | 800.00 | `RENT_BASE` 650.00, `RENT_OPERATING_COST_ADVANCE` 150.00 | January rent, on time |
+  | R1 | Giro | 2027-01-28 | INFLOW | 1,600.00 | `RENT_BASE` 650.00, `RENT_OPERATING_COST_ADVANCE` 150.00, `SECURITY_DEPOSIT` 800.00 (the deposit) | February rent, paid before the month, and the first instalment in one transfer |
+  | R2 | Giro | 2027-02-26 | INFLOW | 800.00 | `RENT_BASE` 650.00, `RENT_OPERATING_COST_ADVANCE` 150.00 | March rent, paid before the month (F10, #125) |
+  | R3 | Kaution | 2027-03-01 | INFLOW | 800.00 | `SECURITY_DEPOSIT` 800.00 | the second instalment: the same amount as a rent, never rent |
+  | R4 | Kaution | 2027-04-01 | INFLOW | 880.00 | `SECURITY_DEPOSIT` 880.00 | the third instalment, entered by hand with a typo; corrected to 800.00 |
+  | R5 | Kaution | 2027-12-31 | INFLOW | 4.20 | `SECURITY_DEPOSIT_INTEREST` 4.20 | interest credited |
+  | R6 | Kaution | 2028-01-15 | OUTFLOW | 2,254.20 | `SECURITY_DEPOSIT` 2,254.20 | the repayment after the move-out; 150.00 kept for the utility bill |
+
+| Exit claim | ACC5 step | Backed by |
+|---|---|---|
+| **A deposit's expected cash is tracked** | <ul><li>`POST /security-deposits { mreTenantId: T1, holdingFinancialAccountId: Kaution }` → `201`, `expectedAmount` 2400.00 from MRE, `expectedAmountSource` `MRE_GUARANTY`, `state` `EXPECTED`, `outstanding` 2400.00.</li><li>A second create for T1 → `409 DEPOSIT_EXISTS`.</li></ul> | §30 |
+| **… against its actual cash, in instalments** | <ul><li>After R1: `received` 800.00, `outstanding` 1,600.00, `PARTIALLY_RECEIVED`, flag `RECEIVED_OUTSIDE_HOLDING_ACCOUNT` with R1.</li><li>After R3: `received` 1,600.00.</li><li>After R4 (880.00): `received` 2,480.00, `outstanding` 0.00, `RECEIVED`, flag `RECEIVED_EXCEEDS_EXPECTED` with `excess` 80.00.</li><li>`cash` lists R1, R3, R4 in booking-date order.</li></ul> | §31, §32 |
+| **A correction of a receipt** | <ul><li>`correct` R4 with a replacement of 800.00 (the deposit kept): `received` 2,400.00, `RECEIVED`, no flag but the outside one.</li><li>`cash` lists R1, R3 and the replacement; neither R4 nor its reversal counts.</li></ul> | §31, §32 |
+| **Interest credited** | After R5: `interestCredited` 4.20, `held` 2,404.20; `received` stays 2,400.00 and `outstanding` 0.00. | §32 |
+| **… without being mistaken for rental income** (P5-D6) | <ul><li>R1's rent cash is 800.00, not 1,600.00 (`GET /transactions/{R1}/rent-reconciliations`: `available` 800.00).</li><li>R0 → T1 January is matched by hand (`POST /rent-reconciliations`).</li><li>`suggest { from: 2027-02, to: 2027-03 }` answers exactly two suggestions, both `EXACT_AMOUNT_IN_ORDER` with `confidence` `HIGH` (the IBAN history of the January match): R1 → T1 `2027020100` 800.00 and R2 → T1 `2027030100` 800.00. Each early payment falls into two months' windows, so only the in-order rule of #125 decides them; it starts after January, the matched month before. R3, the same amount as a rent in March's window, is no candidate.</li><li>A manual match of R3 to T1 March → `422 NO_RENT_CASH`.</li><li>After both confirms, T1's February and March are `MATCHED` at 800.00 each; the deposit's figures are unchanged.</li><li>The categories `SECURITY_DEPOSIT` and `SECURITY_DEPOSIT_INTEREST` have `categoryType` `SECURITY_DEPOSIT`.</li></ul> | §26, §31 |
+| **A partial repayment, a retained part and the closing** | <ul><li>After R6: `returned` 2,254.20, `held` 150.00, `PARTIALLY_RETURNED`.</li><li>`close { closingDate: 2028-01-31, reason: RETURNED }` → `409 DEPOSIT_STILL_HELD`, `held` 150.00.</li><li>`close { …, reason: RETAINED, closingNote: "Nebenkosten 2027" }` with `If-Match` → `CLOSED`; `closing.heldAtClosing` and `retainedAmount` 150.00.</li><li>`?checkMre=true` → `mre` `{ guaranty 2400.00, guarantyPayback 2254.20 }` and no MRE flag.</li><li>A late split naming the deposit → `409 DEPOSIT_CLOSED`; a void → `409 DEPOSIT_CLOSED`.</li></ul> | §33 |
+| **Realm isolation** across Phase 5 | <ul><li>Realm B calls **every route of api-design §47** with Realm A's ids, one row each in a table ACC5 iterates:<ul><li>`404` for `GET /security-deposits/{id}` (also with `?checkMre=true`), `amend`, `void`, `close` and `reopen`;</li><li>`404` for a create naming Realm A's Kautionskonto;</li><li>`200` with an empty page for the list with Realm A's Tenant or account as a filter;</li><li>`404 NOT_FOUND` with `details.securityDepositId` for a split in Realm B naming Realm A's deposit.</li></ul></li><li>After every row Realm A's deposit, its version and its AuditRecords are unchanged.</li><li>The table is compared with the routes the app serves (filtered to `/security-deposits`): a new route without a row turns ACC5 red.</li></ul> | §30–§33 |
+
+ACC5 also checks the deposit's AuditRecords: exactly `CREATED` and `CLOSED`, with `heldAtClosing` 150.00.
+
+**Counter-checks**, each of which turns ACC5 red:
+- `SECURITY_DEPOSIT` added to the rent categories (R1's `available` is then 1,600.00, R3 a candidate, and the suggestions change; P5-D6);
+- unconfirmed or reversed cash counted (the correction's figures);
+- interest counted in `received`;
+- the closing without the `held` check by reason;
+- a split allowed on a `CLOSED` deposit;
+- the Realm filter dropped from the deposit read;
+- an extra `/security-deposits` route without a row.
 
 ## Keeping this current
 
