@@ -101,6 +101,7 @@ Die vier `germany/*`-Dokumente sind **Erst-Entwürfe** mit Gesetzesbezug, die vo
 | E3 | Behandlung **Betriebskostenpauschale vs. Vorauszahlung** im Datenmodell. | D |
 | E4 | Verhältnis **WEG-Jahresabrechnung ↔ mieterseitige Betriebskostenabrechnung** (welche WEG-Kostenlinie ist gegenüber dem Mieter umlagefähig). | C/D |
 | E5 | Sollen **Grunderwerbsteuersätze je Bundesland** als gepflegte, datierte Parameter geführt werden? | A |
+| E6 | **Zinsen auf die Mietkaution** (§ 551 Abs. 3 BGB): stehen dem Mieter zu und werden mit der Kaution zurückgezahlt; steuerlich Kapitalerträge des Mieters (Abgeltungsteuer der Bank)? Wie sind sie beim Vermieter auszuweisen (Kategorie `SECURITY_DEPOSIT_INTEREST`, nie Einnahme, Phase 5 P5-D5)? Gilt Gleiches für Gewerbekautionen? | A |
 
 ---
 
