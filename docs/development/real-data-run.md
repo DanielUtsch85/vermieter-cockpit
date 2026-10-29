@@ -2,7 +2,7 @@
 
 A time-boxed experiment: real data of a real landlord through the API, to check the specification's assumptions against reality before Phase 5. The goal is findings, not code. Personal data stays out of this note: no IBANs, names or references from the files used.
 
-**Status:** step 1 (bank import) done on 2026-10-28; step 2 (loan schedule vs. the bank's plan) and step 3 (rent reconciliation against MRE terms) are open.
+**Status:** step 1 (bank import) done on 2026-10-28; step 2 (loan schedule) part 1 done on 2026-10-29, the comparison with the bank's plan open; step 3 (rent reconciliation against MRE terms) open.
 
 ## Step 1: bank export (BBBank, CSV)
 
@@ -66,9 +66,22 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 - **F7 — These rent payments are outflows (information).** The rent reconciliation (Phase 4) matches **incoming** rent against MRE rent terms and refuses an outflow (`TRANSACTION_NOT_INFLOW`). Rent the landlord pays for their own home is a private outflow and out of scope; step 3 needs rent **received** from a tenant.
 - F3 gets a second data point: one preset can serve both banks.
 
-## Step 2: loan schedule (open)
+## Step 2: loan schedule (part 1 done)
 
-Needs a real loan contract with its amortization plan (Tilgungsplan): create Loan and LoanTerms, record the first twelve payments as splits, compare `GET /loans/{id}/schedule` with the bank's plan to the cent.
+**Input:** the account details of one real annuity loan (BBBank, a "Schnelltilger" product, paid out, no repayment yet): principal, nominal rate fixed for ten years, monthly payment, a yearly special-repayment allowance, and the date of the first payment. No bank amortization plan and no payments yet. Amounts stay out of this note.
+
+**How:** `POST /loans`, `POST /loans/{id}/terms` (`ANNUITY`, `interestRate`, `scheduledPayment`, `firstPaymentDate`, `fixedRateUntil`, `initialRepaymentRate`, `specialRepaymentLimit`), `GET /loans/{id}/schedule`, through the API as `main.ts` wires it. All fields of the bank's page have a place in the terms; nothing was refused.
+
+**Results:**
+- The first twelve rows of the plan match an independent calculation (Python, `Decimal`, 30/360, half-up to the cent) exactly, and so does the whole plan (payments, total interest, last payment).
+- Plausibility: the first payment splits into interest and principal such that the principal share is exactly the contract's initial repayment rate (7.5 % p.a.). The payment on the bank page is consistent with principal and rate.
+
+**Findings:**
+- **F8 — The plan runs past the end of the fixed-rate period (medium).** `fixedRateUntil` is informational only (§41.2), so the plan simply continues at the same rate until paid off, months after the fixed period ends. What a landlord plans with is the balance at the end of the fixed period (Restschuld nach Zinsbindung): it is in the plan as the `balanceAfter` of the last payment before `fixedRateUntil`, but nowhere stated. Proposal: `summary.balanceAtFixedRateEnd` (and its date) in the schedule, and the same figure in the remaining-debt read.
+- **F9 — The first interest period is always a full month (verify).** The plan charges interest for a whole month on the first payment, whatever the payout date. Banks often charge pro-rata interest for a payout within the month (Teilzinsen), either inside the first payment or as a separate debit. Open until the bank's plan or the first debits are there.
+- The special-repayment allowance is stored but not used, as specified: special repayments are actual cash (`LOAN_PRINCIPAL` splits), and the remaining-debt read shows their effect against the plan (§41.6).
+
+**Still open (part 2):** the comparison with the bank's own plan to the cent, once the bank's amortization plan or the first debits (from the checking account already exported in step 1) are available; then F9 is settled.
 
 ## Step 3: rent reconciliation (open)
 
