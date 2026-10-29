@@ -3185,8 +3185,8 @@ Decisions P5-D1…D9 of `docs/development/phase-5-plan.md` (ADR-013, ADR-039, BR
 
 ```text
 POST /api/v1/security-deposits                          (VC-5-01, §47.1)
-GET  /api/v1/security-deposits                          (VC-5-01, §47.1; derived fields and filters VC-5-03)
-GET  /api/v1/security-deposits/{id}                     (VC-5-01, §47.1; ?checkMre=true VC-5-04)
+GET  /api/v1/security-deposits                          (VC-5-01, §47.1; derived fields and the state filter VC-5-03, §47.3)
+GET  /api/v1/security-deposits/{id}                     (VC-5-01, §47.1; derived fields and cash VC-5-03, §47.3; ?checkMre=true VC-5-04)
 POST /api/v1/security-deposits/{id}/amend               (VC-5-01, §47.1)
 POST /api/v1/security-deposits/{id}/void                (VC-5-01, §47.1; DEPOSIT_HAS_SPLITS VC-5-02, §47.2)
 PUT  /api/v1/transactions/{id}/splits                   (securityDepositId: VC-5-02, §47.2; also correct and reverse)
@@ -3259,7 +3259,7 @@ Superseded by the plan: `GET /rental-contract-references/{id}/security-deposit` 
 
 - `GET /security-deposits/{securityDepositId}`: one deposit with `ETag`.
 - `GET /security-deposits`: `{ items, page, pageSize, total }` (§11), newest `createdAt` first, then `securityDepositId`; count and page in one snapshot.
-  - Filters, optional and combined with AND: `status` (a comma-separated list), `mreTenantId`, `holdingFinancialAccountId`. `state` comes with VC-5-03.
+  - Filters, optional and combined with AND: `status` (a comma-separated list), `mreTenantId`, `holdingFinancialAccountId`. `state` comes with VC-5-03 (§47.3).
   - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`. An unknown or foreign filter id is an empty page, not `404` (§30.1).
 - Reads never call MRE (the comparison is VC-5-04's `?checkMre=true`).
 
@@ -3394,6 +3394,87 @@ A deposit's cash is the splits with its `securityDepositId` on **current** Trans
   - a `VOID` step of a deposit with splits;
   - the trigger order in `pg_trigger`.
 - **Rent separation (P5-D6), carried into ACC5 (VC-5-05):** a deposit split is not rent cash; a deposit-only Transaction is `422 NO_RENT_CASH` on a manual match; the mixed transfer's suggestion covers only its rent splits.
+
+## 47.3 Derived amounts, state and flags (VC-5-03)
+
+Decisions P5-D2 and P5-D4. A deposit's figures are never stored. Every read derives them from the cash that counts (§47.2), so a correction of a receipt moves them at once and nothing can drift.
+
+### The cash that counts
+
+The splits with the deposit's `securityDepositId` on **current** Transactions: `CONFIRMED` or `RECONCILED`, and not a reversal (§35.3). Each is one of:
+
+| Kind | Category | Direction |
+|---|---|---|
+| `RECEIPT` | `SECURITY_DEPOSIT` | `INFLOW` |
+| `REPAYMENT` | `SECURITY_DEPOSIT` | `OUTFLOW` |
+| `INTEREST` | `SECURITY_DEPOSIT_INTEREST` | `INFLOW` |
+
+Unconfirmed Transactions (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`) and `IGNORED` ones do not count; a deposit's figures change only when cash is confirmed. A corrected original (`CORRECTED`) and its reversal both drop out; its replacement counts by its own splits.
+
+### The derived amounts (Money, EUR, exact)
+
+- `received` = Σ `RECEIPT`;
+- `interestCredited` = Σ `INTEREST`;
+- `returned` = Σ `REPAYMENT`;
+- `outstanding` = max(`expectedAmount` − `received`, 0); interest never reduces it (P5-D5);
+- `held` = `received` + `interestCredited` − `returned`. It is **signed**: a negative `held` shows that more was repaid than was ever held (with the flag below). It is never clamped, so the books can be read off it.
+
+### `state` (derived, P5-D2), the first that applies
+
+1. `CLOSED`: the stored status is `CLOSED` (VC-5-04; until then never);
+2. `RETURNED`: `returned` > 0 and `held` ≤ 0;
+3. `PARTIALLY_RETURNED`: `returned` > 0;
+4. `RECEIVED`: `outstanding` = 0 and `received` > 0;
+5. `PARTIALLY_RECEIVED`: `received` > 0;
+6. `EXPECTED`.
+
+A `VOID` deposit has no splits (§47.2's void guard), so its state is `EXPECTED`; clients show its `status`. A refinement of P5-D2: P5-D2 says `held` = 0 for `RETURNED`; a negative `held` (more repaid than held) is `RETURNED` too, with `RETURNED_EXCEEDS_HELD`, rather than `PARTIALLY_RETURNED`, which would suggest money is still held.
+
+### `flags` (shown, never refused, P5-D2, P5-D4)
+
+A list, in this order, possibly empty; each `{ code, details }`:
+
+- `RECEIVED_EXCEEDS_EXPECTED`: `received` > `expectedAmount`; `details.excess` (Money). Typically a mistyped expectation or a payment meant as rent.
+- `RETURNED_EXCEEDS_HELD`: `held` < 0; `details.excess` (Money, positive).
+- `RECEIVED_OUTSIDE_HOLDING_ACCOUNT`: a holding account is set and a counted `RECEIPT` lies on a Transaction of another FinancialAccount; `details.transactionIds` (booking-date order, then id, unique). The cash was moved by hand, or the tenant paid to the Girokonto (P5-D4). Without a holding account there is no such flag; interest and repayments are not checked.
+
+### Response (every deposit response: create, read, list, amend, void)
+
+§47.1's fields, plus:
+
+- `received`, `interestCredited`, `returned`, `outstanding`, `held` (Money);
+- `state`, `flags`.
+
+`GET /security-deposits/{id}` (only the single read) adds `cash`: the counted splits in booking-date order, then Transaction id and position, each `{ transactionId, bookingDate, financialAccountId, kind, amount }`. It shows the instalments (§ 551 Abs. 2 BGB) and lets a client find the Transaction behind a flag. The list leaves it out.
+
+A new deposit answers zeros, `EXPECTED` and no flags. Amend and void answer the figures read in their own transaction after the write.
+
+### List filter
+
+`GET /security-deposits` gains `state` (a comma-separated list of the six values, any of them), combined with the other filters by AND. It is applied before paging, so `total` counts the deposits in those states. Order and paging are unchanged (§47.1). The figures are computed in the same `REPEATABLE READ READ ONLY` snapshot as the page (§47.1), so a page never mixes states of two moments.
+
+### Not in VC-5-03
+
+- `heldAtClosing` and `HELD_CHANGED_AFTER_CLOSING` (VC-5-04, P5-D8);
+- the MRE comparison (`checkMre`, VC-5-04, P5-D7);
+- an `asOf` date: the figures are as of now, all counted cash included. VC-5-04's closing checks use the same sums, restricted to a booking date.
+
+### Concurrency
+
+Reads only, in one snapshot. A split write or a correction that commits meanwhile is seen by the next read. No lock is taken.
+
+### Tests (VC-5-03)
+
+- **Domain:** the sums, `outstanding` and `held` (also negative), each `state` in its order (including `RETURNED` with a negative `held`), each flag and its details, `RECEIVED_OUTSIDE_HOLDING_ACCOUNT` without a holding account, interest not reducing `outstanding`.
+- **Repository:**
+  - three instalments, one per month: `PARTIALLY_RECEIVED`, then `RECEIVED`; `cash` in booking-date order;
+  - only current Transactions count: an unconfirmed receipt does not, a confirmed one does; a correction of a receipt moves `received` to the replacement's amount, a reversal alone removes it;
+  - interest credited adds to `held`, not to `received`;
+  - a partial and a full repayment: `PARTIALLY_RETURNED`, `RETURNED`; more repaid than held: `RETURNED` with `RETURNED_EXCEEDS_HELD`;
+  - a receipt on another account than the holding account flags it, a receipt on the holding account does not;
+  - the list filter by `state` with `total`, combined with `status` and `mreTenantId`; Realm isolation.
+- **API:** the new fields on every response; `cash` only on the single read; `state` in the list query (`400` for an unknown value).
+- **End to end:** the instalments and a mixed first transfer through the HTTP API, then the deposit read; a counter-check that counts unconfirmed Transactions too turns it red.
 
 ---
 
