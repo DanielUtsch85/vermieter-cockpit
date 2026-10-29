@@ -20,7 +20,7 @@ The API is a list of routes (api-design §47–48). Several points are open, or 
 - **MRE's `guaranty` and `guarantyPayback`** (mre-integration §31, BR-DEP-007), on the Tenant at the pinned baseline `479d0ad`:
   - `guaranty` is a number, defaulted to `0` (`frontdata.js` `toOccupantData`);
   - `guarantyPayback` has no default: it is missing until MRE's terminate-lease dialog sets it;
-  - both are floats, read through `GET /api/v2/tenants/:id`;
+  - both are floats. DE reads them through the Realm's Tenant list `GET /api/v2/tenants` (P5-D1): at the baseline `GET /api/v2/tenants/:id` answers `500` for an unknown or malformed id;
   - whether DE only reads them, or also writes them back like Phase 4, is open.
 - **Rent reconciliation.** A tenant's deposit inflow looks like rent cash. Nothing must suggest it as rent (BR-DEP-001, ADR-013's critical rule).
 

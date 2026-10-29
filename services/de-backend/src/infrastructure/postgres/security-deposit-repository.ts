@@ -92,7 +92,10 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
           if (existing !== undefined && existing.request_fingerprint !== idempotency.fingerprint) return { kind: 'IDEMPOTENCY_CONFLICT' };
           if (existing?.result != null) return { kind: 'REPLAYED', deposit: fromSnapshot(existing.result) };
         }
-        return (await refusalOf(trx, request.mreRealmId, request.mreTenantId, request.holdingFinancialAccountId, false)) ?? { kind: 'PROCEED' };
+        const refusal = await accountRefusalOf(trx, request.mreRealmId, request.holdingFinancialAccountId, false);
+        if (refusal !== undefined) return refusal;
+        const existing = await activeDepositOf(trx, request.mreRealmId, request.mreTenantId);
+        return existing === undefined ? { kind: 'PROCEED' } : { kind: 'DEPOSIT_EXISTS', securityDepositId: existing };
       });
   }
 
@@ -112,10 +115,11 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
             if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
             if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', deposit: fromSnapshot(claim.result) };
           }
-          // Checks 2–3 again, the holding account FOR SHARE (its type cannot change meanwhile).
-          const refusal = await refusalOf(trx, deposit.mreRealmId, deposit.mreTenantId, deposit.holdingFinancialAccountId, true);
+          // Check 2 again, the holding account FOR SHARE (its type cannot change meanwhile).
+          const refusal = await accountRefusalOf(trx, deposit.mreRealmId, deposit.holdingFinancialAccountId, true);
           if (refusal !== undefined) throw new Rejected(refusal);
-          // The partial unique index is the arbiter of two concurrent creates for one Tenant.
+          // Check 3 is the partial unique index alone: an insert waits on a concurrent void of the Tenant's deposit and
+          // succeeds once it commits (§47.1), where a read of the committed row would refuse too early.
           const inserted = await trx
             .insertInto('security_deposit')
             .values({
@@ -284,23 +288,20 @@ export class PostgresSecurityDepositRepository implements SecurityDepositReposit
   }
 }
 
-/** §47.1 checks 2–3: the holding account, then a deposit of the Tenant that is not `VOID`. */
-async function refusalOf(
+/** §47.1 check 2: the holding account, if one is named. */
+async function accountRefusalOf(
   trx: Transaction<Database>,
   mreRealmId: string,
-  mreTenantId: string,
   holdingFinancialAccountId: string | null,
   lock: boolean,
 ): Promise<DepositRefusal | undefined> {
-  if (holdingFinancialAccountId !== null) {
-    const account = await accountOf(trx, holdingFinancialAccountId, mreRealmId, lock);
-    if (account === undefined) return { kind: 'ACCOUNT_NOT_FOUND', financialAccountId: holdingFinancialAccountId };
-    if (account.accountType !== 'SECURITY_DEPOSIT') {
-      return { kind: 'NOT_A_SECURITY_DEPOSIT_ACCOUNT', financialAccountId: holdingFinancialAccountId, accountType: account.accountType };
-    }
+  if (holdingFinancialAccountId === null) return undefined;
+  const account = await accountOf(trx, holdingFinancialAccountId, mreRealmId, lock);
+  if (account === undefined) return { kind: 'ACCOUNT_NOT_FOUND', financialAccountId: holdingFinancialAccountId };
+  if (account.accountType !== 'SECURITY_DEPOSIT') {
+    return { kind: 'NOT_A_SECURITY_DEPOSIT_ACCOUNT', financialAccountId: holdingFinancialAccountId, accountType: account.accountType };
   }
-  const existing = await activeDepositOf(trx, mreRealmId, mreTenantId);
-  return existing === undefined ? undefined : { kind: 'DEPOSIT_EXISTS', securityDepositId: existing };
+  return undefined;
 }
 
 /** The account of the Realm with its type, `FOR SHARE` when the caller writes; undefined for unknown or foreign. */

@@ -4,6 +4,7 @@ import { createFingerprint, type DepositRequest, type NewDeposit } from '../../d
 import { Money } from '../../shared/index.js';
 import { createDatabase } from './database.js';
 import { migrateToLatest } from './migrate.js';
+import { waitForLocks } from './rent-reconciliation.test-support.js';
 import { PostgresSecurityDepositRepository } from './security-deposit-repository.js';
 import { testSchemaName } from './test-schema.test-support.js';
 
@@ -280,6 +281,81 @@ describe.skipIf(databaseUrl === undefined)('PostgresSecurityDepositRepository', 
     });
   });
 
+  describe('concurrency (§47.1, RC and RR)', () => {
+    const rawVoid = `UPDATE security_deposit SET status = 'VOID', voided_at = now(), voided_by = 'x', void_reason = 'x', version = version + 1 WHERE id = $1`;
+    const rawAmend = `UPDATE security_deposit SET notes = 'raw', version = version + 1 WHERE id = $1`;
+    /** `statement` committed on a second connection while `write` waits on its lock. */
+    const behind = async <T>(statement: string, id: string, write: () => Promise<T>, end: 'COMMIT' | 'ROLLBACK' = 'COMMIT'): Promise<T> => {
+      const holder = await pool.connect();
+      try {
+        await holder.query('BEGIN');
+        await holder.query(statement, [id]);
+        const waiting = write();
+        await waitForLocks(pool);
+        await holder.query(end);
+        return await waiting;
+      } finally {
+        holder.release();
+      }
+    };
+
+    it('void against amend (RC): an amend that waited sees VOID; a void that waited sees the new version (412)', async () => {
+      const a = await created();
+      expect(await behind(rawVoid, a.id, () => repository.amend(a.id, REALM, { notes: 'x' }, actor, [1]))).toEqual({
+        kind: 'DEPOSIT_NOT_ACTIVE',
+        status: 'VOID',
+      });
+      const b = await created();
+      expect(await behind(rawAmend, b.id, () => repository.void(b.id, REALM, 'x', new Date(), actor, [1]))).toMatchObject({
+        kind: 'VERSION_CONFLICT',
+        currentVersion: 2,
+      });
+      // Without If-Match the void that waited applies on the new version.
+      const c = await created();
+      expect(await behind(rawAmend, c.id, () => repository.void(c.id, REALM, 'x', new Date(), actor))).toMatchObject({
+        kind: 'VOIDED',
+        changed: true,
+        deposit: { version: 3, notes: 'raw' },
+      });
+    });
+
+    it('two voids (RC): the one that waited is a no-op', async () => {
+      const d = await created();
+      expect(await behind(rawVoid, d.id, () => repository.void(d.id, REALM, 'x', new Date(), actor))).toMatchObject({ kind: 'VOIDED', changed: false });
+    });
+
+    it('void against amend (RR): the later writer fails to serialise', async () => {
+      const d = await created();
+      const [one, two] = [await pool.connect(), await pool.connect()];
+      try {
+        await one.query('BEGIN ISOLATION LEVEL REPEATABLE READ');
+        await one.query('SELECT 1');
+        await two.query('BEGIN');
+        await two.query(rawVoid, [d.id]);
+        const amending = one.query(rawAmend, [d.id]).then(
+          () => 'amended',
+          (error: { code?: string }) => error.code,
+        );
+        await waitForLocks(pool);
+        await two.query('COMMIT');
+        expect(await amending).toBe('40001');
+      } finally {
+        await one.query('ROLLBACK');
+        one.release();
+        two.release();
+      }
+    });
+
+    it('a void and a new create for the Tenant (RC): the create waits on the index and succeeds; without the void, DEPOSIT_EXISTS', async () => {
+      const voided = await created();
+      const after = await behind(rawVoid, voided.id, () => repository.create(newDeposit(request({ mreTenantId: voided.mreTenantId })), actor));
+      expect(after).toMatchObject({ kind: 'CREATED', deposit: { mreTenantId: voided.mreTenantId, status: 'ACTIVE' } });
+      const kept = await created();
+      const refused = await behind(rawVoid, kept.id, () => repository.create(newDeposit(request({ mreTenantId: kept.mreTenantId })), actor), 'ROLLBACK');
+      expect(refused).toEqual({ kind: 'DEPOSIT_EXISTS', securityDepositId: kept.id });
+    });
+  });
+
   describe('database guards (migration 0037)', () => {
     const fails = async (statement: string, params: unknown[], message: RegExp) => {
       await expect(pool.query(statement, params)).rejects.toThrow(message);
@@ -295,6 +371,25 @@ describe.skipIf(databaseUrl === undefined)('PostgresSecurityDepositRepository', 
       await fails(insert, [REALM, 'ACTIVE', 'ABC', '1.00', null, 1], /check constraint/);
       await fails(insert, [REALM, 'ACTIVE', nextTenant(), '1.00', bankAccount, 1], /NOT_A_SECURITY_DEPOSIT_ACCOUNT/);
       await fails(insert, [REALM, 'ACTIVE', nextTenant(), '1.00', foreignDepositAccount, 1], /foreign key/);
+      await fails(insert, [REALM, 'ACTIVE', nextTenant(), '1000000000000000000', null, 1], /check constraint/);
+    });
+
+    it('every other CHECK: notes and void_reason lengths, the currency, the amount source', async () => {
+      const columns = `mre_realm_id, status, mre_tenant_id, expected_amount, currency, expected_amount_source, interest_bearing, created_by`;
+      const row = (currency: string, source: string, notes: string | null) => [REALM, nextTenant(), currency, source, notes];
+      const raw = `INSERT INTO security_deposit (${columns}, notes) VALUES ($1, 'ACTIVE', $2, 1, $3, $4, true, 'seed', $5)`;
+      // The positive cases pass, so each refusal below is its own CHECK's.
+      await pool.query(raw, row('EUR', 'MRE_GUARANTY', 'x'.repeat(2000)));
+      await fails(raw, row('EUR', 'REQUEST', ''), /security_deposit_notes_check/);
+      await fails(raw, row('EUR', 'REQUEST', 'x'.repeat(2001)), /security_deposit_notes_check/);
+      await fails(raw, row('USD', 'REQUEST', null), /security_deposit_currency_check/);
+      await fails(raw, row('EUR', 'GUESSED', null), /security_deposit_expected_amount_source_check/);
+      const deposit = await created();
+      const voidWith = (reason: string) =>
+        `UPDATE security_deposit SET status = 'VOID', voided_at = now(), voided_by = 'x', void_reason = '${reason}', version = version + 1 WHERE id = $1`;
+      await fails(voidWith(''), [deposit.id], /security_deposit_void_reason_check/);
+      await fails(voidWith('x'.repeat(501)), [deposit.id], /security_deposit_void_reason_check/);
+      await pool.query(voidWith('x'.repeat(500)), [deposit.id]);
     });
 
     it('the Tenant, Realm and creation never change; VOID is final; a void changes nothing else; version + 1 per step', async () => {

@@ -1544,8 +1544,8 @@ SecurityDeposit may reference multiple actual Ledger Transactions.
 ## Invariants
 
 - Security Deposit cash must not be categorized as Rental Income.
-- `receivedAmount` should be derived from linked confirmed Transactions where feasible.
-- `outstandingAmount` should be derived, not independently maintained.
+- `received`, `outstanding` and `held` are derived on read from the linked splits of current Transactions, never stored
+  (P5-D2, P5-D3).
 - Return payments remain actual Transactions.
 
 ---
@@ -2850,7 +2850,7 @@ InvestmentMetricDefinition
 | Acquisition → LandBuildingAllocation | normally 1 : 1 active |
 | DepreciationAsset → ScheduleVersion | 1 : many |
 | ScheduleVersion → ScheduleEntry | 1 : many |
-| RentalContractReference → SecurityDeposit | normally 1 : 0..1 initially |
+| MRE Tenant (`mreTenantId`) → SecurityDeposit | 1 : 0..1 that is not `VOID` (P5-D1) |
 | PropertyReference → MarketValuation | 1 : many |
 | Scenario → ScenarioAssumption | 1 : many |
 | MetricDefinition → MetricSnapshot | 1 : many |
@@ -3151,21 +3151,25 @@ Required test cases (in addition to §70.5):
 # 71. Security Deposit Cash Example
 
 ```text
-RentalContractReference
+MRE Tenant (mreTenantId)
   |
   └── SecurityDeposit
-        requiredAmount = 3,000 EUR
-        holdingFinancialAccountId = FinancialAccount-K
+        expectedAmount = 3,000 EUR
+        holdingFinancialAccountId = FinancialAccount-K (accountType SECURITY_DEPOSIT)
         |
         ├── Transaction A  amount = 1,500 EUR  direction = INFLOW
+        │     └── split SECURITY_DEPOSIT 1,500 EUR  securityDepositId = the deposit
         └── Transaction B  amount = 1,500 EUR  direction = INFLOW
+              └── split SECURITY_DEPOSIT 1,500 EUR  securityDepositId = the deposit
 ```
 
-Derived:
+The split is the link (P5-D3). Derived on read (P5-D2):
 
 ```text
-receivedAmount = 3,000 EUR
-outstandingAmount = 0 EUR
+received = 3,000 EUR
+outstanding = 0 EUR
+held = 3,000 EUR
+state = RECEIVED
 ```
 
 No Rental Income is generated.
