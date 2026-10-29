@@ -2,8 +2,8 @@
 
 A Germany-focused investment, finance, tax, and condominium-management extension for [MicroRealEstate](https://github.com/microrealestate/microrealestate).
 
-> **Project status:** Phases 0–4 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back); Phase 5 (Security Deposit) not started.  
-> There is no DE cockpit UI yet, and the system has not yet been run with a real landlord's data. The project is not yet intended for production use. See [Project Status](#project-status).
+> **Project status:** Phases 0–4 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back). A [run with real landlord data](docs/development/real-data-run.md) has checked the bank import and the rent reconciliation against reality, and the loan schedule in part (the comparison with the bank's own plan is still open); its findings are fixed or tracked in issues. Phase 5 (Security Deposit) is [planned](docs/development/phase-5-plan.md) and not started.  
+> There is no DE cockpit UI yet. The project is not yet intended for production use. See [Project Status](#project-status).
 
 ## Vision
 
@@ -183,7 +183,11 @@ Before implementing significant functionality, read the relevant documents rathe
 | [`docs/development/phase-2-plan.md`](docs/development/phase-2-plan.md) | Party, Ownership and Acquisition implementation plan |
 | [`docs/development/phase-3-plan.md`](docs/development/phase-3-plan.md) | Financing (Loans) implementation plan |
 | [`docs/development/phase-4-plan.md`](docs/development/phase-4-plan.md) | Rent reconciliation and MRE write-back implementation plan |
+| [`docs/development/phase-5-plan.md`](docs/development/phase-5-plan.md) | Security Deposit implementation plan (decisions P5-D1–D9 ahead of the item specs) |
+| [`docs/development/real-data-run.md`](docs/development/real-data-run.md) | Run of the implemented API with a real bank export, a real loan and real rent payments; findings F1–F11 and their follow-ups |
 | [`docs/development/invariant-suite.md`](docs/development/invariant-suite.md) | Implemented invariants and their test coverage |
+
+Documents that no longer apply are kept under [`docs/archive/`](docs/archive/) with a note on what superseded them.
 
 All documents now contain at least a first draft. The `docs/germany/*` domain documents are drafted as **versioned domain knowledge with statutory references and explicit `VERIFY` markers**; they are not legal or tax advice and must be verified against current law before implementation.
 
@@ -330,7 +334,7 @@ Historical `InvestmentMetricSnapshot` records may preserve derived results for c
 
 ## Project Status
 
-Phases 0–4 are implemented, each phase exit shown end to end through the API by an acceptance test (ACC, ACC2, ACC3, ACC4 in the [invariant suite](docs/development/invariant-suite.md)). Phase 5 (Security Deposit) has not started. The [implementation backlog](docs/development/backlog.md) tracks individual items, and the [roadmap](docs/roadmap.md) defines phase exits.
+Phases 0–4 are implemented, each phase exit shown end to end through the API by an acceptance test (ACC, ACC2, ACC3, ACC4 in the [invariant suite](docs/development/invariant-suite.md)). After Phase 4 the implemented API was run with real data ([real-data run](docs/development/real-data-run.md), #93): a real bank export imported twice, a real annuity loan's schedule, and six months of real rent inflows reconciled against MRE rent terms. The findings led to ADR-043 and to the items VC-1-12 to VC-1-14, VC-3-09 and VC-4-07, all done. Phase 5 (Security Deposit) has a [plan](docs/development/phase-5-plan.md) and has not started. The [implementation backlog](docs/development/backlog.md) tracks individual items, and the [roadmap](docs/roadmap.md) defines phase exits.
 
 ### Implemented
 
@@ -340,28 +344,29 @@ Phases 0–4 are implemented, each phase exit shown end to end through the API b
 | MRE access | Server-side identity and Realm membership verification; DE access for Realm administrators |
 | Property references | Link an MRE Property and refresh its cached, non-authoritative display data |
 | Financial accounts | Create and close accounts; validate and normalize IBANs |
-| Cash ledger | Create, read and filter Transactions; amend, ignore or restore unconfirmed entries; set categorized splits; confirm, correct or reverse confirmed entries |
-| Bank import | Generic CSV adapter, duplicate detection and explicit review of ambiguous rows |
+| Cash ledger | Create, read and filter Transactions (reads include the counterparty name and IBAN); amend, ignore or restore unconfirmed entries; set categorized splits; confirm, correct or reverse confirmed entries, with reversals and replacements keeping the original's counterparty |
+| Bank import | Generic CSV adapter in two versions: v1 with duplicate detection and explicit review of ambiguous rows; v2 (ADR-043) adds the bank's running balance as a row identity for overlapping exports with a continuity report, refuses a file whose own account IBAN differs from the FinancialAccount, and ships column-mapping presets per bank (first: `vr-banking` for BBBank, Volksbanken and Raiffeisenbanken) |
 | Party management | Create, read, list, amend and deactivate persons and organizations; explicitly link and end MRE Tenant references |
 | Ownership | Exact fractional shares, inclusive validity periods, close or void records, history and date-specific reads, and atomic ownership changes |
 | Acquisition | Acquisition records with costs and linked payments, confirmation, land/building allocation and owner-level allocation |
-| Financing | Loans with terms and planned schedules, interest/principal splits into the ledger with `loanId`, allocation across properties, derived remaining debt, lender balance statements, closing and refinancing |
-| Rent reconciliation | Match rent Transactions to MRE rent terms (by hand or from suggestions confirmed by a human), coverage per term and per Transaction, release, write-back of DE's payment to MRE exactly once, and its removal after a release |
+| Financing | Loans with terms and planned schedules (including the balance at the end of the fixed-rate period), interest/principal splits into the ledger with `loanId`, allocation across properties, derived remaining debt, lender balance statements, closing and refinancing |
+| Rent reconciliation | Match rent Transactions to MRE rent terms (by hand or from suggestions confirmed by a human, including tenants who pay before the month), coverage per term and per Transaction, release, write-back of DE's payment to MRE exactly once, and its removal after a release |
 | Integrity and audit | Exact Money arithmetic, Realm-scoped references, idempotency and version checks where specified, AuditRecords, and database constraints and triggers for financial and Ownership invariants |
 
 The public business API is under `/api/v1`. Its contracts are documented in [API Design](docs/architecture/api-design.md); code is in [`services/de-backend`](services/de-backend).
 
 ### Next work and current limits
 
-- **Real data first:** before Phase 5, a run with a real bank export, a real loan and real rent payments is planned, to check the specification's assumptions against reality.
-- **Later domains:** Security Deposit workflows, WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
+- **Phase 5:** Security Deposit per the [Phase-5 plan](docs/development/phase-5-plan.md) (VC-5-01 to VC-5-05): deposits the landlord holds, linked to cash through splits, never mistaken for rent.
+- **Real-data run, open part:** the comparison of the computed loan schedule with the bank's own amortization plan (step 2, part 2), and with it F9, the first interest period ([#121](https://github.com/DanielUtsch85/vermieter-cockpit/issues/121)); F11, a split proposal from the MRE term for rent payments ([#126](https://github.com/DanielUtsch85/vermieter-cockpit/issues/126)), is tracked and not yet decided. See the [real-data run](docs/development/real-data-run.md).
+- **Later domains:** WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
 - **User interface:** There is no DE cockpit UI yet. General read/list endpoints for FinancialAccounts and PropertyReferences are also pending.
 - **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
 - **German rules:** The `VERIFY` points in [the verification checklist](docs/germany/verification-checklist.md) must be resolved before implementing the affected tax, depreciation and WEG rules.
 
 ### Continuous integration
 
-[CI](https://github.com/DanielUtsch85/vermieter-cockpit/actions/workflows/ci.yml) runs build, typecheck and Vitest tests with PostgreSQL. A separate Compose job starts the DE/MRE stack, exercises the integration flow and runs the MRE contract tests against the pinned baseline. The [invariant suite](docs/development/invariant-suite.md) maps business rules to tests, including Realm isolation and concurrent writes. Lint and further migration checks remain open under VC-X-03.
+[CI](https://github.com/DanielUtsch85/vermieter-cockpit/actions/workflows/ci.yml) runs build, typecheck and Vitest tests with PostgreSQL. A separate Compose job starts the DE/MRE stack, exercises the integration flow and runs the MRE contract tests against the pinned baseline. ESLint and Prettier run on every change (`yarn lint`, `yarn format:check`). The [invariant suite](docs/development/invariant-suite.md) maps business rules to tests, including Realm isolation and concurrent writes. Further migration checks remain open under VC-X-03.
 
 ---
 
@@ -387,9 +392,11 @@ Requires Node.js 24 LTS (see `.nvmrc`). Yarn is pinned in the repository (`.yarn
 
 ```bash
 yarn install
-yarn build       # compile all workspaces
-yarn typecheck   # strict TypeScript check
-yarn test        # Vitest suites
+yarn build         # compile all workspaces
+yarn typecheck     # strict TypeScript check
+yarn lint          # ESLint
+yarn format:check  # Prettier (yarn format rewrites)
+yarn test          # Vitest suites
 ```
 
 Full local stack (DE backend + PostgreSQL, and MRE from the images of the pinned baseline commit; needs Docker):
