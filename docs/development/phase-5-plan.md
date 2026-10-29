@@ -94,7 +94,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
 
 - **As P3-D4:** `securityDepositId` on a split, lifting its `NOT_SUPPORTED` (§33.2's list). There is no `link-transaction` or `return` command. §47 is changed accordingly.
 - **Rules for a split with `securityDepositId`:**
-  - **The deposit:** of the caller's Realm, else `404`. It must not be `VOID` (`409 SECURITY_DEPOSIT_NOT_ACTIVE`). A `CLOSED` one takes no new links, whatever the booking date (`409 SECURITY_DEPOSIT_CLOSED`, P5-D8). Corrections of cash already linked are exempt (P5-D8).
+  - **The deposit:** of the caller's Realm, else `404`. It must not be `VOID` (`409 DEPOSIT_NOT_ACTIVE`). A `CLOSED` one takes no new links, whatever the booking date (`409 DEPOSIT_CLOSED`, P5-D8). Corrections of cash already linked are exempt (P5-D8).
   - **The category and direction:**
     - `SECURITY_DEPOSIT` on an `INFLOW` is a receipt;
     - `SECURITY_DEPOSIT` on an `OUTFLOW` is a repayment;
@@ -171,7 +171,7 @@ This plan fixes those points **before** the items are specified, as `phase-4-pla
   - `RETAINED`: `held` is > 0, a part or all kept against claims, else `409 NOTHING_RETAINED`; `notes` is required;
   - `OTHER`: `notes` is required, `held` may be anything.
   - `retainedAmount` = `held` on the closing date, derived, never typed. It is 0 for `RETURNED`.
-- **After closing, no new links** (review on #123): a `CLOSED` deposit takes no new split, whatever the Transaction's booking date (`409 SECURITY_DEPOSIT_CLOSED`, P5-D3). This makes the closing a cut, not a date filter. Cash found later (a late statement) is linked after a reopen (below).
+- **After closing, no new links** (review on #123): a `CLOSED` deposit takes no new split, whatever the Transaction's booking date (`409 DEPOSIT_CLOSED`, P5-D3). This makes the closing a cut, not a date filter. Cash found later (a late statement) is linked after a reopen (below).
 - **Corrections stay possible**, so that a wrong amount is never locked in:
   - a reversal mirrors its original's link, as everywhere (P5-D3);
   - a replacement may keep the link when its original had a split with the same deposit, with any amount;

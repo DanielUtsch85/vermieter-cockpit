@@ -1022,6 +1022,12 @@ Transaction (a reversal mirrors its original's, whatever its direction), of a Lo
 `VOID`, and never together with `propertyReferenceId`: a Loan reaches its properties through its allocation (§23).
 The split is the link between cash and Loan; a reversal mirrors `loanId` (0014). Database-enforced (migration 0027).
 
+**`securityDepositId` (P5-D3, VC-5-02, API §47.2):** only on a `SECURITY_DEPOSIT` split (an `INFLOW` is a receipt,
+an `OUTFLOW` a repayment) or a `SECURITY_DEPOSIT_INTEREST` split of an `INFLOW` (a reversal mirrors its original's,
+whatever its direction), of a SecurityDeposit of the same Realm that is not `VOID`, and never together with
+`propertyReferenceId` or `loanId`: a deposit is neither a property's income or cost nor a Loan's cash (BR-DEP-001).
+A reversal mirrors `securityDepositId` (0014). Database-enforced (migration 0038).
+
 ---
 
 # 18A. RentPaymentReconciliation
@@ -1112,6 +1118,8 @@ Represent economic classification independent from tax treatment.
 - `WEG_RESERVE_CONTRIBUTION`
 - `MAINTENANCE`
 - `ADMINISTRATION`
+- `SECURITY_DEPOSIT` and `SECURITY_DEPOSIT_INTEREST` (both `SECURITY_DEPOSIT`, never `INCOME`; the latter seeded by
+  migration 0038, P5-D5/D6)
 - `ACQUISITION` (`CAPITAL_MOVEMENT`, seeded by migration 0008): the purchase price's cash; transaction costs use
   their own categories (P2-D7)
 

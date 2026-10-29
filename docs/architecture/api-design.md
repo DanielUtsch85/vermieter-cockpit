@@ -1490,7 +1490,7 @@ The command replaces the current unconfirmed split proposal atomically.
 - **`400`:**
   - Per field: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED`, `INVALID_FORMAT` (also a JSON number as amount).
   - `NOT_ALLOWED` for a `direction` on a split.
-  - `NOT_SUPPORTED` for references whose entities do not exist yet (`wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `securityDepositId`, `taxClassificationId`): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits. `loanId` is accepted from VC-3-05 under the rules of §41.5.
+  - `NOT_SUPPORTED` for references whose entities do not exist yet (`wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `taxClassificationId`; `securityDepositId` until VC-5-02): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits. `loanId` is accepted from VC-3-05 under the rules of §41.5. `securityDepositId` is accepted from VC-5-02 under the rules of §47.2.
   - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` for a split currency other than the Transaction's, with the split's path (`splits.<i>.amount.currency`, VC-X-18).
 - **`404`:** unknown or foreign Transaction; a `propertyReferenceId` not in the caller's Realm.
 - **`409 INVARIANT_VIOLATION`**, `details.reason = "SPLIT_SUM_MISMATCH"`, with `expected`, `actual` and `difference` as Money: the sum differs from the Transaction amount by any amount, one cent included.
@@ -3188,7 +3188,8 @@ POST /api/v1/security-deposits                          (VC-5-01, §47.1)
 GET  /api/v1/security-deposits                          (VC-5-01, §47.1; derived fields and filters VC-5-03)
 GET  /api/v1/security-deposits/{id}                     (VC-5-01, §47.1; ?checkMre=true VC-5-04)
 POST /api/v1/security-deposits/{id}/amend               (VC-5-01, §47.1)
-POST /api/v1/security-deposits/{id}/void                (VC-5-01, §47.1)
+POST /api/v1/security-deposits/{id}/void                (VC-5-01, §47.1; DEPOSIT_HAS_SPLITS VC-5-02, §47.2)
+PUT  /api/v1/transactions/{id}/splits                   (securityDepositId: VC-5-02, §47.2; also correct and reverse)
 POST /api/v1/security-deposits/{id}/close               (VC-5-04)
 POST /api/v1/security-deposits/{id}/reopen              (VC-5-04)
 ```
@@ -3291,6 +3292,108 @@ Superseded by the plan: `GET /rental-contract-references/{id}/security-deposit` 
 - **Concurrency** as above, under RC and RR.
 - **MRE client:** the Tenant read from the list, parsed to `_id`, `guaranty` and `guarantyPayback` (each a number or `null`; `guaranty` `0` → `null`, a missing `guarantyPayback` → `null`, P5-D7). The fake MRE's Tenants gain the two fields. `mre.contract.test.ts` pins against the baseline: a Tenant with a `guaranty`, one with MRE's default `0`, and `guarantyPayback` missing until set.
 - **API:** every `400` code above; the error mapping (`404 NOT_FOUND` for an unknown Tenant, `422 EXPECTED_AMOUNT_REQUIRED`, `503 EXTERNAL_SYSTEM_ERROR`, nothing written on any of them, end to end against the fake MRE); a refusal and an idempotent replay without an MRE call; amend and void no-ops, `412`; the list filters and order; Realm isolation end to end.
+
+## 47.2 `securityDepositId` on splits (VC-5-02)
+
+Decisions P5-D3, P5-D5 and P5-D6. The split is the deposit's link to cash, as `loanId` is a Loan's (§41.5). There is no `link-transaction` or `return` command. A receipt, a repayment and an interest credit are each a `TransactionSplit` that carries the deposit's `securityDepositId`. What they add up to is derived on read (P5-D2, VC-5-03).
+
+### `securityDepositId` on a split
+
+`PUT /api/v1/transactions/{id}/splits` (§33.2) accepts `securityDepositId` on a split, lifting its `NOT_SUPPORTED`. `correct` accepts it in `replacement.splits` (§35.2), and a reversal mirrors it (below). Every split in a response carries `securityDepositId` (`null` without one), as do the Transaction reads (§30).
+
+- **Rules for a split with `securityDepositId`:**
+  - **The deposit:** of the caller's Realm, else `404 NOT_FOUND` with `details.securityDepositId`, for the first such split in position order. It must not be `VOID`, else `409 CONFLICT` with `reason = "DEPOSIT_NOT_ACTIVE"` and `details.securityDepositId` and `details.status`. This is §47.1's code, as `LOAN_NOT_ACTIVE` serves both a Loan's amend and its splits (§41.1, §41.5): one family of deposit codes (`DEPOSIT_NOT_ACTIVE`, `DEPOSIT_CLOSED`) for amend, void and split (review on #132). VC-5-04 adds `409 DEPOSIT_CLOSED` for a `CLOSED` deposit right after this check (P5-D8); until then no deposit can be `CLOSED` (0037).
+  - **The category and the direction** (P5-D3, P5-D5):
+    - `SECURITY_DEPOSIT` on an `INFLOW` is a **receipt**;
+    - `SECURITY_DEPOSIT` on an `OUTFLOW` is a **repayment**;
+    - `SECURITY_DEPOSIT_INTEREST` (new, below) is only allowed on an `INFLOW`; it is an **interest credit**.
+    - Any other category is `422 INVALID_SECURITY_DEPOSIT_SPLIT` with `details.position` and `details.reason = "CATEGORY"`. `SECURITY_DEPOSIT_INTEREST` on an `OUTFLOW` is the same with `details.reason = "DIRECTION"`.
+    - A **reversal** is exempt from the direction rule, as in §41.5: it has the opposite direction, mirrors its original's splits (§35.3, 0014) and never counts.
+  - **Not with a PropertyReference or a Loan:** a deposit is not a property's income or cost (BR-DEP-001), so it is never attributed to one; and a split names at most one thing its cash belongs to. A split with `securityDepositId` and `propertyReferenceId` or `loanId` is `400`, code `NOT_ALLOWED_WITH_SECURITY_DEPOSIT` at `splits.<i>.propertyReferenceId` or `splits.<i>.loanId`.
+  - A `SECURITY_DEPOSIT` or `SECURITY_DEPOSIT_INTEREST` split **without** `securityDepositId` stays allowed. It counts for no deposit, and it is still not rent (P5-D6).
+  - **Several deposits in one Transaction** are allowed, e.g. a pooled account's interest credit split across its deposits by the user (P5-D5), or one transfer for two leases.
+  - **A mixed transfer** (BR-DEP-006), such as the first month's rent plus the deposit, is two or more splits: `RENT_BASE` (and the advance) for the rent, `SECURITY_DEPOSIT` with `securityDepositId` for the deposit. Rent reconciliation sees only the rent splits (P4-D3).
+- **Order of checks** (§33.2's and §41.5's, extended):
+  1. `400`, `NOT_ALLOWED_WITH_SECURITY_DEPOSIT` among them;
+  2. Transaction `404`; `409 TRANSACTION_FROZEN`; `409 SPLIT_SUM_MISMATCH`; `412`; `UNKNOWN_CATEGORY`; PropertyReference `404`, all unchanged;
+  3. the Loan checks of §41.5 and §41.7, unchanged;
+  4. deposit `404` → `422 INVALID_SECURITY_DEPOSIT_SPLIT` (`CATEGORY`, then `DIRECTION`) → `409 DEPOSIT_NOT_ACTIVE`, each for the first split in position order.
+- **Same set again** (§33.2's no-op): `securityDepositId` is part of the comparison. Changing only a split's `securityDepositId` is a change: it gets a new version and the AuditRecord `SPLITS_REPLACED`, and it is refused once the Transaction is frozen.
+- **Confirm (§34):** unchanged. A confirmed Transaction's splits, `securityDepositId` included, are frozen (0009). A forgotten or wrong link is fixed by `correct`, whose replacement carries the right splits.
+
+### The category `SECURITY_DEPOSIT_INTEREST`
+
+- Seeded by the migration: code `SECURITY_DEPOSIT_INTEREST`, name `Kautionszinsen`, `category_type = SECURITY_DEPOSIT`, active. It is listed by §36's reads like any other.
+- Its type is never `INCOME`, as `SECURITY_DEPOSIT`'s is not (0008, P5-D6): the interest belongs to the tenant and is repaid with the deposit. Its tax meaning is Phase 7's (`VERIFY`, verification-checklist).
+
+### Corrections of deposit cash
+
+- **Reversal** (`correct` and `reverse`, §35.3, §35.9): its splits mirror the original's `securityDepositId` together with category, PropertyReference, `loanId` and amount. 0014's comparison gains `security_deposit_id`, so a reversal cannot drop or change it, and each deposit's history stays complete.
+- **Replacement:** its splits follow the rules above, whether copied from the original (§35.2) or given in the request. A copied split whose deposit has become `VOID` is refused like any other (`409 DEPOSIT_NOT_ACTIVE`); the client then sends the replacement's splits. (A deposit with splits cannot be voided, below, so a copied split never meets a `VOID` deposit; the refusal is defence in depth.)
+
+### What counts
+
+A deposit's cash is the splits with its `securityDepositId` on **current** Transactions: `CONFIRMED` or `RECONCILED`, and not a reversal (§35.3), by booking date. A correction replaces them through the replacement's splits. Unconfirmed Transactions do not count. VC-5-03's derived amounts (`received`, `interestCredited`, `returned`, `held`) are built on exactly this rule, per category and direction as above.
+
+### Void (§47.1, now with splits)
+
+- `POST /security-deposits/{id}/void` on a deposit that any split references, a reversal's included and whatever its Transaction's status, is `409 CONFLICT` with `reason = "DEPOSIT_HAS_SPLITS"` and `details.transactionIds` (unique, sorted). This is §47.1's refusal, which VC-5-01 could not reach yet. Its place in §47.1's order is unchanged: after the no-op and `DEPOSIT_CLOSED`, before `412`.
+- The splits are read after the deposit's lock, so a void and a split write serialise on the deposit row (below).
+
+### Concurrency and locks (P5-D9)
+
+- **Lock order Transaction → SecurityDeposit**, as Transaction → Loan in §41.5. `securityDepositId` is written through the ledger's own path (`PUT …/splits`, `correct`, `reverse`), which locks the Transaction first (§34.2, §35.5). After that lock, the repository locks the split set's Loans in id order (§41.5) and then its deposits `FOR UPDATE` in id order, and checks them. `correct` and `reverse` lock every deposit they write in one id-ordered step: the original's, which the reversal mirrors, and the replacement's. Past the repository the split guard **writes** the deposit row (P3-D8's no-op), so a stale `void` under REPEATABLE READ fails to serialise (`40001`) instead of passing a share lock.
+- **Deposit writers never lock a Transaction or a Loan:** amend and void (and VC-5-04's close and reopen) lock only the deposit row and read splits. Loan writers never lock a deposit. No cycle can arise.
+- **Void against a split write:** they serialise on the deposit row. Whichever comes second sees the other's result under READ COMMITTED (the void is refused with `DEPOSIT_HAS_SPLITS`, or the split with `DEPOSIT_NOT_ACTIVE`), or fails to serialise under REPEATABLE READ.
+- **The import path writes no splits** (§32), so it never reaches a deposit row.
+
+### In the database (VC-5-02)
+
+- **`transaction_split.security_deposit_id`:**
+  - `uuid`, with a composite foreign key `(security_deposit_id, mre_realm_id)` to `security_deposit (id, mre_realm_id)` (0037's `security_deposit_realm_key`), so a split never names another Realm's deposit;
+  - an index on `security_deposit_id`;
+  - `CHECK (security_deposit_id IS NULL OR (property_reference_id IS NULL AND loan_id IS NULL))`.
+- **The seed** of `SECURITY_DEPOSIT_INTEREST` (above); `down` removes it only while no split uses it.
+- **`transaction_split_security_deposit` trigger** (before insert or update, only for a split with `security_deposit_id`):
+  - it writes the deposit row with P3-D8's no-op, `RETURNING status`, and refuses a `VOID` deposit (0037's frozen trigger lets the no-op pass, also on a `VOID` row);
+  - it refuses a category other than `SECURITY_DEPOSIT` and `SECURITY_DEPOSIT_INTEREST`;
+  - it refuses `SECURITY_DEPOSIT_INTEREST` on a Transaction that is not `INFLOW`, unless the Transaction's `correction_role` is `REVERSAL`.
+  - **Trigger order (review on #67):** BEFORE triggers fire in name order, so it fires after `transaction_split_frozen` and after `transaction_split_loan`. Past the repository the Transaction row is written first, then the Loan rows, then the deposit rows, and raw writers keep P5-D9's order. A test checks the order in `pg_trigger`.
+- **`security_deposit_void_unreferenced`** (before update of `security_deposit`, `WHEN (OLD.status <> 'VOID' AND NEW.status = 'VOID')`): a step to `VOID` is refused while a split references the deposit, a reversal's included.
+- **0014's mirror** compares `(category, PropertyReference, loan_id, security_deposit_id, amount, currency)`.
+- Not in the database: the order of checks (the API) and what counts (a read, VC-5-03).
+
+### Tests (VC-5-02)
+
+- **API:**
+  - every `400` (`NOT_ALLOWED_WITH_SECURITY_DEPOSIT` with a PropertyReference and with a Loan, a malformed `securityDepositId`);
+  - the error mapping (`404` deposit, `INVALID_SECURITY_DEPOSIT_SPLIT` with both reasons, `DEPOSIT_NOT_ACTIVE`, `DEPOSIT_HAS_SPLITS` on void);
+  - `securityDepositId` in the split responses and in `GET /transactions/{id}`.
+- **Repository:**
+  - the order of checks, including a set with a Loan split and a deposit split;
+  - a receipt, a repayment and an interest credit; interest on an `OUTFLOW` refused;
+  - several deposits in one set; a mixed rent-and-deposit transfer;
+  - the same set again as a no-op, and a changed `securityDepositId` as a change;
+  - Realm isolation;
+  - void refused with splits, and allowed once none references the deposit.
+- **Corrections:**
+  - `correct` of a receipt: the copied splits, the replacement's own splits with another deposit or without one, interest on a replacement that is not `INFLOW`;
+  - `reverse` of a receipt and of a repayment (the reversal's opposite direction is allowed);
+  - which splits count before and after each, by the rule above.
+- **Concurrency**, RC and RR, each with a counter-check:
+  - a split write against a void of the deposit, both orders: RC sees the other's result; RR past the repository `40001`;
+  - two split writes with two deposits in opposite position order: no deadlock, because of the id order;
+  - a split set with a Loan and a deposit against a void of each.
+- **Schema past the repository**, each with a counter-check:
+  - a split with `security_deposit_id` of another Realm;
+  - one on a `VOID` deposit;
+  - one with another category, and `SECURITY_DEPOSIT_INTEREST` on an `OUTFLOW` that is not a reversal;
+  - an `OUTFLOW` reversal mirroring an interest credit, which is allowed;
+  - `security_deposit_id` with `property_reference_id`, and with `loan_id`;
+  - a reversal whose splits drop or change `security_deposit_id`;
+  - a `VOID` step of a deposit with splits;
+  - the trigger order in `pg_trigger`.
+- **Rent separation (P5-D6), carried into ACC5 (VC-5-05):** a deposit split is not rent cash; a deposit-only Transaction is `422 NO_RENT_CASH` on a manual match; the mixed transfer's suggestion covers only its rent splits.
 
 ---
 
