@@ -1,0 +1,213 @@
+import express, { type Response, type Router } from 'express';
+import { z } from 'zod';
+import {
+  DEPOSIT_STATUSES,
+  MRE_EXTERNAL_ID,
+  type AmendDeposit,
+  type CreateDeposit,
+  type DepositChanges,
+  type GetDeposit,
+  type ListDeposits,
+  type SecurityDeposit,
+  type VoidDeposit,
+} from '../application/index.js';
+import { Money } from '../shared/index.js';
+import { principalOf } from './access-middleware.js';
+import { definedOnly, optionalText, readId } from './acquisitions.js';
+import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+
+const uuid = z
+  .string()
+  .regex(RESOURCE_ID)
+  .transform((id) => id.toLowerCase());
+const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
+
+/** Data-model §26's fields that P5-D1 dropped or P5-D2 derives: unknown keys, refused as any other (§47.1). */
+const createBody = z
+  .object({
+    mreTenantId,
+    expectedAmount: money.optional(),
+    holdingFinancialAccountId: uuid.nullish(),
+    interestBearing: z.boolean().optional(),
+    notes: optionalText(2000).nullish(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    // Refinements run even after a field failed to parse: only check what parsed.
+    if (body.expectedAmount instanceof Money && !body.expectedAmount.isPositive()) {
+      ctx.addIssue({ code: 'custom', path: ['expectedAmount', 'amount'], params: { code: 'NOT_POSITIVE' } });
+    }
+  });
+
+/** Fixed after creation (§47.1): named in an amend, it is `400 NOT_AMENDABLE`, not an unknown key. */
+const FIXED = ['mreTenantId'] as const;
+
+const amendBody = z
+  .object({
+    expectedAmount: money.optional(),
+    holdingFinancialAccountId: uuid.nullable().optional(),
+    interestBearing: z.boolean().optional(),
+    notes: optionalText(2000).nullish(),
+    ...Object.fromEntries(FIXED.map((field) => [field, z.unknown().optional()])),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (Object.keys(body).length === 0) ctx.addIssue({ code: 'custom', params: { code: 'REQUIRED' } });
+    for (const field of FIXED) {
+      if (field in body) ctx.addIssue({ code: 'custom', path: [field], params: { code: 'NOT_AMENDABLE' } });
+    }
+    if (body.expectedAmount instanceof Money && !body.expectedAmount.isPositive()) {
+      ctx.addIssue({ code: 'custom', path: ['expectedAmount', 'amount'], params: { code: 'NOT_POSITIVE' } });
+    }
+  });
+
+const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+
+/** `status` as a comma-separated list, any of them. */
+const statusList = z
+  .string()
+  .transform((value) => value.split(','))
+  .pipe(z.array(z.enum(DEPOSIT_STATUSES)).min(1));
+
+const listQuery = z
+  .object({
+    status: statusList.optional(),
+    mreTenantId: mreTenantId.optional(),
+    holdingFinancialAccountId: uuid.optional(),
+    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .strict();
+
+export interface SecurityDepositCommands {
+  readonly create: CreateDeposit;
+  readonly get: GetDeposit;
+  readonly list: ListDeposits;
+  readonly amend: AmendDeposit;
+  readonly void: VoidDeposit;
+}
+
+/** SecurityDeposit API (api-design.md §47.1, backlog VC-5-01). */
+export function securityDepositRoutes(commands: SecurityDepositCommands): Router {
+  const router = express.Router();
+
+  router.post('/security-deposits', express.json({ limit: '16kb' }), (req, res, next) => {
+    const idempotency = readIdempotencyKey(req, res);
+    if (idempotency === undefined) return;
+    const parsed = createBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const body = parsed.data;
+    commands
+      .create({
+        principal: principalOf(res),
+        authorizationHeader: req.headers.authorization ?? '',
+        mreTenantId: body.mreTenantId,
+        expectedAmount: body.expectedAmount ?? null,
+        holdingFinancialAccountId: body.holdingFinancialAccountId ?? null,
+        // A residential deposit bears interest (§ 551 Abs. 3 BGB, P5-D5).
+        interestBearing: body.interestBearing ?? true,
+        notes: body.notes ?? null,
+        ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
+      })
+      .then(({ deposit, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        sendDeposit(res.status(201), deposit);
+      })
+      .catch(next);
+  });
+
+  router.get('/security-deposits', (req, res, next) => {
+    const parsed = listQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const { page, pageSize, status, ...rest } = parsed.data;
+    commands
+      .list({ principal: principalOf(res), filter: definedOnly({ statuses: status, ...rest }), page: { page, pageSize } })
+      .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
+      .catch(next);
+  });
+
+  router.get('/security-deposits/:securityDepositId', (req, res, next) => {
+    const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
+    if (securityDepositId === undefined) return;
+    commands
+      .get({ principal: principalOf(res), securityDepositId })
+      .then((deposit) => sendDeposit(res, deposit))
+      .catch(next);
+  });
+
+  router.post('/security-deposits/:securityDepositId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+    const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
+    if (securityDepositId === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = amendBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const body = parsed.data;
+    const changes: DepositChanges = definedOnly({
+      expectedAmount: body.expectedAmount,
+      holdingFinancialAccountId: body.holdingFinancialAccountId,
+      interestBearing: body.interestBearing,
+      notes: body.notes,
+    });
+    commands
+      .amend({ principal: principalOf(res), securityDepositId, changes, ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }) })
+      .then(({ deposit }) => sendDeposit(res, deposit))
+      .catch(next);
+  });
+
+  router.post('/security-deposits/:securityDepositId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
+    if (securityDepositId === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = voidBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .void({
+        principal: principalOf(res),
+        securityDepositId,
+        reason: parsed.data.reason,
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+      })
+      .then(({ deposit }) => sendDeposit(res, deposit))
+      .catch(next);
+  });
+
+  return router;
+}
+
+/** A single deposit with its version as `ETag` for the next `If-Match` (api-design.md §16.1). */
+function sendDeposit(res: Response, deposit: SecurityDeposit): void {
+  res.setHeader('ETag', `"${deposit.version}"`);
+  res.json(toDto(deposit));
+}
+
+function toDto(deposit: SecurityDeposit) {
+  return {
+    securityDepositId: deposit.id,
+    mreRealmId: deposit.mreRealmId,
+    status: deposit.status,
+    mreTenantId: deposit.mreTenantId,
+    expectedAmount: deposit.expectedAmount.toJSON(),
+    expectedAmountSource: deposit.expectedAmountSource,
+    holdingFinancialAccountId: deposit.holdingFinancialAccountId,
+    interestBearing: deposit.interestBearing,
+    notes: deposit.notes,
+    voidedAt: deposit.voidedAt?.toISOString() ?? null,
+    voidReason: deposit.voidReason,
+    createdAt: deposit.createdAt.toISOString(),
+    version: deposit.version,
+  };
+}

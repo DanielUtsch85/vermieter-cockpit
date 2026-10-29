@@ -3195,7 +3195,7 @@ POST /api/v1/security-deposits/{id}/reopen              (VC-5-04)
 
 Superseded by the plan: `GET /rental-contract-references/{id}/security-deposit` (no `RentalContractReference`, P5-D1; `GET /security-deposits?mreTenantId=` instead), `link-transaction` and `return` (the split is the link, P5-D3), and `reconcile-with-mre` (a comparison read, P5-D7). The plan's `PATCH` is this API's amend command (as §41.1).
 
-## 47.1 Create, read, list, amend, void (VC-5-01)
+## 47.1 Create, read, list, amend, void (VC-5-01, implemented: migration 0037)
 
 - **Domain owner:** Security Deposit. **Authorization:** as §19.1. The deposit, its holding account and its MRE Tenant belong to the caller's Realm. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
 - **Status (P5-D2):** `ACTIVE` → `VOID` (here; final). `ACTIVE` ⇄ `CLOSED` comes with VC-5-04.
@@ -3214,7 +3214,7 @@ Superseded by the plan: `GET /rental-contract-references/{id}/security-deposit` 
 
 - **Body** (strict; unknown keys `400`):
   - `mreTenantId` (required): an MRE id, `^[0-9a-f]{24}$` as §20.1;
-  - `expectedAmount` (Money as §31, optional): **> 0** (`400 NOT_POSITIVE`), EUR. Without it, the default from MRE below;
+  - `expectedAmount` (Money as §31, optional): **> 0** (`400 NOT_POSITIVE` for zero; a negative amount is §31's `NEGATIVE_AMOUNT`), EUR. Without it, the default from MRE below;
   - `holdingFinancialAccountId` (UUID, optional);
   - `interestBearing` (boolean, optional, default `true`, P5-D5);
   - `notes` (optional, trimmed, ≤ 2000).

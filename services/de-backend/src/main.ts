@@ -32,6 +32,11 @@ import {
   listAcquisitionPayments,
   amendLoan,
   createLoan,
+  createDeposit,
+  getDeposit,
+  listDeposits,
+  amendDeposit,
+  voidDeposit,
   getLoan,
   listLoans,
   voidLoan,
@@ -93,6 +98,7 @@ import {
   PostgresAcquisitionCostRepository,
   PostgresLandBuildingAllocationRepository,
   PostgresLoanRepository,
+  PostgresSecurityDepositRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
@@ -118,6 +124,7 @@ import {
   mrePrincipalVerifier,
   mrePropertyLookup,
   mreRentTermLookup,
+  mreTenantDepositReader,
   mreMonthReader,
   mreWriteBackTermReader,
   mreWriteBackTermWriter,
@@ -141,6 +148,7 @@ const ownerships = new PostgresOwnershipRepository(db);
 const acquisitions = new PostgresAcquisitionRepository(db);
 const acquisitionCosts = new PostgresAcquisitionCostRepository(db);
 const loans = new PostgresLoanRepository(db);
+const securityDeposits = new PostgresSecurityDepositRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -201,6 +209,13 @@ const app = createApp({
     amend: amendLoan({ repository: loans }),
     void: voidLoan({ repository: loans }),
     close: closeLoan({ repository: loans }),
+  },
+  securityDeposits: {
+    create: createDeposit({ repository: securityDeposits, readMreTenant: mreTenantDepositReader(mreClient) }),
+    get: getDeposit({ repository: securityDeposits }),
+    list: listDeposits({ repository: securityDeposits }),
+    amend: amendDeposit({ repository: securityDeposits }),
+    void: voidDeposit({ repository: securityDeposits }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

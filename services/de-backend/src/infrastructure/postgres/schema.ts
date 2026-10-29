@@ -207,6 +207,26 @@ export interface LoanTable {
   version: Generated<number>;
 }
 
+export interface SecurityDepositTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  status: string;
+  mre_tenant_id: string;
+  expected_amount: string;
+  currency: string;
+  expected_amount_source: string;
+  holding_financial_account_id: string | null;
+  interest_bearing: boolean;
+  notes: string | null;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface LoanTermsTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -471,6 +491,7 @@ export interface Database {
   acquisition_payment: AcquisitionPaymentTable;
   land_building_allocation: LandBuildingAllocationTable;
   loan: LoanTable;
+  security_deposit: SecurityDepositTable;
   loan_terms: LoanTermsTable;
   loan_allocation_set: LoanAllocationSetTable;
   loan_allocation: LoanAllocationTable;

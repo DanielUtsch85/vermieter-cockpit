@@ -18,13 +18,19 @@ import {
   CorrectionNoChangeError,
   CostHasPaymentsError,
   CurrentAllocationChangedError,
+  DepositClosedError,
+  DepositExistsError,
+  DepositHasSplitsError,
+  DepositNotActiveError,
+  ExpectedAmountRequiredError,
   ExternalReferenceInUseError,
   ExternalReferenceNotFoundError,
   FinancialAccountClosedError,
   FinancialAccountNotFoundError,
+  HoldingAccountNotFoundError,
   IdempotencyKeyConflictError,
-  ImportBatchNotFoundError,
   ImportAccountMismatchError,
+  ImportBatchNotFoundError,
   ImportFileError,
   ImportedFieldsFixedError,
   InactiveCategoryError,
@@ -48,6 +54,7 @@ import {
   MreUnavailableError,
   NoRentCashError,
   NoScheduleError,
+  NotASecurityDepositAccountError,
   NotConfirmableError,
   NotRejectableError,
   NotReleasableError,
@@ -75,6 +82,7 @@ import {
   RentCashExceededError,
   ReviewItemNotFoundError,
   ReviewResolutionConflictError,
+  SecurityDepositNotFoundError,
   SplitSumMismatchError,
   SplitsAfterClosingError,
   SplitsMissingError,
@@ -271,6 +279,21 @@ const TABLE = [
       currentAllocationId: error.currentAllocationId,
     }),
   ),
+  on(DepositClosedError, (error) =>
+    answer(409, 'CONFLICT', 'A closed security deposit is not voided.', { reason: 'DEPOSIT_CLOSED', securityDepositId: error.securityDepositId }),
+  ),
+  on(DepositExistsError, (error) =>
+    answer(409, 'CONFLICT', 'The Tenant already has a security deposit.', { reason: 'DEPOSIT_EXISTS', securityDepositId: error.securityDepositId }),
+  ),
+  on(DepositHasSplitsError, (error) =>
+    answer(409, 'CONFLICT', 'Splits reference the security deposit.', { reason: 'DEPOSIT_HAS_SPLITS', transactionIds: error.transactionIds }),
+  ),
+  on(DepositNotActiveError, (error) =>
+    answer(409, 'CONFLICT', `The security deposit is ${error.status}.`, { reason: 'DEPOSIT_NOT_ACTIVE', status: error.status }),
+  ),
+  on(ExpectedAmountRequiredError, () =>
+    answer(422, 'EXPECTED_AMOUNT_REQUIRED', 'No expectedAmount was given, and MRE has no guaranty for the Tenant; nothing was written.'),
+  ),
   on(ExternalReferenceInUseError, (error) =>
     answer(409, 'CONFLICT', 'Another Party holds this external reference.', { reason: 'REFERENCE_IN_USE', partyId: error.partyId }),
   ),
@@ -286,6 +309,7 @@ const TABLE = [
       financialAccountId: error.financialAccountId,
     }),
   ),
+  on(HoldingAccountNotFoundError, (error) => answer(404, 'NOT_FOUND', 'FinancialAccount not found.', { financialAccountId: error.financialAccountId })),
   on(IdempotencyKeyConflictError, () => answer(409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.')),
   on(ImportBatchNotFoundError, (error) =>
     answer(404, 'NOT_FOUND', 'ImportBatch not found.', {
@@ -353,6 +377,12 @@ const TABLE = [
   on(MreUnavailableError, () => answer(503, 'EXTERNAL_SYSTEM_ERROR', 'MRE is unavailable; nothing was written.')),
   on(NoRentCashError, () => answer(422, 'NO_RENT_CASH', 'The Transaction has no split in a rent category.')),
   on(NoScheduleError, (error) => answer(409, 'CONFLICT', 'The Loan has no planned payment.', { reason: 'NO_SCHEDULE', endReason: error.endReason })),
+  on(NotASecurityDepositAccountError, (error) =>
+    answer(422, 'NOT_A_SECURITY_DEPOSIT_ACCOUNT', 'The holding account is not a SECURITY_DEPOSIT account.', {
+      financialAccountId: error.financialAccountId,
+      accountType: error.accountType,
+    }),
+  ),
   on(NotConfirmableError, (error) =>
     answer(409, 'CONFLICT', `A ${error.status} reconciliation cannot be confirmed.`, { reason: 'NOT_CONFIRMABLE', status: error.status }),
   ),
@@ -444,6 +474,7 @@ const TABLE = [
       resolution: error.item.resolution,
     }),
   ),
+  on(SecurityDepositNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Security deposit not found.', { securityDepositId: error.securityDepositId })),
   on(SplitsAfterClosingError, (error) =>
     answer(409, 'CONFLICT', 'Splits name the Loan after the closing date.', { reason: 'SPLITS_AFTER_CLOSING', transactionIds: error.transactionIds }),
   ),
