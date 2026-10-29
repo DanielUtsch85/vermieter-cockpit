@@ -41,7 +41,7 @@ This plan fixes those points **before** the items are specified, as `phase-5-pla
 ### P6-D1 The WEG and the membership (resolves data-model §27–§28, UC-030)
 
 - **`Weg`:** `displayName`, `administratorPartyId` (a Party of Phase 2, optional), `financialYearStartMonth` (1–12, default 1), `notes`. Statuses `ACTIVE` → `VOID`. A WEG with memberships, plans, statements or assessments is never voided (as P5's `DEPOSIT_HAS_SPLITS`).
-- **`WegMembership`:** a PropertyReference (a unit) in a WEG, from `validFrom` to an optional `validUntil`. The `Miteigentumsanteil` is stored as a fraction (`meaNumerator`/`meaDenominator`, e.g. 125/10,000), never as a rounded percentage. It is distinct from the Ownership share (data-model §28).
+- **`WegMembership`:** a PropertyReference (a unit) in a WEG, from `validFrom` to an optional `validUntil`. The `Miteigentumsanteil` is stored as a fraction (`meaNumerator`/`meaDenominator`), never as a rounded percentage. The real statements print it with three decimals over a base of `10.000,000`, so both parts are decimals with up to three places (api-design §49.2). It is distinct from the Ownership share (data-model §28).
 - **One WEG per unit at a time:** a PropertyReference has at most one `ACTIVE` membership valid on any day, else `409 OVERLAPPING_WEG_MEMBERSHIP`. This is a trigger after the Ownership's (0019), not an exclusion constraint, which would need the `btree_gist` extension that the schema does not have:
   - the trigger first locks the PropertyReference row (`UPDATE property_reference SET version = version`, as `ownership_invariants`), so two concurrent memberships of one unit are serialised;
   - it then refuses an overlap with `daterange(valid_from, valid_until, '[]') && …`.
