@@ -2321,9 +2321,10 @@ A read, never a write, as §41.5's payment proposal. The client applies a propos
   2. Transaction unknown or foreign → `404` (`details.transactionId`);
   3. the Transaction is not `INFLOW`, or not unconfirmed (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`) → `409 CONFLICT` with `reason = "NOT_PROPOSABLE"` and `details.direction`, `details.status`: a confirmed Transaction's splits are frozen (0009), so a proposal could not be applied;
   4. the MRE term, read with the caller's token outside any database transaction (P4-D8): the Tenant or the term not in the Realm → `422 MRE_RENT_TERM_NOT_FOUND` (§37.1's code and details); MRE unavailable → `503`; `401`/`403` as §37.1.
-- **The breakdown, from MRE (baseline `479d0ad`):** `GET /rents/tenant/:id/:term` (§37.1) answers `toRentData`, which has no separate rent and charges. The Realm's Tenant list `GET /tenants` (already read for §20.1 and §47.1) carries each Tenant's stored `rents[]` with `term` and `total` as `computeRent` wrote them (`businesslogic/tasks/7_total.js`): `preTaxAmount`, `charges`, `debts`, `discount`, `vat`, `balance`, `grandTotal`. The client keeps only the Tenant's `_id` and, of the one term asked for, those seven numbers (half-up to the cent once, P4-D8); the rest of the Tenant (name, contacts) is dropped and never logged.
-  - `rent` = `preTaxAmount`; `charges` = `charges`;
-  - `due` = `grandTotal` − `balance`: the same as `totalWithoutBalanceAmount`, the amount §37.1 and §37.3 work with;
+- **The breakdown, from MRE (baseline `479d0ad`):** `GET /rents/tenant/:id/:term` (§37.1) answers `toRentData`, which has no separate rent and charges. The Realm's Tenant list `GET /tenants` (already read for §20.1 and §47.1) answers each Tenant through `toOccupantData`, which **drops the stored `rents[]`** (`delete occupant.rents`) but keeps the lease: `frequency` and `properties[]`, each with `rent`, `entryDate`, `exitDate` and `expenses[]` (`amount`, `beginDate`, `endDate`), dates as `DD/MM/YYYY`. (The first draft read `rents[].total`; the contract suite against the pinned images refused it on #138.)
+  - `rent` and `charges` are the lease's for the term, as `computeRent` takes them (`businesslogic/tasks/1_base.js`): the properties whose `entryDate`–`exitDate` encloses the term, and of each the expenses whose `beginDate`–`endDate` (else the property's dates) encloses it, compared at the lease's frequency (the month for `months`, else the day); a property without its record is skipped. Summed, then half-up to the cent once (P4-D8);
+  - `due` = the term's `totalWithoutBalanceAmount` from `GET /rents/tenant/:id/:term`, the amount §37.1 and §37.3 work with (`grandTotal` − `balance`);
+  - the client keeps only these amounts and dates; the rest of the Tenant (name, contacts) is dropped and never logged. A Tenant not in the list, or a term MRE does not have (`404`), is `422 MRE_RENT_TERM_NOT_FOUND`;
   - `adjustments` = `due` − `rent` − `charges` (debts, discounts, VAT). Usually 0 for a residential lease.
 - **The proposal** for the Transaction's `amount`:
   - `RENT_BASE` = min(`rent`, `amount`);
@@ -2349,7 +2350,7 @@ Both are counts (non-negative integers), read in §37.3's snapshot; a Transactio
 ### Tests (#126)
 
 - **Domain:** the proposal with an exact amount, a lower and a higher one, adjustments, `ALREADY_SPLIT`; zero splits left out; the sum identity.
-- **MRE client:** the Tenant list parsed to the one term's seven numbers (floats rounded half-up once); a Tenant without the term; the fake MRE's Tenants gain `rents[]`; `mre.contract.test.ts` pins `rents[].term` and `rents[].total` with `preTaxAmount` and `charges` at the baseline.
+- **MRE client:** the lease of the Tenant list for the term (entry, exit and expense dates at the month boundary, a property without its record), then the term's `totalWithoutBalanceAmount` (floats rounded half-up once); a Tenant or term MRE does not have; the fake MRE's Tenants gain `properties[]` in `toOccupantData`'s shape; `mre.contract.test.ts` pins that shape (no `rents[]`, dates `DD/MM/YYYY`) at the baseline.
 - **Repository / application:** the refusals in order; the DE snapshot; no MRE call on a `400`, `404` or `NOT_PROPOSABLE`.
 - **Suggest:** `skipped` with an unconfirmed, an unsplit and a counted rent inflow in the window, one outside it, an ignored one, and one of another Realm.
 - **End to end:** the real-data shape (rent plus advance) through the proposal, `PUT …/splits` with it, `confirm`, then `suggest` finds it.
