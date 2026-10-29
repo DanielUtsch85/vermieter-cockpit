@@ -12,6 +12,7 @@ import {
   createReconciliation,
   getReconciliation,
   getReconciliationWithPresence,
+  getRentSplitProposal,
   getTermCoverage,
   getTransaction,
   getTransactionCoverage,
@@ -40,7 +41,15 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre, type FakeRealm } from './integrations/mre/fake-mre.test-support.js';
-import { mreMonthReader, mrePrincipalVerifier, mreRentTermLookup, mreRentTermReader, mreWriteBackTermReader, mreWriteBackTermWriter } from './wiring.js';
+import {
+  mreMonthReader,
+  mrePrincipalVerifier,
+  mreRentTermLookup,
+  mreRentTermReader,
+  mreRentBreakdownReader,
+  mreWriteBackTermReader,
+  mreWriteBackTermWriter,
+} from './wiring.js';
 
 /**
  * VC-4-06: the Phase-4 exit of `docs/roadmap.md` as one acceptance run through the HTTP API (ACC4,
@@ -136,6 +145,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
           reject: rejectReconciliation({ repository: reconciliations }),
           writeBack: writeBackToMre(writeBack),
           getWithPresence: getReconciliationWithPresence({ repository: reconciliations, readTerm: mreWriteBackTermReader(client) }),
+          splitProposal: getRentSplitProposal({ queries: new PostgresTransactionQueries(db), readBreakdown: mreRentBreakdownReader(client) }),
           removeFromMre: removeFromMre({ ...writeBack, marginMs: 0 }),
         },
         financialAccounts: { create: createFinancialAccount({ repository: accounts }) },
@@ -351,7 +361,10 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
     const routes: Record<string, readonly Row[]> = {
       'POST /rent-reconciliations': [{ expect: 404, body: { transactionId: r1, mreTenantId: T1, mreRentTerm: APRIL, matchedAmount: eur('1.00') } }],
       'POST /rent-reconciliations/suggest': [
-        { expect: (body) => expect(body).toEqual({ from: '2027-03', to: '2027-04', items: [] }), body: { from: '2027-03', to: '2027-04' } },
+        {
+          expect: (body) => expect(body).toEqual({ from: '2027-03', to: '2027-04', items: [], skipped: { unconfirmed: 0, noRentCash: 0 } }),
+          body: { from: '2027-03', to: '2027-04' },
+        },
       ],
       'GET /rent-reconciliations': [
         { expect: emptyPage, query: `transactionId=${r1}` },
@@ -359,6 +372,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 4 acceptance (roadmap exit)', 
         { expect: emptyPage, query: `mreRentTerm=${MARCH}` },
       ],
       'GET /rent-reconciliations/:reconciliationId': [{ expect: 404 }, { expect: 404, query: 'checkMre=true' }],
+      // #126 (§37.6): another Realm's Transaction is unknown here, before MRE is asked.
+      'GET /rent-reconciliations/split-proposal': [{ expect: 404, query: `transactionId=${r1}&mreTenantId=${T1}&mreRentTerm=${MARCH}` }],
       'POST /rent-reconciliations/:reconciliationId/confirm': [{ expect: 404 }],
       'POST /rent-reconciliations/:reconciliationId/reject': [{ expect: 404, body: { reason: 'x' } }],
       'POST /rent-reconciliations/:reconciliationId/release': [{ expect: 404, body: { reason: 'x' } }],

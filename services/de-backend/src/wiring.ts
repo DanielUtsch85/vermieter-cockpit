@@ -7,6 +7,7 @@ import {
   type MreMonthReader,
   type MreWriteBackTermReader,
   type MreWriteBackTermWriter,
+  type MreRentBreakdownReader,
   type MreTenantDepositReader,
   type MreTenantLookup,
   type PrincipalVerifier,
@@ -75,6 +76,19 @@ export function mreTenantDepositReader(client: MreClient): MreTenantDepositReade
     if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
     try {
       return await client.readTenantDeposit(token, mreRealmId, mreTenantId);
+    } catch (error) {
+      throw mreError(error);
+    }
+  };
+}
+
+/** A rent term's totals of a Tenant from the Realm's list, with the caller's own token (api-design.md §37.6). */
+export function mreRentBreakdownReader(client: MreClient): MreRentBreakdownReader {
+  return async (authorizationHeader, mreRealmId, mreTenantId, mreRentTerm) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined) throw new AccessError('UNAUTHENTICATED', 'Missing or malformed bearer token');
+    try {
+      return await client.readRentBreakdown(token, mreRealmId, mreTenantId, mreRentTerm);
     } catch (error) {
       throw mreError(error);
     }

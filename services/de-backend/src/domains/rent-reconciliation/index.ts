@@ -64,6 +64,9 @@ export type {
   RentPaymentReconciliation,
   RentPaymentReconciliationId,
   RentReconciliationRepository,
+  SkippedInflows,
   SuggestionSnapshot,
   TransactionRentSide,
 } from './reconciliation.js';
+export { proposeRentSplit } from './split-proposal.js';
+export type { RentSplitProposal, RentTermTotals, SplitProposalFlag } from './split-proposal.js';

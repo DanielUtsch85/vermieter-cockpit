@@ -7,6 +7,7 @@ import {
   type MreClientErrorCode,
   type MreProperty,
   type MreRealmMembership,
+  type MreRentBreakdown,
   type MreTenantDeposit,
   type MreMonthRent,
   type MreRawTerm,
@@ -67,6 +68,28 @@ const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough()
 const tenantsDto = z.array(z.object({ _id: z.string().min(1) }));
 /** The same list for one Tenant's deposit fields (api-design.md §47.1): anything but a finite number is no value. */
 const tenantDepositsDto = z.array(z.object({ _id: z.string().min(1), guaranty: z.unknown().optional(), guarantyPayback: z.unknown().optional() }));
+/**
+ * The Tenant list's lease (§37.6): the frequency and, of each property, its rent, its dates (`DD/MM/YYYY`, as
+ * `toOccupantData` formats them) and its expenses; a property without its record is skipped, as `computeRent` does.
+ */
+const leaseDate = z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/);
+const tenantLeasesDto = z.array(
+  z.object({
+    _id: z.string().min(1),
+    frequency: z.string().optional(),
+    properties: z
+      .array(
+        z.object({
+          property: z.unknown().optional(),
+          rent: z.number().nullish(),
+          entryDate: leaseDate.nullish(),
+          exitDate: leaseDate.nullish(),
+          expenses: z.array(z.object({ amount: z.number(), beginDate: leaseDate.nullish(), endDate: leaseDate.nullish() })).nullish(),
+        }),
+      )
+      .optional(),
+  }),
+);
 /** A rent term of `GET /rents/tenant/:id/:term`: only its key, its amount due and its payments are read. */
 const rentTermDto = z.object({
   term: z.number().int(),
@@ -183,6 +206,39 @@ export class HttpMreClient implements MreClient {
     const amount = (value: unknown) => (typeof value === 'number' ? (toCents(value) ?? null) : null);
     const guaranty = amount(tenant.guaranty);
     return { guaranty: guaranty !== null && guaranty.isPositive() ? guaranty : null, guarantyPayback: amount(tenant.guarantyPayback) };
+  }
+
+  async readRentBreakdown(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<MreRentBreakdown | undefined> {
+    const body = await this.get('/tenants', accessToken, mreRealmId, 'FORBIDDEN');
+    const parsed = tenantLeasesDto.safeParse(body);
+    if (!parsed.success) {
+      // The issue paths only, never the values: the body holds personal data.
+      throw new MreClientError('UNAVAILABLE', `Unexpected MRE tenants shape at ${parsed.error.issues.map((i) => i.path.join('.')).join(', ')}`);
+    }
+    const tenant = parsed.data.find((t) => t._id === mreTenantId);
+    if (tenant === undefined || !/^\d{10}$/.test(term)) return undefined;
+    const termRead = await this.readRentTerm(accessToken, mreRealmId, mreTenantId, term);
+    if (termRead === undefined) return undefined;
+    // tasks/1_base.js: the properties whose entry and exit enclose the term, and of each the expenses whose dates do,
+    // compared at the lease's frequency (a month for `months`, else the day).
+    const unit = (tenant.frequency ?? 'months') === 'months' ? 6 : 8;
+    const key = term.slice(0, unit);
+    const dateKey = (date: string | null | undefined) =>
+      date == null ? undefined : `${date.slice(6, 10)}${date.slice(3, 5)}${date.slice(0, 2)}`.slice(0, unit);
+    const encloses = (from: string | null | undefined, to: string | null | undefined) => {
+      const [a, b] = [dateKey(from), dateKey(to)];
+      return (a === undefined || a <= key) && (b === undefined || key <= b);
+    };
+    let rent = 0;
+    let charges = 0;
+    for (const p of tenant.properties ?? []) {
+      if (p.property == null || !encloses(p.entryDate, p.exitDate)) continue;
+      rent += p.rent ?? 0;
+      for (const e of p.expenses ?? []) if (encloses(e.beginDate ?? p.entryDate, e.endDate ?? p.exitDate)) charges += e.amount;
+    }
+    const [rentMoney, chargesMoney] = [toCents(rent), toCents(charges)];
+    if (rentMoney === undefined || chargesMoney === undefined) throw new MreClientError('UNAVAILABLE', 'Unexpected MRE lease amount');
+    return { rent: rentMoney, charges: chargesMoney, due: termRead.amountDue };
   }
 
   async rentTermExists(accessToken: string, mreRealmId: string, mreTenantId: string, term: string): Promise<boolean> {

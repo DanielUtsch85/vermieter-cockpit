@@ -20,6 +20,8 @@ import {
   NotReleasableError,
   ReconciliationNotFoundError,
   RentCashExceededError,
+  RentNotProposableError,
+  type RentSplitProposalView,
   TransactionNotCountedError,
   TransactionNotFoundError,
   TransactionNotInflowError,
@@ -435,7 +437,7 @@ describe('suggestions (§37.3)', () => {
       rentReconciliations: {
         suggest: async (input) => {
           seen.push(input);
-          return { from: input.from, to: input.to, items: [suggestion] };
+          return { from: input.from, to: input.to, items: [suggestion], skipped: { unconfirmed: 2, noRentCash: 1 } };
         },
       },
     });
@@ -445,6 +447,8 @@ describe('suggestions (§37.3)', () => {
       from: '2027-01',
       to: '2027-12',
       items: [expect.objectContaining({ reconciliationId: ID, status: 'SUGGESTED', confidence: 'MEDIUM', suggestionReason: 'EXACT_AMOUNT' })],
+      // §37.6: why other inflows were not seen.
+      skipped: { unconfirmed: 2, noRentCash: 1 },
     });
     expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', from: '2027-01', to: '2027-12' });
   });
@@ -711,3 +715,74 @@ async function stopAndStart(commands: CommandOverrides): Promise<string> {
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   return start(commands);
 }
+
+describe('GET /api/v1/rent-reconciliations/split-proposal (§37.6, #126)', () => {
+  const TX_ID = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3c';
+  const TENANT_ID = '6512f0c2a1b2c3d4e5f60a01';
+  const query = (q: Record<string, string>) => `/rent-reconciliations/split-proposal?${new URLSearchParams(q).toString()}`;
+  const proposal = {
+    transactionId: TX_ID,
+    mreTenantId: TENANT_ID,
+    mreRentTerm: '2027020100',
+    amount: Money.of('790.00', 'EUR'),
+    term: { rent: Money.of('650.00', 'EUR'), charges: Money.of('150.00', 'EUR'), adjustments: Money.of('0.00', 'EUR'), due: Money.of('800.00', 'EUR') },
+    splits: [
+      { financialCategoryCode: 'RENT_BASE', amount: Money.of('650.00', 'EUR') },
+      { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: Money.of('140.00', 'EUR') },
+    ],
+    unallocated: Money.of('0.00', 'EUR'),
+    flags: [{ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: Money.of('-10.00', 'EUR') } }, { code: 'ALREADY_SPLIT' }],
+  } as unknown as RentSplitProposalView;
+
+  it('200 with the proposal as Money JSON; the query reaches the use case with the caller header; the id lower-cased', async () => {
+    const seen: unknown[] = [];
+    const base = await start({ rentReconciliations: { splitProposal: async (input) => (seen.push(input), proposal) } });
+    const res = await call(base, 'GET', query({ transactionId: TX_ID.toUpperCase(), mreTenantId: TENANT_ID, mreRentTerm: '2027020100' }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      transactionId: TX_ID,
+      mreTenantId: TENANT_ID,
+      mreRentTerm: '2027020100',
+      amount: { amount: '790.00', currency: 'EUR' },
+      term: {
+        rent: { amount: '650.00', currency: 'EUR' },
+        charges: { amount: '150.00', currency: 'EUR' },
+        adjustments: { amount: '0.00', currency: 'EUR' },
+        due: { amount: '800.00', currency: 'EUR' },
+      },
+      splits: [
+        { financialCategoryCode: 'RENT_BASE', amount: { amount: '650.00', currency: 'EUR' } },
+        { financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', amount: { amount: '140.00', currency: 'EUR' } },
+      ],
+      unallocated: { amount: '0.00', currency: 'EUR' },
+      flags: [{ code: 'AMOUNT_DIFFERS_FROM_TERM', details: { difference: { amount: '-10.00', currency: 'EUR' } } }, { code: 'ALREADY_SPLIT' }],
+    });
+    expect(seen[0]).toMatchObject({ authorizationHeader: 'Bearer a.b.c', transactionId: TX_ID, mreTenantId: TENANT_ID, mreRentTerm: '2027020100' });
+  });
+
+  it('400 for a missing or malformed parameter or an unknown one; the route is not taken for a reconciliation id', async () => {
+    const base = await start({ rentReconciliations: { splitProposal: async () => proposal } });
+    for (const q of [
+      { mreTenantId: TENANT_ID, mreRentTerm: '2027020100' },
+      { transactionId: 'x', mreTenantId: TENANT_ID, mreRentTerm: '2027020100' },
+      { transactionId: TX_ID, mreTenantId: 'x', mreRentTerm: '2027020100' },
+      { transactionId: TX_ID, mreTenantId: TENANT_ID, mreRentTerm: '202702' },
+      { transactionId: TX_ID, mreTenantId: TENANT_ID, mreRentTerm: '2027020100', extra: '1' },
+    ]) {
+      expect((await call(base, 'GET', query(q))).status, JSON.stringify(q)).toBe(400);
+    }
+  });
+
+  it.each([
+    [new TransactionNotFoundError('t'), 404, 'NOT_FOUND', undefined],
+    [new RentNotProposableError('t', 'OUTFLOW', 'CONFIRMED'), 409, 'CONFLICT', { reason: 'NOT_PROPOSABLE', direction: 'OUTFLOW', status: 'CONFIRMED' }],
+    [new MreRentTermNotFoundError(TENANT_ID, '2027020100'), 422, 'MRE_RENT_TERM_NOT_FOUND', undefined],
+    [new MreUnavailableError('down'), 503, 'EXTERNAL_SYSTEM_ERROR', undefined],
+    [new AccessError('FORBIDDEN', 'x'), 403, 'FORBIDDEN', undefined],
+  ])('%s → %i %s', async (error, status, code, details) => {
+    const base = await start({ rentReconciliations: { splitProposal: async () => Promise.reject(error) } });
+    const res = await call(base, 'GET', query({ transactionId: TX_ID, mreTenantId: TENANT_ID, mreRentTerm: '2027020100' }));
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject(details === undefined ? { code } : { code, details });
+  });
+});

@@ -14,6 +14,7 @@ import {
   type ReconciliationPage,
   type ReconciliationStatus,
   type RentPaymentReconciliation,
+  type SkippedInflows,
   type RentReconciliationRepository,
 } from '../domains/rent-reconciliation/index.js';
 import { Money, type BusinessDate } from '../shared/index.js';
@@ -363,7 +364,7 @@ export type SuggestReconciliations = (input: {
   /** `YYYY-MM`, validated at the API (from ≤ to, at most 12 months). */
   readonly from: string;
   readonly to: string;
-}) => Promise<{ readonly from: string; readonly to: string; readonly items: readonly RentPaymentReconciliation[] }>;
+}) => Promise<{ readonly from: string; readonly to: string; readonly items: readonly RentPaymentReconciliation[]; readonly skipped: SkippedInflows }>;
 
 /**
  * §37.3's suggest: MRE's months (the window and its two neighbours) outside any transaction, then DE's snapshot, the
@@ -388,6 +389,8 @@ export function suggestReconciliations(deps: {
       rents.map((r) => ({ mreTenantId: r.mreTenantId, mreRentTerm: r.term })),
       bookingWindow(termOfMonth(first - 1)).from,
       bookingWindow(termOfMonth(last + 1)).to,
+      // §37.6: the window's own booking range, the neighbours left out.
+      { from: bookingWindow(termOfMonth(first)).from, to: bookingWindow(termOfMonth(last)).to },
     );
     const terms: SuggestionTerm[] = rents.map((r) => ({
       mreTenantId: r.mreTenantId,
@@ -396,7 +399,8 @@ export function suggestReconciliations(deps: {
       inWindow: r.inWindow,
     }));
     const suggestions = suggestPairs({ terms, candidates: snapshot.candidates, handled: snapshot.handled, open: snapshot.open, history: snapshot.history });
-    return { from, to, items: await deps.repository.writeSuggestions(principal.mreRealmId, suggestions, actorOf(principal)) };
+    const items = await deps.repository.writeSuggestions(principal.mreRealmId, suggestions, actorOf(principal));
+    return { from, to, items, skipped: snapshot.skipped };
   };
 }
 

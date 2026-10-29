@@ -1,6 +1,8 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  type GetRentSplitProposal,
+  type RentSplitProposalView,
   type RemoveFromMre,
   type GetReconciliationWithPresence,
   type WriteBackToMre,
@@ -50,6 +52,9 @@ const createBody = z
       ctx.addIssue({ code: 'custom', path: ['matchedAmount', 'amount'], params: { code: 'NOT_POSITIVE' } });
     }
   });
+
+/** §37.6's split proposal query (strict). */
+const splitProposalQuery = z.object({ transactionId: uuid, mreTenantId, mreRentTerm }).strict();
 
 const releaseBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
@@ -112,6 +117,7 @@ export interface RentReconciliationCommands {
   readonly writeBack: WriteBackToMre;
   readonly removeFromMre: RemoveFromMre;
   readonly getWithPresence: GetReconciliationWithPresence;
+  readonly splitProposal: GetRentSplitProposal;
 }
 
 /** Rent reconciliation API (api-design.md §37.1, backlog VC-4-01). */
@@ -154,6 +160,19 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     commands
       .suggest({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
       .then((result) => res.json({ ...result, items: result.items.map(toDto) }))
+      .catch(next);
+  });
+
+  // §37.6 (#126): a read, never a write. Registered before `/rent-reconciliations/:reconciliationId`.
+  router.get('/rent-reconciliations/split-proposal', (req, res, next) => {
+    const parsed = splitProposalQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .splitProposal({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
+      .then((proposal) => res.json(splitProposalDto(proposal)))
       .catch(next);
   });
 
@@ -382,5 +401,24 @@ function toTransactionDto(t: TransactionCoverage) {
     matchedTotal: t.matchedTotal.toJSON(),
     available: t.available?.toJSON() ?? null,
     reconciliations: t.reconciliations.map(toDto),
+  };
+}
+
+function splitProposalDto(p: RentSplitProposalView) {
+  return {
+    transactionId: p.transactionId,
+    mreTenantId: p.mreTenantId,
+    mreRentTerm: p.mreRentTerm,
+    amount: p.amount.toJSON(),
+    term: { rent: p.term.rent.toJSON(), charges: p.term.charges.toJSON(), adjustments: p.term.adjustments.toJSON(), due: p.term.due.toJSON() },
+    splits: p.splits.map((s) => ({ financialCategoryCode: s.financialCategoryCode, amount: s.amount.toJSON() })),
+    unallocated: p.unallocated.toJSON(),
+    flags: p.flags.map((f) =>
+      f.code === 'AMOUNT_DIFFERS_FROM_TERM'
+        ? { code: f.code, details: { difference: f.details.difference.toJSON() } }
+        : f.code === 'TERM_HAS_ADJUSTMENTS'
+          ? { code: f.code, details: { adjustments: f.details.adjustments.toJSON() } }
+          : { code: f.code },
+    ),
   };
 }
