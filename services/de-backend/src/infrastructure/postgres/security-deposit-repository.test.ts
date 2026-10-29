@@ -98,7 +98,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresSecurityDepositRepository', 
         version: 1,
       });
       expect(deposit.expectedAmount.toJSON()).toEqual({ amount: '2999.99', currency: 'EUR' });
-      expect(await repository.findById(deposit.id, REALM)).toEqual(deposit);
+      expect(await repository.findById(deposit.id, REALM)).toEqual({ ...deposit, cash: [] });
       expect(await repository.findById(deposit.id, OTHER_REALM)).toBeUndefined();
       expect(await repository.findById('not-a-uuid', REALM)).toBeUndefined();
       expect(await audits(deposit.id)).toMatchObject([{ action: 'CREATED', previous_version: null, new_version: 1 }]);
