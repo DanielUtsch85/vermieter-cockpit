@@ -4291,7 +4291,7 @@ Should create metadata reference without duplicating binary content unnecessaril
 
 ---
 
-# 55. Tax Classification API (VC-7-01, spec)
+# 55. Tax Classification API (VC-7-01, implemented: migration 0045)
 
 Decisions P7-D1, P7-D2 and P7-D9 of `docs/development/phase-7-plan.md` (data-model §36–§37, ADR-006, ADR-041, `docs/germany/taxation.md` §5, §8, §9). Taxation interprets cash; it never writes it. Every split has a **tax meaning**, derived from its category by a versioned rule unless the user stored a **classification** for it. VC-7-01 classifies splits; later items add withdrawals, uses and deposit closings as sources (VC-7-02, VC-7-03) and the fields marked below.
 
@@ -4362,7 +4362,7 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 
 ---
 
-# 56. Create Tax Classification (VC-7-01, spec)
+# 56. Create Tax Classification (VC-7-01, implemented: migration 0045)
 
 `POST /api/v1/tax-classifications`, `201` with the classification and `ETag`, `Location`; `Idempotency-Key` (scope `tax-classification.create`, §15).
 
@@ -4389,7 +4389,7 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 
 ---
 
-# 57. Tax Confirmation (VC-7-01, spec)
+# 57. Tax Confirmation (VC-7-01, implemented: migration 0045)
 
 Review states (domain-model §45): stored `USER_CONFIRMED`, `ADVISOR_CONFIRMED`, `NEEDS_REVIEW`; `SUGGESTED` only derived. A complex position is never shown with false certainty, so the view (VC-7-04) flags every `NEEDS_REVIEW`.
 
@@ -4414,11 +4414,42 @@ Review states (domain-model §45): stored `USER_CONFIRMED`, `ADVISOR_CONFIRMED`,
   - `tax_classification_source_counts` (before insert): writes the split's Transaction (no-op), then requires it current (`SOURCE_NOT_COUNTED`);
   - `tax_classification_treatment` (before insert): the `TREATMENT_NOT_ALLOWED` rules by the split's category type and code;
   - `tax_classification_frozen` (before update): content, source, rule and creation never change; `superseded_*` set once; `review_state` only to the allowed targets; `version` + 1; no delete.
-- **Nothing on `transaction_split` or `ledger_transaction` changes:** no column, no trigger. `down` drops the table.
+- **Nothing on `transaction_split` or `ledger_transaction` changes:** no column, no trigger. The one addition is the key `transaction_split_realm_key` (`UNIQUE (id, mre_realm_id)`), which the composite foreign key needs. `down` drops the table and the key.
+
+### As implemented (VC-7-01)
+
+Details the contract above left open, now binding:
+- **More guards:**
+  - `tax_classification_initial`: an insert is current, version 1, `USER_CONFIRMED` or `NEEDS_REVIEW`;
+  - a deferred `tax_classification_chain`: `supersedes` and `supersededBy` agree in both directions;
+  - CHECKs: the `taxCategory`/`treatment` fit, `advisorPartyId` only with `ADVISOR_CONFIRMED`, `superseded_at` and `superseded_by` set together;
+  - the self references are `(id, transaction_split_id)` keys, so a chain never leaves its split; a supersede raises the old row's `version` by 1.
+  
+  0045 carries its own text check (`tax_classification_texts_valid()`).
+- **The fit rule:** `null` treatment only with `UNCLASSIFIED`. `NOT_RELEVANT` is allowed on every non-income line.
+- **Values of later items** answer `400 NOT_SUPPORTED`, on create and on the history query: `WEG_SPENDING`, `DISTRIBUTED_82B`, and every `sourceType` but `TRANSACTION_SPLIT`. `jurisdiction` in a body is `400 INVALID_FORMAT` (the body is strict).
+- **`details.allowed`** of `TREATMENT_NOT_ALLOWED` lists the rule's treatments minus the forbidden ones.
+- **A split before 2000-01-01** has no applicable rule version:
+  - its meaning reads `UNCLASSIFIED`, `null`, `NEEDS_REVIEW`, with `rule: null`;
+  - a create on it is `409 CONFLICT` with `reason = "NO_APPLICABLE_RULE"`, after `SOURCE_NOT_COUNTED` and before `TREATMENT_NOT_ALLOWED`.
+- **§57's steps:**
+  - **Order:** `404` → `CLASSIFICATION_SUPERSEDED` → `ADVISOR_CONFIRMED` (confirm only) → `SOURCE_NOT_COUNTED` → `409 RULE_NOT_REGISTERED` (with `ruleCode`, `version`) → advisor Party `404` → no-op `200` → `412` (If-Match) → write.
+  - **`mark-needs-review` skips `SOURCE_NOT_COUNTED` and `RULE_NOT_REGISTERED`:** only a confirmation validates (as §57 says). A classification whose Transaction was later corrected or reversed is exactly what needs review (review on #158). The source is read without a lock: the steps lock the classification row only.
+  - **No-ops:** advisor-confirm with the same Party, and mark-needs-review on `NEEDS_REVIEW`. An omitted `advisorPartyId` is `null`, and mark-needs-review clears the advisor.
+  - **What is recorded:** the advisor's `note` and the `reason` go into the AuditRecord (with from and to), not into a column.
+- **Rule `status`** also has `PENDING`, for a version whose `effectiveFrom` is still ahead (none today).
+- **Flags** are `{ code, details }`:
+  - `NOT_COUNTED` carries `transactionStatus`, `correctionRole`;
+  - `CLASSIFICATION_ON_CORRECTED_SPLIT` carries `originalTransactionId`, `classificationIds`. It looks at the direct original only and holds for every unclassified split of a replacement whose original had a current classification;
+  - `RULE_SUPERSEDED` carries `ruleCode`, `version`, `applicableVersion`.
+- **The per-year list** filters on the split's own `propertyReferenceId`. The derived filters apply before paging; the response is `{ items, page, pageSize, total }`, with `pageSize` 50 by default.
+- **The history** is `404` for an unknown or foreign split, not paged, oldest first, `{ items }`.
+- **Responses:** derived reads carry no version `ETag`; Express's own weak `ETag` remains. AuditRecords use the entity type `TaxClassification`, and `TAX_CLASSIFIED` names `supersedes` too. `Location` is `/api/v1/tax-classifications/{id}`.
+- **The start check** runs after the migrations in `main.ts`. A missing reference is logged and ends the process with exit code 1.
 
 ---
 
-# 58. Tax Rules API (VC-7-01, spec)
+# 58. Tax Rules API (VC-7-01, implemented: migration 0045)
 
 Decision P7-D1 (ADR-041, taxation.md §9). Rules are versioned TypeScript modules in `domains/taxation/rules/`; the database stores only `ruleCode@version`. There is no rule administration through the API: a rule changes by a code change, reviewed like any other.
 
@@ -4435,6 +4466,7 @@ GET /api/v1/tax-rules/{ruleCode}
   - **on write:** a classification may only name a registered `ruleCode@version`;
   - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
   - a test covers the mechanism with a stored reference to an unknown version.
+- **The database guards encode version 1:** `tax_classification_treatment` repeats the hard rules of `DE_CATEGORY_DEFAULTS@1` literally, whatever `rule_version` a row names. A later version with other prohibitions therefore needs a migration that changes the guard too (review on #158).
 
 ### Tests (VC-7-01)
 
