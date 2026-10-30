@@ -24,6 +24,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **ACC3** | `phase-3-acceptance.e2e.test.ts` (Phase-3 exit through the API, VC-3-08) |
 | **ACC4** | `phase-4-acceptance.e2e.test.ts` (Phase-4 exit through the API, VC-4-06) |
 | **ACC5** | `phase-5-acceptance.e2e.test.ts` (Phase-5 exit through the API, VC-5-05) |
+| **ACC6** | `phase-6-acceptance.e2e.test.ts` (Phase-6 exit through the API, VC-6-06) |
 | **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
 | **TM / TR2 / TA** | the Loan terms' domain, repository and API tests (VC-3-02, §17) |
 
@@ -698,6 +699,91 @@ ACC5 also checks the deposit's AuditRecords: exactly `CREATED` and `CLOSED`, wit
 - a split allowed on a `CLOSED` deposit;
 - the Realm filter dropped from the deposit read;
 - an extra `/security-deposits` route without a row.
+
+## 35. WEG and membership (VC-6-01, api-design §49.1–§49.2)
+
+`WR` = `infrastructure/postgres/weg-repository.test.ts`, `WD` = `domains/weg/weg.test.ts` and `domains/weg/mea.test.ts`, `WA` = `api/wegs.test.ts`, `WE` = `weg.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| One `ACTIVE` membership per unit on any day, across WEGs (`OVERLAPPING_WEG_MEMBERSHIP`); writers of one unit serialise on the PropertyReference row (RC sees the other, RR `40001`) | WR "schema past the repository", "concurrency" |
+| The MEA as printed (three decimals, `0 < n ≤ d`), never reduced | WD "parseMea …"; WR |
+| A WEG with an `ACTIVE` membership is never voided (`WEG_HAS_MEMBERSHIPS`); `VOID` is final; the frozen fields never change | WD; WR "schema past the repository" |
+
+## 36. WEG splits, `WEG_FUNDS`, Wirtschaftsplan, Hausgeld proposal (VC-6-02, api-design §49.3–§49.6)
+
+`WP` = `infrastructure/postgres/weg-plan-repository.test.ts`, `EP` = `domains/weg/economic-plan.test.ts`, `PA` = `api/weg-economic-plans.test.ts`, `PE` = `weg-plan.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| A WEG split names its unit (`NO_UNIT`) and needs an `ACTIVE` membership on its booking date (`NO_MEMBERSHIP`), also on amend of the date; a reversal is exempt | TS "checkWegSplits …"; WP "the WEG split rule (§49.3)", "schema past the repository" |
+| The reserve contribution (and from VC-6-05 the Sonderumlage) is `WEG_FUNDS`, never an operating expense | WP "WEG_FUNDS (§49.4)"; ACC6 |
+| End and void of a membership never leave a WEG split, a plan, a statement or a Sonderumlage outside the remaining period; the guard writes the unit first (RC) | WP "membership end and void …", "concurrency on the unit"; WR |
+| The plan's components sum to the Hausgeld exactly; the proposal's cases in their order, `AMBIGUOUS` only for different splits | EP "derivePlan …", "proposeHausgeld …" |
+
+## 37. The Jahresabrechnung (VC-6-03, api-design §50)
+
+`ST` = `infrastructure/postgres/weg-statement-repository.test.ts`, `AS` = `domains/weg/annual-statement.test.ts`, `SA` = `api/weg-annual-statements.test.ts`, `SE` = `weg-statement.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| At most one `CONFIRMED` statement per membership and year (partial unique index; RC `STATEMENT_EXISTS`, RR `23505`) | ST "concurrency" |
+| The content changes only while `DRAFT`; `SUPERSEDED` only by a `CONFIRMED` successor, checked at commit (deferred, review on #150); never deleted | ST "schema past the repository" |
+| The statement's own check as flags, never refusals; the classification resolved on write and stored with its source | AS; ST "the classification …" |
+| Writers serialise on unit → WEG → membership → statement; lines write their statement first | ST "concurrency" |
+
+## 38. The ledger effects of a statement (VC-6-04, api-design §51)
+
+`SR6` = `infrastructure/postgres/weg-settlement-repository.test.ts`, `SF` = `domains/weg/statement-effects.test.ts`, `SAE` = `weg-settlement.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| `Σ difference = settlementPeak + unpaidAdvances`, exact; only current WEG splits of the unit in the period count, settlements and Sonderumlage payments never as advances | SF "deriveComparison …"; SR6 "the comparison snapshot"; ACC6 |
+| A settlement names a `CONFIRMED` statement of its unit, in a Hausgeld or reserve category; checked against the statement's membership, not the booking date, and it does not hold the membership (review on #152) | TS "wegAnnualStatementId …"; SR6 "wegAnnualStatementId on a split", "a settlement booked after the sale …" |
+| A reversal mirrors the statement (0014) and is exempt from `STATEMENT_NOT_CURRENT`; a copied replacement must name the current one | SR6 "corrections …", "0014 mirror …" |
+| A settlement write and the confirm superseding its statement serialise on the statement row (RC, RR `40001`) | SR6 "concurrency on the statement row" |
+
+## 39. The Sonderumlage (VC-6-05, api-design §51A)
+
+`SAR` = `infrastructure/postgres/weg-assessment-repository.test.ts`, `SAD` = `domains/weg/special-assessment.test.ts`, `SAA` = `api/weg-special-assessments.test.ts`, `SAX` = `weg-assessment.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Paid, outstanding, the instalments covered in due order, overdue at `asOf` and `SETTLED` derived from current cash only; nothing stored | SAD "deriveAssessment …"; SAR "payments" |
+| A payment names an `ACTIVE` assessment of its unit in `WEG_SPECIAL_ASSESSMENT`; checked against the assessment's membership; a reversal mirrors it | TS "wegSpecialAssessmentId …"; SAR "payments", "0014 mirror …" |
+| Never voided while a split names it, a reversal's included; void and a payment serialise on the assessment row (RC, RR `40001`) | SAR "void …", "concurrency on the assessment row" |
+| No `WEG_HAS_YEARS`: a Sonderumlage is filed by its resolution date | SAR "rules elsewhere" |
+
+## 40. Phase 6 exit (VC-6-06, roadmap Phase 6; implemented)
+
+The exit of `docs/roadmap.md` Phase 6: *a Jahresabrechnung is represented with preserved statement structure and split into ledger effects without losing provenance.* (Provenance: every effect names its statement, every split its unit, and confirmed cash is never re-split.) Each claim is shown **end to end through the HTTP API** by **ACC6** (`phase-6-acceptance.e2e.test.ts`), one scenario against PostgreSQL and the fake MRE, backed by §35–§39. The figures are invented and hand-computed here.
+
+**The scenario (Realm A):** a unit linked from MRE; a WEG with the unit's membership from 2026-01-01 (MEA 250/10000); the plan 2026: Hausgeld 150.00 a month (100.00 recoverable, 50.00 not, from the groups 1,200.00 and 600.00) and the reserve 50.00; a Girokonto.
+
+| Exit claim | ACC6 step | Backed by |
+|---|---|---|
+| **The cash is booked by plan** | <ul><li>24 debits imported from a bank CSV (`generic-csv`): each month 150.00 Hausgeld and 50.00 Rücklage on the 3rd.</li><li>Each split by `GET /transactions/{id}/hausgeld-proposal?propertyReferenceId=`: `HAUSGELD_ONLY` (100.00 + 50.00) and `RESERVE_ONLY` (50.00) alternately, applied and confirmed.</li></ul> | §36 |
+| **A WEG split names its unit and needs a membership** | A split on 2025-12-03: without a unit `422 NO_WEG_MEMBERSHIP NO_UNIT`, with it `NO_MEMBERSHIP`. | §36 |
+| **The reserve is no operating expense** | `WEG_RESERVE_CONTRIBUTION` and `WEG_SPECIAL_ASSESSMENT` read `WEG_FUNDS`, `WEG_RECOVERABLE` `OPERATING_EXPENSE`. | §36 |
+| **A Sonderumlage in instalments** | 600.00 in 300.00 on 2026-06-01 and 2026-09-01: after the first payment `ACTIVE`, 300.00 outstanding, the second instalment overdue at 2026-09-15; after the second `SETTLED`. | §39 |
+| **A Jahresabrechnung with its structure** | Four lines (Hausmeister 1,000.00 and Versicherung 300.00 recoverable by MEA; Verwaltervergütung 400.00 per unit and Instandhaltung 200.00 not recoverable); costs 1,900.00, Hausgeld 1,800.00 and reserve 600.00 requested and paid, Abrechnungsspitze 100.00; no flags; confirmed. | §37 |
+| **… split into its ledger effects** | The comparison: `RECOVERABLE` paid 1,200.00 actual 1,300.00 difference 100.00; `NON_RECOVERABLE` 600.00/600.00/0.00; `RESERVE` 600.00/600.00/0.00; unpaid 0.00; the differences sum to the Abrechnungsspitze. The Sonderumlage's payments are no advance. | §38 |
+| **… without re-splitting cash** | January's debit keeps its splits (100.00 + 50.00) after the statement; a new split set on it is `409`. | §1, §38 |
+| **The settlement names its statement** | The back-payment of 100.00 on 2027-05-03 split by the settlement proposal: `WEG_RECOVERABLE` 100.00 naming the statement; confirmed: settled 100.00, open 0.00. | §38 |
+| **A correction keeps the old statement** | A corrected statement (Verwaltervergütung 420.00, Abrechnungsspitze 120.00) supersedes it: the old one `SUPERSEDED` with its successor; the new comparison: `NON_RECOVERABLE` difference 20.00, settled 100.00, open 20.00, flag `SETTLED_AGAINST_SUPERSEDED` with the back-payment; a new settlement against the old one `409 STATEMENT_NOT_CURRENT`; the old one's AuditRecords exactly `CREATED`, `CONFIRMED`, `SUPERSEDED`. | §37, §38 |
+| **Realm isolation** across Phase 6 | Realm B calls every §49–§51A route with Realm A's ids (a table ACC6 iterates and compares with the routes the app serves): `404 NOT_FOUND` everywhere, except `POST /wegs` (a WEG of Realm B) and the list (never Realm A's WEG); Realm A's rows, versions and AuditRecords unchanged after each. | §35–§39 |
+
+**Counter-checks**, each of which turns ACC6 red:
+- a confirmed split re-split (the frozen check dropped);
+- the reserve contribution read as an operating expense (0041's type change dropped);
+- a WEG split without a membership (the membership check dropped);
+- a Sonderumlage payment counted as an advance;
+- no chain of superseded statements in the settlement;
+- the Realm filter dropped from the comparison read;
+- an extra Phase-6 route without a row;
+- `SETTLED` never derived.
+
+A settlement counted as an advance does not turn ACC6 red (its back-payment is booked after the period); SR6 "the comparison snapshot" covers it with a settlement inside the period.
 
 ## Keeping this current
 
