@@ -4894,7 +4894,8 @@ The fields VC-7-01 answered `400 NOT_SUPPORTED` (§55) are accepted on every sou
   - when **every one** of them has a `validUntil`, and the latest lies in a year E < F+n−1, the parts of the years after E fall into E. The meaning flags `DISTRIBUTION_ENDED` with `details: { endYear, ownershipIds, foldedYears }`;
   - example (synthetic): 1,000.00 over 3 years from F, ownership ended in F+1 → 333.33 in F, 666.67 in F+1;
   - when only **some** of them end within the distribution (a co-owner sells), the property's parts stay as they are, flagged `OWNERSHIP_PARTLY_ENDED` with `details.ownershipIds`. The per-owner fold is VC-7-04's (P7-D7; open question 10);
-  - derived on read: an Ownership closed later moves the parts at once, and no lock is needed.
+  - derived on read: an Ownership closed later moves the parts at once, and no lock is needed;
+  - **not recognised:** § 82b Abs. 2 EStDV also folds the rest into the year the building is contributed to business assets or stops being used to earn income (own use, vacancy without intent to let). DE knows neither. The parts then run on as derived, and the user reclassifies the source (a new classification with fewer `distributionYears`, or `DEDUCTIBLE` in that year). The distribution is shown as derived, never as complete (review on #167).
 - **`distribution`** in a meaning: `{ years, firstYear, parts: [{ year, amount }], endYear, rule: { ruleCode, version } }`; `parts` are the effective parts after any fold; `endYear` is `null` without a fold.
 - **The anschaffungsnahe check** counts a distributed source with its whole amount in its own date, never by parts.
 
@@ -4913,6 +4914,8 @@ A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` sn
   - `treatment` `CAPITALIZED` with `anschaffungsnaheAcquisitionId` naming this Acquisition (a capitalisation that follows this check, below).
   
   A `CAPITALIZED` source without it is Herstellungskosten of its own (an extension, § 255 HGB) and is not summed (taxation.md §6).
+- **Not summed, and said so: maintenance paid from the Hausgeld.** A WEG often pays repairs to the common property from the running Hausgeld (a maintenance cost line of the plan and the statement, §50), not from the reserve. The owner's share is Erhaltungsaufwand and counts for § 6 Abs. 1 Nr. 1a EStG as much as a withdrawal does. This check does not read statement cost lines (§58B "Never counted twice"; Hausgeld splits are `WEG_HAUSGELD`, never `MAINTENANCE`), so such repairs are missing from the sum. Wherever the PropertyReference has a WEG membership (§49.2) with a `CONFIRMED`, current statement whose period overlaps the window, the result is `NOT_FINAL` with the reason `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED` (`details.statementIds`), even when it is `NOT_ABOVE_THRESHOLD`. Counting them is open question 12 (review on #167).
+- **The date measured is the booking date** (or the withdrawal's or use's date), while the law measures when the work was **carried out** (BMF 20.10.2017, Rn. 1 ff.): a repair carried out in the third year but paid after it counts, one ordered before the transfer and paid after it does not. Near the edges this is where the 15 % can tip, so each source dated within 90 days of the window's start or end carries the flag `DATE_IS_BOOKING_DATE` (`details: { edge: "START" | "END", date }`), and the result is `NOT_FINAL` with the reason `DATES_NEAR_WINDOW_EDGE` while one does. An optional `performedOn` is open question 9 (review on #167).
 - **Left out, and listed:**
   - `excluded`: sources with `annuallyRecurring: true` (reason `ANNUALLY_RECURRING`);
   - `unclassified`: sources in the window with `taxCategory` `UNCLASSIFIED` (the WEG sources' default, `OTHER_EXPENSE`, `OTHER`): they may be repairs, so the result is not final while they exist.
@@ -4938,7 +4941,9 @@ A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` sn
 - **`final`** (boolean) and the flag `NOT_FINAL` with `details.reasons`, any of:
   - `GROSS_AMOUNTS`: a summed source has no `netAmount`. The note says that the gross amount reaches the threshold sooner than the net one would (P7-D6);
   - `UNCLASSIFIED_SOURCES`: `unclassified` is not empty;
-  - `WINDOW_OPEN`: today (Europe/Berlin) is on or before the window's end, so the sum may still grow.
+  - `WINDOW_OPEN`: today (Europe/Berlin) is on or before the window's end, so the sum may still grow;
+  - `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED`: a WEG membership with a confirmed statement overlapping the window (above);
+  - `DATES_NEAR_WINDOW_EDGE`: a summed, excluded or unclassified source carries `DATE_IS_BOOKING_DATE` (above).
 - **Above 15 %** (P7-D6): every summed source is flagged `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`, in earlier years too, and its suggested treatment becomes `CAPITALIZED`:
   - in the check's `sources` (`suggestedTreatment`) and in each source's tax-meaning read: `suggestion: { treatment: "CAPITALIZED", reason: "ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN", acquisitionIds, final }` and the flag with `details: { acquisitionId, final, rule }`;
   - `affectedYears`: the distinct tax years of those sources, ascending. DE does not know which years were filed; it shows that each of them may be affected;
@@ -5011,7 +5016,7 @@ A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` sn
   - a use: counts, `USE_CHANGED` (date, unit share), `USE_REMOVED`, `ASSESSMENT_VOID`; a changed description alone still counts;
   - the field rules of `netAmount`, `annuallyRecurring`, `distributionYears`, `mostlyResidentialConfirmed`, `anschaffungsnaheAcquisitionId`, each with its code;
   - § 82b: 1,000.00 over 3 → 333.33, 333.33, 333.34; 0.05 over 3 → 0.01, 0.01, 0.03; the fold on the end of ownership; `OWNERSHIP_PARTLY_ENDED`; `NOT_AN_OUTFLOW`; `NO_APPLICABLE_RULE` before 2004;
-  - the check: the window's edges (the transfer day, the third anniversary, the day after; 29 February); exactly 15 % not above, one cent more above; net, else gross with `VAT_NOT_SEPARATED` and `NOT_FINAL`; annually recurring left out; a refund reducing the sum; a partial acquisition; the basis with and without costs, `FINANCING_RELATED` left out; every `NOT_COMPUTABLE` reason; `WINDOW_OPEN`; a capitalisation on this check kept in the sum; `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`;
+  - the check: the window's edges (the transfer day, the third anniversary, the day after; 29 February); exactly 15 % not above, one cent more above; net, else gross with `VAT_NOT_SEPARATED` and `NOT_FINAL`; annually recurring left out; a refund reducing the sum; a partial acquisition; the basis with and without costs, `FINANCING_RELATED` left out; every `NOT_COMPUTABLE` reason; `WINDOW_OPEN`; `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED` with a confirmed statement overlapping the window and not without one; `DATE_IS_BOOKING_DATE` on day 89 and 90 inside each edge and not on day 91, with `DATES_NEAR_WINDOW_EDGE`; a capitalisation on this check kept in the sum; `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`; a § 82b distribution of an owner who stops letting runs on as derived (not recognised);
   - the registry: five rules, no overlap; `DE_CATEGORY_DEFAULTS@1` unchanged (its parameters compared to a fixed copy).
 - **Repository and schema:**
   - create with its order of checks for each source; supersede; replay; the history by `sourcePosition`;
@@ -5048,9 +5053,10 @@ A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` sn
 9. **Dates and legal edges to verify** (`verification-checklist.md` A2, A5):
    - `effectiveFrom` 2004-01-01 for `DE_ANSCHAFFUNGSNAHE@1` (measures begun after 31.12.2003) and for `DE_82B_DISTRIBUTION@1` (§ 84 Abs. 4a EStDV);
    - the window by §§ 187, 188 BGB;
-   - the date measured: the plan takes the booking date, while the law speaks of measures carried out within the window.
+   - the date measured: the check takes the booking date, while the law measures the work carried out within the window (BMF 20.10.2017, Rn. 1 ff.). The spec now flags sources near the edges (`DATE_IS_BOOKING_DATE`, `DATES_NEAR_WINDOW_EDGE`). **Proposal:** an optional `performedOn` on a classification of `MAINTENANCE` or `WEG_SPENDING` (within ±3 years of the source's date), which the check uses instead of the booking date and which clears the flag.
 10. **§ 82b when only a co-owner sells.** **Proposal:** the property's parts stay; VC-7-04 folds that owner's rest into the year their Ownership ends, per owner (P7-D7). The flag `OWNERSHIP_PARTLY_ENDED` marks the case here.
-11. **`NOT_FINAL` beyond gross amounts.** The plan names the gross amounts only. **Proposal:** also `UNCLASSIFIED_SOURCES` and `WINDOW_OPEN`, since both can change the result just as well.
+11. **`NOT_FINAL` beyond gross amounts.** The plan names the gross amounts only. **Proposal:** also `UNCLASSIFIED_SOURCES`, `WINDOW_OPEN`, `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED` and `DATES_NEAR_WINDOW_EDGE`, since each can change the result just as well.
+12. **Maintenance paid from the Hausgeld** (review on #167). VC-7-03 excludes it and says so (`WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED`). **Proposal for later** (VC-7-04 or a follow-up): read the maintenance cost lines (§50's category) of each `CONFIRMED`, current statement whose period overlaps the window, times the unit's share, as a fifth source of the check only, dated at the end of the statement's period (or pro rata by days in the window). The view still never adds them (the Hausgeld paid already holds them), so this cannot count anything twice.
 
 ---
 
