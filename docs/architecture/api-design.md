@@ -4500,7 +4500,7 @@ GET /api/v1/tax-rules/{ruleCode}
 - **A rule version:** `{ ruleCode, version, title, legalBasis, effectiveFrom, effectiveTo, parameters, source, status }`, with `status` `ACTIVE` (applicable today), `SUPERSEDED` (a later version applies) or `RETIRED` (`effectiveTo` passed without a successor). `parameters` is the rule's own data (the default table above for `DE_CATEGORY_DEFAULTS`).
 - `GET /tax-rules`: every rule with its versions, by `ruleCode`, versions ascending; `GET /tax-rules/{ruleCode}`: one rule, `404` if unknown. The former `…/versions` route is folded into these (each rule lists its versions). No Realm: the registry is the same for everyone; authentication as every route.
 - **Selection:** the version whose `effectiveFrom` ≤ the date < `effectiveTo` (or open); for VC-7-01 the date is the split's booking date. Two versions of one rule never overlap (a registry test).
-- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items; VC-7-02 added `DE_CASH_TIMING@1` (§58A); VC-7-03 adds `DE_WEG_SPENDING@1`, `DE_82B_DISTRIBUTION@1` and `DE_ANSCHAFFUNGSNAHE@1` as separate rules, leaving `DE_CATEGORY_DEFAULTS@1` unchanged (§58B). **Freeze point:** `DE_CATEGORY_DEFAULTS@1` took VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen with VC-7-02's implementation. From then on every change, an additive one too, is a new version (review on #159).
+- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items; VC-7-02 added `DE_CASH_TIMING@1` (§58A); VC-7-03 adds `DE_WEG_SPENDING@1`, `DE_82B_DISTRIBUTION@1` and `DE_ANSCHAFFUNGSNAHE@1` as separate rules, leaving `DE_CATEGORY_DEFAULTS@1` unchanged (§58B). VC-8-01 adds `DE_AFA_BUILDING_LINEAR@1` (§59), a module of the Depreciation domain (`domains/depreciation/rules/`) registered in this same registry, selected by the tax year computed (from 2023-01-01), and covered by the start check through a second source of stored references (P8-D11). **Freeze point:** `DE_CATEGORY_DEFAULTS@1` took VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen with VC-7-02's implementation. From then on every change, an additive one too, is a new version (review on #159).
 - **Every stored reference resolves** (review on #156):
   - **on write:** a classification may only name a registered `ruleCode@version`;
   - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
@@ -5252,7 +5252,7 @@ A correction of a `RentalContractReference`'s `rentDueDays` moves the tax year o
 ### Flags and the review section
 
 - **`flags`** of the year: `DEPRECIATION_NOT_AVAILABLE` (always in Phase 7), `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `LOAN_INTEREST_NOT_ATTRIBUTED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` (an entry of `acquisitions` with `final: false` or `NOT_COMPUTABLE`). Flags are `{ code, details }`.
-- **`LOAN_INTEREST_NOT_ATTRIBUTED`** (VC-7-05 review on #171): the year has interest of an allocated Loan (above, "What the view reads") that no line holds. `details: { loanIds, interestTotal, splitIds }`: the Loans (sorted), the sum of their interest splits of `year` (an `OUTFLOW` positive; 0027 allows no other but a reversal, which does not count) and the splits (sorted). `interestTotal` is the property's **whole** interest of those Loans, not a share: the allocation's share and period are not applied (VC-X-29). The flag is shown at the owner level too, with the same details. It is open, so the year's figures are not presented as complete while it stands.
+- **`LOAN_INTEREST_NOT_ATTRIBUTED`** (VC-7-05 review on #171): the year has interest of an allocated Loan (above, "What the view reads") that no line holds. `details: { loanIds, interestTotal, splitIds }`: the Loans (sorted), the sum of their interest splits of `year` (an `OUTFLOW` positive; 0027 allows no other but a reversal, which does not count) and the splits (sorted). `interestTotal` is the Loans' interest of the year as booked, not this property's share of it: the allocation's share and period are not applied, and VC-X-29 decides the share. The flag is shown at the owner level too, with the same details. It is open, so the year's figures are not presented as complete while it stands.
 - **The items' flags** are their meanings' flags (§55, §58A, §58B) as they are, plus `NEEDS_REVIEW` (the meaning's `reviewState`), `UNCLASSIFIED` (no treatment), `DISTRIBUTION_FOLDED_PER_OWNER` and `SHARE_DATE_OUTSIDE_TAX_YEAR` (above).
 - **`review`** summarises them: `{ final, open: [{ code, count }], info: [{ code, count }], reviewStates: { SUGGESTED, USER_CONFIRMED, ADVISOR_CONFIRMED, NEEDS_REVIEW } }`, with each code once and `count` the number of items (or 1 for a flag of the year). A flag is **open** (it needs a person, P7-D8) or **informative**:
 
@@ -5404,27 +5404,441 @@ The proposals as written before the decisions:
 
 ---
 
-# 59. Depreciation API
+# 59. Depreciation Asset API (VC-8-01, spec)
 
-### Queries
+**Status:** specified (VC-8-01); not implemented. Migration **0049** planned.
 
-```text
-GET /api/v1/depreciation-assets
-GET /api/v1/depreciation-assets/{id}
-GET /api/v1/depreciation-assets/{id}/schedule
-```
+Decisions P8-D1, P8-D4, P8-D11 and P8-D14 of `docs/development/phase-8-plan.md`, as decided on 2026-10-30 (AGENTS.md §17, ADR-010, ADR-041; `docs/germany/depreciation.md` v0.2 §3, §8, §9; `verification-checklist.md` B1–B3, B7). A `DepreciationAsset` records the facts of a depreciable asset that no other record holds: for the building, its **completion year** and its sources, the method, an optional **shorter useful life** per purchase, and who reviewed them. It **never** stores a basis, a rate, a start or an amount. Those are derived on every read from the Acquisition, its allocation and the rule (§59A, VC-8-02). VC-8-01 adds the asset, its commands and reads, and the rule `DE_AFA_BUILDING_LINEAR@1` with its rate bands. The schedule is VC-8-02's (§59A), capitalised costs and separate assets are VC-8-03's (§59A, §59B), recorded versions are VC-8-04's (§60), and the AfA in the tax-year view is VC-8-05's (§58C).
 
-### Commands
+### Routes
 
 ```text
-POST /api/v1/depreciation-assets
-POST /api/v1/depreciation-assets/{id}/recalculate
-POST /api/v1/depreciation-assets/{id}/correct-basis
+POST /api/v1/depreciation-assets                                              (VC-8-01, §59)
+GET  /api/v1/depreciation-assets/{assetId}                                    (VC-8-01, §59; ?year=)
+POST /api/v1/depreciation-assets/{assetId}/amend                              (VC-8-01, §59)
+POST /api/v1/depreciation-assets/{assetId}/confirm                            (VC-8-01, §59)
+POST /api/v1/depreciation-assets/{assetId}/void                               (VC-8-01, §59)
+GET  /api/v1/property-references/{propertyReferenceId}/depreciation-assets    (VC-8-01, §59; ?status=&year=)
+GET  /api/v1/depreciation-assets/{assetId}/schedule                           (VC-8-02, §59A)
+POST /api/v1/depreciation-assets/{assetId}/schedule-versions                  (VC-8-04, §60)
+GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (VC-7-01, §58; lists DE_AFA_BUILDING_LINEAR from VC-8-01)
 ```
+
+- **Domain owner:** Depreciation (`domains/depreciation/`, P8-D11). It reads the PropertyReference, the Acquisitions and the Parties through their domains. **Authorization:** the caller's Realm, as every DE route. The asset, its PropertyReference, its advisor Party and the Acquisitions it names belong to that Realm (composite foreign keys). Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **The former placeholder** (`GET /depreciation-assets`, `…/recalculate`, `…/correct-basis`) is withdrawn. A basis is never corrected on the asset, only through its inputs (the Acquisition, its costs, its allocation, a classification; phase-8-plan §4). A Realm-wide list has no use while assets hang off a PropertyReference. Recording a version is §60's (VC-8-04).
+- **No cash, no MRE:** no command of §59 writes a Transaction, a split or anything outside its own table and the AuditRecords (P8-D14). There is no MRE call.
+
+### The asset
+
+- **`assetType`:** `BUILDING` in VC-8-01. **One `ACTIVE` building per PropertyReference** (a partial unique index): the completion year is a fact of the building, shared by every Acquisition of a share of the unit (P8-D1). `SEPARATE_ASSET` (an Einbauküche over 10 years, B8) is decided for Phase 8 (P8-D7, option 1). Its fields (the items it names, `usefulLifeYears`) and the rule `DE_AFA_MOVABLE_LINEAR@1` are VC-8-03's (§59B). Until then `SEPARATE_ASSET` is `400 NOT_SUPPORTED`.
+- **Status:** `ACTIVE` → `VOID` (final). A wrongly recorded asset is voided, and a new one is created. A void frees the PropertyReference for a new building asset.
+- **Stored fields** (the canonical inputs, P8-D1):
+  - `buildingCompletionYear`: an integer, or `null` while unknown. **Never defaulted or guessed** (phase-8-plan §4: an older building in a WEG often has no known year). The year is enough for the rate, since every band boundary of § 7 Abs. 4 S. 1 Nr. 2 EStG is a year-end (P8-D4; depreciation.md §3).
+  - `sourceReferences` (≤ 20, each 1–500): where the year comes from, e.g. "Teilungserklärung 1995, S. 2" or "Energieausweis, Baujahr Gebäude". DE does not judge them.
+  - `depreciationMethod`: `LINEAR_7_4` (linear building AfA by § 7 Abs. 4 EStG), the only method of Phase 8. Degressive AfA by § 7 Abs. 5a and § 7h/§ 7i are out of scope (P8-D13).
+  - `reviewState` (data-model §6.7, as the allocation's, §27.3): `UNREVIEWED`, `NEEDS_REVIEW`, `CONFIRMED`, `ADVISOR_CONFIRMED`. `SUGGESTED` is never stored. `advisorPartyId` is set only with `ADVISOR_CONFIRMED`.
+  - `shorterUsefulLives` (P8-D4, decided 2026-10-30; § 7 Abs. 4 S. 2 EStG; B7): at most one entry per Acquisition of the PropertyReference, at most 20. Each entry has `acquisitionId`, `usefulLifeYears`, `evidence` and its **own** `reviewState` and `advisorPartyId`, as above. See "The shorter useful life" below.
+  - `notes` (≤ 2000), `voidedAt`, `voidReason`, `createdAt`, `version`.
+- **Derived, never stored** (AGENTS.md §17, data-model §82): the basis, the start, every year's amount and the residual value are §59A's. The **rate** of a year is derived on read (`rate`, below). The table has **no** column for any of them (a counter-check reads its columns).
+
+### The shorter useful life (§ 7 Abs. 4 S. 2 EStG, B7)
+
+- **Per Acquisition** (P8-D4 option (a): "per Acquisition component"). A remaining useful life is evidenced for a purchase, at its date. Two buyers of shares at different times may hold different evidence, or one may hold none. Each entry names an Acquisition of the asset's PropertyReference that is not `CANCELLED` when the entry is written. It may still be `DRAFT`: only a `CONFIRMED` one feeds the schedule (§27.4), and the entry waits for it.
+- **`usefulLifeYears`:** an integer, 1–99. The claimed rate is the exact fraction `1/usefulLifeYears`, never a rounded percentage.
+- **`evidence`** (required with every entry; depreciation.md §9 asks Phase 8 to fix these fields):
+  - `source` (1–500): what the evidence is, e.g. "Gutachten zur Restnutzungsdauer";
+  - `date` (a business date): the date of the evidence;
+  - `documentReference` (≤ 500, optional): a reference in free text. A `documentId` waits for documents (`400 NOT_SUPPORTED`, as §33.2).
+- **DE judges nothing** (B7). The BMF letter of 22.02.2023 was repealed on 01.12.2025, and its requirements (who may write the appraisal, which method it uses) are **not** checks. DE records the evidence, and the user or the advisor confirms it. The only check DE applies is whether the life is shorter than the statute's threshold for the band.
+- **"Shorter" is a fixed number of years per band**, as § 7 Abs. 4 S. 2 EStG names them, never derived from the rate: fewer than **33** years in band `A` (S. 1 Nr. 2 Buchst. a), fewer than **50** in band `B` (Buchst. b), fewer than **40** in band `C` (Buchst. c). Each band of the rule carries its threshold as the parameter `shorterUsefulLife.shorterThanYears` (below). The check is `usefulLifeYears < shorterThanYears`, with no arithmetic on `ratePercent`. So 33 years in band `A` is **not** shorter, although `1/33` exceeds 3 %: the statute names the years. An entry that is not shorter gets the band's rate, and it is flagged `USEFUL_LIFE_NOT_SHORTER`. The entry is never refused, since the band can change with an amended completion year.
+- **VERIFY before implementation:** the thresholds are taken from the statute text quoted in the review on #174 (recorded in `docs/germany/depreciation.md` §3, B7). Re-read § 7 Abs. 4 S. 2 EStG in the official text (gesetze-im-internet.de) before VC-8-01 is implemented, and correct the rule's parameters if it differs.
+- **Only a confirmed entry feeds a figure.** An entry in `UNREVIEWED` or `NEEDS_REVIEW` makes its Acquisition's component not computable (`USEFUL_LIFE_NOT_CONFIRMED`, §59A). DE then uses neither the claimed rate nor the band's rate, since either would be a guess: the user has claimed a shorter life, but nobody has confirmed it. A confirmed entry gives the rate `1/usefulLifeYears`, flagged `SHORTER_USEFUL_LIFE` (informative), as P8-D4 says.
+- **Still VERIFY** (phase-8-plan §3, 6): whether a shorter life, once claimed, applies from the purchase or from the year it is evidenced. VC-8-02 decides how the schedule uses `evidence.date`. VC-8-01 stores the date and computes nothing with it.
+
+### `POST /api/v1/depreciation-assets`
+
+`201` with the asset, `ETag: "<version>"` and `Location: /api/v1/depreciation-assets/{assetId}`. `Idempotency-Key` (scope `depreciation-asset.create`, §15).
+
+```json
+{
+  "propertyReferenceId": "6f1c2a9e-0000-4000-8000-000000000001",
+  "assetType": "BUILDING",
+  "buildingCompletionYear": 1995,
+  "sourceReferences": ["Teilungserklärung, Baujahr laut Anlage 1"],
+  "depreciationMethod": "LINEAR_7_4",
+  "reviewState": "UNREVIEWED",
+  "shorterUsefulLives": [
+    {
+      "acquisitionId": "6f1c2a9e-0000-4000-8000-000000000002",
+      "usefulLifeYears": 30,
+      "evidence": { "source": "Gutachten zur Restnutzungsdauer", "date": "2026-06-15", "documentReference": "Gutachten Nr. 0000-SYN" },
+      "reviewState": "NEEDS_REVIEW"
+    }
+  ],
+  "notes": null
+}
+```
+
+- **Body** (strict; unknown keys are `400`):
+  - `propertyReferenceId` (UUID, required);
+  - `assetType` (optional, default `BUILDING`; `SEPARATE_ASSET` → `400 NOT_SUPPORTED` until VC-8-03);
+  - `buildingCompletionYear` (integer 1000–2100 or `null`, optional, default `null`; otherwise `OUT_OF_RANGE`, or `INVALID_FORMAT` for a non-integer);
+  - `sourceReferences`, `notes`: trimmed, and empty means absent (as §49.1);
+  - `depreciationMethod` (optional, default `LINEAR_7_4`; another value is `INVALID_FORMAT`);
+  - `reviewState` (optional, default `UNREVIEWED`): `SUGGESTED` is `NOT_ALLOWED`. `CONFIRMED` or `ADVISOR_CONFIRMED` without a completion year is `COMPLETION_YEAR_REQUIRED` at `reviewState`: nobody can confirm a year that is not there;
+  - `advisorPartyId` (UUID, optional): only with `ADVISOR_CONFIRMED`, else `NOT_ALLOWED`;
+  - `shorterUsefulLives` (optional, default `[]`): each entry as above. An entry's `reviewState` defaults to `UNREVIEWED`, and `advisorPartyId` follows the same rule. A second entry for one `acquisitionId` is `DUPLICATE`, and a 21st is `OUT_OF_RANGE`.
+  - **Not input:** data-model §38's former `basisAmount`, `startDate`, `depreciationRate`, `landBuildingAllocationId`, `acquisitionId`, `taxRuleVersionId`, `usefulLife` and `ownershipBasis` are unknown keys (`400`). They are derived (§59A), or replaced (P8-D1). `documentIds` is `400 NOT_SUPPORTED`. `jurisdiction` is `DE` and is not accepted (`400`, as §55).
+- **Order of checks:**
+  1. `400` (shape, enums, ranges, the fits above), all field errors at once;
+  2. the PropertyReference: unknown or foreign → `404` (`details.propertyReferenceId`). Its `externalReferenceState` does not matter: DE history stays valid when MRE loses the Property (data-model §9);
+  3. every advisor Party named (the asset's and the entries'): unknown or foreign → `404` (`details.partyId`). Any status is allowed, as §27.3;
+  4. every entry's Acquisition: unknown or foreign → `404` (`details.acquisitionId`); of another PropertyReference → `422 ACQUISITION_NOT_OF_PROPERTY`; `CANCELLED` → `409 CONFLICT` with `reason = "ACQUISITION_CANCELLED"` (as §27.2);
+  5. an `ACTIVE` building asset of the PropertyReference → `409 CONFLICT` with `reason = "BUILDING_ASSET_EXISTS"` and `details.assetId`.
+- **Success:** `201` with the asset (`status = ACTIVE`, `version = 1`). AuditRecord `CREATED` on the asset, with every stored field and each entry.
+- **Idempotency (§15):** the fingerprint is the normalized body. A replay answers `201` with the recorded body, its `ETag` and `Idempotent-Replayed: true`. The same key with another payload is `409 CONFLICT`. Without a key, a retried create is refused as `BUILDING_ASSET_EXISTS`, never a duplicate.
+
+### `POST /api/v1/depreciation-assets/{assetId}/amend`
+
+`If-Match` as §16.1.
+
+```json
+{ "buildingCompletionYear": 1994, "sourceReferences": ["Grundbuchauszug, Baujahr 1994"] }
+```
+
+- **Body:** the fields to change, at least one. `null` clears an optional field. Amendable fields: `buildingCompletionYear`, `sourceReferences`, `notes`, `shorterUsefulLives` (the **whole list**, as §58A's `rentDueDays`), and `reviewState` with the value `UNREVIEWED` or `NEEDS_REVIEW` only. Raising the state is `confirm`'s job (`CONFIRMED` or `ADVISOR_CONFIRMED` here → `400 NOT_ALLOWED`). `propertyReferenceId`, `assetType` and `depreciationMethod` → `400 NOT_AMENDABLE`.
+- **A changed fact is never carried under an old confirmation.** A change of `buildingCompletionYear` sets the asset's `reviewState` to `UNREVIEWED` and clears `advisorPartyId`, unless the body itself names `NEEDS_REVIEW`. Lowering the state also clears the advisor. Within `shorterUsefulLives`, an entry is matched by `acquisitionId`. An entry whose `usefulLifeYears` or `evidence` changed takes the `reviewState` the body gives it (default `UNREVIEWED`). An unchanged entry keeps its state unless the body names another. An entry that is left out is removed.
+- **The repository writes the difference, never the whole list** (matched by `acquisitionId`): it updates the rows of changed entries, deletes the rows of removed entries and inserts the rows of new entries. The rows of unchanged entries are not touched. A delete-and-reinsert of the list would be refused by the guard `depreciation_asset_useful_life_open` (below), which refuses every insert of an entry for a `CANCELLED` Acquisition: an unchanged entry whose `DRAFT` Acquisition was cancelled later would then block every amend of the asset.
+- **The past changes on read.** A corrected completion year or a removed entry changes the derived rate of every year from the start. Nothing is stored per year. A recorded schedule version that differs shows it as `DEPRECIATION_CHANGED_SINCE_RECORDED` (P8-D10, VC-8-04).
+- **Order of checks:**
+  1. `400`;
+  2. the asset: unknown or foreign → `404`;
+  3. `VOID` → `409 CONFLICT` with `reason = "ASSET_NOT_ACTIVE"` and `details.status`;
+  4. the advisor Parties named by new or changed entries: as on create;
+  5. the Acquisitions of **new or changed** entries: as on create (`404`, `ACQUISITION_NOT_OF_PROPERTY`, `ACQUISITION_CANCELLED`). An unchanged entry is not checked again, so an entry whose `DRAFT` Acquisition was cancelled later does not block an amend. The read flags it instead (`ACQUISITION_CANCELLED`, below);
+  6. values equal to the current ones → `200` no-op without a new version or AuditRecord, whatever `If-Match` says;
+  7. `If-Match` → `412 VERSION_CONFLICT`.
+- **Success:** `200` with the asset (`version` + 1). AuditRecord `AMENDED` with each changed field's old and new value. For `shorterUsefulLives` the record lists `details.changedEntries` (`{ acquisitionId, change: "ADDED" | "CHANGED" | "REMOVED", from, to }`), and a review state that the amend reset is recorded with its `from` and `to`.
+
+### `POST /api/v1/depreciation-assets/{assetId}/confirm`
+
+`If-Match` as §16.1.
+
+```json
+{ "reviewState": "ADVISOR_CONFIRMED", "advisorPartyId": "6f1c2a9e-0000-4000-8000-000000000003", "note": "Baujahr mit Teilungserklärung abgeglichen" }
+```
+
+- **Body:** `reviewState` (required, `CONFIRMED` or `ADVISOR_CONFIRMED`), `advisorPartyId` (only with `ADVISOR_CONFIRMED`, optional there, as §57), `note` (≤ 500, optional; it goes into the AuditRecord, not into a column).
+- **What it confirms:** the asset's own facts, i.e. the completion year and its sources. The entries of `shorterUsefulLives` carry their own review state, which is set by amend. One confirmation does not cover the other (P8-D4: "its own reviewState").
+- **Who may confirm:** as §57, the Realm only. There is no advisor role in the MVP, and the actor is recorded.
+- **Order of checks:**
+  1. `400`;
+  2. `404`;
+  3. `VOID` → `409 ASSET_NOT_ACTIVE`;
+  4. `buildingCompletionYear` is `null` → `409 CONFLICT` with `reason = "COMPLETION_YEAR_MISSING"`;
+  5. `CONFIRMED` on an `ADVISOR_CONFIRMED` asset → `409 CONFLICT` with `reason = "ADVISOR_CONFIRMED"`. A user does not lower an advisor's confirmation; amending the state to `NEEDS_REVIEW` first is the explicit way;
+  6. the advisor Party: unknown or foreign → `404`;
+  7. the same state with the same advisor → `200` no-op, whatever `If-Match` says;
+  8. `If-Match` → `412`.
+- **Success:** `200` (`version` + 1). AuditRecord `CONFIRMED`, with `from`, `to`, the advisor, the note and the actor.
+
+### `POST /api/v1/depreciation-assets/{assetId}/void`
+
+`If-Match` as §16.1.
+
+- **Body:** `{ "reason": "..." }` (required, trimmed, 1–500): a recording error, such as the wrong PropertyReference.
+- **Order of checks:** `400` → `404` → `VOID` → `200` no-op that keeps the first reason and time, whatever `If-Match` says → `If-Match` → `412`.
+- **Success:** `200` (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1). AuditRecord `VOIDED` with the reason. A `VOID` asset feeds nothing (§59A: `NO_ASSET`).
+- **Recorded versions:** VC-8-04 decides whether a recorded schedule version holds the void (§60). In VC-8-01 nothing does.
+
+### Reads
+
+- **`GET /depreciation-assets/{assetId}[?year=]`:** one asset with `ETag`, and the derived `rate` block of `year`. `year` is an integer from 2000 to 2100, as §58C. The default is today's year in Europe/Berlin, from the server's clock (as §58C's `computedOn`). Unknown parameters are `400`.
+- **`GET /property-references/{propertyReferenceId}/depreciation-assets[?status=&year=]`:** `{ items }`, each item as the single read with its `rate` of `year`. `VOID` assets are included unless `status` filters them (a comma-separated list). The order is `assetType`, then `createdAt`, then `assetId`. The list is unpaged: a PropertyReference has one building and, from VC-8-03, a handful of separate assets. An unknown or foreign PropertyReference is `404`.
+- **Both reads** run in one `REPEATABLE READ READ ONLY` snapshot and write nothing (P8-D14). The command responses carry the asset **without** `rate`, because a derived figure is a read's job (§15). In a command response, `rate` is `null`.
+
+### Response
+
+```json
+{
+  "assetId": "6f1c2a9e-0000-4000-8000-000000000010",
+  "mreRealmId": "realm-synthetic",
+  "propertyReferenceId": "6f1c2a9e-0000-4000-8000-000000000001",
+  "assetType": "BUILDING",
+  "status": "ACTIVE",
+  "buildingCompletionYear": 1995,
+  "sourceReferences": ["Teilungserklärung, Baujahr laut Anlage 1"],
+  "depreciationMethod": "LINEAR_7_4",
+  "reviewState": "CONFIRMED",
+  "advisorPartyId": null,
+  "shorterUsefulLives": [
+    {
+      "acquisitionId": "6f1c2a9e-0000-4000-8000-000000000002",
+      "usefulLifeYears": 30,
+      "evidence": { "source": "Gutachten zur Restnutzungsdauer", "date": "2026-06-15", "documentReference": "Gutachten Nr. 0000-SYN" },
+      "reviewState": "NEEDS_REVIEW",
+      "advisorPartyId": null
+    }
+  ],
+  "notes": null,
+  "voidedAt": null,
+  "voidReason": null,
+  "createdAt": "2026-10-30T09:00:00.000Z",
+  "version": 3,
+  "rate": {
+    "year": 2026,
+    "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1 },
+    "band": "B",
+    "ratePercent": "2",
+    "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG",
+    "shorterThanYears": 50,
+    "reasons": [],
+    "shorterUsefulLives": [
+      {
+        "acquisitionId": "6f1c2a9e-0000-4000-8000-000000000002",
+        "rate": "1/30",
+        "ratePercent": "3.3333",
+        "applies": false,
+        "reasons": ["USEFUL_LIFE_NOT_CONFIRMED"]
+      }
+    ]
+  }
+}
+```
+
+- **`rate`** (derived for `year`, never stored) is the asset's part of the rate. Whether and from when it enters a figure is §59A's:
+  - `rule`: the version of `DE_AFA_BUILDING_LINEAR` applicable in `year` (selected on 1 January of `year`, §58), or `null`;
+  - `band`: `A` (completed ≥ 2023), `B` (1925–2022) or `C` (≤ 1924), from the rule's parameters; `null` without a completion year or a rule;
+  - `ratePercent`: the band's rate as a §87 decimal string (`"3"`, `"2"`, `"2.5"`), exact; `legalBasis`: the band's;
+  - `shorterThanYears`: the band's threshold of § 7 Abs. 4 S. 2 EStG (33, 50 or 40), from the rule; `null` with `band`;
+  - `reasons`, in this order, empty when the band rate is usable:
+    - `ASSET_VOID`;
+    - `COMPLETION_YEAR_MISSING`;
+    - `NO_APPLICABLE_RULE`: `year` < 2023. No version applies, and none is assumed until phase-8-plan §3, 4 is verified;
+    - `ASSET_NOT_CONFIRMED`: `reviewState` is `UNREVIEWED` or `NEEDS_REVIEW`. As with the allocation (data-model §15), only a confirmed fact feeds a canonical figure. `band` and `ratePercent` are still shown, so the user sees what confirming would give.
+  - `shorterUsefulLives`: one entry per stored entry, in `acquisitionId` order.
+    - `rate` is the exact fraction `"1/n"`. `ratePercent` is that rate × 100, rounded half-even to four places, for display only.
+    - `applies` is true only when the asset's `reasons` are empty, the entry is `CONFIRMED` or `ADVISOR_CONFIRMED`, `usefulLifeYears < shorterThanYears`, and its Acquisition is not `CANCELLED`.
+    - Otherwise `reasons` gives why, in this order: `ACQUISITION_CANCELLED`, `USEFUL_LIFE_NOT_SHORTER`, `USEFUL_LIFE_NOT_CONFIRMED`. Without a band, shortness is not known, and the asset's reasons say why.
+- **Flags and their levels** in the schedule and the view (`SHORTER_USEFUL_LIFE` informative, `USEFUL_LIFE_NOT_SHORTER` and the not-computable reasons open) are set by §59A and §58C (VC-8-02, VC-8-05). VC-8-01 only derives the reasons.
+
+### The rule `DE_AFA_BUILDING_LINEAR@1` (P8-D4, P8-D11)
+
+- **The module** is `domains/depreciation/rules/de-afa-building-linear.ts`, a `RuleVersion`, exported through `domains/depreciation/index.js`.
+- **One registry, outside both domains** (P8-D11). The registry cannot stay in `domains/taxation/rules/registry.ts`:
+  - `architecture.test.ts` (`violation`) allows an import between two `domains/` modules only through `<module>/index.js`, so the registry may not deep-import `../../depreciation/rules/…`;
+  - through `depreciation/index.js`, Taxation would import Depreciation while Depreciation imports `TAX_RULES` from `taxation/index.js` as a value (to derive `rate`). That is a runtime cycle of two ES modules, and whichever is loaded first reads the other's bindings before they are initialised (TDZ). VC-8-05 adds the edge Taxation → Depreciation anyway (the tax-year view reads the schedule).
+- **The path chosen:** the kernel moves to `shared/`, each domain keeps its own rule modules, and `TAX_RULES` is composed in a module above both domains.
+  - `shared/rule-version.ts` (moved from `domains/taxation/rules/rule-version.ts`): `RuleVersion`, `RuleRef`, `RuleStatus`, `RULE_STATUSES`, `ruleKey`. It imports only `shared/business-date.ts`.
+  - `shared/rule-registry.ts`: the class `RuleRegistry`, moved unchanged out of `domains/taxation/rules/registry.ts`, with the constructor and selection tests of `registry.test.ts` as `shared/rule-registry.test.ts`. Both are exported by `shared/index.ts`. `shared/` imports no other layer (`allowedLayers: []`), and every layer may import it.
+  - `domains/taxation/index.ts` exports `TAXATION_RULE_VERSIONS` (the five Phase-7 versions; the rule modules stay in `domains/taxation/rules/`) and re-exports `RuleRegistry`, `ruleKey`, `RULE_STATUSES` and the types from `shared/`, so the Phase-7 imports of them through `taxation/index.js` keep working. `domains/taxation/rules/registry.ts` is deleted.
+  - `domains/depreciation/index.ts` exports `DEPRECIATION_RULE_VERSIONS` (`DE_AFA_BUILDING_LINEAR@1`). Depreciation imports `shared/` only, never `taxation/` or `tax-rules/`.
+  - `domains/tax-rules/index.ts` (new, the composition): `TAX_RULES = new RuleRegistry([...TAXATION_RULE_VERSIONS, ...DEPRECIATION_RULE_VERSIONS])`, importing both domains through their indexes. Nothing in `domains/taxation/` or `domains/depreciation/` imports it. The registry tests of the six rules (`registry.test.ts`'s `TAX_RULES` part) move to `domains/tax-rules/registry.test.ts`.
+  - **The registry reaches the domains by injection:** every domain function that needs it takes a `registry: RuleRegistry` parameter, as Taxation's already do (`classification.ts`, `tax-year-view.ts`, `distribution-82b.ts`, `attribution-changes.ts`). The use cases and repositories pass `TAX_RULES` from `domains/tax-rules/index.js`. Taxation's own domain tests build `new RuleRegistry(TAXATION_RULE_VERSIONS)` instead of importing `TAX_RULES`.
+- **Why this path:** `TAX_RULES` is read as a value by `infrastructure/` (the default registry of `PostgresTaxClassificationRepository` and of `checkStoredRuleReferences`, and their tests) as well as by `application/tax-classifications.ts` (`getTaxYearView`, `listTaxRules`, `getTaxRule`). `infrastructure/` may not import `application/` (architecture test), so a composition in `application/` or in `wiring.ts` would force those defaults out and a second composition into the infrastructure tests. A module in `domains/` is importable by every layer that needs it. A `domains/tax-rules` module that "depends on nothing" would have to hold the rule modules of both domains, so each domain's rules would leave their domain; here they stay.
+- **Imports that change** (no behaviour changes): `TAX_RULES` is imported from `domains/tax-rules/index.js` in `application/tax-classifications.ts`, `infrastructure/postgres/tax-classification-repository.ts`, `infrastructure/postgres/tax-rule-check.ts` and the tests that use it (`tax-weg-repository.test.ts`, `tax-year-view-repository.test.ts`); the type-only imports of `./rules/registry.js` and `./rules/rule-version.js` inside `domains/taxation/` go to `shared/index.js`. `GET /tax-rules` (`listTaxRules`, `getTaxRule`), the start check in `main.ts` (`checkStoredRuleReferences`) and every Phase-7 use of the registry read the same `TAX_RULES`, now with six rules. The Phase-7 tests stay green unchanged apart from these imports.
+- **Version 1:**
+
+| Field | Value |
+|---|---|
+| `ruleCode`, `version` | `DE_AFA_BUILDING_LINEAR`, `1` |
+| `title` | Lineare Gebäude-AfA im Privatvermögen (§ 7 Abs. 4 EStG) |
+| `legalBasis` | § 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG |
+| `effectiveFrom`, `effectiveTo` | `2023-01-01`, open: the first year the 3 % band applies (P8-D4) |
+| `source` | `docs/germany/depreciation.md` §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11 |
+| `parameters.bands` | `[{ band: "A", completedFromYear: 2023, completedToYear: null, ratePercent: "3", legalBasis: "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. a EStG", shorterUsefulLife: { shorterThanYears: 33, legalBasis: "§ 7 Abs. 4 S. 2 EStG" } }, { band: "B", completedFromYear: 1925, completedToYear: 2022, ratePercent: "2", legalBasis: "… Buchst. b EStG", shorterUsefulLife: { shorterThanYears: 50, legalBasis: "§ 7 Abs. 4 S. 2 EStG" } }, { band: "C", completedFromYear: null, completedToYear: 1924, ratePercent: "2.5", legalBasis: "… Buchst. c EStG", shorterUsefulLife: { shorterThanYears: 40, legalBasis: "§ 7 Abs. 4 S. 2 EStG" } }]` |
+| `parameters.shorterUsefulLife` | `{ legalBasis: "§ 7 Abs. 4 S. 2 EStG", rate: "RECIPROCAL_OF_YEARS" }`: the claimed rate is `1/usefulLifeYears`, and only when `usefulLifeYears < shorterThanYears` of the band |
+
+- **The bands are parameters, never constants** (AGENTS.md §16): the code reads them from the rule, and so are the thresholds of the shorter useful life (33, 50, 40 years: § 7 Abs. 4 S. 2 EStG names them; still VERIFY against the official text, above). No code derives a threshold from `ratePercent`. A registry test checks that they cover every year from 1000 to 2100 exactly once, without a gap or an overlap. Both boundaries are year-ends (31.12.1924 and 31.12.2022), so the completion **year** decides the band (P8-D4). `ratePercent` is a decimal string, computed exactly.
+- **Selection** by the **tax year computed**: the version with `effectiveFrom` ≤ `year`-01-01 < `effectiveTo` (§58). Before 2023 no version applies. The answer is then `NO_APPLICABLE_RULE`, never an assumed rate, until the bands of earlier years are verified (phase-8-plan §3, 4). A second version will then cover them, with `effectiveTo` and `effectiveFrom` adjacent as the registry requires.
+- **Later parameters, and the freeze point.** VC-8-02 adds the first year (§ 7 Abs. 1 S. 4 EStG, B6) and the end of the AfA, including the year of disposal (P8-D9) once verified. VC-8-03 adds `subsequentCostStart` (P8-D6). They are added to version 1 **additively**, because no stored record names `DE_AFA_BUILDING_LINEAR@1` before VC-8-04 records the first schedule version. Version 1 is **frozen with VC-8-04's implementation**, and from then on every change is a new version. This is the rule `DE_CATEGORY_DEFAULTS@1` followed (§58, review on #159).
+- **The start check** (§58) gains a second source. `checkStoredRuleReferences` reads the distinct `ruleCode@version` stored by Taxation (`tax_classification`, both references) **and** by Depreciation (`DepreciationAssetRepository.storedRuleReferences()`). It refuses to start when one does not resolve. In VC-8-01 the Depreciation source returns nothing, since the asset stores no rule reference (P8-D1: the rate is derived). VC-8-04 makes the source read the recorded versions. The mechanism is tested now, with a stubbed source (Tests, below).
+- **No database guard** repeats the bands. The asset stores no rate, so there is nothing to check (unlike `tax_classification_treatment`, §58).
+
+### Error answers (`api/error-answers.ts`)
+
+New domain errors, in the central table:
+
+| Error | Answer | `details` |
+|---|---|---|
+| `DepreciationAssetNotFoundError` | `404 NOT_FOUND`, "Depreciation asset not found." | `{ assetId }` |
+| `BuildingAssetExistsError` | `409 CONFLICT`, "The PropertyReference already has an active building asset." | `{ reason: "BUILDING_ASSET_EXISTS", assetId }` |
+| `DepreciationAssetNotActiveError` | `409 CONFLICT`, "The depreciation asset is VOID." | `{ reason: "ASSET_NOT_ACTIVE", assetId, status }` |
+| `CompletionYearMissingError` | `409 CONFLICT`, "The building's completion year is not recorded; nothing to confirm." | `{ reason: "COMPLETION_YEAR_MISSING", assetId }` |
+| `AssetAdvisorConfirmedError` | `409 CONFLICT`, "A user cannot lower an advisor confirmation; amend the review state to NEEDS_REVIEW first." | `{ reason: "ADVISOR_CONFIRMED", assetId }` |
+| `AcquisitionNotOfPropertyError` | `422 ACQUISITION_NOT_OF_PROPERTY`, "The Acquisition belongs to another PropertyReference." | `{ acquisitionId, propertyReferenceId }` |
+
+Existing answers reused as they are:
+- `PropertyReferenceNotFoundError`, `PartyNotFoundError` and `AcquisitionNotFoundError` (`404`);
+- `AcquisitionCancelledError` (`409 CONFLICT`, `reason = "ACQUISITION_CANCELLED"`);
+- `VersionConflictError` (`412 VERSION_CONFLICT`, `expectedVersions`, `currentVersion`);
+- `IdempotencyKeyConflictError` (`409 CONFLICT`).
+
+Field errors are `400 VALIDATION_ERROR` with the existing codes (`REQUIRED`, `INVALID_FORMAT`, `OUT_OF_RANGE`, `NOT_SUPPORTED`, `NOT_ALLOWED`, `NOT_AMENDABLE`, `DUPLICATE`) and one new code, `COMPLETION_YEAR_REQUIRED`. The `rate` reasons are data, not errors: a read never fails for want of a rate.
+
+### Concurrency and locks (P8-D14)
+
+- **One READ COMMITTED transaction per command,** in the lock order of every path that touches a PropertyReference (§26.1, §28.1):
+  1. claim the key (create);
+  2. write the **PropertyReference** row (the no-op write of every Ownership writer);
+  3. read the advisor Parties without a lock (an inactive advisor is allowed, §27.3);
+  4. read the Acquisitions of new or changed entries `FOR SHARE`, in `id` order;
+  5. lock the asset `FOR UPDATE` (amend, confirm, void), or read the `ACTIVE` building of the PropertyReference (create);
+  6. evaluate, write, write the AuditRecords, record the key.
+- **Two creates for one PropertyReference:**
+  - under RC the second waits on the PropertyReference row, then sees the first one's asset (`BUILDING_ASSET_EXISTS`);
+  - under RR it fails to serialise (`40001`);
+  - the partial unique index is the guarantee for any other writer, and the repository answers its `23505` as `BUILDING_ASSET_EXISTS`;
+  - counter-check: without the PropertyReference write, two RC creates race to the index.
+- **An entry against a cancel of its `DRAFT` Acquisition** (§27.1's cancel takes PropertyReference → Acquisition): whichever comes first wins, and the other sees it, either `ACQUISITION_CANCELLED` or a cancel that leaves an entry the read flags. Neither deadlocks.
+- **Amend, confirm and void of one asset** serialise on its row. A stale `If-Match` is `412`, checked under the lock after a fresh read (§16.1).
+
+### In the database (migration 0049)
+
+- **`depreciation_asset`:**
+  - `id`, `mre_realm_id`;
+  - `property_reference_id`, a composite foreign key `(property_reference_id, mre_realm_id)` to `property_reference` (`property_reference_realm_key`);
+  - `asset_type` (CHECK `IN ('BUILDING')`, which VC-8-03 widens), `status` (CHECK `ACTIVE`, `VOID`);
+  - `building_completion_year` (`integer` NULL, CHECK 1000–2100);
+  - `source_references` (`text[]`, ≤ 20, each 1–500), `depreciation_method` (CHECK `IN ('LINEAR_7_4')`);
+  - `review_state` (CHECK the four states), `advisor_party_id`, a composite foreign key `(advisor_party_id, mre_realm_id)` to `party`. A CHECK sets it only with `ADVISOR_CONFIRMED`. Another CHECK: `CONFIRMED` or `ADVISOR_CONFIRMED` only with a completion year;
+  - `notes`, `voided_at`, `void_reason` (set together, CHECK, only with `VOID`), `created_at`, `version`;
+  - `UNIQUE (id, mre_realm_id, property_reference_id)` for the child table's key.
+  - **No column** for a basis, rate, start, amount, allocation, Acquisition or rule.
+- **`depreciation_asset_useful_life`** (the entries, as rows: AGENTS.md §28, no blob):
+  - `asset_id`, `mre_realm_id`, `property_reference_id`, a composite foreign key to `depreciation_asset`;
+  - `acquisition_id`, a composite foreign key `(acquisition_id, mre_realm_id, property_reference_id)` to `acquisition` (`acquisition_ownership_key` of 0020), so an entry can never name another property's Acquisition, past the repository too;
+  - `useful_life_years` (CHECK 1–99), `evidence_source`, `evidence_date`, `evidence_document_reference`, `review_state`, `advisor_party_id` (the same CHECKs as the asset's);
+  - `UNIQUE (asset_id, acquisition_id)`.
+- **Indexes:** `depreciation_asset_building_active ON depreciation_asset (property_reference_id) WHERE asset_type = 'BUILDING' AND status = 'ACTIVE'` (unique); `depreciation_asset_property_reference_idx` for the list.
+- **Guards** (triggers, as 0040's on the WEG):
+  - `depreciation_asset_touch` (before insert or update, on both tables): writes the PropertyReference row (no-op) first, the lock order of every writer;
+  - `depreciation_asset_frozen` (before update):
+    - `property_reference_id`, `asset_type`, `depreciation_method`, `created_at` and `id` never change;
+    - a `VOID` row never changes;
+    - `version` + 1 on every change;
+    - no delete;
+  - `depreciation_asset_useful_life_open` (before insert, update, delete): only an `ACTIVE` asset's entries change, and an entry is inserted only for an Acquisition that is not `CANCELLED`. The amend writes the asset row first (its `version` rises), so entries change only under the asset's lock. It writes the entries as a difference, so an unchanged entry is never re-inserted (amend, above);
+  - `depreciation_asset_initial` (before insert): `ACTIVE`, version 1, not voided.
+- **0049's own text check** (`depreciation_asset_texts_valid()`, as 0045's).
+- **`down`** drops both tables and their functions. Nothing else changes: no column on `acquisition`, `property_reference`, `land_building_allocation` or any ledger table.
+
+### AuditRecords
+
+Entity type `DepreciationAsset`, with these actions:
+- `CREATED`: every stored field and each entry;
+- `AMENDED`: the changed fields with their old and new values, `changedEntries`, and a review state reset with its `from` and `to`;
+- `CONFIRMED`: `from`, `to`, the advisor and the `note`;
+- `VOIDED`: the reason.
+
+Each record carries the actor, and the version before and after (§17). No-ops write none.
+
+### Tests the implementation must have (VC-8-01)
+
+- **Domain (the rule):**
+  - the bands at each boundary: 1924 → `C` 2.5 %, 1925 → `B` 2 %, 2022 → `B` 2 %, 2023 → `A` 3 %, and the outer ends 1000 and 2100;
+  - the bands cover 1000–2100 once each (no gap, no overlap);
+  - selection: 2022 → `NO_APPLICABLE_RULE`, 2023 and 2100 → version 1, 2000 → none;
+  - `ratePercent` exact (no binary float: a property test multiplies by 100 and compares strings);
+  - shortness at each threshold, read from the rule's `shorterThanYears`: band `A` 32 shorter, 33 not; band `B` 49 shorter, 50 not; band `C` 39 shorter, 40 not;
+  - the thresholds are parameters: `shorterThanYears` is 33, 50 and 40 on bands `A`, `B` and `C`, each with the legal basis § 7 Abs. 4 S. 2 EStG; band `A` at 33 years is not shorter although `1/33` exceeds 3 % (no threshold derived from `ratePercent`);
+  - the `rate` reasons in their order, each alone;
+  - `1/n` as an exact fraction and its display rounding (half-even, four places: `1/30` → `3.3333`, `1/16` → `6.2500`).
+- **Registry:**
+  - `RuleRegistry`'s constructor and selection tests, moved with the class (`shared/rule-registry.test.ts`), unchanged;
+  - six rules, none overlapping (`domains/tax-rules/registry.test.ts`);
+  - Taxation's five versions and Depreciation's one, each exported by its own domain's index, together make up `TAX_RULES` (no rule registered twice or left out);
+  - `DE_AFA_BUILDING_LINEAR@1` with its `effectiveFrom`, legal basis and `source` naming `depreciation.md` and B1–B3;
+  - `GET /tax-rules` lists it with `status` `ACTIVE`, and `GET /tax-rules/DE_AFA_BUILDING_LINEAR` answers it.
+- **Module boundary and load order:**
+  - `architecture.test.ts` stays green, with the new modules `shared/rule-version.ts`, `shared/rule-registry.ts`, `domains/tax-rules/` and `domains/depreciation/` in its scan;
+  - a new rule there, since `violation` allows any import that goes through an index: a list of forbidden module edges, checked over every file. No file under `domains/taxation/` or `domains/depreciation/` (tests included) imports `domains/tax-rules/`, and no file under `domains/depreciation/` imports `domains/taxation/` in VC-8-01. Fixtures: `'../tax-rules/index.js'` from `domains/depreciation/probe.ts` and from `domains/taxation/probe.ts` is rejected, `'../taxation/index.js'` from `domains/tax-rules/probe.ts` is allowed;
+  - load order, without a TDZ: `domains/tax-rules/load-order-depreciation-first.test.ts` imports `../depreciation/index.js` as its **first** import, before anything else, and asserts that `TAX_RULES.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 })` is defined and `TAX_RULES.codes()` has six codes; `load-order-taxation-first.test.ts` does the same with `../taxation/index.js` first. Vitest runs each test file in its own module graph (`isolate`, the default of `vitest.config.ts`), so each file is a fresh load. Within one file, a third case calls `vi.resetModules()` and imports `depreciation/index.js`, then `tax-rules/index.js` dynamically, with the same assertions. Counter-check: an import of `TAX_RULES` added to a Depreciation module makes the first file fail (and the architecture test);
+- **Start check:**
+  - a stubbed Depreciation source naming `DE_AFA_BUILDING_LINEAR@2` stops the start and names it;
+  - `@1` starts;
+  - Taxation's own references are still checked (the union, not a replacement);
+  - the real Depreciation source returns `[]` against a database with assets.
+- **Repository and schema (past the repository, raw SQL, each with a counter-check):**
+  - a second `ACTIVE` building for one PropertyReference (`23505`), and a new one allowed after a void;
+  - a foreign PropertyReference, advisor or Acquisition (composite keys);
+  - an entry naming another property's Acquisition;
+  - `CONFIRMED` without a year;
+  - an advisor without `ADVISOR_CONFIRMED`;
+  - a change of a fixed field;
+  - a change of a `VOID` row;
+  - a delete;
+  - an entry on a `VOID` asset or for a `CANCELLED` Acquisition;
+  - `version` not raised;
+  - **the table has no basis, rate, start or amount column** (from `information_schema.columns`; the counter-check adds one and sees the test fail);
+  - `up` and `down` under `MIGRATION_ADVISORY_LOCK` (`{ timeout: 30_000 }`).
+- **Commands:**
+  - create with each step of its order of checks, the replay, another payload under the same key, and a retry without a key (`BUILDING_ASSET_EXISTS`);
+  - amend:
+    - the year reset to `UNREVIEWED` (and kept at `NEEDS_REVIEW` when the body names it);
+    - entries added, changed (its state reset) and removed, with `changedEntries`;
+    - an unchanged entry of a later-cancelled Acquisition not blocking, against the real database and its trigger `depreciation_asset_useful_life_open` (no stubbed repository): the entry's row is untouched (its `xmin` unchanged), and its removal in a later amend is allowed. Counter-check: a repository that deletes and re-inserts the whole list fails this test on the trigger;
+    - the no-op regardless of `If-Match`, and `412`;
+  - confirm: `COMPLETION_YEAR_MISSING`, `ADVISOR_CONFIRMED`, the no-op, an advisor Party of another Realm;
+  - void: the no-op keeping the first reason, and a new building after a void;
+  - every AuditRecord with its details, and none for a no-op.
+- **Concurrency**, RC and RR, each with a counter-check: two creates for one PropertyReference; an entry against a cancel of its `DRAFT` Acquisition, both orders; amend against void.
+- **Reads:**
+  - the `rate` block for 2022 (`NO_APPLICABLE_RULE`), 2023 and 2026;
+  - without a year (`COMPLETION_YEAR_MISSING`, `band` `null`), unconfirmed (`ASSET_NOT_CONFIRMED` with the band shown), `VOID`;
+  - each entry reason;
+  - the default `year` from an injected clock;
+  - the list with `status` filters and its order;
+  - unknown parameters `400`.
+- **No cash mutated:** every row and `version` of `ledger_transaction`, `transaction_split`, `acquisition`, `acquisition_cost`, `land_building_allocation`, `ownership`, `property_reference` (the no-op write changes no value) and `tax_classification`, and the count of `audit_record` minus the asset's own, are equal before and after every command of §59.
+- **API:** every `400` with its field code; the error mapping of each row above; the DTOs; `ETag` and `Location`; `rate: null` on command responses.
+- **Realm isolation:** every route of §59 called with another Realm's asset, PropertyReference, Party or Acquisition id is `404`, and the per-property list shows no foreign asset.
+
+### Counter-checks and mutations
+
+**Counter-checks** (each an assertion that the system refuses or leaves out the thing):
+- **a basis, rate or schedule stored on the asset:** the table has no such column, and a body with `basisAmount` or `depreciationRate` is `400`;
+- **a completion year guessed:** an asset without a year reads `COMPLETION_YEAR_MISSING` with `band: null` in every year. No default, no value from the Acquisition's or the MRE Property's dates;
+- **a rate before 2023:** `NO_APPLICABLE_RULE` for 2000–2022, never 2 %;
+- **a changed fact under an old confirmation:** an amended year is never `CONFIRMED` without a new `confirm`;
+- **an unconfirmed shorter life used:** `applies: false` until confirmed, and neither rate is shown as usable;
+- **"shorter" derived from the rate:** band `A` at 33 years is `USEFUL_LIFE_NOT_SHORTER`, although `100 / 3` is above 33;
+- **two buildings for one unit:** refused at the API, the repository and the index;
+- **a confirmation lowered silently:** `CONFIRMED` over `ADVISOR_CONFIRMED` is refused.
+
+**Mutations** that must turn the tests red (each applied alone, the suite run, the code restored):
+- the band boundary at 2023 made inclusive of 2022, or the 1925 boundary moved to 1924 or 1926;
+- the rate of band `C` swapped with `B`;
+- `effectiveFrom` moved to 2022-01-01, or the selection falling back to the latest version for an earlier year;
+- the bands moved into a constant outside the rule (the parameter test reads them from `TAX_RULES`);
+- the shortness check `usefulLifeYears < shorterThanYears` made `≤`;
+- the threshold derived from the rate (`usefulLifeYears × ratePercent < 100`) instead of read from `shorterThanYears` (red at band `A`, 33 years);
+- the amend's repository rewriting the whole list of entries (delete and re-insert; red on the trigger);
+- `domains/depreciation/` importing `TAX_RULES` from `domains/tax-rules/` or `domains/taxation/` (the architecture test);
+- the amend's reset of `reviewState` dropped;
+- the Depreciation source left out of the start check;
+- the Realm filter dropped from the asset read, or from the per-property list;
+- the PropertyReference no-op write dropped from create (the RC concurrency test).
+
+### Not in VC-8-01 (pointers)
+
+- **The basis, the start, the first year, the owners, the end and the schedule:** §59A (VC-8-02), including the shared basis function with §58B, `TRANSFER_DATE_ASSUMED`, `DEGRESSIVE_AFA_MAY_APPLY` and the disposal year (P8-D9).
+- **Capitalised costs and `SEPARATE_ASSET`:** §59A extended and §59B (VC-8-03), with `DE_AFA_MOVABLE_LINEAR@1`, `subsequentCostStart` and the VAT point (P8-D2, P8-D6).
+- **Recorded versions** and their rule references: §60 (VC-8-04).
+- **The direction between Depreciation and Taxation:** VC-8-01 adds no import between them (the registry is composed in `domains/tax-rules/`). P8-D11 has Depreciation read the `capitalized` items through Taxation (VC-8-03) and the tax-year view read the schedule through Depreciation (VC-8-05). Both edges together would be a cycle, so VC-8-03's spec decides which one goes through a layer above both (as the registry does here).
+- **The AfA in the tax-year view**, the flags' levels and `final`: §58C (VC-8-05).
+
+### Open questions for review
+
+1. **The shorter useful life per Acquisition, on the asset** (as rows of the asset, amended as a whole list). P8-D1 lists it among the asset's fields, and P8-D4 (a) says "per Acquisition component". This spec does both. The alternative, one life for the whole building, would let one buyer's appraisal set another buyer's rate.
+2. **An unconfirmed asset or shorter life feeds no figure** (`ASSET_NOT_CONFIRMED`, `USEFUL_LIFE_NOT_CONFIRMED`), in the same way as the allocation (data-model §15). The alternative is to compute with an open flag. The year would then show a figure but could still not be final.
+3. **`usefulLifeYears` in whole years (1–99).** An appraisal that states months would be entered rounded down by the user, which gives a higher rate. The alternative is years and months, i.e. a rate of `12/m`.
 
 ---
 
 # 60. Depreciation Recalculate
+
+Placeholder until VC-8-04 rewrites it (phase-8-plan P8-D10, decided 2026-10-30): the schedule is derived on every read (§59A), and a person **records** a version (`POST /api/v1/depreciation-assets/{id}/schedule-versions`, with `reason`). The former `…/recalculate` is withdrawn with §59's placeholder.
 
 ```text
 POST /api/v1/depreciation-assets/{id}/recalculate
