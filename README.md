@@ -172,7 +172,8 @@ Before implementing significant functionality, read the relevant documents rathe
 | [`docs/germany/depreciation.md`](docs/germany/depreciation.md) | AfA and depreciation rules |
 | [`docs/germany/weg.md`](docs/germany/weg.md) | WEG-specific concepts and processing |
 | [`docs/germany/rent-and-operating-costs.md`](docs/germany/rent-and-operating-costs.md) | Rent, operating costs, settlement, and related financial treatment |
-| [`docs/germany/verification-checklist.md`](docs/germany/verification-checklist.md) | Consolidated `VERIFY` points for a tax/legal professional to confirm before implementation |
+| [`docs/germany/verification-checklist.md`](docs/germany/verification-checklist.md) | Consolidated `VERIFY` points with their research result and, per point, who confirmed it ("Bestätigt durch": research, primary source or a professional) |
+| [`docs/germany/beratungsfragen.md`](docs/germany/beratungsfragen.md) | The five open questions for the tax advisor, where money and uncertainty meet, with the spec's current state |
 
 ### Development
 
@@ -364,7 +365,7 @@ The public business API is under `/api/v1`. Its contracts are documented in [API
 - **Later domains:** depreciation (Phase 8, which also fills the AfA block of the tax-year view), investment analytics and reporting are planned; their specifications do not imply implemented APIs.
 - **User interface:** There is no DE cockpit UI yet. FinancialAccounts and PropertyReferences can be read and listed (api-design §23.3, §29.3; VC-X-25).
 - **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
-- **German rules:** The `VERIFY` points in [the verification checklist](docs/germany/verification-checklist.md) must be resolved before implementing the affected tax, depreciation and WEG rules.
+- **German rules:** The column "Bestätigt durch" of [the verification checklist](docs/germany/verification-checklist.md) shows who confirmed each point. Today every point is research (`Recherche`) or a primary source (`Primärquelle`); none is confirmed by a professional yet, and a result of `OK` is not an approval. A point must be confirmed (`Fachperson, <date>`) before the affected tax, depreciation and WEG rules are implemented; the open questions for the tax advisor are in [`beratungsfragen.md`](docs/germany/beratungsfragen.md).
 
 ### Continuous integration
 
