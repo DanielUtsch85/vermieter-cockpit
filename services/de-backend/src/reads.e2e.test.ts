@@ -196,6 +196,9 @@ describe.skipIf(databaseUrl === undefined)('reads of PropertyReferences and Fina
       expect(await ofIds('?status=CLOSED')).toEqual([ids['old']]);
       expect(await ofIds('?accountType=BANK,CASH')).toEqual([ids['old'], ids['cash'], ids['giro']]);
       expect(await ofIds('?accountType=BANK&status=OPEN')).toEqual([ids['giro']]);
+      // `total` counts the filtered rows, not the Realm's (review on #165).
+      expect((await get('/financial-accounts?accountType=BANK&status=OPEN')).body).toMatchObject({ total: 1 });
+      expect((await get('/financial-accounts?accountType=BANK,CASH&pageSize=1')).body).toMatchObject({ total: 3, items: [expect.anything()] });
     });
 
     it.each([

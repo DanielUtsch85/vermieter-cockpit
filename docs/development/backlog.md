@@ -227,6 +227,7 @@ Listed for visibility; expand into items when their blocker clears.
 | VC-X-23 | infra | Invariant triggers added by a migration check only new writes (review note on #29): before the first production data, decide whether such migrations also check the existing rows once in `up` (e.g. reversals that do not mirror their original's splits for 0014) and abort instead of accepting an invariant that is already broken |
 | VC-X-24 | infra | Personal data in AuditRecords (review note on #38): `AMENDED` records keep old and new values, so former e-mail addresses, phone numbers and names stay in the audit for good. Before production data, define retention and pseudonymisation of personal fields in AuditRecords (GDPR Art. 17 vs. traceability; technology.md §37) |
 | VC-X-25 | api | **done** (api-design §23.3, §29.3; issue #160; `reads.e2e.test.ts`) · Reads for the UI: `GET /property-references`, `GET /property-references/{id}` (no MRE call, cached display data), `GET /financial-accounts`, `GET /financial-accounts/{id}`; paged and filtered as §41.1, Realm-scoped with `404` for foreign ids. Prerequisite for an interface (README "Next work and current limits") |
+| VC-X-26 | infra | Index on `(mre_realm_id, lower(display_name))` for `property_reference` and `financial_account`, as `party_realm_name_idx` (0016), so the VC-X-25 lists need not sort each page in full; with the next migration (api-design §29.3; review on #165) |
 
 ---
 
