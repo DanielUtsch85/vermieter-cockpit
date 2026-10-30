@@ -1,7 +1,7 @@
 > **Status (30.10.2026): Entwurf zur Übergabe, noch nicht übergeben.**
-> Der Leitfaden wurde gegen den Referenzstand dd110b9 geprüft; seine Aussagen zu vorhandenen Routen, Lücken und Limits treffen zu. Vor der Übergabe an ein Frontend-Team sind drei Dinge zu klären:
+> Der Leitfaden wurde gegen den Referenzstand dd110b9 geprüft; seine Aussagen zu vorhandenen Routen, Lücken und Limits treffen zu. Vor der Übergabe an ein Frontend-Team ging es um drei Dinge; offen ist nur noch Punkt 3:
 >
-> 1. **Backend-Voraussetzungen:** die Lese-Endpunkte für FinancialAccounts und PropertyReferences (#160, offen); der Token-Verifikations-Cache und der Sitzungsvertrag für Clients (#161, erledigt mit #163, siehe `docs/architecture/mre-integration.md` §47.1).
+> 1. **Backend-Voraussetzungen:** erledigt. Die Lese-Endpunkte für FinancialAccounts und PropertyReferences (#160, mit #162 und #165; `docs/architecture/api-design.md` §23.3 und §29.3) sowie der Token-Verifikations-Cache und der Sitzungsvertrag für Clients (#161, mit #163; `docs/architecture/mre-integration.md` §47.1 und §47.2).
 > 2. **Entscheidungen des Projektinhabers:** am 30.10.2026 getroffen und in Abschnitt 7.1, 7.2, 11 und 13 eingetragen: gemeinsame Origin hinter einem Reverse-Proxy, eigene App im Monorepo mit dem MRE-Stack, Version 1 auf die drei P0-Bereiche begrenzt, Import ohne Vorschau, kein Audit-Verlauf in Version 1.
 > 3. **Beilagen:** `design-tokens.css` und das Routeninventar liegen nicht im Repository. Das Inventar sollte aus `services/de-backend/src/api/app.ts` erzeugt werden, nicht von Hand gepflegt; `main` entwickelt sich schneller als eine statische Liste.
 >
@@ -185,8 +185,8 @@ Kategorien aus GET /financial-categories laden. Fachcodes in Requests verwenden;
 | Mietabgleich, Vorschläge und MRE-Übertragung | Direkt mit bekanntem MRE-Kontext | DE-Zuordnung und MRE-Status getrennt |
 | Darlehen, Kautionen, Parteien, WEG-Listen | Direkt | Eigene Listen-Endpunkte vorhanden |
 | Erwerb, Eigentum und WEG pro bekanntem Objekt | Direkt | Objekt-ID muss verlässlich verfügbar sein |
-| Vollständige Kontoauswahl nach Neuladen | Lücke, in Arbeit (#160) | GET /financial-accounts und GET /financial-accounts/{id} werden als additive Reads ergänzt |
-| Allgemeine DE-Objektliste und passives Objektdetail | Lücke, in Arbeit (#160) | GET /property-references und GET /property-references/{id} werden als additive Reads ergänzt; nur link und refresh schreiben |
+| Vollständige Kontoauswahl nach Neuladen | Vorhanden (#160, #165) | GET /financial-accounts (Filter `status`, `accountType`; seitenweise) und GET /financial-accounts/{id} mit `ETag`; api-design §29.3 |
+| Allgemeine DE-Objektliste und passives Objektdetail | Vorhanden (#160, #165) | GET /property-references (Filter `externalReferenceState`; seitenweise) und GET /property-references/{id} mit `ETag`, aus dem Cache ohne MRE-Aufruf; nur link und refresh schreiben; api-design §23.3 |
 | Unverändernde fachliche Importvorschau | Lücke | Kein dry-run/preview-Endpunkt |
 | Liste früherer Importläufe | Lücke | GET eines bekannten Batches vorhanden, kein Batch-Listen-Endpunkt |
 | Audit-Timeline aller Änderungen | Nicht in Version 1 (Entscheidung 30.10.2026) | Kein Audit-Read, und die Aufbewahrung personenbezogener Daten im Audit (VC-X-24) ist offen. Die Korrekturkette einer Buchung (Original, Storno, Ersatz) kommt aus dem Transaction-DTO und ist die sichtbare Historie |
@@ -389,7 +389,7 @@ Der dokumentierte MRE-Access-Token ist nur etwa 30 Sekunden gültig. Vor dem UI-
 
 Am Referenzstand hat nur administrator DE-Zugriff. renter und unbekannte Rollen haben ihn nicht. Keine Eigentümer-/Steuerberaterrollen allein aus der visionären Spezifikation als verfügbare Berechtigung implementieren.
 
-**Entscheidung (30.10.2026):** gemeinsame Origin hinter einem Reverse-Proxy. Empfohlener Schnitt: `/` und `/api/v2` zum MRE-Gateway, `/api/v1` zum DE-Backend, `/cockpit` zur Oberfläche. Grund: der MRE-Authenticator setzt das Refresh-Token als Cookie mit `httpOnly` und `sameSite: strict`; ein Frontend auf einer anderen Origin könnte nie ein neues Access-Token holen. CORS wird nicht eingebaut und ist im geprüften app.ts auch nicht vorhanden. Der vollständige Sitzungsvertrag für Clients steht in docs/architecture/mre-integration.md §47.1 (#161); die Token-Prüfung im Backend ist pro Token und Realm gecacht (#163).
+**Entscheidung (30.10.2026):** gemeinsame Origin hinter einem Reverse-Proxy, kein CORS. Der verbindliche Sitzungsvertrag für Clients (Anmeldung und Refresh über den MRE-Authenticator, Proxy-Schnitt, Realm-Auswahl, Bedeutung von 401/403/503, was DE nie tut) steht in docs/architecture/mre-integration.md **§47.2**; dieser Leitfaden wiederholt ihn nicht. Die Token-Prüfung im Backend ist pro Token und Realm höchstens 30 s gecacht (§47.1, #163).
 
 Kein Refresh-Token in URLs oder Logs. Persistenz und Cookies nur gemäß geprüfter MRE-Sitzungsintegration; keine spontane Langzeitablage von Tokens in localStorage.
 
@@ -591,16 +591,16 @@ API-Mocks ausschließlich aus den echten DTO-Mappings ableiten. Neu spezifiziert
 
 | Frage | Zuständig | Ergebnis muss sein | Entscheidung (30.10.2026) |
 |---|---|---|---|
-| Wie nutzt die DE-Oberfläche die MRE-Sitzung einschließlich Refresh? | Frontend + Integration | Funktionierender Anmeldedurchstich, kein separater DE-Login | **Entschieden:** kein DE-Login; Sitzungsvertrag in mre-integration.md §47.1 (#161, #163). Der Anmeldedurchstich wird im Sprint 0 demonstriert. |
-| Wie findet man bestehende FinancialAccounts wieder? | Frontend + Backend | Geprüfte Quelle; sonst additive Read-Aufgabe | **Entschieden:** additive Reads, #160 (offen). |
-| Wie entstehen auswählbare DE-PropertyReferences aus dem MRE-Kontext? | Frontend + Integration | Stabile UUID-Auflösung, keine Namensheuristik | **Entschieden:** additive Reads, #160 (offen); Anzeigedaten aus dem Cache, Aktualisierung nur über refresh. |
+| Wie nutzt die DE-Oberfläche die MRE-Sitzung einschließlich Refresh? | Frontend + Integration | Funktionierender Anmeldedurchstich, kein separater DE-Login | **Entschieden:** kein DE-Login; Sitzungsvertrag in mre-integration.md §47.2 (#161, #163). Der Anmeldedurchstich wird im Sprint 0 demonstriert. |
+| Wie findet man bestehende FinancialAccounts wieder? | Frontend + Backend | Geprüfte Quelle; sonst additive Read-Aufgabe | **Entschieden und umgesetzt:** additive Reads, #160 (#165; api-design §29.3). |
+| Wie entstehen auswählbare DE-PropertyReferences aus dem MRE-Kontext? | Frontend + Integration | Stabile UUID-Auflösung, keine Namensheuristik | **Entschieden und umgesetzt:** additive Reads, #160 (#165; api-design §23.3); Anzeigedaten aus dem Cache, Aktualisierung nur über refresh. |
 | Gemeinsame Origin oder separate Domain? | Deployment | Header-/Cookie-/CORS-Vertrag | **Entschieden:** gemeinsame Origin hinter einem Reverse-Proxy; kein CORS (Abschnitt 7.2). |
 | Importergebnis statt Vorab-Duplikatvorschau akzeptiert? | Produkt | Eindeutige Beschriftung oder separat beschlossener Preview-Vertrag | **Entschieden:** ja, kein Preview-Vertrag (Abschnitt 6.5). |
 | Welche Navigation ist im ersten Release wirklich erreichbar? | Produkt + Frontend | Kleine, vollständig funktionierende Auswahl | **Entschieden:** Buchungen, Import, Mietabgleich und die Übersicht als Arbeitsnavigation (Abschnitt 3.1). |
 | Soll ein vollständiger Audit-Verlauf sichtbar sein? | Produkt + Backend | Falls ja, expliziter Read-Vertrag und Datenschutzumfang | **Entschieden:** nicht in Version 1; Korrekturkette aus dem Transaction-DTO reicht (Abschnitt 6.1). |
 | Eigene App oder Erweiterung der MRE-Landlord-App; welcher Stack? | Produkt + Frontend | Keine Grundsatzdiskussion im ersten Sprint | **Entschieden:** eigene App unter `webapps/cockpit`, React 18, TypeScript, Tailwind, TanStack Query, Vite; DTO-Typen aus den Backend-Schemata (Abschnitt 7.1). |
 
-Damit bleibt vor dem Sprint 0 nur #160 offen; alles andere ist entschieden oder wird im Integrations-Gate demonstriert.
+Damit ist vor dem Sprint 0 keine Backend-Frage mehr offen; alles andere ist entschieden oder wird im Integrations-Gate demonstriert. Offen bleiben die Beilagen aus dem Statusblock (`design-tokens.css`, Routeninventar).
 
 ## 14. Definition des Erfolgs
 
