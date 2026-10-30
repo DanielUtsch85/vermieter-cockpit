@@ -12,8 +12,11 @@ import {
   type TaxYearView,
 } from '../../domains/taxation/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
+import { PostgresCorrectionRepository } from './correction-repository.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
+import { PostgresLoanAllocationRepository } from './loan-allocation-repository.js';
+import { PostgresLoanRepository } from './loan-repository.js';
 import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
 import { PostgresOwnershipRepository } from './ownership-repository.js';
 import { PostgresPartyRepository } from './party-repository.js';
@@ -76,6 +79,9 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
   let deposits: PostgresSecurityDepositRepository;
   let ownerships: PostgresOwnershipRepository;
   let parties: PostgresPartyRepository;
+  let loans: PostgresLoanRepository;
+  let allocations: PostgresLoanAllocationRepository;
+  let corrections: PostgresCorrectionRepository;
   const giro = new Map<string, string>();
 
   beforeAll(async () => {
@@ -93,6 +99,9 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     deposits = new PostgresSecurityDepositRepository(db);
     ownerships = new PostgresOwnershipRepository(db);
     parties = new PostgresPartyRepository(db);
+    loans = new PostgresLoanRepository(db);
+    allocations = new PostgresLoanAllocationRepository(db);
+    corrections = new PostgresCorrectionRepository(db);
     for (const realm of [REALM, OTHER_REALM]) {
       const created = await new PostgresFinancialAccountRepository(db).create(
         { mreRealmId: realm, accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: null },
@@ -160,7 +169,7 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     description: null,
     ...overrides,
   });
-  async function booked(set: SplitInput[], options: { direction?: Direction; bookingDate: string; realm?: string }) {
+  async function booked(set: SplitInput[], options: { direction?: Direction; bookingDate: string; realm?: string; confirm?: boolean }) {
     const realm = options.realm ?? REALM;
     const total = set.reduce((sum, s) => sum.add(s.amount), eur('0.00'));
     const created = await transactions.createManual(
@@ -180,7 +189,7 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     const tx = created.transaction.id;
     const outcome = await splits.replaceSplits(tx, realm, set, actor);
     if (outcome.kind !== 'REPLACED') throw new Error(JSON.stringify(outcome));
-    expect((await transactions.confirm(tx, realm, actor)).kind).toBe('CONFIRMED');
+    if (options.confirm !== false) expect((await transactions.confirm(tx, realm, actor)).kind).toBe('CONFIRMED');
     const { rows } = await pool.query(`SELECT id FROM transaction_split WHERE transaction_id = $1 ORDER BY position`, [tx]);
     return { tx, splitId: rows[0].id as string };
   }
@@ -390,6 +399,96 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     expect(v.owners?.map((o) => o.ownerPartyId)).toEqual([anna]);
     expect(v.notOwned).not.toBeNull();
     expect(await view(pr, 2027, voided)).toEqual({ kind: 'NOT_AN_OWNER_IN_YEAR' });
+  });
+
+  /** A Loan from 2026-01-01 without terms; with `allocatedTo`, a VALID MANUAL set from that day, 1/1 onto it. */
+  async function loan(allocatedTo: string | null) {
+    const created = await loans.create(
+      {
+        mreRealmId: REALM,
+        lenderPartyId: await party('Bank Beispiel'),
+        borrowerPartyIds: [await party('Anna Darlehensnehmerin')],
+        principalOriginal: eur('100000.00'),
+        startDate: day('2026-01-01'),
+        disbursementDate: null,
+        maturityDate: null,
+        contractNumber: null,
+        acquisitionId: null,
+        sourceReferences: [],
+        notes: null,
+      },
+      actor,
+    );
+    if (created.kind !== 'CREATED') throw new Error(created.kind);
+    if (allocatedTo === null) return { loanId: created.loan.id, setId: null };
+    const set = await allocations.create(
+      created.loan.id,
+      REALM,
+      {
+        validFrom: day('2026-01-01'),
+        basis: 'MANUAL',
+        allocations: [{ propertyReferenceId: allocatedTo, share: { numerator: 1n, denominator: 1n }, acquisitionId: null }],
+        notes: null,
+      },
+      actor,
+    );
+    if (set.kind !== 'CREATED') throw new Error(set.kind);
+    return { loanId: created.loan.id, setId: set.set.id };
+  }
+  const interestOf = (loanId: string, amount: string, bookingDate: string, options: { confirm?: boolean } = {}) =>
+    booked([split(amount, 'LOAN_INTEREST', { loanId })], { bookingDate, ...options });
+  const loanFlag = (v: TaxYearView) => v.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details;
+
+  it('LOAN_INTEREST_NOT_ATTRIBUTED: the counting interest of the year of a Loan allocated to the PropertyReference, by §58A’s year; summed nowhere (review on #171)', async () => {
+    const [pr, elsewhere] = [await propertyReference(), await propertyReference()];
+    const anna = await party('Anna Eigentümerin');
+    await owner(pr, anna, [1, 1], '2020-01-01');
+    const allocated = await loan(pr);
+    const other = await loan(elsewhere);
+    const unallocated = await loan(null);
+    const voided = await loan(pr);
+    const counted = (await interestOf(allocated.loanId, '612.37', '2027-03-20')).splitId;
+    const second = (await interestOf(allocated.loanId, '0.01', '2027-06-20')).splitId;
+    // Not of 2027: booked in 2026; booked on 2027-12-30 and overridden to 2028 (§58A).
+    const earlier = (await interestOf(allocated.loanId, '50.00', '2026-06-20')).splitId;
+    const moved = (await interestOf(allocated.loanId, '70.00', '2027-12-30')).splitId;
+    await classify(moved, { taxCategory: 'LOAN_INTEREST', treatment: 'DEDUCTIBLE', taxYear: 2028 });
+    // Not counting: a Transaction not confirmed; one corrected away (the original CORRECTED, its reversal a REVERSAL).
+    await interestOf(allocated.loanId, '80.00', '2027-04-20', { confirm: false });
+    const reversed = await interestOf(allocated.loanId, '90.00', '2027-05-20');
+    expect((await corrections.correct(reversed.tx, REALM, { reason: 'falsch', replacement: null }, actor)).kind).toBe('CORRECTED');
+    // Not interest: principal of the allocated Loan.
+    await booked([split('887.63', 'LOAN_PRINCIPAL', { loanId: allocated.loanId })], { bookingDate: '2027-03-20' });
+    // Not allocated here: a Loan allocated to another PropertyReference, one without a set, one whose set is VOID.
+    const elsewhereInterest = (await interestOf(other.loanId, '40.00', '2027-03-20')).splitId;
+    await interestOf(unallocated.loanId, '30.00', '2027-03-20');
+    expect((await allocations.void(voided.loanId, voided.setId as string, REALM, 'falsch erfasst', new Date('2026-10-30T10:00:00Z'), actor)).kind).toBe(
+      'VOIDED',
+    );
+    await interestOf(voided.loanId, '20.00', '2027-03-20');
+
+    for (const v of [viewOf(await view(pr, 2027)), viewOf(await view(pr, 2027, anna))]) {
+      expect(loanFlag(v)).toEqual({ loanIds: [allocated.loanId], interestTotal: { amount: '612.38', currency: 'EUR' }, splitIds: [counted, second].sort() });
+      expect(v.review.open).toContainEqual({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 });
+      expect([v.werbungskosten.total.amount, v.result.amount.amount]).toEqual(['0.00', '0.00']);
+      expect(placedItems(v)).toEqual([]);
+    }
+    expect(loanFlag(viewOf(await view(pr, 2026)))).toEqual({
+      loanIds: [allocated.loanId],
+      interestTotal: { amount: '50.00', currency: 'EUR' },
+      splitIds: [earlier],
+    });
+    expect(loanFlag(viewOf(await view(pr, 2028)))).toEqual({
+      loanIds: [allocated.loanId],
+      interestTotal: { amount: '70.00', currency: 'EUR' },
+      splitIds: [moved],
+    });
+    expect(loanFlag(viewOf(await view(elsewhere, 2027)))).toEqual({
+      loanIds: [other.loanId],
+      interestTotal: { amount: '40.00', currency: 'EUR' },
+      splitIds: [elsewhereInterest],
+    });
+    expect(loanFlag(viewOf(await view(await propertyReference(), 2027)))).toBeUndefined();
   });
 
   it('the cap: 5,000 items (notInView counted) → the view; 5,001 → TAX_YEAR_TOO_LARGE', { timeout: 60_000 }, async () => {

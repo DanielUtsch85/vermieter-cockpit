@@ -17,6 +17,8 @@ import {
   createDeposit,
   createFinancialAccount,
   createLandBuildingAllocation,
+  createLoan,
+  createLoanAllocation,
   createManualTransaction,
   createMembership,
   createOwnership,
@@ -51,6 +53,8 @@ import {
   PostgresAcquisitionRepository,
   PostgresFinancialAccountRepository,
   PostgresLandBuildingAllocationRepository,
+  PostgresLoanAllocationRepository,
+  PostgresLoanRepository,
   PostgresOwnershipRepository,
   PostgresPartyRepository,
   PostgresPropertyReferenceRepository,
@@ -78,7 +82,7 @@ import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreTenantDe
  * VC-7-05: the Phase-7 exit of `docs/roadmap.md` as one acceptance run through the HTTP API (ACC7, invariant-suite.md
  * §45), wired as in main.ts with the fake MRE: a WEG unit owned by two owners (3/5 and 2/5) from its Acquisition; a year
  * of rent, the December rent paid within the 10 days after the year-end; Hausgeld in two debits a month; interest and
- * principal; a repair; a deposit, retained in part; a statement with a reserve withdrawal; a Sonderumlage with a use;
+ * principal, and a debit of an allocated Loan, flagged as not attributed; a repair; a deposit, retained in part; a statement with a reserve withdrawal; a Sonderumlage with a use;
  * a refund of an earlier year; the anschaffungsnahe check exactly at 15 %, then above it; a § 82b election; the
  * tax-year view of 2027 and 2028 per property and per owner. The counter-checks of phase-7-plan §2 item 5, Realm
  * isolation on every §55–§58C route. The figures are invented and hand-computed in §45; they are checked literally.
@@ -143,7 +147,7 @@ type View = {
   owners: (Totals & { ownerPartyId: string })[] | null;
   notOwned: Totals | null;
   flags: Flag[];
-  review: { final: boolean };
+  review: { final: boolean; open: { code: string; count: number }[] };
   ruleVersions: { ruleCode: string; version: number }[];
 };
 type Check = {
@@ -253,6 +257,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
           replaceUses: replaceAssessmentUses({ repository: assessments }),
         },
         financialAccounts: { create: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }) },
+        loans: { create: createLoan({ repository: new PostgresLoanRepository(db) }) },
+        loanAllocations: { create: createLoanAllocation({ repository: new PostgresLoanAllocationRepository(db) }) },
         transactions: {
           createManual: createManualTransaction({ repository: transactions }),
           setSplits: setTransactionSplits({ repository: new PostgresTransactionSplitRepository(db) }),
@@ -419,6 +425,23 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     for (const month of [3, 6, 9, 12]) {
       principal.push((await booked('OUTFLOW', `2027-${mm(month)}-20`, [on('612.37', 'LOAN_INTEREST'), on('887.63', 'LOAN_PRINCIPAL')])).splitIds[1] as string);
     }
+    // A Loan allocated 1/1 to the unit, and one debit booked the Loan's way (splits with `loanId`, no PropertyReference,
+    // 0027): its interest of 450.00 reaches no line; the view flags it, LOAN_INTEREST_NOT_ATTRIBUTED (VC-X-29).
+    const bank = (await json<{ partyId: string }>(await A('POST', '/parties', { partyType: 'ORGANIZATION', displayName: 'Bank Beispiel' }), 201)).partyId;
+    const loanId = (
+      await json<{ loanId: string }>(
+        await A('POST', '/loans', { lenderPartyId: bank, borrowerPartyIds: [ownerA, ownerB], principalOriginal: eur('80000.00'), startDate: '2026-03-15' }),
+        201,
+      )
+    ).loanId;
+    await json(
+      await A('POST', `/loans/${loanId}/allocations`, { validFrom: '2026-03-15', basis: 'MANUAL', allocations: [{ propertyReferenceId: flat, share: '1/1' }] }),
+      201,
+    );
+    const loanDebit = await booked('OUTFLOW', '2027-07-20', [
+      { amount: eur('450.00'), financialCategoryCode: 'LOAN_INTEREST', loanId },
+      { amount: eur('550.00'), financialCategoryCode: 'LOAN_PRINCIPAL', loanId },
+    ]);
     // A repair (9,996.00 gross, 8,400.00 net) and a second one (3,570.00 gross, 3,000.00 net) for the § 82b election.
     const repair = (await booked('OUTFLOW', '2027-05-12', [on('9996.00', 'MAINTENANCE')])).splitIds[0] as string;
     const elected = (await booked('OUTFLOW', '2027-08-20', [on('3570.00', 'MAINTENANCE')])).splitIds[0] as string;
@@ -649,6 +672,12 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     expect(y2027.capitalized).toEqual({ total: eur('0.00'), items: [] });
     expect(y2027.unclassified.items).toEqual([]);
     expect(y2027.notAttributed.items).toEqual([]);
+    // Interest booked against the allocated Loan: flagged open with its total, in no place and in no figure (the
+    // LOAN_INTEREST line above holds the four debits on the PropertyReference only, 2,449.48).
+    const loanInterest = { loanIds: [loanId], interestTotal: eur('450.00'), splitIds: [loanDebit.splitIds[0]] };
+    expect(y2027.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual(loanInterest);
+    expect(y2027.review.open).toContainEqual({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 });
+    expect(placed(y2027).filter((i) => loanDebit.splitIds.includes(i.sourceId))).toEqual([]);
 
     // Counter-check: a reserve contribution counted when paid. All twelve, and the Sonderumlage payment, are listed in
     // notInView and summed nowhere; WEG_HAUSGELD holds the 24 × … Hausgeld splits only (3,000.00, not 3,600.00).
@@ -719,6 +748,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     // The owner level: A's own view, with A's part of each item (612.37 → 367.42, 84.01 → 50.41).
     const a2027 = await view(2027, ownerA);
     expect(a2027.level).toBe('OWNER');
+    expect(a2027.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual(loanInterest);
     expect(figures(a2027)).toEqual(figures(ownerOf(y2027, ownerA)));
     expect(lineOf(a2027, 'LOAN_INTEREST').items.map((i) => i.lineAmount?.amount)).toEqual(Array(4).fill('367.42'));
     expect(lineOf(a2027, 'REFUNDS_OF_EARLIER_YEARS').items[0]?.share).toMatchObject({ share: '3/5', amount: eur('50.41') });
@@ -740,6 +770,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     expect(lineOf(y2028, 'MAINTENANCE').subtotals).toEqual({ immediate: eur('0.00'), distributed82b: eur('1190.00') });
     expect(placed(y2028).some((i) => i.sourceId === december.splitIds[0])).toBe(false);
     expect(y2028.notInView.items).toEqual([]);
+    expect(codes(y2028.flags)).not.toContain('LOAN_INTEREST_NOT_ATTRIBUTED');
     traceable(y2028);
     reconciles(y2028);
     expect([figures(ownerOf(y2028, ownerA)), figures(ownerOf(y2028, ownerB))]).toEqual([

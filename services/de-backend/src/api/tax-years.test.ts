@@ -107,6 +107,7 @@ const reads: TaxYearRead = {
   ],
   checks: [],
   attribution: { references: [], candidates: [] },
+  allocatedLoanInterest: [],
 };
 
 async function start(read: (pr: string, owner: string | null) => TaxYearRead | undefined): Promise<string> {
