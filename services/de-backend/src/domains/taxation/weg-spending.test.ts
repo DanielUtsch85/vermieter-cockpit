@@ -462,6 +462,13 @@ describe('the anschaffungsnahe check (§58B)', () => {
     });
     expect(odd.basis?.basisAmount).toEqual(eur('80000.03'));
     expect(odd.threshold).toBe('12000.0045');
+    // The exact half rounds up (review on #169): 1,000.01 × 1/2 = 500.005 → 500.01, never 500.00.
+    const half = check([source()], {
+      costs: [],
+      acquisition: { ...acquisition, purchasePrice: eur('1000.01') },
+      allocation: { ...allocation, totalAllocableAmount: eur('2.00'), buildingAmount: eur('1.00') },
+    });
+    expect(half.basis?.basisAmount).toEqual(eur('500.01'));
   });
 
   it('net, else gross with VAT_NOT_SEPARATED and NOT_FINAL (GROSS_AMOUNTS); a refund reduces the sum; annually recurring left out', () => {
