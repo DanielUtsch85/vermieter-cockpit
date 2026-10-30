@@ -51,6 +51,7 @@ export const unusedCommands: AppCommands = {
     useTaxMeaning: unused,
     anschaffungsnahe: unused,
     taxMeanings: unused,
+    taxYear: unused,
     listRules: unused,
     getRule: unused,
   },

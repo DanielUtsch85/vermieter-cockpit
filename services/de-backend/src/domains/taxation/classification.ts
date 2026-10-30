@@ -17,6 +17,7 @@ import {
   type TimingInput,
 } from './cash-timing.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
+import type { TaxYearRead } from './tax-year-view.js';
 import type { Distribution, DistributionFlag } from './distribution-82b.js';
 import type { WegNotCounted, WegTaxMeaning } from './weg-sources.js';
 import type { CreateReviewState, Origin, ReviewState, SourceType, StoredReviewState, TaxCategory, Treatment } from './vocabulary.js';
@@ -641,6 +642,18 @@ export interface TaxClassificationRepository {
   findUseTaxMeaning(assessmentId: string, position: number, mreRealmId: string, today: BusinessDate): Promise<WegTaxMeaning | undefined>;
   /** The anschaffungsnahe check of an Acquisition (§58B), one snapshot; undefined for an unknown one. */
   anschaffungsnaheCheck(acquisitionId: string, mreRealmId: string, today: BusinessDate): Promise<AnschaffungsnaheCheck | undefined>;
+  /**
+   * What the tax-year view reads (§58C), in one `REPEATABLE READ READ ONLY` snapshot: §55's items of `year` and the
+   * rest of its input; undefined for an unknown PropertyReference. With an `ownerPartyId` that names no Party of the
+   * Realm, `ownerPartyFound` is false and nothing else is read.
+   */
+  readTaxYear(
+    propertyReferenceId: string,
+    mreRealmId: string,
+    year: number,
+    ownerPartyId: string | null,
+    today: BusinessDate,
+  ): Promise<TaxYearRead | undefined>;
   /** Every distinct stored `ruleCode@version`, both references (§58B), across Realms (the start check, §58). */
   storedRuleReferences(): Promise<readonly RuleRef[]>;
 }

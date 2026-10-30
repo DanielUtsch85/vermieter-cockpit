@@ -2005,7 +2005,7 @@ Represent the tax interpretation of an existing economic item.
 
 **VC-7-03 (P7-D5, P7-D6, api-design §58B, implemented: migration 0047):** two more sources, `WEG_RESERVE_WITHDRAWAL` and `WEG_ASSESSMENT_USE`, each named by its row (statement, assessment) and a `sourcePosition`, with the PropertyReference of the membership. Default `NEEDS_REVIEW`, lines `WEG_SPENDING` or `NOT_RELEVANT`. Supported now: `netAmount` (≤ gross, for the 15 % threshold only), `annuallyRecurring`, `DISTRIBUTED_82B` with `distributionYears` (2–5) and `mostlyResidentialConfirmed`, and `anschaffungsnaheAcquisitionId` for a capitalisation that follows the anschaffungsnahe check. A second rule reference, `treatmentRule`, names `DE_82B_DISTRIBUTION@1` or `DE_ANSCHAFFUNGSNAHE@1`. The § 82b parts and the check per Acquisition are derived, never stored.
 
-**VC-7-04 (P7-D7, P7-D8, api-design §58C, spec; migration 0048, an index only):** the tax-year view per PropertyReference and per owner is derived on every read and never stored; it adds no field to `TaxClassification`. `ownerAllocationBasis` is not stored: the owner level takes each item × the owner's Ownership share valid on the item's date (§12.5; AGENTS.md §12), by largest remainder per item.
+**VC-7-04 (P7-D7, P7-D8, api-design §58C, implemented; migration 0048, an index only):** the tax-year view per PropertyReference and per owner is derived on every read and never stored; it adds no field to `TaxClassification`. `ownerAllocationBasis` is not stored: the owner level takes each item × the owner's Ownership share valid on the item's date (§12.5; AGENTS.md §12), by largest remainder per item.
 
 ---
 

@@ -46,6 +46,7 @@ import * as m0044 from './0044_weg_special_assessment.js';
 import * as m0045 from './0045_tax_classification.js';
 import * as m0046 from './0046_tax_year_and_income.js';
 import * as m0047 from './0047_tax_weg_spending.js';
+import * as m0048 from './0048_tax_year_view.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -101,4 +102,5 @@ export const migrations: Record<string, Migration> = {
   '0045_tax_classification': m0045,
   '0046_tax_year_and_income': m0046,
   '0047_tax_weg_spending': m0047,
+  '0048_tax_year_view': m0048,
 };
