@@ -430,11 +430,7 @@ export class WegSourcePositionNotFoundError extends Error {
   }
 }
 
-export type GetWegTaxMeaning = (input: {
-  readonly principal: RealmPrincipal;
-  readonly sourceId: string;
-  readonly position: number;
-}) => Promise<WegTaxMeaning>;
+export type GetWegTaxMeaning = (input: { readonly principal: RealmPrincipal; readonly sourceId: string; readonly position: number }) => Promise<WegTaxMeaning>;
 
 /** A reserve withdrawal's meaning (§58B). */
 export function getWithdrawalTaxMeaning(deps: Deps): GetWegTaxMeaning {

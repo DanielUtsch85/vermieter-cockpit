@@ -228,9 +228,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
         .then((meaning) => res.json(wegMeaningDto(meaning)))
         .catch(next);
     });
-  wegRoute('/weg-annual-statements/:statementId/reserve-withdrawals/:position/tax-meaning', 'statementId', (input) =>
-    commands.withdrawalTaxMeaning(input),
-  );
+  wegRoute('/weg-annual-statements/:statementId/reserve-withdrawals/:position/tax-meaning', 'statementId', (input) => commands.withdrawalTaxMeaning(input));
   wegRoute('/weg-special-assessments/:assessmentId/uses/:position/tax-meaning', 'assessmentId', (input) => commands.useTaxMeaning(input));
 
   router.get('/acquisitions/:acquisitionId/anschaffungsnahe-herstellungskosten', (req, res, next) => {
@@ -427,7 +425,13 @@ const flagsDto = (flags: readonly { readonly code: string; readonly details: unk
 function distributionDto(d: Distribution | null) {
   return d === null
     ? null
-    : { years: d.years, firstYear: d.firstYear, parts: d.parts.map((p) => ({ year: p.year, amount: p.amount.toJSON() })), endYear: d.endYear, rule: ref(d.rule) };
+    : {
+        years: d.years,
+        firstYear: d.firstYear,
+        parts: d.parts.map((p) => ({ year: p.year, amount: p.amount.toJSON() })),
+        endYear: d.endYear,
+        rule: ref(d.rule),
+      };
 }
 
 const itemDto = (item: TaxListItem) => ({

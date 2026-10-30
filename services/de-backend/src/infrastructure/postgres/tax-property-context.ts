@@ -57,10 +57,18 @@ export async function wegContextOf(
   let memberships = trx
     .selectFrom('weg_membership as m')
     .innerJoin('weg as w', 'w.id', 'm.weg_id')
-    .select(['m.id', 'm.property_reference_id', sql<string>`m.mea_numerator::text`.as('n'), sql<string>`m.mea_denominator::text`.as('d'), 'w.financial_year_start_month'])
+    .select([
+      'm.id',
+      'm.property_reference_id',
+      sql<string>`m.mea_numerator::text`.as('n'),
+      sql<string>`m.mea_denominator::text`.as('d'),
+      'w.financial_year_start_month',
+    ])
     .where('m.mre_realm_id', '=', mreRealmId);
   memberships =
-    'propertyReferenceId' in filter ? memberships.where('m.property_reference_id', '=', filter.propertyReferenceId) : memberships.where('m.id', '=', filter.membershipId);
+    'propertyReferenceId' in filter
+      ? memberships.where('m.property_reference_id', '=', filter.propertyReferenceId)
+      : memberships.where('m.id', '=', filter.membershipId);
   const members = await memberships.execute();
   if (members.length === 0) return { facts: [], current: new Map(), twice: new Map(), confirmedStatements: [] };
   const byId = new Map(members.map((m) => [m.id, m]));
@@ -208,7 +216,8 @@ export async function acquisitionsOf(
       sql<string>`to_char(coalesce(economic_transfer_date, contract_date), 'YYYY-MM-DD')`.as('transfer_date'),
     ])
     .where('mre_realm_id', '=', mreRealmId);
-  query = 'propertyReferenceId' in filter ? query.where('property_reference_id', '=', filter.propertyReferenceId) : query.where('id', '=', filter.acquisitionId);
+  query =
+    'propertyReferenceId' in filter ? query.where('property_reference_id', '=', filter.propertyReferenceId) : query.where('id', '=', filter.acquisitionId);
   const rows = await query.orderBy('id').execute();
   const found: AcquisitionInput[] = [];
   for (const r of rows) {
@@ -252,17 +261,17 @@ export async function acquisitionsOf(
  * The dates the checks of these Acquisitions read sources for: each window and the 90-day strip after it (the
  * owner's request on VC-7-03); `undefined` without an applicable rule.
  */
-export function checkRange(inputs: readonly AcquisitionInput[], registry: RuleRegistry): { readonly from: BusinessDate; readonly to: BusinessDate } | undefined {
+export function checkRange(
+  inputs: readonly AcquisitionInput[],
+  registry: RuleRegistry,
+): { readonly from: BusinessDate; readonly to: BusinessDate } | undefined {
   let range: { from: BusinessDate; to: BusinessDate } | undefined;
   for (const { acquisition } of inputs) {
     const rule = anschaffungsnaheRuleOn(registry, acquisition.transferDate);
     if (rule === undefined) continue;
     const window = anschaffungsnaheWindow(acquisition.transferDate, rule.parameters.windowYears);
     const to = addDays(window.until, BOOKING_DATE_EDGE_DAYS);
-    range =
-      range === undefined
-        ? { from: window.from, to }
-        : { from: window.from < range.from ? window.from : range.from, to: to > range.to ? to : range.to };
+    range = range === undefined ? { from: window.from, to } : { from: window.from < range.from ? window.from : range.from, to: to > range.to ? to : range.to };
   }
   return range;
 }

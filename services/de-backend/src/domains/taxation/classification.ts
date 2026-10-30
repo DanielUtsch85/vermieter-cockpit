@@ -19,15 +19,7 @@ import {
 import type { DepositTaxMeaning } from './deposit-closing.js';
 import type { Distribution, DistributionFlag } from './distribution-82b.js';
 import type { WegNotCounted, WegTaxMeaning } from './weg-sources.js';
-import type {
-  CreateReviewState,
-  Origin,
-  ReviewState,
-  SourceType,
-  StoredReviewState,
-  TaxCategory,
-  Treatment,
-} from './vocabulary.js';
+import type { CreateReviewState, Origin, ReviewState, SourceType, StoredReviewState, TaxCategory, Treatment } from './vocabulary.js';
 
 /**
  * TaxClassification (data-model.md §36, api-design.md §55–§58A, phase-7-plan P7-D2, P7-D4): the stored interpretation
@@ -481,7 +473,6 @@ export function planClassification(
   );
 }
 
-
 /** `supersedes` must name the current classification, and must be given when there is one (§56). */
 export function supersedesCheck(currentId: string | null, supersedes: string | null): CreateRefusal | undefined {
   if (currentId !== null && supersedes === null) return { kind: 'CLASSIFICATION_EXISTS', currentClassificationId: currentId };
@@ -538,7 +529,8 @@ export function planReview(
     }
     // Both rule references resolve (§58B).
     for (const ref of [current.rule, current.treatmentRule]) {
-      if (ref !== null && !registry.isRegistered(ref.ruleCode, ref.version)) return { kind: 'RULE_NOT_REGISTERED', ruleCode: ref.ruleCode, version: ref.version };
+      if (ref !== null && !registry.isRegistered(ref.ruleCode, ref.version))
+        return { kind: 'RULE_NOT_REGISTERED', ruleCode: ref.ruleCode, version: ref.version };
     }
   }
   const target: { reviewState: StoredReviewState; advisorPartyId: string | null } =
@@ -626,12 +618,7 @@ export interface TaxClassificationRepository {
   ): Promise<ReviewClassificationOutcome>;
   findClassification(id: string, mreRealmId: string): Promise<TaxClassification | undefined>;
   /** Every classification of a source (a WEG source by its `sourcePosition`), by creation; undefined for an unknown source. */
-  listHistory(
-    sourceType: SourceType,
-    sourceId: string,
-    mreRealmId: string,
-    sourcePosition?: number | null,
-  ): Promise<readonly TaxClassification[] | undefined>;
+  listHistory(sourceType: SourceType, sourceId: string, mreRealmId: string, sourcePosition?: number | null): Promise<readonly TaxClassification[] | undefined>;
   /** One `REPEATABLE READ READ ONLY` snapshot; undefined for an unknown split. */
   findTaxMeaning(splitId: string, mreRealmId: string, today: BusinessDate): Promise<TaxMeaning | undefined>;
   /** The retained amount of a deposit at its closing (§58A); undefined for an unknown deposit. */

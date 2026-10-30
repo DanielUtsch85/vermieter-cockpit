@@ -7,15 +7,7 @@ import { continuousOwners, distribute } from './distribution-82b.js';
 import { DE_CATEGORY_DEFAULTS_V1 } from './rules/de-category-defaults.js';
 import { RuleRegistry, TAX_RULES } from './rules/registry.js';
 import { treatmentFits } from './vocabulary.js';
-import {
-  deriveWegTaxMeaning,
-  planWegClassification,
-  possiblyTwice,
-  useFacts,
-  wegNotCounted,
-  withdrawalFacts,
-  withdrawalUnitShare,
-} from './weg-sources.js';
+import { deriveWegTaxMeaning, planWegClassification, possiblyTwice, useFacts, wegNotCounted, withdrawalFacts, withdrawalUnitShare } from './weg-sources.js';
 
 /** VC-7-03 (api-design.md §58B): the WEG sources, the fields of an election, § 82b and the anschaffungsnahe check. Synthetic figures. */
 const day = (value: string) => value as BusinessDate;
@@ -156,7 +148,12 @@ describe('the WEG sources (§58B)', () => {
     });
     // The WEG_FUNDS hard rule is unchanged: a WEG_SPECIAL_ASSESSMENT split is only NOT_RELEVANT.
     expect(
-      planClassification({ ...split, financialCategoryCode: 'WEG_SPECIAL_ASSESSMENT', categoryType: 'WEG_FUNDS' }, null, { ...wegRequest, taxCategory: 'MAINTENANCE' }, TAX_RULES),
+      planClassification(
+        { ...split, financialCategoryCode: 'WEG_SPECIAL_ASSESSMENT', categoryType: 'WEG_FUNDS' },
+        null,
+        { ...wegRequest, taxCategory: 'MAINTENANCE' },
+        TAX_RULES,
+      ),
     ).toMatchObject({ kind: 'TREATMENT_NOT_ALLOWED', categoryType: 'WEG_FUNDS', allowed: ['NOT_RELEVANT'] });
   });
 
@@ -171,8 +168,14 @@ describe('the WEG sources (§58B)', () => {
     expect(withdrawal({}, { withdrawal: eur('0.03') }).notCounted).toMatchObject({ reason: 'NOT_A_WITHDRAWAL' });
     expect(withdrawal({ status: 'DRAFT' }).notCounted).toEqual({ reason: 'STATEMENT_NOT_CONFIRMED', details: { status: 'DRAFT' } });
     expect(withdrawal({ status: 'VOID' }).notCounted).toMatchObject({ reason: 'STATEMENT_NOT_CONFIRMED' });
-    expect(withdrawal({ status: 'SUPERSEDED', supersededBy: 'st-2' }).notCounted).toEqual({ reason: 'STATEMENT_SUPERSEDED', details: { supersededBy: 'st-2' } });
-    expect(deriveWegTaxMeaning(withdrawal({}, { kind: 'OTHER' }), null, TAX_RULES, today)).toMatchObject({ counts: false, notCountedReason: 'NOT_A_WITHDRAWAL' });
+    expect(withdrawal({ status: 'SUPERSEDED', supersededBy: 'st-2' }).notCounted).toEqual({
+      reason: 'STATEMENT_SUPERSEDED',
+      details: { supersededBy: 'st-2' },
+    });
+    expect(deriveWegTaxMeaning(withdrawal({}, { kind: 'OTHER' }), null, TAX_RULES, today)).toMatchObject({
+      counts: false,
+      notCountedReason: 'NOT_A_WITHDRAWAL',
+    });
   });
 
   it('the date: its own; else the period end, WITHDRAWAL_DATE_ASSUMED; WEG_FINANCIAL_YEAR_NOT_CALENDAR for July, not for a short calendar period', () => {
@@ -202,7 +205,12 @@ describe('the WEG sources (§58B)', () => {
       allowedYears: [2025, 2026],
     });
     expect(planWegClassification(withdrawal(), null, { ...wegRequest, taxYear: 2026 }, TAX_RULES)).toEqual({ kind: 'FIELD_NOT_SUPPORTED', field: 'taxYear' });
-    const overridden = deriveWegTaxMeaning(july, classification({ sourceType: 'WEG_RESERVE_WITHDRAWAL', assessmentUse: null, taxYear: 2025 }), TAX_RULES, today);
+    const overridden = deriveWegTaxMeaning(
+      july,
+      classification({ sourceType: 'WEG_RESERVE_WITHDRAWAL', assessmentUse: null, taxYear: 2025 }),
+      TAX_RULES,
+      today,
+    );
     expect(overridden).toMatchObject({ taxYear: 2025, attribution: { rule: null, proposedYear: 2026, overridden: true } });
   });
 
@@ -251,7 +259,9 @@ describe('the WEG sources (§58B)', () => {
   });
 
   it('no applicable rule before 2000 for the default; before 2004 for an election', () => {
-    expect(planWegClassification(use({ use: { position: 1, date: day('1999-12-31'), description: 'x', unitShare: eur('10.00') } }), null, wegRequest, TAX_RULES)).toEqual({
+    expect(
+      planWegClassification(use({ use: { position: 1, date: day('1999-12-31'), description: 'x', unitShare: eur('10.00') } }), null, wegRequest, TAX_RULES),
+    ).toEqual({
       kind: 'NO_APPLICABLE_RULE',
       ruleCode: 'DE_WEG_SPENDING',
       date: '1999-12-31',
@@ -274,7 +284,13 @@ describe('the fields of §58B (treatmentFieldsCheck)', () => {
       reason: 'NOT_MOSTLY_RESIDENTIAL',
     });
     expect(
-      treatmentFieldsCheck({ ...source, direction: 'INFLOW' }, { ...request, treatment: 'DISTRIBUTED_82B', mostlyResidentialConfirmed: true }, rule, undefined, TAX_RULES),
+      treatmentFieldsCheck(
+        { ...source, direction: 'INFLOW' },
+        { ...request, treatment: 'DISTRIBUTED_82B', mostlyResidentialConfirmed: true },
+        rule,
+        undefined,
+        TAX_RULES,
+      ),
     ).toEqual({ kind: 'DISTRIBUTION_NOT_ALLOWED', reason: 'NOT_AN_OUTFLOW' });
     expect(treatmentFieldsCheck(source, { ...request, treatment: 'DISTRIBUTED_82B', mostlyResidentialConfirmed: true }, rule, undefined, TAX_RULES)).toEqual({
       treatmentRule: rule,
@@ -568,13 +584,24 @@ describe('the anschaffungsnahe check (§58B)', () => {
 
   it('above 15 %: every summed source flagged, affectedYears; a capitalisation on this check kept in the sum; below again ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE', () => {
     const repair = source({ sourceId: 'r', date: day('2026-05-14'), taxYear: 2026, grossAmount: eur('18000.00'), netAmount: eur('15126.05') });
-    const use1 = source({ sourceType: 'WEG_ASSESSMENT_USE', sourceId: 'a', sourcePosition: 1, date: day('2027-06-10'), taxYear: 2027, taxCategory: 'WEG_SPENDING', grossAmount: eur('14800.00') });
+    const use1 = source({
+      sourceType: 'WEG_ASSESSMENT_USE',
+      sourceId: 'a',
+      sourcePosition: 1,
+      date: day('2027-06-10'),
+      taxYear: 2027,
+      taxCategory: 'WEG_SPENDING',
+      grossAmount: eur('14800.00'),
+    });
     const above = check([repair, use1]);
     expect(above).toMatchObject({ status: 'ABOVE_THRESHOLD', sum: eur('29926.05'), affectedYears: [2026, 2027] });
     expect(above.sources.every((s) => s.suggestedTreatment === 'CAPITALIZED')).toBe(true);
     const capitalised = check([repair, { ...use1, treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: 'acq-1' }]);
     expect(capitalised).toMatchObject({ status: 'ABOVE_THRESHOLD', sum: eur('29926.05') });
-    const below = check([{ ...repair, netAmount: eur('1000.00') }, { ...use1, treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: 'acq-1' }]);
+    const below = check([
+      { ...repair, netAmount: eur('1000.00') },
+      { ...use1, treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: 'acq-1' },
+    ]);
     expect(below.status).toBe('NOT_ABOVE_THRESHOLD');
     expect(below.sources[1]?.flags).toContainEqual({ code: 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE', details: { acquisitionId: 'acq-1' } });
   });

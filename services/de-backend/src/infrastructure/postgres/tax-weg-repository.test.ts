@@ -228,7 +228,12 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     }
     return id;
   }
-  const request = (sourceType: 'WEG_RESERVE_WITHDRAWAL' | 'WEG_ASSESSMENT_USE', sourceId: string, sourcePosition: number, overrides: Partial<NewTaxClassification> = {}): NewTaxClassification => ({
+  const request = (
+    sourceType: 'WEG_RESERVE_WITHDRAWAL' | 'WEG_ASSESSMENT_USE',
+    sourceId: string,
+    sourcePosition: number,
+    overrides: Partial<NewTaxClassification> = {},
+  ): NewTaxClassification => ({
     mreRealmId: REALM,
     sourceType,
     sourceId,
@@ -252,7 +257,16 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
   async function booked(set: SplitInput[], bookingDate: string, direction: 'INFLOW' | 'OUTFLOW' = 'OUTFLOW') {
     const total = set.reduce((sum, s) => sum.add(s.amount), eur('0.00'));
     const created = await transactions.createManual(
-      { mreRealmId: REALM, financialAccountId: giro, amount: total, direction, bookingDate: day(bookingDate), valueDate: null, description: 'x', propertyReferenceId: null },
+      {
+        mreRealmId: REALM,
+        financialAccountId: giro,
+        amount: total,
+        direction,
+        bookingDate: day(bookingDate),
+        valueDate: null,
+        description: 'x',
+        propertyReferenceId: null,
+      },
       actor,
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
@@ -264,7 +278,17 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
   }
   async function party(name: string) {
     const p = await parties.create(
-      { mreRealmId: REALM, partyType: 'PERSON', displayName: name, firstName: null, lastName: null, legalName: null, registrationNumber: null, email: null, phone: null },
+      {
+        mreRealmId: REALM,
+        partyType: 'PERSON',
+        displayName: name,
+        firstName: null,
+        lastName: null,
+        legalName: null,
+        registrationNumber: null,
+        email: null,
+        phone: null,
+      },
       actor,
     );
     if (p.kind !== 'CREATED') throw new Error(p.kind);
@@ -425,10 +449,18 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         currentClassificationId: first.classification.id,
       });
       const second = await classifications.createClassification(
-        request('WEG_RESERVE_WITHDRAWAL', st, 1, { treatment: 'DISTRIBUTED_82B', distributionYears: 2, mostlyResidentialConfirmed: true, supersedes: first.classification.id }),
+        request('WEG_RESERVE_WITHDRAWAL', st, 1, {
+          treatment: 'DISTRIBUTED_82B',
+          distributionYears: 2,
+          mostlyResidentialConfirmed: true,
+          supersedes: first.classification.id,
+        }),
         actor,
       );
-      expect(second).toMatchObject({ kind: 'CREATED', classification: { treatmentRule: { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 }, distributionYears: 2 } });
+      expect(second).toMatchObject({
+        kind: 'CREATED',
+        classification: { treatmentRule: { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 }, distributionYears: 2 },
+      });
       const history = await classifications.listHistory('WEG_RESERVE_WITHDRAWAL', st, REALM, 1);
       expect(history?.map((c) => [c.treatment, c.supersededBy === null])).toEqual([
         ['DEDUCTIBLE', false],
@@ -476,7 +508,12 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         },
       });
       expect(keys((await list(pr, 2026))?.items)).toEqual(['WEG_RESERVE_WITHDRAWAL:1:1100.00']);
-      expect(await classifications.createClassification(request('WEG_RESERVE_WITHDRAWAL', st, 1, { supersedes: c1.kind === 'CREATED' ? c1.classification.id : null }), actor)).toMatchObject({
+      expect(
+        await classifications.createClassification(
+          request('WEG_RESERVE_WITHDRAWAL', st, 1, { supersedes: c1.kind === 'CREATED' ? c1.classification.id : null }),
+          actor,
+        ),
+      ).toMatchObject({
         kind: 'WEG_SOURCE_NOT_COUNTED',
         reason: 'STATEMENT_SUPERSEDED',
       });
@@ -515,7 +552,10 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       ]);
       expect(await useMeaning(a, 1)).toMatchObject({ counts: false, notCountedReason: 'USE_CHANGED', origin: 'CLASSIFICATION' });
       const id = c.kind === 'CREATED' ? c.classification.id : '';
-      expect(await classifications.reviewClassification(id, REALM, { kind: 'CONFIRM' }, actor)).toMatchObject({ kind: 'WEG_SOURCE_NOT_COUNTED', reason: 'USE_CHANGED' });
+      expect(await classifications.reviewClassification(id, REALM, { kind: 'CONFIRM' }, actor)).toMatchObject({
+        kind: 'WEG_SOURCE_NOT_COUNTED',
+        reason: 'USE_CHANGED',
+      });
       const again = await classifications.createClassification(request('WEG_ASSESSMENT_USE', a, 1, { supersedes: id }), actor);
       expect(again).toMatchObject({ kind: 'CREATED', classification: { assessmentUse: { date: '2026-09-02' } } });
       await replace([{ position: 2, date: '2027-02-01', unitShare: '2000.00' }]);
@@ -616,12 +656,18 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       // The capitalisation following the check names the Acquisition; outside the window it is refused.
       const outside = await assessment(membershipId, [{ position: 1, date: '2029-03-16', unitShare: '100.00' }]);
       expect(
-        await classifications.createClassification(request('WEG_ASSESSMENT_USE', outside, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq }), actor),
+        await classifications.createClassification(
+          request('WEG_ASSESSMENT_USE', outside, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq }),
+          actor,
+        ),
       ).toEqual({ kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', reason: 'OUTSIDE_WINDOW', acquisitionId: acq });
       const other = await member();
       const foreignUse = await assessment(other.membershipId, [{ position: 1, date: '2027-01-01', unitShare: '100.00' }]);
       expect(
-        await classifications.createClassification(request('WEG_ASSESSMENT_USE', foreignUse, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq }), actor),
+        await classifications.createClassification(
+          request('WEG_ASSESSMENT_USE', foreignUse, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq }),
+          actor,
+        ),
       ).toMatchObject({ reason: 'OTHER_PROPERTY_REFERENCE' });
       // Nothing written on the Acquisition or its allocation.
       expect((await pool.query(`SELECT version FROM acquisition WHERE id = $1`, [acq])).rows[0].version).toBe(2);
@@ -645,7 +691,16 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     ).rows[0].id as string;
     const targetTransactions = new PostgresTransactionRepository(targetDb);
     const created = await targetTransactions.createManual(
-      { mreRealmId: REALM, financialAccountId: account, amount: eur('900.00'), direction: 'OUTFLOW', bookingDate: day('2026-06-01'), valueDate: null, description: 'x', propertyReferenceId: null },
+      {
+        mreRealmId: REALM,
+        financialAccountId: account,
+        amount: eur('900.00'),
+        direction: 'OUTFLOW',
+        bookingDate: day('2026-06-01'),
+        valueDate: null,
+        description: 'x',
+        propertyReferenceId: null,
+      },
       actor,
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
@@ -668,16 +723,32 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       };
       const columns = Object.keys(row);
       return pool
-        .query(`INSERT INTO tax_classification (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`, Object.values(row))
+        .query(
+          `INSERT INTO tax_classification (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
+          Object.values(row),
+        )
         .then(
           (r) => r.rows[0].id as string,
           (error) => reasonOf(error),
         );
     };
     const withdrawalRow = (st: string, position: number, share: string, extra: Record<string, unknown> = {}) =>
-      insert({ source_type: 'WEG_RESERVE_WITHDRAWAL', weg_annual_statement_id: st, weg_reserve_position: position, weg_withdrawal_unit_share: share, ...extra });
+      insert({
+        source_type: 'WEG_RESERVE_WITHDRAWAL',
+        weg_annual_statement_id: st,
+        weg_reserve_position: position,
+        weg_withdrawal_unit_share: share,
+        ...extra,
+      });
     const useRow = (a: string, position: number, date: string, share: string, extra: Record<string, unknown> = {}) =>
-      insert({ source_type: 'WEG_ASSESSMENT_USE', weg_special_assessment_id: a, weg_use_position: position, weg_use_date: date, weg_use_unit_share: share, ...extra });
+      insert({
+        source_type: 'WEG_ASSESSMENT_USE',
+        weg_special_assessment_id: a,
+        weg_use_position: position,
+        weg_use_date: date,
+        weg_use_unit_share: share,
+        ...extra,
+      });
 
     it('the withdrawal guard: confirmed only, a withdrawal line, the exact unit share (one cent off either way, the half), tax_year of an undated line', async () => {
       const { membershipId } = await member();
@@ -715,15 +786,32 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       const st = await statement(membershipId);
       expect(await withdrawalRow(st, 1, '1000.00', { tax_category: 'NOT_RELEVANT', treatment: 'DEDUCTIBLE' })).toBe('tax_classification_fit');
       expect(await withdrawalRow(st, 1, '1000.00', { tax_category: 'MAINTENANCE' })).toBe('tax_classification_weg_lines');
-      expect(await withdrawalRow(st, 1, '1000.00', { treatment: 'DISTRIBUTED_82B', distribution_years: 1, mostly_residential_confirmed: true, treatment_rule_code: 'DE_82B_DISTRIBUTION', treatment_rule_version: 1 })).toBe(
-        'tax_classification_distribution',
-      );
-      expect(await withdrawalRow(st, 1, '1000.00', { treatment: 'DISTRIBUTED_82B', distribution_years: 6, mostly_residential_confirmed: true, treatment_rule_code: 'DE_82B_DISTRIBUTION', treatment_rule_version: 1 })).toBe(
-        'tax_classification_distribution',
-      );
-      expect(await withdrawalRow(st, 1, '1000.00', { treatment: 'DISTRIBUTED_82B', distribution_years: 3, treatment_rule_code: 'DE_82B_DISTRIBUTION', treatment_rule_version: 1 })).toBe(
-        'tax_classification_distribution',
-      );
+      expect(
+        await withdrawalRow(st, 1, '1000.00', {
+          treatment: 'DISTRIBUTED_82B',
+          distribution_years: 1,
+          mostly_residential_confirmed: true,
+          treatment_rule_code: 'DE_82B_DISTRIBUTION',
+          treatment_rule_version: 1,
+        }),
+      ).toBe('tax_classification_distribution');
+      expect(
+        await withdrawalRow(st, 1, '1000.00', {
+          treatment: 'DISTRIBUTED_82B',
+          distribution_years: 6,
+          mostly_residential_confirmed: true,
+          treatment_rule_code: 'DE_82B_DISTRIBUTION',
+          treatment_rule_version: 1,
+        }),
+      ).toBe('tax_classification_distribution');
+      expect(
+        await withdrawalRow(st, 1, '1000.00', {
+          treatment: 'DISTRIBUTED_82B',
+          distribution_years: 3,
+          treatment_rule_code: 'DE_82B_DISTRIBUTION',
+          treatment_rule_version: 1,
+        }),
+      ).toBe('tax_classification_distribution');
       expect(await withdrawalRow(st, 1, '1000.00', { treatment: 'DISTRIBUTED_82B', distribution_years: 3, mostly_residential_confirmed: true })).toBe(
         'tax_classification_treatment_rule',
       );
@@ -751,13 +839,26 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       expect(await splitRow(repair, { weg_reserve_position: 1 })).toBe('tax_classification_weg_source_fields');
       expect(await splitRow(repair, { net_amount: '500.01' })).toBe('(NET_AMOUNT_EXCEEDS_GROSS)');
       expect(await splitRow(repair, { annually_recurring: true, tax_category: 'INSURANCE' })).toBe('tax_classification_erhaltung_fields');
-      expect(await splitRow(repair, { tax_category: 'INSURANCE', treatment: 'DISTRIBUTED_82B', distribution_years: 2, mostly_residential_confirmed: true, treatment_rule_code: 'DE_82B_DISTRIBUTION', treatment_rule_version: 1 })).toBe(
-        'tax_classification_fit',
-      );
+      expect(
+        await splitRow(repair, {
+          tax_category: 'INSURANCE',
+          treatment: 'DISTRIBUTED_82B',
+          distribution_years: 2,
+          mostly_residential_confirmed: true,
+          treatment_rule_code: 'DE_82B_DISTRIBUTION',
+          treatment_rule_version: 1,
+        }),
+      ).toBe('tax_classification_fit');
       expect(await splitRow(funds, { tax_category: 'MAINTENANCE', treatment: 'DEDUCTIBLE' })).toBe('(TREATMENT_NOT_ALLOWED)');
       const refund = await booked([split('50.00', 'MAINTENANCE', pr)], '2026-06-02', 'INFLOW');
       expect(
-        await splitRow(refund.splitIds[0] as string, { treatment: 'DISTRIBUTED_82B', distribution_years: 2, mostly_residential_confirmed: true, treatment_rule_code: 'DE_82B_DISTRIBUTION', treatment_rule_version: 1 }),
+        await splitRow(refund.splitIds[0] as string, {
+          treatment: 'DISTRIBUTED_82B',
+          distribution_years: 2,
+          mostly_residential_confirmed: true,
+          treatment_rule_code: 'DE_82B_DISTRIBUTION',
+          treatment_rule_version: 1,
+        }),
       ).toBe('(DISTRIBUTION_NOT_ALLOWED)');
       expect(await splitRow(repair, { net_amount: '500.00' })).toMatch(/^[0-9a-f-]{36}$/);
     });
@@ -871,89 +972,99 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
           { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
         ]);
         // A registry without DE_82B_DISTRIBUTION@1: the stored treatmentRule no longer resolves.
-        const without = new RuleRegistry(TAX_RULES.codes().filter((c) => c !== 'DE_82B_DISTRIBUTION').flatMap((c) => TAX_RULES.versions(c)));
+        const without = new RuleRegistry(
+          TAX_RULES.codes()
+            .filter((c) => c !== 'DE_82B_DISTRIBUTION')
+            .flatMap((c) => TAX_RULES.versions(c)),
+        );
         await expect(checkStoredRuleReferences(startDb, without)).rejects.toThrow('Stored tax rule references are not registered: DE_82B_DISTRIBUTION@1');
       } finally {
         await startPool.end();
       }
     });
 
-    it('down refuses while a WEG classification exists; then restores 0046 and drops the columns, guards and indexes (under MIGRATION_ADVISORY_LOCK)', { timeout: 30_000 }, async () => {
-      const downSchema = testSchemaName('tax_weg_down_test');
-      const admin = new pg.Client({ connectionString: databaseUrl });
-      await admin.connect();
-      await admin.query(`CREATE SCHEMA "${downSchema}"`);
-      await admin.end();
-      const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
-      try {
-        await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        const down = async () => (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
-        // A classification with a field of §58B: down refuses and changes nothing; once it is gone, down proceeds.
-        const startDb = createDatabase(downPool);
-        const splitId = await confirmedSplitIn(downPool);
-        const created = await new PostgresTaxClassificationRepository(startDb).createClassification(
-          {
-            mreRealmId: REALM,
-            sourceType: 'TRANSACTION_SPLIT',
-            sourceId: splitId,
-            taxCategory: 'MAINTENANCE',
-            treatment: 'DEDUCTIBLE',
-            reviewState: 'USER_CONFIRMED',
-            supersedes: null,
-            notes: null,
-            sourceReferences: [],
-            annuallyRecurring: true,
-          },
-          actor,
-        );
-        expect(created.kind).toBe('CREATED');
-        let refused = '';
-        await withMigrationLock(async () => {
-          refused = await down().then(
-            () => 'accepted',
-            (error: { message?: string }) => error.message ?? '',
+    it(
+      'down refuses while a WEG classification exists; then restores 0046 and drops the columns, guards and indexes (under MIGRATION_ADVISORY_LOCK)',
+      { timeout: 30_000 },
+      async () => {
+        const downSchema = testSchemaName('tax_weg_down_test');
+        const admin = new pg.Client({ connectionString: databaseUrl });
+        await admin.connect();
+        await admin.query(`CREATE SCHEMA "${downSchema}"`);
+        await admin.end();
+        const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
+        try {
+          await migrateToLatest(downPool, { migrationTableSchema: downSchema });
+          const down = async () => (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
+          // A classification with a field of §58B: down refuses and changes nothing; once it is gone, down proceeds.
+          const startDb = createDatabase(downPool);
+          const splitId = await confirmedSplitIn(downPool);
+          const created = await new PostgresTaxClassificationRepository(startDb).createClassification(
+            {
+              mreRealmId: REALM,
+              sourceType: 'TRANSACTION_SPLIT',
+              sourceId: splitId,
+              taxCategory: 'MAINTENANCE',
+              treatment: 'DEDUCTIBLE',
+              reviewState: 'USER_CONFIRMED',
+              supersedes: null,
+              notes: null,
+              sourceReferences: [],
+              annuallyRecurring: true,
+            },
+            actor,
           );
-        });
-        expect(refused).toContain('down 0047');
-        expect((await downPool.query(`SELECT count(*)::int AS n FROM tax_classification WHERE annually_recurring`)).rows[0].n).toBe(1);
-        await downPool.query(`ALTER TABLE tax_classification DISABLE TRIGGER USER`);
-        await downPool.query(`DELETE FROM tax_classification`);
-        await downPool.query(`ALTER TABLE tax_classification ENABLE TRIGGER USER`);
-        await withMigrationLock(down);
-        const columns = await downPool.query(
-          `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'tax_classification'
+          expect(created.kind).toBe('CREATED');
+          let refused = '';
+          await withMigrationLock(async () => {
+            refused = await down().then(
+              () => 'accepted',
+              (error: { message?: string }) => error.message ?? '',
+            );
+          });
+          expect(refused).toContain('down 0047');
+          expect((await downPool.query(`SELECT count(*)::int AS n FROM tax_classification WHERE annually_recurring`)).rows[0].n).toBe(1);
+          await downPool.query(`ALTER TABLE tax_classification DISABLE TRIGGER USER`);
+          await downPool.query(`DELETE FROM tax_classification`);
+          await downPool.query(`ALTER TABLE tax_classification ENABLE TRIGGER USER`);
+          await withMigrationLock(down);
+          const columns = await downPool.query(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'tax_classification'
              AND column_name IN ('weg_annual_statement_id', 'weg_use_position', 'net_amount', 'annually_recurring', 'distribution_years', 'treatment_rule_code')`,
-          [downSchema],
-        );
-        expect(columns.rows).toEqual([]);
-        const indexes = await downPool.query(
-          `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname IN ('property_reference_realm_name_idx', 'financial_account_realm_name_idx',
+            [downSchema],
+          );
+          expect(columns.rows).toEqual([]);
+          const indexes = await downPool.query(
+            `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND indexname IN ('property_reference_realm_name_idx', 'financial_account_realm_name_idx',
              'tax_classification_current_withdrawal', 'tax_classification_current_use')`,
-          [downSchema],
-        );
-        expect(indexes.rows).toEqual([]);
-        const triggers = await downPool.query(`SELECT tgname FROM pg_trigger WHERE tgrelid = 'tax_classification'::regclass AND NOT tgisinternal ORDER BY tgname`);
-        expect(triggers.rows.map((r) => r.tgname)).toEqual([
-          'tax_classification_chain',
-          'tax_classification_deposit_counts',
-          'tax_classification_deposit_treatment',
-          'tax_classification_frozen',
-          'tax_classification_initial',
-          'tax_classification_source_counts',
-          'tax_classification_source_fixed',
-          'tax_classification_tax_year',
-          'tax_classification_treatment',
-        ]);
-        const checks = await downPool.query(
-          `SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
+            [downSchema],
+          );
+          expect(indexes.rows).toEqual([]);
+          const triggers = await downPool.query(
+            `SELECT tgname FROM pg_trigger WHERE tgrelid = 'tax_classification'::regclass AND NOT tgisinternal ORDER BY tgname`,
+          );
+          expect(triggers.rows.map((r) => r.tgname)).toEqual([
+            'tax_classification_chain',
+            'tax_classification_deposit_counts',
+            'tax_classification_deposit_treatment',
+            'tax_classification_frozen',
+            'tax_classification_initial',
+            'tax_classification_source_counts',
+            'tax_classification_source_fixed',
+            'tax_classification_tax_year',
+            'tax_classification_treatment',
+          ]);
+          const checks = await downPool.query(
+            `SELECT pg_get_constraintdef(c.oid) AS def FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
             WHERE nspname = $1 AND conname = 'tax_classification_source_type_check'`,
-          [downSchema],
-        );
-        expect(String(checks.rows[0].def)).not.toContain('WEG_RESERVE_WITHDRAWAL');
-      } finally {
-        await downPool.end();
-      }
-    });
+            [downSchema],
+          );
+          expect(String(checks.rows[0].def)).not.toContain('WEG_RESERVE_WITHDRAWAL');
+        } finally {
+          await downPool.end();
+        }
+      },
+    );
   });
 
   describe('concurrency (P7-D9)', () => {
@@ -980,9 +1091,10 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
        VALUES ($1, 'WEG_ASSESSMENT_USE', $2, 1, '2026-09-01', 3000.00, 'WEG_SPENDING', 'DEDUCTIBLE', 'USER_CONFIRMED', 'DE_WEG_SPENDING', 1, 'x')`;
     const supersede = async (client: pg.PoolClient, old: string, successor: string) => {
       await client.query(`UPDATE weg_annual_statement SET status = 'SUPERSEDED', superseded_by_id = $2, version = version + 1 WHERE id = $1`, [old, successor]);
-      await client.query(`UPDATE weg_annual_statement SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = $1`, [
-        successor,
-      ]);
+      await client.query(
+        `UPDATE weg_annual_statement SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1 WHERE id = $1`,
+        [successor],
+      );
     };
     async function pair() {
       const { membershipId } = await member();

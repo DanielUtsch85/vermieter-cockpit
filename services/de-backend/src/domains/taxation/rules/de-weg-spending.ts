@@ -33,6 +33,5 @@ export const DE_WEG_SPENDING_V1: RuleVersion<WegSpendingParameters> = {
     default: { taxCategory: 'UNCLASSIFIED', treatment: null, reviewState: 'NEEDS_REVIEW' },
     lines: { WEG_SPENDING: ['DEDUCTIBLE', 'DISTRIBUTED_82B', 'CAPITALIZED'], NOT_RELEVANT: ['NOT_RELEVANT'] },
   },
-  source:
-    'BFH IX R 19/24 vom 14.01.2025; docs/germany/taxation.md §8; phase-7-plan P7-D5; api-design §58B (review on #167); verification-checklist E1',
+  source: 'BFH IX R 19/24 vom 14.01.2025; docs/germany/taxation.md §8; phase-7-plan P7-D5; api-design §58B (review on #167); verification-checklist E1',
 };

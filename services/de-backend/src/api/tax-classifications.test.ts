@@ -506,7 +506,15 @@ describe('reads (§55)', () => {
           if (depositId !== OTHER) throw new SecurityDepositNotFoundError(depositId);
           return deposit;
         },
-        taxMeanings: async (input) => ({ items: [{ ...meaning, yearAmount: meaning.amount }, { ...deposit, yearAmount: deposit.amount }], page: input.page.page, pageSize: input.page.pageSize, total: 2 }),
+        taxMeanings: async (input) => ({
+          items: [
+            { ...meaning, yearAmount: meaning.amount },
+            { ...deposit, yearAmount: deposit.amount },
+          ],
+          page: input.page.page,
+          pageSize: input.page.pageSize,
+          total: 2,
+        }),
       },
     });
     const res = await get(base, `/security-deposits/${OTHER}/tax-meaning`);
@@ -562,7 +570,13 @@ describe('GET /tax-rules (§58)', () => {
     const base = await start({ taxation: { listRules: listTaxRules({ now }), getRule: getTaxRule({ now }) } });
     const list = (await (await get(base, '/tax-rules')).json()) as { items: { ruleCode: string; versions: Record<string, unknown>[] }[] };
     // VC-7-02 adds DE_CASH_TIMING (§58A), VC-7-03 three rules of its own (§58B).
-    expect(list.items.map((r) => r.ruleCode)).toEqual(['DE_82B_DISTRIBUTION', 'DE_ANSCHAFFUNGSNAHE', 'DE_CASH_TIMING', 'DE_CATEGORY_DEFAULTS', 'DE_WEG_SPENDING']);
+    expect(list.items.map((r) => r.ruleCode)).toEqual([
+      'DE_82B_DISTRIBUTION',
+      'DE_ANSCHAFFUNGSNAHE',
+      'DE_CASH_TIMING',
+      'DE_CATEGORY_DEFAULTS',
+      'DE_WEG_SPENDING',
+    ]);
     const defaults = list.items[3];
     expect(list.items[2]?.versions).toEqual([
       expect.objectContaining({ ruleCode: 'DE_CASH_TIMING', version: 1, legalBasis: '§ 11 Abs. 1 S. 2 und Abs. 2 S. 2 EStG', status: 'ACTIVE' }),
@@ -643,7 +657,9 @@ describe('VC-7-03 (§58B)', () => {
     expect(await fields(await send({ ...body, treatment: 'DEDUCTIBLE', anschaffungsnaheAcquisitionId: ACQ }))).toEqual([
       { field: 'anschaffungsnaheAcquisitionId', code: 'NOT_ALLOWED_WITH_TREATMENT' },
     ]);
-    expect(await fields(await send({ ...body, anschaffungsnaheAcquisitionId: 'x' }))).toEqual([{ field: 'anschaffungsnaheAcquisitionId', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send({ ...body, anschaffungsnaheAcquisitionId: 'x' }))).toEqual([
+      { field: 'anschaffungsnaheAcquisitionId', code: 'INVALID_FORMAT' },
+    ]);
     expect(await fields(await send({ ...body, sourcePosition: 1 }))).toEqual([{ field: 'sourcePosition', code: 'NOT_ALLOWED' }]);
     expect(await fields(await send({ ...wegBody, sourcePosition: 1001 }))).toEqual([{ field: 'sourcePosition', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await send({ ...wegBody, refundOfYear: 2026 }))).toEqual([{ field: 'refundOfYear', code: 'NOT_SUPPORTED' }]);
@@ -682,7 +698,10 @@ describe('VC-7-03 (§58B)', () => {
       [
         new NetAmountExceedsGrossError(Money.of('1000.01', 'EUR'), Money.of('1000.00', 'EUR')),
         422,
-        { code: 'NET_AMOUNT_EXCEEDS_GROSS', details: { netAmount: { amount: '1000.01', currency: 'EUR' }, grossAmount: { amount: '1000.00', currency: 'EUR' } } },
+        {
+          code: 'NET_AMOUNT_EXCEEDS_GROSS',
+          details: { netAmount: { amount: '1000.01', currency: 'EUR' }, grossAmount: { amount: '1000.00', currency: 'EUR' } },
+        },
       ],
       [new DistributionNotAllowedError('NOT_AN_OUTFLOW'), 422, { code: 'DISTRIBUTION_NOT_ALLOWED', details: { reason: 'NOT_AN_OUTFLOW' } }],
       [
@@ -716,7 +735,12 @@ describe('VC-7-03 (§58B)', () => {
         { code: 'TREATMENT_NOT_ALLOWED', details: { sourceType: 'TRANSACTION_SPLIT', reason: 'WEG_SPENDING_ONLY_FOR_WEG_SOURCES' } },
       ],
       [
-        new TreatmentNotAllowedError(null, ['DEDUCTIBLE', 'DISTRIBUTED_82B', 'CAPITALIZED', 'NOT_RELEVANT'], ['WEG_SPENDING', 'NOT_RELEVANT'], 'WEG_ASSESSMENT_USE'),
+        new TreatmentNotAllowedError(
+          null,
+          ['DEDUCTIBLE', 'DISTRIBUTED_82B', 'CAPITALIZED', 'NOT_RELEVANT'],
+          ['WEG_SPENDING', 'NOT_RELEVANT'],
+          'WEG_ASSESSMENT_USE',
+        ),
         422,
         {
           code: 'TREATMENT_NOT_ALLOWED',
@@ -844,7 +868,9 @@ describe('VC-7-03 (§58B)', () => {
       ]);
     }
     expect(await fields(await get(base, `/weg-special-assessments/x/uses/1/tax-meaning`))).toEqual([{ field: 'assessmentId', code: 'INVALID_FORMAT' }]);
-    const listed = (await (await get(base, `/property-references/${PR}/tax-meanings?year=2027&sourceType=WEG_RESERVE_WITHDRAWAL,WEG_ASSESSMENT_USE`)).json()) as {
+    const listed = (await (
+      await get(base, `/property-references/${PR}/tax-meanings?year=2027&sourceType=WEG_RESERVE_WITHDRAWAL,WEG_ASSESSMENT_USE`)
+    ).json()) as {
       items: unknown[];
     };
     expect(listed.items).toEqual([{ ...wegDto, yearAmount: { amount: '250.00', currency: 'EUR' } }]);

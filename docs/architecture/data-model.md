@@ -802,7 +802,7 @@ Represent allocation of relevant Acquisition cost between land and building.
 
 **Phase 2 (P2-D9, api-design §27.3):** recorded as entered, never computed. `landAmount + buildingAmount = totalAllocableAmount` exactly; the percentages are derived (`landShare`, `buildingShare`), not stored. `effectiveDate` defaults to the Acquisition's transfer date. A correction is a new allocation that supersedes the current one (`supersedesId` on the new one; the old one keeps its data and gets `supersededAt`, its successor is derived); at most one is current per Acquisition. `documentIds` wait for documents; `advisorPartyId` is a Party of the Realm.
 
-**VC-7-03 (P7-D6, api-design §58B, spec):** the current allocation, when `CONFIRMED` or `ADVISOR_CONFIRMED`, gives the ratio of the building's acquisition cost that the anschaffungsnahe check (§ 6 Abs. 1 Nr. 1a EStG) measures against: (price + `ACTIVE` costs without `FINANCING_RELATED`) × `buildingAmount` / `totalAllocableAmount`, rounded once to the cent. Without one, or unconfirmed, the check is `NOT_COMPUTABLE`. Nothing is stored on the allocation.
+**VC-7-03 (P7-D6, api-design §58B, implemented: migration 0047):** the current allocation, when `CONFIRMED` or `ADVISOR_CONFIRMED`, gives the ratio of the building's acquisition cost that the anschaffungsnahe check (§ 6 Abs. 1 Nr. 1a EStG) measures against: (price + `ACTIVE` costs without `FINANCING_RELATED`) × `buildingAmount` / `totalAllocableAmount`, rounded once to the cent. Without one, or unconfirmed, the check is `NOT_COMPUTABLE`. Nothing is stored on the allocation.
 
 ---
 
@@ -1686,7 +1686,7 @@ Represent a Wirtschaftsplan for a WEG period.
 
 **Phase 6 (VC-6-03, api-design §50, P6-D5):** implemented as `weg_annual_statement` (migration 0042): per membership and financial year, with the period (Nutzungszeitraum), the printed totals (group subtotals, total costs, Hausgeld and reserve requested and paid, Abrechnungsspitze and -ergebnis), an optional reserve section, and the lifecycle `DRAFT` → `CONFIRMED` → `SUPERSEDED`, `VOID` from `DRAFT`; flags derived on read.
 
-**VC-7-03 (P7-D5, api-design §58B, spec):** a reserve line of kind `WITHDRAWAL` takes an optional `date` (inside the period, entered while `DRAFT`). Each withdrawal of a `CONFIRMED` statement is a source of a `TaxClassification` (`WEG_RESERVE_WITHDRAWAL`, named by the statement and the line's `position`), dated by its `date` or else the period's end. A superseded statement's withdrawals stop counting; the successor's count instead. The cost lines are never a tax source (they are in the Hausgeld paid).
+**VC-7-03 (P7-D5, api-design §58B, implemented: migration 0047):** a reserve line of kind `WITHDRAWAL` takes an optional `date` (inside the period, entered while `DRAFT`). Each withdrawal of a `CONFIRMED` statement is a source of a `TaxClassification` (`WEG_RESERVE_WITHDRAWAL`, named by the statement and the line's `position`), dated by its `date` or else the period's end. A superseded statement's withdrawals stop counting; the successor's count instead. The cost lines are never a tax source (they are in the Hausgeld paid).
 
 **Domain:** WEG  
 **Stability:** Stable  
@@ -1778,7 +1778,7 @@ Represent one economically distinguishable line in a WEG plan or annual statemen
 
 **Phase 6 (VC-6-05, api-design §51A, P6-D7):** implemented as `weg_special_assessment` (migration 0044), per membership: description, resolution date, purpose as resolved (`MAINTENANCE`, `MODERNISATION`, `LIQUIDITY`, `OTHER`), the WEG total and the unit's share, instalments (due date and amount, summing to the share) and, later, its uses (date, description, unit's share) for Phase 7. Stored `ACTIVE` → `VOID`; `SETTLED`, paid and outstanding are derived from the counted splits naming it (`wegSpecialAssessmentId`, category `WEG_SPECIAL_ASSESSMENT` of type `WEG_FUNDS`). The WEG is reached through the membership; `dueDate` became the instalments.
 
-**VC-7-03 (P7-D5, api-design §58B, spec):** each use of an assessment that is not `VOID` is a source of a `TaxClassification` (`WEG_ASSESSMENT_USE`, named by the assessment and the use's `position`), in the year of its date. The classification stores the use's date and unit share, so a replace of the uses that changes them stops it counting. The payments stay `WEG_FUNDS`, never deductible.
+**VC-7-03 (P7-D5, api-design §58B, implemented: migration 0047):** each use of an assessment that is not `VOID` is a source of a `TaxClassification` (`WEG_ASSESSMENT_USE`, named by the assessment and the use's `position`), in the year of its date. The classification stores the use's date and unit share, so a replace of the uses that changes them stops it counting. The payments stay `WEG_FUNDS`, never deductible.
 
 **Domain:** WEG  
 **Stability:** Stable
@@ -2003,7 +2003,7 @@ Represent the tax interpretation of an existing economic item.
 
 **VC-7-02 (P7-D3, P7-D4, api-design §58A, implemented: migration 0046):** the tax year of a split is derived by the rule `DE_CASH_TIMING` (the booking year, or the economic year under the 10-day rule of § 11 EStG) and never stored; a classification may override it with `taxYear` (the booking year ± 1) and record the year a refund refunds (`refundOfYear`). A second source, `DEPOSIT_CLOSING`, classifies the amount a closed security deposit retained, in the year of its closing date, and stores the closing it classified. `taxCategory` gains `REFUNDS_OF_EARLIER_YEARS`, `RETAINED_DEPOSIT_RENT` and `RETAINED_DEPOSIT_DAMAGES`.
 
-**VC-7-03 (P7-D5, P7-D6, api-design §58B, spec; migration 0047):** two more sources, `WEG_RESERVE_WITHDRAWAL` and `WEG_ASSESSMENT_USE`, each named by its row (statement, assessment) and a `sourcePosition`, with the PropertyReference of the membership. Default `NEEDS_REVIEW`, lines `WEG_SPENDING` or `NOT_RELEVANT`. Supported now: `netAmount` (≤ gross, for the 15 % threshold only), `annuallyRecurring`, `DISTRIBUTED_82B` with `distributionYears` (2–5) and `mostlyResidentialConfirmed`, and `anschaffungsnaheAcquisitionId` for a capitalisation that follows the anschaffungsnahe check. A second rule reference, `treatmentRule`, names `DE_82B_DISTRIBUTION@1` or `DE_ANSCHAFFUNGSNAHE@1`. The § 82b parts and the check per Acquisition are derived, never stored.
+**VC-7-03 (P7-D5, P7-D6, api-design §58B, implemented: migration 0047):** two more sources, `WEG_RESERVE_WITHDRAWAL` and `WEG_ASSESSMENT_USE`, each named by its row (statement, assessment) and a `sourcePosition`, with the PropertyReference of the membership. Default `NEEDS_REVIEW`, lines `WEG_SPENDING` or `NOT_RELEVANT`. Supported now: `netAmount` (≤ gross, for the 15 % threshold only), `annuallyRecurring`, `DISTRIBUTED_82B` with `distributionYears` (2–5) and `mostlyResidentialConfirmed`, and `anschaffungsnaheAcquisitionId` for a capitalisation that follows the anschaffungsnahe check. A second rule reference, `treatmentRule`, names `DE_82B_DISTRIBUTION@1` or `DE_ANSCHAFFUNGSNAHE@1`. The § 82b parts and the check per Acquisition are derived, never stored.
 
 ---
 
@@ -2050,7 +2050,7 @@ Rule versions used in historical calculations must remain addressable.
 
 **Phase 7 (P7-D1, ADR-041, api-design §58; VC-7-01, implemented: migration 0045):** there is **no** `tax_rule_version` table. A rule version is a registry entry of a versioned code module (`domains/taxation/rules/`): `ruleCode`, `version`, `title`, `legalBasis`, `effectiveFrom`, `effectiveTo`, `parameters`, `source`, and a derived `status` (`ACTIVE`, `SUPERSEDED`, `RETIRED`; `DRAFT` is a code branch, not a state). What is stored is the reference `ruleCode@version` on the record that applied it. It stays addressable because a version is never removed from the code while referenced: a write names only registered versions, and the backend refuses to start when a stored reference does not resolve.
 
-**VC-7-03 (api-design §58B, spec):** `DE_CATEGORY_DEFAULTS@1` stays frozen and unchanged. Three rules join the registry: `DE_WEG_SPENDING@1` (the WEG sources' default, lines and treatments; from 2000-01-01), `DE_82B_DISTRIBUTION@1` (2–5 years; from 2004-01-01) and `DE_ANSCHAFFUNGSNAHE@1` (15 %, 3 years; from 2004-01-01, selected by the transfer date). A classification may store a second reference (`treatmentRule`); the start check resolves it too.
+**VC-7-03 (api-design §58B, implemented):** `DE_CATEGORY_DEFAULTS@1` stays frozen and unchanged. Three rules join the registry: `DE_WEG_SPENDING@1` (the WEG sources' default, lines and treatments; from 2000-01-01), `DE_82B_DISTRIBUTION@1` (2–5 years; from 2004-01-01) and `DE_ANSCHAFFUNGSNAHE@1` (15 %, 3 years; from 2004-01-01, selected by the transfer date). A classification may store a second reference (`treatmentRule`); the start check resolves it too.
 
 ---
 

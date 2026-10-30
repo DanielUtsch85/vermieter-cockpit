@@ -30,7 +30,6 @@ import {
   type CreateClassificationOutcome,
   type DepositFacts,
   type DepositTaxMeaning,
-  type Distribution,
   type NewTaxClassification,
   type ReviewClassificationOutcome,
   type ReviewStep,
@@ -838,13 +837,25 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
 
   private splitWithEffects(pair: { readonly meaning: TaxMeaning; readonly classification: TaxClassification | null }, effects: Effects): TaxMeaning {
     const { meaning, classification } = pair;
-    return withEffects(meaning, { sourcePosition: null, date: meaning.bookingDate, amount: meaning.amount }, classification, effects.ownerships, effects.checks);
+    return withEffects(
+      meaning,
+      { sourcePosition: null, date: meaning.bookingDate, amount: meaning.amount },
+      classification,
+      effects.ownerships,
+      effects.checks,
+    );
   }
 
   private wegWithEffects(facts: WegSourceFacts, effects: Effects, today: BusinessDate): WegTaxMeaning {
     const meaning = baseWegMeaning(effects.weg, facts, this.registry, today);
     const classification = effects.weg.current.get(wegSourceKey(facts)) ?? null;
-    return withEffects(meaning, { sourcePosition: facts.sourcePosition, date: facts.date, amount: facts.amount }, classification, effects.ownerships, effects.checks);
+    return withEffects(
+      meaning,
+      { sourcePosition: facts.sourcePosition, date: facts.date, amount: facts.amount },
+      classification,
+      effects.ownerships,
+      effects.checks,
+    );
   }
 
   /** The retained deposits of the PropertyReference closed in `year` (§58A), counting by the deposit. */
@@ -1256,7 +1267,9 @@ function toDomain(row: ClassificationRow): TaxClassification {
     mostlyResidentialConfirmed: row.mostly_residential_confirmed,
     anschaffungsnaheAcquisitionId: row.anschaffungsnahe_acquisition_id,
     treatmentRule:
-      row.treatment_rule_code === null || row.treatment_rule_version === null ? null : { ruleCode: row.treatment_rule_code, version: row.treatment_rule_version },
+      row.treatment_rule_code === null || row.treatment_rule_version === null
+        ? null
+        : { ruleCode: row.treatment_rule_code, version: row.treatment_rule_version },
     supersedes: row.supersedes_id,
     supersededBy: row.superseded_by,
     supersededAt: row.superseded_at,

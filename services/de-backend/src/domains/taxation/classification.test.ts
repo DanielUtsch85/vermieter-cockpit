@@ -292,7 +292,11 @@ describe('planClassification (§56 order of checks)', () => {
       rule: { ruleCode: CATEGORY_DEFAULTS, version: 1 },
       treatmentRule: null,
     });
-    expect(planClassification(facts(), null, request, TAX_RULES)).toEqual({ kind: 'CLASSIFY', rule: { ruleCode: CATEGORY_DEFAULTS, version: 1 }, treatmentRule: null });
+    expect(planClassification(facts(), null, request, TAX_RULES)).toEqual({
+      kind: 'CLASSIFY',
+      rule: { ruleCode: CATEGORY_DEFAULTS, version: 1 },
+      treatmentRule: null,
+    });
   });
 });
 

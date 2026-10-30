@@ -384,7 +384,12 @@ export async function lockAssessmentsOf(trx: Transaction<Database>, mreRealmId: 
 }
 
 /** An assessment of the Realm with its derived figures (also read by Taxation, §58B); undefined when unknown. */
-export async function readAssessmentViewIn(trx: Transaction<Database>, id: string, mreRealmId: string, asOf: BusinessDate): Promise<AssessmentView | undefined> {
+export async function readAssessmentViewIn(
+  trx: Transaction<Database>,
+  id: string,
+  mreRealmId: string,
+  asOf: BusinessDate,
+): Promise<AssessmentView | undefined> {
   const row = await trx.selectFrom('weg_special_assessment').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
   return row === undefined ? undefined : viewOf(trx, toDomain(row), asOf);
 }

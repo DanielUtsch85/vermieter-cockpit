@@ -972,9 +972,7 @@ const TABLE = [
     answer(404, 'NOT_FOUND', 'Source not found.', { sourceType: error.sourceType, sourceId: error.sourceId, sourcePosition: error.sourcePosition }),
   ),
   on(TaxFieldNotSupportedError, (error) => validation([{ field: error.field, code: 'NOT_SUPPORTED' }])),
-  on(DistributionNotAllowedError, (error) =>
-    answer(422, 'DISTRIBUTION_NOT_ALLOWED', 'No § 82b distribution for this source.', { reason: error.reason }),
-  ),
+  on(DistributionNotAllowedError, (error) => answer(422, 'DISTRIBUTION_NOT_ALLOWED', 'No § 82b distribution for this source.', { reason: error.reason })),
   on(NetAmountExceedsGrossError, (error) =>
     answer(422, 'NET_AMOUNT_EXCEEDS_GROSS', "netAmount must not exceed the source's gross amount.", {
       netAmount: error.netAmount.toJSON(),

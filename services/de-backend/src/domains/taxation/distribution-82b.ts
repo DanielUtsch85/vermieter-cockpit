@@ -58,7 +58,7 @@ export function continuousOwners(ownerships: readonly OwnershipPeriod[], date: B
       extended = false;
       const reach: BusinessDate = addDays(end, 1);
       for (const x of ofParty) {
-        if (x.validFrom <= reach && (x.validUntil === null || x.validUntil > (end as BusinessDate))) {
+        if (x.validFrom <= reach && (x.validUntil === null || x.validUntil > end)) {
           end = x.validUntil;
           extended = true;
           if (end === null) break;

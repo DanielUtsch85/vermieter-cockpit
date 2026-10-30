@@ -199,8 +199,10 @@ export function checkAnschaffungsnahe(
   const edgeFlag = (s: CheckSource): CheckEntryFlag[] => {
     if (window === null) return [];
     if (s.date > window.until) return [{ code: 'DATE_IS_BOOKING_DATE', details: { edge: 'END', date: s.date } }];
-    if (dayNumber(s.date) - dayNumber(window.from) <= BOOKING_DATE_EDGE_DAYS) return [{ code: 'DATE_IS_BOOKING_DATE', details: { edge: 'START', date: s.date } }];
-    if (dayNumber(window.until) - dayNumber(s.date) <= BOOKING_DATE_EDGE_DAYS) return [{ code: 'DATE_IS_BOOKING_DATE', details: { edge: 'END', date: s.date } }];
+    if (dayNumber(s.date) - dayNumber(window.from) <= BOOKING_DATE_EDGE_DAYS)
+      return [{ code: 'DATE_IS_BOOKING_DATE', details: { edge: 'START', date: s.date } }];
+    if (dayNumber(window.until) - dayNumber(s.date) <= BOOKING_DATE_EDGE_DAYS)
+      return [{ code: 'DATE_IS_BOOKING_DATE', details: { edge: 'END', date: s.date } }];
     return [];
   };
   const summed = inWindow.filter(summedSource);

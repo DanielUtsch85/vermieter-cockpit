@@ -22,7 +22,9 @@ export function distributionOf(
 }
 
 /** The meaning with its parts and the check's flags and suggestion. */
-export function withTreatmentEffects<M extends { readonly flags: readonly unknown[]; readonly distribution: Distribution | null; readonly suggestion: TreatmentSuggestion | null }>(
+export function withTreatmentEffects<
+  M extends { readonly flags: readonly unknown[]; readonly distribution: Distribution | null; readonly suggestion: TreatmentSuggestion | null },
+>(
   meaning: M,
   distribution: { readonly distribution: Distribution; readonly flags: readonly DistributionFlag[] } | null,
   check: { readonly flags: readonly CheckEntryFlag[]; readonly suggestion: TreatmentSuggestion | null },

@@ -103,7 +103,10 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         landBuildingAllocations: { create: createLandBuildingAllocation({ repository: new PostgresLandBuildingAllocationRepository(db) }) },
         wegs: { createWeg: createWeg({ repository: wegs }), createMembership: createMembership({ repository: wegs }) },
         wegAnnualStatements: { create: createAnnualStatement({ repository: statements }), confirm: confirmAnnualStatement({ repository: statements }) },
-        wegSpecialAssessments: { create: createSpecialAssessment({ repository: assessments }), replaceUses: replaceAssessmentUses({ repository: assessments }) },
+        wegSpecialAssessments: {
+          create: createSpecialAssessment({ repository: assessments }),
+          replaceUses: replaceAssessmentUses({ repository: assessments }),
+        },
         financialAccounts: { create: createFinancialAccount({ repository: new PostgresFinancialAccountRepository(db) }) },
         transactions: {
           createManual: createManualTransaction({ repository: transactions }),
@@ -147,7 +150,14 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
   };
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
   type Flag = { code: string; details: Record<string, unknown> };
-  type Item = { sourceType: string; sourceId: string; sourcePosition: number | null; yearAmount: { amount: string }; taxCategory: string; treatment: string | null };
+  type Item = {
+    sourceType: string;
+    sourceId: string;
+    sourcePosition: number | null;
+    yearAmount: { amount: string };
+    taxCategory: string;
+    treatment: string | null;
+  };
   const codes = (flags: readonly Flag[]) => flags.map((f) => f.code);
   let counter = 0;
 
@@ -171,8 +181,9 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
   let giro = '';
   async function booked(pr: string, amount: string, code: string, bookingDate: string) {
     if (giro === '') {
-      giro = (await json<{ financialAccountId: string }>(await A('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' }), 201))
-        .financialAccountId;
+      giro = (
+        await json<{ financialAccountId: string }>(await A('POST', '/financial-accounts', { accountType: 'BANK', displayName: 'Giro', currency: 'EUR' }), 201)
+      ).financialAccountId;
     }
     const tx = (
       await json<{ transactionId: string }>(
@@ -187,8 +198,7 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     await json(await A('POST', `/transactions/${tx}/confirm`), 200);
     return split.splits[0]?.splitId as string;
   }
-  const classify = (body: Record<string, unknown>) =>
-    A('POST', '/tax-classifications', { reviewState: 'USER_CONFIRMED', supersedes: null, ...body });
+  const classify = (body: Record<string, unknown>) => A('POST', '/tax-classifications', { reviewState: 'USER_CONFIRMED', supersedes: null, ...body });
   const items = async (pr: string, year: number, realm = REALM_A) =>
     (await json<{ items: Item[] }>(await call(realm, 'GET', `/property-references/${pr}/tax-meanings?year=${year}`), 200)).items;
 
@@ -210,7 +220,10 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         201,
       )
     ).acquisitionId;
-    await json(await A('POST', '/ownerships', { propertyReferenceId: pr, ownerPartyId: party, share: '1/1', validFrom: '2026-03-15', acquisitionId: acquisition }), 201);
+    await json(
+      await A('POST', '/ownerships', { propertyReferenceId: pr, ownerPartyId: party, share: '1/1', validFrom: '2026-03-15', acquisitionId: acquisition }),
+      201,
+    );
     await json(await A('POST', `/acquisitions/${acquisition}/confirm`, {}), 200);
     await json(await A('POST', `/acquisitions/${acquisition}/costs`, { category: 'REAL_ESTATE_TRANSFER_TAX', amount: eur('24000.00') }), 201);
     await json(await A('POST', `/acquisitions/${acquisition}/costs`, { category: 'FINANCING_RELATED', amount: eur('1500.00') }), 201);
@@ -244,9 +257,17 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
 
     // The repair: 18,000.00 gross in May 2026, 15,126.05 net: alone below the threshold of 29,700.00.
     const repair = await booked(pr, '18000.00', 'MAINTENANCE', '2026-05-14');
-    await json(await classify({ sourceType: 'TRANSACTION_SPLIT', sourceId: repair, taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', netAmount: eur('15126.05') }), 201);
+    await json(
+      await classify({ sourceType: 'TRANSACTION_SPLIT', sourceId: repair, taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', netAmount: eur('15126.05') }),
+      201,
+    );
     const alone = await check();
-    expect(alone).toMatchObject({ status: 'NOT_ABOVE_THRESHOLD', threshold: eur('29700.00'), sum: eur('15126.05'), basis: { basisAmount: eur('198000.00'), acquisitionCosts: eur('24000.00') } });
+    expect(alone).toMatchObject({
+      status: 'NOT_ABOVE_THRESHOLD',
+      threshold: eur('29700.00'),
+      sum: eur('15126.05'),
+      basis: { basisAmount: eur('198000.00'), acquisitionCosts: eur('24000.00') },
+    });
 
     // The Sonderumlage use of 14,800.00 on 10.06.2027, classified WEG_SPENDING / DEDUCTIBLE: 29,926.05, above.
     const assessment = (
@@ -332,7 +353,10 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     const pr = await flat();
     const party = (await json<{ partyId: string }>(await A('POST', '/parties', { partyType: 'PERSON', displayName: 'Ben Vermieter' }), 201)).partyId;
     const ownership = (
-      await json<{ ownershipId: string }>(await A('POST', '/ownerships', { propertyReferenceId: pr, ownerPartyId: party, share: '1/1', validFrom: '2020-01-01' }), 201)
+      await json<{ ownershipId: string }>(
+        await A('POST', '/ownerships', { propertyReferenceId: pr, ownerPartyId: party, share: '1/1', validFrom: '2020-01-01' }),
+        201,
+      )
     ).ownershipId;
     const repair = await booked(pr, '9000.00', 'MAINTENANCE', '2026-08-03');
     const elected = await json<{ treatmentRule: unknown; distributionYears: number; mostlyResidentialConfirmed: boolean }>(
@@ -348,17 +372,38 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     );
     expect(elected).toMatchObject({ treatmentRule: { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 }, distributionYears: 3, mostlyResidentialConfirmed: true });
     const yearAmounts = async (year: number) => (await items(pr, year)).map((i) => i.yearAmount.amount);
-    expect([await yearAmounts(2026), await yearAmounts(2027), await yearAmounts(2028), await yearAmounts(2029)]).toEqual([['3000.00'], ['3000.00'], ['3000.00'], []]);
+    expect([await yearAmounts(2026), await yearAmounts(2027), await yearAmounts(2028), await yearAmounts(2029)]).toEqual([
+      ['3000.00'],
+      ['3000.00'],
+      ['3000.00'],
+      [],
+    ]);
     await json(await A('POST', `/ownerships/${ownership}/close`, { validUntil: '2027-09-30' }), 200);
     expect([await yearAmounts(2026), await yearAmounts(2027), await yearAmounts(2028)]).toEqual([['3000.00'], ['6000.00'], []]);
-    const meaning = await json<{ distribution: { endYear: number; parts: unknown[] }; flags: Flag[] }>(await A('GET', `/transaction-splits/${repair}/tax-meaning`), 200);
-    expect(meaning.distribution).toMatchObject({ endYear: 2027, parts: [{ year: 2026, amount: eur('3000.00') }, { year: 2027, amount: eur('6000.00') }] });
+    const meaning = await json<{ distribution: { endYear: number; parts: unknown[] }; flags: Flag[] }>(
+      await A('GET', `/transaction-splits/${repair}/tax-meaning`),
+      200,
+    );
+    expect(meaning.distribution).toMatchObject({
+      endYear: 2027,
+      parts: [
+        { year: 2026, amount: eur('3000.00') },
+        { year: 2027, amount: eur('6000.00') },
+      ],
+    });
     expect(codes(meaning.flags)).toContain('DISTRIBUTION_ENDED');
     // A refund is never distributed; mostlyResidentialConfirmed false is no election.
     expect(
       (
         await json<{ error: { code: string; details: { reason: string } } }>(
-          await classify({ sourceType: 'TRANSACTION_SPLIT', sourceId: repair, taxCategory: 'MAINTENANCE', treatment: 'DISTRIBUTED_82B', distributionYears: 3, mostlyResidentialConfirmed: false }),
+          await classify({
+            sourceType: 'TRANSACTION_SPLIT',
+            sourceId: repair,
+            taxCategory: 'MAINTENANCE',
+            treatment: 'DISTRIBUTED_82B',
+            distributionYears: 3,
+            mostlyResidentialConfirmed: false,
+          }),
           422,
         )
       ).error,
@@ -391,10 +436,17 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       withdrawal: eur(amount),
       ...(date === undefined ? {} : { date }),
     });
-    const old = (await json<{ statementId: string }>(await A('POST', `/weg-memberships/${m}/annual-statements`, statementBody([withdrawal(1, '8000.00', '2026-06-15'), withdrawal(2, '4000.00')])), 201))
-      .statementId;
+    const old = (
+      await json<{ statementId: string }>(
+        await A('POST', `/weg-memberships/${m}/annual-statements`, statementBody([withdrawal(1, '8000.00', '2026-06-15'), withdrawal(2, '4000.00')])),
+        201,
+      )
+    ).statementId;
     await json(await A('POST', `/weg-annual-statements/${old}/confirm`), 200);
-    const dated = await json<{ dateSource: string; amount: { amount: string } }>(await A('GET', `/weg-annual-statements/${old}/reserve-withdrawals/1/tax-meaning`), 200);
+    const dated = await json<{ dateSource: string; amount: { amount: string } }>(
+      await A('GET', `/weg-annual-statements/${old}/reserve-withdrawals/1/tax-meaning`),
+      200,
+    );
     expect(dated).toMatchObject({ dateSource: 'WITHDRAWAL', amount: eur('1000.00') });
     const undated = await json<{ dateSource: string; flags: Flag[] }>(await A('GET', `/weg-annual-statements/${old}/reserve-withdrawals/2/tax-meaning`), 200);
     expect(undated.dateSource).toBe('PERIOD_END');
@@ -404,7 +456,14 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       201,
     );
     const c2 = await json<{ classificationId: string }>(
-      await classify({ sourceType: 'WEG_RESERVE_WITHDRAWAL', sourceId: old, sourcePosition: 2, taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT', taxYear: 2026 }),
+      await classify({
+        sourceType: 'WEG_RESERVE_WITHDRAWAL',
+        sourceId: old,
+        sourcePosition: 2,
+        taxCategory: 'NOT_RELEVANT',
+        treatment: 'NOT_RELEVANT',
+        taxYear: 2026,
+      }),
       201,
     );
     const contribution = await booked(pr, '600.00', 'WEG_RESERVE_CONTRIBUTION', '2026-03-01');
@@ -422,9 +481,15 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       )
     ).statementId;
     await json(await A('POST', `/weg-annual-statements/${corrected}/confirm`), 200);
-    const stopped = await json<{ counts: boolean; notCountedReason: string }>(await A('GET', `/weg-annual-statements/${old}/reserve-withdrawals/1/tax-meaning`), 200);
+    const stopped = await json<{ counts: boolean; notCountedReason: string }>(
+      await A('GET', `/weg-annual-statements/${old}/reserve-withdrawals/1/tax-meaning`),
+      200,
+    );
     expect(stopped).toMatchObject({ counts: false, notCountedReason: 'STATEMENT_SUPERSEDED' });
-    const fresh = await json<{ reviewState: string; origin: string; flags: Flag[] }>(await A('GET', `/weg-annual-statements/${corrected}/reserve-withdrawals/1/tax-meaning`), 200);
+    const fresh = await json<{ reviewState: string; origin: string; flags: Flag[] }>(
+      await A('GET', `/weg-annual-statements/${corrected}/reserve-withdrawals/1/tax-meaning`),
+      200,
+    );
     expect(fresh).toMatchObject({ reviewState: 'NEEDS_REVIEW', origin: 'DEFAULT' });
     expect(fresh.flags).toContainEqual({
       code: 'PREDECESSOR_CLASSIFIED',
@@ -451,8 +516,15 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     expect(await items(foreignPr, 2026, REALM_B)).toEqual([]);
     expect((await B('GET', `/property-references/${pr}/tax-meanings?year=2026`)).status).toBe(404);
     expect(
-      (await call(REALM_B, 'POST', '/tax-classifications', { sourceType: 'WEG_RESERVE_WITHDRAWAL', sourceId: corrected, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' }))
-        .status,
+      (
+        await call(REALM_B, 'POST', '/tax-classifications', {
+          sourceType: 'WEG_RESERVE_WITHDRAWAL',
+          sourceId: corrected,
+          sourcePosition: 1,
+          taxCategory: 'WEG_SPENDING',
+          treatment: 'DEDUCTIBLE',
+        })
+      ).status,
     ).toBe(404);
     const assessment = (
       await json<{ assessmentId: string }>(
@@ -466,11 +538,23 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         201,
       )
     ).assessmentId;
-    await json(await A('PUT', `/weg-special-assessments/${assessment}/uses`, { uses: [{ position: 1, date: '2026-09-01', description: 'Dach', unitShare: eur('100.00') }] }), 200);
+    await json(
+      await A('PUT', `/weg-special-assessments/${assessment}/uses`, {
+        uses: [{ position: 1, date: '2026-09-01', description: 'Dach', unitShare: eur('100.00') }],
+      }),
+      200,
+    );
     expect((await B('GET', `/weg-special-assessments/${assessment}/uses/1/tax-meaning`)).status).toBe(404);
     expect(
-      (await call(REALM_B, 'POST', '/tax-classifications', { sourceType: 'WEG_ASSESSMENT_USE', sourceId: assessment, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' }))
-        .status,
+      (
+        await call(REALM_B, 'POST', '/tax-classifications', {
+          sourceType: 'WEG_ASSESSMENT_USE',
+          sourceId: assessment,
+          sourcePosition: 1,
+          taxCategory: 'WEG_SPENDING',
+          treatment: 'DEDUCTIBLE',
+        })
+      ).status,
     ).toBe(404);
   });
 });

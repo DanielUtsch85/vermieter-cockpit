@@ -245,10 +245,7 @@ export function useFacts(input: {
  * counts only while the use at its position has the classified date and unit share (`USE_CHANGED`); a changed
  * description alone changes nothing.
  */
-export function wegNotCounted(
-  facts: WegSourceFacts,
-  classification: Pick<TaxClassification, 'assessmentUse'> | null,
-): WegNotCounted | null {
+export function wegNotCounted(facts: WegSourceFacts, classification: Pick<TaxClassification, 'assessmentUse'> | null): WegNotCounted | null {
   if (facts.notCounted !== null) return facts.notCounted;
   const classified = classification?.assessmentUse ?? null;
   if (facts.sourceType === 'WEG_ASSESSMENT_USE' && classified !== null) {
@@ -343,13 +340,7 @@ export function planWegClassification(
   currentId: string | null,
   request: Pick<
     NewTaxClassification,
-    | 'taxCategory'
-    | 'treatment'
-    | 'supersedes'
-    | 'taxYear'
-    | 'netAmount'
-    | 'mostlyResidentialConfirmed'
-    | 'anschaffungsnaheAcquisitionId'
+    'taxCategory' | 'treatment' | 'supersedes' | 'taxYear' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId'
   >,
   registry: RuleRegistry,
   acquisition?: AcquisitionFacts | null,
