@@ -217,6 +217,28 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     if (closed.kind !== 'CLOSED') throw new Error(JSON.stringify(closed));
     return id;
   }
+  /** A deposit of `tenant` with 3000 received and 3000 repaid, closed RETURNED on 30 June 2027 (nothing kept). */
+  async function returned(tenant: string) {
+    const created = await deposits.create(
+      {
+        mreRealmId: REALM,
+        mreTenantId: tenant,
+        expectedAmount: eur('3000.00'),
+        expectedAmountSource: 'REQUEST',
+        holdingFinancialAccountId: null,
+        interestBearing: false,
+        notes: null,
+      },
+      actor,
+    );
+    if (created.kind !== 'CREATED') throw new Error(created.kind);
+    const id = created.deposit.id;
+    await booked([split('3000.00', 'SECURITY_DEPOSIT', { securityDepositId: id })], { direction: 'INFLOW', bookingDate: '2026-01-02' });
+    await booked([split('3000.00', 'SECURITY_DEPOSIT', { securityDepositId: id })], { direction: 'OUTFLOW', bookingDate: '2027-06-20' });
+    const closed = await deposits.close(id, REALM, { closingDate: day('2027-06-30'), reason: 'RETURNED', closingNote: null }, actor);
+    if (closed.kind !== 'CLOSED') throw new Error(JSON.stringify(closed));
+    return id;
+  }
   const classify = async (sourceId: string, overrides: Partial<NewTaxClassification>) => {
     const created = await classifications.createClassification(
       {
@@ -347,6 +369,27 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     // Never summed: the retained amounts are in no total.
     expect(v.einnahmen.lines.find((l) => l.taxCategory === 'RETAINED_DEPOSIT_RENT')?.items).toEqual([]);
     expect(await view(first, 2026).then((o) => viewOf(o).notAttributed.items)).toEqual([]);
+  });
+
+  it('a deposit returned in full, without a reconciled rent, is not attributed anywhere: nothing was retained (review on #170)', async () => {
+    const pr = await propertyReference();
+    const deposit = await returned(nextTenant());
+    const v = viewOf(await view(pr, 2027));
+    expect(v.notAttributed.items.map((i) => i.sourceId)).not.toContain(deposit);
+  });
+
+  it('a VOID Ownership counts nowhere: not among the owners, and its Party is not an owner in the year (review on #170)', async () => {
+    const pr = await propertyReference();
+    const [anna, voided] = [await party('Anna'), await party('Storniert')];
+    await owner(pr, anna, [1, 2], '2020-01-01');
+    const wrong = await owner(pr, voided, [1, 2], '2020-01-01');
+    const outcome = await ownerships.void(wrong, REALM, 'falsch erfasst', new Date('2026-10-30T10:00:00Z'), actor);
+    expect(outcome.kind).toBe('VOIDED');
+    await rent(pr, nextTenant(), '2027-03-01', '2027030100');
+    const v = viewOf(await view(pr, 2027));
+    expect(v.owners?.map((o) => o.ownerPartyId)).toEqual([anna]);
+    expect(v.notOwned).not.toBeNull();
+    expect(await view(pr, 2027, voided)).toEqual({ kind: 'NOT_AN_OWNER_IN_YEAR' });
   });
 
   it('the cap: 5,000 items (notInView counted) → the view; 5,001 → TAX_YEAR_TOO_LARGE', { timeout: 60_000 }, async () => {
