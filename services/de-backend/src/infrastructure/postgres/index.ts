@@ -36,3 +36,4 @@ export { PostgresWegSpecialAssessmentRepository } from './weg-special-assessment
 export { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 export { checkStoredRuleReferences } from './tax-rule-check.js';
 export { PostgresRentalContractReferenceRepository } from './rental-contract-reference-repository.js';
+export { PostgresDepreciationAssetRepository } from './depreciation-asset-repository.js';

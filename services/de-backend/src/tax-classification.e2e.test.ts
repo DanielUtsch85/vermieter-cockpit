@@ -263,6 +263,8 @@ describe.skipIf(databaseUrl === undefined)('Tax classification (VC-7-01) end to 
     const rules = await json<{ items: { ruleCode: string; versions: { version: number; status: string }[] }[] }>(await A('GET', '/tax-rules'), 200);
     expect(rules.items.map((r) => [r.ruleCode, r.versions.map((v) => [v.version, v.status])])).toEqual([
       ['DE_82B_DISTRIBUTION', [[1, 'ACTIVE']]],
+      // VC-8-01 (§59): Depreciation's rule, in the same registry.
+      ['DE_AFA_BUILDING_LINEAR', [[1, 'ACTIVE']]],
       ['DE_ANSCHAFFUNGSNAHE', [[1, 'ACTIVE']]],
       ['DE_CASH_TIMING', [[1, 'ACTIVE']]],
       ['DE_CATEGORY_DEFAULTS', [[1, 'ACTIVE']]],

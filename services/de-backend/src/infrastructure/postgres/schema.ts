@@ -704,6 +704,41 @@ export interface RentalContractReferenceTable {
   version: Generated<number>;
 }
 
+/** VC-8-01 (0049, api-design §59): the DepreciationAsset; no basis, rate, start or amount. */
+export interface DepreciationAssetTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  property_reference_id: string;
+  asset_type: string;
+  status: string;
+  building_completion_year: number | null;
+  source_references: Generated<string[]>;
+  depreciation_method: string;
+  review_state: string;
+  advisor_party_id: string | null;
+  notes: string | null;
+  voided_at: Date | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  version: Generated<number>;
+}
+
+/** VC-8-01 (0049): a shorter useful life per Acquisition, as rows of the asset. */
+export interface DepreciationAssetUsefulLifeTable {
+  asset_id: string;
+  mre_realm_id: string;
+  property_reference_id: string;
+  acquisition_id: string;
+  useful_life_years: number;
+  evidence_source: string;
+  /** `date`, read as `YYYY-MM-DD`. */
+  evidence_date: string;
+  evidence_document_reference: string | null;
+  review_state: string;
+  advisor_party_id: string | null;
+}
+
 export interface Database {
   property_reference: PropertyReferenceTable;
   audit_record: AuditRecordTable;
@@ -737,4 +772,6 @@ export interface Database {
   transaction_split: TransactionSplitTable;
   tax_classification: TaxClassificationTable;
   rental_contract_reference: RentalContractReferenceTable;
+  depreciation_asset: DepreciationAssetTable;
+  depreciation_asset_useful_life: DepreciationAssetUsefulLifeTable;
 }

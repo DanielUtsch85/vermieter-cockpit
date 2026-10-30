@@ -1,6 +1,5 @@
-import type { BusinessDate } from '../../../shared/index.js';
+import type { BusinessDate, RuleVersion } from '../../../shared/index.js';
 import type { ReviewState, TaxCategory, Treatment } from '../vocabulary.js';
-import type { RuleVersion } from './rule-version.js';
 
 /** The default meaning of one category: derived on read, never stored (api-design.md §55, P7-D2). */
 export interface CategoryDefault {

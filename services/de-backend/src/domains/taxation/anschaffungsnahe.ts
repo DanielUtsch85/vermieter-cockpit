@@ -1,8 +1,6 @@
-import { addDays, addMonths, type BusinessDate, type Money } from '../../shared/index.js';
+import { addDays, addMonths, type BusinessDate, type Money, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { centsOf, decimalOf, divideHalfEven, divideHalfUp, moneyOfCents } from './cents.js';
 import { ANSCHAFFUNGSNAHE, type AnschaffungsnaheParameters } from './rules/de-anschaffungsnahe.js';
-import type { RuleRegistry } from './rules/registry.js';
-import type { RuleRef, RuleVersion } from './rules/rule-version.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
 
 /**

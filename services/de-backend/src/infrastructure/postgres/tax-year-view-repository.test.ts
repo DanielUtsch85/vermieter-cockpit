@@ -2,8 +2,8 @@ import { Kysely, PostgresDialect, sql, type CompiledQuery } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Direction, SplitInput } from '../../domains/ledger/index.js';
+import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import {
-  TAX_RULES,
   buildTaxYearView,
   sourceKeyOf,
   type NewTaxClassification,

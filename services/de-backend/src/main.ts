@@ -18,6 +18,12 @@ import {
   listFinancialAccounts,
   listPropertyReferences,
   createParty,
+  amendDepreciationAsset,
+  confirmDepreciationAsset,
+  createDepreciationAsset,
+  getDepreciationAsset,
+  listPropertyDepreciationAssets,
+  voidDepreciationAsset,
   deactivateParty,
   createExternalReference,
   endExternalReference,
@@ -159,6 +165,7 @@ import {
   PostgresWegEconomicPlanRepository,
   PostgresWegSpecialAssessmentRepository,
   PostgresTaxClassificationRepository,
+  PostgresDepreciationAssetRepository,
   PostgresRentalContractReferenceRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
@@ -219,6 +226,7 @@ const wegStatements = new PostgresWegAnnualStatementRepository(db);
 const wegAssessments = new PostgresWegSpecialAssessmentRepository(db);
 const taxClassifications = new PostgresTaxClassificationRepository(db);
 const rentalContractReferences = new PostgresRentalContractReferenceRepository(db);
+const depreciationAssets = new PostgresDepreciationAssetRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -354,6 +362,14 @@ const app = createApp({
     list: listRentalContractReferences({ repository: rentalContractReferences }),
     amend: amendRentalContractReference({ repository: rentalContractReferences }),
   },
+  depreciationAssets: {
+    create: createDepreciationAsset({ repository: depreciationAssets }),
+    get: getDepreciationAsset({ repository: depreciationAssets }),
+    listForPropertyReference: listPropertyDepreciationAssets({ repository: depreciationAssets }),
+    amend: amendDepreciationAsset({ repository: depreciationAssets }),
+    confirm: confirmDepreciationAsset({ repository: depreciationAssets }),
+    void: voidDepreciationAsset({ repository: depreciationAssets }),
+  },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),
     get: getReconciliation({ repository: rentReconciliations }),
@@ -437,7 +453,8 @@ const app = createApp({
 // Migrate before accepting requests; a failed migration aborts the start.
 const applied = await migrateToLatest(pool);
 console.log(`database migrations applied: ${applied.length === 0 ? 'none pending' : applied.map((r) => r.migrationName).join(', ')}`);
-// Every stored tax rule reference resolves against the registry, or the start aborts naming the missing ones (§58).
+// Every stored rule reference (Taxation's and Depreciation's, §59) resolves against the registry, or the start aborts
+// naming the missing ones (§58).
 try {
   const rules = await checkStoredRuleReferences(db);
   console.log(`tax rule references resolved: ${rules.length === 0 ? 'none stored' : rules.map((r) => `${r.ruleCode}@${r.version}`).join(', ')}`);

@@ -2,7 +2,7 @@
 
 A Germany-focused investment, finance, tax, and condominium-management extension for [MicroRealEstate](https://github.com/microrealestate/microrealestate).
 
-> **Project status:** Phases 0–7 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back, Security Deposit, WEG, Taxation up to the tax-year view before AfA). A [run with real landlord data](docs/development/real-data-run.md) has checked the bank import and the rent reconciliation against reality, and the loan schedule in part (the comparison with the bank's own plan is still open); its findings are fixed or tracked in issues.  
+> **Project status:** Phases 0–7 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back, Security Deposit, WEG, Taxation up to the tax-year view before AfA); Phase 8 (Depreciation) begun with the building record and its rate (VC-8-01). A [run with real landlord data](docs/development/real-data-run.md) has checked the bank import and the rent reconciliation against reality, and the loan schedule in part (the comparison with the bank's own plan is still open); its findings are fixed or tracked in issues.  
 > There is no DE cockpit UI yet. The project is not yet intended for production use. See [Project Status](#project-status).
 
 ## Vision

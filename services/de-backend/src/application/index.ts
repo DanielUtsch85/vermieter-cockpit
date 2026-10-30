@@ -688,3 +688,40 @@ export type {
 } from './rental-contract-references.js';
 export { MAX_RENT_DUE_DAYS, rentDueDaysError } from '../domains/rental-contract-reference/index.js';
 export type { ChangedEntry, RentDueDay, RentalContractReference } from '../domains/rental-contract-reference/index.js';
+export {
+  AcquisitionNotOfPropertyError,
+  AssetAdvisorConfirmedError,
+  BuildingAssetExistsError,
+  CompletionYearMissingError,
+  DepreciationAssetNotActiveError,
+  DepreciationAssetNotFoundError,
+  amendDepreciationAsset,
+  confirmDepreciationAsset,
+  createDepreciationAsset,
+  getDepreciationAsset,
+  listPropertyDepreciationAssets,
+  voidDepreciationAsset,
+} from './depreciation-assets.js';
+export type {
+  AmendDepreciationAsset,
+  ConfirmDepreciationAsset,
+  CreateDepreciationAsset,
+  CreateDepreciationAssetInput,
+  DepreciationAssetView,
+  GetDepreciationAsset,
+  ListPropertyDepreciationAssets,
+  VoidDepreciationAsset,
+} from './depreciation-assets.js';
+export {
+  AMEND_REVIEW_STATES,
+  ASSET_REVIEW_STATES,
+  ASSET_STATUSES,
+  ASSET_TYPES,
+  COMPLETION_YEAR_MAX,
+  COMPLETION_YEAR_MIN,
+  CONFIRM_REVIEW_STATES,
+  DEPRECIATION_METHODS,
+  MAX_ASSET_SOURCE_REFERENCES,
+  MAX_SHORTER_USEFUL_LIVES,
+} from '../domains/depreciation/index.js';
+export type { AssetRate, AssetStatus, DepreciationAsset, UsefulLifeAmendment } from '../domains/depreciation/index.js';

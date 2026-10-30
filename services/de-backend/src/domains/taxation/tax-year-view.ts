@@ -1,4 +1,4 @@
-import type { BusinessDate, Money } from '../../shared/index.js';
+import type { BusinessDate, Money, RuleRef, RuleRegistry, RuleStatus } from '../../shared/index.js';
 import { largestRemainder } from '../acquisition/index.js';
 import type { Direction } from '../ledger/index.js';
 import type { AnschaffungsnaheCheck, CheckStatus, NotFinalReason } from './anschaffungsnahe.js';
@@ -8,8 +8,6 @@ import { centsOf, moneyOfCents } from './cents.js';
 import type { TaxListItem, TreatmentSuggestion } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
 import { continuousOwners, distribute, partOf, type Distribution, type OwnershipPeriod } from './distribution-82b.js';
-import type { RuleRegistry } from './rules/registry.js';
-import type { RuleRef, RuleStatus } from './rules/rule-version.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
 import { REVIEW_STATES } from './vocabulary.js';
 

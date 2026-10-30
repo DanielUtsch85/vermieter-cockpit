@@ -12,3 +12,6 @@ export { checkVersion } from './version.js';
 export type { VersionConflict } from './version.js';
 export { BUSINESS_DATE_MAX_YEAR, BUSINESS_DATE_MIN_YEAR, addDays, addMonths, checkBusinessDate, parseBusinessDate } from './business-date.js';
 export type { BusinessDate, BusinessDateError } from './business-date.js';
+export { RULE_STATUSES, ruleKey } from './rule-version.js';
+export type { RuleRef, RuleStatus, RuleVersion } from './rule-version.js';
+export { RuleRegistry } from './rule-registry.js';

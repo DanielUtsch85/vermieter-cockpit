@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { Money, type BusinessDate } from '../../shared/index.js';
+import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import { checkAnschaffungsnahe, type CheckAcquisition, type CheckSource } from './anschaffungsnahe.js';
 import { planClassification, treatmentFieldsCheck, type SplitFacts, type TaxClassification, type TaxClassificationId } from './classification.js';
 import { planDepositClassification } from './deposit-closing.js';
 import { continuousOwners, distribute } from './distribution-82b.js';
 import { DE_CATEGORY_DEFAULTS_V1 } from './rules/de-category-defaults.js';
-import { RuleRegistry, TAX_RULES } from './rules/registry.js';
+import { TAXATION_RULE_VERSIONS } from './rules/versions.js';
 import { treatmentFits } from './vocabulary.js';
 import { deriveWegTaxMeaning, planWegClassification, possiblyTwice, useFacts, wegNotCounted, withdrawalFacts, withdrawalUnitShare } from './weg-sources.js';
+
+/** Taxation's own versions (api-design §59): a domain test builds its registry and never imports `domains/tax-rules/`. */
+const TAX_RULES = new RuleRegistry(TAXATION_RULE_VERSIONS);
 
 /** VC-7-03 (api-design.md §58B): the WEG sources, the fields of an election, § 82b and the anschaffungsnahe check. Synthetic figures. */
 const day = (value: string) => value as BusinessDate;

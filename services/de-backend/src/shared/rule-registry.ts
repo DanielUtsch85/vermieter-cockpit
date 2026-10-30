@@ -1,15 +1,11 @@
-import type { BusinessDate } from '../../../shared/index.js';
-import { DE_82B_DISTRIBUTION_V1 } from './de-82b-distribution.js';
-import { DE_ANSCHAFFUNGSNAHE_V1 } from './de-anschaffungsnahe.js';
-import { DE_CASH_TIMING_V1 } from './de-cash-timing.js';
-import { DE_CATEGORY_DEFAULTS_V1 } from './de-category-defaults.js';
-import { DE_WEG_SPENDING_V1 } from './de-weg-spending.js';
+import type { BusinessDate } from './business-date.js';
 import { ruleKey, type RuleRef, type RuleStatus, type RuleVersion } from './rule-version.js';
 
 /**
  * The registry of rule versions (api-design.md §58, P7-D1): selection by date, the derived status, and whether a stored
  * reference resolves. Read-only; a rule changes by a code change. The constructor refuses an inconsistent set (two
- * versions of one rule overlapping, a duplicate version, an empty period), so a bad registry never starts.
+ * versions of one rule overlapping, a duplicate version, an empty period), so a bad registry never starts. In the shared
+ * kernel since VC-8-01 (P8-D11): each domain keeps its rule modules, and `domains/tax-rules/` composes `TAX_RULES`.
  */
 export class RuleRegistry {
   private readonly byCode: ReadonlyMap<string, readonly RuleVersion[]>;
@@ -70,6 +66,3 @@ export class RuleRegistry {
     return [...missing.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, ref]) => ref);
   }
 }
-
-/** The registry of the backend: every rule version of the code. A version stays while a stored reference names it. */
-export const TAX_RULES = new RuleRegistry([DE_CATEGORY_DEFAULTS_V1, DE_CASH_TIMING_V1, DE_WEG_SPENDING_V1, DE_82B_DISTRIBUTION_V1, DE_ANSCHAFFUNGSNAHE_V1]);
