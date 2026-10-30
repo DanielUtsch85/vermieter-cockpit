@@ -221,7 +221,8 @@ export interface ReviewPlan {
 
 /**
  * §57's state checks, in order: only the current classification moves; confirm does not lower an advisor's
- * confirmation; the source still counts and the rule version still resolves; then the target, or the no-op.
+ * confirmation; for the two confirmations the source still counts and the rule version still resolves; then the
+ * target, or the no-op.
  */
 export function planReview(
   current: TaxClassification,
@@ -231,9 +232,13 @@ export function planReview(
 ): ReviewPlan | ReviewRefusal {
   if (current.supersededBy !== null) return { kind: 'CLASSIFICATION_SUPERSEDED', supersededBy: current.supersededBy };
   if (step.kind === 'CONFIRM' && current.reviewState === 'ADVISOR_CONFIRMED') return { kind: 'ADVISOR_CONFIRMED' };
-  if (!splitCounts(source)) return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: source.transactionStatus, correctionRole: source.correctionRole };
-  if (!registry.isRegistered(current.rule.ruleCode, current.rule.version)) {
-    return { kind: 'RULE_NOT_REGISTERED', ruleCode: current.rule.ruleCode, version: current.rule.version };
+  // Only a confirmation validates the source and the rule (§57): marking for review is exactly what a classification
+  // whose source stopped counting needs (review on #158).
+  if (step.kind !== 'MARK_NEEDS_REVIEW') {
+    if (!splitCounts(source)) return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: source.transactionStatus, correctionRole: source.correctionRole };
+    if (!registry.isRegistered(current.rule.ruleCode, current.rule.version)) {
+      return { kind: 'RULE_NOT_REGISTERED', ruleCode: current.rule.ruleCode, version: current.rule.version };
+    }
   }
   const target: { reviewState: StoredReviewState; advisorPartyId: string | null } =
     step.kind === 'CONFIRM'
