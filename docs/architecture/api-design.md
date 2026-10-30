@@ -4291,70 +4291,159 @@ Should create metadata reference without duplicating binary content unnecessaril
 
 ---
 
-# 55. Tax Classification API
+# 55. Tax Classification API (VC-7-01, spec)
 
-### Queries
+Decisions P7-D1, P7-D2 and P7-D9 of `docs/development/phase-7-plan.md` (data-model §36–§37, ADR-006, ADR-041, `docs/germany/taxation.md` §5, §8, §9). Taxation interprets cash; it never writes it. Every split has a **tax meaning**, derived from its category by a versioned rule unless the user stored a **classification** for it. VC-7-01 classifies splits; later items add withdrawals, uses and deposit closings as sources (VC-7-02, VC-7-03) and the fields marked below.
 
-```text
-GET /api/v1/tax-classifications
-GET /api/v1/tax-classifications/{id}
-GET /api/v1/tax-years/{year}/classifications
-```
-
-### Commands
+### Routes
 
 ```text
-POST /api/v1/tax-classifications
-POST /api/v1/tax-classifications/{id}/confirm
-POST /api/v1/tax-classifications/{id}/mark-needs-review
-POST /api/v1/tax-classifications/{id}/advisor-confirm
+GET  /api/v1/tax-rules                                        (VC-7-01, §58)
+GET  /api/v1/tax-rules/{ruleCode}                             (VC-7-01, §58)
+GET  /api/v1/transaction-splits/{splitId}/tax-meaning         (VC-7-01, §55)
+GET  /api/v1/property-references/{id}/tax-meanings?year=      (VC-7-01, §55; replaces §55's former /tax-years/{year}/classifications)
+POST /api/v1/tax-classifications                              (VC-7-01, §56)
+GET  /api/v1/tax-classifications/{id}                         (VC-7-01, §55)
+GET  /api/v1/tax-classifications?sourceType=&sourceId=        (VC-7-01, §55: the history of one source)
+POST /api/v1/tax-classifications/{id}/confirm                 (VC-7-01, §57)
+POST /api/v1/tax-classifications/{id}/advisor-confirm         (VC-7-01, §57)
+POST /api/v1/tax-classifications/{id}/mark-needs-review       (VC-7-01, §57)
 ```
+
+- **Domain owner:** Taxation. **Authorization:** the caller's Realm, as every DE route; a classification belongs to its source's Realm (composite foreign key).
+- **`jurisdiction`** is `DE` everywhere and not accepted as input (no multi-country abstraction, AGENTS.md §34).
+
+### The tax meaning of a split
+
+A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECONCILED`, not a reversal; §35.3). An unconfirmed split has no tax meaning yet: its set can still be replaced (§33), and a confirmed one is frozen (ADR-037).
+
+**The default** comes from the rule `DE_CATEGORY_DEFAULTS` (§58), version 1, derived on read and never stored:
+
+| Category (`category_type`) | `taxCategory` | `treatment` | `reviewState` |
+|---|---|---|---|
+| `RENT_BASE` (INCOME) | `RENT` | `INCOME` | `SUGGESTED` |
+| `RENT_OPERATING_COST_ADVANCE` (INCOME) | `OPERATING_COST_ADVANCES` | `INCOME` | `SUGGESTED` |
+| `RENT_OPERATING_COST_SETTLEMENT` (INCOME) | `OPERATING_COST_SETTLEMENT` | `INCOME` | `SUGGESTED` |
+| `OTHER_INCOME` (INCOME) | `OTHER_INCOME` | `INCOME` | `NEEDS_REVIEW` |
+| `LOAN_INTEREST` (FINANCING) | `LOAN_INTEREST` | `DEDUCTIBLE` | `SUGGESTED` |
+| `LOAN_PRINCIPAL` (FINANCING) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
+| `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` (OPERATING_EXPENSE) | `WEG_HAUSGELD` | `DEDUCTIBLE` | `SUGGESTED` |
+| `WEG_RESERVE_CONTRIBUTION`, `WEG_SPECIAL_ASSESSMENT` (WEG_FUNDS) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
+| `MAINTENANCE` (OPERATING_EXPENSE) | `MAINTENANCE` | `DEDUCTIBLE` | `SUGGESTED` |
+| `ADMINISTRATION`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES` (OPERATING_EXPENSE) | the code itself | `DEDUCTIBLE` | `SUGGESTED` |
+| `OTHER_EXPENSE` (OPERATING_EXPENSE) | `UNCLASSIFIED` | — (`null`) | `NEEDS_REVIEW` |
+| `SECURITY_DEPOSIT`, `SECURITY_DEPOSIT_INTEREST` (SECURITY_DEPOSIT) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
+| `ACQUISITION` (CAPITAL_MOVEMENT) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
+| `OWNER_CONTRIBUTION`, `OWNER_WITHDRAWAL` (CAPITAL_MOVEMENT), `TRANSFER` (TRANSFER) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
+| `OTHER` (OTHER) | `UNCLASSIFIED` | — (`null`) | `NEEDS_REVIEW` |
+
+- A category the rule does not list (a code added later) reads as `OTHER`: `UNCLASSIFIED`, `NEEDS_REVIEW`. A test checks that every seeded category is listed.
+- **`OTHER_EXPENSE` and `OTHER` have no default meaning** (P7-D2): `UNCLASSIFIED` with no treatment, so the view sums them nowhere until a person classifies them (review on #157).
+- **`ACQUISITION` is `NOT_RELEVANT`:** the AfA basis comes from the Acquisition aggregate (price, acquisition costs and the land/building allocation, P2-D7/D9), not from its payments. Capitalising the payment too would count the price twice in Phase 8 (review on #157).
+- **`taxCategory`** is the line of the tax-year view (VC-7-04): `RENT`, `OPERATING_COST_ADVANCES`, `OPERATING_COST_SETTLEMENT`, `OTHER_INCOME`, `LOAN_INTEREST`, `FINANCING_COSTS`, `WEG_HAUSGELD`, `WEG_SPENDING` (VC-7-03), `MAINTENANCE`, `ADMINISTRATION`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES`, `TAX_ADVICE`, `TRAVEL`, `OTHER_EXPENSE`, `NOT_RELEVANT`, `UNCLASSIFIED`. The list is a rule parameter, extended by a new rule version.
+- **`treatment`:** `INCOME`, `DEDUCTIBLE` (when paid), `CAPITALIZED` (to the AfA basis, Phase 8), `DISTRIBUTED_82B` (VC-7-03), `NOT_RELEVANT`.
+- **The direction does not change the default:** an `INFLOW` in an expense category is a refund, an `OUTFLOW` in an income category a repayment; both keep the line and are signed (P7-D4, VC-7-02).
+
+**Response** of `GET /transaction-splits/{splitId}/tax-meaning`: `{ splitId, transactionId, bookingDate, direction, amount, financialCategoryCode, propertyReferenceId, counts, taxCategory, treatment, reviewState, origin, rule: { ruleCode, version }, classificationId, flags }`.
+- `origin`: `DEFAULT` (from the rule) or `CLASSIFICATION` (the current one).
+- `counts`: false for a split of a Transaction that is not current; its meaning is then shown with the flag `NOT_COUNTED`.
+- `classificationId`: the current classification, else `null`.
+- **Flags:** `NOT_COUNTED`; `CLASSIFICATION_ON_CORRECTED_SPLIT` (P7-D2: the split belongs to a replacement whose original had a classified split, and it has none of its own); `RULE_SUPERSEDED` (the classification names an older version of a rule than the one applicable today; informational, never changes it).
+- `404` for a split of another Realm or unknown; no `ETag` (a derived read).
+
+**`GET /property-references/{id}/tax-meanings?year=`** (the input of the view, VC-7-04): every counting split of the PropertyReference with a booking date in the calendar year (the tax year by booking date; P7-D3's 10-day rule is VC-7-02's), each with its meaning as above; paged (`pageSize` ≤ 200), by booking date, Transaction id, position; filters `reviewState`, `origin`, `taxCategory`. `year` is required (2000–2100). One `REPEATABLE READ READ ONLY` snapshot.
+
+### The classification
+
+- **Fields:** `classificationId`; `sourceType` (`TRANSACTION_SPLIT` in VC-7-01; `WEG_RESERVE_WITHDRAWAL`, `WEG_ASSESSMENT_USE`, `DEPOSIT_CLOSING` later); `sourceId`; `taxCategory`; `treatment`; `reviewState`; `rule: { ruleCode, version }` (the rule applied when it was made: `DE_CATEGORY_DEFAULTS@1` in VC-7-01); `advisorPartyId` (a Party of Phase 2, with `ADVISOR_CONFIRMED`); `notes` (≤ 2000); `sourceReferences` (≤ 20, each 1–500); `supersedes`, `supersededBy`, `supersededAt`; `createdAt`, `createdBy`, `version`.
+- **Fields for later items, `400 NOT_SUPPORTED` in VC-7-01:** `taxYear`, `refundOfYear` (VC-7-02), `netAmount`, `annuallyRecurring`, `distributionYears` (VC-7-03).
+- **One current classification per source.** A change is a **new** classification that supersedes the current one in the same transaction (data-model §36: changes stay traceable). Content (category, treatment, notes) is never edited in place; only the review state moves (§57).
+- **It never changes the split**, its amount, category or Transaction (ADR-006); a counter-check proves the split's row and version unchanged by every command of this section.
 
 ---
 
-# 56. Create Tax Classification
+# 56. Create Tax Classification (VC-7-01, spec)
 
-Request must reference an existing source entity.
-
-Example:
+`POST /api/v1/tax-classifications`, `201` with the classification and `ETag`, `Location`; `Idempotency-Key` (scope `tax-classification.create`, §15).
 
 ```json
 {
-  "jurisdiction": "DE",
-  "taxYear": 2026,
-  "sourceEntityType": "TRANSACTION_SPLIT",
-  "sourceEntityId": "...",
-  "taxCategory": "LOAN_INTEREST",
-  "ruleVersionId": "...",
-  "reviewState": "SUGGESTED"
+  "sourceType": "TRANSACTION_SPLIT",
+  "sourceId": "…",
+  "taxCategory": "MAINTENANCE",
+  "treatment": "DEDUCTIBLE",
+  "reviewState": "USER_CONFIRMED",
+  "supersedes": null,
+  "notes": "Austausch Thermostatventile",
+  "sourceReferences": ["Rechnung 2026-117"]
 }
 ```
 
----
-
-# 57. Tax Confirmation
-
-Tax confirmation should:
-
-- validate rule version
-- validate tax year
-- validate source
-- preserve review actor
-- create AuditRecord
+- **`reviewState`** on create: `USER_CONFIRMED` (default) or `NEEDS_REVIEW`; `ADVISOR_CONFIRMED` only through §57; `SUGGESTED` is never stored (`400`).
+- **`supersedes`:** required when the source has a current classification and must name it (`409 CONFLICT`, `reason = "CLASSIFICATION_EXISTS"` with `details.currentClassificationId`, else `reason = "NOT_CURRENT_CLASSIFICATION"`). This is the create's optimistic concurrency: two users changing the same split cannot both win.
+- **Order of checks:** `400` (shape, the enums, `NOT_SUPPORTED` fields) → source `404` (of the caller's Realm) → `409 CONFLICT` `reason = "SOURCE_NOT_COUNTED"` (the split's Transaction is not current; `details.transactionStatus`) → `422 TREATMENT_NOT_ALLOWED` → `supersedes` (`CLASSIFICATION_EXISTS`, `NOT_CURRENT_CLASSIFICATION`).
+- **`422 TREATMENT_NOT_ALLOWED`** keeps the hard rules hard (P7-D2; `details.categoryType`, `details.allowed`): a split of category type `WEG_FUNDS`, `SECURITY_DEPOSIT` or `TRANSFER` may only be `NOT_RELEVANT` (BFH IX R 19/24; A11, E6). Their tax meaning arises elsewhere: WEG spending through withdrawals and uses (VC-7-03), a retained deposit through its closing (VC-7-02). `LOAN_PRINCIPAL` may not be `DEDUCTIBLE` (A1), and `ACQUISITION` may not be `CAPITALIZED` (its basis is the Acquisition's, review on #157). Every other category accepts every treatment of VC-7-01: the user may know better than the default, and the record says so.
+- **`taxCategory` and `treatment` must fit:** an `INCOME` line (`RENT` … `OTHER_INCOME`) only with `INCOME`, `NOT_RELEVANT` and `UNCLASSIFIED` only with `NOT_RELEVANT` resp. `null`, the others not with `INCOME`; else `400` with `TAX_CATEGORY_TREATMENT_MISMATCH` at `treatment`.
+- **AuditRecords:** `TAX_CLASSIFIED` on the new classification (with `sourceType`, `sourceId`, `taxCategory`, `treatment`, `reviewState`, `rule`), `TAX_CLASSIFICATION_SUPERSEDED` on the old one.
+- **Replay** of the same key with the same body returns the stored `201`; another body `409 IDEMPOTENCY_CONFLICT` (§15).
 
 ---
 
-# 58. Tax Rules API
+# 57. Tax Confirmation (VC-7-01, spec)
 
-Mostly read-only:
+Review states (domain-model §45): stored `USER_CONFIRMED`, `ADVISOR_CONFIRMED`, `NEEDS_REVIEW`; `SUGGESTED` only derived. A complex position is never shown with false certainty, so the view (VC-7-04) flags every `NEEDS_REVIEW`.
+
+- `POST …/{id}/confirm` (`If-Match`): `NEEDS_REVIEW` → `USER_CONFIRMED`; `USER_CONFIRMED` again → `200` no-op; from `ADVISOR_CONFIRMED` → `409 CONFLICT` `reason = "ADVISOR_CONFIRMED"` (a user cannot lower an advisor's confirmation; supersede it instead).
+- `POST …/{id}/advisor-confirm` (`If-Match`, `{ advisorPartyId?, note? }`): any stored state → `ADVISOR_CONFIRMED`; the Party of the Realm, else `404`. Who may do this is not restricted beyond the Realm in the MVP: there is no advisor role yet, and deciding one is outside VC-7-01. The actor is recorded.
+- `POST …/{id}/mark-needs-review` (`If-Match`, `{ reason }`, 1–500): any stored state → `NEEDS_REVIEW`.
+- **Only the current classification moves:** a superseded one → `409 CONFLICT` `reason = "CLASSIFICATION_SUPERSEDED"` with `details.supersededBy`.
+- **Confirmation validates** (as this section always asked): the source still counts (`SOURCE_NOT_COUNTED` otherwise) and the rule version still resolves (§58).
+- `version` + 1 per step; AuditRecords `TAX_CLASSIFICATION_CONFIRMED`, `TAX_CLASSIFICATION_ADVISOR_CONFIRMED`, `TAX_CLASSIFICATION_MARKED_NEEDS_REVIEW` with the actor.
+
+### Concurrency and locks (P7-D9)
+
+- **Lock order Transaction → classification:** a create writes the split's Transaction row (no-op, `UPDATE ledger_transaction SET version = version … RETURNING status`), then reads the current classification `FOR UPDATE`. A correction or reversal of the Transaction (§35) serialises with it: under RC the later one sees the other (`SOURCE_NOT_COUNTED`, or the correction proceeds and the classification is on a `CORRECTED` Transaction's split, flagged on read); under RR it fails to serialise. Counter-check: the trigger reading the Transaction instead of writing it.
+- **Two creates for one split:** the partial unique index on the current classification and the `supersedes` check; under RC the second sees `CLASSIFICATION_EXISTS`, never two current ones.
+- §57's steps lock the classification row only.
+
+### In the database (migration 0045)
+
+- **`tax_classification`:** the fields above; `source_type` with a CHECK; `transaction_split_id` (composite foreign key with the Realm; the column for VC-7-01's source, further source columns added by later items, exactly one set by CHECK); `rule_code`, `rule_version` (text, integer); `superseded_by` (self reference); `version`.
+- **Indexes:** `UNIQUE (transaction_split_id) WHERE superseded_at IS NULL` (one current per split); by Realm and creation.
+- **Guards:**
+  - `tax_classification_source_counts` (before insert): writes the split's Transaction (no-op), then requires it current (`SOURCE_NOT_COUNTED`);
+  - `tax_classification_treatment` (before insert): the `TREATMENT_NOT_ALLOWED` rules by the split's category type and code;
+  - `tax_classification_frozen` (before update): content, source, rule and creation never change; `superseded_*` set once; `review_state` only to the allowed targets; `version` + 1; no delete.
+- **Nothing on `transaction_split` or `ledger_transaction` changes:** no column, no trigger. `down` drops the table.
+
+---
+
+# 58. Tax Rules API (VC-7-01, spec)
+
+Decision P7-D1 (ADR-041, taxation.md §9). Rules are versioned TypeScript modules in `domains/taxation/rules/`; the database stores only `ruleCode@version`. There is no rule administration through the API: a rule changes by a code change, reviewed like any other.
 
 ```text
 GET /api/v1/tax-rules
 GET /api/v1/tax-rules/{ruleCode}
-GET /api/v1/tax-rules/{ruleCode}/versions
 ```
 
-Rule administration should be restricted to trusted maintainer workflows.
+- **A rule version:** `{ ruleCode, version, title, legalBasis, effectiveFrom, effectiveTo, parameters, source, status }`, with `status` `ACTIVE` (applicable today), `SUPERSEDED` (a later version applies) or `RETIRED` (`effectiveTo` passed without a successor). `parameters` is the rule's own data (the default table above for `DE_CATEGORY_DEFAULTS`).
+- `GET /tax-rules`: every rule with its versions, by `ruleCode`, versions ascending; `GET /tax-rules/{ruleCode}`: one rule, `404` if unknown. The former `…/versions` route is folded into these (each rule lists its versions). No Realm: the registry is the same for everyone; authentication as every route.
+- **Selection:** the version whose `effectiveFrom` ≤ the date < `effectiveTo` (or open); for VC-7-01 the date is the split's booking date. Two versions of one rule never overlap (a registry test).
+- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items.
+- **Every stored reference resolves** (review on #156):
+  - **on write:** a classification may only name a registered `ruleCode@version`;
+  - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
+  - a test covers the mechanism with a stored reference to an unknown version.
+
+### Tests (VC-7-01)
+
+- **Domain:** the default table for every seeded category; an unknown code as `OTHER`; selection by date and non-overlap; the fit of `taxCategory` and `treatment`; `TREATMENT_NOT_ALLOWED`.
+- **Repository and schema:** create with its order of checks, supersede, replay; the history; the review steps with their AuditRecords and no-ops; `CLASSIFICATION_SUPERSEDED`; every guard past the repository (raw SQL); the split and its Transaction unchanged by every command; `down` (under `MIGRATION_ADVISORY_LOCK`, `{ timeout: 30_000 }`).
+- **Concurrency**, RC and RR, each with a counter-check: a create against a correction of the Transaction, both orders; two creates for one split.
+- **Start check:** a stored unknown version stops the start.
+- **API:** every `400`, the error mapping, the DTOs; `tax-meaning` with `DEFAULT`, `CLASSIFICATION`, `NOT_COUNTED`, `CLASSIFICATION_ON_CORRECTED_SPLIT`; the list per property and year with its filters.
+- **End to end:** a year of imported and split cash; the defaults read; a `MAINTENANCE` split reclassified as `CAPITALIZED`, then advisor-confirmed; a `WEG_RESERVE_CONTRIBUTION` split refused as `DEDUCTIBLE`, an `ACQUISITION` split refused as `CAPITALIZED`; Realm isolation on every route of §55–§58.
 
 ---
 

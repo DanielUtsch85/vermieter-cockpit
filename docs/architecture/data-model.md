@@ -1988,6 +1988,8 @@ Represent the tax interpretation of an existing economic item.
 - Confirmed tax classification should identify applicable rule provenance where material.
 - Historical classification changes must remain traceable.
 
+**Phase 7 (P7-D2, api-design §55–§57; VC-7-01 spec):** a split without a stored classification has the **default** meaning of its category, derived by the rule `DE_CATEGORY_DEFAULTS` and never stored (`reviewState` `SUGGESTED`). A `TaxClassification` is stored only when a user confirms or changes it: `sourceType` `TRANSACTION_SPLIT` (withdrawals, uses and deposit closings follow in VC-7-02/03), `taxCategory`, `treatment` (`INCOME`, `DEDUCTIBLE`, `CAPITALIZED`, `DISTRIBUTED_82B`, `NOT_RELEVANT`), `reviewState` (`USER_CONFIRMED`, `ADVISOR_CONFIRMED`, `NEEDS_REVIEW`), the applied rule as `ruleCode@version` (in place of `ruleVersionId`), `advisorPartyId`, notes and source references. One current classification per source; a change supersedes it (content is never edited), so the history stays readable. `jurisdiction` is `DE` throughout and not stored per row. `taxYear` follows in VC-7-02 (P7-D3). A classification never changes its split (ADR-006).
+
 ---
 
 # 37. TaxRuleVersion
@@ -2030,6 +2032,8 @@ Represent the tax interpretation of an existing economic item.
 ## Invariants
 
 Rule versions used in historical calculations must remain addressable.
+
+**Phase 7 (P7-D1, ADR-041, api-design §58; VC-7-01 spec):** there is **no** `tax_rule_version` table. A rule version is a registry entry of a versioned code module (`domains/taxation/rules/`): `ruleCode`, `version`, `title`, `legalBasis`, `effectiveFrom`, `effectiveTo`, `parameters`, `source`, and a derived `status` (`ACTIVE`, `SUPERSEDED`, `RETIRED`; `DRAFT` is a code branch, not a state). What is stored is the reference `ruleCode@version` on the record that applied it. It stays addressable because a version is never removed from the code while referenced: a write names only registered versions, and the backend refuses to start when a stored reference does not resolve.
 
 ---
 
