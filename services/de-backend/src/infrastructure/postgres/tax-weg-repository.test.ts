@@ -570,6 +570,43 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         reason: 'ASSESSMENT_VOID',
       });
     });
+
+    it('nothing else written (VC-7-05): a use classification, a capitalisation on the check and their §57 steps leave the assessment, the Acquisition and its allocation unchanged in row and version', async () => {
+      const { pr, membershipId } = await member();
+      const acquired = await acquisition(pr);
+      const a = await assessment(membershipId, [{ position: 1, date: '2026-09-01', unitShare: '3000.00' }]);
+      const rows = async () => ({
+        assessment: (await pool.query(`SELECT to_jsonb(a) AS row FROM weg_special_assessment a WHERE id = $1`, [a])).rows,
+        acquisition: (await pool.query(`SELECT to_jsonb(q) AS row FROM acquisition q WHERE id = $1`, [acquired])).rows,
+        allocation: (await pool.query(`SELECT to_jsonb(l) AS row FROM land_building_allocation l WHERE acquisition_id = $1`, [acquired])).rows,
+      });
+      const before = await rows();
+      expect(before.assessment).toHaveLength(1);
+      const first = await classifications.createClassification(request('WEG_ASSESSMENT_USE', a, 1, { reviewState: 'NEEDS_REVIEW' }), actor);
+      if (first.kind !== 'CREATED') throw new Error(first.kind);
+      expect(await rows()).toEqual(before);
+      const capitalised = await classifications.createClassification(
+        request('WEG_ASSESSMENT_USE', a, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acquired, supersedes: first.classification.id }),
+        actor,
+      );
+      if (capitalised.kind !== 'CREATED') throw new Error(capitalised.kind);
+      expect(capitalised.classification.treatmentRule).toEqual({ ruleCode: 'DE_ANSCHAFFUNGSNAHE', version: 1 });
+      expect(await rows()).toEqual(before);
+      const id = capitalised.classification.id;
+      for (const step of [
+        { kind: 'ADVISOR_CONFIRM', advisorPartyId: null, note: null },
+        { kind: 'MARK_NEEDS_REVIEW', reason: 'prüfen' },
+        { kind: 'CONFIRM' },
+      ] as const) {
+        expect(await classifications.reviewClassification(id, REALM, step, actor), step.kind).toMatchObject({ kind: 'REVIEWED', changed: true });
+      }
+      await useMeaning(a, 1);
+      await classifications.anschaffungsnaheCheck(acquired, REALM, today);
+      // Refused commands too: a second create without supersedes.
+      expect(await classifications.createClassification(request('WEG_ASSESSMENT_USE', a, 1), actor)).toMatchObject({ kind: 'CLASSIFICATION_EXISTS' });
+      expect(await rows()).toEqual(before);
+      expect((await classifications.listHistory('WEG_ASSESSMENT_USE', a, REALM, 1))?.map((c) => c.version)).toEqual([2, 4]);
+    });
   });
 
   describe('the per-property list (§58B)', () => {

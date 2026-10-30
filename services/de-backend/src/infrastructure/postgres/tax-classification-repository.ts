@@ -723,6 +723,7 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
         ownerships: [],
         checks: [],
         attribution: { references: [], candidates: [] },
+        allocatedLoanInterest: [],
       };
       if (ownerPartyId !== null) {
         const party = UUID.test(ownerPartyId)
@@ -760,7 +761,51 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
         })),
         checks: effects.checks,
         attribution: await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, this.registry),
+        allocatedLoanInterest: await this.allocatedLoanInterest(trx, mreRealmId, propertyReferenceId, year, today),
       };
+    });
+  }
+
+  /**
+   * `LOAN_INTEREST_NOT_ATTRIBUTED`'s input (§58C): the counting `LOAN_INTEREST` splits of the Loans with a `VALID`
+   * allocation set naming the PropertyReference (whatever the set's period and share: which apply is VC-X-29's),
+   * selected as `yearItems` selects (the windows around `year`, or overridden to it) and kept when §58A's derivation,
+   * the list's, puts them in `year`.
+   */
+  private async allocatedLoanInterest(
+    trx: Transaction<Database>,
+    mreRealmId: string,
+    propertyReferenceId: string,
+    year: number,
+    today: BusinessDate,
+  ): Promise<TaxYearRead['allocatedLoanInterest']> {
+    const { from, to } = yearWindow(this.registry, year);
+    const rows = await countingSplits(factsQuery(trx, mreRealmId))
+      .where('c.code', '=', 'LOAN_INTEREST')
+      .where((eb) =>
+        eb(
+          's.loan_id',
+          'in',
+          eb
+            .selectFrom('loan_allocation_set as las')
+            .innerJoin('loan_allocation as la', 'la.set_id', 'las.id')
+            .select('las.loan_id')
+            .where('las.mre_realm_id', '=', mreRealmId)
+            .where('las.status', '=', 'VALID')
+            .where('la.property_reference_id', '=', propertyReferenceId),
+        ),
+      )
+      .where((eb) => eb.or([eb.and([eb('t.booking_date', '>=', from), eb('t.booking_date', '<=', to)]), eb('s.id', 'in', overriddenTo(trx, year))]))
+      .orderBy('t.booking_date')
+      .orderBy('t.id')
+      .orderBy('s.position')
+      .execute();
+    const meanings = await this.meaningsOf(trx, mreRealmId, rows.map(toRead), today);
+    return rows.flatMap((row, i) => {
+      const meaning = meanings[i]?.meaning;
+      return meaning === undefined || meaning.taxYear !== year
+        ? []
+        : [{ splitId: row.id, loanId: row.loan_id as string, direction: meaning.direction, amount: meaning.amount }];
     });
   }
 
@@ -781,14 +826,12 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
     readonly deposits: DepositTaxMeaning[];
   }> {
     // §58A: every split that can count in `year`: booked in it or in the windows around it, or overridden to it.
-    const days = widestWindowDays(this.registry);
-    const from = days > 0 ? `${year - 1}-12-${String(32 - days).padStart(2, '0')}` : `${year}-01-01`;
-    const to = days > 0 ? `${year + 1}-01-${String(days).padStart(2, '0')}` : `${year}-12-31`;
+    const { from, to } = yearWindow(this.registry, year);
     const rows = await countingSplits(factsQuery(trx, mreRealmId).where('s.property_reference_id', '=', propertyReferenceId))
       .where((eb) =>
         eb.or([
           eb.and([eb('t.booking_date', '>=', from), eb('t.booking_date', '<=', to)]),
-          eb('s.id', 'in', eb.selectFrom('tax_classification').select('transaction_split_id').where('superseded_at', 'is', null).where('tax_year', '=', year)),
+          eb('s.id', 'in', overriddenTo(trx, year)),
           // §58B: an election of an earlier year may have a part in `year` (at most 4 years back, 5 years).
           eb(
             's.id',
@@ -1147,6 +1190,19 @@ async function attributionInputOf(
     }),
   };
 }
+
+/** The booking dates of the splits that can count in `year` (§58A): the year with the widest window around it. */
+function yearWindow(registry: RuleRegistry, year: number): { readonly from: string; readonly to: string } {
+  const days = widestWindowDays(registry);
+  return {
+    from: days > 0 ? `${year - 1}-12-${String(32 - days).padStart(2, '0')}` : `${year}-01-01`,
+    to: days > 0 ? `${year + 1}-01-${String(days).padStart(2, '0')}` : `${year}-12-31`,
+  };
+}
+
+/** The splits whose current classification overrides their tax year to `year` (§58A). */
+const overriddenTo = (trx: Transaction<Database>, year: number) =>
+  trx.selectFrom('tax_classification').select('transaction_split_id').where('superseded_at', 'is', null).where('tax_year', '=', year);
 
 /** Only the splits that count: a current Transaction, not a reversal (§55). */
 const countingSplits = (query: ReturnType<typeof factsQuery>) =>

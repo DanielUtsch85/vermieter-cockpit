@@ -532,6 +532,50 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
   });
 
   describe('the retained deposit (§58A)', () => {
+    it('nothing else written (VC-7-05): a deposit classification, its supersede and its §57 steps leave the deposit and its cash unchanged in row and version', async () => {
+      const tenant = nextTenant();
+      const pr = await propertyReference();
+      await rent(pr, tenant, '2027-03-01', '2027030100');
+      const depositId = await retained(tenant);
+      const rows = async () => ({
+        deposit: (await pool.query(`SELECT to_jsonb(d) AS row FROM security_deposit d WHERE id = $1`, [depositId])).rows,
+        splits: (await pool.query(`SELECT to_jsonb(s) AS row FROM transaction_split s WHERE security_deposit_id = $1 ORDER BY id`, [depositId])).rows,
+        transactions: (
+          await pool.query(
+            `SELECT to_jsonb(t) AS row FROM ledger_transaction t WHERE id IN (SELECT transaction_id FROM transaction_split WHERE security_deposit_id = $1) ORDER BY id`,
+            [depositId],
+          )
+        ).rows,
+      });
+      const before = await rows();
+      expect([before.deposit, before.splits]).toEqual([[expect.anything()], [expect.anything(), expect.anything()]]);
+      const first = await classifications.createClassification(depositRequest(depositId, { reviewState: 'NEEDS_REVIEW' }), actor);
+      if (first.kind !== 'CREATED') throw new Error(first.kind);
+      expect(await rows()).toEqual(before);
+      const second = await classifications.createClassification(
+        depositRequest(depositId, { taxCategory: 'RETAINED_DEPOSIT_DAMAGES', supersedes: first.classification.id }),
+        actor,
+      );
+      if (second.kind !== 'CREATED') throw new Error(second.kind);
+      for (const step of [
+        { kind: 'MARK_NEEDS_REVIEW', reason: 'prüfen' },
+        { kind: 'CONFIRM' },
+        { kind: 'ADVISOR_CONFIRM', advisorPartyId: null, note: null },
+      ] as const) {
+        expect(await classifications.reviewClassification(second.classification.id, REALM, step, actor), step.kind).toMatchObject({
+          kind: 'REVIEWED',
+          changed: true,
+        });
+      }
+      await classifications.findDepositTaxMeaning(depositId, REALM, today);
+      // Refused commands too: another create without supersedes, a step on the superseded one.
+      expect(await classifications.createClassification(depositRequest(depositId), actor)).toMatchObject({ kind: 'CLASSIFICATION_EXISTS' });
+      expect(await classifications.reviewClassification(first.classification.id, REALM, { kind: 'CONFIRM' }, actor)).toMatchObject({
+        kind: 'CLASSIFICATION_SUPERSEDED',
+      });
+      expect(await rows()).toEqual(before);
+    });
+
     it('its meaning and classification; the per-property list; reopen stops it; a new closing needs a new classification', async () => {
       const tenant = nextTenant();
       const pr = await propertyReference();

@@ -16,12 +16,18 @@ export const VIEW_TABLES = [
   'land_building_allocation',
   'ownership',
   'rental_contract_reference',
+  // LOAN_INTEREST_NOT_ATTRIBUTED (review on #171): the Loans, their schedules' terms and their allocation sets.
+  'loan',
+  'loan_terms',
+  'loan_allocation_set',
+  'loan_allocation',
 ] as const;
 
 export async function rowsSnapshot(pool: pg.Pool): Promise<Record<string, unknown>> {
   const snapshot: Record<string, unknown> = {};
   for (const table of VIEW_TABLES) {
-    const { rows } = await pool.query(`SELECT to_jsonb(t) AS row FROM ${table} t ORDER BY id`);
+    // By the whole row: `loan_allocation` has no `id`.
+    const { rows } = await pool.query(`SELECT to_jsonb(t) AS row FROM ${table} t ORDER BY to_jsonb(t)::text`);
     snapshot[table] = rows.map((r: { row: unknown }) => r.row);
   }
   snapshot['audit_record'] = Number((await pool.query(`SELECT count(*) AS n FROM audit_record`)).rows[0].n);
