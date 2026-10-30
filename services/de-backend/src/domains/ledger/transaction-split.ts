@@ -26,6 +26,11 @@ export interface SplitInput {
    * never with a Loan or a deposit. Optional: absent is `null`.
    */
   readonly wegAnnualStatementId?: string | null;
+  /**
+   * A payment or refund of a Sonderumlage (P6-D7, api-design §51A): only in `WEG_SPECIAL_ASSESSMENT`, with the
+   * assessment's unit, never with a Loan, a deposit or a statement. Optional: absent is `null`.
+   */
+  readonly wegSpecialAssessmentId?: string | null;
   readonly description: string | null;
 }
 
@@ -79,6 +84,7 @@ export function sameSplits(current: readonly SplitInput[], next: readonly SplitI
         c.loanId === n.loanId &&
         c.securityDepositId === n.securityDepositId &&
         (c.wegAnnualStatementId ?? null) === (n.wegAnnualStatementId ?? null) &&
+        (c.wegSpecialAssessmentId ?? null) === (n.wegSpecialAssessmentId ?? null) &&
         c.description === n.description
       );
     })
@@ -181,7 +187,10 @@ export function checkDepositSplits(
 }
 
 /** The categories whose splits name their unit and need a WEG membership on the booking date (§49.3, P6-D2). */
-export const WEG_SPLIT_CATEGORIES = ['WEG_RECOVERABLE', 'WEG_NON_RECOVERABLE', 'WEG_RESERVE_CONTRIBUTION'] as const;
+export const WEG_SPLIT_CATEGORIES = ['WEG_RECOVERABLE', 'WEG_NON_RECOVERABLE', 'WEG_RESERVE_CONTRIBUTION', 'WEG_SPECIAL_ASSESSMENT'] as const;
+
+/** The categories a split naming a statement may carry (§51): the Hausgeld and the reserve, not the Sonderumlage. */
+export const STATEMENT_SPLIT_CATEGORIES = ['WEG_RECOVERABLE', 'WEG_NON_RECOVERABLE', 'WEG_RESERVE_CONTRIBUTION'] as const;
 
 /** Why a split set's WEG splits refuse it (api-design §49.3): 422 NO_WEG_MEMBERSHIP. */
 export type WegSplitRefusal =
@@ -212,7 +221,8 @@ export function checkWegSplits(
   const weg = splits.flatMap((split, i) => (isWegSplit(split) ? [{ split, position: i + 1 }] : []));
   const noUnit = weg.find((s) => s.split.propertyReferenceId === null);
   if (noUnit !== undefined) return { kind: 'NO_WEG_MEMBERSHIP', position: noUnit.position, reason: 'NO_UNIT' };
-  const noMembership = weg.find((s) => (s.split.wegAnnualStatementId ?? null) === null && !unitsWithMembership.has(s.split.propertyReferenceId as string));
+  const dated = (split: SplitInput) => (split.wegAnnualStatementId ?? null) === null && (split.wegSpecialAssessmentId ?? null) === null;
+  const noMembership = weg.find((s) => dated(s.split) && !unitsWithMembership.has(s.split.propertyReferenceId as string));
   if (noMembership !== undefined) {
     return {
       kind: 'NO_WEG_MEMBERSHIP',
@@ -254,7 +264,7 @@ export function checkStatementSplits(
   });
   const unknown = named.find((s) => !statements.has(s.id));
   if (unknown !== undefined) return { kind: 'WEG_STATEMENT_NOT_FOUND', wegAnnualStatementId: unknown.id };
-  const category = named.find((s) => !isWegSplit(s.split));
+  const category = named.find((s) => !(STATEMENT_SPLIT_CATEGORIES as readonly string[]).includes(s.split.financialCategoryCode));
   if (category !== undefined) return { kind: 'INVALID_WEG_STATEMENT_SPLIT', position: category.position, reason: 'CATEGORY' };
   const unit = named.find((s) => statements.get(s.id)?.propertyReferenceId !== s.split.propertyReferenceId);
   if (unit !== undefined) return { kind: 'INVALID_WEG_STATEMENT_SPLIT', position: unit.position, reason: 'UNIT' };
@@ -265,6 +275,44 @@ export function checkStatementSplits(
       return { kind: 'STATEMENT_NOT_CURRENT', wegAnnualStatementId: s.id, status: statement.status, supersededBy: statement.supersededBy };
     }
   }
+  return undefined;
+}
+
+/** A Sonderumlage as the split rules read it (§51A): its status and its membership's unit. */
+export interface SplitAssessment {
+  readonly status: string;
+  readonly propertyReferenceId: string;
+}
+
+/** Why a split set's Sonderumlagen refuse it (api-design §51A): 404, 422 INVALID_WEG_ASSESSMENT_SPLIT, 409 ASSESSMENT_NOT_ACTIVE. */
+export type AssessmentSplitRefusal =
+  | { readonly kind: 'WEG_ASSESSMENT_NOT_FOUND'; readonly wegSpecialAssessmentId: string }
+  | { readonly kind: 'INVALID_WEG_ASSESSMENT_SPLIT'; readonly position: number; readonly reason: 'CATEGORY' | 'UNIT' }
+  | { readonly kind: 'ASSESSMENT_NOT_ACTIVE'; readonly wegSpecialAssessmentId: string; readonly status: string };
+
+/**
+ * The rules of §51A for the splits with `wegSpecialAssessmentId`, in its order: every unknown or foreign assessment
+ * first, then the category, then the unit, then a `VOID` assessment (a reversal is exempt); each for the first split in
+ * position order. `assessments` holds the assessments found in the Realm.
+ */
+export function checkAssessmentSplits(
+  transaction: { readonly reversal: boolean },
+  splits: readonly SplitInput[],
+  assessments: ReadonlyMap<string, SplitAssessment>,
+): AssessmentSplitRefusal | undefined {
+  const named = splits.flatMap((split, i) => {
+    const id = split.wegSpecialAssessmentId ?? null;
+    return id === null ? [] : [{ split, id, position: i + 1 }];
+  });
+  const unknown = named.find((s) => !assessments.has(s.id));
+  if (unknown !== undefined) return { kind: 'WEG_ASSESSMENT_NOT_FOUND', wegSpecialAssessmentId: unknown.id };
+  const category = named.find((s) => s.split.financialCategoryCode !== 'WEG_SPECIAL_ASSESSMENT');
+  if (category !== undefined) return { kind: 'INVALID_WEG_ASSESSMENT_SPLIT', position: category.position, reason: 'CATEGORY' };
+  const unit = named.find((s) => assessments.get(s.id)?.propertyReferenceId !== s.split.propertyReferenceId);
+  if (unit !== undefined) return { kind: 'INVALID_WEG_ASSESSMENT_SPLIT', position: unit.position, reason: 'UNIT' };
+  if (transaction.reversal) return undefined;
+  const inactive = named.find((s) => assessments.get(s.id)?.status === 'VOID');
+  if (inactive !== undefined) return { kind: 'ASSESSMENT_NOT_ACTIVE', wegSpecialAssessmentId: inactive.id, status: 'VOID' };
   return undefined;
 }
 
@@ -294,7 +342,8 @@ export type ReplaceSplitsOutcome =
   | LoanSplitRefusal
   | DepositSplitRefusal
   | WegSplitRefusal
-  | StatementSplitRefusal;
+  | StatementSplitRefusal
+  | AssessmentSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface TransactionSplitRepository {

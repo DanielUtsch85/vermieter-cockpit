@@ -5,6 +5,7 @@ import {
   type LoanSplitRefusal,
   type SplitInput,
   type StatementSplitRefusal,
+  type AssessmentSplitRefusal,
   type WegSplitRefusal,
 } from './transaction-split.js';
 import type { BusinessDate, Direction, Transaction, TransactionId, TransactionStatus, VersionConflict } from './transaction.js';
@@ -193,6 +194,7 @@ export function correctionFingerprint(originalId: string, request: CorrectionReq
       ...(s.loanId === null ? [] : [s.loanId.toLowerCase()]),
       ...(s.securityDepositId === null ? [] : [{ securityDepositId: s.securityDepositId.toLowerCase() }]),
       ...((s.wegAnnualStatementId ?? null) === null ? [] : [{ wegAnnualStatementId: (s.wegAnnualStatementId as string).toLowerCase() }]),
+      ...((s.wegSpecialAssessmentId ?? null) === null ? [] : [{ wegSpecialAssessmentId: (s.wegSpecialAssessmentId as string).toLowerCase() }]),
     ]) ?? '-',
   ]);
 }
@@ -226,7 +228,8 @@ export type CorrectOutcome =
   | LoanSplitRefusal
   | DepositSplitRefusal
   | WegSplitRefusal
-  | StatementSplitRefusal;
+  | StatementSplitRefusal
+  | AssessmentSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface CorrectionRepository {

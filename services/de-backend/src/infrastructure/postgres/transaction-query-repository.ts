@@ -38,6 +38,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
             'transaction_split.loan_id',
             'transaction_split.security_deposit_id',
             'transaction_split.weg_annual_statement_id',
+            'transaction_split.weg_special_assessment_id',
             'transaction_split.description',
             'financial_category.code',
           ])
@@ -55,6 +56,7 @@ export class PostgresTransactionQueries implements TransactionQueries {
             loanId: s.loan_id,
             securityDepositId: s.security_deposit_id,
             wegAnnualStatementId: s.weg_annual_statement_id,
+            wegSpecialAssessmentId: s.weg_special_assessment_id,
             description: s.description,
           })),
         };

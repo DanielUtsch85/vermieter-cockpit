@@ -342,6 +342,33 @@ export interface WegAnnualStatementTable {
   version: Generated<number>;
 }
 
+export interface WegSpecialAssessmentTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  membership_id: string;
+  description: string;
+  /** `date` column: written as `YYYY-MM-DD`, read through `to_char`. */
+  resolution_date: string;
+  purpose: string;
+  /** `numeric` columns: written and read as text. */
+  total_amount: string | null;
+  unit_share: string;
+  currency: string;
+  /** `jsonb`: the instalments and the uses (api-design §51A). */
+  instalments: unknown;
+  uses: Generated<unknown>;
+  status: string;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
 export interface WegStatementCostLineTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -608,6 +635,7 @@ export interface TransactionSplitTable {
   /** VC-5-02; optional on insert (NULL: no SecurityDeposit). */
   security_deposit_id: Generated<string | null>;
   weg_annual_statement_id: Generated<string | null>;
+  weg_special_assessment_id: Generated<string | null>;
   description: string | null;
   created_at: Generated<Date>;
   created_by: string;
@@ -633,6 +661,7 @@ export interface Database {
   weg_economic_plan: WegEconomicPlanTable;
   weg_annual_statement: WegAnnualStatementTable;
   weg_statement_cost_line: WegStatementCostLineTable;
+  weg_special_assessment: WegSpecialAssessmentTable;
   loan_terms: LoanTermsTable;
   loan_allocation_set: LoanAllocationSetTable;
   loan_allocation: LoanAllocationTable;

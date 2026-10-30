@@ -4144,7 +4144,7 @@ A read, never a write; the client applies it through `PUT …/splits`, as §49.6
 
 ---
 
-# 51A. WEG Special Assessment (Sonderumlage) (VC-6-05)
+# 51A. WEG Special Assessment (Sonderumlage) (VC-6-05, implemented: migration 0044)
 
 Decision P6-D7 (data-model §32, `docs/germany/weg.md` §5.3, checklist C6). A Sonderumlage is a resolution of the WEG that the owner pays on top of the Hausgeld, in one sum or in instalments. Like the reserve contribution it is money given to the WEG, not yet the owner's expense: what counts for tax is when and for what the WEG uses it (BFH IX R 19/24). So DE records the resolution, the payments (counted cash, never stored amounts) and, later, the use.
 

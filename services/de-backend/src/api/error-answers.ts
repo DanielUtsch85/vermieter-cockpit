@@ -13,6 +13,9 @@ import {
   AllocationRefusedError,
   AlreadyMatchedError,
   AnnualStatementNotFoundError,
+  AssessmentHasSplitsError,
+  AssessmentNotActiveError,
+  AssessmentOutsideMembershipError,
   ClosingBeforeDebtError,
   ConcurrentUpdateError,
   ConfirmationBlockedError,
@@ -47,6 +50,7 @@ import {
   InvalidMembershipError,
   InvalidOwnershipError,
   InvalidSupersedesError,
+  InvalidWegAssessmentSplitError,
   InvalidWegStatementSplitError,
   type LinkRefusal,
   LoanAllocationSetNotFoundError,
@@ -61,6 +65,7 @@ import {
   LoanRefinancesError,
   LoanTermsNotFoundError,
   MembershipHasPlansError,
+  MembershipHasAssessmentsError,
   MembershipHasSplitsError,
   MembershipHasStatementsError,
   MembershipNotActiveError,
@@ -98,6 +103,7 @@ import {
   PeriodOutsideYearError,
   SettlementDirectionMismatchError,
   SettlementNotProposableError,
+  SpecialAssessmentNotFoundError,
   PropertyReferenceNotFoundError,
   ProposalTransactionNotFoundError,
   ReconciliationNotFoundError,
@@ -142,6 +148,7 @@ import {
   WegMembershipNotFoundError,
   WegNotActiveError,
   WegNotFoundError,
+  WegAssessmentNotFoundError,
   WegStatementNotFoundError,
   WriteBackFailedError,
   WriteBackInProgressError,
@@ -293,6 +300,26 @@ const TABLE = [
     return answer(422, r.kind, 'The set cannot be appended.', details);
   }),
   on(AnnualStatementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Annual statement not found.', { statementId: error.statementId })),
+  on(AssessmentHasSplitsError, (error) =>
+    answer(409, 'CONFLICT', 'Splits name the Sonderumlage.', {
+      reason: 'ASSESSMENT_HAS_SPLITS',
+      assessmentId: error.assessmentId,
+      transactionIds: error.transactionIds,
+    }),
+  ),
+  on(AssessmentNotActiveError, (error) =>
+    answer(409, 'CONFLICT', `The Sonderumlage is ${error.status}.`, {
+      reason: 'ASSESSMENT_NOT_ACTIVE',
+      wegSpecialAssessmentId: error.wegSpecialAssessmentId,
+      status: error.status,
+    }),
+  ),
+  on(AssessmentOutsideMembershipError, (error) =>
+    answer(422, 'ASSESSMENT_OUTSIDE_MEMBERSHIP', 'The resolution date lies outside the membership.', {
+      validFrom: error.validFrom,
+      validUntil: error.validUntil,
+    }),
+  ),
   on(AlreadyMatchedError, (error) =>
     answer(409, 'CONFLICT', 'This Transaction already matches this rent term.', {
       reason: 'ALREADY_MATCHED',
@@ -436,6 +463,12 @@ const TABLE = [
       reason: error.reason,
     }),
   ),
+  on(InvalidWegAssessmentSplitError, (error) =>
+    answer(422, 'INVALID_WEG_ASSESSMENT_SPLIT', 'A split naming a Sonderumlage is WEG_SPECIAL_ASSESSMENT of its unit.', {
+      position: error.position,
+      reason: error.reason,
+    }),
+  ),
   on(InvalidWegStatementSplitError, (error) =>
     answer(422, 'INVALID_WEG_STATEMENT_SPLIT', "A split naming a statement is a WEG split of the statement's unit.", {
       position: error.position,
@@ -457,6 +490,13 @@ const TABLE = [
     answer(409, 'CONFLICT', 'A closed Loan names this one as its refinancing.', { reason: 'LOAN_REFINANCES', loanIds: error.loanIds }),
   ),
   on(LoanTermsNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Loan terms not found.', { termsId: error.termsId })),
+  on(MembershipHasAssessmentsError, (error) =>
+    answer(409, 'CONFLICT', 'Sonderumlagen of the WEG membership lie outside what would remain of it.', {
+      reason: 'MEMBERSHIP_HAS_ASSESSMENTS',
+      membershipId: error.membershipId,
+      assessmentIds: error.assessmentIds,
+    }),
+  ),
   on(MembershipHasPlansError, (error) =>
     answer(409, 'CONFLICT', 'Plans of the WEG membership lie outside what would remain of it.', {
       reason: 'MEMBERSHIP_HAS_PLANS',
@@ -599,6 +639,7 @@ const TABLE = [
   on(SettlementNotProposableError, (error) =>
     answer(409, 'CONFLICT', 'Only an unconfirmed Transaction gets a settlement proposal.', { reason: 'NOT_PROPOSABLE', status: error.status }),
   ),
+  on(SpecialAssessmentNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Special assessment not found.', { assessmentId: error.assessmentId })),
   on(PropertyReferenceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId })),
   on(ProposalTransactionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId })),
   on(ReconciliationNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Rent reconciliation not found.', { reconciliationId: error.reconciliationId })),
@@ -799,6 +840,9 @@ const TABLE = [
     answer(409, 'CONFLICT', `The WEG is ${error.status}.`, { reason: 'WEG_NOT_ACTIVE', wegId: error.wegId, status: error.status }),
   ),
   on(WegNotFoundError, (error) => answer(404, 'NOT_FOUND', 'WEG not found.', { wegId: error.wegId })),
+  on(WegAssessmentNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', 'WEG special assessment not found.', { wegSpecialAssessmentId: error.wegSpecialAssessmentId }),
+  ),
   on(WegStatementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'WEG annual statement not found.', { wegAnnualStatementId: error.wegAnnualStatementId })),
   on(WriteBackFailedError, (error) => writeBackFailureAnswer(error)),
   on(WriteBackInProgressError, (error) =>

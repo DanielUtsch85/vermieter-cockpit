@@ -147,3 +147,31 @@ export type {
   SettlementFlag,
   WegCategory,
 } from './statement-effects.js';
+export {
+  ASSESSMENT_PURPOSES,
+  ASSESSMENT_STATUSES,
+  assessmentFingerprint,
+  changedAssessmentFields,
+  deriveAssessment,
+  instalmentsRefusal,
+  sameAssessmentContent,
+  sameUses,
+} from './special-assessment.js';
+export type {
+  AmendAssessmentOutcome,
+  AssessmentContent,
+  AssessmentFilter,
+  AssessmentFlag,
+  AssessmentPayment,
+  AssessmentPurpose,
+  AssessmentStatus,
+  AssessmentUse,
+  AssessmentView,
+  CreateAssessmentOutcome,
+  Instalment,
+  NewSpecialAssessment,
+  SpecialAssessment,
+  VoidAssessmentOutcome,
+  WegSpecialAssessmentId,
+  WegSpecialAssessmentRepository,
+} from './special-assessment.js';

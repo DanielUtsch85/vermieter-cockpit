@@ -588,6 +588,8 @@ async function holdsOf(trx: Transaction<Database>, membership: WegMembership): P
     .where('financial_category.code', 'in', [...WEG_SPLIT_CATEGORIES])
     // A settlement follows its statement, not its booking date (§51, review on #152): the statement holds the period.
     .where('transaction_split.weg_annual_statement_id', 'is', null)
+    // Likewise a Sonderumlage's payment follows its assessment (§51A), which holds its resolution date.
+    .where('transaction_split.weg_special_assessment_id', 'is', null)
     .execute();
   const plans = await trx
     .selectFrom('weg_economic_plan')
@@ -601,10 +603,17 @@ async function holdsOf(trx: Transaction<Database>, membership: WegMembership): P
     .where('membership_id', '=', membership.id)
     .where('status', '<>', 'VOID')
     .execute();
+  const assessments = await trx
+    .selectFrom('weg_special_assessment')
+    .select(['id', sql<string>`to_char(resolution_date, 'YYYY-MM-DD')`.as('resolution_date')])
+    .where('membership_id', '=', membership.id)
+    .where('status', '<>', 'VOID')
+    .execute();
   return {
     splits: splits.map((s) => ({ transactionId: s.transaction_id, bookingDate: s.booking_date as BusinessDate })),
     plans: plans.map((p) => ({ id: p.id, effectiveFrom: p.effective_from as BusinessDate })),
     statements: statements.map((st) => ({ id: st.id, periodFrom: st.period_from as BusinessDate, periodUntil: st.period_until as BusinessDate })),
+    assessments: assessments.map((a) => ({ id: a.id, resolutionDate: a.resolution_date as BusinessDate })),
   };
 }
 

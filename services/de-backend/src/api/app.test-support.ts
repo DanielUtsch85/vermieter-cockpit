@@ -39,6 +39,7 @@ export const unusedCommands: AppCommands = {
     comparison: unused,
     settlementProposal: unused,
   },
+  wegSpecialAssessments: { create: unused, get: unused, list: unused, amend: unused, replaceUses: unused, void: unused },
   rentReconciliations: {
     create: unused,
     get: unused,

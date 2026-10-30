@@ -479,7 +479,11 @@ describe.skipIf(databaseUrl === undefined)('Ledger effects of a statement (§51)
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        await withMigrationLock(async () => (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never));
+        // 0044 builds on 0043's functions: it goes first.
+        await withMigrationLock(async () => {
+          await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
+          await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);
+        });
         const { rows: columns } = await downPool.query(
           `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'transaction_split' AND column_name = 'weg_annual_statement_id'`,
           [downSchema],
