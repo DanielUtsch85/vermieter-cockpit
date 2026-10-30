@@ -1,6 +1,6 @@
 # Phase 8 Plan — Depreciation (AfA)
 
-**Status:** Accepted (#173). The project owner's decisions of 2026-10-30 are recorded in §1 (**Decided** lines). VC-8-01 is specified (api-design §59).
+**Status:** Accepted (#173). The project owner's decisions of 2026-10-30 are recorded in §1 (**Decided** lines). VC-8-01 is implemented (api-design §59, migration 0049).
 **Roadmap:** `docs/roadmap.md` Phase 8 · **Backlog:** `backlog.md` §3g (VC-8-xx)
 
 Phase 8 is modelled conceptually in several places:
@@ -101,7 +101,7 @@ Each decision names whether it **needs the user** (a choice only the project own
   - **Recommendation:** (a), since `depreciation.md` §9 asks for the fields. The repealed BMF requirements of 2023 are **not** encoded as checks (B7): DE records the evidence and judges nothing.
 - **VERIFY:** that bands b and c applied unchanged in the earlier years the app may compute (before 2023); whether a shorter useful life, once claimed, applies from the start or from the year it is evidenced (not covered by `depreciation.md`).
 - **Needs the user:** yes for the shorter useful life (in or out); no for the bands (verified, B1–B3).
-- **Decided (2026-10-30):** the shorter actual useful life is **in Phase 8**, option (a): an optional `usefulLifeYears` with its evidence and its own `reviewState`. DE records it and judges nothing (B7). VC-8-01 specifies the fields (api-design §59: one entry per Acquisition on the asset; only a confirmed entry feeds a figure). **Shorter** means fewer years than the fixed threshold § 7 Abs. 4 S. 2 EStG names for the band: 33 (Buchst. a), 50 (Buchst. b), 40 (Buchst. c), a rule parameter `shorterThanYears` per band, never derived from the rate (review on #174; depreciation.md §3, B7). **VERIFY:** the thresholds against the official text of § 7 Abs. 4 S. 2 EStG before VC-8-01 is implemented.
+- **Decided (2026-10-30):** the shorter actual useful life is **in Phase 8**, option (a): an optional `usefulLifeYears` with its evidence and its own `reviewState`. DE records it and judges nothing (B7). VC-8-01 specifies the fields (api-design §59: one entry per Acquisition on the asset; only a confirmed entry feeds a figure). **Shorter** means fewer years than the fixed threshold § 7 Abs. 4 S. 2 EStG names for the band: 33 (Buchst. a), 50 (Buchst. b), 40 (Buchst. c), a rule parameter `shorterThanYears` per band, never derived from the rate (review on #174; depreciation.md §3, B7). **Verified (30.10.2026):** the thresholds match the official text of § 7 Abs. 4 S. 2 EStG (gesetze-im-internet.de), read before VC-8-01 was implemented.
 
 ### P8-D5 The start and the first year (B6; depreciation.md §5)
 

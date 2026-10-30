@@ -1,9 +1,7 @@
-import { addDays, type BusinessDate, type Money } from '../../shared/index.js';
+import { addDays, type BusinessDate, type Money, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { yearOf } from './cash-timing.js';
 import { centsOf, moneyOfCents } from './cents.js';
 import { DISTRIBUTION_82B, type Distribution82bParameters } from './rules/de-82b-distribution.js';
-import type { RuleRegistry } from './rules/registry.js';
-import type { RuleRef, RuleVersion } from './rules/rule-version.js';
 
 /**
  * The § 82b EStDV election and its parts (api-design.md §58B, P7-D6, checklist A5): derived on read, never stored, from

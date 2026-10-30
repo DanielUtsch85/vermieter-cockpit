@@ -2054,7 +2054,7 @@ Rule versions used in historical calculations must remain addressable.
 
 **VC-7-03 (api-design §58B, implemented):** `DE_CATEGORY_DEFAULTS@1` stays frozen and unchanged. Three rules join the registry: `DE_WEG_SPENDING@1` (the WEG sources' default, lines and treatments; from 2000-01-01), `DE_82B_DISTRIBUTION@1` (2–5 years; from 2004-01-01) and `DE_ANSCHAFFUNGSNAHE@1` (15 %, 3 years; from 2004-01-01, selected by the transfer date). A classification may store a second reference (`treatmentRule`); the start check resolves it too.
 
-**VC-8-01 (P8-D11, api-design §59, specified):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed) is a module of the Depreciation domain, registered in the same registry. The registry (`RuleRegistry` and `rule-version.ts` in `shared/`) is composed as `TAX_RULES` in `domains/tax-rules/`, above both domains, from the versions each domain exports (api-design §59). Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule, and so is each band's threshold of the shorter useful life (`shorterThanYears`: 33 / 50 / 40 years, § 7 Abs. 4 S. 2 EStG; VERIFY against the official text). No table stores them, and the asset stores no rule reference.
+**VC-8-01 (P8-D11, api-design §59, implemented: migration 0049):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed) is a module of the Depreciation domain, registered in the same registry. The registry (`RuleRegistry` and `rule-version.ts` in `shared/`) is composed as `TAX_RULES` in `domains/tax-rules/`, above both domains, from the versions each domain exports (api-design §59). Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule, and so is each band's threshold of the shorter useful life (`shorterThanYears`: 33 / 50 / 40 years, § 7 Abs. 4 S. 2 EStG; verified against the official text on 30.10.2026). No table stores them, and the asset stores no rule reference.
 
 ---
 
@@ -2066,7 +2066,7 @@ Rule versions used in historical calculations must remain addressable.
 
 ## Purpose
 
-Record the facts of one depreciable asset that no other record holds, as inputs to its derived schedule. Rewritten by phase-8-plan P8-D1 (decided; VC-8-01, api-design §59, specified, migration 0049 planned): the asset stores its own inputs and **never** its basis.
+Record the facts of one depreciable asset that no other record holds, as inputs to its derived schedule. Rewritten by phase-8-plan P8-D1 (decided; VC-8-01, api-design §59, implemented: migration 0049): the asset stores its own inputs and **never** its basis. Tables `depreciation_asset` and `depreciation_asset_useful_life` (one row per shorter useful life, keyed `(asset_id, acquisition_id)`; the Acquisition by the composite key `(acquisition_id, mre_realm_id, property_reference_id)`); no column for a basis, rate, start, amount, allocation, Acquisition or rule. An amend writes the entries as a difference by `acquisitionId`; the guard `depreciation_asset_useful_life_open` refuses a new entry for a `CANCELLED` Acquisition and any entry change on a `VOID` asset.
 
 ---
 

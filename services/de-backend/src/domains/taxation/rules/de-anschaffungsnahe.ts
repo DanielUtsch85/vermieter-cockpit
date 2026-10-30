@@ -1,6 +1,5 @@
-import type { BusinessDate } from '../../../shared/index.js';
+import type { BusinessDate, RuleVersion } from '../../../shared/index.js';
 import type { TaxCategory, Treatment } from '../vocabulary.js';
-import type { RuleVersion } from './rule-version.js';
 
 /** The parameters of the anschaffungsnahe check (api-design.md §58B, P7-D6). */
 export interface AnschaffungsnaheParameters {

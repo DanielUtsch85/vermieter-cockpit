@@ -4,8 +4,8 @@ import { loanSchedule } from '../../domains/financing/index.js';
 import { businessDayOf, type CategoryType, type Direction, type TransactionStatus } from '../../domains/ledger/index.js';
 import type { ChangedEntry, RentDueDay } from '../../domains/rental-contract-reference/index.js';
 import { retainedAmountOf, type DepositClosingReason } from '../../domains/security-deposit/index.js';
+import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import {
-  TAX_RULES,
   TIMING_SOURCES,
   attributeTaxYear,
   depositNotCounted,

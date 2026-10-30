@@ -17,6 +17,10 @@ import { describe, expect, it } from 'vitest';
  * Imports into another module (another domain, or another top-level layer) must go
  * through that module's public `index.js`; deep imports into its internals are
  * rejected (ADR-026 "strong internal boundaries").
+ *
+ * Some module edges are forbidden even through an index (`forbiddenEdges`): the rule
+ * registry is composed in `domains/tax-rules/` above Taxation and Depreciation, so
+ * neither domain imports it, and Depreciation does not import Taxation (P8-D11, §59).
  */
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +113,21 @@ function violation(rule: LayerRule, file: string, specifier: string): string | u
     : `${file} imports non-allowlisted package '${specifier}'`;
 }
 
+/** Module edges refused even through an index (api-design.md §59, P8-D11): `from` module → `to` module, tests included. */
+const forbiddenEdges: readonly { readonly from: string; readonly to: string; readonly why: string }[] = [
+  { from: join('domains', 'taxation'), to: join('domains', 'tax-rules'), why: 'the registry is composed above both domains' },
+  { from: join('domains', 'depreciation'), to: join('domains', 'tax-rules'), why: 'the registry is composed above both domains' },
+  { from: join('domains', 'depreciation'), to: join('domains', 'taxation'), why: 'VC-8-01 adds no edge between Depreciation and Taxation' },
+];
+
+/** `file` is relative to src/; a forbidden module edge, or undefined. Only relative specifiers name modules. */
+function forbiddenEdge(file: string, specifier: string): string | undefined {
+  if (!specifier.startsWith('.')) return undefined;
+  const target = moduleOf(relative(srcDir, resolve(srcDir, dirname(file), specifier)));
+  const edge = forbiddenEdges.find((e) => moduleOf(file) === e.from && target === e.to);
+  return edge === undefined ? undefined : `${file} imports '${specifier}' (${edge.from} → ${edge.to} is forbidden: ${edge.why})`;
+}
+
 function ruleFor(layer: string): LayerRule {
   const rule = rules.find((r) => r.layer === layer);
   if (rule === undefined) throw new Error(`no rule for layer ${layer}`);
@@ -129,6 +148,40 @@ describe('architecture: layer dependency direction', () => {
       expect(violations).toEqual([]);
     });
   }
+});
+
+describe('architecture: forbidden module edges (§59)', () => {
+  it('no file under domains/taxation/ or domains/depreciation/ imports domains/tax-rules/, nor Depreciation Taxation', () => {
+    const files = listSourceFiles(join(srcDir, 'domains'));
+    expect(files.some((path) => moduleOf(relative(srcDir, path)) === join('domains', 'depreciation'))).toBe(true);
+    expect(files.some((path) => moduleOf(relative(srcDir, path)) === join('domains', 'tax-rules'))).toBe(true);
+    const violations = files.flatMap((path) => {
+      const file = relative(srcDir, path);
+      return importSpecifiers(readFileSync(path, 'utf8'))
+        .map((specifier) => forbiddenEdge(file, specifier))
+        .filter((v): v is string => v !== undefined);
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it.each([
+    ['domains/depreciation/probe.ts', '../tax-rules/index.js'],
+    ['domains/taxation/probe.ts', '../tax-rules/index.js'],
+    ['domains/taxation/rules/probe.test.ts', '../../tax-rules/index.js'],
+    ['domains/depreciation/probe.ts', '../taxation/index.js'],
+  ])('%s may not import %s', (file, specifier) => {
+    expect(forbiddenEdge(file, specifier)).toBeDefined();
+  });
+
+  it.each([
+    ['domains/tax-rules/probe.ts', '../taxation/index.js'],
+    ['domains/tax-rules/probe.ts', '../depreciation/index.js'],
+    ['domains/depreciation/probe.ts', '../../shared/index.js'],
+    ['application/probe.ts', '../domains/tax-rules/index.js'],
+    ['infrastructure/postgres/probe.ts', '../../domains/tax-rules/index.js'],
+  ])('%s may import %s', (file, specifier) => {
+    expect(forbiddenEdge(file, specifier)).toBeUndefined();
+  });
 });
 
 describe('architecture rules (fixtures)', () => {

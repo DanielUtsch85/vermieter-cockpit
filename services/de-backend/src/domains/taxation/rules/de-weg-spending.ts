@@ -1,7 +1,6 @@
-import type { BusinessDate } from '../../../shared/index.js';
+import type { BusinessDate, RuleVersion } from '../../../shared/index.js';
 import type { TaxCategory, Treatment, WegSourceType } from '../vocabulary.js';
 import type { CategoryDefault } from './de-category-defaults.js';
-import type { RuleVersion } from './rule-version.js';
 
 /** The parameters of what the WEG spends (api-design.md §58B, P7-D5). */
 export interface WegSpendingParameters {
