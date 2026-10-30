@@ -175,6 +175,7 @@ import {
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import {
+  cachingPrincipalVerifier,
   mrePrincipalVerifier,
   mrePropertyLookup,
   mreRentTermLookup,
@@ -220,7 +221,7 @@ const unconfirmed = new PostgresUnconfirmedTransactionRepository(db);
 const categories = new PostgresFinancialCategoryRepository(db);
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
-  verifyPrincipal: mrePrincipalVerifier(mreClient),
+  verifyPrincipal: cachingPrincipalVerifier(mrePrincipalVerifier(mreClient)),
   propertyReferences: { link: linkPropertyReference(propertyReferences), refresh: refreshPropertyReference(propertyReferences) },
   parties: {
     create: createParty({ repository: parties }),

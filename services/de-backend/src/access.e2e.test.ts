@@ -5,7 +5,7 @@ import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
-import { mrePrincipalVerifier } from './wiring.js';
+import { cachingPrincipalVerifier, mrePrincipalVerifier } from './wiring.js';
 
 /**
  * VC-0-08 / Phase-0 exit: the DE health endpoint responds only for a valid
@@ -71,6 +71,35 @@ describe('DE /api/v1 with real MRE wiring', () => {
     ['application token', () => call(signJwt({ application: { clientId: 'app-1' } }), 'realm-a'), 403],
   ] as const)('%s → %i', async (_label, request, status) => {
     expect(await request()).toBe(status);
+  });
+
+  it('with the cache as in main.ts, two requests with one token ask MRE once; a rejection is asked again (issue #161)', async () => {
+    const cached = createApp({
+      isReady: async () => true,
+      verifyPrincipal: cachingPrincipalVerifier(mrePrincipalVerifier(new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 }))),
+      ...commandsWith(),
+    }).listen(0, '127.0.0.1');
+    await new Promise<void>((resolve) => cached.once('listening', () => resolve()));
+    const realmCalls = () => mre.requests.filter((r) => r.path === '/api/v2/realms').length;
+    const health = (token: string, realm: string) =>
+      fetch(`http://127.0.0.1:${(cached.address() as AddressInfo).port}/api/v1/health`, {
+        headers: { authorization: `Bearer ${token}`, organizationid: realm },
+      }).then((r) => r.status);
+    try {
+      const before = realmCalls();
+      const token = signJwt(anna);
+      expect([await health(token, 'realm-a'), await health(token, 'realm-a')]).toEqual([200, 200]);
+      expect(realmCalls()).toBe(before + 1);
+
+      expect([await health(token, 'realm-b'), await health(token, 'realm-b')]).toEqual([403, 403]);
+      expect(realmCalls()).toBe(before + 3);
+
+      const forged = signJwt(anna, 'forged');
+      expect([await health(forged, 'realm-a'), await health(forged, 'realm-a')]).toEqual([401, 401]);
+      expect(realmCalls()).toBe(before + 5);
+    } finally {
+      await new Promise<void>((resolve) => cached.close(() => resolve()));
+    }
   });
 
   it('MRE unreachable → 503, never 200', async () => {
