@@ -205,19 +205,24 @@ export function planMembershipVoid(current: WegMembership, reason: string, at: D
   return { kind: 'VOID', next: { ...current, status: 'VOID', voidedAt: at, voidReason: reason, version: current.version + 1 } };
 }
 
-/** What hangs off a membership's period (§49.3, §49.5): its unit's WEG splits and its `ACTIVE` plans. */
+/**
+ * What hangs off a membership's period (§49.3, §49.5, §50): its unit's WEG splits, its `ACTIVE` plans and its
+ * statements that are not `VOID`.
+ */
 export interface MembershipHolds {
   readonly splits: readonly { readonly transactionId: string; readonly bookingDate: BusinessDate }[];
   readonly plans: readonly { readonly id: string; readonly effectiveFrom: BusinessDate }[];
+  readonly statements: readonly { readonly id: string; readonly periodFrom: BusinessDate; readonly periodUntil: BusinessDate }[];
 }
 
 export type MembershipHoldRefusal =
   | { readonly kind: 'MEMBERSHIP_HAS_SPLITS'; readonly transactionIds: readonly string[] }
-  | { readonly kind: 'MEMBERSHIP_HAS_PLANS'; readonly economicPlanIds: readonly string[] };
+  | { readonly kind: 'MEMBERSHIP_HAS_PLANS'; readonly economicPlanIds: readonly string[] }
+  | { readonly kind: 'MEMBERSHIP_HAS_STATEMENTS'; readonly statementIds: readonly string[] };
 
 /**
- * An end (`remaining` the shortened period) or a void (`remaining` null) refused because a WEG split of the unit or
- * an `ACTIVE` plan would fall outside what remains of the membership's period: splits first, then plans.
+ * An end (`remaining` the shortened period) or a void (`remaining` null) refused because a WEG split of the unit, an
+ * `ACTIVE` plan or a statement would fall outside what remains of the membership's period: splits, plans, statements.
  */
 export function holdsOutside(
   current: WegMembership,
@@ -233,6 +238,11 @@ export function holdsOutside(
     .map((p) => p.id)
     .sort();
   if (plans.length > 0) return { kind: 'MEMBERSHIP_HAS_PLANS', economicPlanIds: plans };
+  const statements = holds.statements
+    .filter((st) => !kept(st.periodFrom) || !kept(st.periodUntil))
+    .map((st) => st.id)
+    .sort();
+  if (statements.length > 0) return { kind: 'MEMBERSHIP_HAS_STATEMENTS', statementIds: statements };
   return undefined;
 }
 
@@ -251,7 +261,7 @@ export type AmendWegOutcome =
   | { readonly kind: 'AMENDED'; readonly weg: Weg; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'WEG_NOT_ACTIVE'; readonly status: WegStatus }
-  /** `financialYearStartMonth` while a membership has an `ACTIVE` plan (§49.5). */
+  /** `financialYearStartMonth` while a membership has an `ACTIVE` plan or a statement that is not `VOID` (§49.5, §50). */
   | { readonly kind: 'WEG_HAS_YEARS' }
   | AdministratorRefusal
   | VersionConflict;

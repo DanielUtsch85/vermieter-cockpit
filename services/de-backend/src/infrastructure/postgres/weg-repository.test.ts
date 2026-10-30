@@ -426,7 +426,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresWegRepository', () => {
       expect(await pool.query(`DELETE FROM weg WHERE id = $1`, [w.id]).then(() => 'accepted', reasonOf)).toBe('never deleted');
     });
 
-    it('down drops both tables and their functions', async () => {
+    // Down tests wait on each other's migration lock when run in parallel: more than the default 5 s.
+    it('down drops both tables and their functions', { timeout: 30_000 }, async () => {
       const downSchema = testSchemaName('weg_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });
       await admin.connect();
@@ -435,9 +436,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresWegRepository', () => {
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        // 0041 builds on 0040's tables: it goes first. Dropping tables while another worker's Migrator introspects
+        // 0042 and 0041 build on 0040's tables: they go first. Dropping tables while another worker's Migrator introspects
         // the database breaks it, so the downs hold the migration lock as every schema change of the tests does.
         await withMigrationLock(async () => {
+          await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0041_weg_plan_and_splits.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0040_weg.js')).down(createDatabase(downPool) as never);
         });

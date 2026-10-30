@@ -96,7 +96,7 @@ export class MembershipNotActiveError extends Error {
   }
 }
 
-/** Plans are filed by financial year: the start month is fixed once a plan exists (→ 409 WEG_HAS_YEARS, §49.5). */
+/** Plans and statements are filed by financial year: the start month is fixed once one exists (→ 409 WEG_HAS_YEARS, §49.5, §50). */
 export class WegHasYearsError extends Error {
   override readonly name = 'WegHasYearsError';
 
@@ -126,6 +126,18 @@ export class MembershipHasPlansError extends Error {
     readonly economicPlanIds: readonly string[],
   ) {
     super(`WEG membership ${membershipId} has plans`);
+  }
+}
+
+/** Statements that are not `VOID` fall outside what would remain of the membership (→ 409 MEMBERSHIP_HAS_STATEMENTS, §50). */
+export class MembershipHasStatementsError extends Error {
+  override readonly name = 'MembershipHasStatementsError';
+
+  constructor(
+    readonly membershipId: string,
+    readonly statementIds: readonly string[],
+  ) {
+    super(`WEG membership ${membershipId} has annual statements`);
   }
 }
 
@@ -368,6 +380,8 @@ export function endMembership(deps: { readonly repository: WegRepository }): End
         throw new MembershipHasSplitsError(membershipId, outcome.transactionIds);
       case 'MEMBERSHIP_HAS_PLANS':
         throw new MembershipHasPlansError(membershipId, outcome.economicPlanIds);
+      case 'MEMBERSHIP_HAS_STATEMENTS':
+        throw new MembershipHasStatementsError(membershipId, outcome.statementIds);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
@@ -394,6 +408,8 @@ export function voidMembership(deps: { readonly repository: WegRepository; reado
         throw new MembershipHasSplitsError(membershipId, outcome.transactionIds);
       case 'MEMBERSHIP_HAS_PLANS':
         throw new MembershipHasPlansError(membershipId, outcome.economicPlanIds);
+      case 'MEMBERSHIP_HAS_STATEMENTS':
+        throw new MembershipHasStatementsError(membershipId, outcome.statementIds);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

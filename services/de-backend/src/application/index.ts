@@ -429,6 +429,7 @@ export {
   InvalidMembershipError,
   MembershipHasPlansError,
   MembershipHasSplitsError,
+  MembershipHasStatementsError,
   MembershipNotActiveError,
   OverlappingWegMembershipError,
   WegHasMembershipsError,
@@ -492,3 +493,41 @@ export type {
 } from './weg-economic-plans.js';
 export { COST_GROUPS, PLAN_STATUSES } from '../domains/weg/index.js';
 export type { CostGroup, PlanCostLine, PlanFlag, PlanView } from '../domains/weg/index.js';
+export {
+  AnnualStatementNotFoundError,
+  InvalidSupersedesError,
+  PeriodOutsideYearError,
+  StatementExistsError,
+  StatementNotDraftError,
+  StatementOutsideMembershipError,
+  confirmAnnualStatement,
+  createAnnualStatement,
+  getAnnualStatement,
+  listAnnualStatements,
+  replaceAnnualStatement,
+  voidAnnualStatement,
+} from './weg-annual-statements.js';
+export type {
+  ConfirmAnnualStatement,
+  CreateAnnualStatement,
+  CreateAnnualStatementInput,
+  GetAnnualStatement,
+  ListAnnualStatements,
+  ReplaceAnnualStatement,
+  VoidAnnualStatement,
+} from './weg-annual-statements.js';
+export {
+  CLASSIFICATIONS,
+  RESERVE_LINE_KINDS,
+  RESERVE_SOURCES,
+  STATEMENT_STATUSES as ANNUAL_STATEMENT_STATUSES,
+  compareQuantities,
+  normalizeQuantity,
+} from '../domains/weg/index.js';
+export type {
+  NewStatementCostLine,
+  ReserveSection,
+  StatementContent,
+  StatementFlag as AnnualStatementFlag,
+  StatementView as AnnualStatementView,
+} from '../domains/weg/index.js';

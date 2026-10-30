@@ -20,6 +20,7 @@ import { externalReferenceRoutes, type ExternalReferenceCommands } from './party
 import { propertyReferenceRoutes, type PropertyReferenceCommands } from './property-references.js';
 import { rentReconciliationRoutes, type RentReconciliationCommands } from './rent-reconciliations.js';
 import { transactionRoutes, type TransactionCommands } from './transactions.js';
+import { wegAnnualStatementRoutes, type WegAnnualStatementCommands } from './weg-annual-statements.js';
 import { wegEconomicPlanRoutes, type WegEconomicPlanCommands } from './weg-economic-plans.js';
 import { wegRoutes, type WegCommands } from './wegs.js';
 
@@ -54,6 +55,7 @@ export interface AppCommands {
   readonly wegs: WegCommands;
   /** Wirtschaftsplan and Hausgeld proposal (VC-6-02). */
   readonly wegEconomicPlans: WegEconomicPlanCommands;
+  readonly wegAnnualStatements: WegAnnualStatementCommands;
   /** Rent reconciliation, coverage, suggestions, write-back and removal (VC-4-01 … VC-4-05). */
   readonly rentReconciliations: RentReconciliationCommands;
   /** Loan terms, schedule and payment proposal (VC-3-02, VC-3-04, VC-3-05). */
@@ -117,6 +119,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(securityDepositRoutes(deps.securityDeposits));
   api.use(wegRoutes(deps.wegs));
   api.use(wegEconomicPlanRoutes(deps.wegEconomicPlans));
+  api.use(wegAnnualStatementRoutes(deps.wegAnnualStatements));
   api.use(rentReconciliationRoutes(deps.rentReconciliations));
   api.use(loanTermsRoutes(deps.loanTerms));
   api.use(loanDebtRoutes(deps.loanDebt));

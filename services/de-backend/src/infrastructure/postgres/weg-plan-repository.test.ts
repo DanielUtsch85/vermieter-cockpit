@@ -433,7 +433,8 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
       expect(await insertPlan(voided.membership.id, '2026-03-01')).toBe('(MEMBERSHIP_NOT_ACTIVE)');
     });
 
-    it('down restores the category type and drops the plan table and the guards', async () => {
+    // Down tests wait on each other's migration lock when run in parallel: more than the default 5 s.
+    it('down restores the category type and drops the plan table and the guards', { timeout: 30_000 }, async () => {
       const downSchema = testSchemaName('weg_plan_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });
       await admin.connect();
@@ -443,7 +444,11 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         // Dropping a table while another worker's Migrator introspects the database breaks it: hold the migration lock.
-        await withMigrationLock(async () => (await import('./migrations/0041_weg_plan_and_splits.js')).down(createDatabase(downPool) as never));
+        // 0042 builds on 0041's functions: it goes first.
+        await withMigrationLock(async () => {
+          await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);
+          await (await import('./migrations/0041_weg_plan_and_splits.js')).down(createDatabase(downPool) as never);
+        });
         expect((await downPool.query(`SELECT category_type FROM financial_category WHERE code = 'WEG_RESERVE_CONTRIBUTION'`)).rows[0].category_type).toBe(
           'OPERATING_EXPENSE',
         );

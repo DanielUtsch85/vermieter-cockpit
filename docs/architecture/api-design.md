@@ -3944,7 +3944,7 @@ A read, never a write (as §41.5's payment proposal). The client applies it thro
 
 ---
 
-# 50. WEG Annual Statement (Jahresabrechnung) (VC-6-03)
+# 50. WEG Annual Statement (Jahresabrechnung) (VC-6-03, implemented: migration 0042)
 
 Decision P6-D5, shaped by the real Einzelabrechnungen of #93's owner (three years; structure only, no amounts):
 - **Cost lines** in the two groups the Verwalter prints, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each line with its account name, the allocation key as printed (`Miteigentumsanteile`, `Einheit`, a consumption key), the **allocation quantities** (total and the unit's share, e.g. the MEA base and the unit's MEA), and the **amounts** (WEG total and the unit's share); a subtotal per group and a total of the unit's costs;
@@ -3988,18 +3988,18 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 ### The statement's own check (flags, never refusals; the printed statement wins, BR-WEG-006)
 
 - `LINES_DIFFER_FROM_SUBTOTAL` with `details.group`, `details.lines`, `details.printed`: the `unitShare` of a group's lines does not sum to its subtotal;
-- `SUBTOTALS_DIFFER_FROM_TOTAL`: `recoverableSubtotal` + `nonRecoverableSubtotal` ≠ `totalCosts`;
+- `SUBTOTALS_DIFFER_FROM_TOTAL` with `details.subtotals`, `details.printed`: `recoverableSubtotal` + `nonRecoverableSubtotal` ≠ `totalCosts`;
 - `SETTLEMENT_DIFFERS` with `details.derived`, `details.printed`: `totalCosts` − `hausgeldRequested` ≠ `settlementPeak`;
-- `RESULT_DIFFERS`: `totalCosts` − `hausgeldPaid` ≠ `settlementResult` (when printed);
-- `LINE_SHARE_DIFFERS` with `details.position`, `details.derived`: with both quantities given, `totalAmount` × `allocationShare` / `allocationTotal`, rounded half-up, differs from `unitShare` by more than one cent;
-- `RESERVE_DIFFERS`: a reserve line's `opening` + `addition` − `withdrawal` ≠ `closing`;
+- `RESULT_DIFFERS` with `details.derived`, `details.printed`: `totalCosts` − `hausgeldPaid` ≠ `settlementResult` (when printed);
+- `LINE_SHARE_DIFFERS` with `details.position`, `details.derived`, `details.printed`: with both quantities given and `allocationTotal` > 0, `totalAmount` × `allocationShare` / `allocationTotal`, rounded half-up (for a negative line half away from zero), differs from `unitShare` by more than one cent;
+- `RESERVE_DIFFERS` with `details.position`, `details.derived`, `details.printed`: a reserve line's `opening` + `addition` − `withdrawal` ≠ `closing`; only where `opening` and `closing` are printed (an unprinted `addition` or `withdrawal` counts as 0, nothing else is estimated);
 - `CLASSIFIED_AGAINST_GROUP` with `details.positions`: lines whose `classification` is not their printed `group` (e.g. a reserve contribution printed among the costs); informative.
 - All amounts compare exactly in cents; the flags are derived on read, never stored.
 
 ### Commands
 
 - **Create** (`POST …/annual-statements`, `201`, `Idempotency-Key` scope `weg-annual-statement.create`): a `DRAFT` with the content above.
-  - **Order of checks:** `400` (the body; positions unique; `periodFrom ≤ periodUntil`; quantities) → membership `404` → `400 OUT_OF_RANGE` at `periodFrom`/`periodUntil` outside the financial year (it needs the WEG's start month) → `409 MEMBERSHIP_NOT_ACTIVE` → `422 STATEMENT_OUTSIDE_MEMBERSHIP` (the period not inside the membership's) → `supersedes` unknown, of another membership or year, or not `CONFIRMED` → `422 INVALID_SUPERSEDES` with `details.reason`.
+  - **Order of checks:** `400` (the body; positions unique, `DUPLICATE`; `periodUntil` before `periodFrom`, `INVALID_RANGE`; quantities as decimals with at most 12 integer digits and 3 places, `allocationShare` above `allocationTotal` `OUT_OF_RANGE`) → membership `404` → `400 OUT_OF_RANGE` at `periodFrom`/`periodUntil` outside the financial year (it needs the WEG's start month) → `409 MEMBERSHIP_NOT_ACTIVE` → `422 STATEMENT_OUTSIDE_MEMBERSHIP` (the period not inside the membership's) → `supersedes` unknown, of another membership or year, or not `CONFIRMED` → `422 INVALID_SUPERSEDES` with `details.reason` (`NOT_FOUND`, `OTHER_MEMBERSHIP`, `OTHER_YEAR`, `NOT_CONFIRMED`) and `details.supersedes`.
   - Several `DRAFT`s of one year are allowed (e.g. a draft and its correction).
 - **Replace** (`PUT /weg-annual-statements/{id}`, `If-Match`): the whole content again, as on create; only while `DRAFT`, else `409 CONFLICT` with `reason = "STATEMENT_NOT_DRAFT"`; the same content is a `200` no-op.
 - **Confirm** (`POST …/confirm`, `If-Match`, empty body):
@@ -4027,12 +4027,13 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 - **Guards:**
   - `weg_annual_statement_membership` (before insert): writes the PropertyReference first, then the WEG (a no-op, reading `financial_year_start_month` under that lock; as §49.5's plan, review on #147/#148), then needs the membership `ACTIVE` and the period inside it and inside the financial year. The repository's create takes the same locks in the same order (unit → WEG → membership `FOR UPDATE`);
   - `weg_annual_statement_frozen`: content changes only while `DRAFT`; the steps `DRAFT` → `CONFIRMED` | `VOID`, `CONFIRMED` → `SUPERSEDED` (only with `superseded_by_id` set); `version` + 1; P3-D8's no-op passes; no delete;
+  - `weg_annual_statement_successor` (a constraint trigger, deferred to commit; review on #150): a `SUPERSEDED` statement's successor is `CONFIRMED` (or superseded itself since), so neither a void of the successor nor a commit without its confirm leaves the year without a valid statement;
   - `weg_statement_cost_line_frozen`: lines are inserted, changed or deleted only while their statement is `DRAFT`;
   - the confirm writes the superseded statement first, then the new one (id order is not used: the old one is always locked first), so a second confirm superseding the same statement waits and is refused.
 
 ### Concurrency (RC and RR, each with a counter-check)
 
-- **Two confirms for one membership and year:** the partial unique index; the loser answers `STATEMENT_EXISTS` (RC) or fails to serialise (RR).
+- **Two confirms for one membership and year:** the partial unique index; the loser answers `STATEMENT_EXISTS` (RC, the repository maps the index's violation) or fails on the index (RR: `23505`, a unique violation rather than a serialisation failure; never two `CONFIRMED`).
 - **Two confirms superseding the same statement:** they serialise on it; the second sees `SUPERSEDED` (`INVALID_SUPERSEDES`).
 - **Statement create against membership end or void:** serialise on the unit, as §49.5.
 - **Statement create against a WEG amend of `financialYearStartMonth`:** serialise on the WEG row; under RC the later one sees the other (`OUT_OF_RANGE` at `periodFrom`, or `WEG_HAS_YEARS`), under RR it fails to serialise. Counter-check: the WEG read instead of written lets an amend and a create commit side by side (review on #148).

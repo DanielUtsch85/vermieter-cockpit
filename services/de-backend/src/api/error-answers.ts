@@ -12,6 +12,7 @@ import {
   AllocationNotLastError,
   AllocationRefusedError,
   AlreadyMatchedError,
+  AnnualStatementNotFoundError,
   ClosingBeforeDebtError,
   ConcurrentUpdateError,
   ConfirmationBlockedError,
@@ -45,6 +46,7 @@ import {
   InvalidSecurityDepositSplitError,
   InvalidMembershipError,
   InvalidOwnershipError,
+  InvalidSupersedesError,
   type LinkRefusal,
   LoanAllocationSetNotFoundError,
   LoanBalanceStatementNotFoundError,
@@ -59,6 +61,7 @@ import {
   LoanTermsNotFoundError,
   MembershipHasPlansError,
   MembershipHasSplitsError,
+  MembershipHasStatementsError,
   MembershipNotActiveError,
   MrePropertyNotFoundError,
   MreRentTermNotFoundError,
@@ -90,6 +93,7 @@ import {
   PlanOutsideMembershipError,
   PaymentNotProposableError,
   PaymentRefusedError,
+  PeriodOutsideYearError,
   PropertyReferenceNotFoundError,
   ProposalTransactionNotFoundError,
   ReconciliationNotFoundError,
@@ -107,6 +111,9 @@ import {
   SplitsMissingError,
   StatementAfterClosingError,
   StatementBeforeDebtError,
+  StatementExistsError,
+  StatementNotDraftError,
+  StatementOutsideMembershipError,
   SuggestionStaleError,
   TermsNotLastError,
   TermsRefusedError,
@@ -278,6 +285,7 @@ const TABLE = [
           : { acquisitionId: r.acquisitionId };
     return answer(422, r.kind, 'The set cannot be appended.', details);
   }),
+  on(AnnualStatementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Annual statement not found.', { statementId: error.statementId })),
   on(AlreadyMatchedError, (error) =>
     answer(409, 'CONFLICT', 'This Transaction already matches this rent term.', {
       reason: 'ALREADY_MATCHED',
@@ -415,6 +423,12 @@ const TABLE = [
   on(InvalidOwnershipError, (error) =>
     answer(422, 'INVALID_OWNERSHIP', 'The Ownership cannot be closed so.', { ownershipId: error.ownershipId, reason: error.reason }),
   ),
+  on(InvalidSupersedesError, (error) =>
+    answer(422, 'INVALID_SUPERSEDES', 'Only a CONFIRMED statement of the same membership and year is superseded.', {
+      supersedes: error.supersedes,
+      reason: error.reason,
+    }),
+  ),
   on(LoanAllocationSetNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Allocation set not found.', { allocationSetId: error.allocationSetId })),
   on(LoanBalanceStatementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Balance statement not found.', { statementId: error.statementId })),
   on(LoanClosedError, (error) => answer(409, 'CONFLICT', 'A closed Loan is final.', { reason: 'LOAN_CLOSED', loanId: error.loanId })),
@@ -442,6 +456,13 @@ const TABLE = [
       reason: 'MEMBERSHIP_HAS_SPLITS',
       membershipId: error.membershipId,
       transactionIds: error.transactionIds,
+    }),
+  ),
+  on(MembershipHasStatementsError, (error) =>
+    answer(409, 'CONFLICT', 'Annual statements of the WEG membership lie outside what would remain of it.', {
+      reason: 'MEMBERSHIP_HAS_STATEMENTS',
+      membershipId: error.membershipId,
+      statementIds: error.statementIds,
     }),
   ),
   on(MembershipNotActiveError, (error) =>
@@ -555,6 +576,7 @@ const TABLE = [
     }),
   ),
   on(PaymentRefusedError, (error) => refusalAnswer(error.refusal)),
+  on(PeriodOutsideYearError, (error) => validation([{ field: error.field, code: 'OUT_OF_RANGE' }])),
   on(PropertyReferenceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId })),
   on(ProposalTransactionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId })),
   on(ReconciliationNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Rent reconciliation not found.', { reconciliationId: error.reconciliationId })),
@@ -614,6 +636,25 @@ const TABLE = [
     answer(422, 'STATEMENT_AFTER_CLOSING', 'The statement is after the Loan was closed.', { closingDate: error.closingDate }),
   ),
   on(StatementBeforeDebtError, (error) => answer(422, 'STATEMENT_BEFORE_DEBT', 'The statement is before the debt starts.', { debtFrom: error.debtFrom })),
+  on(StatementExistsError, (error) =>
+    answer(409, 'CONFLICT', 'Another statement of the membership and year is confirmed; supersede it instead.', {
+      reason: 'STATEMENT_EXISTS',
+      statementId: error.statementId,
+    }),
+  ),
+  on(StatementNotDraftError, (error) =>
+    answer(409, 'CONFLICT', `The annual statement is ${error.status}.`, {
+      reason: 'STATEMENT_NOT_DRAFT',
+      statementId: error.statementId,
+      status: error.status,
+    }),
+  ),
+  on(StatementOutsideMembershipError, (error) =>
+    answer(422, 'STATEMENT_OUTSIDE_MEMBERSHIP', "The statement's period lies outside the membership.", {
+      validFrom: error.validFrom,
+      validUntil: error.validUntil,
+    }),
+  ),
   on(SuggestionStaleError, (error) =>
     answer(409, 'CONFLICT', 'The term was matched in between; the amount is above its open amount now.', {
       reason: 'SUGGESTION_STALE',
@@ -714,7 +755,7 @@ const TABLE = [
     answer(409, 'CONFLICT', 'Active memberships hang off the WEG; void them first.', { reason: 'WEG_HAS_MEMBERSHIPS', membershipIds: error.membershipIds }),
   ),
   on(WegHasYearsError, (error) =>
-    answer(409, 'CONFLICT', 'Plans are filed by financial year; its start month is fixed.', { reason: 'WEG_HAS_YEARS', wegId: error.wegId }),
+    answer(409, 'CONFLICT', 'Plans and statements are filed by financial year; its start month is fixed.', { reason: 'WEG_HAS_YEARS', wegId: error.wegId }),
   ),
   on(WegMembershipNotFoundError, (error) => answer(404, 'NOT_FOUND', 'WEG membership not found.', { membershipId: error.membershipId })),
   on(WegNotActiveError, (error) =>

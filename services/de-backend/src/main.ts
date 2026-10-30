@@ -44,6 +44,12 @@ import {
   listEconomicPlans,
   voidEconomicPlan,
   getHausgeldProposal,
+  confirmAnnualStatement,
+  createAnnualStatement,
+  getAnnualStatement,
+  listAnnualStatements,
+  replaceAnnualStatement,
+  voidAnnualStatement,
   createWeg,
   getWeg,
   listWegs,
@@ -120,6 +126,7 @@ import {
   PostgresLoanRepository,
   PostgresSecurityDepositRepository,
   PostgresWegRepository,
+  PostgresWegAnnualStatementRepository,
   PostgresWegEconomicPlanRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
@@ -174,6 +181,7 @@ const loans = new PostgresLoanRepository(db);
 const securityDeposits = new PostgresSecurityDepositRepository(db);
 const wegs = new PostgresWegRepository(db);
 const wegPlans = new PostgresWegEconomicPlanRepository(db);
+const wegStatements = new PostgresWegAnnualStatementRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -264,6 +272,14 @@ const app = createApp({
     list: listEconomicPlans({ repository: wegPlans }),
     void: voidEconomicPlan({ repository: wegPlans }),
     hausgeldProposal: getHausgeldProposal({ repository: wegPlans }),
+  },
+  wegAnnualStatements: {
+    create: createAnnualStatement({ repository: wegStatements }),
+    get: getAnnualStatement({ repository: wegStatements }),
+    list: listAnnualStatements({ repository: wegStatements }),
+    replace: replaceAnnualStatement({ repository: wegStatements }),
+    confirm: confirmAnnualStatement({ repository: wegStatements }),
+    void: voidAnnualStatement({ repository: wegStatements }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

@@ -237,8 +237,8 @@ export class PostgresWegRepository implements WegRepository {
         if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', weg: current, changed: false };
         if (plan.kind !== 'AMEND') return plan;
         if (plan.newAdministratorId !== null && refusal !== undefined) return refusal;
-        // §49.5: plans are filed by financial year; weg_financial_year_held is the backstop.
-        if (plan.changed.includes('financialYearStartMonth') && (await hasActivePlans(trx, id))) return { kind: 'WEG_HAS_YEARS' };
+        // §49.5, §50: plans and statements are filed by financial year; weg_financial_year_held and _statements are the backstop.
+        if (plan.changed.includes('financialYearStartMonth') && (await hasYears(trx, id))) return { kind: 'WEG_HAS_YEARS' };
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
         await trx
@@ -577,7 +577,7 @@ async function administratorRefusalOf(trx: Transaction<Database>, partyId: strin
   return undefined;
 }
 
-/** The unit's WEG splits (any status, reversals included) and the membership's `ACTIVE` plans (§49.3, §49.5). */
+/** The unit's WEG splits (any status, reversals included), the membership's `ACTIVE` plans and statements not `VOID` (§49.3, §49.5, §50). */
 async function holdsOf(trx: Transaction<Database>, membership: WegMembership): Promise<MembershipHolds> {
   const splits = await trx
     .selectFrom('transaction_split')
@@ -593,21 +593,37 @@ async function holdsOf(trx: Transaction<Database>, membership: WegMembership): P
     .where('membership_id', '=', membership.id)
     .where('status', '=', 'ACTIVE')
     .execute();
+  const statements = await trx
+    .selectFrom('weg_annual_statement')
+    .select(['id', sql<string>`to_char(period_from, 'YYYY-MM-DD')`.as('period_from'), sql<string>`to_char(period_until, 'YYYY-MM-DD')`.as('period_until')])
+    .where('membership_id', '=', membership.id)
+    .where('status', '<>', 'VOID')
+    .execute();
   return {
     splits: splits.map((s) => ({ transactionId: s.transaction_id, bookingDate: s.booking_date as BusinessDate })),
     plans: plans.map((p) => ({ id: p.id, effectiveFrom: p.effective_from as BusinessDate })),
+    statements: statements.map((st) => ({ id: st.id, periodFrom: st.period_from as BusinessDate, periodUntil: st.period_until as BusinessDate })),
   };
 }
 
-async function hasActivePlans(trx: Transaction<Database>, wegId: string): Promise<boolean> {
-  const row = await trx
+/** Whether a membership of the WEG has an `ACTIVE` plan or a statement that is not `VOID` (§49.5, §50). */
+async function hasYears(trx: Transaction<Database>, wegId: string): Promise<boolean> {
+  const plan = await trx
     .selectFrom('weg_economic_plan')
     .innerJoin('weg_membership', 'weg_membership.id', 'weg_economic_plan.membership_id')
     .select('weg_economic_plan.id')
     .where('weg_membership.weg_id', '=', wegId)
     .where('weg_economic_plan.status', '=', 'ACTIVE')
     .executeTakeFirst();
-  return row !== undefined;
+  if (plan !== undefined) return true;
+  const statement = await trx
+    .selectFrom('weg_annual_statement')
+    .innerJoin('weg_membership', 'weg_membership.id', 'weg_annual_statement.membership_id')
+    .select('weg_annual_statement.id')
+    .where('weg_membership.weg_id', '=', wegId)
+    .where('weg_annual_statement.status', '<>', 'VOID')
+    .executeTakeFirst();
+  return statement !== undefined;
 }
 
 /** The no-op write of a unit that the trigger does too; false for an unknown or foreign PropertyReference. */
