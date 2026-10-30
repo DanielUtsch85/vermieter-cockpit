@@ -3,6 +3,7 @@ import type { PrincipalVerifier } from '../application/index.js';
 import { principalOf, requireDeAccess } from './access-middleware.js';
 import { acquisitionCostRoutes, type AcquisitionCostCommands } from './acquisition-costs.js';
 import { acquisitionRoutes, type AcquisitionCommands } from './acquisitions.js';
+import { depreciationAssetRoutes, type DepreciationAssetCommands } from './depreciation-assets.js';
 import { errorHandler } from './errors.js';
 import { financialAccountRoutes, type FinancialAccountCommands } from './financial-accounts.js';
 import { financialCategoryRoutes, type FinancialCategoryQueries } from './financial-categories.js';
@@ -64,6 +65,8 @@ export interface AppCommands {
   readonly taxation: TaxationCommands;
   /** The minimal RentalContractReference with the rent's due day over time (VC-7-02). */
   readonly rentalContractReferences: RentalContractReferenceCommands;
+  /** The DepreciationAsset and the rate of a year (VC-8-01). */
+  readonly depreciationAssets: DepreciationAssetCommands;
   /** Rent reconciliation, coverage, suggestions, write-back and removal (VC-4-01 … VC-4-05). */
   readonly rentReconciliations: RentReconciliationCommands;
   /** Loan terms, schedule and payment proposal (VC-3-02, VC-3-04, VC-3-05). */
@@ -131,6 +134,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(wegSpecialAssessmentRoutes(deps.wegSpecialAssessments));
   api.use(taxationRoutes(deps.taxation));
   api.use(rentalContractReferenceRoutes(deps.rentalContractReferences));
+  api.use(depreciationAssetRoutes(deps.depreciationAssets));
   api.use(rentReconciliationRoutes(deps.rentReconciliations));
   api.use(loanTermsRoutes(deps.loanTerms));
   api.use(loanDebtRoutes(deps.loanDebt));

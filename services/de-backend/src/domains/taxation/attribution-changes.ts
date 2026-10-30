@@ -1,8 +1,7 @@
-import type { BusinessDate } from '../../shared/index.js';
+import type { BusinessDate, RuleRegistry } from '../../shared/index.js';
 import { businessDayOf } from '../ledger/index.js';
 import type { ChangedEntry, RentDueDay } from '../rental-contract-reference/index.js';
 import { attributeTaxYear, rentTiming } from './cash-timing.js';
-import type { RuleRegistry } from './rules/registry.js';
 
 /**
  * `ATTRIBUTION_INPUT_CHANGED` (api-design.md §58C, §58A): a correction of a RentalContractReference's `rentDueDays`

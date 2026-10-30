@@ -1,5 +1,4 @@
-import type { BusinessDate } from '../../../shared/index.js';
-import type { RuleVersion } from './rule-version.js';
+import type { BusinessDate, RuleVersion } from '../../../shared/index.js';
 
 /** The parameters of the tax year of cash (api-design.md §58A, P7-D3). */
 export interface CashTimingParameters {

@@ -1,6 +1,6 @@
 import { businessDayOf } from '../domains/ledger/index.js';
+import { TAX_RULES } from '../domains/tax-rules/index.js';
 import {
-  TAX_RULES,
   buildTaxYearView,
   classificationFingerprint,
   type AnschaffungsnaheCheck,

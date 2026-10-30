@@ -1,4 +1,4 @@
-import type { BusinessDate, Money } from '../../shared/index.js';
+import type { BusinessDate, Money, RuleRef, RuleRegistry } from '../../shared/index.js';
 import { yearOf } from './cash-timing.js';
 import {
   categoryDefaultsOn,
@@ -10,8 +10,6 @@ import {
   type TaxClassification,
 } from './classification.js';
 import { CATEGORY_DEFAULTS } from './rules/de-category-defaults.js';
-import type { RuleRegistry } from './rules/registry.js';
-import type { RuleRef } from './rules/rule-version.js';
 import type { Origin, ReviewState, TaxCategory, Treatment } from './vocabulary.js';
 
 /**

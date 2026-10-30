@@ -1,5 +1,5 @@
 /**
- * Taxation domain (phase-7-plan.md, api-design.md §55–§58A): the rule registry, the category defaults, the tax year of
+ * Taxation domain (phase-7-plan.md, api-design.md §55–§58A): its rule versions, the category defaults, the tax year of
  * cash (the 10-day rule), refunds, and the TaxClassification of a split or a retained deposit. Taxation interprets
  * cash; it never writes it. See docs/development/coding-guidelines.md §3.
  */
@@ -21,9 +21,10 @@ export {
   treatmentFits,
 } from './vocabulary.js';
 export type { CreateReviewState, Origin, ReviewState, SourceType, StoredReviewState, TaxCategory, Treatment, WegSourceType } from './vocabulary.js';
-export { RULE_STATUSES, ruleKey } from './rules/rule-version.js';
-export type { RuleRef, RuleStatus, RuleVersion } from './rules/rule-version.js';
-export { RuleRegistry, TAX_RULES } from './rules/registry.js';
+// The registry kernel is shared (P8-D11, §59); re-exported for the Phase-7 importers. `TAX_RULES` is `domains/tax-rules/`'s.
+export { RULE_STATUSES, RuleRegistry, ruleKey } from '../../shared/index.js';
+export type { RuleRef, RuleStatus, RuleVersion } from '../../shared/index.js';
+export { TAXATION_RULE_VERSIONS } from './rules/versions.js';
 export { CATEGORY_DEFAULTS, DE_CATEGORY_DEFAULTS_V1 } from './rules/de-category-defaults.js';
 export type { CategoryDefault, CategoryDefaultsParameters } from './rules/de-category-defaults.js';
 export { CASH_TIMING, DE_CASH_TIMING_V1 } from './rules/de-cash-timing.js';

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { Money, type BusinessDate } from '../../shared/index.js';
+import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import type { RentDueDay } from '../rental-contract-reference/index.js';
 import { attributeTaxYear, dayIn, hausgeldTiming, interestTiming, needsTiming, refundOf, rentTiming, windowYearEnd, type TimingInput } from './cash-timing.js';
 import { planClassification, type SplitFacts } from './classification.js';
 import { deriveDepositTaxMeaning, depositNotCounted, planDepositClassification, type DepositFacts } from './deposit-closing.js';
-import { TAX_RULES } from './rules/registry.js';
+import { TAXATION_RULE_VERSIONS } from './rules/versions.js';
+
+/** Taxation's own versions (api-design §59): a domain test builds its registry and never imports `domains/tax-rules/`. */
+const TAX_RULES = new RuleRegistry(TAXATION_RULE_VERSIONS);
 
 /**
  * VC-7-02 domain (api-design.md §58A, P7-D3, P7-D4): the window, each source's economic period and due date, the

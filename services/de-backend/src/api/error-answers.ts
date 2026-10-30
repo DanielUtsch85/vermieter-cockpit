@@ -7,6 +7,7 @@ import {
   AcquisitionHasValidOwnershipsError,
   AcquisitionNotDraftError,
   AcquisitionNotFoundError,
+  AcquisitionNotOfPropertyError,
   AcquisitionPaymentNotFoundError,
   AdministratorInactiveError,
   AllocationNotLastError,
@@ -153,6 +154,11 @@ import {
   WriteBackFailedError,
   WriteBackInProgressError,
   AdvisorConfirmedError,
+  AssetAdvisorConfirmedError,
+  BuildingAssetExistsError,
+  CompletionYearMissingError,
+  DepreciationAssetNotActiveError,
+  DepreciationAssetNotFoundError,
   ClassificationExistsError,
   ClassificationSupersededError,
   DepositNotCountedError,
@@ -1021,6 +1027,32 @@ const TABLE = [
   ),
   on(RentalContractTenantNotFoundError, (error) =>
     answer(422, 'MRE_TENANT_NOT_FOUND', 'MRE has no such Tenant in this Realm.', { mreTenantId: error.mreTenantId }),
+  ),
+  // The DepreciationAsset (api-design §59, VC-8-01).
+  on(DepreciationAssetNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Depreciation asset not found.', { assetId: error.assetId })),
+  on(BuildingAssetExistsError, (error) =>
+    answer(409, 'CONFLICT', 'The PropertyReference already has an active building asset.', { reason: 'BUILDING_ASSET_EXISTS', assetId: error.assetId }),
+  ),
+  on(DepreciationAssetNotActiveError, (error) =>
+    answer(409, 'CONFLICT', `The depreciation asset is ${error.status}.`, { reason: 'ASSET_NOT_ACTIVE', assetId: error.assetId, status: error.status }),
+  ),
+  on(CompletionYearMissingError, (error) =>
+    answer(409, 'CONFLICT', "The building's completion year is not recorded; nothing to confirm.", {
+      reason: 'COMPLETION_YEAR_MISSING',
+      assetId: error.assetId,
+    }),
+  ),
+  on(AssetAdvisorConfirmedError, (error) =>
+    answer(409, 'CONFLICT', 'A user cannot lower an advisor confirmation; amend the review state to NEEDS_REVIEW first.', {
+      reason: 'ADVISOR_CONFIRMED',
+      assetId: error.assetId,
+    }),
+  ),
+  on(AcquisitionNotOfPropertyError, (error) =>
+    answer(422, 'ACQUISITION_NOT_OF_PROPERTY', 'The Acquisition belongs to another PropertyReference.', {
+      acquisitionId: error.acquisitionId,
+      propertyReferenceId: error.propertyReferenceId,
+    }),
   ),
 ];
 

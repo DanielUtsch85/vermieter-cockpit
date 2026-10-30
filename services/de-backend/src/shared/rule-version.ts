@@ -1,4 +1,4 @@
-import type { BusinessDate } from '../../../shared/index.js';
+import type { BusinessDate } from './business-date.js';
 
 /**
  * A rule version (api-design.md §58, phase-7-plan P7-D1, taxation.md §9, ADR-041): a versioned code module, never a

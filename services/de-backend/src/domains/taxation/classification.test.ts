@@ -5,7 +5,7 @@ import {
   DE_CATEGORY_DEFAULTS_V1,
   RuleRegistry,
   TAX_CATEGORIES,
-  TAX_RULES,
+  TAXATION_RULE_VERSIONS,
   TREATMENTS,
   deriveTaxMeaning,
   planClassification,
@@ -18,6 +18,9 @@ import {
   type TaxClassificationId,
   type Treatment,
 } from './index.js';
+
+/** Taxation's own versions (api-design §59): a domain test builds its registry and never imports `domains/tax-rules/`. */
+const TAX_RULES = new RuleRegistry(TAXATION_RULE_VERSIONS);
 
 /** VC-7-01 domain (api-design.md §55–§57): the default table, the fit, TREATMENT_NOT_ALLOWED, the derivation, the plans. */
 const day = (value: string) => value as BusinessDate;

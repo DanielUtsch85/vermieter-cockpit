@@ -1,11 +1,9 @@
-import type { AuditActor, BusinessDate, Money, VersionConflict } from '../../shared/index.js';
+import type { AuditActor, BusinessDate, Money, RuleRef, RuleRegistry, RuleVersion, VersionConflict } from '../../shared/index.js';
 import type { CategoryType, Direction, TransactionStatus } from '../ledger/index.js';
 import { anschaffungsnaheWindow, type AnschaffungsnaheCheck, type CheckEntryFlag } from './anschaffungsnahe.js';
 import { ANSCHAFFUNGSNAHE, type AnschaffungsnaheParameters } from './rules/de-anschaffungsnahe.js';
 import { CATEGORY_DEFAULTS, type CategoryDefault, type CategoryDefaultsParameters } from './rules/de-category-defaults.js';
 import { DISTRIBUTION_82B } from './rules/de-82b-distribution.js';
-import type { RuleRegistry } from './rules/registry.js';
-import type { RuleRef, RuleVersion } from './rules/rule-version.js';
 import {
   attributeTaxYear,
   refundOf,
