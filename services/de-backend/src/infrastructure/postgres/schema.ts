@@ -232,6 +232,134 @@ export interface SecurityDepositTable {
   version: Generated<number>;
 }
 
+export interface WegTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  status: string;
+  display_name: string;
+  administrator_party_id: string | null;
+  financial_year_start_month: number;
+  notes: string | null;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface WegMembershipTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  weg_id: string;
+  property_reference_id: string;
+  /** `numeric(12,3)`: written and read as text. */
+  mea_numerator: string;
+  mea_denominator: string;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  valid_from: string;
+  valid_until: string | null;
+  status: string;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface WegEconomicPlanTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  membership_id: string;
+  financial_year: number;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  effective_from: string;
+  resolution_date: string | null;
+  /** `numeric` columns: written and read as text. */
+  monthly_hausgeld: string;
+  monthly_reserve_contribution: string;
+  recoverable_costs: string;
+  non_recoverable_costs: string;
+  income: string | null;
+  annual_reserve_contribution: string | null;
+  currency: string;
+  /** `jsonb`: an array of cost lines (api-design §49.5). */
+  cost_lines: Generated<unknown>;
+  status: string;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface WegAnnualStatementTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  membership_id: string;
+  financial_year: number;
+  /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
+  period_from: string;
+  period_until: string;
+  document_date: string | null;
+  resolution_date: string | null;
+  due_date: string | null;
+  supersedes_id: string | null;
+  superseded_by_id: string | null;
+  /** `numeric` columns: written and read as text, signed. */
+  recoverable_subtotal: string;
+  non_recoverable_subtotal: string;
+  total_costs: string;
+  hausgeld_requested: string;
+  hausgeld_paid: string;
+  reserve_requested: string | null;
+  reserve_paid: string | null;
+  settlement_peak: string;
+  settlement_result: string | null;
+  currency: string;
+  /** `jsonb`: the reserve section (api-design §50) or null. */
+  reserve: unknown;
+  status: string;
+  confirmed_at: Date | null;
+  confirmed_by: string | null;
+  voided_at: Date | null;
+  voided_by: string | null;
+  void_reason: string | null;
+  source_references: Generated<string[]>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface WegStatementCostLineTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  statement_id: string;
+  position: number;
+  account: string;
+  cost_group: string;
+  allocation_key: string;
+  /** `numeric(15,3)`, written and read as text. */
+  allocation_total: string | null;
+  allocation_share: string | null;
+  total_amount: string;
+  unit_share: string;
+  currency: string;
+  classification: string;
+  classification_source: string;
+}
+
 export interface LoanTermsTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -499,6 +627,11 @@ export interface Database {
   land_building_allocation: LandBuildingAllocationTable;
   loan: LoanTable;
   security_deposit: SecurityDepositTable;
+  weg: WegTable;
+  weg_membership: WegMembershipTable;
+  weg_economic_plan: WegEconomicPlanTable;
+  weg_annual_statement: WegAnnualStatementTable;
+  weg_statement_cost_line: WegStatementCostLineTable;
   loan_terms: LoanTermsTable;
   loan_allocation_set: LoanAllocationSetTable;
   loan_allocation: LoanAllocationTable;

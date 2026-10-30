@@ -1,5 +1,5 @@
 import type { AuditActor, Money } from '../../shared/index.js';
-import { sameSplits, type DepositSplitRefusal, type LoanSplitRefusal, type SplitInput } from './transaction-split.js';
+import { sameSplits, type DepositSplitRefusal, type LoanSplitRefusal, type SplitInput, type WegSplitRefusal } from './transaction-split.js';
 import type { BusinessDate, Direction, Transaction, TransactionId, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
@@ -215,7 +215,8 @@ export type CorrectOutcome =
   | { readonly kind: 'SUM_MISMATCH'; readonly expected: Money; readonly actual: Money }
   /** The replacement's splits with `loanId` (§41.5) or `securityDepositId` (§47.2); the reversal mirrors the original's. */
   | LoanSplitRefusal
-  | DepositSplitRefusal;
+  | DepositSplitRefusal
+  | WegSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface CorrectionRepository {

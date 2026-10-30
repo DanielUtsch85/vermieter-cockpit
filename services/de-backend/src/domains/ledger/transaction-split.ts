@@ -174,6 +174,50 @@ export function checkDepositSplits(
   return undefined;
 }
 
+/** The categories whose splits name their unit and need a WEG membership on the booking date (§49.3, P6-D2). */
+export const WEG_SPLIT_CATEGORIES = ['WEG_RECOVERABLE', 'WEG_NON_RECOVERABLE', 'WEG_RESERVE_CONTRIBUTION'] as const;
+
+/** Why a split set's WEG splits refuse it (api-design §49.3): 422 NO_WEG_MEMBERSHIP. */
+export type WegSplitRefusal =
+  | { readonly kind: 'NO_WEG_MEMBERSHIP'; readonly position: number; readonly reason: 'NO_UNIT' }
+  | {
+      readonly kind: 'NO_WEG_MEMBERSHIP';
+      readonly position: number;
+      readonly reason: 'NO_MEMBERSHIP';
+      readonly propertyReferenceId: string;
+      readonly bookingDate: BusinessDate;
+    };
+
+export const isWegSplit = (split: Pick<SplitInput, 'financialCategoryCode'>) =>
+  (WEG_SPLIT_CATEGORIES as readonly string[]).includes(split.financialCategoryCode);
+
+/**
+ * The rule of §49.3 in its order: every WEG split without a unit first (`NO_UNIT`), then one whose unit has no
+ * `ACTIVE` membership on the booking date (`NO_MEMBERSHIP`); each for the first split in position order. A reversal is
+ * exempt. `unitsWithMembership` holds the units with such a membership, read after the unit's lock.
+ */
+export function checkWegSplits(
+  transaction: { readonly reversal: boolean; readonly bookingDate: BusinessDate },
+  splits: readonly SplitInput[],
+  unitsWithMembership: ReadonlySet<string>,
+): WegSplitRefusal | undefined {
+  if (transaction.reversal) return undefined;
+  const weg = splits.flatMap((split, i) => (isWegSplit(split) ? [{ split, position: i + 1 }] : []));
+  const noUnit = weg.find((s) => s.split.propertyReferenceId === null);
+  if (noUnit !== undefined) return { kind: 'NO_WEG_MEMBERSHIP', position: noUnit.position, reason: 'NO_UNIT' };
+  const noMembership = weg.find((s) => !unitsWithMembership.has(s.split.propertyReferenceId as string));
+  if (noMembership !== undefined) {
+    return {
+      kind: 'NO_WEG_MEMBERSHIP',
+      position: noMembership.position,
+      reason: 'NO_MEMBERSHIP',
+      propertyReferenceId: noMembership.split.propertyReferenceId as string,
+      bookingDate: transaction.bookingDate,
+    };
+  }
+  return undefined;
+}
+
 /** The Transaction as far as a split response needs it. */
 export interface SplitTransaction {
   readonly id: TransactionId;
@@ -198,7 +242,8 @@ export type ReplaceSplitsOutcome =
   | { readonly kind: 'UNKNOWN_CATEGORY'; readonly codes: readonly string[] }
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceIds: readonly string[] }
   | LoanSplitRefusal
-  | DepositSplitRefusal;
+  | DepositSplitRefusal
+  | WegSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface TransactionSplitRepository {

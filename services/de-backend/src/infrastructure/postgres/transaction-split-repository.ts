@@ -2,6 +2,7 @@ import { sql, type Kysely, type Transaction as Trx } from 'kysely';
 import {
   checkDepositSplits,
   checkLoanSplits,
+  checkWegSplits,
   checkVersion,
   planSplits,
   sameSplits,
@@ -18,6 +19,7 @@ import type { AuditActor, BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { lockLoansOf } from './loan-repository.js';
 import { lockDepositsOf } from './security-deposit-repository.js';
+import { unitsWithMembershipOn } from './weg-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -111,6 +113,10 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
           const refusal = checkDepositSplits({ direction: transaction.direction, reversal: false }, splits, await lockDepositsOf(trx, mreRealmId, depositIds));
           if (refusal !== undefined) return refusal;
         }
+        // §49.3: then the units of its WEG splits (Transaction → PropertyReference, P6-D9) and their memberships.
+        const bookingDate = row.booking_date as BusinessDate;
+        const wegRefusal = checkWegSplits({ reversal: false, bookingDate }, splits, await unitsWithMembershipOn(trx, mreRealmId, splits, bookingDate));
+        if (wegRefusal !== undefined) return wegRefusal;
 
         await trx.deleteFrom('transaction_split').where('transaction_id', '=', transaction.id).execute();
         const inserted = await trx

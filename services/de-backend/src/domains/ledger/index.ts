@@ -85,14 +85,18 @@ export {
   DEPOSIT_SPLIT_CATEGORIES,
   LOAN_SPLIT_CATEGORIES,
   SPLITTABLE_STATUSES,
+  WEG_SPLIT_CATEGORIES,
   checkDepositSplits,
   checkLoanSplits,
+  checkWegSplits,
+  isWegSplit,
   planSplits,
   sameSplits,
 } from './transaction-split.js';
 export type {
   DepositSplitRefusal,
   LoanSplitRefusal,
+  WegSplitRefusal,
   SplitLoan,
   ReplaceSplitsOutcome,
   SplitInput,

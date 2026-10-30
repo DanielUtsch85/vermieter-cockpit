@@ -67,6 +67,7 @@ export type {
 } from './bank-import.js';
 export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';
 export {
+  NoWegMembershipError,
   FinancialCategoryNotFoundError,
   InvalidLoanSplitError,
   InvalidSecurityDepositSplitError,
@@ -423,3 +424,110 @@ export { RECONCILIATION_STATUSES, WRITE_BACK_STATES, isTermKey } from '../domain
 export type { Coverage, ReconciliationStatus, RentPaymentReconciliation } from '../domains/rent-reconciliation/index.js';
 export { RentNotProposableError, getRentSplitProposal } from './rent-split-proposal.js';
 export type { GetRentSplitProposal, MreRentBreakdownReader, RentSplitProposalView } from './rent-split-proposal.js';
+export {
+  AdministratorInactiveError,
+  InvalidMembershipError,
+  MembershipHasPlansError,
+  MembershipHasSplitsError,
+  MembershipHasStatementsError,
+  MembershipNotActiveError,
+  OverlappingWegMembershipError,
+  WegHasMembershipsError,
+  WegHasYearsError,
+  WegMembershipNotFoundError,
+  WegNotActiveError,
+  WegNotFoundError,
+  amendMembership,
+  amendWeg,
+  createMembership,
+  createWeg,
+  endMembership,
+  getMembership,
+  getWeg,
+  listMemberships,
+  listWegs,
+  readUnitMemberships,
+  voidMembership,
+  voidWeg,
+} from './wegs.js';
+export type {
+  AmendMembership,
+  AmendWeg,
+  CreateMembership,
+  CreateMembershipInput,
+  CreateWeg,
+  CreateWegInput,
+  EndMembership,
+  GetMembership,
+  GetWeg,
+  ListMemberships,
+  ListWegs,
+  ReadUnitMemberships,
+  VoidMembership,
+  VoidWeg,
+} from './wegs.js';
+export { MEMBERSHIP_STATUSES, WEG_STATUSES, formatMea, parseMea } from '../domains/weg/index.js';
+export type { MembershipChanges, MembershipFilter, Mea, Weg, WegChanges, WegFilter, WegMembership } from '../domains/weg/index.js';
+export {
+  EconomicPlanNotFoundError,
+  EffectiveFromOutsideYearError,
+  HausgeldNotProposableError,
+  NoEconomicPlanError,
+  PlanExistsError,
+  PlanOutsideMembershipError,
+  createEconomicPlan,
+  getEconomicPlan,
+  getHausgeldProposal,
+  listEconomicPlans,
+  voidEconomicPlan,
+} from './weg-economic-plans.js';
+export type {
+  CreateEconomicPlan,
+  CreateEconomicPlanInput,
+  GetEconomicPlan,
+  GetHausgeldProposal,
+  HausgeldProposal,
+  HausgeldProposalFlag,
+  ListEconomicPlans,
+  VoidEconomicPlan,
+} from './weg-economic-plans.js';
+export { COST_GROUPS, PLAN_STATUSES } from '../domains/weg/index.js';
+export type { CostGroup, PlanCostLine, PlanFlag, PlanView } from '../domains/weg/index.js';
+export {
+  AnnualStatementNotFoundError,
+  InvalidSupersedesError,
+  PeriodOutsideYearError,
+  StatementExistsError,
+  StatementNotDraftError,
+  StatementOutsideMembershipError,
+  confirmAnnualStatement,
+  createAnnualStatement,
+  getAnnualStatement,
+  listAnnualStatements,
+  replaceAnnualStatement,
+  voidAnnualStatement,
+} from './weg-annual-statements.js';
+export type {
+  ConfirmAnnualStatement,
+  CreateAnnualStatement,
+  CreateAnnualStatementInput,
+  GetAnnualStatement,
+  ListAnnualStatements,
+  ReplaceAnnualStatement,
+  VoidAnnualStatement,
+} from './weg-annual-statements.js';
+export {
+  CLASSIFICATIONS,
+  RESERVE_LINE_KINDS,
+  RESERVE_SOURCES,
+  STATEMENT_STATUSES as ANNUAL_STATEMENT_STATUSES,
+  compareQuantities,
+  normalizeQuantity,
+} from '../domains/weg/index.js';
+export type {
+  NewStatementCostLine,
+  ReserveSection,
+  StatementContent,
+  StatementFlag as AnnualStatementFlag,
+  StatementView as AnnualStatementView,
+} from '../domains/weg/index.js';
