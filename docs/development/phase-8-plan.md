@@ -1,6 +1,6 @@
 # Phase 8 Plan — Depreciation (AfA)
 
-**Status:** Proposal (accepted by review of the PR that adds it)
+**Status:** Accepted (#173). The project owner's decisions of 2026-10-30 are recorded in §1 (**Decided** lines). VC-8-01 is specified (api-design §59).
 **Roadmap:** `docs/roadmap.md` Phase 8 · **Backlog:** `backlog.md` §3g (VC-8-xx)
 
 Phase 8 is modelled conceptually in several places:
@@ -51,7 +51,7 @@ Each decision names whether it **needs the user** (a choice only the project own
   3. a `DepreciationAsset` (data-model §38) per PropertyReference for the building, with its own inputs.
 - **Recommendation: 3.** The completion year is a fact of the building, not of a purchase: two Acquisitions of shares of one unit share it. The PropertyReference is MRE's anchor and carries no DE facts (AGENTS.md §4, §11). A `DepreciationAsset` is the aggregate the model already names (domain-model §48–§49).
 - **Stored on the asset** (the canonical interpretive inputs):
-  - `assetType` `BUILDING` (one per PropertyReference, a partial unique index); `SEPARATE_ASSET` only if P8-D7 adopts it;
+  - `assetType` `BUILDING` (one per PropertyReference, a partial unique index); `SEPARATE_ASSET` with VC-8-03 (P8-D7 decided option 1);
   - `buildingCompletionYear`, with `sourceReferences` (e.g. the Teilungserklärung, the energy certificate);
   - `depreciationMethod` `LINEAR_7_4` (the only one, P8-D13);
   - the optional shorter useful life of P8-D4, with its evidence;
@@ -74,6 +74,7 @@ Each decision names whether it **needs the user** (a choice only the project own
   - that non-deductible VAT of a private landlord is part of the Herstellungskosten, so the gross `lineAmount` enters the basis (§ 9b Abs. 1 EStG; not covered by `depreciation.md`). Phase 7 uses net amounts only for the 15 % threshold (A2), never for the basis;
   - that a cost of category `OTHER` is acquisition cost: §58B already counts it in the threshold; the user records it, DE does not judge it.
 - **Needs the user:** no for the composition (for review); yes for the two VERIFY points (tax advisor).
+- **Reviewer input on #173** (a note for the tax advisor, not final law): by § 9b Abs. 1 EStG, input VAT that cannot be deducted belongs to the acquisition or production cost. For a private landlord without a VAT option the gross amount is therefore the basis. The only open case is a landlord who opted under § 9 UStG (then net), which P8-D13 places out of scope.
 
 ### P8-D3 The land/building split stays the user's input (A3, E2; taxation.md §6.2)
 
@@ -84,6 +85,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Recommendation: 1.** The Arbeitshilfe is a typified procedure that changes with each edition (A3); computing it would be a rule set of its own with land values and building data DE does not hold (E2). A contractual split is "gesondert zu würdigen" (A3): DE records it, the user (or the advisor) confirms it. Options 2 and 3 can follow as an item of their own.
 - **A superseding allocation** (P2-D9) changes the basis of every year from the start; P8-D10 makes that visible.
 - **Needs the user:** yes, to confirm that option 1 is enough (option 3 is the alternative). **VERIFY:** none beyond A3 and E2; whether a given contractual split holds is case-dependent and stays the user's.
+- **Decided (2026-10-30):** option 1 (the allocation as entered, no BMF-Arbeitshilfe), taken as recommended. The user can still change it in review.
 
 ### P8-D4 The rate by the completion year; a shorter useful life (B1–B3, B7; depreciation.md §3)
 
@@ -99,6 +101,7 @@ Each decision names whether it **needs the user** (a choice only the project own
   - **Recommendation:** (a), since `depreciation.md` §9 asks for the fields. The repealed BMF requirements of 2023 are **not** encoded as checks (B7): DE records the evidence and judges nothing.
 - **VERIFY:** that bands b and c applied unchanged in the earlier years the app may compute (before 2023); whether a shorter useful life, once claimed, applies from the start or from the year it is evidenced (not covered by `depreciation.md`).
 - **Needs the user:** yes for the shorter useful life (in or out); no for the bands (verified, B1–B3).
+- **Decided (2026-10-30):** the shorter actual useful life is **in Phase 8**, option (a): an optional `usefulLifeYears` with its evidence and its own `reviewState`. DE records it and judges nothing (B7). VC-8-01 specifies the fields (api-design §59: one entry per Acquisition on the asset; only a confirmed entry feeds a figure).
 
 ### P8-D5 The start and the first year (B6; depreciation.md §5)
 
@@ -120,6 +123,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Retroactive effect:** when the check crosses 15 % in the third year and the user capitalises earlier sources, the AfA of every year from the first source changes, and those years' Werbungskosten fall by the same sources. DE derives both, flags `DEPRECIATION_CHANGED_SINCE_RECORDED` where a recorded version differs (P8-D10), and changes nothing on its own (as P7-D6: "a filed year may be affected").
 - **VERIFY:** the start of a later cost (the options above); whether an anschaffungsnahe item counts from the transfer date or from its own date.
 - **Needs the user:** yes (with the tax advisor).
+- **Reviewer input on #173** (a note for the tax advisor, not final law): R 7.4 Abs. 9 S. 3 EStR treats later Herstellungskosten as incurred at the **start of the year** in which they arise. That is option 1, `subsequentCostStart` = `START_OF_YEAR`, with no special case for anschaffungsnahe costs. Option 3 has no basis. To be confirmed with the tax advisor before VC-8-03 is specified.
 
 ### P8-D7 Separate movable assets: the Einbauküche (B8, B9)
 
@@ -131,6 +135,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Recommendation: 1**, with a rule `DE_AFA_MOVABLE_LINEAR@1`. It reuses the whole machinery and is small. Option 3 is not acceptable (a known error without a flag).
 - **GWG** (B9): a movable asset up to 800 € net is deducted at once; it is Phase 7's `DEDUCTIBLE`, nothing to do here. The Sammelposten of § 6 Abs. 2a is not modelled (B9).
 - **Needs the user:** yes (1 or 2).
+- **Decided (2026-10-30):** option 1. Separate assets (e.g. the Einbauküche over 10 years) are **in Phase 8** as `SEPARATE_ASSET`, with their own rule `DE_AFA_MOVABLE_LINEAR@1` (VC-8-03, api-design §59B).
 
 ### P8-D8 Owners: each Acquisition's AfA belongs to its buyers (P2-D10, P7-D7, data-model §12.5)
 
@@ -143,6 +148,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Exact first, then one rounding per owner and year:** each owner's amount of a year is computed exactly (fractions, no floating point), then rounded by **cumulative rounding**: the year's amount is the rounded cumulative AfA to the end of the year minus the rounded cumulative AfA to the end of the year before. So a component's years sum to its basis exactly, and no year drifts.
 - **Summed, never distributed** (§27.4's F4b, P7-D7): the property's AfA is the sum of the owners' amounts and the `NOT_OWNED` part (a capitalised item's part of an unowned share), so **owners + `NOT_OWNED` = the property** to the cent, as in §58C.
 - **Needs the user:** yes (1 or 2). **VERIFY:** that a co-owner's AfA follows their own acquisition cost (not covered by `depreciation.md`).
+- **Decided (2026-10-30):** option 1. Each purchase's AfA goes to that purchase's own buyers while they hold the share, exact to the cent (exact fractions, cumulative rounding). An inheritance or gift is flagged (`OWNER_WITHOUT_ACQUISITION`), not computed.
 
 ### P8-D9 The end: the basis exhausted, the tenure ended
 
@@ -152,6 +158,7 @@ Each decision names whether it **needs the user** (a choice only the project own
   - **Recommendation:** decide with the tax advisor before VC-8-02 is specified; a rule parameter (`endMonthCounts`). Until then a year with an ended tenure is flagged `DISPOSAL_YEAR_TO_VERIFY`, never computed on a guess. ACC8 asserts the chosen option once decided.
 - **The end of letting** without a sale (own use) is out of scope (P8-D13): DE does not know a unit's use.
 - **Needs the user:** yes for the disposal year (with the tax advisor).
+- **Reviewer input on #173** (a note for the tax advisor, not final law): the year of a sale is prorated (R 7.4 Abs. 8 EStR), and the month of the sale counts (to be confirmed). The cut-off is the transfer of economic ownership: the buyer's Acquisition's `economicTransferDate` if there is one, otherwise the seller's `validUntil`, flagged in the same way as `TRANSFER_DATE_ASSUMED`. To be confirmed with the tax advisor before VC-8-02 is specified.
 
 ### P8-D10 Derived on read; recorded as versions (resolves data-model §39–§40, domain-model §51, api-design §60)
 
@@ -178,6 +185,7 @@ Each decision names whether it **needs the user** (a choice only the project own
   So a year becomes final only when the AfA a person recorded is the AfA DE derives. **Alternative:** the first flag informative, so that recording is optional.
 - **Not a snapshot:** a recorded schedule version is the Depreciation domain's record (data-model §39), not an `InvestmentMetricSnapshot` (ADR-040, Phase 9).
 - **Needs the user:** yes (1, 2 or 3; and whether "not recorded" is open).
+- **Decided (2026-10-30):** option 3. The schedule is computed on read and recorded as versions. `DEPRECIATION_SCHEDULE_NOT_RECORDED` and `DEPRECIATION_CHANGED_SINCE_RECORDED` are both **open** flags, so a year is final only once its AfA is recorded.
 
 ### P8-D11 Rules and the domain boundary (ADR-041, P7-D1; AGENTS.md §26)
 
@@ -213,7 +221,9 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Denkmal- and Sanierungs-AfA, § 7h/§ 7i EStG** (B10, depreciation.md §6): optional for the MVP, "als eigenes RuleSet". Out of scope; a later item.
 - **Not covered by `depreciation.md`, so not computed:** the successor's continuation of AfA after an inheritance or gift (§ 11d EStDV; P8-D8 flags it), extraordinary AfA (AfaA, § 7 Abs. 1 S. 7 EStG), a self-built building (its start at completion, B6), business assets and Wirtschaftsgebäude (depreciation.md §3: out of scope), months of own use.
 - **The BMF-Arbeitshilfe** as a computation (P8-D3).
+- **A landlord who opted for VAT under § 9 UStG** (input VAT deductible, so the basis is net) is out of scope. DE records no such option and takes the gross amount (P8-D2, reviewer input on #173).
 - **Needs the user:** yes, to confirm the scope (in particular § 7b and § 7h/§ 7i).
+- **Decided (2026-10-30):** the scope as above, taken as recommended. The user can still change it in review.
 
 ### P8-D14 Conventions carried over (as P7-D9)
 
@@ -234,7 +244,8 @@ See `backlog.md` §3g. Each item starts with a spec PR for its API section, as i
    - **Code:** migration (the asset table, the unique index on the building per PropertyReference); `DE_AFA_BUILDING_LINEAR@1` registered; the start check covering it.
    - **Tests:** the bands at 1924/1925 and 2022/2023; a year before 2023 `NO_APPLICABLE_RULE`; one building per PropertyReference; Realm isolation; Idempotency-Key, If-Match, AuditRecords.
    - **Counter-checks:** no basis, rate or schedule stored on the asset (the table has no such column); a completion year never guessed.
-   - **Depends on:** this plan. The shorter useful life only if P8-D4 adopts it.
+   - **Depends on:** this plan. The shorter useful life is included (P8-D4 decided).
+   - **Status:** specified (api-design §59; migration 0049 planned).
 2. **VC-8-02: the schedule of the purchase** (P8-D2, P8-D3, P8-D5, P8-D8, P8-D9).
    - **Spec:** api-design §59A: `GET /api/v1/depreciation-assets/{id}/schedule[?ownerPartyId=]`, derived: the components of P8-D2 (1), years, months, amounts, Restbuchwert, per owner and `NOT_OWNED`, the rule versions, the flags. The shared basis function with §58B.
    - **Tests:**
@@ -388,7 +399,7 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 - Erhaltungsaufwand vs. Herstellungskosten, as in Phase 7;
 - whether a capitalised item is a separate asset, and its useful life.
 
-**Questions for the review of this plan** (the decisions marked "needs the user"):
+**Questions for the review of this plan** (the decisions marked "needs the user"). Questions 1–6 were answered on 2026-10-30 (the **Decided** lines in §1). Question 7 is still open.
 1. **P8-D10:** derived and recorded (option 3)? And is "not recorded" an open flag, so that a year is final only once its AfA was recorded?
 2. **P8-D8:** the AfA per Acquisition among its buyers (option 1)?
 3. **P8-D7:** separate assets in Phase 8 (option 1), or only marked and flagged (option 2)?
