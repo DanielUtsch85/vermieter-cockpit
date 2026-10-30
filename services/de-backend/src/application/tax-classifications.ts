@@ -1,6 +1,7 @@
 import { businessDayOf } from '../domains/ledger/index.js';
 import {
   TAX_RULES,
+  buildTaxYearView,
   classificationFingerprint,
   type AnschaffungsnaheCheck,
   type WegTaxMeaning,
@@ -19,6 +20,7 @@ import {
   type TaxPage,
   type TaxPageRequest,
   type TaxCategory,
+  type TaxYearView,
   type Treatment,
 } from '../domains/taxation/index.js';
 import type { BusinessDate, Money } from '../shared/index.js';
@@ -459,6 +461,70 @@ export function getAnschaffungsnaheCheck(deps: Deps): GetAnschaffungsnaheCheck {
     if (check === undefined) throw new AcquisitionNotFoundError(acquisitionId);
     if (check.acquisitionStatus === 'CANCELLED') throw new AcquisitionCancelledError(acquisitionId);
     return check;
+  };
+}
+
+/** `ownerPartyId` names no Party of the caller's Realm (→ 404 with `details.ownerPartyId`, §58C). */
+export class OwnerPartyNotFoundError extends Error {
+  override readonly name = 'OwnerPartyNotFoundError';
+
+  constructor(readonly ownerPartyId: string) {
+    super(`Party ${ownerPartyId} not found`);
+  }
+}
+
+/** The Party holds no Ownership in the year and takes part in no item of it (→ 422 NOT_AN_OWNER_IN_YEAR, §58C). */
+export class NotAnOwnerInYearError extends Error {
+  override readonly name = 'NotAnOwnerInYearError';
+
+  constructor(
+    readonly ownerPartyId: string,
+    readonly year: number,
+  ) {
+    super(`Party ${ownerPartyId} is not an owner in ${year}`);
+  }
+}
+
+/** More items than the view carries (→ 409 CONFLICT `TAX_YEAR_TOO_LARGE`, §58C); §55's paged list remains. */
+export class TaxYearTooLargeError extends Error {
+  override readonly name = 'TaxYearTooLargeError';
+
+  constructor(
+    readonly itemCount: number,
+    readonly limit: number,
+    readonly pagedList: string,
+  ) {
+    super(`The tax year has ${itemCount} items, more than ${limit}`);
+  }
+}
+
+export type GetTaxYearView = (input: {
+  readonly principal: RealmPrincipal;
+  readonly propertyReferenceId: string;
+  readonly year: number;
+  readonly ownerPartyId: string | null;
+}) => Promise<TaxYearView>;
+
+/**
+ * The tax-year view (api-design.md §58C) in its order of checks: the PropertyReference (404), the owner's Party (404),
+ * `NOT_AN_OWNER_IN_YEAR` (422), the cap (409), then the view; derived from one snapshot, never stored.
+ */
+export function getTaxYearView(deps: Deps & { readonly registry?: RuleRegistry }): GetTaxYearView {
+  const registry = deps.registry ?? TAX_RULES;
+  return async ({ principal, propertyReferenceId, year, ownerPartyId }) => {
+    const today = todayOf(deps);
+    const read = await deps.repository.readTaxYear(propertyReferenceId, principal.mreRealmId, year, ownerPartyId, today);
+    if (read === undefined) throw new PropertyReferenceNotFoundError(propertyReferenceId);
+    if (ownerPartyId !== null && read.ownerPartyFound !== true) throw new OwnerPartyNotFoundError(ownerPartyId);
+    const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry });
+    switch (outcome.kind) {
+      case 'VIEW':
+        return outcome.view;
+      case 'NOT_AN_OWNER_IN_YEAR':
+        throw new NotAnOwnerInYearError(ownerPartyId as string, year);
+      case 'TAX_YEAR_TOO_LARGE':
+        throw new TaxYearTooLargeError(outcome.itemCount, outcome.limit, `/api/v1/property-references/${propertyReferenceId}/tax-meanings?year=${year}`);
+    }
   };
 }
 

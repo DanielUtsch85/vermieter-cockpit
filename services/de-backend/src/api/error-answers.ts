@@ -164,6 +164,9 @@ import {
   WegSourcePositionNotFoundError,
   WithdrawalTaxYearOutOfRangeError,
   NoApplicableTaxRuleError,
+  NotAnOwnerInYearError,
+  OwnerPartyNotFoundError,
+  TaxYearTooLargeError,
   NotCurrentClassificationError,
   RefundYearOutOfRangeError,
   RentalContractReferenceExistsError,
@@ -989,6 +992,22 @@ const TABLE = [
     answer(422, 'TAX_YEAR_OUT_OF_RANGE', "taxYear must be a calendar year the statement's period touches.", {
       taxYear: error.taxYear,
       allowedYears: error.allowedYears,
+    }),
+  ),
+  // The tax-year view (api-design §58C, VC-7-04).
+  on(OwnerPartyNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Party not found.', { ownerPartyId: error.ownerPartyId })),
+  on(NotAnOwnerInYearError, (error) =>
+    answer(422, 'NOT_AN_OWNER_IN_YEAR', 'The Party holds no Ownership in the year and takes part in no item of it.', {
+      ownerPartyId: error.ownerPartyId,
+      year: error.year,
+    }),
+  ),
+  on(TaxYearTooLargeError, (error) =>
+    answer(409, 'CONFLICT', 'The tax year has more items than the view carries; read it through the paged list.', {
+      reason: 'TAX_YEAR_TOO_LARGE',
+      itemCount: error.itemCount,
+      limit: error.limit,
+      pagedList: error.pagedList,
     }),
   ),
   on(RentalContractReferenceNotFoundError, (error) =>

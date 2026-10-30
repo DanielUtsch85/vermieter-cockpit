@@ -141,6 +141,7 @@ import {
   getTaxRule,
   listTaxClassificationHistory,
   listTaxMeanings,
+  getTaxYearView,
   listTaxRules,
   reviewTaxClassification,
 } from './application/index.js';
@@ -343,6 +344,7 @@ const app = createApp({
     useTaxMeaning: getUseTaxMeaning({ repository: taxClassifications }),
     anschaffungsnahe: getAnschaffungsnaheCheck({ repository: taxClassifications }),
     taxMeanings: listTaxMeanings({ repository: taxClassifications }),
+    taxYear: getTaxYearView({ repository: taxClassifications }),
     listRules: listTaxRules(),
     getRule: getTaxRule(),
   },

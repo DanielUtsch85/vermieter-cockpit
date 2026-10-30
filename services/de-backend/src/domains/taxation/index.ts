@@ -132,3 +132,41 @@ export {
 } from './weg-sources.js';
 export type { DateSource, MeaFraction, OtherWegSource, WegNotCounted, WegSourceFacts, WegSourceFlag, WegTaxMeaning, WegTaxMeaningFlag } from './weg-sources.js';
 export { distributionOf, withTreatmentEffects } from './treatment-effects.js';
+export { amendmentLists, attributionChanges, listBefore } from './attribution-changes.js';
+export type { AttributionCandidate, AttributionChange, AttributionChanges, AttributionInput, ReferenceAmendment, ReferenceHistory } from './attribution-changes.js';
+export {
+  EINNAHMEN_LINES,
+  NOT_OWNED,
+  TAX_YEAR_ITEM_LIMIT,
+  TAX_YEAR_PLACES,
+  WERBUNGSKOSTEN_LINES,
+  buildTaxYearView,
+  flagIsOpen,
+  foldPerOwner,
+  participantsOn,
+  placementOf,
+  reviewOf,
+  ruleVersionsOf,
+  shareOut,
+  signedCents,
+  sourceKeyOf,
+} from './tax-year-view.js';
+export type {
+  FoldedParts,
+  Level,
+  Participant,
+  Placement,
+  TaxYearAcquisition,
+  TaxYearItem,
+  TaxYearLine,
+  TaxYearOutcome,
+  TaxYearRead,
+  TaxYearResult,
+  TaxYearReview,
+  TaxYearRuleVersion,
+  TaxYearSection,
+  TaxYearTotals,
+  TaxYearView,
+  ViewFlag,
+  ViewOwnership,
+} from './tax-year-view.js';
