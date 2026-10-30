@@ -4414,7 +4414,37 @@ Review states (domain-model §45): stored `USER_CONFIRMED`, `ADVISOR_CONFIRMED`,
   - `tax_classification_source_counts` (before insert): writes the split's Transaction (no-op), then requires it current (`SOURCE_NOT_COUNTED`);
   - `tax_classification_treatment` (before insert): the `TREATMENT_NOT_ALLOWED` rules by the split's category type and code;
   - `tax_classification_frozen` (before update): content, source, rule and creation never change; `superseded_*` set once; `review_state` only to the allowed targets; `version` + 1; no delete.
-- **Nothing on `transaction_split` or `ledger_transaction` changes:** no column, no trigger. `down` drops the table.
+- **Nothing on `transaction_split` or `ledger_transaction` changes:** no column, no trigger. The one addition is the key `transaction_split_realm_key` (`UNIQUE (id, mre_realm_id)`), which the composite foreign key needs. `down` drops the table and the key.
+
+### As implemented (VC-7-01)
+
+Details the contract above left open, now binding:
+- **More guards:**
+  - `tax_classification_initial`: an insert is current, version 1, `USER_CONFIRMED` or `NEEDS_REVIEW`;
+  - a deferred `tax_classification_chain`: `supersedes` and `supersededBy` agree in both directions;
+  - CHECKs: the `taxCategory`/`treatment` fit, `advisorPartyId` only with `ADVISOR_CONFIRMED`, `superseded_at` and `superseded_by` set together;
+  - the self references are `(id, transaction_split_id)` keys, so a chain never leaves its split; a supersede raises the old row's `version` by 1.
+  
+  0045 carries its own text check (`tax_classification_texts_valid()`).
+- **The fit rule:** `null` treatment only with `UNCLASSIFIED`. `NOT_RELEVANT` is allowed on every non-income line.
+- **Values of later items** answer `400 NOT_SUPPORTED`, on create and on the history query: `WEG_SPENDING`, `DISTRIBUTED_82B`, and every `sourceType` but `TRANSACTION_SPLIT`. `jurisdiction` in a body is `400 INVALID_FORMAT` (the body is strict).
+- **`details.allowed`** of `TREATMENT_NOT_ALLOWED` lists the rule's treatments minus the forbidden ones.
+- **A split before 2000-01-01** has no applicable rule version:
+  - its meaning reads `UNCLASSIFIED`, `null`, `NEEDS_REVIEW`, with `rule: null`;
+  - a create on it is `409 CONFLICT` with `reason = "NO_APPLICABLE_RULE"`, after `SOURCE_NOT_COUNTED` and before `TREATMENT_NOT_ALLOWED`.
+- **§57's steps:**
+  - **Order:** `404` → `CLASSIFICATION_SUPERSEDED` → `ADVISOR_CONFIRMED` (confirm only) → `SOURCE_NOT_COUNTED` → `409 RULE_NOT_REGISTERED` (with `ruleCode`, `version`) → advisor Party `404` → no-op `200` → `412` (If-Match) → write. The source is read without a lock: the steps lock the classification row only.
+  - **No-ops:** advisor-confirm with the same Party, and mark-needs-review on `NEEDS_REVIEW`. An omitted `advisorPartyId` is `null`, and mark-needs-review clears the advisor.
+  - **What is recorded:** the advisor's `note` and the `reason` go into the AuditRecord (with from and to), not into a column.
+- **Rule `status`** also has `PENDING`, for a version whose `effectiveFrom` is still ahead (none today).
+- **Flags** are `{ code, details }`:
+  - `NOT_COUNTED` carries `transactionStatus`, `correctionRole`;
+  - `CLASSIFICATION_ON_CORRECTED_SPLIT` carries `originalTransactionId`, `classificationIds`. It looks at the direct original only and holds for every unclassified split of a replacement whose original had a current classification;
+  - `RULE_SUPERSEDED` carries `ruleCode`, `version`, `applicableVersion`.
+- **The per-year list** filters on the split's own `propertyReferenceId`. The derived filters apply before paging; the response is `{ items, page, pageSize, total }`, with `pageSize` 50 by default.
+- **The history** is `404` for an unknown or foreign split, not paged, oldest first, `{ items }`.
+- **Responses:** derived reads carry no version `ETag`; Express's own weak `ETag` remains. AuditRecords use the entity type `TaxClassification`, and `TAX_CLASSIFIED` names `supersedes` too. `Location` is `/api/v1/tax-classifications/{id}`.
+- **The start check** runs after the migrations in `main.ts`. A missing reference is logged and ends the process with exit code 1.
 
 ---
 
