@@ -179,10 +179,10 @@ The architecture ADRs that previously blocked this roadmap are now **all resolve
 
 | Spec | Needed for | Status |
 |---|---|---|
-| `docs/germany/rent-and-operating-costs.md` | Phase 7 | **Verified** 29.10.2026 (v0.2, checklist D, E3, E4) |
-| `docs/germany/taxation.md` | Phase 7 | **Verified** 29.10.2026 (v0.2, checklist A, E1, E2, E5, E6) |
-| `docs/germany/depreciation.md` | Phase 8 | **Verified** 29.10.2026 (v0.2, checklist B) |
-| `docs/germany/weg.md` | Phase 6 | **Verified** 29.10.2026 (v0.2) |
+| `docs/germany/rent-and-operating-costs.md` | Phase 7 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2, checklist D, E3, E4) |
+| `docs/germany/taxation.md` | Phase 7 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2, checklist A, E1, E2, E5, E6) |
+| `docs/germany/depreciation.md` | Phase 8 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2, checklist B) |
+| `docs/germany/weg.md` | Phase 6 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2) |
 
 Phases 0–5 have **no remaining roadmap-level blocker** and can proceed once scaffolding (Phase 0) is done.
 
