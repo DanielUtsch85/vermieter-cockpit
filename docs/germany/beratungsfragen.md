@@ -61,7 +61,7 @@
 - **Kürzere Nutzungsdauer:** ab Beginn der AfA oder ab dem nachgewiesenen Jahr? Und die Grenzwerte des § 7 Abs. 4 S. 2 EStG je Band: nach dem im Review zu #174 zitierten Gesetzestext feste Jahreszahlen (weniger als 33 / 50 / 40 Jahre), nicht der Kehrwert des Satzes (33⅓ Jahre bei 3 %); am amtlichen Text prüfen (VERIFY).
 - **Miteigentümer:** AfA auf die eigenen Anschaffungskosten (P8-D8); Fortführung durch Rechtsnachfolger (§ 11d EStDV) bleibt außerhalb.
 
-**Was die Software tut:** Bis zur Antwort berechnet sie nichts geraten: Jahre vor 2023 `NO_APPLICABLE_RULE`, Veräußerungsjahr `DISPOSAL_YEAR_TO_VERIFY`; die offenen Wahlen sind Regelparameter (`subsequentCostStart`, `endMonthCounts`).
+**Was die Software tut:** Bis zur Antwort berechnet sie nichts geraten: Jahre vor 2023 `NO_APPLICABLE_RULE`, Veräußerungsjahr zeitanteilig nach Monaten nach dem Hinweis aus der Durchsicht berechnet, aber mit dem offenen Hinweis `DISPOSAL_YEAR_TO_VERIFY`, sodass das Jahr nie als endgültig gilt (api-design §59A); die offenen Wahlen sind Regelparameter (`subsequentCostStart`, `endMonthCounts`).
 
 ---
 

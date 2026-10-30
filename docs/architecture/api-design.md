@@ -5836,6 +5836,373 @@ Each record carries the actor, and the version before and after (§17). No-ops w
 
 ---
 
+# 59A. Depreciation Schedule of the Purchase (VC-8-02, spec)
+
+**Status:** specified (VC-8-02); not implemented. No migration: the schedule is a read and stores nothing.
+
+Decisions P8-D2, P8-D3, P8-D5, P8-D8, P8-D9 and P8-D10 of `docs/development/phase-8-plan.md`, as decided on 2026-10-30 (AGENTS.md §17, ADR-010, ADR-041; `docs/germany/depreciation.md` v0.2 §1, §3, §5, §7, §8; `verification-checklist.md` B1–B3, B5–B7). The schedule is the AfA of the building asset of §59, **per purchase and per owner**, for every year: the basis of each `CONFIRMED` Acquisition, its start, its rate, its months, each year's amount, the residual value (Restbuchwert), and which owner each cent belongs to. It is **computed on every read** from the Acquisition, its costs, its allocation, its Ownerships, the asset and the rule (P8-D10, decided: computed on read, recorded as versions by VC-8-04). It writes nothing: no cash, no split, no schedule row, no AuditRecord (AGENTS.md §17, ADR-006). VC-8-02 covers the purchase only (P8-D2 (1)). Capitalised costs and separate assets are VC-8-03's (extension points below), recorded versions are VC-8-04's (§60), and the AfA in the tax-year view is VC-8-05's (§58C).
+
+### Route
+
+```text
+GET /api/v1/depreciation-assets/{assetId}/schedule[?from=&to=&ownerPartyId=]      (VC-8-02, §59A)
+```
+
+- **Domain owner:** Depreciation (`domains/depreciation/`, P8-D11). It reads the asset itself, and the Acquisitions, their costs, payments and allocations, the Ownerships and the Parties through the Acquisition, Ownership and Party domains (never their tables from Depreciation code; the repository reads them in one snapshot, as §58C's `taxYearSnapshot`). **Authorization:** the caller's Realm, as every DE route. Every row read belongs to it (composite foreign keys); an Acquisition, Ownership or Party of another Realm never appears.
+- **The route is the asset's**, as the plan names it (P8-D10, backlog VC-8-02) and §59's route list already shows. The property-level entry point for a year is the tax-year view (§58C, VC-8-05), which reads this derivation through the Depreciation domain's index; a second route `GET /property-references/{id}/depreciation-schedule` would duplicate it.
+- **Path and query** (strict; an unknown query parameter is `400`):
+  - `assetId`: the asset (UUID);
+  - `from`, `to`: integers 2000–2100, as §58C's `year` (`400 INVALID_FORMAT` for anything but digits, `400 OUT_OF_RANGE` outside). `to` < `from` is `400 OUT_OF_RANGE` at `to`. **Defaults:** `from` is the earliest start year of the listed components (below), else today's year (Europe/Berlin, the server's clock, as §59's `year`); `to` is the last year in which a computable component has AfA, else today's year; both clamped to 2000–2100, and `to` is at least `from`. `range.truncated` is true when the default `to` was clamped to 2100 while a computable component has AfA after it;
+  - `ownerPartyId` (UUID, optional): the owner level. Without it, the property level.
+- **Order of checks:**
+  1. `400` (the malformed `assetId`, `from`, `to`, `ownerPartyId`, an unknown parameter), all field errors at once;
+  2. the asset unknown or of another Realm → `404` (`DepreciationAssetNotFoundError`, `details.assetId`);
+  3. `ownerPartyId` names no Party of the caller's Realm → `404` with `details.ownerPartyId` (`OwnerPartyNotFoundError`, as §58C);
+  4. the Party is **not an owner of the asset's PropertyReference** → `422 NOT_AN_OWNER` with `details: { ownerPartyId, propertyReferenceId }`. It is an owner when it holds, at any time, a `VALID` Ownership of the PropertyReference, or is a buyer of a listed component. An `INACTIVE` Party is an owner like any other;
+  5. `200` with the schedule. A `VOID` asset, a missing completion year or an unconfirmed fact is **not** an error: the schedule answers with its reasons (a read never fails for want of a figure, §59).
+- **One snapshot:** the read is one `REPEATABLE READ READ ONLY` transaction (P8-D14): the asset and its `shorterUsefulLives`, the PropertyReference, its Acquisitions that are not `CANCELLED` with their parties, `ACTIVE` costs, counting payments and current allocation, and every `VALID` Ownership of the PropertyReference. No MRE call.
+- **No `ETag`:** a derived read carries no version `ETag` (as §55, §58C); Express's own weak `ETag` remains.
+- **`computedOn`:** today in Europe/Berlin. The figures do not depend on it; only the default range does.
+
+### The components (P8-D2 (1))
+
+- **One component per purchase:** each Acquisition of the asset's PropertyReference that is
+  - `CONFIRMED` (computable when nothing below stops it); or
+  - `DRAFT` with at least one `VALID` Ownership carrying its id (listed, never computed: `ACQUISITION_NOT_CONFIRMED`). A purchase recorded this far is real but unconfirmed, and the user should see that it is missing from the AfA. A `DRAFT` without Ownerships is an alternative under negotiation (§27.1) and is not listed. A `CANCELLED` one never is.
+- **`componentId`** is `ACQUISITION:{acquisitionId}`, and **`kind`** is `ACQUISITION`. VC-8-03 adds `kind` `CAPITALIZED_ITEM` with `componentId` `{sourceType}:{sourceId}:{sourcePosition}` (the extension point, below).
+- **Order:** by start date, then `acquisitionId`.
+
+### The basis of a component: one function with §58B (P8-D2, P8-D3; B5)
+
+- **The building's acquisition cost exactly as the anschaffungsnahe check computes it** (§58B): `basisAmount` = (`purchasePrice` + the `ACTIVE` acquisition costs except the excluded categories) × `buildingAmount` / `totalAllocableAmount` of the **current** allocation (§27.3), **rounded half-up to the cent once**. Land never enters: only `buildingAmount` scales the basis (B5; depreciation.md §1). Expected cost amounts are used, not paid ones (§27.4: the economics of the acquisition, not its cash).
+- **One function** (P8-D2): `buildingAcquisitionCost` moves out of `domains/taxation/anschaffungsnahe.ts` into the Acquisition domain (`domains/acquisition/building-cost.ts`, exported through `acquisition/index.ts`). Depreciation may not import Taxation (VC-8-01's forbidden edge), and Taxation already imports the Acquisition domain (`largestRemainder`), so the Acquisition domain is the one place both reach. It takes the Acquisition, its costs, its current allocation and the **excluded cost categories as a parameter** (AGENTS.md §16: no constant), and returns `{ basisAmount, purchasePrice, acquisitionCosts, excludedCosts, allocation, reason }`. `checkAnschaffungsnahe` calls it with `DE_ANSCHAFFUNGSNAHE@1`'s `excludedCostCategories`, the schedule with `DE_AFA_BUILDING_LINEAR@1`'s `basis.excludedCostCategories` (below). The 15 % check's behaviour does not change: its tests stay green unchanged.
+- **The function's reasons**, in this order (the first that applies; the check keeps its own `NO_APPLICABLE_RULE` in front, as now):
+  - `ACQUISITION_NOT_CONFIRMED`: a `DRAFT` (§27.4: only `CONFIRMED` feeds Phases 7 and 8);
+  - `NO_ALLOCATION`: no current allocation;
+  - `ALLOCATION_NOT_CONFIRMED`: the current allocation is `UNREVIEWED` or `NEEDS_REVIEW` (data-model §15: "only confirmed allocation should feed canonical depreciation calculations"). The basis is still shown, so the user sees what confirming would give;
+  - `NO_BUILDING`: `buildingAmount` is 0.00 (undeveloped land, §27.3). Nothing to depreciate.
+- **`FINANCING_RELATED`** is excluded (taxation.md §6, A6: not acquisition cost), as in the check. `OTHER` counts, as in the check (the VERIFY point of P8-D2 stays the user's: DE records the category, it does not judge it).
+- **Gross amounts** (P8-D2): the costs and the price are entered as agreed and invoiced, so the basis is gross. For a private landlord without a VAT option, non-deductible input VAT belongs to the acquisition cost (§ 9b Abs. 1 EStG; reviewer input on #173, **VERIFY** with the tax advisor, not covered by `depreciation.md`). A landlord who opted under § 9 UStG would need the net amounts; that case is out of scope (P8-D13), and DE records no such option.
+- **The allocation as entered** (P8-D3, decided option 1): its `method` and sources are shown, never recomputed (A3, E2). A superseding allocation changes the basis of every year from the start; a recorded version that differs shows it (VC-8-04).
+- **A test asserts** that for every Acquisition of the e2e scenarios the schedule's `basis.amount` equals the check's `basis.basisAmount` (§58B) for the same snapshot, and a registry test that both rules' excluded categories are equal.
+- **`ACQUISITION_COST_UNPAID`** (informative, P8-D2): an `ACTIVE` cost whose `paymentStatus` (§27.2) is not `PAID`. It changes nothing: the basis uses the expected amount.
+
+### The asset, the rate and the rule (§59, P8-D4)
+
+- **The asset's reasons** (§59's `rate.reasons` without `NO_APPLICABLE_RULE`, which is per year here): `ASSET_VOID`, `COMPLETION_YEAR_MISSING`, `ASSET_NOT_CONFIRMED`. While one holds, **no component is computed**: the basis is shown, the amounts are `null`, and the schedule's `reasons` name it. Never a default completion year (§59's counter-check).
+- **The rate of a year** is §59's `rate` for that year: the band's `ratePercent` of the rule version selected for the year, as an exact fraction (`"2"` → `1/50`), or for a component whose Acquisition has an entry in `shorterUsefulLives`:
+  - the entry `applies` (§59): `1/usefulLifeYears`, flagged `SHORTER_USEFUL_LIFE` (informative);
+  - the entry is not confirmed: the component is not computable (`USEFUL_LIFE_NOT_CONFIRMED`, §59: neither rate is a fact yet);
+  - the entry is not shorter than the band's threshold: the band's rate, flagged `USEFUL_LIFE_NOT_SHORTER` (open: the user claimed a life the statute does not treat as shorter, §59).
+- **From when a confirmed shorter life applies** is not covered by `depreciation.md` (phase-8-plan §3, 6, **VERIFY**; §59 leaves it to VC-8-02). **The schedule applies it from the component's start.** When `evidence.date` lies after 31 December of the component's first year, the component carries `USEFUL_LIFE_START_TO_VERIFY` (open) with `details: { evidenceDate, firstYear }`, so the year is never final on this choice. When the evidence is dated in the first year, both readings agree and nothing is flagged.
+- **`NO_APPLICABLE_RULE`:** a component that starts before 2023 (no version of `DE_AFA_BUILDING_LINEAR` before `effectiveFrom` 2023-01-01, §59) is **not computable in any year**, with `details: { yearsWithoutRule: [first year … 2022] }`. The residual value at the start of 2023 depends on the earlier years, so computing 2023 onward alone would be a guess. A second rule version for the earlier bands lifts it once phase-8-plan §3, 4 is verified (open question 2).
+- **The rule version of a year** is selected on 1 January of that year (§58), and every year names it.
+- **`DEGRESSIVE_AFA_MAY_APPLY`** (informative, P8-D13): the completion year is at least the rule's `degressiveHint.fromCompletionYear` and equals the component's first year. DE cannot know the other conditions of § 7 Abs. 5a EStG (B4) and computes linear AfA only.
+
+### The start and the first year (P8-D5; B6)
+
+- **The start date** is the Acquisition's `transferDate` (§27.1, P2-D6): `economicTransferDate`, the transfer of economic ownership (Nutzen und Lasten, B6; depreciation.md §5).
+- **Without `economicTransferDate`**, `transferDate` is the `contractDate`, and the component carries `TRANSFER_DATE_ASSUMED` (open) with `details: { contractDate }`. The assumption is never silent (P8-D5).
+- **The start month counts in full** (§ 7 Abs. 1 S. 4 EStG: less 1/12 for each **full** month before the month of acquisition; B6). The first year therefore has 13 − (start month) twelfths: a transfer on 1 January gives 12/12 of that year and nothing of the year before, one in April 9/12 (depreciation.md §5), one in July 6/12, one on 31 December 1/12.
+- **The year of AfA** is the calendar year of the months it covers (P8-D5). § 11 EStG and the 10-day rule do not apply.
+
+### The arithmetic: exact, one rounding per owner and year (P8-D8, P8-D9)
+
+Every amount is computed in integer cents and exact fractions (`bigint`, never floating point; AGENTS.md §20), as §27.4 and §58C do.
+
+- **The owners' bases.** The component's buyers are the `VALID` Ownerships carrying its id (§27.4). Each buyer's weight is `share / acquiredShare`, and the owner's basis `b_i` is `largestRemainder(basisCents, weights)` (`domains/acquisition/owner-allocation.ts`, ties by `ownerPartyId` ascending, as §27.4). So the owners' bases sum to the component's basis exactly, each within one cent of `basis × w_i`.
+- **The months of an owner.** An owner's AfA runs month by month from the start month while the owner's **tenure** holds the bought share (below). Month `j` (1, 2, … from the start month) depreciates, of the owner's basis, the still-held fraction `f_j` times `min(rate_j / 12, max(0, 1 − Σ_{k<j} rate_k / 12))`. `rate_j` is the rate of month `j`'s year. The last month takes what is left, so the cumulative AfA of a part never exceeds its basis. With the rates of `DE_AFA_BUILDING_LINEAR@1` the number of months is whole (2 % → 600, 2.5 % → 480, 3 % → 400, `1/n` → 12·n), so the remainder falls into the last year, as depreciation.md §7 says ("bis Restbuchwert 0").
+- **The exact cumulative AfA** of owner `i` to the end of year `Y`, `C_i(Y)`, is the sum of those monthly amounts up to December of `Y`, an exact fraction of cents.
+- **Cumulative rounding** (P8-D8): the owner's amount of `Y` is `round(C_i(Y)) − round(C_i(Y − 1))`, with `round` **half-up to the cent**, as every Money rounding of the codebase (`divideHalfUp`, §58B's basis). The amounts are never negative (`C_i` does not decrease), no year drifts, and over the whole life they sum to `round(C_i(end))`, which is `b_i` when the part is held to the end (`b_i` is whole cents). Example (synthetic): a basis of 1,000.01 at 2 % from January: the exact annual amount is 20.0002. Year 1 is 20.00, year 25 is 20.01 (`round(500.005) − round(480.0048)` = 500.01 − 480.00), and the 50 years sum to exactly 1,000.01. Rounding each year separately would give 20.00 fifty times, 0.01 short.
+- **The component and the property are summed, never distributed** (P8-D8, §27.4's F4b): the component's amount of a year is the sum of its owners' amounts, and the property's the sum of its components'. So the owners sum to the property to the cent by construction. `notOwned` is `null` in VC-8-02: a purchase component belongs to its buyers only. VC-8-03's capitalised items can have a `NOT_OWNED` part (P8-D8); the field is in the shape now so the shape does not change.
+- **The residual value** (Restbuchwert) of a part at the end of `Y` is `b_i − round(C_i(Y))`; of a component and the property, the sum. Derived and shown, never stored (depreciation.md §7). It is the AfA's residual, not a gain computation (§ 23 EStG is out of scope).
+
+### Per owner: the tenure, a reduced share, the end (P8-D8, P8-D9)
+
+- **The tenure** is §58C's: the continuous run of `VALID` Ownerships of the Party on this PropertyReference that holds the component's start date (a share changed by §26.2 without a sale does not end it). `continuousOwners()` moves from `domains/taxation/distribution-82b.ts` to the Ownership domain (`domains/ownership/tenure.ts`, exported through its index), for the same reason as the basis function; Taxation's import changes and nothing else. A later tenure of the same Party (sold and bought again) is a later purchase, a component of its own, and never revives the earlier one.
+- **The still-held fraction** of a month: the Party's share on a day of the month within the tenure (the sum of its `VALID` Ownerships covering the day, as §58C does for two on one day), divided by the share it bought in this component, at most 1. With `endMonthCounts` **true** the month takes the **largest** fraction held on any day of the month from the start date, with **false** the **smallest**. Within a component, the fraction never rises again once it fell (`f_j` is the running minimum): a share bought back without an Acquisition is not this purchase.
+- **A share reduced within the tenure** (a buyer sells part): the owner keeps the fraction still held, flagged `OWNER_SHARE_CHANGED` (informative, P8-D8) with `details: { date, from, to }` on the year. The month of the reduction is a disposal month for the sold fraction (below).
+- **The end of the tenure** (a sale, the end of an Ownership): the owner's months end with the **last day of economic ownership**:
+  - **the cut-off** is the buyer's transfer of economic ownership (reviewer input on #173): the `economicTransferDate` of a `CONFIRMED` Acquisition of this PropertyReference that names the Party as a seller and whose `transferDate` is the day after the tenure's last `validUntil`; the last day is the day before it;
+  - **without such an Acquisition, or without its `economicTransferDate`,** the last day is the tenure's last `validUntil`, flagged `END_DATE_ASSUMED` (open) with `details: { validUntil, buyerAcquisitionId }` (`null` when none is found), in the same way as `TRANSFER_DATE_ASSUMED`;
+  - **whether the month of the last day counts** is the rule parameter `end.disposal.endMonthCounts`. Version 1 carries `true`: the months up to and including the month of the last day (P8-D9 option (a); the reviewer's "the month of the sale counts", R 7.4 Abs. 8 EStR, pro rata by months). With `false`, only the months before the month of the cut-off count (option (b)). Both agree when the change is effective on the 1st of a month: B's last day 2029-06-30 gives 6/12 either way;
+  - **`DISPOSAL_YEAR_TO_VERIFY`** (open) on the owner's year in which the tenure ends or the fraction falls, with `details: { lastDay, months, endMonthCounts, legalBasis }`, as long as the rule's `end.disposal.verified` is false. The amount is computed pro rata as above and shown, but the year is never final until the tax advisor confirms the rule (phase-8-plan §3, 2). The plan's earlier wording ("never computed on a guess") is met by the open flag, not by a missing figure (open question 3).
+- **The owner's AfA stops** at the end of the tenure; the residual value of the sold part stays as it was. The buyer depreciates their own acquisition cost in their own component (P8-D8): nothing passes from the seller's part to the buyer.
+- **`OWNER_WITHOUT_ACQUISITION`** (open, P8-D8): on a day of the range, a Party holds more of the PropertyReference than its listed components cover (the sum of the shares it bought in components whose tenure holds the day, each × its running fraction). That is an inheritance, a gift, a share raised by §26.2 without an Acquisition, or a purchase never recorded. `details: { ownerPartyId, from, heldShare, coveredShare }` on each year concerned. The successor's continuation of the predecessor's AfA (§ 11d EStDV) is **not computed** (P8-D13; not covered by `depreciation.md`).
+- **Example** (synthetic, ACC8): A `3/5` and B `2/5` of one Acquisition with basis 254,400.00 at 2 %, transfer 2026-07-01. The owners' bases are 152,640.00 and 101,760.00. 2026: A 1,526.40, B 1,017.60, together 2,544.00 (6/12 of 5,088.00); 2027: A 3,052.80, B 2,035.20. B sells to C effective 2029-07-01, and C's Acquisition has `economicTransferDate` 2029-07-01: B's 2029 is 6/12 = 1,017.60 under either setting, flagged `DISPOSAL_YEAR_TO_VERIFY`, and C's own component starts in July 2029. Had the transfer to C been 2029-07-15, B's 2029 would be 7/12 = 1,187.20 with `endMonthCounts` true, and 1,017.60 with false.
+
+### An existing owner who buys another share (phase-8-plan §4)
+
+The plan asked this spec to check the case against the code before relying on it. **Finding: it cannot be recorded as a confirmable Acquisition today.**
+
+- **The case:** A holds `1/2` (bought in Acquisition W) and buys B's `1/2` in Acquisition X (`acquiredShare` `1/2`, buyer A).
+- **Recorded as §26.2 intends** (close A's `1/2` and B's `1/2`, create A's `1/1` with `acquisitionId` X): X cannot be confirmed. Requirement 5 of §28.1 sums the shares of the Ownerships carrying X (`1/1`) against `acquiredShare` (`1/2`) → `SHARE_SUM_MISMATCH`, in `structureViolations` (`domains/acquisition/acquisition.ts`) and again past the repository in `acquisition_confirmation_violation` (migration 0022, step 5).
+- **Recorded as a second Ownership** (keep A's `1/2`, create A's `1/2` with X from the transfer date): refused as `OVERLAPPING_OWNERSHIP`, by `checkInvariants` (`domains/ownership/ownership.ts`) and by `ownership_invariants` (migration 0019), §26.1 (no overlap per owner, data-model §12.4).
+- **The only confirmable way** is to enter X with `acquiredShare` `1/1`, which is false: A bought half. Its basis would be right (the price is the half's), but the share it bought would read `1/1`, so the still-held fraction of W and X together would be wrong (A holds `1/1` against `3/2` bought).
+- **What VC-8-02 does** (no guess, no Phase-2 change):
+  - a component whose buyer held a `VALID` Ownership of the PropertyReference on the day before its transfer date is **not computable**, with the reason `BUYER_ALREADY_OWNER` (open) and `details: { ownerPartyIds }`. This catches the false `1/1` workaround;
+  - a `DRAFT` X with A's `1/1` carrying its id is listed with `ACQUISITION_NOT_CONFIRMED` and `BUYER_ALREADY_OWNER`, so the user sees why it cannot be confirmed;
+  - A's earlier component W is computed as usual (A's tenure continues through the new Ownership; the fraction of W held stays 1).
+- **The minimal Phase-2 change** that would make the case representable is **the user's decision** (open question 1), not VC-8-02's:
+  - **(a) the bought part is the increase:** requirement 5 sums, per buyer, the Ownership's share **minus** the share the same Party held on the day before the transfer date, and §27.4's weight uses that increase. A change to `structureViolations`, migration 0022's function (a new migration replacing it) and §27.4; no new table. The schedule would then use the same increase as the share bought;
+  - **(b) a weight per Ownership and Acquisition:** a link table naming which part of an Ownership comes from which Acquisition, for owners with several purchases. More general, more to build;
+  - **(c) two Ownerships per owner allowed** when they come from different Acquisitions: it breaks §26.1's no-overlap invariant on which every read of the shares relies. Not recommended.
+  - **Proposal:** (a), as its own backlog item before VC-8-06, so that ACC8 can show it. Until then the case reads `BUYER_ALREADY_OWNER`.
+
+### Extension points (VC-8-03, P8-D6, P8-D7)
+
+- **No behaviour in VC-8-02.** Later capitalised costs, anschaffungsnahe Herstellungskosten and separate assets are VC-8-03's.
+- **Where they plug in:**
+  - a component of `kind` `CAPITALIZED_ITEM`, with its own basis (the item's `lineAmount`, a refund negative), its owners on its date (P7-D7) and a `NOT_OWNED` part;
+  - its start from the rule parameter **`subsequentCostStart`** (P8-D6; reviewer input on #173: `START_OF_YEAR`, R 7.4 Abs. 9 S. 3 EStR, to be confirmed). VC-8-03 adds the parameter to version 1 additively; VC-8-02 does not add it, so no unused parameter waits untested;
+  - **the arithmetic is per component and owner part already:** a capitalised item depreciates by the building's rate and month rule (B11). How it lengthens the period ("the remainder of the whole basis", P8-D9) is VC-8-03's to specify against these months.
+- **`SEPARATE_ASSET`** (§59B) gets a schedule of its own through the same route with `DE_AFA_MOVABLE_LINEAR@1`. The route answers a building asset only in VC-8-02 (no other `assetType` exists yet).
+
+### The rule `DE_AFA_BUILDING_LINEAR@1`: parameters added (P8-D4, P8-D5, P8-D9, P8-D11)
+
+Version 1 is not frozen before VC-8-04 is implemented (§59), so VC-8-02 adds its parameters **additively**: the bands and `shorterUsefulLife` are unchanged.
+
+| Parameter | Value | Source |
+|---|---|---|
+| `basis` | `{ excludedCostCategories: ["FINANCING_RELATED"], allocationReviewStates: ["CONFIRMED", "ADVISOR_CONFIRMED"], rounding: "HALF_UP_CENT" }` | P8-D2, §58B; taxation.md §6 (A6); data-model §15 |
+| `firstYear` | `{ startMonthCounts: true, legalBasis: "§ 7 Abs. 1 S. 4 EStG" }`: less 1/12 per full month before the start month | depreciation.md §5, B6; P8-D5 |
+| `end` | `{ exhaustion: "REMAINDER_IN_LAST_MONTH", disposal: { method: "PRO_RATA_MONTHS", cutOff: "BUYER_ECONOMIC_TRANSFER_ELSE_VALID_UNTIL", endMonthCounts: true, verified: false, legalBasis: "R 7.4 Abs. 8 EStR (reviewer input on #173; VERIFY)" } }` | depreciation.md §7; P8-D9 |
+| `rounding` | `{ unit: "CENT", mode: "HALF_UP", method: "CUMULATIVE_PER_OWNER_PART" }` | P8-D8 |
+| `degressiveHint` | `{ fromCompletionYear: 2023, legalBasis: "§ 7 Abs. 5a EStG" }` (the hint only, nothing computed) | depreciation.md §4, B4; P8-D13 |
+
+- `source` gains "depreciation.md §5, §7 v0.2; verification-checklist B5, B6; phase-8-plan P8-D2, P8-D5, P8-D8, P8-D9". `legalBasis` stays § 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; the first-year rule's basis is the parameter's.
+- **`end.disposal.verified`** drives `DISPOSAL_YEAR_TO_VERIFY`; nothing in the code knows whether the point was verified. Once the tax advisor confirms it before VC-8-04, the parameters of version 1 change (and the flag disappears); after VC-8-04 a new version is needed, and its `effectiveFrom` decides which years it covers (§58), so the confirmation should come before VC-8-04 (open question 3).
+- **A registry test** asserts `basis.excludedCostCategories` equals `DE_ANSCHAFFUNGSNAHE@1`'s `excludedCostCategories`, so the two rules never compute two bases.
+
+### Response
+
+```json
+{
+  "assetId": "6f1c2a9e-0000-4000-8000-000000000010",
+  "propertyReferenceId": "6f1c2a9e-0000-4000-8000-000000000001",
+  "assetType": "BUILDING",
+  "level": "PROPERTY",
+  "ownerPartyId": null,
+  "computedOn": "2026-10-30",
+  "range": { "from": 2026, "to": 2027, "truncated": false },
+  "status": "AVAILABLE",
+  "reasons": [],
+  "asset": { "status": "ACTIVE", "buildingCompletionYear": 1995, "reviewState": "CONFIRMED" },
+  "components": [
+    {
+      "componentId": "ACQUISITION:6f1c2a9e-0000-4000-8000-000000000002",
+      "kind": "ACQUISITION",
+      "acquisitionId": "6f1c2a9e-0000-4000-8000-000000000002",
+      "acquisitionStatus": "CONFIRMED",
+      "status": "COMPUTABLE",
+      "reasons": [],
+      "basis": {
+        "amount": { "amount": "254400.00", "currency": "EUR" },
+        "purchasePrice": { "amount": "300000.00", "currency": "EUR" },
+        "acquisitionCosts": { "amount": "18000.00", "currency": "EUR" },
+        "excludedCosts": [{ "category": "FINANCING_RELATED", "amount": { "amount": "1200.00", "currency": "EUR" } }],
+        "allocationId": "6f1c2a9e-0000-4000-8000-000000000030",
+        "allocationMethod": "PURCHASE_CONTRACT",
+        "allocationReviewState": "CONFIRMED",
+        "totalAllocableAmount": { "amount": "318000.00", "currency": "EUR" },
+        "buildingAmount": { "amount": "254400.00", "currency": "EUR" }
+      },
+      "start": { "date": "2026-07-01", "dateSource": "ECONOMIC_TRANSFER_DATE", "month": "2026-07", "firstYearMonths": 6 },
+      "rate": { "kind": "BAND", "band": "B", "ratePercent": "2", "rate": "1/50", "usefulLifeYears": null, "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG" },
+      "end": { "lastYear": 2076, "lastMonth": "2076-06" },
+      "owners": [
+        {
+          "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021",
+          "ownershipId": "6f1c2a9e-0000-4000-8000-000000000041",
+          "share": "3/5",
+          "weight": "3/5",
+          "basis": { "amount": "152640.00", "currency": "EUR" },
+          "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null }
+        },
+        {
+          "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022",
+          "ownershipId": "6f1c2a9e-0000-4000-8000-000000000042",
+          "share": "2/5",
+          "weight": "2/5",
+          "basis": { "amount": "101760.00", "currency": "EUR" },
+          "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null }
+        }
+      ],
+      "years": [
+        {
+          "year": 2026,
+          "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1 },
+          "months": 6,
+          "amount": { "amount": "2544.00", "currency": "EUR" },
+          "cumulative": { "amount": "2544.00", "currency": "EUR" },
+          "residualValue": { "amount": "251856.00", "currency": "EUR" },
+          "owners": [
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "months": 6, "fraction": "1/1", "amount": { "amount": "1526.40", "currency": "EUR" }, "residualValue": { "amount": "151113.60", "currency": "EUR" }, "flags": [] },
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "months": 6, "fraction": "1/1", "amount": { "amount": "1017.60", "currency": "EUR" }, "residualValue": { "amount": "100742.40", "currency": "EUR" }, "flags": [] }
+          ],
+          "flags": []
+        },
+        {
+          "year": 2027,
+          "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1 },
+          "months": 12,
+          "amount": { "amount": "5088.00", "currency": "EUR" },
+          "cumulative": { "amount": "7632.00", "currency": "EUR" },
+          "residualValue": { "amount": "246768.00", "currency": "EUR" },
+          "owners": [
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "months": 12, "fraction": "1/1", "amount": { "amount": "3052.80", "currency": "EUR" }, "residualValue": { "amount": "148060.80", "currency": "EUR" }, "flags": [] },
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "months": 12, "fraction": "1/1", "amount": { "amount": "2035.20", "currency": "EUR" }, "residualValue": { "amount": "98707.20", "currency": "EUR" }, "flags": [] }
+          ],
+          "flags": []
+        }
+      ],
+      "flags": [{ "code": "ACQUISITION_COST_UNPAID", "details": { "costIds": ["6f1c2a9e-0000-4000-8000-000000000051"] } }]
+    }
+  ],
+  "years": [
+    {
+      "year": 2026,
+      "status": "AVAILABLE",
+      "amount": { "amount": "2544.00", "currency": "EUR" },
+      "residualValue": { "amount": "251856.00", "currency": "EUR" },
+      "owners": [
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "1526.40", "currency": "EUR" } },
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "1017.60", "currency": "EUR" } }
+      ],
+      "notOwned": null,
+      "flags": []
+    },
+    {
+      "year": 2027,
+      "status": "AVAILABLE",
+      "amount": { "amount": "5088.00", "currency": "EUR" },
+      "residualValue": { "amount": "246768.00", "currency": "EUR" },
+      "owners": [
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "3052.80", "currency": "EUR" } },
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "2035.20", "currency": "EUR" } }
+      ],
+      "notOwned": null,
+      "flags": []
+    }
+  ],
+  "review": { "open": [], "info": [{ "code": "ACQUISITION_COST_UNPAID", "count": 1 }] },
+  "ruleVersions": [
+    { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1, "title": "Lineare Gebäude-AfA im Privatvermögen (§ 7 Abs. 4 EStG)", "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG", "status": "ACTIVE", "years": [2026, 2027] }
+  ]
+}
+```
+
+- **The example** is ACC8's purchase (synthetic): price 300,000.00, Grunderwerbsteuer 15,000.00 and notary and land registry 3,000.00 (18,000.00 counted), `FINANCING_RELATED` 1,200.00 excluded; allocation total 318,000.00, land 63,600.00, building 254,400.00, so the basis is 318,000.00 × 254,400.00 / 318,000.00 = 254,400.00, not 318,000.00 (the land counter-check). The variants: a transfer on 2026-12-31 gives 2026 1/12 = 424.00; one on 2027-01-01 gives no component year in 2026 (2026 `AVAILABLE` with 0.00 when the range asks for it) and 5,088.00 in 2027.
+- **`status`** of the schedule and of each year: `AVAILABLE` (every component active in the year is computable), `PARTIAL` (some are), `DEPRECIATION_NOT_AVAILABLE` (none, or the asset's reasons hold). A year before every start is `AVAILABLE` with 0.00 (P8-D12). A component is active in a year from its start year until its last year; a not-computable one until `to`.
+- **A not-computable component** has `basis` as far as known (or `null` fields), `rate` as far as known, `end` `null`, `years` with `amount`, `cumulative` and `residualValue` `null`, and its `reasons`. Its owners are listed with their weights and `basis` `null` while the basis is unknown.
+- **`fraction`** is the owner's still-held fraction of the year's last counted month (`"1/1"` while the whole bought share is held); `months` the counted months of the year.
+- **`tenure.lastDay`** and **`lastDaySource`** (`BUYER_ECONOMIC_TRANSFER_DATE` or `VALID_UNTIL`), `null` while the tenure is open.
+- **`start.dateSource`:** `ECONOMIC_TRANSFER_DATE`, or `CONTRACT_DATE` with `TRANSFER_DATE_ASSUMED`.
+- **`rate.kind`:** `BAND` or `SHORTER_USEFUL_LIFE` (`usefulLifeYears` set, `rate` `"1/n"`, `ratePercent` §59's display value).
+- **At the owner level** (`?ownerPartyId=`): `level` `OWNER`; `components` only those the Party bought, each with only that owner in `owners` and in each year's `owners`; the top-level `years[].amount` is the owner's, `owners` and `notOwned` are `null`. A Party with `OWNER_WITHOUT_ACQUISITION` only gets `components: []`, years of 0.00, and the flag.
+- **Order:** components as above; years ascending; owners by `ownerPartyId`; flags by code; `ruleVersions` by `ruleCode`, then `version`, with the years each names.
+- **Money** as §86, fractions as §26.1 (reduced `"n/d"`), months as `YYYY-MM`, dates as §88.
+
+### Reasons and flags
+
+Flags are `{ code, details }`. A **reason** means a figure is not computed; a **flag** marks a computed figure. Each has a level in `review` (P7-D8: open needs a person; informative does not).
+
+| Code | Where | Level |
+|---|---|---|
+| `ASSET_VOID`, `COMPLETION_YEAR_MISSING`, `ASSET_NOT_CONFIRMED` | schedule `reasons` (no component computed) | open |
+| `ACQUISITION_NOT_CONFIRMED`, `NO_ALLOCATION`, `ALLOCATION_NOT_CONFIRMED`, `NO_BUILDING`, `USEFUL_LIFE_NOT_CONFIRMED`, `NO_APPLICABLE_RULE`, `BUYER_ALREADY_OWNER` | component `reasons`, in this order: the basis function's first reason (it stops at the first), then each of the last three that holds | open |
+| `TRANSFER_DATE_ASSUMED`, `USEFUL_LIFE_NOT_SHORTER`, `USEFUL_LIFE_START_TO_VERIFY` | component `flags` | open |
+| `DISPOSAL_YEAR_TO_VERIFY`, `END_DATE_ASSUMED` | the owner's year in a component | open |
+| `OWNER_WITHOUT_ACQUISITION` | the schedule's year (and the owner's) | open |
+| `SHORTER_USEFUL_LIFE`, `DEGRESSIVE_AFA_MAY_APPLY`, `ACQUISITION_COST_UNPAID` | component `flags` | informative |
+| `OWNER_SHARE_CHANGED` | the owner's year in a component | informative |
+
+- **A year's `flags`** collect its components' and owners' flags of that year, each code once with the components named in `details.componentIds`; a component's own flags appear on each of its active years.
+- **`review`:** `{ open: [{ code, count }], info: [{ code, count }] }` over the range, each code once, `count` the number of components (or owner-years) carrying it. The schedule has no `final`: a year becomes final only in the tax-year view, and only once a version is recorded (P8-D10, VC-8-04, VC-8-05).
+- **`ruleVersions`:** each version a year names, once: `{ ruleCode, version, title, legalBasis, status, years }`, from the registry. A version `SUPERSEDED` today is shown, never replaced (P7-D1).
+
+### Error answers (`api/error-answers.ts`)
+
+| Error | Answer | `details` |
+|---|---|---|
+| `DepreciationAssetNotFoundError` (§59) | `404 NOT_FOUND` | `{ assetId }` |
+| `OwnerPartyNotFoundError` (§58C) | `404 NOT_FOUND` | `{ ownerPartyId }` |
+| `NotAnOwnerError` (new) | `422 NOT_AN_OWNER`, "The Party holds no share of the asset's PropertyReference and bought none." | `{ ownerPartyId, propertyReferenceId }` |
+
+Field errors are `400 VALIDATION_ERROR` with `INVALID_FORMAT` and `OUT_OF_RANGE`, and an unknown parameter at `(body)` as §55 and §58C. Reasons and flags are data, never errors.
+
+### Concurrency and consistency (P8-D14)
+
+- **One `REPEATABLE READ READ ONLY` transaction** for the whole read, no locks taken: every input comes from one snapshot. A concurrent confirm, allocation, cost, Ownership change or asset amend is either wholly visible or not at all, so a schedule never mixes a basis of one state with owners of another.
+- **The read writes nothing.** A write inside its transaction fails (`25006`), and a test shows it.
+- **No `If-Match`, no `Idempotency-Key`:** nothing is written. Recording what the read shows is VC-8-04's command, which re-derives in its own snapshot and stores that.
+- **The schedule changes when its inputs change**, including earlier years (a superseding allocation, an amended completion year, a confirmed Acquisition): that is P8-D10's design, made visible by VC-8-04's `DEPRECIATION_CHANGED_SINCE_RECORDED`, never by a stored figure.
+
+### Performance
+
+- **Bounded and unpaged:** a PropertyReference has a handful of Acquisitions and Ownerships. The derivation walks at most 1,188 months (99 years) per owner part and component, in integer arithmetic; the response holds at most 101 years per component. No cap is needed (unlike §58C's 5,000 items).
+- **Queries** (one per input, all on existing indexes): the asset by id and Realm; Acquisitions by `acquisition_property_reference_idx`; parties, costs (`acquisition_cost_acquisition_idx`), payments (`acquisition_payment_acquisition_idx`) and current allocations (`land_building_allocation_current`) by the Acquisition ids; Ownerships by `ownership_property_reference_idx`. **No migration.** A repository test reads the plan of the Ownership and Acquisition queries.
+
+### Tests the implementation must have (VC-8-02)
+
+- **Domain (pure, `domains/depreciation/schedule.ts`):**
+  - the first year for every start month: January 12/12, April 9/12, July 6/12, December 1/12; a start on the 1st and on the last day of a month give the same months; `TRANSFER_DATE_ASSUMED` with the contract date;
+  - the cap and the remainder: 600, 480 and 400 months for 2 %, 2.5 % and 3 %, `12·n` for `1/n`; the cumulative AfA equals the basis exactly at the end and never exceeds it; nothing after the last month;
+  - cumulative rounding: the 1,000.01 example (year 25 is 20.01, the 50 years sum to 1,000.01); a property test over random bases (1 cent to 10¹² cents), rates and start months: every year ≥ 0, the years sum to the basis, each year within one cent of the exact amount, and no drift after 50 or 99 years;
+  - per owner: §27.4's weights, a partial acquisition (weight `1/1` for `1/2`), largest remainder on an odd cent (three owners of `1/3` and a basis of 1,000.00), owners sum to the component and components to the property in every year (a property test over random shares, up to 20 owners, denominators up to 10,000);
+  - the tenure: a share changed by §26.2 without a sale does not end it; a reduced share keeps the fraction (`OWNER_SHARE_CHANGED`) and never rises again; a sale with the buyer's `economicTransferDate` on the 1st and on the 15th, with `endMonthCounts` true and false; `END_DATE_ASSUMED` without a buyer's Acquisition; `DISPOSAL_YEAR_TO_VERIFY` while `verified` is false and not when a test registry sets it true;
+  - `OWNER_WITHOUT_ACQUISITION`: an inherited share; a share raised by §26.2 without an Acquisition; an owner with no Acquisition at all;
+  - `BUYER_ALREADY_OWNER`: the `1/1` workaround confirmed, and the `DRAFT` with both reasons; the earlier component W unaffected;
+  - every reason alone and in its order; the asset's reasons stopping every component; `NO_APPLICABLE_RULE` for a start in 2022 in every year (2023 included); a shorter life: applied (`SHORTER_USEFUL_LIFE`), not confirmed (not computable), not shorter (band rate, open flag), evidence after the first year (`USEFUL_LIFE_START_TO_VERIFY`);
+  - `DEGRESSIVE_AFA_MAY_APPLY` for completion year = transfer year ≥ 2023 only;
+  - the rule's parameters read from the registry (a test registry with other parameters changes the figures).
+- **The shared basis function:** `domains/acquisition/building-cost.test.ts` moves the check's basis tests (rounding half-up, the total equal to price + costs, `FINANCING_RELATED`, `VOID` costs, each reason); `anschaffungsnahe.test.ts` and `tax-weg-repository.test.ts` stay green unchanged; the registry test of the two rules' excluded categories; for the e2e Acquisitions, the schedule's basis equals the check's.
+- **Repository:** one snapshot (an allocation committed between two statements of the read is not seen); a `DRAFT` with and without Ownerships; `CANCELLED` Acquisitions absent; the query plans; no cash mutated: every row and `version` of `ledger_transaction`, `transaction_split`, `acquisition`, `acquisition_cost`, `acquisition_payment`, `land_building_allocation`, `ownership`, `property_reference`, `depreciation_asset`, `depreciation_asset_useful_life` and `tax_classification`, and the count of `audit_record`, equal before and after reads at both levels; a write inside the read's transaction refused (`25006`).
+- **API:** every `400` (format, range, `to` < `from`, unknown parameter); `404` for the asset and the Party (another Realm's too); `NOT_AN_OWNER`; the defaults of `from` and `to` from an injected clock; `truncated`; the DTO at both levels; no `ETag`.
+- **End to end** (synthetic, ACC8's purchase): the example above for 2026 and 2027 at both levels; the variants 2026-12-31 (424.00) and 2027-01-01 (0.00 in 2026); no confirmed allocation (`ALLOCATION_NOT_CONFIRMED`, `DEPRECIATION_NOT_AVAILABLE`); a second Acquisition of a share with an unconfirmed allocation (`PARTIAL`); B selling to C on 2029-07-01 (B 1,017.60 in 2029, flagged; C's component from July); **Realm isolation:** the route with another Realm's asset or Party is `404`, and another Realm's Acquisition or Ownership on a same-named setup never appears.
+
+### Counter-checks and mutations
+
+**Counter-checks** (each an assertion that the system refuses or leaves out the thing):
+- **land in the basis:** 254,400.00, not 318,000.00;
+- **`FINANCING_RELATED` counted:** the basis without the 1,200.00;
+- **an unconfirmed input feeding a figure:** a `DRAFT` Acquisition, an `UNREVIEWED` allocation, an unconfirmed asset or shorter life each leave `amount` `null`;
+- **a guessed date:** no component without a start; `TRANSFER_DATE_ASSUMED` and `END_DATE_ASSUMED` whenever a date was taken from elsewhere;
+- **the owners floored:** A + B = the component in every year, to the cent;
+- **more than the basis:** the cumulative AfA of every part ≤ its basis, over 99 years;
+- **a write in the read:** the "no cash mutated" check above, and `25006`.
+
+**Mutations** that must turn the tests red (each applied alone, the suite run, the code restored):
+- the first year off by one month either way (7/12 or 5/12 for July, 2/12 or 0/12 for 31 December);
+- the start month not counted, or the month before counted;
+- the cap removed (a short useful life past its end);
+- the building ratio dropped (land in the basis);
+- `FINANCING_RELATED` counted, or the excluded categories read from a constant;
+- an unconfirmed allocation counted (`ALLOCATION_NOT_CONFIRMED` dropped);
+- the owners' parts floored with the rest dropped, or split by the shares of the property instead of the purchase's buyers (the wrong owner: a buyer of a later share depreciating the seller's basis);
+- each year rounded separately (drift over 50 years: the 1,000.01 example);
+- `endMonthCounts` ignored (the 15 July sale), or `DISPOSAL_YEAR_TO_VERIFY` dropped;
+- `BUYER_ALREADY_OWNER` dropped (the workaround computed);
+- the Realm filter dropped from the Acquisition or Ownership read;
+- a write added to the read (refused by the `READ ONLY` transaction).
+
+### Not in VC-8-02 (pointers)
+
+- **Capitalised costs and `SEPARATE_ASSET`:** VC-8-03 (§59A extended, §59B), with `subsequentCostStart` and the VAT point.
+- **Recorded versions:** §60 (VC-8-04), which stores what this read derives, with its inputs and rule versions.
+- **The AfA in the tax-year view**, the flags in its review table and `final`: §58C (VC-8-05).
+- **The Phase-2 change** for an existing owner's additional share (open question 1).
+
+### Open questions for review
+
+1. **An existing owner buying another share** (above): adopt option (a), the bought part as the increase over the day before, as a Phase-2 backlog item before VC-8-06? Until then such a purchase reads `BUYER_ALREADY_OWNER` and is not computed.
+2. **Purchases before 2023** are not computable at all (`NO_APPLICABLE_RULE`), since the residual value of 2023 needs the earlier years. This affects every landlord who bought before 2023. **Proposal:** verify bands b and c for earlier years (phase-8-plan §3, 4) soon and add a version 0 of the rule for them.
+3. **The disposal year is computed and flagged** (`DISPOSAL_YEAR_TO_VERIFY`, open) rather than left without a figure, with `endMonthCounts` true per the reviewer input on #173. The alternative is `amount` `null` for the seller's last year until verified. Either way the year is not final. The confirmation should come before VC-8-04 freezes version 1.
+4. **A confirmed shorter useful life applies from the start**, flagged open when its evidence is dated after the first year. The alternative is from the year of the evidence.
+5. **A `DRAFT` Acquisition with Ownerships** is listed as an open reason; one without is not listed. The alternative is to list every `DRAFT`.
+
+---
+
 # 60. Depreciation Recalculate
 
 Placeholder until VC-8-04 rewrites it (phase-8-plan P8-D10, decided 2026-10-30): the schedule is derived on every read (§59A), and a person **records** a version (`POST /api/v1/depreciation-assets/{id}/schedule-versions`, with `reason`). The former `…/recalculate` is withdrawn with §59's placeholder.
