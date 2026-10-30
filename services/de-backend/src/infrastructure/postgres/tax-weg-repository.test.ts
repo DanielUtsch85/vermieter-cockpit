@@ -825,6 +825,13 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       const ok = await useRow(a, 1, '2026-09-01', '3000.00', { net_amount: '3000.00' });
       expect(ok).toMatch(/^[0-9a-f-]{36}$/);
       expect(await useRow(a, 1, '2026-09-01', '3000.00')).toBe('tax_classification_current_use');
+      // A use of a VOID assessment counts nowhere (ASSESSMENT_VOID, review on #169), however well position, date and share fit.
+      const voided = await assessment(membershipId, [{ position: 1, date: '2026-09-01', unitShare: '3000.00' }]);
+      await pool.query(
+        `UPDATE weg_special_assessment SET status = 'VOID', voided_at = now(), voided_by = 'x', void_reason = 'r', version = version + 1 WHERE id = $1`,
+        [voided],
+      );
+      expect(await useRow(voided, 1, '2026-09-01', '3000.00')).toBe('(SOURCE_NOT_COUNTED)');
       // A change of a new column.
       expect(await pool.query(`UPDATE tax_classification SET net_amount = 1, version = version + 1 WHERE id = $1`, [ok]).then(() => 'accepted', reasonOf)).toBe(
         'never change',
