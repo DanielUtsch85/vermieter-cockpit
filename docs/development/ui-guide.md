@@ -2,7 +2,7 @@
 > Der Leitfaden wurde gegen den Referenzstand dd110b9 geprüft; seine Aussagen zu vorhandenen Routen, Lücken und Limits treffen zu. Vor der Übergabe an ein Frontend-Team sind drei Dinge zu klären:
 >
 > 1. **Backend-Voraussetzungen:** die Lese-Endpunkte für FinancialAccounts und PropertyReferences (#160, offen); der Token-Verifikations-Cache und der Sitzungsvertrag für Clients (#161, erledigt mit #163, siehe `docs/architecture/mre-integration.md` §47.1).
-> 2. **Entscheidungen des Projektinhabers** aus Abschnitt 13: gemeinsame Origin hinter einem Reverse-Proxy, eigene App statt Erweiterung der MRE-Landlord-App, Framework, Umfang der ersten Version, Import ohne Vorschau, Audit-Verlauf. Die Empfehlungen dazu stehen in den Issues #160 und #161 und in der Review vom 30.10.2026.
+> 2. **Entscheidungen des Projektinhabers:** am 30.10.2026 getroffen und in Abschnitt 7.1, 7.2, 11 und 13 eingetragen: gemeinsame Origin hinter einem Reverse-Proxy, eigene App im Monorepo mit dem MRE-Stack, Version 1 auf die drei P0-Bereiche begrenzt, Import ohne Vorschau, kein Audit-Verlauf in Version 1.
 > 3. **Beilagen:** `design-tokens.css` und das Routeninventar liegen nicht im Repository. Das Inventar sollte aus `services/de-backend/src/api/app.ts` erzeugt werden, nicht von Hand gepflegt; `main` entwickelt sich schneller als eine statische Liste.
 >
 > Die in Abschnitt 9 genannten HTML-Entwürfe sind die Canvas-Skizzen vom 29.10.2026; sie sind Gestaltungsskizzen, keine Spezifikation.
@@ -60,6 +60,8 @@ Bei einem Widerspruch nicht stillschweigend ein UI-Verhalten erfinden: Fundstell
 | Personen | Personen/Organisationen, Kontaktangaben, MRE-Referenzen | P1 |
 | Objekte | MRE-Verknüpfung und kontextbezogene Fachansichten | P1, Einstiegslücke beachten |
 | Erwerbe | Erwerb, Nebenkosten, Zahlungslinks, Eigentümerverteilung | P1 |
+
+**Entscheidung (30.10.2026):** Version 1 umfasst genau die P0-Zeilen, Buchungen, Import und Mietabgleich, als durchgehender Ablauf gegen die echte API, dazu die Übersicht als Arbeitsnavigation. Die P1-Zeilen folgen danach in der Reihenfolge Finanzierung, Kautionen, WEG, Erwerbe, Personen, Objekte. Menüpunkte für P1 erscheinen erst, wenn ihr Bereich fertig ist.
 
 Keine aktiven Menüpunkte für Steuern, AfA oder Investment ohne implementierte Routen. Späteres Modul höchstens in der Produktplanung nennen, nicht mit einem scheinbar funktionierenden Leerformular veröffentlichen.
 
@@ -183,11 +185,11 @@ Kategorien aus GET /financial-categories laden. Fachcodes in Requests verwenden;
 | Mietabgleich, Vorschläge und MRE-Übertragung | Direkt mit bekanntem MRE-Kontext | DE-Zuordnung und MRE-Status getrennt |
 | Darlehen, Kautionen, Parteien, WEG-Listen | Direkt | Eigene Listen-Endpunkte vorhanden |
 | Erwerb, Eigentum und WEG pro bekanntem Objekt | Direkt | Objekt-ID muss verlässlich verfügbar sein |
-| Vollständige Kontoauswahl nach Neuladen | Lücke | Kein GET /financial-accounts und kein GET /financial-accounts/{id} |
-| Allgemeine DE-Objektliste und passives Objektdetail | Lücke | Nur link und refresh; kein allgemeines GET /property-references |
+| Vollständige Kontoauswahl nach Neuladen | Lücke, in Arbeit (#160) | GET /financial-accounts und GET /financial-accounts/{id} werden als additive Reads ergänzt |
+| Allgemeine DE-Objektliste und passives Objektdetail | Lücke, in Arbeit (#160) | GET /property-references und GET /property-references/{id} werden als additive Reads ergänzt; nur link und refresh schreiben |
 | Unverändernde fachliche Importvorschau | Lücke | Kein dry-run/preview-Endpunkt |
 | Liste früherer Importläufe | Lücke | GET eines bekannten Batches vorhanden, kein Batch-Listen-Endpunkt |
-| Audit-Timeline aller Änderungen | Lücke | Audit wird gespeichert, aber kein allgemeiner Audit-Read registriert |
+| Audit-Timeline aller Änderungen | Nicht in Version 1 (Entscheidung 30.10.2026) | Kein Audit-Read, und die Aufbewahrung personenbezogener Daten im Audit (VC-X-24) ist offen. Die Korrekturkette einer Buchung (Original, Storno, Ersatz) kommt aus dem Transaction-DTO und ist die sichtbare Historie |
 | Portfolio-KPIs, Kontostand, Gesamt-LTV, globale Aufgabenanzahl | Lücke | Keine entsprechende Aggregate-API |
 | Volltextsuche über alle Buchungen | Lücke | Kein q-/search-Filter der Transaktionsliste |
 | Server-Sortierung nach beliebiger Tabellenspalte | Lücke | Kein generischer sort-Parameter |
@@ -250,6 +252,8 @@ Zeilen: Kategorie, Betrag, Bezug, optionale Beschreibung. Referenztyp steuert pa
 ### 6.5 CSV-Import – technisch korrekter Ablauf
 
 Schritte **1 Datei & Konto → 2 Import ausführen → 3 Ergebnis & Klärfälle**.
+
+**Entscheidung (30.10.2026):** Es gibt keine fachliche Vorschau vor dem Import und keinen Dry-Run-Endpunkt. Der Import ist idempotent; ein zweiter Lauf derselben Datei erzeugt keine zweite Buchung. Das Ergebnis mit den Klärfällen nach dem POST ist die Prüfansicht.
 
 Vor dem Import möglich: Dateiname, Größe, ausgewähltes Konto, Adapterversion und Mapping/Vorlage zeigen. Eine lokale CSV-Anzeige darf nur „Dateiinhalt, ungeprüft“ heißen. Sie berechnet keine Duplikate oder kanonische Zeilenidentitäten.
 
@@ -369,7 +373,7 @@ Tabs: Mitgliedschaften, Wirtschaftsplan, Jahresabrechnung, Sonderumlagen.
 
 ### 7.1 Framework und Module
 
-Am MRE-Frontend-Ökosystem orientieren; konkrete Version und Integration vor Implementierung am gepinnten Upstream prüfen. Dieser Leitfaden schreibt keine ungeprüfte React-/Next-Version und keine neue Designbibliothek vor.
+**Entscheidung (30.10.2026):** Die Oberfläche ist eine eigene Anwendung im Monorepo unter `webapps/cockpit`, kein Eingriff in die MRE-Landlord-App (Verfassung: MRE nur ändern, wo nötig; ADR-036 Upgrade-Fähigkeit). Der Stack folgt dem gepinnten MRE-Landlord-Frontend, damit niemand zwei Welten lernt: React 18, TypeScript, Tailwind, TanStack Query für Cache und Invalidierung. Gebaut wird mit Vite statt Next.js, weil hinter einem Login kein Server-Rendering nötig ist. Die DTO-Typen kommen aus den Zod-Schemata des Backends über ein gemeinsames Workspace-Paket, damit nicht zwei Wahrheiten über die API entstehen. Konkrete Versionen vor Implementierung am gepinnten Upstream prüfen; keine zusätzliche Designbibliothek.
 
 Schichten: Komponenten → View-/Form-Modelle → typisierter API-Client → DE-API. Keine Imports aus PostgreSQL-Adaptern oder DE-Anwendungsservices in Browsercode. Backend-Regeln nicht als kopierte zweite Domainbibliothek im UI fortschreiben.
 
@@ -385,7 +389,7 @@ Der dokumentierte MRE-Access-Token ist nur etwa 30 Sekunden gültig. Vor dem UI-
 
 Am Referenzstand hat nur administrator DE-Zugriff. renter und unbekannte Rollen haben ihn nicht. Keine Eigentümer-/Steuerberaterrollen allein aus der visionären Spezifikation als verfügbare Berechtigung implementieren.
 
-Bevorzugt unter gemeinsamer Origin bzw. vorhandenem Reverse-Proxy integrieren. Ein separat gehostetes Frontend würde CORS einschließlich Authorization, organizationid, If-Match, Idempotency-Key und lesbarer ETag-/Retry-After-Header erfordern; eine entsprechende DE-CORS-Konfiguration ist im geprüften app.ts nicht vorhanden. Das ist ein Deployment-/Integrationspunkt, kein rein optischer Schritt.
+**Entscheidung (30.10.2026):** gemeinsame Origin hinter einem Reverse-Proxy. Empfohlener Schnitt: `/` und `/api/v2` zum MRE-Gateway, `/api/v1` zum DE-Backend, `/cockpit` zur Oberfläche. Grund: der MRE-Authenticator setzt das Refresh-Token als Cookie mit `httpOnly` und `sameSite: strict`; ein Frontend auf einer anderen Origin könnte nie ein neues Access-Token holen. CORS wird nicht eingebaut und ist im geprüften app.ts auch nicht vorhanden. Der vollständige Sitzungsvertrag für Clients steht in docs/architecture/mre-integration.md §47.1 (#161); die Token-Prüfung im Backend ist pro Token und Realm gecacht (#163).
 
 Kein Refresh-Token in URLs oder Logs. Persistenz und Cookies nur gemäß geprüfter MRE-Sitzungsintegration; keine spontane Langzeitablage von Tokens in localStorage.
 
@@ -543,23 +547,34 @@ Darlehen und Erwerb → Kautionen → WEG. Arbeitsübersicht erst mit belastbare
 
 ## 11. Abnahmekriterien für die Programmierer
 
+**Entscheidung (30.10.2026):** Die Kriterien sind in Pflicht für Version 1 und Später geteilt. Später heißt: vor dem ersten Release nicht gefordert, aber nicht gestrichen.
+
+### Pflicht für Version 1
+
 - Ein vollständiger Nutzerablauf läuft mit echter API; Mockdaten sind im Testmodus sichtbar beschriftet und gelangen nie in produktive Requests.
 - Jeder aktive Button besitzt implementierten Datenweg und Fehlerfall.
 - Kein neuer Fachzustand wird ausschließlich im Browser gespeichert.
 - Bestätigte Buchungen bleiben unveränderlich; Korrekturen bleiben verknüpft.
-- Geld über 2^53 Cent wird ohne Präzisionsverlust eingegeben/angezeigt; Splits unterscheiden sich nicht durch Browserrundung.
+- Beträge werden ohne Fließkomma verarbeitet; Splits unterscheiden sich nicht durch Browserrundung.
 - Geschäftsdaten verschieben sich nicht bei Zeitzonenwechsel.
 - 412 erhält den lokalen Entwurf und führt nicht zu stiller Überschreibung.
 - Timeout bei Create/Correct erzeugt beim kontrollierten Retry keine neue Absicht.
 - MRE-Schreibvorgänge werden nie durch bloßes Rendern, Refetch oder Tabwechsel ausgelöst.
 - Release und Removal werden getrennt und im richtigen Status angeboten.
-- Realm-Wechsel entfernt vorherige Daten, selektierte Ressourcen und verspätete Antworten.
+- Realm-Wechsel entfernt vorherige Daten und selektierte Ressourcen; in Version 1 genügt dafür ein vollständiges Neuladen der Anwendung.
 - Alle Listen besitzen leer/lädt/Fehler-Zustände; Pagination und Filter funktionieren mit mehr als einer Seite.
 - Ein unknown enum oder neuer Fehlercode ergibt keine leere Seite.
-- Tastaturnavigation, Fokus nach Dialogen, Screenreader-Namen und Kontraste sind geprüft.
+- Tastaturnavigation und Fokus nach Dialogen sind geprüft; Icons haben beschriftete Namen.
 - Keine persönlichen Bankdaten, Token oder ganze Serverantworten in Telemetrie/Console.
 - Keine Platzhalter-Uploads oder scheinbar funktionierenden Backend-Erweiterungen.
 - Durchstich gegen gepinntes MRE und PostgreSQL; zusätzlich ein kontrollierter Praxistest mit echten Daten und festgehaltener Erwartung.
+
+### Später
+
+- Geld über 2^53 Cent wird ohne Präzisionsverlust eingegeben und angezeigt.
+- Realm-Wechsel bricht laufende Requests ab und verwirft verspätete Antworten des alten Kontexts ohne Neuladen.
+- Screenreader-Namen und gemessene Kontraste in allen Zuständen (Hover, Disabled, Fokus) nach WCAG 2.2 AA.
+- Visuelle Regressionstests (Abschnitt 12, Punkt 6).
 
 ## 12. Teststrategie
 
@@ -574,15 +589,18 @@ API-Mocks ausschließlich aus den echten DTO-Mappings ableiten. Neu spezifiziert
 
 ## 13. Offene Entscheidungen vor Beginn
 
-| Frage | Zuständig | Ergebnis muss sein |
-|---|---|---|
-| Wie nutzt die DE-Oberfläche die MRE-Sitzung einschließlich Refresh? | Frontend + Integration | Funktionierender Anmeldedurchstich, kein separater DE-Login |
-| Wie findet man bestehende FinancialAccounts wieder? | Frontend + Backend | Geprüfte Quelle; sonst additive Read-Aufgabe |
-| Wie entstehen auswählbare DE-PropertyReferences aus dem MRE-Kontext? | Frontend + Integration | Stabile UUID-Auflösung, keine Namensheuristik |
-| Gemeinsame Origin oder separate Domain? | Deployment | Header-/Cookie-/CORS-Vertrag |
-| Importergebnis statt Vorab-Duplikatvorschau akzeptiert? | Produkt | Eindeutige Beschriftung oder separat beschlossener Preview-Vertrag |
-| Welche Navigation ist im ersten Release wirklich erreichbar? | Produkt + Frontend | Kleine, vollständig funktionierende Auswahl |
-| Soll ein vollständiger Audit-Verlauf sichtbar sein? | Produkt + Backend | Falls ja, expliziter Read-Vertrag und Datenschutzumfang |
+| Frage | Zuständig | Ergebnis muss sein | Entscheidung (30.10.2026) |
+|---|---|---|---|
+| Wie nutzt die DE-Oberfläche die MRE-Sitzung einschließlich Refresh? | Frontend + Integration | Funktionierender Anmeldedurchstich, kein separater DE-Login | **Entschieden:** kein DE-Login; Sitzungsvertrag in mre-integration.md §47.1 (#161, #163). Der Anmeldedurchstich wird im Sprint 0 demonstriert. |
+| Wie findet man bestehende FinancialAccounts wieder? | Frontend + Backend | Geprüfte Quelle; sonst additive Read-Aufgabe | **Entschieden:** additive Reads, #160 (offen). |
+| Wie entstehen auswählbare DE-PropertyReferences aus dem MRE-Kontext? | Frontend + Integration | Stabile UUID-Auflösung, keine Namensheuristik | **Entschieden:** additive Reads, #160 (offen); Anzeigedaten aus dem Cache, Aktualisierung nur über refresh. |
+| Gemeinsame Origin oder separate Domain? | Deployment | Header-/Cookie-/CORS-Vertrag | **Entschieden:** gemeinsame Origin hinter einem Reverse-Proxy; kein CORS (Abschnitt 7.2). |
+| Importergebnis statt Vorab-Duplikatvorschau akzeptiert? | Produkt | Eindeutige Beschriftung oder separat beschlossener Preview-Vertrag | **Entschieden:** ja, kein Preview-Vertrag (Abschnitt 6.5). |
+| Welche Navigation ist im ersten Release wirklich erreichbar? | Produkt + Frontend | Kleine, vollständig funktionierende Auswahl | **Entschieden:** Buchungen, Import, Mietabgleich und die Übersicht als Arbeitsnavigation (Abschnitt 3.1). |
+| Soll ein vollständiger Audit-Verlauf sichtbar sein? | Produkt + Backend | Falls ja, expliziter Read-Vertrag und Datenschutzumfang | **Entschieden:** nicht in Version 1; Korrekturkette aus dem Transaction-DTO reicht (Abschnitt 6.1). |
+| Eigene App oder Erweiterung der MRE-Landlord-App; welcher Stack? | Produkt + Frontend | Keine Grundsatzdiskussion im ersten Sprint | **Entschieden:** eigene App unter `webapps/cockpit`, React 18, TypeScript, Tailwind, TanStack Query, Vite; DTO-Typen aus den Backend-Schemata (Abschnitt 7.1). |
+
+Damit bleibt vor dem Sprint 0 nur #160 offen; alles andere ist entschieden oder wird im Integrations-Gate demonstriert.
 
 ## 14. Definition des Erfolgs
 
