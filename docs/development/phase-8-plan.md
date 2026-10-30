@@ -399,14 +399,14 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 - Erhaltungsaufwand vs. Herstellungskosten, as in Phase 7;
 - whether a capitalised item is a separate asset, and its useful life.
 
-**Questions for the review of this plan** (the decisions marked "needs the user"). Questions 1–6 were answered on 2026-10-30 (the **Decided** lines in §1). Question 7 is still open.
+**Questions for the review of this plan** (the decisions marked "needs the user"). Questions 1–7 were answered on 2026-10-30 (the **Decided** lines in §1; question 7 in the review on #173).
 1. **P8-D10:** derived and recorded (option 3)? And is "not recorded" an open flag, so that a year is final only once its AfA was recorded?
 2. **P8-D8:** the AfA per Acquisition among its buyers (option 1)?
 3. **P8-D7:** separate assets in Phase 8 (option 1), or only marked and flagged (option 2)?
 4. **P8-D4:** the shorter useful life in Phase 8?
 5. **P8-D3:** the allocation as entered, without a BMF computation?
 6. **P8-D13:** the scope, in particular § 7b and § 7h/§ 7i out?
-7. **VC-X-28 and VC-X-29** (P8-D12): the backlog says both come "before Phase 8 makes a year final". They do not block Phase 8: their flags (`ATTRIBUTION_INPUT_CHANGED`, `LOAN_INTEREST_NOT_ATTRIBUTED`) stay open, so a year they touch is never final. Phase 8 does not need loan interest to compute AfA. **Proposal:** keep them outside Phase 8, and schedule VC-X-29 next, since a landlord with a financed purchase has interest booked via a Loan in every year. The alternative is to pull them into Phase 8 before VC-8-05.
+7. **VC-X-28 and VC-X-29** (P8-D12): the backlog says both come "before Phase 8 makes a year final". They do not block Phase 8: their flags (`ATTRIBUTION_INPUT_CHANGED`, `LOAN_INTEREST_NOT_ATTRIBUTED`) stay open, so a year they touch is never final. Phase 8 does not need loan interest to compute AfA. **Proposal:** keep them outside Phase 8, and schedule VC-X-29 next, since a landlord with a financed purchase has interest booked via a Loan in every year. The alternative is to pull them into Phase 8 before VC-8-05. **Decided (2026-10-30, review on #173):** they do not block Phase 8; VC-X-29 is scheduled next.
 
 ---
 
