@@ -687,8 +687,11 @@ GET /api/v1/property-references/{propertyReferenceId}
 - **List:** `{ items, page, pageSize, total }`, as §41.1.
   - `page` ≥ 1 (default 1), `pageSize` 1–200 (default 50);
   - optional filter `externalReferenceState` (comma-separated, data-model's states: `ACTIVE`, `MISSING`, `DELETED_UPSTREAM`, `UNRESOLVED`); unknown values → `400`;
-  - order: `displayName` ascending with `null` last, then `createdAt`, then id, so pages are stable;
+  - order: `displayName` case-insensitive ascending (`lower(display_name)`, as the Party list §19) with `null` last, then `createdAt`, then id, so pages are stable. Beyond case, the database collation decides (accented letters such as `Ä`);
+  - count and page in one snapshot;
+  - unknown parameters, an unknown filter value or a `page`/`pageSize` out of range → `400 VALIDATION_ERROR` with `details.fields[]` (as §29.2);
   - items as the single read, without `ETag`.
+- **Tests (implementation):** more than one page; an unknown parameter (`?externalReferenceStates=ACTIVE`) → `400`; mixed-case `displayName`s sort case-insensitively; another Realm's id → `404`; the fake MRE's call count is unchanged.
 
 # 24. Rental Contract Reference API
 
@@ -1200,8 +1203,11 @@ The queries of §29's route list. A deposit's `holdingFinancialAccountId` (§47.
 - **List** (`GET /financial-accounts[?status=&accountType=&page=&pageSize=]`): `{ items, page, pageSize, total }`, as §41.1.
   - `page` ≥ 1 (default 1), `pageSize` 1–200 (default 50);
   - optional filters `status` (`OPEN`, `CLOSED`) and `accountType` (the five types of §29), each comma-separated; unknown values → `400`;
-  - order: `displayName` ascending, then `createdAt`, then id;
+  - order: `displayName` case-insensitive ascending (`lower(display_name)`, as §19; `displayName` is required here), then `createdAt`, then id;
+  - count and page in one snapshot;
+  - unknown parameters, an unknown filter value or a `page`/`pageSize` out of range → `400 VALIDATION_ERROR` with `details.fields[]` (as §29.2);
   - items as the single read, without `ETag`.
+- **Tests (implementation):** more than one page; an unknown parameter (`?statuss=CLOSED`) → `400`; mixed-case `displayName`s sort case-insensitively; both filters combined; another Realm's id → `404`.
 - **Nothing is written,** no AuditRecord.
 
 ---
