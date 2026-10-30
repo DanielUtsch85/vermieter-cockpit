@@ -67,6 +67,7 @@ export type {
 } from './bank-import.js';
 export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';
 export {
+  NoWegMembershipError,
   FinancialCategoryNotFoundError,
   InvalidLoanSplitError,
   InvalidSecurityDepositSplitError,
@@ -426,9 +427,12 @@ export type { GetRentSplitProposal, MreRentBreakdownReader, RentSplitProposalVie
 export {
   AdministratorInactiveError,
   InvalidMembershipError,
+  MembershipHasPlansError,
+  MembershipHasSplitsError,
   MembershipNotActiveError,
   OverlappingWegMembershipError,
   WegHasMembershipsError,
+  WegHasYearsError,
   WegMembershipNotFoundError,
   WegNotActiveError,
   WegNotFoundError,
@@ -463,3 +467,28 @@ export type {
 } from './wegs.js';
 export { MEMBERSHIP_STATUSES, WEG_STATUSES, formatMea, parseMea } from '../domains/weg/index.js';
 export type { MembershipChanges, MembershipFilter, Mea, Weg, WegChanges, WegFilter, WegMembership } from '../domains/weg/index.js';
+export {
+  EconomicPlanNotFoundError,
+  EffectiveFromOutsideYearError,
+  HausgeldNotProposableError,
+  NoEconomicPlanError,
+  PlanExistsError,
+  PlanOutsideMembershipError,
+  createEconomicPlan,
+  getEconomicPlan,
+  getHausgeldProposal,
+  listEconomicPlans,
+  voidEconomicPlan,
+} from './weg-economic-plans.js';
+export type {
+  CreateEconomicPlan,
+  CreateEconomicPlanInput,
+  GetEconomicPlan,
+  GetHausgeldProposal,
+  HausgeldProposal,
+  HausgeldProposalFlag,
+  ListEconomicPlans,
+  VoidEconomicPlan,
+} from './weg-economic-plans.js';
+export { COST_GROUPS, PLAN_STATUSES } from '../domains/weg/index.js';
+export type { CostGroup, PlanCostLine, PlanFlag, PlanView } from '../domains/weg/index.js';

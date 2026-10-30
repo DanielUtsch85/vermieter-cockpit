@@ -1,3 +1,4 @@
+import type { WegSplitRefusal } from './transaction-split.js';
 import type { AuditActor, Money } from '../../shared/index.js';
 import type { BusinessDate, Direction, Provenance, Transaction, TransactionStatus, VersionConflict } from './transaction.js';
 
@@ -129,6 +130,8 @@ export type AmendOutcome =
   | { readonly kind: 'CURRENCY_MISMATCH' }
   /** A split names a `CLOSED` Loan whose closing date is before the new booking date (§41.7). */
   | { readonly kind: 'LOAN_CLOSED'; readonly loanId: string; readonly closingDate: BusinessDate }
+  /** A kept WEG split's unit has no membership on the new booking date (§49.3, review on #147). */
+  | WegSplitRefusal
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceId: string };
 
 export type IgnoreOutcome =

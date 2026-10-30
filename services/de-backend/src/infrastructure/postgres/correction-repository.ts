@@ -2,6 +2,7 @@ import type { Kysely, Transaction as Trx } from 'kysely';
 import {
   checkDepositSplits,
   checkLoanSplits,
+  checkWegSplits,
   type SplitLoan,
   checkVersion,
   currencyMismatch,
@@ -24,6 +25,7 @@ import { toFinancialAccount } from './financial-account-repository.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { lockLoansOf } from './loan-repository.js';
 import { lockDepositsOf } from './security-deposit-repository.js';
+import { unitsWithMembershipOn } from './weg-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { COLUMNS, UUID, fromSnapshot, toDomain, toSnapshot } from './transaction-repository.js';
@@ -213,6 +215,11 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
       deposits,
     );
     if (depositRefusal !== undefined) throw new Rejected(depositRefusal);
+    // §49.3: the replacement's WEG splits, copied or given, need their unit's membership on its booking date; the
+    // reversal is exempt (it mirrors splits that may predate Phase 6).
+    const units = await unitsWithMembershipOn(trx, mreRealmId, replacement.splits, replacement.bookingDate);
+    const wegRefusal = checkWegSplits({ reversal: false, bookingDate: replacement.bookingDate }, replacement.splits, units);
+    if (wegRefusal !== undefined) throw new Rejected(wegRefusal);
     return categoryIds;
   }
 

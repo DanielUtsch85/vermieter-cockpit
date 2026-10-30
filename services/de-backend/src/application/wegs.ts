@@ -96,6 +96,39 @@ export class MembershipNotActiveError extends Error {
   }
 }
 
+/** Plans are filed by financial year: the start month is fixed once a plan exists (→ 409 WEG_HAS_YEARS, §49.5). */
+export class WegHasYearsError extends Error {
+  override readonly name = 'WegHasYearsError';
+
+  constructor(readonly wegId: string) {
+    super(`WEG ${wegId} has plans; its financial year is fixed`);
+  }
+}
+
+/** WEG splits of the unit fall outside what would remain of the membership (→ 409 MEMBERSHIP_HAS_SPLITS, §49.3). */
+export class MembershipHasSplitsError extends Error {
+  override readonly name = 'MembershipHasSplitsError';
+
+  constructor(
+    readonly membershipId: string,
+    readonly transactionIds: readonly string[],
+  ) {
+    super(`WEG membership ${membershipId} covers WEG splits`);
+  }
+}
+
+/** `ACTIVE` plans fall outside what would remain of the membership (→ 409 MEMBERSHIP_HAS_PLANS, §49.5). */
+export class MembershipHasPlansError extends Error {
+  override readonly name = 'MembershipHasPlansError';
+
+  constructor(
+    readonly membershipId: string,
+    readonly economicPlanIds: readonly string[],
+  ) {
+    super(`WEG membership ${membershipId} has plans`);
+  }
+}
+
 /** An end the membership's period does not allow (→ 422 INVALID_MEMBERSHIP with the reason, §49.2). */
 export class InvalidMembershipError extends Error {
   override readonly name = 'InvalidMembershipError';
@@ -179,6 +212,8 @@ export function amendWeg(deps: { readonly repository: WegRepository }): AmendWeg
         throw new PartyNotFoundError(outcome.partyId);
       case 'PARTY_INACTIVE':
         throw new AdministratorInactiveError(outcome.partyId);
+      case 'WEG_HAS_YEARS':
+        throw new WegHasYearsError(wegId);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
@@ -329,6 +364,10 @@ export function endMembership(deps: { readonly repository: WegRepository }): End
         throw new MembershipNotActiveError(membershipId);
       case 'INVALID_MEMBERSHIP':
         throw new InvalidMembershipError(membershipId, outcome.reason);
+      case 'MEMBERSHIP_HAS_SPLITS':
+        throw new MembershipHasSplitsError(membershipId, outcome.transactionIds);
+      case 'MEMBERSHIP_HAS_PLANS':
+        throw new MembershipHasPlansError(membershipId, outcome.economicPlanIds);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
@@ -351,6 +390,10 @@ export function voidMembership(deps: { readonly repository: WegRepository; reado
         return { membership: outcome.membership, changed: outcome.changed };
       case 'NOT_FOUND':
         throw new WegMembershipNotFoundError(membershipId);
+      case 'MEMBERSHIP_HAS_SPLITS':
+        throw new MembershipHasSplitsError(membershipId, outcome.transactionIds);
+      case 'MEMBERSHIP_HAS_PLANS':
+        throw new MembershipHasPlansError(membershipId, outcome.economicPlanIds);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
