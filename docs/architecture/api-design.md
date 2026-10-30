@@ -672,6 +672,24 @@ POST /api/v1/property-references/{propertyReferenceId}/refresh
 
 ---
 
+## 23.3 Read and list PropertyReferences (VC-X-25, spec; issue #160)
+
+The reads of §22's route list, so a client finds its objects again after a reload.
+
+```text
+GET /api/v1/property-references[?externalReferenceState=&page=&pageSize=]
+GET /api/v1/property-references/{propertyReferenceId}
+```
+
+- **Authorization:** as §23.1, the caller's Realm only. Another Realm's or an unknown id → `404` (existence is never revealed); an id that is not a UUID → `400`.
+- **No MRE call:** both reads answer from DE's own row, the cached, non-authoritative display data with `lastRefreshedAt` and `lastObservedAt`. A client that wants current values calls `refresh` (§23.2). A test asserts that the fake MRE's call count is unchanged by either read.
+- **Single read:** the response of §23.1 (`propertyReferenceId`, `mreRealmId`, `mrePropertyId`, `externalReferenceState`, `displayName`, `cachedAddress`, `cachedSurface`, `lastRefreshedAt`, `lastObservedAt`, `createdAt`, `version`), with `ETag: "<version>"` (§16.1).
+- **List:** `{ items, page, pageSize, total }`, as §41.1.
+  - `page` ≥ 1 (default 1), `pageSize` 1–200 (default 50);
+  - optional filter `externalReferenceState` (comma-separated, data-model's states: `ACTIVE`, `MISSING`, `DELETED_UPSTREAM`, `UNRESOLVED`); unknown values → `400`;
+  - order: `displayName` ascending with `null` last, then `createdAt`, then id, so pages are stable;
+  - items as the single read, without `ETag`.
+
 # 24. Rental Contract Reference API
 
 Concrete rental relationship references MRE Tenant + Lease Definition.
@@ -1172,6 +1190,19 @@ Account types (`accountType`, per `data-model.md` §16): `BANK`, `SECURITY_DEPOS
 - **Idempotency:** the key is scoped to the Realm and the command. "Semantically identical" means the same **normalized** payload, so `DE89 3704 …` and `DE893704…` are one request. A replay answers exactly like the original (`201`, the same body as recorded at creation, e.g. still `OPEN` / `version 1` after the account was closed) with the header `Idempotent-Replayed: true`. Concurrent requests with the same key create exactly one account.
 - **Close:** `200` with the account (`status = CLOSED`, `closedAt`, `version` +1, AuditRecord `CLOSED`). Closing a closed account is a `200` no-op without an AuditRecord. An id that is not a UUID is `400`; an unknown account or one of another Realm is `404`.
 - **Response:** `financialAccountId`, `mreRealmId`, `accountType`, `displayName`, `currency`, `iban` (normalized or `null`), `status`, `createdAt`, `closedAt`, `version`.
+
+## 29.3 Read and list FinancialAccounts (VC-X-25, spec; issue #160)
+
+The queries of §29's route list. A deposit's `holdingFinancialAccountId` (§47.1) is chosen from the list filtered by `accountType=SECURITY_DEPOSIT`.
+
+- **Authorization:** the caller's Realm only. Another Realm's or an unknown id → `404`; an id that is not a UUID → `400`.
+- **Single read** (`GET /financial-accounts/{financialAccountId}`): the response of §29.2, with `ETag: "<version>"` (§16.1).
+- **List** (`GET /financial-accounts[?status=&accountType=&page=&pageSize=]`): `{ items, page, pageSize, total }`, as §41.1.
+  - `page` ≥ 1 (default 1), `pageSize` 1–200 (default 50);
+  - optional filters `status` (`OPEN`, `CLOSED`) and `accountType` (the five types of §29), each comma-separated; unknown values → `400`;
+  - order: `displayName` ascending, then `createdAt`, then id;
+  - items as the single read, without `ETag`.
+- **Nothing is written,** no AuditRecord.
 
 ---
 
