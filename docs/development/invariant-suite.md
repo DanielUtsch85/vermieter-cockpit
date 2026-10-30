@@ -64,8 +64,8 @@ service; also run locally with `default_transaction_isolation = repeatable read`
 
 | Resource | Tests (Realm B never sees or changes Realm A's data) |
 |---|---|
-| PropertyReference | `property-reference-repository.test.ts`; `application/refresh-property-reference.test.ts`; `property-reference.e2e.test.ts` |
-| FinancialAccount | `financial-account-repository.test.ts`; `financial-account.e2e.test.ts` |
+| PropertyReference | `property-reference-repository.test.ts`; `application/refresh-property-reference.test.ts`; `property-reference.e2e.test.ts`; `reads.e2e.test.ts` (VC-X-25: Realm B's list holds only its own reference; Realm A's id read in Realm B is `404`) |
+| FinancialAccount | `financial-account-repository.test.ts`; `financial-account.e2e.test.ts`; `reads.e2e.test.ts` (VC-X-25: the same for the account list and single read) |
 | Manual Transaction | TR "rejects a Transaction on %s"; `transaction.e2e.test.ts` |
 | Splits, confirm | SR "PropertyReferences must be in the Realm; …"; TR confirm "another Realm’s Transaction is not found"; `transaction-split.e2e.test.ts` |
 | Import, batch, review items | IR "another Realm's or an unknown account is not found …", "lists only the items the batch owns …", "only the owning batch path resolves an item …"; `bank-import.e2e.test.ts` |

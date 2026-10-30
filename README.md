@@ -361,7 +361,7 @@ The public business API is under `/api/v1`. Its contracts are documented in [API
 - **Phase 5:** Security Deposit per the [Phase-5 plan](docs/development/phase-5-plan.md) (VC-5-01 to VC-5-05): deposits the landlord holds, linked to cash through splits, never mistaken for rent.
 - **Real-data run, open part:** the comparison of the computed loan schedule with the bank's own amortization plan (step 2, part 2), and with it F9, the first interest period ([#121](https://github.com/DanielUtsch85/vermieter-cockpit/issues/121)); F11, a split proposal from the MRE term for rent payments ([#126](https://github.com/DanielUtsch85/vermieter-cockpit/issues/126)), is tracked and not yet decided. See the [real-data run](docs/development/real-data-run.md).
 - **Later domains:** WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
-- **User interface:** There is no DE cockpit UI yet. General read/list endpoints for FinancialAccounts and PropertyReferences are also pending.
+- **User interface:** There is no DE cockpit UI yet. FinancialAccounts and PropertyReferences can be read and listed (api-design §23.3, §29.3; VC-X-25).
 - **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
 - **German rules:** The `VERIFY` points in [the verification checklist](docs/germany/verification-checklist.md) must be resolved before implementing the affected tax, depreciation and WEG rules.
 

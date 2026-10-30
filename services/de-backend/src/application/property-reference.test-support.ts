@@ -22,6 +22,11 @@ export function memoryRepository(): PropertyReferenceRepository & {
     audits,
     findByMreIdentity: async (realm, property) => find(realm, property),
     findById: async (id, realm) => rows.find((r) => r.id === id && r.mreRealmId === realm),
+    list: async (realm, filter, page) => {
+      const matching = rows.filter((r) => r.mreRealmId === realm && (filter.states === undefined || filter.states.includes(r.externalReferenceState)));
+      const items = matching.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
+      return { items, page: page.page, pageSize: page.pageSize, total: matching.length };
+    },
     linkOnce: async (draft: NewPropertyReference, actor: AuditActor): Promise<LinkOutcome> => {
       const existing = find(draft.mreRealmId, draft.mrePropertyId);
       if (existing !== undefined) return { reference: existing, created: false };

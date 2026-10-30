@@ -2,7 +2,9 @@ import {
   createFingerprint,
   type AccountType,
   type FinancialAccount,
+  type FinancialAccountFilter,
   type FinancialAccountId,
+  type FinancialAccountPage,
   type FinancialAccountRepository,
 } from '../domains/ledger/index.js';
 import type { CurrencyCode } from '../shared/index.js';
@@ -74,4 +76,27 @@ export function closeFinancialAccount(deps: { readonly repository: FinancialAcco
     if (closed === undefined) throw new FinancialAccountNotFoundError(financialAccountId);
     return closed;
   };
+}
+
+export type GetFinancialAccount = (input: { readonly principal: RealmPrincipal; readonly financialAccountId: string }) => Promise<FinancialAccount>;
+
+/** api-design.md §29.3. */
+export function getFinancialAccount(deps: { readonly repository: FinancialAccountRepository }): GetFinancialAccount {
+  return async ({ principal, financialAccountId }) => {
+    const account = await deps.repository.findById(financialAccountId, principal.mreRealmId);
+    // Unknown and other-Realm accounts look the same, so existence does not leak.
+    if (account === undefined) throw new FinancialAccountNotFoundError(financialAccountId);
+    return account;
+  };
+}
+
+export type ListFinancialAccounts = (input: {
+  readonly principal: RealmPrincipal;
+  readonly filter: FinancialAccountFilter;
+  readonly page: { readonly page: number; readonly pageSize: number };
+}) => Promise<FinancialAccountPage>;
+
+/** api-design.md §29.3: the caller's Realm only. */
+export function listFinancialAccounts(deps: { readonly repository: FinancialAccountRepository }): ListFinancialAccounts {
+  return ({ principal, filter, page }) => deps.repository.list(principal.mreRealmId, filter, page);
 }
