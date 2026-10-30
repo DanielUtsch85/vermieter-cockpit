@@ -33,3 +33,5 @@ export { PostgresRentReconciliationRepository } from './rent-reconciliation-repo
 export { PostgresWegAnnualStatementRepository } from './weg-annual-statement-repository.js';
 export { PostgresWegEconomicPlanRepository } from './weg-economic-plan-repository.js';
 export { PostgresWegSpecialAssessmentRepository } from './weg-special-assessment-repository.js';
+export { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
+export { checkStoredRuleReferences } from './tax-rule-check.js';

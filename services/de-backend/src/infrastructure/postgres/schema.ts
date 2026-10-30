@@ -641,6 +641,29 @@ export interface TransactionSplitTable {
   created_by: string;
 }
 
+export interface TaxClassificationTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  source_type: string;
+  /** The source of VC-7-01 (api-design §57); later items add their columns. */
+  transaction_split_id: string | null;
+  tax_category: string;
+  treatment: string | null;
+  review_state: string;
+  /** The applied rule as `ruleCode@version` (P7-D1): the registry is code, not a table. */
+  rule_code: string;
+  rule_version: number;
+  advisor_party_id: string | null;
+  notes: string | null;
+  source_references: Generated<string[]>;
+  supersedes_id: string | null;
+  superseded_by: string | null;
+  superseded_at: Date | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  version: Generated<number>;
+}
+
 export interface Database {
   property_reference: PropertyReferenceTable;
   audit_record: AuditRecordTable;
@@ -672,4 +695,5 @@ export interface Database {
   import_review_item: ImportReviewItemTable;
   financial_category: FinancialCategoryTable;
   transaction_split: TransactionSplitTable;
+  tax_classification: TaxClassificationTable;
 }

@@ -13,6 +13,7 @@ import { loanDebtRoutes, type LoanDebtCommands } from './loan-debt.js';
 import { loanTermsRoutes, type LoanTermsCommands } from './loan-terms.js';
 import { loanRoutes, type LoanCommands } from './loans.js';
 import { securityDepositRoutes, type SecurityDepositCommands } from './security-deposits.js';
+import { taxationRoutes, type TaxationCommands } from './tax-classifications.js';
 import { ownerAllocationRoutes, type OwnerAllocationCommands } from './owner-allocation.js';
 import { ownershipRoutes, type OwnershipCommands } from './ownerships.js';
 import { partyRoutes, type PartyCommands } from './parties.js';
@@ -58,6 +59,8 @@ export interface AppCommands {
   readonly wegEconomicPlans: WegEconomicPlanCommands;
   readonly wegAnnualStatements: WegAnnualStatementCommands;
   readonly wegSpecialAssessments: WegSpecialAssessmentCommands;
+  /** Tax rules, tax meanings and TaxClassification (VC-7-01). */
+  readonly taxation: TaxationCommands;
   /** Rent reconciliation, coverage, suggestions, write-back and removal (VC-4-01 … VC-4-05). */
   readonly rentReconciliations: RentReconciliationCommands;
   /** Loan terms, schedule and payment proposal (VC-3-02, VC-3-04, VC-3-05). */
@@ -123,6 +126,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(wegEconomicPlanRoutes(deps.wegEconomicPlans));
   api.use(wegAnnualStatementRoutes(deps.wegAnnualStatements));
   api.use(wegSpecialAssessmentRoutes(deps.wegSpecialAssessments));
+  api.use(taxationRoutes(deps.taxation));
   api.use(rentReconciliationRoutes(deps.rentReconciliations));
   api.use(loanTermsRoutes(deps.loanTerms));
   api.use(loanDebtRoutes(deps.loanDebt));

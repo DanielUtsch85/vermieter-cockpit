@@ -152,6 +152,17 @@ import {
   WegStatementNotFoundError,
   WriteBackFailedError,
   WriteBackInProgressError,
+  AdvisorConfirmedError,
+  ClassificationExistsError,
+  ClassificationSupersededError,
+  NoApplicableTaxRuleError,
+  NotCurrentClassificationError,
+  SourceNotCountedError,
+  TaxClassificationNotFoundError,
+  TaxRuleNotFoundError,
+  TaxRuleNotRegisteredError,
+  TaxSourceNotFoundError,
+  TreatmentNotAllowedError,
   formatShare,
 } from '../application/index.js';
 import { eurCents, signedEurCents } from './cents.js';
@@ -849,6 +860,55 @@ const TABLE = [
     answer(409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', {
       reason: 'WRITE_BACK_IN_PROGRESS',
       reconciliationId: error.reconciliationId,
+    }),
+  ),
+  // Taxation (api-design §55–§58, VC-7-01).
+  on(AdvisorConfirmedError, () =>
+    answer(409, 'CONFLICT', 'A user cannot lower an advisor confirmation; supersede the classification instead.', { reason: 'ADVISOR_CONFIRMED' }),
+  ),
+  on(ClassificationExistsError, (error) =>
+    answer(409, 'CONFLICT', 'The source has a current classification; name it in supersedes.', {
+      reason: 'CLASSIFICATION_EXISTS',
+      currentClassificationId: error.currentClassificationId,
+    }),
+  ),
+  on(ClassificationSupersededError, (error) =>
+    answer(409, 'CONFLICT', 'Only the current classification moves.', { reason: 'CLASSIFICATION_SUPERSEDED', supersededBy: error.supersededBy }),
+  ),
+  on(NoApplicableTaxRuleError, (error) =>
+    answer(409, 'CONFLICT', 'No version of the tax rule applies on the booking date.', {
+      reason: 'NO_APPLICABLE_RULE',
+      ruleCode: error.ruleCode,
+      date: error.date,
+    }),
+  ),
+  on(NotCurrentClassificationError, (error) =>
+    answer(409, 'CONFLICT', 'supersedes does not name the current classification.', {
+      reason: 'NOT_CURRENT_CLASSIFICATION',
+      currentClassificationId: error.currentClassificationId,
+    }),
+  ),
+  on(SourceNotCountedError, (error) =>
+    answer(409, 'CONFLICT', 'The split does not count for tax: its Transaction is not current (CONFIRMED or RECONCILED, not a reversal).', {
+      reason: 'SOURCE_NOT_COUNTED',
+      transactionStatus: error.transactionStatus,
+      correctionRole: error.correctionRole,
+    }),
+  ),
+  on(TaxClassificationNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Tax classification not found.', { classificationId: error.classificationId })),
+  on(TaxRuleNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Tax rule not found.', { ruleCode: error.ruleCode })),
+  on(TaxRuleNotRegisteredError, (error) =>
+    answer(409, 'CONFLICT', 'The classification names a rule version that is not registered.', {
+      reason: 'RULE_NOT_REGISTERED',
+      ruleCode: error.ruleCode,
+      version: error.version,
+    }),
+  ),
+  on(TaxSourceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Source not found.', { sourceType: error.sourceType, sourceId: error.sourceId })),
+  on(TreatmentNotAllowedError, (error) =>
+    answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
+      categoryType: error.categoryType,
+      allowed: error.allowed,
     }),
   ),
 ];

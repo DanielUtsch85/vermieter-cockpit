@@ -123,6 +123,14 @@ import {
   refreshPropertyReference,
   resolveReviewItem,
   setTransactionSplits,
+  createTaxClassification,
+  getTaxClassification,
+  getTaxMeaning,
+  getTaxRule,
+  listTaxClassificationHistory,
+  listTaxMeanings,
+  listTaxRules,
+  reviewTaxClassification,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
@@ -137,6 +145,7 @@ import {
   PostgresWegAnnualStatementRepository,
   PostgresWegEconomicPlanRepository,
   PostgresWegSpecialAssessmentRepository,
+  PostgresTaxClassificationRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
@@ -151,6 +160,7 @@ import {
   PostgresUnconfirmedTransactionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
+  checkStoredRuleReferences,
   createDatabase,
   createPool,
   isDatabaseReachable,
@@ -192,6 +202,7 @@ const wegs = new PostgresWegRepository(db);
 const wegPlans = new PostgresWegEconomicPlanRepository(db);
 const wegStatements = new PostgresWegAnnualStatementRepository(db);
 const wegAssessments = new PostgresWegSpecialAssessmentRepository(db);
+const taxClassifications = new PostgresTaxClassificationRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -301,6 +312,16 @@ const app = createApp({
     replaceUses: replaceAssessmentUses({ repository: wegAssessments }),
     void: voidSpecialAssessment({ repository: wegAssessments }),
   },
+  taxation: {
+    create: createTaxClassification({ repository: taxClassifications }),
+    get: getTaxClassification({ repository: taxClassifications }),
+    history: listTaxClassificationHistory({ repository: taxClassifications }),
+    review: reviewTaxClassification({ repository: taxClassifications }),
+    taxMeaning: getTaxMeaning({ repository: taxClassifications }),
+    taxMeanings: listTaxMeanings({ repository: taxClassifications }),
+    listRules: listTaxRules(),
+    getRule: getTaxRule(),
+  },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),
     get: getReconciliation({ repository: rentReconciliations }),
@@ -379,6 +400,15 @@ const app = createApp({
 // Migrate before accepting requests; a failed migration aborts the start.
 const applied = await migrateToLatest(pool);
 console.log(`database migrations applied: ${applied.length === 0 ? 'none pending' : applied.map((r) => r.migrationName).join(', ')}`);
+// Every stored tax rule reference resolves against the registry, or the start aborts naming the missing ones (§58).
+try {
+  const rules = await checkStoredRuleReferences(db);
+  console.log(`tax rule references resolved: ${rules.length === 0 ? 'none stored' : rules.map((r) => `${r.ruleCode}@${r.version}`).join(', ')}`);
+} catch (error) {
+  console.error(String(error));
+  await pool.end();
+  process.exit(1);
+}
 
 const server = app.listen(config.PORT, () => {
   console.log(`de-backend listening on port ${config.PORT}`);

@@ -4291,7 +4291,7 @@ Should create metadata reference without duplicating binary content unnecessaril
 
 ---
 
-# 55. Tax Classification API (VC-7-01, spec)
+# 55. Tax Classification API (VC-7-01, implemented: migration 0045)
 
 Decisions P7-D1, P7-D2 and P7-D9 of `docs/development/phase-7-plan.md` (data-model §36–§37, ADR-006, ADR-041, `docs/germany/taxation.md` §5, §8, §9). Taxation interprets cash; it never writes it. Every split has a **tax meaning**, derived from its category by a versioned rule unless the user stored a **classification** for it. VC-7-01 classifies splits; later items add withdrawals, uses and deposit closings as sources (VC-7-02, VC-7-03) and the fields marked below.
 
@@ -4360,7 +4360,7 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 
 ---
 
-# 56. Create Tax Classification (VC-7-01, spec)
+# 56. Create Tax Classification (VC-7-01, implemented: migration 0045)
 
 `POST /api/v1/tax-classifications`, `201` with the classification and `ETag`, `Location`; `Idempotency-Key` (scope `tax-classification.create`, §15).
 
@@ -4387,7 +4387,7 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 
 ---
 
-# 57. Tax Confirmation (VC-7-01, spec)
+# 57. Tax Confirmation (VC-7-01, implemented: migration 0045)
 
 Review states (domain-model §45): stored `USER_CONFIRMED`, `ADVISOR_CONFIRMED`, `NEEDS_REVIEW`; `SUGGESTED` only derived. A complex position is never shown with false certainty, so the view (VC-7-04) flags every `NEEDS_REVIEW`.
 
@@ -4416,7 +4416,7 @@ Review states (domain-model §45): stored `USER_CONFIRMED`, `ADVISOR_CONFIRMED`,
 
 ---
 
-# 58. Tax Rules API (VC-7-01, spec)
+# 58. Tax Rules API (VC-7-01, implemented: migration 0045)
 
 Decision P7-D1 (ADR-041, taxation.md §9). Rules are versioned TypeScript modules in `domains/taxation/rules/`; the database stores only `ruleCode@version`. There is no rule administration through the API: a rule changes by a code change, reviewed like any other.
 

@@ -571,3 +571,49 @@ export type {
 } from './weg-special-assessments.js';
 export { ASSESSMENT_PURPOSES, ASSESSMENT_STATUSES, instalmentsRefusal } from '../domains/weg/index.js';
 export type { AssessmentContent, AssessmentUse, AssessmentView, Instalment } from '../domains/weg/index.js';
+export {
+  AdvisorConfirmedError,
+  ClassificationExistsError,
+  ClassificationSupersededError,
+  NoApplicableTaxRuleError,
+  NotCurrentClassificationError,
+  SourceNotCountedError,
+  TaxClassificationNotFoundError,
+  TaxRuleNotFoundError,
+  TaxRuleNotRegisteredError,
+  TaxSourceNotFoundError,
+  TreatmentNotAllowedError,
+  createTaxClassification,
+  getTaxClassification,
+  getTaxMeaning,
+  getTaxRule,
+  listTaxClassificationHistory,
+  listTaxMeanings,
+  listTaxRules,
+  reviewTaxClassification,
+} from './tax-classifications.js';
+export type {
+  CreateTaxClassification,
+  CreateTaxClassificationInput,
+  GetTaxClassification,
+  GetTaxMeaning,
+  GetTaxRule,
+  ListTaxClassificationHistory,
+  ListTaxMeanings,
+  ListTaxRules,
+  ReviewTaxClassification,
+  TaxRuleView,
+} from './tax-classifications.js';
+export {
+  CREATE_REVIEW_STATES,
+  LATER_TAX_CATEGORIES,
+  LATER_TREATMENTS,
+  ORIGINS,
+  REVIEW_STATES,
+  SOURCE_TYPES,
+  SUPPORTED_SOURCE_TYPES,
+  TAX_CATEGORIES,
+  TREATMENTS,
+  treatmentFits,
+} from '../domains/taxation/index.js';
+export type { ReviewStep, TaxClassification, TaxMeaning, TaxMeaningFlag, TaxCategory, Treatment } from '../domains/taxation/index.js';
