@@ -101,7 +101,7 @@ Scope: dedicated Security Deposit domain (ADR-013): expected amount, holding `Fi
 
 Scope: `WEG`, membership, Wirtschaftsplan, Jahresabrechnung, WEG cost lines, Erhaltungsrücklage, Sonderumlage; Hausgeld payments split into components.
 
-**Prerequisite:** `docs/germany/weg.md` (verified 29.10.2026, v0.2); ADR-018 scope limits respected.
+**Prerequisite:** `docs/germany/weg.md` (researched 29.10.2026 (v0.2), no professional confirmation yet); ADR-018 scope limits respected.
 
 **Exit:** a Jahresabrechnung is represented with preserved statement structure and split into ledger effects without losing provenance.
 
@@ -111,7 +111,7 @@ Scope: `WEG`, membership, Wirtschaftsplan, Jahresabrechnung, WEG cost lines, Erh
 
 Scope: Werbungskosten classification, acquisition-cost classification, umlagefähig/nicht umlagefähig, versioned tax rules (ADR-022).
 
-**Prerequisite:** `docs/germany/taxation.md` and `docs/germany/rent-and-operating-costs.md` (verified 29.10.2026, v0.2). Rule execution model resolved: **ADR-041** (versioned code modules).
+**Prerequisite:** `docs/germany/taxation.md` and `docs/germany/rent-and-operating-costs.md` (researched 29.10.2026 (v0.2), no professional confirmation yet). Rule execution model resolved: **ADR-041** (versioned code modules).
 
 **Exit:** a tax-year view derives Einkünfte aus Vermietung und Verpachtung from classified cash + AfA, every figure traceable, no cash mutated.
 
@@ -123,7 +123,7 @@ Scope: Werbungskosten classification, acquisition-cost classification, umlagefä
 
 Scope: AfA schedules from acquisition + land/building allocation; version-aware AfA rules.
 
-**Prerequisite:** `docs/germany/depreciation.md` (verified 29.10.2026, v0.2).
+**Prerequisite:** `docs/germany/depreciation.md` (researched 29.10.2026 (v0.2), no professional confirmation yet).
 
 **Exit:** an AfA schedule is reproducible from acquisition truth, stored as derivation (not cash), and feeds the tax-year view.
 
