@@ -13,8 +13,9 @@
     "typecheck": "yarn workspaces foreach --verbose run typecheck",
     "test": "yarn workspaces foreach --verbose run test",
     "lint": "eslint services",
-    "format": "prettier --write services eslint.config.mjs",
-    "format:check": "prettier --check services eslint.config.mjs"
+    "format": "prettier --write services scripts docs/development/design-tokens.css eslint.config.mjs",
+    "format:check": "prettier --check services scripts docs/development/design-tokens.css eslint.config.mjs",
+    "api:inventory": "node scripts/api-inventory.mjs"
   },
   "packageManager": "yarn@3.3.0",
   "devDependencies": {

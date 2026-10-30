@@ -1,0 +1,48 @@
+/*
+ * Vermieter Cockpit DE: design tokens for the first user interface (ui-guide.md §4.1).
+ * A proposal, not a framework rule: the values are the guide's table as CSS custom properties, so the
+ * frontend can start from one file. Measure contrast on real components (WCAG 2.2 AA) before shipping.
+ */
+:root {
+  /* Surfaces and text */
+  --vc-background: #f5f7f9; /* page background */
+  --vc-surface: #ffffff; /* tables, forms, cards */
+  --vc-text: #16243a; /* titles, important figures */
+  --vc-muted: #526278; /* secondary text on light surfaces */
+  --vc-border: #dde5ed; /* dividers */
+
+  /* Action */
+  --vc-primary: #087f79; /* primary action, links, focus */
+
+  /* States: text on its background */
+  --vc-success-text: #086448;
+  --vc-success-bg: #e8f5ee;
+  --vc-warning-text: #805300;
+  --vc-warning-bg: #fff3d8;
+  --vc-danger-text: #a52b40;
+  --vc-danger-bg: #fcecef;
+  --vc-info-text: #315a7a;
+  --vc-info-bg: #edf4fa;
+
+  /* Typography (ui-guide.md §4.2) */
+  --vc-font-sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif; /* self-hosted Inter or system font */
+  --vc-font-size-body: 14px; /* 14–16 px; forms prefer 16 px */
+  --vc-font-size-form: 16px;
+  --vc-font-size-label: 12px; /* minimum */
+  --vc-font-size-section: 18px; /* 18–20 px */
+  --vc-font-size-title: 28px; /* 28–32 px */
+  --vc-numeric: tabular-nums;
+
+  /* Spacing and shape */
+  --vc-space-1: 4px;
+  --vc-space-2: 8px;
+  --vc-space-3: 12px;
+  --vc-space-4: 16px;
+  --vc-space-6: 24px;
+  --vc-space-8: 32px;
+  --vc-radius-card: 10px; /* 10–12 px */
+  --vc-radius-input: 6px; /* 6–8 px */
+  --vc-content-max-width: 1440px;
+  --vc-nav-width: 240px; /* 220–240 px */
+  --vc-touch-target: 44px;
+}
