@@ -6,7 +6,7 @@ import { Money } from '../../shared/index.js';
 import { PostgresCorrectionRepository } from './correction-repository.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
-import { migrateToLatest } from './migrate.js';
+import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
 import { PostgresSecurityDepositRepository } from './security-deposit-repository.js';
 import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
@@ -567,8 +567,17 @@ describe.skipIf(databaseUrl === undefined)('Security deposit close and reopen (Â
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        const { down } = await import('./migrations/0039_security_deposit_close.js');
-        await down(createDatabase(downPool) as never);
+        // Dropping columns while another worker's Migrator introspects the database breaks that migration (the race of
+        // #114 and #145): the down holds the migration lock, as schema teardown does (migrate.ts).
+        const lock = new pg.Client({ connectionString: databaseUrl });
+        await lock.connect();
+        try {
+          await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
+          const { down } = await import('./migrations/0039_security_deposit_close.js');
+          await down(createDatabase(downPool) as never);
+        } finally {
+          await lock.end().catch(() => undefined);
+        }
         const { rows: columns } = await downPool.query(
           `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'security_deposit' AND column_name LIKE '%closing%'`,
           [downSchema],
