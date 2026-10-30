@@ -4331,14 +4331,16 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 | `WEG_RESERVE_CONTRIBUTION`, `WEG_SPECIAL_ASSESSMENT` (WEG_FUNDS) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
 | `MAINTENANCE` (OPERATING_EXPENSE) | `MAINTENANCE` | `DEDUCTIBLE` | `SUGGESTED` |
 | `ADMINISTRATION`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES` (OPERATING_EXPENSE) | the code itself | `DEDUCTIBLE` | `SUGGESTED` |
-| `OTHER_EXPENSE` (OPERATING_EXPENSE) | `OTHER_EXPENSE` | `DEDUCTIBLE` | `NEEDS_REVIEW` |
+| `OTHER_EXPENSE` (OPERATING_EXPENSE) | `UNCLASSIFIED` | — (`null`) | `NEEDS_REVIEW` |
 | `SECURITY_DEPOSIT`, `SECURITY_DEPOSIT_INTEREST` (SECURITY_DEPOSIT) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
-| `ACQUISITION` (CAPITAL_MOVEMENT) | `ACQUISITION` | `CAPITALIZED` | `SUGGESTED` |
+| `ACQUISITION` (CAPITAL_MOVEMENT) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
 | `OWNER_CONTRIBUTION`, `OWNER_WITHDRAWAL` (CAPITAL_MOVEMENT), `TRANSFER` (TRANSFER) | `NOT_RELEVANT` | `NOT_RELEVANT` | `SUGGESTED` |
 | `OTHER` (OTHER) | `UNCLASSIFIED` | — (`null`) | `NEEDS_REVIEW` |
 
 - A category the rule does not list (a code added later) reads as `OTHER`: `UNCLASSIFIED`, `NEEDS_REVIEW`. A test checks that every seeded category is listed.
-- **`taxCategory`** is the line of the tax-year view (VC-7-04): `RENT`, `OPERATING_COST_ADVANCES`, `OPERATING_COST_SETTLEMENT`, `OTHER_INCOME`, `LOAN_INTEREST`, `FINANCING_COSTS`, `WEG_HAUSGELD`, `WEG_SPENDING` (VC-7-03), `MAINTENANCE`, `ADMINISTRATION`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES`, `TAX_ADVICE`, `TRAVEL`, `OTHER_EXPENSE`, `ACQUISITION`, `NOT_RELEVANT`, `UNCLASSIFIED`. The list is a rule parameter, extended by a new rule version.
+- **`OTHER_EXPENSE` and `OTHER` have no default meaning** (P7-D2): `UNCLASSIFIED` with no treatment, so the view sums them nowhere until a person classifies them (review on #157).
+- **`ACQUISITION` is `NOT_RELEVANT`:** the AfA basis comes from the Acquisition aggregate (price, acquisition costs and the land/building allocation, P2-D7/D9), not from its payments. Capitalising the payment too would count the price twice in Phase 8 (review on #157).
+- **`taxCategory`** is the line of the tax-year view (VC-7-04): `RENT`, `OPERATING_COST_ADVANCES`, `OPERATING_COST_SETTLEMENT`, `OTHER_INCOME`, `LOAN_INTEREST`, `FINANCING_COSTS`, `WEG_HAUSGELD`, `WEG_SPENDING` (VC-7-03), `MAINTENANCE`, `ADMINISTRATION`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES`, `TAX_ADVICE`, `TRAVEL`, `OTHER_EXPENSE`, `NOT_RELEVANT`, `UNCLASSIFIED`. The list is a rule parameter, extended by a new rule version.
 - **`treatment`:** `INCOME`, `DEDUCTIBLE` (when paid), `CAPITALIZED` (to the AfA basis, Phase 8), `DISTRIBUTED_82B` (VC-7-03), `NOT_RELEVANT`.
 - **The direction does not change the default:** an `INFLOW` in an expense category is a refund, an `OUTFLOW` in an income category a repayment; both keep the line and are signed (P7-D4, VC-7-02).
 
@@ -4380,7 +4382,7 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 - **`reviewState`** on create: `USER_CONFIRMED` (default) or `NEEDS_REVIEW`; `ADVISOR_CONFIRMED` only through §57; `SUGGESTED` is never stored (`400`).
 - **`supersedes`:** required when the source has a current classification and must name it (`409 CONFLICT`, `reason = "CLASSIFICATION_EXISTS"` with `details.currentClassificationId`, else `reason = "NOT_CURRENT_CLASSIFICATION"`). This is the create's optimistic concurrency: two users changing the same split cannot both win.
 - **Order of checks:** `400` (shape, the enums, `NOT_SUPPORTED` fields) → source `404` (of the caller's Realm) → `409 CONFLICT` `reason = "SOURCE_NOT_COUNTED"` (the split's Transaction is not current; `details.transactionStatus`) → `422 TREATMENT_NOT_ALLOWED` → `supersedes` (`CLASSIFICATION_EXISTS`, `NOT_CURRENT_CLASSIFICATION`).
-- **`422 TREATMENT_NOT_ALLOWED`** keeps the hard rules hard (P7-D2; `details.categoryType`, `details.allowed`): a split of category type `WEG_FUNDS`, `SECURITY_DEPOSIT` or `TRANSFER` may only be `NOT_RELEVANT` (BFH IX R 19/24; A11, E6). Their tax meaning arises elsewhere: WEG spending through withdrawals and uses (VC-7-03), a retained deposit through its closing (VC-7-02). `LOAN_PRINCIPAL` may not be `DEDUCTIBLE` (A1). Every other category accepts every treatment of VC-7-01: the user may know better than the default, and the record says so.
+- **`422 TREATMENT_NOT_ALLOWED`** keeps the hard rules hard (P7-D2; `details.categoryType`, `details.allowed`): a split of category type `WEG_FUNDS`, `SECURITY_DEPOSIT` or `TRANSFER` may only be `NOT_RELEVANT` (BFH IX R 19/24; A11, E6). Their tax meaning arises elsewhere: WEG spending through withdrawals and uses (VC-7-03), a retained deposit through its closing (VC-7-02). `LOAN_PRINCIPAL` may not be `DEDUCTIBLE` (A1), and `ACQUISITION` may not be `CAPITALIZED` (its basis is the Acquisition's, review on #157). Every other category accepts every treatment of VC-7-01: the user may know better than the default, and the record says so.
 - **`taxCategory` and `treatment` must fit:** an `INCOME` line (`RENT` … `OTHER_INCOME`) only with `INCOME`, `NOT_RELEVANT` and `UNCLASSIFIED` only with `NOT_RELEVANT` resp. `null`, the others not with `INCOME`; else `400` with `TAX_CATEGORY_TREATMENT_MISMATCH` at `treatment`.
 - **AuditRecords:** `TAX_CLASSIFIED` on the new classification (with `sourceType`, `sourceId`, `taxCategory`, `treatment`, `reviewState`, `rule`), `TAX_CLASSIFICATION_SUPERSEDED` on the old one.
 - **Replay** of the same key with the same body returns the stored `201`; another body `409 IDEMPOTENCY_CONFLICT` (§15).
@@ -4441,7 +4443,7 @@ GET /api/v1/tax-rules/{ruleCode}
 - **Concurrency**, RC and RR, each with a counter-check: a create against a correction of the Transaction, both orders; two creates for one split.
 - **Start check:** a stored unknown version stops the start.
 - **API:** every `400`, the error mapping, the DTOs; `tax-meaning` with `DEFAULT`, `CLASSIFICATION`, `NOT_COUNTED`, `CLASSIFICATION_ON_CORRECTED_SPLIT`; the list per property and year with its filters.
-- **End to end:** a year of imported and split cash; the defaults read; a `MAINTENANCE` split reclassified as `CAPITALIZED`, then advisor-confirmed; a `WEG_RESERVE_CONTRIBUTION` split refused as `DEDUCTIBLE`; Realm isolation on every route of §55–§58.
+- **End to end:** a year of imported and split cash; the defaults read; a `MAINTENANCE` split reclassified as `CAPITALIZED`, then advisor-confirmed; a `WEG_RESERVE_CONTRIBUTION` split refused as `DEDUCTIBLE`, an `ACQUISITION` split refused as `CAPITALIZED`; Realm isolation on every route of §55–§58.
 
 ---
 
