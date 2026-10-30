@@ -46,7 +46,11 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
 
 - Each rule is a TypeScript module in `domains/taxation/rules/` with `ruleCode`, `version`, `legalBasis`, `effectiveFrom`, optional `effectiveTo`, `parameters` and `source` (taxation.md §9). A changed rule is a new version; the old one stays in the code and in its tests.
 - A **registry** selects the version applicable on a date. `GET /api/v1/tax-rules` (api-design §58) lists the registry (read-only), so a user sees which rules exist and from when. Rule administration (§58) is not an API: a rule changes by a code change.
-- **No `tax_rule_version` table.** Data-model §37 becomes the description of the registry entry. A stored classification, and every derived figure, records the applied rule as `ruleCode@version`. A version is never removed from the code while a stored reference names it; a test checks that every stored reference resolves.
+- **No `tax_rule_version` table.** Data-model §37 becomes the description of the registry entry. A stored classification, and every derived figure, records the applied rule as `ruleCode@version`. A version is never removed from the code while a stored reference names it. Two checks enforce it (review on #156):
+  - **on write:** a classification may only name a version the registry knows;
+  - **on start:** like the migration check, the backend resolves every stored `ruleCode@version` against the registry and refuses to start if one is missing.
+
+  A test covers the mechanism.
 - **Rules of Phase 7:**
   - the default meaning of each category (P7-D2);
   - the attribution to a tax year, § 11 EStG with the 10-day rule (P7-D3);
@@ -76,12 +80,15 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
 ### P7-D3 The tax year of a cash movement (§ 11 EStG; resolves taxation.md §3 and §10)
 
 - **The rule:** the tax year is the calendar year of the booking date (Zufluss/Abfluss).
-- **The 10-day exception** (A4): a regularly recurring amount that is both due and paid within 10 days around the year-end belongs to the year it is due for. The model needs a **due date**, which it takes only where one is known:
-  - **rent:** the period of the confirmed `RentPaymentReconciliation` (Phase 4), from MRE;
-  - **Hausgeld advances:** the month of the plan's advance, by the plan used in the split proposal (P6-D4);
-  - **loan interest:** the due date of the matching schedule entry (Phase 3).
-- **Where no due date is known**, the booking year applies; nothing is guessed.
-- **Proposal, not decision:** where the exception applies, the view attributes the amount to the year it is due for, flags `ATTRIBUTED_BY_10_DAY_RULE`, and names the rule version. The user can override it per split through the classification (`taxYear`), and the flag then shows the override.
+- **The 10-day exception** (§ 11 Abs. 1 S. 2, Abs. 2 S. 2 EStG; A4): a regularly recurring amount belongs to the year it **economically belongs to** when **both** its due date **and** its payment fall within 10 days around the year-end (revised in review on #156).
+- **The economic year** is the year of the period the amount pays for: the rent month of the confirmed `RentPaymentReconciliation` (Phase 4), the month of the Hausgeld advance by the plan used (P6-D4), and the interest period of the loan schedule entry (Phase 3).
+- **The due date** is determined per source, explicitly. A period is not a due date: rent due on the 15th of January and paid on 28 December stays in the year of payment.
+  - **Loan interest:** the due date of the matching schedule entry (Phase 3).
+  - **Rent:** a recorded due day of the month, from the lease. It is a new optional field on the `RentalContractReference`, since DE reads no due day from MRE today (mre-integration.md documents none). The spec of VC-7-02 checks MRE's source for one first.
+  - **Hausgeld:** a recorded due day of the month, as the Vorschussbeschluss sets it. It is a new optional field on the `WegEconomicPlan` (P6-D4).
+- **No recorded due day:** the start of the period serves as the due date, flagged `DUE_DATE_ASSUMED`. The assumption is never silent.
+- **Proposal, not decision:** where the exception applies, the view attributes the amount to its economic year, flags `ATTRIBUTED_BY_10_DAY_RULE` (and `DUE_DATE_ASSUMED` where it applies), and names the rule version. The user can override it per split through the classification (`taxYear`), and the flag then shows the override.
+- **Otherwise** the booking year applies.
 - **Tax year ≠ WEG financial year ≠ reporting period** (domain-model §47). Where a WEG's financial year is not the calendar year, P7-D5 flags it.
 - Docs: data-model §36 (`taxYear`), api-design §55.
 
@@ -112,11 +119,15 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
 - **Erhaltungsaufwand** (default for `MAINTENANCE`) is deductible when paid. **Herstellungskosten** are `CAPITALIZED`: they leave the year's Werbungskosten and go to the AfA basis of Phase 8.
 - **The anschaffungsnahe check** (§ 6 Abs. 1 Nr. 1a EStG; A2) is a derived read per Acquisition:
   - the window is the 3 years from the transfer date;
-  - it sums the splits of the Acquisition's PropertyReference classified as Erhaltungsaufwand in that window, **without VAT**, and leaves out annually recurring work (a flag on the classification);
+  - it sums **every source** classified as Erhaltungsaufwand in that window, **without VAT**, and leaves out annually recurring work (a flag on the classification). The sources are (revised in review on #156):
+    - the splits of the Acquisition's PropertyReference, at their booking date;
+    - the reserve withdrawals and Sonderumlage uses of the unit's WEG membership (P7-D5), at the date of the withdrawal or use. Repairs to the common property arrive this way, often through a Sonderumlage shortly after a purchase;
   - it compares the sum with **15 % of the building's acquisition cost**: the building share of the price and of the acquisition costs, by the land/building allocation (P2-D9).
-  - **Above 15 %:** every such split is flagged `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` and its suggested treatment becomes `CAPITALIZED`, in earlier years too. DE shows that a filed year may be affected; it changes nothing on its own.
+  - **Above 15 %:** every such source is flagged `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` and its suggested treatment becomes `CAPITALIZED`, in earlier years too. DE shows that a filed year may be affected; it changes nothing on its own.
   - **No allocation, or not confirmed:** the check is `NOT_COMPUTABLE` with that reason. It is never estimated.
-- **VAT:** the ledger stores gross cash. A private landlord pays gross, but the threshold is net. So the classification takes an optional `netAmount`. Without one, the check uses the gross amount and flags `VAT_NOT_SEPARATED`. That errs towards the threshold, so the user is warned, not misled.
+- **VAT:** the ledger stores gross cash. A private landlord pays gross, but the threshold is net. So the classification takes an optional `netAmount`; it is never required (review on #156). Without one, the check uses the gross amount:
+  - the source is flagged `VAT_NOT_SEPARATED`;
+  - the result of the check itself is marked `NOT_FINAL`, with a note that the gross amount reaches the threshold sooner than the net one would.
 - **§ 82b EStDV** (A5): the user may elect, per Erhaltungsaufwand, to distribute it evenly over 2 to 5 years (`DISTRIBUTED_82B`, with the number of years). The view derives each year's part. On the end of ownership (Phase 2's Ownership `validUntil`), the rest falls into that year. The condition "mostly residential (> 50 %)" is the user's to confirm with the election; DE does not know a building's use.
 
 ### P7-D7 Owners' shares (domain-model §9; resolves `ownerAllocationBasis`)
@@ -137,8 +148,9 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
 - **Flags** for what needs a person:
   - unclassified (`OTHER_*`);
   - `NEEDS_REVIEW`;
+  - `ATTRIBUTED_BY_10_DAY_RULE`, `DUE_DATE_ASSUMED`;
   - `CLASSIFICATION_ON_CORRECTED_SPLIT`;
-  - `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`;
+  - `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`, and the check's `NOT_FINAL`;
   - `VAT_NOT_SEPARATED`;
   - `REFUND_YEAR_UNKNOWN`;
   - `WEG_FINANCIAL_YEAR_NOT_CALENDAR`.
@@ -159,7 +171,7 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
 
 See `backlog.md` §3f. The order follows the dependencies:
 1. **VC-7-01:** the rule registry of P7-D1, the category defaults of P7-D2, `TaxClassification` on splits (confirm, change, history; api-design §55–§57), `GET /tax-rules` (§58). Migration.
-2. **VC-7-02:** the tax year of P7-D3 (the 10-day rule with the due dates of Phases 3, 4 and 6) and the income and refunds of P7-D4, including the retained deposit.
+2. **VC-7-02:** the tax year of P7-D3 (the 10-day rule with the due dates of Phase 3 and the new due days on the rental contract and the plan) and the income and refunds of P7-D4, including the retained deposit.
 3. **VC-7-03:** the WEG inputs of P7-D5 (withdrawals and uses as classification sources) and P7-D6 (Erhaltungsaufwand vs. Herstellungskosten, the anschaffungsnahe check, § 82b).
 4. **VC-7-04:** the tax-year view of P7-D8 per PropertyReference and per owner (P7-D7), with items, flags and rule versions; the AfA block empty and flagged.
 5. **VC-7-05:** the Phase-7 invariant suite and ACC7. One scenario through the API:
@@ -168,7 +180,7 @@ See `backlog.md` §3f. The order follows the dependencies:
    - a statement with a reserve withdrawal, and a Sonderumlage with a use;
    - a rent payment within the 10 days after the year-end;
    - a refund of an earlier year;
-   - a repair above 15 % within 3 years;
+   - a Sonderumlage with a use within 3 years that, together with a repair, takes the sum above 15 %;
    - a § 82b election;
    - a retained deposit;
    - the view per property and per owner.
@@ -208,6 +220,6 @@ See `backlog.md` §3f. The order follows the dependencies:
 - the reclassification of a retained deposit;
 - the tax meaning of subsidies and insurance payments.
 
-**Questions for the review of this plan:**
-1. **Separate net amounts for the 15 % check.** Is it enough to warn with `VAT_NOT_SEPARATED` (P7-D6), or should the net amount be required for every `MAINTENANCE` split in the 3-year window?
-2. **AfA in two steps.** Is it acceptable that Phase 7's exit is shown without the AfA figure, and that Phase 8 completes it (P7-D8)? The alternative is to change the roadmap's order and do Phase 8 first.
+**Answered in the review on #156:**
+1. **Net amounts for the 15 % check:** the warning is enough; the net amount stays optional. The check's result carries `NOT_FINAL` and the note on gross amounts (P7-D6).
+2. **AfA in two steps:** accepted, as long as the AfA block is flagged `DEPRECIATION_NOT_AVAILABLE`, the result is labelled "before AfA" and ACC8 completes the exit (P7-D8). Reversing the order would cost more, since the AfA needs the anschaffungsnahe Herstellungskosten of P7-D6 as an input.
