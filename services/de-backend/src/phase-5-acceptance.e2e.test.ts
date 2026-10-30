@@ -66,7 +66,8 @@ const MARCH = '2027030100';
 const IBAN_K = 'DE89370400440532013000';
 
 /** The Phase-5 routes (api-design §47) under `/api/v1`, as `METHOD /path/:param`. */
-const PHASE_5 = /^[A-Z]+ \/security-deposits\b/;
+/** The deposit routes of Phase 5; the deposit's tax meaning (`…/tax-meaning`) is Phase 7's (VC-7-02, §58A). */
+const PHASE_5 = /^[A-Z]+ \/security-deposits\b(?!.*\/tax-meaning$)/;
 
 /** Every route the app serves, from Express' router stack (Express 4 internals, as ACC2–ACC4). */
 function routesOf(app: Express): string[] {

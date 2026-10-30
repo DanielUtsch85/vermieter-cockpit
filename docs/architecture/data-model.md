@@ -578,7 +578,7 @@ The concrete relationship is primarily represented by the MRE Tenant together wi
 - DE domains must not infer that one MRE Tenant record is permanently identical to one canonical Party.
 - MRE rent terms and operational payment records are referenced or reconciled, not duplicated as canonical cash data.
 
-**VC-7-02 (api-design §58A, spec):** a minimal implementation: `rentalContractReferenceId`, `mreRealmId`, `mreTenantId` (one reference per Tenant and Realm) and the DE-owned `rentDueDays` (the due day over time, `{ validFrom, day }`; MRE's lease carries no due day). It feeds the tax year of rent (P7-D3). The other optional fields above come when a need appears.
+**VC-7-02 (api-design §58A, implemented: migration 0046):** a minimal implementation: `rentalContractReferenceId`, `mreRealmId`, `mreTenantId` (one reference per Tenant and Realm) and the DE-owned `rentDueDays` (the due day over time, `{ validFrom, day }`; MRE's lease carries no due day). It feeds the tax year of rent (P7-D3). The other optional fields above come when a need appears.
 
 ---
 
@@ -1646,6 +1646,8 @@ Represent a Wirtschaftsplan for a WEG period.
 
 **Phase 6 (VC-6-02, api-design §49.5, P6-D4):** filed per membership (the unit's Einzelwirtschaftsplan) and financial year, with `effectiveFrom` (the resolution's "ab" date), the monthly Hausgeld and Rücklage, the unit's annual share of the recoverable and non-recoverable cost groups as printed, optional income and reserve figures and cost lines. Statuses `ACTIVE` → `VOID`; the lifecycle below (`DRAFT`, `PROPOSED`, `APPROVED`, `SUPERSEDED`) and `totalPlannedAmount` / `propertyPlannedAmount` are replaced: the owner records the resolved plan, and a later resolution is a new plan with a later `effectiveFrom`.
 
+**VC-7-02 (api-design §58A, implemented: migration 0046):** an optional `advanceDueDay` (1–31; in a shorter month its last day), the day the advances fall due by the Vorschussbeschluss. Set on create only, fixed afterwards; read only by the tax year, never by the Hausgeld proposal.
+
 ---
 
 ## Required Fields
@@ -1992,6 +1994,8 @@ Represent the tax interpretation of an existing economic item.
 - Historical classification changes must remain traceable.
 
 **Phase 7 (P7-D2, api-design §55–§57; VC-7-01, implemented: migration 0045):** a split without a stored classification has the **default** meaning of its category, derived by the rule `DE_CATEGORY_DEFAULTS` and never stored (`reviewState` `SUGGESTED`). A `TaxClassification` is stored only when a user confirms or changes it: `sourceType` `TRANSACTION_SPLIT` (withdrawals, uses and deposit closings follow in VC-7-02/03), `taxCategory`, `treatment` (`INCOME`, `DEDUCTIBLE`, `CAPITALIZED`, `DISTRIBUTED_82B`, `NOT_RELEVANT`), `reviewState` (`USER_CONFIRMED`, `ADVISOR_CONFIRMED`, `NEEDS_REVIEW`), the applied rule as `ruleCode@version` (in place of `ruleVersionId`), `advisorPartyId`, notes and source references. One current classification per source; a change supersedes it (content is never edited), so the history stays readable. `jurisdiction` is `DE` throughout and not stored per row. `taxYear` follows in VC-7-02 (P7-D3). A classification never changes its split (ADR-006).
+
+**VC-7-02 (P7-D3, P7-D4, api-design §58A, implemented: migration 0046):** the tax year of a split is derived by the rule `DE_CASH_TIMING` (the booking year, or the economic year under the 10-day rule of § 11 EStG) and never stored; a classification may override it with `taxYear` (the booking year ± 1) and record the year a refund refunds (`refundOfYear`). A second source, `DEPOSIT_CLOSING`, classifies the amount a closed security deposit retained, in the year of its closing date, and stores the closing it classified. `taxCategory` gains `REFUNDS_OF_EARLIER_YEARS`, `RETAINED_DEPOSIT_RENT` and `RETAINED_DEPOSIT_DAMAGES`.
 
 ---
 

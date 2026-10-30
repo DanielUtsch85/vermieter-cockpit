@@ -46,10 +46,12 @@ export const unusedCommands: AppCommands = {
     history: unused,
     review: unused,
     taxMeaning: unused,
+    depositTaxMeaning: unused,
     taxMeanings: unused,
     listRules: unused,
     getRule: unused,
   },
+  rentalContractReferences: { create: unused, get: unused, list: unused, amend: unused },
   rentReconciliations: {
     create: unused,
     get: unused,

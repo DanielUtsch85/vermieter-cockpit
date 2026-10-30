@@ -37,6 +37,7 @@ const COLUMNS = [
   'financial_year',
   sql<string>`to_char(effective_from, 'YYYY-MM-DD')`.as('effective_from'),
   sql<string | null>`to_char(resolution_date, 'YYYY-MM-DD')`.as('resolution_date'),
+  'advance_due_day',
   sql<string>`monthly_hausgeld::text`.as('monthly_hausgeld'),
   sql<string>`monthly_reserve_contribution::text`.as('monthly_reserve_contribution'),
   sql<string>`recoverable_costs::text`.as('recoverable_costs'),
@@ -61,6 +62,7 @@ interface PlanRow {
   financial_year: number;
   effective_from: string;
   resolution_date: string | null;
+  advance_due_day: number | null;
   monthly_hausgeld: string;
   monthly_reserve_contribution: string;
   recoverable_costs: string;
@@ -162,6 +164,7 @@ export class PostgresWegEconomicPlanRepository implements WegEconomicPlanReposit
               financial_year: plan.financialYear,
               effective_from: plan.effectiveFrom,
               resolution_date: plan.resolutionDate,
+              advance_due_day: plan.advanceDueDay ?? null,
               monthly_hausgeld: toNumericAmount(plan.monthlyHausgeld),
               monthly_reserve_contribution: toNumericAmount(plan.monthlyReserveContribution),
               recoverable_costs: toNumericAmount(plan.recoverableCosts),
@@ -377,6 +380,8 @@ function toPlan(row: PlanRow): EconomicPlan {
     financialYear: row.financial_year,
     effectiveFrom: row.effective_from as BusinessDate,
     resolutionDate: row.resolution_date as BusinessDate | null,
+    // A snapshot stored before VC-7-02 has no such field.
+    advanceDueDay: row.advance_due_day ?? null,
     monthlyHausgeld: money(row.monthly_hausgeld),
     monthlyReserveContribution: money(row.monthly_reserve_contribution),
     recoverableCosts: money(row.recoverable_costs),
@@ -409,6 +414,7 @@ function toSnapshot(plan: EconomicPlan): PlanSnapshot {
       financial_year: plan.financialYear,
       effective_from: plan.effectiveFrom,
       resolution_date: plan.resolutionDate,
+      advance_due_day: plan.advanceDueDay,
       monthly_hausgeld: plan.monthlyHausgeld.amount,
       monthly_reserve_contribution: plan.monthlyReserveContribution.amount,
       recoverable_costs: plan.recoverableCosts.amount,

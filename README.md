@@ -350,6 +350,7 @@ Phases 0–4 are implemented, each phase exit shown end to end through the API b
 | Ownership | Exact fractional shares, inclusive validity periods, close or void records, history and date-specific reads, and atomic ownership changes |
 | Acquisition | Acquisition records with costs and linked payments, confirmation, land/building allocation and owner-level allocation |
 | Financing | Loans with terms and planned schedules (including the balance at the end of the fixed-rate period), interest/principal splits into the ledger with `loanId`, allocation across properties, derived remaining debt, lender balance statements, closing and refinancing |
+| Taxation (Phase 7, in progress) | Versioned tax rules (`GET /tax-rules`); the default tax meaning of every split by its category; classifications of splits and of retained deposits with review states and history; the tax year by § 11 EStG with the 10-day rule, from the rent's due day on a minimal RentalContractReference, the Wirtschaftsplan's `advanceDueDay` and the loan schedule; refunds by year (VC-7-01, VC-7-02) |
 | Rent reconciliation | Match rent Transactions to MRE rent terms (by hand or from suggestions confirmed by a human, including tenants who pay before the month), coverage per term and per Transaction, release, write-back of DE's payment to MRE exactly once, and its removal after a release |
 | Integrity and audit | Exact Money arithmetic, Realm-scoped references, idempotency and version checks where specified, AuditRecords, and database constraints and triggers for financial and Ownership invariants |
 
@@ -359,7 +360,7 @@ The public business API is under `/api/v1`. Its contracts are documented in [API
 
 - **Phase 5:** Security Deposit per the [Phase-5 plan](docs/development/phase-5-plan.md) (VC-5-01 to VC-5-05): deposits the landlord holds, linked to cash through splits, never mistaken for rent.
 - **Real-data run, open part:** the comparison of the computed loan schedule with the bank's own amortization plan (step 2, part 2), and with it F9, the first interest period ([#121](https://github.com/DanielUtsch85/vermieter-cockpit/issues/121)); F11, a split proposal from the MRE term for rent payments ([#126](https://github.com/DanielUtsch85/vermieter-cockpit/issues/126)), is tracked and not yet decided. See the [real-data run](docs/development/real-data-run.md).
-- **Later domains:** WEG, taxation, depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
+- **Later domains:** the rest of taxation (VC-7-03 to VC-7-05: WEG spending, the tax-year view), depreciation, investment analytics and reporting are planned; their specifications do not imply implemented APIs.
 - **User interface:** There is no DE cockpit UI yet. General read/list endpoints for FinancialAccounts and PropertyReferences are also pending.
 - **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
 - **German rules:** The `VERIFY` points in [the verification checklist](docs/germany/verification-checklist.md) must be resolved before implementing the affected tax, depreciation and WEG rules.

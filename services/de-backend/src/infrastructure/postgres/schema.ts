@@ -280,6 +280,8 @@ export interface WegEconomicPlanTable {
   /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
   effective_from: string;
   resolution_date: string | null;
+  /** VC-7-02 (0046): the advances' due day, 1–31, or null. */
+  advance_due_day: Generated<number | null>;
   /** `numeric` columns: written and read as text. */
   monthly_hausgeld: string;
   monthly_reserve_contribution: string;
@@ -662,6 +664,28 @@ export interface TaxClassificationTable {
   created_at: Generated<Date>;
   created_by: string;
   version: Generated<number>;
+  /** VC-7-02 (0046): the tax year overriding the rule, and the year a refund refunds. */
+  tax_year: Generated<number | null>;
+  refund_of_year: Generated<number | null>;
+  /** The source of `DEPOSIT_CLOSING` (0046), with the closing it classifies (`date` as `YYYY-MM-DD`, `numeric` as text). */
+  security_deposit_id: Generated<string | null>;
+  deposit_closing_date: Generated<string | null>;
+  deposit_retained_amount: Generated<string | null>;
+}
+
+/** VC-7-02 (0046, api-design §58A): the minimal RentalContractReference. */
+export interface RentalContractReferenceTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  mre_tenant_id: string;
+  /** `jsonb`: `[{ validFrom, day }]`, checked by `rental_contract_reference_due_days_valid`. */
+  rent_due_days: Generated<unknown>;
+  notes: string | null;
+  source_references: Generated<string[]>;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
 }
 
 export interface Database {
@@ -696,4 +720,5 @@ export interface Database {
   financial_category: FinancialCategoryTable;
   transaction_split: TransactionSplitTable;
   tax_classification: TaxClassificationTable;
+  rental_contract_reference: RentalContractReferenceTable;
 }

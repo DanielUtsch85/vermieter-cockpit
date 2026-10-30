@@ -9,18 +9,22 @@ import {
   type RuleVersion,
   type SourceType,
   type TaxClassification,
+  type DepositTaxMeaning,
   type TaxClassificationRepository,
+  type TaxListItem,
   type TaxMeaning,
   type TaxMeaningFilter,
   type TaxPage,
   type TaxPageRequest,
+  type TaxCategory,
   type Treatment,
 } from '../domains/taxation/index.js';
-import type { BusinessDate } from '../shared/index.js';
+import type { BusinessDate, Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { PartyNotFoundError } from './parties.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
+import { SecurityDepositNotFoundError } from './security-deposits.js';
 
 /**
  * Tax classification and tax rules (api-design.md §55–§58, backlog VC-7-01), in the caller's verified Realm; the rule
@@ -59,15 +63,54 @@ export class SourceNotCountedError extends Error {
   }
 }
 
-/** The category refuses the treatment (→ 422 TREATMENT_NOT_ALLOWED). */
+/** A retained deposit that does not count (→ 409 SOURCE_NOT_COUNTED, §58A). */
+export class DepositNotCountedError extends Error {
+  override readonly name = 'DepositNotCountedError';
+
+  constructor(
+    readonly depositStatus: string,
+    readonly retainedAmount: Money,
+    readonly reason: string,
+  ) {
+    super(`The security deposit is ${depositStatus} with ${retainedAmount.amount} retained (${reason}), not counted`);
+  }
+}
+
+/** The category refuses the treatment, or the deposit the line (→ 422 TREATMENT_NOT_ALLOWED). */
 export class TreatmentNotAllowedError extends Error {
   override readonly name = 'TreatmentNotAllowedError';
 
   constructor(
-    readonly categoryType: string,
+    /** `null` for a retained deposit (§58A), whose lines are `taxCategories`. */
+    readonly categoryType: string | null,
     readonly allowed: readonly Treatment[],
+    readonly taxCategories?: readonly TaxCategory[],
   ) {
-    super(`A ${categoryType} split allows only ${allowed.join(', ')}`);
+    super(`${categoryType === null ? 'A retained deposit' : `A ${categoryType} split`} allows only ${allowed.join(', ')}`);
+  }
+}
+
+/** `taxYear` is not the booking year ± 1 (→ 422 TAX_YEAR_OUT_OF_RANGE, §58A). */
+export class TaxYearOutOfRangeError extends Error {
+  override readonly name = 'TaxYearOutOfRangeError';
+
+  constructor(
+    readonly taxYear: number,
+    readonly bookingYear: number,
+  ) {
+    super(`taxYear ${taxYear} is not within the booking year ${bookingYear} ± 1`);
+  }
+}
+
+/** `refundOfYear` lies after the tax year (→ 422 REFUND_YEAR_OUT_OF_RANGE, §58A). */
+export class RefundYearOutOfRangeError extends Error {
+  override readonly name = 'RefundYearOutOfRangeError';
+
+  constructor(
+    readonly refundOfYear: number,
+    readonly taxYear: number,
+  ) {
+    super(`refundOfYear ${refundOfYear} lies after the tax year ${taxYear}`);
   }
 }
 
@@ -169,10 +212,16 @@ export function createTaxClassification(deps: Deps): CreateTaxClassification {
         throw new TaxSourceNotFoundError(fields.sourceType, fields.sourceId);
       case 'SOURCE_NOT_COUNTED':
         throw new SourceNotCountedError(outcome.transactionStatus, outcome.correctionRole);
+      case 'DEPOSIT_NOT_COUNTED':
+        throw new DepositNotCountedError(outcome.depositStatus, outcome.retainedAmount, outcome.reason);
       case 'NO_APPLICABLE_RULE':
         throw new NoApplicableTaxRuleError(outcome.ruleCode, outcome.date);
       case 'TREATMENT_NOT_ALLOWED':
-        throw new TreatmentNotAllowedError(outcome.categoryType, outcome.allowed);
+        throw new TreatmentNotAllowedError(outcome.categoryType, outcome.allowed, outcome.taxCategories);
+      case 'TAX_YEAR_OUT_OF_RANGE':
+        throw new TaxYearOutOfRangeError(outcome.taxYear, outcome.bookingYear);
+      case 'REFUND_YEAR_OUT_OF_RANGE':
+        throw new RefundYearOutOfRangeError(outcome.refundOfYear, outcome.taxYear);
       case 'CLASSIFICATION_EXISTS':
         throw new ClassificationExistsError(outcome.currentClassificationId);
       case 'NOT_CURRENT_CLASSIFICATION':
@@ -205,6 +254,8 @@ export function reviewTaxClassification(deps: Deps): ReviewTaxClassification {
         throw new AdvisorConfirmedError('A user cannot lower an advisor confirmation; supersede the classification instead');
       case 'SOURCE_NOT_COUNTED':
         throw new SourceNotCountedError(outcome.transactionStatus, outcome.correctionRole);
+      case 'DEPOSIT_NOT_COUNTED':
+        throw new DepositNotCountedError(outcome.depositStatus, outcome.retainedAmount, outcome.reason);
       case 'RULE_NOT_REGISTERED':
         throw new TaxRuleNotRegisteredError(outcome.ruleCode, outcome.version);
       case 'VERSION_CONFLICT':
@@ -247,13 +298,24 @@ export function getTaxMeaning(deps: Deps): GetTaxMeaning {
   };
 }
 
+export type GetDepositTaxMeaning = (input: { readonly principal: RealmPrincipal; readonly depositId: string }) => Promise<DepositTaxMeaning>;
+
+/** The retained amount of a deposit at its closing (§58A). */
+export function getDepositTaxMeaning(deps: Deps): GetDepositTaxMeaning {
+  return async ({ principal, depositId }) => {
+    const meaning = await deps.repository.findDepositTaxMeaning(depositId, principal.mreRealmId, todayOf(deps));
+    if (meaning === undefined) throw new SecurityDepositNotFoundError(depositId);
+    return meaning;
+  };
+}
+
 export type ListTaxMeanings = (input: {
   readonly principal: RealmPrincipal;
   readonly propertyReferenceId: string;
   readonly year: number;
   readonly filter: TaxMeaningFilter;
   readonly page: TaxPageRequest;
-}) => Promise<TaxPage<TaxMeaning>>;
+}) => Promise<TaxPage<TaxListItem>>;
 
 export function listTaxMeanings(deps: Deps): ListTaxMeanings {
   return async ({ principal, propertyReferenceId, year, filter, page }) => {

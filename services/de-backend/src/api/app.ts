@@ -20,6 +20,7 @@ import { partyRoutes, type PartyCommands } from './parties.js';
 import { externalReferenceRoutes, type ExternalReferenceCommands } from './party-external-references.js';
 import { propertyReferenceRoutes, type PropertyReferenceCommands } from './property-references.js';
 import { rentReconciliationRoutes, type RentReconciliationCommands } from './rent-reconciliations.js';
+import { rentalContractReferenceRoutes, type RentalContractReferenceCommands } from './rental-contract-references.js';
 import { transactionRoutes, type TransactionCommands } from './transactions.js';
 import { wegAnnualStatementRoutes, type WegAnnualStatementCommands } from './weg-annual-statements.js';
 import { wegEconomicPlanRoutes, type WegEconomicPlanCommands } from './weg-economic-plans.js';
@@ -59,8 +60,10 @@ export interface AppCommands {
   readonly wegEconomicPlans: WegEconomicPlanCommands;
   readonly wegAnnualStatements: WegAnnualStatementCommands;
   readonly wegSpecialAssessments: WegSpecialAssessmentCommands;
-  /** Tax rules, tax meanings and TaxClassification (VC-7-01). */
+  /** Tax rules, tax meanings and TaxClassification (VC-7-01, VC-7-02). */
   readonly taxation: TaxationCommands;
+  /** The minimal RentalContractReference with the rent's due day over time (VC-7-02). */
+  readonly rentalContractReferences: RentalContractReferenceCommands;
   /** Rent reconciliation, coverage, suggestions, write-back and removal (VC-4-01 … VC-4-05). */
   readonly rentReconciliations: RentReconciliationCommands;
   /** Loan terms, schedule and payment proposal (VC-3-02, VC-3-04, VC-3-05). */
@@ -127,6 +130,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(wegAnnualStatementRoutes(deps.wegAnnualStatements));
   api.use(wegSpecialAssessmentRoutes(deps.wegSpecialAssessments));
   api.use(taxationRoutes(deps.taxation));
+  api.use(rentalContractReferenceRoutes(deps.rentalContractReferences));
   api.use(rentReconciliationRoutes(deps.rentReconciliations));
   api.use(loanTermsRoutes(deps.loanTerms));
   api.use(loanDebtRoutes(deps.loanDebt));

@@ -1,4 +1,5 @@
 import type { BusinessDate } from '../../../shared/index.js';
+import { DE_CASH_TIMING_V1 } from './de-cash-timing.js';
 import { DE_CATEGORY_DEFAULTS_V1 } from './de-category-defaults.js';
 import { ruleKey, type RuleRef, type RuleStatus, type RuleVersion } from './rule-version.js';
 
@@ -68,4 +69,4 @@ export class RuleRegistry {
 }
 
 /** The registry of the backend: every rule version of the code. A version stays while a stored reference names it. */
-export const TAX_RULES = new RuleRegistry([DE_CATEGORY_DEFAULTS_V1]);
+export const TAX_RULES = new RuleRegistry([DE_CATEGORY_DEFAULTS_V1, DE_CASH_TIMING_V1]);

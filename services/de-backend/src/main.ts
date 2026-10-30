@@ -126,6 +126,11 @@ import {
   createTaxClassification,
   getTaxClassification,
   getTaxMeaning,
+  getDepositTaxMeaning,
+  createRentalContractReference,
+  getRentalContractReference,
+  listRentalContractReferences,
+  amendRentalContractReference,
   getTaxRule,
   listTaxClassificationHistory,
   listTaxMeanings,
@@ -146,6 +151,7 @@ import {
   PostgresWegEconomicPlanRepository,
   PostgresWegSpecialAssessmentRepository,
   PostgresTaxClassificationRepository,
+  PostgresRentalContractReferenceRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
@@ -203,6 +209,7 @@ const wegPlans = new PostgresWegEconomicPlanRepository(db);
 const wegStatements = new PostgresWegAnnualStatementRepository(db);
 const wegAssessments = new PostgresWegSpecialAssessmentRepository(db);
 const taxClassifications = new PostgresTaxClassificationRepository(db);
+const rentalContractReferences = new PostgresRentalContractReferenceRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -318,9 +325,16 @@ const app = createApp({
     history: listTaxClassificationHistory({ repository: taxClassifications }),
     review: reviewTaxClassification({ repository: taxClassifications }),
     taxMeaning: getTaxMeaning({ repository: taxClassifications }),
+    depositTaxMeaning: getDepositTaxMeaning({ repository: taxClassifications }),
     taxMeanings: listTaxMeanings({ repository: taxClassifications }),
     listRules: listTaxRules(),
     getRule: getTaxRule(),
+  },
+  rentalContractReferences: {
+    create: createRentalContractReference({ repository: rentalContractReferences, lookupMreTenant: mreTenantLookup(mreClient) }),
+    get: getRentalContractReference({ repository: rentalContractReferences }),
+    list: listRentalContractReferences({ repository: rentalContractReferences }),
+    amend: amendRentalContractReference({ repository: rentalContractReferences }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),
