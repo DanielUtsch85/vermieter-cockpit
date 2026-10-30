@@ -101,7 +101,7 @@ Each decision names whether it **needs the user** (a choice only the project own
   - **Recommendation:** (a), since `depreciation.md` §9 asks for the fields. The repealed BMF requirements of 2023 are **not** encoded as checks (B7): DE records the evidence and judges nothing.
 - **VERIFY:** that bands b and c applied unchanged in the earlier years the app may compute (before 2023); whether a shorter useful life, once claimed, applies from the start or from the year it is evidenced (not covered by `depreciation.md`).
 - **Needs the user:** yes for the shorter useful life (in or out); no for the bands (verified, B1–B3).
-- **Decided (2026-10-30):** the shorter actual useful life is **in Phase 8**, option (a): an optional `usefulLifeYears` with its evidence and its own `reviewState`. DE records it and judges nothing (B7). VC-8-01 specifies the fields (api-design §59: one entry per Acquisition on the asset; only a confirmed entry feeds a figure).
+- **Decided (2026-10-30):** the shorter actual useful life is **in Phase 8**, option (a): an optional `usefulLifeYears` with its evidence and its own `reviewState`. DE records it and judges nothing (B7). VC-8-01 specifies the fields (api-design §59: one entry per Acquisition on the asset; only a confirmed entry feeds a figure). **Shorter** means fewer years than the fixed threshold § 7 Abs. 4 S. 2 EStG names for the band: 33 (Buchst. a), 50 (Buchst. b), 40 (Buchst. c), a rule parameter `shorterThanYears` per band, never derived from the rate (review on #174; depreciation.md §3, B7). **VERIFY:** the thresholds against the official text of § 7 Abs. 4 S. 2 EStG before VC-8-01 is implemented.
 
 ### P8-D5 The start and the first year (B6; depreciation.md §5)
 
@@ -193,7 +193,8 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Its rules** are modules in `domains/depreciation/rules/` with the fields of `rule-version.ts`:
   - `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 and S. 2, § 7 Abs. 1 S. 4 EStG): the bands, the first year, the end, `subsequentCostStart` (P8-D6), `endMonthCounts` (P8-D9);
   - `DE_AFA_MOVABLE_LINEAR@1` (§ 7 Abs. 1 EStG) if P8-D7 adopts option 1.
-- **One registry:** they are registered in the existing `TAX_RULES` registry, so `GET /tax-rules` lists them and the start check resolves every `ruleCode@version` a recorded version stores. A second registry would need a second start check and a second listing. The registry's file moves to a shared place, or imports the Depreciation rules; the spec of VC-8-01 picks the smaller change.
+- **One registry:** they are registered in the existing `TAX_RULES` registry, so `GET /tax-rules` lists them and the start check resolves every `ruleCode@version` a recorded version stores. A second registry would need a second start check and a second listing.
+- **Where the registry lives** (decided by VC-8-01's spec, api-design §59, review on #174): not in `domains/taxation/rules/registry.ts`, which could reach the Depreciation rules only by a deep import (refused by `architecture.test.ts`) or through `depreciation/index.js` (a runtime cycle with Depreciation, which needs the registry as a value). `RuleVersion` (`rule-version.ts`) and the class `RuleRegistry` move to `shared/`. Each domain keeps its rule modules and exports its versions through its index (`TAXATION_RULE_VERSIONS`, `DEPRECIATION_RULE_VERSIONS`). `TAX_RULES` is composed in a new module `domains/tax-rules/`, above both domains; neither domain imports it. A domain function receives the registry as a parameter (injection), as Taxation's functions already do. `GET /tax-rules`, the start check and the Phase-7 code read the same `TAX_RULES`, and only their imports change.
 - **Every derived figure names its rule version** (taxation.md §9, depreciation.md §8). A version is never removed while a recorded version names it.
 - **Needs the user:** no (for review).
 
@@ -399,14 +400,14 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 - Erhaltungsaufwand vs. Herstellungskosten, as in Phase 7;
 - whether a capitalised item is a separate asset, and its useful life.
 
-**Questions for the review of this plan** (the decisions marked "needs the user"). Questions 1–7 were answered on 2026-10-30 (the **Decided** lines in §1; question 7 in the review on #173).
+**Questions for the review of this plan** (the decisions marked "needs the user"). Questions 1–7 were answered on 2026-10-30 (the **Decided** lines in §1; question 7 below).
 1. **P8-D10:** derived and recorded (option 3)? And is "not recorded" an open flag, so that a year is final only once its AfA was recorded?
 2. **P8-D8:** the AfA per Acquisition among its buyers (option 1)?
 3. **P8-D7:** separate assets in Phase 8 (option 1), or only marked and flagged (option 2)?
 4. **P8-D4:** the shorter useful life in Phase 8?
 5. **P8-D3:** the allocation as entered, without a BMF computation?
 6. **P8-D13:** the scope, in particular § 7b and § 7h/§ 7i out?
-7. **VC-X-28 and VC-X-29** (P8-D12): the backlog says both come "before Phase 8 makes a year final". They do not block Phase 8: their flags (`ATTRIBUTION_INPUT_CHANGED`, `LOAN_INTEREST_NOT_ATTRIBUTED`) stay open, so a year they touch is never final. Phase 8 does not need loan interest to compute AfA. **Proposal:** keep them outside Phase 8, and schedule VC-X-29 next, since a landlord with a financed purchase has interest booked via a Loan in every year. The alternative is to pull them into Phase 8 before VC-8-05. **Decided (2026-10-30, review on #173):** they do not block Phase 8; VC-X-29 is scheduled next.
+7. **VC-X-28 and VC-X-29** (P8-D12): the backlog says both come "before Phase 8 makes a year final". They do not block Phase 8: their flags (`ATTRIBUTION_INPUT_CHANGED`, `LOAN_INTEREST_NOT_ATTRIBUTED`) stay open, so a year they touch is never final. Phase 8 does not need loan interest to compute AfA. **Proposal:** keep them outside Phase 8, and schedule VC-X-29 next, since a landlord with a financed purchase has interest booked via a Loan in every year. The alternative is to pull them into Phase 8 before VC-8-05. **Decided by the project owner (2026-10-30); the review on #173 agreed:** they do not block Phase 8; VC-X-29 is scheduled next.
 
 ---
 

@@ -2054,7 +2054,7 @@ Rule versions used in historical calculations must remain addressable.
 
 **VC-7-03 (api-design §58B, implemented):** `DE_CATEGORY_DEFAULTS@1` stays frozen and unchanged. Three rules join the registry: `DE_WEG_SPENDING@1` (the WEG sources' default, lines and treatments; from 2000-01-01), `DE_82B_DISTRIBUTION@1` (2–5 years; from 2004-01-01) and `DE_ANSCHAFFUNGSNAHE@1` (15 %, 3 years; from 2004-01-01, selected by the transfer date). A classification may store a second reference (`treatmentRule`); the start check resolves it too.
 
-**VC-8-01 (P8-D11, api-design §59, specified):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed) is a module of the Depreciation domain, registered in the same registry. Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule. No table stores them, and the asset stores no rule reference.
+**VC-8-01 (P8-D11, api-design §59, specified):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed) is a module of the Depreciation domain, registered in the same registry. The registry (`RuleRegistry` and `rule-version.ts` in `shared/`) is composed as `TAX_RULES` in `domains/tax-rules/`, above both domains, from the versions each domain exports (api-design §59). Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule, and so is each band's threshold of the shorter useful life (`shorterThanYears`: 33 / 50 / 40 years, § 7 Abs. 4 S. 2 EStG; VERIFY against the official text). No table stores them, and the asset stores no rule reference.
 
 ---
 
@@ -2097,7 +2097,7 @@ Record the facts of one depreciable asset that no other record holds, as inputs 
 ## Derived, never stored (AGENTS.md §17, §82)
 
 - the basis (the building's acquisition cost of each `CONFIRMED` Acquisition as §58B derives it, and from VC-8-03 the capitalised items), and the start, the first year, each year's amount and the residual value (api-design §59A, VC-8-02);
-- the rate of a year (api-design §59: the band of `DE_AFA_BUILDING_LINEAR` by the completion year, or `1/usefulLifeYears` for a confirmed shorter life);
+- the rate of a year (api-design §59: the band of `DE_AFA_BUILDING_LINEAR` by the completion year, or `1/usefulLifeYears` for a confirmed shorter life, which is shorter only below the band's `shorterThanYears`);
 - the applied rule version (a recorded schedule version stores it, §39, VC-8-04).
 
 The former fields `basisAmount`, `currency`, `startDate`, `depreciationRate`, `landBuildingAllocationId`, `taxRuleVersionId`, `usefulLife` and `ownershipBasis` are derived in this way. `acquisitionId` gives way to the components of P8-D2, one per `CONFIRMED` Acquisition. `maintenanceProjectId` and the former types `BUILDING_ACQUISITION_BASIS`, `CAPITALIZED_IMPROVEMENT`, `SEPARATE_COMPONENT` and `OTHER` are withdrawn. A capitalised improvement is a component of the building's basis (P8-D6), and a separate component is a `SEPARATE_ASSET` (P8-D7).

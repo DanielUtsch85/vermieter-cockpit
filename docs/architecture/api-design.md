@@ -5449,7 +5449,9 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
   - `source` (1–500): what the evidence is, e.g. "Gutachten zur Restnutzungsdauer";
   - `date` (a business date): the date of the evidence;
   - `documentReference` (≤ 500, optional): a reference in free text. A `documentId` waits for documents (`400 NOT_SUPPORTED`, as §33.2).
-- **DE judges nothing** (B7). The BMF letter of 22.02.2023 was repealed on 01.12.2025, and its requirements (who may write the appraisal, which method it uses) are **not** checks. DE records the evidence, and the user or the advisor confirms it. The only arithmetic DE applies is whether the life is shorter than the band's. § 7 Abs. 4 S. 2 allows only a **shorter** life: an entry with `usefulLifeYears × ratePercent ≥ 100` (e.g. 50 years at 2 %) is not shorter. The band's rate then applies, and the entry is flagged `USEFUL_LIFE_NOT_SHORTER`. The entry is never refused, since the band can change with an amended completion year.
+- **DE judges nothing** (B7). The BMF letter of 22.02.2023 was repealed on 01.12.2025, and its requirements (who may write the appraisal, which method it uses) are **not** checks. DE records the evidence, and the user or the advisor confirms it. The only check DE applies is whether the life is shorter than the statute's threshold for the band.
+- **"Shorter" is a fixed number of years per band**, as § 7 Abs. 4 S. 2 EStG names them, never derived from the rate: fewer than **33** years in band `A` (S. 1 Nr. 2 Buchst. a), fewer than **50** in band `B` (Buchst. b), fewer than **40** in band `C` (Buchst. c). Each band of the rule carries its threshold as the parameter `shorterUsefulLife.shorterThanYears` (below). The check is `usefulLifeYears < shorterThanYears`, with no arithmetic on `ratePercent`. So 33 years in band `A` is **not** shorter, although `1/33` exceeds 3 %: the statute names the years. An entry that is not shorter gets the band's rate, and it is flagged `USEFUL_LIFE_NOT_SHORTER`. The entry is never refused, since the band can change with an amended completion year.
+- **VERIFY before implementation:** the thresholds are taken from the statute text quoted in the review on #174 (recorded in `docs/germany/depreciation.md` §3, B7). Re-read § 7 Abs. 4 S. 2 EStG in the official text (gesetze-im-internet.de) before VC-8-01 is implemented, and correct the rule's parameters if it differs.
 - **Only a confirmed entry feeds a figure.** An entry in `UNREVIEWED` or `NEEDS_REVIEW` makes its Acquisition's component not computable (`USEFUL_LIFE_NOT_CONFIRMED`, §59A). DE then uses neither the claimed rate nor the band's rate, since either would be a guess: the user has claimed a shorter life, but nobody has confirmed it. A confirmed entry gives the rate `1/usefulLifeYears`, flagged `SHORTER_USEFUL_LIFE` (informative), as P8-D4 says.
 - **Still VERIFY** (phase-8-plan §3, 6): whether a shorter life, once claimed, applies from the purchase or from the year it is evidenced. VC-8-02 decides how the schedule uses `evidence.date`. VC-8-01 stores the date and computes nothing with it.
 
@@ -5506,6 +5508,7 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
 
 - **Body:** the fields to change, at least one. `null` clears an optional field. Amendable fields: `buildingCompletionYear`, `sourceReferences`, `notes`, `shorterUsefulLives` (the **whole list**, as §58A's `rentDueDays`), and `reviewState` with the value `UNREVIEWED` or `NEEDS_REVIEW` only. Raising the state is `confirm`'s job (`CONFIRMED` or `ADVISOR_CONFIRMED` here → `400 NOT_ALLOWED`). `propertyReferenceId`, `assetType` and `depreciationMethod` → `400 NOT_AMENDABLE`.
 - **A changed fact is never carried under an old confirmation.** A change of `buildingCompletionYear` sets the asset's `reviewState` to `UNREVIEWED` and clears `advisorPartyId`, unless the body itself names `NEEDS_REVIEW`. Lowering the state also clears the advisor. Within `shorterUsefulLives`, an entry is matched by `acquisitionId`. An entry whose `usefulLifeYears` or `evidence` changed takes the `reviewState` the body gives it (default `UNREVIEWED`). An unchanged entry keeps its state unless the body names another. An entry that is left out is removed.
+- **The repository writes the difference, never the whole list** (matched by `acquisitionId`): it updates the rows of changed entries, deletes the rows of removed entries and inserts the rows of new entries. The rows of unchanged entries are not touched. A delete-and-reinsert of the list would be refused by the guard `depreciation_asset_useful_life_open` (below), which refuses every insert of an entry for a `CANCELLED` Acquisition: an unchanged entry whose `DRAFT` Acquisition was cancelled later would then block every amend of the asset.
 - **The past changes on read.** A corrected completion year or a removed entry changes the derived rate of every year from the start. Nothing is stored per year. A recorded schedule version that differs shows it as `DEPRECIATION_CHANGED_SINCE_RECORDED` (P8-D10, VC-8-04).
 - **Order of checks:**
   1. `400`;
@@ -5588,6 +5591,7 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
     "band": "B",
     "ratePercent": "2",
     "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG",
+    "shorterThanYears": 50,
     "reasons": [],
     "shorterUsefulLives": [
       {
@@ -5606,6 +5610,7 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
   - `rule`: the version of `DE_AFA_BUILDING_LINEAR` applicable in `year` (selected on 1 January of `year`, §58), or `null`;
   - `band`: `A` (completed ≥ 2023), `B` (1925–2022) or `C` (≤ 1924), from the rule's parameters; `null` without a completion year or a rule;
   - `ratePercent`: the band's rate as a §87 decimal string (`"3"`, `"2"`, `"2.5"`), exact; `legalBasis`: the band's;
+  - `shorterThanYears`: the band's threshold of § 7 Abs. 4 S. 2 EStG (33, 50 or 40), from the rule; `null` with `band`;
   - `reasons`, in this order, empty when the band rate is usable:
     - `ASSET_VOID`;
     - `COMPLETION_YEAR_MISSING`;
@@ -5613,13 +5618,25 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
     - `ASSET_NOT_CONFIRMED`: `reviewState` is `UNREVIEWED` or `NEEDS_REVIEW`. As with the allocation (data-model §15), only a confirmed fact feeds a canonical figure. `band` and `ratePercent` are still shown, so the user sees what confirming would give.
   - `shorterUsefulLives`: one entry per stored entry, in `acquisitionId` order.
     - `rate` is the exact fraction `"1/n"`. `ratePercent` is that rate × 100, rounded half-even to four places, for display only.
-    - `applies` is true only when the asset's `reasons` are empty, the entry is `CONFIRMED` or `ADVISOR_CONFIRMED`, the life is shorter than the band's, and its Acquisition is not `CANCELLED`.
+    - `applies` is true only when the asset's `reasons` are empty, the entry is `CONFIRMED` or `ADVISOR_CONFIRMED`, `usefulLifeYears < shorterThanYears`, and its Acquisition is not `CANCELLED`.
     - Otherwise `reasons` gives why, in this order: `ACQUISITION_CANCELLED`, `USEFUL_LIFE_NOT_SHORTER`, `USEFUL_LIFE_NOT_CONFIRMED`. Without a band, shortness is not known, and the asset's reasons say why.
 - **Flags and their levels** in the schedule and the view (`SHORTER_USEFUL_LIFE` informative, `USEFUL_LIFE_NOT_SHORTER` and the not-computable reasons open) are set by §59A and §58C (VC-8-02, VC-8-05). VC-8-01 only derives the reasons.
 
 ### The rule `DE_AFA_BUILDING_LINEAR@1` (P8-D4, P8-D11)
 
-- **The module** is `domains/depreciation/rules/de-afa-building-linear.ts`, a `RuleVersion` (`rule-version.ts`). **One registry** (P8-D11): `TAX_RULES` in `domains/taxation/rules/registry.ts` imports it and lists it beside the five Phase-7 rules. `GET /tax-rules` therefore shows it, and the start check resolves its references. This is the smaller of the plan's two options. The registry's file and its tests do not move, the Taxation rules keep their imports, and the Depreciation module imports only the type `RuleVersion`. The Depreciation domain reads the registry through Taxation's index, as the tax-year view will read the schedule through Depreciation's (P8-D11).
+- **The module** is `domains/depreciation/rules/de-afa-building-linear.ts`, a `RuleVersion`, exported through `domains/depreciation/index.js`.
+- **One registry, outside both domains** (P8-D11). The registry cannot stay in `domains/taxation/rules/registry.ts`:
+  - `architecture.test.ts` (`violation`) allows an import between two `domains/` modules only through `<module>/index.js`, so the registry may not deep-import `../../depreciation/rules/…`;
+  - through `depreciation/index.js`, Taxation would import Depreciation while Depreciation imports `TAX_RULES` from `taxation/index.js` as a value (to derive `rate`). That is a runtime cycle of two ES modules, and whichever is loaded first reads the other's bindings before they are initialised (TDZ). VC-8-05 adds the edge Taxation → Depreciation anyway (the tax-year view reads the schedule).
+- **The path chosen:** the kernel moves to `shared/`, each domain keeps its own rule modules, and `TAX_RULES` is composed in a module above both domains.
+  - `shared/rule-version.ts` (moved from `domains/taxation/rules/rule-version.ts`): `RuleVersion`, `RuleRef`, `RuleStatus`, `RULE_STATUSES`, `ruleKey`. It imports only `shared/business-date.ts`.
+  - `shared/rule-registry.ts`: the class `RuleRegistry`, moved unchanged out of `domains/taxation/rules/registry.ts`, with the constructor and selection tests of `registry.test.ts` as `shared/rule-registry.test.ts`. Both are exported by `shared/index.ts`. `shared/` imports no other layer (`allowedLayers: []`), and every layer may import it.
+  - `domains/taxation/index.ts` exports `TAXATION_RULE_VERSIONS` (the five Phase-7 versions; the rule modules stay in `domains/taxation/rules/`) and re-exports `RuleRegistry`, `ruleKey`, `RULE_STATUSES` and the types from `shared/`, so the Phase-7 imports of them through `taxation/index.js` keep working. `domains/taxation/rules/registry.ts` is deleted.
+  - `domains/depreciation/index.ts` exports `DEPRECIATION_RULE_VERSIONS` (`DE_AFA_BUILDING_LINEAR@1`). Depreciation imports `shared/` only, never `taxation/` or `tax-rules/`.
+  - `domains/tax-rules/index.ts` (new, the composition): `TAX_RULES = new RuleRegistry([...TAXATION_RULE_VERSIONS, ...DEPRECIATION_RULE_VERSIONS])`, importing both domains through their indexes. Nothing in `domains/taxation/` or `domains/depreciation/` imports it. The registry tests of the six rules (`registry.test.ts`'s `TAX_RULES` part) move to `domains/tax-rules/registry.test.ts`.
+  - **The registry reaches the domains by injection:** every domain function that needs it takes a `registry: RuleRegistry` parameter, as Taxation's already do (`classification.ts`, `tax-year-view.ts`, `distribution-82b.ts`, `attribution-changes.ts`). The use cases and repositories pass `TAX_RULES` from `domains/tax-rules/index.js`. Taxation's own domain tests build `new RuleRegistry(TAXATION_RULE_VERSIONS)` instead of importing `TAX_RULES`.
+- **Why this path:** `TAX_RULES` is read as a value by `infrastructure/` (the default registry of `PostgresTaxClassificationRepository` and of `checkStoredRuleReferences`, and their tests) as well as by `application/tax-classifications.ts` (`getTaxYearView`, `listTaxRules`, `getTaxRule`). `infrastructure/` may not import `application/` (architecture test), so a composition in `application/` or in `wiring.ts` would force those defaults out and a second composition into the infrastructure tests. A module in `domains/` is importable by every layer that needs it. A `domains/tax-rules` module that "depends on nothing" would have to hold the rule modules of both domains, so each domain's rules would leave their domain; here they stay.
+- **Imports that change** (no behaviour changes): `TAX_RULES` is imported from `domains/tax-rules/index.js` in `application/tax-classifications.ts`, `infrastructure/postgres/tax-classification-repository.ts`, `infrastructure/postgres/tax-rule-check.ts` and the tests that use it (`tax-weg-repository.test.ts`, `tax-year-view-repository.test.ts`); the type-only imports of `./rules/registry.js` and `./rules/rule-version.js` inside `domains/taxation/` go to `shared/index.js`. `GET /tax-rules` (`listTaxRules`, `getTaxRule`), the start check in `main.ts` (`checkStoredRuleReferences`) and every Phase-7 use of the registry read the same `TAX_RULES`, now with six rules. The Phase-7 tests stay green unchanged apart from these imports.
 - **Version 1:**
 
 | Field | Value |
@@ -5629,10 +5646,10 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
 | `legalBasis` | § 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG |
 | `effectiveFrom`, `effectiveTo` | `2023-01-01`, open: the first year the 3 % band applies (P8-D4) |
 | `source` | `docs/germany/depreciation.md` §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11 |
-| `parameters.bands` | `[{ band: "A", completedFromYear: 2023, completedToYear: null, ratePercent: "3", legalBasis: "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. a EStG" }, { band: "B", completedFromYear: 1925, completedToYear: 2022, ratePercent: "2", legalBasis: "… Buchst. b EStG" }, { band: "C", completedFromYear: null, completedToYear: 1924, ratePercent: "2.5", legalBasis: "… Buchst. c EStG" }]` |
-| `parameters.shorterUsefulLife` | `{ legalBasis: "§ 7 Abs. 4 S. 2 EStG", rate: "RECIPROCAL_OF_YEARS", onlyIfShorter: true }` |
+| `parameters.bands` | `[{ band: "A", completedFromYear: 2023, completedToYear: null, ratePercent: "3", legalBasis: "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. a EStG", shorterUsefulLife: { shorterThanYears: 33, legalBasis: "§ 7 Abs. 4 S. 2 EStG" } }, { band: "B", completedFromYear: 1925, completedToYear: 2022, ratePercent: "2", legalBasis: "… Buchst. b EStG", shorterUsefulLife: { shorterThanYears: 50, legalBasis: "§ 7 Abs. 4 S. 2 EStG" } }, { band: "C", completedFromYear: null, completedToYear: 1924, ratePercent: "2.5", legalBasis: "… Buchst. c EStG", shorterUsefulLife: { shorterThanYears: 40, legalBasis: "§ 7 Abs. 4 S. 2 EStG" } }]` |
+| `parameters.shorterUsefulLife` | `{ legalBasis: "§ 7 Abs. 4 S. 2 EStG", rate: "RECIPROCAL_OF_YEARS" }`: the claimed rate is `1/usefulLifeYears`, and only when `usefulLifeYears < shorterThanYears` of the band |
 
-- **The bands are parameters, never constants** (AGENTS.md §16): the code reads them from the rule. A registry test checks that they cover every year from 1000 to 2100 exactly once, without a gap or an overlap. Both boundaries are year-ends (31.12.1924 and 31.12.2022), so the completion **year** decides the band (P8-D4). `ratePercent` is a decimal string, computed exactly.
+- **The bands are parameters, never constants** (AGENTS.md §16): the code reads them from the rule, and so are the thresholds of the shorter useful life (33, 50, 40 years: § 7 Abs. 4 S. 2 EStG names them; still VERIFY against the official text, above). No code derives a threshold from `ratePercent`. A registry test checks that they cover every year from 1000 to 2100 exactly once, without a gap or an overlap. Both boundaries are year-ends (31.12.1924 and 31.12.2022), so the completion **year** decides the band (P8-D4). `ratePercent` is a decimal string, computed exactly.
 - **Selection** by the **tax year computed**: the version with `effectiveFrom` ≤ `year`-01-01 < `effectiveTo` (§58). Before 2023 no version applies. The answer is then `NO_APPLICABLE_RULE`, never an assumed rate, until the bands of earlier years are verified (phase-8-plan §3, 4). A second version will then cover them, with `effectiveTo` and `effectiveFrom` adjacent as the registry requires.
 - **Later parameters, and the freeze point.** VC-8-02 adds the first year (§ 7 Abs. 1 S. 4 EStG, B6) and the end of the AfA, including the year of disposal (P8-D9) once verified. VC-8-03 adds `subsequentCostStart` (P8-D6). They are added to version 1 **additively**, because no stored record names `DE_AFA_BUILDING_LINEAR@1` before VC-8-04 records the first schedule version. Version 1 is **frozen with VC-8-04's implementation**, and from then on every change is a new version. This is the rule `DE_CATEGORY_DEFAULTS@1` followed (§58, review on #159).
 - **The start check** (§58) gains a second source. `checkStoredRuleReferences` reads the distinct `ruleCode@version` stored by Taxation (`tax_classification`, both references) **and** by Depreciation (`DepreciationAssetRepository.storedRuleReferences()`). It refuses to start when one does not resolve. In VC-8-01 the Depreciation source returns nothing, since the asset stores no rule reference (P8-D1: the rate is derived). VC-8-04 makes the source read the recorded versions. The mechanism is tested now, with a stubbed source (Tests, below).
@@ -5701,7 +5718,7 @@ Field errors are `400 VALIDATION_ERROR` with the existing codes (`REQUIRED`, `IN
     - a `VOID` row never changes;
     - `version` + 1 on every change;
     - no delete;
-  - `depreciation_asset_useful_life_open` (before insert, update, delete): only an `ACTIVE` asset's entries change, and an entry is inserted only for an Acquisition that is not `CANCELLED`. The amend writes the asset row first (its `version` rises), so entries change only under the asset's lock;
+  - `depreciation_asset_useful_life_open` (before insert, update, delete): only an `ACTIVE` asset's entries change, and an entry is inserted only for an Acquisition that is not `CANCELLED`. The amend writes the asset row first (its `version` rises), so entries change only under the asset's lock. It writes the entries as a difference, so an unchanged entry is never re-inserted (amend, above);
   - `depreciation_asset_initial` (before insert): `ACTIVE`, version 1, not voided.
 - **0049's own text check** (`depreciation_asset_texts_valid()`, as 0045's).
 - **`down`** drops both tables and their functions. Nothing else changes: no column on `acquisition`, `property_reference`, `land_building_allocation` or any ledger table.
@@ -5723,13 +5740,20 @@ Each record carries the actor, and the version before and after (§17). No-ops w
   - the bands cover 1000–2100 once each (no gap, no overlap);
   - selection: 2022 → `NO_APPLICABLE_RULE`, 2023 and 2100 → version 1, 2000 → none;
   - `ratePercent` exact (no binary float: a property test multiplies by 100 and compares strings);
-  - shortness at the edge: 49 years at 2 % shorter, 50 not; 33 at 3 % shorter, 34 not; 39 at 2.5 % shorter, 40 not;
+  - shortness at each threshold, read from the rule's `shorterThanYears`: band `A` 32 shorter, 33 not; band `B` 49 shorter, 50 not; band `C` 39 shorter, 40 not;
+  - the thresholds are parameters: `shorterThanYears` is 33, 50 and 40 on bands `A`, `B` and `C`, each with the legal basis § 7 Abs. 4 S. 2 EStG; band `A` at 33 years is not shorter although `1/33` exceeds 3 % (no threshold derived from `ratePercent`);
   - the `rate` reasons in their order, each alone;
   - `1/n` as an exact fraction and its display rounding (half-even, four places: `1/30` → `3.3333`, `1/16` → `6.2500`).
 - **Registry:**
-  - six rules, none overlapping (`registry.test.ts` extended);
+  - `RuleRegistry`'s constructor and selection tests, moved with the class (`shared/rule-registry.test.ts`), unchanged;
+  - six rules, none overlapping (`domains/tax-rules/registry.test.ts`);
+  - Taxation's five versions and Depreciation's one, each exported by its own domain's index, together make up `TAX_RULES` (no rule registered twice or left out);
   - `DE_AFA_BUILDING_LINEAR@1` with its `effectiveFrom`, legal basis and `source` naming `depreciation.md` and B1–B3;
   - `GET /tax-rules` lists it with `status` `ACTIVE`, and `GET /tax-rules/DE_AFA_BUILDING_LINEAR` answers it.
+- **Module boundary and load order:**
+  - `architecture.test.ts` stays green, with the new modules `shared/rule-version.ts`, `shared/rule-registry.ts`, `domains/tax-rules/` and `domains/depreciation/` in its scan;
+  - a new rule there, since `violation` allows any import that goes through an index: a list of forbidden module edges, checked over every file. No file under `domains/taxation/` or `domains/depreciation/` (tests included) imports `domains/tax-rules/`, and no file under `domains/depreciation/` imports `domains/taxation/` in VC-8-01. Fixtures: `'../tax-rules/index.js'` from `domains/depreciation/probe.ts` and from `domains/taxation/probe.ts` is rejected, `'../taxation/index.js'` from `domains/tax-rules/probe.ts` is allowed;
+  - load order, without a TDZ: `domains/tax-rules/load-order-depreciation-first.test.ts` imports `../depreciation/index.js` as its **first** import, before anything else, and asserts that `TAX_RULES.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 })` is defined and `TAX_RULES.codes()` has six codes; `load-order-taxation-first.test.ts` does the same with `../taxation/index.js` first. Vitest runs each test file in its own module graph (`isolate`, the default of `vitest.config.ts`), so each file is a fresh load. Within one file, a third case calls `vi.resetModules()` and imports `depreciation/index.js`, then `tax-rules/index.js` dynamically, with the same assertions. Counter-check: an import of `TAX_RULES` added to a Depreciation module makes the first file fail (and the architecture test);
 - **Start check:**
   - a stubbed Depreciation source naming `DE_AFA_BUILDING_LINEAR@2` stops the start and names it;
   - `@1` starts;
@@ -5753,7 +5777,7 @@ Each record carries the actor, and the version before and after (§17). No-ops w
   - amend:
     - the year reset to `UNREVIEWED` (and kept at `NEEDS_REVIEW` when the body names it);
     - entries added, changed (its state reset) and removed, with `changedEntries`;
-    - an unchanged entry of a later-cancelled Acquisition not blocking;
+    - an unchanged entry of a later-cancelled Acquisition not blocking, against the real database and its trigger `depreciation_asset_useful_life_open` (no stubbed repository): the entry's row is untouched (its `xmin` unchanged), and its removal in a later amend is allowed. Counter-check: a repository that deletes and re-inserts the whole list fails this test on the trigger;
     - the no-op regardless of `If-Match`, and `412`;
   - confirm: `COMPLETION_YEAR_MISSING`, `ADVISOR_CONFIRMED`, the no-op, an advisor Party of another Realm;
   - void: the no-op keeping the first reason, and a new building after a void;
@@ -5778,6 +5802,7 @@ Each record carries the actor, and the version before and after (§17). No-ops w
 - **a rate before 2023:** `NO_APPLICABLE_RULE` for 2000–2022, never 2 %;
 - **a changed fact under an old confirmation:** an amended year is never `CONFIRMED` without a new `confirm`;
 - **an unconfirmed shorter life used:** `applies: false` until confirmed, and neither rate is shown as usable;
+- **"shorter" derived from the rate:** band `A` at 33 years is `USEFUL_LIFE_NOT_SHORTER`, although `100 / 3` is above 33;
 - **two buildings for one unit:** refused at the API, the repository and the index;
 - **a confirmation lowered silently:** `CONFIRMED` over `ADVISOR_CONFIRMED` is refused.
 
@@ -5786,7 +5811,10 @@ Each record carries the actor, and the version before and after (§17). No-ops w
 - the rate of band `C` swapped with `B`;
 - `effectiveFrom` moved to 2022-01-01, or the selection falling back to the latest version for an earlier year;
 - the bands moved into a constant outside the rule (the parameter test reads them from `TAX_RULES`);
-- the shortness check `<` made `≤`;
+- the shortness check `usefulLifeYears < shorterThanYears` made `≤`;
+- the threshold derived from the rate (`usefulLifeYears × ratePercent < 100`) instead of read from `shorterThanYears` (red at band `A`, 33 years);
+- the amend's repository rewriting the whole list of entries (delete and re-insert; red on the trigger);
+- `domains/depreciation/` importing `TAX_RULES` from `domains/tax-rules/` or `domains/taxation/` (the architecture test);
 - the amend's reset of `reviewState` dropped;
 - the Depreciation source left out of the start check;
 - the Realm filter dropped from the asset read, or from the per-property list;
@@ -5797,6 +5825,7 @@ Each record carries the actor, and the version before and after (§17). No-ops w
 - **The basis, the start, the first year, the owners, the end and the schedule:** §59A (VC-8-02), including the shared basis function with §58B, `TRANSFER_DATE_ASSUMED`, `DEGRESSIVE_AFA_MAY_APPLY` and the disposal year (P8-D9).
 - **Capitalised costs and `SEPARATE_ASSET`:** §59A extended and §59B (VC-8-03), with `DE_AFA_MOVABLE_LINEAR@1`, `subsequentCostStart` and the VAT point (P8-D2, P8-D6).
 - **Recorded versions** and their rule references: §60 (VC-8-04).
+- **The direction between Depreciation and Taxation:** VC-8-01 adds no import between them (the registry is composed in `domains/tax-rules/`). P8-D11 has Depreciation read the `capitalized` items through Taxation (VC-8-03) and the tax-year view read the schedule through Depreciation (VC-8-05). Both edges together would be a cycle, so VC-8-03's spec decides which one goes through a layer above both (as the registry does here).
 - **The AfA in the tax-year view**, the flags' levels and `final`: §58C (VC-8-05).
 
 ### Open questions for review
