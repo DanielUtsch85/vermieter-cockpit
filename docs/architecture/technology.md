@@ -298,6 +298,18 @@ The initial DE frontend should normally follow the current MRE frontend ecosyste
 
 The exact framework/version must be verified against upstream MRE before implementation.
 
+**Decision (project owner, 30.10.2026; recorded in PR #164):** the DE cockpit is a separate application in the monorepo under `webapps/cockpit`; the MRE landlord app is not changed (ADR-036).
+
+- **Follows MRE** (checked against the pinned MRE `479d0ad`, `webapps/landlord/package.json`): React 18, TypeScript, Tailwind, TanStack Query.
+- **Deviates from MRE:**
+  - **Vite instead of Next.js:** behind a login, server rendering buys nothing.
+  - **No `mobx`:** server state lives in TanStack Query.
+- **Shared schemas:** the DTO types come from the backend's Zod schemas through one shared workspace package, so the API has one source of truth.
+  - That package holds schemas and types only, never domain logic, application services or database adapters.
+  - The backend stays the authority for every rule (§7).
+- **Versions** are pinned when the app is created, checked against the pinned upstream; no additional design library.
+- Implementation guidance: `docs/development/ui-guide.md` §7.1.
+
 ---
 
 # 8. Persistence Strategy
