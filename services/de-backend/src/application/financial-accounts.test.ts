@@ -43,6 +43,16 @@ function memoryRepository() {
       return { kind: 'CREATED', account };
     },
     findById: async (id, realm) => rows.find((r) => r.id === id && r.mreRealmId === realm),
+    list: async (realm, filter, page) => {
+      const matching = rows.filter(
+        (r) =>
+          r.mreRealmId === realm &&
+          (filter.statuses === undefined || filter.statuses.includes(r.status)) &&
+          (filter.accountTypes === undefined || filter.accountTypes.includes(r.accountType)),
+      );
+      const items = matching.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
+      return { items, page: page.page, pageSize: page.pageSize, total: matching.length };
+    },
     close: async (id, realm, at, actor) => {
       const index = rows.findIndex((r) => r.id === id && r.mreRealmId === realm);
       const current = rows[index];

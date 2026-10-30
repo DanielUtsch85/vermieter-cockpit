@@ -1,6 +1,15 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
-import { MRE_OBJECT_ID, MreUnavailableError, type LinkPropertyReference, type PropertyReference, type RefreshPropertyReference } from '../application/index.js';
+import {
+  EXTERNAL_REFERENCE_STATES,
+  MRE_OBJECT_ID,
+  MreUnavailableError,
+  type GetPropertyReference,
+  type LinkPropertyReference,
+  type ListPropertyReferences,
+  type PropertyReference,
+  type RefreshPropertyReference,
+} from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
 import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
@@ -11,9 +20,24 @@ const linkBody = z.object({
   mrePropertyId: z.string().regex(MRE_OBJECT_ID),
 });
 
+/** api-design.md §23.3; unknown parameters are `400`. */
+const listQuery = z
+  .object({
+    externalReferenceState: z
+      .string()
+      .transform((value) => value.split(','))
+      .pipe(z.array(z.enum(EXTERNAL_REFERENCE_STATES)).min(1))
+      .optional(),
+    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .strict();
+
 export interface PropertyReferenceCommands {
   readonly link: LinkPropertyReference;
   readonly refresh: RefreshPropertyReference;
+  readonly get: GetPropertyReference;
+  readonly list: ListPropertyReferences;
 }
 
 /** Property Reference API (api-design.md §22–23). */
@@ -42,6 +66,42 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
           next(error);
         }
       });
+  });
+
+  // Both reads answer from DE's cached data and never call MRE (§23.3).
+  router.get('/property-references', (req, res, next) => {
+    const parsed = listQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const { page, pageSize, externalReferenceState } = parsed.data;
+    commands
+      .list({
+        principal: principalOf(res),
+        filter: externalReferenceState === undefined ? {} : { states: externalReferenceState },
+        page: { page, pageSize },
+      })
+      .then((result) => {
+        res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
+      })
+      .catch(next);
+  });
+
+  router.get('/property-references/:propertyReferenceId', (req, res, next) => {
+    const { propertyReferenceId } = req.params;
+    if (!RESOURCE_ID.test(propertyReferenceId)) {
+      sendValidationError(res, [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    commands
+      .get({ principal: principalOf(res), propertyReferenceId: propertyReferenceId.toLowerCase() })
+      .then((reference) => {
+        // Its version as `ETag` (api-design.md §16.1).
+        res.setHeader('ETag', `"${reference.version}"`);
+        res.json(toDto(reference));
+      })
+      .catch(next);
   });
 
   // Takes no body; a refresh only re-reads MRE (VC-1-02).

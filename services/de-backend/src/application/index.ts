@@ -12,19 +12,29 @@ export type {
   MrePropertySnapshot,
 } from './link-property-reference.js';
 export type { CachedAddress, LinkOutcome, PropertyReference } from '../domains/property-reference/index.js';
-export { MRE_OBJECT_ID } from '../domains/property-reference/index.js';
+export { EXTERNAL_REFERENCE_STATES, MRE_OBJECT_ID } from '../domains/property-reference/index.js';
+export { getPropertyReference, listPropertyReferences } from './property-reference-queries.js';
+export type { GetPropertyReference, ListPropertyReferences } from './property-reference-queries.js';
 export { PropertyReferenceNotFoundError, refreshPropertyReference } from './refresh-property-reference.js';
 export type { RefreshPropertyReference, RefreshPropertyReferenceDeps, RefreshPropertyReferenceInput } from './refresh-property-reference.js';
 export { ConcurrentUpdateError, IdempotencyKeyConflictError, MreUnavailableError, VersionConflictError } from './errors.js';
-export { FinancialAccountNotFoundError, closeFinancialAccount, createFinancialAccount } from './financial-accounts.js';
+export {
+  FinancialAccountNotFoundError,
+  closeFinancialAccount,
+  createFinancialAccount,
+  getFinancialAccount,
+  listFinancialAccounts,
+} from './financial-accounts.js';
 export type {
   CloseFinancialAccount,
   CloseFinancialAccountInput,
   CreateFinancialAccount,
   CreateFinancialAccountInput,
   CreateFinancialAccountResult,
+  GetFinancialAccount,
+  ListFinancialAccounts,
 } from './financial-accounts.js';
-export { ACCOUNT_TYPES } from '../domains/ledger/index.js';
+export { ACCOUNT_STATUSES, ACCOUNT_TYPES } from '../domains/ledger/index.js';
 export type { AccountType, FinancialAccount } from '../domains/ledger/index.js';
 export {
   CurrencyMismatchError,
