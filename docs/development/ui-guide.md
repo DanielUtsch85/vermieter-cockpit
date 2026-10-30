@@ -35,8 +35,8 @@ Die bisherigen Bilder und HTML-Dateien sind **Gestaltungsskizzen**. Dieser Leitf
 - Verfassung und akzeptierte Architekturentscheidungen bleiben maßgeblich.
 - Die ausführlichen Verträge stehen in docs/architecture/api-design.md.
 - Tatsächlich verfügbare Routen und Payload-Formate wurden in src/api geprüft; ihre Registrierung wurde mit src/api/app.ts abgeglichen.
-- Authentifizierung: docs/architecture/mre-integration.md §47.1.
-- Frontend-Ausrichtung: docs/architecture/technology.md §7.
+- Authentifizierung: docs/architecture/mre-integration.md §47.1 (Token-Prüfung im Backend) und §47.2 (Sitzungsvertrag für Clients).
+- Frontend-Ausrichtung und Stack-Entscheidung: docs/architecture/technology.md §7 und §7.1.
 - Eingaben und Versionierung: src/api/validation.ts.
 - Transaktions-DTO und Filter: src/api/transaction-dto.ts.
 - Gemeinsame Fehler: src/api/error-answers.ts.
@@ -373,7 +373,7 @@ Tabs: Mitgliedschaften, Wirtschaftsplan, Jahresabrechnung, Sonderumlagen.
 
 ### 7.1 Framework und Module
 
-**Entscheidung (30.10.2026):** Die Oberfläche ist eine eigene Anwendung im Monorepo unter `webapps/cockpit`, kein Eingriff in die MRE-Landlord-App (Verfassung: MRE nur ändern, wo nötig; ADR-036 Upgrade-Fähigkeit). Der Stack folgt dem gepinnten MRE-Landlord-Frontend, damit niemand zwei Welten lernt: React 18, TypeScript, Tailwind, TanStack Query für Cache und Invalidierung. Gebaut wird mit Vite statt Next.js, weil hinter einem Login kein Server-Rendering nötig ist. Die DTO-Typen kommen aus den Zod-Schemata des Backends über ein gemeinsames Workspace-Paket, damit nicht zwei Wahrheiten über die API entstehen. Konkrete Versionen vor Implementierung am gepinnten Upstream prüfen; keine zusätzliche Designbibliothek.
+**Entscheidung (30.10.2026):** Die Oberfläche ist eine eigene Anwendung im Monorepo unter `webapps/cockpit`, kein Eingriff in die MRE-Landlord-App (Verfassung: MRE nur ändern, wo nötig; ADR-036 Upgrade-Fähigkeit). Der Stack folgt dem gepinnten MRE-Landlord-Frontend, damit niemand zwei Welten lernt: React 18, TypeScript, Tailwind, TanStack Query für Cache und Invalidierung. Gebaut wird mit Vite statt Next.js, weil hinter einem Login kein Server-Rendering nötig ist. Die DTO-Typen kommen aus den Zod-Schemata des Backends über ein gemeinsames Workspace-Paket, damit nicht zwei Wahrheiten über die API entstehen. Konkrete Versionen vor Implementierung am gepinnten Upstream prüfen; keine zusätzliche Designbibliothek. Maßgeblich festgehalten ist die Entscheidung in docs/architecture/technology.md §7.1.
 
 Schichten: Komponenten → View-/Form-Modelle → typisierter API-Client → DE-API. Keine Imports aus PostgreSQL-Adaptern oder DE-Anwendungsservices in Browsercode. Backend-Regeln nicht als kopierte zweite Domainbibliothek im UI fortschreiben.
 
