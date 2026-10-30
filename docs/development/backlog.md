@@ -164,6 +164,22 @@ Reference: `docs/roadmap.md` Phase 6, `docs/development/phase-6-plan.md` (decisi
 
 ---
 
+# 3f. Phase 7 — Taxation
+
+Reference: `docs/roadmap.md` Phase 7, `docs/development/phase-7-plan.md` (decisions P7-D1…D9). Each item starts with a spec PR for its API section, as in Phases 2–6.
+
+| ID | Type | Item | API | Exit |
+|---|---|---|---|---|
+| VC-7-01 | feature | The rule registry, the category defaults and `TaxClassification` on splits (P7-D1, P7-D2) | §55–§58: `GET /api/v1/tax-rules`, classifications on splits (create, confirm, change, history) | Rules as versioned code modules, every stored classification names `ruleCode@version`; a split without a classification reads its category's default; a classification never changes a split |
+| VC-7-02 | feature | The tax year and the income side (P7-D3, P7-D4) | §55 (`taxYear`, `refundOfYear`), due days on the rental contract and the plan, classification of a retained deposit | § 11 EStG: the economic year when due date and payment both fall within 10 days of the year-end; a due date per source, else the period start flagged `DUE_DATE_ASSUMED`; overridable; refunds by year; deposits never income |
+| VC-7-03 | feature | WEG money when spent; Erhaltungsaufwand vs. Herstellungskosten (P7-D5, P7-D6) | classifications of reserve withdrawals and Sonderumlage uses; the anschaffungsnahe check per Acquisition; § 82b elections | `WEG_FUNDS` never deductible when paid, withdrawals and uses once when spent; > 15 % without VAT within 3 years, splits and WEG withdrawals/uses together, flagged and capitalised (`NOT_FINAL` with gross amounts); § 82b parts per year |
+| VC-7-04 | feature | The tax-year view (P7-D7, P7-D8) | `GET /api/v1/property-references/{id}/tax-years/{year}` (`?ownerPartyId=`) | Einnahmen, Werbungskosten and the result per property and per owner, every line with its items and rule versions; the AfA block flagged `DEPRECIATION_NOT_AVAILABLE` until Phase 8; no cash mutated |
+| VC-7-05 | test | Phase-7 invariant suite + acceptance test (ACC7) | — | Each exit claim mapped to an ACC7 step, with counter-checks |
+
+**Phase 7 exit:** `docs/roadmap.md` Phase 7 — VC-7-04 on the inputs of VC-7-01…03, shown end to end by ACC7 (VC-7-05); the AfA figure is completed by Phase 8 (P7-D8).
+
+---
+
 # 4. Later-phase epics (blocked or spec-gated)
 
 Listed for visibility; expand into items when their blocker clears.
@@ -175,7 +191,7 @@ Listed for visibility; expand into items when their blocker clears.
 | Rent reconciliation suggest/confirm/write-back | 4 | **expanded** into §3c (VC-4-01…06, `phase-4-plan.md`) |
 | Security Deposit domain | 5 | **expanded** into §3d (VC-5-01…05, `phase-5-plan.md`) |
 | WEG (Wirtschaftsplan, Jahresabrechnung, Rücklage, Sonderumlage) | 6 | **expanded** into §3e (VC-6-01…06, `phase-6-plan.md`); `germany/weg.md` verified 29.10.2026 |
-| Taxation (Werbungskosten, classification, versioned rules) | 7 | spec verified: `germany/taxation.md` + `germany/rent-and-operating-costs.md` verified 29.10.2026 (rules: ADR-041) |
+| Taxation (Werbungskosten, classification, versioned rules) | 7 | **expanded** into §3f (VC-7-01…05, `phase-7-plan.md`); `germany/taxation.md` + `germany/rent-and-operating-costs.md` verified 29.10.2026 (rules: ADR-041) |
 | Depreciation (AfA schedules) | 8 | spec verified: `germany/depreciation.md` verified 29.10.2026 |
 | Investment metrics + snapshots + scenarios | 9 | ready (ADR-040 triggers, ADR-042 versioning) |
 | Reports + dashboards | 9 | after 7–8; `product/reports.md`, `product/dashboards.md` |
