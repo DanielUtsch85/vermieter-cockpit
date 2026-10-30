@@ -1,4 +1,5 @@
 import type {
+  AssessmentSplitRefusal,
   DepositSplitRefusal,
   FinancialCategory,
   FinancialCategoryRepository,
@@ -138,9 +139,48 @@ export class StatementNotCurrentError extends Error {
   }
 }
 
-/** The refusals of §41.5, §47.2, §49.3 and §51 as errors, shared by the splits command and `correct`. */
-export function throwSplitRefusal(refusal: LoanSplitRefusal | DepositSplitRefusal | WegSplitRefusal | StatementSplitRefusal): never {
+/** A split names a Sonderumlage unknown in the Realm (§51A → 404 NOT_FOUND with `details.wegSpecialAssessmentId`). */
+export class WegAssessmentNotFoundError extends Error {
+  override readonly name = 'WegAssessmentNotFoundError';
+
+  constructor(readonly wegSpecialAssessmentId: string) {
+    super(`WEG special assessment ${wegSpecialAssessmentId} not found`);
+  }
+}
+
+/** A split naming a Sonderumlage is not WEG_SPECIAL_ASSESSMENT, or not of its unit (§51A → 422 INVALID_WEG_ASSESSMENT_SPLIT). */
+export class InvalidWegAssessmentSplitError extends Error {
+  override readonly name = 'InvalidWegAssessmentSplitError';
+
+  constructor(
+    readonly position: number,
+    readonly reason: 'CATEGORY' | 'UNIT',
+  ) {
+    super(`Split ${position}: a split naming a Sonderumlage is WEG_SPECIAL_ASSESSMENT of its unit (${reason})`);
+  }
+}
+
+/** The Sonderumlage is `VOID` (§51A → 409 ASSESSMENT_NOT_ACTIVE). */
+export class AssessmentNotActiveError extends Error {
+  override readonly name = 'AssessmentNotActiveError';
+
+  constructor(
+    readonly wegSpecialAssessmentId: string,
+    readonly status: string,
+  ) {
+    super(`WEG special assessment ${wegSpecialAssessmentId} is ${status}`);
+  }
+}
+
+/** The refusals of §41.5, §47.2, §49.3, §51 and §51A as errors, shared by the splits command and `correct`. */
+export function throwSplitRefusal(refusal: LoanSplitRefusal | DepositSplitRefusal | WegSplitRefusal | StatementSplitRefusal | AssessmentSplitRefusal): never {
   switch (refusal.kind) {
+    case 'WEG_ASSESSMENT_NOT_FOUND':
+      throw new WegAssessmentNotFoundError(refusal.wegSpecialAssessmentId);
+    case 'INVALID_WEG_ASSESSMENT_SPLIT':
+      throw new InvalidWegAssessmentSplitError(refusal.position, refusal.reason);
+    case 'ASSESSMENT_NOT_ACTIVE':
+      throw new AssessmentNotActiveError(refusal.wegSpecialAssessmentId, refusal.status);
     case 'WEG_STATEMENT_NOT_FOUND':
       throw new WegStatementNotFoundError(refusal.wegAnnualStatementId);
     case 'INVALID_WEG_STATEMENT_SPLIT':

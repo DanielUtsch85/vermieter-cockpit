@@ -275,6 +275,8 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
         { code: 'WEG_NON_RECOVERABLE', category_type: 'OPERATING_EXPENSE' },
         { code: 'WEG_RECOVERABLE', category_type: 'OPERATING_EXPENSE' },
         { code: 'WEG_RESERVE_CONTRIBUTION', category_type: 'WEG_FUNDS' },
+        // VC-6-05 (§51A): the Sonderumlage is money given to the WEG as well.
+        { code: 'WEG_SPECIAL_ASSESSMENT', category_type: 'WEG_FUNDS' },
       ]);
     });
   });
@@ -446,6 +448,7 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
         // Dropping a table while another worker's Migrator introspects the database breaks it: hold the migration lock.
         // 0043 and 0042 build on 0041's functions: they go first.
         await withMigrationLock(async () => {
+          await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0041_weg_plan_and_splits.js')).down(createDatabase(downPool) as never);

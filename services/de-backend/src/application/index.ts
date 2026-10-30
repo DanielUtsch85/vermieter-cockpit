@@ -67,15 +67,18 @@ export type {
 } from './bank-import.js';
 export type { ConflictingTransaction, ImportBatch, ReviewItem, ReviewResolution, RowOutcome } from '../domains/ledger/index.js';
 export {
+  AssessmentNotActiveError,
   FinancialCategoryNotFoundError,
   InvalidLoanSplitError,
   InvalidSecurityDepositSplitError,
+  InvalidWegAssessmentSplitError,
   InvalidWegStatementSplitError,
   NoWegMembershipError,
   SplitSumMismatchError,
   StatementNotCurrentError,
   TransactionFrozenError,
   TransactionNotFoundError,
+  WegAssessmentNotFoundError,
   WegStatementNotFoundError,
   getFinancialCategory,
   listFinancialCategories,
@@ -430,6 +433,7 @@ export type { GetRentSplitProposal, MreRentBreakdownReader, RentSplitProposalVie
 export {
   AdministratorInactiveError,
   InvalidMembershipError,
+  MembershipHasAssessmentsError,
   MembershipHasPlansError,
   MembershipHasSplitsError,
   MembershipHasStatementsError,
@@ -545,3 +549,25 @@ export type {
   StatementFlag as AnnualStatementFlag,
   StatementView as AnnualStatementView,
 } from '../domains/weg/index.js';
+export {
+  AssessmentHasSplitsError,
+  AssessmentOutsideMembershipError,
+  SpecialAssessmentNotFoundError,
+  amendSpecialAssessment,
+  createSpecialAssessment,
+  getSpecialAssessment,
+  listSpecialAssessments,
+  replaceAssessmentUses,
+  voidSpecialAssessment,
+} from './weg-special-assessments.js';
+export type {
+  AmendSpecialAssessment,
+  CreateSpecialAssessment,
+  CreateSpecialAssessmentInput,
+  GetSpecialAssessment,
+  ListSpecialAssessments,
+  ReplaceAssessmentUses,
+  VoidSpecialAssessment,
+} from './weg-special-assessments.js';
+export { ASSESSMENT_PURPOSES, ASSESSMENT_STATUSES, instalmentsRefusal } from '../domains/weg/index.js';
+export type { AssessmentContent, AssessmentUse, AssessmentView, Instalment } from '../domains/weg/index.js';

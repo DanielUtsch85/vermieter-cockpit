@@ -97,6 +97,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           loanId: null,
           securityDepositId: null,
           wegAnnualStatementId: null,
+          wegSpecialAssessmentId: null,
           description: null,
         },
         {
@@ -108,6 +109,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           loanId: LOAN,
           securityDepositId: null,
           wegAnnualStatementId: null,
+          wegSpecialAssessmentId: null,
           description: 'Rate 10',
         },
       ],
@@ -133,6 +135,10 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
       [one({ wegAnnualStatementId: TX, loanId: LOAN }), [{ field: 'splits.0.loanId', code: 'NOT_ALLOWED_WITH_WEG_STATEMENT' }]],
       [one({ wegAnnualStatementId: TX, securityDepositId: LOAN }), [{ field: 'splits.0.securityDepositId', code: 'NOT_ALLOWED_WITH_WEG_STATEMENT' }]],
       [one({ wegAnnualStatementId: 'x' }), [{ field: 'splits.0.wegAnnualStatementId', code: 'INVALID_FORMAT' }]],
+      // A Sonderumlage's cash is its own (§51A).
+      [one({ wegSpecialAssessmentId: TX, wegAnnualStatementId: LOAN }), [{ field: 'splits.0.wegAnnualStatementId', code: 'NOT_ALLOWED_WITH_WEG_ASSESSMENT' }]],
+      [one({ wegSpecialAssessmentId: TX, loanId: LOAN }), [{ field: 'splits.0.loanId', code: 'NOT_ALLOWED_WITH_WEG_ASSESSMENT' }]],
+      [one({ wegSpecialAssessmentId: 'x' }), [{ field: 'splits.0.wegSpecialAssessmentId', code: 'INVALID_FORMAT' }]],
       // A Loan reaches its properties only through its allocation (§41.5).
       [one({ loanId: LOAN, propertyReferenceId: PROPERTY }), [{ field: 'splits.0.propertyReferenceId', code: 'NOT_ALLOWED_WITH_LOAN' }]],
       [one({ financialCategoryCode: 'loan interest' }), [{ field: 'splits.0.financialCategoryCode', code: 'INVALID_FORMAT' }]],

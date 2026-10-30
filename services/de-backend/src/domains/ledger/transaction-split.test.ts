@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { Money, type BusinessDate } from '../../shared/index.js';
-import { checkDepositSplits, checkLoanSplits, checkStatementSplits, checkWegSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
+import {
+  checkAssessmentSplits,
+  checkDepositSplits,
+  checkLoanSplits,
+  checkStatementSplits,
+  checkWegSplits,
+  planSplits,
+  sameSplits,
+  type SplitInput,
+} from './transaction-split.js';
 import type { TransactionStatus } from './transaction.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
@@ -251,5 +260,55 @@ describe('wegAnnualStatementId (api-design §51)', () => {
     const { wegAnnualStatementId: _id, ...absent } = settlement('WEG_RECOVERABLE', 'u1', null);
     expect(sameSplits([named], [{ ...named, wegAnnualStatementId: 'old' }])).toBe(false);
     expect(sameSplits([absent], [{ ...absent, wegAnnualStatementId: null }])).toBe(true);
+  });
+});
+
+describe('wegSpecialAssessmentId (api-design §51A)', () => {
+  const payment = (financialCategoryCode: string, propertyReferenceId: string | null, wegSpecialAssessmentId: string | null) => ({
+    amount: Money.of('300.00', 'EUR'),
+    financialCategoryCode,
+    propertyReferenceId,
+    loanId: null,
+    securityDepositId: null,
+    wegSpecialAssessmentId,
+    description: null,
+  });
+  const assessments = new Map([
+    ['a', { status: 'ACTIVE', propertyReferenceId: 'u1' }],
+    ['v', { status: 'VOID', propertyReferenceId: 'u1' }],
+  ]);
+
+  it('WEG_SPECIAL_ASSESSMENT is a WEG category: a unit, and a membership on the date unless it names an assessment', () => {
+    const date = '2026-05-02' as BusinessDate;
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, [payment('WEG_SPECIAL_ASSESSMENT', null, null)], new Set())).toMatchObject({
+      reason: 'NO_UNIT',
+    });
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, [payment('WEG_SPECIAL_ASSESSMENT', 'u1', null)], new Set())).toMatchObject({
+      reason: 'NO_MEMBERSHIP',
+    });
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, [payment('WEG_SPECIAL_ASSESSMENT', 'u1', 'a')], new Set())).toBeUndefined();
+  });
+
+  it('unknown, then category, then unit, then VOID; a reversal is exempt from the last only', () => {
+    const check = (set: SplitInput[], reversal = false) => checkAssessmentSplits({ reversal }, set, assessments);
+    expect(check([payment('WEG_SPECIAL_ASSESSMENT', 'u2', 'a'), payment('WEG_SPECIAL_ASSESSMENT', 'u1', 'nope')])).toEqual({
+      kind: 'WEG_ASSESSMENT_NOT_FOUND',
+      wegSpecialAssessmentId: 'nope',
+    });
+    expect(check([payment('WEG_SPECIAL_ASSESSMENT', 'u2', 'a'), payment('WEG_RESERVE_CONTRIBUTION', 'u1', 'a')])).toEqual({
+      kind: 'INVALID_WEG_ASSESSMENT_SPLIT',
+      position: 2,
+      reason: 'CATEGORY',
+    });
+    expect(check([payment('WEG_SPECIAL_ASSESSMENT', 'u2', 'a')])).toEqual({ kind: 'INVALID_WEG_ASSESSMENT_SPLIT', position: 1, reason: 'UNIT' });
+    expect(check([payment('WEG_SPECIAL_ASSESSMENT', 'u1', 'v')])).toEqual({ kind: 'ASSESSMENT_NOT_ACTIVE', wegSpecialAssessmentId: 'v', status: 'VOID' });
+    expect(check([payment('WEG_SPECIAL_ASSESSMENT', 'u1', 'v')], true)).toBeUndefined();
+    expect(check([payment('WEG_SPECIAL_ASSESSMENT', 'u1', 'a')])).toBeUndefined();
+  });
+
+  it('a statement split is never WEG_SPECIAL_ASSESSMENT (§51)', () => {
+    const statements = new Map([['st', { status: 'CONFIRMED', propertyReferenceId: 'u1', supersededBy: null }]]);
+    const split = { ...payment('WEG_SPECIAL_ASSESSMENT', 'u1', null), wegAnnualStatementId: 'st' };
+    expect(checkStatementSplits({ reversal: false }, [split], statements)).toMatchObject({ reason: 'CATEGORY' });
   });
 });

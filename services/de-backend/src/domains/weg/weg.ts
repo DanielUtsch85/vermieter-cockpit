@@ -213,12 +213,15 @@ export interface MembershipHolds {
   readonly splits: readonly { readonly transactionId: string; readonly bookingDate: BusinessDate }[];
   readonly plans: readonly { readonly id: string; readonly effectiveFrom: BusinessDate }[];
   readonly statements: readonly { readonly id: string; readonly periodFrom: BusinessDate; readonly periodUntil: BusinessDate }[];
+  /** Sonderumlagen that are not `VOID`, by resolution date (§51A). */
+  readonly assessments: readonly { readonly id: string; readonly resolutionDate: BusinessDate }[];
 }
 
 export type MembershipHoldRefusal =
   | { readonly kind: 'MEMBERSHIP_HAS_SPLITS'; readonly transactionIds: readonly string[] }
   | { readonly kind: 'MEMBERSHIP_HAS_PLANS'; readonly economicPlanIds: readonly string[] }
-  | { readonly kind: 'MEMBERSHIP_HAS_STATEMENTS'; readonly statementIds: readonly string[] };
+  | { readonly kind: 'MEMBERSHIP_HAS_STATEMENTS'; readonly statementIds: readonly string[] }
+  | { readonly kind: 'MEMBERSHIP_HAS_ASSESSMENTS'; readonly assessmentIds: readonly string[] };
 
 /**
  * An end (`remaining` the shortened period) or a void (`remaining` null) refused because a WEG split of the unit, an
@@ -243,6 +246,11 @@ export function holdsOutside(
     .map((st) => st.id)
     .sort();
   if (statements.length > 0) return { kind: 'MEMBERSHIP_HAS_STATEMENTS', statementIds: statements };
+  const assessments = holds.assessments
+    .filter((a) => !kept(a.resolutionDate))
+    .map((a) => a.id)
+    .sort();
+  if (assessments.length > 0) return { kind: 'MEMBERSHIP_HAS_ASSESSMENTS', assessmentIds: assessments };
   return undefined;
 }
 

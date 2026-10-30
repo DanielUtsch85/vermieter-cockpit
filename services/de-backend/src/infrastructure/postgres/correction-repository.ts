@@ -1,5 +1,6 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
+  checkAssessmentSplits,
   checkDepositSplits,
   checkStatementSplits,
   checkLoanSplits,
@@ -27,6 +28,7 @@ import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { lockLoansOf } from './loan-repository.js';
 import { lockDepositsOf } from './security-deposit-repository.js';
 import { lockStatementsOf } from './weg-annual-statement-repository.js';
+import { lockAssessmentsOf } from './weg-special-assessment-repository.js';
 import { unitsWithMembershipOn } from './weg-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
@@ -229,6 +231,12 @@ export class PostgresCorrectionRepository implements CorrectionRepository {
       const statementRefusal = checkStatementSplits({ reversal: false }, replacement.splits, await lockStatementsOf(trx, mreRealmId, statementIds));
       if (statementRefusal !== undefined) throw new Rejected(statementRefusal);
     }
+    // §51A: the same for its Sonderumlage payments; the reversal mirrors the original's.
+    const assessmentIds = replacement.splits.flatMap((s) => ((s.wegSpecialAssessmentId ?? null) === null ? [] : [s.wegSpecialAssessmentId as string]));
+    if (assessmentIds.length > 0) {
+      const assessmentRefusal = checkAssessmentSplits({ reversal: false }, replacement.splits, await lockAssessmentsOf(trx, mreRealmId, assessmentIds));
+      if (assessmentRefusal !== undefined) throw new Rejected(assessmentRefusal);
+    }
     return categoryIds;
   }
 
@@ -336,6 +344,7 @@ async function insertCorrection(trx: Trx<Database>, actor: AuditActor, original:
         loan_id: split.loanId,
         security_deposit_id: split.securityDepositId,
         weg_annual_statement_id: split.wegAnnualStatementId ?? null,
+        weg_special_assessment_id: split.wegSpecialAssessmentId ?? null,
         description: split.description,
         created_by: actor.actorId,
       })),
@@ -363,6 +372,7 @@ async function storedSplits(trx: Trx<Database>, transactionId: string): Promise<
       'transaction_split.loan_id',
       'transaction_split.security_deposit_id',
       'transaction_split.weg_annual_statement_id',
+      'transaction_split.weg_special_assessment_id',
       'transaction_split.description',
       'transaction_split.financial_category_id',
       'financial_category.code',
@@ -378,6 +388,7 @@ async function storedSplits(trx: Trx<Database>, transactionId: string): Promise<
     loanId: r.loan_id,
     securityDepositId: r.security_deposit_id,
     wegAnnualStatementId: r.weg_annual_statement_id,
+    wegSpecialAssessmentId: r.weg_special_assessment_id,
     description: r.description,
     financialCategoryId: r.financial_category_id,
     categoryActive: r.active,

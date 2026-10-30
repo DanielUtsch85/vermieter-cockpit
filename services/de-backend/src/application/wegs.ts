@@ -141,6 +141,18 @@ export class MembershipHasStatementsError extends Error {
   }
 }
 
+/** Sonderumlagen that are not `VOID` fall outside what would remain of the membership (→ 409 MEMBERSHIP_HAS_ASSESSMENTS, §51A). */
+export class MembershipHasAssessmentsError extends Error {
+  override readonly name = 'MembershipHasAssessmentsError';
+
+  constructor(
+    readonly membershipId: string,
+    readonly assessmentIds: readonly string[],
+  ) {
+    super(`WEG membership ${membershipId} has special assessments`);
+  }
+}
+
 /** An end the membership's period does not allow (→ 422 INVALID_MEMBERSHIP with the reason, §49.2). */
 export class InvalidMembershipError extends Error {
   override readonly name = 'InvalidMembershipError';
@@ -382,6 +394,8 @@ export function endMembership(deps: { readonly repository: WegRepository }): End
         throw new MembershipHasPlansError(membershipId, outcome.economicPlanIds);
       case 'MEMBERSHIP_HAS_STATEMENTS':
         throw new MembershipHasStatementsError(membershipId, outcome.statementIds);
+      case 'MEMBERSHIP_HAS_ASSESSMENTS':
+        throw new MembershipHasAssessmentsError(membershipId, outcome.assessmentIds);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
@@ -410,6 +424,8 @@ export function voidMembership(deps: { readonly repository: WegRepository; reado
         throw new MembershipHasPlansError(membershipId, outcome.economicPlanIds);
       case 'MEMBERSHIP_HAS_STATEMENTS':
         throw new MembershipHasStatementsError(membershipId, outcome.statementIds);
+      case 'MEMBERSHIP_HAS_ASSESSMENTS':
+        throw new MembershipHasAssessmentsError(membershipId, outcome.assessmentIds);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }

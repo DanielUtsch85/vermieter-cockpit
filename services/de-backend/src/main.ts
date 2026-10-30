@@ -44,6 +44,12 @@ import {
   listEconomicPlans,
   voidEconomicPlan,
   getHausgeldProposal,
+  amendSpecialAssessment,
+  createSpecialAssessment,
+  getSpecialAssessment,
+  listSpecialAssessments,
+  replaceAssessmentUses,
+  voidSpecialAssessment,
   confirmAnnualStatement,
   createAnnualStatement,
   getAnnualStatement,
@@ -130,6 +136,7 @@ import {
   PostgresWegRepository,
   PostgresWegAnnualStatementRepository,
   PostgresWegEconomicPlanRepository,
+  PostgresWegSpecialAssessmentRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
@@ -184,6 +191,7 @@ const securityDeposits = new PostgresSecurityDepositRepository(db);
 const wegs = new PostgresWegRepository(db);
 const wegPlans = new PostgresWegEconomicPlanRepository(db);
 const wegStatements = new PostgresWegAnnualStatementRepository(db);
+const wegAssessments = new PostgresWegSpecialAssessmentRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -284,6 +292,14 @@ const app = createApp({
     void: voidAnnualStatement({ repository: wegStatements }),
     comparison: getStatementComparison({ repository: wegStatements }),
     settlementProposal: getSettlementProposal({ repository: wegStatements }),
+  },
+  wegSpecialAssessments: {
+    create: createSpecialAssessment({ repository: wegAssessments }),
+    get: getSpecialAssessment({ repository: wegAssessments }),
+    list: listSpecialAssessments({ repository: wegAssessments }),
+    amend: amendSpecialAssessment({ repository: wegAssessments }),
+    replaceUses: replaceAssessmentUses({ repository: wegAssessments }),
+    void: voidSpecialAssessment({ repository: wegAssessments }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

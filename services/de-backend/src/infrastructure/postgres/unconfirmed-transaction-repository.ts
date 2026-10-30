@@ -97,6 +97,7 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
                 'financial_category.code as financialCategoryCode',
                 'transaction_split.property_reference_id as propertyReferenceId',
                 'transaction_split.weg_annual_statement_id as wegAnnualStatementId',
+                'transaction_split.weg_special_assessment_id as wegSpecialAssessmentId',
               ])
               .where('transaction_split.transaction_id', '=', id)
               .orderBy('transaction_split.position')
