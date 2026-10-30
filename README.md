@@ -187,6 +187,7 @@ Before implementing significant functionality, read the relevant documents rathe
 | [`docs/development/real-data-run.md`](docs/development/real-data-run.md) | Run of the implemented API with a real bank export, a real loan and real rent payments; findings F1–F11 and their follow-ups |
 | [`docs/development/invariant-suite.md`](docs/development/invariant-suite.md) | Implemented invariants and their test coverage |
 | [`docs/development/ui-guide.md`](docs/development/ui-guide.md) | Hand-over guide for the first user interface (draft): information architecture, style guide, data contracts, view-by-view fit to the implemented API, open decisions |
+| [`docs/development/api-inventory.md`](docs/development/api-inventory.md) | Generated list of the routes the backend registers (`yarn api:inventory`, checked in CI) |
 
 Documents that no longer apply are kept under [`docs/archive/`](docs/archive/) with a note on what superseded them.
 
