@@ -4433,7 +4433,8 @@ Details the contract above left open, now binding:
   - its meaning reads `UNCLASSIFIED`, `null`, `NEEDS_REVIEW`, with `rule: null`;
   - a create on it is `409 CONFLICT` with `reason = "NO_APPLICABLE_RULE"`, after `SOURCE_NOT_COUNTED` and before `TREATMENT_NOT_ALLOWED`.
 - **§57's steps:**
-  - **Order:** `404` → `CLASSIFICATION_SUPERSEDED` → `ADVISOR_CONFIRMED` (confirm only) → `SOURCE_NOT_COUNTED` → `409 RULE_NOT_REGISTERED` (with `ruleCode`, `version`) → advisor Party `404` → no-op `200` → `412` (If-Match) → write. The source is read without a lock: the steps lock the classification row only.
+  - **Order:** `404` → `CLASSIFICATION_SUPERSEDED` → `ADVISOR_CONFIRMED` (confirm only) → `SOURCE_NOT_COUNTED` → `409 RULE_NOT_REGISTERED` (with `ruleCode`, `version`) → advisor Party `404` → no-op `200` → `412` (If-Match) → write.
+  - **`mark-needs-review` skips `SOURCE_NOT_COUNTED` and `RULE_NOT_REGISTERED`:** only a confirmation validates (as §57 says). A classification whose Transaction was later corrected or reversed is exactly what needs review (review on #158). The source is read without a lock: the steps lock the classification row only.
   - **No-ops:** advisor-confirm with the same Party, and mark-needs-review on `NEEDS_REVIEW`. An omitted `advisorPartyId` is `null`, and mark-needs-review clears the advisor.
   - **What is recorded:** the advisor's `note` and the `reason` go into the AuditRecord (with from and to), not into a column.
 - **Rule `status`** also has `PENDING`, for a version whose `effectiveFrom` is still ahead (none today).
@@ -4465,6 +4466,7 @@ GET /api/v1/tax-rules/{ruleCode}
   - **on write:** a classification may only name a registered `ruleCode@version`;
   - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
   - a test covers the mechanism with a stored reference to an unknown version.
+- **The database guards encode version 1:** `tax_classification_treatment` repeats the hard rules of `DE_CATEGORY_DEFAULTS@1` literally, whatever `rule_version` a row names. A later version with other prohibitions therefore needs a migration that changes the guard too (review on #158).
 
 ### Tests (VC-7-01)
 

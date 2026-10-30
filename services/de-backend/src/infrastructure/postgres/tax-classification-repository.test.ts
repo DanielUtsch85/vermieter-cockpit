@@ -383,7 +383,7 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
       expect(await classifications.reviewClassification(UNKNOWN, REALM, { kind: 'CONFIRM' }, actor)).toEqual({ kind: 'NOT_FOUND' });
     });
 
-    it('only the current one moves; the source must still count', async () => {
+    it('only the current one moves; the source must still count for a confirmation, not for mark-needs-review', async () => {
       const { tx, splitId } = await oneSplit();
       const first = await classified(splitId, { reviewState: 'NEEDS_REVIEW' });
       const second = await classified(splitId, { supersedes: first.id, reviewState: 'NEEDS_REVIEW' });
@@ -398,10 +398,19 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
         });
       }
       expect((await corrections.correct(tx, REALM, { reason: 'falsch', replacement: null }, actor)).kind).toBe('CORRECTED');
-      expect(await classifications.reviewClassification(second.id, REALM, { kind: 'CONFIRM' }, actor)).toEqual({
-        kind: 'SOURCE_NOT_COUNTED',
-        transactionStatus: 'CORRECTED',
-        correctionRole: null,
+      for (const step of [{ kind: 'CONFIRM' }, { kind: 'ADVISOR_CONFIRM', advisorPartyId: null, note: null }] as const)
+        expect(await classifications.reviewClassification(second.id, REALM, step, actor)).toEqual({
+          kind: 'SOURCE_NOT_COUNTED',
+          transactionStatus: 'CORRECTED',
+          correctionRole: null,
+        });
+      // Marking for review still works on a source that stopped counting (review on #158).
+      const counted = await oneSplit();
+      const toReview = await classified(counted.splitId);
+      expect((await corrections.correct(counted.tx, REALM, { reason: 'falsch', replacement: null }, actor)).kind).toBe('CORRECTED');
+      expect(await classifications.reviewClassification(toReview.id, REALM, { kind: 'MARK_NEEDS_REVIEW', reason: 'storniert' }, actor)).toMatchObject({
+        changed: true,
+        classification: { reviewState: 'NEEDS_REVIEW' },
       });
     });
   });
@@ -673,6 +682,55 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
       expect(await update(`superseded_at = now(), superseded_by = '${lone}', review_state = 'USER_CONFIRMED', version = version + 1`, lone)).toBe(
         'changes nothing else',
       );
+    });
+
+    it('chain (deferred): superseded_by and supersedes must name each other, both directions (review on #158)', async () => {
+      const inOneTransaction = async (steps: (client: pg.PoolClient) => Promise<void>) => {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          await steps(client);
+          await client.query('COMMIT');
+          return 'accepted';
+        } catch (error) {
+          await client.query('ROLLBACK');
+          return reasonOf(error as { message?: string });
+        } finally {
+          client.release();
+        }
+      };
+      const successor = (client: pg.PoolClient, id: string, splitId: string, supersedes: string | null) =>
+        client.query(
+          `INSERT INTO tax_classification (id, ${columns}, supersedes_id) VALUES ($1, $2, 'TRANSACTION_SPLIT', $3, 'MAINTENANCE', 'DEDUCTIBLE', 'USER_CONFIRMED', 'DE_CATEGORY_DEFAULTS', 1, 'x', $4)`,
+          [id, REALM, splitId, supersedes],
+        );
+      const newId = async () => (await pool.query(`SELECT gen_random_uuid() AS id`)).rows[0].id as string;
+
+      // superseded_by names a successor of the same split that does not name it back.
+      const one = await oneSplit();
+      const a = await insert(one.splitId);
+      const b = await newId();
+      expect(
+        await inOneTransaction(async (client) => {
+          await client.query(`UPDATE tax_classification SET superseded_at = now(), superseded_by = $2, version = version + 1 WHERE id = $1`, [a, b]);
+          await successor(client, b, one.splitId, null);
+        }),
+      ).toBe('does not name it');
+
+      // supersedes names a classification that is not superseded by it (here: itself, still current).
+      const two = await oneSplit();
+      const c = await newId();
+      expect(await inOneTransaction((client) => successor(client, c, two.splitId, c).then(() => undefined))).toBe('is not superseded by it');
+
+      // Both directions agreeing commit.
+      const d = await insert(two.splitId);
+      const e = await newId();
+      expect(
+        await inOneTransaction(async (client) => {
+          await client.query(`UPDATE tax_classification SET superseded_at = now(), superseded_by = $2, version = version + 1 WHERE id = $1`, [d, e]);
+          await successor(client, e, two.splitId, d);
+        }),
+      ).toBe('accepted');
     });
 
     it('down drops the table, its functions and the split key (under MIGRATION_ADVISORY_LOCK)', { timeout: 30_000 }, async () => {
