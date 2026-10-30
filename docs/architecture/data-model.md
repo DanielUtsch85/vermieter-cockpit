@@ -1661,6 +1661,8 @@ Represent a Wirtschaftsplan for a WEG period.
 
 # 30. WEGAnnualStatement
 
+**Phase 6 (VC-6-03, api-design §50, P6-D5):** per membership and financial year, with the period (Nutzungszeitraum), the printed totals (group subtotals, total costs, Hausgeld and reserve requested and paid, Abrechnungsspitze and -ergebnis), an optional reserve section, and the lifecycle `DRAFT` → `CONFIRMED` → `SUPERSEDED`, `VOID` from `DRAFT`; flags derived on read.
+
 **Domain:** WEG  
 **Stability:** Stable  
 **Aggregate Role:** Entity
@@ -1703,6 +1705,8 @@ Represent a Jahresabrechnung for an actual WEG financial period.
 ---
 
 # 31. WEGCostLine
+
+**Phase 6 (VC-6-03, api-design §50):** a row of `weg_statement_cost_line`: account and printed group, allocation key and quantities as printed, total and unit's share (signed Money), and the classification `RECOVERABLE` | `NON_RECOVERABLE` | `RESERVE` with its source; frozen once the statement is no longer `DRAFT`.
 
 **Domain:** WEG  
 **Stability:** Stable
