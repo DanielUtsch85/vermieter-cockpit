@@ -17,7 +17,8 @@ import {
   type OtherWegSource,
   type TreatmentSuggestion,
   type CheckSource,
-  type DistributionOwnership,
+  type OwnershipPeriod,
+  continuousOwners,
   type RuleRegistry,
   type TaxClassification,
   type WegSourceFacts,
@@ -43,9 +44,7 @@ export interface WegContext {
   readonly confirmedStatements: readonly { readonly id: string; readonly periodFrom: BusinessDate; readonly periodUntil: BusinessDate }[];
 }
 
-export interface OwnershipSpan extends DistributionOwnership {
-  readonly validFrom: BusinessDate;
-}
+export type OwnershipSpan = OwnershipPeriod;
 
 /** The withdrawals and uses of the memberships of `propertyReferenceId` (or of one membership), every status. */
 export async function wegContextOf(
@@ -167,18 +166,22 @@ export async function ownershipsOf(trx: Transaction<Database>, mreRealmId: strin
   if (propertyReferenceId === null) return [];
   const rows = await trx
     .selectFrom('ownership')
-    .select(['id', sql<string>`to_char(valid_from, 'YYYY-MM-DD')`.as('valid_from'), sql<string | null>`to_char(valid_until, 'YYYY-MM-DD')`.as('valid_until')])
+    .select([
+      'id',
+      'owner_party_id',
+      sql<string>`to_char(valid_from, 'YYYY-MM-DD')`.as('valid_from'),
+      sql<string | null>`to_char(valid_until, 'YYYY-MM-DD')`.as('valid_until'),
+    ])
     .where('mre_realm_id', '=', mreRealmId)
     .where('property_reference_id', '=', propertyReferenceId)
     .where('status', '=', 'VALID')
     .orderBy('id')
     .execute();
-  return rows.map((r) => ({ id: r.id, validFrom: r.valid_from as BusinessDate, validUntil: r.valid_until as BusinessDate | null }));
+  return rows.map((r) => ({ id: r.id, partyId: r.owner_party_id, validFrom: r.valid_from as BusinessDate, validUntil: r.valid_until as BusinessDate | null }));
 }
 
-/** The owners concerned by a source (§58B): the Ownerships valid on its date (§26.1). */
-export const ownersOn = (ownerships: readonly OwnershipSpan[], date: BusinessDate) =>
-  ownerships.filter((o) => o.validFrom <= date && (o.validUntil === null || o.validUntil >= date));
+/** The owners concerned by a source (§58B): each Party owning on its date, until its continuous ownership ends. */
+export const ownersOn = (ownerships: readonly OwnershipSpan[], date: BusinessDate) => continuousOwners(ownerships, date);
 
 export interface AcquisitionInput {
   readonly acquisition: Parameters<typeof checkAnschaffungsnahe>[0]['acquisition'];

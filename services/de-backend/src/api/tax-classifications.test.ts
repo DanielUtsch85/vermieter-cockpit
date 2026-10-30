@@ -2,6 +2,17 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AcquisitionCancelledError,
+  AcquisitionNotFoundError,
+  AnschaffungsnaheNotApplicableError,
+  DistributionNotAllowedError,
+  NetAmountExceedsGrossError,
+  TaxFieldNotSupportedError,
+  WegSourceNotCountedError,
+  WegSourcePositionNotFoundError,
+  WithdrawalTaxYearOutOfRangeError,
+  type AnschaffungsnaheCheck,
+  type WegTaxMeaning,
   AdvisorConfirmedError,
   ClassificationExistsError,
   ClassificationSupersededError,
@@ -580,5 +591,389 @@ describe('GET /tax-rules (§58)', () => {
     expect(((await missing.json()) as { error: unknown }).error).toMatchObject({ code: 'NOT_FOUND', details: { ruleCode: 'DE_UNKNOWN' } });
     // The error class is mapped too when thrown by another implementation.
     expect(new TaxRuleNotFoundError('X').ruleCode).toBe('X');
+  });
+});
+
+describe('VC-7-03 (§58B)', () => {
+  const ACQ = '7c6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3d';
+  const wegBody = { sourceType: 'WEG_RESERVE_WITHDRAWAL', sourceId: SPLIT, sourcePosition: 2, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' };
+
+  it('every new 400 with its field; the new fields passed; a body without them unchanged', async () => {
+    const seen: CreateTaxClassificationInput[] = [];
+    const base = await start({
+      taxation: {
+        create: async (input) => {
+          seen.push(input);
+          return { classification, replayed: false };
+        },
+      },
+    });
+    const send = (payload: unknown) => post(base, '/tax-classifications', payload);
+    const m = (amount: string, currency = 'EUR') => ({ amount, currency });
+    expect(await fields(await send({ ...body, netAmount: m('0.00') }))).toEqual([{ field: 'netAmount.amount', code: 'NOT_POSITIVE' }]);
+    expect(await fields(await send({ ...body, netAmount: m('-1.00') }))).toEqual([{ field: 'netAmount.amount', code: 'NOT_POSITIVE' }]);
+    expect(await fields(await send({ ...body, netAmount: m('1.001') }))).toEqual([{ field: 'netAmount.amount', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send({ ...body, taxCategory: 'INSURANCE', treatment: 'DEDUCTIBLE', netAmount: m('1.00') }))).toEqual([
+      { field: 'netAmount', code: 'NOT_ALLOWED_WITH_TAX_CATEGORY' },
+    ]);
+    expect(await fields(await send({ ...body, taxCategory: 'INSURANCE', treatment: 'DEDUCTIBLE', annuallyRecurring: true }))).toEqual([
+      { field: 'annuallyRecurring', code: 'NOT_ALLOWED_WITH_TAX_CATEGORY' },
+    ]);
+    expect((await send({ ...body, taxCategory: 'INSURANCE', treatment: 'DEDUCTIBLE', annuallyRecurring: false })).status).toBe(201);
+    const election = { ...body, taxCategory: 'MAINTENANCE', treatment: 'DISTRIBUTED_82B' };
+    expect(await fields(await send(election))).toEqual([
+      { field: 'distributionYears', code: 'REQUIRED' },
+      { field: 'mostlyResidentialConfirmed', code: 'REQUIRED' },
+    ]);
+    expect(await fields(await send({ ...election, distributionYears: 2.5, mostlyResidentialConfirmed: true }))).toEqual([
+      { field: 'distributionYears', code: 'INVALID_FORMAT' },
+    ]);
+    for (const years of [1, 6]) {
+      expect(await fields(await send({ ...election, distributionYears: years, mostlyResidentialConfirmed: true }))).toEqual([
+        { field: 'distributionYears', code: 'OUT_OF_RANGE' },
+      ]);
+    }
+    expect(await fields(await send({ ...body, distributionYears: 3, mostlyResidentialConfirmed: true }))).toEqual([
+      { field: 'distributionYears', code: 'NOT_ALLOWED_WITH_TREATMENT' },
+      { field: 'mostlyResidentialConfirmed', code: 'NOT_ALLOWED_WITH_TREATMENT' },
+    ]);
+    expect(await fields(await send({ ...election, taxCategory: 'INSURANCE', distributionYears: 3, mostlyResidentialConfirmed: true }))).toEqual([
+      { field: 'treatment', code: 'TAX_CATEGORY_TREATMENT_MISMATCH' },
+    ]);
+    expect(await fields(await send({ ...body, treatment: 'DEDUCTIBLE', anschaffungsnaheAcquisitionId: ACQ }))).toEqual([
+      { field: 'anschaffungsnaheAcquisitionId', code: 'NOT_ALLOWED_WITH_TREATMENT' },
+    ]);
+    expect(await fields(await send({ ...body, anschaffungsnaheAcquisitionId: 'x' }))).toEqual([{ field: 'anschaffungsnaheAcquisitionId', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send({ ...body, sourcePosition: 1 }))).toEqual([{ field: 'sourcePosition', code: 'NOT_ALLOWED' }]);
+    expect(await fields(await send({ ...wegBody, sourcePosition: 1001 }))).toEqual([{ field: 'sourcePosition', code: 'OUT_OF_RANGE' }]);
+    expect(await fields(await send({ ...wegBody, refundOfYear: 2026 }))).toEqual([{ field: 'refundOfYear', code: 'NOT_SUPPORTED' }]);
+    expect(await fields(await send({ ...wegBody, sourceType: 'WEG_ASSESSMENT_USE', taxYear: 2026 }))).toEqual([{ field: 'taxYear', code: 'NOT_SUPPORTED' }]);
+    // Accepted, and passed on.
+    expect(
+      (
+        await send({
+          ...wegBody,
+          treatment: 'DISTRIBUTED_82B',
+          distributionYears: 3,
+          mostlyResidentialConfirmed: true,
+          netAmount: m('840.34'),
+          annuallyRecurring: false,
+          taxYear: 2026,
+        })
+      ).status,
+    ).toBe(201);
+    expect(seen.at(-1)).toMatchObject({
+      sourceType: 'WEG_RESERVE_WITHDRAWAL',
+      sourcePosition: 2,
+      distributionYears: 3,
+      mostlyResidentialConfirmed: true,
+      netAmount: Money.of('840.34', 'EUR'),
+      taxYear: 2026,
+    });
+    expect((await send({ ...body, treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: ACQ.toUpperCase() })).status).toBe(201);
+    expect(seen.at(-1)).toMatchObject({ anschaffungsnaheAcquisitionId: ACQ });
+    await send(body);
+    expect(Object.keys(seen.at(-1) ?? {})).not.toContain('sourcePosition');
+    expect(Object.keys(seen.at(-1) ?? {})).not.toContain('netAmount');
+  });
+
+  it('the error mapping: NET_AMOUNT_EXCEEDS_GROSS, DISTRIBUTION_NOT_ALLOWED, ANSCHAFFUNGSNAHE_NOT_APPLICABLE, NO_APPLICABLE_RULE, the WEG ones', async () => {
+    const cases: [Error, number, Record<string, unknown>][] = [
+      [
+        new NetAmountExceedsGrossError(Money.of('1000.01', 'EUR'), Money.of('1000.00', 'EUR')),
+        422,
+        { code: 'NET_AMOUNT_EXCEEDS_GROSS', details: { netAmount: { amount: '1000.01', currency: 'EUR' }, grossAmount: { amount: '1000.00', currency: 'EUR' } } },
+      ],
+      [new DistributionNotAllowedError('NOT_AN_OUTFLOW'), 422, { code: 'DISTRIBUTION_NOT_ALLOWED', details: { reason: 'NOT_AN_OUTFLOW' } }],
+      [
+        new AnschaffungsnaheNotApplicableError('OUTSIDE_WINDOW', ACQ),
+        422,
+        { code: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', details: { reason: 'OUTSIDE_WINDOW', acquisitionId: ACQ } },
+      ],
+      [
+        new NoApplicableTaxRuleError('DE_82B_DISTRIBUTION', '2003-12-31' as BusinessDate),
+        409,
+        { code: 'CONFLICT', details: { reason: 'NO_APPLICABLE_RULE', ruleCode: 'DE_82B_DISTRIBUTION', date: '2003-12-31' } },
+      ],
+      [new AcquisitionNotFoundError(ACQ), 404, { code: 'NOT_FOUND', details: { acquisitionId: ACQ } }],
+      [
+        new WegSourceNotCountedError('WEG_RESERVE_WITHDRAWAL', 'STATEMENT_SUPERSEDED', { supersededBy: OTHER }),
+        409,
+        {
+          code: 'CONFLICT',
+          details: { reason: 'SOURCE_NOT_COUNTED', sourceType: 'WEG_RESERVE_WITHDRAWAL', notCountedReason: 'STATEMENT_SUPERSEDED', supersededBy: OTHER },
+        },
+      ],
+      [new TaxFieldNotSupportedError('taxYear'), 400, { code: 'VALIDATION_ERROR', details: { fields: [{ field: 'taxYear', code: 'NOT_SUPPORTED' }] } }],
+      [
+        new WithdrawalTaxYearOutOfRangeError(2027, [2025, 2026]),
+        422,
+        { code: 'TAX_YEAR_OUT_OF_RANGE', details: { taxYear: 2027, allowedYears: [2025, 2026] } },
+      ],
+      [
+        new TreatmentNotAllowedError(null, [], [], 'TRANSACTION_SPLIT', 'WEG_SPENDING_ONLY_FOR_WEG_SOURCES'),
+        422,
+        { code: 'TREATMENT_NOT_ALLOWED', details: { sourceType: 'TRANSACTION_SPLIT', reason: 'WEG_SPENDING_ONLY_FOR_WEG_SOURCES' } },
+      ],
+      [
+        new TreatmentNotAllowedError(null, ['DEDUCTIBLE', 'DISTRIBUTED_82B', 'CAPITALIZED', 'NOT_RELEVANT'], ['WEG_SPENDING', 'NOT_RELEVANT'], 'WEG_ASSESSMENT_USE'),
+        422,
+        {
+          code: 'TREATMENT_NOT_ALLOWED',
+          details: {
+            sourceType: 'WEG_ASSESSMENT_USE',
+            allowed: ['DEDUCTIBLE', 'DISTRIBUTED_82B', 'CAPITALIZED', 'NOT_RELEVANT'],
+            allowedTaxCategories: ['WEG_SPENDING', 'NOT_RELEVANT'],
+          },
+        },
+      ],
+    ];
+    for (const [error, status, answer] of cases) {
+      const base = await start({ taxation: { create: () => Promise.reject(error) } });
+      const res = await post(base, '/tax-classifications', body);
+      expect(res.status, error.name).toBe(status);
+      expect(((await res.json()) as { error: unknown }).error).toMatchObject(answer);
+      await new Promise<void>((resolve) => server?.close(() => resolve()));
+      server = undefined;
+    }
+  });
+
+  const wegMeaning: WegTaxMeaning = {
+    sourceType: 'WEG_RESERVE_WITHDRAWAL',
+    sourceId: SPLIT,
+    sourcePosition: 2,
+    membershipId: OTHER,
+    propertyReferenceId: PR,
+    date: '2026-12-31' as BusinessDate,
+    dateSource: 'PERIOD_END',
+    description: 'Dach',
+    amount: Money.of('500.00', 'EUR'),
+    netAmount: null,
+    counts: true,
+    notCountedReason: null,
+    taxYear: 2026,
+    attribution: { rule: null, proposedYear: 2026, overridden: false },
+    taxCategory: 'WEG_SPENDING',
+    treatment: 'DISTRIBUTED_82B',
+    reviewState: 'USER_CONFIRMED',
+    origin: 'CLASSIFICATION',
+    rule: { ruleCode: 'DE_WEG_SPENDING', version: 1 },
+    treatmentRule: { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 },
+    classificationId: CLASSIFICATION,
+    distribution: {
+      years: 2,
+      firstYear: 2026,
+      parts: [
+        { year: 2026, amount: Money.of('250.00', 'EUR') },
+        { year: 2027, amount: Money.of('250.00', 'EUR') },
+      ],
+      endYear: null,
+      rule: { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 },
+    },
+    suggestion: { treatment: 'CAPITALIZED', reason: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', acquisitionIds: [ACQ], final: false },
+    flags: [{ code: 'WITHDRAWAL_DATE_ASSUMED', details: { date: '2026-12-31' as BusinessDate, periodUntil: '2026-12-31' as BusinessDate } }],
+  };
+  const wegDto = {
+    sourceType: 'WEG_RESERVE_WITHDRAWAL',
+    sourceId: SPLIT,
+    sourcePosition: 2,
+    membershipId: OTHER,
+    propertyReferenceId: PR,
+    date: '2026-12-31',
+    dateSource: 'PERIOD_END',
+    description: 'Dach',
+    amount: { amount: '500.00', currency: 'EUR' },
+    netAmount: null,
+    counts: true,
+    notCountedReason: null,
+    taxYear: 2026,
+    attribution: { rule: null, proposedYear: 2026, overridden: false },
+    taxCategory: 'WEG_SPENDING',
+    treatment: 'DISTRIBUTED_82B',
+    reviewState: 'USER_CONFIRMED',
+    origin: 'CLASSIFICATION',
+    rule: { ruleCode: 'DE_WEG_SPENDING', version: 1 },
+    treatmentRule: { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 },
+    classificationId: CLASSIFICATION,
+    distribution: {
+      years: 2,
+      firstYear: 2026,
+      parts: [
+        { year: 2026, amount: { amount: '250.00', currency: 'EUR' } },
+        { year: 2027, amount: { amount: '250.00', currency: 'EUR' } },
+      ],
+      endYear: null,
+      rule: { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 },
+    },
+    suggestion: { treatment: 'CAPITALIZED', reason: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', acquisitionIds: [ACQ], final: false },
+    flags: [{ code: 'WITHDRAWAL_DATE_ASSUMED', details: { date: '2026-12-31', periodUntil: '2026-12-31' } }],
+  };
+
+  it('GET the WEG sources’ meanings: the DTO; 404; 400 for a malformed id or position; the list item with yearAmount and the sourceType filter', async () => {
+    const seen: unknown[] = [];
+    const read = async ({ sourceId, position }: { sourceId: string; position: number }) => {
+      seen.push([sourceId, position]);
+      if (sourceId !== SPLIT || position !== 2) throw new WegSourcePositionNotFoundError('WEG_RESERVE_WITHDRAWAL', sourceId, position);
+      return wegMeaning;
+    };
+    const base = await start({
+      taxation: {
+        withdrawalTaxMeaning: read,
+        useTaxMeaning: async (input) => ({ ...(await read(input)), sourceType: 'WEG_ASSESSMENT_USE', dateSource: 'USE' }),
+        taxMeanings: async (input) => {
+          seen.push(input.filter);
+          return { items: [{ ...wegMeaning, yearAmount: Money.of('250.00', 'EUR') }], page: 1, pageSize: 50, total: 1 };
+        },
+      },
+    });
+    const withdrawal = await get(base, `/weg-annual-statements/${SPLIT}/reserve-withdrawals/2/tax-meaning`);
+    expect(withdrawal.status).toBe(200);
+    expect(withdrawal.headers.get('etag') ?? 'W/').toMatch(/^W\//);
+    expect(await withdrawal.json()).toEqual(wegDto);
+    expect(await (await get(base, `/weg-special-assessments/${SPLIT}/uses/2/tax-meaning`)).json()).toEqual({
+      ...wegDto,
+      sourceType: 'WEG_ASSESSMENT_USE',
+      dateSource: 'USE',
+    });
+    const missing = await get(base, `/weg-annual-statements/${SPLIT}/reserve-withdrawals/3/tax-meaning`);
+    expect(missing.status).toBe(404);
+    expect(((await missing.json()) as { error: unknown }).error).toMatchObject({ details: { sourceType: 'WEG_RESERVE_WITHDRAWAL', sourcePosition: 3 } });
+    for (const position of ['0', '1001', 'x', '01', '1.5']) {
+      expect(await fields(await get(base, `/weg-annual-statements/${SPLIT}/reserve-withdrawals/${position}/tax-meaning`))).toEqual([
+        { field: 'position', code: 'INVALID_FORMAT' },
+      ]);
+    }
+    expect(await fields(await get(base, `/weg-special-assessments/x/uses/1/tax-meaning`))).toEqual([{ field: 'assessmentId', code: 'INVALID_FORMAT' }]);
+    const listed = (await (await get(base, `/property-references/${PR}/tax-meanings?year=2027&sourceType=WEG_RESERVE_WITHDRAWAL,WEG_ASSESSMENT_USE`)).json()) as {
+      items: unknown[];
+    };
+    expect(listed.items).toEqual([{ ...wegDto, yearAmount: { amount: '250.00', currency: 'EUR' } }]);
+    expect(seen.at(-1)).toEqual({ sourceTypes: ['WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE'] });
+    expect(await fields(await get(base, `/property-references/${PR}/tax-meanings?year=2027&sourceType=DEPOSIT`))).toEqual([
+      { field: 'sourceType.0', code: 'INVALID_FORMAT' },
+    ]);
+  });
+
+  it('GET the anschaffungsnahe check: the DTO; 404; 409 cancelled; 400 for any query parameter', async () => {
+    const eur = (a: string) => Money.of(a, 'EUR');
+    const check: AnschaffungsnaheCheck = {
+      acquisitionId: ACQ,
+      propertyReferenceId: PR,
+      acquisitionStatus: 'CONFIRMED',
+      transferDate: '2026-03-15' as BusinessDate,
+      window: { from: '2026-03-15' as BusinessDate, until: '2029-03-15' as BusinessDate },
+      acquiredShare: { numerator: 1, denominator: 1 },
+      rule: { ruleCode: 'DE_ANSCHAFFUNGSNAHE', version: 1 },
+      status: 'ABOVE_THRESHOLD',
+      notComputableReason: null,
+      basis: {
+        allocationId: OTHER,
+        allocationReviewState: 'CONFIRMED',
+        purchasePrice: eur('240000.00'),
+        acquisitionCosts: eur('24000.00'),
+        totalAllocableAmount: eur('264000.00'),
+        buildingAmount: eur('198000.00'),
+        basisAmount: eur('198000.00'),
+      },
+      thresholdPercent: 15,
+      threshold: '29700.00',
+      sum: eur('29926.05'),
+      attributableAmount: eur('29926.05'),
+      percentOfBasis: '15.11',
+      sources: [
+        {
+          sourceType: 'WEG_ASSESSMENT_USE',
+          sourceId: OTHER,
+          sourcePosition: 1,
+          date: '2027-06-10' as BusinessDate,
+          taxYear: 2027,
+          taxCategory: 'WEG_SPENDING',
+          treatment: 'DEDUCTIBLE',
+          reviewState: 'USER_CONFIRMED',
+          origin: 'CLASSIFICATION',
+          classificationId: CLASSIFICATION,
+          grossAmount: eur('14800.00'),
+          netAmount: null,
+          amountUsed: eur('14800.00'),
+          suggestedTreatment: 'CAPITALIZED',
+          reason: null,
+          flags: [{ code: 'VAT_NOT_SEPARATED', details: { acquisitionId: ACQ } }],
+        },
+      ],
+      excluded: [],
+      unclassified: [],
+      affectedYears: [2027],
+      final: false,
+      flags: [{ code: 'NOT_FINAL', details: { reasons: ['GROSS_AMOUNTS', 'WINDOW_OPEN'] } }],
+    };
+    const base = await start({
+      taxation: {
+        anschaffungsnahe: async ({ acquisitionId }) => {
+          if (acquisitionId === OTHER) throw new AcquisitionCancelledError(acquisitionId);
+          if (acquisitionId !== ACQ) throw new AcquisitionNotFoundError(acquisitionId);
+          return check;
+        },
+      },
+    });
+    const res = await get(base, `/acquisitions/${ACQ}/anschaffungsnahe-herstellungskosten`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      acquisitionId: ACQ,
+      propertyReferenceId: PR,
+      acquisitionStatus: 'CONFIRMED',
+      transferDate: '2026-03-15',
+      window: { from: '2026-03-15', until: '2029-03-15' },
+      acquiredShare: '1/1',
+      rule: { ruleCode: 'DE_ANSCHAFFUNGSNAHE', version: 1 },
+      status: 'ABOVE_THRESHOLD',
+      notComputableReason: null,
+      basis: {
+        allocationId: OTHER,
+        allocationReviewState: 'CONFIRMED',
+        purchasePrice: { amount: '240000.00', currency: 'EUR' },
+        acquisitionCosts: { amount: '24000.00', currency: 'EUR' },
+        totalAllocableAmount: { amount: '264000.00', currency: 'EUR' },
+        buildingAmount: { amount: '198000.00', currency: 'EUR' },
+        basisAmount: { amount: '198000.00', currency: 'EUR' },
+      },
+      thresholdPercent: 15,
+      threshold: { amount: '29700.00', currency: 'EUR' },
+      sum: { amount: '29926.05', currency: 'EUR' },
+      attributableAmount: { amount: '29926.05', currency: 'EUR' },
+      percentOfBasis: '15.11',
+      sources: [
+        {
+          sourceType: 'WEG_ASSESSMENT_USE',
+          sourceId: OTHER,
+          sourcePosition: 1,
+          date: '2027-06-10',
+          taxYear: 2027,
+          taxCategory: 'WEG_SPENDING',
+          treatment: 'DEDUCTIBLE',
+          reviewState: 'USER_CONFIRMED',
+          origin: 'CLASSIFICATION',
+          classificationId: CLASSIFICATION,
+          grossAmount: { amount: '14800.00', currency: 'EUR' },
+          netAmount: null,
+          amountUsed: { amount: '14800.00', currency: 'EUR' },
+          suggestedTreatment: 'CAPITALIZED',
+          reason: null,
+          flags: [{ code: 'VAT_NOT_SEPARATED', details: { acquisitionId: ACQ } }],
+        },
+      ],
+      excluded: [],
+      unclassified: [],
+      affectedYears: [2027],
+      final: false,
+      flags: [{ code: 'NOT_FINAL', details: { reasons: ['GROSS_AMOUNTS', 'WINDOW_OPEN'] } }],
+    });
+    expect((await get(base, `/acquisitions/${PARTY}/anschaffungsnahe-herstellungskosten`)).status).toBe(404);
+    const cancelled = await get(base, `/acquisitions/${OTHER}/anschaffungsnahe-herstellungskosten`);
+    expect(cancelled.status).toBe(409);
+    expect(((await cancelled.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'ACQUISITION_CANCELLED' } });
+    expect(await fields(await get(base, `/acquisitions/${ACQ}/anschaffungsnahe-herstellungskosten?asOf=2026-01-01`))).toEqual([
+      { field: '(body)', code: 'INVALID_FORMAT' },
+    ]);
+    expect(await fields(await get(base, `/acquisitions/x/anschaffungsnahe-herstellungskosten`))).toEqual([{ field: 'acquisitionId', code: 'INVALID_FORMAT' }]);
   });
 });

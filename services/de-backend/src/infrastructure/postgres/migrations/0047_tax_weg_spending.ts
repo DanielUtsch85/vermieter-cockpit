@@ -275,7 +275,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       -- DE_ANSCHAFFUNGSNAHE@1 (§58B): the window is the transfer date to three years later, both inclusive.
       IF acq.status <> 'CONFIRMED' OR acq.property_reference_id IS DISTINCT FROM source_reference
          OR source_date IS NULL OR source_date < acq.transfer_date OR source_date > acq.transfer_date + interval '3 years' THEN
-        RAISE EXCEPTION 'TaxClassification: Acquisition % (%) does not hold the source of % (ANSCHAFFUNGSNAHE_NOT_APPLICABLE)', acq.id, acq.status, source_date
+        RAISE EXCEPTION 'TaxClassification: Acquisition % is % and does not hold the source of % (ANSCHAFFUNGSNAHE_NOT_APPLICABLE)', acq.id, acq.status, source_date
           USING ERRCODE = 'integrity_constraint_violation';
       END IF;
       RETURN NEW;
