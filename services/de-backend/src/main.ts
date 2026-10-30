@@ -39,6 +39,23 @@ import {
   voidDeposit,
   closeDeposit,
   reopenDeposit,
+  createEconomicPlan,
+  getEconomicPlan,
+  listEconomicPlans,
+  voidEconomicPlan,
+  getHausgeldProposal,
+  createWeg,
+  getWeg,
+  listWegs,
+  amendWeg,
+  voidWeg,
+  createMembership,
+  getMembership,
+  listMemberships,
+  readUnitMemberships,
+  amendMembership,
+  endMembership,
+  voidMembership,
   getLoan,
   listLoans,
   voidLoan,
@@ -102,6 +119,8 @@ import {
   PostgresLandBuildingAllocationRepository,
   PostgresLoanRepository,
   PostgresSecurityDepositRepository,
+  PostgresWegRepository,
+  PostgresWegEconomicPlanRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
@@ -153,6 +172,8 @@ const acquisitions = new PostgresAcquisitionRepository(db);
 const acquisitionCosts = new PostgresAcquisitionCostRepository(db);
 const loans = new PostgresLoanRepository(db);
 const securityDeposits = new PostgresSecurityDepositRepository(db);
+const wegs = new PostgresWegRepository(db);
+const wegPlans = new PostgresWegEconomicPlanRepository(db);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -222,6 +243,27 @@ const app = createApp({
     void: voidDeposit({ repository: securityDeposits }),
     close: closeDeposit({ repository: securityDeposits }),
     reopen: reopenDeposit({ repository: securityDeposits }),
+  },
+  wegs: {
+    createWeg: createWeg({ repository: wegs }),
+    getWeg: getWeg({ repository: wegs }),
+    listWegs: listWegs({ repository: wegs }),
+    amendWeg: amendWeg({ repository: wegs }),
+    voidWeg: voidWeg({ repository: wegs }),
+    createMembership: createMembership({ repository: wegs }),
+    getMembership: getMembership({ repository: wegs }),
+    listMemberships: listMemberships({ repository: wegs }),
+    readUnitMemberships: readUnitMemberships({ repository: wegs }),
+    amendMembership: amendMembership({ repository: wegs }),
+    endMembership: endMembership({ repository: wegs }),
+    voidMembership: voidMembership({ repository: wegs }),
+  },
+  wegEconomicPlans: {
+    create: createEconomicPlan({ repository: wegPlans }),
+    get: getEconomicPlan({ repository: wegPlans }),
+    list: listEconomicPlans({ repository: wegPlans }),
+    void: voidEconomicPlan({ repository: wegPlans }),
+    hausgeldProposal: getHausgeldProposal({ repository: wegPlans }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

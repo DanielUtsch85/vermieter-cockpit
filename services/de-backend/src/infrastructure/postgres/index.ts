@@ -17,6 +17,7 @@ export { PostgresAcquisitionCostRepository } from './acquisition-cost-repository
 export { PostgresLandBuildingAllocationRepository } from './land-building-allocation-repository.js';
 export { PostgresLoanRepository } from './loan-repository.js';
 export { PostgresSecurityDepositRepository } from './security-deposit-repository.js';
+export { PostgresWegRepository } from './weg-repository.js';
 export { PostgresLoanAllocationRepository } from './loan-allocation-repository.js';
 export { PostgresLoanDebtRepository } from './loan-debt-repository.js';
 export { PostgresLoanTermsRepository } from './loan-terms-repository.js';
@@ -29,3 +30,4 @@ export { PostgresCorrectionRepository } from './correction-repository.js';
 export { PostgresUnconfirmedTransactionRepository } from './unconfirmed-transaction-repository.js';
 export { PostgresTransactionQueries } from './transaction-query-repository.js';
 export { PostgresRentReconciliationRepository } from './rent-reconciliation-repository.js';
+export { PostgresWegEconomicPlanRepository } from './weg-economic-plan-repository.js';
