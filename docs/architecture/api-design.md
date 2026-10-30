@@ -4460,7 +4460,7 @@ GET /api/v1/tax-rules/{ruleCode}
 - **A rule version:** `{ ruleCode, version, title, legalBasis, effectiveFrom, effectiveTo, parameters, source, status }`, with `status` `ACTIVE` (applicable today), `SUPERSEDED` (a later version applies) or `RETIRED` (`effectiveTo` passed without a successor). `parameters` is the rule's own data (the default table above for `DE_CATEGORY_DEFAULTS`).
 - `GET /tax-rules`: every rule with its versions, by `ruleCode`, versions ascending; `GET /tax-rules/{ruleCode}`: one rule, `404` if unknown. The former `…/versions` route is folded into these (each rule lists its versions). No Realm: the registry is the same for everyone; authentication as every route.
 - **Selection:** the version whose `effectiveFrom` ≤ the date < `effectiveTo` (or open); for VC-7-01 the date is the split's booking date. Two versions of one rule never overlap (a registry test).
-- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items.
+- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items. **Freeze point:** `DE_CATEGORY_DEFAULTS@1` takes VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen once VC-7-02's implementation is merged. From then on every change, an additive one too, is a new version (review on #159).
 - **Every stored reference resolves** (review on #156):
   - **on write:** a classification may only name a registered `ruleCode@version`;
   - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
@@ -4509,19 +4509,25 @@ POST /api/v1/rental-contract-references/{id}/amend            (VC-7-02, §58A)
 
 | Category | Economic period | Due date | When it is assumed |
 |---|---|---|---|
-| `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` | the month of the MRE term of the Transaction's `CONFIRMED` `RentPaymentReconciliation` (§37.1, `mreRentTerm`) | day `rentDueDay` of that month, from the `RentalContractReference` of the reconciliation's `mreTenantId` (below) | no reference, or no `rentDueDay`: the term's first day, flagged `DUE_DATE_ASSUMED` |
-| `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` | the month whose due date (below) is nearest to the booking date | day `advanceDueDay` of that month, by the plan used (P6-D4, §49.6) | the plan has no `advanceDueDay`: day 1, flagged `DUE_DATE_ASSUMED` |
+| `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` | the month of the MRE term of the Transaction's `CONFIRMED` `RentPaymentReconciliation` (§37.1, `mreRentTerm`) | the day of `rentDueDays` that applies to the term, from the `RentalContractReference` of the reconciliation's `mreTenantId` (below) | no reference, or no entry for the term: the term's first day, flagged `DUE_DATE_ASSUMED` |
+| `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` | **not known:** a debit names no month. The month whose due date is nearest to the booking date is only a guess (below) | day `advanceDueDay` of that month, by the plan used (P6-D4, §49.6) | the plan has no `advanceDueDay`: day 1, flagged `DUE_DATE_ASSUMED` |
 | `LOAN_INTEREST` | the interest period of the schedule entry (§41.4) whose due date is nearest to the booking date, of the split's `loanId` | that entry's due date | never; without a `loanId` or a schedule the booking year applies |
 
   - A rent split of a Transaction without a `CONFIRMED` reconciliation, or with reconciliations of more than one term, has no economic period. It takes the booking year, flagged `NO_ECONOMIC_PERIOD`.
   - "Nearest" breaks ties towards the later month.
+  - **Hausgeld is never moved on a guess** (review on #159). Its economic month is not known: a debit on 30 December with `advanceDueDay` 1 may be January's advance paid early, or December's paid late.
+    - When the guessed month would move a Hausgeld split to another year, the split **keeps its booking year**. It is flagged `ECONOMIC_PERIOD_ASSUMED`, with `attribution.proposedYear` set to the year the guess points to.
+    - The user decides with the classification's `taxYear`.
+    - Interest is moved on the nearest entry: the schedule fixes its due date, and the bank debits on that day.
 - **Override:** a classification may set `taxYear` (2000–2100). It wins over the rule, and the meaning keeps the rule's proposal visible: `attribution: { rule, proposedYear, overridden: true }`. `taxYear` must be the booking year or a neighbouring year (±1), else `422 TAX_YEAR_OUT_OF_RANGE`: § 11 never moves cash further.
 - **The per-property list** `?year=Y` now holds the splits whose **tax year** is Y. That includes splits booked in late December of Y−1 or early January of Y+1 that are attributed to Y, and it excludes those of Y attributed elsewhere. The page item gains `taxYear` and `attribution`.
 
 ### Refunds and repayments (P7-D4, A10)
 
-- An `INFLOW` in an expense category, or an `OUTFLOW` in an income category, is a **refund** (signed −) of that line.
-- **The year it refunds** (`refund.ofYear`) is taken from, in this order:
+- **Two directions, two rules** (review on #159):
+  - an `INFLOW` in an expense category is a **refund** of that line (P7-D4), as below;
+  - an `OUTFLOW` in an income category, for example an operating-cost credit paid back to the tenant in the following year (`RENT_OPERATING_COST_SETTLEMENT`), is a **repayment**. Whatever year it relates to, it reduces that income line in the year it is paid (§ 11 Abs. 2 EStG): `presentation` is always `REDUCES_LINE`, never `REFUNDS_OF_EARLIER_YEARS`. `refundOfYear` may still record the year, for information.
+- **The year a refund refunds** (`refund.ofYear`) is taken from, in this order:
   - the WEG statement the split names (`wegAnnualStatementId`, its `financialYear`);
   - the classification's `refundOfYear` (2000–2100, ≤ the tax year, else `422 REFUND_YEAR_OUT_OF_RANGE`);
   - else unknown, flagged `REFUND_YEAR_UNKNOWN`.
@@ -4529,7 +4535,8 @@ POST /api/v1/rental-contract-references/{id}/amend            (VC-7-02, §58A)
   - `REDUCES_LINE` when `ofYear` equals the tax year, or is unknown;
   - `INCOME` when `ofYear` is earlier, on the line `REFUNDS_OF_EARLIER_YEARS` (a new `taxCategory`, see the next bullet).
   - The total is the same either way; only the line differs (P7-D4).
-- **The new lines** `REFUNDS_OF_EARLIER_YEARS`, `RETAINED_DEPOSIT_RENT` and `RETAINED_DEPOSIT_DAMAGES` join the `taxCategory` list of `DE_CATEGORY_DEFAULTS@1`. Version 1 is extended in place, not versioned, because it has not been released yet (#158); every later change is a new version (§58).
+- **The new lines** `REFUNDS_OF_EARLIER_YEARS`, `RETAINED_DEPOSIT_RENT` and `RETAINED_DEPOSIT_DAMAGES`, and the default for the new source `DEPOSIT_CLOSING` (below), join `DE_CATEGORY_DEFAULTS@1`. Both changes are additive: no existing default changes.
+- **v1 is frozen** once VC-7-02's implementation is merged (§58). After that, every change is a new version, an additive one too (review on #159).
 
 ### The retained deposit (P7-D4, A11)
 
@@ -4557,7 +4564,7 @@ POST /api/v1/rental-contract-references/{id}/amend            (VC-7-02, §58A)
   - `tax_classification_source_counts` covers the deposit (closed and retained > 0, after its no-op write);
   - `tax_classification_treatment` covers the deposit's lines;
   - one current classification per deposit (partial unique index).
-- **`rental_contract_reference`:** the fields above, `UNIQUE (mre_realm_id, mre_tenant_id)`, `CHECK (rent_due_day BETWEEN 1 AND 31)`, and a frozen guard (Realm, Tenant and creation never change; `version` + 1; no delete).
+- **`rental_contract_reference`:** the fields above, `UNIQUE (mre_realm_id, mre_tenant_id)`, `rent_due_days` as `jsonb` (shape checked by the API, length by CHECK), and a frozen guard (Realm, Tenant and creation never change; `version` + 1; no delete).
 - **`weg_economic_plan.advance_due_day`:** smallint, `CHECK (advance_due_day BETWEEN 1 AND 31)`, nullable. The plan's frozen guard keeps it fixed.
 - `down` restores 0045, drops the column and the table.
 
@@ -4567,7 +4574,10 @@ POST /api/v1/rental-contract-references/{id}/amend            (VC-7-02, §58A)
   - the window's edges (22.12., 10.01.; 21.12. and 11.01. outside);
   - each source's economic period and due date, including "nearest" and its tie;
   - the assumed due date;
-  - the reviewer's example of #156: rent due on 15 January (`rentDueDay` 15), paid on 28 December → the due date is outside the window, so the year of payment;
+  - the reviewer's example of #156: rent due on 15 January (`rentDueDays` with day 15), paid on 28 December → the due date is outside the window, so the year of payment;
+  - `rentDueDays` over time: day 3 from 2025, day 15 from 2028; a January 2027 term takes 3, a January 2029 term takes 15;
+  - a late December Hausgeld debit (30 December, `advanceDueDay` 1): it keeps its booking year, flagged `ECONOMIC_PERIOD_ASSUMED` with `proposedYear` Y+1;
+  - an operating-cost credit paid back in Y+1 for Y (`RENT_OPERATING_COST_SETTLEMENT`, `OUTFLOW`, `refundOfYear` Y): it reduces Y+1's line, never `REFUNDS_OF_EARLIER_YEARS`;
   - refunds of the same, an earlier and an unknown year;
   - the retained deposit's lines and treatments.
 - **Repository:**
@@ -4579,8 +4589,8 @@ POST /api/v1/rental-contract-references/{id}/amend            (VC-7-02, §58A)
   - `down`.
 - **Concurrency:** a deposit classification against a `reopen`, RC and RR, both orders, with a counter-check.
 - **End to end:**
-  - a January rent paid on 29 December and matched to its January term: without a reference counted in January's year with `DUE_DATE_ASSUMED`; with `rentDueDay` 3 the same, without the flag; with `rentDueDay` 15 in December's year;
-  - a Hausgeld debit on 30 December, from a plan with `advanceDueDay` 1;
+  - a January rent paid on 29 December and matched to its January term: without a reference counted in January's year with `DUE_DATE_ASSUMED`; with `rentDueDays` day 3 the same, without the flag; with day 15 in December's year;
+  - a Hausgeld debit on 30 December, from a plan with `advanceDueDay` 1: booking year, `ECONOMIC_PERIOD_ASSUMED`; then classified with `taxYear` Y+1;
   - interest due on 2 January and debited on 30 December;
   - a refund of an earlier year;
   - a retained deposit classified as rent compensation;
@@ -4592,19 +4602,26 @@ MRE's lease carries no due day (its `Lease` has `numberOfTerms` and `timeRange` 
 
 - **Fields:**
   - `rentalContractReferenceId`, `mreRealmId`, `mreTenantId` (24 hex characters, as §47.1);
-  - `rentDueDay`: optional, 1–31, the day of the month the rent falls due under the lease; in a shorter month it means the month's last day;
+  - `rentDueDays`: the day of the month the rent falls due under the lease, **over time** (review on #159). A list of `{ validFrom, day }`:
+    - `day` is 1–31; in a shorter month it means the month's last day;
+    - `validFrom` dates are unique and ascending, at most 20 entries;
+    - a term takes the entry with the latest `validFrom` on or before the term's first day;
+    - a term before the first entry, or an empty list, has no due day, so `DUE_DATE_ASSUMED` applies;
+    - a supplement to the lease that moves the day is a new entry, so earlier years keep their attribution;
   - `notes` (≤ 2000), `sourceReferences` (≤ 10, each 1–500), `createdAt`, `version`.
 - **One reference per MRE Tenant and Realm** (unique index). A second create for the same Tenant → `409 CONFLICT` with `reason = "RENTAL_CONTRACT_REFERENCE_EXISTS"` and `details.rentalContractReferenceId`.
 - **Create** (`POST /rental-contract-references`, `201`, `Idempotency-Key` scope `rental-contract-reference.create`).
   - **Order of checks:** `400` → the MRE Tenant read live with the caller's token, as §47.1 does (unknown in the Realm → `422 MRE_TENANT_NOT_FOUND` with `details.mreTenantId`; MRE unavailable → `503`) → `RENTAL_CONTRACT_REFERENCE_EXISTS`.
   - The MRE call happens before the transaction, as §47.1's.
-- **Amend** (`POST …/{id}/amend`, `If-Match`): `rentDueDay`, `notes`, `sourceReferences`; the same values → `200` no-op. `mreTenantId` never changes. A changed `rentDueDay` changes the tax year of rent derived on read; nothing is stored per split.
+- **Amend** (`POST …/{id}/amend`, `If-Match`): `rentDueDays` (the whole list), `notes`, `sourceReferences`; the same values → `200` no-op. `mreTenantId` never changes.
+  - **Changing or removing an existing entry** is a correction of the past. Nothing is stored per split: it moves the tax year of the rent it covers, derived on read.
+  - So the AuditRecord `AMENDED` lists the entries changed (`details.changedEntries`), and the tax-year view of VC-7-04 flags each year whose attribution such a correction touched, `ATTRIBUTION_INPUT_CHANGED`. Adding an entry with a later `validFrom` changes no earlier term.
 - **Reads:**
   - `GET /rental-contract-references/{id}` with `ETag`;
   - `GET /rental-contract-references?mreTenantId=`: the reference of one Tenant, or an empty list;
   - unknown or foreign ids → `404`.
 - **AuditRecords:** `CREATED`, `AMENDED` (the changed fields).
-- **No void, no MRE write, no Party link** in VC-7-02. A wrong `mreTenantId` cannot be corrected; the reference stays, and its `rentDueDay` can be cleared.
+- **No void, no MRE write, no Party link** in VC-7-02. A wrong `mreTenantId` cannot be corrected; the reference stays, and its `rentDueDays` can be emptied.
 - **Elsewhere, `rentalContractReferenceId` stays `400 NOT_SUPPORTED`** (§30.2, §33.2). Lifting it on Transactions and splits is a later item.
 
 ---
