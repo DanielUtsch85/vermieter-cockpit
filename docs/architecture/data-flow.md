@@ -847,6 +847,22 @@ Transaction / TransactionSplit
 
 Statement line value is not automatically cash.
 
+## Implementation (Phase 6, P6-D6, api-design §51)
+
+```text
+Counted WEG splits of the unit in the period (booked by plan, §49.6)   ──► paid, per class
+WEGCostLines by stored classification (+ reserve requested)            ──► actual, per class
+                                                                             │
+                                          difference = actual − paid ◄──────┘
+                                          Σ difference = Abrechnungsspitze + unpaid advances
+                                                                             │
+Settlement Transaction ──► splits by the differences, naming the statement (wegAnnualStatementId)
+Reserve withdrawals (statement, unit's share by MEA) ──► Phase 7 classification, never booked
+```
+
+No confirmed split is re-split; a superseding statement takes over the comparison, and a settlement keeps naming the
+statement it was booked against.
+
 ---
 
 # 19. DF-014 — Maintenance Project to Financial and Tax Interpretation

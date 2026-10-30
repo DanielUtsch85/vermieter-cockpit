@@ -993,6 +993,7 @@ Represent one economically distinct component of a Transaction.
 - `wegId`
 - `maintenanceProjectId`
 - `securityDepositId`
+- `wegAnnualStatementId`
 - `description`
 - `taxClassificationId`
 - `sourceReferences`
@@ -1027,6 +1028,14 @@ an `OUTFLOW` a repayment) or a `SECURITY_DEPOSIT_INTEREST` split of an `INFLOW` 
 whatever its direction), of a SecurityDeposit of the same Realm that is not `VOID`, and never together with
 `propertyReferenceId` or `loanId`: a deposit is neither a property's income or cost nor a Loan's cash (BR-DEP-001).
 A reversal mirrors `securityDepositId` (0014). Database-enforced (migration 0038).
+
+**`wegAnnualStatementId` (P6-D6, VC-6-04, API §51):** the settlement of a Jahresabrechnung (a back-payment on an
+`OUTFLOW`, a refund on an `INFLOW`), only on a `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` or
+`WEG_RESERVE_CONTRIBUTION` split whose `propertyReferenceId` is the statement's unit, of a `CONFIRMED` statement of the
+same Realm (a reversal mirrors its original's, whatever the statement's status since), and never together with
+`loanId` or `securityDepositId`. Such a split is checked against the statement's membership, not against a membership
+on its booking date, and it is no advance: the comparison (API §51) leaves it out of the paid advances. A reversal
+mirrors `wegAnnualStatementId` (0014). Database-enforced (migration 0043).
 
 ---
 

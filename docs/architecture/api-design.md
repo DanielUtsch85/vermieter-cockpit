@@ -1490,7 +1490,7 @@ The command replaces the current unconfirmed split proposal atomically.
 - **`400`:**
   - Per field: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED`, `INVALID_FORMAT` (also a JSON number as amount).
   - `NOT_ALLOWED` for a `direction` on a split.
-  - `NOT_SUPPORTED` for references whose entities do not exist yet (`wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `taxClassificationId`; `securityDepositId` until VC-5-02): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits. `loanId` is accepted from VC-3-05 under the rules of §41.5. `securityDepositId` is accepted from VC-5-02 under the rules of §47.2.
+  - `NOT_SUPPORTED` for references whose entities do not exist yet (`wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `taxClassificationId`; `securityDepositId` until VC-5-02): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits. `loanId` is accepted from VC-3-05 under the rules of §41.5. `securityDepositId` is accepted from VC-5-02 under the rules of §47.2. `wegAnnualStatementId` is accepted from VC-6-04 under the rules of §51.
   - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` for a split currency other than the Transaction's, with the split's path (`splits.<i>.amount.currency`, VC-X-18).
 - **`404`:** unknown or foreign Transaction; a `propertyReferenceId` not in the caller's Realm.
 - **`409 INVARIANT_VIOLATION`**, `details.reason = "SPLIT_SUM_MISMATCH"`, with `expected`, `actual` and `difference` as Money: the sum differs from the Transaction amount by any amount, one cent included.
@@ -4050,7 +4050,97 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 
 # 51. WEG Statement Ledger Effects (VC-6-04)
 
-Specified with VC-6-04 (P6-D6): the comparison of the year's counted WEG splits with the statement's classes, the settlement split naming the statement, and the reserve withdrawals for Phase 7.
+Decision P6-D6 (DF-013). A statement never creates cash and never re-splits a confirmed split (BR-WEG-007, ADR-037). Its ledger effects are three reads and one link:
+1. **the comparison** of the year's counted advances with the statement's actual costs, per class (a read);
+2. **the settlement payment**: its split names the statement (`wegAnnualStatementId`), and a proposal computes those splits (a link and a read);
+3. **the reserve withdrawals** with the unit's share, for Phase 7 (part of the comparison read; nothing is booked, as the owner paid no cash for them).
+
+### Routes
+
+```text
+GET /api/v1/weg-annual-statements/{statementId}/comparison                     (VC-6-04, §51)
+GET /api/v1/transactions/{transactionId}/settlement-proposal?statementId=…      (VC-6-04, §51)
+PUT /api/v1/transactions/{id}/splits                     (wegAnnualStatementId: VC-6-04, §51; also correct and reverse)
+```
+
+### The classes and their signs
+
+- **The three classes** are §50's: `RECOVERABLE`, `NON_RECOVERABLE`, `RESERVE`. The split categories map to them one to one: `WEG_RECOVERABLE` → `RECOVERABLE`, `WEG_NON_RECOVERABLE` → `NON_RECOVERABLE`, `WEG_RESERVE_CONTRIBUTION` → `RESERVE`.
+- **Signs:** a split on an `OUTFLOW` counts positive (the owner paid), on an `INFLOW` negative (the owner got money back). Every derived amount is signed Money and exact in cents.
+
+### The comparison (`GET /weg-annual-statements/{id}/comparison`)
+
+- **Which statements:** a `CONFIRMED` or `SUPERSEDED` one. A `DRAFT` or `VOID` one → `409 CONFLICT` with `reason = "STATEMENT_NOT_CONFIRMED"` and `details.status`. Unknown or of another Realm → `404`.
+- **paid, per class:** the counted WEG splits of the statement's unit (the membership's PropertyReference). They count as cash counts everywhere (§47.2): splits on **current** Transactions (`CONFIRMED` or `RECONCILED`, not a reversal), with a booking date inside the statement's period (`periodFrom`–`periodUntil`), **not** naming a statement (a settlement is not an advance) and, from VC-6-05, not naming a Sonderumlage. A correction of a counted split moves them on read.
+- **actual, per class:** the statement's `byClassification` (§50, the lines' `unitShare` by stored classification). For `RESERVE`, plus the printed `reserveRequested` (`0.00` when not printed): the reserve advance owed for the year is the owner's reserve cost of the year (P6-D3).
+- **difference, per class:** `actual − paid`.
+- **The advances:**
+  - `requested`: `hausgeldRequested` + `reserveRequested` (printed; the latter `0.00` when not printed);
+  - `counted`: the sum of paid over the three classes;
+  - `unpaidAdvances`: `requested − counted` (signed: < 0 when more was counted than requested).
+- **The identity (P6-D6):** `Σ difference = settlementPeak + unpaidAdvances`, exactly, whenever the lines sum to `totalCosts` (§50's `LINES_DIFFER_FROM_SUBTOTAL` and `SUBTOTALS_DIFFER_FROM_TOTAL` absent). Derivation: Σ actual = totalCosts + reserveRequested, Σ paid = counted, settlementPeak = totalCosts − hausgeldRequested. When it does not hold, the flag `PEAK_IDENTITY_DIFFERS` with `details.derived` (Σ difference − unpaidAdvances) and `details.printed` (settlementPeak). The printed statement wins (BR-WEG-006): nothing is refused.
+- **The settlement:**
+  - `settledBy`: the current splits naming this statement **or a statement it supersedes, transitively** (a superseding statement takes over, P6-D6), each `{ transactionId, statementId, bookingDate, amount }` (signed as above), by booking date, then transaction id;
+  - `settled`: their sum; `open`: `settlementPeak − settled`;
+  - flag `SETTLED_AGAINST_SUPERSEDED` with `details.transactionIds` when one of them names an older statement of the chain.
+  - On a `SUPERSEDED` statement the comparison shows its own figures and only the splits naming it or its predecessors, with the flag `SUPERSEDED` and `details.supersededBy`.
+- **The reserve withdrawals:** the reserve section's lines of kind `WITHDRAWAL` with a printed `withdrawal`, each `{ position, description, withdrawal, unitShare }`. `unitShare` is the WEG's withdrawal × the membership's MEA (`numerator / denominator`), rounded half-up to the cent. They are not booked: Phase 7 classifies each one (Erhaltungsaufwand or Herstellungskosten, BFH IX R 19/24). A section of source `ASSET_REPORT` gives them too.
+- **More flags** (informative, never refusals):
+  - `PAID_DIFFERS_FROM_PRINTED` with `details.block` (`HAUSGELD`: paid of `RECOVERABLE` + `NON_RECOVERABLE` against `hausgeldPaid`; `RESERVE`: paid of `RESERVE` against `reservePaid`, when printed), `details.counted` and `details.printed`: a missing import or a split in the wrong year shows here;
+  - `UNCOUNTED_WEG_SPLITS` with `details.transactionIds`: WEG splits of the unit in the period on Transactions that are not counted yet (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`), so the user sees what confirming would add.
+- **Response:** `{ statementId, membershipId, propertyReferenceId, financialYear, periodFrom, periodUntil, status, classes: { RECOVERABLE | NON_RECOVERABLE | RESERVE: { paid, actual, difference } }, advances: { requested, counted, unpaidAdvances }, settlementPeak, settlement: { settledBy, settled, open }, reserveWithdrawals, flags }`. One `REPEATABLE READ READ ONLY` snapshot; no `ETag` (a derived read, as §47.3).
+
+### `wegAnnualStatementId` on a split
+
+`PUT /api/v1/transactions/{id}/splits` (§33.2) accepts `wegAnnualStatementId`, `correct` accepts it in `replacement.splits` (§35.2), and a reversal mirrors it. Every split in a response carries it (`null` without one), as do the Transaction reads (§30).
+
+- **Rules for a split with `wegAnnualStatementId`:**
+  - **Not with a Loan or a deposit:** with `loanId` or `securityDepositId` it is `400`, code `NOT_ALLOWED_WITH_WEG_STATEMENT` at `splits.<i>.loanId` or `splits.<i>.securityDepositId`.
+  - **The unit:** it needs a `propertyReferenceId` (else §49.3's `422 NO_WEG_MEMBERSHIP` with `reason = "NO_UNIT"`, unchanged).
+  - **The statement:** of the caller's Realm, else `404 NOT_FOUND` with `details.wegAnnualStatementId`, for the first such split in position order.
+  - **Category and unit:** the category is one of the three WEG categories above, else `422 INVALID_WEG_STATEMENT_SPLIT` with `details.position` and `details.reason = "CATEGORY"`; the `propertyReferenceId` is the statement's membership's unit, else the same with `details.reason = "UNIT"`.
+  - **Current:** the statement is `CONFIRMED`, else `409 CONFLICT` with `reason = "STATEMENT_NOT_CURRENT"`, `details.wegAnnualStatementId`, `details.status` and, for a `SUPERSEDED` one, `details.supersededBy`. A settlement is booked against the statement in force; one booked earlier keeps naming its statement (P6-D6, and the comparison's flag above).
+  - **Either direction:** a back-payment is an `OUTFLOW`, a refund an `INFLOW`, in the same categories (P6-D6 (2)); its tax effect is Phase 7's (checklist A10).
+  - **No date rule of its own, and an exemption from §49.3's:** a statement arrives after its year, often after a sale. A split naming a statement is checked against the statement's membership (above), **not** against a membership on the booking date. §49.3's `NO_MEMBERSHIP` therefore does not apply to it, and neither does 0041's booking-date guard on amend (`ledger_transaction_weg_booking_date`).
+- **Order of checks** (§49.3's, extended): steps 1–4 unchanged (with `NOT_ALLOWED_WITH_WEG_STATEMENT` among the `400`s); step 5: `NO_UNIT` for any WEG split, then `NO_MEMBERSHIP` for a WEG split **without** a statement; step 6: statement `404` → `INVALID_WEG_STATEMENT_SPLIT` (`CATEGORY`, then `UNIT`) → `STATEMENT_NOT_CURRENT`, each for the first split in position order.
+- **A reversal is exempt** from step 6's `STATEMENT_NOT_CURRENT` (it mirrors its original's splits, whose statement may have been superseded since); 0014's mirror compares `weg_annual_statement_id` too, so a reversal cannot drop or change it. A **replacement** follows the rules: a copied split naming a since superseded statement is refused, and the client names the current one.
+- **Same set again** (§33.2's no-op): `wegAnnualStatementId` is part of the comparison; changing it is a change (`SPLITS_REPLACED`), refused once the Transaction is frozen. A confirmed settlement is corrected with `correct`.
+- **The statement's lifecycle:** a statement that splits name is `CONFIRMED` or `SUPERSEDED`; neither is ever voided (§50), so no new refusal is needed there. Superseding it is allowed; the splits keep naming it.
+
+### The settlement proposal (`GET /transactions/{id}/settlement-proposal?statementId=`)
+
+A read, never a write; the client applies it through `PUT …/splits`, as §49.6.
+
+- **Order of checks:** `400` (`statementId` missing or malformed) → Transaction `404` → statement `404` → the Transaction is an unconfirmed one (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`), else `409 CONFLICT` with `reason = "NOT_PROPOSABLE"` (as §49.6) → the statement is `CONFIRMED`, else `409 STATEMENT_NOT_CURRENT` (as above) → `settlementPeak` ≠ 0, else `409 CONFLICT` with `reason = "NOTHING_TO_SETTLE"` → the direction fits the sign (`OUTFLOW` for a back-payment, `INFLOW` for a refund), else `422 SETTLEMENT_DIRECTION_MISMATCH` with `details.expected`.
+- **The splits:** the amount A of the Transaction is split over the two Hausgeld classes, `RECOVERABLE` and `NON_RECOVERABLE` (the Abrechnungsspitze settles the Hausgeld; the reserve is printed apart, §50), by the comparison's differences:
+  - the classes whose difference has the payment's sign (> 0 for an `OUTFLOW`, < 0 for an `INFLOW`) take A in proportion to their differences' magnitudes, each rounded half-up, the rest on the larger part (the first of equals); a share of 0 is left out;
+  - when neither has the payment's sign, A goes to `NON_RECOVERABLE` with the flag `NO_MATCHING_DIFFERENCE` (never claimed recoverable without a reason, as §49.5's `NO_COST_GROUPS`);
+  - each split names the statement and the statement's unit.
+- **Flags:** `AMOUNT_DIFFERS_FROM_PEAK` with `details.difference` (A − |settlementPeak|) when A is not the Abrechnungsspitze; `MIXED_DIFFERENCES` when the two Hausgeld classes' differences have opposite signs (the proposal then puts A on the classes of the payment's sign only); `ALREADY_SPLIT` (the Transaction has splits); `ALREADY_SETTLED` with `details.transactionIds` (current splits already name this statement or a predecessor).
+- **Response:** `{ transactionId, statementId, amount, direction, settlementPeak, splits: [{ financialCategoryCode, propertyReferenceId, wegAnnualStatementId, amount }], flags }`. One `REPEATABLE READ READ ONLY` snapshot.
+
+### Concurrency and locks (P6-D9)
+
+- **Lock order Transaction → PropertyReference → statement.** A split write with a statement locks the Transaction (§34.2), writes the unit (§49.3's no-op), then **writes** the statement row (P3-D8's no-op, `RETURNING status`), statements in id order, and checks. A REPEATABLE READ writer that read a stale `CONFIRMED` therefore fails to serialise instead of passing a share lock.
+- **Statement writers:** create and replace lock unit → WEG → membership → statement (§50); confirm locks the superseded statement, then its successor, and never a unit or a Transaction. No path locks a statement before a Transaction or a unit, so no cycle arises.
+- **A settlement write against the confirm that supersedes its statement:** they serialise on the old statement row. Under RC the later one sees the other (`STATEMENT_NOT_CURRENT`, or the successor confirmed after the split, which then counts in its `settledBy` with `SETTLED_AGAINST_SUPERSEDED`); under RR the later writer fails to serialise.
+- **The reads** are one RR read-only snapshot each.
+
+### In the database (migration 0043)
+
+- **`transaction_split.weg_annual_statement_id`:** `uuid`, composite foreign key `(weg_annual_statement_id, mre_realm_id)` to `weg_annual_statement (id, mre_realm_id)` (0042's realm key), an index, and `CHECK (weg_annual_statement_id IS NULL OR (property_reference_id IS NOT NULL AND loan_id IS NULL AND security_deposit_id IS NULL))`.
+- **`transaction_split_weg`** (0041) is replaced: a split naming a statement skips the booking-date membership check (it still writes the unit first). `down` restores 0041's body. **`ledger_transaction_weg_booking_date`** (0041) likewise skips splits naming a statement.
+- **`transaction_split_weg_statement`** (before insert or update, only with `weg_annual_statement_id`; fires after `transaction_split_weg` by name): writes the unit (no-op), then the statement (no-op `RETURNING status, membership_id`); refuses a category outside the three, a unit other than the membership's (`(INVALID_WEG_STATEMENT_SPLIT)`), and a statement that is not `CONFIRMED` unless the Transaction is a reversal (`(STATEMENT_NOT_CURRENT)`). 0042's `weg_annual_statement_frozen` lets the no-op pass (P3-D8). A test checks the trigger order in `pg_trigger`.
+- **0014's mirror** compares `(category, PropertyReference, loan_id, security_deposit_id, weg_annual_statement_id, amount, currency)`.
+- Not in the database: the order of checks (the API), the comparison and the proposal (reads).
+
+### Tests (VC-6-04)
+
+- **Domain:** the comparison's classes, signs and identity (exact, with a refund, with reserve not printed, with more counted than requested); `PEAK_IDENTITY_DIFFERS`; the withdrawals' unit share and its rounding; every proposal case (both classes of the sign, one, none, mixed, an amount off the peak).
+- **Repository and schema:** what counts (status, reversal, period, settlement and other units excluded); the chain of superseded statements in `settledBy`; every split rule and its order; the exemption from §49.3's date rules; the reversal's mirror and exemption; every guard past the repository and its trigger order; `down` (under `MIGRATION_ADVISORY_LOCK`).
+- **Concurrency**, RC and RR, each with a counter-check: a settlement write against the confirm superseding its statement, both orders; RR with the statement read instead of written.
+- **API:** every `400`; the error mapping; the comparison and proposal DTOs.
+- **End to end:** a year of the two debits of F5 split by proposal and confirmed (§49.6), a confirmed statement with a credit as Abrechnungsspitze, the comparison whose differences sum to it plus the unpaid advances, the refund split by proposal and confirmed, naming the statement; a corrected statement superseding it, whose comparison counts the refund with `SETTLED_AGAINST_SUPERSEDED`; Realm isolation on both reads and on the split.
 
 ---
 
