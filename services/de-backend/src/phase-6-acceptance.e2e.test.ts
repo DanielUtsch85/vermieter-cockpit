@@ -84,9 +84,9 @@ const REALM_B = '64b0c0ffee0000000000006f';
 const PROPERTY = '6512f0c2a1b2c3d4e5f66e01';
 const IBAN_WEG = 'DE89370400440532013000';
 
-/** The Phase-6 routes (api-design §49–§51A) under `/api/v1`, as `METHOD /path/:param`. */
+/** The Phase-6 routes (api-design §49–§51A) under `/api/v1`, as `METHOD /path/:param`; the WEG sources' tax meanings are VC-7-03's (§58B). */
 const PHASE_6 =
-  /^[A-Z]+ \/(wegs|weg-memberships|weg-economic-plans|weg-annual-statements|weg-special-assessments)\b|^[A-Z]+ \/transactions\/:transactionId\/(hausgeld|settlement)-proposal$|^[A-Z]+ \/property-references\/:propertyReferenceId\/weg-memberships$/;
+  /^(?!.*\/tax-meaning$)(?:[A-Z]+ \/(wegs|weg-memberships|weg-economic-plans|weg-annual-statements|weg-special-assessments)\b|[A-Z]+ \/transactions\/:transactionId\/(hausgeld|settlement)-proposal$|[A-Z]+ \/property-references\/:propertyReferenceId\/weg-memberships$)/;
 
 /** Every route the app serves, from Express' router stack (Express 4 internals, as ACC2–ACC5). */
 function routesOf(app: Express): string[] {

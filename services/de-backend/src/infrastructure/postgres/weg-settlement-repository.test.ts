@@ -481,6 +481,8 @@ describe.skipIf(databaseUrl === undefined)('Ledger effects of a statement (§51)
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         // 0044 builds on 0043's functions: it goes first.
         await withMigrationLock(async () => {
+          // 0047 (VC-7-03) refers to the WEG tables: it goes first.
+          await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);
         });

@@ -173,6 +173,18 @@ describe('POST /weg-memberships/{id}/annual-statements', () => {
       costLines: [{ allocationTotal: '10000', allocationShare: '250', classification: null }],
     });
     expect(seen[0]?.settlementPeak).toEqual(eur('-241.00'));
+    // VC-7-03 (§58B): a withdrawal's date passed; absent it is null.
+    await call(base, 'POST', statementsPath, {
+      ...body,
+      reserve: {
+        source: 'ANNUAL_STATEMENT',
+        lines: [
+          { position: 1, description: 'Dach', kind: 'WITHDRAWAL', withdrawal: money('3000.00'), date: '2025-06-15' },
+          { position: 2, description: 'Fenster', kind: 'WITHDRAWAL', withdrawal: money('1000.00') },
+        ],
+      },
+    });
+    expect(seen[1]?.reserve?.lines.map((l) => l.date)).toEqual(['2025-06-15', null]);
     expect((await call(base, 'POST', statementsPath, body, { 'idempotency-key': 'k' })).headers.get('idempotent-replayed')).toBe('true');
   });
 
@@ -196,6 +208,20 @@ describe('POST /weg-memberships/{id}/annual-statements', () => {
     await fieldsOf({ ...body, costLines: [{ ...line, allocationTotal: '1,5' }] });
     await fieldsOf({ ...body, costLines: [{ ...line, allocationTotal: '1.2345' }] });
     expect(await fieldsOf({ ...body, documentId: STATEMENT })).toEqual([{ field: 'documentId', code: 'NOT_SUPPORTED' }]);
+    // VC-7-03 (§58B): a withdrawal's date inside the period; another kind of line takes none.
+    const withdrawal = { position: 1, description: 'Dach', kind: 'WITHDRAWAL', withdrawal: money('3000.00') };
+    expect(await fieldsOf({ ...body, reserve: { source: 'ANNUAL_STATEMENT', lines: [{ ...withdrawal, date: '2026-01-01' }] } })).toEqual([
+      { field: 'reserve.lines.0.date', code: 'OUT_OF_RANGE' },
+    ]);
+    expect(await fieldsOf({ ...body, reserve: { source: 'ANNUAL_STATEMENT', lines: [{ ...withdrawal, date: '2024-12-31' }] } })).toEqual([
+      { field: 'reserve.lines.0.date', code: 'OUT_OF_RANGE' },
+    ]);
+    expect(await fieldsOf({ ...body, reserve: { source: 'ANNUAL_STATEMENT', lines: [{ ...withdrawal, kind: 'OTHER', date: '2025-06-01' }] } })).toEqual([
+      { field: 'reserve.lines.0.date', code: 'NOT_ALLOWED' },
+    ]);
+    expect(await fieldsOf({ ...body, reserve: { source: 'ANNUAL_STATEMENT', lines: [{ ...withdrawal, date: '2025-02-30' }] } })).toEqual([
+      { field: 'reserve.lines.0.date', code: 'INVALID_FORMAT' },
+    ]);
     expect(await fieldsOf({ ...body, totalCosts: money('1.001') })).toEqual([{ field: 'totalCosts.amount', code: 'SCALE_EXCEEDED' }]);
     await fieldsOf({ ...body, costLines: [{ ...line, classification: 'OTHER' }] });
     await fieldsOf({ ...body, costLines: [{ ...line, description: 'x' }] });

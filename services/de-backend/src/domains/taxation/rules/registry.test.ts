@@ -43,7 +43,8 @@ describe('RuleRegistry (§58)', () => {
 
   it('the registered versions of the backend never overlap', () => {
     expect(() => new RuleRegistry(TAX_RULES.codes().flatMap((code) => TAX_RULES.versions(code)))).not.toThrow();
-    expect(TAX_RULES.codes()).toEqual([CASH_TIMING, CATEGORY_DEFAULTS]);
+    // VC-7-03 (§58B): five rules; the three new ones beside the frozen DE_CATEGORY_DEFAULTS@1.
+    expect(TAX_RULES.codes()).toEqual(['DE_82B_DISTRIBUTION', 'DE_ANSCHAFFUNGSNAHE', CASH_TIMING, CATEGORY_DEFAULTS, 'DE_WEG_SPENDING']);
   });
 
   it('status: ACTIVE today, SUPERSEDED with a later version, RETIRED without one, PENDING before its start', () => {

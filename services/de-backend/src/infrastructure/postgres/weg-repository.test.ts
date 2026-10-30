@@ -440,6 +440,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresWegRepository', () => {
         // the database breaks it, so the downs hold the migration lock as every schema change of the tests does.
         await withMigrationLock(async () => {
           // 0046 (VC-7-02) adds a guard function to 0041's plan table.
+          // 0047 (VC-7-03) refers to the WEG tables: it goes first.
+          await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);

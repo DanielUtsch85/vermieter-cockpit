@@ -77,6 +77,15 @@ const classification = (overrides: Partial<TaxClassification> = {}): TaxClassifi
   treatment: 'CAPITALIZED',
   reviewState: 'USER_CONFIRMED',
   rule: { ruleCode: CATEGORY_DEFAULTS, version: 1 },
+  treatmentRule: null,
+  sourcePosition: null,
+  reserveWithdrawal: null,
+  assessmentUse: null,
+  netAmount: null,
+  annuallyRecurring: false,
+  distributionYears: null,
+  mostlyResidentialConfirmed: null,
+  anschaffungsnaheAcquisitionId: null,
   advisorPartyId: null,
   notes: null,
   sourceReferences: [],
@@ -154,8 +163,10 @@ describe('the fit of taxCategory and treatment (§56)', () => {
     for (const c of ['RENT', 'OPERATING_COST_ADVANCES', 'OPERATING_COST_SETTLEMENT', 'OTHER_INCOME'] as const) expect(fits(c)).toEqual(['INCOME']);
     expect(fits('NOT_RELEVANT')).toEqual(['NOT_RELEVANT']);
     expect(fits('UNCLASSIFIED')).toEqual([null]);
-    for (const c of ['MAINTENANCE', 'LOAN_INTEREST', 'OTHER_EXPENSE', 'WEG_HAUSGELD', 'TAX_ADVICE'] as const) {
-      expect(fits(c)).toEqual(['DEDUCTIBLE', 'CAPITALIZED', 'DISTRIBUTED_82B', 'NOT_RELEVANT']);
+    // VC-7-03 (§58B): DISTRIBUTED_82B only on a line of Erhaltungsaufwand.
+    for (const c of ['MAINTENANCE', 'WEG_SPENDING'] as const) expect(fits(c)).toEqual(['DEDUCTIBLE', 'CAPITALIZED', 'DISTRIBUTED_82B', 'NOT_RELEVANT']);
+    for (const c of ['LOAN_INTEREST', 'OTHER_EXPENSE', 'WEG_HAUSGELD', 'TAX_ADVICE'] as const) {
+      expect(fits(c)).toEqual(['DEDUCTIBLE', 'CAPITALIZED', 'NOT_RELEVANT']);
     }
   });
 });
@@ -279,8 +290,13 @@ describe('planClassification (§56 order of checks)', () => {
     expect(planClassification(facts(), 'c-1', { ...request, supersedes: 'c-1' }, TAX_RULES)).toEqual({
       kind: 'CLASSIFY',
       rule: { ruleCode: CATEGORY_DEFAULTS, version: 1 },
+      treatmentRule: null,
     });
-    expect(planClassification(facts(), null, request, TAX_RULES)).toEqual({ kind: 'CLASSIFY', rule: { ruleCode: CATEGORY_DEFAULTS, version: 1 } });
+    expect(planClassification(facts(), null, request, TAX_RULES)).toEqual({
+      kind: 'CLASSIFY',
+      rule: { ruleCode: CATEGORY_DEFAULTS, version: 1 },
+      treatmentRule: null,
+    });
   });
 });
 

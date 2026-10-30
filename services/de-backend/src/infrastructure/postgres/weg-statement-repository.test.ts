@@ -622,6 +622,8 @@ describe.skipIf(databaseUrl === undefined)('Jahresabrechnung (§50)', () => {
         // Dropping a table while another worker's Migrator introspects the database breaks it: hold the migration lock.
         // 0043 builds on 0042's table: it goes first.
         await withMigrationLock(async () => {
+          // 0047 builds on both WEG tables (VC-7-03): it goes first.
+          await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);

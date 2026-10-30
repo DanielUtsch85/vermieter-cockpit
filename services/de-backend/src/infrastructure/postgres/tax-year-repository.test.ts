@@ -40,7 +40,7 @@ const today = day('2027-10-30');
 const UNKNOWN = '00000000-0000-4000-8000-000000000000';
 const due = (entries: [string, number][]): RentDueDay[] => entries.map(([validFrom, d]) => ({ validFrom: day(validFrom), day: d }));
 const splitsOf = (page: TaxPage<TaxListItem> | undefined): TaxMeaning[] =>
-  (page?.items ?? []).filter((m): m is TaxMeaning => m.sourceType === 'TRANSACTION_SPLIT');
+  (page?.items ?? []).filter((m): m is TaxMeaning & TaxListItem => m.sourceType === 'TRANSACTION_SPLIT');
 const codes = (flags: readonly { code: string }[] | undefined) => (flags ?? []).map((f) => f.code);
 let counter = 0;
 const nextTenant = () => `6512f0c2a1c7${(++counter).toString(16).padStart(12, '0')}`;
@@ -921,7 +921,11 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        await withMigrationLock(async () => (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never));
+        await withMigrationLock(async () => {
+          // 0047 (VC-7-03) builds on 0046: it goes first.
+          await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
+          await (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never);
+        });
         expect((await downPool.query(`SELECT to_regclass('rental_contract_reference') AS t`)).rows[0].t).toBeNull();
         const columns = await downPool.query(
           `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = $1

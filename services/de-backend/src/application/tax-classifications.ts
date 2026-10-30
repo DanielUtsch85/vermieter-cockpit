@@ -2,6 +2,8 @@ import { businessDayOf } from '../domains/ledger/index.js';
 import {
   TAX_RULES,
   classificationFingerprint,
+  type AnschaffungsnaheCheck,
+  type WegTaxMeaning,
   type NewTaxClassification,
   type ReviewStep,
   type RuleRegistry,
@@ -22,6 +24,8 @@ import {
 import type { BusinessDate, Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { AcquisitionCancelledError } from './acquisition-costs.js';
+import { AcquisitionNotFoundError } from './ownerships.js';
 import { PartyNotFoundError } from './parties.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { SecurityDepositNotFoundError } from './security-deposits.js';
@@ -76,17 +80,87 @@ export class DepositNotCountedError extends Error {
   }
 }
 
-/** The category refuses the treatment, or the deposit the line (→ 422 TREATMENT_NOT_ALLOWED). */
+/** The category refuses the treatment, or the deposit or WEG source the line (→ 422 TREATMENT_NOT_ALLOWED). */
 export class TreatmentNotAllowedError extends Error {
   override readonly name = 'TreatmentNotAllowedError';
 
   constructor(
-    /** `null` for a retained deposit (§58A), whose lines are `taxCategories`. */
+    /** `null` for a retained deposit (§58A) or a WEG source (§58B), whose lines are `taxCategories`. */
     readonly categoryType: string | null,
     readonly allowed: readonly Treatment[],
     readonly taxCategories?: readonly TaxCategory[],
+    /** §58B: the source type where it decides, and `WEG_SPENDING_ONLY_FOR_WEG_SOURCES`. */
+    readonly sourceType?: SourceType,
+    readonly reason?: string,
   ) {
-    super(`${categoryType === null ? 'A retained deposit' : `A ${categoryType} split`} allows only ${allowed.join(', ')}`);
+    super(reason ?? `${categoryType === null ? `A ${sourceType ?? 'DEPOSIT_CLOSING'} source` : `A ${categoryType} split`} allows only ${allowed.join(', ')}`);
+  }
+}
+
+/** A withdrawal or a use that does not count (→ 409 SOURCE_NOT_COUNTED with `notCountedReason`, §58B). */
+export class WegSourceNotCountedError extends Error {
+  override readonly name = 'WegSourceNotCountedError';
+
+  constructor(
+    readonly sourceType: SourceType,
+    readonly notCountedReason: string,
+    readonly details: object,
+  ) {
+    super(`The ${sourceType} does not count (${notCountedReason})`);
+  }
+}
+
+/** A field the found source does not take (→ 400 NOT_SUPPORTED at the field, §58B). */
+export class TaxFieldNotSupportedError extends Error {
+  override readonly name = 'TaxFieldNotSupportedError';
+
+  constructor(readonly field: string) {
+    super(`${field} is not supported for this source`);
+  }
+}
+
+/** No § 82b election for this source (→ 422 DISTRIBUTION_NOT_ALLOWED, §58B). */
+export class DistributionNotAllowedError extends Error {
+  override readonly name = 'DistributionNotAllowedError';
+
+  constructor(readonly reason: string) {
+    super(`No § 82b distribution: ${reason}`);
+  }
+}
+
+/** `netAmount` above the source's gross amount (→ 422 NET_AMOUNT_EXCEEDS_GROSS, §58B). */
+export class NetAmountExceedsGrossError extends Error {
+  override readonly name = 'NetAmountExceedsGrossError';
+
+  constructor(
+    readonly netAmount: Money,
+    readonly grossAmount: Money,
+  ) {
+    super(`netAmount ${netAmount.amount} exceeds the gross amount ${grossAmount.amount}`);
+  }
+}
+
+/** The Acquisition named does not hold the source (→ 422 ANSCHAFFUNGSNAHE_NOT_APPLICABLE, §58B). */
+export class AnschaffungsnaheNotApplicableError extends Error {
+  override readonly name = 'AnschaffungsnaheNotApplicableError';
+
+  constructor(
+    readonly reason: string,
+    readonly acquisitionId: string,
+  ) {
+    super(`The anschaffungsnahe check of Acquisition ${acquisitionId} does not apply: ${reason}`);
+  }
+}
+
+/** An undated withdrawal's `taxYear` outside its period's years (→ 422 TAX_YEAR_OUT_OF_RANGE, §58B). */
+export class WithdrawalTaxYearOutOfRangeError extends Error {
+  override readonly name = 'WithdrawalTaxYearOutOfRangeError';
+
+  constructor(
+    readonly taxYear: number,
+    readonly allowedYears: readonly number[],
+  ) {
+    super(`taxYear ${taxYear} is not one of ${allowedYears.join(', ')}`);
   }
 }
 
@@ -214,12 +288,26 @@ export function createTaxClassification(deps: Deps): CreateTaxClassification {
         throw new SourceNotCountedError(outcome.transactionStatus, outcome.correctionRole);
       case 'DEPOSIT_NOT_COUNTED':
         throw new DepositNotCountedError(outcome.depositStatus, outcome.retainedAmount, outcome.reason);
+      case 'WEG_SOURCE_NOT_COUNTED':
+        throw new WegSourceNotCountedError(outcome.sourceType, outcome.reason, outcome.details);
+      case 'FIELD_NOT_SUPPORTED':
+        throw new TaxFieldNotSupportedError(outcome.field);
       case 'NO_APPLICABLE_RULE':
         throw new NoApplicableTaxRuleError(outcome.ruleCode, outcome.date);
       case 'TREATMENT_NOT_ALLOWED':
-        throw new TreatmentNotAllowedError(outcome.categoryType, outcome.allowed, outcome.taxCategories);
+        throw new TreatmentNotAllowedError(outcome.categoryType, outcome.allowed, outcome.taxCategories, outcome.sourceType, outcome.reason);
+      case 'DISTRIBUTION_NOT_ALLOWED':
+        throw new DistributionNotAllowedError(outcome.reason);
+      case 'NET_AMOUNT_EXCEEDS_GROSS':
+        throw new NetAmountExceedsGrossError(outcome.netAmount, outcome.grossAmount);
+      case 'ACQUISITION_NOT_FOUND':
+        throw new AcquisitionNotFoundError(outcome.acquisitionId);
+      case 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE':
+        throw new AnschaffungsnaheNotApplicableError(outcome.reason, outcome.acquisitionId);
       case 'TAX_YEAR_OUT_OF_RANGE':
         throw new TaxYearOutOfRangeError(outcome.taxYear, outcome.bookingYear);
+      case 'WITHDRAWAL_TAX_YEAR_OUT_OF_RANGE':
+        throw new WithdrawalTaxYearOutOfRangeError(outcome.taxYear, outcome.allowedYears);
       case 'REFUND_YEAR_OUT_OF_RANGE':
         throw new RefundYearOutOfRangeError(outcome.refundOfYear, outcome.taxYear);
       case 'CLASSIFICATION_EXISTS':
@@ -256,6 +344,8 @@ export function reviewTaxClassification(deps: Deps): ReviewTaxClassification {
         throw new SourceNotCountedError(outcome.transactionStatus, outcome.correctionRole);
       case 'DEPOSIT_NOT_COUNTED':
         throw new DepositNotCountedError(outcome.depositStatus, outcome.retainedAmount, outcome.reason);
+      case 'WEG_SOURCE_NOT_COUNTED':
+        throw new WegSourceNotCountedError(outcome.sourceType, outcome.reason, outcome.details);
       case 'RULE_NOT_REGISTERED':
         throw new TaxRuleNotRegisteredError(outcome.ruleCode, outcome.version);
       case 'VERSION_CONFLICT':
@@ -278,11 +368,13 @@ export type ListTaxClassificationHistory = (input: {
   readonly principal: RealmPrincipal;
   readonly sourceType: SourceType;
   readonly sourceId: string;
+  /** A WEG source's position (§58B). */
+  readonly sourcePosition?: number | null;
 }) => Promise<readonly TaxClassification[]>;
 
 export function listTaxClassificationHistory(deps: Deps): ListTaxClassificationHistory {
-  return async ({ principal, sourceType, sourceId }) => {
-    const history = await deps.repository.listHistory(sourceType, sourceId, principal.mreRealmId);
+  return async ({ principal, sourceType, sourceId, sourcePosition }) => {
+    const history = await deps.repository.listHistory(sourceType, sourceId, principal.mreRealmId, sourcePosition ?? null);
     if (history === undefined) throw new TaxSourceNotFoundError(sourceType, sourceId);
     return history;
   };
@@ -322,6 +414,51 @@ export function listTaxMeanings(deps: Deps): ListTaxMeanings {
     const result = await deps.repository.listTaxMeanings(propertyReferenceId, principal.mreRealmId, year, filter, page, todayOf(deps));
     if (result === undefined) throw new PropertyReferenceNotFoundError(propertyReferenceId);
     return result;
+  };
+}
+
+/** A reserve line or a use at a position that names none (→ 404, §58B). */
+export class WegSourcePositionNotFoundError extends Error {
+  override readonly name = 'WegSourcePositionNotFoundError';
+
+  constructor(
+    readonly sourceType: SourceType,
+    readonly sourceId: string,
+    readonly sourcePosition: number,
+  ) {
+    super(`${sourceType} ${sourceId} has no position ${sourcePosition}`);
+  }
+}
+
+export type GetWegTaxMeaning = (input: { readonly principal: RealmPrincipal; readonly sourceId: string; readonly position: number }) => Promise<WegTaxMeaning>;
+
+/** A reserve withdrawal's meaning (§58B). */
+export function getWithdrawalTaxMeaning(deps: Deps): GetWegTaxMeaning {
+  return async ({ principal, sourceId, position }) => {
+    const meaning = await deps.repository.findWithdrawalTaxMeaning(sourceId, position, principal.mreRealmId, todayOf(deps));
+    if (meaning === undefined) throw new WegSourcePositionNotFoundError('WEG_RESERVE_WITHDRAWAL', sourceId, position);
+    return meaning;
+  };
+}
+
+/** A Sonderumlage use's meaning (§58B). */
+export function getUseTaxMeaning(deps: Deps): GetWegTaxMeaning {
+  return async ({ principal, sourceId, position }) => {
+    const meaning = await deps.repository.findUseTaxMeaning(sourceId, position, principal.mreRealmId, todayOf(deps));
+    if (meaning === undefined) throw new WegSourcePositionNotFoundError('WEG_ASSESSMENT_USE', sourceId, position);
+    return meaning;
+  };
+}
+
+export type GetAnschaffungsnaheCheck = (input: { readonly principal: RealmPrincipal; readonly acquisitionId: string }) => Promise<AnschaffungsnaheCheck>;
+
+/** The anschaffungsnahe check of an Acquisition (§58B): 404, a cancelled one 409, else the derived check. */
+export function getAnschaffungsnaheCheck(deps: Deps): GetAnschaffungsnaheCheck {
+  return async ({ principal, acquisitionId }) => {
+    const check = await deps.repository.anschaffungsnaheCheck(acquisitionId, principal.mreRealmId, todayOf(deps));
+    if (check === undefined) throw new AcquisitionNotFoundError(acquisitionId);
+    if (check.acquisitionStatus === 'CANCELLED') throw new AcquisitionCancelledError(acquisitionId);
+    return check;
   };
 }
 

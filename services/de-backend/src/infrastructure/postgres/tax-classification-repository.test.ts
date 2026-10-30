@@ -46,7 +46,7 @@ const mea = (text: string): Mea => {
 let counter = 0;
 /** The split items of a page of the per-property list (VC-7-02 adds retained deposits). */
 const splitsOf = (page: TaxPage<TaxListItem> | undefined): TaxMeaning[] =>
-  (page?.items ?? []).filter((m): m is TaxMeaning => m.sourceType === 'TRANSACTION_SPLIT');
+  (page?.items ?? []).filter((m): m is TaxMeaning & TaxListItem => m.sourceType === 'TRANSACTION_SPLIT');
 
 async function withMigrationLock(work: () => Promise<unknown>): Promise<void> {
   const lock = new pg.Client({ connectionString: databaseUrl });
@@ -747,6 +747,7 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         // 0046 (VC-7-02) builds on 0045: its own down first.
         await withMigrationLock(async () => {
+          await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0045_tax_classification.js')).down(createDatabase(downPool) as never);
         });

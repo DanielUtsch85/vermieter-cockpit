@@ -151,7 +151,17 @@ type MoneyJson = { amount: string; currency: string } | null;
 /** The reserve section as stored in `reserve` (jsonb), Money as its JSON. */
 interface StoredReserve {
   source: ReserveSection['source'];
-  lines: { position: number; description: string; kind: string; opening: MoneyJson; addition: MoneyJson; withdrawal: MoneyJson; closing: MoneyJson }[];
+  lines: {
+    position: number;
+    description: string;
+    kind: string;
+    opening: MoneyJson;
+    addition: MoneyJson;
+    withdrawal: MoneyJson;
+    closing: MoneyJson;
+    /** VC-7-03 (§58B): absent on lines stored before, and on lines without one. */
+    date?: string;
+  }[];
   unitShareOpening: MoneyJson;
   unitShareClosing: MoneyJson;
 }
@@ -714,11 +724,15 @@ function toStoredReserve(reserve: ReserveSection): StoredReserve {
       addition: toJson(l.addition),
       withdrawal: toJson(l.withdrawal),
       closing: toJson(l.closing),
+      ...(l.date === null || l.date === undefined ? {} : { date: l.date }),
     })),
     unitShareOpening: toJson(reserve.unitShareOpening),
     unitShareClosing: toJson(reserve.unitShareClosing),
   };
 }
+
+/** The stored `reserve` jsonb as the domain's section (also read by Taxation, §58B, without the cost lines). */
+export const reserveFromJson = (stored: unknown): ReserveSection | null => (stored === null ? null : fromStoredReserve(stored as StoredReserve));
 
 function fromStoredReserve(stored: StoredReserve): ReserveSection {
   return {
@@ -731,6 +745,7 @@ function fromStoredReserve(stored: StoredReserve): ReserveSection {
       addition: fromJson(l.addition),
       withdrawal: fromJson(l.withdrawal),
       closing: fromJson(l.closing),
+      date: (l.date ?? null) as BusinessDate | null,
     })),
     unitShareOpening: fromJson(stored.unitShareOpening),
     unitShareClosing: fromJson(stored.unitShareClosing),

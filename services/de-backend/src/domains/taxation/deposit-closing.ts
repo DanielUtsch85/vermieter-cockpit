@@ -3,6 +3,7 @@ import { yearOf } from './cash-timing.js';
 import {
   categoryDefaultsOn,
   supersedesCheck,
+  wegSpendingRefusal,
   type CreateRefusal,
   type DepositNotCounted,
   type NewTaxClassification,
@@ -162,6 +163,8 @@ export function planDepositClassification(
   const closingDate = facts.closingDate as BusinessDate;
   const rule = categoryDefaultsOn(registry, closingDate);
   if (rule === undefined) return { kind: 'NO_APPLICABLE_RULE', ruleCode: CATEGORY_DEFAULTS, date: closingDate };
+  const spending = wegSpendingRefusal('DEPOSIT_CLOSING', request.taxCategory);
+  if (spending !== undefined) return spending;
   const allowed = rule.parameters.depositClosing;
   if (!allowed.taxCategories.includes(request.taxCategory) || request.treatment === null || !allowed.treatments.includes(request.treatment)) {
     return { kind: 'TREATMENT_NOT_ALLOWED', categoryType: null, allowed: allowed.treatments, taxCategories: allowed.taxCategories };

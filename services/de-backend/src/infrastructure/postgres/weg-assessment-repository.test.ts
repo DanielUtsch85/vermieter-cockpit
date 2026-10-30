@@ -462,7 +462,11 @@ describe.skipIf(databaseUrl === undefined)('Sonderumlage (§51A)', () => {
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        await withMigrationLock(async () => (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never));
+        await withMigrationLock(async () => {
+          // 0047 (VC-7-03) refers to the assessment: it goes first.
+          await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
+          await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
+        });
         expect((await downPool.query(`SELECT to_regclass('weg_special_assessment') AS t`)).rows[0].t).toBeNull();
         expect((await downPool.query(`SELECT count(*)::int AS n FROM financial_category WHERE code = 'WEG_SPECIAL_ASSESSMENT'`)).rows[0].n).toBe(0);
         const source = async (name: string) =>
