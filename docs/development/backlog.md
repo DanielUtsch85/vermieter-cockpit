@@ -178,6 +178,23 @@ Reference: `docs/roadmap.md` Phase 7, `docs/development/phase-7-plan.md` (decisi
 
 **Phase 7 exit:** `docs/roadmap.md` Phase 7 — VC-7-04 on the inputs of VC-7-01…03, shown end to end by ACC7 (`phase-7-acceptance.e2e.test.ts`, invariant-suite §45; VC-7-05): met for the classified cash on the PropertyReference; loan interest booked via a Loan is flagged as not attributed (`LOAN_INTEREST_NOT_ATTRIBUTED`) until VC-X-29; the AfA figure is completed by Phase 8 (P7-D8, ACC8).
 
+
+---
+
+# 3g. Phase 8 — Depreciation (AfA)
+
+Reference: `docs/roadmap.md` Phase 8, `docs/development/phase-8-plan.md` (decisions P8-D1…D14). Each item starts with a spec PR for its API section, as in Phases 2–7. The VERIFY points of the plan's §3 gate the rule parameters of VC-8-02 and VC-8-03.
+
+| ID | Type | Item | API | Exit |
+|---|---|---|---|---|
+| VC-8-01 | feature | The building as a `DepreciationAsset` and its rule (P8-D1, P8-D4, P8-D11) | §59 (replacing the placeholder): `POST /api/v1/depreciation-assets`, `GET …/{id}`, amend, confirm, void, `GET /api/v1/property-references/{id}/depreciation-assets` | **planned**: one building asset per PropertyReference with its completion year and sources, never its basis; `DE_AFA_BUILDING_LINEAR@1` in the registry (3 % / 2 % / 2.5 % by completion year, B1–B3), covered by the start check; a year before 2023 `NO_APPLICABLE_RULE` until verified |
+| VC-8-02 | feature | The schedule of the purchase (P8-D2, P8-D3, P8-D5, P8-D8, P8-D9) | §59A: `GET /api/v1/depreciation-assets/{id}/schedule` (`?ownerPartyId=`) | **planned**: derived, never stored; the basis is §58B's building acquisition cost (one function); first year by § 7 Abs. 1 S. 4 EStG from the transfer month (`TRANSFER_DATE_ASSUMED` without `economicTransferDate`); per Acquisition among its buyers (P2-D10), cumulative rounding, owners + `NOT_OWNED` = the property; the remainder in the last year; the disposal year only once verified |
+| VC-8-03 | feature | Capitalised costs and separate assets (P8-D6, P8-D7) | §59A extended; §59B: `SEPARATE_ASSET` (if P8-D7 option 1) | **planned**: every `CAPITALIZED` item (anschaffungsnahe included) raises the building's basis from the verified start, at the building's rate (B11); a refund lowers it; a suggestion moves nothing; an Einbauküche over 10 years (B8) outside the building |
+| VC-8-04 | feature | Recorded schedule versions (P8-D10) | §60 (replacing the placeholder): `POST /api/v1/depreciation-assets/{id}/schedule-versions`, `GET …/schedule-versions`, `GET …/schedule-versions/{version}` | **planned**: a recorded version holds entries, input components and rule versions as rows, append-only, reproducible from its inputs; `DEPRECIATION_SCHEDULE_NOT_RECORDED` and `DEPRECIATION_CHANGED_SINCE_RECORDED` |
+| VC-8-05 | feature | The AfA in the tax-year view (P8-D12) | §58C amended: the AfA block, the line `AFA_BUILDING`, `result.basis` | **planned**: the AfA line traceable to its components per property and per owner; `result.basis` `AFTER_DEPRECIATION` / `PARTIAL_DEPRECIATION` / `BEFORE_DEPRECIATION`; `final` reachable without open flags; no cash mutated |
+| VC-8-06 | test | Phase-8 invariant suite + acceptance test (ACC8) | — | **planned**: invariant-suite §46–§50, `phase-8-acceptance.e2e.test.ts`; each exit claim mapped to an ACC8 step, with counter-checks and mutations; roadmap Phase 7 and Phase 8 status lines |
+
+**Phase 8 exit:** `docs/roadmap.md` Phase 8 — VC-8-02…04 feeding VC-8-05, shown end to end by ACC8 (VC-8-06); with it the AfA figure of Phase 7's exit (P7-D8). VC-X-28 and VC-X-29 do not block it: their open flags keep a year they touch from being final (phase-8-plan §3, question 7).
 ---
 
 # 4. Later-phase epics (blocked or spec-gated)
@@ -192,7 +209,7 @@ Listed for visibility; expand into items when their blocker clears.
 | Security Deposit domain | 5 | **expanded** into §3d (VC-5-01…05, `phase-5-plan.md`) |
 | WEG (Wirtschaftsplan, Jahresabrechnung, Rücklage, Sonderumlage) | 6 | **expanded** into §3e (VC-6-01…06, `phase-6-plan.md`); `germany/weg.md` verified 29.10.2026 |
 | Taxation (Werbungskosten, classification, versioned rules) | 7 | **expanded** into §3f (VC-7-01…05, `phase-7-plan.md`); `germany/taxation.md` + `germany/rent-and-operating-costs.md` verified 29.10.2026 (rules: ADR-041) |
-| Depreciation (AfA schedules) | 8 | spec verified: `germany/depreciation.md` verified 29.10.2026 |
+| Depreciation (AfA schedules) | 8 | **expanded** into §3g (VC-8-01…06, `phase-8-plan.md`, planning); `germany/depreciation.md` verified 29.10.2026 |
 | Investment metrics + snapshots + scenarios | 9 | ready (ADR-040 triggers, ADR-042 versioning) |
 | Reports + dashboards | 9 | after 7–8; `product/reports.md`, `product/dashboards.md` |
 

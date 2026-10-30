@@ -127,6 +127,8 @@ Scope: AfA schedules from acquisition + land/building allocation; version-aware 
 
 **Exit:** an AfA schedule is reproducible from acquisition truth, stored as derivation (not cash), and feeds the tax-year view.
 
+**Status:** planning — decisions P8-D1…D14 and items VC-8-01…06 in `docs/development/phase-8-plan.md` (backlog §3g); its VERIFY points (plan §3) go to the tax advisor before the rule parameters are specified.
+
 ## Phase 9 — Investment analytics & scenarios + Reporting
 
 **Goal:** derived metrics and reports; strict actual/scenario separation (ADR-020, ADR-007).
