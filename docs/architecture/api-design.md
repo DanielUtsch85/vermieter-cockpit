@@ -4477,6 +4477,119 @@ GET /api/v1/tax-rules/{ruleCode}
 
 ---
 
+# 58A. Tax Year and Income (VC-7-02, spec)
+
+Decisions P7-D3 and P7-D4 of `docs/development/phase-7-plan.md` (as revised in the review on #156; `docs/germany/taxation.md` §3–§4, checklist A4, A10, A11, E6). VC-7-01 counted a split in the calendar year of its booking date. VC-7-02 adds the exception of § 11 Abs. 1 S. 2, Abs. 2 S. 2 EStG, refunds, and the retained deposit as a second source of classification.
+
+### Routes
+
+```text
+GET  /api/v1/property-references/{id}/tax-meanings?year=      (VC-7-02: by tax year, §58A; was by booking year)
+GET  /api/v1/transaction-splits/{splitId}/tax-meaning         (VC-7-02: + taxYear, attribution, refund)
+GET  /api/v1/security-deposits/{depositId}/tax-meaning        (VC-7-02, §58A: the retained amount at closing)
+POST /api/v1/tax-classifications                              (VC-7-02: taxYear, refundOfYear; sourceType DEPOSIT_CLOSING)
+POST /api/v1/weg-memberships/{id}/economic-plans              (VC-7-02: + advanceDueDay, §49.5)
+```
+
+### The tax year of a split (P7-D3)
+
+- **The rule** `DE_CASH_TIMING` version 1 (§58): legal basis § 11 Abs. 1 S. 2 and Abs. 2 S. 2 EStG; parameters `windowDays = 10` and the **regularly recurring categories**: `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE`, `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE`, `LOAN_INTEREST`. Other categories always take the booking year.
+- **The window** around the year-end Y/Y+1 is 22 December of Y to 10 January of Y+1, both inclusive (10 days on either side; A4).
+- **The exception applies** when all three hold:
+  1. the booking date is in the window;
+  2. the **due date** is in the window too;
+  3. the **economic year** (the year of the period the amount pays for) differs from the booking year.
+  
+  The split then counts in its economic year, with the flag `ATTRIBUTED_BY_10_DAY_RULE` (details: `bookingDate`, `dueDate`, `economicPeriod`, `dueDateSource`). Otherwise it counts in its booking year.
+- **The economic period and the due date, per source** (a period is not a due date; review on #156):
+
+| Category | Economic period | Due date | When it is assumed |
+|---|---|---|---|
+| `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` | the month of the MRE term of the Transaction's `CONFIRMED` `RentPaymentReconciliation` (§37.1, `mreRentTerm`) | the term's first day | always (see the question below), flagged `DUE_DATE_ASSUMED` |
+| `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` | the month whose due date (below) is nearest to the booking date | day `advanceDueDay` of that month, by the plan used (P6-D4, §49.6) | the plan has no `advanceDueDay`: day 1, flagged `DUE_DATE_ASSUMED` |
+| `LOAN_INTEREST` | the interest period of the schedule entry (§41.4) whose due date is nearest to the booking date, of the split's `loanId` | that entry's due date | never; without a `loanId` or a schedule the booking year applies |
+
+  - A rent split of a Transaction without a `CONFIRMED` reconciliation, or with reconciliations of more than one term, has no economic period. It takes the booking year, flagged `NO_ECONOMIC_PERIOD`.
+  - "Nearest" breaks ties towards the later month.
+- **Override:** a classification may set `taxYear` (2000–2100). It wins over the rule, and the meaning keeps the rule's proposal visible: `attribution: { rule, proposedYear, overridden: true }`. `taxYear` must be the booking year or a neighbouring year (±1), else `422 TAX_YEAR_OUT_OF_RANGE`: § 11 never moves cash further.
+- **The per-property list** `?year=Y` now holds the splits whose **tax year** is Y. That includes splits booked in late December of Y−1 or early January of Y+1 that are attributed to Y, and it excludes those of Y attributed elsewhere. The page item gains `taxYear` and `attribution`.
+
+### Refunds and repayments (P7-D4, A10)
+
+- An `INFLOW` in an expense category, or an `OUTFLOW` in an income category, is a **refund** (signed −) of that line.
+- **The year it refunds** (`refund.ofYear`) is taken from, in this order:
+  - the WEG statement the split names (`wegAnnualStatementId`, its `financialYear`);
+  - the classification's `refundOfYear` (2000–2100, ≤ the tax year, else `422 REFUND_YEAR_OUT_OF_RANGE`);
+  - else unknown, flagged `REFUND_YEAR_UNKNOWN`.
+- **How it is shown** (`refund.presentation`):
+  - `REDUCES_LINE` when `ofYear` equals the tax year, or is unknown;
+  - `INCOME` when `ofYear` is earlier, on the line `REFUNDS_OF_EARLIER_YEARS` (a new `taxCategory`, see the next bullet).
+  - The total is the same either way; only the line differs (P7-D4).
+- **The new lines** `REFUNDS_OF_EARLIER_YEARS`, `RETAINED_DEPOSIT_RENT` and `RETAINED_DEPOSIT_DAMAGES` join the `taxCategory` list of `DE_CATEGORY_DEFAULTS@1`. Version 1 is extended in place, not versioned, because it has not been released yet (#158); every later change is a new version (§58).
+
+### The retained deposit (P7-D4, A11)
+
+- **The source:** a `CLOSED` security deposit whose `closing.retainedAmount` is > 0 (§47.4). Its tax year is the year of `closing.closingDate`. No cash moves: the deposit's cash was received earlier and stays as it is.
+- **The default:** `taxCategory` `UNCLASSIFIED`, no treatment, `NEEDS_REVIEW`, rule `DE_CATEGORY_DEFAULTS@1`. A deposit is never income by default (A11).
+- **The classification:** `sourceType` `DEPOSIT_CLOSING`, `sourceId` the deposit. The allowed `taxCategory` values are `RETAINED_DEPOSIT_RENT` (compensation for unpaid rent), `RETAINED_DEPOSIT_DAMAGES` (compensation for damage) or `NOT_RELEVANT`, both new lines (see the refunds above). The treatment is `INCOME` or `NOT_RELEVANT`; anything else is `422 TREATMENT_NOT_ALLOWED`.
+- **When it stops counting:**
+  - a deposit that is not `CLOSED`, or has `retainedAmount` = 0, answers `409 SOURCE_NOT_COUNTED`;
+  - a `reopen` (§47.4) makes the classification stop counting (`NOT_COUNTED`). A new closing needs a new classification, which supersedes the old one.
+- **Locks:** Deposit row (no-op write), then the current classification of the source.
+- `GET /security-deposits/{id}/tax-meaning` mirrors the split's read (`counts`, `taxYear`, `amount` = `retainedAmount`, `origin`, flags). The per-property list includes it as an item with `sourceType: "DEPOSIT_CLOSING"`, for the deposit's PropertyReference.
+
+### `advanceDueDay` on the Wirtschaftsplan (§49.5)
+
+- **The field:** an optional integer 1–31 (`400 OUT_OF_RANGE`), the day of the month the advances fall due by the Vorschussbeschluss. In a shorter month it means the month's last day.
+- **When it is set:** on create only, since a plan is never amended (§49.5). Existing plans read it as `null`.
+- **What it is not:** it is not used by the Hausgeld proposal (§49.6), only by the tax year above.
+
+### In the database (migration 0046)
+
+- **`tax_classification`:**
+  - new columns `tax_year`, `refund_of_year` (smallint, CHECKs as above) and `security_deposit_id`, the second source column (composite foreign key; exactly one source column set, by CHECK);
+  - `source_type` gains `DEPOSIT_CLOSING`;
+  - the `tax_category` CHECK gains the three new lines;
+  - `tax_classification_source_counts` covers the deposit (closed and retained > 0, after its no-op write);
+  - `tax_classification_treatment` covers the deposit's lines;
+  - one current classification per deposit (partial unique index).
+- **`weg_economic_plan.advance_due_day`:** smallint, `CHECK (advance_due_day BETWEEN 1 AND 31)`, nullable. The plan's frozen guard keeps it fixed.
+- `down` restores 0045 and drops the column.
+
+### Tests (VC-7-02)
+
+- **Domain:**
+  - the window's edges (22.12., 10.01.; 21.12. and 11.01. outside);
+  - each source's economic period and due date, including "nearest" and its tie;
+  - the assumed due date;
+  - the reviewer's example (rent due on 15 January, paid on 28 December → year of payment) through a classification's `taxYear`, since rent has no recorded due day in VC-7-02;
+  - refunds of the same, an earlier and an unknown year;
+  - the retained deposit's lines and treatments.
+- **Repository:**
+  - the per-year list across the year-end in both directions;
+  - an override, and `TAX_YEAR_OUT_OF_RANGE`;
+  - deposit classifications, with `reopen` stopping them;
+  - every new guard past the repository;
+  - `down`.
+- **Concurrency:** a deposit classification against a `reopen`, RC and RR, both orders, with a counter-check.
+- **End to end:**
+  - a January rent paid on 29 December and matched to its January term → counted in January's year with `DUE_DATE_ASSUMED`;
+  - a Hausgeld debit on 30 December, from a plan with `advanceDueDay` 1;
+  - interest due on 2 January and debited on 30 December;
+  - a refund of an earlier year;
+  - a retained deposit classified as rent compensation;
+  - Realm isolation on the new routes.
+
+### Open question for the review
+
+**Where the rent's due day lives.**
+- MRE's lease has no due day: its `Lease` has `numberOfTerms` and `timeRange` only (checked in MRE's `services/common/src/collections/lease.ts`).
+- `RentalContractReference` (data-model §11) is not implemented: every `rentalContractReferenceId` is still `400 NOT_SUPPORTED` (§30.2, §33.2).
+- **Proposal:** VC-7-02 records no rent due day. Rent always takes its term's first day, flagged `DUE_DATE_ASSUMED`, and the user can override per split with `taxYear`. The field comes with a `RentalContractReference` once a second need for that entity appears, so the entity is not created for one field.
+- **Alternative:** create a minimal `RentalContractReference` now (Realm, `mreTenantId`, `rentDueDay`), with its own create and amend.
+
+---
+
 # 59. Depreciation API
 
 ### Queries
