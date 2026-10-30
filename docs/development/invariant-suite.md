@@ -25,6 +25,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **ACC4** | `phase-4-acceptance.e2e.test.ts` (Phase-4 exit through the API, VC-4-06) |
 | **ACC5** | `phase-5-acceptance.e2e.test.ts` (Phase-5 exit through the API, VC-5-05) |
 | **ACC6** | `phase-6-acceptance.e2e.test.ts` (Phase-6 exit through the API, VC-6-06) |
+| **ACC7** | `phase-7-acceptance.e2e.test.ts` (Phase-7 exit through the API, VC-7-05) |
 | **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
 | **TM / TR2 / TA** | the Loan terms' domain, repository and API tests (VC-3-02, §17) |
 
@@ -784,6 +785,147 @@ The exit of `docs/roadmap.md` Phase 6: *a Jahresabrechnung is represented with p
 - `SETTLED` never derived.
 
 A settlement counted as an advance does not turn ACC6 red (its back-payment is booked after the period); SR6 "the comparison snapshot" covers it with a settlement inside the period.
+
+## 41. Rules, category defaults and classifications of splits (VC-7-01, api-design §55–§58)
+
+`CL` = `domains/taxation/classification.test.ts`, `RG` = `domains/taxation/rules/registry.test.ts`, `TCR` = `infrastructure/postgres/tax-classification-repository.test.ts`, `TCA` = `api/tax-classifications.test.ts`, `TCE` = `tax-classification.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| Every split's default meaning comes from `DE_CATEGORY_DEFAULTS@1`, derived on read and never stored; every seeded category is listed, an unknown code reads as `OTHER`; the direction never changes the default | CL "the default table …" (all four); TCR "every category seeded by the migrations is listed in the default table"; TCE; ACC7 |
+| Only a counting split (its Transaction current) has a meaning and can be classified (`SOURCE_NOT_COUNTED`, `NOT_COUNTED`); a classification on a corrected split's replacement is flagged, never moved | CL "NOT_COUNTED …", "CLASSIFICATION_ON_CORRECTED_SPLIT …"; TCR "the order of checks …", "tax meaning (§55)", "source_counts and treatment …"; concurrency "RC: a correction waiting on a create …" |
+| **The hard rules:** `WEG_FUNDS`, `SECURITY_DEPOSIT` and `TRANSFER` only `NOT_RELEVANT`; `LOAN_PRINCIPAL` never `DEDUCTIBLE`; `ACQUISITION` never `CAPITALIZED` (`422 TREATMENT_NOT_ALLOWED`, and 0045's `tax_classification_treatment` past the repository) | CL "WEG_FUNDS, SECURITY_DEPOSIT and TRANSFER only NOT_RELEVANT", "LOAN_PRINCIPAL never DEDUCTIBLE, ACQUISITION never CAPITALIZED …"; TCR "source_counts and treatment: … the hard rules are refused"; TWR (§43) "the lines (DE_WEG_SPENDING@1) … the split guard" (a `WEG_SPECIAL_ASSESSMENT` split); TCE; ACC7 (a reserve contribution, a Sonderumlage payment, principal, a deposit receipt) |
+| `taxCategory` and `treatment` fit (income lines only `INCOME`, `UNCLASSIFIED` only `null`, …) | CL "the fit of taxCategory and treatment"; TCR "the CHECKs and initial …"; TCA "every 400 …" |
+| **One current classification per source**: a change is a new classification superseding the current one (`CLASSIFICATION_EXISTS`, `NOT_CURRENT_CLASSIFICATION`); the chain agrees both ways; content never edited, only the review state moves; never deleted | TCR "supersede …", "the CHECKs and initial: … one current per split", "frozen …", "chain (deferred) …", "two creates for one split: …"; CL "planClassification …"; ACC7 (the repair: a second create refused, superseded, the history) |
+| §57's review steps: targets, no-ops, `ADVISOR_CONFIRMED` not lowered, only the current one moves; a confirmation validates the source and the rule | CL "planReview (§57)" (all three); TCR "review steps (§57)" (both); TCA "§57 steps" |
+| **Classifications never change cash:** the split, its amount, category and Transaction unchanged in row and version by every command, refused ones included | TCR "no command changes the split or its Transaction (rows and versions)"; ACC7 (every split and Transaction of the scenario, by every Phase-7 command) |
+| A create serialises on the split's Transaction row (P7-D9): RC sees the other, RR fails to serialise | TCR "concurrency on the Transaction row (P7-D9)" (all four) |
+| **Every stored rule reference resolves:** only a registered `ruleCode@version` is written or confirmed (`RULE_NOT_REGISTERED`); the start check refuses to start on an unknown one; two versions of a rule never overlap | RG "isRegistered and unregistered …", "refuses overlapping …", "the registered versions of the backend never overlap"; CL "a superseded one is refused first; then the source must count and the rule resolve"; TCR "start check (§58) …"; TWR (§43) "the start check resolves the treatmentRule too …"; ACC7 (`checkStoredRuleReferences` after the scenario) |
+| `RULE_SUPERSEDED` is informative and never changes a meaning; before 2000 no rule applies (`NO_APPLICABLE_RULE`) | CL "RULE_SUPERSEDED …", "before every version of the rule …"; RG "status: …" |
+| `down` of 0045 | TCR "down drops the table, its functions and the split key …" |
+
+## 42. Tax year and income (VC-7-02, api-design §58A)
+
+`CT` = `domains/taxation/cash-timing.test.ts`, `TYR` = `infrastructure/postgres/tax-year-repository.test.ts`, `RCA` = `api/rental-contract-references.test.ts`, `TYE` = `tax-year.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| The tax year is the booking year, except by `DE_CASH_TIMING@1`: a recurring category whose booking date **and** due date lie in the same window (22 December–10 January, both inclusive) and whose economic year differs counts in its economic year, flagged `ATTRIBUTED_BY_10_DAY_RULE` | CT "its edges, on both sides of the year-end", "only recurring categories …", "a January rent paid on 29 December …", "the reviewer’s example of #156 …", "a December rent paid on 2 January moves back …"; TYR "the tax year of rent (§58A)"; TYE; ACC7 (December's rent due 31.12., paid 04.01., in 2027) |
+| The due date per source, explicitly (`rentDueDays` over time, the plan's `advanceDueDay`, the schedule entry); without one the period start, flagged `DUE_DATE_ASSUMED`; no economic period → booking year, `NO_ECONOMIC_PERIOD` | CT "rentDueDays over time …", "a quarterly schedule …", "\"nearest\" ties …"; TYR "several terms on one Transaction, or none …"; TYE |
+| Hausgeld is never moved on a guess (`ECONOMIC_PERIOD_ASSUMED` with `proposedYear`); interest moves on its nearest schedule entry | CT "Hausgeld (§58A): never moved on a guess" (both), "loan interest (§58A) …"; TYR "Hausgeld and interest (§58A)" (both); TYE |
+| The `taxYear` override: the booking year ± 1 only (`TAX_YEAR_OUT_OF_RANGE`), in the API and in 0046's guard; the rule's proposal stays visible | CT "taxYear the booking year ± 1 …"; TYR "taxYear ± 1 only …", "tax_year: the booking year ± 1 …"; TYE |
+| **Refunds and repayments:** an `INFLOW` on an expense line refunds it (same or unknown year: reduces the line, `REFUND_YEAR_UNKNOWN`; an earlier year: `REFUNDS_OF_EARLIER_YEARS`); the year from the WEG statement, else `refundOfYear` (≤ the tax year); an `OUTFLOW` on an income line always reduces it | CT "refunds and repayments (§58A, P7-D4, A10)" (all three); TYR "a credit of a WEG annual statement …", "taxYear ± 1 only …; a refund of an earlier year"; TV (§44) "signs (§58C, §58A)"; TYE; ACC7 (an insurance refund of 2026 in 2027) |
+| **The retained deposit:** a `CLOSED` deposit with `retainedAmount` > 0, in the year of its closing date; default `UNCLASSIFIED`/`NEEDS_REVIEW`, never income by default; only its lines and treatments; a reopen or another closing stops the classification (`CLOSING_CHANGED`); one current per deposit | CT "the retained deposit (§58A, A11)" (all three); TYR "its meaning and classification; … reopen stops it …", "not CLOSED, or nothing retained …", "the deposit: counted and its own closing only, …, one current, the Realm"; concurrency "on the deposit row (P7-D9)" (all three); TYE; ACC7 (300.00 retained, 2028) |
+| A deposit classification never changes the deposit or its cash (row and version), refused commands included | TYR "nothing else written (VC-7-05) …" **(added by VC-7-05)**; ACC7 |
+| A deposit without exactly one PropertyReference is flagged `NO_PROPERTY_REFERENCE`, never silent | CT "no PropertyReference is flagged, never silent …"; TYR "no derivable PropertyReference is flagged …" |
+| The `RentalContractReference`: one per MRE Tenant and Realm; `rentDueDays` checked whole (day 1–31, `validFrom` real, unique, ascending, ≤ 20); the frozen guard; `AMENDED` lists `changedEntries` | TYR "RentalContractReference (§58A)", "rental_contract_reference: the due days checked …"; RCA (all five) |
+| `advanceDueDay` 1–31, fixed with its plan | TYR "weg_economic_plan.advance_due_day: 1–31, and fixed" |
+| `down` of 0046 | TYR "down restores 0045 …" |
+
+## 43. WEG spending, Erhaltungsaufwand, § 82b and the anschaffungsnahe check (VC-7-03, api-design §58B)
+
+`WS` = `domains/taxation/weg-spending.test.ts`, `TWR` = `infrastructure/postgres/tax-weg-repository.test.ts`, `TWE` = `tax-weg.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| A reserve withdrawal and a Sonderumlage use default to `UNCLASSIFIED`/`NEEDS_REVIEW` (`DE_WEG_SPENDING@1`); only `WEG_SPENDING` (`DEDUCTIBLE`, `DISTRIBUTED_82B`, `CAPITALIZED`) or `NOT_RELEVANT`; `WEG_SPENDING` only on these two sources | WS "the default of both sources …", "their lines and treatments …"; TWR "the lines (DE_WEG_SPENDING@1) …" |
+| **WEG money counts when spent, never when paid:** the `WEG_FUNDS` splits stay `NOT_RELEVANT` | §41's hard rules; TWE "a superseded statement: … the reserve contribution NOT_RELEVANT"; TYVE; ACC7 |
+| **WEG sources count only when current:** a withdrawal only on a `CONFIRMED` statement (a superseded one's stop counting, the successor's read the default with `PREDECESSOR_CLASSIFIED`); a use only while the assessment is not `VOID` and the use unchanged (`USE_CHANGED`, `USE_REMOVED`, `ASSESSMENT_VOID`) | WS "a use: counts; USE_CHANGED …", "USES_EXCEED_PAID carried …; PREDECESSOR_CLASSIFIED"; TWR "a superseded statement: …", "counts; a replace changing it stops the classification …", "the withdrawal guard: confirmed only …"; concurrency "RC: a withdrawal classification waiting on the confirm …", "RR: …", "a use classification against PUT …/uses and against a void …"; TWE |
+| The withdrawal's unit share is `withdrawal × MEA`, half-up to the cent, checked exactly in the guard; its date its own, else the period end (`WITHDRAWAL_DATE_ASSUMED`, `WEG_FINANCIAL_YEAR_NOT_CALENDAR`) | WS "the unit share …", "the date: …", "the taxYear override …"; TWR "its meaning: unit share, own date or the period end assumed …", "the withdrawal guard: … the exact unit share (one cent off either way, the half) …" |
+| **Never counted twice:** a statement's cost lines are read by no list, meaning or view; one current classification per withdrawal and per use; `WEG_SPENDING_POSSIBLY_TWICE` where a withdrawal and a use may be the same money | WS "USES_EXCEED_PAID carried, informative; WEG_SPENDING_POSSIBLY_TWICE …"; TWR "the per-property list: … never a cost line", "two creates for one withdrawal …"; TWE; TYVE (§44) "… no statement cost line …"; ACC7 |
+| Nothing else written: the statement, the assessment, the Acquisition and its allocation unchanged in row and version by every WEG-source command | TWR "create: … nothing else written" (the statement), "nothing else written (VC-7-05) …" (the assessment, the Acquisition, the allocation) **(added by VC-7-05)**; ACC7 |
+| **The anschaffungsnahe check:** the window from the transfer date to the third anniversary, both inclusive; the sum of Erhaltungsaufwand of every source (splits, withdrawals, uses), net where known, else gross with `VAT_NOT_SEPARATED` and `NOT_FINAL`; annually recurring work left out; the basis from the confirmed allocation without `FINANCING_RELATED` | WS "the basis: …", "net, else gross …", "which are summed …", "the window: …", "a partial acquisition …", "every NOT_COMPUTABLE reason; never estimated", "WINDOW_OPEN; WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED …"; TWR "a split and a use in the window, above 15 % …"; TWE; ACC7 (basis 84,000.00, threshold 12,600.00) |
+| **Exactly 15 % is not above;** one cent more is; compared exactly on the unrounded fraction | WS "the basis: … exactly 15 % is not above, one cent more is", "a partial acquisition: … above compared on the exact fraction"; ACC7 (12,600.00 `NOT_ABOVE_THRESHOLD`, then 14,600.00 `ABOVE_THRESHOLD`) |
+| The edges: `DATE_IS_BOOKING_DATE` within 90 days; **the strip** of 90 days after the window listed (`AFTER_WINDOW_NEAR_EDGE`), never summed, `NOT_FINAL` | WS "DATE_IS_BOOKING_DATE on day 89 and 90 …", "the strip after the window …"; TWE "… the counter-check outside the window" |
+| Above 15 %: every summed source flagged with a suggested `CAPITALIZED`, in earlier years too; DE changes no classification; a capitalisation on the check stays in the sum; `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE` | WS "above 15 %: …"; TWR "a split and a use in the window, above 15 % …", "the anschaffungsnahe guard …"; TWE; TYVE (§44); ACC7 |
+| **§ 82b:** 2–5 years, `mostlyResidentialConfirmed`, only on `MAINTENANCE`/`WEG_SPENDING` and an `OUTFLOW`; the parts rounded down, the rest in the last year, summing exactly | WS "DISTRIBUTION_NOT_ALLOWED …", "1,000.00 over 3 → …"; TWR "the lines …, the distribution, the fields …"; TWE; ACC7 (3,570.00 → 1,190.00 in 2027, 2028, 2029) |
+| **The tenure fold:** the rest in the year every owner's tenure ends (`DISTRIBUTION_ENDED`); a share change continued the next day folds nothing; a co-owner's sale only `OWNERSHIP_PARTLY_ENDED` | WS "the end of ownership …", "a mere ownership change is no end …", "an owner who stops letting is not recognised …"; TWE "a § 82b election: …"; TV (§44) "§ 82b per owner (§58C)" |
+| The registry: five rules, no overlap, `DE_CATEGORY_DEFAULTS@1` unchanged | WS "five rules, no overlap; …" |
+| `down` of 0047 and its refusal; the VC-X-26 indexes | TWR (the `down` test), "the VC-X-26 indexes serve the first page …" |
+
+## 44. The tax-year view (VC-7-04, api-design §58C)
+
+`TV` = `domains/taxation/tax-year-view.test.ts`, `TYVR` = `infrastructure/postgres/tax-year-view-repository.test.ts`, `TYA` = `api/tax-years.test.ts`, `TYVE` = `tax-year-view.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| **Placement:** every `taxCategory` and fitting treatment goes to exactly one place (a line, `capitalized`, `notInView`, `unclassified`); the lines are fixed; no line a registered rule names is left unplaced | TV "the placement table (§58C)" (all five); ACC7 |
+| **The view is the list:** its items are exactly §55's list of the year, per source; over three years every source once, a § 82b source in each year with its part | TYVR "the view’s items equal §55’s list …"; ACC7 (the list of 2027 against the view's places) |
+| **Every figure traceable:** a line is the sum of its items' signed `lineAmount`s, a section of its lines, the result Einnahmen − Werbungskosten; every item names its source and its rule, listed in `ruleVersions` | TV "the example …", "signs (§58C, §58A)"; TYVE "… result = Σ lineAmounts"; ACC7 (`traceable`, at both levels and in 2028) |
+| `CAPITALIZED` leaves the Werbungskosten; `NOT_RELEVANT` (principal, deposits, `WEG_FUNDS`) listed in `notInView`, never summed; `UNCLASSIFIED` listed and flagged | TV "CAPITALIZED leaves the Werbungskosten …"; TYVE "a capitalised repair, … WEG_FUNDS in notInView …", "retained deposits …; principal and deposit cash in no view"; ACC7 |
+| **Per owner:** each item × the share on its share date by largest remainder (ties: the larger share, then `ownerPartyId`, `NOT_OWNED` last); no part of the wrong sign; **owners + `NOT_OWNED` = the property**, item, line, total and result, to the cent | TV "per owner (§58C, P7-D7)" (all seven, the property test included); TYA; TYVE "two owners and an owner change …"; ACC7 (3/5 and 2/5: 612.37 → 367.42 / 244.95, 84.01 → 50.41 / 33.60) |
+| § 82b per owner: a co-owner's rest in the year of their sale; a tenure continued folds nothing; the buyer has no part | TV "§ 82b per owner (§58C)" (all three); TYVE "a § 82b part: …" |
+| **"Nicht zugeordnet":** a retained deposit without one PropertyReference listed (`SEVERAL_PROPERTY_REFERENCES` in each candidate's view, `NO_RECONCILED_RENT` in every view of the Realm), never summed, `UNATTRIBUTED_ITEMS` | TV "\"nicht zugeordnet\": …"; TYVR "the deposits not attributed: …"; TYVE "retained deposits \"nicht zugeordnet\" …" |
+| **`ATTRIBUTION_INPUT_CHANGED`:** a `rentDueDays` correction recorded after 31 December of the year flags both years an item moved between; a later `validFrom` or a `taxYear` override raises nothing; an inconsistent history is flagged | TV "ATTRIBUTION_INPUT_CHANGED (§58C)" (all five); TYVE "a 10-day-rule rent at the year boundary; … ATTRIBUTION_INPUT_CHANGED …" |
+| The anschaffungsnahe check is shown, never recomputed: the items keep their treatment and carry the check's flags; `acquisitions`; `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` | TYVE "the anschaffungsnahe check above 15 % …"; ACC7 |
+| `final` is always false in Phase 7 (`DEPRECIATION_NOT_AVAILABLE` open); the result is "before AfA" | TV "the levels of the review table; …"; TYVE; ACC7 |
+| **Read-only:** one `REPEATABLE READ READ ONLY` snapshot; a write inside it is refused; every row and version unchanged and no AuditRecord written by views at both levels and of three years | TYVR "one snapshot: …", "no cash mutated: …"; TYVE "no cash mutated …"; ACC7 (the SQL of the view: one `start transaction … read only`, no write; the rows around the views) |
+| The cap of 5,000 items (`TAX_YEAR_TOO_LARGE`); the plan of the split query; `down` of 0048 | TV "the cap …"; TYVR "the cap …", "the plan of the split query …", "0048: …" |
+| The order of checks (`400`, `404` for the PropertyReference and the Party, `NOT_AN_OWNER_IN_YEAR`, an owner by an item only) | TYA (all three); TV "SHARE_DATE_OUTSIDE_TAX_YEAR …; NOT_AN_OWNER_IN_YEAR via an item" |
+
+## 45. Phase 7 exit (VC-7-05, roadmap Phase 7; implemented)
+
+The exit of `docs/roadmap.md` Phase 7: *a tax-year view derives Einkünfte aus Vermietung und Verpachtung from classified cash + AfA, every figure traceable, no cash mutated.* By P7-D8 the exit is met in two steps: Phase 7 delivers the view and its classified cash, Phase 8 fills the AfA block (ACC8). Each claim but the AfA figure is shown **end to end through the HTTP API** by **ACC7** (`phase-7-acceptance.e2e.test.ts`), one scenario against PostgreSQL and the fake MRE, backed by §41–§44. The figures are invented and hand-computed here, so the test checks them literally.
+
+**The scenario (Realm A):** a unit linked from MRE (`Wohnung Beispielweg 7`); an Acquisition (price 100,000.00, transfer tax 5,000.00, a `FINANCING_RELATED` cost of 800.00, transfer 2026-03-15, confirmed allocation 105,000.00 with 84,000.00 building) bought by two owners, A `3/5` and B `2/5`, from 2026-03-15; a WEG membership (MEA 100/1000) from the same day; a Girokonto; a Tenant with `rentDueDays` day 31 (rent paid in arrears). Every Transaction is entered, split and confirmed:
+
+| Source | Date(s) | Amount | Splits / record | Meaning |
+|---|---|---|---|---|
+| Rent, January–November | the 28th of each month 2027 | 1,100.00 | `RENT_BASE` 900.00, `RENT_OPERATING_COST_ADVANCE` 200.00 | income of 2027 |
+| Rent, December | 2028-01-04 | 1,100.00 | as above; reconciled with MRE term `2027120100` | due 2027-12-31, paid within the 10 days: 2027 |
+| Hausgeld, two debits a month | the 15th of each month 2027 | 250.00 and 50.00 | `WEG_RECOVERABLE` 150.00 + `WEG_NON_RECOVERABLE` 100.00; `WEG_RESERVE_CONTRIBUTION` 50.00 | 3,000.00 Hausgeld; the reserve never |
+| Loan debit, quarterly | 2027-03-20, -06-20, -09-20, -12-20 | 1,500.00 | `LOAN_INTEREST` 612.37, `LOAN_PRINCIPAL` 887.63 (on the PropertyReference, without a `loanId`: see below) | interest 2,449.48; principal never |
+| Repair R | 2027-05-12 | 9,996.00 | `MAINTENANCE`; classified `DEDUCTIBLE`, then superseded with `netAmount` 8,400.00 | Erhaltungsaufwand |
+| Repair E | 2027-08-20 | 3,570.00 | `MAINTENANCE`; § 82b over 3 years, `netAmount` 3,000.00 | 1,190.00 in 2027, 2028, 2029 |
+| Insurance refund | 2027-04-10 | 84.01 (`INFLOW`) | `INSURANCE`, `refundOfYear` 2026 | `REFUNDS_OF_EARLIER_YEARS` |
+| Sonderumlage | resolution 2027-06-10, paid 2027-09-01, use 2027-10-15 | 2,000.00 | `WEG_SPECIAL_ASSESSMENT` naming it; the use classified `WEG_SPENDING`/`DEDUCTIBLE` | the payment never; the use 2,000.00 in 2027 |
+| Jahresabrechnung 2027 | withdrawal dated 2027-07-01 | cost lines 1,800.00 + 1,200.00; withdrawal 12,000.00 × 100/1000 = 1,200.00 | confirmed; the withdrawal classified `WEG_SPENDING`/`DEDUCTIBLE` | the cost lines never; the withdrawal 1,200.00 in 2027 |
+| Deposit | received 2026-12-15, repaid 2028-01-20, closed 2028-01-31 `RETAINED` | 2,700.00 received, 2,400.00 repaid | `SECURITY_DEPOSIT` (no PropertyReference); the closing classified `RETAINED_DEPOSIT_DAMAGES`/`INCOME` | the cash never; 300.00 income of 2028 |
+
+| Exit claim | ACC7 step | Backed by |
+|---|---|---|
+| **Classified cash, by default and by the user** | The defaults stand for rent, advances, Hausgeld, interest; the user classifies the repairs, the refund, the withdrawal, the use and the deposit closing. The repair: a second create `409 CLASSIFICATION_EXISTS` with the current id, then a superseding one; the history lists both, the first superseded by the second. | §41 |
+| **The hard rules hold** | `422 TREATMENT_NOT_ALLOWED` for a reserve contribution as `WEG_HAUSGELD`/`DEDUCTIBLE` and a Sonderumlage payment as `MAINTENANCE` (`WEG_FUNDS`), principal as `LOAN_INTEREST`/`DEDUCTIBLE` (`FINANCING`), a deposit receipt as `RENT`/`INCOME` (`SECURITY_DEPOSIT`). | §41 |
+| **The tax year by § 11 EStG** | December's rent (paid 2028-01-04, due 2027-12-31, both in the window) is the twelfth `RENT` item of 2027, `taxYear` 2027, flagged `ATTRIBUTED_BY_10_DAY_RULE`, its advance with it; it is in no place of 2028. | §42 |
+| **A refund of an earlier year** | The 84.01 of 2026 is on `REFUNDS_OF_EARLIER_YEARS` in 2027 (its `taxCategory` stays `INSURANCE`); the `INSURANCE` line is 0.00. | §42 |
+| **WEG money when spent** | The withdrawal (1,200.00, `amount` from the MEA, `date` 2027-07-01) and the use (2,000.00) on `WEG_SPENDING`; `WEG_HAUSGELD` holds the 24 Hausgeld splits only. | §43 |
+| **The anschaffungsnahe check** | Basis 84,000.00, threshold 12,600.00. R (8,400.00 net), E (3,000.00 net) and the withdrawal (1,200.00 gross) sum to **12,600.00: `NOT_ABOVE_THRESHOLD`** (exactly 15 % is not above), the unclassified use listed. The use classified: 14,600.00, `ABOVE_THRESHOLD`, `percentOfBasis` 17.38, `affectedYears` [2027], `final` false (`GROSS_AMOUNTS`, `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED`); the four sources in date order with `CAPITALIZED` suggested. In the view all four keep their treatment and carry `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`; `acquisitions` shows `ABOVE_THRESHOLD`, `final: false`; the year is `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL`. | §43, §44 |
+| **§ 82b** | E's parts 1,190.00 in 2027, 2028 and 2029, in `subtotals.distributed82b`; R in `immediate` (9,996.00). | §43, §44 |
+| **The retained deposit** | Its meaning: `counts`, `taxYear` 2028, `amount` 300.00, the PropertyReference of its Tenant's reconciled rent, `UNCLASSIFIED`/`NEEDS_REVIEW` by default; classified, it is the one item of `RETAINED_DEPOSIT_DAMAGES` in 2028, dated 2028-01-31. | §42, §44 |
+| **The tax-year view per property** | **2027:** Einnahmen 13,284.01 (`RENT` 10,800.00, `OPERATING_COST_ADVANCES` 2,400.00, `REFUNDS_OF_EARLIER_YEARS` 84.01); Werbungskosten 19,835.48 (`LOAN_INTEREST` 2,449.48, `WEG_HAUSGELD` 3,000.00, `WEG_SPENDING` 3,200.00, `MAINTENANCE` 11,186.00); result −6,551.47 `LOSS`, `BEFORE_DEPRECIATION`, AfA `DEPRECIATION_NOT_AVAILABLE`, `final` false; every other line 0.00; nothing capitalised, unclassified or not attributed. **2028:** Einnahmen 300.00 (`RETAINED_DEPOSIT_DAMAGES`), Werbungskosten 1,190.00 (`MAINTENANCE`), result −890.00. **2029:** Werbungskosten 1,190.00, result −1,190.00. | §44 |
+| **… and per owner** | **2027:** A Einnahmen 7,970.41 (6,480.00, 1,440.00, 50.41), Werbungskosten 11,901.28 (1,469.68, 1,800.00, 1,920.00, 6,711.60), result −3,930.87; B 5,313.60 (4,320.00, 960.00, 33.60), 7,934.20 (979.80, 1,200.00, 1,280.00, 4,474.40), result −2,620.60. Each interest debit 367.42 for A and 244.95 for B; the refund 50.41 (share `3/5`) and 33.60. A's and B's own views (`?ownerPartyId=`) equal their entries in `owners`. **2028:** A 180.00 − 714.00 = −534.00, B 120.00 − 476.00 = −356.00. A + B = the property for every line, total and the result, to the cent; `notOwned` null. | §44 |
+| **Every figure traceable** | In the views of 2027 (both levels) and 2028: each line equals the sum of its items' `lineAmount`s and its `itemCount` their number, each section the sum of its lines, the result Einnahmen − Werbungskosten; every item names its source and a rule listed in `ruleVersions`; the items of 2027 in all places are exactly §55's list of 2027. | §44 |
+| **No cash mutated** | The view runs one `start transaction isolation level repeatable read read only` and no `INSERT`, `UPDATE` or `DELETE` (the pool's SQL recorded during the call); every row and version of the tables of §58C and the AuditRecord count are unchanged by the views. | §44 |
+| **Every stored rule reference resolves** | The start check (`checkStoredRuleReferences`) passes after the scenario, with `DE_82B_DISTRIBUTION@1`, `DE_CATEGORY_DEFAULTS@1`, `DE_WEG_SPENDING@1`. | §41 |
+| **Realm isolation** across Phase 7 | Realm B calls **every route of §55–§58C** with Realm A's ids, one or more rows each in a table ACC7 iterates and compares with the routes the app serves (a new route without a row turns ACC7 red): `404 NOT_FOUND` for every meaning read, the per-year list, the view (with and without `ownerPartyId`), the check, a classification create naming each of the four source types, the history of each source type, a classification read and its three steps, a `RentalContractReference` read and amend; `200` with the same registry for `GET /tax-rules` and `GET /tax-rules/{ruleCode}` (not Realm-scoped, §58); `200` with an empty list for `GET /rental-contract-references?mreTenantId=`; `422 MRE_TENANT_NOT_FOUND` for a `RentalContractReference` create naming Realm A's Tenant (a create names an MRE id, which Realm B's MRE does not know). After every row Realm A's classifications, references and all the rows of the scenario are unchanged, and the AuditRecord count too. | §41–§44 |
+
+**Counter-checks** within ACC7 (phase-7-plan §2 item 5), each an assertion that the system refuses or excludes the thing:
+- **a reserve contribution counted when paid:** the twelve reserve splits and the Sonderumlage payment are in `notInView` (`NOT_RELEVANT`, `lineAmount` null), `WEG_HAUSGELD` is 3,000.00, and a classification as Werbungskosten is `422`;
+- **principal or a deposit counted:** the four principal splits are in `notInView`, never summed; the deposit's cash, whose splits name the deposit and so carry no PropertyReference (0038), is in no place of any view; classifying either is `422`;
+- **a WEG cost line counted on top of the Hausgeld:** the statement appears in the view once, as its withdrawal (`WEG_RESERVE_WITHDRAWAL`, position 1); its cost lines (3,000.00) are in no place, and `WEG_HAUSGELD` is the Hausgeld paid;
+- **a classification that changes a split:** every row (with its `version`) of `ledger_transaction`, `transaction_split`, `security_deposit`, `weg_annual_statement`, `weg_special_assessment`, `acquisition`, `land_building_allocation`, `ownership` and `rental_contract_reference` is the same after all of ACC7's Phase-7 commands as before them; the repair's Transaction still has its one `MAINTENANCE` split of 9,996.00;
+- **a figure without its items:** the traceability check above.
+
+**Mutations** that turn ACC7 red (each applied alone, ACC7 run, the code restored):
+- the 15 % comparison `>` made `>=` (the step at exactly 12,600.00 reads `ABOVE_THRESHOLD`);
+- the per-owner parts floored with the rest dropped (A + B ≠ the property: 84.00 against 84.01), and the parts handed to the wrong owner;
+- `WEG_RESERVE_CONTRIBUTION` defaulting to `WEG_HAUSGELD`/`DEDUCTIBLE` (the `WEG_FUNDS` rule); `LOAN_PRINCIPAL` defaulting to `LOAN_INTEREST`/`DEDUCTIBLE`;
+- the 10-day rule never moving a year, and its window shortened to 3 days in January (December's rent then counts in 2028);
+- the deposit's retained amount doubled in its meaning;
+- `.setAccessMode('read only')` dropped from the view's snapshot;
+- a classification bumping its Transaction's `version` (refused by the frozen guard: `500`), and one bumping the deposit's `version` (the facts snapshot);
+- a line's first item dropped from the response (`itemCount` and the sum against `total`);
+- the Realm filter dropped from the view's PropertyReference read (Realm B's view `200`).
+
+**Gaps found by VC-7-05 and filled:**
+- a deposit classification, its supersede and its §57 steps never changing the deposit or its cash: TYR "nothing else written (VC-7-05) …" (repository level; the deposit's no-op lock write made `version + 1` passed every other test of §42 and §44, only ACC7 and this test turn red);
+- a use classification, a capitalisation on the check and their §57 steps never changing the assessment, the Acquisition or the allocation: TWR "nothing else written (VC-7-05) …" (§58B's test list names all three, but VC-7-03's test checked the statement only; the assessment was covered only indirectly, through the version checks of `PUT …/uses`, the Acquisition and its allocation not at all);
+- end to end: exactly 15 % not above, the start check after a scenario, the view's read-only transaction observed on the wire, and Realm isolation on every Phase-7 route in one table (ACC7).
+
+**Not expressible through the API, and how ACC7 stands in:**
+- **Interest of a `Loan`.** A split with a `loanId` carries no PropertyReference (0027: a Loan reaches its properties through its allocation, §41.3), and the view reads the splits of its PropertyReference only (§58C). So interest booked against a Loan reaches no tax-year view, also not through its `LoanAllocation`. ACC7 books the interest and the principal on the PropertyReference without a `loanId`. Allocating a Loan's interest to the views is open: backlog VC-X-29.
+- **The AfA figure** is Phase 8's (P7-D8, ACC8): ACC7 asserts the block `DEPRECIATION_NOT_AVAILABLE` and the result `BEFORE_DEPRECIATION`.
+- **A deposit received on the PropertyReference.** A split naming a deposit carries no PropertyReference (0038), so "principal or a deposit counted" is shown by the deposit's absence from every view and the refusal of its classification, not by a `notInView` entry.
 
 ## Keeping this current
 

@@ -115,6 +115,8 @@ Scope: Werbungskosten classification, acquisition-cost classification, umlagefä
 
 **Exit:** a tax-year view derives Einkünfte aus Vermietung und Verpachtung from classified cash + AfA, every figure traceable, no cash mutated.
 
+**Status:** met for classified cash by ACC7 (`phase-7-acceptance.e2e.test.ts`, invariant-suite §45); the AfA figure follows with Phase 8 (P7-D8, ACC8).
+
 ## Phase 8 — Depreciation (AfA)
 
 **Goal:** derived depreciation schedules (ADR — depreciation is derived).
