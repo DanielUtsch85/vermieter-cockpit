@@ -4489,6 +4489,10 @@ GET  /api/v1/transaction-splits/{splitId}/tax-meaning         (VC-7-02: + taxYea
 GET  /api/v1/security-deposits/{depositId}/tax-meaning        (VC-7-02, §58A: the retained amount at closing)
 POST /api/v1/tax-classifications                              (VC-7-02: taxYear, refundOfYear; sourceType DEPOSIT_CLOSING)
 POST /api/v1/weg-memberships/{id}/economic-plans              (VC-7-02: + advanceDueDay, §49.5)
+POST /api/v1/rental-contract-references                       (VC-7-02, §58A: a minimal RentalContractReference)
+GET  /api/v1/rental-contract-references/{id}                  (VC-7-02, §58A)
+GET  /api/v1/rental-contract-references?mreTenantId=          (VC-7-02, §58A)
+POST /api/v1/rental-contract-references/{id}/amend            (VC-7-02, §58A)
 ```
 
 ### The tax year of a split (P7-D3)
@@ -4505,7 +4509,7 @@ POST /api/v1/weg-memberships/{id}/economic-plans              (VC-7-02: + advanc
 
 | Category | Economic period | Due date | When it is assumed |
 |---|---|---|---|
-| `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` | the month of the MRE term of the Transaction's `CONFIRMED` `RentPaymentReconciliation` (§37.1, `mreRentTerm`) | the term's first day | always (see the question below), flagged `DUE_DATE_ASSUMED` |
+| `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` | the month of the MRE term of the Transaction's `CONFIRMED` `RentPaymentReconciliation` (§37.1, `mreRentTerm`) | day `rentDueDay` of that month, from the `RentalContractReference` of the reconciliation's `mreTenantId` (below) | no reference, or no `rentDueDay`: the term's first day, flagged `DUE_DATE_ASSUMED` |
 | `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` | the month whose due date (below) is nearest to the booking date | day `advanceDueDay` of that month, by the plan used (P6-D4, §49.6) | the plan has no `advanceDueDay`: day 1, flagged `DUE_DATE_ASSUMED` |
 | `LOAN_INTEREST` | the interest period of the schedule entry (§41.4) whose due date is nearest to the booking date, of the split's `loanId` | that entry's due date | never; without a `loanId` or a schedule the booking year applies |
 
@@ -4553,8 +4557,9 @@ POST /api/v1/weg-memberships/{id}/economic-plans              (VC-7-02: + advanc
   - `tax_classification_source_counts` covers the deposit (closed and retained > 0, after its no-op write);
   - `tax_classification_treatment` covers the deposit's lines;
   - one current classification per deposit (partial unique index).
+- **`rental_contract_reference`:** the fields above, `UNIQUE (mre_realm_id, mre_tenant_id)`, `CHECK (rent_due_day BETWEEN 1 AND 31)`, and a frozen guard (Realm, Tenant and creation never change; `version` + 1; no delete).
 - **`weg_economic_plan.advance_due_day`:** smallint, `CHECK (advance_due_day BETWEEN 1 AND 31)`, nullable. The plan's frozen guard keeps it fixed.
-- `down` restores 0045 and drops the column.
+- `down` restores 0045, drops the column and the table.
 
 ### Tests (VC-7-02)
 
@@ -4562,31 +4567,45 @@ POST /api/v1/weg-memberships/{id}/economic-plans              (VC-7-02: + advanc
   - the window's edges (22.12., 10.01.; 21.12. and 11.01. outside);
   - each source's economic period and due date, including "nearest" and its tie;
   - the assumed due date;
-  - the reviewer's example (rent due on 15 January, paid on 28 December → year of payment) through a classification's `taxYear`, since rent has no recorded due day in VC-7-02;
+  - the reviewer's example of #156: rent due on 15 January (`rentDueDay` 15), paid on 28 December → the due date is outside the window, so the year of payment;
   - refunds of the same, an earlier and an unknown year;
   - the retained deposit's lines and treatments.
 - **Repository:**
   - the per-year list across the year-end in both directions;
   - an override, and `TAX_YEAR_OUT_OF_RANGE`;
   - deposit classifications, with `reopen` stopping them;
+  - the `RentalContractReference`: create with its order of checks (MRE Tenant unknown, `RENTAL_CONTRACT_REFERENCE_EXISTS`), replay, amend with its no-op and `If-Match`, the reads;
   - every new guard past the repository;
   - `down`.
 - **Concurrency:** a deposit classification against a `reopen`, RC and RR, both orders, with a counter-check.
 - **End to end:**
-  - a January rent paid on 29 December and matched to its January term → counted in January's year with `DUE_DATE_ASSUMED`;
+  - a January rent paid on 29 December and matched to its January term: without a reference counted in January's year with `DUE_DATE_ASSUMED`; with `rentDueDay` 3 the same, without the flag; with `rentDueDay` 15 in December's year;
   - a Hausgeld debit on 30 December, from a plan with `advanceDueDay` 1;
   - interest due on 2 January and debited on 30 December;
   - a refund of an earlier year;
   - a retained deposit classified as rent compensation;
-  - Realm isolation on the new routes.
+  - Realm isolation on the new routes, the four of `RentalContractReference` included.
 
-### Open question for the review
+### The minimal `RentalContractReference` (data-model §11; decided in the review on #159)
 
-**Where the rent's due day lives.**
-- MRE's lease has no due day: its `Lease` has `numberOfTerms` and `timeRange` only (checked in MRE's `services/common/src/collections/lease.ts`).
-- `RentalContractReference` (data-model §11) is not implemented: every `rentalContractReferenceId` is still `400 NOT_SUPPORTED` (§30.2, §33.2).
-- **Proposal:** VC-7-02 records no rent due day. Rent always takes its term's first day, flagged `DUE_DATE_ASSUMED`, and the user can override per split with `taxYear`. The field comes with a `RentalContractReference` once a second need for that entity appears, so the entity is not created for one field.
-- **Alternative:** create a minimal `RentalContractReference` now (Realm, `mreTenantId`, `rentDueDay`), with its own create and amend.
+MRE's lease carries no due day (its `Lease` has `numberOfTerms` and `timeRange` only), so DE records the one fact it needs on the DE-side reference to the concrete rental relationship. VC-7-02 builds only what the due day needs; the other fields of data-model §11 follow when a need appears.
+
+- **Fields:**
+  - `rentalContractReferenceId`, `mreRealmId`, `mreTenantId` (24 hex characters, as §47.1);
+  - `rentDueDay`: optional, 1–31, the day of the month the rent falls due under the lease; in a shorter month it means the month's last day;
+  - `notes` (≤ 2000), `sourceReferences` (≤ 10, each 1–500), `createdAt`, `version`.
+- **One reference per MRE Tenant and Realm** (unique index). A second create for the same Tenant → `409 CONFLICT` with `reason = "RENTAL_CONTRACT_REFERENCE_EXISTS"` and `details.rentalContractReferenceId`.
+- **Create** (`POST /rental-contract-references`, `201`, `Idempotency-Key` scope `rental-contract-reference.create`).
+  - **Order of checks:** `400` → the MRE Tenant read live with the caller's token, as §47.1 does (unknown in the Realm → `422 MRE_TENANT_NOT_FOUND` with `details.mreTenantId`; MRE unavailable → `503`) → `RENTAL_CONTRACT_REFERENCE_EXISTS`.
+  - The MRE call happens before the transaction, as §47.1's.
+- **Amend** (`POST …/{id}/amend`, `If-Match`): `rentDueDay`, `notes`, `sourceReferences`; the same values → `200` no-op. `mreTenantId` never changes. A changed `rentDueDay` changes the tax year of rent derived on read; nothing is stored per split.
+- **Reads:**
+  - `GET /rental-contract-references/{id}` with `ETag`;
+  - `GET /rental-contract-references?mreTenantId=`: the reference of one Tenant, or an empty list;
+  - unknown or foreign ids → `404`.
+- **AuditRecords:** `CREATED`, `AMENDED` (the changed fields).
+- **No void, no MRE write, no Party link** in VC-7-02. A wrong `mreTenantId` cannot be corrected; the reference stays, and its `rentDueDay` can be cleared.
+- **Elsewhere, `rentalContractReferenceId` stays `400 NOT_SUPPORTED`** (§30.2, §33.2). Lifting it on Transactions and splits is a later item.
 
 ---
 

@@ -577,6 +577,8 @@ The concrete relationship is primarily represented by the MRE Tenant together wi
 - DE domains must not infer that one MRE Tenant record is permanently identical to one canonical Party.
 - MRE rent terms and operational payment records are referenced or reconciled, not duplicated as canonical cash data.
 
+**VC-7-02 (api-design §58A, spec):** a minimal implementation: `rentalContractReferenceId`, `mreRealmId`, `mreTenantId` (one reference per Tenant and Realm) and the DE-owned `rentDueDay` (1–31, optional; MRE's lease carries no due day). It feeds the tax year of rent (P7-D3). The other optional fields above come when a need appears.
+
 ---
 
 # 12. Ownership
