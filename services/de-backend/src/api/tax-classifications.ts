@@ -2,21 +2,25 @@ import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
   CREATE_REVIEW_STATES,
-  LATER_TAX_CATEGORIES,
-  LATER_TREATMENTS,
   ORIGINS,
   REVIEW_STATES,
   SOURCE_TYPES,
-  SUPPORTED_SOURCE_TYPES,
   TAX_CATEGORIES,
   TREATMENTS,
+  WEG_SOURCE_TYPES,
+  isErhaltungLine,
   treatmentFits,
+  type AnschaffungsnaheCheck,
+  type CheckEntry,
   type CreateTaxClassification,
   type DepositTaxMeaning,
+  type Distribution,
+  type GetAnschaffungsnaheCheck,
   type GetDepositTaxMeaning,
   type GetTaxClassification,
   type GetTaxMeaning,
   type GetTaxRule,
+  type GetWegTaxMeaning,
   type ListTaxClassificationHistory,
   type ListTaxMeanings,
   type ListTaxRules,
@@ -26,8 +30,9 @@ import {
   type TaxListItem,
   type TaxMeaning,
   type TaxRuleView,
+  type WegTaxMeaning,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, MoneyError } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
 import { RESOURCE_ID, fieldErrors, integerIn, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -37,14 +42,36 @@ const uuid = z
   .regex(RESOURCE_ID)
   .transform((id) => id.toLowerCase());
 
-const notSupported = (path: string, ctx: z.RefinementCtx) => ctx.addIssue({ code: 'custom', path: [path], params: { code: 'NOT_SUPPORTED' } });
+const issue = (ctx: z.RefinementCtx, path: string, code: string) => ctx.addIssue({ code: 'custom', path: [path], params: { code } });
 const has = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value);
 
-/** Fields of a later item (VC-7-03): accepted by name, answered `400 NOT_SUPPORTED` (§55). */
-const LATER_FIELDS = ['netAmount', 'annuallyRecurring', 'distributionYears'] as const;
-/** VC-7-02's years (§58A): a split's only; a deposit's tax year is its closing date's. */
-const SPLIT_ONLY_FIELDS = ['taxYear', 'refundOfYear'] as const;
 const taxYear = integerIn(2000, 2100);
+/** A reserve line's or a use's `position` (§58B). */
+const position = integerIn(1, 1000);
+
+/** `netAmount` (§58B): Money in EUR, > 0, at most two decimals (`INVALID_FORMAT`). */
+const netAmount = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
+  try {
+    const parsed = Money.of(value.amount, value.currency);
+    if (parsed.currency !== 'EUR') {
+      ctx.addIssue({ code: 'custom', path: ['currency'], params: { code: 'CURRENCY_MISMATCH' } });
+      return z.NEVER;
+    }
+    if (!parsed.isPositive()) {
+      ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NOT_POSITIVE' } });
+      return z.NEVER;
+    }
+    return parsed;
+  } catch (error) {
+    if (!(error instanceof MoneyError)) throw error;
+    ctx.addIssue({
+      code: 'custom',
+      path: error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'],
+      params: { code: error.code === 'UNSUPPORTED_CURRENCY' ? 'UNSUPPORTED_CURRENCY' : 'INVALID_FORMAT' },
+    });
+    return z.NEVER;
+  }
+});
 
 const createBody = z
   .object({
@@ -58,22 +85,42 @@ const createBody = z
     sourceReferences: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
     taxYear: taxYear.nullish(),
     refundOfYear: taxYear.nullish(),
-    netAmount: z.unknown().optional(),
-    annuallyRecurring: z.unknown().optional(),
-    distributionYears: z.unknown().optional(),
+    // VC-7-03 (§58B).
+    sourcePosition: position.nullish(),
+    netAmount: netAmount.nullish(),
+    annuallyRecurring: z.boolean().optional(),
+    distributionYears: integerIn(2, 5).nullish(),
+    mostlyResidentialConfirmed: z.boolean().nullish(),
+    anschaffungsnaheAcquisitionId: uuid.nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {
-    for (const field of LATER_FIELDS) if (body[field] !== undefined) notSupported(field, ctx);
+    const given = (value: unknown) => value !== undefined && value !== null;
+    const weg = has(WEG_SOURCE_TYPES, body.sourceType);
     if (body.sourceType === 'DEPOSIT_CLOSING') {
-      for (const field of SPLIT_ONLY_FIELDS) if (body[field] !== undefined && body[field] !== null) notSupported(field, ctx);
+      for (const field of ['taxYear', 'refundOfYear'] as const) if (given(body[field])) issue(ctx, field, 'NOT_SUPPORTED');
     }
-    if (body.sourceType !== undefined && !has(SUPPORTED_SOURCE_TYPES, body.sourceType)) notSupported('sourceType', ctx);
-    if (has(LATER_TAX_CATEGORIES, body.taxCategory)) notSupported('taxCategory', ctx);
-    if (has(LATER_TREATMENTS, body.treatment)) notSupported('treatment', ctx);
-    else if (body.taxCategory !== undefined && body.treatment !== undefined && !treatmentFits(body.taxCategory, body.treatment)) {
-      ctx.addIssue({ code: 'custom', path: ['treatment'], params: { code: 'TAX_CATEGORY_TREATMENT_MISMATCH' } });
+    // A withdrawal or a use is never a refund; a use has its own date, so no taxYear (§58B).
+    if (weg && given(body.refundOfYear)) issue(ctx, 'refundOfYear', 'NOT_SUPPORTED');
+    if (body.sourceType === 'WEG_ASSESSMENT_USE' && given(body.taxYear)) issue(ctx, 'taxYear', 'NOT_SUPPORTED');
+    if (body.sourceType !== undefined) {
+      if (weg && !given(body.sourcePosition)) issue(ctx, 'sourcePosition', 'REQUIRED');
+      if (!weg && given(body.sourcePosition)) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
     }
+    const category = body.taxCategory;
+    if (category === undefined || body.treatment === undefined) return;
+    const erhaltung = isErhaltungLine(category);
+    if (given(body.netAmount) && !erhaltung) issue(ctx, 'netAmount', 'NOT_ALLOWED_WITH_TAX_CATEGORY');
+    if (body.annuallyRecurring === true && !erhaltung) issue(ctx, 'annuallyRecurring', 'NOT_ALLOWED_WITH_TAX_CATEGORY');
+    const election = body.treatment === 'DISTRIBUTED_82B';
+    for (const field of ['distributionYears', 'mostlyResidentialConfirmed'] as const) {
+      if (election && !given(body[field])) issue(ctx, field, 'REQUIRED');
+      if (!election && given(body[field])) issue(ctx, field, 'NOT_ALLOWED_WITH_TREATMENT');
+    }
+    if (given(body.anschaffungsnaheAcquisitionId) && !(body.treatment === 'CAPITALIZED' && erhaltung)) {
+      issue(ctx, 'anschaffungsnaheAcquisitionId', 'NOT_ALLOWED_WITH_TREATMENT');
+    }
+    if (!treatmentFits(category, body.treatment)) issue(ctx, 'treatment', 'TAX_CATEGORY_TREATMENT_MISMATCH');
   });
 
 const emptyBody = z.object({}).strict().optional();
@@ -82,11 +129,15 @@ const advisorBody = z
   .strict()
   .optional();
 const markBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+const queryPosition = z.coerce.number().int().min(1).max(1000);
 const historyQuery = z
-  .object({ sourceType: z.enum(SOURCE_TYPES), sourceId: uuid })
+  .object({ sourceType: z.enum(SOURCE_TYPES), sourceId: uuid, sourcePosition: queryPosition.optional() })
   .strict()
   .superRefine((query, ctx) => {
-    if (query.sourceType !== undefined && !has(SUPPORTED_SOURCE_TYPES, query.sourceType)) notSupported('sourceType', ctx);
+    if (query.sourceType === undefined) return;
+    const weg = has(WEG_SOURCE_TYPES, query.sourceType);
+    if (weg && query.sourcePosition === undefined) issue(ctx, 'sourcePosition', 'REQUIRED');
+    if (!weg && query.sourcePosition !== undefined) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
   });
 const csv = <T extends readonly [string, ...string[]]>(values: T) =>
   z
@@ -100,6 +151,7 @@ const meaningsQuery = z
     reviewState: csv(REVIEW_STATES),
     origin: csv(ORIGINS),
     taxCategory: csv(TAX_CATEGORIES),
+    sourceType: csv(SOURCE_TYPES),
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(50),
   })
@@ -113,12 +165,23 @@ export interface TaxationCommands {
   readonly taxMeaning: GetTaxMeaning;
   /** VC-7-02 (§58A): the retained deposit's meaning. */
   readonly depositTaxMeaning: GetDepositTaxMeaning;
+  /** VC-7-03 (§58B): a reserve withdrawal's and a use's meaning, and the anschaffungsnahe check. */
+  readonly withdrawalTaxMeaning: GetWegTaxMeaning;
+  readonly useTaxMeaning: GetWegTaxMeaning;
+  readonly anschaffungsnahe: GetAnschaffungsnaheCheck;
   readonly taxMeanings: ListTaxMeanings;
   readonly listRules: ListTaxRules;
   readonly getRule: GetTaxRule;
 }
 
-/** Tax classification and tax rules API (api-design.md §55–§58A, backlog VC-7-01, VC-7-02). */
+/** A position in a path (§58B): an integer 1–1000, else `400` at `position`. */
+function readPosition(value: string | undefined, res: Response): number | undefined {
+  if (value !== undefined && /^[1-9]\d{0,3}$/.test(value) && Number(value) <= 1000) return Number(value);
+  sendValidationError(res, [{ field: 'position', code: 'INVALID_FORMAT' }]);
+  return undefined;
+}
+
+/** Tax classification and tax rules API (api-design.md §55–§58B, backlog VC-7-01, VC-7-02, VC-7-03). */
 export function taxationRoutes(commands: TaxationCommands): Router {
   const router = express.Router();
 
@@ -154,6 +217,36 @@ export function taxationRoutes(commands: TaxationCommands): Router {
       .catch(next);
   });
 
+  /** §58B: the two WEG sources, by their row and position; no `ETag` (a derived read). */
+  const wegRoute = (path: string, idParam: string, read: GetWegTaxMeaning) =>
+    router.get(path, (req, res, next) => {
+      const sourceId = readId(req.params[idParam], idParam, res);
+      if (sourceId === undefined) return;
+      const at = readPosition(req.params['position'], res);
+      if (at === undefined) return;
+      read({ principal: principalOf(res), sourceId, position: at })
+        .then((meaning) => res.json(wegMeaningDto(meaning)))
+        .catch(next);
+    });
+  wegRoute('/weg-annual-statements/:statementId/reserve-withdrawals/:position/tax-meaning', 'statementId', (input) =>
+    commands.withdrawalTaxMeaning(input),
+  );
+  wegRoute('/weg-special-assessments/:assessmentId/uses/:position/tax-meaning', 'assessmentId', (input) => commands.useTaxMeaning(input));
+
+  router.get('/acquisitions/:acquisitionId/anschaffungsnahe-herstellungskosten', (req, res, next) => {
+    const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
+    if (acquisitionId === undefined) return;
+    const query = z.object({}).strict().safeParse(req.query);
+    if (!query.success) {
+      sendValidationError(res, fieldErrors(query.error));
+      return;
+    }
+    commands
+      .anschaffungsnahe({ principal: principalOf(res), acquisitionId })
+      .then((check) => res.json(checkDto(check)))
+      .catch(next);
+  });
+
   router.get('/property-references/:propertyReferenceId/tax-meanings', (req, res, next) => {
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
@@ -162,7 +255,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
       sendValidationError(res, fieldErrors(parsed.error));
       return;
     }
-    const { year, reviewState, origin, taxCategory, page, pageSize } = parsed.data;
+    const { year, reviewState, origin, taxCategory, sourceType, page, pageSize } = parsed.data;
     commands
       .taxMeanings({
         principal: principalOf(res),
@@ -172,6 +265,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
           reviewStates: reviewState,
           origins: origin,
           taxCategories: taxCategory,
+          sourceTypes: sourceType,
         }),
         page: { page, pageSize },
       })
@@ -191,7 +285,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
     commands
       .create({
         principal: principalOf(res),
-        sourceType: body.sourceType === 'DEPOSIT_CLOSING' ? 'DEPOSIT_CLOSING' : 'TRANSACTION_SPLIT',
+        sourceType: body.sourceType,
         sourceId: body.sourceId,
         taxCategory: body.taxCategory,
         treatment: body.treatment,
@@ -201,6 +295,15 @@ export function taxationRoutes(commands: TaxationCommands): Router {
         sourceReferences: body.sourceReferences ?? [],
         taxYear: body.taxYear ?? null,
         refundOfYear: body.refundOfYear ?? null,
+        // §58B's fields only when given: a body without them keeps the request (and fingerprint) of VC-7-02.
+        ...definedOnly({
+          sourcePosition: body.sourcePosition ?? undefined,
+          netAmount: body.netAmount ?? undefined,
+          annuallyRecurring: body.annuallyRecurring,
+          distributionYears: body.distributionYears ?? undefined,
+          mostlyResidentialConfirmed: body.mostlyResidentialConfirmed ?? undefined,
+          anschaffungsnaheAcquisitionId: body.anschaffungsnaheAcquisitionId ?? undefined,
+        }),
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
       .then(({ classification, replayed }) => {
@@ -218,7 +321,12 @@ export function taxationRoutes(commands: TaxationCommands): Router {
       return;
     }
     commands
-      .history({ principal: principalOf(res), sourceType: parsed.data.sourceType, sourceId: parsed.data.sourceId })
+      .history({
+        principal: principalOf(res),
+        sourceType: parsed.data.sourceType,
+        sourceId: parsed.data.sourceId,
+        sourcePosition: parsed.data.sourcePosition ?? null,
+      })
       .then((items) => res.json({ items: items.map(classificationDto) }))
       .catch(next);
   });
@@ -277,21 +385,32 @@ function sendClassification(res: Response, classification: TaxClassification): v
   res.json(classificationDto(classification));
 }
 
+const ref = (r: { readonly ruleCode: string; readonly version: number } | null) => (r === null ? null : { ruleCode: r.ruleCode, version: r.version });
+
 function classificationDto(c: TaxClassification) {
   return {
     classificationId: c.id,
     sourceType: c.sourceType,
     sourceId: c.sourceId,
+    sourcePosition: c.sourcePosition,
     taxCategory: c.taxCategory,
     treatment: c.treatment,
     reviewState: c.reviewState,
     rule: { ruleCode: c.rule.ruleCode, version: c.rule.version },
+    treatmentRule: ref(c.treatmentRule),
     advisorPartyId: c.advisorPartyId,
     notes: c.notes,
     sourceReferences: c.sourceReferences,
     taxYear: c.taxYear,
     refundOfYear: c.refundOfYear,
     depositClosing: c.depositClosing === null ? null : { closingDate: c.depositClosing.closingDate, retainedAmount: c.depositClosing.retainedAmount.toJSON() },
+    reserveWithdrawal: c.reserveWithdrawal === null ? null : { unitShare: c.reserveWithdrawal.unitShare.toJSON() },
+    assessmentUse: c.assessmentUse === null ? null : { date: c.assessmentUse.date, unitShare: c.assessmentUse.unitShare.toJSON() },
+    netAmount: c.netAmount?.toJSON() ?? null,
+    annuallyRecurring: c.annuallyRecurring,
+    distributionYears: c.distributionYears,
+    mostlyResidentialConfirmed: c.mostlyResidentialConfirmed,
+    anschaffungsnaheAcquisitionId: c.anschaffungsnaheAcquisitionId,
     supersedes: c.supersedes,
     supersededBy: c.supersededBy,
     supersededAt: c.supersededAt?.toISOString() ?? null,
@@ -301,21 +420,32 @@ function classificationDto(c: TaxClassification) {
   };
 }
 
-/** Money in details as JSON; everything else as it is. */
-const detailsDto = (details: object) =>
-  Object.fromEntries(Object.entries(details).map(([key, value]) => [key, value instanceof Money ? value.toJSON() : (value as unknown)]));
+/** Money anywhere in a value as its JSON (`{ amount, currency }`), everything else as it is. */
+const plain = (value: unknown): unknown => (value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as unknown));
+const flagsDto = (flags: readonly { readonly code: string; readonly details: unknown }[]) => flags.map((f) => ({ code: f.code, details: plain(f.details) }));
 
-const itemDto = (item: TaxListItem) => (item.sourceType === 'DEPOSIT_CLOSING' ? depositMeaningDto(item) : meaningDto(item));
+function distributionDto(d: Distribution | null) {
+  return d === null
+    ? null
+    : { years: d.years, firstYear: d.firstYear, parts: d.parts.map((p) => ({ year: p.year, amount: p.amount.toJSON() })), endYear: d.endYear, rule: ref(d.rule) };
+}
+
+const itemDto = (item: TaxListItem) => ({
+  ...(item.sourceType === 'DEPOSIT_CLOSING' ? depositMeaningDto(item) : item.sourceType === 'TRANSACTION_SPLIT' ? meaningDto(item) : wegMeaningDto(item)),
+  yearAmount: item.yearAmount.toJSON(),
+});
 
 function meaningDto(m: TaxMeaning) {
   return {
     sourceType: m.sourceType,
     sourceId: m.sourceId,
+    sourcePosition: null,
     splitId: m.splitId,
     transactionId: m.transactionId,
     bookingDate: m.bookingDate,
     direction: m.direction,
     amount: m.amount.toJSON(),
+    netAmount: m.netAmount?.toJSON() ?? null,
     financialCategoryCode: m.financialCategoryCode,
     propertyReferenceId: m.propertyReferenceId,
     counts: m.counts,
@@ -323,11 +453,12 @@ function meaningDto(m: TaxMeaning) {
     treatment: m.treatment,
     reviewState: m.reviewState,
     origin: m.origin,
-    rule: m.rule === null ? null : { ruleCode: m.rule.ruleCode, version: m.rule.version },
+    rule: ref(m.rule),
+    treatmentRule: ref(m.treatmentRule),
     classificationId: m.classificationId,
     taxYear: m.taxYear,
     attribution: {
-      rule: m.attribution.rule === null ? null : { ruleCode: m.attribution.rule.ruleCode, version: m.attribution.rule.version },
+      rule: ref(m.attribution.rule),
       bookingYear: m.attribution.bookingYear,
       proposedYear: m.attribution.proposedYear,
       overridden: m.attribution.overridden,
@@ -336,7 +467,38 @@ function meaningDto(m: TaxMeaning) {
       m.refund === null
         ? null
         : { kind: m.refund.kind, ofYear: m.refund.ofYear, ofYearSource: m.refund.ofYearSource, presentation: m.refund.presentation, line: m.refund.line },
-    flags: m.flags.map((f) => ({ code: f.code, details: f.details })),
+    distribution: distributionDto(m.distribution),
+    suggestion: plain(m.suggestion),
+    flags: flagsDto(m.flags),
+  };
+}
+
+function wegMeaningDto(m: WegTaxMeaning) {
+  return {
+    sourceType: m.sourceType,
+    sourceId: m.sourceId,
+    sourcePosition: m.sourcePosition,
+    membershipId: m.membershipId,
+    propertyReferenceId: m.propertyReferenceId,
+    date: m.date,
+    dateSource: m.dateSource,
+    description: m.description,
+    amount: m.amount.toJSON(),
+    netAmount: m.netAmount?.toJSON() ?? null,
+    counts: m.counts,
+    notCountedReason: m.notCountedReason,
+    taxYear: m.taxYear,
+    attribution: { rule: null, proposedYear: m.attribution.proposedYear, overridden: m.attribution.overridden },
+    taxCategory: m.taxCategory,
+    treatment: m.treatment,
+    reviewState: m.reviewState,
+    origin: m.origin,
+    rule: ref(m.rule),
+    treatmentRule: ref(m.treatmentRule),
+    classificationId: m.classificationId,
+    distribution: distributionDto(m.distribution),
+    suggestion: plain(m.suggestion),
+    flags: flagsDto(m.flags),
   };
 }
 
@@ -344,6 +506,7 @@ function depositMeaningDto(m: DepositTaxMeaning) {
   return {
     sourceType: m.sourceType,
     sourceId: m.sourceId,
+    sourcePosition: null,
     securityDepositId: m.securityDepositId,
     status: m.status,
     closingDate: m.closingDate,
@@ -355,9 +518,56 @@ function depositMeaningDto(m: DepositTaxMeaning) {
     treatment: m.treatment,
     reviewState: m.reviewState,
     origin: m.origin,
-    rule: m.rule === null ? null : { ruleCode: m.rule.ruleCode, version: m.rule.version },
+    rule: ref(m.rule),
     classificationId: m.classificationId,
-    flags: m.flags.map((f) => ({ code: f.code, details: detailsDto(f.details) })),
+    flags: flagsDto(m.flags),
+  };
+}
+
+function entryDto(e: CheckEntry) {
+  return {
+    sourceType: e.sourceType,
+    sourceId: e.sourceId,
+    sourcePosition: e.sourcePosition,
+    date: e.date,
+    taxYear: e.taxYear,
+    taxCategory: e.taxCategory,
+    treatment: e.treatment,
+    reviewState: e.reviewState,
+    origin: e.origin,
+    classificationId: e.classificationId,
+    grossAmount: e.grossAmount.toJSON(),
+    netAmount: e.netAmount?.toJSON() ?? null,
+    amountUsed: e.amountUsed.toJSON(),
+    suggestedTreatment: e.suggestedTreatment,
+    reason: e.reason,
+    flags: flagsDto(e.flags),
+  };
+}
+
+function checkDto(c: AnschaffungsnaheCheck) {
+  return {
+    acquisitionId: c.acquisitionId,
+    propertyReferenceId: c.propertyReferenceId,
+    acquisitionStatus: c.acquisitionStatus,
+    transferDate: c.transferDate,
+    window: c.window,
+    acquiredShare: `${c.acquiredShare.numerator}/${c.acquiredShare.denominator}`,
+    rule: ref(c.rule),
+    status: c.status,
+    notComputableReason: c.notComputableReason,
+    basis: plain(c.basis),
+    thresholdPercent: c.thresholdPercent,
+    threshold: c.threshold === null ? null : { amount: c.threshold, currency: 'EUR' },
+    sum: c.sum.toJSON(),
+    attributableAmount: c.attributableAmount.toJSON(),
+    percentOfBasis: c.percentOfBasis,
+    sources: c.sources.map(entryDto),
+    excluded: c.excluded.map(entryDto),
+    unclassified: c.unclassified.map(entryDto),
+    affectedYears: c.affectedYears,
+    final: c.final,
+    flags: flagsDto(c.flags),
   };
 }
 

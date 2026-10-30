@@ -448,6 +448,8 @@ describe.skipIf(databaseUrl === undefined)('WEG splits and Wirtschaftsplan (§49
         // Dropping a table while another worker's Migrator introspects the database breaks it: hold the migration lock.
         // 0043 and 0042 build on 0041's functions: they go first.
         await withMigrationLock(async () => {
+          // 0047 (VC-7-03) refers to the WEG tables: it goes first.
+          await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);

@@ -256,11 +256,17 @@ describe.skipIf(databaseUrl === undefined)('Tax classification (VC-7-01) end to 
     expect(repairMeaning).toMatchObject({ taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', reviewState: 'SUGGESTED', classificationId: null });
     const reserveSplit = (byCode('WEG_RESERVE_CONTRIBUTION')[0] as Meaning).splitId;
     const purchaseSplit = (byCode('ACQUISITION')[0] as Meaning).splitId;
-    expect(await json(await A('GET', `/transaction-splits/${repairMeaning.splitId}/tax-meaning`), 200)).toEqual(repairMeaning);
+    // The list item adds the amount of the year (§58B); the single read is the same meaning otherwise.
+    const { yearAmount, ...single } = repairMeaning as Meaning & { yearAmount: unknown };
+    expect(yearAmount).toEqual({ amount: '1200.00', currency: 'EUR' });
+    expect(await json(await A('GET', `/transaction-splits/${repairMeaning.splitId}/tax-meaning`), 200)).toEqual(single);
     const rules = await json<{ items: { ruleCode: string; versions: { version: number; status: string }[] }[] }>(await A('GET', '/tax-rules'), 200);
     expect(rules.items.map((r) => [r.ruleCode, r.versions.map((v) => [v.version, v.status])])).toEqual([
+      ['DE_82B_DISTRIBUTION', [[1, 'ACTIVE']]],
+      ['DE_ANSCHAFFUNGSNAHE', [[1, 'ACTIVE']]],
       ['DE_CASH_TIMING', [[1, 'ACTIVE']]],
       ['DE_CATEGORY_DEFAULTS', [[1, 'ACTIVE']]],
+      ['DE_WEG_SPENDING', [[1, 'ACTIVE']]],
     ]);
     const before = await cash();
 

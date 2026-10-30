@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { loanSchedule } from '../../domains/financing/index.js';
-import type { CategoryType, Direction, TransactionStatus } from '../../domains/ledger/index.js';
+import { businessDayOf, type CategoryType, type Direction, type TransactionStatus } from '../../domains/ledger/index.js';
 import type { RentDueDay } from '../../domains/rental-contract-reference/index.js';
 import { retainedAmountOf, type DepositClosingReason } from '../../domains/security-deposit/index.js';
 import {
@@ -14,15 +14,23 @@ import {
   hausgeldTiming,
   interestTiming,
   needsTiming,
+  partOf,
   planClassification,
   planDepositClassification,
   planReview,
+  planWegClassification,
   rentTiming,
+  wegNotCounted,
+  wegSourceKey,
   widestWindowDays,
+  type AcquisitionFacts,
+  type AnschaffungsnaheCheck,
+  type CheckSource,
   type CorrectedOriginal,
   type CreateClassificationOutcome,
   type DepositFacts,
   type DepositTaxMeaning,
+  type Distribution,
   type NewTaxClassification,
   type ReviewClassificationOutcome,
   type ReviewStep,
@@ -43,6 +51,8 @@ import {
   type TaxYearInputs,
   type TimingInput,
   type Treatment,
+  type WegSourceFacts,
+  type WegTaxMeaning,
 } from '../../domains/taxation/index.js';
 import { Money, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
@@ -51,6 +61,18 @@ import { readLoanIn } from './loan-repository.js';
 import { periodsOf } from './loan-terms-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
+import {
+  acquisitionsOf,
+  baseWegMeaning,
+  checkRange,
+  checksOf,
+  ownershipsOf,
+  wegCheckSource,
+  wegContextOf,
+  withEffects,
+  type OwnershipSpan,
+  type WegContext,
+} from './tax-property-context.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_TYPE = 'TaxClassification';
@@ -64,11 +86,20 @@ const COLUMNS = [
   'source_type',
   'transaction_split_id',
   'security_deposit_id',
+  'weg_annual_statement_id',
+  'weg_reserve_position',
+  sql<string | null>`weg_withdrawal_unit_share::text`.as('weg_withdrawal_unit_share'),
+  'weg_special_assessment_id',
+  'weg_use_position',
+  sql<string | null>`to_char(weg_use_date, 'YYYY-MM-DD')`.as('weg_use_date'),
+  sql<string | null>`weg_use_unit_share::text`.as('weg_use_unit_share'),
   'tax_category',
   'treatment',
   'review_state',
   'rule_code',
   'rule_version',
+  'treatment_rule_code',
+  'treatment_rule_version',
   'advisor_party_id',
   'notes',
   'source_references',
@@ -76,6 +107,11 @@ const COLUMNS = [
   'refund_of_year',
   sql<string | null>`to_char(deposit_closing_date, 'YYYY-MM-DD')`.as('deposit_closing_date'),
   sql<string | null>`deposit_retained_amount::text`.as('deposit_retained_amount'),
+  sql<string | null>`net_amount::text`.as('net_amount'),
+  'annually_recurring',
+  'distribution_years',
+  'mostly_residential_confirmed',
+  'anschaffungsnahe_acquisition_id',
   'supersedes_id',
   'superseded_by',
   'superseded_at',
@@ -90,11 +126,20 @@ interface ClassificationRow {
   source_type: string;
   transaction_split_id: string | null;
   security_deposit_id: string | null;
+  weg_annual_statement_id: string | null;
+  weg_reserve_position: number | null;
+  weg_withdrawal_unit_share: string | null;
+  weg_special_assessment_id: string | null;
+  weg_use_position: number | null;
+  weg_use_date: string | null;
+  weg_use_unit_share: string | null;
   tax_category: string;
   treatment: string | null;
   review_state: string;
   rule_code: string;
   rule_version: number;
+  treatment_rule_code: string | null;
+  treatment_rule_version: number | null;
   advisor_party_id: string | null;
   notes: string | null;
   source_references: string[];
@@ -102,6 +147,11 @@ interface ClassificationRow {
   refund_of_year: number | null;
   deposit_closing_date: string | null;
   deposit_retained_amount: string | null;
+  net_amount: string | null;
+  annually_recurring: boolean;
+  distribution_years: number | null;
+  mostly_residential_confirmed: boolean | null;
+  anschaffungsnahe_acquisition_id: string | null;
   supersedes_id: string | null;
   superseded_by: string | null;
   superseded_at: Date | null;
@@ -134,6 +184,38 @@ interface SplitRead {
   readonly statementYear: number | null;
 }
 
+/** What a create writes besides the request: the rules and the source as classified. */
+interface Target {
+  readonly current: { readonly id: string; readonly version: number } | undefined;
+  readonly rule: RuleRef;
+  readonly treatmentRule: RuleRef | null;
+  readonly depositClosing: { readonly closingDate: BusinessDate; readonly retainedAmount: Money } | undefined;
+  readonly reserveWithdrawal: { readonly unitShare: Money } | null;
+  readonly assessmentUse: { readonly date: BusinessDate; readonly unitShare: Money } | null;
+}
+
+/** What the effects of §58B (the § 82b parts, the anschaffungsnahe check) read around a PropertyReference. */
+interface Effects {
+  readonly weg: WegContext;
+  readonly ownerships: readonly OwnershipSpan[];
+  readonly checks: readonly AnschaffungsnaheCheck[];
+}
+
+const EMPTY_WEG: WegContext = { facts: [], current: new Map(), twice: new Map(), confirmedStatements: [] };
+
+/** The source table of each source type, its column on the classification and (for a WEG source) the position column. */
+const SOURCE_TABLES = {
+  TRANSACTION_SPLIT: { table: 'transaction_split', column: 'transaction_split_id', position: null },
+  DEPOSIT_CLOSING: { table: 'security_deposit', column: 'security_deposit_id', position: null },
+  WEG_RESERVE_WITHDRAWAL: { table: 'weg_annual_statement', column: 'weg_annual_statement_id', position: 'weg_reserve_position' },
+  WEG_ASSESSMENT_USE: { table: 'weg_special_assessment', column: 'weg_special_assessment_id', position: 'weg_use_position' },
+} as const satisfies Record<SourceType, { table: string; column: string; position: string | null }>;
+
+/** On one date of the per-property list: splits, deposit closings, withdrawals, uses (§58B). */
+const RANK: Record<SourceType, number> = { TRANSACTION_SPLIT: 0, DEPOSIT_CLOSING: 1, WEG_RESERVE_WITHDRAWAL: 2, WEG_ASSESSMENT_USE: 3 };
+const dateOf = (m: TaxListItem): string =>
+  m.sourceType === 'TRANSACTION_SPLIT' ? m.bookingDate : m.sourceType === 'DEPOSIT_CLOSING' ? (m.closingDate as string) : m.date;
+
 class Rejected extends Error {
   constructor(readonly outcome: CreateClassificationOutcome) {
     super(outcome.kind);
@@ -141,9 +223,10 @@ class Rejected extends Error {
 }
 
 /**
- * PostgreSQL implementation of the TaxClassification port (api-design.md §55–§58A). A create writes its source first
- * (the split's Transaction, or the deposit; a no-op), then locks the current classification of the source (P7-D9);
- * §57's steps lock the classification row only. Nothing here writes a split, a Transaction or a deposit (ADR-006).
+ * PostgreSQL implementation of the TaxClassification port (api-design.md §55–§58B). A create writes its source first
+ * (the split's Transaction, the deposit, the statement or the assessment; a no-op), then locks the current
+ * classification of the source (P7-D9); §57's steps lock the classification row only. Nothing here writes a split, a
+ * Transaction, a deposit, a statement, an assessment or an Acquisition (ADR-006).
  */
 export class PostgresTaxClassificationRepository implements TaxClassificationRepository {
   constructor(
@@ -173,8 +256,14 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
           }
           if (!UUID.test(classification.sourceId)) throw new Rejected({ kind: 'SOURCE_NOT_FOUND' });
           const target =
-            classification.sourceType === 'DEPOSIT_CLOSING' ? await this.planDeposit(trx, classification) : await this.planSplit(trx, classification);
-          const { current, rule } = target;
+            classification.sourceType === 'DEPOSIT_CLOSING'
+              ? await this.planDeposit(trx, classification)
+              : classification.sourceType === 'WEG_RESERVE_WITHDRAWAL'
+                ? await this.planWithdrawal(trx, classification)
+                : classification.sourceType === 'WEG_ASSESSMENT_USE'
+                  ? await this.planUse(trx, classification)
+                  : await this.planSplit(trx, classification);
+          const { current, rule, treatmentRule } = target;
           const id = randomUUID();
           const now = new Date();
           if (current !== undefined) {
@@ -185,26 +274,42 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
               .where('id', '=', current.id)
               .execute();
           }
+          const type = classification.sourceType;
+          const position = type === 'WEG_RESERVE_WITHDRAWAL' || type === 'WEG_ASSESSMENT_USE' ? (classification.sourcePosition ?? null) : null;
           await trx
             .insertInto('tax_classification')
             .values({
               id,
               mre_realm_id: realm,
-              source_type: classification.sourceType,
-              transaction_split_id: classification.sourceType === 'TRANSACTION_SPLIT' ? classification.sourceId : null,
-              security_deposit_id: classification.sourceType === 'DEPOSIT_CLOSING' ? classification.sourceId : null,
+              source_type: type,
+              transaction_split_id: type === 'TRANSACTION_SPLIT' ? classification.sourceId : null,
+              security_deposit_id: type === 'DEPOSIT_CLOSING' ? classification.sourceId : null,
               deposit_closing_date: target.depositClosing?.closingDate ?? null,
               deposit_retained_amount: target.depositClosing === undefined ? null : toNumericAmount(target.depositClosing.retainedAmount),
+              weg_annual_statement_id: type === 'WEG_RESERVE_WITHDRAWAL' ? classification.sourceId : null,
+              weg_reserve_position: type === 'WEG_RESERVE_WITHDRAWAL' ? position : null,
+              weg_withdrawal_unit_share: target.reserveWithdrawal === null ? null : toNumericAmount(target.reserveWithdrawal.unitShare),
+              weg_special_assessment_id: type === 'WEG_ASSESSMENT_USE' ? classification.sourceId : null,
+              weg_use_position: type === 'WEG_ASSESSMENT_USE' ? position : null,
+              weg_use_date: target.assessmentUse?.date ?? null,
+              weg_use_unit_share: target.assessmentUse === null ? null : toNumericAmount(target.assessmentUse.unitShare),
               tax_category: classification.taxCategory,
               treatment: classification.treatment,
               review_state: classification.reviewState,
               rule_code: rule.ruleCode,
               rule_version: rule.version,
+              treatment_rule_code: treatmentRule?.ruleCode ?? null,
+              treatment_rule_version: treatmentRule?.version ?? null,
               advisor_party_id: null,
               notes: classification.notes,
               source_references: [...classification.sourceReferences],
-              tax_year: classification.sourceType === 'TRANSACTION_SPLIT' ? (classification.taxYear ?? null) : null,
-              refund_of_year: classification.sourceType === 'TRANSACTION_SPLIT' ? (classification.refundOfYear ?? null) : null,
+              tax_year: type === 'TRANSACTION_SPLIT' || type === 'WEG_RESERVE_WITHDRAWAL' ? (classification.taxYear ?? null) : null,
+              refund_of_year: type === 'TRANSACTION_SPLIT' ? (classification.refundOfYear ?? null) : null,
+              net_amount: classification.netAmount === undefined || classification.netAmount === null ? null : toNumericAmount(classification.netAmount),
+              annually_recurring: classification.annuallyRecurring ?? false,
+              distribution_years: classification.distributionYears ?? null,
+              mostly_residential_confirmed: classification.mostlyResidentialConfirmed ?? null,
+              anschaffungsnahe_acquisition_id: classification.anschaffungsnaheAcquisitionId ?? null,
               supersedes_id: current?.id ?? null,
               created_by: actor.actorId,
             })
@@ -224,6 +329,14 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
               ...(created.depositClosing === null
                 ? {}
                 : { closingDate: created.depositClosing.closingDate, retainedAmount: created.depositClosing.retainedAmount.toJSON() }),
+              // §58B: the new fields, each only when set (a split's AuditRecord of VC-7-01 stays as it was).
+              ...(created.sourcePosition === null ? {} : { sourcePosition: created.sourcePosition }),
+              ...(created.netAmount === null ? {} : { netAmount: created.netAmount.toJSON() }),
+              ...(created.annuallyRecurring ? { annuallyRecurring: true } : {}),
+              ...(created.distributionYears === null ? {} : { distributionYears: created.distributionYears }),
+              ...(created.mostlyResidentialConfirmed === null ? {} : { mostlyResidentialConfirmed: created.mostlyResidentialConfirmed }),
+              ...(created.anschaffungsnaheAcquisitionId === null ? {} : { anschaffungsnaheAcquisitionId: created.anschaffungsnaheAcquisitionId }),
+              ...(created.treatmentRule === null ? {} : { treatmentRule: created.treatmentRule }),
               ...(current === undefined ? {} : { supersedes: current.id }),
             },
           });
@@ -243,8 +356,8 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
     }
   }
 
-  /** Transaction → classification (§57, P7-D9): the split's Transaction written first, as a no-op; §56's and §58A's checks. */
-  private async planSplit(trx: Transaction<Database>, classification: NewTaxClassification) {
+  /** Transaction → classification (§57, P7-D9): the split's Transaction written first, as a no-op; §56's, §58A's and §58B's checks. */
+  private async planSplit(trx: Transaction<Database>, classification: NewTaxClassification): Promise<Target> {
     const realm = classification.mreRealmId;
     const locked = await trx
       .updateTable('ledger_transaction')
@@ -267,13 +380,14 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
       .executeTakeFirst();
     const timing = await timingOf(trx, realm, [read], this.registry);
     const derived = attributeTaxYear(read.facts, timing.get(read.facts.splitId), null, this.registry).taxYear;
-    const plan = planClassification(read.facts, current?.id ?? null, classification, this.registry, derived);
+    const acquisition = await acquisitionFactsOf(trx, realm, classification.anschaffungsnaheAcquisitionId ?? null);
+    const plan = planClassification(read.facts, current?.id ?? null, classification, this.registry, derived, acquisition);
     if (plan.kind !== 'CLASSIFY') throw new Rejected(plan);
-    return { current, rule: plan.rule, depositClosing: undefined };
+    return { current, rule: plan.rule, treatmentRule: plan.treatmentRule, depositClosing: undefined, reserveWithdrawal: null, assessmentUse: null };
   }
 
   /** Deposit → classification (§58A, P7-D9): the deposit written first, as a no-op; then §58A's checks. */
-  private async planDeposit(trx: Transaction<Database>, classification: NewTaxClassification) {
+  private async planDeposit(trx: Transaction<Database>, classification: NewTaxClassification): Promise<Target> {
     const realm = classification.mreRealmId;
     const locked = await trx
       .updateTable('security_deposit')
@@ -293,7 +407,89 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
       .executeTakeFirst();
     const plan = planDepositClassification(facts as DepositFacts, current?.id ?? null, classification, this.registry);
     if (plan.kind !== 'CLASSIFY') throw new Rejected(plan);
-    return { current, rule: plan.rule, depositClosing: { closingDate: plan.closingDate, retainedAmount: (facts as DepositFacts).retainedAmount } };
+    return {
+      current,
+      rule: plan.rule,
+      treatmentRule: null,
+      depositClosing: { closingDate: plan.closingDate, retainedAmount: (facts as DepositFacts).retainedAmount },
+      reserveWithdrawal: null,
+      assessmentUse: null,
+    };
+  }
+
+  /**
+   * Statement → classification (§58B, P7-D9): the statement row written first (a no-op returning what the checks
+   * need), then the current classification of the withdrawal `FOR UPDATE`. A confirm superseding the statement writes
+   * that row first too, so the two serialise on it.
+   */
+  private async planWithdrawal(trx: Transaction<Database>, classification: NewTaxClassification): Promise<Target> {
+    const realm = classification.mreRealmId;
+    const position = classification.sourcePosition ?? null;
+    const locked = await trx
+      .updateTable('weg_annual_statement')
+      .set((eb) => ({ version: eb.ref('version') }))
+      .where('id', '=', classification.sourceId)
+      .where('mre_realm_id', '=', realm)
+      .returning(['id', 'status', 'reserve', 'membership_id'])
+      .executeTakeFirst();
+    if (locked === undefined || position === null) throw new Rejected({ kind: 'SOURCE_NOT_FOUND' });
+    const ctx = await wegContextOf(trx, realm, { membershipId: locked.membership_id }, businessDayOf(new Date()), currentOfWeg);
+    const facts = ctx.facts.find((f) => f.sourceType === 'WEG_RESERVE_WITHDRAWAL' && f.sourceId === locked.id && f.sourcePosition === position);
+    if (facts === undefined) throw new Rejected({ kind: 'SOURCE_NOT_FOUND' });
+    const current = await trx
+      .selectFrom('tax_classification')
+      .select(['id', 'version'])
+      .where('weg_annual_statement_id', '=', locked.id)
+      .where('weg_reserve_position', '=', position)
+      .where('superseded_at', 'is', null)
+      .forUpdate()
+      .executeTakeFirst();
+    return this.planWeg(trx, classification, facts, current);
+  }
+
+  /** Assessment → classification (§58B, P7-D9): the assessment row written first, then the current classification of the use. */
+  private async planUse(trx: Transaction<Database>, classification: NewTaxClassification): Promise<Target> {
+    const realm = classification.mreRealmId;
+    const position = classification.sourcePosition ?? null;
+    const locked = await trx
+      .updateTable('weg_special_assessment')
+      .set((eb) => ({ version: eb.ref('version') }))
+      .where('id', '=', classification.sourceId)
+      .where('mre_realm_id', '=', realm)
+      .returning(['id', 'status', 'uses', 'membership_id'])
+      .executeTakeFirst();
+    if (locked === undefined || position === null) throw new Rejected({ kind: 'SOURCE_NOT_FOUND' });
+    const ctx = await wegContextOf(trx, realm, { membershipId: locked.membership_id }, businessDayOf(new Date()), currentOfWeg);
+    const facts = ctx.facts.find((f) => f.sourceType === 'WEG_ASSESSMENT_USE' && f.sourceId === locked.id && f.sourcePosition === position);
+    if (facts === undefined) throw new Rejected({ kind: 'SOURCE_NOT_FOUND' });
+    const current = await trx
+      .selectFrom('tax_classification')
+      .select(['id', 'version'])
+      .where('weg_special_assessment_id', '=', locked.id)
+      .where('weg_use_position', '=', position)
+      .where('superseded_at', 'is', null)
+      .forUpdate()
+      .executeTakeFirst();
+    return this.planWeg(trx, classification, facts, current);
+  }
+
+  private async planWeg(
+    trx: Transaction<Database>,
+    classification: NewTaxClassification,
+    facts: WegSourceFacts,
+    current: { id: string; version: number } | undefined,
+  ): Promise<Target> {
+    const acquisition = await acquisitionFactsOf(trx, classification.mreRealmId, classification.anschaffungsnaheAcquisitionId ?? null);
+    const plan = planWegClassification(facts, current?.id ?? null, classification, this.registry, acquisition);
+    if (plan.kind !== 'CLASSIFY') throw new Rejected(plan);
+    return {
+      current,
+      rule: plan.rule,
+      treatmentRule: plan.treatmentRule,
+      depositClosing: undefined,
+      reserveWithdrawal: plan.reserveWithdrawal,
+      assessmentUse: plan.assessmentUse,
+    };
   }
 
   async reviewClassification(
@@ -358,29 +554,25 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
     return row === undefined ? undefined : toDomain(row);
   }
 
-  async listHistory(sourceType: SourceType, sourceId: string, mreRealmId: string): Promise<readonly TaxClassification[] | undefined> {
-    if ((sourceType !== 'TRANSACTION_SPLIT' && sourceType !== 'DEPOSIT_CLOSING') || !UUID.test(sourceId)) return undefined;
-    const split = sourceType === 'TRANSACTION_SPLIT';
+  async listHistory(
+    sourceType: SourceType,
+    sourceId: string,
+    mreRealmId: string,
+    sourcePosition: number | null = null,
+  ): Promise<readonly TaxClassification[] | undefined> {
+    if (!UUID.test(sourceId)) return undefined;
+    const table = SOURCE_TABLES[sourceType];
     return this.db
       .transaction()
       .setIsolationLevel('repeatable read')
       .setAccessMode('read only')
       .execute(async (trx) => {
-        const source = await trx
-          .selectFrom(split ? 'transaction_split' : 'security_deposit')
-          .select('id')
-          .where('id', '=', sourceId)
-          .where('mre_realm_id', '=', mreRealmId)
-          .executeTakeFirst();
+        const source = await trx.selectFrom(table.table).select('id').where('id', '=', sourceId).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
         if (source === undefined) return undefined;
-        const rows = await trx
-          .selectFrom('tax_classification')
-          .select(COLUMNS)
-          .where(split ? 'transaction_split_id' : 'security_deposit_id', '=', sourceId)
-          .where('mre_realm_id', '=', mreRealmId)
-          .orderBy('created_at')
-          .orderBy('id')
-          .execute();
+        let query = trx.selectFrom('tax_classification').select(COLUMNS).where(table.column, '=', sourceId).where('mre_realm_id', '=', mreRealmId);
+        // A WEG source by its position: the history of a dropped use stays readable (§58B).
+        if (table.position !== null) query = query.where(table.position, '=', sourcePosition ?? -1);
+        const rows = await query.orderBy('created_at').orderBy('id').execute();
         return rows.map(toDomain);
       });
   }
@@ -394,7 +586,10 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
       .execute(async (trx) => {
         const row = await factsQuery(trx, mreRealmId).where('s.id', '=', splitId).executeTakeFirst();
         if (row === undefined) return undefined;
-        return (await this.meaningsOf(trx, mreRealmId, [toRead(row)], today))[0];
+        const [pair] = await this.meaningsOf(trx, mreRealmId, [toRead(row)], today);
+        if (pair === undefined) return undefined;
+        const effects = await this.effectsOf(trx, mreRealmId, pair.meaning.propertyReferenceId, today);
+        return this.splitWithEffects(pair, effects);
       });
   }
 
@@ -409,6 +604,57 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
         if (facts === undefined) return undefined;
         const current = await currentOfDeposits(trx, [depositId]);
         return deriveDepositTaxMeaning(facts, current.get(depositId) ?? null, this.registry, today);
+      });
+  }
+
+  findWithdrawalTaxMeaning(statementId: string, position: number, mreRealmId: string, today: BusinessDate): Promise<WegTaxMeaning | undefined> {
+    return this.wegMeaning('weg_annual_statement', 'WEG_RESERVE_WITHDRAWAL', statementId, position, mreRealmId, today);
+  }
+
+  findUseTaxMeaning(assessmentId: string, position: number, mreRealmId: string, today: BusinessDate): Promise<WegTaxMeaning | undefined> {
+    return this.wegMeaning('weg_special_assessment', 'WEG_ASSESSMENT_USE', assessmentId, position, mreRealmId, today);
+  }
+
+  /** One `REPEATABLE READ READ ONLY` snapshot (§58B): the source of the Realm, with its parts and the check's flags. */
+  private async wegMeaning(
+    table: 'weg_annual_statement' | 'weg_special_assessment',
+    sourceType: 'WEG_RESERVE_WITHDRAWAL' | 'WEG_ASSESSMENT_USE',
+    sourceId: string,
+    position: number,
+    mreRealmId: string,
+    today: BusinessDate,
+  ): Promise<WegTaxMeaning | undefined> {
+    if (!UUID.test(sourceId)) return undefined;
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const row = await trx
+          .selectFrom(table)
+          .innerJoin('weg_membership as m', 'm.id', `${table}.membership_id`)
+          .select('m.property_reference_id')
+          .where(`${table}.id`, '=', sourceId)
+          .where(`${table}.mre_realm_id`, '=', mreRealmId)
+          .executeTakeFirst();
+        if (row === undefined) return undefined;
+        const effects = await this.effectsOf(trx, mreRealmId, row.property_reference_id, today);
+        const facts = effects.weg.facts.find((f) => f.sourceType === sourceType && f.sourceId === sourceId && f.sourcePosition === position);
+        return facts === undefined ? undefined : this.wegWithEffects(facts, effects, today);
+      });
+  }
+
+  async anschaffungsnaheCheck(acquisitionId: string, mreRealmId: string, today: BusinessDate): Promise<AnschaffungsnaheCheck | undefined> {
+    if (!UUID.test(acquisitionId)) return undefined;
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const [input] = await acquisitionsOf(trx, mreRealmId, { acquisitionId });
+        if (input === undefined) return undefined;
+        const effects = await this.effectsOf(trx, mreRealmId, input.acquisition.propertyReferenceId, today);
+        return effects.checks.find((c) => c.acquisitionId === acquisitionId);
       });
   }
 
@@ -437,8 +683,7 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
         const days = widestWindowDays(this.registry);
         const from = days > 0 ? `${year - 1}-12-${String(32 - days).padStart(2, '0')}` : `${year}-01-01`;
         const to = days > 0 ? `${year + 1}-01-${String(days).padStart(2, '0')}` : `${year}-12-31`;
-        const rows = await factsQuery(trx, mreRealmId)
-          .where('s.property_reference_id', '=', propertyReferenceId)
+        const rows = await countingSplits(factsQuery(trx, mreRealmId).where('s.property_reference_id', '=', propertyReferenceId))
           .where((eb) =>
             eb.or([
               eb.and([eb('t.booking_date', '>=', from), eb('t.booking_date', '<=', to)]),
@@ -447,24 +692,58 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
                 'in',
                 eb.selectFrom('tax_classification').select('transaction_split_id').where('superseded_at', 'is', null).where('tax_year', '=', year),
               ),
+              // §58B: an election of an earlier year may have a part in `year` (at most 4 years back, 5 years).
+              eb(
+                's.id',
+                'in',
+                eb
+                  .selectFrom('tax_classification')
+                  .select('transaction_split_id')
+                  .where('superseded_at', 'is', null)
+                  .where('treatment', '=', 'DISTRIBUTED_82B'),
+              ),
             ]),
           )
-          .where('t.status', 'in', COUNTED)
-          .where((eb) => eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]))
           .orderBy('t.booking_date')
           .orderBy('t.id')
           .orderBy('s.position')
           .execute();
-        const splits = (await this.meaningsOf(trx, mreRealmId, rows.map(toRead), today)).filter((m) => m.taxYear === year);
+        const effects = await this.effectsOf(trx, mreRealmId, propertyReferenceId, today);
+        const splits = (await this.meaningsOf(trx, mreRealmId, rows.map(toRead), today)).map((pair) => this.splitWithEffects(pair, effects));
         const deposits = await this.depositsOf(trx, mreRealmId, propertyReferenceId, year, today);
-        // By date (booking date, closing date); on one date the splits first.
-        const dated = (m: TaxListItem) => (m.sourceType === 'TRANSACTION_SPLIT' ? m.bookingDate : (m.closingDate as string));
-        const items = [...splits, ...deposits].sort((a, b) => (dated(a) < dated(b) ? -1 : dated(a) > dated(b) ? 1 : 0));
-        const filtered = items.filter(
+        // §58B: the withdrawals of CONFIRMED statements and the uses of assessments not VOID; a superseded statement's
+        // withdrawals do not count and are not listed.
+        const weg = effects.weg.facts.filter((f) => f.notCounted === null).map((f) => this.wegWithEffects(f, effects, today));
+        const items: TaxListItem[] = [];
+        for (const m of [...splits, ...weg]) {
+          const part = m.distribution === null ? undefined : partOf(m.distribution, year);
+          if (m.taxYear === year) items.push({ ...m, yearAmount: part ?? m.amount });
+          else if (m.taxYear < year && m.counts && part !== undefined) items.push({ ...m, yearAmount: part });
+        }
+        for (const d of deposits) items.push({ ...d, yearAmount: d.amount });
+        // By date (booking, closing, withdrawal or use date); on one date splits, deposits, withdrawals, uses; splits in
+        // §55's order (Transaction, position), the WEG sources by sourceId and position (§58B).
+        const sorted = items
+          .map((item, index) => ({ item, index }))
+          .sort((a, b) => {
+            const [da, db] = [dateOf(a.item), dateOf(b.item)];
+            if (da !== db) return da < db ? -1 : 1;
+            const [ra, rb] = [RANK[a.item.sourceType], RANK[b.item.sourceType]];
+            if (ra !== rb) return ra - rb;
+            if (a.item.sourceType === 'WEG_RESERVE_WITHDRAWAL' || a.item.sourceType === 'WEG_ASSESSMENT_USE') {
+              const [pa, pb] = [a.item as WegTaxMeaning, b.item as WegTaxMeaning];
+              if (pa.sourceId !== pb.sourceId) return pa.sourceId < pb.sourceId ? -1 : 1;
+              return pa.sourcePosition - pb.sourcePosition;
+            }
+            return a.index - b.index;
+          })
+          .map((x) => x.item);
+        const filtered = sorted.filter(
           (m) =>
             (filter.reviewStates === undefined || filter.reviewStates.length === 0 || filter.reviewStates.includes(m.reviewState)) &&
             (filter.origins === undefined || filter.origins.length === 0 || filter.origins.includes(m.origin)) &&
-            (filter.taxCategories === undefined || filter.taxCategories.length === 0 || filter.taxCategories.includes(m.taxCategory)),
+            (filter.taxCategories === undefined || filter.taxCategories.length === 0 || filter.taxCategories.includes(m.taxCategory)) &&
+            (filter.sourceTypes === undefined || filter.sourceTypes.length === 0 || filter.sourceTypes.includes(m.sourceType)),
         );
         const pageItems = filtered.slice((page.page - 1) * page.pageSize, page.page * page.pageSize);
         return { items: pageItems, page: page.page, pageSize: page.pageSize, total: filtered.length };
@@ -472,18 +751,23 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
   }
 
   async storedRuleReferences(): Promise<readonly RuleRef[]> {
-    const rows = await this.db
-      .selectFrom('tax_classification')
-      .select(['rule_code', 'rule_version'])
-      .distinct()
-      .orderBy('rule_code')
-      .orderBy('rule_version')
-      .execute();
-    return rows.map((r) => ({ ruleCode: r.rule_code, version: r.rule_version }));
+    // Both references (§58B): the rule of the source's default and the second, `treatmentRule`.
+    const rows = await sql<{ rule_code: string; rule_version: number }>`
+      SELECT rule_code, rule_version FROM tax_classification
+      UNION
+      SELECT treatment_rule_code, treatment_rule_version FROM tax_classification WHERE treatment_rule_code IS NOT NULL
+      ORDER BY rule_code, rule_version
+    `.execute(this.db);
+    return rows.rows.map((r) => ({ ruleCode: r.rule_code, version: r.rule_version }));
   }
 
   /** The meanings of the splits, with their current classifications, corrected originals and tax-year inputs. */
-  private async meaningsOf(trx: Transaction<Database>, mreRealmId: string, reads: readonly SplitRead[], today: BusinessDate): Promise<TaxMeaning[]> {
+  private async meaningsOf(
+    trx: Transaction<Database>,
+    mreRealmId: string,
+    reads: readonly SplitRead[],
+    today: BusinessDate,
+  ): Promise<{ readonly meaning: TaxMeaning; readonly classification: TaxClassification | null }[]> {
     const facts = reads.map((r) => r.facts);
     const current = await currentOf(
       trx,
@@ -494,8 +778,73 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
     return reads.map((r) => {
       const known = timing.get(r.facts.splitId);
       const inputs: TaxYearInputs = { statementYear: r.statementYear, ...(known === undefined ? {} : { timing: known }) };
-      return deriveTaxMeaning(r.facts, current.get(r.facts.splitId) ?? null, originals.get(r.facts.transactionId) ?? null, this.registry, today, inputs);
+      const classification = current.get(r.facts.splitId) ?? null;
+      return {
+        meaning: deriveTaxMeaning(r.facts, classification, originals.get(r.facts.transactionId) ?? null, this.registry, today, inputs),
+        classification,
+      };
     });
+  }
+
+  /**
+   * What the effects of §58B read around a PropertyReference: its WEG sources, Ownerships, and the anschaffungsnahe
+   * checks of its Acquisitions with the counting splits and WEG sources of their windows (and the strip after them).
+   */
+  private async effectsOf(trx: Transaction<Database>, mreRealmId: string, propertyReferenceId: string | null, today: BusinessDate): Promise<Effects> {
+    if (propertyReferenceId === null) return { weg: EMPTY_WEG, ownerships: [], checks: [] };
+    const weg = await wegContextOf(trx, mreRealmId, { propertyReferenceId }, today, currentOfWeg);
+    const ownerships = await ownershipsOf(trx, mreRealmId, propertyReferenceId);
+    const inputs = await acquisitionsOf(trx, mreRealmId, { propertyReferenceId });
+    const range = checkRange(inputs, this.registry);
+    const sources: { source: CheckSource; date: BusinessDate; rank: number; index: number }[] = [];
+    if (range !== undefined) {
+      const rows = await countingSplits(factsQuery(trx, mreRealmId).where('s.property_reference_id', '=', propertyReferenceId))
+        .where('t.booking_date', '>=', range.from)
+        .where('t.booking_date', '<=', range.to)
+        .orderBy('t.booking_date')
+        .orderBy('t.id')
+        .orderBy('s.position')
+        .execute();
+      (await this.meaningsOf(trx, mreRealmId, rows.map(toRead), today)).forEach(({ meaning, classification }, index) =>
+        sources.push({ source: splitCheckSource(meaning, classification), date: meaning.bookingDate, rank: 0, index }),
+      );
+      weg.facts
+        .filter((f) => f.notCounted === null && f.date >= range.from && f.date <= range.to)
+        .forEach((f, index) => {
+          const meaning = baseWegMeaning(weg, f, this.registry, today);
+          if (!meaning.counts) return;
+          sources.push({
+            source: wegCheckSource(meaning, weg.current.get(wegSourceKey(f)) ?? null),
+            date: f.date,
+            rank: f.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? 2 : 3,
+            index,
+          });
+        });
+    }
+    // The order of the per-property list.
+    sources.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.rank !== b.rank ? a.rank - b.rank : a.index - b.index));
+    return {
+      weg,
+      ownerships,
+      checks: checksOf(
+        inputs,
+        sources.map((s) => s.source),
+        weg.confirmedStatements,
+        today,
+        this.registry,
+      ),
+    };
+  }
+
+  private splitWithEffects(pair: { readonly meaning: TaxMeaning; readonly classification: TaxClassification | null }, effects: Effects): TaxMeaning {
+    const { meaning, classification } = pair;
+    return withEffects(meaning, { sourcePosition: null, date: meaning.bookingDate, amount: meaning.amount }, classification, effects.ownerships, effects.checks);
+  }
+
+  private wegWithEffects(facts: WegSourceFacts, effects: Effects, today: BusinessDate): WegTaxMeaning {
+    const meaning = baseWegMeaning(effects.weg, facts, this.registry, today);
+    const classification = effects.weg.current.get(wegSourceKey(facts)) ?? null;
+    return withEffects(meaning, { sourcePosition: facts.sourcePosition, date: facts.date, amount: facts.amount }, classification, effects.ownerships, effects.checks);
   }
 
   /** The retained deposits of the PropertyReference closed in `year` (§58A), counting by the deposit. */
@@ -543,6 +892,16 @@ async function sourceStateOf(trx: Transaction<Database>, current: TaxClassificat
     const [facts] = await depositFactsOf(trx, current.mreRealmId, [current.sourceId]);
     return { deposit: depositNotCounted(facts as DepositFacts, current) };
   }
+  if (current.sourceType === 'WEG_RESERVE_WITHDRAWAL' || current.sourceType === 'WEG_ASSESSMENT_USE') {
+    const table = current.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? 'weg_annual_statement' : 'weg_special_assessment';
+    const row = await trx.selectFrom(table).select('membership_id').where('id', '=', current.sourceId).executeTakeFirstOrThrow();
+    const ctx = await wegContextOf(trx, current.mreRealmId, { membershipId: row.membership_id }, businessDayOf(new Date()), currentOfWeg);
+    const facts = ctx.facts.find((f) => f.sourceType === current.sourceType && f.sourceId === current.sourceId && f.sourcePosition === current.sourcePosition);
+    // A use dropped by `PUT …/uses` no longer counts (§58B).
+    const notCounted =
+      facts === undefined ? { reason: 'USE_REMOVED' as const, details: { position: current.sourcePosition ?? 0 } } : wegNotCounted(facts, current);
+    return { weg: notCounted === null ? null : { kind: 'WEG_SOURCE_NOT_COUNTED', sourceType: current.sourceType, ...notCounted } };
+  }
   const source = await trx
     .selectFrom('transaction_split as s')
     .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
@@ -579,6 +938,66 @@ function factsQuery(trx: Transaction<Database>, mreRealmId: string) {
       't.correction_role',
     ])
     .where('s.mre_realm_id', '=', mreRealmId);
+}
+
+/** Only the splits that count: a current Transaction, not a reversal (§55). */
+const countingSplits = (query: ReturnType<typeof factsQuery>) =>
+  query.where('t.status', 'in', COUNTED).where((eb) => eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]));
+
+/** A split meaning as a source of the anschaffungsnahe check (§58B). */
+function splitCheckSource(meaning: TaxMeaning, classification: TaxClassification | null): CheckSource {
+  return {
+    sourceType: 'TRANSACTION_SPLIT',
+    sourceId: meaning.splitId,
+    sourcePosition: null,
+    date: meaning.bookingDate,
+    taxYear: meaning.taxYear,
+    taxCategory: meaning.taxCategory,
+    treatment: meaning.treatment,
+    reviewState: meaning.reviewState,
+    origin: meaning.origin,
+    classificationId: meaning.classificationId,
+    grossAmount: meaning.amount,
+    direction: meaning.direction,
+    netAmount: meaning.netAmount,
+    annuallyRecurring: classification?.annuallyRecurring ?? false,
+    anschaffungsnaheAcquisitionId: classification?.anschaffungsnaheAcquisitionId ?? null,
+    sourceFlags: [],
+  };
+}
+
+/** The Acquisition a capitalisation names, of the Realm, read without a lock (§58B: a confirmed one is final); `null`: unknown. */
+async function acquisitionFactsOf(trx: Transaction<Database>, mreRealmId: string, id: string | null): Promise<AcquisitionFacts | null | undefined> {
+  if (id === null) return undefined;
+  if (!UUID.test(id)) return null;
+  const row = await trx
+    .selectFrom('acquisition')
+    .select(['id', 'property_reference_id', 'status', sql<string>`to_char(coalesce(economic_transfer_date, contract_date), 'YYYY-MM-DD')`.as('transfer_date')])
+    .where('id', '=', id)
+    .where('mre_realm_id', '=', mreRealmId)
+    .executeTakeFirst();
+  return row === undefined
+    ? null
+    : { id: row.id, propertyReferenceId: row.property_reference_id, status: row.status, transferDate: row.transfer_date as BusinessDate };
+}
+
+/** The current classification of each WEG source, by `sourceType/sourceId/position`. */
+async function currentOfWeg(trx: Transaction<Database>, facts: readonly WegSourceFacts[]): Promise<Map<string, TaxClassification>> {
+  const statements = [...new Set(facts.filter((f) => f.sourceType === 'WEG_RESERVE_WITHDRAWAL').map((f) => f.sourceId))];
+  const assessments = [...new Set(facts.filter((f) => f.sourceType === 'WEG_ASSESSMENT_USE').map((f) => f.sourceId))];
+  if (statements.length === 0 && assessments.length === 0) return new Map();
+  const rows = await trx
+    .selectFrom('tax_classification')
+    .select(COLUMNS)
+    .where('superseded_at', 'is', null)
+    .where((eb) =>
+      eb.or([
+        ...(statements.length === 0 ? [] : [eb('weg_annual_statement_id', 'in', statements)]),
+        ...(assessments.length === 0 ? [] : [eb('weg_special_assessment_id', 'in', assessments)]),
+      ]),
+    )
+    .execute();
+  return new Map(rows.map((r) => toDomain(r)).map((c) => [wegSourceKey(c), c]));
 }
 
 function toRead(row: FactsRow): SplitRead {
@@ -804,12 +1223,14 @@ async function readOne(trx: Transaction<Database>, id: string): Promise<TaxClass
   return toDomain(await trx.selectFrom('tax_classification').select(COLUMNS).where('id', '=', id).executeTakeFirstOrThrow());
 }
 
+const eurOrNull = (amount: string | null) => (amount === null ? null : fromNumericAmount(amount, 'EUR'));
+
 function toDomain(row: ClassificationRow): TaxClassification {
   return {
     id: row.id as TaxClassificationId,
     mreRealmId: row.mre_realm_id,
     sourceType: row.source_type as SourceType,
-    sourceId: (row.transaction_split_id ?? row.security_deposit_id) as string,
+    sourceId: (row.transaction_split_id ?? row.security_deposit_id ?? row.weg_annual_statement_id ?? row.weg_special_assessment_id) as string,
     taxCategory: row.tax_category as TaxCategory,
     treatment: row.treatment as Treatment | null,
     reviewState: row.review_state as StoredReviewState,
@@ -823,6 +1244,19 @@ function toDomain(row: ClassificationRow): TaxClassification {
       row.deposit_closing_date === null || row.deposit_retained_amount === null
         ? null
         : { closingDate: row.deposit_closing_date as BusinessDate, retainedAmount: fromNumericAmount(row.deposit_retained_amount, 'EUR') },
+    sourcePosition: row.weg_reserve_position ?? row.weg_use_position,
+    reserveWithdrawal: row.weg_withdrawal_unit_share === null ? null : { unitShare: fromNumericAmount(row.weg_withdrawal_unit_share, 'EUR') },
+    assessmentUse:
+      row.weg_use_date === null || row.weg_use_unit_share === null
+        ? null
+        : { date: row.weg_use_date as BusinessDate, unitShare: fromNumericAmount(row.weg_use_unit_share, 'EUR') },
+    netAmount: eurOrNull(row.net_amount),
+    annuallyRecurring: row.annually_recurring,
+    distributionYears: row.distribution_years,
+    mostlyResidentialConfirmed: row.mostly_residential_confirmed,
+    anschaffungsnaheAcquisitionId: row.anschaffungsnahe_acquisition_id,
+    treatmentRule:
+      row.treatment_rule_code === null || row.treatment_rule_version === null ? null : { ruleCode: row.treatment_rule_code, version: row.treatment_rule_version },
     supersedes: row.supersedes_id,
     supersededBy: row.superseded_by,
     supersededAt: row.superseded_at,
@@ -832,13 +1266,32 @@ function toDomain(row: ClassificationRow): TaxClassification {
   };
 }
 
-/** The created row as JSON for the idempotency store. VC-7-01's snapshots lack the VC-7-02 fields (read as null). */
+/** The columns a snapshot of an earlier item may lack: read as null (or false). */
+type LaterColumns =
+  | 'security_deposit_id'
+  | 'tax_year'
+  | 'refund_of_year'
+  | 'deposit_closing_date'
+  | 'deposit_retained_amount'
+  | 'weg_annual_statement_id'
+  | 'weg_reserve_position'
+  | 'weg_withdrawal_unit_share'
+  | 'weg_special_assessment_id'
+  | 'weg_use_position'
+  | 'weg_use_date'
+  | 'weg_use_unit_share'
+  | 'net_amount'
+  | 'annually_recurring'
+  | 'distribution_years'
+  | 'mostly_residential_confirmed'
+  | 'anschaffungsnahe_acquisition_id'
+  | 'treatment_rule_code'
+  | 'treatment_rule_version';
+
+/** The created row as JSON for the idempotency store. Snapshots of VC-7-01/-02 lack the later fields (read as null). */
 interface ClassificationSnapshot {
-  readonly row: Omit<
-    ClassificationRow,
-    'created_at' | 'superseded_at' | 'security_deposit_id' | 'tax_year' | 'refund_of_year' | 'deposit_closing_date' | 'deposit_retained_amount'
-  > &
-    Partial<Pick<ClassificationRow, 'security_deposit_id' | 'tax_year' | 'refund_of_year' | 'deposit_closing_date' | 'deposit_retained_amount'>> & {
+  readonly row: Omit<ClassificationRow, 'created_at' | 'superseded_at' | LaterColumns> &
+    Partial<Pick<ClassificationRow, LaterColumns>> & {
       readonly created_at: string;
     };
 }
@@ -851,11 +1304,20 @@ function toSnapshot(c: TaxClassification): ClassificationSnapshot {
       source_type: c.sourceType,
       transaction_split_id: c.sourceType === 'TRANSACTION_SPLIT' ? c.sourceId : null,
       security_deposit_id: c.sourceType === 'DEPOSIT_CLOSING' ? c.sourceId : null,
+      weg_annual_statement_id: c.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? c.sourceId : null,
+      weg_reserve_position: c.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? c.sourcePosition : null,
+      weg_withdrawal_unit_share: c.reserveWithdrawal?.unitShare.amount ?? null,
+      weg_special_assessment_id: c.sourceType === 'WEG_ASSESSMENT_USE' ? c.sourceId : null,
+      weg_use_position: c.sourceType === 'WEG_ASSESSMENT_USE' ? c.sourcePosition : null,
+      weg_use_date: c.assessmentUse?.date ?? null,
+      weg_use_unit_share: c.assessmentUse?.unitShare.amount ?? null,
       tax_category: c.taxCategory,
       treatment: c.treatment,
       review_state: c.reviewState,
       rule_code: c.rule.ruleCode,
       rule_version: c.rule.version,
+      treatment_rule_code: c.treatmentRule?.ruleCode ?? null,
+      treatment_rule_version: c.treatmentRule?.version ?? null,
       advisor_party_id: c.advisorPartyId,
       notes: c.notes,
       source_references: [...c.sourceReferences],
@@ -863,6 +1325,11 @@ function toSnapshot(c: TaxClassification): ClassificationSnapshot {
       refund_of_year: c.refundOfYear,
       deposit_closing_date: c.depositClosing?.closingDate ?? null,
       deposit_retained_amount: c.depositClosing?.retainedAmount.amount ?? null,
+      net_amount: c.netAmount?.amount ?? null,
+      annually_recurring: c.annuallyRecurring,
+      distribution_years: c.distributionYears,
+      mostly_residential_confirmed: c.mostlyResidentialConfirmed,
+      anschaffungsnahe_acquisition_id: c.anschaffungsnaheAcquisitionId,
       supersedes_id: c.supersedes,
       superseded_by: c.supersededBy,
       created_at: c.createdAt.toISOString(),
@@ -882,6 +1349,20 @@ function fromSnapshot(result: unknown): TaxClassification {
     refund_of_year: row.refund_of_year ?? null,
     deposit_closing_date: row.deposit_closing_date ?? null,
     deposit_retained_amount: row.deposit_retained_amount ?? null,
+    weg_annual_statement_id: row.weg_annual_statement_id ?? null,
+    weg_reserve_position: row.weg_reserve_position ?? null,
+    weg_withdrawal_unit_share: row.weg_withdrawal_unit_share ?? null,
+    weg_special_assessment_id: row.weg_special_assessment_id ?? null,
+    weg_use_position: row.weg_use_position ?? null,
+    weg_use_date: row.weg_use_date ?? null,
+    weg_use_unit_share: row.weg_use_unit_share ?? null,
+    net_amount: row.net_amount ?? null,
+    annually_recurring: row.annually_recurring ?? false,
+    distribution_years: row.distribution_years ?? null,
+    mostly_residential_confirmed: row.mostly_residential_confirmed ?? null,
+    anschaffungsnahe_acquisition_id: row.anschaffungsnahe_acquisition_id ?? null,
+    treatment_rule_code: row.treatment_rule_code ?? null,
+    treatment_rule_version: row.treatment_rule_version ?? null,
     created_at: new Date(row.created_at),
     superseded_at: null,
   });

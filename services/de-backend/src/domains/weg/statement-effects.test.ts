@@ -152,7 +152,7 @@ describe('deriveComparison (§51)', () => {
   });
 
   it('the reserve withdrawals with the unit share by MEA, half-up', () => {
-    expect(compare().reserveWithdrawals).toEqual([{ position: 1, description: 'Dachreparatur', withdrawal: eur('3000.00'), unitShare: eur('75.00') }]);
+    expect(compare().reserveWithdrawals).toEqual([{ position: 1, description: 'Dachreparatur', withdrawal: eur('3000.00'), unitShare: eur('75.00'), date: null }]);
     // 0.10 × 125.5/1000 = 0.01255 → 0.01; 0.20 × 125.5/1000 = 0.0251 → 0.03 (rounded from 2.51 cents).
     const odd = (withdrawal: string) =>
       deriveComparison({

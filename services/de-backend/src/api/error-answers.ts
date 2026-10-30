@@ -156,6 +156,13 @@ import {
   ClassificationExistsError,
   ClassificationSupersededError,
   DepositNotCountedError,
+  AnschaffungsnaheNotApplicableError,
+  DistributionNotAllowedError,
+  NetAmountExceedsGrossError,
+  TaxFieldNotSupportedError,
+  WegSourceNotCountedError,
+  WegSourcePositionNotFoundError,
+  WithdrawalTaxYearOutOfRangeError,
   NoApplicableTaxRuleError,
   NotCurrentClassificationError,
   RefundYearOutOfRangeError,
@@ -882,7 +889,7 @@ const TABLE = [
     answer(409, 'CONFLICT', 'Only the current classification moves.', { reason: 'CLASSIFICATION_SUPERSEDED', supersededBy: error.supersededBy }),
   ),
   on(NoApplicableTaxRuleError, (error) =>
-    answer(409, 'CONFLICT', 'No version of the tax rule applies on the booking date.', {
+    answer(409, 'CONFLICT', "No version of the tax rule applies on the source's date.", {
       reason: 'NO_APPLICABLE_RULE',
       ruleCode: error.ruleCode,
       date: error.date,
@@ -912,16 +919,27 @@ const TABLE = [
   ),
   on(TaxSourceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Source not found.', { sourceType: error.sourceType, sourceId: error.sourceId })),
   on(TreatmentNotAllowedError, (error) =>
-    error.categoryType === null
-      ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A retained deposit is rent or damage compensation, or not relevant.', {
-          sourceType: 'DEPOSIT_CLOSING',
-          allowed: error.allowed,
-          allowedTaxCategories: error.taxCategories ?? [],
+    error.reason !== undefined
+      ? answer(422, 'TREATMENT_NOT_ALLOWED', 'WEG_SPENDING is the line of reserve withdrawals and Sonderumlage uses only.', {
+          sourceType: error.sourceType,
+          reason: error.reason,
         })
-      : answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
-          categoryType: error.categoryType,
-          allowed: error.allowed,
-        }),
+      : error.categoryType === null && error.sourceType !== undefined && error.sourceType !== 'DEPOSIT_CLOSING'
+        ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A WEG withdrawal or use is WEG_SPENDING (Erhaltungsaufwand or Herstellungskosten), or not relevant.', {
+            sourceType: error.sourceType,
+            allowed: error.allowed,
+            allowedTaxCategories: error.taxCategories ?? [],
+          })
+        : error.categoryType === null
+          ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A retained deposit is rent or damage compensation, or not relevant.', {
+              sourceType: 'DEPOSIT_CLOSING',
+              allowed: error.allowed,
+              allowedTaxCategories: error.taxCategories ?? [],
+            })
+          : answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
+              categoryType: error.categoryType,
+              allowed: error.allowed,
+            }),
   ),
   // Tax year and income (api-design §58A, VC-7-02).
   on(DepositNotCountedError, (error) =>
@@ -940,6 +958,40 @@ const TABLE = [
   ),
   on(RefundYearOutOfRangeError, (error) =>
     answer(422, 'REFUND_YEAR_OUT_OF_RANGE', 'refundOfYear must not lie after the tax year.', { refundOfYear: error.refundOfYear, taxYear: error.taxYear }),
+  ),
+  // WEG spending, Erhaltungsaufwand and § 82b (api-design §58B, VC-7-03).
+  on(WegSourceNotCountedError, (error) =>
+    answer(409, 'CONFLICT', 'The WEG withdrawal or use does not count for tax.', {
+      reason: 'SOURCE_NOT_COUNTED',
+      sourceType: error.sourceType,
+      notCountedReason: error.notCountedReason,
+      ...(JSON.parse(JSON.stringify(error.details)) as Record<string, unknown>),
+    }),
+  ),
+  on(WegSourcePositionNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', 'Source not found.', { sourceType: error.sourceType, sourceId: error.sourceId, sourcePosition: error.sourcePosition }),
+  ),
+  on(TaxFieldNotSupportedError, (error) => validation([{ field: error.field, code: 'NOT_SUPPORTED' }])),
+  on(DistributionNotAllowedError, (error) =>
+    answer(422, 'DISTRIBUTION_NOT_ALLOWED', 'No § 82b distribution for this source.', { reason: error.reason }),
+  ),
+  on(NetAmountExceedsGrossError, (error) =>
+    answer(422, 'NET_AMOUNT_EXCEEDS_GROSS', "netAmount must not exceed the source's gross amount.", {
+      netAmount: error.netAmount.toJSON(),
+      grossAmount: error.grossAmount.toJSON(),
+    }),
+  ),
+  on(AnschaffungsnaheNotApplicableError, (error) =>
+    answer(422, 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', "The Acquisition's anschaffungsnahe check does not hold this source.", {
+      reason: error.reason,
+      acquisitionId: error.acquisitionId,
+    }),
+  ),
+  on(WithdrawalTaxYearOutOfRangeError, (error) =>
+    answer(422, 'TAX_YEAR_OUT_OF_RANGE', "taxYear must be a calendar year the statement's period touches.", {
+      taxYear: error.taxYear,
+      allowedYears: error.allowedYears,
+    }),
   ),
   on(RentalContractReferenceNotFoundError, (error) =>
     answer(404, 'NOT_FOUND', 'Rental contract reference not found.', { rentalContractReferenceId: error.rentalContractReferenceId }),

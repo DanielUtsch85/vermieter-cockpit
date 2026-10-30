@@ -46,6 +46,8 @@ export interface ReserveWithdrawal {
   readonly description: string;
   readonly withdrawal: Money;
   readonly unitShare: Money;
+  /** VC-7-03 (§58B): the line's date, or `null`. */
+  readonly date: BusinessDate | null;
 }
 
 export type ComparisonFlag =
@@ -152,6 +154,7 @@ export function deriveComparison(input: {
             description: line.description,
             withdrawal: line.withdrawal,
             unitShare: eur(share(centsOf(line.withdrawal), numerator, denominator)),
+            date: line.date ?? null,
           },
         ]
       : [],

@@ -58,6 +58,11 @@ export interface ReserveLine {
   readonly addition: Money | null;
   readonly withdrawal: Money | null;
   readonly closing: Money | null;
+  /**
+   * VC-7-03 (§50, §58B): a line of kind `WITHDRAWAL` may carry the date of the withdrawal (inside the period), for its
+   * tax year; `null` otherwise, and for every line stored before. Shape only: the flags and §51 ignore it.
+   */
+  readonly date?: BusinessDate | null;
 }
 
 export interface ReserveSection {
@@ -233,7 +238,17 @@ const reserveKey = (reserve: ReserveSection | null) =>
     ? null
     : [
         reserve.source,
-        reserve.lines.map((l) => [l.position, l.description, l.kind, moneyKey(l.opening), moneyKey(l.addition), moneyKey(l.withdrawal), moneyKey(l.closing)]),
+        reserve.lines.map((l) => [
+          l.position,
+          l.description,
+          l.kind,
+          moneyKey(l.opening),
+          moneyKey(l.addition),
+          moneyKey(l.withdrawal),
+          moneyKey(l.closing),
+          // A line without a date keeps the key of VC-6-03, so a stored replay fingerprint still matches.
+          ...((l.date ?? null) === null ? [] : [l.date]),
+        ]),
         moneyKey(reserve.unitShareOpening),
         moneyKey(reserve.unitShareClosing),
       ];

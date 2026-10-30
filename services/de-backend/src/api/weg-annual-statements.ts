@@ -69,6 +69,8 @@ const reserveLine = z
     addition: signedMoney.nullish(),
     withdrawal: signedMoney.nullish(),
     closing: signedMoney.nullish(),
+    /** VC-7-03 (§58B): the withdrawal's own date; on a line of kind `WITHDRAWAL` only. */
+    date: businessDate.nullish(),
   })
   .strict();
 
@@ -124,6 +126,14 @@ const statementBody = z
       });
     duplicates('costLines', Array.isArray(body.costLines) ? body.costLines : undefined);
     duplicates('reserve', Array.isArray(body.reserve?.lines) ? body.reserve.lines : undefined);
+    // VC-7-03 (§58B): a withdrawal's date lies inside the period; another kind of line takes none.
+    (Array.isArray(body.reserve?.lines) ? (body.reserve?.lines ?? []) : []).forEach((line, i) => {
+      if (typeof line.date !== 'string') return;
+      if (line.kind !== 'WITHDRAWAL') ctx.addIssue({ code: 'custom', path: ['reserve', 'lines', i, 'date'], params: { code: 'NOT_ALLOWED' } });
+      else if (typeof body.periodFrom === 'string' && typeof body.periodUntil === 'string' && (line.date < body.periodFrom || line.date > body.periodUntil)) {
+        ctx.addIssue({ code: 'custom', path: ['reserve', 'lines', i, 'date'], params: { code: 'OUT_OF_RANGE' } });
+      }
+    });
   });
 
 type StatementBody = z.infer<typeof statementBody>;
@@ -186,6 +196,7 @@ function contentOf(body: StatementBody): StatementContent {
               addition: l.addition ?? null,
               withdrawal: l.withdrawal ?? null,
               closing: l.closing ?? null,
+              date: l.date ?? null,
             })),
             unitShareOpening: body.reserve.unitShareOpening ?? null,
             unitShareClosing: body.reserve.unitShareClosing ?? null,

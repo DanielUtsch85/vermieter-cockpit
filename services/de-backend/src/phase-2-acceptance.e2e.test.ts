@@ -57,6 +57,9 @@ import {
   getTaxClassification,
   getTaxMeaning,
   getDepositTaxMeaning,
+  getAnschaffungsnaheCheck,
+  getUseTaxMeaning,
+  getWithdrawalTaxMeaning,
   createRentalContractReference,
   getRentalContractReference,
   listRentalContractReferences,
@@ -207,9 +210,9 @@ const REALM_B = '64b0c0ffee0000000000000b';
 const PROPERTY = '6512f0c2a1b2c3d4e5f60901';
 const TENANT = '6512f0c2a1b2c3d4e5f60a01';
 
-/** The Phase-2 routes (api-design §19–§28) under `/api/v1`, as `METHOD /path/:param`. */
+/** The Phase-2 routes (api-design §19–§28) under `/api/v1`, as `METHOD /path/:param`; the anschaffungsnahe check is VC-7-03's (§58B). */
 const PHASE_2 =
-  /^[A-Z]+ \/(parties|ownerships|acquisitions)\b|^[A-Z]+ \/property-references\/:propertyReferenceId\/(ownerships|ownership-changes|acquisitions)$/;
+  /^(?!.*\/anschaffungsnahe-herstellungskosten$)(?:[A-Z]+ \/(parties|ownerships|acquisitions)\b|[A-Z]+ \/property-references\/:propertyReferenceId\/(ownerships|ownership-changes|acquisitions)$)/;
 
 /**
  * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 4
@@ -380,6 +383,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
         review: reviewTaxClassification({ repository: new PostgresTaxClassificationRepository(db) }),
         taxMeaning: getTaxMeaning({ repository: new PostgresTaxClassificationRepository(db) }),
         depositTaxMeaning: getDepositTaxMeaning({ repository: new PostgresTaxClassificationRepository(db) }),
+        withdrawalTaxMeaning: getWithdrawalTaxMeaning({ repository: new PostgresTaxClassificationRepository(db) }),
+        useTaxMeaning: getUseTaxMeaning({ repository: new PostgresTaxClassificationRepository(db) }),
+        anschaffungsnahe: getAnschaffungsnaheCheck({ repository: new PostgresTaxClassificationRepository(db) }),
         taxMeanings: listTaxMeanings({ repository: new PostgresTaxClassificationRepository(db) }),
         listRules: listTaxRules(),
         getRule: getTaxRule(),

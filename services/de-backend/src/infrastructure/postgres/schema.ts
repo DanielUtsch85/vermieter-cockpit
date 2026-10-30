@@ -671,6 +671,22 @@ export interface TaxClassificationTable {
   security_deposit_id: Generated<string | null>;
   deposit_closing_date: Generated<string | null>;
   deposit_retained_amount: Generated<string | null>;
+  /** VC-7-03 (0047): the WEG sources, by row and position, with the amount (and date) classified. */
+  weg_annual_statement_id: Generated<string | null>;
+  weg_reserve_position: Generated<number | null>;
+  weg_withdrawal_unit_share: Generated<string | null>;
+  weg_special_assessment_id: Generated<string | null>;
+  weg_use_position: Generated<number | null>;
+  weg_use_date: Generated<string | null>;
+  weg_use_unit_share: Generated<string | null>;
+  /** VC-7-03 (0047): the fields of §58B and the second rule reference. */
+  net_amount: Generated<string | null>;
+  annually_recurring: Generated<boolean>;
+  distribution_years: Generated<number | null>;
+  mostly_residential_confirmed: Generated<boolean | null>;
+  anschaffungsnahe_acquisition_id: Generated<string | null>;
+  treatment_rule_code: Generated<string | null>;
+  treatment_rule_version: Generated<number | null>;
 }
 
 /** VC-7-02 (0046, api-design §58A): the minimal RentalContractReference. */

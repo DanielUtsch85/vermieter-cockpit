@@ -51,6 +51,15 @@ const classification: TaxClassification = {
   treatment: 'CAPITALIZED',
   reviewState: 'USER_CONFIRMED',
   rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
+  treatmentRule: null,
+  sourcePosition: null,
+  reserveWithdrawal: null,
+  assessmentUse: null,
+  netAmount: null,
+  annuallyRecurring: false,
+  distributionYears: null,
+  mostlyResidentialConfirmed: null,
+  anschaffungsnaheAcquisitionId: null,
   advisorPartyId: null,
   notes: 'Austausch Thermostatventile',
   sourceReferences: ['Rechnung 2026-117'],
@@ -89,6 +98,10 @@ const meaning: TaxMeaning = {
   taxYear: 2026,
   attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: 2026, proposedYear: 2026, overridden: false },
   refund: null,
+  netAmount: null,
+  treatmentRule: null,
+  distribution: null,
+  suggestion: null,
   flags: [{ code: 'CLASSIFICATION_ON_CORRECTED_SPLIT', details: { originalTransactionId: OTHER, classificationIds: [CLASSIFICATION] } }],
 };
 
@@ -148,13 +161,22 @@ describe('POST /tax-classifications (§56)', () => {
       taxCategory: 'MAINTENANCE',
       treatment: 'CAPITALIZED',
       reviewState: 'USER_CONFIRMED',
+      sourcePosition: null,
       rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
+      treatmentRule: null,
       advisorPartyId: null,
       notes: 'Austausch Thermostatventile',
       sourceReferences: ['Rechnung 2026-117'],
       taxYear: null,
       refundOfYear: null,
       depositClosing: null,
+      reserveWithdrawal: null,
+      assessmentUse: null,
+      netAmount: null,
+      annuallyRecurring: false,
+      distributionYears: null,
+      mostlyResidentialConfirmed: null,
+      anschaffungsnaheAcquisitionId: null,
       supersedes: OTHER,
       supersededBy: null,
       supersededAt: null,
@@ -204,9 +226,8 @@ describe('POST /tax-classifications (§56)', () => {
       { field: 'sourceReferences', code: 'INVALID_FORMAT' },
     ]);
     expect(await fields(await send({ ...body, jurisdiction: 'DE' }))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
-    for (const field of ['netAmount', 'annuallyRecurring', 'distributionYears']) {
-      expect(await fields(await send({ ...body, [field]: 2026 }))).toEqual([{ field, code: 'NOT_SUPPORTED' }]);
-    }
+    // VC-7-03 (§58B): the fields of VC-7-01's NOT_SUPPORTED are checked; see the §58B describe below.
+    expect(await fields(await send({ ...body, netAmount: 2026 }))).toEqual([{ field: 'netAmount', code: 'INVALID_FORMAT' }]);
     // VC-7-02 (§58A): the years 2000–2100, a split's only.
     for (const field of ['taxYear', 'refundOfYear']) {
       for (const year of [1999, 2101]) expect(await fields(await send({ ...body, [field]: year }))).toEqual([{ field, code: 'OUT_OF_RANGE' }]);
@@ -215,11 +236,10 @@ describe('POST /tax-classifications (§56)', () => {
         await fields(await send({ ...body, sourceType: 'DEPOSIT_CLOSING', taxCategory: 'RETAINED_DEPOSIT_RENT', treatment: 'INCOME', [field]: 2026 })),
       ).toEqual([{ field, code: 'NOT_SUPPORTED' }]);
     }
+    // VC-7-03 (§58B): the WEG sources take a sourcePosition; WEG_SPENDING and DISTRIBUTED_82B are lifted.
     for (const sourceType of ['WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE']) {
-      expect(await fields(await send({ ...body, sourceType }))).toEqual([{ field: 'sourceType', code: 'NOT_SUPPORTED' }]);
+      expect(await fields(await send({ ...body, sourceType }))).toEqual([{ field: 'sourcePosition', code: 'REQUIRED' }]);
     }
-    expect(await fields(await send({ ...body, taxCategory: 'WEG_SPENDING' }))).toEqual([{ field: 'taxCategory', code: 'NOT_SUPPORTED' }]);
-    expect(await fields(await send({ ...body, treatment: 'DISTRIBUTED_82B' }))).toEqual([{ field: 'treatment', code: 'NOT_SUPPORTED' }]);
     for (const [taxCategory, treatment] of [
       ['RENT', 'DEDUCTIBLE'],
       ['MAINTENANCE', 'INCOME'],
@@ -368,9 +388,17 @@ describe('reads (§55)', () => {
     expect(((await history.json()) as { items: { classificationId: string }[] }).items.map((c) => c.classificationId)).toEqual([CLASSIFICATION]);
     expect((await get(base, `/tax-classifications?sourceType=TRANSACTION_SPLIT&sourceId=${OTHER}`)).status).toBe(404);
     expect(await fields(await get(base, `/tax-classifications?sourceId=${SPLIT}`))).toEqual([{ field: 'sourceType', code: 'REQUIRED' }]);
+    // VC-7-03 (§58B): a WEG source's history by its position.
     expect(await fields(await get(base, `/tax-classifications?sourceType=WEG_RESERVE_WITHDRAWAL&sourceId=${SPLIT}`))).toEqual([
-      { field: 'sourceType', code: 'NOT_SUPPORTED' },
+      { field: 'sourcePosition', code: 'REQUIRED' },
     ]);
+    expect(await fields(await get(base, `/tax-classifications?sourceType=TRANSACTION_SPLIT&sourceId=${SPLIT}&sourcePosition=1`))).toEqual([
+      { field: 'sourcePosition', code: 'NOT_ALLOWED' },
+    ]);
+    expect(await fields(await get(base, `/tax-classifications?sourceType=WEG_ASSESSMENT_USE&sourceId=${SPLIT}&sourcePosition=1001`))).toEqual([
+      { field: 'sourcePosition', code: 'INVALID_FORMAT' },
+    ]);
+    expect((await get(base, `/tax-classifications?sourceType=WEG_ASSESSMENT_USE&sourceId=${SPLIT}&sourcePosition=2`)).status).toBe(200);
     expect(await fields(await get(base, `/tax-classifications?sourceType=TRANSACTION_SPLIT&sourceId=x`))).toEqual([
       { field: 'sourceId', code: 'INVALID_FORMAT' },
     ]);
@@ -392,11 +420,13 @@ describe('reads (§55)', () => {
     expect(await res.json()).toEqual({
       sourceType: 'TRANSACTION_SPLIT',
       sourceId: SPLIT,
+      sourcePosition: null,
       splitId: SPLIT,
       transactionId: TX,
       bookingDate: '2026-03-02',
       direction: 'OUTFLOW',
       amount: { amount: '120.00', currency: 'EUR' },
+      netAmount: null,
       financialCategoryCode: 'MAINTENANCE',
       propertyReferenceId: PR,
       counts: true,
@@ -405,10 +435,13 @@ describe('reads (§55)', () => {
       reviewState: 'SUGGESTED',
       origin: 'DEFAULT',
       rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
+      treatmentRule: null,
       classificationId: null,
       taxYear: 2026,
       attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: 2026, proposedYear: 2026, overridden: false },
       refund: null,
+      distribution: null,
+      suggestion: null,
       flags: [{ code: 'CLASSIFICATION_ON_CORRECTED_SPLIT', details: { originalTransactionId: OTHER, classificationIds: [CLASSIFICATION] } }],
     });
     const missing = await get(base, `/transaction-splits/${OTHER}/tax-meaning`);
@@ -440,6 +473,7 @@ describe('reads (§55)', () => {
     const expected = {
       sourceType: 'DEPOSIT_CLOSING',
       sourceId: OTHER,
+      sourcePosition: null,
       securityDepositId: OTHER,
       status: 'ACTIVE',
       closingDate: null,
@@ -461,7 +495,7 @@ describe('reads (§55)', () => {
           if (depositId !== OTHER) throw new SecurityDepositNotFoundError(depositId);
           return deposit;
         },
-        taxMeanings: async (input) => ({ items: [meaning, deposit], page: input.page.page, pageSize: input.page.pageSize, total: 2 }),
+        taxMeanings: async (input) => ({ items: [{ ...meaning, yearAmount: meaning.amount }, { ...deposit, yearAmount: deposit.amount }], page: input.page.page, pageSize: input.page.pageSize, total: 2 }),
       },
     });
     const res = await get(base, `/security-deposits/${OTHER}/tax-meaning`);
@@ -471,7 +505,8 @@ describe('reads (§55)', () => {
     expect(await fields(await get(base, `/security-deposits/x/tax-meaning`))).toEqual([{ field: 'depositId', code: 'INVALID_FORMAT' }]);
     const listed = (await (await get(base, `/property-references/${PR}/tax-meanings?year=2026`)).json()) as { items: { sourceType: string }[] };
     expect(listed.items.map((i) => i.sourceType)).toEqual(['TRANSACTION_SPLIT', 'DEPOSIT_CLOSING']);
-    expect(listed.items[1]).toEqual(expected);
+    // VC-7-03 (§58B): each item with its sourcePosition and the amount of the year.
+    expect(listed.items[1]).toEqual({ ...expected, yearAmount: { amount: '0.00', currency: 'EUR' } });
   });
 
   it('GET tax-meanings?year=: filters and paging passed; year required 2000–2100; pageSize ≤ 200; 404', async () => {
@@ -481,7 +516,7 @@ describe('reads (§55)', () => {
         taxMeanings: async (input) => {
           if (input.propertyReferenceId !== PR) throw new PropertyReferenceNotFoundError(input.propertyReferenceId);
           seen.push({ year: input.year, filter: input.filter, page: input.page });
-          return { items: [meaning], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
+          return { items: [{ ...meaning, yearAmount: meaning.amount }], page: input.page.page, pageSize: input.page.pageSize, total: 1 };
         },
       },
     });
@@ -515,12 +550,17 @@ describe('GET /tax-rules (§58)', () => {
     const now = () => new Date('2026-10-30T10:00:00Z');
     const base = await start({ taxation: { listRules: listTaxRules({ now }), getRule: getTaxRule({ now }) } });
     const list = (await (await get(base, '/tax-rules')).json()) as { items: { ruleCode: string; versions: Record<string, unknown>[] }[] };
-    // VC-7-02 adds DE_CASH_TIMING (§58A).
-    expect(list.items.map((r) => r.ruleCode)).toEqual(['DE_CASH_TIMING', 'DE_CATEGORY_DEFAULTS']);
-    const defaults = list.items[1];
-    expect(list.items[0]?.versions).toEqual([
+    // VC-7-02 adds DE_CASH_TIMING (§58A), VC-7-03 three rules of its own (§58B).
+    expect(list.items.map((r) => r.ruleCode)).toEqual(['DE_82B_DISTRIBUTION', 'DE_ANSCHAFFUNGSNAHE', 'DE_CASH_TIMING', 'DE_CATEGORY_DEFAULTS', 'DE_WEG_SPENDING']);
+    const defaults = list.items[3];
+    expect(list.items[2]?.versions).toEqual([
       expect.objectContaining({ ruleCode: 'DE_CASH_TIMING', version: 1, legalBasis: '§ 11 Abs. 1 S. 2 und Abs. 2 S. 2 EStG', status: 'ACTIVE' }),
     ]);
+    expect(list.items[0]?.versions).toEqual([
+      expect.objectContaining({ ruleCode: 'DE_82B_DISTRIBUTION', version: 1, effectiveFrom: '2004-01-01', legalBasis: '§ 82b EStDV; § 84 Abs. 4a EStDV' }),
+    ]);
+    expect(list.items[1]?.versions[0]).toMatchObject({ effectiveFrom: '2004-01-01', parameters: { thresholdPercent: 15, windowYears: 3 } });
+    expect(list.items[4]?.versions[0]).toMatchObject({ effectiveFrom: '2000-01-01', legalBasis: '§ 9 Abs. 1, § 11 Abs. 2 EStG; BFH IX R 19/24' });
     expect(defaults?.versions).toEqual([
       expect.objectContaining({
         ruleCode: 'DE_CATEGORY_DEFAULTS',

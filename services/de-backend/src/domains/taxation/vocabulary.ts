@@ -54,9 +54,12 @@ export const isExpenseLine = (taxCategory: TaxCategory) => !isIncomeLine(taxCate
 export const TREATMENTS = ['INCOME', 'DEDUCTIBLE', 'CAPITALIZED', 'DISTRIBUTED_82B', 'NOT_RELEVANT'] as const;
 export type Treatment = (typeof TREATMENTS)[number];
 
-/** Of a later item (VC-7-03): `400 NOT_SUPPORTED` in VC-7-01. */
-export const LATER_TAX_CATEGORIES = ['WEG_SPENDING'] as const satisfies readonly TaxCategory[];
-export const LATER_TREATMENTS = ['DISTRIBUTED_82B'] as const satisfies readonly Treatment[];
+/**
+ * The lines of Erhaltungsaufwand (§58B, P7-D6): the only ones that take `netAmount`, `annuallyRecurring`,
+ * `DISTRIBUTED_82B` and a capitalisation following the anschaffungsnahe check.
+ */
+export const ERHALTUNG_TAX_CATEGORIES = ['MAINTENANCE', 'WEG_SPENDING'] as const satisfies readonly TaxCategory[];
+export const isErhaltungLine = (taxCategory: TaxCategory) => (ERHALTUNG_TAX_CATEGORIES as readonly TaxCategory[]).includes(taxCategory);
 
 /** `SUGGESTED` is only derived; the other three are stored (§57). */
 export const REVIEW_STATES = ['SUGGESTED', 'USER_CONFIRMED', 'ADVISOR_CONFIRMED', 'NEEDS_REVIEW'] as const;
@@ -66,22 +69,26 @@ export type StoredReviewState = Exclude<ReviewState, 'SUGGESTED'>;
 export const CREATE_REVIEW_STATES = ['USER_CONFIRMED', 'NEEDS_REVIEW'] as const satisfies readonly StoredReviewState[];
 export type CreateReviewState = (typeof CREATE_REVIEW_STATES)[number];
 
-/** The sources of a classification; VC-7-01 classifies splits, VC-7-02 retained deposits, VC-7-03 the WEG ones (§55). */
+/** The sources of a classification; VC-7-01 classifies splits, VC-7-02 retained deposits, VC-7-03 the WEG ones (§55, §58B). */
 export const SOURCE_TYPES = ['TRANSACTION_SPLIT', 'WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE', 'DEPOSIT_CLOSING'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
-export const SUPPORTED_SOURCE_TYPES = ['TRANSACTION_SPLIT', 'DEPOSIT_CLOSING'] as const satisfies readonly SourceType[];
-export type SupportedSourceType = (typeof SUPPORTED_SOURCE_TYPES)[number];
+/** The two WEG sources (§58B): named by their row and a `sourcePosition`. */
+export const WEG_SOURCE_TYPES = ['WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE'] as const satisfies readonly SourceType[];
+export type WegSourceType = (typeof WEG_SOURCE_TYPES)[number];
+export const isWegSource = (sourceType: SourceType): sourceType is WegSourceType => (WEG_SOURCE_TYPES as readonly SourceType[]).includes(sourceType);
 
 export const ORIGINS = ['DEFAULT', 'CLASSIFICATION'] as const;
 export type Origin = (typeof ORIGINS)[number];
 
 /**
- * Whether `taxCategory` and `treatment` fit (§56): an income line only with `INCOME`, `NOT_RELEVANT` only with
- * `NOT_RELEVANT`, `UNCLASSIFIED` only without a treatment, every other line with a treatment other than `INCOME`.
+ * Whether `taxCategory` and `treatment` fit (§56, §58B): an income line only with `INCOME`, `NOT_RELEVANT` only with
+ * `NOT_RELEVANT`, `UNCLASSIFIED` only without a treatment, every other line with a treatment other than `INCOME`;
+ * `DISTRIBUTED_82B` only on a line of Erhaltungsaufwand (§ 82b EStDV distributes Erhaltungsaufwand only).
  */
 export function treatmentFits(taxCategory: TaxCategory, treatment: Treatment | null): boolean {
   if (isIncomeLine(taxCategory)) return treatment === 'INCOME';
   if (taxCategory === 'NOT_RELEVANT') return treatment === 'NOT_RELEVANT';
   if (taxCategory === 'UNCLASSIFIED') return treatment === null;
+  if (treatment === 'DISTRIBUTED_82B') return isErhaltungLine(taxCategory);
   return treatment !== null && treatment !== 'INCOME';
 }
