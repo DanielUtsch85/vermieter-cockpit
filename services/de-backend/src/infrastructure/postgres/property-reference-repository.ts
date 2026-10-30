@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import {
   planRefresh,
   type CachedAddress,
@@ -7,7 +7,9 @@ import {
   type MreObservation,
   type NewPropertyReference,
   type PropertyReference,
+  type PropertyReferenceFilter,
   type PropertyReferenceId,
+  type PropertyReferencePage,
   type PropertyReferenceRepository,
 } from '../../domains/property-reference/index.js';
 import { ExactDecimal, type AuditActor } from '../../shared/index.js';
@@ -35,6 +37,33 @@ export class PostgresPropertyReferenceRepository implements PropertyReferenceRep
     if (!UUID.test(id)) return undefined;
     const row = await this.db.selectFrom('property_reference').selectAll().where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
     return row === undefined ? undefined : toDomain(row);
+  }
+
+  async list(mreRealmId: string, filter: PropertyReferenceFilter, page: { readonly page: number; readonly pageSize: number }): Promise<PropertyReferencePage> {
+    const filtered = (trx: Kysely<Database>) => {
+      let query = trx.selectFrom('property_reference').where('mre_realm_id', '=', mreRealmId);
+      if (filter.states !== undefined) query = query.where('external_reference_state', 'in', filter.states);
+      return query;
+    };
+    // Count and page in one snapshot, so `total` and `items` agree.
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const { n } = await filtered(trx)
+          .select((eb) => eb.fn.countAll<string>().as('n'))
+          .executeTakeFirstOrThrow();
+        const rows = await filtered(trx)
+          .selectAll()
+          .orderBy(sql`lower(display_name) asc nulls last`)
+          .orderBy('created_at')
+          .orderBy('id')
+          .limit(page.pageSize)
+          .offset((page.page - 1) * page.pageSize)
+          .execute();
+        return { items: rows.map(toDomain), page: page.page, pageSize: page.pageSize, total: Number(n) };
+      });
   }
 
   async linkOnce(reference: NewPropertyReference, actor: AuditActor): Promise<LinkOutcome> {

@@ -69,6 +69,19 @@ export function planClose(current: FinancialAccount, at: Date): ClosePlan {
   return { next: { ...current, status: 'CLOSED', closedAt: at, version: current.version + 1 }, changed: true };
 }
 
+/** List filters (api-design.md §29.3); each list matches any of its values, the two combine with AND. */
+export interface FinancialAccountFilter {
+  readonly statuses?: readonly AccountStatus[];
+  readonly accountTypes?: readonly AccountType[];
+}
+
+export interface FinancialAccountPage {
+  readonly items: readonly FinancialAccount[];
+  readonly page: number;
+  readonly pageSize: number;
+  readonly total: number;
+}
+
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface FinancialAccountRepository {
   /**
@@ -79,6 +92,8 @@ export interface FinancialAccountRepository {
   create(account: NewFinancialAccount, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateOutcome>;
   /** Only within the given Realm: another Realm's account is not found. */
   findById(id: string, mreRealmId: string): Promise<FinancialAccount | undefined>;
+  /** The Realm's accounts by `lower(displayName)`, then `createdAt`, then id; count and page in one snapshot. */
+  list(mreRealmId: string, filter: FinancialAccountFilter, page: { readonly page: number; readonly pageSize: number }): Promise<FinancialAccountPage>;
   /**
    * Applies `planClose` under a row lock and audits a change in the same
    * transaction. Resolves undefined if the account does not exist in the Realm.

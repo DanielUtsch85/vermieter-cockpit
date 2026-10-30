@@ -4,7 +4,7 @@ const unused = () => Promise.reject(new Error('not used in this test'));
 
 /** Every command of AppCommands, per module, rejecting if called. Test support only. */
 export const unusedCommands: AppCommands = {
-  propertyReferences: { link: unused, refresh: unused },
+  propertyReferences: { link: unused, refresh: unused, get: unused, list: unused },
   parties: { create: unused, get: unused, list: unused, amend: unused, deactivate: unused },
   externalReferences: { create: unused, end: unused, list: unused },
   ownerships: { create: unused, get: unused, close: unused, void: unused, read: unused, change: unused },
@@ -68,7 +68,7 @@ export const unusedCommands: AppCommands = {
   loanTerms: { create: unused, void: unused, list: unused, schedule: unused, proposal: unused },
   loanDebt: { remainingDebt: unused, payments: unused, createStatement: unused, voidStatement: unused, listStatements: unused },
   loanAllocations: { create: unused, void: unused, list: unused, on: unused, propertyLoans: unused },
-  financialAccounts: { create: unused, close: unused },
+  financialAccounts: { create: unused, close: unused, get: unused, list: unused },
   transactions: {
     createManual: unused,
     setSplits: unused,
