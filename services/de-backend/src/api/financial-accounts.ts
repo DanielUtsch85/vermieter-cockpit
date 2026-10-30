@@ -1,6 +1,14 @@
-import express, { type Router } from 'express';
+import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
-import { ACCOUNT_TYPES, type CloseFinancialAccount, type CreateFinancialAccount, type FinancialAccount } from '../application/index.js';
+import {
+  ACCOUNT_STATUSES,
+  ACCOUNT_TYPES,
+  type CloseFinancialAccount,
+  type CreateFinancialAccount,
+  type FinancialAccount,
+  type GetFinancialAccount,
+  type ListFinancialAccounts,
+} from '../application/index.js';
 import { isSupportedCurrency, normalizeIban } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { RESOURCE_ID, fieldErrors, readIdempotencyKey, sendValidationError } from './validation.js';
@@ -16,9 +24,28 @@ const createBody = z.object({
     .optional(),
 });
 
+/** A comma-separated list of the given values, any of them. */
+const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
+  z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(values)).min(1));
+
+/** api-design.md §29.3; unknown parameters are `400`. */
+const listQuery = z
+  .object({
+    status: commaList(ACCOUNT_STATUSES).optional(),
+    accountType: commaList(ACCOUNT_TYPES).optional(),
+    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  })
+  .strict();
+
 export interface FinancialAccountCommands {
   readonly create: CreateFinancialAccount;
   readonly close: CloseFinancialAccount;
+  readonly get: GetFinancialAccount;
+  readonly list: ListFinancialAccounts;
 }
 
 /** FinancialAccount API (api-design.md §29). */
@@ -52,6 +79,37 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
       .catch(next);
   });
 
+  router.get('/financial-accounts', (req, res, next) => {
+    const parsed = listQuery.safeParse(req.query);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    const { page, pageSize, status, accountType } = parsed.data;
+    commands
+      .list({
+        principal: principalOf(res),
+        filter: { ...(status === undefined ? {} : { statuses: status }), ...(accountType === undefined ? {} : { accountTypes: accountType }) },
+        page: { page, pageSize },
+      })
+      .then((result) => {
+        res.json({ items: result.items.map(toDto), page: result.page, pageSize: result.pageSize, total: result.total });
+      })
+      .catch(next);
+  });
+
+  router.get('/financial-accounts/:financialAccountId', (req, res, next) => {
+    const { financialAccountId } = req.params;
+    if (!RESOURCE_ID.test(financialAccountId)) {
+      sendValidationError(res, [{ field: 'financialAccountId', code: 'INVALID_FORMAT' }]);
+      return;
+    }
+    commands
+      .get({ principal: principalOf(res), financialAccountId: financialAccountId.toLowerCase() })
+      .then((account) => sendAccount(res, account))
+      .catch(next);
+  });
+
   router.post('/financial-accounts/:financialAccountId/close', (req, res, next) => {
     const { financialAccountId } = req.params;
     if (!RESOURCE_ID.test(financialAccountId)) {
@@ -67,6 +125,12 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
   });
 
   return router;
+}
+
+/** A single account with its version as `ETag` (api-design.md §16.1). */
+function sendAccount(res: Response, account: FinancialAccount): void {
+  res.setHeader('ETag', `"${account.version}"`);
+  res.json(toDto(account));
 }
 
 function toDto(account: FinancialAccount) {

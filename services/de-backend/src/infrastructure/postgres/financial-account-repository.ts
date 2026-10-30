@@ -1,11 +1,13 @@
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import {
   planClose,
   type AccountStatus,
   type AccountType,
   type CreateOutcome,
   type FinancialAccount,
+  type FinancialAccountFilter,
   type FinancialAccountId,
+  type FinancialAccountPage,
   type FinancialAccountRepository,
   type NewFinancialAccount,
 } from '../../domains/ledger/index.js';
@@ -69,6 +71,34 @@ export class PostgresFinancialAccountRepository implements FinancialAccountRepos
     if (!UUID.test(id)) return undefined;
     const row = await this.db.selectFrom('financial_account').selectAll().where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
     return row === undefined ? undefined : toFinancialAccount(row);
+  }
+
+  async list(mreRealmId: string, filter: FinancialAccountFilter, page: { readonly page: number; readonly pageSize: number }): Promise<FinancialAccountPage> {
+    const filtered = (trx: Kysely<Database>) => {
+      let query = trx.selectFrom('financial_account').where('mre_realm_id', '=', mreRealmId);
+      if (filter.statuses !== undefined) query = query.where('status', 'in', filter.statuses);
+      if (filter.accountTypes !== undefined) query = query.where('account_type', 'in', filter.accountTypes);
+      return query;
+    };
+    // Count and page in one snapshot, so `total` and `items` agree.
+    return this.db
+      .transaction()
+      .setIsolationLevel('repeatable read')
+      .setAccessMode('read only')
+      .execute(async (trx) => {
+        const { n } = await filtered(trx)
+          .select((eb) => eb.fn.countAll<string>().as('n'))
+          .executeTakeFirstOrThrow();
+        const rows = await filtered(trx)
+          .selectAll()
+          .orderBy(sql`lower(display_name)`)
+          .orderBy('created_at')
+          .orderBy('id')
+          .limit(page.pageSize)
+          .offset((page.page - 1) * page.pageSize)
+          .execute();
+        return { items: rows.map(toFinancialAccount), page: page.page, pageSize: page.pageSize, total: Number(n) };
+      });
   }
 
   async close(id: FinancialAccountId, mreRealmId: string, at: Date, actor: AuditActor): Promise<FinancialAccount | undefined> {

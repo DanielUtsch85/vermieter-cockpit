@@ -157,10 +157,27 @@ function sameDecimal(a: ExactDecimal | null, b: ExactDecimal | null): boolean {
 }
 
 /** Persistence port, implemented in infrastructure/postgres. */
+/** List filter (api-design.md §23.3): any of the given states. */
+export interface PropertyReferenceFilter {
+  readonly states?: readonly ExternalReferenceState[];
+}
+
+export interface PropertyReferencePage {
+  readonly items: readonly PropertyReference[];
+  readonly page: number;
+  readonly pageSize: number;
+  readonly total: number;
+}
+
 export interface PropertyReferenceRepository {
   findByMreIdentity(mreRealmId: string, mrePropertyId: string): Promise<PropertyReference | undefined>;
   /** Only within the given Realm: another Realm's reference is not found. */
   findById(id: string, mreRealmId: string): Promise<PropertyReference | undefined>;
+  /**
+   * The Realm's references by `lower(displayName)` with null last, then `createdAt`, then id; count and page in one
+   * snapshot. Reads DE's cached data only, never MRE.
+   */
+  list(mreRealmId: string, filter: PropertyReferenceFilter, page: { readonly page: number; readonly pageSize: number }): Promise<PropertyReferencePage>;
   /**
    * Creates the reference unless its natural key already exists — atomically, so
    * concurrent links of the same MRE Property yield exactly one reference — and

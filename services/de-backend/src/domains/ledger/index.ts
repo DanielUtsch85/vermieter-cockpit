@@ -9,7 +9,9 @@ export type {
   ClosePlan,
   CreateOutcome,
   FinancialAccount,
+  FinancialAccountFilter,
   FinancialAccountId,
+  FinancialAccountPage,
   FinancialAccountRepository,
   NewFinancialAccount,
 } from './financial-account.js';

@@ -13,6 +13,10 @@ import {
   restoreTransaction,
   amendParty,
   createFinancialAccount,
+  getFinancialAccount,
+  getPropertyReference,
+  listFinancialAccounts,
+  listPropertyReferences,
   createParty,
   deactivateParty,
   createExternalReference,
@@ -222,7 +226,12 @@ const categories = new PostgresFinancialCategoryRepository(db);
 const app = createApp({
   isReady: () => isDatabaseReachable(pool),
   verifyPrincipal: cachingPrincipalVerifier(mrePrincipalVerifier(mreClient)),
-  propertyReferences: { link: linkPropertyReference(propertyReferences), refresh: refreshPropertyReference(propertyReferences) },
+  propertyReferences: {
+    link: linkPropertyReference(propertyReferences),
+    refresh: refreshPropertyReference(propertyReferences),
+    get: getPropertyReference({ repository: propertyReferences.repository }),
+    list: listPropertyReferences({ repository: propertyReferences.repository }),
+  },
   parties: {
     create: createParty({ repository: parties }),
     get: getParty({ repository: parties }),
@@ -386,7 +395,12 @@ const app = createApp({
     on: getLoanAllocationOn({ repository: loanAllocations }),
     propertyLoans: listPropertyLoans({ repository: loanAllocations }),
   },
-  financialAccounts: { create: createFinancialAccount({ repository: financialAccounts }), close: closeFinancialAccount({ repository: financialAccounts }) },
+  financialAccounts: {
+    create: createFinancialAccount({ repository: financialAccounts }),
+    close: closeFinancialAccount({ repository: financialAccounts }),
+    get: getFinancialAccount({ repository: financialAccounts }),
+    list: listFinancialAccounts({ repository: financialAccounts }),
+  },
   transactions: {
     createManual: createManualTransaction({ repository: transactions }),
     confirm: confirmTransaction({ repository: transactions }),

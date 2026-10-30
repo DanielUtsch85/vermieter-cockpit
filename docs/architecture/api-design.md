@@ -672,7 +672,7 @@ POST /api/v1/property-references/{propertyReferenceId}/refresh
 
 ---
 
-## 23.3 Read and list PropertyReferences (VC-X-25, spec; issue #160)
+## 23.3 Read and list PropertyReferences (VC-X-25, implemented; issue #160)
 
 The reads of §22's route list, so a client finds its objects again after a reload.
 
@@ -1194,7 +1194,7 @@ Account types (`accountType`, per `data-model.md` §16): `BANK`, `SECURITY_DEPOS
 - **Close:** `200` with the account (`status = CLOSED`, `closedAt`, `version` +1, AuditRecord `CLOSED`). Closing a closed account is a `200` no-op without an AuditRecord. An id that is not a UUID is `400`; an unknown account or one of another Realm is `404`.
 - **Response:** `financialAccountId`, `mreRealmId`, `accountType`, `displayName`, `currency`, `iban` (normalized or `null`), `status`, `createdAt`, `closedAt`, `version`.
 
-## 29.3 Read and list FinancialAccounts (VC-X-25, spec; issue #160)
+## 29.3 Read and list FinancialAccounts (VC-X-25, implemented; issue #160)
 
 The queries of §29's route list. A deposit's `holdingFinancialAccountId` (§47.1) is chosen from the list filtered by `accountType=SECURITY_DEPOSIT`.
 
@@ -1208,6 +1208,7 @@ The queries of §29's route list. A deposit's `holdingFinancialAccountId` (§47.
   - unknown parameters, an unknown filter value or a `page`/`pageSize` out of range → `400 VALIDATION_ERROR` with `details.fields[]` (as §29.2);
   - items as the single read, without `ETag`.
 - **Tests (implementation):** more than one page; an unknown parameter (`?statuss=CLOSED`) → `400`; mixed-case `displayName`s sort case-insensitively; both filters combined; another Realm's id → `404`.
+- **As implemented (VC-X-25):** both lists in `reads.e2e.test.ts`. No index on `lower(display_name)` yet: a Realm holds a handful of accounts and references, and a migration now would collide with VC-7-02's 0046 in flight. Add one (as `party_realm_name_idx`, 0016) with the next migration once lists grow.
 - **Nothing is written,** no AuditRecord.
 
 ---

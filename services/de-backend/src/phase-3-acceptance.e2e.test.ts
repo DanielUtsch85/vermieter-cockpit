@@ -140,6 +140,10 @@ import {
   refreshPropertyReference,
   resolveReviewItem,
   setTransactionSplits,
+  getFinancialAccount,
+  getPropertyReference,
+  listFinancialAccounts,
+  listPropertyReferences,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
@@ -267,7 +271,12 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
     app = createApp({
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(client),
-      propertyReferences: { link: linkPropertyReference(propertyReferences), refresh: refreshPropertyReference(propertyReferences) },
+      propertyReferences: {
+        link: linkPropertyReference(propertyReferences),
+        refresh: refreshPropertyReference(propertyReferences),
+        get: getPropertyReference({ repository: propertyReferences.repository }),
+        list: listPropertyReferences({ repository: propertyReferences.repository }),
+      },
       parties: {
         create: createParty({ repository: parties }),
         get: getParty({ repository: parties }),
@@ -429,7 +438,12 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         on: getLoanAllocationOn({ repository: new PostgresLoanAllocationRepository(db) }),
         propertyLoans: listPropertyLoans({ repository: new PostgresLoanAllocationRepository(db) }),
       },
-      financialAccounts: { create: createFinancialAccount({ repository: accounts }), close: closeFinancialAccount({ repository: accounts }) },
+      financialAccounts: {
+        create: createFinancialAccount({ repository: accounts }),
+        close: closeFinancialAccount({ repository: accounts }),
+        get: getFinancialAccount({ repository: accounts }),
+        list: listFinancialAccounts({ repository: accounts }),
+      },
       transactions: {
         createManual: createManualTransaction({ repository: transactions }),
         confirm: confirmTransaction({ repository: transactions }),
