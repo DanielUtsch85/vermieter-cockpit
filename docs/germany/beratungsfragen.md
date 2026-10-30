@@ -57,11 +57,11 @@
 - **Beginn nachträglicher (auch anschaffungsnaher) Herstellungskosten:** ab Jahresbeginn, ab Monat oder ab Übergang? Hinweis aus der Durchsicht: R 7.4 Abs. 9 S. 3 EStR, Jahresbeginn (VERIFY).
 - **Jahr der Veräußerung:** zeitanteilig, Stichtag Übergang des wirtschaftlichen Eigentums? Hinweis aus der Durchsicht: R 7.4 Abs. 8 EStR (VERIFY).
 - **Nicht abziehbare USt in der Bemessungsgrundlage:** brutto für Vermieter ohne USt-Option? (§ 9b Abs. 1 EStG, VERIFY)
-- **Sätze vor 2023:** galten die Bänder b und c unverändert für frühere Jahre?
+- **Sätze vor 2023:** galten die Bänder b und c unverändert für frühere Jahre? Hinweis aus der Durchsicht zu #178: Die Sätze seien seit Jahrzehnten unverändert, nur die Buchstaben hätten sich verschoben; vor dem JStG 2022 seien es § 7 Abs. 4 S. 1 Nr. 2 Buchst. a (2 %, Fertigstellung nach dem 31.12.1924) und Buchst. b (2,5 %, Fertigstellung vor dem 1.1.1925) gewesen (VERIFY). Kurze Frage an die Steuerberatung: Trifft das für alle Jahre zu, die die Software rechnen soll (ab 2000), sodass eine Regelversion für die Jahre vor 2023 dieselben zwei Sätze trägt? Die Durchsicht empfiehlt, das vor der Umsetzung von VC-8-02 zu klären; bis dahin bleibt es offen.
 - **Kürzere Nutzungsdauer:** ab Beginn der AfA oder ab dem nachgewiesenen Jahr? Und die Grenzwerte des § 7 Abs. 4 S. 2 EStG je Band: nach dem im Review zu #174 zitierten Gesetzestext feste Jahreszahlen (weniger als 33 / 50 / 40 Jahre), nicht der Kehrwert des Satzes (33⅓ Jahre bei 3 %); am amtlichen Text prüfen (VERIFY).
 - **Miteigentümer:** AfA auf die eigenen Anschaffungskosten (P8-D8); Fortführung durch Rechtsnachfolger (§ 11d EStDV) bleibt außerhalb.
 
-**Was die Software tut:** Bis zur Antwort berechnet sie nichts geraten: Jahre vor 2023 `NO_APPLICABLE_RULE`, Veräußerungsjahr zeitanteilig nach Monaten nach dem Hinweis aus der Durchsicht berechnet, aber mit dem offenen Hinweis `DISPOSAL_YEAR_TO_VERIFY`, sodass das Jahr nie als endgültig gilt (api-design §59A); die offenen Wahlen sind Regelparameter (`subsequentCostStart`, `endMonthCounts`).
+**Was die Software tut:** Bis zur Antwort berechnet sie nichts geraten: Jahre vor 2023 `NO_APPLICABLE_RULE`, für das Veräußerungsjahr gibt es einen **Vorschlag**, über den noch nicht entschieden ist (api-design §59A, offene Frage 3): zeitanteilig nach Monaten nach dem Hinweis aus der Durchsicht berechnet, mit dem offenen Hinweis `DISPOSAL_YEAR_TO_VERIFY`, sodass das Jahr nie als endgültig gilt; die Alternative lässt den Betrag des Jahres bis zur Bestätigung leer; die offenen Wahlen sind Regelparameter (`subsequentCostStart`, `endMonthCounts`).
 
 ---
 
