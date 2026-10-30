@@ -4891,9 +4891,10 @@ The fields VC-7-01 answered `400 NOT_SUPPORTED` (§55) are accepted on every sou
   - example (synthetic): 1,000.00 over 3 years → 333.33, 333.33, 333.34.
 - **The end of ownership** (§ 82b Abs. 2 EStDV; P7-D6):
   - the owners concerned are the `VALID` Ownerships of the source's PropertyReference valid on the source's date (§26.1);
-  - when **every one** of them has a `validUntil`, and the latest lies in a year E < F+n−1, the parts of the years after E fall into E. The meaning flags `DISTRIBUTION_ENDED` with `details: { endYear, ownershipIds, foldedYears }`;
+  - when the **tenure** (§58C, Per owner: the continuous run of `VALID` Ownerships of the same Party on the PropertyReference) of **every one** of them ends, and the latest end lies in a year E < F+n−1, the parts of the years after E fall into E. The meaning flags `DISTRIBUTION_ENDED` with `details: { endYear, ownershipIds, foldedYears }`;
+  - **an Ownership closed and continued by a new one** of the same Party the next day (a share change by §26.2, e.g. `"1/2"` → `"1/1"`) does not end the tenure and folds nothing (review on #168);
   - example (synthetic): 1,000.00 over 3 years from F, ownership ended in F+1 → 333.33 in F, 666.67 in F+1;
-  - when only **some** of them end within the distribution (a co-owner sells), the property's parts stay as they are, flagged `OWNERSHIP_PARTLY_ENDED` with `details.ownershipIds`. The per-owner fold is VC-7-04's (P7-D7; open question 10);
+  - when only **some** of their tenures end within the distribution (a co-owner sells), the property's parts stay as they are, flagged `OWNERSHIP_PARTLY_ENDED` with `details.ownershipIds`. The per-owner fold is VC-7-04's (P7-D7; open question 10);
   - derived on read: an Ownership closed later moves the parts at once, and no lock is needed;
   - **not recognised:** § 82b Abs. 2 EStDV also folds the rest into the year the building is contributed to business assets or stops being used to earn income (own use, vacancy without intent to let). DE knows neither. The parts then run on as derived, and the user reclassifies the source (a new classification with fewer `distributionYears`, or `DEDUCTIBLE` in that year). The distribution is shown as derived, never as complete (review on #167).
 - **`distribution`** in a meaning: `{ years, firstYear, parts: [{ year, amount }], endYear, rule: { ruleCode, version } }`; `parts` are the effective parts after any fold; `endYear` is `null` without a fold.
@@ -5054,9 +5055,300 @@ A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` sn
    - `effectiveFrom` 2004-01-01 for `DE_ANSCHAFFUNGSNAHE@1` (measures begun after 31.12.2003) and for `DE_82B_DISTRIBUTION@1` (§ 84 Abs. 4a EStDV);
    - the window by §§ 187, 188 BGB;
    - the date measured: the check takes the booking date, while the law measures the work carried out within the window (BMF 20.10.2017, Rn. 1 ff.). The spec now flags sources near the edges (`DATE_IS_BOOKING_DATE`, `DATES_NEAR_WINDOW_EDGE`). **Proposal:** an optional `performedOn` on a classification of `MAINTENANCE` or `WEG_SPENDING` (within ±3 years of the source's date), which the check uses instead of the booking date and which clears the flag.
-10. **§ 82b when only a co-owner sells.** **Proposal:** the property's parts stay; VC-7-04 folds that owner's rest into the year their Ownership ends, per owner (P7-D7). The flag `OWNERSHIP_PARTLY_ENDED` marks the case here.
+10. **§ 82b when only a co-owner sells.** **Proposal:** the property's parts stay; VC-7-04 folds that owner's rest into the year their Ownership ends, per owner (P7-D7). The flag `OWNERSHIP_PARTLY_ENDED` marks the case here. VC-7-04's rule: §58C "Per owner" (and its open question 6).
 11. **`NOT_FINAL` beyond gross amounts.** The plan names the gross amounts only. **Proposal:** also `UNCLASSIFIED_SOURCES`, `WINDOW_OPEN`, `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED` and `DATES_NEAR_WINDOW_EDGE`, since each can change the result just as well.
 12. **Maintenance paid from the Hausgeld** (review on #167). VC-7-03 excludes it and says so (`WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED`). **Proposal for later** (VC-7-04 or a follow-up): read the maintenance cost lines (§50's category) of each `CONFIRMED`, current statement whose period overlaps the window, times the unit's share, as a fifth source of the check only, dated at the end of the statement's period (or pro rata by days in the window). The view still never adds them (the Hausgeld paid already holds them), so this cannot count anything twice.
+
+---
+
+# 58C. Tax-Year View (VC-7-04, spec)
+
+Decisions P7-D7 and P7-D8 of `docs/development/phase-7-plan.md` (`docs/product/reports.md` §2.2; `docs/germany/taxation.md` §3–§7, §10; domain-model §45, §47; checklist A1, A4, A5, A10–A12). VC-7-01 to VC-7-03 give every source a **tax meaning** and a tax year (§55, §58A, §58B). VC-7-04 adds the one read that turns them into Einkünfte aus Vermietung und Verpachtung: per PropertyReference and tax year, and per owner. It is derived on every read and never stored (P7-D8; snapshots are Phase 9's, ADR-040). It writes nothing: no cash, no split, no classification, no AuditRecord (ADR-006). The AfA block stays empty until Phase 8.
+
+### Route
+
+```text
+GET /api/v1/property-references/{id}/tax-years/{year}[?ownerPartyId=]      (VC-7-04, §58C)
+```
+
+- **Domain owner:** Taxation. **Authorization:** the caller's Realm, as every DE route. Every row read belongs to it (composite foreign keys); a source of another Realm never appears.
+- **Path and query** (strict; an unknown query parameter is `400`):
+  - `id`: the PropertyReference (UUID);
+  - `year`: an integer 2000–2100, as §55's list (`400 INVALID_FORMAT` for anything but digits, `400 OUT_OF_RANGE` outside);
+  - `ownerPartyId` (UUID, optional): the owner level (P7-D7). Without it, the property level.
+- **Order of checks:**
+  1. `400` (the malformed id, `year`, `ownerPartyId`, an unknown parameter);
+  2. the PropertyReference unknown or of another Realm → `404`;
+  3. `ownerPartyId` names no Party of the caller's Realm → `404` with `details.ownerPartyId` (a foreign Party reads as unknown);
+  4. the Party is **not an owner in the year** → `422 NOT_AN_OWNER_IN_YEAR` with `details: { ownerPartyId, year }`. It is an owner in the year when it holds a `VALID` Ownership of this PropertyReference (§26.1) whose period overlaps 1 January–31 December of `year`, **or** it takes part in at least one item of the year by the share date below (a rent of January paid on 29 December, attributed to the year by the 10-day rule, belongs to whoever held the share on 29 December). An `INACTIVE` Party (a deceased owner) is an owner like any other;
+  5. more than 5,000 items in the view → `409 CONFLICT` with `reason = "TAX_YEAR_TOO_LARGE"` and `details: { itemCount, limit, pagedList }`, `pagedList` the path of §55's per-year list (`/api/v1/property-references/{id}/tax-meanings?year=`) (below);
+  6. `200` with the view.
+- **One snapshot:** every read of the view is one `REPEATABLE READ READ ONLY` transaction: the PropertyReference, its Ownerships, the sources of the year with their classifications and their inputs (reconciliations, rental contract references, plans, Loan schedules, statements, assessments, memberships, deposits), the Acquisitions with their costs and allocations, and the AuditRecords read for `ATTRIBUTION_INPUT_CHANGED`. No MRE call (P7-D9).
+- **No `ETag`:** a derived read carries no version `ETag`; Express's own weak `ETag` remains (§55, as implemented).
+- **`computedOn`:** today in Europe/Berlin, from the server's clock. The view depends on it only through the anschaffungsnahe check's `WINDOW_OPEN` (§58B).
+
+### What the view reads (its input)
+
+- **The items** are exactly those of `GET /property-references/{id}/tax-meanings?year=` (§55, §58A, §58B), read unpaged and unfiltered, with their meanings as there:
+  - the counting splits whose tax year is `year` (§58A, with the 10-day rule and the `taxYear` override);
+  - the counting deposit closings of the PropertyReference closed in `year` (§58A);
+  - the counting reserve withdrawals and Sonderumlage uses of its memberships whose tax year is `year` (§58B);
+  - every `DISTRIBUTED_82B` source of an earlier year with a part in `year` (§58B).
+- **And the deposits not attributed** ("nicht zugeordnet", below): the counting deposit closings of the Realm closed in `year` whose PropertyReference is `null` (§58A's `NO_PROPERTY_REFERENCE`).
+- **A source that does not count** (`counts: false`) is not in the view, as it is not in the list. The view adds nothing the list does not hold: a statement's cost lines, a `WEG_FUNDS` split as Werbungskosten, or an Acquisition's price never reach it (P7-D5, §58B "Never counted twice").
+- **The view is the list, grouped and summed.** A test compares the view's items, per source, with the list's (`yearAmount` aside, see § 82b below).
+
+### Which items count in which year
+
+- **A split:** in its tax year by §58A (the booking year, or the economic year under `DE_CASH_TIMING@1`, or the classification's `taxYear`).
+- **A deposit closing:** in the year of `closing.closingDate` (§58A).
+- **A reserve withdrawal or a Sonderumlage use:** in the calendar year of its date (§58B: its own date, else the statement's `periodUntil`, or the classification's `taxYear` for an undated withdrawal).
+- **A `DISTRIBUTED_82B` source:** in each year with a part, with that year's part only (§58B), as folded per owner below. The source's full amount is shown as context.
+- Every other source counts in exactly one year, so the views of all years together hold each source once (a test over three years).
+
+### How an item is placed
+
+Each item goes to **exactly one** place of the view, by its meaning (`taxCategory`, `treatment`; the classification's, else the default's):
+
+| `taxCategory` | Place | Summed when `treatment` is |
+|---|---|---|
+| `RENT` | Einnahmen: Mieteinnahmen | `INCOME` |
+| `OPERATING_COST_ADVANCES` | Einnahmen: Umlagen (Vorauszahlungen) | `INCOME` |
+| `OPERATING_COST_SETTLEMENT` | Einnahmen: Umlagen (Abrechnung) | `INCOME` |
+| `OTHER_INCOME` | Einnahmen: sonstige Einnahmen | `INCOME` |
+| `RETAINED_DEPOSIT_RENT` | Einnahmen: einbehaltene Kaution (Mietausfall) | `INCOME` |
+| `RETAINED_DEPOSIT_DAMAGES` | Einnahmen: einbehaltene Kaution (Schadensersatz) | `INCOME` |
+| `REFUNDS_OF_EARLIER_YEARS` | Einnahmen: Erstattungen früherer Jahre | `INCOME`; a refund placed here by `refund.line` when its own treatment is `DEDUCTIBLE` (Signs, below) |
+| `LOAN_INTEREST` | Werbungskosten: Schuldzinsen | `DEDUCTIBLE` |
+| `FINANCING_COSTS` | Werbungskosten: Finanzierungskosten | `DEDUCTIBLE` |
+| `WEG_HAUSGELD` | Werbungskosten: Hausgeld ohne Rücklage | `DEDUCTIBLE` |
+| `WEG_SPENDING` | Werbungskosten: WEG-Entnahmen und -Verwendungen | `DEDUCTIBLE`, `DISTRIBUTED_82B` (the year's part) |
+| `MAINTENANCE` | Werbungskosten: Erhaltungsaufwand | `DEDUCTIBLE`, `DISTRIBUTED_82B` (the year's part) |
+| `ADMINISTRATION` | Werbungskosten: Verwaltungskosten | `DEDUCTIBLE` |
+| `INSURANCE` | Werbungskosten: Versicherungen | `DEDUCTIBLE` |
+| `PROPERTY_TAX` | Werbungskosten: Grundsteuer | `DEDUCTIBLE` |
+| `BANK_FEES` | Werbungskosten: Kontoführung | `DEDUCTIBLE` |
+| `TAX_ADVICE` | Werbungskosten: Steuerberatung | `DEDUCTIBLE` |
+| `TRAVEL` | Werbungskosten: Fahrtkosten | `DEDUCTIBLE` |
+| `OTHER_EXPENSE` | Werbungskosten: sonstige Werbungskosten | `DEDUCTIBLE` |
+| `NOT_RELEVANT` | `notInView` (listed, never summed) | — |
+| `UNCLASSIFIED` | `unclassified` (listed, never summed, needs review) | — |
+
+- **The treatment decides whether an item on a line is summed:**
+  - `INCOME` on an Einnahmen line, `DEDUCTIBLE` on a Werbungskosten line: summed into the line.
+  - `DISTRIBUTED_82B` (only on `MAINTENANCE` and `WEG_SPENDING`, §58B): summed into the line with the year's part. The line carries `subtotals: { immediate, distributed82b }`, the form's distinction between Erhaltungsaufwand deducted at once and the parts of a distribution (taxation.md §5).
+  - `CAPITALIZED` (Herstellungskosten, anschaffungsnah or not): leaves the Werbungskosten. The item is listed in `capitalized`, with its line, for the AfA basis of Phase 8; it is never summed into the result.
+  - `NOT_RELEVANT` on any line: listed in `notInView`. Principal, deposits and their interest, transfers, owner contributions and withdrawals, the `WEG_FUNDS` splits and the Acquisition's payments all appear there (A1, A11, E6, BFH IX R 19/24), so a reader sees that they were read and left out. **Decision:** they are listed, not hidden (open question 3).
+  - `null` (`UNCLASSIFIED`: `OTHER_EXPENSE` and `OTHER` by default, every WEG source and deposit closing until classified): listed in `unclassified`, never summed, each flagged as needing review (P7-D8).
+- **The lines are fixed:** every line of the table is present in its section in the order of the table, with `total` 0.00 and no items when the year has none. So two years compare line by line. The list of `taxCategory` values is a rule parameter (§55); a registry test fails when a registered rule names a line this table does not place.
+- **No new rule:** the placement follows §56's fit of `taxCategory` and `treatment`, and the view applies no tax rule of its own. Its figures name the rules their items name (`ruleVersions`, below).
+
+### Signs (§58A)
+
+Every figure is Money, exact in cents, and signed where it can be negative (as §51's). An item has its source's `amount` (non-negative, with `direction` for a split) and a signed **`lineAmount`**, what it contributes to its place in `year`:
+- **Einnahmen:** an `INFLOW` counts positive. An `OUTFLOW` on an income line is a **repayment** (§58A) and counts negative on its own line (`REDUCES_LINE`), whatever year it relates to. A deposit closing counts its `retainedAmount` positive.
+- **Werbungskosten:** an `OUTFLOW`, a withdrawal and a use count positive (an expense). An `INFLOW` on an expense line is a **refund** (§58A):
+  - `refund.presentation` `REDUCES_LINE` (same year, or `REFUND_YEAR_UNKNOWN`): negative on its own line;
+  - `refund.presentation` `INCOME` (an earlier year): positive on the Einnahmen line `REFUNDS_OF_EARLIER_YEARS`. The item's `taxCategory` stays the expense line; the view places it by `refund.line`. It is summed when the refunded expense's treatment is `DEDUCTIBLE`; with `NOT_RELEVANT` it goes to `notInView`, with `CAPITALIZED` to `capitalized` (negative: a refund of Herstellungskosten reduces the basis, Phase 8).
+  - The result is the same either way; only the line differs (P7-D4).
+- **A line's `total`** is the sum of its items' `lineAmount`s, and may be negative (refunds above the year's costs). A section's `total` is the sum of its lines.
+- **`result`** = Einnahmen `total` − Werbungskosten `total`: positive is a surplus (Überschuss), negative a loss (Verlust). Loss carry-back and carry-forward (§ 10d EStG) stay out (A12).
+
+### § 82b parts in the view
+
+- **The property level without an owner's end:** the item's `lineAmount` is §58B's `yearAmount`, the part of `year`.
+- **When an owner's tenure ends within the distribution** (a co-owner sells; §58B's `OWNERSHIP_PARTLY_ENDED`): the parts are folded **per owner** (below), and the property's `lineAmount` is the sum of the owners' folded parts. It then differs from §58B's `yearAmount`; the item shows both and carries `DISTRIBUTION_FOLDED_PER_OWNER` with `details: { yearAmount, lineAmount, owners: [{ ownerPartyId, endYear }] }`. §58B's per-property list is unchanged: it shows the property's parts, the view the parts as the owners deduct them.
+- **When every owner's tenure ends** (`DISTRIBUTION_ENDED`, §58B), the per-owner fold gives §58B's fold, except in the case of open question 6 (an owner whose Ownership is closed and continued by a new one).
+- **`distribution`** on the item, as §58B: `{ years, firstYear, parts, endYear, rule }`, plus `yearAmount` (§58B's) and, at the owner level, `ownerParts: [{ year, amount }]`.
+
+### Per owner (P7-D7)
+
+Legal ownership shares are the only basis (AGENTS.md §12, data-model §12.5): no separate tax percentage, no `ownerAllocationBasis` (data-model §36).
+
+- **The share date of an item:**
+  - a split: its **booking date**, also when the 10-day rule or a `taxYear` override puts it into another year (P7-D7; open question 2);
+  - a deposit closing: `closingDate`;
+  - a reserve withdrawal or a use: its date (an assumed date included, with its flag);
+  - a § 82b part: the **source's** date, for every part (the owners who bore the expense, §58B's "owners concerned"). A buyer of a share after that date takes no part of it.
+- **The participants on a share date:** the `VALID` Ownerships of the PropertyReference covering that day (§26.1, `validFrom` ≤ day ≤ `validUntil`), each with its exact share `"n/d"`; and, when the shares sum to less than 1 (`INCOMPLETE` or `NONE`, §26.1), the remainder as the participant `NOT_OWNED`. `VOID` Ownerships count nowhere.
+- **Exact first, then one rounding per item:** an item's `lineAmount` of A cents is distributed over its participants by their exact shares, by **largest remainder** (§27.4's method, P2-D10):
+  - every participant first gets `floor(|A| × w)` cents; the rest (fewer cents than participants) goes one each to the largest fractional remainders;
+  - **ties:** the larger share first (P7-D7: "the rest on the largest share"), then `ownerPartyId` ascending, `NOT_OWNED` last;
+  - a negative A (a refund, a repayment) is distributed by its absolute value, and the sign is restored on each part (as §41.6);
+  - all of it in integers and fractions, never floating point. Each part is within one cent of the exact `A × w`, and the parts sum to A exactly.
+  
+  **The rounding happens per item, and only there.** This deviates from the plan's wording "rounded half-up to the cent, with the rest on the largest share", which can give a part of the wrong sign (open question 1).
+- **Everything above the item is summed, never distributed** (§27.4's F4b): an owner's line is the sum of the owner's item parts, an owner's section totals the sum of the owner's lines, the owner's result Einnahmen − Werbungskosten. So for every item, line, total and the result, **the owners' figures plus `NOT_OWNED` sum exactly to the property's.** A property test proves it.
+- **Example** (synthetic): owners A and B with `"1/2"` each, `ownerPartyId` A < B. A rent of 750.01: A 375.01, B 375.00. A refund of 0.03 in `MAINTENANCE`: A −0.02, B −0.01.
+- **An owner change during the year** (§26.2): each item takes the owners of its own share date. A sells to C on 1 July: the items of January to June are A's and B's, those from 1 July are B's and C's. A's view of the year holds A's items only, and A's result is that half-year's. Nothing is pro-rated by days: an item belongs to the owners of its date.
+- **An owner's tenure** (for § 82b): the continuous run of `VALID` Ownerships of the same Party on this PropertyReference that holds the share date. It ends on the last `validUntil` of the run. A Party whose Ownership is closed and continued by a new one the next day (a share that changes from `"1/2"` to `"1/1"`, §26.2) has not ended its tenure.
+- **§ 82b, the per-owner fold (§58B open question 10, P7-D6):**
+  - each base part P_k of §58B (k = 0 … n−1, years F … F+n−1, before any fold) is distributed over the participants on the source's date as above;
+  - an owner whose tenure ends in a year E < F+n−1 deducts, in E, their parts of E and of every later year; in the years after E they have none (§ 82b Abs. 2 EStDV: the rest in the year of the sale);
+  - an owner whose tenure does not end within the distribution keeps their parts in their years;
+  - the `NOT_OWNED` part stays in its year;
+  - the property's part of a year is the sum (above).
+  - Example (synthetic): a repair of 9,000.00 in F over 3 years; A and B `"1/2"` each on its date; B sells, `validUntil` 30.06. of F+1. Base parts 3,000.00 each, 1,500.00 to each owner. A: 1,500.00 in F, F+1 and F+2. B: 1,500.00 in F, 3,000.00 in F+1, none in F+2. The property: 3,000.00, 4,500.00, 1,500.00, flagged `DISTRIBUTION_FOLDED_PER_OWNER` in F+1 and F+2. The buyer has no part.
+  - **To verify** (checklist A5): that a co-owner's rest is deducted in their sale year by that co-owner alone (open question 6).
+- **`share` in an item** at the owner level: `{ ownershipId, share, amount }`, the Ownership on the share date, its reduced share and the owner's part. An item of the year in which the owner does not take part is not in the owner's view.
+- **`OWNERSHIP_INCOMPLETE`** (a flag of the year): an item's share date has shares summing to less than 1. `details: { itemCount, notOwnedTotal, firstDate }`. The property's figures are complete; the owners' are not (§26.1 completeness).
+- **`SHARE_DATE_OUTSIDE_TAX_YEAR`** (a flag of the item): its share date lies outside `year` and the Ownerships on that date differ from those on the nearest day of `year` (1 January or 31 December). `details: { shareDate, nearestDayOfYear }`. Informative: it marks the case of open question 2.
+
+### Not attributed ("nicht zugeordnet")
+
+- **What:** a counting deposit closing of `year` whose PropertyReference is `null` (§58A, flag `NO_PROPERTY_REFERENCE` with `details.reason`).
+- **Where it is listed** (never dropped, never summed):
+  - `SEVERAL_PROPERTY_REFERENCES`: in the view of each PropertyReference in `details.candidates`;
+  - `NO_RECONCILED_RENT`: in the view of **every** PropertyReference of the Realm, since DE knows no link to any of them without MRE (open question 4).
+- **Each entry** is an item as below, with `lineAmount` `null`, the reason and `href` (`/api/v1/security-deposits/{id}/tax-meaning`). Its classification (`RETAINED_DEPOSIT_*` or not) is shown but summed nowhere: the property it belongs to is not known.
+- At the owner level it is listed the same way, with `share` `null`.
+- A year with such an entry carries the flag `UNATTRIBUTED_ITEMS` (`details.count`).
+
+### The anschaffungsnahe check in the view (§58B)
+
+- **The view does not recompute the check.** Each item carries the check's flags exactly as its tax-meaning read does (`ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`, `VAT_NOT_SEPARATED`; `suggestion`), from the same derivation in the same snapshot.
+- **DE changes nothing on its own** (§58B open question 8): an item above 15 % keeps its treatment and is summed as it is; the flag and the `suggestion` make the year not final until a person decides.
+- **`acquisitions`:** one entry per Acquisition of the PropertyReference that is not `CANCELLED` and whose window (§58B) overlaps `year`: `{ acquisitionId, transferDate, window: { from, until }, status, final, notFinalReasons, href }`, with `href` `/api/v1/acquisitions/{acquisitionId}/anschaffungsnahe-herstellungskosten`. No sums, basis or threshold: those are the check's own read.
+- **Maintenance paid from the Hausgeld (§58B open question 12) is not picked up here.** It is an input of the check, not of the view: the view never adds a statement's cost lines (they are in the Hausgeld paid), and counting them for the 15 % belongs in the check's own read, with its own dating, unit share and verification (A2). Doing it in the view would compute the check in two places. The view shows the check's `NOT_FINAL` with `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED` through `acquisitions[].notFinalReasons`. **Proposal:** it stays a follow-up of VC-7-03 (open question 5).
+
+### `ATTRIBUTION_INPUT_CHANGED` (§58A)
+
+A correction of a `RentalContractReference`'s `rentDueDays` moves the tax year of rent derived on read; nothing per split records it (§58A). The view flags each year whose items such a correction moved.
+
+- **The data read:** the AuditRecords with `entity_type` `RentalContractReference` and `action` `AMENDED` whose `metadata.changedEntries` is not empty, of every reference whose `mreTenantId` is the Tenant of a candidate item (below), by `audit_record_entity_idx` (`entity_type`, `entity_id`). The references are read in the Realm, so an AuditRecord of another Realm is never read.
+- **The lists before and after each amendment:** from the reference's current `rentDueDays`, going back through its `AMENDED` records, newest first (`new_version` descending): the list before an amendment is the list after it with each changed entry undone (`to` removed, `from` restored; `{ validFrom, from, to }`, §58A). The `CREATED` record's `rentDueDays` must equal the oldest list reached; otherwise the view flags `ATTRIBUTION_HISTORY_INCONSISTENT` (details: the reference) and does not use that reference's history.
+- **The candidate items:** the counting rent splits (`RENT_BASE`, `RENT_OPERATING_COST_ADVANCE`) of the PropertyReference with a `CONFIRMED` reconciliation of that Tenant (§58A), booked in either window of `year`'s edges: 22 December of `year`−1 to 10 January of `year`, or 22 December of `year` to 10 January of `year`+1. Outside the windows `rentDueDays` decides nothing.
+- **When a year is flagged:** for an amendment with the lists B (before) and A (after) and a candidate item, its effective tax year is computed twice by `DE_CASH_TIMING`, with B and with A, everything else as read now. The year `year` is flagged when the two differ, one of them is `year`, **and the amendment was recorded after 31 December of `year`** (its `amendedAt`, Europe/Berlin). An amendment recorded while `year` was still running cannot have changed a filed return of `year`, so it raises nothing for `year` (review on #168).
+  - A classification's `taxYear` override wins under both lists, so it moves nothing and raises nothing.
+  - Adding an entry with a later `validFrom` changes no earlier term, so it raises nothing (§58A). An amendment of `notes` or `sourceReferences` alone has no `changedEntries`.
+- **The flag** (of the year): `ATTRIBUTION_INPUT_CHANGED` with `details: [{ rentalContractReferenceId, auditRecordId, amendedAt, changedEntries, items: [{ sourceId, yearBefore, yearAfter }] }]`. An item now in `year` carries the flag too; one moved out is named in the details only. Both years an item moved between are flagged.
+- **It stays:** it is derived from the history, so it shows as long as the history does. DE does not know which years were filed; the flag says that a filed year may be affected, and `auditRecordId` with `amendedAt` lets the user judge whether their return predates the change. An acknowledgement is not part of VC-7-04 (open question 7; backlog VC-X-28).
+- **Other inputs of the attribution** (a reconciliation confirmed or removed, a Loan's schedule changed by a new or voided period) also move items silently. They are not flagged in VC-7-04 (open question 8).
+
+### Flags and the review section
+
+- **`flags`** of the year: `DEPRECIATION_NOT_AVAILABLE` (always in Phase 7), `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` (an entry of `acquisitions` with `final: false` or `NOT_COMPUTABLE`). Flags are `{ code, details }`.
+- **The items' flags** are their meanings' flags (§55, §58A, §58B) as they are, plus `NEEDS_REVIEW` (the meaning's `reviewState`), `UNCLASSIFIED` (no treatment), `DISTRIBUTION_FOLDED_PER_OWNER` and `SHARE_DATE_OUTSIDE_TAX_YEAR` (above).
+- **`review`** summarises them: `{ final, open: [{ code, count }], info: [{ code, count }], reviewStates: { SUGGESTED, USER_CONFIRMED, ADVISOR_CONFIRMED, NEEDS_REVIEW } }`, with each code once and `count` the number of items (or 1 for a flag of the year). A flag is **open** (it needs a person, P7-D8) or **informative**:
+
+| Flag | Level |
+|---|---|
+| `DEPRECIATION_NOT_AVAILABLE`, `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` | open |
+| `NEEDS_REVIEW`, `UNCLASSIFIED`, `CLASSIFICATION_ON_CORRECTED_SPLIT`, `PREDECESSOR_CLASSIFIED`, `REFUND_YEAR_UNKNOWN`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE` | open |
+| `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` | open while the item's treatment is not `CAPITALIZED`; then informative |
+| `ATTRIBUTED_BY_10_DAY_RULE`, `DUE_DATE_ASSUMED`, `ECONOMIC_PERIOD_ASSUMED`, `NO_ECONOMIC_PERIOD`, `WITHDRAWAL_DATE_ASSUMED`, `WEG_FINANCIAL_YEAR_NOT_CALENDAR` | open while the item's `origin` is `DEFAULT`; informative once a classification in `USER_CONFIRMED` or `ADVISOR_CONFIRMED` stands for it (the person saw the attribution) |
+| `VAT_NOT_SEPARATED`, `RULE_SUPERSEDED`, `WEG_SPENDING_POSSIBLY_TWICE`, `USES_EXCEED_PAID`, `DISTRIBUTION_ENDED`, `OWNERSHIP_PARTLY_ENDED`, `DISTRIBUTION_FOLDED_PER_OWNER`, `SHARE_DATE_OUTSIDE_TAX_YEAR` | informative |
+
+  - `VAT_NOT_SEPARATED` matters for the 15 % only; the check's `NOT_FINAL` (`GROSS_AMOUNTS`) carries it to the year as `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL`.
+  - `SUGGESTED` is not open by itself: a default is the rule's meaning, shown as such (`reviewStates` counts it).
+- **`final`** is true only without an open flag. **In Phase 7 it is always false**, since `DEPRECIATION_NOT_AVAILABLE` is always open: a year is never presented as final before its AfA (P7-D8, domain-model §45). The view is shown all the same, with every open flag.
+
+### The AfA block
+
+- `depreciation: { status: "DEPRECIATION_NOT_AVAILABLE", amount: null, note }` until Phase 8 derives the schedules (P7-D8; roadmap Phase 8 "feeds the tax-year view").
+- `result.basis` is `BEFORE_DEPRECIATION` ("vor AfA"). Phase 8 fills `amount`, adds it to the Werbungskosten and changes the basis; ACC8 proves it.
+- `capitalized` lists what this year adds to the AfA basis; Phase 8 decides how it is depreciated. It is not summed into the result.
+
+### Response
+
+```text
+{
+  propertyReferenceId, year, ownerPartyId, level: "PROPERTY" | "OWNER", computedOn,
+  einnahmen:      { total, lines: [Line] },
+  werbungskosten: { total, lines: [Line] },
+  depreciation:   { status, amount, note },
+  result:         { amount, kind: "SURPLUS" | "LOSS" | "ZERO", basis: "BEFORE_DEPRECIATION" },
+  capitalized:    { total, items: [Item] },
+  notInView:      { items: [Item] },
+  unclassified:   { items: [Item] },
+  notAttributed:  { items: [Item] },
+  acquisitions:   [Acquisition],
+  owners:         [{ ownerPartyId, ownershipIds, einnahmen, werbungskosten, result, capitalized }] | null,
+  notOwned:       { einnahmen, werbungskosten, result, capitalized } | null,
+  flags, review, ruleVersions
+}
+```
+
+- **`Line`:** `{ taxCategory, total, itemCount, subtotals, items }`; `subtotals` is `{ immediate, distributed82b }` on `MAINTENANCE` and `WEG_SPENDING`, else `null`.
+- **`Item`:** `{ sourceType, sourceId, sourcePosition, transactionId, date, dateSource, taxYear, direction, amount, lineAmount, taxCategory, treatment, reviewState, origin, classificationId, rule, treatmentRule, attribution, refund, distribution, suggestion, share, flags }`:
+  - `date` is the booking date, closing date, withdrawal or use date; `dateSource` as §58B (`BOOKING`, `CLOSING` for the two of §58A);
+  - `direction` is the split's, else `null`; `amount` is the source's amount (non-negative; for a § 82b part the whole source); `lineAmount` is signed, what counts in `year` at this level (at the owner level the owner's part). In `notInView`, `unclassified` and `notAttributed` it is `null`: nothing there counts;
+  - `rule`, `treatmentRule`, `attribution`, `refund`, `distribution`, `suggestion` as the source's tax-meaning read (§55, §58A, §58B);
+  - `share` is `null` at the property level; at the owner level `{ ownershipId, share, amount }`, with `amount` `null` where `lineAmount` is.
+- **Order:** items in a place as the per-property list (§58B: by date, then splits, deposit closings, withdrawals, uses, then `sourceId`, `sourcePosition`). `owners` by `ownerPartyId`; `owners` and `notOwned` are `null` at the owner level, and `notOwned` is `null` when nothing is unowned.
+- **`owners`** (property level): one entry per Party taking part in an item of the year, with their totals. With `notOwned` they sum exactly to the property's figures, so a reader checks the reconciliation without a second call.
+- **`ruleVersions`:** every rule version an item or an `acquisitions` entry names (`rule`, `treatmentRule`, `attribution.rule`, `distribution.rule`, the check's `rule`), each once: `[{ ruleCode, version, title, legalBasis, status, itemCount }]`, by `ruleCode`, then `version`. `status` as §58; a version that is `SUPERSEDED` today is shown, never replaced (P7-D1).
+- **Example** (synthetic, property level, abridged): rent 9,000.00, advances 1,800.00, interest 3,200.00, Hausgeld without reserve 1,500.00, a repair of 600.00 → Einnahmen 10,800.00, Werbungskosten 5,300.00, result 5,500.00 `SURPLUS`, basis `BEFORE_DEPRECIATION`; principal of 2,400.00 in `notInView`.
+
+### Limits and performance
+
+- **Unpaged:** a year of one PropertyReference is bounded (12 rents and advances per Tenant, a few debits per Loan and WEG, a handful of other sources), and a figure must be checkable against all its items at once.
+- **Cap:** at most 5,000 items over all places, `notInView` and `unattributed` included, since the response carries them (counted before the meanings are derived). Above it, `409 CONFLICT` with `reason = "TAX_YEAR_TOO_LARGE"`. §55's paged list remains the way to read such a year. The cap is far above a private landlord's year (a building of 30 units has about 1,000).
+- **Indexes:** the list and the view select splits by `transaction_split.property_reference_id`, which has no index today (§55's list filters it in full). Migration **0048** adds `transaction_split_property_reference_idx ON transaction_split (property_reference_id, transaction_id) WHERE property_reference_id IS NOT NULL`, serving both. Everything else has its index: Ownerships (`ownership_property_reference_idx`), memberships, statements and assessments by membership, deposits by Realm, reconciliations by Transaction (0030's keys), AuditRecords (`audit_record_entity_idx`), classifications per source. A test reads the plan of the view's split query.
+- **Migration 0048** has nothing else: no table, no column, no trigger. `down` drops the index.
+
+### No cash mutated
+
+- **The read writes nothing.** Its transaction is `READ ONLY`, so a write inside it fails (`25006`).
+- **Counter-check:** a test records every row with its `version` of `ledger_transaction`, `transaction_split`, `tax_classification`, `security_deposit`, `weg_annual_statement`, `weg_special_assessment`, `acquisition`, `land_building_allocation`, `ownership` and `rental_contract_reference`, and the count of `audit_record`, before and after views at both levels and of three years. All are equal. A second test proves the mechanism: a write issued inside the view's transaction is refused.
+
+### Tests (VC-7-04)
+
+- **Domain:**
+  - the placement of every `taxCategory` and `treatment` of the table, and the registry test that no registered line is left unplaced;
+  - signs: a repayment on an income line; a refund of the same year, of an earlier year (`REFUNDS_OF_EARLIER_YEARS`) and of an unknown year; a refund of a `CAPITALIZED` source;
+  - `subtotals` with a § 82b part and an immediate repair on `MAINTENANCE`;
+  - per owner: largest remainder with the ties (larger share, then `ownerPartyId`, `NOT_OWNED` last); a negative item; 7 owners of `"1/7"` and 0.05 (no part negative, open question 1); `NOT_OWNED`; the owners' figures plus `notOwned` equal the property's for every item, line, total and the result (a property test over random shares, up to 20 owners and denominators up to 10,000, and random signed amounts);
+  - the per-owner § 82b fold: the example above; an owner whose tenure continues through a new Ownership (no fold); every owner ending (as §58B); a buyer with no part;
+  - `ATTRIBUTION_INPUT_CHANGED`: the lists rebuilt from the AuditRecords; an amendment moving a January rent out of and into the year; a later `validFrom` added (no flag); a `taxYear` override (no flag); an amendment recorded on 31 December of `year` (no flag for `year`) and on 1 January of `year`+1 (flag); an inconsistent history;
+  - the levels of the review table, and `final` always false in Phase 7.
+- **Repository:**
+  - the view's items equal §55's list for the same year, per source;
+  - the deposits not attributed: both reasons, in the candidates' views and in every view;
+  - the cap (5,001 items → `TAX_YEAR_TOO_LARGE`, 5,000 → `200`);
+  - one snapshot: a classification committed between two reads of the view's transaction is not seen;
+  - the plan of the split query uses `transaction_split_property_reference_idx`;
+  - migration 0048 `up` and `down` (under `MIGRATION_ADVISORY_LOCK`, `{ timeout: 30_000 }`);
+  - the counter-check "no cash mutated" above.
+- **API:** every `400`; `404` for the PropertyReference and for `ownerPartyId`; `NOT_AN_OWNER_IN_YEAR`, and an owner by an item only (a rent attributed by the 10-day rule); the DTO of each place; no `ETag`.
+- **End to end** (synthetic values only), one PropertyReference of a WEG unit:
+  - **two owners and an owner change:** A and B `"1/2"` each from 2026-01-01; B sells to C effective 2027-07-01 (§26.2). Rent of 750.01 a month and advances in 2027: A's, B's and C's views of 2027, B's ending in June, C's starting in July, each figure × the share on its date, and A + B + C = the property's figures to the cent;
+  - **a 10-day-rule item at the year boundary:** the January 2028 rent paid on 2027-12-29, with a `RentalContractReference` whose `rentDueDays` has day 3 from 2026-01-01: in the view of 2028, not of 2027, with `ATTRIBUTED_BY_10_DAY_RULE` (open), shared by A and C (the owners on 2027-12-29). In a variant where A sells to D effective 2028-01-01, it stays A's and C's, carries `SHARE_DATE_OUTSIDE_TAX_YEAR`, and A may open the view of 2028;
+  - **a § 82b part:** a repair of 9,000.00 booked on 2027-09-15 (A and C), elected over 3 years: 3,000.00 in each property view of 2027–2029, in `subtotals.distributed82b`, 1,500.00 each to A and C. In a variant where C sells to D effective 2028-07-01: C's 1,500.00 of 2029 falls into 2028 (C 3,000.00), the property shows 4,500.00 in 2028 and 1,500.00 (A's) in 2029, flagged `DISTRIBUTION_FOLDED_PER_OWNER`, and D has no part;
+  - **a capitalised item:** a repair classified `CAPITALIZED`: in `capitalized`, not in the Werbungskosten, the result unchanged by it;
+  - **a refund:** a `MAINTENANCE` refund of 2026 received in 2027 with `refundOfYear` 2026: on `REFUNDS_OF_EARLIER_YEARS` in 2027; a refund of 2027 reducing `MAINTENANCE`;
+  - **a retained deposit "nicht zugeordnet":** a deposit of a Tenant whose rent is booked on two PropertyReferences, closed in 2027 with a retained amount: in `notAttributed` of both views, in neither total, with `UNATTRIBUTED_ITEMS`; and one with no reconciled rent, in every view of the Realm;
+  - **`ATTRIBUTION_INPUT_CHANGED`:** the January 2028 rent above; then `rentDueDays` amended from day 3 to day 15: the rent moves to 2027; both views are flagged, the 2027 view lists it, the 2028 view names it in the details. **Counter-check:** an amendment adding an entry from 2030 flags nothing;
+  - **the anschaffungsnahe check:** §58B's scenario above 15 %: the summed items keep their treatment and are flagged, `acquisitions` names the check with `final: false`, and the year is `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL`;
+  - **counter-checks:** a `WEG_RESERVE_CONTRIBUTION` split, principal and a deposit are in `notInView`, never in a total; a statement's cost line is in no place; the per-property `result` equals the sum of the placed `lineAmount`s;
+  - **no cash mutated:** the counter-check above around the whole scenario;
+  - **Realm isolation:** a PropertyReference of another Realm `404`; an `ownerPartyId` of another Realm `404`; another Realm's deposit with `NO_RECONCILED_RENT` in none of this Realm's views; another Realm's `RentalContractReference` amendment raises nothing.
+
+### Decisions on the open questions (project owner, review on #168)
+
+All nine proposals were accepted; with these conditions, now written into the sections above:
+
+1. **Rounding:** largest remainder, ties to the larger share, then `ownerPartyId`, `NOT_OWNED` last. P7-D7 in `phase-7-plan.md` is amended to match.
+2. **Share date stays the booking date** (§ 11 EStG moves the year, not the person: the income is whoever's it flowed to). `NOT_AN_OWNER_IN_YEAR` is derived from the participants of the year's items as well as from the Ownerships of the year (order of checks, step 4), so a seller can open the view of a year in which they have an item.
+3. **`NOT_RELEVANT` in `notInView`:** listed, never summed; these items count against the cap.
+4. **A deposit without a PropertyReference:** `NO_RECONCILED_RENT` in every view of the Realm, `SEVERAL_PROPERTY_REFERENCES` in each candidate's, never summed, with `UNATTRIBUTED_ITEMS`. Once a classification may name a `propertyReferenceId` (§58A, later), it leaves the other views.
+5. **Maintenance paid from the Hausgeld:** not in VC-7-04; the view shows the check's `NOT_FINAL`. Follow-up: backlog **VC-X-27**, with A2 as its VERIFY point.
+6. **§ 82b per owner on the tenure:** a share change without a sale folds nothing; the seller of a share deducts their rest in the year of the sale; the buyer has no part. §58B now uses the same tenure. **Still a VERIFY point (checklist A5)** for the tax advisor; the spec does not present it as settled.
+7. **`ATTRIBUTION_INPUT_CHANGED` without a reset** in Phase 7. `details` carries `auditRecordId` and `amendedAt`, and only an amendment recorded after 31 December of the year flags it. An acknowledgement per year comes before Phase 8 (backlog **VC-X-28**).
+8. **Other silent inputs** (a reconciliation confirmed or removed, a Loan terms period added or voided): a follow-up, together with the acknowledgement, in **VC-X-28**, since both read the AuditRecords the same way.
+9. **The cap of 5,000 items, unpaged:** `TAX_YEAR_TOO_LARGE` names the count and the paged list in `details`.
+
+The proposals as written before the decisions:
+
+1. **The rounding rule of P7-D7.** "Rounded half-up to the cent, with the rest on the largest share" can give a part of the wrong sign: 7 owners of `"1/7"` and an item of 0.05 → 0.0071… each, half-up 0.01 each, 0.07 in all, so the rest −0.02 falls on the largest share and gives it −0.01. **Proposal:** largest remainder, as §27.4 (P2-D10) and §41.6 already do, with the ties on the larger share first, so P7-D7's "the rest on the largest share" still decides ties. The sums reconcile exactly either way; this way every part is within one cent of the exact value and has the item's sign.
+2. **The share date of an item attributed to another year.** P7-D7 takes the booking date. A January rent paid on 29 December belongs to the year after by the 10-day rule, but to whoever held the share on 29 December. **Proposal:** keep the booking date (the owners received the cash), flag `SHARE_DATE_OUTSIDE_TAX_YEAR` where the owners differ, and let such an owner open the year's view (`NOT_AN_OWNER_IN_YEAR` is not raised for them). The alternative, the owners of the economic period, would take the share date from the attribution.
+3. **`NOT_RELEVANT` items listed.** **Proposal:** listed in `notInView`, never summed, so principal, deposits and `WEG_FUNDS` are visibly read and left out (the counter-checks of ACC7). The alternative is a count only, which makes the view shorter but not traceable.
+4. **A deposit with `NO_RECONCILED_RENT`.** It has no link to any PropertyReference. **Proposal:** listed in every view of the Realm for its year, never summed, until the user links it (a `propertyReferenceId` on the deposit's classification is §58A's later option). The alternative, a Realm-level list, needs a route that does not exist yet.
+5. **§58B open question 12 (maintenance paid from the Hausgeld) in VC-7-04.** **Proposal:** no. It is an input of the 15 % check, which the view does not recompute; the view only shows the check's `NOT_FINAL` with that reason. It stays a follow-up of VC-7-03 (a new backlog row), together with its legal check (A2).
+6. **§ 82b when a co-owner sells (§58B open question 10), and an Ownership continued by another.** **Proposal:** the per-owner fold above, on each owner's tenure, with the property's part the sum of the owners'. A tenure ends only when the Party holds no further `VALID` Ownership of the PropertyReference the next day. §58B's fold looks at the `validUntil` of the Ownerships on the source's date; read literally, it also folds when every owner's Ownership is closed and continued by a new one (a share change by §26.2). **Proposal:** VC-7-03 applies the same tenure (its spec is not changed here). **To verify** (checklist A5): that the selling co-owner alone deducts their rest in the year of the sale.
+7. **`ATTRIBUTION_INPUT_CHANGED` for ever.** It stays open as long as the history exists, so a corrected year never becomes final. **Proposal:** acceptable in Phase 7 (no year is final before its AfA anyway); an acknowledgement per year and amendment (`POST …/tax-years/{year}/acknowledgements`, stored, audited) is a later item, before Phase 8 makes a year final.
+8. **Other inputs that move an attribution silently:** a reconciliation confirmed or removed after the year (the rent's economic period), a Loan's terms period added or voided (the interest's schedule), a classification superseded. **Proposal:** not in VC-7-04, which flags what the backlog names; a superseded classification is already traceable through its history (§55). Flagging the other two would need their AuditRecords read the same way, as a follow-up.
+9. **The cap of 5,000 items.** **Proposal:** 5,000, with `TAX_YEAR_TOO_LARGE` above it and the paged list as the way out. Paging the view would make a total uncheckable against its items in one response.
 
 ---
 

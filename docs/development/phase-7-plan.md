@@ -133,7 +133,7 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
 ### P7-D7 Owners' shares (domain-model §9; resolves `ownerAllocationBasis`)
 
 - Legal ownership shares are the basis for the owner level (AGENTS.md §12). The view per owner takes each figure × the owner's Ownership share valid on the figure's date.
-- The share is valid on the booking date for cash, and on the withdrawal or use date for WEG items. It is rounded half-up to the cent, with the rest on the largest share, so the owners' figures sum to the property's.
+- The share is valid on the booking date for cash, and on the withdrawal or use date for WEG items. Each item is distributed over its owners by **largest remainder** to the cent (as §27.4 and §41.6), ties to the larger share, so every part has the item's sign and the owners' figures sum to the property's (amended in the review on #168: "half-up with the rest on the largest share" can give a part the wrong sign).
 - No separate tax percentages (AGENTS.md §12).
 
 ### P7-D8 The tax-year view (resolves the exit; `reports.md` §2.2)
