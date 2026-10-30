@@ -402,15 +402,17 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
     expect(lineOf(sellers, 'RENT').items.map((i) => i.lineAmount?.amount)).toEqual([halfOf(a, c)]);
     expect(lineOf(await view(pr, 2028, d), 'RENT').items).toEqual([]);
 
-    // rentDueDays from day 3 to day 15: the rent moves to 2027. Recorded today (2026), while both years lie ahead: no flag.
+    // rentDueDays from day 3 to day 15: the rent moves to 2027. Recorded in 2026, while both years lie ahead: no flag.
+    // The record's time is set explicitly, so the test does not depend on today's date.
     const path = `/rental-contract-references/${reference.rentalContractReferenceId}`;
     await json(await A('POST', `${path}/amend`, { rentDueDays: [{ validFrom: '2026-01-01', day: 15 }] }, { 'if-match': '"1"' }), 200);
+    const { rows } = await pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = 'AMENDED'`, [reference.rentalContractReferenceId]);
+    const auditRecordId = rows[0].id as string;
+    await pool.query(`UPDATE audit_record SET occurred_at = '2026-10-30T10:00:00Z' WHERE id = $1`, [auditRecordId]);
     expect(lineOf(await view(pr, 2027), 'RENT').items.map((i) => i.sourceId)).toEqual([rentId]);
     expect(codes((await view(pr, 2027)).flags)).not.toContain('ATTRIBUTION_INPUT_CHANGED');
     expect(codes((await view(pr, 2028)).flags)).not.toContain('ATTRIBUTION_INPUT_CHANGED');
     // The same correction recorded after both years (a filed return may be affected): both views flagged.
-    const { rows } = await pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = 'AMENDED'`, [reference.rentalContractReferenceId]);
-    const auditRecordId = rows[0].id as string;
     await pool.query(`UPDATE audit_record SET occurred_at = '2029-01-15T10:00:00Z' WHERE id = $1`, [auditRecordId]);
     const flagged = await view(pr, 2027);
     const expected = [
