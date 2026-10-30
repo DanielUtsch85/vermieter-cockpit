@@ -158,7 +158,7 @@ Reference: `docs/roadmap.md` Phase 6, `docs/development/phase-6-plan.md` (decisi
 | VC-6-03 | feature | The Jahresabrechnung with its structure (P6-D5) | §50: `POST /api/v1/weg-memberships/{id}/annual-statements`, `PUT`, confirm (with `supersedes`), void | **done** (api-design §50, migration 0042): Cost lines with classification and provenance; the statement's own check as flags; one `CONFIRMED` per unit and year; corrections keep the old statement |
 | VC-6-04 | feature | The ledger effects of a statement (P6-D6) | §51: `GET /api/v1/weg-annual-statements/{id}/comparison`, `GET /api/v1/transactions/{id}/settlement-proposal?statementId=`, `wegAnnualStatementId` on splits | **done** (api-design §51, migration 0043): Differences per class sum to the Abrechnungsspitze plus the unpaid advances; the settlement split names its statement; no confirmed split re-split |
 | VC-6-05 | feature | The Sonderumlage (P6-D7) | §51A: `POST /api/v1/weg-memberships/{id}/special-assessments`, `GET …`, amend, uses, void; `wegSpecialAssessmentId` on splits | **done** (api-design §51A, migration 0044): Paid and outstanding derived from counted cash; instalments covered in due order, overdue at `asOf`; `SETTLED` derived; the use recorded for Phase 7 |
-| VC-6-06 | test | Phase-6 invariant suite + acceptance test (ACC6) | — | Each exit claim mapped to an ACC6 step, with counter-checks |
+| VC-6-06 | test | Phase-6 invariant suite + acceptance test (ACC6) | — | **done** (invariant-suite §35–§40, `phase-6-acceptance.e2e.test.ts`): each exit claim mapped to an ACC6 step, with counter-checks |
 
 **Phase 6 exit:** `docs/roadmap.md` Phase 6 — VC-6-03 + VC-6-04 together, shown end to end by ACC6 (VC-6-06).
 
