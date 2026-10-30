@@ -45,12 +45,18 @@ export interface NewEconomicPlan extends PlanFigures {
   readonly financialYear: number;
   readonly effectiveFrom: BusinessDate;
   readonly resolutionDate: BusinessDate | null;
+  /**
+   * The day of the month the advances fall due by the Vorschussbeschluss (1–31; a shorter month's last day), or null
+   * (VC-7-02, api-design §58A). Only the tax year reads it, never the Hausgeld proposal (§49.6). Omitted means null.
+   */
+  readonly advanceDueDay?: number | null;
   readonly sourceReferences: readonly string[];
   readonly notes: string | null;
 }
 
 export interface EconomicPlan extends NewEconomicPlan {
   readonly id: WegEconomicPlanId;
+  readonly advanceDueDay: number | null;
   readonly status: PlanStatus;
   readonly voidedAt: Date | null;
   readonly voidReason: string | null;
@@ -159,6 +165,7 @@ export function planFingerprint(plan: NewEconomicPlan): string {
     plan.financialYear,
     plan.effectiveFrom,
     plan.resolutionDate,
+    plan.advanceDueDay ?? null,
     money(plan.monthlyHausgeld),
     money(plan.monthlyReserveContribution),
     money(plan.recoverableCosts),

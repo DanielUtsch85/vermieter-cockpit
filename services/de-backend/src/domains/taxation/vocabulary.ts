@@ -9,6 +9,11 @@ export const TAX_CATEGORIES = [
   'OPERATING_COST_ADVANCES',
   'OPERATING_COST_SETTLEMENT',
   'OTHER_INCOME',
+  /** VC-7-02 (§58A, P7-D4): a refund of an earlier year's expense, income of the year received (A10). */
+  'REFUNDS_OF_EARLIER_YEARS',
+  /** VC-7-02 (§58A, A11): a retained deposit as compensation for unpaid rent, or for damage. */
+  'RETAINED_DEPOSIT_RENT',
+  'RETAINED_DEPOSIT_DAMAGES',
   'LOAN_INTEREST',
   'FINANCING_COSTS',
   'WEG_HAUSGELD',
@@ -27,7 +32,24 @@ export const TAX_CATEGORIES = [
 export type TaxCategory = (typeof TAX_CATEGORIES)[number];
 
 /** The income lines: only with the treatment `INCOME` (§56). */
-export const INCOME_TAX_CATEGORIES = ['RENT', 'OPERATING_COST_ADVANCES', 'OPERATING_COST_SETTLEMENT', 'OTHER_INCOME'] as const satisfies readonly TaxCategory[];
+export const INCOME_TAX_CATEGORIES = [
+  'RENT',
+  'OPERATING_COST_ADVANCES',
+  'OPERATING_COST_SETTLEMENT',
+  'OTHER_INCOME',
+  'REFUNDS_OF_EARLIER_YEARS',
+  'RETAINED_DEPOSIT_RENT',
+  'RETAINED_DEPOSIT_DAMAGES',
+] as const satisfies readonly TaxCategory[];
+
+/** The lines of a retained deposit (§58A): compensation for rent or damage, or not relevant. */
+export const DEPOSIT_TAX_CATEGORIES = ['RETAINED_DEPOSIT_RENT', 'RETAINED_DEPOSIT_DAMAGES', 'NOT_RELEVANT'] as const satisfies readonly TaxCategory[];
+
+/** An income line (§56). */
+export const isIncomeLine = (taxCategory: TaxCategory) => (INCOME_TAX_CATEGORIES as readonly TaxCategory[]).includes(taxCategory);
+
+/** An expense line: neither income, nor `NOT_RELEVANT`, nor `UNCLASSIFIED` (§58A's refunds). */
+export const isExpenseLine = (taxCategory: TaxCategory) => !isIncomeLine(taxCategory) && taxCategory !== 'NOT_RELEVANT' && taxCategory !== 'UNCLASSIFIED';
 
 export const TREATMENTS = ['INCOME', 'DEDUCTIBLE', 'CAPITALIZED', 'DISTRIBUTED_82B', 'NOT_RELEVANT'] as const;
 export type Treatment = (typeof TREATMENTS)[number];
@@ -44,10 +66,11 @@ export type StoredReviewState = Exclude<ReviewState, 'SUGGESTED'>;
 export const CREATE_REVIEW_STATES = ['USER_CONFIRMED', 'NEEDS_REVIEW'] as const satisfies readonly StoredReviewState[];
 export type CreateReviewState = (typeof CREATE_REVIEW_STATES)[number];
 
-/** The sources of a classification; VC-7-01 classifies splits, VC-7-02/03 add the others (§55). */
+/** The sources of a classification; VC-7-01 classifies splits, VC-7-02 retained deposits, VC-7-03 the WEG ones (§55). */
 export const SOURCE_TYPES = ['TRANSACTION_SPLIT', 'WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE', 'DEPOSIT_CLOSING'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
-export const SUPPORTED_SOURCE_TYPES = ['TRANSACTION_SPLIT'] as const satisfies readonly SourceType[];
+export const SUPPORTED_SOURCE_TYPES = ['TRANSACTION_SPLIT', 'DEPOSIT_CLOSING'] as const satisfies readonly SourceType[];
+export type SupportedSourceType = (typeof SUPPORTED_SOURCE_TYPES)[number];
 
 export const ORIGINS = ['DEFAULT', 'CLASSIFICATION'] as const;
 export type Origin = (typeof ORIGINS)[number];
@@ -57,7 +80,7 @@ export type Origin = (typeof ORIGINS)[number];
  * `NOT_RELEVANT`, `UNCLASSIFIED` only without a treatment, every other line with a treatment other than `INCOME`.
  */
 export function treatmentFits(taxCategory: TaxCategory, treatment: Treatment | null): boolean {
-  if ((INCOME_TAX_CATEGORIES as readonly TaxCategory[]).includes(taxCategory)) return treatment === 'INCOME';
+  if (isIncomeLine(taxCategory)) return treatment === 'INCOME';
   if (taxCategory === 'NOT_RELEVANT') return treatment === 'NOT_RELEVANT';
   if (taxCategory === 'UNCLASSIFIED') return treatment === null;
   return treatment !== null && treatment !== 'INCOME';

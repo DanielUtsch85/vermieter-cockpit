@@ -245,14 +245,23 @@ describe.skipIf(databaseUrl === undefined)('Tax classification (VC-7-01) end to 
     expect(byCode('RENT_OPERATING_COST_ADVANCE').map((m) => m.taxCategory)).toEqual(Array.from({ length: 12 }, () => 'OPERATING_COST_ADVANCES'));
     expect(byCode('WEG_RESERVE_CONTRIBUTION').every((m) => m.treatment === 'NOT_RELEVANT')).toBe(true);
     expect(byCode('ACQUISITION').map((m) => [m.taxCategory, m.treatment])).toEqual([['NOT_RELEVANT', 'NOT_RELEVANT']]);
-    expect(year.items.every((m) => m.origin === 'DEFAULT' && m.rule?.version === 1 && m.flags.length === 0)).toBe(true);
+    expect(year.items.every((m) => m.origin === 'DEFAULT' && m.rule?.version === 1)).toBe(true);
+    // VC-7-02 (§58A): the January rent lies in the window of the year-end and has no reconciliation, so no economic
+    // period: it keeps its booking year, flagged. Nothing else is flagged.
+    expect(year.items.filter((m) => m.flags.length > 0).map((m) => [m.financialCategoryCode, m.flags.map((f) => f.code)])).toEqual([
+      ['RENT_BASE', ['NO_ECONOMIC_PERIOD']],
+      ['RENT_OPERATING_COST_ADVANCE', ['NO_ECONOMIC_PERIOD']],
+    ]);
     const [repairMeaning] = byCode('MAINTENANCE') as [Meaning];
     expect(repairMeaning).toMatchObject({ taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', reviewState: 'SUGGESTED', classificationId: null });
     const reserveSplit = (byCode('WEG_RESERVE_CONTRIBUTION')[0] as Meaning).splitId;
     const purchaseSplit = (byCode('ACQUISITION')[0] as Meaning).splitId;
     expect(await json(await A('GET', `/transaction-splits/${repairMeaning.splitId}/tax-meaning`), 200)).toEqual(repairMeaning);
     const rules = await json<{ items: { ruleCode: string; versions: { version: number; status: string }[] }[] }>(await A('GET', '/tax-rules'), 200);
-    expect(rules.items.map((r) => [r.ruleCode, r.versions.map((v) => [v.version, v.status])])).toEqual([['DE_CATEGORY_DEFAULTS', [[1, 'ACTIVE']]]]);
+    expect(rules.items.map((r) => [r.ruleCode, r.versions.map((v) => [v.version, v.status])])).toEqual([
+      ['DE_CASH_TIMING', [[1, 'ACTIVE']]],
+      ['DE_CATEGORY_DEFAULTS', [[1, 'ACTIVE']]],
+    ]);
     const before = await cash();
 
     // The repair is Herstellungskosten: reclassified as CAPITALIZED, then confirmed by the advisor.

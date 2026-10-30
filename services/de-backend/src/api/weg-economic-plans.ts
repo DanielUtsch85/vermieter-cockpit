@@ -15,7 +15,7 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { RESOURCE_ID, dayOfMonth, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -38,6 +38,7 @@ const planBody = z
     financialYear: z.number().int().min(1900).max(2200),
     effectiveFrom: businessDate,
     resolutionDate: businessDate.nullish(),
+    advanceDueDay: dayOfMonth.nullish(),
     monthlyHausgeld: money,
     monthlyReserveContribution: money,
     recoverableCosts: money,
@@ -112,6 +113,7 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
         financialYear: body.financialYear,
         effectiveFrom: body.effectiveFrom,
         resolutionDate: body.resolutionDate ?? null,
+        advanceDueDay: body.advanceDueDay ?? null,
         monthlyHausgeld: body.monthlyHausgeld,
         monthlyReserveContribution: body.monthlyReserveContribution,
         recoverableCosts: body.recoverableCosts,
@@ -211,6 +213,7 @@ function planDto(plan: PlanView) {
     financialYear: plan.financialYear,
     effectiveFrom: plan.effectiveFrom,
     resolutionDate: plan.resolutionDate,
+    advanceDueDay: plan.advanceDueDay,
     monthlyHausgeld: plan.monthlyHausgeld.toJSON(),
     monthlyReserveContribution: plan.monthlyReserveContribution.toJSON(),
     recoverableCosts: plan.recoverableCosts.toJSON(),

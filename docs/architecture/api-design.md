@@ -4499,7 +4499,7 @@ GET /api/v1/tax-rules/{ruleCode}
 - **A rule version:** `{ ruleCode, version, title, legalBasis, effectiveFrom, effectiveTo, parameters, source, status }`, with `status` `ACTIVE` (applicable today), `SUPERSEDED` (a later version applies) or `RETIRED` (`effectiveTo` passed without a successor). `parameters` is the rule's own data (the default table above for `DE_CATEGORY_DEFAULTS`).
 - `GET /tax-rules`: every rule with its versions, by `ruleCode`, versions ascending; `GET /tax-rules/{ruleCode}`: one rule, `404` if unknown. The former `…/versions` route is folded into these (each rule lists its versions). No Realm: the registry is the same for everyone; authentication as every route.
 - **Selection:** the version whose `effectiveFrom` ≤ the date < `effectiveTo` (or open); for VC-7-01 the date is the split's booking date. Two versions of one rule never overlap (a registry test).
-- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items. **Freeze point:** `DE_CATEGORY_DEFAULTS@1` takes VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen once VC-7-02's implementation is merged. From then on every change, an additive one too, is a new version (review on #159).
+- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items; VC-7-02 added `DE_CASH_TIMING@1` (§58A). **Freeze point:** `DE_CATEGORY_DEFAULTS@1` took VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen with VC-7-02's implementation. From then on every change, an additive one too, is a new version (review on #159).
 - **Every stored reference resolves** (review on #156):
   - **on write:** a classification may only name a registered `ruleCode@version`;
   - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
@@ -4517,7 +4517,7 @@ GET /api/v1/tax-rules/{ruleCode}
 
 ---
 
-# 58A. Tax Year and Income (VC-7-02, spec)
+# 58A. Tax Year and Income (VC-7-02, implemented: migration 0046)
 
 Decisions P7-D3 and P7-D4 of `docs/development/phase-7-plan.md` (as revised in the review on #156; `docs/germany/taxation.md` §3–§4, checklist A4, A10, A11, E6). VC-7-01 counted a split in the calendar year of its booking date. VC-7-02 adds the exception of § 11 Abs. 1 S. 2, Abs. 2 S. 2 EStG, refunds, and the retained deposit as a second source of classification.
 
@@ -4576,7 +4576,7 @@ POST /api/v1/rental-contract-references/{id}/amend            (VC-7-02, §58A)
   - `INCOME` when `ofYear` is earlier, on the line `REFUNDS_OF_EARLIER_YEARS` (a new `taxCategory`, see the next bullet).
   - The total is the same either way; only the line differs (P7-D4).
 - **The new lines** `REFUNDS_OF_EARLIER_YEARS`, `RETAINED_DEPOSIT_RENT` and `RETAINED_DEPOSIT_DAMAGES`, and the default for the new source `DEPOSIT_CLOSING` (below), join `DE_CATEGORY_DEFAULTS@1`. Both changes are additive: no existing default changes.
-- **v1 is frozen** once VC-7-02's implementation is merged (§58). After that, every change is a new version, an additive one too (review on #159).
+- **v1 is frozen** with VC-7-02's implementation (§58). From then on, every change is a new version, an additive one too (review on #159).
 
 ### The retained deposit (P7-D4, A11)
 
@@ -4663,6 +4663,56 @@ MRE's lease carries no due day (its `Lease` has `numberOfTerms` and `timeRange` 
 - **AuditRecords:** `CREATED`, `AMENDED` (the changed fields).
 - **No void, no MRE write, no Party link** in VC-7-02. A wrong `mreTenantId` cannot be corrected; the reference stays, and its `rentDueDays` can be emptied.
 - **Elsewhere, `rentalContractReferenceId` stays `400 NOT_SUPPORTED`** (§30.2, §33.2). Lifting it on Transactions and splits is a later item.
+
+### As implemented (VC-7-02)
+
+Details the contract above left open, now binding:
+- **The rules:** `DE_CASH_TIMING@1` joins the registry (`GET /tax-rules` lists it before `DE_CATEGORY_DEFAULTS`). **Both version 1s are frozen with this item:** `DE_CATEGORY_DEFAULTS@1` carries the three new lines and the `DEPOSIT_CLOSING` default (`depositClosing` in its parameters: the default, the lines `RETAINED_DEPOSIT_RENT`, `RETAINED_DEPOSIT_DAMAGES`, `NOT_RELEVANT` and the treatments `INCOME`, `NOT_RELEVANT`), and every later change of either rule, an additive one too, is a new version.
+- **The 10-day rule:**
+  - The due date must lie in the **same** window as the booking date, and the economic year must be one of that window's two years.
+  - `DUE_DATE_ASSUMED`, `NO_ECONOMIC_PERIOD` and `ECONOMIC_PERIOD_ASSUMED` are raised only for a recurring category booked inside a window, where the rule could apply. A source is read only then. A rent in mid-year carries no flag.
+  - **`details`:** `DUE_DATE_ASSUMED` `{ dueDate, economicPeriod }`; `NO_ECONOMIC_PERIOD` `{ reason }` with `NO_RECONCILIATION`, `SEVERAL_TERMS` (more than one Tenant and term pair among the `CONFIRMED` reconciliations), `NO_ECONOMIC_PLAN`, `NO_LOAN` (interest on a PropertyReference names no Loan, since a split with `loanId` has none) or `NO_SCHEDULE`. `dueDateSource` is `RENTAL_CONTRACT_REFERENCE`, `ECONOMIC_PLAN`, `LOAN_SCHEDULE` or `PERIOD_START` (the assumption).
+  - **Why the period start is a fair assumption for rent** (§ 556b Abs. 1 BGB): rent is due in advance, at the latest by the 3rd working day of the period. For a January term that is at the latest 5 or 6 January, inside the window, as the 1st is. For a December term both lie before 22 December. The flag stays, since a lease may agree another day.
+  - **The plan used for Hausgeld** is the `ACTIVE` plan with the latest `effectiveFrom` on or before the booking date, of the unit's `ACTIVE` membership on that date (§49.6's choice). The candidates for "nearest" are the booking month and its neighbours.
+  - **The interest period of a schedule entry** runs from the day after the previous payment date (for the first entry, one month back) to its payment date, in arrears as §41.4 computes the interest. Its economic year is the year that holds most of its days, ties towards the later year. So interest due on 2 January and debited on 30 December is December's and stays in the booking year. Interest due on 30 December and debited on 4 January moves back to December's year.
+  - **`attribution`** is `{ rule, bookingYear, proposedYear, overridden }`. `rule` is `null` before 2000. For Hausgeld `proposedYear` is the guessed year while `taxYear` stays the booking year.
+- **The per-year list** reads every split booked from 22 December of Y−1 to 10 January of Y+1 (the widest window of any registered version), and those whose current classification sets `taxYear` = Y, and keeps the ones whose tax year is Y. Each item now carries `sourceType` and `sourceId`.
+- **Refunds:**
+  - "Expense" and "income" are judged on the meaning's `taxCategory` (the classification's, else the default's). An expense line is one that is neither income, nor `NOT_RELEVANT`, nor `UNCLASSIFIED`.
+  - `refund` is `{ kind: REFUND | REPAYMENT, ofYear, ofYearSource: WEG_ANNUAL_STATEMENT | CLASSIFICATION | null, presentation, line }`, or `null`. It is derived only for a split that counts: a reversal's mirrored direction is not a refund.
+  - `refundOfYear` may be given on any split; it only shows on a refund or a repayment.
+- **The create's years:**
+  - `taxYear` and `refundOfYear` are integers; outside 2000–2100 they are `400 OUT_OF_RANGE`. With `sourceType` `DEPOSIT_CLOSING` they are `400 NOT_SUPPORTED`: a deposit's tax year is its closing date's.
+  - **Order of checks:** after `TREATMENT_NOT_ALLOWED` come `422 TAX_YEAR_OUT_OF_RANGE` (`details.taxYear`, `details.bookingYear`) and `422 REFUND_YEAR_OUT_OF_RANGE` (`details.refundOfYear`, `details.taxYear`), then the `supersedes` checks. Without `taxYear`, `refundOfYear` is checked against the rule's year.
+  - Both appear in the classification's DTO and in `TAX_CLASSIFIED`'s metadata. VC-7-01's idempotency fingerprint is unchanged for a body without them.
+- **The retained deposit:**
+  - **The classification stores the closing it classified** (`depositClosing: { closingDate, retainedAmount }`; columns `deposit_closing_date`, `deposit_retained_amount`; an addition to the list in "In the database"). This is how "a new closing needs a new classification" is known: after a reopen and another closing with another date or amount, the old classification does not count, `reason` `CLOSING_CHANGED`. A closing with the same date and amount is the same closing.
+  - **`409 SOURCE_NOT_COUNTED`** for a deposit carries `depositStatus`, `retainedAmount` and `notCountedReason` (`NOT_CLOSED`, `NOTHING_RETAINED`, `CLOSING_CHANGED`). The `NOT_COUNTED` flag of its meaning carries the same.
+  - **`422 TREATMENT_NOT_ALLOWED`** for a deposit carries `sourceType: "DEPOSIT_CLOSING"`, `allowed` and `allowedTaxCategories` (no `categoryType`).
+  - **§57's steps** work on deposit classifications as on splits: a confirmation validates that the deposit still counts.
+  - **The deposit's PropertyReference.** A deposit has none of its own (§47.1). It is taken as the one PropertyReference on which the rent splits of its Tenant's `CONFIRMED` reconciliations are booked. With none, or with several, it is `null` and the deposit appears in no per-property list. It never disappears silently (review on #166): `GET /security-deposits/{id}/tax-meaning` flags it `NO_PROPERTY_REFERENCE`, with `details.reason`:
+    - `NO_RECONCILED_RENT`: no confirmed rent of its Tenant is booked on a PropertyReference;
+    - `SEVERAL_PROPERTY_REFERENCES`: it is booked on more than one, listed ascending in `details.candidates`.
+    
+    The tax-year view (VC-7-04) lists such a deposit as not attributed ("nicht zugeordnet"). A `propertyReferenceId` on the classification is a later option, not in VC-7-02.
+  - **In the list:** only a deposit that counts by its closing (`CLOSED`, retained > 0, closed in Y). Items are ordered by date (booking date, closing date), splits first on a date. The history query takes `sourceType=DEPOSIT_CLOSING`.
+- **RentalContractReference:**
+  - **Create** takes `{ mreTenantId, rentDueDays?, notes?, sourceReferences? }`. MRE is asked before the key is claimed, so a replay asks again.
+  - **Amend** takes any of the three fields; an omitted one keeps its value. `mreTenantId` is `400 NOT_AMENDABLE`.
+  - **`400`s of `rentDueDays`:** a day outside 1–31 is `OUT_OF_RANGE` at its entry; an order that is not strictly ascending is `NOT_ASCENDING` at `rentDueDays.{i}.validFrom`; more than 20 entries is `OUT_OF_RANGE`.
+  - **AuditRecords** (entity type `RentalContractReference`): `CREATED` carries `{ mreTenantId, rentDueDays }`. `AMENDED` carries `{ changedFields, changedEntries }`, where `changedEntries` lists each entry added, changed or removed as `{ validFrom, from, to }`.
+  - **The DTO:** `rentalContractReferenceId`, `mreRealmId`, `mreTenantId`, `rentDueDays`, `notes`, `sourceReferences`, `createdAt`, `createdBy`, `version`.
+- **In the database (0046):**
+  - **Guards beside 0045's**, without replacing its functions:
+    - `tax_classification_tax_year` keeps `tax_year` within the booking year ± 1, and `refund_of_year` at most `tax_year`, else the booking year + 1 (the rule's year is not known in the database);
+    - `tax_classification_deposit_counts` writes the deposit row of the classification's Realm and requires it `CLOSED`, with the classified closing;
+    - `tax_classification_deposit_treatment` keeps the deposit to its lines and treatments;
+    - `tax_classification_source_fixed` keeps the new columns fixed.
+  - CHECKs `tax_classification_deposit_fields` and `tax_classification_refund_year`; the chain stays within a deposit by `(id, security_deposit_id)` keys.
+  - **`rent_due_days`** is checked whole by `rental_contract_reference_due_days_valid(jsonb)`: an array of at most 20 objects of exactly `validFrom` (a real date, `YYYY-MM-DD`) and `day` (an integer 1–31), with `validFrom` strictly ascending. One guard `rental_contract_reference_guard` covers insert (version 1), update (Realm, Tenant and creation fixed; `version` + 1; the no-op passes) and delete.
+  - **`advance_due_day`** is kept fixed by its own trigger, `weg_economic_plan_advance_due_day_fixed`. The plan's fingerprint includes it.
+  - **`down`** refuses while a deposit classification exists.
+- **What changes for VC-7-01's reads:** a rent booked from 1 to 10 January without a reconciliation now carries `NO_ECONOMIC_PERIOD`.
 
 ---
 

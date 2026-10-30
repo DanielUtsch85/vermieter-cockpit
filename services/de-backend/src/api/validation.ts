@@ -128,6 +128,18 @@ export const money = z.object({ amount: z.string(), currency: z.string() }).tran
   }
 });
 
+/** An integer in `[min, max]`: another number is `OUT_OF_RANGE`, a non-integer `INVALID_FORMAT`. */
+export const integerIn = (min: number, max: number) =>
+  z
+    .number()
+    .int()
+    .superRefine((value, ctx) => {
+      if (value < min || value > max) ctx.addIssue({ code: 'custom', params: { code: 'OUT_OF_RANGE' } });
+    });
+
+/** A day of the month, 1–31 (VC-7-02, api-design §58A): in a shorter month it means the month's last day. */
+export const dayOfMonth = integerIn(1, 31);
+
 /** Money that may be negative, where the sign is part of the figure (a credit line, an Abrechnungsspitze; api-design.md §50). */
 export const signedMoney = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
   try {

@@ -155,13 +155,19 @@ import {
   AdvisorConfirmedError,
   ClassificationExistsError,
   ClassificationSupersededError,
+  DepositNotCountedError,
   NoApplicableTaxRuleError,
   NotCurrentClassificationError,
+  RefundYearOutOfRangeError,
+  RentalContractReferenceExistsError,
+  RentalContractReferenceNotFoundError,
+  RentalContractTenantNotFoundError,
   SourceNotCountedError,
   TaxClassificationNotFoundError,
   TaxRuleNotFoundError,
   TaxRuleNotRegisteredError,
   TaxSourceNotFoundError,
+  TaxYearOutOfRangeError,
   TreatmentNotAllowedError,
   formatShare,
 } from '../application/index.js';
@@ -906,10 +912,46 @@ const TABLE = [
   ),
   on(TaxSourceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Source not found.', { sourceType: error.sourceType, sourceId: error.sourceId })),
   on(TreatmentNotAllowedError, (error) =>
-    answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
-      categoryType: error.categoryType,
-      allowed: error.allowed,
+    error.categoryType === null
+      ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A retained deposit is rent or damage compensation, or not relevant.', {
+          sourceType: 'DEPOSIT_CLOSING',
+          allowed: error.allowed,
+          allowedTaxCategories: error.taxCategories ?? [],
+        })
+      : answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
+          categoryType: error.categoryType,
+          allowed: error.allowed,
+        }),
+  ),
+  // Tax year and income (api-design §58A, VC-7-02).
+  on(DepositNotCountedError, (error) =>
+    answer(409, 'CONFLICT', 'The security deposit does not count for tax: it is not CLOSED with a retained amount, or was closed again.', {
+      reason: 'SOURCE_NOT_COUNTED',
+      depositStatus: error.depositStatus,
+      retainedAmount: error.retainedAmount.toJSON(),
+      notCountedReason: error.reason,
     }),
+  ),
+  on(TaxYearOutOfRangeError, (error) =>
+    answer(422, 'TAX_YEAR_OUT_OF_RANGE', 'taxYear must be the booking year or a neighbouring year.', {
+      taxYear: error.taxYear,
+      bookingYear: error.bookingYear,
+    }),
+  ),
+  on(RefundYearOutOfRangeError, (error) =>
+    answer(422, 'REFUND_YEAR_OUT_OF_RANGE', 'refundOfYear must not lie after the tax year.', { refundOfYear: error.refundOfYear, taxYear: error.taxYear }),
+  ),
+  on(RentalContractReferenceNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', 'Rental contract reference not found.', { rentalContractReferenceId: error.rentalContractReferenceId }),
+  ),
+  on(RentalContractReferenceExistsError, (error) =>
+    answer(409, 'CONFLICT', 'The MRE Tenant has a rental contract reference already.', {
+      reason: 'RENTAL_CONTRACT_REFERENCE_EXISTS',
+      rentalContractReferenceId: error.rentalContractReferenceId,
+    }),
+  ),
+  on(RentalContractTenantNotFoundError, (error) =>
+    answer(422, 'MRE_TENANT_NOT_FOUND', 'MRE has no such Tenant in this Realm.', { mreTenantId: error.mreTenantId }),
   ),
 ];
 

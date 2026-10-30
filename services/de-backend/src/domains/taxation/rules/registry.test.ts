@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BusinessDate } from '../../../shared/index.js';
+import { CASH_TIMING } from './de-cash-timing.js';
 import { CATEGORY_DEFAULTS, DE_CATEGORY_DEFAULTS_V1 } from './de-category-defaults.js';
 import { RuleRegistry, TAX_RULES } from './registry.js';
 import type { RuleVersion } from './rule-version.js';
@@ -42,7 +43,7 @@ describe('RuleRegistry (§58)', () => {
 
   it('the registered versions of the backend never overlap', () => {
     expect(() => new RuleRegistry(TAX_RULES.codes().flatMap((code) => TAX_RULES.versions(code)))).not.toThrow();
-    expect(TAX_RULES.codes()).toEqual([CATEGORY_DEFAULTS]);
+    expect(TAX_RULES.codes()).toEqual([CASH_TIMING, CATEGORY_DEFAULTS]);
   });
 
   it('status: ACTIVE today, SUPERSEDED with a later version, RETIRED without one, PENDING before its start', () => {

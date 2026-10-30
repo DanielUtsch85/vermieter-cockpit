@@ -439,6 +439,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresWegRepository', () => {
         // 0043, 0042 and 0041 build on 0040's tables: they go first. Dropping tables while another worker's Migrator introspects
         // the database breaks it, so the downs hold the migration lock as every schema change of the tests does.
         await withMigrationLock(async () => {
+          // 0046 (VC-7-02) adds a guard function to 0041's plan table.
+          await (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0044_weg_special_assessment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0043_weg_statement_settlement.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0042_weg_annual_statement.js')).down(createDatabase(downPool) as never);

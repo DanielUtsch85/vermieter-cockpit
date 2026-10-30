@@ -38,6 +38,7 @@ const plan = {
   financialYear: 2026,
   effectiveFrom: '2026-03-01',
   resolutionDate: null,
+  advanceDueDay: 3,
   monthlyHausgeld: eur('300.00'),
   monthlyReserveContribution: eur('60.00'),
   recoverableCosts: eur('2400.00'),
@@ -104,13 +105,25 @@ describe('POST /weg-memberships/{id}/economic-plans', () => {
     expect(res.headers.get('etag')).toBe('"1"');
     expect(await res.json()).toMatchObject({
       economicPlanId: PLAN,
+      advanceDueDay: 3,
       monthlyHausgeld: money('300.00'),
       income: null,
       annualReserveContribution: money('720.00'),
       components: { recoverable: money('200.00'), nonRecoverable: money('100.00'), reserve: money('60.00') },
       flags: [{ code: 'HAUSGELD_DIFFERS_FROM_PLAN', details: { annual: money('3600.00'), planned: money('3480.00') } }],
     });
-    expect(seen[0]).toMatchObject({ membershipId: MEMBERSHIP, resolutionDate: null, income: null, costLines: [], sourceReferences: [], idempotencyKey: 'k' });
+    expect(seen[0]).toMatchObject({
+      membershipId: MEMBERSHIP,
+      resolutionDate: null,
+      advanceDueDay: null,
+      income: null,
+      costLines: [],
+      sourceReferences: [],
+      idempotencyKey: 'k',
+    });
+    // VC-7-02 (§58A): the advances' due day, passed as given.
+    await call(base, 'POST', plansPath, { ...body, advanceDueDay: 31 });
+    expect(seen[1]).toMatchObject({ advanceDueDay: 31 });
     expect((await call(base, 'POST', plansPath, body, { 'idempotency-key': 'k' })).headers.get('idempotent-replayed')).toBe('true');
   });
 
@@ -136,6 +149,9 @@ describe('POST /weg-memberships/{id}/economic-plans', () => {
     expect(await fieldsOf({ ...body, documentId: PLAN })).toEqual([{ field: 'documentId', code: 'NOT_SUPPORTED' }]);
     expect(await fieldsOf({ ...body, recoverableCosts: money('-1.00') })).toEqual([{ field: 'recoverableCosts.amount', code: 'NEGATIVE_AMOUNT' }]);
     await fieldsOf({ ...body, totalPlannedAmount: money('1.00') });
+    // VC-7-02 (§58A): advanceDueDay 1–31.
+    for (const advanceDueDay of [0, 32]) expect(await fieldsOf({ ...body, advanceDueDay })).toEqual([{ field: 'advanceDueDay', code: 'OUT_OF_RANGE' }]);
+    expect(await fieldsOf({ ...body, advanceDueDay: 1.5 })).toEqual([{ field: 'advanceDueDay', code: 'INVALID_FORMAT' }]);
     await fieldsOf({ ...body, costLines: [{ ...line, group: 'RESERVE' }] });
   });
 

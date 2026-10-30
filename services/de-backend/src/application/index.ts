@@ -585,15 +585,19 @@ export {
   AdvisorConfirmedError,
   ClassificationExistsError,
   ClassificationSupersededError,
+  DepositNotCountedError,
   NoApplicableTaxRuleError,
   NotCurrentClassificationError,
+  RefundYearOutOfRangeError,
   SourceNotCountedError,
   TaxClassificationNotFoundError,
   TaxRuleNotFoundError,
   TaxRuleNotRegisteredError,
   TaxSourceNotFoundError,
+  TaxYearOutOfRangeError,
   TreatmentNotAllowedError,
   createTaxClassification,
+  getDepositTaxMeaning,
   getTaxClassification,
   getTaxMeaning,
   getTaxRule,
@@ -605,6 +609,7 @@ export {
 export type {
   CreateTaxClassification,
   CreateTaxClassificationInput,
+  GetDepositTaxMeaning,
   GetTaxClassification,
   GetTaxMeaning,
   GetTaxRule,
@@ -616,6 +621,7 @@ export type {
 } from './tax-classifications.js';
 export {
   CREATE_REVIEW_STATES,
+  DEPOSIT_TAX_CATEGORIES,
   LATER_TAX_CATEGORIES,
   LATER_TREATMENTS,
   ORIGINS,
@@ -626,4 +632,31 @@ export {
   TREATMENTS,
   treatmentFits,
 } from '../domains/taxation/index.js';
-export type { ReviewStep, TaxClassification, TaxMeaning, TaxMeaningFlag, TaxCategory, Treatment } from '../domains/taxation/index.js';
+export type {
+  DepositTaxMeaning,
+  ReviewStep,
+  TaxClassification,
+  TaxListItem,
+  TaxMeaning,
+  TaxMeaningFlag,
+  TaxCategory,
+  Treatment,
+} from '../domains/taxation/index.js';
+export {
+  RentalContractReferenceExistsError,
+  RentalContractReferenceNotFoundError,
+  RentalContractTenantNotFoundError,
+  amendRentalContractReference,
+  createRentalContractReference,
+  getRentalContractReference,
+  listRentalContractReferences,
+} from './rental-contract-references.js';
+export type {
+  AmendRentalContractReference,
+  CreateRentalContractReference,
+  CreateRentalContractReferenceInput,
+  GetRentalContractReference,
+  ListRentalContractReferences,
+} from './rental-contract-references.js';
+export { MAX_RENT_DUE_DAYS, rentDueDaysError } from '../domains/rental-contract-reference/index.js';
+export type { ChangedEntry, RentDueDay, RentalContractReference } from '../domains/rental-contract-reference/index.js';

@@ -5,20 +5,25 @@ import {
   AdvisorConfirmedError,
   ClassificationExistsError,
   ClassificationSupersededError,
+  DepositNotCountedError,
   NoApplicableTaxRuleError,
   NotCurrentClassificationError,
   PartyNotFoundError,
   PropertyReferenceNotFoundError,
+  RefundYearOutOfRangeError,
+  SecurityDepositNotFoundError,
   SourceNotCountedError,
   TaxClassificationNotFoundError,
   TaxRuleNotFoundError,
   TaxRuleNotRegisteredError,
   TaxSourceNotFoundError,
+  TaxYearOutOfRangeError,
   TreatmentNotAllowedError,
   VersionConflictError,
   getTaxRule,
   listTaxRules,
   type CreateTaxClassificationInput,
+  type DepositTaxMeaning,
   type PrincipalVerifier,
   type ReviewStep,
   type TaxClassification,
@@ -49,6 +54,9 @@ const classification: TaxClassification = {
   advisorPartyId: null,
   notes: 'Austausch Thermostatventile',
   sourceReferences: ['Rechnung 2026-117'],
+  taxYear: null,
+  refundOfYear: null,
+  depositClosing: null,
   supersedes: OTHER,
   supersededBy: null,
   supersededAt: null,
@@ -58,6 +66,8 @@ const classification: TaxClassification = {
 };
 
 const meaning: TaxMeaning = {
+  sourceType: 'TRANSACTION_SPLIT',
+  sourceId: SPLIT,
   splitId: SPLIT,
   transactionId: TX,
   position: 1,
@@ -76,6 +86,9 @@ const meaning: TaxMeaning = {
   origin: 'DEFAULT',
   rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
   classificationId: null,
+  taxYear: 2026,
+  attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: 2026, proposedYear: 2026, overridden: false },
+  refund: null,
   flags: [{ code: 'CLASSIFICATION_ON_CORRECTED_SPLIT', details: { originalTransactionId: OTHER, classificationIds: [CLASSIFICATION] } }],
 };
 
@@ -139,6 +152,9 @@ describe('POST /tax-classifications (§56)', () => {
       advisorPartyId: null,
       notes: 'Austausch Thermostatventile',
       sourceReferences: ['Rechnung 2026-117'],
+      taxYear: null,
+      refundOfYear: null,
+      depositClosing: null,
       supersedes: OTHER,
       supersededBy: null,
       supersededAt: null,
@@ -157,6 +173,11 @@ describe('POST /tax-classifications (§56)', () => {
     expect(seen[1]).toMatchObject({ sourceId: SPLIT, reviewState: 'USER_CONFIRMED', supersedes: null, notes: null, sourceReferences: [] });
     const replayed = await post(base, '/tax-classifications', body, { 'idempotency-key': 'again' });
     expect(replayed.headers.get('idempotent-replayed')).toBe('true');
+    // VC-7-02 (§58A): the years of a split, and a deposit as the source.
+    await post(base, '/tax-classifications', { ...body, taxYear: 2025, refundOfYear: 2024 });
+    expect(seen[3]).toMatchObject({ sourceType: 'TRANSACTION_SPLIT', taxYear: 2025, refundOfYear: 2024 });
+    await post(base, '/tax-classifications', { ...body, sourceType: 'DEPOSIT_CLOSING', taxCategory: 'RETAINED_DEPOSIT_RENT', treatment: 'INCOME' });
+    expect(seen[4]).toMatchObject({ sourceType: 'DEPOSIT_CLOSING', sourceId: SPLIT, taxCategory: 'RETAINED_DEPOSIT_RENT', taxYear: null, refundOfYear: null });
   });
 
   it('every 400: shape, enums, SUGGESTED and ADVISOR_CONFIRMED, NOT_SUPPORTED fields, the fit', async () => {
@@ -183,10 +204,18 @@ describe('POST /tax-classifications (§56)', () => {
       { field: 'sourceReferences', code: 'INVALID_FORMAT' },
     ]);
     expect(await fields(await send({ ...body, jurisdiction: 'DE' }))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
-    for (const field of ['taxYear', 'refundOfYear', 'netAmount', 'annuallyRecurring', 'distributionYears']) {
+    for (const field of ['netAmount', 'annuallyRecurring', 'distributionYears']) {
       expect(await fields(await send({ ...body, [field]: 2026 }))).toEqual([{ field, code: 'NOT_SUPPORTED' }]);
     }
-    for (const sourceType of ['WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE', 'DEPOSIT_CLOSING']) {
+    // VC-7-02 (§58A): the years 2000–2100, a split's only.
+    for (const field of ['taxYear', 'refundOfYear']) {
+      for (const year of [1999, 2101]) expect(await fields(await send({ ...body, [field]: year }))).toEqual([{ field, code: 'OUT_OF_RANGE' }]);
+      for (const year of [2026.5, '2026']) expect(await fields(await send({ ...body, [field]: year }))).toEqual([{ field, code: 'INVALID_FORMAT' }]);
+      expect(
+        await fields(await send({ ...body, sourceType: 'DEPOSIT_CLOSING', taxCategory: 'RETAINED_DEPOSIT_RENT', treatment: 'INCOME', [field]: 2026 })),
+      ).toEqual([{ field, code: 'NOT_SUPPORTED' }]);
+    }
+    for (const sourceType of ['WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE']) {
       expect(await fields(await send({ ...body, sourceType }))).toEqual([{ field: 'sourceType', code: 'NOT_SUPPORTED' }]);
     }
     expect(await fields(await send({ ...body, taxCategory: 'WEG_SPENDING' }))).toEqual([{ field: 'taxCategory', code: 'NOT_SUPPORTED' }]);
@@ -223,6 +252,34 @@ describe('POST /tax-classifications (§56)', () => {
         new NoApplicableTaxRuleError('DE_CATEGORY_DEFAULTS', '1999-12-31' as BusinessDate),
         409,
         { code: 'CONFLICT', details: { reason: 'NO_APPLICABLE_RULE', ruleCode: 'DE_CATEGORY_DEFAULTS', date: '1999-12-31' } },
+      ],
+      // VC-7-02 (§58A).
+      [new TaxYearOutOfRangeError(2024, 2026), 422, { code: 'TAX_YEAR_OUT_OF_RANGE', details: { taxYear: 2024, bookingYear: 2026 } }],
+      [new RefundYearOutOfRangeError(2027, 2026), 422, { code: 'REFUND_YEAR_OUT_OF_RANGE', details: { refundOfYear: 2027, taxYear: 2026 } }],
+      [
+        new DepositNotCountedError('ACTIVE', Money.of('0.00', 'EUR'), 'NOT_CLOSED'),
+        409,
+        {
+          code: 'CONFLICT',
+          details: {
+            reason: 'SOURCE_NOT_COUNTED',
+            depositStatus: 'ACTIVE',
+            retainedAmount: { amount: '0.00', currency: 'EUR' },
+            notCountedReason: 'NOT_CLOSED',
+          },
+        },
+      ],
+      [
+        new TreatmentNotAllowedError(null, ['INCOME', 'NOT_RELEVANT'], ['RETAINED_DEPOSIT_RENT', 'RETAINED_DEPOSIT_DAMAGES', 'NOT_RELEVANT']),
+        422,
+        {
+          code: 'TREATMENT_NOT_ALLOWED',
+          details: {
+            sourceType: 'DEPOSIT_CLOSING',
+            allowed: ['INCOME', 'NOT_RELEVANT'],
+            allowedTaxCategories: ['RETAINED_DEPOSIT_RENT', 'RETAINED_DEPOSIT_DAMAGES', 'NOT_RELEVANT'],
+          },
+        },
       ],
     ];
     for (const [error, status, answer] of cases) {
@@ -311,7 +368,7 @@ describe('reads (§55)', () => {
     expect(((await history.json()) as { items: { classificationId: string }[] }).items.map((c) => c.classificationId)).toEqual([CLASSIFICATION]);
     expect((await get(base, `/tax-classifications?sourceType=TRANSACTION_SPLIT&sourceId=${OTHER}`)).status).toBe(404);
     expect(await fields(await get(base, `/tax-classifications?sourceId=${SPLIT}`))).toEqual([{ field: 'sourceType', code: 'REQUIRED' }]);
-    expect(await fields(await get(base, `/tax-classifications?sourceType=DEPOSIT_CLOSING&sourceId=${SPLIT}`))).toEqual([
+    expect(await fields(await get(base, `/tax-classifications?sourceType=WEG_RESERVE_WITHDRAWAL&sourceId=${SPLIT}`))).toEqual([
       { field: 'sourceType', code: 'NOT_SUPPORTED' },
     ]);
     expect(await fields(await get(base, `/tax-classifications?sourceType=TRANSACTION_SPLIT&sourceId=x`))).toEqual([
@@ -333,6 +390,8 @@ describe('reads (§55)', () => {
     // No version ETag (a derived read); Express's own weak validator may be present.
     expect(res.headers.get('etag') ?? 'W/').toMatch(/^W\//);
     expect(await res.json()).toEqual({
+      sourceType: 'TRANSACTION_SPLIT',
+      sourceId: SPLIT,
       splitId: SPLIT,
       transactionId: TX,
       bookingDate: '2026-03-02',
@@ -347,11 +406,72 @@ describe('reads (§55)', () => {
       origin: 'DEFAULT',
       rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
       classificationId: null,
+      taxYear: 2026,
+      attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: 2026, proposedYear: 2026, overridden: false },
+      refund: null,
       flags: [{ code: 'CLASSIFICATION_ON_CORRECTED_SPLIT', details: { originalTransactionId: OTHER, classificationIds: [CLASSIFICATION] } }],
     });
     const missing = await get(base, `/transaction-splits/${OTHER}/tax-meaning`);
     expect(missing.status).toBe(404);
     expect(await fields(await get(base, `/transaction-splits/x/tax-meaning`))).toEqual([{ field: 'splitId', code: 'INVALID_FORMAT' }]);
+  });
+
+  it('GET security-deposits/{id}/tax-meaning (§58A): the DTO with Money as JSON; 404; 400; the deposit as a list item', async () => {
+    const deposit: DepositTaxMeaning = {
+      sourceType: 'DEPOSIT_CLOSING',
+      sourceId: OTHER,
+      securityDepositId: OTHER,
+      status: 'ACTIVE',
+      closingDate: null,
+      retainedAmount: Money.of('0.00', 'EUR'),
+      propertyReferenceId: PR,
+      propertyCandidates: [PR],
+      counts: false,
+      taxYear: null,
+      amount: Money.of('0.00', 'EUR'),
+      taxCategory: 'RETAINED_DEPOSIT_RENT',
+      treatment: 'INCOME',
+      reviewState: 'USER_CONFIRMED',
+      origin: 'CLASSIFICATION',
+      rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
+      classificationId: CLASSIFICATION,
+      flags: [{ code: 'NOT_COUNTED', details: { depositStatus: 'ACTIVE', retainedAmount: Money.of('0.00', 'EUR'), reason: 'NOT_CLOSED' } }],
+    };
+    const expected = {
+      sourceType: 'DEPOSIT_CLOSING',
+      sourceId: OTHER,
+      securityDepositId: OTHER,
+      status: 'ACTIVE',
+      closingDate: null,
+      propertyReferenceId: PR,
+      counts: false,
+      taxYear: null,
+      amount: { amount: '0.00', currency: 'EUR' },
+      taxCategory: 'RETAINED_DEPOSIT_RENT',
+      treatment: 'INCOME',
+      reviewState: 'USER_CONFIRMED',
+      origin: 'CLASSIFICATION',
+      rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
+      classificationId: CLASSIFICATION,
+      flags: [{ code: 'NOT_COUNTED', details: { depositStatus: 'ACTIVE', retainedAmount: { amount: '0.00', currency: 'EUR' }, reason: 'NOT_CLOSED' } }],
+    };
+    const base = await start({
+      taxation: {
+        depositTaxMeaning: async ({ depositId }) => {
+          if (depositId !== OTHER) throw new SecurityDepositNotFoundError(depositId);
+          return deposit;
+        },
+        taxMeanings: async (input) => ({ items: [meaning, deposit], page: input.page.page, pageSize: input.page.pageSize, total: 2 }),
+      },
+    });
+    const res = await get(base, `/security-deposits/${OTHER}/tax-meaning`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(expected);
+    expect((await get(base, `/security-deposits/${SPLIT}/tax-meaning`)).status).toBe(404);
+    expect(await fields(await get(base, `/security-deposits/x/tax-meaning`))).toEqual([{ field: 'depositId', code: 'INVALID_FORMAT' }]);
+    const listed = (await (await get(base, `/property-references/${PR}/tax-meanings?year=2026`)).json()) as { items: { sourceType: string }[] };
+    expect(listed.items.map((i) => i.sourceType)).toEqual(['TRANSACTION_SPLIT', 'DEPOSIT_CLOSING']);
+    expect(listed.items[1]).toEqual(expected);
   });
 
   it('GET tax-meanings?year=: filters and paging passed; year required 2000–2100; pageSize ≤ 200; 404', async () => {
@@ -395,8 +515,13 @@ describe('GET /tax-rules (§58)', () => {
     const now = () => new Date('2026-10-30T10:00:00Z');
     const base = await start({ taxation: { listRules: listTaxRules({ now }), getRule: getTaxRule({ now }) } });
     const list = (await (await get(base, '/tax-rules')).json()) as { items: { ruleCode: string; versions: Record<string, unknown>[] }[] };
-    expect(list.items.map((r) => r.ruleCode)).toEqual(['DE_CATEGORY_DEFAULTS']);
+    // VC-7-02 adds DE_CASH_TIMING (§58A).
+    expect(list.items.map((r) => r.ruleCode)).toEqual(['DE_CASH_TIMING', 'DE_CATEGORY_DEFAULTS']);
+    const defaults = list.items[1];
     expect(list.items[0]?.versions).toEqual([
+      expect.objectContaining({ ruleCode: 'DE_CASH_TIMING', version: 1, legalBasis: '§ 11 Abs. 1 S. 2 und Abs. 2 S. 2 EStG', status: 'ACTIVE' }),
+    ]);
+    expect(defaults?.versions).toEqual([
       expect.objectContaining({
         ruleCode: 'DE_CATEGORY_DEFAULTS',
         version: 1,
@@ -406,10 +531,10 @@ describe('GET /tax-rules (§58)', () => {
         status: 'ACTIVE',
       }),
     ]);
-    const parameters = list.items[0]?.versions[0]?.['parameters'] as { defaults: Record<string, unknown> };
+    const parameters = defaults?.versions[0]?.['parameters'] as { defaults: Record<string, unknown> };
     expect(parameters.defaults['MAINTENANCE']).toEqual({ taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', reviewState: 'SUGGESTED' });
     const one = await get(base, '/tax-rules/DE_CATEGORY_DEFAULTS');
-    expect(await one.json()).toEqual(list.items[0]);
+    expect(await one.json()).toEqual(defaults);
     const missing = await get(base, '/tax-rules/DE_UNKNOWN');
     expect(missing.status).toBe(404);
     expect(((await missing.json()) as { error: unknown }).error).toMatchObject({ code: 'NOT_FOUND', details: { ruleCode: 'DE_UNKNOWN' } });

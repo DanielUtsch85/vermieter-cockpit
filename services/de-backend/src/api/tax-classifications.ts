@@ -12,6 +12,8 @@ import {
   TREATMENTS,
   treatmentFits,
   type CreateTaxClassification,
+  type DepositTaxMeaning,
+  type GetDepositTaxMeaning,
   type GetTaxClassification,
   type GetTaxMeaning,
   type GetTaxRule,
@@ -21,12 +23,14 @@ import {
   type ReviewStep,
   type ReviewTaxClassification,
   type TaxClassification,
+  type TaxListItem,
   type TaxMeaning,
   type TaxRuleView,
 } from '../application/index.js';
+import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { RESOURCE_ID, fieldErrors, integerIn, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -36,8 +40,11 @@ const uuid = z
 const notSupported = (path: string, ctx: z.RefinementCtx) => ctx.addIssue({ code: 'custom', path: [path], params: { code: 'NOT_SUPPORTED' } });
 const has = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value);
 
-/** Fields of later items (VC-7-02, VC-7-03): accepted by name, answered `400 NOT_SUPPORTED` (§55). */
-const LATER_FIELDS = ['taxYear', 'refundOfYear', 'netAmount', 'annuallyRecurring', 'distributionYears'] as const;
+/** Fields of a later item (VC-7-03): accepted by name, answered `400 NOT_SUPPORTED` (§55). */
+const LATER_FIELDS = ['netAmount', 'annuallyRecurring', 'distributionYears'] as const;
+/** VC-7-02's years (§58A): a split's only; a deposit's tax year is its closing date's. */
+const SPLIT_ONLY_FIELDS = ['taxYear', 'refundOfYear'] as const;
+const taxYear = integerIn(2000, 2100);
 
 const createBody = z
   .object({
@@ -49,8 +56,8 @@ const createBody = z
     supersedes: uuid.nullish(),
     notes: optionalText(2000).nullish(),
     sourceReferences: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
-    taxYear: z.unknown().optional(),
-    refundOfYear: z.unknown().optional(),
+    taxYear: taxYear.nullish(),
+    refundOfYear: taxYear.nullish(),
     netAmount: z.unknown().optional(),
     annuallyRecurring: z.unknown().optional(),
     distributionYears: z.unknown().optional(),
@@ -58,6 +65,9 @@ const createBody = z
   .strict()
   .superRefine((body, ctx) => {
     for (const field of LATER_FIELDS) if (body[field] !== undefined) notSupported(field, ctx);
+    if (body.sourceType === 'DEPOSIT_CLOSING') {
+      for (const field of SPLIT_ONLY_FIELDS) if (body[field] !== undefined && body[field] !== null) notSupported(field, ctx);
+    }
     if (body.sourceType !== undefined && !has(SUPPORTED_SOURCE_TYPES, body.sourceType)) notSupported('sourceType', ctx);
     if (has(LATER_TAX_CATEGORIES, body.taxCategory)) notSupported('taxCategory', ctx);
     if (has(LATER_TREATMENTS, body.treatment)) notSupported('treatment', ctx);
@@ -101,12 +111,14 @@ export interface TaxationCommands {
   readonly history: ListTaxClassificationHistory;
   readonly review: ReviewTaxClassification;
   readonly taxMeaning: GetTaxMeaning;
+  /** VC-7-02 (§58A): the retained deposit's meaning. */
+  readonly depositTaxMeaning: GetDepositTaxMeaning;
   readonly taxMeanings: ListTaxMeanings;
   readonly listRules: ListTaxRules;
   readonly getRule: GetTaxRule;
 }
 
-/** Tax classification and tax rules API (api-design.md §55–§58, backlog VC-7-01). */
+/** Tax classification and tax rules API (api-design.md §55–§58A, backlog VC-7-01, VC-7-02). */
 export function taxationRoutes(commands: TaxationCommands): Router {
   const router = express.Router();
 
@@ -133,6 +145,15 @@ export function taxationRoutes(commands: TaxationCommands): Router {
       .catch(next);
   });
 
+  router.get('/security-deposits/:depositId/tax-meaning', (req, res, next) => {
+    const depositId = readId(req.params['depositId'], 'depositId', res);
+    if (depositId === undefined) return;
+    commands
+      .depositTaxMeaning({ principal: principalOf(res), depositId })
+      .then((meaning) => res.json(depositMeaningDto(meaning)))
+      .catch(next);
+  });
+
   router.get('/property-references/:propertyReferenceId/tax-meanings', (req, res, next) => {
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
@@ -154,7 +175,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
         }),
         page: { page, pageSize },
       })
-      .then((result) => res.json({ ...result, items: result.items.map(meaningDto) }))
+      .then((result) => res.json({ ...result, items: result.items.map(itemDto) }))
       .catch(next);
   });
 
@@ -170,7 +191,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
     commands
       .create({
         principal: principalOf(res),
-        sourceType: 'TRANSACTION_SPLIT',
+        sourceType: body.sourceType === 'DEPOSIT_CLOSING' ? 'DEPOSIT_CLOSING' : 'TRANSACTION_SPLIT',
         sourceId: body.sourceId,
         taxCategory: body.taxCategory,
         treatment: body.treatment,
@@ -178,6 +199,8 @@ export function taxationRoutes(commands: TaxationCommands): Router {
         supersedes: body.supersedes ?? null,
         notes: body.notes ?? null,
         sourceReferences: body.sourceReferences ?? [],
+        taxYear: body.taxYear ?? null,
+        refundOfYear: body.refundOfYear ?? null,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
       .then(({ classification, replayed }) => {
@@ -266,6 +289,9 @@ function classificationDto(c: TaxClassification) {
     advisorPartyId: c.advisorPartyId,
     notes: c.notes,
     sourceReferences: c.sourceReferences,
+    taxYear: c.taxYear,
+    refundOfYear: c.refundOfYear,
+    depositClosing: c.depositClosing === null ? null : { closingDate: c.depositClosing.closingDate, retainedAmount: c.depositClosing.retainedAmount.toJSON() },
     supersedes: c.supersedes,
     supersededBy: c.supersededBy,
     supersededAt: c.supersededAt?.toISOString() ?? null,
@@ -275,8 +301,16 @@ function classificationDto(c: TaxClassification) {
   };
 }
 
+/** Money in details as JSON; everything else as it is. */
+const detailsDto = (details: object) =>
+  Object.fromEntries(Object.entries(details).map(([key, value]) => [key, value instanceof Money ? value.toJSON() : (value as unknown)]));
+
+const itemDto = (item: TaxListItem) => (item.sourceType === 'DEPOSIT_CLOSING' ? depositMeaningDto(item) : meaningDto(item));
+
 function meaningDto(m: TaxMeaning) {
   return {
+    sourceType: m.sourceType,
+    sourceId: m.sourceId,
     splitId: m.splitId,
     transactionId: m.transactionId,
     bookingDate: m.bookingDate,
@@ -291,7 +325,39 @@ function meaningDto(m: TaxMeaning) {
     origin: m.origin,
     rule: m.rule === null ? null : { ruleCode: m.rule.ruleCode, version: m.rule.version },
     classificationId: m.classificationId,
+    taxYear: m.taxYear,
+    attribution: {
+      rule: m.attribution.rule === null ? null : { ruleCode: m.attribution.rule.ruleCode, version: m.attribution.rule.version },
+      bookingYear: m.attribution.bookingYear,
+      proposedYear: m.attribution.proposedYear,
+      overridden: m.attribution.overridden,
+    },
+    refund:
+      m.refund === null
+        ? null
+        : { kind: m.refund.kind, ofYear: m.refund.ofYear, ofYearSource: m.refund.ofYearSource, presentation: m.refund.presentation, line: m.refund.line },
     flags: m.flags.map((f) => ({ code: f.code, details: f.details })),
+  };
+}
+
+function depositMeaningDto(m: DepositTaxMeaning) {
+  return {
+    sourceType: m.sourceType,
+    sourceId: m.sourceId,
+    securityDepositId: m.securityDepositId,
+    status: m.status,
+    closingDate: m.closingDate,
+    propertyReferenceId: m.propertyReferenceId,
+    counts: m.counts,
+    taxYear: m.taxYear,
+    amount: m.amount.toJSON(),
+    taxCategory: m.taxCategory,
+    treatment: m.treatment,
+    reviewState: m.reviewState,
+    origin: m.origin,
+    rule: m.rule === null ? null : { ruleCode: m.rule.ruleCode, version: m.rule.version },
+    classificationId: m.classificationId,
+    flags: m.flags.map((f) => ({ code: f.code, details: detailsDto(f.details) })),
   };
 }
 

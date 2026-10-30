@@ -3,12 +3,24 @@ import type { CategoryType, Direction, TransactionStatus } from '../ledger/index
 import { CATEGORY_DEFAULTS, type CategoryDefault, type CategoryDefaultsParameters } from './rules/de-category-defaults.js';
 import type { RuleRegistry } from './rules/registry.js';
 import type { RuleRef, RuleVersion } from './rules/rule-version.js';
-import type { CreateReviewState, Origin, ReviewState, SourceType, StoredReviewState, TaxCategory, Treatment } from './vocabulary.js';
+import {
+  attributeTaxYear,
+  refundOf,
+  yearOf,
+  type RefundFlag,
+  type RefundInfo,
+  type TaxYearAttribution,
+  type TaxYearFlag,
+  type TimingInput,
+} from './cash-timing.js';
+import type { DepositTaxMeaning } from './deposit-closing.js';
+import type { CreateReviewState, Origin, ReviewState, SourceType, StoredReviewState, SupportedSourceType, TaxCategory, Treatment } from './vocabulary.js';
 
 /**
- * TaxClassification (data-model.md §36, api-design.md §55–§57, phase-7-plan P7-D2): the stored interpretation of a
- * split, made when a user confirms or changes the default of its category. It never changes the split, its amount,
- * category or Transaction (ADR-006). One current classification per source; a change supersedes it.
+ * TaxClassification (data-model.md §36, api-design.md §55–§58A, phase-7-plan P7-D2, P7-D4): the stored interpretation
+ * of a split, or of a retained deposit (VC-7-02), made when a user confirms or changes the default. It never changes its
+ * source, the split's amount, category or Transaction, or the deposit (ADR-006). One current classification per
+ * source; a change supersedes it.
  */
 
 export type TaxClassificationId = string & { readonly __brand: 'TaxClassificationId' };
@@ -25,6 +37,12 @@ export interface TaxClassification {
   readonly advisorPartyId: string | null;
   readonly notes: string | null;
   readonly sourceReferences: readonly string[];
+  /** VC-7-02 (§58A): the tax year a split counts in, overriding the rule; `null` keeps the rule's year. */
+  readonly taxYear: number | null;
+  /** VC-7-02: the year a refund refunds (or a repayment repays, for information). */
+  readonly refundOfYear: number | null;
+  /** A `DEPOSIT_CLOSING`'s closing, as it was when classified; a later closing needs a new classification. */
+  readonly depositClosing: { readonly closingDate: BusinessDate; readonly retainedAmount: Money } | null;
   readonly supersedes: string | null;
   readonly supersededBy: string | null;
   readonly supersededAt: Date | null;
@@ -33,10 +51,10 @@ export interface TaxClassification {
   readonly version: number;
 }
 
-/** What a create carries (§56). */
+/** What a create carries (§56, §58A). */
 export interface NewTaxClassification {
   readonly mreRealmId: string;
-  readonly sourceType: 'TRANSACTION_SPLIT';
+  readonly sourceType: SupportedSourceType;
   readonly sourceId: string;
   readonly taxCategory: TaxCategory;
   readonly treatment: Treatment | null;
@@ -44,6 +62,9 @@ export interface NewTaxClassification {
   readonly supersedes: string | null;
   readonly notes: string | null;
   readonly sourceReferences: readonly string[];
+  /** Splits only (§58A); omitted means `null`. */
+  readonly taxYear?: number | null;
+  readonly refundOfYear?: number | null;
 }
 
 /** A split as tax reads it: its cash, its category and its Transaction's state. */
@@ -71,9 +92,13 @@ export type TaxMeaningFlag =
       readonly code: 'CLASSIFICATION_ON_CORRECTED_SPLIT';
       readonly details: { readonly originalTransactionId: string; readonly classificationIds: readonly string[] };
     }
-  | { readonly code: 'RULE_SUPERSEDED'; readonly details: { readonly ruleCode: string; readonly version: number; readonly applicableVersion: number } };
+  | { readonly code: 'RULE_SUPERSEDED'; readonly details: { readonly ruleCode: string; readonly version: number; readonly applicableVersion: number } }
+  | TaxYearFlag
+  | RefundFlag;
 
 export interface TaxMeaning extends SplitFacts {
+  readonly sourceType: 'TRANSACTION_SPLIT';
+  readonly sourceId: string;
   readonly counts: boolean;
   readonly taxCategory: TaxCategory;
   readonly treatment: Treatment | null;
@@ -82,7 +107,19 @@ export interface TaxMeaning extends SplitFacts {
   /** `null` only for a default on a date no version of the rule covers (before 2000). */
   readonly rule: RuleRef | null;
   readonly classificationId: string | null;
+  /** VC-7-02 (§58A): the year it counts in, and how. */
+  readonly taxYear: number;
+  readonly attribution: TaxYearAttribution;
+  readonly refund: RefundInfo | null;
   readonly flags: readonly TaxMeaningFlag[];
+}
+
+/** What the tax year and the refund read besides the split (§58A); both optional, so a split outside a window needs none. */
+export interface TaxYearInputs {
+  /** The source's economic period and due date, read only where the 10-day rule could apply (`needsTiming`). */
+  readonly timing?: TimingInput;
+  /** The `financialYear` of the WEG statement the split names. */
+  readonly statementYear?: number | null;
 }
 
 /** The original of a replacement whose splits had classifications (P7-D2: nothing moves silently). */
@@ -112,9 +149,27 @@ export function deriveTaxMeaning(
   correctedOriginal: CorrectedOriginal | null,
   registry: RuleRegistry,
   today: BusinessDate,
+  inputs: TaxYearInputs = {},
 ): TaxMeaning {
+  const base = meaningOf(facts, classification, correctedOriginal, registry, today);
+  const year = attributeTaxYear(facts, inputs.timing, classification?.taxYear ?? null, registry);
+  // A split that does not count (a reversal above all, whose direction is the original's mirrored) refunds nothing.
+  const refund = base.counts
+    ? refundOf(facts.direction, base.taxCategory, year.taxYear, inputs.statementYear ?? null, classification?.refundOfYear ?? null)
+    : { refund: null, flags: [] };
+  return { ...base, taxYear: year.taxYear, attribution: year.attribution, refund: refund.refund, flags: [...base.flags, ...year.flags, ...refund.flags] };
+}
+
+function meaningOf(
+  facts: SplitFacts,
+  classification: TaxClassification | null,
+  correctedOriginal: CorrectedOriginal | null,
+  registry: RuleRegistry,
+  today: BusinessDate,
+): Omit<TaxMeaning, 'taxYear' | 'attribution' | 'refund'> {
   const counts = splitCounts(facts);
   const flags: TaxMeaningFlag[] = [];
+  const source = { sourceType: 'TRANSACTION_SPLIT', sourceId: facts.splitId } as const;
   if (!counts) flags.push({ code: 'NOT_COUNTED', details: { transactionStatus: facts.transactionStatus, correctionRole: facts.correctionRole } });
   if (classification !== null) {
     const applicable = registry.select(classification.rule.ruleCode, today);
@@ -126,6 +181,7 @@ export function deriveTaxMeaning(
     }
     return {
       ...facts,
+      ...source,
       counts,
       taxCategory: classification.taxCategory,
       treatment: classification.treatment,
@@ -146,6 +202,7 @@ export function deriveTaxMeaning(
   const meaning = rule === undefined ? NO_RULE_DEFAULT : defaultOf(rule, facts.financialCategoryCode);
   return {
     ...facts,
+    ...source,
     counts,
     ...meaning,
     origin: 'DEFAULT',
@@ -172,32 +229,65 @@ export function treatmentRefusal(
   return undefined;
 }
 
+/** Why a retained deposit does not count (§58A): not `CLOSED`, nothing retained, or closed again since it was classified. */
+export type DepositNotCountedReason = 'NOT_CLOSED' | 'NOTHING_RETAINED' | 'CLOSING_CHANGED';
+
+export type DepositNotCounted = {
+  readonly kind: 'DEPOSIT_NOT_COUNTED';
+  readonly depositStatus: string;
+  readonly retainedAmount: Money;
+  readonly reason: DepositNotCountedReason;
+};
+
 export type CreateRefusal =
   | { readonly kind: 'SOURCE_NOT_COUNTED'; readonly transactionStatus: TransactionStatus; readonly correctionRole: string | null }
+  | DepositNotCounted
   | { readonly kind: 'NO_APPLICABLE_RULE'; readonly ruleCode: string; readonly date: BusinessDate }
-  | { readonly kind: 'TREATMENT_NOT_ALLOWED'; readonly categoryType: string; readonly allowed: readonly Treatment[] }
+  | {
+      readonly kind: 'TREATMENT_NOT_ALLOWED';
+      /** The split's category type; `null` for a deposit, whose lines are named in `taxCategories`. */
+      readonly categoryType: string | null;
+      readonly allowed: readonly Treatment[];
+      readonly taxCategories?: readonly TaxCategory[];
+    }
+  | { readonly kind: 'TAX_YEAR_OUT_OF_RANGE'; readonly taxYear: number; readonly bookingYear: number }
+  | { readonly kind: 'REFUND_YEAR_OUT_OF_RANGE'; readonly refundOfYear: number; readonly taxYear: number }
   | { readonly kind: 'CLASSIFICATION_EXISTS'; readonly currentClassificationId: string }
   | { readonly kind: 'NOT_CURRENT_CLASSIFICATION'; readonly currentClassificationId: string | null };
 
 /**
- * The checks of a create after the source was found (§56, in order): the source counts, a rule version applies on
- * its booking date, the treatment is allowed, `supersedes` names the current classification. Returns the rule the
- * classification records, or the refusal.
+ * The checks of a create after the source was found (§56, §58A, in order): the source counts, a rule version applies
+ * on its booking date, the treatment is allowed, `taxYear` is the booking year ± 1, `refundOfYear` is at most the tax
+ * year (the given one, else `derivedTaxYear`, the rule's), `supersedes` names the current classification. Returns the
+ * rule the classification records, or the refusal.
  */
 export function planClassification(
   facts: SplitFacts,
   currentId: string | null,
-  request: Pick<NewTaxClassification, 'treatment' | 'supersedes'>,
+  request: Pick<NewTaxClassification, 'treatment' | 'supersedes' | 'taxYear' | 'refundOfYear'>,
   registry: RuleRegistry,
+  derivedTaxYear: number = yearOf(facts.bookingDate),
 ): { readonly kind: 'CLASSIFY'; readonly rule: RuleRef } | CreateRefusal {
   if (!splitCounts(facts)) return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: facts.transactionStatus, correctionRole: facts.correctionRole };
   const rule = categoryDefaultsOn(registry, facts.bookingDate);
   if (rule === undefined) return { kind: 'NO_APPLICABLE_RULE', ruleCode: CATEGORY_DEFAULTS, date: facts.bookingDate };
   const refusal = treatmentRefusal(rule, { code: facts.financialCategoryCode, categoryType: facts.categoryType }, request.treatment);
   if (refusal !== undefined) return { kind: 'TREATMENT_NOT_ALLOWED', ...refusal };
-  if (currentId !== null && request.supersedes === null) return { kind: 'CLASSIFICATION_EXISTS', currentClassificationId: currentId };
-  if (request.supersedes !== null && request.supersedes !== currentId) return { kind: 'NOT_CURRENT_CLASSIFICATION', currentClassificationId: currentId };
-  return { kind: 'CLASSIFY', rule: { ruleCode: rule.ruleCode, version: rule.version } };
+  const bookingYear = yearOf(facts.bookingDate);
+  const taxYear = request.taxYear ?? null;
+  // § 11 EStG moves cash across one year-end at most (§58A).
+  if (taxYear !== null && Math.abs(taxYear - bookingYear) > 1) return { kind: 'TAX_YEAR_OUT_OF_RANGE', taxYear, bookingYear };
+  const refundOfYear = request.refundOfYear ?? null;
+  const effectiveYear = taxYear ?? derivedTaxYear;
+  if (refundOfYear !== null && refundOfYear > effectiveYear) return { kind: 'REFUND_YEAR_OUT_OF_RANGE', refundOfYear, taxYear: effectiveYear };
+  return supersedesCheck(currentId, request.supersedes) ?? { kind: 'CLASSIFY', rule: { ruleCode: rule.ruleCode, version: rule.version } };
+}
+
+/** `supersedes` must name the current classification, and must be given when there is one (§56). */
+export function supersedesCheck(currentId: string | null, supersedes: string | null): CreateRefusal | undefined {
+  if (currentId !== null && supersedes === null) return { kind: 'CLASSIFICATION_EXISTS', currentClassificationId: currentId };
+  if (supersedes !== null && supersedes !== currentId) return { kind: 'NOT_CURRENT_CLASSIFICATION', currentClassificationId: currentId };
+  return undefined;
 }
 
 /** §57's three steps. */
@@ -210,6 +300,7 @@ export type ReviewRefusal =
   | { readonly kind: 'CLASSIFICATION_SUPERSEDED'; readonly supersededBy: string }
   | { readonly kind: 'ADVISOR_CONFIRMED' }
   | { readonly kind: 'SOURCE_NOT_COUNTED'; readonly transactionStatus: TransactionStatus; readonly correctionRole: string | null }
+  | DepositNotCounted
   | { readonly kind: 'RULE_NOT_REGISTERED'; readonly ruleCode: string; readonly version: number };
 
 /** What a step writes: the target state and advisor; `changed: false` is a `200` no-op. */
@@ -227,7 +318,7 @@ export interface ReviewPlan {
 export function planReview(
   current: TaxClassification,
   step: ReviewStep,
-  source: Pick<SplitFacts, 'transactionStatus' | 'correctionRole'>,
+  source: Pick<SplitFacts, 'transactionStatus' | 'correctionRole'> | { readonly deposit: DepositNotCounted | null },
   registry: RuleRegistry,
 ): ReviewPlan | ReviewRefusal {
   if (current.supersededBy !== null) return { kind: 'CLASSIFICATION_SUPERSEDED', supersededBy: current.supersededBy };
@@ -235,7 +326,11 @@ export function planReview(
   // Only a confirmation validates the source and the rule (§57): marking for review is exactly what a classification
   // whose source stopped counting needs (review on #158).
   if (step.kind !== 'MARK_NEEDS_REVIEW') {
-    if (!splitCounts(source)) return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: source.transactionStatus, correctionRole: source.correctionRole };
+    if ('deposit' in source) {
+      if (source.deposit !== null) return source.deposit;
+    } else if (!splitCounts(source)) {
+      return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: source.transactionStatus, correctionRole: source.correctionRole };
+    }
     if (!registry.isRegistered(current.rule.ruleCode, current.rule.version)) {
       return { kind: 'RULE_NOT_REGISTERED', ruleCode: current.rule.ruleCode, version: current.rule.version };
     }
@@ -252,7 +347,9 @@ export function planReview(
 
 /** Identity of a create for `Idempotency-Key` replays. */
 export function classificationFingerprint(c: NewTaxClassification): string {
-  return JSON.stringify([c.sourceType, c.sourceId, c.taxCategory, c.treatment, c.reviewState, c.supersedes, c.notes, c.sourceReferences]);
+  const years = (c.taxYear ?? null) === null && (c.refundOfYear ?? null) === null ? [] : [c.taxYear ?? null, c.refundOfYear ?? null];
+  // VC-7-01's fingerprint unchanged without the years, so a key stored before VC-7-02 still replays.
+  return JSON.stringify([c.sourceType, c.sourceId, c.taxCategory, c.treatment, c.reviewState, c.supersedes, c.notes, c.sourceReferences, ...years]);
 }
 
 export type CreateClassificationOutcome =
@@ -268,6 +365,9 @@ export type ReviewClassificationOutcome =
   | { readonly kind: 'PARTY_NOT_FOUND'; readonly partyId: string }
   | ReviewRefusal
   | VersionConflict;
+
+/** An item of the per-property list: a split, or a retained deposit (§58A). */
+export type TaxListItem = TaxMeaning | DepositTaxMeaning;
 
 export interface TaxMeaningFilter {
   readonly reviewStates?: readonly ReviewState[];
@@ -308,7 +408,12 @@ export interface TaxClassificationRepository {
   listHistory(sourceType: SourceType, sourceId: string, mreRealmId: string): Promise<readonly TaxClassification[] | undefined>;
   /** One `REPEATABLE READ READ ONLY` snapshot; undefined for an unknown split. */
   findTaxMeaning(splitId: string, mreRealmId: string, today: BusinessDate): Promise<TaxMeaning | undefined>;
-  /** The counting splits of a PropertyReference booked in `year`, derived, filtered and paged; undefined for an unknown one. */
+  /** The retained amount of a deposit at its closing (§58A); undefined for an unknown deposit. */
+  findDepositTaxMeaning(depositId: string, mreRealmId: string, today: BusinessDate): Promise<DepositTaxMeaning | undefined>;
+  /**
+   * The counting splits of a PropertyReference whose tax year is `year` (§58A), and its retained deposits closed in
+   * `year`, derived, filtered and paged; undefined for an unknown one.
+   */
   listTaxMeanings(
     propertyReferenceId: string,
     mreRealmId: string,
@@ -316,7 +421,7 @@ export interface TaxClassificationRepository {
     filter: TaxMeaningFilter,
     page: TaxPageRequest,
     today: BusinessDate,
-  ): Promise<TaxPage<TaxMeaning> | undefined>;
+  ): Promise<TaxPage<TaxListItem> | undefined>;
   /** Every distinct stored `ruleCode@version`, across Realms (the start check, §58). */
   storedRuleReferences(): Promise<readonly RuleRef[]>;
 }

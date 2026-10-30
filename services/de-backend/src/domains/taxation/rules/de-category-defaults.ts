@@ -25,6 +25,15 @@ export interface CategoryDefaultsParameters {
    */
   readonly notRelevantOnlyCategoryTypes: readonly string[];
   readonly forbiddenTreatmentsByCode: Readonly<Record<string, readonly Treatment[]>>;
+  /**
+   * The retained deposit (VC-7-02, §58A, A11): its default (never income), and the lines and treatments a
+   * classification may give it; anything else is TREATMENT_NOT_ALLOWED.
+   */
+  readonly depositClosing: {
+    readonly default: CategoryDefault;
+    readonly taxCategories: readonly TaxCategory[];
+    readonly treatments: readonly Treatment[];
+  };
 }
 
 export const CATEGORY_DEFAULTS = 'DE_CATEGORY_DEFAULTS';
@@ -33,7 +42,11 @@ const suggested = (taxCategory: TaxCategory, treatment: Treatment | null): Categ
 const toReview = (taxCategory: TaxCategory, treatment: Treatment | null): CategoryDefault => ({ taxCategory, treatment, reviewState: 'NEEDS_REVIEW' });
 const notRelevant = suggested('NOT_RELEVANT', 'NOT_RELEVANT');
 
-/** Version 1 (§55's table, §58). */
+/**
+ * Version 1 (§55's table, §58), with VC-7-02's additive lines and the `DEPOSIT_CLOSING` default (§58A): no existing
+ * default changed. Frozen once VC-7-02 is merged (review on #159): every later change, an additive one too, is a new
+ * version.
+ */
 export const DE_CATEGORY_DEFAULTS_V1: RuleVersion<CategoryDefaultsParameters> = {
   ruleCode: CATEGORY_DEFAULTS,
   version: 1,
@@ -47,6 +60,9 @@ export const DE_CATEGORY_DEFAULTS_V1: RuleVersion<CategoryDefaultsParameters> = 
       'OPERATING_COST_ADVANCES',
       'OPERATING_COST_SETTLEMENT',
       'OTHER_INCOME',
+      'REFUNDS_OF_EARLIER_YEARS',
+      'RETAINED_DEPOSIT_RENT',
+      'RETAINED_DEPOSIT_DAMAGES',
       'LOAN_INTEREST',
       'FINANCING_COSTS',
       'WEG_HAUSGELD',
@@ -90,7 +106,12 @@ export const DE_CATEGORY_DEFAULTS_V1: RuleVersion<CategoryDefaultsParameters> = 
     unlisted: toReview('UNCLASSIFIED', null),
     notRelevantOnlyCategoryTypes: ['WEG_FUNDS', 'SECURITY_DEPOSIT', 'TRANSFER'],
     forbiddenTreatmentsByCode: { LOAN_PRINCIPAL: ['DEDUCTIBLE'], ACQUISITION: ['CAPITALIZED'] },
+    depositClosing: {
+      default: toReview('UNCLASSIFIED', null),
+      taxCategories: ['RETAINED_DEPOSIT_RENT', 'RETAINED_DEPOSIT_DAMAGES', 'NOT_RELEVANT'],
+      treatments: ['INCOME', 'NOT_RELEVANT'],
+    },
   },
   source:
-    'docs/germany/taxation.md §4–§5 (v0.2); BFH IX R 19/24 vom 14.01.2025 (WEG_FUNDS); phase-7-plan P7-D2; api-design §55 (review on #157); verification-checklist A1, A11, D8, E6',
+    'docs/germany/taxation.md §4–§5 (v0.2); BFH IX R 19/24 vom 14.01.2025 (WEG_FUNDS); phase-7-plan P7-D2, P7-D4; api-design §55, §58A (reviews on #157, #159); verification-checklist A1, A10, A11, D8, E6',
 };
