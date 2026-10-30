@@ -2054,6 +2054,8 @@ Rule versions used in historical calculations must remain addressable.
 
 **VC-7-03 (api-design §58B, implemented):** `DE_CATEGORY_DEFAULTS@1` stays frozen and unchanged. Three rules join the registry: `DE_WEG_SPENDING@1` (the WEG sources' default, lines and treatments; from 2000-01-01), `DE_82B_DISTRIBUTION@1` (2–5 years; from 2004-01-01) and `DE_ANSCHAFFUNGSNAHE@1` (15 %, 3 years; from 2004-01-01, selected by the transfer date). A classification may store a second reference (`treatmentRule`); the start check resolves it too.
 
+**VC-8-01 (P8-D11, api-design §59, specified):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed) is a module of the Depreciation domain, registered in the same registry. The registry (`RuleRegistry` and `rule-version.ts` in `shared/`) is composed as `TAX_RULES` in `domains/tax-rules/`, above both domains, from the versions each domain exports (api-design §59). Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule, and so is each band's threshold of the shorter useful life (`shorterThanYears`: 33 / 50 / 40 years, § 7 Abs. 4 S. 2 EStG; VERIFY against the official text). No table stores them, and the asset stores no rule reference.
+
 ---
 
 # 38. DepreciationAsset
@@ -2064,51 +2066,50 @@ Rule versions used in historical calculations must remain addressable.
 
 ## Purpose
 
-Represent one canonical depreciation basis.
+Record the facts of one depreciable asset that no other record holds, as inputs to its derived schedule. Rewritten by phase-8-plan P8-D1 (decided; VC-8-01, api-design §59, specified, migration 0049 planned): the asset stores its own inputs and **never** its basis.
 
 ---
 
 ## Required Fields
 
 - `id`
+- `mreRealmId`
 - `propertyReferenceId`
-- `assetType`
-- `basisAmount`
-- `currency`
-- `startDate`
-- `depreciationMethod`
-- `status`
+- `assetType`: `BUILDING` (one `ACTIVE` per PropertyReference); `SEPARATE_ASSET` with VC-8-03 (P8-D7, api-design §59B)
+- `depreciationMethod`: `LINEAR_7_4` (§ 7 Abs. 4 EStG; the only method of Phase 8, P8-D13)
+- `reviewState` (§6.7): `UNREVIEWED`, `NEEDS_REVIEW`, `CONFIRMED`, `ADVISOR_CONFIRMED`
+- `status`: `ACTIVE` → `VOID` (final)
+- `version`, `createdAt`
 
 ---
 
 ## Optional Fields
 
-- `acquisitionId`
-- `maintenanceProjectId`
-- `landBuildingAllocationId`
-- `taxRuleVersionId`
-- `depreciationRate`
-- `usefulLife`
-- `ownershipBasis`
-- `sourceReferences`
+- `buildingCompletionYear` (`null` while unknown; never defaulted). It selects the rate band of § 7 Abs. 4 S. 1 Nr. 2 EStG (P8-D4).
+- `sourceReferences` (where the year comes from)
+- `advisorPartyId` (only with `ADVISOR_CONFIRMED`)
+- `shorterUsefulLives`: at most one per Acquisition of the PropertyReference (§ 7 Abs. 4 S. 2 EStG, P8-D4), each with `acquisitionId`, `usefulLifeYears` (1–99), `evidence` (`source`, `date`, `documentReference`), its own `reviewState` and `advisorPartyId`. Stored as rows of their own, never as a blob.
 - `notes`
+- `voidedAt`, `voidReason`
 
 ---
 
-## Suggested Asset Types
+## Derived, never stored (AGENTS.md §17, §82)
 
-- `BUILDING_ACQUISITION_BASIS`
-- `CAPITALIZED_IMPROVEMENT`
-- `SEPARATE_COMPONENT`
-- `OTHER`
+- the basis (the building's acquisition cost of each `CONFIRMED` Acquisition as §58B derives it, and from VC-8-03 the capitalised items), and the start, the first year, each year's amount and the residual value (api-design §59A, VC-8-02);
+- the rate of a year (api-design §59: the band of `DE_AFA_BUILDING_LINEAR` by the completion year, or `1/usefulLifeYears` for a confirmed shorter life, which is shorter only below the band's `shorterThanYears`);
+- the applied rule version (a recorded schedule version stores it, §39, VC-8-04).
+
+The former fields `basisAmount`, `currency`, `startDate`, `depreciationRate`, `landBuildingAllocationId`, `taxRuleVersionId`, `usefulLife` and `ownershipBasis` are derived in this way. `acquisitionId` gives way to the components of P8-D2, one per `CONFIRMED` Acquisition. `maintenanceProjectId` and the former types `BUILDING_ACQUISITION_BASIS`, `CAPITALIZED_IMPROVEMENT`, `SEPARATE_COMPONENT` and `OTHER` are withdrawn. A capitalised improvement is a component of the building's basis (P8-D6), and a separate component is a `SEPARATE_ASSET` (P8-D7).
 
 ---
 
 ## Invariants
 
-- Land must not be included in a depreciable building basis.
-- Basis must have traceable provenance.
-- Confirmed Assets should not silently change basis without versioned correction.
+- Land is never in a depreciable basis (B5); the asset has no basis to hold it.
+- Every input has traceable provenance: the year has its sources, and a shorter life has its evidence.
+- Only a confirmed fact feeds a canonical figure: an asset or a shorter life in `UNREVIEWED` or `NEEDS_REVIEW` makes its component not computable (as §15's allocation).
+- A change is a command with `If-Match`, writes an AuditRecord, and resets the review state of the fact it changes. A changed input changes the derived schedule of every year, which a recorded version shows as `DEPRECIATION_CHANGED_SINCE_RECORDED` (P8-D10).
 
 ---
 
