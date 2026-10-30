@@ -850,6 +850,7 @@ GET /api/v1/acquisitions/{acquisitionId}/costs                      (VC-2-06)
 GET /api/v1/acquisitions/{acquisitionId}/payments                   (VC-2-06)
 GET /api/v1/acquisitions/{acquisitionId}/land-building-allocations  (VC-2-08, §27.3)
 GET /api/v1/acquisitions/{acquisitionId}/owner-allocation           (VC-2-09, §27.4)
+GET /api/v1/acquisitions/{acquisitionId}/anschaffungsnahe-herstellungskosten (VC-7-03, §58B)
 ```
 
 ### Commands
@@ -1208,7 +1209,7 @@ The queries of §29's route list. A deposit's `holdingFinancialAccountId` (§47.
   - unknown parameters, an unknown filter value or a `page`/`pageSize` out of range → `400 VALIDATION_ERROR` with `details.fields[]` (as §29.2);
   - items as the single read, without `ETag`.
 - **Tests (implementation):** more than one page; an unknown parameter (`?statuss=CLOSED`) → `400`; mixed-case `displayName`s sort case-insensitively; both filters combined; another Realm's id → `404`.
-- **As implemented (VC-X-25):** both lists in `reads.e2e.test.ts`. No index on `lower(display_name)` yet: a Realm holds a handful of accounts and references, and a migration now would collide with VC-7-02's 0046 in flight. Add one (as `party_realm_name_idx`, 0016) with the next migration once lists grow.
+- **As implemented (VC-X-25):** both lists in `reads.e2e.test.ts`. No index on `lower(display_name)` yet: a Realm holds a handful of accounts and references, and a migration now would collide with VC-7-02's 0046 in flight. Add one (as `party_realm_name_idx`, 0016) with the next migration once lists grow. **VC-X-26:** planned in migration 0047 (VC-7-03, §58B), for this list and §23.3's.
 - **Nothing is written,** no AuditRecord.
 
 ---
@@ -4021,7 +4022,7 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
   - `totalAmount` and `unitShare` (Money, signed: a credit line such as an income is negative);
   - `classification`: `RECOVERABLE` | `NON_RECOVERABLE` | `RESERVE` (P6-D5), optional on input. Without it, DE takes the classification of the line with the same `account` in the membership's last `CONFIRMED` statement of an earlier year (P6-D8), else the printed `group`. The default is **resolved on create and replace and stored with its source** (`classificationSource`: `USER`, `PREVIOUS_STATEMENT` or `PRINTED_GROUP`), and frozen with the statement: a statement of an earlier year confirmed later never changes it, so §51's `byClassification` stays what was confirmed (review on #148).
 - **Totals as printed** (Money): `recoverableSubtotal`, `nonRecoverableSubtotal`, `totalCosts` (the unit's); `hausgeldRequested`, `hausgeldPaid`; `reserveRequested`, `reservePaid` (optional: some statements print no reserve block); `settlementPeak` (the Abrechnungsspitze, signed: > 0 a back-payment, < 0 a credit); `settlementResult` (the Abrechnungsergebnis, signed, optional).
-- **Reserve section** (optional, BR-WEG-009, ADR-018): `source`: `ANNUAL_STATEMENT` | `ASSET_REPORT` (§ 28 Abs. 4 WEG); `lines` (up to 20), each `{ position, description (1–200), kind: OPENING | CONTRIBUTION | INTEREST | WITHDRAWAL | OTHER, opening, addition, withdrawal, closing }` for the WEG (Money, any of them `null` where not printed); `unitShareOpening`, `unitShareClosing` (Money or `null`). Nothing is estimated: what is not printed stays `null`.
+- **Reserve section** (optional, BR-WEG-009, ADR-018): `source`: `ANNUAL_STATEMENT` | `ASSET_REPORT` (§ 28 Abs. 4 WEG); `lines` (up to 20), each `{ position, description (1–200), kind: OPENING | CONTRIBUTION | INTEREST | WITHDRAWAL | OTHER, opening, addition, withdrawal, closing }` for the WEG (Money, any of them `null` where not printed); `unitShareOpening`, `unitShareClosing` (Money or `null`). Nothing is estimated: what is not printed stays `null`. From VC-7-03 a line of kind `WITHDRAWAL` takes an optional `date` inside the period (§58B), the date of the withdrawal for its tax year.
 
 ### The statement's own check (flags, never refusals; the printed statement wins, BR-WEG-006)
 
@@ -4122,7 +4123,7 @@ PUT /api/v1/transactions/{id}/splits                     (wegAnnualStatementId: 
   - `settled`: their sum; `open`: `settlementPeak − settled`;
   - flag `SETTLED_AGAINST_SUPERSEDED` with `details.transactionIds` when one of them names an older statement of the chain.
   - On a `SUPERSEDED` statement the comparison shows its own figures and only the splits naming it or its predecessors, with the flag `SUPERSEDED` and `details.supersededBy`.
-- **The reserve withdrawals:** the reserve section's lines of kind `WITHDRAWAL` with a printed `withdrawal`, each `{ position, description, withdrawal, unitShare }`. `unitShare` is the WEG's withdrawal × the membership's MEA (`numerator / denominator`), rounded half-up to the cent. They are not booked: Phase 7 classifies each one (Erhaltungsaufwand or Herstellungskosten, BFH IX R 19/24). A section of source `ASSET_REPORT` gives them too.
+- **The reserve withdrawals:** the reserve section's lines of kind `WITHDRAWAL` with a printed `withdrawal`, each `{ position, description, withdrawal, unitShare }`. `unitShare` is the WEG's withdrawal × the membership's MEA (`numerator / denominator`), rounded half-up to the cent. They are not booked: Phase 7 classifies each one (Erhaltungsaufwand or Herstellungskosten, BFH IX R 19/24), as the source `WEG_RESERVE_WITHDRAWAL` named by the statement and the line's `position` (VC-7-03, §58B); from VC-7-03 each item also carries the line's `date` (or `null`). A section of source `ASSET_REPORT` gives them too.
 - **More flags** (informative, never refusals):
   - `PAID_DIFFERS_FROM_PRINTED` with `details.block` (`HAUSGELD`: paid of `RECOVERABLE` + `NON_RECOVERABLE` against `hausgeldPaid`; `RESERVE`: paid of `RESERVE` against `reservePaid`, when printed), `details.counted` and `details.printed`: a missing import or a split in the wrong year shows here;
   - `UNCOUNTED_WEG_SPLITS` with `details.transactionIds`: WEG splits of the unit in the period on Transactions that are not counted yet (`IMPORTED`, `UNREVIEWED`, `CLASSIFIED`), so the user sees what confirming would add.
@@ -4203,7 +4204,7 @@ PUT  /api/v1/transactions/{id}/splits                     (wegSpecialAssessmentI
 - **Domain owner:** WEG. **Authorization:** as §49.2. One membership (the unit's), Realm by composite foreign key.
 - **Fields:** `description` (1–200, as resolved); `resolutionDate` (inside the membership's period); `purpose`: `MAINTENANCE` | `MODERNISATION` | `LIQUIDITY` | `OTHER` (as resolved; not the tax meaning); `totalAmount` (the WEG's total, Money ≥ 0, optional); `unitShare` (the unit's share, Money > 0); `instalments` (1–24, each `{ position, dueDate, amount }`, amounts > 0, due dates strictly increasing, the amounts summing to `unitShare` exactly, else `400` with `INSTALMENTS_DO_NOT_SUM` at `instalments`); `sourceReferences`, `notes` as §49.2.
 - **Lifecycle:** stored `ACTIVE` → `VOID`. `SETTLED` is derived on read (below), never stored, so a correction of a payment moves it at once (as P5-D2).
-- **Uses** (P6-D7: what the WEG actually spent the money on; optional, added later): up to 50, each `{ position, date, description (1–200), unitShare (Money > 0) }`, replaced as a whole by `PUT …/uses` while not `VOID`. They are Phase 7's input and never booked.
+- **Uses** (P6-D7: what the WEG actually spent the money on; optional, added later): up to 50, each `{ position, date, description (1–200), unitShare (Money > 0) }`, replaced as a whole by `PUT …/uses` while not `VOID`. They are Phase 7's input and never booked. From VC-7-03 each use is a source of a classification, named by the assessment and its `position` (§58B); a replace that changes a classified use's date or unit share makes that classification stop counting.
 
 ### Commands
 
@@ -4331,7 +4332,7 @@ Should create metadata reference without duplicating binary content unnecessaril
 
 # 55. Tax Classification API (VC-7-01, implemented: migration 0045)
 
-Decisions P7-D1, P7-D2 and P7-D9 of `docs/development/phase-7-plan.md` (data-model §36–§37, ADR-006, ADR-041, `docs/germany/taxation.md` §5, §8, §9). Taxation interprets cash; it never writes it. Every split has a **tax meaning**, derived from its category by a versioned rule unless the user stored a **classification** for it. VC-7-01 classifies splits; later items add withdrawals, uses and deposit closings as sources (VC-7-02, VC-7-03) and the fields marked below.
+Decisions P7-D1, P7-D2 and P7-D9 of `docs/development/phase-7-plan.md` (data-model §36–§37, ADR-006, ADR-041, `docs/germany/taxation.md` §5, §8, §9). Taxation interprets cash; it never writes it. Every split has a **tax meaning**, derived from its category by a versioned rule unless the user stored a **classification** for it. VC-7-01 classifies splits; later items add withdrawals, uses and deposit closings as sources (VC-7-02, §58A; VC-7-03, §58B) and the fields marked below.
 
 ### Routes
 
@@ -4378,8 +4379,8 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 - A category the rule does not list (a code added later) reads as `OTHER`: `UNCLASSIFIED`, `NEEDS_REVIEW`. A test checks that every seeded category is listed.
 - **`OTHER_EXPENSE` and `OTHER` have no default meaning** (P7-D2): `UNCLASSIFIED` with no treatment, so the view sums them nowhere until a person classifies them (review on #157).
 - **`ACQUISITION` is `NOT_RELEVANT`:** the AfA basis comes from the Acquisition aggregate (price, acquisition costs and the land/building allocation, P2-D7/D9), not from its payments. Capitalising the payment too would count the price twice in Phase 8 (review on #157).
-- **`taxCategory`** is the line of the tax-year view (VC-7-04): `RENT`, `OPERATING_COST_ADVANCES`, `OPERATING_COST_SETTLEMENT`, `OTHER_INCOME`, `LOAN_INTEREST`, `FINANCING_COSTS`, `WEG_HAUSGELD`, `WEG_SPENDING` (VC-7-03), `MAINTENANCE`, `ADMINISTRATION`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES`, `TAX_ADVICE`, `TRAVEL`, `OTHER_EXPENSE`, `NOT_RELEVANT`, `UNCLASSIFIED`. The list is a rule parameter, extended by a new rule version.
-- **`treatment`:** `INCOME`, `DEDUCTIBLE` (when paid), `CAPITALIZED` (to the AfA basis, Phase 8), `DISTRIBUTED_82B` (VC-7-03), `NOT_RELEVANT`.
+- **`taxCategory`** is the line of the tax-year view (VC-7-04): `RENT`, `OPERATING_COST_ADVANCES`, `OPERATING_COST_SETTLEMENT`, `OTHER_INCOME`, `LOAN_INTEREST`, `FINANCING_COSTS`, `WEG_HAUSGELD`, `WEG_SPENDING` (VC-7-03, §58B: withdrawals and uses only), `MAINTENANCE`, `ADMINISTRATION`, `INSURANCE`, `PROPERTY_TAX`, `BANK_FEES`, `TAX_ADVICE`, `TRAVEL`, `OTHER_EXPENSE`, `NOT_RELEVANT`, `UNCLASSIFIED`. The list is a rule parameter, extended by a new rule version.
+- **`treatment`:** `INCOME`, `DEDUCTIBLE` (when paid), `CAPITALIZED` (to the AfA basis, Phase 8), `DISTRIBUTED_82B` (VC-7-03, §58B), `NOT_RELEVANT`.
 - **The direction does not change the default:** an `INFLOW` in an expense category is a refund, an `OUTFLOW` in an income category a repayment; both keep the line and are signed (P7-D4, VC-7-02).
 
 **Response** of `GET /transaction-splits/{splitId}/tax-meaning`: `{ splitId, transactionId, bookingDate, direction, amount, financialCategoryCode, propertyReferenceId, counts, taxCategory, treatment, reviewState, origin, rule: { ruleCode, version }, classificationId, flags }`.
@@ -4393,8 +4394,8 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 
 ### The classification
 
-- **Fields:** `classificationId`; `sourceType` (`TRANSACTION_SPLIT` in VC-7-01; `WEG_RESERVE_WITHDRAWAL`, `WEG_ASSESSMENT_USE`, `DEPOSIT_CLOSING` later); `sourceId`; `taxCategory`; `treatment`; `reviewState`; `rule: { ruleCode, version }` (the rule applied when it was made: `DE_CATEGORY_DEFAULTS@1` in VC-7-01); `advisorPartyId` (a Party of Phase 2, with `ADVISOR_CONFIRMED`); `notes` (≤ 2000); `sourceReferences` (≤ 20, each 1–500); `supersedes`, `supersededBy`, `supersededAt`; `createdAt`, `createdBy`, `version`.
-- **Fields for later items, `400 NOT_SUPPORTED` in VC-7-01:** `taxYear`, `refundOfYear` (VC-7-02), `netAmount`, `annuallyRecurring`, `distributionYears` (VC-7-03).
+- **Fields:** `classificationId`; `sourceType` (`TRANSACTION_SPLIT` in VC-7-01; `DEPOSIT_CLOSING` from VC-7-02, §58A; `WEG_RESERVE_WITHDRAWAL`, `WEG_ASSESSMENT_USE` from VC-7-03, §58B, with `sourcePosition`); `sourceId`; `taxCategory`; `treatment`; `reviewState`; `rule: { ruleCode, version }` (the rule applied when it was made: `DE_CATEGORY_DEFAULTS@1` in VC-7-01); `advisorPartyId` (a Party of Phase 2, with `ADVISOR_CONFIRMED`); `notes` (≤ 2000); `sourceReferences` (≤ 20, each 1–500); `supersedes`, `supersededBy`, `supersededAt`; `createdAt`, `createdBy`, `version`.
+- **Fields for later items, `400 NOT_SUPPORTED` in VC-7-01:** `taxYear`, `refundOfYear` (VC-7-02, §58A), `netAmount`, `annuallyRecurring`, `distributionYears` (VC-7-03, §58B, with `mostlyResidentialConfirmed` and `anschaffungsnaheAcquisitionId`).
 - **One current classification per source.** A change is a **new** classification that supersedes the current one in the same transaction (data-model §36: changes stay traceable). Content (category, treatment, notes) is never edited in place; only the review state moves (§57).
 - **It never changes the split**, its amount, category or Transaction (ADR-006); a counter-check proves the split's row and version unchanged by every command of this section.
 
@@ -4420,7 +4421,7 @@ A **split counts for tax** when its Transaction is current (`CONFIRMED` or `RECO
 - **`reviewState`** on create: `USER_CONFIRMED` (default) or `NEEDS_REVIEW`; `ADVISOR_CONFIRMED` only through §57; `SUGGESTED` is never stored (`400`).
 - **`supersedes`:** required when the source has a current classification and must name it (`409 CONFLICT`, `reason = "CLASSIFICATION_EXISTS"` with `details.currentClassificationId`, else `reason = "NOT_CURRENT_CLASSIFICATION"`). This is the create's optimistic concurrency: two users changing the same split cannot both win.
 - **Order of checks:** `400` (shape, the enums, `NOT_SUPPORTED` fields) → source `404` (of the caller's Realm) → `409 CONFLICT` `reason = "SOURCE_NOT_COUNTED"` (the split's Transaction is not current; `details.transactionStatus`) → `422 TREATMENT_NOT_ALLOWED` → `supersedes` (`CLASSIFICATION_EXISTS`, `NOT_CURRENT_CLASSIFICATION`).
-- **`422 TREATMENT_NOT_ALLOWED`** keeps the hard rules hard (P7-D2; `details.categoryType`, `details.allowed`): a split of category type `WEG_FUNDS`, `SECURITY_DEPOSIT` or `TRANSFER` may only be `NOT_RELEVANT` (BFH IX R 19/24; A11, E6). Their tax meaning arises elsewhere: WEG spending through withdrawals and uses (VC-7-03), a retained deposit through its closing (VC-7-02). `LOAN_PRINCIPAL` may not be `DEDUCTIBLE` (A1), and `ACQUISITION` may not be `CAPITALIZED` (its basis is the Acquisition's, review on #157). Every other category accepts every treatment of VC-7-01: the user may know better than the default, and the record says so.
+- **`422 TREATMENT_NOT_ALLOWED`** keeps the hard rules hard (P7-D2; `details.categoryType`, `details.allowed`): a split of category type `WEG_FUNDS`, `SECURITY_DEPOSIT` or `TRANSFER` may only be `NOT_RELEVANT` (BFH IX R 19/24; A11, E6). Their tax meaning arises elsewhere: WEG spending through withdrawals and uses (VC-7-03, §58B), a retained deposit through its closing (VC-7-02, §58A). `LOAN_PRINCIPAL` may not be `DEDUCTIBLE` (A1), and `ACQUISITION` may not be `CAPITALIZED` (its basis is the Acquisition's, review on #157). Every other category accepts every treatment of VC-7-01: the user may know better than the default, and the record says so.
 - **`taxCategory` and `treatment` must fit:** an `INCOME` line (`RENT` … `OTHER_INCOME`) only with `INCOME`, `NOT_RELEVANT` and `UNCLASSIFIED` only with `NOT_RELEVANT` resp. `null`, the others not with `INCOME`; else `400` with `TAX_CATEGORY_TREATMENT_MISMATCH` at `treatment`.
 - **AuditRecords:** `TAX_CLASSIFIED` on the new classification (with `sourceType`, `sourceId`, `taxCategory`, `treatment`, `reviewState`, `rule`), `TAX_CLASSIFICATION_SUPERSEDED` on the old one.
 - **Replay** of the same key with the same body returns the stored `201`; another body `409 IDEMPOTENCY_CONFLICT` (§15).
@@ -4499,7 +4500,7 @@ GET /api/v1/tax-rules/{ruleCode}
 - **A rule version:** `{ ruleCode, version, title, legalBasis, effectiveFrom, effectiveTo, parameters, source, status }`, with `status` `ACTIVE` (applicable today), `SUPERSEDED` (a later version applies) or `RETIRED` (`effectiveTo` passed without a successor). `parameters` is the rule's own data (the default table above for `DE_CATEGORY_DEFAULTS`).
 - `GET /tax-rules`: every rule with its versions, by `ruleCode`, versions ascending; `GET /tax-rules/{ruleCode}`: one rule, `404` if unknown. The former `…/versions` route is folded into these (each rule lists its versions). No Realm: the registry is the same for everyone; authentication as every route.
 - **Selection:** the version whose `effectiveFrom` ≤ the date < `effectiveTo` (or open); for VC-7-01 the date is the split's booking date. Two versions of one rule never overlap (a registry test).
-- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items; VC-7-02 added `DE_CASH_TIMING@1` (§58A). **Freeze point:** `DE_CATEGORY_DEFAULTS@1` took VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen with VC-7-02's implementation. From then on every change, an additive one too, is a new version (review on #159).
+- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items; VC-7-02 added `DE_CASH_TIMING@1` (§58A); VC-7-03 adds `DE_WEG_SPENDING@1`, `DE_82B_DISTRIBUTION@1` and `DE_ANSCHAFFUNGSNAHE@1` as separate rules, leaving `DE_CATEGORY_DEFAULTS@1` unchanged (§58B). **Freeze point:** `DE_CATEGORY_DEFAULTS@1` took VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen with VC-7-02's implementation. From then on every change, an additive one too, is a new version (review on #159).
 - **Every stored reference resolves** (review on #156):
   - **on write:** a classification may only name a registered `ruleCode@version`;
   - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
@@ -4713,6 +4714,343 @@ Details the contract above left open, now binding:
   - **`advance_due_day`** is kept fixed by its own trigger, `weg_economic_plan_advance_due_day_fixed`. The plan's fingerprint includes it.
   - **`down`** refuses while a deposit classification exists.
 - **What changes for VC-7-01's reads:** a rent booked from 1 to 10 January without a reconciliation now carries `NO_ECONOMIC_PERIOD`.
+
+---
+
+# 58B. Tax: WEG spending, Erhaltungsaufwand and § 82b (VC-7-03, spec)
+
+Decisions P7-D5 and P7-D6 of `docs/development/phase-7-plan.md` (BFH IX R 19/24; § 6 Abs. 1 Nr. 1a EStG; § 82b EStDV; `docs/germany/taxation.md` §6, §8; checklist A2, A5, E1). Phase 6 keeps the reserve contribution and the Sonderumlage as `WEG_FUNDS`, never deductible when paid (§49.4, §51A). It records what the WEG spends: the reserve withdrawals of a statement (§51) and the uses of a Sonderumlage (§51A). VC-7-03 makes those two the third and fourth source of a classification, supports the line `WEG_SPENDING` and the treatment `DISTRIBUTED_82B`, and adds the anschaffungsnahe check per Acquisition. Nothing here writes cash, a split, a statement, an assessment or an Acquisition (ADR-006).
+
+### Routes
+
+```text
+GET  /api/v1/weg-annual-statements/{statementId}/reserve-withdrawals/{position}/tax-meaning   (VC-7-03, §58B)
+GET  /api/v1/weg-special-assessments/{assessmentId}/uses/{position}/tax-meaning              (VC-7-03, §58B)
+GET  /api/v1/acquisitions/{acquisitionId}/anschaffungsnahe-herstellungskosten                 (VC-7-03, §58B: the check)
+GET  /api/v1/property-references/{id}/tax-meanings?year=      (VC-7-03: + withdrawals, uses and § 82b parts; filter sourceType)
+GET  /api/v1/transaction-splits/{splitId}/tax-meaning         (VC-7-03: + distribution, suggestion, check flags)
+POST /api/v1/tax-classifications                              (VC-7-03: sourceType WEG_RESERVE_WITHDRAWAL, WEG_ASSESSMENT_USE;
+                                                               sourcePosition, netAmount, annuallyRecurring, distributionYears,
+                                                               mostlyResidentialConfirmed, anschaffungsnaheAcquisitionId)
+GET  /api/v1/tax-classifications?sourceType=&sourceId=&sourcePosition=   (VC-7-03: the history of a WEG source)
+POST /api/v1/weg-memberships/{id}/annual-statements           (VC-7-03: + date on a reserve line of kind WITHDRAWAL, §50)
+PUT  /api/v1/weg-annual-statements/{statementId}              (VC-7-03: the same)
+```
+
+The route of the check follows §27's Acquisition subresources (`…/land-building-allocations`, `…/owner-allocation`) and is named after the flag it raises.
+
+### The rule
+
+- **What counts when paid** is unchanged (P7-D5): Hausgeld without the reserve (`WEG_HAUSGELD`, §55) and the settlements naming a statement (§51, refunds by §58A), each in its tax year.
+- **What never counts:** the `WEG_FUNDS` splits (`WEG_RESERVE_CONTRIBUTION`, `WEG_SPECIAL_ASSESSMENT`). They stay `NOT_RELEVANT` only (§56's `TREATMENT_NOT_ALLOWED`, 0045's `tax_classification_treatment`, both unchanged).
+- **What becomes deductible later:** each counting reserve withdrawal and each counting Sonderumlage use, once, in the tax year of its date, as the user classifies it: Erhaltungsaufwand (`DEDUCTIBLE` or `DISTRIBUTED_82B`), Herstellungskosten (`CAPITALIZED`), or `NOT_RELEVANT`. DE does not decide which (weg.md §8): the default is `NEEDS_REVIEW`.
+- **Erhaltungsaufwand vs. Herstellungskosten** of any source (P7-D6): `DEDUCTIBLE` in the year paid or spent, `CAPITALIZED` to the AfA basis of Phase 8, `DISTRIBUTED_82B` over 2 to 5 years. The anschaffungsnahe check suggests `CAPITALIZED`; it never changes a classification.
+- **The amounts are gross.** A private landlord pays VAT and cannot deduct it, so every deduction, part and capitalised amount is the gross amount. `netAmount` serves the 15 % threshold only (P7-D6).
+
+### The new rules (P7-D1)
+
+- **`DE_CATEGORY_DEFAULTS@1` stays as it is.** It is frozen (§58), and its parameters list neither `WEG_SPENDING` nor `DISTRIBUTED_82B`. A `DE_CATEGORY_DEFAULTS@2` would not work:
+  - versions are selected by the source's date and never overlap (the registry refuses it);
+  - so a version 2 from today would leave every earlier withdrawal, use and repair on version 1, without the new default or treatment;
+  - and a version 2 from 2000-01-01 would need version 1 to end, which changes version 1.
+  
+  **Decision:** three separate rules, each with its own legal basis and `effectiveFrom`. No existing default changes, so no split's derived meaning moves.
+- **`DE_WEG_SPENDING@1`:**
+  - legal basis § 9 Abs. 1, § 11 Abs. 2 EStG with BFH IX R 19/24 (E1); `effectiveFrom` 2000-01-01, as `DE_CATEGORY_DEFAULTS@1`, since the judgment interprets the law in force; selected by the source's date (below);
+  - parameters: the sources `WEG_RESERVE_WITHDRAWAL` and `WEG_ASSESSMENT_USE`; their default (`UNCLASSIFIED`, no treatment, `NEEDS_REVIEW`); their lines `WEG_SPENDING`, `NOT_RELEVANT`; their treatments `DEDUCTIBLE`, `DISTRIBUTED_82B`, `CAPITALIZED`, `NOT_RELEVANT`.
+- **`DE_82B_DISTRIBUTION@1`:**
+  - legal basis § 82b EStDV (A5); `effectiveFrom` 2004-01-01 (§ 84 Abs. 4a EStDV: Erhaltungsaufwand after 31.12.2003; open question 9); selected by the source's date;
+  - parameters `minYears 2`, `maxYears 5`, the lines `MAINTENANCE` and `WEG_SPENDING`, and `requiresMostlyResidentialConfirmation true`.
+  - It is a rule of its own because the years and the condition are law that can change, and a stored election must name the version it followed.
+- **`DE_ANSCHAFFUNGSNAHE@1`:**
+  - legal basis § 6 Abs. 1 Nr. 1a EStG (A2); `effectiveFrom` 2004-01-01 (the provision applies to measures begun after 31.12.2003; open question 9); selected by the Acquisition's `transferDate`;
+  - parameters `thresholdPercent 15`, `windowYears 3`, the lines `MAINTENANCE` and `WEG_SPENDING`, the treatments counted (`DEDUCTIBLE`, `DISTRIBUTED_82B`) and the excluded acquisition-cost category `FINANCING_RELATED` (A6).
+- **Where a classification names them:** `rule` is the rule of the source's default, `DE_CATEGORY_DEFAULTS@1` for a split (unchanged) and `DE_WEG_SPENDING@1` for the two WEG sources. A second reference, `treatmentRule`, names `DE_82B_DISTRIBUTION@1` for an election and `DE_ANSCHAFFUNGSNAHE@1` for a capitalisation that follows the check (below); otherwise it is `null`. Both are checked on write and by the start check (§58), and `RULE_SUPERSEDED` covers both.
+- **A value is supported** when a rule applicable on the source's date names it: `WEG_SPENDING` through `DE_WEG_SPENDING@1`, `DISTRIBUTED_82B` through `DE_82B_DISTRIBUTION@1`. §55's lists stay as they are; VC-7-01's `400 NOT_SUPPORTED` for both values is lifted.
+- **The database guards encode version 1 literally** (as §58 notes for 0045): the CHECKs and guards of 0047 below repeat the lines and treatments of `DE_WEG_SPENDING@1`, the 2–5 years and lines of `DE_82B_DISTRIBUTION@1` and the 3-year window of `DE_ANSCHAFFUNGSNAHE@1`. A later version with other values needs a migration that changes them too.
+- `GET /tax-rules` lists five rules: `DE_82B_DISTRIBUTION`, `DE_ANSCHAFFUNGSNAHE`, `DE_CASH_TIMING`, `DE_CATEGORY_DEFAULTS`, `DE_WEG_SPENDING`.
+
+### The source `WEG_RESERVE_WITHDRAWAL` (P7-D5, P6-D6 (3))
+
+- **What it names:** a withdrawal is not a row. It is a line of the statement's `reserve` section (`jsonb`, §50). So the classification names it by two fields:
+  - `sourceId`: the `weg_annual_statement` row;
+  - `sourcePosition`: the `position` of a line of `reserve.lines` with `kind = WITHDRAWAL`.
+  
+  A statement's content is frozen once it is not `DRAFT` (0042), and the membership's MEA never changes (§49.2). So a withdrawal of a `CONFIRMED` statement stays the same withdrawal.
+- **Its amount** is §51's `unitShare`: the WEG's printed `withdrawal` × the membership's MEA (`numerator / denominator`), rounded half-up to the cent. A line with `withdrawal` `null` or ≤ 0, or whose `unitShare` is `0.00`, is no source (`NOT_A_WITHDRAWAL`, below).
+- **When it counts:**
+  - the statement is `CONFIRMED`, that is current (BR-WEG-008);
+  - a `SUPERSEDED` statement's withdrawals stop counting from the moment of the supersede, and the superseding statement's withdrawals count instead. These are sources of their own (another `sourceId`), with the default meaning until classified. Nothing is carried over: a corrected statement may print other withdrawals.
+  - The superseding statement's withdrawals are flagged `PREDECESSOR_CLASSIFIED` while unclassified and the direct predecessor has a current classification of a withdrawal (`details.statementId`, `details.classificationIds`), as P7-D2's `CLASSIFICATION_ON_CORRECTED_SPLIT`. The user confirms again; nothing moves silently.
+  - `notCountedReason`: `STATEMENT_NOT_CONFIRMED` (`DRAFT` or `VOID`, with `details.status`), `STATEMENT_SUPERSEDED` (with `details.supersededBy`), `NOT_A_WITHDRAWAL` (a line of another kind, or without a positive unit share).
+- **Its date (P7-D5):**
+  - **its own date:** a reserve line of kind `WITHDRAWAL` takes an optional `date` (§50, below);
+  - **without one:** the statement's `periodUntil`, with the flag `WITHDRAWAL_DATE_ASSUMED`. The assumption is never silent (as P7-D3's `DUE_DATE_ASSUMED`);
+  - **and where the WEG's financial year is not the calendar year** (`financialYearStartMonth` ≠ 1, §49.1), also `WEG_FINANCIAL_YEAR_NOT_CALENDAR` with `details: { financialYear, financialYearStartMonth, periodFrom, periodUntil }`: the withdrawal may lie in either calendar year the period touches. A period shorter than the year (a purchase, a sale) inside a calendar financial year is no reason for the flag: its end lies in the same calendar year.
+  - `dateSource`: `WITHDRAWAL` or `PERIOD_END`.
+- **Its tax year:** the calendar year of its date. No 10-day rule: § 11 Abs. 2 S. 2 EStG is about regularly recurring payments, and the owner pays nothing at the withdrawal.
+  - **Override:** only for a withdrawal without its own date, the classification may set `taxYear`, a calendar year the statement's period touches (`periodFrom`'s or `periodUntil`'s). Else `422 TAX_YEAR_OUT_OF_RANGE` with `details.taxYear`, `details.allowedYears`. With its own date, `taxYear` is `400 NOT_SUPPORTED`. The meaning then shows `attribution: { rule: null, proposedYear, overridden: true }`.
+- **Its PropertyReference:** the statement's membership's `propertyReferenceId` (§49.2). Always exactly one.
+
+### The source `WEG_ASSESSMENT_USE` (P7-D5, P6-D7)
+
+- **What it names:** a use is an element of the assessment's `uses` (`jsonb`, §51A), replaced as a whole by `PUT …/uses`. So:
+  - `sourceId`: the `weg_special_assessment` row;
+  - `sourcePosition`: the use's `position`.
+- **The classification stores the use it classified** (`assessmentUse: { date, unitShare }`), as §58A's deposit stores its closing. A `PUT …/uses` may change or drop the use at that position. The classification then stops counting, and a new one, which supersedes it, is needed. A use with the same position, date and unit share is the same use; a changed `description` alone changes nothing.
+- **Its amount:** the use's `unitShare` (Money > 0, §51A).
+- **When it counts:**
+  - the assessment is not `VOID`, and its use at `sourcePosition` exists;
+  - for a stored classification also: with the classified date and unit share;
+  - `notCountedReason`: `ASSESSMENT_VOID`, `USE_REMOVED` (no use at that position any more), `USE_CHANGED` (another date or unit share).
+  - The assessment's `USES_EXCEED_PAID` (§51A) is carried onto each of its uses' meanings, informative: the use counts all the same, since the owner owes the Sonderumlage.
+- **Its date and tax year:** the use's `date` and its calendar year (`dateSource` `USE`). Every use has a date, so `taxYear` is `400 NOT_SUPPORTED`.
+- **Its PropertyReference:** the assessment's membership's `propertyReferenceId`.
+
+### The default and the classification of a WEG source
+
+- **The default** (`DE_WEG_SPENDING@1`, derived on read, never stored): `taxCategory` `UNCLASSIFIED`, `treatment` `null`, `reviewState` `NEEDS_REVIEW`. The view sums it nowhere until a person classifies it (as §55's `OTHER_EXPENSE`) and flags it (P7-D8).
+- **The lines and treatments** (`422 TREATMENT_NOT_ALLOWED` otherwise, with `details.sourceType`, `details.allowed`, `details.allowedTaxCategories`, as §58A's deposit):
+  - `WEG_SPENDING` with `DEDUCTIBLE` (Erhaltungsaufwand when spent), `DISTRIBUTED_82B` (Erhaltungsaufwand distributed) or `CAPITALIZED` (Herstellungskosten);
+  - `NOT_RELEVANT` with `NOT_RELEVANT` (for example a withdrawal for the WEG's own liquidity).
+- **`WEG_SPENDING` is the line of these two sources only:** on a split or a deposit closing it is `422 TREATMENT_NOT_ALLOWED` with `details.reason = "WEG_SPENDING_ONLY_FOR_WEG_SOURCES"`. The view keeps "WEG withdrawals and uses" a line of its own (P7-D8), so no repair paid by the owner lands in it.
+- **`refundOfYear`** is `400 NOT_SUPPORTED` on both: a withdrawal or a use is never a refund.
+- **The locks** (P7-D9): the statement row (resp. the assessment row) as a no-op write, then the current classification of the source (below).
+- **§57's steps** work on WEG classifications as on splits: a confirmation validates that the source still counts (`SOURCE_NOT_COUNTED` with `notCountedReason`) and that both rule references resolve.
+
+### "Never counted twice" (P7-D5)
+
+- **A statement's cost lines are never added** to any meaning, list or view. They are already in the Hausgeld paid; §51's comparison only explains them. No route of this section reads `weg_statement_cost_line`.
+- **A withdrawal counts once:** only on the current statement of its year (one `CONFIRMED` per membership and year, 0042's index), and one current classification per withdrawal (unique index below).
+- **A use counts once:** one current classification per assessment and position.
+- **The payments into the funds** stay `NOT_RELEVANT` by the unchanged hard rule. So the money counts when spent, never also when paid.
+- **The same spending as a withdrawal and as a use** (a Sonderumlage paid into the reserve and spent from it) is not detectable with certainty. A withdrawal and a use of the same membership with the same unit share whose dates fall in the same financial year are both flagged `WEG_SPENDING_POSSIBLY_TWICE` (`details.otherSource`), informative; the user classifies one of them `NOT_RELEVANT` (open question 4).
+
+### The tax-meaning reads of a WEG source
+
+`GET /weg-annual-statements/{statementId}/reserve-withdrawals/{position}/tax-meaning` and `GET /weg-special-assessments/{assessmentId}/uses/{position}/tax-meaning` mirror the deposit's read (§58A):
+
+- **Response:** `{ sourceType, sourceId, sourcePosition, membershipId, propertyReferenceId, date, dateSource, description, amount, netAmount, counts, notCountedReason, taxYear, attribution, taxCategory, treatment, reviewState, origin, rule, treatmentRule, classificationId, distribution, suggestion, flags }`.
+  - `amount` is the unit share (Money); `netAmount` the classification's, else `null`;
+  - `distribution` as for a split (§ 82b below), else `null`; `suggestion` from the check (below), else `null`;
+  - `origin`: `DEFAULT` or `CLASSIFICATION`, as §55.
+- **Flags:** `NOT_COUNTED` (with `notCountedReason` and its details), `WITHDRAWAL_DATE_ASSUMED`, `WEG_FINANCIAL_YEAR_NOT_CALENDAR`, `PREDECESSOR_CLASSIFIED`, `USES_EXCEED_PAID`, `WEG_SPENDING_POSSIBLY_TWICE`, `RULE_SUPERSEDED`, and the check's `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` and `VAT_NOT_SEPARATED` (below). Flags are `{ code, details }`.
+- **`404`:** an unknown statement or assessment, one of another Realm, or a `position` that names no reserve line (resp. no use; for a use dropped by `PUT …/uses` the read answers `404` too, and the classification's history stays readable by `sourcePosition`). A malformed id or position (not an integer 1–1000) is `400`. A reserve line of another kind answers `200` with `counts: false` and `NOT_A_WITHDRAWAL`.
+- No `ETag` (a derived read); one `REPEATABLE READ READ ONLY` snapshot.
+
+### The per-property list (`GET /property-references/{id}/tax-meanings?year=`)
+
+- **It now holds**, for the PropertyReference and tax year Y:
+  - the splits (VC-7-01, VC-7-02), the deposit closings (§58A);
+  - the withdrawals of the `CONFIRMED` statements of every membership of the PropertyReference whose tax year is Y;
+  - the uses of the assessments that are not `VOID` of every such membership whose tax year is Y;
+  - **and every `DISTRIBUTED_82B` source of an earlier year with a part in Y** (§ 82b below).
+  
+  Withdrawals of a `SUPERSEDED` statement are not listed: they do not count. Their classifications stay readable through the history.
+- **Each item** carries `sourceType`, `sourceId`, `sourcePosition` (`null` for a split or a deposit) and `yearAmount`: the part of Y for a `DISTRIBUTED_82B` source, else the `amount`.
+- **Order:** by date (booking date, closing date, withdrawal or use date). On one date: splits, deposit closings, withdrawals, uses; then `sourceId`, `sourcePosition`. A distributed source of an earlier year therefore comes first, by its own date.
+- **New filter** `sourceType` (comma-separated, the four types). The derived filters apply before paging, as before.
+
+### `netAmount`, `annuallyRecurring`, `distributionYears`, `mostlyResidentialConfirmed`: now supported
+
+The fields VC-7-01 answered `400 NOT_SUPPORTED` (§55) are accepted on every source type, with these rules (`400` at the field, in the order given):
+
+- **`netAmount`** (Money as §31, optional, EUR): the amount without VAT, for the anschaffungsnahe check only (P7-D6; never required).
+  - `≤ 0` → `NOT_POSITIVE`; more than two decimals → `INVALID_FORMAT`;
+  - only with `taxCategory` `MAINTENANCE` or `WEG_SPENDING` → else `NOT_ALLOWED_WITH_TAX_CATEGORY`;
+  - above the source's gross amount (the split's `amount`, the withdrawal's or use's unit share) → `422 NET_AMOUNT_EXCEEDS_GROSS` with `details.netAmount`, `details.grossAmount` (it needs the source, so it comes after the `404`). Equal is allowed (no VAT, for example a craftsman under § 19 UStG).
+- **`annuallyRecurring`** (boolean, optional, default `false`): the work is an annually recurring maintenance (A2: left out of the check).
+  - `true` only with `taxCategory` `MAINTENANCE` or `WEG_SPENDING` → else `NOT_ALLOWED_WITH_TAX_CATEGORY`.
+- **`distributionYears`** (integer, required with `DISTRIBUTED_82B`, else not allowed):
+  - not an integer → `INVALID_FORMAT`; outside 2–5 (`DE_82B_DISTRIBUTION@1`) → `OUT_OF_RANGE`;
+  - missing with `DISTRIBUTED_82B` → `REQUIRED`; given with another treatment → `NOT_ALLOWED_WITH_TREATMENT`.
+- **`mostlyResidentialConfirmed`** (boolean, required with `DISTRIBUTED_82B`, else not allowed): the user's confirmation that the building serves mostly (> 50 %) residential purposes (§ 82b Abs. 1 EStDV). DE does not know a building's use, so the confirmation is part of the election and stored with it.
+  - missing with `DISTRIBUTED_82B` → `REQUIRED`; given with another treatment → `NOT_ALLOWED_WITH_TREATMENT`;
+  - `false` → `422 DISTRIBUTION_NOT_ALLOWED` with `details.reason = "NOT_MOSTLY_RESIDENTIAL"`: without it there is no election.
+- **`anschaffungsnaheAcquisitionId`** (UUID, optional; the check below): only with `treatment` `CAPITALIZED` and `taxCategory` `MAINTENANCE` or `WEG_SPENDING` → else `NOT_ALLOWED_WITH_TREATMENT`.
+- **`DISTRIBUTED_82B` and the line** (the fit of §56, extended): only with `MAINTENANCE` or `WEG_SPENDING` → else `400 TAX_CATEGORY_TREATMENT_MISMATCH` at `treatment`. § 82b distributes Erhaltungsaufwand only.
+- **`DISTRIBUTED_82B` and the source:**
+  - a split on an `INFLOW` (a refund) → `422 DISTRIBUTION_NOT_ALLOWED` with `details.reason = "NOT_AN_OUTFLOW"`; a WEG source is always an expense;
+  - a source dated before `DE_82B_DISTRIBUTION@1`'s `effectiveFrom` → `409 CONFLICT` with `reason = "NO_APPLICABLE_RULE"` and `details.ruleCode`, as VC-7-01's.
+- **`sourcePosition`** (integer 1–1000): required with `WEG_RESERVE_WITHDRAWAL` and `WEG_ASSESSMENT_USE` (`REQUIRED`), not allowed with the other two (`NOT_ALLOWED`). The history query takes it the same way.
+
+### The order of checks of a create (§56, extended)
+
+`400` (shape, enums, the field rules above, the fit) → source `404` (statement, assessment, deposit or split of the caller's Realm; a position that names no reserve line or use) → `409 SOURCE_NOT_COUNTED` (with `notCountedReason`) → `409 NO_APPLICABLE_RULE` (the source's default rule, then `DE_82B_DISTRIBUTION` for an election) → `422 TREATMENT_NOT_ALLOWED` → `422 DISTRIBUTION_NOT_ALLOWED` → `422 NET_AMOUNT_EXCEEDS_GROSS` → the Acquisition `404` (`details.acquisitionId`) → `422 ANSCHAFFUNGSNAHE_NOT_APPLICABLE` (below) → `422 TAX_YEAR_OUT_OF_RANGE` → `422 REFUND_YEAR_OUT_OF_RANGE` → `supersedes` (`CLASSIFICATION_EXISTS`, `NOT_CURRENT_CLASSIFICATION`).
+
+- **Idempotency:** the fingerprint covers the new fields; for a body without them it is unchanged (as §58A).
+- **AuditRecords:** `TAX_CLASSIFIED`'s metadata gains `sourcePosition`, `netAmount`, `annuallyRecurring`, `distributionYears`, `mostlyResidentialConfirmed`, `anschaffungsnaheAcquisitionId` and `treatmentRule`.
+- **The DTO** gains the same, and `reserveWithdrawal: { unitShare }` resp. `assessmentUse: { date, unitShare }` (else `null`).
+
+### § 82b EStDV: the election and its parts (P7-D6, A5)
+
+- **The election** is a classification with `treatment` `DISTRIBUTED_82B`, `distributionYears` n (2–5), `mostlyResidentialConfirmed: true` and `treatmentRule` `DE_82B_DISTRIBUTION@1`. It is made per source and changed only by a new classification that supersedes it.
+- **The parts are derived**, never stored, from the gross amount A and the first year F, the source's tax year (P7-D3 for a split, its date for a WEG source, `taxYear` where overridden):
+  - years F, F+1, …, F+n−1;
+  - every part but the last is A / n **rounded down to the cent**; the last is A minus the others, so the parts sum to A exactly and the remainder (fewer than n cents) falls into the last year;
+  - example (synthetic): 1,000.00 over 3 years → 333.33, 333.33, 333.34.
+- **The end of ownership** (§ 82b Abs. 2 EStDV; P7-D6):
+  - the owners concerned are the `VALID` Ownerships of the source's PropertyReference valid on the source's date (§26.1);
+  - when **every one** of them has a `validUntil`, and the latest lies in a year E < F+n−1, the parts of the years after E fall into E. The meaning flags `DISTRIBUTION_ENDED` with `details: { endYear, ownershipIds, foldedYears }`;
+  - example (synthetic): 1,000.00 over 3 years from F, ownership ended in F+1 → 333.33 in F, 666.67 in F+1;
+  - when only **some** of them end within the distribution (a co-owner sells), the property's parts stay as they are, flagged `OWNERSHIP_PARTLY_ENDED` with `details.ownershipIds`. The per-owner fold is VC-7-04's (P7-D7; open question 10);
+  - derived on read: an Ownership closed later moves the parts at once, and no lock is needed.
+- **`distribution`** in a meaning: `{ years, firstYear, parts: [{ year, amount }], endYear, rule: { ruleCode, version } }`; `parts` are the effective parts after any fold; `endYear` is `null` without a fold.
+- **The anschaffungsnahe check** counts a distributed source with its whole amount in its own date, never by parts.
+
+### The anschaffungsnahe check (`GET /acquisitions/{acquisitionId}/anschaffungsnahe-herstellungskosten`; P7-D6, A2)
+
+A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` snapshot; no `ETag`. It stores nothing and changes nothing: not a classification, not the Acquisition.
+
+- **Order of checks:** `400` (malformed id; any query parameter, since there are none) → Acquisition `404` (unknown or of another Realm) → `CANCELLED` → `409 CONFLICT` with `reason = "ACQUISITION_CANCELLED"` (as §27.4) → `200`, with `status` `NOT_COMPUTABLE` where it applies (below).
+- **The window** (`DE_ANSCHAFFUNGSNAHE@1`, `windowYears 3`): from the Acquisition's `transferDate` (§27.1: `economicTransferDate`, else `contractDate`) to the same calendar day three years later, both inclusive (§ 108 AO with §§ 187 Abs. 1, 188 Abs. 2 BGB). A window starting on 29 February ends on 28 February (§ 188 Abs. 3 BGB).
+  - Example (synthetic): transfer 15.03.2026 → window 15.03.2026–15.03.2029.
+- **The sources**, each with its date in the window:
+  - the counting splits whose `propertyReferenceId` is the Acquisition's, at their booking date;
+  - the counting withdrawals and uses of every membership of that PropertyReference (§49.2), at their date (an assumed date included, with its flag).
+- **Which of them are summed:** those whose current meaning (the classification, else the default) has `taxCategory` `MAINTENANCE` or `WEG_SPENDING` and either
+  - `treatment` `DEDUCTIBLE` or `DISTRIBUTED_82B` (Erhaltungsaufwand), or
+  - `treatment` `CAPITALIZED` with `anschaffungsnaheAcquisitionId` naming this Acquisition (a capitalisation that follows this check, below).
+  
+  A `CAPITALIZED` source without it is Herstellungskosten of its own (an extension, § 255 HGB) and is not summed (taxation.md §6).
+- **Left out, and listed:**
+  - `excluded`: sources with `annuallyRecurring: true` (reason `ANNUALLY_RECURRING`);
+  - `unclassified`: sources in the window with `taxCategory` `UNCLASSIFIED` (the WEG sources' default, `OTHER_EXPENSE`, `OTHER`): they may be repairs, so the result is not final while they exist.
+- **The amount of a source:** `netAmount` when present; else the gross amount, with the flag `VAT_NOT_SEPARATED` on the source. Signed as §58A: a refund in `MAINTENANCE` (`INFLOW`) reduces the sum.
+- **The building's acquisition cost** (the basis), from the current land/building allocation (§27.3):
+  - `basisAmount` = (`purchasePrice` + the `ACTIVE` acquisition costs except `FINANCING_RELATED`) × `buildingAmount` / `totalAllocableAmount`, **rounded half-up to the cent**. This is the one rounding of the check. Where the allocation's total is exactly price + those costs, it is `buildingAmount` unchanged (open question 5);
+  - expected cost amounts are used, not paid ones (as §27.4: the economics of the acquisition).
+- **A partial acquisition** (`acquiredShare` < 1, §27.1): the price and costs are those of the acquired share, the sources those of the whole property. So the sum is taken × `acquiredShare` (`attributableAmount`), flagged `PARTIAL_ACQUISITION` (open question 6).
+- **The comparison is exact:** `threshold` = `basisAmount` × 15 / 100, an exact decimal with up to four places, never rounded. **Above** means `attributableAmount` > `threshold`, compared exactly on the unrounded fraction (in cents: `sum × numerator × 100 > basisCents × 15 × denominator`).
+  - **Exactly 15 % is not above:** the law says "15 Prozent … übersteigen".
+  - Example (synthetic): basis 198,000.00 → threshold 29,700.00; a sum of 29,700.00 is `NOT_ABOVE_THRESHOLD`, 29,700.01 is `ABOVE_THRESHOLD`.
+- **`status`**, the first that applies:
+  - `NOT_COMPUTABLE`, with `notComputableReason`:
+    - `NO_APPLICABLE_RULE`: `transferDate` before `DE_ANSCHAFFUNGSNAHE@1`'s `effectiveFrom`;
+    - `ACQUISITION_NOT_CONFIRMED`: a `DRAFT` Acquisition (as §27.4: only `CONFIRMED` feeds Phase 7/8);
+    - `NO_ALLOCATION`: no current land/building allocation;
+    - `ALLOCATION_NOT_CONFIRMED`: its `reviewState` is `UNREVIEWED` or `NEEDS_REVIEW` (data-model §15: only a confirmed allocation feeds tax figures; `CONFIRMED` and `ADVISOR_CONFIRMED` do);
+    - `NO_BUILDING`: `buildingAmount` = 0 (undeveloped land).
+    
+    It is never estimated. `threshold`, `percentOfBasis` and `affectedYears` are then `null`; the sources are listed all the same.
+  - `ABOVE_THRESHOLD`;
+  - `NOT_ABOVE_THRESHOLD`.
+- **`final`** (boolean) and the flag `NOT_FINAL` with `details.reasons`, any of:
+  - `GROSS_AMOUNTS`: a summed source has no `netAmount`. The note says that the gross amount reaches the threshold sooner than the net one would (P7-D6);
+  - `UNCLASSIFIED_SOURCES`: `unclassified` is not empty;
+  - `WINDOW_OPEN`: today (Europe/Berlin) is on or before the window's end, so the sum may still grow.
+- **Above 15 %** (P7-D6): every summed source is flagged `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`, in earlier years too, and its suggested treatment becomes `CAPITALIZED`:
+  - in the check's `sources` (`suggestedTreatment`) and in each source's tax-meaning read: `suggestion: { treatment: "CAPITALIZED", reason: "ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN", acquisitionIds, final }` and the flag with `details: { acquisitionId, final, rule }`;
+  - `affectedYears`: the distinct tax years of those sources, ascending. DE does not know which years were filed; it shows that each of them may be affected;
+  - **DE changes nothing on its own.** `treatment`, `reviewState` and `origin` of each meaning stay as they are (a default stays `SUGGESTED`); the flag needs a person (P7-D8);
+  - **the user follows the suggestion** with a classification that supersedes the current one: `treatment` `CAPITALIZED`, `anschaffungsnaheAcquisitionId` this Acquisition, `treatmentRule` `DE_ANSCHAFFUNGSNAHE@1`. Such a source stays in the sum, so the check does not drop below 15 % because its own suggestion was followed (open question 7);
+  - **below 15 % again** (for example after net amounts were entered, or a classification changed), a source capitalised on this check is flagged `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`. Again nothing moves.
+- **`anschaffungsnaheAcquisitionId` on a create** must name an Acquisition of the source's PropertyReference that is `CONFIRMED` and whose window holds the source's date, else `422 ANSCHAFFUNGSNAHE_NOT_APPLICABLE` with `details.reason` (`OTHER_PROPERTY_REFERENCE`, `ACQUISITION_NOT_CONFIRMED`, `OUTSIDE_WINDOW`). The check need not be above: an advisor may know better, and the record says so.
+- **Several Acquisitions** of one PropertyReference (two halves bought at different times) each have their own check. A source in two windows carries each Acquisition's flag; `suggestion.acquisitionIds` lists them.
+- **Response:** `{ acquisitionId, propertyReferenceId, acquisitionStatus, transferDate, window: { from, until }, acquiredShare, rule, status, notComputableReason, basis: { allocationId, allocationReviewState, purchasePrice, acquisitionCosts, totalAllocableAmount, buildingAmount, basisAmount } | null, thresholdPercent, threshold, sum, attributableAmount, percentOfBasis, sources, excluded, unclassified, affectedYears, final, flags }`:
+  - `sum` is the exact sum of the amounts used; `attributableAmount` is `sum` × `acquiredShare`, shown rounded half-up to the cent (the comparison uses the unrounded value);
+  - `percentOfBasis` is a §87 decimal string, `attributableAmount / basisAmount × 100` rounded half-even to two places, for display only;
+  - each entry of `sources`, `excluded`, `unclassified` is `{ sourceType, sourceId, sourcePosition, date, taxYear, taxCategory, treatment, reviewState, origin, classificationId, grossAmount, netAmount, amountUsed, suggestedTreatment, flags }`, ordered as the per-property list. The lists are unpaged (three years of one property).
+
+### `date` on a reserve withdrawal (§50)
+
+- **The field:** a reserve line of kind `WITHDRAWAL` takes an optional `date` (business date) on create and on `PUT`, while `DRAFT`. It lies inside `periodFrom`–`periodUntil`, else `400 OUT_OF_RANGE` at `reserve.lines.<i>.date`. On a line of another kind it is `400 NOT_ALLOWED`.
+- **Existing statements** read it as `null`. A confirmed statement is frozen. A date learnt later comes with a statement that supersedes it (§50), or, for the tax year only, with the classification's `taxYear` (above).
+- **It is shape only:** §50's flags and §51's comparison ignore it. §51's `reserveWithdrawals` items gain `date`.
+
+### Concurrency and locks (P7-D9)
+
+- **Lock order source → classification**, as §57: a classification of a withdrawal writes the statement row first (no-op, `UPDATE weg_annual_statement SET version = version … RETURNING status, reserve, membership_id`), then reads the current classification of the withdrawal `FOR UPDATE`. A use writes the assessment row the same way (`RETURNING status, uses, membership_id`). Statement and assessment writers never lock a classification, so no cycle arises with §51's order Transaction → PropertyReference → statement → assessment.
+- **A classification of a withdrawal against the confirm that supersedes its statement:** the confirm writes the superseded statement first (§50). They serialise on that row.
+  - Under RC the later one sees the other: the classification after the supersede is `SOURCE_NOT_COUNTED` (`STATEMENT_SUPERSEDED`); a supersede after the classification proceeds, and the classification stops counting on read.
+  - Under RR the later writer fails to serialise (`40001`).
+  - **Counter-check:** the guard reading the statement instead of writing it lets an RR classification commit on a statement superseded in the meantime.
+- **A classification of a use against `PUT …/uses` and against a void of the assessment:** they serialise on the assessment row. Under RC the later one sees the other (`USE_CHANGED`, `USE_REMOVED` or `ASSESSMENT_VOID`, or the replace proceeds and the classification stops counting on read); under RR it fails to serialise. Counter-check as above.
+- **Two creates for one withdrawal, or one use:** the partial unique indexes and the `supersedes` check; under RC the second sees `CLASSIFICATION_EXISTS`, never two current ones.
+- **A capitalisation following the check** (`anschaffungsnaheAcquisitionId`) reads the Acquisition without a lock: a `CONFIRMED` Acquisition is final and its dates never change (§27.1).
+- **§57's steps** lock the classification row only and read the source without a lock, as for splits. A supersede committed just after a confirmation leaves a confirmed classification that stops counting on read.
+- **The reads** (the meanings, the list, the check, the § 82b parts with their Ownerships) are one RR read-only snapshot each.
+
+### In the database (migration 0047)
+
+- **`tax_classification`, the source columns:**
+  - `weg_annual_statement_id` (uuid) and `weg_reserve_position` (integer 1–1000), with `weg_withdrawal_unit_share` (Money, > 0): the third source. Composite foreign key `(weg_annual_statement_id, mre_realm_id)` to `weg_annual_statement (id, mre_realm_id)` (0042's realm key);
+  - `weg_special_assessment_id` (uuid) and `weg_use_position` (integer 1–1000), with `weg_use_date` (date) and `weg_use_unit_share` (Money, > 0): the fourth source. Composite foreign key `(weg_special_assessment_id, mre_realm_id)` to `weg_special_assessment (id, mre_realm_id)` (0044's realm key);
+  - `source_type` gains `WEG_RESERVE_WITHDRAWAL` and `WEG_ASSESSMENT_USE`.
+- **The other new columns:** `net_amount` (Money, > 0), `annually_recurring` (boolean, not null, default `false`), `distribution_years` (smallint), `mostly_residential_confirmed` (boolean), `anschaffungsnahe_acquisition_id` (uuid; composite foreign key `(anschaffungsnahe_acquisition_id, mre_realm_id)` to `acquisition`), `treatment_rule_code` (text, the pattern of `rule_code`), `treatment_rule_version` (integer ≥ 1).
+- **CHECKs:**
+  - `tax_classification_one_source`: exactly one of the four source columns set, each with its `source_type`;
+  - `tax_classification_weg_source_fields`: the position and the stored amount (and date) set exactly with their source; `refund_of_year` null on both WEG sources; `tax_year` null on a use;
+  - `tax_classification_weg_lines` (`DE_WEG_SPENDING@1`): a WEG source only with `WEG_SPENDING` and `DEDUCTIBLE`, `DISTRIBUTED_82B` or `CAPITALIZED`, or `NOT_RELEVANT` with `NOT_RELEVANT`; `WEG_SPENDING` only on a WEG source;
+  - `tax_classification_fit` (replaced): §56's fit, and `DISTRIBUTED_82B` only with `MAINTENANCE` or `WEG_SPENDING`;
+  - `tax_classification_distribution` (`DE_82B_DISTRIBUTION@1`): `distribution_years` between 2 and 5 and `mostly_residential_confirmed` true, both exactly with `DISTRIBUTED_82B`;
+  - `tax_classification_erhaltung_fields`: `net_amount`, and `annually_recurring` true, only with `MAINTENANCE` or `WEG_SPENDING`; `net_amount` ≤ the stored unit share on a WEG source;
+  - `tax_classification_anschaffungsnahe_fields`: `anschaffungsnahe_acquisition_id` only with `CAPITALIZED` and `MAINTENANCE` or `WEG_SPENDING`;
+  - `tax_classification_treatment_rule`: the code and version set together, exactly with `DISTRIBUTED_82B` (code `DE_82B_DISTRIBUTION`) or with `anschaffungsnahe_acquisition_id` (code `DE_ANSCHAFFUNGSNAHE`).
+- **Indexes:**
+  - `UNIQUE (weg_annual_statement_id, weg_reserve_position) WHERE superseded_at IS NULL` and `UNIQUE (weg_special_assessment_id, weg_use_position) WHERE superseded_at IS NULL`: one current classification per withdrawal and per use;
+  - by source and creation, for the history;
+  - the chain stays within its source: `(id, weg_annual_statement_id, weg_reserve_position)` and `(id, weg_special_assessment_id, weg_use_position)` keys, with the `supersedes` and (deferred) `superseded_by` foreign keys on them, as 0046's deposit keys.
+- **Guards** (before insert, beside 0045's and 0046's, without replacing their functions; those return early for a source that is not theirs):
+  - `tax_classification_withdrawal_counts`: writes the statement row of the classification's Realm (no-op; 0042's `weg_annual_statement_frozen` lets it pass, P3-D8), then requires it `CONFIRMED`, the line at the position of kind `WITHDRAWAL`, and `weg_withdrawal_unit_share` to be its unit share (`SOURCE_NOT_COUNTED`). The unit share is checked exactly, by cross-multiplication: s is the half-up rounding of w·n/d when (2s − 1)·d ≤ 2·w·n < (2s + 1)·d (in cents and thousandths, so no division rounds). It also checks `tax_year` against the period's years, and only for a line without a date (`TAX_YEAR_OUT_OF_RANGE`);
+  - `tax_classification_use_counts`: writes the assessment row (no-op; 0044's frozen guard lets it pass), then requires it `ACTIVE` and the use at the position with the stored date and unit share (`SOURCE_NOT_COUNTED`);
+  - `tax_classification_split_amounts`: for a split, `net_amount` at most its amount (`NET_AMOUNT_EXCEEDS_GROSS`) and `DISTRIBUTED_82B` only on an `OUTFLOW` (`DISTRIBUTION_NOT_ALLOWED`);
+  - `tax_classification_anschaffungsnahe`: the Acquisition `CONFIRMED`, of the source's PropertyReference (the split's, or the membership's), and the source's date within `transfer_date` and three years later, literally 3 (`ANSCHAFFUNGSNAHE_NOT_APPLICABLE`);
+  - `tax_classification_weg_source_fixed` (before update): the new columns never change (0045's frozen guard covers its own list, 0046's `tax_classification_source_fixed` its own).
+- **The start check** (§58) reads the distinct `treatment_rule_code`, `treatment_rule_version` too.
+- **VC-X-26, folded in** (backlog §5; §29.3's note): `property_reference_realm_name_idx ON property_reference (mre_realm_id, lower(display_name), created_at, id)` and `financial_account_realm_name_idx ON financial_account (mre_realm_id, lower(display_name), created_at, id)`. They serve the order of the two lists (§23.3 and §29.3: `lower(display_name)`, nulls last for the PropertyReference, then `createdAt`, then id), as `party_realm_name_idx` (0016) serves the Party list. A test reads the plan of each list's first page.
+- **Nothing on `weg_annual_statement`, `weg_special_assessment`, `acquisition`, `land_building_allocation`, `ownership`, `transaction_split` or `ledger_transaction` changes:** no column, no trigger. The reserve line's `date` is `jsonb` content, shape-checked by the API (§50).
+- **`down`** refuses while a classification of a WEG source exists, or one with a new field set (0046's CHECKs no longer hold for it). It then restores 0046's CHECKs and drops the columns, the guards and the two indexes.
+
+### Tests (VC-7-03)
+
+- **Domain:**
+  - the default of both WEG sources; their lines and treatments, and `TREATMENT_NOT_ALLOWED` with its details; `WEG_SPENDING` refused on a split and on a deposit;
+  - the withdrawal's unit share and its rounding; `NOT_A_WITHDRAWAL`;
+  - the date: own date, `PERIOD_END` with `WITHDRAWAL_DATE_ASSUMED`; `WEG_FINANCIAL_YEAR_NOT_CALENDAR` for a WEG starting in July, and not for a short period in a calendar year; the `taxYear` override within the period's years and outside them;
+  - a use: counts, `USE_CHANGED` (date, unit share), `USE_REMOVED`, `ASSESSMENT_VOID`; a changed description alone still counts;
+  - the field rules of `netAmount`, `annuallyRecurring`, `distributionYears`, `mostlyResidentialConfirmed`, `anschaffungsnaheAcquisitionId`, each with its code;
+  - § 82b: 1,000.00 over 3 → 333.33, 333.33, 333.34; 0.05 over 3 → 0.01, 0.01, 0.03; the fold on the end of ownership; `OWNERSHIP_PARTLY_ENDED`; `NOT_AN_OUTFLOW`; `NO_APPLICABLE_RULE` before 2004;
+  - the check: the window's edges (the transfer day, the third anniversary, the day after; 29 February); exactly 15 % not above, one cent more above; net, else gross with `VAT_NOT_SEPARATED` and `NOT_FINAL`; annually recurring left out; a refund reducing the sum; a partial acquisition; the basis with and without costs, `FINANCING_RELATED` left out; every `NOT_COMPUTABLE` reason; `WINDOW_OPEN`; a capitalisation on this check kept in the sum; `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`;
+  - the registry: five rules, no overlap; `DE_CATEGORY_DEFAULTS@1` unchanged (its parameters compared to a fixed copy).
+- **Repository and schema:**
+  - create with its order of checks for each source; supersede; replay; the history by `sourcePosition`;
+  - a superseded statement: its withdrawal's classification stops counting, the successor's withdrawal reads the default with `PREDECESSOR_CLASSIFIED`;
+  - the per-property list with withdrawals, uses, a superseded statement left out, and a § 82b source of an earlier year with its `yearAmount`;
+  - every new CHECK and guard past the repository (raw SQL), each with a counter-check: a WEG source with `DEDUCTIBLE` on `NOT_RELEVANT`; `WEG_SPENDING` on a split; `distribution_years` 1 and 6; `DISTRIBUTED_82B` without the confirmation; `net_amount` above gross on each source; a wrong stored unit share (one cent off either way, and the exact half); a classification on a `DRAFT` and on a `SUPERSEDED` statement; a use with another date; an `anschaffungsnahe_acquisition_id` outside the window; a change of a new column; a second current classification;
+  - the WEG_FUNDS hard rule unchanged: a `WEG_SPECIAL_ASSESSMENT` split refused as `DEDUCTIBLE`;
+  - nothing else written: the statement, the assessment, the Acquisition, the splits and their Transactions unchanged in row and version by every command (as VC-7-01's counter-check);
+  - the VC-X-26 indexes used by the two lists (the plan);
+  - `down` (under `MIGRATION_ADVISORY_LOCK`, `{ timeout: 30_000 }`), and its refusal.
+- **Concurrency**, RC and RR, each with a counter-check:
+  - a withdrawal classification against the confirm superseding its statement, both orders;
+  - a use classification against `PUT …/uses` and against a void, both orders;
+  - two creates for one withdrawal.
+- **Start check:** a stored unknown `treatmentRule` stops the start.
+- **API:** every new `400` with its field; the error mapping (`NET_AMOUNT_EXCEEDS_GROSS`, `DISTRIBUTION_NOT_ALLOWED`, `ANSCHAFFUNGSNAHE_NOT_APPLICABLE`, `NO_APPLICABLE_RULE`); the DTOs of both meaning reads, of the check and of the list items; `date` on a reserve line (`OUT_OF_RANGE`, `NOT_ALLOWED`).
+- **End to end** (synthetic values only):
+  - **the check above 15 %:** an Acquisition confirmed with transfer 15.03.2026, price 240,000.00, costs 24,000.00 (and a `FINANCING_RELATED` cost left out), an allocation (`CONFIRMED`) of 264,000.00 with 198,000.00 building → threshold 29,700.00. A `MAINTENANCE` repair of 18,000.00 gross, booked in May 2026 and classified `MAINTENANCE` / `DEDUCTIBLE` with `netAmount` 15,126.05 → `NOT_ABOVE_THRESHOLD`. A Sonderumlage with a use of 14,800.00 on 10.06.2027, classified `WEG_SPENDING` / `DEDUCTIBLE` → sum 29,926.05, `ABOVE_THRESHOLD`, `NOT_FINAL` (`GROSS_AMOUNTS`, `WINDOW_OPEN`). Both sources flagged in their meanings, `affectedYears` [2026, 2027], their treatments unchanged. Then the use reclassified `CAPITALIZED` on this check: still above;
+  - **counter-check:** the same use dated 16.03.2029 (outside the window) → not above;
+  - **a § 82b election:** a repair of 9,000.00 elected over 3 years; the per-property lists of the three years show 3,000.00 each; an Ownership closed in the second year → 3,000.00 and 6,000.00;
+  - **a superseded statement:** a statement with a dated withdrawal and an undated one, classified; a corrected statement confirmed with `supersedes`; the old classifications stop counting, the new withdrawals read `NEEDS_REVIEW` with `PREDECESSOR_CLASSIFIED`, and the year's list holds only the new ones. **Counter-check:** the year's list never holds a cost line, and the `WEG_RESERVE_CONTRIBUTION` splits stay `NOT_RELEVANT`;
+  - **Realm isolation** on the three new routes, on the list's new items, and on create with a statement, an assessment or an Acquisition of another Realm (`404`).
+
+### Open questions for review
+
+1. **The date of a withdrawal.** §50's reserve lines carry no date (0042 stores them as `jsonb` without one), though P7-D5 speaks of a withdrawal "without its own date". **Proposal:** an optional `date` on lines of kind `WITHDRAWAL`, entered while `DRAFT` (above). A confirmed statement keeps the assumed date. For an undated withdrawal, `taxYear` may choose another calendar year the period touches.
+2. **Naming a jsonb element.** Withdrawals and uses are elements, not rows, so `sourceId` alone cannot name them. **Proposal:** `sourceId` + `sourcePosition`, with the use's date and unit share stored, as §58A's deposit stores its closing. The alternative, a table of uses (and of reserve lines), would rewrite VC-6-03 and VC-6-05 for no gain in the tax result.
+3. **The successor's withdrawals.** **Proposal:** never carried over (a corrected statement may print other withdrawals); `PREDECESSOR_CLASSIFIED` asks the user to classify again. An automatic copy by position would be convenient, but silent.
+4. **The same spending twice** (a Sonderumlage paid into the reserve and withdrawn from it, and also recorded as a use). **Proposal:** the informative flag `WEG_SPENDING_POSSIBLY_TWICE` on equal unit shares in one financial year; the user classifies one `NOT_RELEVANT`. DE never decides it.
+5. **The building's acquisition cost.** §27.3 records the allocation "as entered" and does not say whether its total includes the acquisition costs. **Proposal:** the allocation gives the ratio, applied to price + `ACTIVE` costs without `FINANCING_RELATED` (A6), rounded once to the cent. The alternative is `buildingAmount` as entered, which understates the basis when the allocation split only the price. Phase 8's AfA basis should take the same answer.
+6. **A partial acquisition.** **Proposal:** the sum × `acquiredShare`, since the price and costs are the share's. A buyer who already held another share keeps that share out of the measure.
+7. **Following the suggestion without undoing it.** Once the user capitalises the summed sources, they would leave a sum of Erhaltungsaufwand, and the check would fall below 15 %. **Proposal:** `anschaffungsnaheAcquisitionId` (with `treatmentRule` `DE_ANSCHAFFUNGSNAHE@1`) marks a capitalisation on this check and keeps the source in the sum. The plan does not name this field.
+8. **A default meaning above 15 %.** **Proposal:** it keeps its treatment (`DEDUCTIBLE`, `SUGGESTED`) with the flag and `suggestion`, so DE changes nothing; VC-7-04 sums the treatment shown and flags the year. The alternative, a derived `CAPITALIZED` for unconfirmed defaults, would change figures without a person.
+9. **Dates and legal edges to verify** (`verification-checklist.md` A2, A5):
+   - `effectiveFrom` 2004-01-01 for `DE_ANSCHAFFUNGSNAHE@1` (measures begun after 31.12.2003) and for `DE_82B_DISTRIBUTION@1` (§ 84 Abs. 4a EStDV);
+   - the window by §§ 187, 188 BGB;
+   - the date measured: the plan takes the booking date, while the law speaks of measures carried out within the window.
+10. **§ 82b when only a co-owner sells.** **Proposal:** the property's parts stay; VC-7-04 folds that owner's rest into the year their Ownership ends, per owner (P7-D7). The flag `OWNERSHIP_PARTLY_ENDED` marks the case here.
+11. **`NOT_FINAL` beyond gross amounts.** The plan names the gross amounts only. **Proposal:** also `UNCLASSIFIED_SOURCES` and `WINDOW_OPEN`, since both can change the result just as well.
 
 ---
 
