@@ -128,7 +128,8 @@ A statement never re-splits the year's cash, and never creates cash. Its ledger 
 - **Its use**, optional and added later: what the WEG actually spent the money on, with date, description and the unit's share, from the statement or the Verwalter. **Verified (weg.md §5.3, checklist C6):** the payment alone is no deductible expense. What counts is when and for what the WEG uses the money. So the purpose is not the tax meaning; the use is the input for Phase 7.
 - A new category `WEG_SPECIAL_ASSESSMENT` of type `WEG_FUNDS` (P6-D3), whatever the purpose. Its splits name the assessment (`wegSpecialAssessmentId`). Paid and outstanding are derived from counted cash, as P5-D2.
 - Statuses `ACTIVE` → `SETTLED` (derived when fully paid) / `VOID` (unreferenced only).
-- Docs: data-model §32, api-design §49.
+- **Refined by the spec of VC-6-05 (api-design §51A):** a split naming an assessment is checked against the assessment's membership (as §51's settlements); a Sonderumlage is filed by resolution date and does not hold the WEG's financial-year start month; paid is allocated to the instalments in due order.
+- Docs: data-model §32, api-design §51A.
 
 ### P6-D8 Recoverability is DE's classification, tax is Phase 7's (BR-WEG-010)
 

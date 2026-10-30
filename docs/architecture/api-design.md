@@ -1490,7 +1490,7 @@ The command replaces the current unconfirmed split proposal atomically.
 - **`400`:**
   - Per field: `NEGATIVE_AMOUNT`, `SCALE_EXCEEDED`, `INVALID_FORMAT` (also a JSON number as amount).
   - `NOT_ALLOWED` for a `direction` on a split.
-  - `NOT_SUPPORTED` for references whose entities do not exist yet (`wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `taxClassificationId`; `securityDepositId` until VC-5-02): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits. `loanId` is accepted from VC-3-05 under the rules of §41.5. `securityDepositId` is accepted from VC-5-02 under the rules of §47.2. `wegAnnualStatementId` is accepted from VC-6-04 under the rules of §51.
+  - `NOT_SUPPORTED` for references whose entities do not exist yet (`wegId`, `rentalContractReferenceId`, `maintenanceProjectId`, `acquisitionId`, `taxClassificationId`; `securityDepositId` until VC-5-02): refused rather than stored unchecked. `acquisitionId` stays refused for good since VC-2-06: an Acquisition's payments link Transactions from the acquisition side (§27.2, P2-D7), not splits. `loanId` is accepted from VC-3-05 under the rules of §41.5. `securityDepositId` is accepted from VC-5-02 under the rules of §47.2. `wegAnnualStatementId` is accepted from VC-6-04 under the rules of §51. `wegSpecialAssessmentId` is accepted from VC-6-05 under the rules of §51A.
   - `UNKNOWN_CATEGORY` for an unknown or inactive code; `CURRENCY_MISMATCH` for a split currency other than the Transaction's, with the split's path (`splits.<i>.amount.currency`, VC-X-18).
 - **`404`:** unknown or foreign Transaction; a `propertyReferenceId` not in the caller's Realm.
 - **`409 INVARIANT_VIOLATION`**, `details.reason = "SPLIT_SUM_MISMATCH"`, with `expected`, `actual` and `difference` as Money: the sum differs from the Transaction amount by any amount, one cent included.
@@ -3648,7 +3648,7 @@ POST /api/v1/weg-economic-plans/{planId}/void                      (VC-6-02, §4
 GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (VC-6-02, §49.6)
 ```
 
-The Jahresabrechnung gets its routes with VC-6-03 (§50), its ledger effects with VC-6-04 (§51), the Sonderumlage with VC-6-05. The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
+The Jahresabrechnung gets its routes with VC-6-03 (§50), its ledger effects with VC-6-04 (§51), the Sonderumlage with VC-6-05 (§51A). The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
 
 ## 49.1 WEG: create, read, list, amend, void (VC-6-01, implemented: migration 0040)
 
@@ -3682,7 +3682,7 @@ The Jahresabrechnung gets its routes with VC-6-03 (§50), its ledger effects wit
 ### `POST /api/v1/wegs/{wegId}/amend`
 
 - **Body:** the fields to change, at least one; `null` clears an optional field. Amendable: `displayName` (not `null`), `administratorPartyId`, `financialYearStartMonth` (not `null`), `notes`.
-- **`financialYearStartMonth`** is amendable only while the WEG has no Wirtschaftsplan, Jahresabrechnung or Sonderumlage (they are filed by financial year). Those come with VC-6-02, VC-6-03 and VC-6-05, which add the refusal `409 CONFLICT` with `reason = "WEG_HAS_YEARS"`; in VC-6-01 it is always amendable.
+- **`financialYearStartMonth`** is amendable only while the WEG has no Wirtschaftsplan or Jahresabrechnung (they are filed by financial year). Those come with VC-6-02 and VC-6-03, which add the refusal `409 CONFLICT` with `reason = "WEG_HAS_YEARS"`; in VC-6-01 it is always amendable. A Sonderumlage is filed by its resolution date and does not hold it (§51A, refined with VC-6-05's spec).
 - **Order of checks:**
   1. `400`;
   2. unknown or foreign → `404`;
@@ -4141,6 +4141,95 @@ A read, never a write; the client applies it through `PUT …/splits`, as §49.6
 - **Concurrency**, RC and RR, each with a counter-check: a settlement write against the confirm superseding its statement, both orders; RR with the statement read instead of written.
 - **API:** every `400`; the error mapping; the comparison and proposal DTOs.
 - **End to end:** a year of the two debits of F5 split by proposal and confirmed (§49.6), a confirmed statement with a credit as Abrechnungsspitze, the comparison whose differences sum to it plus the unpaid advances, the refund split by proposal and confirmed, naming the statement; a corrected statement superseding it, whose comparison counts the refund with `SETTLED_AGAINST_SUPERSEDED`; Realm isolation on both reads and on the split.
+
+---
+
+# 51A. WEG Special Assessment (Sonderumlage) (VC-6-05)
+
+Decision P6-D7 (data-model §32, `docs/germany/weg.md` §5.3, checklist C6). A Sonderumlage is a resolution of the WEG that the owner pays on top of the Hausgeld, in one sum or in instalments. Like the reserve contribution it is money given to the WEG, not yet the owner's expense: what counts for tax is when and for what the WEG uses it (BFH IX R 19/24). So DE records the resolution, the payments (counted cash, never stored amounts) and, later, the use.
+
+### Routes
+
+```text
+POST /api/v1/weg-memberships/{membershipId}/special-assessments          (VC-6-05, §51A)
+GET  /api/v1/weg-memberships/{membershipId}/special-assessments          (VC-6-05, §51A)
+GET  /api/v1/weg-special-assessments/{assessmentId}?asOf=                (VC-6-05, §51A)
+POST /api/v1/weg-special-assessments/{assessmentId}/amend                (VC-6-05, §51A)
+PUT  /api/v1/weg-special-assessments/{assessmentId}/uses                 (VC-6-05, §51A)
+POST /api/v1/weg-special-assessments/{assessmentId}/void                 (VC-6-05, §51A; unreferenced only)
+PUT  /api/v1/transactions/{id}/splits                     (wegSpecialAssessmentId: VC-6-05, §51A; also correct and reverse)
+```
+
+### The assessment
+
+- **Domain owner:** WEG. **Authorization:** as §49.2. One membership (the unit's), Realm by composite foreign key.
+- **Fields:** `description` (1–200, as resolved); `resolutionDate` (inside the membership's period); `purpose`: `MAINTENANCE` | `MODERNISATION` | `LIQUIDITY` | `OTHER` (as resolved; not the tax meaning); `totalAmount` (the WEG's total, Money ≥ 0, optional); `unitShare` (the unit's share, Money > 0); `instalments` (1–24, each `{ position, dueDate, amount }`, amounts > 0, due dates strictly increasing, the amounts summing to `unitShare` exactly, else `400` with `INSTALMENTS_DO_NOT_SUM` at `instalments`); `sourceReferences`, `notes` as §49.2.
+- **Lifecycle:** stored `ACTIVE` → `VOID`. `SETTLED` is derived on read (below), never stored, so a correction of a payment moves it at once (as P5-D2).
+- **Uses** (P6-D7: what the WEG actually spent the money on; optional, added later): up to 50, each `{ position, date, description (1–200), unitShare (Money > 0) }`, replaced as a whole by `PUT …/uses` while not `VOID`. They are Phase 7's input and never booked.
+
+### Commands
+
+- **Create** (`POST …/special-assessments`, `201`, `Idempotency-Key` scope `weg-special-assessment.create`). **Order of checks:** `400` → membership `404` → `409 MEMBERSHIP_NOT_ACTIVE` → `422 ASSESSMENT_OUTSIDE_MEMBERSHIP` (`resolutionDate` outside the membership's period, with `details.validFrom`, `details.validUntil`). The locks of every membership writer (unit, then the membership `FOR UPDATE`, §50).
+- **Amend** (`POST …/amend`, `If-Match`): `description`, `purpose`, `totalAmount`, `unitShare`, `instalments`, `notes`, `sourceReferences`; the same `400`s as create, judged on the result; `VOID` → `409 CONFLICT` with `reason = "ASSESSMENT_NOT_ACTIVE"`; the same values → `200` no-op. `resolutionDate` and the membership never change (void and create anew). A new `unitShare` below what was already paid is allowed: the read shows the overpayment (`outstanding` < 0, flag below).
+- **Uses** (`PUT …/uses`, `If-Match`): the whole list again; `VOID` → `409 ASSESSMENT_NOT_ACTIVE`; the same list → `200` no-op.
+- **Void** (`POST …/void`, `{ reason }`): a no-op once `VOID`; refused while any split names the assessment, a reversal's included and on a Transaction of any status → `409 CONFLICT` with `reason = "ASSESSMENT_HAS_SPLITS"` and `details.transactionIds` (as §47.2's `DEPOSIT_HAS_SPLITS`).
+- **AuditRecords:** `CREATED`, `AMENDED` (changed fields), `USES_REPLACED` (count), `VOIDED`; on the membership `SPECIAL_ASSESSMENT_ADDED`.
+
+### `wegSpecialAssessmentId` on a split
+
+`PUT …/splits` accepts `wegSpecialAssessmentId`, `correct` accepts it in `replacement.splits`, a reversal mirrors it (0014), and every split in a response carries it (`null` without one).
+
+- **The category `WEG_SPECIAL_ASSESSMENT`** (seeded by the migration, `category_type = WEG_FUNDS`, P6-D3) joins the WEG categories of §49.3: its splits name their unit (`NO_UNIT`) and, without an assessment, need a membership on the booking date (`NO_MEMBERSHIP`). It maps to none of §51's classes: a Sonderumlage is neither an advance nor a cost of the statement.
+- **Rules for a split with `wegSpecialAssessmentId`:**
+  - **Alone:** with `loanId`, `securityDepositId` or `wegAnnualStatementId` it is `400`, code `NOT_ALLOWED_WITH_WEG_ASSESSMENT` at that field.
+  - **The assessment:** of the caller's Realm, else `404 NOT_FOUND` with `details.wegSpecialAssessmentId`.
+  - **Category and unit:** the category is `WEG_SPECIAL_ASSESSMENT`, else `422 INVALID_WEG_ASSESSMENT_SPLIT` with `details.position` and `details.reason = "CATEGORY"`; the `propertyReferenceId` is the assessment's unit, else the same with `details.reason = "UNIT"`.
+  - **Not `VOID`:** else `409 CONFLICT` with `reason = "ASSESSMENT_NOT_ACTIVE"` (a reversal is exempt).
+  - **Either direction:** a payment is an `OUTFLOW`, a refund by the WEG an `INFLOW`.
+  - **No date rule of its own:** as §51's settlements, a split naming an assessment is checked against the assessment's membership, not against a membership on the booking date (an instalment can fall due after a sale).
+  - A `WEG_SPECIAL_ASSESSMENT` split **without** an assessment stays allowed; it counts for none.
+- **Order of checks:** §51's, then step 7: assessment `404` → `INVALID_WEG_ASSESSMENT_SPLIT` (`CATEGORY`, then `UNIT`) → `ASSESSMENT_NOT_ACTIVE`, each for the first split in position order. Reversal and replacement as §51.
+- **Same set again:** `wegSpecialAssessmentId` is part of the comparison.
+
+### Reads (derived, as P5-D2)
+
+- **The cash that counts:** splits naming the assessment on current Transactions (`CONFIRMED` or `RECONCILED`, not a reversal), signed (`OUTFLOW` +, `INFLOW` −), by booking date.
+- `GET /weg-special-assessments/{id}?asOf=` (default: today, Europe/Berlin) with `ETag`: the assessment, its instalments and uses, and
+  - `paid` (the sum of the cash that counts), `outstanding` (`unitShare − paid`, signed), `payments` (`{ transactionId, bookingDate, amount }`);
+  - per instalment `covered` (Money): the paid amount allocated to the instalments in due order (first due, first covered), and `overdue` (true when `dueDate < asOf` and not fully covered);
+  - `status`: `VOID` as stored; otherwise `SETTLED` when `outstanding ≤ 0`, else `ACTIVE`;
+  - flags: `OVERPAID` with `details.amount` (`outstanding` < 0), `USES_EXCEED_PAID` with `details.uses`, `details.paid` (the uses' sum above `paid`), `UNCOUNTED_PAYMENTS` with `details.transactionIds` (splits naming it on Transactions not yet counted).
+- `GET /weg-memberships/{id}/special-assessments`: paged, by `resolutionDate`, then `createdAt`, then id; filter `status` (the derived one) and `purpose`; the same figures per item, uses and payments left out.
+
+### Rules this adds elsewhere
+
+- **Membership end and void (§49.2):** an assessment that is not `VOID` whose `resolutionDate` lies outside what would remain → `409 CONFLICT` with `reason = "MEMBERSHIP_HAS_ASSESSMENTS"` and `details.assessmentIds`, after `MEMBERSHIP_HAS_STATEMENTS`. Its splits are not checked by booking date (they follow the assessment), so they do not hold the membership on their own.
+- **WEG amend (§49.1), refined:** a Sonderumlage is filed by its resolution date, not by financial year, so it does **not** hold `financialYearStartMonth` (`WEG_HAS_YEARS` stays with plans and statements). §49.1's note is corrected accordingly.
+- **§51's comparison:** unchanged in effect; the Sonderumlage's category maps to no class, so its splits are never advances (the "not naming a Sonderumlage" of §51 holds by the category).
+
+### Concurrency and locks (P6-D9)
+
+- **Lock order Transaction → PropertyReference → assessment**, as §51's statement: a split write with an assessment writes the unit (no-op), then the assessment row (no-op `RETURNING status`), assessments in id order after statements.
+- **Assessment writers:** create locks unit → membership; amend, uses and void lock the assessment row only and read splits after the lock. No path locks an assessment before a Transaction or a unit.
+- **Void against a split write:** they serialise on the assessment row; under RC the later one sees the other (`ASSESSMENT_HAS_SPLITS` or `ASSESSMENT_NOT_ACTIVE`), under RR it fails to serialise. Counter-check: the split trigger reading the assessment instead of writing it.
+
+### In the database (migration 0044)
+
+- **The category** `WEG_SPECIAL_ASSESSMENT` (`Sonderumlage`, `WEG_FUNDS`); `down` removes it only while no split uses it.
+- **`weg_special_assessment`:** the fields above, Money `numeric` with scale ≤ 2, `instalments` and `uses` as `jsonb` arrays (shape checked by the API, lengths by CHECK), `status` `ACTIVE`/`VOID` with the void fields, `version`; the membership by composite foreign key; guards: `weg_special_assessment_membership` (before insert: unit, then membership `ACTIVE`, the resolution date inside), `weg_special_assessment_frozen` (membership, resolution date and creation never change; `VOID` final; `version` + 1; the no-op passes; no delete), `weg_special_assessment_void_unreferenced`.
+- **`transaction_split.weg_special_assessment_id`:** composite foreign key, an index, `CHECK (weg_special_assessment_id IS NULL OR (property_reference_id IS NOT NULL AND loan_id IS NULL AND security_deposit_id IS NULL AND weg_annual_statement_id IS NULL))`.
+- **The WEG category lists** of `transaction_split_weg`, `ledger_transaction_weg_booking_date` and `weg_membership_guard` gain `WEG_SPECIAL_ASSESSMENT`; splits naming an assessment take the exemption of §51's settlements. `down` restores 0043's and 0041's bodies.
+- **`transaction_split_weg_assessment`** (after `transaction_split_weg_statement` by name): unit, then the assessment (no-op), then category, unit and status as above (reversal exempt).
+- **`weg_membership_assessments`** (after `weg_membership_statements` by name): `MEMBERSHIP_HAS_ASSESSMENTS`.
+- **0014's mirror** compares `weg_special_assessment_id` too.
+
+### Tests (VC-6-05)
+
+- **Domain:** the instalments' sum and order; the allocation of paid to instalments (partial, exact, over), `overdue` at `asOf`; the derived status; every flag.
+- **Repository and schema:** create's order of checks; amend, uses, void with their AuditRecords and no-ops; `ASSESSMENT_HAS_SPLITS`; the split rules and the exemption from the booking-date membership; corrections (mirror, replacement); what counts; `MEMBERSHIP_HAS_ASSESSMENTS`; `WEG_HAS_YEARS` not raised by an assessment; every guard past the repository; `down` (under `MIGRATION_ADVISORY_LOCK`).
+- **Concurrency**, RC and RR, each with a counter-check: a split write against a void of the assessment, both orders.
+- **API:** every `400` (`INSTALMENTS_DO_NOT_SUM`, `NOT_ALLOWED_WITH_WEG_ASSESSMENT` …); the error mapping; the DTOs.
+- **End to end:** a Sonderumlage in three instalments, two paid by imported debits split with the assessment, the third overdue at `asOf`, then paid: `SETTLED`; a use added later; the §51 comparison of the year unchanged by the payments; Realm isolation on every route.
 
 ---
 
