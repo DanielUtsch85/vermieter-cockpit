@@ -1,6 +1,7 @@
 import type { Kysely, Transaction as Trx } from 'kysely';
 import {
   checkVersion,
+  checkWegSplits,
   planAmend,
   planIgnore,
   planRestore,
@@ -15,6 +16,7 @@ import type { AuditActor } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { toFinancialAccount } from './financial-account-repository.js';
 import { lockLoansOf } from './loan-repository.js';
+import { unitsWithMembershipOn } from './weg-repository.js';
 import { toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { COLUMNS, UUID, toDomain } from './transaction-repository.js';
@@ -86,6 +88,26 @@ export class PostgresUnconfirmedTransactionRepository implements UnconfirmedTran
                 throw new Rejected({ kind: 'LOAN_CLOSED', loanId, closingDate: loan.closingDate });
               }
             }
+            // §49.3: the kept WEG splits need their unit's membership on the new date (review on #147); then the units
+            // (Transaction → PropertyReference). ledger_transaction_weg_booking_date is the backstop.
+            const kept = await trx
+              .selectFrom('transaction_split')
+              .innerJoin('financial_category', 'financial_category.id', 'transaction_split.financial_category_id')
+              .select([
+                'financial_category.code as financialCategoryCode',
+                'transaction_split.property_reference_id as propertyReferenceId',
+                'transaction_split.weg_annual_statement_id as wegAnnualStatementId',
+              ])
+              .where('transaction_split.transaction_id', '=', id)
+              .orderBy('transaction_split.position')
+              .execute();
+            const splits = kept.map((k) => ({ ...k, amount: values.amount, loanId: null, securityDepositId: null, description: null }));
+            const wegRefusal = checkWegSplits(
+              { reversal: transaction.correctionRole === 'REVERSAL', bookingDate: values.bookingDate },
+              splits,
+              await unitsWithMembershipOn(trx, mreRealmId, splits, values.bookingDate),
+            );
+            if (wegRefusal !== undefined) throw new Rejected(wegRefusal);
           }
           const updated = await trx
             .updateTable('ledger_transaction')

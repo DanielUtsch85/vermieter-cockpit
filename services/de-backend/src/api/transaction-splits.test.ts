@@ -96,6 +96,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           propertyReferenceId: PROPERTY,
           loanId: null,
           securityDepositId: null,
+          wegAnnualStatementId: null,
           description: null,
         },
         {
@@ -106,6 +107,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
           propertyReferenceId: null,
           loanId: LOAN,
           securityDepositId: null,
+          wegAnnualStatementId: null,
           description: 'Rate 10',
         },
       ],
@@ -127,6 +129,10 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
       [one({ direction: 'OUTFLOW' }), [{ field: 'splits.0.direction', code: 'NOT_ALLOWED' }]],
       [one({ wegId: TX }), [{ field: 'splits.0.wegId', code: 'NOT_SUPPORTED' }]],
       [one({ loanId: 'x' }), [{ field: 'splits.0.loanId', code: 'INVALID_FORMAT' }]],
+      // A settlement is never a Loan's or a deposit's cash (§51).
+      [one({ wegAnnualStatementId: TX, loanId: LOAN }), [{ field: 'splits.0.loanId', code: 'NOT_ALLOWED_WITH_WEG_STATEMENT' }]],
+      [one({ wegAnnualStatementId: TX, securityDepositId: LOAN }), [{ field: 'splits.0.securityDepositId', code: 'NOT_ALLOWED_WITH_WEG_STATEMENT' }]],
+      [one({ wegAnnualStatementId: 'x' }), [{ field: 'splits.0.wegAnnualStatementId', code: 'INVALID_FORMAT' }]],
       // A Loan reaches its properties only through its allocation (§41.5).
       [one({ loanId: LOAN, propertyReferenceId: PROPERTY }), [{ field: 'splits.0.propertyReferenceId', code: 'NOT_ALLOWED_WITH_LOAN' }]],
       [one({ financialCategoryCode: 'loan interest' }), [{ field: 'splits.0.financialCategoryCode', code: 'INVALID_FORMAT' }]],

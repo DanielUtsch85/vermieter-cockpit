@@ -5,9 +5,11 @@ import type {
   LoanSplitRefusal,
   SplitInput,
   SplitTransaction,
+  StatementSplitRefusal,
   TransactionSplit,
   TransactionSplitRepository,
   TransactionStatus,
+  WegSplitRefusal,
 } from '../domains/ledger/index.js';
 import type { LoanStatus } from '../domains/financing/index.js';
 import type { Money } from '../shared/index.js';
@@ -88,9 +90,67 @@ export class InvalidSecurityDepositSplitError extends Error {
   }
 }
 
-/** The refusals of §41.5 and §47.2 as errors, shared by the splits command and `correct`. */
-export function throwSplitRefusal(refusal: LoanSplitRefusal | DepositSplitRefusal): never {
+/** A WEG split without a unit, or whose unit has no membership on the booking date (§49.3 → 422 NO_WEG_MEMBERSHIP). */
+export class NoWegMembershipError extends Error {
+  override readonly name = 'NoWegMembershipError';
+
+  constructor(
+    readonly position: number | null,
+    readonly reason: 'NO_UNIT' | 'NO_MEMBERSHIP',
+    readonly propertyReferenceId: string | null = null,
+    readonly bookingDate: string | null = null,
+  ) {
+    super(reason === 'NO_UNIT' ? 'A WEG split names its unit' : `Unit ${propertyReferenceId} has no WEG membership on ${bookingDate}`);
+  }
+}
+
+/** A split names a statement unknown in the Realm (§51 → 404 NOT_FOUND with `details.wegAnnualStatementId`). */
+export class WegStatementNotFoundError extends Error {
+  override readonly name = 'WegStatementNotFoundError';
+
+  constructor(readonly wegAnnualStatementId: string) {
+    super(`WEG annual statement ${wegAnnualStatementId} not found`);
+  }
+}
+
+/** A split naming a statement is not in a WEG category, or not of the statement's unit (§51 → 422 INVALID_WEG_STATEMENT_SPLIT). */
+export class InvalidWegStatementSplitError extends Error {
+  override readonly name = 'InvalidWegStatementSplitError';
+
+  constructor(
+    readonly position: number,
+    readonly reason: 'CATEGORY' | 'UNIT',
+  ) {
+    super(`Split ${position}: a split naming a statement is a WEG split of the statement's unit (${reason})`);
+  }
+}
+
+/** A settlement names a statement that is not `CONFIRMED` (§51 → 409 STATEMENT_NOT_CURRENT). */
+export class StatementNotCurrentError extends Error {
+  override readonly name = 'StatementNotCurrentError';
+
+  constructor(
+    readonly wegAnnualStatementId: string,
+    readonly status: string,
+    readonly supersededBy: string | null,
+  ) {
+    super(`WEG annual statement ${wegAnnualStatementId} is ${status}`);
+  }
+}
+
+/** The refusals of §41.5, §47.2, §49.3 and §51 as errors, shared by the splits command and `correct`. */
+export function throwSplitRefusal(refusal: LoanSplitRefusal | DepositSplitRefusal | WegSplitRefusal | StatementSplitRefusal): never {
   switch (refusal.kind) {
+    case 'WEG_STATEMENT_NOT_FOUND':
+      throw new WegStatementNotFoundError(refusal.wegAnnualStatementId);
+    case 'INVALID_WEG_STATEMENT_SPLIT':
+      throw new InvalidWegStatementSplitError(refusal.position, refusal.reason);
+    case 'STATEMENT_NOT_CURRENT':
+      throw new StatementNotCurrentError(refusal.wegAnnualStatementId, refusal.status, refusal.supersededBy);
+    case 'NO_WEG_MEMBERSHIP':
+      throw refusal.reason === 'NO_UNIT'
+        ? new NoWegMembershipError(refusal.position, 'NO_UNIT')
+        : new NoWegMembershipError(refusal.position, 'NO_MEMBERSHIP', refusal.propertyReferenceId, refusal.bookingDate);
     case 'SECURITY_DEPOSIT_NOT_FOUND':
       throw new SecurityDepositNotFoundError(refusal.securityDepositId);
     case 'INVALID_SECURITY_DEPOSIT_SPLIT':

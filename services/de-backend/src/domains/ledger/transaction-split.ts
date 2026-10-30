@@ -21,6 +21,11 @@ export interface SplitInput {
    * `propertyReferenceId` or `loanId`.
    */
   readonly securityDepositId: string | null;
+  /**
+   * The settlement of a Jahresabrechnung (P6-D6, api-design §51): only in a WEG category, with the statement's unit,
+   * never with a Loan or a deposit. Optional: absent is `null`.
+   */
+  readonly wegAnnualStatementId?: string | null;
   readonly description: string | null;
 }
 
@@ -73,6 +78,7 @@ export function sameSplits(current: readonly SplitInput[], next: readonly SplitI
         c.propertyReferenceId === n.propertyReferenceId &&
         c.loanId === n.loanId &&
         c.securityDepositId === n.securityDepositId &&
+        (c.wegAnnualStatementId ?? null) === (n.wegAnnualStatementId ?? null) &&
         c.description === n.description
       );
     })
@@ -174,6 +180,94 @@ export function checkDepositSplits(
   return undefined;
 }
 
+/** The categories whose splits name their unit and need a WEG membership on the booking date (§49.3, P6-D2). */
+export const WEG_SPLIT_CATEGORIES = ['WEG_RECOVERABLE', 'WEG_NON_RECOVERABLE', 'WEG_RESERVE_CONTRIBUTION'] as const;
+
+/** Why a split set's WEG splits refuse it (api-design §49.3): 422 NO_WEG_MEMBERSHIP. */
+export type WegSplitRefusal =
+  | { readonly kind: 'NO_WEG_MEMBERSHIP'; readonly position: number; readonly reason: 'NO_UNIT' }
+  | {
+      readonly kind: 'NO_WEG_MEMBERSHIP';
+      readonly position: number;
+      readonly reason: 'NO_MEMBERSHIP';
+      readonly propertyReferenceId: string;
+      readonly bookingDate: BusinessDate;
+    };
+
+export const isWegSplit = (split: Pick<SplitInput, 'financialCategoryCode'>) =>
+  (WEG_SPLIT_CATEGORIES as readonly string[]).includes(split.financialCategoryCode);
+
+/**
+ * The rule of §49.3 in its order: every WEG split without a unit first (`NO_UNIT`), then one whose unit has no
+ * `ACTIVE` membership on the booking date (`NO_MEMBERSHIP`); each for the first split in position order. A reversal is
+ * exempt, and a split naming a statement is checked against the statement's membership instead (§51). `unitsWithMembership`
+ * holds the units with such a membership, read after the unit's lock.
+ */
+export function checkWegSplits(
+  transaction: { readonly reversal: boolean; readonly bookingDate: BusinessDate },
+  splits: readonly SplitInput[],
+  unitsWithMembership: ReadonlySet<string>,
+): WegSplitRefusal | undefined {
+  if (transaction.reversal) return undefined;
+  const weg = splits.flatMap((split, i) => (isWegSplit(split) ? [{ split, position: i + 1 }] : []));
+  const noUnit = weg.find((s) => s.split.propertyReferenceId === null);
+  if (noUnit !== undefined) return { kind: 'NO_WEG_MEMBERSHIP', position: noUnit.position, reason: 'NO_UNIT' };
+  const noMembership = weg.find((s) => (s.split.wegAnnualStatementId ?? null) === null && !unitsWithMembership.has(s.split.propertyReferenceId as string));
+  if (noMembership !== undefined) {
+    return {
+      kind: 'NO_WEG_MEMBERSHIP',
+      position: noMembership.position,
+      reason: 'NO_MEMBERSHIP',
+      propertyReferenceId: noMembership.split.propertyReferenceId as string,
+      bookingDate: transaction.bookingDate,
+    };
+  }
+  return undefined;
+}
+
+/** A statement as the split rules read it (§51): its status, its membership's unit and its successor. */
+export interface SplitStatement {
+  readonly status: string;
+  readonly propertyReferenceId: string;
+  readonly supersededBy: string | null;
+}
+
+/** Why a split set's statements refuse it (api-design §51): 404, 422 INVALID_WEG_STATEMENT_SPLIT, 409 STATEMENT_NOT_CURRENT. */
+export type StatementSplitRefusal =
+  | { readonly kind: 'WEG_STATEMENT_NOT_FOUND'; readonly wegAnnualStatementId: string }
+  | { readonly kind: 'INVALID_WEG_STATEMENT_SPLIT'; readonly position: number; readonly reason: 'CATEGORY' | 'UNIT' }
+  | { readonly kind: 'STATEMENT_NOT_CURRENT'; readonly wegAnnualStatementId: string; readonly status: string; readonly supersededBy: string | null };
+
+/**
+ * The rules of §51 for the splits with `wegAnnualStatementId`, in its order: every unknown or foreign statement first,
+ * then the category, then the unit, then a statement that is not `CONFIRMED` (a reversal is exempt); each for the first
+ * split in position order. `statements` holds the statements found in the Realm.
+ */
+export function checkStatementSplits(
+  transaction: { readonly reversal: boolean },
+  splits: readonly SplitInput[],
+  statements: ReadonlyMap<string, SplitStatement>,
+): StatementSplitRefusal | undefined {
+  const named = splits.flatMap((split, i) => {
+    const id = split.wegAnnualStatementId ?? null;
+    return id === null ? [] : [{ split, id, position: i + 1 }];
+  });
+  const unknown = named.find((s) => !statements.has(s.id));
+  if (unknown !== undefined) return { kind: 'WEG_STATEMENT_NOT_FOUND', wegAnnualStatementId: unknown.id };
+  const category = named.find((s) => !isWegSplit(s.split));
+  if (category !== undefined) return { kind: 'INVALID_WEG_STATEMENT_SPLIT', position: category.position, reason: 'CATEGORY' };
+  const unit = named.find((s) => statements.get(s.id)?.propertyReferenceId !== s.split.propertyReferenceId);
+  if (unit !== undefined) return { kind: 'INVALID_WEG_STATEMENT_SPLIT', position: unit.position, reason: 'UNIT' };
+  if (transaction.reversal) return undefined;
+  for (const s of named) {
+    const statement = statements.get(s.id);
+    if (statement !== undefined && statement.status !== 'CONFIRMED') {
+      return { kind: 'STATEMENT_NOT_CURRENT', wegAnnualStatementId: s.id, status: statement.status, supersededBy: statement.supersededBy };
+    }
+  }
+  return undefined;
+}
+
 /** The Transaction as far as a split response needs it. */
 export interface SplitTransaction {
   readonly id: TransactionId;
@@ -198,7 +292,9 @@ export type ReplaceSplitsOutcome =
   | { readonly kind: 'UNKNOWN_CATEGORY'; readonly codes: readonly string[] }
   | { readonly kind: 'PROPERTY_REFERENCE_NOT_FOUND'; readonly propertyReferenceIds: readonly string[] }
   | LoanSplitRefusal
-  | DepositSplitRefusal;
+  | DepositSplitRefusal
+  | WegSplitRefusal
+  | StatementSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface TransactionSplitRepository {

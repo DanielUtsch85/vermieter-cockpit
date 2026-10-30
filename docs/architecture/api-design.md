@@ -3650,7 +3650,7 @@ GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (VC-6-02, §4
 
 The Jahresabrechnung gets its routes with VC-6-03 (§50), its ledger effects with VC-6-04 (§51), the Sonderumlage with VC-6-05 (§51A). The earlier route list (`/weg-associations`, `GET /property-references/{id}/weg`) is superseded: the resource is `wegs`, as backlog §3e names it, and a unit's WEG is read through its memberships, because it can change over time.
 
-## 49.1 WEG: create, read, list, amend, void (VC-6-01)
+## 49.1 WEG: create, read, list, amend, void (VC-6-01, implemented: migration 0040)
 
 - **Domain owner:** WEG. **Authorization:** as §19.1. The WEG and its administrator Party belong to the caller's Realm. Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
 - **Status (P6-D1):** `ACTIVE` → `VOID` (final).
@@ -3705,7 +3705,7 @@ The Jahresabrechnung gets its routes with VC-6-03 (§50), its ledger effects wit
   - Filters, optional and combined with AND: `status` (a comma-separated list), `administratorPartyId`, `propertyReferenceId` (WEGs with a membership of that unit, any status and period).
   - `page` from 1, `pageSize` 1–200 (default 50); unknown parameters are `400`. An unknown or foreign filter id is an empty page, not `404` (§30.1).
 
-## 49.2 WEG membership (VC-6-01)
+## 49.2 WEG membership (VC-6-01, implemented: migration 0040)
 
 - **Domain owner:** WEG. **Authorization:** as §49.1; the membership, its WEG and its PropertyReference belong to the caller's Realm (composite foreign keys).
 - **A membership is a period** (as an Ownership, §26.1): `validFrom` and an optional `validUntil`, both **inclusive** business dates (`YYYY-MM-DD`). `wegId`, `propertyReferenceId`, `miteigentumsanteil` and `validFrom` never change. A wrongly recorded membership is voided and recorded again.
@@ -3801,7 +3801,7 @@ The Jahresabrechnung gets its routes with VC-6-03 (§50), its ledger effects wit
 - **API:** every `400` code above; the error mapping; idempotent replays; the no-ops; the list filters and order; the `asOf` lookup with and without a membership; Realm isolation end to end on every §49 route.
 
 
-## 49.3 WEG splits name their unit (VC-6-02)
+## 49.3 WEG splits name their unit (VC-6-02, implemented: migration 0041)
 
 Decision P6-D2. A Hausgeld or Rücklage debit is split as any Transaction (§33.2); a WEG split additionally names its unit, and the unit's membership on the booking date names the WEG. There is no `wegId` on a split (§33.2 keeps its `NOT_SUPPORTED` for good).
 
@@ -3821,10 +3821,11 @@ Decision P6-D2. A Hausgeld or Rücklage debit is split as any Transaction (§33.
 - **Lock order (P6-D9, revised):** Transaction → PropertyReference. A split write with a WEG category writes the unit's PropertyReference row after the Transaction's lock (a no-op, as the membership writers do, §49.2), then reads the memberships. Membership end and void already write it first. So a split write and an end or void of the unit's membership serialise on the unit: under RC the later one sees the other (`NO_WEG_MEMBERSHIP` or `MEMBERSHIP_HAS_SPLITS`), under RR it fails to serialise. Plan P6-D2 named `FOR SHARE` on the membership rows; a share lock lets a REPEATABLE READ end through once the split's transaction committed (the lesson of §49.2), so the write replaces it. No path locks a PropertyReference before a Transaction.
 - **In the database (migration 0041):**
   - `transaction_split_weg` (before insert on `transaction_split`, after the existing split guards): for a WEG category on a Transaction that is not a reversal, the unit is set, the PropertyReference row is written (no-op), and an `ACTIVE` membership covers the booking date (`(NO_WEG_MEMBERSHIP)`);
+  - `ledger_transaction_weg_booking_date` (before update of `booking_date` on `ledger_transaction`, as 0029's Loan guard): the WEG splits a Transaction keeps (an `amend` of an unconfirmed Transaction keeps them unless its amount changes) need their unit's `ACTIVE` membership on the new date (`(NO_WEG_MEMBERSHIP)`); each unit is written first, in id order. The repository's `amend` answers the same `422 NO_WEG_MEMBERSHIP` (review on #147);
   - `weg_membership_splits` (before update of `valid_until` or `status` on `weg_membership`): **first** writes the unit's PropertyReference row (a no-op, `UPDATE property_reference SET version = version WHERE id = NEW.property_reference_id`), **then** checks that the end or void leaves no WEG split of the unit outside the remaining period (`(MEMBERSHIP_HAS_SPLITS)`). The write must come first: 0040's PropertyReference write runs in the AFTER trigger, so a BEFORE check without it would read before waiting on a concurrent split writer and, under READ COMMITTED, miss its split (review on #146). Schema test under RC with raw SQL (a split in flight, then the end), counter-check: this write removed;
   - the same write also precedes `transaction_split_weg`'s membership check (above), so both sides serialise on the unit before they read.
 
-## 49.4 The category type `WEG_FUNDS` (VC-6-02)
+## 49.4 The category type `WEG_FUNDS` (VC-6-02, implemented: migration 0041)
 
 Decision P6-D3 (BFH IX R 19/24, `docs/germany/weg.md` §5.2–§5.3).
 
@@ -3835,7 +3836,7 @@ Decision P6-D3 (BFH IX R 19/24, `docs/germany/weg.md` §5.2–§5.3).
 - **Retroactive on purpose:** the type belongs to the category, so every split of `WEG_RESERVE_CONTRIBUTION`, confirmed ones included, reads as `WEG_FUNDS` from the migration on. Today only `GET /financial-categories` (§36) returns `categoryType`, and no read filters by it, so no figure changes. The count of affected splits is part of the query above.
 - `GET /financial-categories` lists the new type like any other.
 
-## 49.5 The Wirtschaftsplan (VC-6-02)
+## 49.5 The Wirtschaftsplan (VC-6-02, implemented: migration 0041)
 
 Decision P6-D4, shaped by the real Einzelwirtschaftsplan of #93's owner (structure only):
 - the plan's cost lines come in two groups as the Verwalter prints them, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each line with an allocation key as printed (`Miteigentumsanteile`, `Einheit`, a consumption key such as cold water), the WEG total and the unit's share;
@@ -3884,7 +3885,7 @@ GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (§49.6)
   4. an `ACTIVE` plan of the membership with the same `effectiveFrom` → `409 CONFLICT` with `reason = "PLAN_EXISTS"` and `details.economicPlanId`.
 - **Success:** `201` with the plan (`version = 1`) and its derived components and flags; AuditRecord `CREATED`, and `ECONOMIC_PLAN_ADDED` on the membership.
 - **Idempotency:** scope `weg-economic-plan.create`, as §49.2.
-- **Locks:** the PropertyReference (no-op write), then the membership `FOR UPDATE`, then the insert. A membership end or void writes the same rows first, so it either sees the plan (`MEMBERSHIP_HAS_PLANS`, below) or the create sees the end (`PLAN_OUTSIDE_MEMBERSHIP`) or the void (`MEMBERSHIP_NOT_ACTIVE`).
+- **Locks:** the PropertyReference (no-op write), then the WEG (no-op write, reading the start month under that lock), then the membership `FOR UPDATE`, then the insert. The WEG write serialises a plan create with an amend of `financialYearStartMonth` (`WEG_HAS_YEARS`): under RC the later one sees the other (`OUT_OF_RANGE` at `effectiveFrom`, or `WEG_HAS_YEARS`), under RR it fails to serialise (review on #147). A membership end or void writes the same rows first, so it either sees the plan (`MEMBERSHIP_HAS_PLANS`, below) or the create sees the end (`PLAN_OUTSIDE_MEMBERSHIP`) or the void (`MEMBERSHIP_NOT_ACTIVE`).
 
 ### Void and reads
 
@@ -3903,7 +3904,7 @@ GET  /api/v1/transactions/{transactionId}/hausgeld-proposal        (§49.6)
 - `weg_membership_plans` (one function with `weg_membership_splits`, after the same first PropertyReference write): an end or void leaves no `ACTIVE` plan outside the remaining period. A plan insert writes the PropertyReference first too (its own BEFORE trigger, `weg_economic_plan_membership`, which then checks the membership's status and period), so a raw plan insert and a raw end serialise under RC as well; RC schema test and counter-check as above.
 - `weg_frozen` gains `WEG_HAS_YEARS`.
 
-## 49.6 The Hausgeld split proposal (VC-6-02)
+## 49.6 The Hausgeld split proposal (VC-6-02, implemented: migration 0041)
 
 ### `GET /api/v1/transactions/{transactionId}/hausgeld-proposal?propertyReferenceId=`
 
@@ -3943,7 +3944,7 @@ A read, never a write (as §41.5's payment proposal). The client applies it thro
 
 ---
 
-# 50. WEG Annual Statement (Jahresabrechnung) (VC-6-03)
+# 50. WEG Annual Statement (Jahresabrechnung) (VC-6-03, implemented: migration 0042)
 
 Decision P6-D5, shaped by the real Einzelabrechnungen of #93's owner (three years; structure only, no amounts):
 - **Cost lines** in the two groups the Verwalter prints, "Betriebskosten (auf Mieter umlegbar nach BetrKV)" and "Sonstige Kosten (nicht auf Mieter umlegbar)", each line with its account name, the allocation key as printed (`Miteigentumsanteile`, `Einheit`, a consumption key), the **allocation quantities** (total and the unit's share, e.g. the MEA base and the unit's MEA), and the **amounts** (WEG total and the unit's share); a subtotal per group and a total of the unit's costs;
@@ -3987,18 +3988,18 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 ### The statement's own check (flags, never refusals; the printed statement wins, BR-WEG-006)
 
 - `LINES_DIFFER_FROM_SUBTOTAL` with `details.group`, `details.lines`, `details.printed`: the `unitShare` of a group's lines does not sum to its subtotal;
-- `SUBTOTALS_DIFFER_FROM_TOTAL`: `recoverableSubtotal` + `nonRecoverableSubtotal` ≠ `totalCosts`;
+- `SUBTOTALS_DIFFER_FROM_TOTAL` with `details.subtotals`, `details.printed`: `recoverableSubtotal` + `nonRecoverableSubtotal` ≠ `totalCosts`;
 - `SETTLEMENT_DIFFERS` with `details.derived`, `details.printed`: `totalCosts` − `hausgeldRequested` ≠ `settlementPeak`;
-- `RESULT_DIFFERS`: `totalCosts` − `hausgeldPaid` ≠ `settlementResult` (when printed);
-- `LINE_SHARE_DIFFERS` with `details.position`, `details.derived`: with both quantities given, `totalAmount` × `allocationShare` / `allocationTotal`, rounded half-up, differs from `unitShare` by more than one cent;
-- `RESERVE_DIFFERS`: a reserve line's `opening` + `addition` − `withdrawal` ≠ `closing`;
+- `RESULT_DIFFERS` with `details.derived`, `details.printed`: `totalCosts` − `hausgeldPaid` ≠ `settlementResult` (when printed);
+- `LINE_SHARE_DIFFERS` with `details.position`, `details.derived`, `details.printed`: with both quantities given and `allocationTotal` > 0, `totalAmount` × `allocationShare` / `allocationTotal`, rounded half-up (for a negative line half away from zero), differs from `unitShare` by more than one cent;
+- `RESERVE_DIFFERS` with `details.position`, `details.derived`, `details.printed`: a reserve line's `opening` + `addition` − `withdrawal` ≠ `closing`; only where `opening` and `closing` are printed (an unprinted `addition` or `withdrawal` counts as 0, nothing else is estimated);
 - `CLASSIFIED_AGAINST_GROUP` with `details.positions`: lines whose `classification` is not their printed `group` (e.g. a reserve contribution printed among the costs); informative.
 - All amounts compare exactly in cents; the flags are derived on read, never stored.
 
 ### Commands
 
 - **Create** (`POST …/annual-statements`, `201`, `Idempotency-Key` scope `weg-annual-statement.create`): a `DRAFT` with the content above.
-  - **Order of checks:** `400` (the body; positions unique; `periodFrom ≤ periodUntil`; quantities) → membership `404` → `400 OUT_OF_RANGE` at `periodFrom`/`periodUntil` outside the financial year (it needs the WEG's start month) → `409 MEMBERSHIP_NOT_ACTIVE` → `422 STATEMENT_OUTSIDE_MEMBERSHIP` (the period not inside the membership's) → `supersedes` unknown, of another membership or year, or not `CONFIRMED` → `422 INVALID_SUPERSEDES` with `details.reason`.
+  - **Order of checks:** `400` (the body; positions unique, `DUPLICATE`; `periodUntil` before `periodFrom`, `INVALID_RANGE`; quantities as decimals with at most 12 integer digits and 3 places, `allocationShare` above `allocationTotal` `OUT_OF_RANGE`) → membership `404` → `400 OUT_OF_RANGE` at `periodFrom`/`periodUntil` outside the financial year (it needs the WEG's start month) → `409 MEMBERSHIP_NOT_ACTIVE` → `422 STATEMENT_OUTSIDE_MEMBERSHIP` (the period not inside the membership's) → `supersedes` unknown, of another membership or year, or not `CONFIRMED` → `422 INVALID_SUPERSEDES` with `details.reason` (`NOT_FOUND`, `OTHER_MEMBERSHIP`, `OTHER_YEAR`, `NOT_CONFIRMED`) and `details.supersedes`.
   - Several `DRAFT`s of one year are allowed (e.g. a draft and its correction).
 - **Replace** (`PUT /weg-annual-statements/{id}`, `If-Match`): the whole content again, as on create; only while `DRAFT`, else `409 CONFLICT` with `reason = "STATEMENT_NOT_DRAFT"`; the same content is a `200` no-op.
 - **Confirm** (`POST …/confirm`, `If-Match`, empty body):
@@ -4026,12 +4027,13 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 - **Guards:**
   - `weg_annual_statement_membership` (before insert): writes the PropertyReference first, then the WEG (a no-op, reading `financial_year_start_month` under that lock; as §49.5's plan, review on #147/#148), then needs the membership `ACTIVE` and the period inside it and inside the financial year. The repository's create takes the same locks in the same order (unit → WEG → membership `FOR UPDATE`);
   - `weg_annual_statement_frozen`: content changes only while `DRAFT`; the steps `DRAFT` → `CONFIRMED` | `VOID`, `CONFIRMED` → `SUPERSEDED` (only with `superseded_by_id` set); `version` + 1; P3-D8's no-op passes; no delete;
+  - `weg_annual_statement_successor` (a constraint trigger, deferred to commit; review on #150): a `SUPERSEDED` statement's successor is `CONFIRMED` (or superseded itself since), so neither a void of the successor nor a commit without its confirm leaves the year without a valid statement;
   - `weg_statement_cost_line_frozen`: lines are inserted, changed or deleted only while their statement is `DRAFT`;
   - the confirm writes the superseded statement first, then the new one (id order is not used: the old one is always locked first), so a second confirm superseding the same statement waits and is refused.
 
 ### Concurrency (RC and RR, each with a counter-check)
 
-- **Two confirms for one membership and year:** the partial unique index; the loser answers `STATEMENT_EXISTS` (RC) or fails to serialise (RR).
+- **Two confirms for one membership and year:** the partial unique index; the loser answers `STATEMENT_EXISTS` (RC, the repository maps the index's violation) or fails on the index (RR: `23505`, a unique violation rather than a serialisation failure; never two `CONFIRMED`).
 - **Two confirms superseding the same statement:** they serialise on it; the second sees `SUPERSEDED` (`INVALID_SUPERSEDES`).
 - **Statement create against membership end or void:** serialise on the unit, as §49.5.
 - **Statement create against a WEG amend of `financialYearStartMonth`:** serialise on the WEG row; under RC the later one sees the other (`OUT_OF_RANGE` at `periodFrom`, or `WEG_HAS_YEARS`), under RR it fails to serialise. Counter-check: the WEG read instead of written lets an amend and a create commit side by side (review on #148).
@@ -4046,7 +4048,7 @@ The earlier stubs (`POST /weg-associations/{id}/annual-statements`, `POST /weg-c
 
 ---
 
-# 51. WEG Statement Ledger Effects (VC-6-04)
+# 51. WEG Statement Ledger Effects (VC-6-04, implemented: migration 0043)
 
 Decision P6-D6 (DF-013). A statement never creates cash and never re-splits a confirmed split (BR-WEG-007, ADR-037). Its ledger effects are three reads and one link:
 1. **the comparison** of the year's counted advances with the statement's actual costs, per class (a read);
@@ -4070,15 +4072,15 @@ PUT /api/v1/transactions/{id}/splits                     (wegAnnualStatementId: 
 
 - **Which statements:** a `CONFIRMED` or `SUPERSEDED` one. A `DRAFT` or `VOID` one → `409 CONFLICT` with `reason = "STATEMENT_NOT_CONFIRMED"` and `details.status`. Unknown or of another Realm → `404`.
 - **paid, per class:** the counted WEG splits of the statement's unit (the membership's PropertyReference). They count as cash counts everywhere (§47.2): splits on **current** Transactions (`CONFIRMED` or `RECONCILED`, not a reversal), with a booking date inside the statement's period (`periodFrom`–`periodUntil`), **not** naming a statement (a settlement is not an advance) and, from VC-6-05, not naming a Sonderumlage. A correction of a counted split moves them on read.
-- **actual, per class:** the statement's `byClassification` (§50, the lines' `unitShare` by stored classification). For `RESERVE`, plus the printed `reserveRequested` (`0.00` when not printed): the reserve advance owed for the year is the owner's reserve cost of the year (P6-D3).
+- **actual, per class:** the statement's `byClassification` (§50, the lines' `unitShare` by stored classification). For `RESERVE`, plus the printed `reserveRequested` (`0.00` when not printed): the reserve advance owed for the year is the owner's reserve cost of the year (P6-D3). **But only when no line is classified `RESERVE`** (review on #151): a reserve contribution printed among the costs and in the reserve block would count twice; then the lines are the reserve's actual, and the flag `RESERVE_COUNTED_TWICE` with `details.lines` and `details.printed` shows the choice.
 - **difference, per class:** `actual − paid`.
 - **The advances:**
-  - `requested`: `hausgeldRequested` + `reserveRequested` (printed; the latter `0.00` when not printed);
+  - `requested`: `hausgeldRequested` + the reserve advance added to `RESERVE`'s actual above (`reserveRequested`, or `0.00` when not printed or when lines are classified `RESERVE`);
   - `counted`: the sum of paid over the three classes;
   - `unpaidAdvances`: `requested − counted` (signed: < 0 when more was counted than requested).
-- **The identity (P6-D6):** `Σ difference = settlementPeak + unpaidAdvances`, exactly, whenever the lines sum to `totalCosts` (§50's `LINES_DIFFER_FROM_SUBTOTAL` and `SUBTOTALS_DIFFER_FROM_TOTAL` absent). Derivation: Σ actual = totalCosts + reserveRequested, Σ paid = counted, settlementPeak = totalCosts − hausgeldRequested. When it does not hold, the flag `PEAK_IDENTITY_DIFFERS` with `details.derived` (Σ difference − unpaidAdvances) and `details.printed` (settlementPeak). The printed statement wins (BR-WEG-006): nothing is refused.
+- **The identity (P6-D6):** `Σ difference = settlementPeak + unpaidAdvances`, exactly, whenever the lines sum to `totalCosts` (§50's `LINES_DIFFER_FROM_SUBTOTAL` and `SUBTOTALS_DIFFER_FROM_TOTAL` absent). Derivation: Σ actual = totalCosts + the reserve advance added, Σ paid = counted, settlementPeak = totalCosts − hausgeldRequested. When it does not hold, the flag `PEAK_IDENTITY_DIFFERS` with `details.derived` (Σ difference − unpaidAdvances) and `details.printed` (settlementPeak). The printed statement wins (BR-WEG-006): nothing is refused.
 - **The settlement:**
-  - `settledBy`: the current splits naming this statement **or a statement it supersedes, transitively** (a superseding statement takes over, P6-D6), each `{ transactionId, statementId, bookingDate, amount }` (signed as above), by booking date, then transaction id;
+  - `settledBy`: the current splits naming this statement **or a statement it supersedes, transitively** (a superseding statement takes over, P6-D6), one entry per Transaction and statement `{ transactionId, statementId, bookingDate, amount }` (its splits summed, signed as above), by booking date, then transaction id;
   - `settled`: their sum; `open`: `settlementPeak − settled`;
   - flag `SETTLED_AGAINST_SUPERSEDED` with `details.transactionIds` when one of them names an older statement of the chain.
   - On a `SUPERSEDED` statement the comparison shows its own figures and only the splits naming it or its predecessors, with the flag `SUPERSEDED` and `details.supersededBy`.
@@ -4099,7 +4101,7 @@ PUT /api/v1/transactions/{id}/splits                     (wegAnnualStatementId: 
   - **Category and unit:** the category is one of the three WEG categories above, else `422 INVALID_WEG_STATEMENT_SPLIT` with `details.position` and `details.reason = "CATEGORY"`; the `propertyReferenceId` is the statement's membership's unit, else the same with `details.reason = "UNIT"`.
   - **Current:** the statement is `CONFIRMED`, else `409 CONFLICT` with `reason = "STATEMENT_NOT_CURRENT"`, `details.wegAnnualStatementId`, `details.status` and, for a `SUPERSEDED` one, `details.supersededBy`. A settlement is booked against the statement in force; one booked earlier keeps naming its statement (P6-D6, and the comparison's flag above).
   - **Either direction:** a back-payment is an `OUTFLOW`, a refund an `INFLOW`, in the same categories (P6-D6 (2)); its tax effect is Phase 7's (checklist A10).
-  - **No date rule of its own, and an exemption from §49.3's:** a statement arrives after its year, often after a sale. A split naming a statement is checked against the statement's membership (above), **not** against a membership on the booking date. §49.3's `NO_MEMBERSHIP` therefore does not apply to it, and neither does 0041's booking-date guard on amend (`ledger_transaction_weg_booking_date`).
+  - **No date rule of its own, and an exemption from §49.3's:** a statement arrives after its year, often after a sale. A split naming a statement is checked against the statement's membership (above), **not** against a membership on the booking date. §49.3's `NO_MEMBERSHIP` therefore does not apply to it, and neither does 0041's booking-date guard on amend (`ledger_transaction_weg_booking_date`). On the other side, such a split does not hold the membership either (review on #152): an end or void of the membership leaves settlement splits out of `MEMBERSHIP_HAS_SPLITS` (repository and `weg_membership_guard`); the statement holds its period through `MEMBERSHIP_HAS_STATEMENTS`, and the settlement hangs off it.
 - **Order of checks** (§49.3's, extended): steps 1–4 unchanged (with `NOT_ALLOWED_WITH_WEG_STATEMENT` among the `400`s); step 5: `NO_UNIT` for any WEG split, then `NO_MEMBERSHIP` for a WEG split **without** a statement; step 6: statement `404` → `INVALID_WEG_STATEMENT_SPLIT` (`CATEGORY`, then `UNIT`) → `STATEMENT_NOT_CURRENT`, each for the first split in position order.
 - **A reversal is exempt** from step 6's `STATEMENT_NOT_CURRENT` (it mirrors its original's splits, whose statement may have been superseded since); 0014's mirror compares `weg_annual_statement_id` too, so a reversal cannot drop or change it. A **replacement** follows the rules: a copied split naming a since superseded statement is refused, and the client names the current one.
 - **Same set again** (§33.2's no-op): `wegAnnualStatementId` is part of the comparison; changing it is a change (`SPLITS_REPLACED`), refused once the Transaction is frozen. A confirmed settlement is corrected with `correct`.
@@ -4127,7 +4129,7 @@ A read, never a write; the client applies it through `PUT …/splits`, as §49.6
 ### In the database (migration 0043)
 
 - **`transaction_split.weg_annual_statement_id`:** `uuid`, composite foreign key `(weg_annual_statement_id, mre_realm_id)` to `weg_annual_statement (id, mre_realm_id)` (0042's realm key), an index, and `CHECK (weg_annual_statement_id IS NULL OR (property_reference_id IS NOT NULL AND loan_id IS NULL AND security_deposit_id IS NULL))`.
-- **`transaction_split_weg`** (0041) is replaced: a split naming a statement skips the booking-date membership check (it still writes the unit first). `down` restores 0041's body. **`ledger_transaction_weg_booking_date`** (0041) likewise skips splits naming a statement.
+- **`transaction_split_weg`** (0041) is replaced: a split naming a statement skips the booking-date membership check (it still writes the unit first). `down` restores 0041's body. **`ledger_transaction_weg_booking_date`** and **`weg_membership_guard`** (0041) likewise skip splits naming a statement (the latter: review on #152).
 - **`transaction_split_weg_statement`** (before insert or update, only with `weg_annual_statement_id`; fires after `transaction_split_weg` by name): writes the unit (no-op), then the statement (no-op `RETURNING status, membership_id`); refuses a category outside the three, a unit other than the membership's (`(INVALID_WEG_STATEMENT_SPLIT)`), and a statement that is not `CONFIRMED` unless the Transaction is a reversal (`(STATEMENT_NOT_CURRENT)`). 0042's `weg_annual_statement_frozen` lets the no-op pass (P3-D8). A test checks the trigger order in `pg_trigger`.
 - **0014's mirror** compares `(category, PropertyReference, loan_id, security_deposit_id, weg_annual_statement_id, amount, currency)`.
 - Not in the database: the order of checks (the API), the comparison and the proposal (reads).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Money, type BusinessDate } from '../../shared/index.js';
-import { checkDepositSplits, checkLoanSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
+import { checkDepositSplits, checkLoanSplits, checkStatementSplits, checkWegSplits, planSplits, sameSplits, type SplitInput } from './transaction-split.js';
 import type { TransactionStatus } from './transaction.js';
 
 const eur = (amount: string) => Money.of(amount, 'EUR');
@@ -168,5 +168,88 @@ describe('sameSplits with securityDepositId', () => {
   it('a changed securityDepositId is a change', () => {
     expect(sameSplits([split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })], [split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'b' })])).toBe(false);
     expect(sameSplits([split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })], [split('1', 'SECURITY_DEPOSIT', { securityDepositId: 'a' })])).toBe(true);
+  });
+});
+
+describe('checkWegSplits (api-design §49.3)', () => {
+  const weg = (financialCategoryCode: string, propertyReferenceId: string | null) => ({
+    amount: Money.of('60.00', 'EUR'),
+    financialCategoryCode,
+    propertyReferenceId,
+    loanId: null,
+    securityDepositId: null,
+    description: null,
+  });
+  const date = '2026-03-02' as BusinessDate;
+
+  it('NO_UNIT first, then NO_MEMBERSHIP, each for the first split; other categories and a reversal pass', () => {
+    const set = [weg('RENT_BASE', null), weg('WEG_RECOVERABLE', 'u2'), weg('WEG_RESERVE_CONTRIBUTION', null)];
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, set, new Set())).toEqual({ kind: 'NO_WEG_MEMBERSHIP', position: 3, reason: 'NO_UNIT' });
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, set.slice(0, 2), new Set())).toEqual({
+      kind: 'NO_WEG_MEMBERSHIP',
+      position: 2,
+      reason: 'NO_MEMBERSHIP',
+      propertyReferenceId: 'u2',
+      bookingDate: date,
+    });
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, set.slice(0, 2), new Set(['u2']))).toBeUndefined();
+    expect(checkWegSplits({ reversal: true, bookingDate: date }, set, new Set())).toBeUndefined();
+  });
+});
+
+describe('wegAnnualStatementId (api-design §51)', () => {
+  const settlement = (financialCategoryCode: string, propertyReferenceId: string | null, wegAnnualStatementId: string | null) => ({
+    amount: Money.of('60.00', 'EUR'),
+    financialCategoryCode,
+    propertyReferenceId,
+    loanId: null,
+    securityDepositId: null,
+    wegAnnualStatementId,
+    description: null,
+  });
+  const date = '2026-05-02' as BusinessDate;
+  const statements = new Map([
+    ['st', { status: 'CONFIRMED', propertyReferenceId: 'u1', supersededBy: null }],
+    ['old', { status: 'SUPERSEDED', propertyReferenceId: 'u1', supersededBy: 'st' }],
+  ]);
+
+  it('a split naming a statement is exempt from the booking-date membership, not from NO_UNIT', () => {
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, [settlement('WEG_NON_RECOVERABLE', 'u1', 'st')], new Set())).toBeUndefined();
+    expect(checkWegSplits({ reversal: false, bookingDate: date }, [settlement('WEG_NON_RECOVERABLE', null, 'st')], new Set())).toMatchObject({
+      reason: 'NO_UNIT',
+    });
+  });
+
+  it('unknown first, then category, then unit, then not current; a reversal is exempt from the last only', () => {
+    const check = (set: SplitInput[], reversal = false) => checkStatementSplits({ reversal }, set, statements);
+    expect(check([settlement('WEG_RECOVERABLE', 'u2', 'st'), settlement('WEG_RECOVERABLE', 'u1', 'nope')])).toEqual({
+      kind: 'WEG_STATEMENT_NOT_FOUND',
+      wegAnnualStatementId: 'nope',
+    });
+    expect(check([settlement('WEG_RECOVERABLE', 'u2', 'st'), settlement('OTHER_EXPENSE', 'u1', 'st')])).toEqual({
+      kind: 'INVALID_WEG_STATEMENT_SPLIT',
+      position: 2,
+      reason: 'CATEGORY',
+    });
+    expect(check([settlement('WEG_RECOVERABLE', 'u1', 'old'), settlement('WEG_RECOVERABLE', 'u2', 'st')])).toEqual({
+      kind: 'INVALID_WEG_STATEMENT_SPLIT',
+      position: 2,
+      reason: 'UNIT',
+    });
+    expect(check([settlement('WEG_RECOVERABLE', 'u1', 'old')])).toEqual({
+      kind: 'STATEMENT_NOT_CURRENT',
+      wegAnnualStatementId: 'old',
+      status: 'SUPERSEDED',
+      supersededBy: 'st',
+    });
+    expect(check([settlement('WEG_RECOVERABLE', 'u1', 'old')], true)).toBeUndefined();
+    expect(check([settlement('WEG_RESERVE_CONTRIBUTION', 'u1', 'st'), settlement('RENT_BASE', null, null)])).toBeUndefined();
+  });
+
+  it('the statement is part of the same-set comparison; absent equals null', () => {
+    const named = settlement('WEG_RECOVERABLE', 'u1', 'st');
+    const { wegAnnualStatementId: _id, ...absent } = settlement('WEG_RECOVERABLE', 'u1', null);
+    expect(sameSplits([named], [{ ...named, wegAnnualStatementId: 'old' }])).toBe(false);
+    expect(sameSplits([absent], [{ ...absent, wegAnnualStatementId: null }])).toBe(true);
   });
 });

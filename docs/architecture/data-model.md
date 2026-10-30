@@ -1030,7 +1030,7 @@ whatever its direction), of a SecurityDeposit of the same Realm that is not `VOI
 `propertyReferenceId` or `loanId`: a deposit is neither a property's income or cost nor a Loan's cash (BR-DEP-001).
 A reversal mirrors `securityDepositId` (0014). Database-enforced (migration 0038).
 
-**`wegAnnualStatementId` (P6-D6, VC-6-04, API §51):** the settlement of a Jahresabrechnung (a back-payment on an
+**`wegAnnualStatementId` (P6-D6, VC-6-04, API §51; implemented):** the settlement of a Jahresabrechnung (a back-payment on an
 `OUTFLOW`, a refund on an `INFLOW`), only on a `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` or
 `WEG_RESERVE_CONTRIBUTION` split whose `propertyReferenceId` is the statement's unit, of a `CONFIRMED` statement of the
 same Realm (a reversal mirrors its original's, whatever the statement's status since), and never together with
@@ -1677,7 +1677,7 @@ Represent a Wirtschaftsplan for a WEG period.
 
 # 30. WEGAnnualStatement
 
-**Phase 6 (VC-6-03, api-design §50, P6-D5):** per membership and financial year, with the period (Nutzungszeitraum), the printed totals (group subtotals, total costs, Hausgeld and reserve requested and paid, Abrechnungsspitze and -ergebnis), an optional reserve section, and the lifecycle `DRAFT` → `CONFIRMED` → `SUPERSEDED`, `VOID` from `DRAFT`; flags derived on read.
+**Phase 6 (VC-6-03, api-design §50, P6-D5):** implemented as `weg_annual_statement` (migration 0042): per membership and financial year, with the period (Nutzungszeitraum), the printed totals (group subtotals, total costs, Hausgeld and reserve requested and paid, Abrechnungsspitze and -ergebnis), an optional reserve section, and the lifecycle `DRAFT` → `CONFIRMED` → `SUPERSEDED`, `VOID` from `DRAFT`; flags derived on read.
 
 **Domain:** WEG  
 **Stability:** Stable  
@@ -1722,7 +1722,7 @@ Represent a Jahresabrechnung for an actual WEG financial period.
 
 # 31. WEGCostLine
 
-**Phase 6 (VC-6-03, api-design §50):** a row of `weg_statement_cost_line`: account and printed group, allocation key and quantities as printed, total and unit's share (signed Money), and the classification `RECOVERABLE` | `NON_RECOVERABLE` | `RESERVE` with its source; frozen once the statement is no longer `DRAFT`.
+**Phase 6 (VC-6-03, api-design §50):** implemented as a row of `weg_statement_cost_line` (migration 0042): account and printed group, allocation key and quantities as printed, total and unit's share (signed Money), and the classification `RECOVERABLE` | `NON_RECOVERABLE` | `RESERVE` with its source; frozen once the statement is no longer `DRAFT`.
 
 **Domain:** WEG  
 **Stability:** Stable

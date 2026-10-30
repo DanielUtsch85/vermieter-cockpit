@@ -1,5 +1,12 @@
 import type { AuditActor, Money } from '../../shared/index.js';
-import { sameSplits, type DepositSplitRefusal, type LoanSplitRefusal, type SplitInput } from './transaction-split.js';
+import {
+  sameSplits,
+  type DepositSplitRefusal,
+  type LoanSplitRefusal,
+  type SplitInput,
+  type StatementSplitRefusal,
+  type WegSplitRefusal,
+} from './transaction-split.js';
 import type { BusinessDate, Direction, Transaction, TransactionId, TransactionStatus, VersionConflict } from './transaction.js';
 
 /**
@@ -175,7 +182,8 @@ export function correctionFingerprint(originalId: string, request: CorrectionReq
     r.valueDate === undefined ? '-' : r.valueDate,
     r.description === undefined ? '-' : r.description,
     r.propertyReferenceId === undefined ? '-' : (r.propertyReferenceId?.toLowerCase() ?? null),
-    // `loanId` and `securityDepositId` only when set, so keys recorded before VC-3-05 and VC-5-02 keep their fingerprint.
+    // `loanId`, `securityDepositId` and `wegAnnualStatementId` only when set, so keys recorded before VC-3-05, VC-5-02
+    // and VC-6-04 keep their fingerprint.
     r.splits?.map((s) => [
       s.amount.amount,
       s.amount.currency,
@@ -184,6 +192,7 @@ export function correctionFingerprint(originalId: string, request: CorrectionReq
       s.description,
       ...(s.loanId === null ? [] : [s.loanId.toLowerCase()]),
       ...(s.securityDepositId === null ? [] : [{ securityDepositId: s.securityDepositId.toLowerCase() }]),
+      ...((s.wegAnnualStatementId ?? null) === null ? [] : [{ wegAnnualStatementId: (s.wegAnnualStatementId as string).toLowerCase() }]),
     ]) ?? '-',
   ]);
 }
@@ -215,7 +224,9 @@ export type CorrectOutcome =
   | { readonly kind: 'SUM_MISMATCH'; readonly expected: Money; readonly actual: Money }
   /** The replacement's splits with `loanId` (§41.5) or `securityDepositId` (§47.2); the reversal mirrors the original's. */
   | LoanSplitRefusal
-  | DepositSplitRefusal;
+  | DepositSplitRefusal
+  | WegSplitRefusal
+  | StatementSplitRefusal;
 
 /** Persistence port, implemented in infrastructure/postgres. */
 export interface CorrectionRepository {

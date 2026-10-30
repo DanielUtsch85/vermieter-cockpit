@@ -2,6 +2,8 @@ import { sql, type Kysely, type Transaction as Trx } from 'kysely';
 import {
   checkDepositSplits,
   checkLoanSplits,
+  checkStatementSplits,
+  checkWegSplits,
   checkVersion,
   planSplits,
   sameSplits,
@@ -18,6 +20,8 @@ import type { AuditActor, BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { lockLoansOf } from './loan-repository.js';
 import { lockDepositsOf } from './security-deposit-repository.js';
+import { lockStatementsOf } from './weg-annual-statement-repository.js';
+import { unitsWithMembershipOn } from './weg-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -111,6 +115,16 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
           const refusal = checkDepositSplits({ direction: transaction.direction, reversal: false }, splits, await lockDepositsOf(trx, mreRealmId, depositIds));
           if (refusal !== undefined) return refusal;
         }
+        // §49.3: then the units of its WEG splits (Transaction → PropertyReference, P6-D9) and their memberships.
+        const bookingDate = row.booking_date as BusinessDate;
+        const wegRefusal = checkWegSplits({ reversal: false, bookingDate }, splits, await unitsWithMembershipOn(trx, mreRealmId, splits, bookingDate));
+        if (wegRefusal !== undefined) return wegRefusal;
+        // §51: then the statements its settlement splits name (Transaction → PropertyReference → statement).
+        const statementIds = splits.flatMap((s) => ((s.wegAnnualStatementId ?? null) === null ? [] : [s.wegAnnualStatementId as string]));
+        if (statementIds.length > 0) {
+          const refusal = checkStatementSplits({ reversal: false }, splits, await lockStatementsOf(trx, mreRealmId, statementIds));
+          if (refusal !== undefined) return refusal;
+        }
 
         await trx.deleteFrom('transaction_split').where('transaction_id', '=', transaction.id).execute();
         const inserted = await trx
@@ -126,6 +140,7 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
               property_reference_id: split.propertyReferenceId,
               loan_id: split.loanId,
               security_deposit_id: split.securityDepositId,
+              weg_annual_statement_id: split.wegAnnualStatementId ?? null,
               description: split.description,
               created_by: actor.actorId,
             })),
@@ -152,13 +167,19 @@ export class PostgresTransactionSplitRepository implements TransactionSplitRepos
               ...(s.propertyReferenceId === null ? {} : { propertyReferenceId: s.propertyReferenceId }),
               ...(s.loanId === null ? {} : { loanId: s.loanId }),
               ...(s.securityDepositId === null ? {} : { securityDepositId: s.securityDepositId }),
+              ...((s.wegAnnualStatementId ?? null) === null ? {} : { wegAnnualStatementId: s.wegAnnualStatementId }),
             })),
           },
         });
         return {
           kind: 'REPLACED',
           transaction: { ...transaction, status: updated.status as TransactionStatus, version: updated.version },
-          splits: splits.map((split, i) => ({ ...split, id: ids.get(i + 1) as string, position: i + 1 })),
+          splits: splits.map((split, i) => ({
+            ...split,
+            wegAnnualStatementId: split.wegAnnualStatementId ?? null,
+            id: ids.get(i + 1) as string,
+            position: i + 1,
+          })),
           changed: true,
         };
       });
@@ -177,6 +198,7 @@ async function currentSplits(trx: Trx<Database>, transactionId: string): Promise
       'transaction_split.property_reference_id',
       'transaction_split.loan_id',
       'transaction_split.security_deposit_id',
+      'transaction_split.weg_annual_statement_id',
       'transaction_split.description',
       'financial_category.code',
     ])
@@ -191,6 +213,7 @@ async function currentSplits(trx: Trx<Database>, transactionId: string): Promise
     propertyReferenceId: r.property_reference_id,
     loanId: r.loan_id,
     securityDepositId: r.security_deposit_id,
+    wegAnnualStatementId: r.weg_annual_statement_id,
     description: r.description,
   }));
 }
