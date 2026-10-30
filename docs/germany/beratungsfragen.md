@@ -58,7 +58,7 @@
 - **Jahr der Veräußerung:** zeitanteilig, Stichtag Übergang des wirtschaftlichen Eigentums? Hinweis aus der Durchsicht: R 7.4 Abs. 8 EStR (VERIFY).
 - **Nicht abziehbare USt in der Bemessungsgrundlage:** brutto für Vermieter ohne USt-Option? (§ 9b Abs. 1 EStG, VERIFY)
 - **Sätze vor 2023:** galten die Bänder b und c unverändert für frühere Jahre?
-- **Kürzere Nutzungsdauer:** ab Beginn der AfA oder ab dem nachgewiesenen Jahr? Und die Grenzwerte des § 7 Abs. 4 S. 2 EStG je Band (rechnerisch 33⅓ / 50 / 40 Jahre aus den Sätzen B1–B3) am amtlichen Text prüfen (VERIFY).
+- **Kürzere Nutzungsdauer:** ab Beginn der AfA oder ab dem nachgewiesenen Jahr? Und die Grenzwerte des § 7 Abs. 4 S. 2 EStG je Band: nach dem im Review zu #174 zitierten Gesetzestext feste Jahreszahlen (weniger als 33 / 50 / 40 Jahre), nicht der Kehrwert des Satzes (33⅓ Jahre bei 3 %); am amtlichen Text prüfen (VERIFY).
 - **Miteigentümer:** AfA auf die eigenen Anschaffungskosten (P8-D8); Fortführung durch Rechtsnachfolger (§ 11d EStDV) bleibt außerhalb.
 
 **Was die Software tut:** Bis zur Antwort berechnet sie nichts geraten: Jahre vor 2023 `NO_APPLICABLE_RULE`, Veräußerungsjahr `DISPOSAL_YEAR_TO_VERIFY`; die offenen Wahlen sind Regelparameter (`subsequentCostStart`, `endMonthCounts`).
