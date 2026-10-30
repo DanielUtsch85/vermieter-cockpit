@@ -425,6 +425,7 @@ describe('reads (§55)', () => {
       closingDate: null,
       retainedAmount: Money.of('0.00', 'EUR'),
       propertyReferenceId: PR,
+      propertyCandidates: [PR],
       counts: false,
       taxYear: null,
       amount: Money.of('0.00', 'EUR'),

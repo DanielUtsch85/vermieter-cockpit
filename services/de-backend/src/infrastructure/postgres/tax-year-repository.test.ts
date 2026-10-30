@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Direction, SplitInput } from '../../domains/ledger/index.js';
 import type { NewRentalContractReference, RentDueDay } from '../../domains/rental-contract-reference/index.js';
 import type { NewTaxClassification, TaxListItem, TaxMeaning, TaxPage } from '../../domains/taxation/index.js';
-import { parseMea, type Mea, type NewEconomicPlan } from '../../domains/weg/index.js';
+import { parseMea, type Mea, type NewAnnualStatement, type NewEconomicPlan } from '../../domains/weg/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
@@ -18,6 +18,7 @@ import { PostgresTaxClassificationRepository } from './tax-classification-reposi
 import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
+import { PostgresWegAnnualStatementRepository } from './weg-annual-statement-repository.js';
 import { PostgresWegEconomicPlanRepository } from './weg-economic-plan-repository.js';
 import { PostgresWegRepository } from './weg-repository.js';
 
@@ -76,6 +77,7 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
   let deposits: PostgresSecurityDepositRepository;
   let wegs: PostgresWegRepository;
   let plans: PostgresWegEconomicPlanRepository;
+  let statements: PostgresWegAnnualStatementRepository;
   let loans: PostgresLoanRepository;
   let terms: PostgresLoanTermsRepository;
   let parties: PostgresPartyRepository;
@@ -98,6 +100,7 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
     deposits = new PostgresSecurityDepositRepository(db);
     wegs = new PostgresWegRepository(db);
     plans = new PostgresWegEconomicPlanRepository(db);
+    statements = new PostgresWegAnnualStatementRepository(db);
     loans = new PostgresLoanRepository(db);
     terms = new PostgresLoanTermsRepository(db);
     parties = new PostgresPartyRepository(db);
@@ -411,6 +414,89 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
   });
 
   describe('override and refunds (§58A)', () => {
+    it('a credit of a WEG annual statement, booked in the following year: a refund of the statement’s financialYear (review on #166)', async () => {
+      const weg = await wegs.createWeg(
+        { mreRealmId: REALM, displayName: `WEG ${++counter}`, administratorPartyId: null, financialYearStartMonth: 1, notes: null },
+        actor,
+      );
+      if (weg.kind !== 'CREATED') throw new Error(weg.kind);
+      const pr = await propertyReference();
+      const m = await wegs.createMembership(
+        {
+          mreRealmId: REALM,
+          wegId: weg.weg.id,
+          propertyReferenceId: pr,
+          mea: (parseMea('250/10000') as { mea: Mea }).mea,
+          validFrom: day('2025-01-01'),
+          validUntil: null,
+          sourceReferences: [],
+          notes: null,
+        },
+        actor,
+      );
+      if (m.kind !== 'CREATED') throw new Error(m.kind);
+      const content: NewAnnualStatement = {
+        mreRealmId: REALM,
+        membershipId: m.membership.id,
+        financialYear: 2025,
+        periodFrom: day('2025-01-01'),
+        periodUntil: day('2025-12-31'),
+        documentDate: null,
+        resolutionDate: null,
+        dueDate: null,
+        supersedes: null,
+        costLines: [
+          {
+            position: 1,
+            account: 'Hausmeister',
+            group: 'RECOVERABLE',
+            allocationKey: 'MEA',
+            allocationTotal: null,
+            allocationShare: null,
+            totalAmount: eur('40000.00'),
+            unitShare: eur('1000.00'),
+            classification: null,
+          },
+        ],
+        recoverableSubtotal: eur('1000.00'),
+        nonRecoverableSubtotal: eur('0.00'),
+        totalCosts: eur('1000.00'),
+        hausgeldRequested: eur('1200.00'),
+        hausgeldPaid: eur('1200.00'),
+        reserveRequested: null,
+        reservePaid: null,
+        settlementPeak: eur('-200.00'),
+        settlementResult: null,
+        reserve: null,
+        sourceReferences: [],
+        notes: null,
+      };
+      const created = await statements.createStatement(content, actor);
+      if (created.kind !== 'CREATED') throw new Error(created.kind);
+      const confirmed = await statements.confirmStatement(created.statement.id, REALM, new Date(), actor);
+      if (confirmed.kind !== 'CONFIRMED') throw new Error(confirmed.kind);
+      const { splitIds } = await booked([split('200.00', 'WEG_RECOVERABLE', { propertyReferenceId: pr, wegAnnualStatementId: created.statement.id })], {
+        direction: 'INFLOW',
+        bookingDate: '2026-05-12',
+      });
+      const credit = await meaning(splitIds[0] as string);
+      expect(credit).toMatchObject({ taxYear: 2026, taxCategory: 'WEG_HAUSGELD', flags: [] });
+      expect(credit?.refund).toEqual({
+        kind: 'REFUND',
+        ofYear: 2025,
+        ofYearSource: 'WEG_ANNUAL_STATEMENT',
+        presentation: 'INCOME',
+        line: 'REFUNDS_OF_EARLIER_YEARS',
+      });
+      // The statement wins over a classification's refundOfYear.
+      const c = await classifications.createClassification(
+        request(splitIds[0] as string, { taxCategory: 'WEG_HAUSGELD', treatment: 'DEDUCTIBLE', refundOfYear: 2026 }),
+        actor,
+      );
+      expect(c.kind).toBe('CREATED');
+      expect((await meaning(splitIds[0] as string))?.refund).toMatchObject({ ofYear: 2025, ofYearSource: 'WEG_ANNUAL_STATEMENT', presentation: 'INCOME' });
+    });
+
     it('taxYear ± 1 only (TAX_YEAR_OUT_OF_RANGE); refundOfYear ≤ the tax year (REFUND_YEAR_OUT_OF_RANGE); a refund of an earlier year', async () => {
       const pr = await propertyReference();
       const { splitIds } = await booked([split('80.00', 'INSURANCE', { propertyReferenceId: pr })], { direction: 'INFLOW', bookingDate: '2027-03-01' });
@@ -516,6 +602,27 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
       expect(next).toMatchObject({ kind: 'CREATED', classification: { depositClosing: { closingDate: '2027-07-31' } } });
       expect(await classifications.findDepositTaxMeaning(depositId, REALM, today)).toMatchObject({ counts: true, taxCategory: 'RETAINED_DEPOSIT_DAMAGES' });
       expect((await classifications.listHistory('DEPOSIT_CLOSING', depositId, REALM))?.map((h) => h.supersededBy === null)).toEqual([false, true]);
+    });
+
+    it('no derivable PropertyReference is flagged, never silent: NO_RECONCILED_RENT, SEVERAL_PROPERTY_REFERENCES (review on #166)', async () => {
+      const lonely = await retained(nextTenant());
+      expect(await classifications.findDepositTaxMeaning(lonely, REALM, today)).toMatchObject({
+        counts: true,
+        propertyReferenceId: null,
+        flags: [{ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'NO_RECONCILED_RENT' } }],
+      });
+      const tenant = nextTenant();
+      const [first, second] = [await propertyReference(), await propertyReference()];
+      await rent(first, tenant, '2027-03-01', '2027030100');
+      await rent(second, tenant, '2027-04-01', '2027040100');
+      const shared = await retained(tenant);
+      const several = await classifications.findDepositTaxMeaning(shared, REALM, today);
+      expect(several).toMatchObject({ counts: true, propertyReferenceId: null });
+      expect(several?.flags).toEqual([
+        { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTY_REFERENCES', candidates: [first, second].sort() } },
+      ]);
+      // In neither property's list; the flag is where it shows (VC-7-04 lists it as "nicht zugeordnet").
+      for (const pr of [first, second]) expect((await list(pr, 2027))?.items.map((m) => m.sourceType)).toEqual(['TRANSACTION_SPLIT']);
     });
 
     it('not CLOSED, or nothing retained: DEPOSIT_NOT_COUNTED; an unknown or foreign deposit: SOURCE_NOT_FOUND', async () => {

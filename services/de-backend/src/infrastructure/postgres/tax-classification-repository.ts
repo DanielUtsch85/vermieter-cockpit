@@ -731,7 +731,7 @@ async function depositFactsOf(trx: Transaction<Database>, mreRealmId: string, id
   return ids.flatMap((id) => {
     const row = byId.get(id);
     if (row === undefined) return [];
-    const ofTenant = units.filter((u) => u.mre_tenant_id === row.mre_tenant_id);
+    const ofTenant = [...new Set(units.filter((u) => u.mre_tenant_id === row.mre_tenant_id).map((u) => u.property_reference_id as string))].sort();
     const retainedAmount =
       row.closing_reason === null || row.closing_date === null || row.held_at_closing === null
         ? Money.zero(row.currency)
@@ -747,7 +747,8 @@ async function depositFactsOf(trx: Transaction<Database>, mreRealmId: string, id
         status: row.status,
         closingDate: row.closing_date as BusinessDate | null,
         retainedAmount,
-        propertyReferenceId: ofTenant.length === 1 ? (ofTenant[0]?.property_reference_id ?? null) : null,
+        propertyReferenceId: ofTenant.length === 1 ? (ofTenant[0] ?? null) : null,
+        propertyCandidates: ofTenant,
       },
     ];
   });

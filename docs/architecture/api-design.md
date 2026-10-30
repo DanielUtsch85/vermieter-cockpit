@@ -4689,7 +4689,11 @@ Details the contract above left open, now binding:
   - **`409 SOURCE_NOT_COUNTED`** for a deposit carries `depositStatus`, `retainedAmount` and `notCountedReason` (`NOT_CLOSED`, `NOTHING_RETAINED`, `CLOSING_CHANGED`). The `NOT_COUNTED` flag of its meaning carries the same.
   - **`422 TREATMENT_NOT_ALLOWED`** for a deposit carries `sourceType: "DEPOSIT_CLOSING"`, `allowed` and `allowedTaxCategories` (no `categoryType`).
   - **§57's steps** work on deposit classifications as on splits: a confirmation validates that the deposit still counts.
-  - **The deposit's PropertyReference.** A deposit has none of its own (§47.1). It is taken as the one PropertyReference on which the rent splits of its Tenant's `CONFIRMED` reconciliations are booked. With none, or with several, it is `null` and the deposit appears in no per-property list.
+  - **The deposit's PropertyReference.** A deposit has none of its own (§47.1). It is taken as the one PropertyReference on which the rent splits of its Tenant's `CONFIRMED` reconciliations are booked. With none, or with several, it is `null` and the deposit appears in no per-property list. It never disappears silently (review on #166): `GET /security-deposits/{id}/tax-meaning` flags it `NO_PROPERTY_REFERENCE`, with `details.reason`:
+    - `NO_RECONCILED_RENT`: no confirmed rent of its Tenant is booked on a PropertyReference;
+    - `SEVERAL_PROPERTY_REFERENCES`: it is booked on more than one, listed ascending in `details.candidates`.
+    
+    The tax-year view (VC-7-04) lists such a deposit as not attributed ("nicht zugeordnet"). A `propertyReferenceId` on the classification is a later option, not in VC-7-02.
   - **In the list:** only a deposit that counts by its closing (`CLOSED`, retained > 0, closed in Y). Items are ordered by date (booking date, closing date), splits first on a date. The history query takes `sourceType=DEPOSIT_CLOSING`.
 - **RentalContractReference:**
   - **Create** takes `{ mreTenantId, rentDueDays?, notes?, sourceReferences? }`. MRE is asked before the key is claimed, so a replay asks again.

@@ -28,6 +28,11 @@ export interface DepositFacts {
   readonly retainedAmount: Money;
   /** The PropertyReference its Tenant's rent is booked on, where exactly one (§58A's per-property list). */
   readonly propertyReferenceId: string | null;
+  /**
+   * Every PropertyReference the rent splits of its Tenant's `CONFIRMED` reconciliations are booked on, ascending. None
+   * or several: no PropertyReference, flagged `NO_PROPERTY_REFERENCE` (review on #166).
+   */
+  readonly propertyCandidates: readonly string[];
 }
 
 export type DepositTaxMeaningFlag =
@@ -35,7 +40,12 @@ export type DepositTaxMeaningFlag =
       readonly code: 'NOT_COUNTED';
       readonly details: { readonly depositStatus: string; readonly retainedAmount: Money; readonly reason: DepositNotCounted['reason'] };
     }
-  | { readonly code: 'RULE_SUPERSEDED'; readonly details: { readonly ruleCode: string; readonly version: number; readonly applicableVersion: number } };
+  | { readonly code: 'RULE_SUPERSEDED'; readonly details: { readonly ruleCode: string; readonly version: number; readonly applicableVersion: number } }
+  | { readonly code: 'NO_PROPERTY_REFERENCE'; readonly details: { readonly reason: 'NO_RECONCILED_RENT' } }
+  | {
+      readonly code: 'NO_PROPERTY_REFERENCE';
+      readonly details: { readonly reason: 'SEVERAL_PROPERTY_REFERENCES'; readonly candidates: readonly string[] };
+    };
 
 export interface DepositTaxMeaning extends DepositFacts {
   readonly sourceType: 'DEPOSIT_CLOSING';
@@ -91,6 +101,11 @@ export function deriveDepositTaxMeaning(
       code: 'NOT_COUNTED',
       details: { depositStatus: notCounted.depositStatus, retainedAmount: notCounted.retainedAmount, reason: notCounted.reason },
     });
+  }
+  // Without one PropertyReference the deposit is in no per-property list: never silently (review on #166).
+  if (facts.propertyCandidates.length === 0) flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'NO_RECONCILED_RENT' } });
+  if (facts.propertyCandidates.length > 1) {
+    flags.push({ code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTY_REFERENCES', candidates: [...facts.propertyCandidates].sort() } });
   }
   const base = {
     ...facts,

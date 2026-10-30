@@ -154,6 +154,18 @@ describe('loan interest (§58A): the nearest schedule entry', () => {
     expect(result.flags[0]?.details).toMatchObject({ dueDateSource: 'LOAN_SCHEDULE' });
   });
 
+  it('a quarterly schedule: the period runs from the previous payment, not one month back', () => {
+    const timing = interestTiming(day('2027-01-03'), monthly(['2026-06-30', '2026-09-30', '2026-12-31', '2027-03-31']));
+    expect(timing).toMatchObject({ dueDate: '2026-12-31', economicPeriod: { from: '2026-10-01', to: '2026-12-31' }, economicYear: 2026 });
+    // Paid on 3 January for the quarter ending 31 December: moved back.
+    expect(attributeTaxYear(at('2027-01-03', 'LOAN_INTEREST'), timing, null, TAX_RULES).taxYear).toBe(2026);
+    // A quarter spanning the year-end (due 15 January) belongs mostly to the old year.
+    expect(interestTiming(day('2027-01-14'), monthly(['2026-10-15', '2027-01-15']))).toMatchObject({
+      economicPeriod: { from: '2026-10-16', to: '2027-01-15' },
+      economicYear: 2026,
+    });
+  });
+
   it('"nearest" ties towards the later entry; the first entry’s period is the month before; no schedule is NO_ECONOMIC_PERIOD', () => {
     expect(interestTiming(day('2026-12-16'), monthly(['2026-12-01', '2026-12-31']))).toMatchObject({ dueDate: '2026-12-31' });
     expect(interestTiming(day('2027-01-01'), monthly(['2027-01-01']))).toMatchObject({
@@ -245,6 +257,7 @@ describe('the retained deposit (§58A, A11)', () => {
     closingDate: day('2027-06-30'),
     retainedAmount: eur('400.00'),
     propertyReferenceId: 'p-1',
+    propertyCandidates: ['p-1'],
     ...overrides,
   });
 
@@ -262,6 +275,16 @@ describe('the retained deposit (§58A, A11)', () => {
       rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
       flags: [],
     });
+  });
+
+  it('no PropertyReference is flagged, never silent: no reconciled rent, or several (review on #166)', () => {
+    const today = day('2027-10-30');
+    expect(deriveDepositTaxMeaning(closed({ propertyReferenceId: null, propertyCandidates: [] }), null, TAX_RULES, today).flags).toEqual([
+      { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'NO_RECONCILED_RENT' } },
+    ]);
+    expect(deriveDepositTaxMeaning(closed({ propertyReferenceId: null, propertyCandidates: ['p-2', 'p-1'] }), null, TAX_RULES, today).flags).toEqual([
+      { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTY_REFERENCES', candidates: ['p-1', 'p-2'] } },
+    ]);
   });
 
   it('its lines and treatments only; not counted when not CLOSED, nothing retained, or closed again', () => {
