@@ -647,7 +647,13 @@ export interface TaxClassificationRepository {
    * rest of its input; undefined for an unknown PropertyReference. With an `ownerPartyId` that names no Party of the
    * Realm, `ownerPartyFound` is false and nothing else is read.
    */
-  readTaxYear(propertyReferenceId: string, mreRealmId: string, year: number, ownerPartyId: string | null, today: BusinessDate): Promise<TaxYearRead | undefined>;
+  readTaxYear(
+    propertyReferenceId: string,
+    mreRealmId: string,
+    year: number,
+    ownerPartyId: string | null,
+    today: BusinessDate,
+  ): Promise<TaxYearRead | undefined>;
   /** Every distinct stored `ruleCode@version`, both references (§58B), across Realms (the start check, §58). */
   storedRuleReferences(): Promise<readonly RuleRef[]>;
 }

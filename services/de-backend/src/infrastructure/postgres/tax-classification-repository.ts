@@ -775,7 +775,11 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
     propertyReferenceId: string,
     year: number,
     today: BusinessDate,
-  ): Promise<{ readonly entries: { readonly item: TaxListItem; readonly listed: boolean }[]; readonly effects: Effects; readonly deposits: DepositTaxMeaning[] }> {
+  ): Promise<{
+    readonly entries: { readonly item: TaxListItem; readonly listed: boolean }[];
+    readonly effects: Effects;
+    readonly deposits: DepositTaxMeaning[];
+  }> {
     // §58A: every split that can count in `year`: booked in it or in the windows around it, or overridden to it.
     const days = widestWindowDays(this.registry);
     const from = days > 0 ? `${year - 1}-12-${String(32 - days).padStart(2, '0')}` : `${year}-01-01`;
@@ -784,11 +788,7 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
       .where((eb) =>
         eb.or([
           eb.and([eb('t.booking_date', '>=', from), eb('t.booking_date', '<=', to)]),
-          eb(
-            's.id',
-            'in',
-            eb.selectFrom('tax_classification').select('transaction_split_id').where('superseded_at', 'is', null).where('tax_year', '=', year),
-          ),
+          eb('s.id', 'in', eb.selectFrom('tax_classification').select('transaction_split_id').where('superseded_at', 'is', null).where('tax_year', '=', year)),
           // §58B: an election of an earlier year may have a part in `year` (at most 4 years back, 5 years).
           eb(
             's.id',
@@ -813,7 +813,8 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
       if (m.taxYear === year) entries.push({ item: { ...m, yearAmount: part ?? m.amount }, listed: true });
       else if (m.taxYear < year && m.counts && part !== undefined) entries.push({ item: { ...m, yearAmount: part }, listed: true });
       // §58C: the per-owner fold keeps a NOT_OWNED part in its year where §58B's fold moved it.
-      else if (m.taxYear < year && m.counts && m.distribution !== null) entries.push({ item: { ...m, yearAmount: Money.zero(m.amount.currency) }, listed: false });
+      else if (m.taxYear < year && m.counts && m.distribution !== null)
+        entries.push({ item: { ...m, yearAmount: Money.zero(m.amount.currency) }, listed: false });
     }
     for (const d of deposits) if (d.propertyReferenceId === propertyReferenceId) entries.push({ item: { ...d, yearAmount: d.amount }, listed: true });
     // By date (booking, closing, withdrawal or use date); on one date splits, deposits, withdrawals, uses; splits in
@@ -1079,7 +1080,9 @@ async function attributionInputOf(
     rows.map((r) => r.id),
   );
   const candidates: AttributionInput['candidates'][number][] = rows.flatMap((r) => {
-    const terms = new Map(reconciliations.filter((c) => c.transaction_id === r.transaction_id).map((c) => [`${c.mre_tenant_id}/${c.mre_rent_term}`, c] as const));
+    const terms = new Map(
+      reconciliations.filter((c) => c.transaction_id === r.transaction_id).map((c) => [`${c.mre_tenant_id}/${c.mre_rent_term}`, c] as const),
+    );
     // Without one term the rent has no economic period under any list (§58A): rentDueDays decides nothing.
     const [only] = terms.values();
     if (only === undefined || terms.size > 1) return [];

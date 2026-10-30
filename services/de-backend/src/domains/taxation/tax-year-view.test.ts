@@ -189,7 +189,12 @@ describe('the placement table (§58C)', () => {
         split({ amount: '2400.00', taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT' }),
       ]),
     );
-    expect([v.einnahmen.total.amount, v.werbungskosten.total.amount, v.result.amount.amount, v.result.kind]).toEqual(['10800.00', '5300.00', '5500.00', 'SURPLUS']);
+    expect([v.einnahmen.total.amount, v.werbungskosten.total.amount, v.result.amount.amount, v.result.kind]).toEqual([
+      '10800.00',
+      '5300.00',
+      '5500.00',
+      'SURPLUS',
+    ]);
     expect(v.notInView.items.map((i) => [i.amount.amount, i.lineAmount])).toEqual([['2400.00', null]]);
     expect(v.depreciation).toMatchObject({ status: 'DEPRECIATION_NOT_AVAILABLE', amount: null });
     expect(v.result.basis).toBe('BEFORE_DEPRECIATION');
@@ -215,7 +220,13 @@ describe('signs (§58C, §58A)', () => {
         split({ amount: '800.00', taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE' }),
         split({ amount: '50.00', taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', direction: 'INFLOW', refundOfYear: 2027 }),
         split({ amount: '30.00', taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', direction: 'INFLOW', refundOfYear: 2026 }),
-        split({ amount: '20.00', taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', direction: 'INFLOW', flags: [{ code: 'REFUND_YEAR_UNKNOWN', details: {} }] }),
+        split({
+          amount: '20.00',
+          taxCategory: 'MAINTENANCE',
+          treatment: 'DEDUCTIBLE',
+          direction: 'INFLOW',
+          flags: [{ code: 'REFUND_YEAR_UNKNOWN', details: {} }],
+        }),
         split({ amount: '4000.00', taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED' }),
         split({ amount: '400.00', taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED', direction: 'INFLOW', refundOfYear: 2026 }),
       ]),
@@ -297,7 +308,13 @@ describe('per owner (§58C, P7-D7)', () => {
 
   it('7 owners of 1/7 and 0.05: no part negative, each within a cent, the sum exact', () => {
     const parties = Array.from({ length: 7 }, (_, i) => `${String(i + 1).repeat(8)}-0000-4000-8000-000000000000`);
-    const parts = shareOut(5n, participantsOn(parties.map((p) => own(p, '1/7', '2020-01-01')), day('2027-06-01')));
+    const parts = shareOut(
+      5n,
+      participantsOn(
+        parties.map((p) => own(p, '1/7', '2020-01-01')),
+        day('2027-06-01'),
+      ),
+    );
     expect([...parts.values()].every((c) => c === 0n || c === 1n)).toBe(true);
     expect([...parts.values()].reduce((s, c) => s + c, 0n)).toBe(5n);
     expect(parties.slice(0, 5).map((p) => parts.get(p))).toEqual([1n, 1n, 1n, 1n, 1n]);
@@ -318,7 +335,9 @@ describe('per owner (§58C, P7-D7)', () => {
 
   it('an owner change during the year: each item takes the owners of its date; nothing is pro-rated by days', () => {
     const owners = [own(A, '1/2', '2026-01-01', '2027-06-30'), own(B, '1/2', '2026-01-01'), own(C, '1/2', '2027-07-01')];
-    const items = ['2027-01-03', '2027-06-30', '2027-07-01', '2027-12-01'].map((d) => split({ amount: '750.01', taxCategory: 'RENT', treatment: 'INCOME', bookingDate: d }));
+    const items = ['2027-01-03', '2027-06-30', '2027-07-01', '2027-12-01'].map((d) =>
+      split({ amount: '750.01', taxCategory: 'RENT', treatment: 'INCOME', bookingDate: d }),
+    );
     const read = readOf(items, owners);
     expect(lineOf(viewOf(read, 2027, A), 'RENT').items.map((i) => i.date)).toEqual(['2027-01-03', '2027-06-30']);
     expect(lineOf(viewOf(read, 2027, C), 'RENT').items.map((i) => i.date)).toEqual(['2027-07-01', '2027-12-01']);
@@ -357,7 +376,10 @@ describe('per owner (§58C, P7-D7)', () => {
       const cuts = [...new Set(Array.from({ length: n - 1 }, () => int(1, room - 1)))].sort((x, y) => x - y);
       while (cuts.length < n - 1) cuts.push(room - (n - 1 - cuts.length));
       const bounds = [0, ...[...new Set(cuts)].sort((x, y) => x - y).slice(0, n - 1), room];
-      const numerators = bounds.slice(1).map((b, i) => b - (bounds[i] as number)).filter((k) => k > 0);
+      const numerators = bounds
+        .slice(1)
+        .map((b, i) => b - (bounds[i] as number))
+        .filter((k) => k > 0);
       const parties = numerators.map((_, i) => `${String(run).padStart(4, '0')}${String(i).padStart(4, '0')}-0000-4000-8000-000000000000`);
       const owners = numerators.map((k, i) => own(parties[i] as string, `${k}/${denominator}`, '2020-01-01'));
       const items = Array.from({ length: int(1, 12) }, () => {
@@ -384,8 +406,8 @@ describe('per owner (§58C, P7-D7)', () => {
       const sections = (v: TaxYearView) => [...v.einnahmen.lines, ...v.werbungskosten.lines];
       for (const item of [...sections(property).flatMap((l) => l.items), ...property.capitalized.items]) {
         const a = cents(item.lineAmount);
-        const parts = ownerViews.map(
-          (ov) => cents([...sections(ov).flatMap((l) => l.items), ...ov.capitalized.items].find((i) => i.sourceId === item.sourceId)?.lineAmount),
+        const parts = ownerViews.map((ov) =>
+          cents([...sections(ov).flatMap((l) => l.items), ...ov.capitalized.items].find((i) => i.sourceId === item.sourceId)?.lineAmount),
         );
         const p = participantsOn(owners, item.date);
         const notOwnedPart = shareOut(a, p).get(NOT_OWNED) ?? 0n;
@@ -400,10 +422,16 @@ describe('per owner (§58C, P7-D7)', () => {
       }
       // Every line, both totals, capitalized and the result: summed from the parts, never distributed.
       property.einnahmen.lines.forEach((line, i) =>
-        expect(totals.reduce((s, t) => s + cents(t.einnahmen.lines[i]?.total), 0n), line.taxCategory).toBe(cents(line.total)),
+        expect(
+          totals.reduce((s, t) => s + cents(t.einnahmen.lines[i]?.total), 0n),
+          line.taxCategory,
+        ).toBe(cents(line.total)),
       );
       property.werbungskosten.lines.forEach((line, i) =>
-        expect(totals.reduce((s, t) => s + cents(t.werbungskosten.lines[i]?.total), 0n), line.taxCategory).toBe(cents(line.total)),
+        expect(
+          totals.reduce((s, t) => s + cents(t.werbungskosten.lines[i]?.total), 0n),
+          line.taxCategory,
+        ).toBe(cents(line.total)),
       );
       expect(totals.reduce((s, t) => s + cents(t.einnahmen.total), 0n)).toBe(cents(property.einnahmen.total));
       expect(totals.reduce((s, t) => s + cents(t.werbungskosten.total), 0n)).toBe(cents(property.werbungskosten.total));
@@ -457,7 +485,12 @@ describe('§ 82b per owner (§58C)', () => {
       null,
     ]);
     expect(yearsOf(owners, A).map((y) => (typeof y === 'object' ? (y?.amount ?? null) : y))).toEqual(['1500.00', '1500.00', '1500.00', null]);
-    expect(yearsOf(owners, B).map((y) => (typeof y === 'object' ? (y?.amount ?? null) : y))).toEqual(['1500.00', '3000.00', 'NOT_AN_OWNER_IN_YEAR', 'NOT_AN_OWNER_IN_YEAR']);
+    expect(yearsOf(owners, B).map((y) => (typeof y === 'object' ? (y?.amount ?? null) : y))).toEqual([
+      '1500.00',
+      '3000.00',
+      'NOT_AN_OWNER_IN_YEAR',
+      'NOT_AN_OWNER_IN_YEAR',
+    ]);
     expect(yearsOf(owners, C).map((y) => (typeof y === 'object' ? (y?.amount ?? null) : y))).toEqual(['NOT_AN_OWNER_IN_YEAR', null, null, null]);
     // The flag's details, and the item's distribution with §58B's yearAmount beside the folded lineAmount.
     const item = repair(owners);
@@ -491,13 +524,10 @@ describe('§ 82b per owner (§58C)', () => {
 
   it('every owner ending in the same year gives §58B’s fold (no DISTRIBUTION_FOLDED_PER_OWNER); NOT_OWNED keeps its year', () => {
     const owners = [own(A, '1/2', '2026-01-01', '2028-06-30'), own(B, '1/2', '2026-01-01', '2028-06-30'), own(C, '1/1', '2028-07-01')];
-    expect(yearsOf(owners)).toEqual([
-      { amount: '3000.00', flags: ['DISTRIBUTION_ENDED'] },
-      { amount: '6000.00', flags: ['DISTRIBUTION_ENDED'] },
-      null,
-      null,
+    expect(yearsOf(owners)).toEqual([{ amount: '3000.00', flags: ['DISTRIBUTION_ENDED'] }, { amount: '6000.00', flags: ['DISTRIBUTION_ENDED'] }, null, null]);
+    const fold = foldPerOwner({ amount: eur('9000.00'), firstYear: 2027, years: 3, rule: D82B, date: day('2027-09-15') }, [
+      own(A, '1/2', '2026-01-01', '2028-06-30'),
     ]);
-    const fold = foldPerOwner({ amount: eur('9000.00'), firstYear: 2027, years: 3, rule: D82B, date: day('2027-09-15') }, [own(A, '1/2', '2026-01-01', '2028-06-30')]);
     expect(Object.fromEntries([...fold.parts].map(([k, v]) => [k, Object.fromEntries(v)]))).toEqual({
       [A]: { 2027: 150000n, 2028: 300000n },
       [NOT_OWNED]: { 2027: 150000n, 2028: 150000n, 2029: 150000n },
@@ -527,12 +557,21 @@ describe('ATTRIBUTION_INPUT_CHANGED (§58C)', () => {
   const input = (ref: ReferenceHistory, override: number | null = null): AttributionInput => ({
     references: [ref],
     candidates: [
-      { sourceId: rentId, bookingDate: day('2027-12-29'), financialCategoryCode: 'RENT_BASE', mreTenantId: TENANT, mreRentTerm: '2028010100', taxYearOverride: override },
+      {
+        sourceId: rentId,
+        bookingDate: day('2027-12-29'),
+        financialCategoryCode: 'RENT_BASE',
+        mreTenantId: TENANT,
+        mreRentTerm: '2028010100',
+        taxYearOverride: override,
+      },
     ],
   });
 
   it('the lists rebuilt from the AuditRecords, newest first, back to the CREATED list', () => {
-    expect(listBefore([{ validFrom: day('2026-01-01'), day: 15 }], [{ validFrom: day('2026-01-01'), from: 3, to: 15 }])).toEqual([{ validFrom: '2026-01-01', day: 3 }]);
+    expect(listBefore([{ validFrom: day('2026-01-01'), day: 15 }], [{ validFrom: day('2026-01-01'), from: 3, to: 15 }])).toEqual([
+      { validFrom: '2026-01-01', day: 3 },
+    ]);
     expect(listBefore([{ validFrom: day('2026-01-01'), day: 15 }], [{ validFrom: day('2030-01-01'), from: null, to: 15 }])).toBeUndefined();
     const two = reference({
       rentDueDays: [
@@ -540,8 +579,18 @@ describe('ATTRIBUTION_INPUT_CHANGED (§58C)', () => {
         { validFrom: day('2030-01-01'), day: 1 },
       ],
       amendments: [
-        { auditRecordId: 'audit-3', newVersion: 3, amendedAt: new Date('2029-03-01T10:00:00Z'), changedEntries: [{ validFrom: day('2030-01-01'), from: null, to: 1 }] },
-        { auditRecordId: 'audit-2', newVersion: 2, amendedAt: new Date('2029-02-01T10:00:00Z'), changedEntries: [{ validFrom: day('2026-01-01'), from: 3, to: 15 }] },
+        {
+          auditRecordId: 'audit-3',
+          newVersion: 3,
+          amendedAt: new Date('2029-03-01T10:00:00Z'),
+          changedEntries: [{ validFrom: day('2030-01-01'), from: null, to: 1 }],
+        },
+        {
+          auditRecordId: 'audit-2',
+          newVersion: 2,
+          amendedAt: new Date('2029-02-01T10:00:00Z'),
+          changedEntries: [{ validFrom: day('2026-01-01'), from: 3, to: 15 }],
+        },
       ],
     });
     expect(amendmentLists(two)?.map((l) => [l.amendment.auditRecordId, l.before.map((e) => e.day), l.after.map((e) => e.day)])).toEqual([
@@ -590,7 +639,14 @@ describe('ATTRIBUTION_INPUT_CHANGED (§58C)', () => {
         { validFrom: day('2026-01-01'), day: 3 },
         { validFrom: day('2030-01-01'), day: 15 },
       ],
-      amendments: [{ auditRecordId: 'audit-2', newVersion: 2, amendedAt: new Date('2029-02-01T10:00:00Z'), changedEntries: [{ validFrom: day('2030-01-01'), from: null, to: 15 }] }],
+      amendments: [
+        {
+          auditRecordId: 'audit-2',
+          newVersion: 2,
+          amendedAt: new Date('2029-02-01T10:00:00Z'),
+          changedEntries: [{ validFrom: day('2030-01-01'), from: null, to: 15 }],
+        },
+      ],
     });
     expect(attributionChanges(input(later), 2028, TAX_RULES)).toEqual({ changes: [], inconsistent: [] });
     expect(attributionChanges(input(reference(), 2028), 2028, TAX_RULES).changes).toEqual([]);
@@ -598,7 +654,8 @@ describe('ATTRIBUTION_INPUT_CHANGED (§58C)', () => {
   });
 
   it('recorded on 31 December of the year: no flag for it; on 1 January of the next (Europe/Berlin): flagged', () => {
-    const at = (iso: string) => reference({ amendments: [{ ...(reference().amendments[0] as ReferenceHistory['amendments'][number]), amendedAt: new Date(iso) }] });
+    const at = (iso: string) =>
+      reference({ amendments: [{ ...(reference().amendments[0] as ReferenceHistory['amendments'][number]), amendedAt: new Date(iso) }] });
     // 31 December 2028, 13:00 in Berlin: 2028 was still running.
     expect(attributionChanges(input(at('2028-12-31T12:00:00Z')), 2028, TAX_RULES).changes).toEqual([]);
     // …but after 2027: the 2027 view is flagged.
@@ -664,10 +721,13 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
   });
 
   it('the cap: 5,000 items over all places (notInView and the deposits not attributed included) → the view; 5,001 → TAX_YEAR_TOO_LARGE', () => {
-    const notRelevant = Array.from({ length: TAX_YEAR_ITEM_LIMIT - 2 }, () => split({ amount: '1.00', taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT' }));
-    const at = (extra: number) => readOf([...notRelevant, ...Array.from({ length: extra }, () => split({ amount: '1.00', taxCategory: 'RENT', treatment: 'INCOME' }))], [], {
-      unattributedDeposits: [deposit([]), deposit([])],
-    });
+    const notRelevant = Array.from({ length: TAX_YEAR_ITEM_LIMIT - 2 }, () =>
+      split({ amount: '1.00', taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT' }),
+    );
+    const at = (extra: number) =>
+      readOf([...notRelevant, ...Array.from({ length: extra }, () => split({ amount: '1.00', taxCategory: 'RENT', treatment: 'INCOME' }))], [], {
+        unattributedDeposits: [deposit([]), deposit([])],
+      });
     expect(buildTaxYearView(at(0), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES }).kind).toBe('VIEW');
     expect(buildTaxYearView(at(1), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES })).toEqual({
       kind: 'TAX_YEAR_TOO_LARGE',
@@ -679,16 +739,40 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
   it('the levels of the review table; DEPRECIATION_NOT_AVAILABLE always open, so final is always false', () => {
     const item = { treatment: 'DEDUCTIBLE', origin: 'DEFAULT', reviewState: 'SUGGESTED' } as const;
     const confirmed = { treatment: 'DEDUCTIBLE', origin: 'CLASSIFICATION', reviewState: 'USER_CONFIRMED' } as const;
-    for (const code of ['DEPRECIATION_NOT_AVAILABLE', 'ATTRIBUTION_INPUT_CHANGED', 'ATTRIBUTION_HISTORY_INCONSISTENT', 'OWNERSHIP_INCOMPLETE', 'UNATTRIBUTED_ITEMS']) {
+    for (const code of [
+      'DEPRECIATION_NOT_AVAILABLE',
+      'ATTRIBUTION_INPUT_CHANGED',
+      'ATTRIBUTION_HISTORY_INCONSISTENT',
+      'OWNERSHIP_INCOMPLETE',
+      'UNATTRIBUTED_ITEMS',
+    ]) {
       expect(flagIsOpen(code, item), code).toBe(true);
     }
-    for (const code of ['NEEDS_REVIEW', 'UNCLASSIFIED', 'CLASSIFICATION_ON_CORRECTED_SPLIT', 'PREDECESSOR_CLASSIFIED', 'REFUND_YEAR_UNKNOWN', 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE']) {
+    for (const code of [
+      'NEEDS_REVIEW',
+      'UNCLASSIFIED',
+      'CLASSIFICATION_ON_CORRECTED_SPLIT',
+      'PREDECESSOR_CLASSIFIED',
+      'REFUND_YEAR_UNKNOWN',
+      'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE',
+    ]) {
       expect(flagIsOpen(code, confirmed), code).toBe(true);
     }
     expect(flagIsOpen('ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', item)).toBe(true);
     expect(flagIsOpen('ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', { ...confirmed, treatment: 'CAPITALIZED' })).toBe(false);
-    for (const code of ['ATTRIBUTED_BY_10_DAY_RULE', 'DUE_DATE_ASSUMED', 'ECONOMIC_PERIOD_ASSUMED', 'NO_ECONOMIC_PERIOD', 'WITHDRAWAL_DATE_ASSUMED', 'WEG_FINANCIAL_YEAR_NOT_CALENDAR']) {
-      expect([flagIsOpen(code, item), flagIsOpen(code, confirmed), flagIsOpen(code, { ...confirmed, reviewState: 'NEEDS_REVIEW' })], code).toEqual([true, false, true]);
+    for (const code of [
+      'ATTRIBUTED_BY_10_DAY_RULE',
+      'DUE_DATE_ASSUMED',
+      'ECONOMIC_PERIOD_ASSUMED',
+      'NO_ECONOMIC_PERIOD',
+      'WITHDRAWAL_DATE_ASSUMED',
+      'WEG_FINANCIAL_YEAR_NOT_CALENDAR',
+    ]) {
+      expect([flagIsOpen(code, item), flagIsOpen(code, confirmed), flagIsOpen(code, { ...confirmed, reviewState: 'NEEDS_REVIEW' })], code).toEqual([
+        true,
+        false,
+        true,
+      ]);
     }
     for (const code of [
       'VAT_NOT_SEPARATED',
@@ -707,7 +791,13 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
       readOf([
         split({ amount: '900.00', taxCategory: 'RENT', treatment: 'INCOME', flags: [tenDay] }),
         split({ amount: '900.00', taxCategory: 'RENT', treatment: 'INCOME', flags: [tenDay], origin: 'CLASSIFICATION', reviewState: 'USER_CONFIRMED' }),
-        split({ amount: '10.00', taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', flags: [{ code: 'VAT_NOT_SEPARATED', details: {} }], reviewState: 'NEEDS_REVIEW' }),
+        split({
+          amount: '10.00',
+          taxCategory: 'MAINTENANCE',
+          treatment: 'DEDUCTIBLE',
+          flags: [{ code: 'VAT_NOT_SEPARATED', details: {} }],
+          reviewState: 'NEEDS_REVIEW',
+        }),
       ]),
     );
     expect(v.review).toEqual({

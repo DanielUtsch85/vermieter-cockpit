@@ -25,7 +25,13 @@ const id = () => `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`;
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
 
-function meaning(amount: string, taxCategory: TaxMeaning['taxCategory'], treatment: TaxMeaning['treatment'], bookingDate: string, taxYear = Number(bookingDate.slice(0, 4))) {
+function meaning(
+  amount: string,
+  taxCategory: TaxMeaning['taxCategory'],
+  treatment: TaxMeaning['treatment'],
+  bookingDate: string,
+  taxYear = Number(bookingDate.slice(0, 4)),
+) {
   const sourceId = id();
   const m: TaxMeaning = {
     splitId: sourceId,
@@ -132,12 +138,16 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
     const base = await start(known);
     expect(await fields(await get(base, `/property-references/x/tax-years/2027`))).toEqual([{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
     for (const year of ['20x7', '-2027', '2027.0', '+2027']) {
-      expect(await fields(await get(base, `/property-references/${PR}/tax-years/${encodeURIComponent(year)}`)), year).toEqual([{ field: 'year', code: 'INVALID_FORMAT' }]);
+      expect(await fields(await get(base, `/property-references/${PR}/tax-years/${encodeURIComponent(year)}`)), year).toEqual([
+        { field: 'year', code: 'INVALID_FORMAT' },
+      ]);
     }
     for (const year of ['1999', '2101', '0']) {
       expect(await fields(await get(base, `/property-references/${PR}/tax-years/${year}`)), year).toEqual([{ field: 'year', code: 'OUT_OF_RANGE' }]);
     }
-    expect(await fields(await get(base, `/property-references/${PR}/tax-years/2027?ownerPartyId=x`))).toEqual([{ field: 'ownerPartyId', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, `/property-references/${PR}/tax-years/2027?ownerPartyId=x`))).toEqual([
+      { field: 'ownerPartyId', code: 'INVALID_FORMAT' },
+    ]);
     expect(await fields(await get(base, `/property-references/${PR}/tax-years/2027?year=2027`))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
     expect((await get(base, `/property-references/${PR}/tax-years/2000`)).status).toBe(200);
     expect((await get(base, `/property-references/${PR}/tax-years/2100`)).status).toBe(200);
@@ -237,7 +247,10 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       immediate: { amount: '0.00', currency: 'EUR' },
       distributed82b: { amount: '0.00', currency: 'EUR' },
     });
-    expect(v.capitalized).toMatchObject({ total: { amount: '5000.00', currency: 'EUR' }, items: [{ sourceId: repair.item.sourceId, lineAmount: { amount: '5000.00' } }] });
+    expect(v.capitalized).toMatchObject({
+      total: { amount: '5000.00', currency: 'EUR' },
+      items: [{ sourceId: repair.item.sourceId, lineAmount: { amount: '5000.00' } }],
+    });
     expect(v.notInView.items).toEqual([expect.objectContaining({ sourceId: principal.item.sourceId, lineAmount: null })]);
     expect(v.unclassified.items).toEqual([expect.objectContaining({ sourceId: other.item.sourceId, lineAmount: null })]);
     expect(v.notAttributed.items).toEqual([

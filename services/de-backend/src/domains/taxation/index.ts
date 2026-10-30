@@ -133,7 +133,14 @@ export {
 export type { DateSource, MeaFraction, OtherWegSource, WegNotCounted, WegSourceFacts, WegSourceFlag, WegTaxMeaning, WegTaxMeaningFlag } from './weg-sources.js';
 export { distributionOf, withTreatmentEffects } from './treatment-effects.js';
 export { amendmentLists, attributionChanges, listBefore } from './attribution-changes.js';
-export type { AttributionCandidate, AttributionChange, AttributionChanges, AttributionInput, ReferenceAmendment, ReferenceHistory } from './attribution-changes.js';
+export type {
+  AttributionCandidate,
+  AttributionChange,
+  AttributionChanges,
+  AttributionInput,
+  ReferenceAmendment,
+  ReferenceHistory,
+} from './attribution-changes.js';
 export {
   EINNAHMEN_LINES,
   NOT_OWNED,

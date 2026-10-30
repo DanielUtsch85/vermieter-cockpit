@@ -303,7 +303,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
     commands
       .taxYear({
         principal: principalOf(res),
-        propertyReferenceId: (rawId as string).toLowerCase(),
+        propertyReferenceId: rawId.toLowerCase(),
         year,
         ownerPartyId: query.data.ownerPartyId ?? null,
       })
@@ -706,7 +706,12 @@ function totalsDto(t: TaxYearTotals) {
     total: s.total.toJSON(),
     lines: s.lines.map((l) => ({ taxCategory: l.taxCategory, total: l.total.toJSON(), itemCount: l.itemCount, subtotals: subtotalsDto(l.subtotals) })),
   });
-  return { einnahmen: summary(t.einnahmen), werbungskosten: summary(t.werbungskosten), result: resultDto(t.result), capitalized: { total: t.capitalized.total.toJSON() } };
+  return {
+    einnahmen: summary(t.einnahmen),
+    werbungskosten: summary(t.werbungskosten),
+    result: resultDto(t.result),
+    capitalized: { total: t.capitalized.total.toJSON() },
+  };
 }
 
 function taxYearDto(v: TaxYearView) {

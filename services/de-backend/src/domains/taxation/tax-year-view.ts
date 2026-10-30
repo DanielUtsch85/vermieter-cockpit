@@ -153,7 +153,10 @@ export function participantsOn(ownerships: readonly ViewOwnership[], day: Busine
   for (const o of ownerships.filter((x) => covers(x, day)).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     const share = reduce(BigInt(o.share.numerator), BigInt(o.share.denominator));
     const seen = byParty.get(o.partyId);
-    byParty.set(o.partyId, seen === undefined ? { ownershipIds: [o.id], share } : { ownershipIds: [...seen.ownershipIds, o.id], share: addFraction(seen.share, share) });
+    byParty.set(
+      o.partyId,
+      seen === undefined ? { ownershipIds: [o.id], share } : { ownershipIds: [...seen.ownershipIds, o.id], share: addFraction(seen.share, share) },
+    );
   }
   const owners: Participant[] = [...byParty.entries()].map(([key, v]) => ({ key, ownershipIds: v.ownershipIds, share: v.share }));
   owners.sort((a, b) => {
@@ -379,11 +382,13 @@ interface Derived {
 
 const dateOf = (m: TaxListItem): BusinessDate =>
   m.sourceType === 'TRANSACTION_SPLIT' ? m.bookingDate : m.sourceType === 'DEPOSIT_CLOSING' ? (m.closingDate as BusinessDate) : m.date;
-const dateSourceOf = (m: TaxListItem): string => (m.sourceType === 'TRANSACTION_SPLIT' ? 'BOOKING' : m.sourceType === 'DEPOSIT_CLOSING' ? 'CLOSING' : m.dateSource);
+const dateSourceOf = (m: TaxListItem): string =>
+  m.sourceType === 'TRANSACTION_SPLIT' ? 'BOOKING' : m.sourceType === 'DEPOSIT_CLOSING' ? 'CLOSING' : m.dateSource;
 const directionOf = (m: TaxListItem): Direction | null => (m.sourceType === 'TRANSACTION_SPLIT' ? m.direction : null);
 const refundOfItem = (m: TaxListItem): RefundInfo | null => (m.sourceType === 'TRANSACTION_SPLIT' ? m.refund : null);
 const distributionOfItem = (m: TaxListItem): Distribution | null => (m.sourceType === 'DEPOSIT_CLOSING' ? null : m.distribution);
-const positionOf = (m: TaxListItem): number | null => (m.sourceType === 'WEG_RESERVE_WITHDRAWAL' || m.sourceType === 'WEG_ASSESSMENT_USE' ? m.sourcePosition : null);
+const positionOf = (m: TaxListItem): number | null =>
+  m.sourceType === 'WEG_RESERVE_WITHDRAWAL' || m.sourceType === 'WEG_ASSESSMENT_USE' ? m.sourcePosition : null;
 const keyOfSource = (m: { readonly sourceType: string; readonly sourceId: string; readonly sourcePosition?: number | null }) =>
   `${m.sourceType}/${m.sourceId}/${m.sourcePosition ?? ''}`;
 
@@ -408,7 +413,10 @@ function deriveItem(source: TaxListItem, year: number, ownerships: readonly View
   let folded: Derived['folded'] = null;
   if (distribution !== null && source.counts && placement.place === 'LINE') {
     // § 82b: the per-owner fold decides the parts of `year`; the property's part is their sum.
-    const fold = foldPerOwner({ amount: source.amount, firstYear: distribution.firstYear, years: distribution.years, rule: distribution.rule, date }, ownerships);
+    const fold = foldPerOwner(
+      { amount: source.amount, firstYear: distribution.firstYear, years: distribution.years, rule: distribution.rule, date },
+      ownerships,
+    );
     participants = fold.participants;
     for (const [key, byYear] of fold.parts) {
       const cents = byYear.get(year);
@@ -441,7 +449,8 @@ function deriveItem(source: TaxListItem, year: number, ownerships: readonly View
   }
   if (date < `${year}-01-01` || date > `${year}-12-31`) {
     const nearest = (date < `${year}-01-01` ? `${year}-01-01` : `${year}-12-31`) as BusinessDate;
-    if (!sameOwnerships(ownerships, date, nearest)) flags.push({ code: 'SHARE_DATE_OUTSIDE_TAX_YEAR', details: { shareDate: date, nearestDayOfYear: nearest } });
+    if (!sameOwnerships(ownerships, date, nearest))
+      flags.push({ code: 'SHARE_DATE_OUTSIDE_TAX_YEAR', details: { shareDate: date, nearestDayOfYear: nearest } });
   }
   const moved = changed.flatMap((c) =>
     c.items
@@ -497,8 +506,7 @@ function itemAt(d: Derived, year: number, currency: string, participant: string 
     treatmentRule: m.sourceType === 'DEPOSIT_CLOSING' ? null : m.treatmentRule,
     attribution: m.sourceType === 'DEPOSIT_CLOSING' ? null : m.attribution,
     refund: refundOfItem(m),
-    distribution:
-      distribution === null ? null : { ...distribution, yearAmount: partOf(distribution, year) ?? money(0n), ownerParts },
+    distribution: distribution === null ? null : { ...distribution, yearAmount: partOf(distribution, year) ?? money(0n), ownerParts },
     suggestion: m.sourceType === 'DEPOSIT_CLOSING' ? null : m.suggestion,
     share:
       p === undefined
@@ -575,7 +583,8 @@ function sectionsOf(derived: readonly Derived[], year: number, currency: string,
   const werbungskosten = section(WERBUNGSKOSTEN_LINES);
   const resultCents = centsOf(einnahmen.total) - centsOf(werbungskosten.total);
   const capitalizedItems = derived.filter((d) => d.placement.place === 'CAPITALIZED' && takesPart(d));
-  const listed = (place: Placement['place']) => derived.filter((d) => d.placement.place === place && takesPart(d)).map((d) => itemAt(d, year, currency, participant));
+  const listed = (place: Placement['place']) =>
+    derived.filter((d) => d.placement.place === place && takesPart(d)).map((d) => itemAt(d, year, currency, participant));
   return {
     einnahmen,
     werbungskosten,
@@ -656,7 +665,12 @@ export function reviewOf(yearFlags: readonly ViewFlag[], items: readonly TaxYear
   return { final: open.size === 0, open: list(open), info: list(info), reviewStates };
 }
 
-export function ruleVersionsOf(items: readonly TaxYearItem[], checks: readonly AnschaffungsnaheCheck[], registry: RuleRegistry, today: BusinessDate): TaxYearRuleVersion[] {
+export function ruleVersionsOf(
+  items: readonly TaxYearItem[],
+  checks: readonly AnschaffungsnaheCheck[],
+  registry: RuleRegistry,
+  today: BusinessDate,
+): TaxYearRuleVersion[] {
   const counted = new Map<string, { ref: RuleRef; count: number }>();
   const count = (refs: readonly (RuleRef | null | undefined)[]) => {
     const keys = new Map<string, RuleRef>();
@@ -694,9 +708,7 @@ export function buildTaxYearView(
   const { year, ownerPartyId, today, registry } = options;
   const currency = 'EUR';
   const attribution = attributionChanges(read.attribution, year, registry);
-  const derived = read.sources
-    .map((s) => deriveItem(s.item, year, read.ownerships, attribution.changes))
-    .filter((d): d is Derived => d !== undefined);
+  const derived = read.sources.map((s) => deriveItem(s.item, year, read.ownerships, attribution.changes)).filter((d): d is Derived => d !== undefined);
 
   // The deposits not attributed (§58C): NO_RECONCILED_RENT in every view, SEVERAL_PROPERTY_REFERENCES in each candidate's.
   const unattributed = read.unattributedDeposits.filter(
@@ -772,14 +784,21 @@ export function buildTaxYearView(
     const keys = new Set(derived.flatMap((d) => [...d.parts.keys()]));
     const totalsOf = (key: string): TaxYearTotals => {
       const s = sectionsOf(derived, year, currency, key);
-      return { einnahmen: withoutItems(s.einnahmen), werbungskosten: withoutItems(s.werbungskosten), result: s.result, capitalized: { total: s.capitalized.total } };
+      return {
+        einnahmen: withoutItems(s.einnahmen),
+        werbungskosten: withoutItems(s.werbungskosten),
+        result: s.result,
+        capitalized: { total: s.capitalized.total },
+      };
     };
     owners = [...keys]
       .filter((k) => k !== NOT_OWNED)
       .sort()
       .map((key) => ({
         ownerPartyId: key,
-        ownershipIds: [...new Set(derived.filter((d) => d.parts.has(key)).flatMap((d) => d.participants.find((p) => p.key === key)?.ownershipIds ?? []))].sort(),
+        ownershipIds: [
+          ...new Set(derived.filter((d) => d.parts.has(key)).flatMap((d) => d.participants.find((p) => p.key === key)?.ownershipIds ?? [])),
+        ].sort(),
         ...totalsOf(key),
       }));
     notOwned = keys.has(NOT_OWNED) ? totalsOf(NOT_OWNED) : null;

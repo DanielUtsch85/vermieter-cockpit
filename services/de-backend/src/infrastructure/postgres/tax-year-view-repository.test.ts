@@ -325,8 +325,18 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     const none = await retained(nextTenant());
     const foreign = await retained(nextTenant(), OTHER_REALM);
     const notAttributed = async (pr: string) => viewOf(await view(pr, 2027)).notAttributed.items.map((i) => [i.sourceId, i.notAttributed?.reason]);
-    expect(await notAttributed(first)).toEqual(expect.arrayContaining([[several, 'SEVERAL_PROPERTY_REFERENCES'], [none, 'NO_RECONCILED_RENT']]));
-    expect(await notAttributed(second)).toEqual(expect.arrayContaining([[several, 'SEVERAL_PROPERTY_REFERENCES'], [none, 'NO_RECONCILED_RENT']]));
+    expect(await notAttributed(first)).toEqual(
+      expect.arrayContaining([
+        [several, 'SEVERAL_PROPERTY_REFERENCES'],
+        [none, 'NO_RECONCILED_RENT'],
+      ]),
+    );
+    expect(await notAttributed(second)).toEqual(
+      expect.arrayContaining([
+        [several, 'SEVERAL_PROPERTY_REFERENCES'],
+        [none, 'NO_RECONCILED_RENT'],
+      ]),
+    );
     const elsewhere = await notAttributed(third);
     expect(elsewhere).toContainEqual([none, 'NO_RECONCILED_RENT']);
     expect(elsewhere.map(([id]) => id)).not.toContain(several);
@@ -377,8 +387,11 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
       const deadline = Date.now() + 5_000;
       while (
         Number(
-          (await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%weg_membership%' AND pid <> pg_backend_pid()`))
-            .rows[0].count,
+          (
+            await pool.query(
+              `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%weg_membership%' AND pid <> pg_backend_pid()`,
+            )
+          ).rows[0].count,
         ) < 1
       ) {
         if (Date.now() > deadline) throw new Error('the read does not wait');

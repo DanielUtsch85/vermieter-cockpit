@@ -78,9 +78,7 @@ export function listBefore(after: readonly RentDueDay[], changed: readonly Chang
     if (entry.from === null) days.delete(entry.validFrom);
     else days.set(entry.validFrom, entry.from);
   }
-  return [...days.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([validFrom, day]) => ({ validFrom: validFrom as BusinessDate, day }));
+  return [...days.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([validFrom, day]) => ({ validFrom: validFrom as BusinessDate, day }));
 }
 
 /**
