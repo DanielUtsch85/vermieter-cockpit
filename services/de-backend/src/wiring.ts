@@ -12,6 +12,7 @@ import {
   type MreTenantLookup,
   type PrincipalVerifier,
 } from './application/index.js';
+import { createHash } from 'node:crypto';
 import { MreAuthError, MreClientError, bearerToken, verifyMrePrincipal, type MreClient } from './integrations/mre/index.js';
 
 /**
@@ -30,6 +31,72 @@ export function mrePrincipalVerifier(client: MreClient): PrincipalVerifier {
       throw error;
     }
   };
+}
+
+export interface PrincipalCacheOptions {
+  /** Upper bound on an entry's lifetime, whatever the token's `exp` says. */
+  readonly maxTtlMs?: number;
+  /** Upper bound on entries; the least recently used one is dropped first. */
+  readonly maxEntries?: number;
+  readonly now?: () => number;
+}
+
+/**
+ * Caches successful verifications per token and Realm (issue #161, mre-integration.md §47.1), so a page loading several
+ * resources asks MRE once. An entry lives until the token's `exp`, at most `maxTtlMs`; `exp` is read only after MRE has
+ * accepted the token, so it is signed. Rejections (401, 403, 503) are never cached; concurrent requests for the same key
+ * share one MRE call. The cache is per process: each instance verifies for itself.
+ */
+export function cachingPrincipalVerifier(verify: PrincipalVerifier, options: PrincipalCacheOptions = {}): PrincipalVerifier {
+  const maxTtlMs = options.maxTtlMs ?? 30_000;
+  const maxEntries = options.maxEntries ?? 1000;
+  const now = options.now ?? Date.now;
+  const entries = new Map<string, { principal: Awaited<ReturnType<PrincipalVerifier>>; expiresAt: number }>();
+  const inFlight = new Map<string, ReturnType<PrincipalVerifier>>();
+
+  return async (authorizationHeader, mreRealmId) => {
+    const token = bearerToken(authorizationHeader);
+    if (token === undefined || mreRealmId === undefined || mreRealmId === '') return verify(authorizationHeader, mreRealmId);
+    // The token itself is not kept as a key; the separator keeps (token, Realm) pairs distinct.
+    const key = `${createHash('sha256').update(token).digest('hex')}\u0000${mreRealmId}`;
+
+    const hit = entries.get(key);
+    if (hit !== undefined) {
+      entries.delete(key);
+      if (hit.expiresAt > now()) {
+        entries.set(key, hit);
+        return hit.principal;
+      }
+    }
+    const pending = inFlight.get(key);
+    if (pending !== undefined) return pending;
+
+    const verification = verify(authorizationHeader, mreRealmId);
+    inFlight.set(key, verification);
+    try {
+      const principal = await verification;
+      const exp = tokenExpiryMs(token);
+      const expiresAt = Math.min(exp ?? -Infinity, now() + maxTtlMs);
+      if (expiresAt > now()) {
+        entries.set(key, { principal, expiresAt });
+        if (entries.size > maxEntries) entries.delete(entries.keys().next().value as string);
+      }
+      return principal;
+    } finally {
+      inFlight.delete(key);
+    }
+  };
+}
+
+/** The JWT's `exp` in milliseconds, or undefined without a numeric one (then nothing is cached). */
+function tokenExpiryMs(token: string): number | undefined {
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf8'));
+    const exp = typeof payload === 'object' && payload !== null ? (payload as { exp?: unknown }).exp : undefined;
+    return typeof exp === 'number' && Number.isFinite(exp) ? exp * 1000 : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
