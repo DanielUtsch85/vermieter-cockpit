@@ -49,6 +49,8 @@ import {
   confirmAnnualStatement,
   createAnnualStatement,
   getAnnualStatement,
+  getSettlementProposal,
+  getStatementComparison,
   listAnnualStatements,
   replaceAnnualStatement,
   voidAnnualStatement,
@@ -312,6 +314,8 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         replace: replaceAnnualStatement({ repository: new PostgresWegAnnualStatementRepository(db) }),
         confirm: confirmAnnualStatement({ repository: new PostgresWegAnnualStatementRepository(db) }),
         void: voidAnnualStatement({ repository: new PostgresWegAnnualStatementRepository(db) }),
+        comparison: getStatementComparison({ repository: new PostgresWegAnnualStatementRepository(db) }),
+        settlementProposal: getSettlementProposal({ repository: new PostgresWegAnnualStatementRepository(db) }),
       },
       rentReconciliations: {
         create: createReconciliation({ repository: new PostgresRentReconciliationRepository(db), lookupMreRentTerm: mreRentTermLookup(client) }),

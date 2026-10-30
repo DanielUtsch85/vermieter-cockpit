@@ -5,8 +5,18 @@ import {
   AnnualStatementNotFoundError,
   InvalidSupersedesError,
   MembershipHasStatementsError,
+  InvalidWegStatementSplitError,
   MembershipNotActiveError,
+  NothingToSettleError,
   PeriodOutsideYearError,
+  SettlementDirectionMismatchError,
+  SettlementNotProposableError,
+  StatementNotConfirmedError,
+  StatementNotCurrentError,
+  TransactionNotFoundError,
+  WegStatementNotFoundError,
+  type SettlementProposal,
+  type StatementComparison,
   StatementExistsError,
   StatementNotDraftError,
   StatementOutsideMembershipError,
@@ -294,5 +304,113 @@ describe('the rules VC-6-03 adds elsewhere', () => {
       code: 'CONFLICT',
       details: { reason: 'MEMBERSHIP_HAS_STATEMENTS', membershipId: MEMBERSHIP, statementIds: [STATEMENT] },
     });
+  });
+});
+
+describe('§51: the comparison and the settlement proposal', () => {
+  const TX = '8b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3c';
+  const UNIT = '9b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3c';
+  const comparison = {
+    statementId: STATEMENT,
+    membershipId: MEMBERSHIP,
+    propertyReferenceId: UNIT,
+    financialYear: 2025,
+    periodFrom: '2025-01-01',
+    periodUntil: '2025-12-31',
+    status: 'CONFIRMED',
+    classes: {
+      RECOVERABLE: { paid: eur('1200.00'), actual: eur('1000.00'), difference: eur('-200.00') },
+      NON_RECOVERABLE: { paid: eur('600.00'), actual: eur('500.00'), difference: eur('-100.00') },
+      RESERVE: { paid: eur('600.00'), actual: eur('600.00'), difference: eur('0.00') },
+    },
+    advances: { requested: eur('2400.00'), counted: eur('2400.00'), unpaidAdvances: eur('0.00') },
+    settlementPeak: eur('-300.00'),
+    settlement: {
+      settledBy: [{ transactionId: TX, statementId: OLD, bookingDate: '2026-05-02', amount: eur('-300.00') }],
+      settled: eur('-300.00'),
+      open: eur('0.00'),
+    },
+    reserveWithdrawals: [{ position: 1, description: 'Dach', withdrawal: eur('3000.00'), unitShare: eur('75.00') }],
+    flags: [{ code: 'SETTLED_AGAINST_SUPERSEDED', details: { transactionIds: [TX] } }],
+  } as unknown as StatementComparison;
+  const proposal = {
+    transactionId: TX,
+    statementId: STATEMENT,
+    amount: eur('300.00'),
+    direction: 'INFLOW',
+    settlementPeak: eur('-300.00'),
+    splits: [{ financialCategoryCode: 'WEG_RECOVERABLE', propertyReferenceId: UNIT, wegAnnualStatementId: STATEMENT, amount: eur('200.00') }],
+    flags: [{ code: 'AMOUNT_DIFFERS_FROM_PEAK', details: { difference: eur('0.01') } }],
+  } as unknown as SettlementProposal;
+
+  it('GET …/comparison: signed Money as JSON, flags, withdrawals', async () => {
+    const seen: unknown[] = [];
+    const base = await start({ wegAnnualStatements: { comparison: async (input) => (seen.push(input), comparison) } });
+    const res = await call(base, 'GET', `/weg-annual-statements/${STATEMENT}/comparison`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      classes: { RECOVERABLE: { paid: money('1200.00'), actual: money('1000.00'), difference: money('-200.00') } },
+      advances: { unpaidAdvances: money('0.00') },
+      settlementPeak: money('-300.00'),
+      settlement: { settledBy: [{ transactionId: TX, statementId: OLD, amount: money('-300.00') }], open: money('0.00') },
+      reserveWithdrawals: [{ position: 1, withdrawal: money('3000.00'), unitShare: money('75.00') }],
+      flags: [{ code: 'SETTLED_AGAINST_SUPERSEDED', details: { transactionIds: [TX] } }],
+    });
+    expect(seen[0]).toMatchObject({ statementId: STATEMENT });
+    expect((await call(base, 'GET', '/weg-annual-statements/x/comparison')).status).toBe(400);
+  });
+
+  it('GET …/settlement-proposal: the splits name the statement; statementId required', async () => {
+    const seen: unknown[] = [];
+    const base = await start({ wegAnnualStatements: { settlementProposal: async (input) => (seen.push(input), proposal) } });
+    const res = await call(base, 'GET', `/transactions/${TX}/settlement-proposal?statementId=${STATEMENT.toUpperCase()}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      direction: 'INFLOW',
+      splits: [{ financialCategoryCode: 'WEG_RECOVERABLE', wegAnnualStatementId: STATEMENT, amount: money('200.00') }],
+      flags: [{ code: 'AMOUNT_DIFFERS_FROM_PEAK', details: { difference: money('0.01') } }],
+    });
+    expect(seen[0]).toMatchObject({ transactionId: TX, statementId: STATEMENT });
+    expect((await call(base, 'GET', `/transactions/${TX}/settlement-proposal`)).status).toBe(400);
+    expect((await call(base, 'GET', `/transactions/${TX}/settlement-proposal?statementId=x`)).status).toBe(400);
+    expect((await call(base, 'GET', `/transactions/${TX}/settlement-proposal?statementId=${STATEMENT}&extra=1`)).status).toBe(400);
+  });
+
+  it.each([
+    ['comparison', new StatementNotConfirmedError(STATEMENT, 'DRAFT'), 409, 'CONFLICT', { reason: 'STATEMENT_NOT_CONFIRMED', status: 'DRAFT' }],
+    ['comparison', new AnnualStatementNotFoundError(STATEMENT), 404, 'NOT_FOUND', { statementId: STATEMENT }],
+    ['proposal', new TransactionNotFoundError(TX), 404, 'NOT_FOUND', { transactionId: TX }],
+    ['proposal', new SettlementNotProposableError('CONFIRMED'), 409, 'CONFLICT', { reason: 'NOT_PROPOSABLE', status: 'CONFIRMED' }],
+    [
+      'proposal',
+      new StatementNotCurrentError(STATEMENT, 'SUPERSEDED', OLD),
+      409,
+      'CONFLICT',
+      { reason: 'STATEMENT_NOT_CURRENT', wegAnnualStatementId: STATEMENT, status: 'SUPERSEDED', supersededBy: OLD },
+    ],
+    ['proposal', new NothingToSettleError(STATEMENT), 409, 'CONFLICT', { reason: 'NOTHING_TO_SETTLE', statementId: STATEMENT }],
+    ['proposal', new SettlementDirectionMismatchError('INFLOW'), 422, 'SETTLEMENT_DIRECTION_MISMATCH', { expected: 'INFLOW' }],
+  ])('%s: %s → %i %s', async (route, error, status, code, details) => {
+    const reject = async () => Promise.reject(error);
+    const base = await start({ wegAnnualStatements: { comparison: reject, settlementProposal: reject } });
+    const res =
+      route === 'comparison'
+        ? await call(base, 'GET', `/weg-annual-statements/${STATEMENT}/comparison`)
+        : await call(base, 'GET', `/transactions/${TX}/settlement-proposal?statementId=${STATEMENT}`);
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject({ code, details });
+  });
+
+  it.each([
+    [new WegStatementNotFoundError(STATEMENT), 404, 'NOT_FOUND', { wegAnnualStatementId: STATEMENT }],
+    [new InvalidWegStatementSplitError(2, 'UNIT'), 422, 'INVALID_WEG_STATEMENT_SPLIT', { position: 2, reason: 'UNIT' }],
+    [new StatementNotCurrentError(STATEMENT, 'DRAFT', null), 409, 'CONFLICT', { reason: 'STATEMENT_NOT_CURRENT', status: 'DRAFT' }],
+  ])('splits: %s → %i %s', async (error, status, code, details) => {
+    const base = await start({ transactions: { setSplits: async () => Promise.reject(error) } });
+    const res = await call(base, 'PUT', `/transactions/${TX}/splits`, {
+      splits: [{ amount: money('300.00'), financialCategoryCode: 'WEG_NON_RECOVERABLE', propertyReferenceId: UNIT, wegAnnualStatementId: STATEMENT }],
+    });
+    expect(res.status).toBe(status);
+    expect(await errorOf(res)).toMatchObject({ code, details });
   });
 });

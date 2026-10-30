@@ -1,5 +1,6 @@
 import type { AuditActor, BusinessDate, Money, VersionConflict } from '../../shared/index.js';
 import { centsOf, eur, type CostGroup } from './economic-plan.js';
+import type { ComparisonContext, SettlementContext } from './statement-effects.js';
 import type { Page, PageRequest } from './weg.js';
 
 /**
@@ -415,4 +416,8 @@ export interface WegAnnualStatementRepository {
   findStatement(id: string, mreRealmId: string): Promise<StatementView | undefined>;
   /** The membership's statements without their lines, by `financialYear`, `createdAt`, id; undefined for an unknown membership. */
   listStatements(membershipId: string, mreRealmId: string, filter: StatementFilter, page: PageRequest): Promise<Page<StatementView> | undefined>;
+  /** §51: one `REPEATABLE READ READ ONLY` snapshot of the statement, its unit's counted WEG splits and its settlements. */
+  comparisonContext(statementId: string, mreRealmId: string): Promise<ComparisonContext>;
+  /** §51: the same snapshot with the Transaction to settle, checked in the proposal's order. */
+  settlementContext(transactionId: string, statementId: string, mreRealmId: string): Promise<SettlementContext>;
 }

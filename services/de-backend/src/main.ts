@@ -47,6 +47,8 @@ import {
   confirmAnnualStatement,
   createAnnualStatement,
   getAnnualStatement,
+  getSettlementProposal,
+  getStatementComparison,
   listAnnualStatements,
   replaceAnnualStatement,
   voidAnnualStatement,
@@ -280,6 +282,8 @@ const app = createApp({
     replace: replaceAnnualStatement({ repository: wegStatements }),
     confirm: confirmAnnualStatement({ repository: wegStatements }),
     void: voidAnnualStatement({ repository: wegStatements }),
+    comparison: getStatementComparison({ repository: wegStatements }),
+    settlementProposal: getSettlementProposal({ repository: wegStatements }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

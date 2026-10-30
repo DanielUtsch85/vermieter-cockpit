@@ -11,6 +11,8 @@ import {
   createWeg,
   endMembership,
   getAnnualStatement,
+  getSettlementProposal,
+  getStatementComparison,
   listAnnualStatements,
   replaceAnnualStatement,
   voidAnnualStatement,
@@ -73,6 +75,8 @@ describe.skipIf(databaseUrl === undefined)('Jahresabrechnung (VC-6-03) end to en
           replace: replaceAnnualStatement({ repository: statements }),
           confirm: confirmAnnualStatement({ repository: statements }),
           void: voidAnnualStatement({ repository: statements }),
+          comparison: getStatementComparison({ repository: statements }),
+          settlementProposal: getSettlementProposal({ repository: statements }),
         },
       }),
     });

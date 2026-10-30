@@ -56,6 +56,8 @@ export const split = z
     loanId: z.string().regex(RESOURCE_ID).nullish(),
     // A security deposit's receipt, repayment or interest credit (§47.2); the rest of its rules need the database.
     securityDepositId: z.string().regex(RESOURCE_ID).nullish(),
+    // The settlement of a Jahresabrechnung (§51); the rest of its rules need the database.
+    wegAnnualStatementId: z.string().regex(RESOURCE_ID).nullish(),
     description: z.string().trim().max(500).nullish(),
     // A split has no direction of its own: it inherits the Transaction's (§17.4).
     direction: z.undefined(),
@@ -73,6 +75,12 @@ export const split = z
         if (typeof s[field] === 'string') ctx.addIssue({ code: 'custom', path: [field], params: { code: 'NOT_ALLOWED_WITH_SECURITY_DEPOSIT' } });
       }
     }
+    // A settlement is the unit's WEG cash, never a Loan's or a deposit's (§51).
+    if (typeof s.wegAnnualStatementId === 'string') {
+      for (const field of ['loanId', 'securityDepositId'] as const) {
+        if (typeof s[field] === 'string') ctx.addIssue({ code: 'custom', path: [field], params: { code: 'NOT_ALLOWED_WITH_WEG_STATEMENT' } });
+      }
+    }
   });
 
 type SplitBody = z.infer<typeof split>;
@@ -85,6 +93,7 @@ export function toSplitInput(s: SplitBody) {
     propertyReferenceId: s.propertyReferenceId?.toLowerCase() ?? null,
     loanId: s.loanId?.toLowerCase() ?? null,
     securityDepositId: s.securityDepositId?.toLowerCase() ?? null,
+    wegAnnualStatementId: s.wegAnnualStatementId?.toLowerCase() ?? null,
     description: s.description === undefined || s.description === null || s.description === '' ? null : s.description,
   };
 }
@@ -213,6 +222,7 @@ export function toSplitDto(s: TransactionSplit) {
     propertyReferenceId: s.propertyReferenceId,
     loanId: s.loanId,
     securityDepositId: s.securityDepositId,
+    wegAnnualStatementId: s.wegAnnualStatementId ?? null,
     description: s.description,
   };
 }

@@ -1,5 +1,10 @@
 import {
+  deriveComparison,
+  proposeSettlement,
   statementFingerprint,
+  type Comparison,
+  type ProposedSettlementSplit,
+  type SettlementFlag,
   type InvalidSupersedesReason,
   type NewAnnualStatement,
   type Page,
@@ -11,9 +16,10 @@ import {
   type StatementView,
   type WegAnnualStatementRepository,
 } from '../domains/weg/index.js';
-import type { BusinessDate } from '../shared/index.js';
+import type { BusinessDate, Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { StatementNotCurrentError, TransactionNotFoundError } from './transaction-splits.js';
 import { MembershipNotActiveError, WegMembershipNotFoundError } from './wegs.js';
 
 /**
@@ -233,5 +239,135 @@ export function listAnnualStatements(deps: { readonly repository: WegAnnualState
     const result = await deps.repository.listStatements(membershipId, principal.mreRealmId, filter, page);
     if (result === undefined) throw new WegMembershipNotFoundError(membershipId);
     return result;
+  };
+}
+
+/** The comparison reads a `CONFIRMED` or `SUPERSEDED` statement (§51 → 409 STATEMENT_NOT_CONFIRMED). */
+export class StatementNotConfirmedError extends Error {
+  override readonly name = 'StatementNotConfirmedError';
+
+  constructor(
+    readonly statementId: string,
+    readonly status: string,
+  ) {
+    super(`Annual statement ${statementId} is ${status}`);
+  }
+}
+
+/** Only an unconfirmed Transaction gets a settlement proposal (§51 → 409 NOT_PROPOSABLE). */
+export class SettlementNotProposableError extends Error {
+  override readonly name = 'SettlementNotProposableError';
+
+  constructor(readonly status: string) {
+    super(`A Transaction in ${status} gets no settlement proposal`);
+  }
+}
+
+/** The statement's Abrechnungsspitze is 0 (§51 → 409 NOTHING_TO_SETTLE). */
+export class NothingToSettleError extends Error {
+  override readonly name = 'NothingToSettleError';
+
+  constructor(readonly statementId: string) {
+    super(`Annual statement ${statementId} has nothing to settle`);
+  }
+}
+
+/** A back-payment is an OUTFLOW, a refund an INFLOW (§51 → 422 SETTLEMENT_DIRECTION_MISMATCH). */
+export class SettlementDirectionMismatchError extends Error {
+  override readonly name = 'SettlementDirectionMismatchError';
+
+  constructor(readonly expected: 'INFLOW' | 'OUTFLOW') {
+    super(`The settlement is an ${expected}`);
+  }
+}
+
+export interface StatementComparison extends Comparison {
+  readonly statementId: string;
+  readonly membershipId: string;
+  readonly propertyReferenceId: string;
+  readonly financialYear: number;
+  readonly periodFrom: BusinessDate;
+  readonly periodUntil: BusinessDate;
+  readonly status: string;
+}
+
+export type GetStatementComparison = (input: { readonly principal: RealmPrincipal; readonly statementId: string }) => Promise<StatementComparison>;
+
+/** §51: a read, never a write. */
+export function getStatementComparison(deps: { readonly repository: WegAnnualStatementRepository }): GetStatementComparison {
+  return async ({ principal, statementId }) => {
+    const context = await deps.repository.comparisonContext(statementId, principal.mreRealmId);
+    if (context.kind === 'NOT_FOUND') throw new AnnualStatementNotFoundError(statementId);
+    if (context.kind === 'STATEMENT_NOT_CONFIRMED') throw new StatementNotConfirmedError(statementId, context.status);
+    const { statement } = context;
+    return {
+      statementId: statement.id,
+      membershipId: statement.membershipId,
+      propertyReferenceId: context.propertyReferenceId,
+      financialYear: statement.financialYear,
+      periodFrom: statement.periodFrom,
+      periodUntil: statement.periodUntil,
+      status: statement.status,
+      ...deriveComparison(context),
+    };
+  };
+}
+
+export type SettlementProposalFlag =
+  | SettlementFlag
+  | { readonly code: 'ALREADY_SPLIT'; readonly details: Record<string, never> }
+  | { readonly code: 'ALREADY_SETTLED'; readonly details: { readonly transactionIds: readonly string[] } };
+
+export interface SettlementProposal {
+  readonly transactionId: string;
+  readonly statementId: string;
+  readonly amount: Money;
+  readonly direction: 'INFLOW' | 'OUTFLOW';
+  readonly settlementPeak: Money;
+  readonly splits: readonly (ProposedSettlementSplit & { readonly propertyReferenceId: string; readonly wegAnnualStatementId: string })[];
+  readonly flags: readonly SettlementProposalFlag[];
+}
+
+export type GetSettlementProposal = (input: {
+  readonly principal: RealmPrincipal;
+  readonly transactionId: string;
+  readonly statementId: string;
+}) => Promise<SettlementProposal>;
+
+/** §51: a read, never a write; the client applies it through `PUT …/splits`. */
+export function getSettlementProposal(deps: { readonly repository: WegAnnualStatementRepository }): GetSettlementProposal {
+  return async ({ principal, transactionId, statementId }) => {
+    const context = await deps.repository.settlementContext(transactionId, statementId, principal.mreRealmId);
+    switch (context.kind) {
+      case 'TRANSACTION_NOT_FOUND':
+        throw new TransactionNotFoundError(transactionId);
+      case 'STATEMENT_NOT_FOUND':
+        throw new AnnualStatementNotFoundError(statementId);
+      case 'NOT_PROPOSABLE':
+        throw new SettlementNotProposableError(context.status);
+      case 'STATEMENT_NOT_CURRENT':
+        throw new StatementNotCurrentError(statementId, context.status, context.supersededBy);
+      case 'FOUND': {
+        const comparison = deriveComparison(context.comparison);
+        const peak = comparison.settlementPeak;
+        if (peak.isZero()) throw new NothingToSettleError(statementId);
+        const expected = peak.isNegative() ? 'INFLOW' : 'OUTFLOW';
+        if (context.direction !== expected) throw new SettlementDirectionMismatchError(expected);
+        const proposal = proposeSettlement(context.amount, context.direction, comparison);
+        const flags: SettlementProposalFlag[] = [...proposal.flags];
+        if (context.alreadySplit) flags.push({ code: 'ALREADY_SPLIT', details: {} });
+        const settled = [...new Set(comparison.settlement.settledBy.map((s) => s.transactionId))].sort();
+        if (settled.length > 0) flags.push({ code: 'ALREADY_SETTLED', details: { transactionIds: settled } });
+        return {
+          transactionId: context.transactionId,
+          statementId,
+          amount: context.amount,
+          direction: context.direction,
+          settlementPeak: peak,
+          splits: proposal.splits.map((s) => ({ ...s, propertyReferenceId: context.comparison.propertyReferenceId, wegAnnualStatementId: statementId })),
+          flags,
+        };
+      }
+    }
   };
 }

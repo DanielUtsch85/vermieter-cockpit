@@ -133,3 +133,17 @@ export type {
   WegAnnualStatementId,
   WegAnnualStatementRepository,
 } from './annual-statement.js';
+export { CLASS_OF_CATEGORY, deriveComparison, proposeSettlement } from './statement-effects.js';
+export type {
+  ClassFigures,
+  Comparison,
+  ComparisonContext,
+  ComparisonFlag,
+  CountedWegSplit,
+  ProposedSettlementSplit,
+  ReserveWithdrawal,
+  Settlement,
+  SettlementContext,
+  SettlementFlag,
+  WegCategory,
+} from './statement-effects.js';

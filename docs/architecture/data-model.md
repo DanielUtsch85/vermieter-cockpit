@@ -1029,7 +1029,7 @@ whatever its direction), of a SecurityDeposit of the same Realm that is not `VOI
 `propertyReferenceId` or `loanId`: a deposit is neither a property's income or cost nor a Loan's cash (BR-DEP-001).
 A reversal mirrors `securityDepositId` (0014). Database-enforced (migration 0038).
 
-**`wegAnnualStatementId` (P6-D6, VC-6-04, API §51):** the settlement of a Jahresabrechnung (a back-payment on an
+**`wegAnnualStatementId` (P6-D6, VC-6-04, API §51; implemented):** the settlement of a Jahresabrechnung (a back-payment on an
 `OUTFLOW`, a refund on an `INFLOW`), only on a `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE` or
 `WEG_RESERVE_CONTRIBUTION` split whose `propertyReferenceId` is the statement's unit, of a `CONFIRMED` statement of the
 same Realm (a reversal mirrors its original's, whatever the statement's status since), and never together with

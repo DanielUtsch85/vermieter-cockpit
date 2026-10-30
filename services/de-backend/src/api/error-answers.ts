@@ -47,6 +47,7 @@ import {
   InvalidMembershipError,
   InvalidOwnershipError,
   InvalidSupersedesError,
+  InvalidWegStatementSplitError,
   type LinkRefusal,
   LoanAllocationSetNotFoundError,
   LoanBalanceStatementNotFoundError,
@@ -70,6 +71,7 @@ import {
   NoEconomicPlanError,
   NoRentCashError,
   NoWegMembershipError,
+  NothingToSettleError,
   NoScheduleError,
   NotASecurityDepositAccountError,
   NotConfirmableError,
@@ -94,6 +96,8 @@ import {
   PaymentNotProposableError,
   PaymentRefusedError,
   PeriodOutsideYearError,
+  SettlementDirectionMismatchError,
+  SettlementNotProposableError,
   PropertyReferenceNotFoundError,
   ProposalTransactionNotFoundError,
   ReconciliationNotFoundError,
@@ -112,7 +116,9 @@ import {
   StatementAfterClosingError,
   StatementBeforeDebtError,
   StatementExistsError,
+  StatementNotConfirmedError,
   StatementNotDraftError,
+  StatementNotCurrentError,
   StatementOutsideMembershipError,
   SuggestionStaleError,
   TermsNotLastError,
@@ -136,6 +142,7 @@ import {
   WegMembershipNotFoundError,
   WegNotActiveError,
   WegNotFoundError,
+  WegStatementNotFoundError,
   WriteBackFailedError,
   WriteBackInProgressError,
   formatShare,
@@ -429,6 +436,12 @@ const TABLE = [
       reason: error.reason,
     }),
   ),
+  on(InvalidWegStatementSplitError, (error) =>
+    answer(422, 'INVALID_WEG_STATEMENT_SPLIT', "A split naming a statement is a WEG split of the statement's unit.", {
+      position: error.position,
+      reason: error.reason,
+    }),
+  ),
   on(LoanAllocationSetNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Allocation set not found.', { allocationSetId: error.allocationSetId })),
   on(LoanBalanceStatementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Balance statement not found.', { statementId: error.statementId })),
   on(LoanClosedError, (error) => answer(409, 'CONFLICT', 'A closed Loan is final.', { reason: 'LOAN_CLOSED', loanId: error.loanId })),
@@ -492,6 +505,9 @@ const TABLE = [
       reason: error.reason,
       ...(error.propertyReferenceId === null ? {} : { propertyReferenceId: error.propertyReferenceId, bookingDate: error.bookingDate }),
     }),
+  ),
+  on(NothingToSettleError, (error) =>
+    answer(409, 'CONFLICT', 'The statement has nothing to settle.', { reason: 'NOTHING_TO_SETTLE', statementId: error.statementId }),
   ),
   on(NoScheduleError, (error) => answer(409, 'CONFLICT', 'The Loan has no planned payment.', { reason: 'NO_SCHEDULE', endReason: error.endReason })),
   on(NotASecurityDepositAccountError, (error) =>
@@ -577,6 +593,12 @@ const TABLE = [
   ),
   on(PaymentRefusedError, (error) => refusalAnswer(error.refusal)),
   on(PeriodOutsideYearError, (error) => validation([{ field: error.field, code: 'OUT_OF_RANGE' }])),
+  on(SettlementDirectionMismatchError, (error) =>
+    answer(422, 'SETTLEMENT_DIRECTION_MISMATCH', 'A back-payment is an OUTFLOW, a refund an INFLOW.', { expected: error.expected }),
+  ),
+  on(SettlementNotProposableError, (error) =>
+    answer(409, 'CONFLICT', 'Only an unconfirmed Transaction gets a settlement proposal.', { reason: 'NOT_PROPOSABLE', status: error.status }),
+  ),
   on(PropertyReferenceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'PropertyReference not found.', { propertyReferenceId: error.propertyReferenceId })),
   on(ProposalTransactionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Transaction not found.', { transactionId: error.transactionId })),
   on(ReconciliationNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Rent reconciliation not found.', { reconciliationId: error.reconciliationId })),
@@ -640,6 +662,21 @@ const TABLE = [
     answer(409, 'CONFLICT', 'Another statement of the membership and year is confirmed; supersede it instead.', {
       reason: 'STATEMENT_EXISTS',
       statementId: error.statementId,
+    }),
+  ),
+  on(StatementNotConfirmedError, (error) =>
+    answer(409, 'CONFLICT', `The annual statement is ${error.status}; the comparison reads a confirmed one.`, {
+      reason: 'STATEMENT_NOT_CONFIRMED',
+      statementId: error.statementId,
+      status: error.status,
+    }),
+  ),
+  on(StatementNotCurrentError, (error) =>
+    answer(409, 'CONFLICT', `The annual statement is ${error.status}; a settlement names the statement in force.`, {
+      reason: 'STATEMENT_NOT_CURRENT',
+      wegAnnualStatementId: error.wegAnnualStatementId,
+      status: error.status,
+      ...(error.supersededBy === null ? {} : { supersededBy: error.supersededBy }),
     }),
   ),
   on(StatementNotDraftError, (error) =>
@@ -762,6 +799,7 @@ const TABLE = [
     answer(409, 'CONFLICT', `The WEG is ${error.status}.`, { reason: 'WEG_NOT_ACTIVE', wegId: error.wegId, status: error.status }),
   ),
   on(WegNotFoundError, (error) => answer(404, 'NOT_FOUND', 'WEG not found.', { wegId: error.wegId })),
+  on(WegStatementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'WEG annual statement not found.', { wegAnnualStatementId: error.wegAnnualStatementId })),
   on(WriteBackFailedError, (error) => writeBackFailureAnswer(error)),
   on(WriteBackInProgressError, (error) =>
     answer(409, 'CONFLICT', 'A write-back to MRE is running for this MRE Tenant.', {
