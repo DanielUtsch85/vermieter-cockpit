@@ -25,6 +25,9 @@ const OPEN_ITEM_FLAGS = new Set([
   'REFUND_YEAR_UNKNOWN',
   'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE',
   'ATTRIBUTION_INPUT_CHANGED',
+  // §58D: about the Loan's allocation itself; no classification of the split clears them.
+  'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY',
+  'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS',
 ]);
 /** Every flag of the year is open (§58C's review table). */
 const OPEN_YEAR_FLAGS = new Set([

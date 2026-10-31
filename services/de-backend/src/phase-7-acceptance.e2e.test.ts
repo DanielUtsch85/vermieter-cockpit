@@ -73,6 +73,7 @@ import {
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
+import { cents, codes, figures, lineOf, placed, type Check, type Money, type Totals, type View } from './phase-7-acceptance.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -82,7 +83,7 @@ import { mrePrincipalVerifier, mrePropertyLookup, mreRentTermLookup, mreTenantDe
  * VC-7-05: the Phase-7 exit of `docs/roadmap.md` as one acceptance run through the HTTP API (ACC7, invariant-suite.md
  * §45), wired as in main.ts with the fake MRE: a WEG unit owned by two owners (3/5 and 2/5) from its Acquisition; a year
  * of rent, the December rent paid within the 10 days after the year-end; Hausgeld in two debits a month; interest and
- * principal, and a debit of an allocated Loan, flagged as not attributed; a repair; a deposit, retained in part; a statement with a reserve withdrawal; a Sonderumlage with a use;
+ * principal, a debit of an allocated Loan (attributed by its set, §58D) and one booked before a Loan's first set (not attributed); a repair; a deposit, retained in part; a statement with a reserve withdrawal; a Sonderumlage with a use;
  * a refund of an earlier year; the anschaffungsnahe check exactly at 15 %, then above it; a § 82b election; the
  * tax-year view of 2027 and 2028 per property and per owner. The counter-checks of phase-7-plan §2 item 5, Realm
  * isolation on every §55–§58C route. The figures are invented and hand-computed in §45; they are checked literally.
@@ -110,85 +111,6 @@ function routesOf(app: Express): string[] {
     });
   return walk((app as unknown as { _router: { stack: Layer[] } })._router.stack);
 }
-
-type Money = { amount: string; currency: string };
-type Flag = { code: string; details: unknown };
-type Item = {
-  sourceType: string;
-  sourceId: string;
-  sourcePosition: number | null;
-  date: string;
-  taxYear: number;
-  lineAmount: Money | null;
-  taxCategory: string;
-  treatment: string | null;
-  rule: { ruleCode: string; version: number } | null;
-  share: { ownershipId: string; share: string; amount: Money | null } | null;
-  flags: Flag[];
-};
-type Line = { taxCategory: string; total: Money; itemCount: number; subtotals: { immediate: Money; distributed82b: Money } | null; items: Item[] };
-type Totals = {
-  einnahmen: { total: Money; lines: Omit<Line, 'items'>[] };
-  werbungskosten: { total: Money; lines: Omit<Line, 'items'>[] };
-  result: { amount: Money; kind: string };
-  capitalized: { total: Money };
-};
-type View = {
-  level: string;
-  einnahmen: { total: Money; lines: Line[] };
-  werbungskosten: { total: Money; lines: Line[] };
-  depreciation: { status: string; amount: null };
-  result: { amount: Money; kind: string; basis: string };
-  capitalized: { total: Money; items: Item[] };
-  notInView: { items: Item[] };
-  unclassified: { items: Item[] };
-  notAttributed: { items: Item[] };
-  acquisitions: { acquisitionId: string; status: string; final: boolean }[];
-  owners: (Totals & { ownerPartyId: string })[] | null;
-  notOwned: Totals | null;
-  flags: Flag[];
-  review: { final: boolean; open: { code: string; count: number }[] };
-  ruleVersions: { ruleCode: string; version: number }[];
-};
-type Check = {
-  status: string;
-  threshold: Money;
-  sum: Money;
-  attributableAmount: Money;
-  percentOfBasis: string;
-  basis: { basisAmount: Money };
-  affectedYears: number[];
-  final: boolean;
-  flags: Flag[];
-  sources: { sourceType: string; sourceId: string; amountUsed: Money; suggestedTreatment: string | null }[];
-  unclassified: { sourceType: string }[];
-};
-
-/** Cents of a Money JSON, exact. */
-const cents = (m: Money | null | undefined): bigint => {
-  if (m === null || m === undefined) return 0n;
-  const negative = m.amount.startsWith('-');
-  const [w, f = ''] = m.amount.replace('-', '').split('.') as [string, string?];
-  return (negative ? -1n : 1n) * (BigInt(w) * 100n + BigInt(f.padEnd(2, '0')));
-};
-const codes = (flags: readonly Flag[]) => flags.map((f) => f.code);
-/** The lines of a section with a total other than 0.00, as `{ taxCategory: amount }` (the lines are fixed, §58C). */
-const nonZero = (lines: readonly Omit<Line, 'items'>[]) =>
-  Object.fromEntries(lines.filter((l) => cents(l.total) !== 0n).map((l) => [l.taxCategory, l.total.amount]));
-const figures = (t: Totals) => ({
-  einnahmen: [t.einnahmen.total.amount, nonZero(t.einnahmen.lines)],
-  werbungskosten: [t.werbungskosten.total.amount, nonZero(t.werbungskosten.lines)],
-  result: [t.result.amount.amount, t.result.kind],
-});
-const lineOf = (v: View, taxCategory: string) => [...v.einnahmen.lines, ...v.werbungskosten.lines].find((l) => l.taxCategory === taxCategory) as Line;
-const placed = (v: View) => [
-  ...v.einnahmen.lines.flatMap((l) => l.items),
-  ...v.werbungskosten.lines.flatMap((l) => l.items),
-  ...v.capitalized.items,
-  ...v.notInView.items,
-  ...v.unclassified.items,
-  ...v.notAttributed.items,
-];
 
 describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', () => {
   const schema = testSchemaName('phase_7_e2e');
@@ -425,8 +347,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     for (const month of [3, 6, 9, 12]) {
       principal.push((await booked('OUTFLOW', `2027-${mm(month)}-20`, [on('612.37', 'LOAN_INTEREST'), on('887.63', 'LOAN_PRINCIPAL')])).splitIds[1] as string);
     }
-    // A Loan allocated 1/1 to the unit, and one debit booked the Loan's way (splits with `loanId`, no PropertyReference,
-    // 0027): its interest of 450.00 reaches no line; the view flags it, LOAN_INTEREST_NOT_ATTRIBUTED (VC-X-29).
+    // A Loan allocated MANUAL 1/1 to the unit from 2026-03-15, and one debit booked the Loan's way (splits with `loanId`,
+    // no PropertyReference, 0027): its interest of 450.00 is attributed by that set (VC-X-29, §58D).
     const bank = (await json<{ partyId: string }>(await A('POST', '/parties', { partyType: 'ORGANIZATION', displayName: 'Bank Beispiel' }), 201)).partyId;
     const loanId = (
       await json<{ loanId: string }>(
@@ -442,6 +364,22 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
       { amount: eur('450.00'), financialCategoryCode: 'LOAN_INTEREST', loanId },
       { amount: eur('550.00'), financialCategoryCode: 'LOAN_PRINCIPAL', loanId },
     ]);
+    // A second Loan whose first set starts on 2027-10-01, and its interest of 120.00 booked on 2027-09-20: not attributed.
+    const lateLoan = (
+      await json<{ loanId: string }>(
+        await A('POST', '/loans', { lenderPartyId: bank, borrowerPartyIds: [ownerA, ownerB], principalOriginal: eur('20000.00'), startDate: '2027-01-01' }),
+        201,
+      )
+    ).loanId;
+    await json(
+      await A('POST', `/loans/${lateLoan}/allocations`, {
+        validFrom: '2027-10-01',
+        basis: 'MANUAL',
+        allocations: [{ propertyReferenceId: flat, share: '1/1' }],
+      }),
+      201,
+    );
+    const lateDebit = await booked('OUTFLOW', '2027-09-20', [{ amount: eur('120.00'), financialCategoryCode: 'LOAN_INTEREST', loanId: lateLoan }]);
     // A repair (9,996.00 gross, 8,400.00 net) and a second one (3,570.00 gross, 3,000.00 net) for the § 82b election.
     const repair = (await booked('OUTFLOW', '2027-05-12', [on('9996.00', 'MAINTENANCE')])).splitIds[0] as string;
     const elected = (await booked('OUTFLOW', '2027-08-20', [on('3570.00', 'MAINTENANCE')])).splitIds[0] as string;
@@ -626,8 +564,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     recording = false;
     expect(figures(y2027)).toEqual({
       einnahmen: ['13284.01', { RENT: '10800.00', OPERATING_COST_ADVANCES: '2400.00', REFUNDS_OF_EARLIER_YEARS: '84.01' }],
-      werbungskosten: ['19835.48', { LOAN_INTEREST: '2449.48', WEG_HAUSGELD: '3000.00', WEG_SPENDING: '3200.00', MAINTENANCE: '11186.00' }],
-      result: ['-6551.47', 'LOSS'],
+      werbungskosten: ['20285.48', { LOAN_INTEREST: '2899.48', WEG_HAUSGELD: '3000.00', WEG_SPENDING: '3200.00', MAINTENANCE: '11186.00' }],
+      result: ['-7001.47', 'LOSS'],
     });
     expect(y2027.result.basis).toBe('BEFORE_DEPRECIATION');
     expect(y2027.depreciation).toMatchObject({ status: 'DEPRECIATION_NOT_AVAILABLE', amount: null });
@@ -671,13 +609,20 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     expect(codes(y2027.flags)).toEqual(expect.arrayContaining(['DEPRECIATION_NOT_AVAILABLE', 'ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL']));
     expect(y2027.capitalized).toEqual({ total: eur('0.00'), items: [] });
     expect(y2027.unclassified.items).toEqual([]);
-    expect(y2027.notAttributed.items).toEqual([]);
-    // Interest booked against the allocated Loan: flagged open with its total, in no place and in no figure (the
-    // LOAN_INTEREST line above holds the four debits on the PropertyReference only, 2,449.48).
-    const loanInterest = { loanIds: [loanId], interestTotal: eur('450.00'), splitIds: [loanDebit.splitIds[0]] };
+    // Interest booked against the allocated Loan (§58D): attributed by its MANUAL 1/1 set, on the LOAN_INTEREST line with
+    // the four debits on the PropertyReference (2,449.48 + 450.00 = 2,899.48); its principal is in no place.
+    expect(
+      placed(y2027)
+        .filter((i) => loanDebit.splitIds.includes(i.sourceId))
+        .map((i) => [i.sourceId, i.lineAmount, i.loanAllocation?.share]),
+    ).toEqual([[loanDebit.splitIds[0], eur('450.00'), '1/1']]);
+    // The debit before the second Loan's first set: listed as not attributed, summed nowhere, and the only split of the flag.
+    expect(y2027.notAttributed.items.map((i) => [i.sourceId, i.lineAmount, i.reason, i.candidates])).toEqual([
+      [lateDebit.splitIds[0], null, 'NO_LOAN_ALLOCATION', [flat]],
+    ]);
+    const loanInterest = { loanIds: [lateLoan], interestTotal: eur('120.00'), splitIds: [lateDebit.splitIds[0]] };
     expect(y2027.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual(loanInterest);
     expect(y2027.review.open).toContainEqual({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 });
-    expect(placed(y2027).filter((i) => loanDebit.splitIds.includes(i.sourceId))).toEqual([]);
 
     // Counter-check: a reserve contribution counted when paid. All twelve, and the Sonderumlage payment, are listed in
     // notInView and summed nowhere; WEG_HAUSGELD holds the 24 × … Hausgeld splits only (3,000.00, not 3,600.00).
@@ -717,7 +662,14 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
       200,
     );
     const key = (i: { sourceType: string; sourceId: string; sourcePosition: number | null }) => `${i.sourceType}:${i.sourceId}:${i.sourcePosition}`;
-    expect(placed(y2027).map(key).sort()).toEqual(list.items.map(key).sort());
+    // The Loan's items are §58D's, not the list's (a split with `loanId` has no PropertyReference): the rest is the list.
+    const loanSplits = [loanDebit.splitIds[0], lateDebit.splitIds[0]];
+    expect(
+      placed(y2027)
+        .filter((i) => !loanSplits.includes(i.sourceId))
+        .map(key)
+        .sort(),
+    ).toEqual(list.items.map(key).sort());
 
     // Per owner: each item × the share on its date, by largest remainder; A + B = the property, to the cent.
     const reconciles = (property: View) => {
@@ -737,24 +689,25 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
     expect(y2027.notOwned).toBeNull();
     expect(figures(ownerOf(y2027, ownerA))).toEqual({
       einnahmen: ['7970.41', { RENT: '6480.00', OPERATING_COST_ADVANCES: '1440.00', REFUNDS_OF_EARLIER_YEARS: '50.41' }],
-      werbungskosten: ['11901.28', { LOAN_INTEREST: '1469.68', WEG_HAUSGELD: '1800.00', WEG_SPENDING: '1920.00', MAINTENANCE: '6711.60' }],
-      result: ['-3930.87', 'LOSS'],
+      werbungskosten: ['12171.28', { LOAN_INTEREST: '1739.68', WEG_HAUSGELD: '1800.00', WEG_SPENDING: '1920.00', MAINTENANCE: '6711.60' }],
+      result: ['-4200.87', 'LOSS'],
     });
     expect(figures(ownerOf(y2027, ownerB))).toEqual({
       einnahmen: ['5313.60', { RENT: '4320.00', OPERATING_COST_ADVANCES: '960.00', REFUNDS_OF_EARLIER_YEARS: '33.60' }],
-      werbungskosten: ['7934.20', { LOAN_INTEREST: '979.80', WEG_HAUSGELD: '1200.00', WEG_SPENDING: '1280.00', MAINTENANCE: '4474.40' }],
-      result: ['-2620.60', 'LOSS'],
+      werbungskosten: ['8114.20', { LOAN_INTEREST: '1159.80', WEG_HAUSGELD: '1200.00', WEG_SPENDING: '1280.00', MAINTENANCE: '4474.40' }],
+      result: ['-2800.60', 'LOSS'],
     });
-    // The owner level: A's own view, with A's part of each item (612.37 → 367.42, 84.01 → 50.41).
+    // The owner level: A's own view, with A's part of each item (612.37 → 367.42, the Loan's 450.00 → 270.00, 84.01 → 50.41).
     const a2027 = await view(2027, ownerA);
     expect(a2027.level).toBe('OWNER');
     expect(a2027.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual(loanInterest);
     expect(figures(a2027)).toEqual(figures(ownerOf(y2027, ownerA)));
-    expect(lineOf(a2027, 'LOAN_INTEREST').items.map((i) => i.lineAmount?.amount)).toEqual(Array(4).fill('367.42'));
+    expect(lineOf(a2027, 'LOAN_INTEREST').items.map((i) => i.lineAmount?.amount)).toEqual(['367.42', '367.42', '270.00', '367.42', '367.42']);
+    expect(lineOf(a2027, 'LOAN_INTEREST').items[2]?.loanAllocation?.propertyPart).toEqual(eur('450.00'));
     expect(lineOf(a2027, 'REFUNDS_OF_EARLIER_YEARS').items[0]?.share).toMatchObject({ share: '3/5', amount: eur('50.41') });
     traceable(a2027);
     const b2027 = await view(2027, ownerB);
-    expect(lineOf(b2027, 'LOAN_INTEREST').items.map((i) => i.lineAmount?.amount)).toEqual(Array(4).fill('244.95'));
+    expect(lineOf(b2027, 'LOAN_INTEREST').items.map((i) => i.lineAmount?.amount)).toEqual(['244.95', '244.95', '180.00', '244.95', '244.95']);
     expect(figures(b2027)).toEqual(figures(ownerOf(y2027, ownerB)));
 
     // 2028: the retained deposit and the second § 82b part; December's rent is not here (it is 2027's).

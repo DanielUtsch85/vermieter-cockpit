@@ -146,6 +146,8 @@ export { capitalizedItemsOf } from './capitalized-items.js';
 export type { CapitalizedSource, CapitalizedSourceInput } from './capitalized-items.js';
 export {
   EINNAHMEN_LINES,
+  LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY,
+  LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS,
   NOT_OWNED,
   TAX_YEAR_ITEM_LIMIT,
   TAX_YEAR_PLACES,
@@ -153,6 +155,7 @@ export {
   buildTaxYearView,
   flagIsOpen,
   foldPerOwner,
+  loanInterestOf,
   participantsOn,
   placementOf,
   reviewOf,
@@ -164,11 +167,15 @@ export {
 export type {
   FoldedParts,
   Level,
+  LoanInterestCase,
+  LoanInterestSplit,
+  NotAttributedReason,
   Participant,
   Placement,
   TaxYearAcquisition,
   TaxYearItem,
   TaxYearLine,
+  TaxYearLoanAllocation,
   TaxYearOutcome,
   TaxYearRead,
   TaxYearResult,

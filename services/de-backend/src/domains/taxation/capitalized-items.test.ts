@@ -119,6 +119,7 @@ function viewOf(
       checks: [],
       attribution: { references: [], candidates: [] },
       allocatedLoanInterest: [],
+      loanAllocationSets: new Map(),
     },
     { year, ownerPartyId, today: day('2026-10-30'), registry },
   );

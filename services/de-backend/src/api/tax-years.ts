@@ -9,7 +9,7 @@ import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
 /** §58C: only `ownerPartyId`; any other parameter is `400`. */
 const taxYearQuery = z.object({ ownerPartyId: uuid.optional() }).strict();
 
-/** The tax-year view per PropertyReference and per owner (api-design.md §58C, VC-7-04). */
+/** The tax-year view per PropertyReference and per owner (api-design.md §58C, VC-7-04; §58D, VC-X-29). */
 export function taxYearRoutes(commands: TaxationCommands): Router {
   const router = express.Router();
 
@@ -47,6 +47,19 @@ export function taxYearRoutes(commands: TaxationCommands): Router {
 
 const refundDto = (r: TaxYearItem['refund']) =>
   r === null ? null : { kind: r.kind, ofYear: r.ofYear, ofYearSource: r.ofYearSource, presentation: r.presentation, line: r.line };
+
+const loanAllocationDto = (a: TaxYearItem['loanAllocation']) =>
+  a === null
+    ? null
+    : {
+        loanId: a.loanId,
+        allocationSetId: a.allocationSetId,
+        validFrom: a.validFrom,
+        validUntil: a.validUntil,
+        basis: a.basis,
+        share: a.share,
+        propertyPart: a.propertyPart?.toJSON() ?? null,
+      };
 
 function taxYearItemDto(i: TaxYearItem) {
   const attribution = i.attribution as {
@@ -94,7 +107,9 @@ function taxYearItemDto(i: TaxYearItem) {
     suggestion: plain(i.suggestion),
     share: i.share === null ? null : { ownershipId: i.share.ownershipId, share: i.share.share, amount: i.share.amount?.toJSON() ?? null },
     flags: flagsDto(i.flags),
-    // "nicht zugeordnet" (§58C): the reason, the candidates and the deposit's own tax meaning.
+    // §58D: the Loan's set on the booking date and the property's part, on an item from a Loan's interest split only.
+    loanAllocation: loanAllocationDto(i.loanAllocation),
+    // "nicht zugeordnet" (§58C, §58D): the reason, the candidates and the source's own tax meaning or the Loan's allocations.
     ...(i.notAttributed === null ? {} : { reason: i.notAttributed.reason, candidates: i.notAttributed.candidates, href: i.notAttributed.href }),
   };
 }
