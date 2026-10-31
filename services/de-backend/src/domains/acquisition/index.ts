@@ -73,3 +73,5 @@ export type {
 } from './allocation.js';
 export { fromCents, largestRemainder, planOwnerAllocation, toCents } from './owner-allocation.js';
 export type { AllocationBasis, AllocationTotals, OwnerAllocationInput, OwnerAllocationPlan, OwnerAllocationSource, OwnerPart } from './owner-allocation.js';
+export { BUILDING_COST_REASONS, buildingAcquisitionCost } from './building-cost.js';
+export type { BasisAcquisition, BasisAllocation, BasisCost, BasisPolicy, BuildingAcquisitionCost, BuildingCostReason } from './building-cost.js';

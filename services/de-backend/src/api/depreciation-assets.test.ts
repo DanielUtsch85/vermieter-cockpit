@@ -61,7 +61,7 @@ const asset: DepreciationAsset = {
 };
 const rate: AssetRate = {
   year: 2026,
-  rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 },
+  rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
   band: 'B',
   ratePercent: '2',
   legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
@@ -97,7 +97,7 @@ const dto = {
   version: 3,
   rate: {
     year: 2026,
-    rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 },
+    rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
     band: 'B',
     ratePercent: '2',
     legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',

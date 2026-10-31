@@ -1,5 +1,18 @@
-import { addDays, addMonths, type BusinessDate, type Money, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
-import { centsOf, decimalOf, divideHalfEven, divideHalfUp, moneyOfCents } from './cents.js';
+import {
+  addDays,
+  addMonths,
+  centsOf,
+  decimalOf,
+  divideHalfEven,
+  divideHalfUp,
+  moneyOfCents,
+  type BusinessDate,
+  type Money,
+  type RuleRef,
+  type RuleRegistry,
+  type RuleVersion,
+} from '../../shared/index.js';
+import { buildingAcquisitionCost } from '../acquisition/index.js';
 import { ANSCHAFFUNGSNAHE, type AnschaffungsnaheParameters } from './rules/de-anschaffungsnahe.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
 
@@ -215,39 +228,27 @@ export function checkAnschaffungsnahe(
   const unclassified = inWindow.filter((s) => s.taxCategory === 'UNCLASSIFIED');
   const sumCents = summed.reduce((total, s) => total + used(s), 0n);
 
-  // The building's acquisition cost: the allocation's ratio applied to price + costs (open question 5), rounded once.
-  const excludedCategories = p?.excludedCostCategories ?? ['FINANCING_RELATED'];
-  const costCents = input.costs.filter((c) => !excludedCategories.includes(c.category)).reduce((total, c) => total + centsOf(c.amount), 0n);
-  const priceCents = centsOf(acquisition.purchasePrice);
-  const allocation = input.allocation;
-  const totalCents = allocation === null ? 0n : centsOf(allocation.totalAllocableAmount);
-  const buildingCents = allocation === null ? 0n : centsOf(allocation.buildingAmount);
-  const basisCents = allocation === null || totalCents === 0n ? 0n : divideHalfUp((priceCents + costCents) * buildingCents, totalCents);
+  // The building's acquisition cost: the allocation's ratio applied to price + costs (open question 5), rounded once. One
+  // function with the AfA schedule (§59A), in the Acquisition domain; the check keeps its own NO_APPLICABLE_RULE in front.
+  const cost = buildingAcquisitionCost(
+    { acquisition, costs: input.costs, allocation: input.allocation },
+    { excludedCostCategories: p?.excludedCostCategories ?? ['FINANCING_RELATED'], confirmedAllocationReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'] },
+  );
+  const basisCents = cost.basisAmount === null ? 0n : centsOf(cost.basisAmount);
   const basis: CheckBasis | null =
-    allocation === null
+    cost.allocation === null || cost.basisAmount === null
       ? null
       : {
-          allocationId: allocation.id,
-          allocationReviewState: allocation.reviewState,
-          purchasePrice: acquisition.purchasePrice,
-          acquisitionCosts: moneyOfCents(costCents),
-          totalAllocableAmount: allocation.totalAllocableAmount,
-          buildingAmount: allocation.buildingAmount,
-          basisAmount: moneyOfCents(basisCents),
+          allocationId: cost.allocation.id,
+          allocationReviewState: cost.allocation.reviewState,
+          purchasePrice: cost.purchasePrice,
+          acquisitionCosts: cost.acquisitionCosts,
+          totalAllocableAmount: cost.allocation.totalAllocableAmount,
+          buildingAmount: cost.allocation.buildingAmount,
+          basisAmount: cost.basisAmount,
         };
 
-  const notComputableReason: NotComputableReason | null =
-    rule === undefined
-      ? 'NO_APPLICABLE_RULE'
-      : acquisition.status !== 'CONFIRMED'
-        ? 'ACQUISITION_NOT_CONFIRMED'
-        : allocation === null
-          ? 'NO_ALLOCATION'
-          : allocation.reviewState !== 'CONFIRMED' && allocation.reviewState !== 'ADVISOR_CONFIRMED'
-            ? 'ALLOCATION_NOT_CONFIRMED'
-            : buildingCents === 0n
-              ? 'NO_BUILDING'
-              : null;
+  const notComputableReason: NotComputableReason | null = rule === undefined ? 'NO_APPLICABLE_RULE' : cost.reason;
   const percent = BigInt(p?.thresholdPercent ?? 0);
   // Above: sum × n / d > basis × percent / 100, in cents and without a division (§58B).
   const above = notComputableReason === null && sumCents * n * 100n > basisCents * percent * d;

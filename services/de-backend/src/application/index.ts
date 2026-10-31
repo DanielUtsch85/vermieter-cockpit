@@ -696,10 +696,12 @@ export {
   CompletionYearMissingError,
   DepreciationAssetNotActiveError,
   DepreciationAssetNotFoundError,
+  NotAnOwnerError,
   amendDepreciationAsset,
   confirmDepreciationAsset,
   createDepreciationAsset,
   getDepreciationAsset,
+  getDepreciationSchedule,
   listPropertyDepreciationAssets,
   voidDepreciationAsset,
 } from './depreciation-assets.js';
@@ -710,6 +712,7 @@ export type {
   CreateDepreciationAssetInput,
   DepreciationAssetView,
   GetDepreciationAsset,
+  GetDepreciationSchedule,
   ListPropertyDepreciationAssets,
   VoidDepreciationAsset,
 } from './depreciation-assets.js';
@@ -725,4 +728,17 @@ export {
   MAX_ASSET_SOURCE_REFERENCES,
   MAX_SHORTER_USEFUL_LIVES,
 } from '../domains/depreciation/index.js';
-export type { AssetRate, AssetStatus, DepreciationAsset, UsefulLifeAmendment } from '../domains/depreciation/index.js';
+export type {
+  AssetRate,
+  AssetStatus,
+  ComponentYear,
+  DepreciationAsset,
+  DepreciationSchedule,
+  DepreciationScheduleSource,
+  Flag,
+  OwnerYear,
+  ScheduleRead,
+  ScheduleComponent,
+  ScheduleYear,
+  UsefulLifeAmendment,
+} from '../domains/depreciation/index.js';

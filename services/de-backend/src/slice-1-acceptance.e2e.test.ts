@@ -69,6 +69,7 @@ import {
   getDepreciationAsset,
   listPropertyDepreciationAssets,
   voidDepreciationAsset,
+  getDepreciationSchedule,
   getTaxRule,
   listTaxClassificationHistory,
   listTaxMeanings,
@@ -171,6 +172,7 @@ import {
   PostgresTaxClassificationRepository,
   PostgresRentalContractReferenceRepository,
   PostgresDepreciationAssetRepository,
+  PostgresDepreciationScheduleSource,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
@@ -395,6 +397,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         amend: amendDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
         confirm: confirmDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
         void: voidDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
+        schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db) }),
       },
       rentReconciliations: {
         create: createReconciliation({ repository: new PostgresRentReconciliationRepository(db), lookupMreRentTerm: mreRentTermLookup(client) }),

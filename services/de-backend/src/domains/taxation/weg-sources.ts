@@ -1,6 +1,5 @@
-import type { BusinessDate, Money, RuleRef, RuleRegistry, RuleVersion } from '../../shared/index.js';
+import { centsOf, divideHalfUp, moneyOfCents, type BusinessDate, type Money, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { yearOf } from './cash-timing.js';
-import { centsOf, divideHalfUp, moneyOfCents } from './cents.js';
 import {
   distributionRuleCheck,
   ruleSupersededFlags,

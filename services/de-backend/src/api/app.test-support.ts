@@ -56,7 +56,7 @@ export const unusedCommands: AppCommands = {
     getRule: unused,
   },
   rentalContractReferences: { create: unused, get: unused, list: unused, amend: unused },
-  depreciationAssets: { create: unused, get: unused, listForPropertyReference: unused, amend: unused, confirm: unused, void: unused },
+  depreciationAssets: { create: unused, get: unused, listForPropertyReference: unused, amend: unused, confirm: unused, void: unused, schedule: unused },
   rentReconciliations: {
     create: unused,
     get: unused,

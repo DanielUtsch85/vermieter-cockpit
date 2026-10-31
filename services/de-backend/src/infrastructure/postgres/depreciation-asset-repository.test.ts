@@ -999,14 +999,25 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
   describe('the start check (§58, §59)', () => {
     const source = (refs: RuleRef[]) => ({ storedRuleReferences: () => Promise.resolve(refs) });
 
-    it('a Depreciation source naming DE_AFA_BUILDING_LINEAR@2 stops the start and names it; @1 starts; the real source returns [] with assets', async () => {
+    // #177's counter-check named @2; VC-8-02 registers @2 (§59A "The rule versions"), so it moves to @3.
+    it('a Depreciation source naming DE_AFA_BUILDING_LINEAR@3 stops the start and names it; @1 and @2 start; the real source returns [] with assets', async () => {
       const db = createDatabase(pool);
       await created(building(await propertyReference()));
-      await expect(checkStoredRuleReferences(db, TAX_RULES, source([{ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 }]))).rejects.toThrow(
-        'Stored tax rule references are not registered: DE_AFA_BUILDING_LINEAR@2',
+      await expect(checkStoredRuleReferences(db, TAX_RULES, source([{ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 3 }]))).rejects.toThrow(
+        'Stored tax rule references are not registered: DE_AFA_BUILDING_LINEAR@3',
       );
-      expect(await checkStoredRuleReferences(db, TAX_RULES, source([{ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 }]))).toEqual([
+      expect(
+        await checkStoredRuleReferences(
+          db,
+          TAX_RULES,
+          source([
+            { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 },
+            { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
+          ]),
+        ),
+      ).toEqual([
         { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 },
+        { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
       ]);
       expect(await assets.storedRuleReferences()).toEqual([]);
       expect((await pool.query(`SELECT count(*)::int AS n FROM depreciation_asset`)).rows[0].n).toBeGreaterThan(0);

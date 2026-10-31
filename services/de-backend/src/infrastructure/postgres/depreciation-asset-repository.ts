@@ -454,7 +454,7 @@ async function lockAsset(trx: Transaction<Database>, id: string): Promise<Deprec
 }
 
 /** The asset with its entries; with `mreRealmId`, only in that Realm. */
-async function readAsset(trx: Transaction<Database>, id: string, mreRealmId?: string): Promise<DepreciationAsset | undefined> {
+export async function readAsset(trx: Transaction<Database>, id: string, mreRealmId?: string): Promise<DepreciationAsset | undefined> {
   let query = trx.selectFrom('depreciation_asset').select(ASSET_COLUMNS).where('id', '=', id);
   if (mreRealmId !== undefined) query = query.where('mre_realm_id', '=', mreRealmId);
   const row = await query.executeTakeFirst();

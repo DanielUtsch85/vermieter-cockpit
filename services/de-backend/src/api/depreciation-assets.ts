@@ -12,14 +12,22 @@ import {
   MAX_SHORTER_USEFUL_LIVES,
   type AmendDepreciationAsset,
   type AssetRate,
+  type ComponentYear,
   type ConfirmDepreciationAsset,
   type CreateDepreciationAsset,
   type DepreciationAsset,
+  type DepreciationSchedule,
+  type Flag,
   type GetDepreciationAsset,
+  type GetDepreciationSchedule,
   type ListPropertyDepreciationAssets,
+  type OwnerYear,
+  type ScheduleComponent,
+  type ScheduleYear,
   type UsefulLifeAmendment,
   type VoidDepreciationAsset,
 } from '../application/index.js';
+import type { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { RESOURCE_ID, fieldErrors, integerIn, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -154,6 +162,8 @@ const year = z.string().transform((value, ctx) => {
   return parsed;
 });
 const getQuery = z.object({ year: year.optional() }).strict();
+/** §59A: `from` and `to` as `year`, `ownerPartyId` a UUID; any other parameter is `400`. */
+const scheduleQuery = z.object({ from: year.optional(), to: year.optional(), ownerPartyId: uuid.optional() }).strict();
 const listQuery = z
   .object({
     status: z
@@ -172,6 +182,7 @@ export interface DepreciationAssetCommands {
   readonly amend: AmendDepreciationAsset;
   readonly confirm: ConfirmDepreciationAsset;
   readonly void: VoidDepreciationAsset;
+  readonly schedule: GetDepreciationSchedule;
 }
 
 const entriesOf = (list: readonly z.infer<typeof entry>[] | null | undefined) =>
@@ -327,6 +338,33 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommands): Ro
       .then(({ asset }) => sendAsset(res, asset, null))
       .catch(next);
   });
+  /**
+   * §59A: the schedule of the purchase, derived on read. `400` for a malformed `assetId`, `from`, `to`, `ownerPartyId`
+   * or an unknown parameter, all at once, and `to` < `from` at `to`; no version `ETag` (a derived read).
+   */
+  router.get('/depreciation-assets/:assetId/schedule', (req, res, next) => {
+    const errors: { field: string; code: string }[] = [];
+    const rawId = req.params['assetId'];
+    if (rawId === undefined || !RESOURCE_ID.test(rawId)) errors.push({ field: 'assetId', code: 'INVALID_FORMAT' });
+    const query = scheduleQuery.safeParse(req.query);
+    if (!query.success) errors.push(...fieldErrors(query.error));
+    else if (query.data.from !== undefined && query.data.to !== undefined && query.data.to < query.data.from)
+      errors.push({ field: 'to', code: 'OUT_OF_RANGE' });
+    if (errors.length > 0 || !query.success || rawId === undefined) {
+      sendValidationError(res, errors);
+      return;
+    }
+    commands
+      .schedule({
+        principal: principalOf(res),
+        assetId: rawId.toLowerCase(),
+        ...(query.data.from === undefined ? {} : { from: query.data.from }),
+        ...(query.data.to === undefined ? {} : { to: query.data.to }),
+        ownerPartyId: query.data.ownerPartyId ?? null,
+      })
+      .then((schedule) => res.json(scheduleDto(schedule)))
+      .catch(next);
+  });
 
   return router;
 }
@@ -381,5 +419,86 @@ function rateDto(r: AssetRate) {
       applies: e.applies,
       reasons: e.reasons,
     })),
+  };
+}
+
+const money = (m: Money | null) => (m === null ? null : m.toJSON());
+const flagDto = (f: Flag) => ({ code: f.code, details: f.details });
+
+/** §59A's response: Money as §86, fractions as `"n/d"`, months as `YYYY-MM`, flags as `{ code, details }`. */
+function scheduleDto(s: DepreciationSchedule) {
+  const ownerYear = (o: OwnerYear) => ({
+    ownerPartyId: o.ownerPartyId,
+    months: o.months,
+    fraction: o.fraction,
+    amount: money(o.amount),
+    residualValue: money(o.residualValue),
+    calculationStatus: o.calculationStatus,
+    reasons: o.reasons.map(flagDto),
+    flags: o.flags.map(flagDto),
+  });
+  const componentYear = (y: ComponentYear) => ({
+    year: y.year,
+    rule: y.rule,
+    months: y.months,
+    amount: money(y.amount),
+    cumulative: money(y.cumulative),
+    residualValue: money(y.residualValue),
+    calculationStatus: y.calculationStatus,
+    reasons: y.reasons.map(flagDto),
+    owners: y.owners.map(ownerYear),
+    flags: y.flags.map(flagDto),
+  });
+  const component = (c: ScheduleComponent) => ({
+    componentId: c.componentId,
+    kind: c.kind,
+    acquisitionId: c.acquisitionId,
+    acquisitionStatus: c.acquisitionStatus,
+    status: c.status,
+    reasons: c.reasons.map(flagDto),
+    basis: {
+      amount: money(c.basis.amount),
+      purchasePrice: money(c.basis.purchasePrice),
+      acquisitionCosts: money(c.basis.acquisitionCosts),
+      excludedCosts: c.basis.excludedCosts.map((e) => ({ category: e.category, amount: money(e.amount) })),
+      allocationId: c.basis.allocationId,
+      allocationMethod: c.basis.allocationMethod,
+      allocationReviewState: c.basis.allocationReviewState,
+      totalAllocableAmount: money(c.basis.totalAllocableAmount),
+      buildingAmount: money(c.basis.buildingAmount),
+    },
+    start: c.start,
+    rate: c.rate,
+    end: c.end,
+    owners: c.owners.map((o) => ({ ...o, basis: money(o.basis) })),
+    years: c.years.map(componentYear),
+    flags: c.flags.map(flagDto),
+  });
+  const year = (y: ScheduleYear) => ({
+    year: y.year,
+    status: y.status,
+    calculationStatus: y.calculationStatus,
+    amount: money(y.amount),
+    residualValue: money(y.residualValue),
+    owners: y.owners === null ? null : y.owners.map((o) => ({ ownerPartyId: o.ownerPartyId, amount: money(o.amount) })),
+    notOwned: y.notOwned,
+    reasons: y.reasons.map(flagDto),
+    flags: y.flags.map(flagDto),
+  });
+  return {
+    assetId: s.assetId,
+    propertyReferenceId: s.propertyReferenceId,
+    assetType: s.assetType,
+    level: s.level,
+    ownerPartyId: s.ownerPartyId,
+    computedOn: s.computedOn,
+    range: s.range,
+    status: s.status,
+    reasons: s.reasons.map(flagDto),
+    asset: s.asset,
+    components: s.components.map(component),
+    years: s.years.map(year),
+    review: s.review,
+    ruleVersions: s.ruleVersions,
   };
 }
