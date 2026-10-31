@@ -149,7 +149,7 @@ describe("ACC8's purchase (§59A, the example)", () => {
 describe('the start and the first year (§ 7 Abs. 1 S. 4 EStG, P8-D5)', () => {
   const firstYear = (date: string) => {
     const c = component(derive(sole({ economicTransferDate: day(date) }, {}, { from: 2026, to: 2027 })));
-    return [c.start.firstYearMonths, amount(yearOf(c, 2026)?.amount)];
+    return [c.start?.firstYearMonths, amount(yearOf(c, 2026)?.amount)];
   };
 
   it('January 12/12, April 9/12, July 6/12, December 1/12 of 5,088.00', () => {
@@ -175,23 +175,72 @@ describe('the start and the first year (§ 7 Abs. 1 S. 4 EStG, P8-D5)', () => {
     ]);
   });
 
-  it('TRANSFER_DATE_ASSUMED: without economicTransferDate the contract date starts it, the assumption is never silent and every year is provisional', () => {
+  it('TRANSFER_DATE_MISSING (§59A open question 6, decided 2026-10-31): without economicTransferDate not computable in every year, amounts null', () => {
     const s = derive(sole({ economicTransferDate: null, contractDate: day('2026-04-20') }, {}, { from: 2026, to: 2027 }));
     const c = component(s);
-    expect(c.start).toMatchObject({ date: '2026-04-20', dateSource: 'CONTRACT_DATE', firstYearMonths: 9 });
-    expect(c.flags).toEqual([{ code: 'TRANSFER_DATE_ASSUMED', details: { contractDate: '2026-04-20' } }]);
-    expect(c.years.map((y) => [y.calculationStatus, ownerIn(y, A)?.calculationStatus])).toEqual([
-      ['PROVISIONAL', 'PROVISIONAL'],
-      ['PROVISIONAL', 'PROVISIONAL'],
+    const reason = { code: 'TRANSFER_DATE_MISSING', details: { contractDate: '2026-04-20' } };
+    expect(c).toMatchObject({ status: 'NOT_COMPUTABLE', reasons: [reason], start: null, rate: null, end: null, flags: [] });
+    expect(amount(c.basis.amount)).toBe('254400.00');
+    expect(c.years.map((y) => [y.year, y.calculationStatus, y.amount, y.cumulative, y.residualValue, y.months, y.reasons])).toEqual([
+      [2026, 'NOT_CALCULABLE', null, null, null, null, [{ code: 'TRANSFER_DATE_MISSING', details: { ownerPartyIds: [A] } }]],
+      [2027, 'NOT_CALCULABLE', null, null, null, null, [{ code: 'TRANSFER_DATE_MISSING', details: { ownerPartyIds: [A] } }]],
     ]);
-    expect(s.years[0]?.flags).toEqual([{ code: 'TRANSFER_DATE_ASSUMED', details: { componentIds: [c.componentId] } }]);
-    expect(s.review.open).toEqual([{ code: 'TRANSFER_DATE_ASSUMED', count: 1 }]);
+    expect(c.years.map((y) => ownerIn(y, A))).toEqual(
+      [2026, 2027].map(() => ({
+        ownerPartyId: A,
+        months: null,
+        fraction: null,
+        amount: null,
+        residualValue: null,
+        calculationStatus: 'NOT_CALCULABLE',
+        reasons: [reason],
+        flags: [],
+      })),
+    );
+    expect(s.years.map((y) => [y.year, y.status, y.calculationStatus, y.amount, y.residualValue, y.owners])).toEqual([
+      [2026, 'DEPRECIATION_NOT_AVAILABLE', 'NOT_CALCULABLE', null, null, [{ ownerPartyId: A, amount: null }]],
+      [2027, 'DEPRECIATION_NOT_AVAILABLE', 'NOT_CALCULABLE', null, null, [{ ownerPartyId: A, amount: null }]],
+    ]);
+    expect(s.years[0]?.reasons).toEqual([{ code: 'TRANSFER_DATE_MISSING', details: { componentIds: [c.componentId] } }]);
+    expect(s).toMatchObject({ status: 'DEPRECIATION_NOT_AVAILABLE', review: { open: [{ code: 'TRANSFER_DATE_MISSING', count: 1 }] } });
+    // The share is still covered by its Acquisition: no OWNER_WITHOUT_ACQUISITION for the undated purchase.
+    expect(s.years.flatMap((y) => codes(y.flags))).toEqual([]);
+  });
+
+  it('counter-check: the contract date is never the start (no month, rate, end or owner tenure from it, in any range, and no TRANSFER_DATE_ASSUMED)', () => {
+    for (const contract of ['2026-01-01', '2026-04-20', '2026-12-31']) {
+      const s = derive(sole({ economicTransferDate: null, contractDate: day(contract) }, {}, { from: 2000, to: 2100 }));
+      const c = component(s);
+      expect([c.status, c.start, c.rate, c.end, c.owners.map((o) => o.tenure.from)]).toEqual(['NOT_COMPUTABLE', null, null, null, [null]]);
+      // Its years run from the contract's year (the transfer is never before it) to `to`, every one without a figure.
+      expect(c.years.map((y) => y.year)).toEqual(Array.from({ length: 2100 - 2026 + 1 }, (_, i) => 2026 + i));
+      expect(c.years.every((y) => y.amount === null && y.rule === null && y.owners.every((o) => o.amount === null && o.months === null))).toBe(true);
+      expect(s.years.filter((y) => y.year < 2026).every((y) => y.status === 'AVAILABLE' && amount(y.amount) === '0.00')).toBe(true);
+      expect(JSON.stringify(s)).not.toContain('TRANSFER_DATE_ASSUMED');
+      expect(JSON.stringify(s)).not.toContain('CONTRACT_DATE');
+    }
+    // The same purchase with the date entered is computed from it, not from the contract.
+    const dated = component(derive(sole({ economicTransferDate: day('2026-07-01'), contractDate: day('2026-04-20') }, {}, { from: 2026, to: 2026 })));
+    expect([dated.status, dated.start?.date, dated.start?.dateSource, amount(yearOf(dated, 2026).amount)]).toEqual([
+      'COMPUTABLE',
+      '2026-07-01',
+      'ECONOMIC_TRANSFER_DATE',
+      '2544.00',
+    ]);
+  });
+
+  it('TRANSFER_DATE_MISSING beside the other reasons: before HISTORICAL_RULE_NOT_SUPPORTED, which the contract alone still gives (a 2005 contract)', () => {
+    const c = component(derive(sole({ economicTransferDate: null, contractDate: day('2005-06-01') }, {}, { from: 2005, to: 2006 })));
+    expect(c.reasons).toEqual([
+      { code: 'TRANSFER_DATE_MISSING', details: { contractDate: '2005-06-01' } },
+      { code: 'HISTORICAL_RULE_NOT_SUPPORTED', details: { contractDate: '2005-06-01', startDate: null, supportedFrom: '2006-01-01' } },
+    ]);
   });
 
   it('the start month not counted (a test registry): the first year loses one twelfth', () => {
     const notCounted = withParameters((p) => ({ ...p, firstYear: { ...p.firstYear, startMonthCounts: false } }));
     const c = component(derive(sole({ economicTransferDate: day('2026-07-01') }, {}, { from: 2026, to: 2026 }), notCounted));
-    expect([c.start.firstYearMonths, amount(yearOf(c, 2026).amount)]).toEqual([5, '2120.00']);
+    expect([c.start?.firstYearMonths, amount(yearOf(c, 2026).amount)]).toEqual([5, '2120.00']);
   });
 });
 
@@ -891,8 +940,14 @@ describe('calculationStatus (decided 2026-10-31): never 0.00 for a missing figur
   it('each value, and the component year’s from its owners’ (NOT_CALCULABLE when any is, the others still shown)', () => {
     const calculated = derive(acc8());
     expect(component(calculated).years.map((y) => y.calculationStatus)).toEqual(['CALCULATED', 'CALCULATED']);
-    const provisional = derive({ ...acc8(), acquisitions: [acquisition({ economicTransferDate: null, contractDate: day('2026-07-01') })] });
+    const provisional = derive(
+      acc8(),
+      withParameters((p) => ({ ...p, verified: false })),
+    );
     expect(component(provisional).years.map((y) => y.calculationStatus)).toEqual(['PROVISIONAL', 'PROVISIONAL']);
+    // Without economicTransferDate it is no longer provisional (TRANSFER_DATE_ASSUMED withdrawn) but not calculable.
+    const undated = derive({ ...acc8(), acquisitions: [acquisition({ economicTransferDate: null, contractDate: day('2026-07-01') })] });
+    expect(component(undated).years.map((y) => y.calculationStatus)).toEqual(['NOT_CALCULABLE', 'NOT_CALCULABLE']);
     const missing = derive({
       ...acc8({ from: 2029, to: 2029 }),
       ownerships: [ownership(A, '3/5', '2026-07-01', null, W), ownership(B, '2/5', '2026-07-01', '2029-06-30', W)],

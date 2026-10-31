@@ -59,7 +59,7 @@ type Schedule = {
     readonly status: string;
     readonly reasons: Flag[];
     readonly basis: { readonly amount: Amount };
-    readonly start: { readonly date: string; readonly month: string };
+    readonly start: { readonly date: string; readonly month: string } | null;
     readonly owners: { readonly ownerPartyId: string; readonly acquiredShare: string; readonly weight: string }[];
     readonly years: { readonly year: number; readonly amount: Amount; readonly calculationStatus: string; readonly owners: OwnerYear[] }[];
   }[];
@@ -409,17 +409,26 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       ['DISPOSAL_YEAR_TO_VERIFY'],
     ]);
     expect(w?.years.find((y) => y.year === 2030)?.owners.map((o) => o.ownerPartyId)).toEqual([s.a]);
-    expect([x?.acquisitionId, x?.status, x?.start.month]).toEqual([s.x, 'COMPUTABLE', '2029-07']);
+    expect([x?.acquisitionId, x?.status, x?.start?.month]).toEqual([s.x, 'COMPUTABLE', '2029-07']);
     expect(body.years[0]?.owners?.map((o) => o.ownerPartyId).sort()).toEqual([s.a, s.b, s.c].sort());
   });
 
-  it('C’s Acquisition without economicTransferDate: B’s 2029 NOT_CALCULABLE with DISPOSAL_DATE_MISSING, amount null', async () => {
+  it('C’s Acquisition without economicTransferDate: B’s 2029 NOT_CALCULABLE with DISPOSAL_DATE_MISSING, C’s component TRANSFER_DATE_MISSING', async () => {
     const s = await sale(false);
     const body = await ok(s.assetId, '?from=2029&to=2029');
     const b2029 = body.components[0]?.years[0]?.owners.find((o) => o.ownerPartyId === s.b);
     expect(b2029).toMatchObject({ amount: null, calculationStatus: 'NOT_CALCULABLE' });
     expect(b2029?.reasons).toEqual([{ code: 'DISPOSAL_DATE_MISSING', details: { validUntil: '2029-06-30', buyerAcquisitionId: s.x } }]);
     expect(body.years[0]?.amount).toBeNull();
+    // C's own component has no start (VC-X-33): not computable, never from the contract date of 2029-07-01.
+    const x = body.components[1];
+    expect([x?.acquisitionId, x?.status, x?.reasons, x?.start]).toEqual([
+      s.x,
+      'NOT_COMPUTABLE',
+      [{ code: 'TRANSFER_DATE_MISSING', details: { contractDate: '2029-07-01' } }],
+      null,
+    ]);
+    expect(x?.years.map((y) => [y.year, y.amount, y.calculationStatus])).toEqual([[2029, null, 'NOT_CALCULABLE']]);
   });
 
   it('an existing owner buys a further share (§28.1A): W and X both computed, no BUYER_ALREADY_OWNER, no OWNER_WITHOUT_ACQUISITION', async () => {
