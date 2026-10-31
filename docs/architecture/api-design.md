@@ -5262,7 +5262,7 @@ A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` sn
 
 # 58C. Tax-Year View (VC-7-04, implemented: migration 0048)
 
-**Status:** implemented (VC-7-04, migration 0048; VC-7-05 review on #171). **Amended by VC-8-05: specified, not implemented** (the AfA in the view, `result.basis`, `final`; section "VC-8-05: the AfA in the view" below; builds on §60 (VC-8-04, specified in #180)).
+**Status:** implemented (VC-7-04, migration 0048; VC-7-05 review on #171). **Amended by VC-8-05: specified, not implemented** (the AfA in the view, `result.basis`, `final`; section "VC-8-05: the AfA in the view" below; builds on §60 (VC-8-04, specified in #180)). **Amended by VC-X-29: specified, not implemented** (the interest of an allocated Loan in the figures, `LOAN_INTEREST_NOT_ATTRIBUTED` narrowed; §58D).
 
 Decisions P7-D7 and P7-D8 of `docs/development/phase-7-plan.md` (`docs/product/reports.md` §2.2; `docs/germany/taxation.md` §3–§7, §10; domain-model §45, §47; checklist A1, A4, A5, A10–A12). VC-7-01 to VC-7-03 give every source a **tax meaning** and a tax year (§55, §58A, §58B). VC-7-04 adds the one read that turns them into Einkünfte aus Vermietung und Verpachtung: per PropertyReference and tax year, and per owner. It is derived on every read and never stored (P7-D8; snapshots are Phase 9's, ADR-040). It writes nothing: no cash, no split, no classification, no AuditRecord (ADR-006). The AfA block stayed empty in Phase 7; VC-8-05 fills it (below).
 
@@ -5296,7 +5296,7 @@ GET /api/v1/property-references/{id}/tax-years/{year}[?ownerPartyId=]      (VC-7
   - the counting reserve withdrawals and Sonderumlage uses of its memberships whose tax year is `year` (§58B);
   - every `DISTRIBUTED_82B` source of an earlier year with a part in `year` (§58B).
 - **And the deposits not attributed** ("nicht zugeordnet", below): the counting deposit closings of the Realm closed in `year` whose PropertyReference is `null` (§58A's `NO_PROPERTY_REFERENCE`).
-- **And the interest of an allocated Loan** (VC-7-05 review on #171): the counting `LOAN_INTEREST` splits with a `loanId` whose tax year is `year` (§58A, as the list derives it: the Loan's schedule for the 10-day rule, the `taxYear` override), of every Loan with a `VALID` LoanAllocation set naming the PropertyReference (§41.3). Such a split carries no PropertyReference (0027), so it is **not an item**: it is in no place and no figure, and it only raises `LOAN_INTEREST_NOT_ATTRIBUTED` (below). How it reaches its properties is an allocation decision (AGENTS.md §13), backlog VC-X-29.
+- **And the interest of an allocated Loan** (VC-7-05 review on #171): the counting `LOAN_INTEREST` splits with a `loanId` whose tax year is `year` (§58A, as the list derives it: the Loan's schedule for the 10-day rule, the `taxYear` override), of every Loan with a `VALID` LoanAllocation set naming the PropertyReference (§41.3). Such a split carries no PropertyReference (0027), so it is **not an item**: it is in no place and no figure, and it only raises `LOAN_INTEREST_NOT_ATTRIBUTED` (below). How it reaches its properties is an allocation decision (AGENTS.md §13), backlog VC-X-29. **Changed by §58D (VC-X-29, specified):** such a split becomes an item of the view, with this PropertyReference's part, when the Loan's allocation set valid on its booking date is usable and names it. It is listed in `notAttributed` when no usable set covers that date. Only then does it raise the flag.
 - **A source that does not count** (`counts: false`) is not in the view, as it is not in the list. The view adds nothing the list does not hold: a statement's cost lines, a `WEG_FUNDS` split as Werbungskosten, or an Acquisition's price never reach it (P7-D5, §58B "Never counted twice").
 - **The view is the list, grouped and summed.** A test compares the view's items, per source, with the list's (`yearAmount` aside, see § 82b below).
 
@@ -5430,7 +5430,7 @@ A correction of a `RentalContractReference`'s `rentDueDays` moves the tax year o
 ### Flags and the review section
 
 - **`flags`** of the year: `DEPRECIATION_NOT_AVAILABLE` (always in Phase 7; from VC-8-05 only when no AfA is computable, below), `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `LOAN_INTEREST_NOT_ATTRIBUTED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` (an entry of `acquisitions` with `final: false` or `NOT_COMPUTABLE`). Flags are `{ code, details }`.
-- **`LOAN_INTEREST_NOT_ATTRIBUTED`** (VC-7-05 review on #171): the year has interest of an allocated Loan (above, "What the view reads") that no line holds. `details: { loanIds, interestTotal, splitIds }`: the Loans (sorted), the sum of their interest splits of `year` (an `OUTFLOW` positive; 0027 allows no other but a reversal, which does not count) and the splits (sorted). `interestTotal` is the Loans' interest of the year as booked, not this property's share of it: the allocation's share and period are not applied, and VC-X-29 decides the share. The flag is shown at the owner level too, with the same details. It is open, so the year's figures are not presented as complete while it stands.
+- **`LOAN_INTEREST_NOT_ATTRIBUTED`** (VC-7-05 review on #171): the year has interest of an allocated Loan (above, "What the view reads") that no line holds. `details: { loanIds, interestTotal, splitIds }`: the Loans (sorted), the sum of their interest splits of `year` (an `OUTFLOW` positive; 0027 allows no other but a reversal, which does not count) and the splits (sorted). `interestTotal` is the Loans' interest of the year as booked, not this property's share of it: the allocation's share and period are not applied, and VC-X-29 decides the share. The flag is shown at the owner level too, with the same details. It is open, so the year's figures are not presented as complete while it stands. **Narrowed by §58D (VC-X-29, specified):** the same keys and level, but only for the interest splits that no usable set covers on their booking date. Attributed interest no longer raises it.
 - **The items' flags** are their meanings' flags (§55, §58A, §58B) as they are, plus `NEEDS_REVIEW` (the meaning's `reviewState`), `UNCLASSIFIED` (no treatment), `DISTRIBUTION_FOLDED_PER_OWNER` and `SHARE_DATE_OUTSIDE_TAX_YEAR` (above).
 - **`review`** summarises them: `{ final, open: [{ code, count }], info: [{ code, count }], reviewStates: { SUGGESTED, USER_CONFIRMED, ADVISOR_CONFIRMED, NEEDS_REVIEW } }`, with each code once and `count` the number of items (or 1 for a flag of the year). A flag is **open** (it needs a person, P7-D8) or **informative**:
 
@@ -5554,7 +5554,7 @@ A correction of a `RentalContractReference`'s `rentDueDays` moves the tax year o
 ### As implemented (VC-7-05 review on #171)
 
 - **`LOAN_INTEREST_NOT_ATTRIBUTED`:** `readTaxYear` reads `allocatedLoanInterest` in the same snapshot: the counting splits (`countingSplits`, §55) of category `LOAN_INTEREST` whose `loanId` names a Loan with a `VALID` `loan_allocation_set` holding an entry for the PropertyReference, selected by the same booking-date windows and `taxYear` override as `yearItems`, then derived by `meaningsOf` (the list's derivation, with the Loan's schedule) and kept when the tax year is `year`. `buildTaxYearView` raises the open year flag from them at both levels. They are not items: the cap, the places, `owners` and `review.reviewStates` do not count them.
-- **Scope, deliberately coarse:** any `VALID` set naming the PropertyReference counts, whatever its `validFrom` or share, and the total is the Loan's whole interest of the year. Over-flagging only keeps a year open; which set and share apply, and how the interest is then placed per property and per owner, is VC-X-29's decision. The per-owner share of the total is not computed.
+- **Scope, deliberately coarse:** any `VALID` set naming the PropertyReference counts, whatever its `validFrom` or share, and the total is the Loan's whole interest of the year. Over-flagging only keeps a year open; which set and share apply, and how the interest is then placed per property and per owner, is VC-X-29's decision. The per-owner share of the total is not computed. **Decided and specified in §58D (VC-X-29):** the set valid on the booking date, its share by largest remainder, then the owners on the booking date. The flag only for interest without a usable set.
 - **Tests:** domain (`tax-year-view.test.ts`: the flag at both levels, open, summed nowhere); repository (`tax-year-view-repository.test.ts`: raised for the allocated Loan's counting interest of the year; not for interest of another year or overridden to another, an unconfirmed or corrected Transaction, principal, a Loan allocated elsewhere, without a set, or with a `VOID` set); ACC7 (a debit with `loanId`: the flag with its Loan, 450.00 and split, in `review.open`, in no place and no figure; not in 2028). Mutations run: the flag never raised, the year filter, the counting filter and the allocation filter dropped each turn the repository test red.
 
 ### Decisions on the open questions (project owner, review on #168)
@@ -5749,7 +5749,7 @@ depreciation: {
 1. the AfA: `DEPRECIATION_NOT_AVAILABLE`, `DEPRECIATION_INCOMPLETE` and every gap reason above, `NO_ASSET`;
 2. the recording (§60; open there, `RECORDED_VERSION_NOT_REPRODUCIBLE` a **proposal**, §60 open question 7, not decided; open question 6 below): `DEPRECIATION_SCHEDULE_NOT_RECORDED`, `DEPRECIATION_CHANGED_SINCE_RECORDED`, `RECORDED_VERSION_NOT_REPRODUCIBLE`, for **any** asset with a component active in the year;
 3. the AfA's open flags: `TRANSFER_DATE_ASSUMED`, `USEFUL_LIFE_NOT_SHORTER`, `USEFUL_LIFE_START_TO_VERIFY`, `DISPOSAL_YEAR_TO_VERIFY`, `HISTORICAL_RULE_TO_VERIFY`, `OWNER_WITHOUT_ACQUISITION` (as its gap), `SUBSEQUENT_COST_START_TO_VERIFY`, `SUBSEQUENT_COST_END_TO_VERIFY`, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`, `CAPITALIZED_YEAR_DIFFERS`, `CAPITALIZED_ITEM_NOT_OWNED`, `REFUND_EXCEEDS_CAPITALIZED`, `LATER_ITEM_TO_VERIFY`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`. Recording a version clears none of them (§60, proposal, §60 open question 1);
-4. Phase 7's year flags: `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `LOAN_INTEREST_NOT_ATTRIBUTED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` (no acknowledgement exists before VC-X-28, and no attribution of an allocated Loan's interest before VC-X-29: a year they touch is not final, as decided for #173);
+4. Phase 7's year flags: `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `LOAN_INTEREST_NOT_ATTRIBUTED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` (no acknowledgement exists before VC-X-28, and no attribution of an allocated Loan's interest before VC-X-29: a year they touch is not final, as decided for #173). With §58D (VC-X-29), `LOAN_INTEREST_NOT_ATTRIBUTED` stands only for interest without a usable allocation set on its booking date, and §58D's `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (a proposal) is an open item flag;
 5. Phase 7's item flags while open by §58C's table: `NEEDS_REVIEW`, `UNCLASSIFIED`, `CLASSIFICATION_ON_CORRECTED_SPLIT`, `PREDECESSOR_CLASSIFIED`, `REFUND_YEAR_UNKNOWN`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`; `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` while the item is not `CAPITALIZED`; `ATTRIBUTED_BY_10_DAY_RULE`, `DUE_DATE_ASSUMED`, `ECONOMIC_PERIOD_ASSUMED`, `NO_ECONOMIC_PERIOD`, `WITHDRAWAL_DATE_ASSUMED`, `WEG_FINANCIAL_YEAR_NOT_CALENDAR` while the item's `origin` is `DEFAULT`.
 
 Everything else is informative and does not block. **The view never sets `final` from anything but this rule**: there is no "mark as final" command, and nothing is stored (P7-D8). The owner level is final on the owner's flags; the property level only when every owner's and `NOT_OWNED`'s are clear too, since the property's review counts every item and flag.
@@ -6012,7 +6012,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
   - the query plans; the import scan without a cycle among `tax-classification-repository.ts`, `tax-year-depreciation.ts` and `capitalized-items.ts`;
   - "no cash mutated" over the extended table list above; a write inside the view's transaction refused (`25006`).
 - **API:** the DTO of `Line` (`line`), `AfaItem`, `depreciation`, `capitalized.component`, `result.basis` at both levels; the existing tests updated for the two new lines and the `depreciation` block (the Phase-7 assertions on `final: false` and `DEPRECIATION_NOT_AVAILABLE` change to the new rule).
-- **End to end** (`tax-year-view.e2e.test.ts` extended; synthetic): Examples 1–4 literally, and ACC7's year with interest booked via a Loan: `LOAN_INTEREST_NOT_ATTRIBUTED` keeps it from being final after its AfA is recorded. **Realm isolation:** another Realm's asset, version, capitalised source or Ownership on a same-named setup never reaches the AfA lines, the gaps or the flags.
+- **End to end** (`tax-year-view.e2e.test.ts` extended; synthetic): Examples 1–4 literally, and ACC7's year with interest booked via a Loan: `LOAN_INTEREST_NOT_ATTRIBUTED` keeps it from being final after its AfA is recorded (with §58D, a debit without a set on its booking date: ACC7's own debit is then attributed). **Realm isolation:** another Realm's asset, version, capitalised source or Ownership on a same-named setup never reaches the AfA lines, the gaps or the flags.
 
 #### Counter-checks and mutations
 
@@ -6046,7 +6046,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
 
 - **ACC8's view steps** use the four examples above with their figures: 2026 `AFA_BUILDING` 2,544.00 (A 1,526.40, B 1,017.60), result 4,296.00 `AFTER_DEPRECIATION`, lower by exactly 2,544.00; 2027 `AFA_BUILDING` 5,802.00 (A 3,481.20, B 2,320.80) and `AFA_SEPARATE_ASSETS` 450.00 (A 270.00, B 180.00) once the repair is capitalised and the kitchen recorded as a separate asset; the variants `BEFORE_DEPRECIATION` and `PARTIAL_DEPRECIATION`.
 - **"2027 after recording: final when nothing else is open"** (the plan's ACC8 sketch) holds only once `subsequentCostStart` is verified (§59B open question 1) before the rule is frozen (§60 open question 5: after the freeze a confirmation is a version `@3` from a year on, and the years computed under `@2` keep the flag) and the check's window has closed: as implemented, `SUBSEQUENT_COST_START_TO_VERIFY` is a flag of the item's component (§59B "As implemented (VC-8-03)" 1), so 2027, 2028 and every later year in which the repair or the use is active stay not final by it, not only each item's first year. ACC8 should assert **2026 final** (Example 3, with an injected clock after the window), 2027 **not final with exactly that flag** after recording, and the flag on each later year of ACC8's range as well.
-- **Interest via a Loan** (ACC7's debit): `LOAN_INTEREST_NOT_ATTRIBUTED` keeps its year from being final after the AfA is recorded.
+- **Interest via a Loan** (ACC7's debit): `LOAN_INTEREST_NOT_ATTRIBUTED` keeps its year from being final after the AfA is recorded. Once §58D (VC-X-29) is implemented, ACC7's debit is attributed (its Loan is allocated `MANUAL` `1/1` from 2026-03-15), so this step needs a debit without a set on its booking date.
 - **Mutations of ACC8** that this section serves: "`result.basis` left at `BEFORE_DEPRECIATION`, or the AfA not subtracted", "a capitalised item left in the Werbungskosten as well".
 - **invariant-suite, VC-8-05's section** maps: the result moved by exactly the AfA; owners + `NOT_OWNED` = the property including the AfA; `final` only without an open flag; the view and the schedule from one snapshot; no AfA as cash.
 
@@ -6058,6 +6058,249 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
 4. **Two lines** (`AFA_BUILDING`, `AFA_SEPARATE_ASSETS`) rather than one `AFA` line with the asset type on each item (proposal; not decided).
 5. **The new `line` field** on every line (with `taxCategory` `null` on the AfA lines). The alternative puts the AfA codes into `taxCategory`, which would mix a line code into the tax vocabulary that §55 and §56 validate.
 6. **`RECORDED_VERSION_NOT_REPRODUCIBLE` keeps a year from being final** (open). The flag itself is a **proposal** of §60 (open question 7 there), not decided; the view carries it at the level §60's review settles. If it is dropped or made informative, the view follows and item 2 of the `final` list changes accordingly.
+
+---
+
+# 58D. Loan Interest in the Tax-Year View (VC-X-29, spec)
+
+**Status:** specified (VC-X-29); not implemented. **No migration** (below). It amends §58C: "What the view reads", "Per owner", "Not attributed", the flag `LOAN_INTEREST_NOT_ATTRIBUTED`, the review table, the cap and the item DTO. Everything else of §58C (placement, signs, § 82b, `ATTRIBUTION_INPUT_CHANGED`, the anschaffungsnahe check, VC-8-05's AfA) is unchanged.
+
+**Why a section of its own, after §58C:** VC-X-29 is a backlog item of its own with its own status, as §58A and §58B are to §58C and §59A to §59. §58C keeps its statements and points here where they change.
+
+Backlog VC-X-29 (found by VC-7-05, invariant-suite §45). A split with a `loanId` carries no PropertyReference (0027, §41.5: `CHECK (loan_id IS NULL OR property_reference_id IS NULL)`), and §58C reads the splits of its PropertyReference only. So interest booked against a Loan reaches no figure of any view. Since the VC-7-05 review (#171), each view of a PropertyReference that the Loan is allocated to carries the open year flag `LOAN_INTEREST_NOT_ATTRIBUTED` with the Loan's whole interest of the year. Its scope is deliberately coarse: any `VALID` set naming the PropertyReference counts, whatever its period or share (§58C "As implemented (VC-7-05 review on #171)"). VC-X-29 attributes that interest to the PropertyReferences through the Loan's `LoanAllocation` (§41.3) and to their owners through the Ownerships (§58C, P7-D7). It keeps the flag, but only for the interest that cannot be attributed. The view still writes nothing and stores nothing (P7-D8, ADR-006).
+
+### Decisions (project owner, 2026-10-31)
+
+Product decisions, written here in their meaning (AGENTS.md §13: the basis for interest is decided, not invented):
+
+1. **The allocation that counts is the `LoanAllocation` set valid on the booking date** of the interest split. A later change never re-distributes earlier interest retroactively.
+2. **The allocation must reflect the Loan's actual use** (taxation.md §5, checklist A1: Schuldzinsen count "soweit sie wirtschaftlich der Vermietung zuzuordnen sind"). No automatic equal split, and no derivation from purchase prices.
+3. **The distribution to owners follows the ownership shares on the booking date**: §58C's existing per-owner logic.
+4. **The tax year follows the existing tax-year logic** (§58A): the booking year, the 10-day rule where it applies (`LOAN_INTEREST` is a regularly recurring category of `DE_CASH_TIMING@1`, its due date taken from the Loan's schedule) and the classification's `taxYear` override.
+5. **Without a valid allocation on the booking date, the interest stays visible as not attributed.** The view shows no estimated property amounts and never looks complete. `LOAN_INTEREST_NOT_ATTRIBUTED` stays, narrowed to exactly the unallocated interest, at its open level.
+6. **Cents are distributed by the existing method**, largest remainder, as the codebase does. The property shares sum exactly to the original amount, and nothing is counted twice.
+7. **The technical distribution alone does not confirm tax deductibility.** The classification and review semantics stay as they are: an attributed interest item has its usual meaning (by default `LOAN_INTEREST` / `DEDUCTIBLE` / `SUGGESTED`, else its classification's), its usual flags and its usual review state. Being attributed makes it neither `USER_CONFIRMED` nor deductible.
+
+**How the code's reality shapes three of them** (each also an open question below):
+
+- **Decision 1** holds in business dates. A set is valid from its `validFrom` to its derived `validUntil` (§41.3). So a set never reaches interest booked before its `validFrom`, and nothing is pro-rated. The view derives on every read (P7-D8) from the sets as recorded **now**. §41.3 lets a set be appended with a `validFrom` in the past (it only has to lie after the last `VALID` set's), and lets the last set be voided, which extends the previous one. Both corrections of the record re-attribute interest already booked in the period they cover. This is the "allocation valid on the booking date" as now recorded. It is not a re-distribution by a later change of use. It moves figures of a year that may have been filed, silently, like the inputs of §58C open question 8 (open question 3).
+- **Decision 2** against `basis = PURCHASE_PRICE` (§41.3, ADR-038's default "from the financed purchase amount"). Such a set's shares are a derivation from purchase prices. The view therefore does not apply a `PURCHASE_PRICE` set with more than one entry: the interest under it stays not attributed, with its own reason. A one-entry set is `1/1` whatever the price, so it is used. ADR-038 is not changed: the set still serves principal, remaining debt and §41.6's figures. Only the tax view declines to read a price ratio as the Loan's actual use (open question 1).
+- **Decision 6:** "the existing method" is two existing functions, one per step. The split goes to the PropertyReferences by Financing's `distribute` (§41.6: largest remainder, ties by `propertyReferenceId`). Each property's part goes to its owners by §58C's `shareOut` (ties to the larger share, then `ownerPartyId`, `NOT_OWNED` last). The first step's tie rule is §41.6's, not §58C's, so a property's part of a split equals what Financing's per-property read gives for it (open question 6).
+
+### What the view reads (its input, in §58C's snapshot)
+
+- **The candidate Loans:** every Loan of the Realm with a `VALID` `loan_allocation_set` holding an entry for the PropertyReference. This is today's selection, and it stays a superset: which set applies is decided per split below.
+- **Their interest splits of `year`:** the counting splits (`countingSplits`, §55: `CONFIRMED` or `RECONCILED`, not a reversal) of category `LOAN_INTEREST` with a candidate `loanId`, selected by §58A's booking-date windows around `year` or by a current classification with `taxYear = year`, derived by `meaningsOf` (the list's derivation, with the Loan's schedule for the 10-day rule), and kept when the derived `taxYear` is `year`. This too is today's selection. The meaning is the split's own, as `GET /transaction-splits/{splitId}/tax-meaning` gives it (§55, §58A), with its classification if any. The PropertyReference's treatment effects (§58B: § 82b ownership, the anschaffungsnahe check) are not applied: the split is not a source of the check, which reads the PropertyReference's own splits.
+- **New: every allocation set of each candidate Loan**, `VALID` and `VOID`, with all their entries (every PropertyReference of the set, not only this one) and `validUntil` derived over the `VALID` ones (`withValidUntil`, §41.3), read in the same snapshot.
+- **New, per split:** the set covering its **booking date** (`setOn`, §41.3: `VALID`, `validFrom ≤ bookingDate ≤ validUntil`). `VOID` sets cover nothing (§41.3: "a `VOID` set counts nowhere"). The booking date decides even when the 10-day rule or a `taxYear` override puts the split into another year (decisions 1 and 4, like §58C's share date).
+
+Each split then falls into exactly one of three cases for the PropertyReference P of the view:
+
+| Case | Condition | In P's view |
+|---|---|---|
+| **Attributed** | a set covers the booking date, it is usable (below), and it has an entry for P | an **item** on its place (§58C's placement by its meaning), with P's part of the split |
+| **Attributed elsewhere** | a usable set covers the booking date and has no entry for P | nothing: the interest belongs to other PropertyReferences, and P's view neither lists nor flags it |
+| **Not attributed** | no set covers the booking date (`NO_LOAN_ALLOCATION`), the covering set is `PURCHASE_PRICE` with more than one entry (`ALLOCATION_BY_PURCHASE_PRICE`), or its shares do not sum to `1/1` (`ALLOCATION_SUM_NOT_ONE`, defensive, below) | listed in `notAttributed` (never summed), and the open year flag `LOAN_INTEREST_NOT_ATTRIBUTED` |
+
+- **Usable set:** `basis = MANUAL`, or `PURCHASE_PRICE` with exactly one entry (`1/1`); and its shares sum to exactly `1/1`.
+- **The sum is always one in practice:** 0026's deferred constraint trigger `loan_allocation_complete` refuses any set whose fractions do not sum to exactly `1/1`, at commit. Rows are never updated or deleted (`loan_allocation_set_frozen`, no update path on `loan_allocation`), and every share is positive, so a committed set cannot take another row. A read in a snapshot sees only committed sets. The view still checks the sum (Financing's `sumsToOne`) and treats a failing set as not usable, so a broken invariant can never produce a figure.
+- **Which views list a not attributed split:** the view of every PropertyReference named by any `VALID` set of its Loan, which is the candidate selection above, as today. DE knows no better link: the split carries no PropertyReference, and the set that would decide is missing or not usable. `candidates` names those PropertyReferences.
+- **A Loan with no `VALID` set at all** (never allocated, or every set voided) is in no view's candidate selection, so its interest is in no view, as today (open question 2).
+- **Cross-Realm is impossible:** the split's `(loan_id, mre_realm_id)`, the set's `(loan_id, mre_realm_id)`, the entry's `(set_id, mre_realm_id)` and `(property_reference_id, mre_realm_id)` are composite foreign keys (0026, 0027). A Loan cannot be allocated to a PropertyReference of another Realm, and every query filters by the caller's Realm as well.
+
+### The arithmetic
+
+All in integer cents and exact fractions, never floating point (§58C).
+
+1. **The split's signed amount** A: as §58C "Signs" on its placement (an `OUTFLOW` on `LOAN_INTEREST` counts positive; an `INFLOW` would be a refund, negative, below).
+2. **To the PropertyReferences:** A over the set's entries by `distribute` (§41.6): every entry first gets `floor(|A| × share)`, the rest (fewer cents than entries) one cent each to the largest fractional remainders, ties by `propertyReferenceId` ascending; a negative A by its absolute value, the sign restored on each part. **The parts sum exactly to A**, and every view of the set's PropertyReferences computes the same parts, because each view distributes over the whole set, not just its own entry.
+3. **The item in P's view:** `amount` is the split's whole amount (the source, as a § 82b item shows the whole source), and `lineAmount` is P's part (step 2) where the place sums (§58C: `null` in `notInView` and `unclassified`). `loanAllocation.propertyPart` (below) shows P's part in every place.
+4. **To P's owners:** P's part over the participants on the **booking date** by §58C's `shareOut` (decision 3): the `VALID` Ownerships of P covering that day, and `NOT_OWNED` for what they leave. The owners' parts plus `NOT_OWNED` sum exactly to P's part.
+5. **Above the item, summed, never distributed** (§58C, §27.4's F4b): lines, sections, the result and `owners` are sums of the items' parts. So §58C's identity "the owners plus `NOT_OWNED` equal the property" holds unchanged, and so does a new one: **for every attributed split, the parts in the views of all its set's PropertyReferences sum to A.**
+6. **Rounding happens per split, once per step.** The year's interest of a Loan is never distributed as a total: largest remainder is not additive, so a total distributed once would differ by cents from the sum of the per-split parts, and the per-split parts are what a split's own figure must show. An owner's part is a part of P's rounded part, within one cent of it × the owner's share. It may differ from the exact A × allocation share × ownership share by up to two cents, which is the cost of each property's figure being its owners' sum.
+
+**Example** (synthetic). PropertyReferences P1 and P2, with `propertyReferenceId` of P1 < P2. P1 is owned by A and B, `"1/2"` each, and P2 by C, `"1/1"`, all from 2026-01-01, with `ownerPartyId` A < B. A Loan L has `debtFrom` 2027-01-01 and a schedule (§41.4) with monthly payments due on the last day of each month. Its allocation sets, all `MANUAL`:
+
+- S1 from 2027-02-01: P1 `"3/5"`, P2 `"2/5"` (60/40);
+- S2 from 2027-07-01, recorded on 2027-08-10: P1 `"1/2"`, P2 `"1/2"`;
+- S3 from 2028-01-01: P1 `"7/10"`, P2 `"3/10"`.
+
+Confirmed `OUTFLOW` debits with a `LOAN_INTEREST` split carrying L's `loanId` (principal splits left out):
+
+| Booking date | Interest | Tax year (§58A) | Set on the booking date | P1 | P2 | P1's owners | P2's owner |
+|---|---|---|---|---|---|---|---|
+| 2027-01-29 | 451.20 | 2027 | none (before S1) | not attributed | not attributed | — | — |
+| 2027-03-31 | 450.01 | 2027 | S1 | 270.01 | 180.00 | A 135.01, B 135.00 | C 180.00 |
+| 2027-07-30 | 449.99 | 2027 | S2 | 225.00 | 224.99 | A 112.50, B 112.50 | C 224.99 |
+| 2028-01-03 | 448.00 | **2027** (10-day rule: due 2027-12-31, paid within the window) | **S3** (the booking date decides, not the tax year) | 313.60 | 134.40 | A 156.80, B 156.80 | C 134.40 |
+
+- **The odd cent (2027-03-31):** 45,001 cents × 3/5 = 27,000.6 and × 2/5 = 18,000.4. The floors 27,000 and 18,000 leave one cent, which goes to the larger remainder (0.6, P1): 270.01 and 180.00, summing to 450.01. P1's 27,001 cents over A and B at `"1/2"` each are 13,500.5 each. The one cent left is a tie on the remainder and on the share, so it goes to the lower `ownerPartyId`: A 135.01, B 135.00.
+- **A tie between properties (2027-07-30):** 44,999 × 1/2 = 22,499.5 for each property. The one cent goes by `propertyReferenceId` to P1: 225.00 and 224.99. P1's 22,500 split exactly, 112.50 each.
+- **The later allocation change:** S2 applies from 2027-07-01, although it was recorded only on 2027-08-10. It covers the debit of 2027-07-30 (decision 1, in business dates). The debit of 2027-03-31 keeps S1's 60/40. S2 never re-distributes it.
+- **The booking date against the tax year (2028-01-03):** the 10-day rule puts the debit into 2027 with `ATTRIBUTED_BY_10_DAY_RULE` (open while its origin is `DEFAULT`, §58C). It is allocated by S3, the set of its booking date: 31,360 and 13,440 cents, exactly. Without S3 it would be S2's 224.00 each. Its owners are those of 2028-01-03 (§58C, decision 3); they are the same here.
+- **2027, property level:** P1's `LOAN_INTEREST` line is 270.01 + 225.00 + 313.60 = **808.61** (A 404.31, B 404.30). P2's is 180.00 + 224.99 + 134.40 = **539.39** (C). P1 + P2 = 1,348.00, which is exactly the three attributed debits.
+- **2027, not attributed:** the debit of 2027-01-29 has no set on its booking date. It is in **both** views' `notAttributed` with reason `NO_LOAN_ALLOCATION` and `candidates` [P1, P2], in neither total. Both views carry `LOAN_INTEREST_NOT_ATTRIBUTED` with `{ loanIds: [L], interestTotal: 451.20, splitIds: [that split] }` at both levels. The view never estimates a share of it (no 60/40 taken from S1, no 50/50).
+- **2028:** the debit of 2028-01-03 is in neither 2028 view: its tax year is 2027. Neither 2028 view is flagged for it.
+- **Cross-check with Financing:** each attributed split's parts equal `distribute(A, set.allocations)` of §41.6. `GET /loans/{L}/payments?year=2027&perProperty=true` answers `409 LOAN_NOT_ALLOCATED` (`bookingDate` 2027-01-29) for this Loan: the payments read refuses the year where the view lists the gap and shows the rest.
+
+### Per owner
+
+- **Unchanged rule** (§58C, P7-D7, decision 3): an attributed interest item is an item like any other. Its share date is the split's booking date, its participants are P's `VALID` Ownerships on that day, and `NOT_OWNED` takes the rest.
+- **An owner change between booking date and tax year** (the 10-day rule at a year boundary): the booking date's owners, with `SHARE_DATE_OUTSIDE_TAX_YEAR` as §58C has it.
+- **P without an Ownership on the booking date** (§26.1 `NONE`): P's whole part goes to `NOT_OWNED`, and the year carries `OWNERSHIP_INCOMPLETE`, as for any item. P's own figure is complete; the owners' are not. The interest is still attributed to P: the Loan's allocation and P's ownership are independent facts.
+- **Participation:** an owner whose only part in `year` is a part of an attributed interest item takes part in the year. `NOT_AN_OWNER_IN_YEAR` (§58C, order of checks, step 4) and `owners` count it, as any item.
+- **The owner level** (`?ownerPartyId=`): the owner's part of each attributed item, `share` as §58C has it (`{ ownershipId, share, amount }`, the Ownership's share, not the allocation's). Not attributed interest is listed as at the property level with `share: null`, as §58C lists a deposit not attributed. The flag carries the same details at both levels: unallocated interest has no property part and so no owner part.
+
+### Flags and levels
+
+- **`LOAN_INTEREST_NOT_ATTRIBUTED`** (a year flag, **open**, unchanged in level and in the keys of `details`): raised exactly when the view lists at least one not attributed interest split (above). `details: { loanIds, interestTotal, splitIds }` cover **only those splits**: their Loans (sorted), the signed sum of their amounts (an `OUTFLOW` positive, an `INFLOW` subtracted, as the code has it since the review on #171), and the splits (sorted). It is no longer raised for interest that is attributed, here or elsewhere. Each split's reason is on its entry in `notAttributed`.
+- **`UNATTRIBUTED_ITEMS`** keeps counting the deposits not attributed only (§58C). Not attributed interest has its own flag, and raising both for one split would count it twice in `review.open`.
+- **The items' flags** of an attributed interest item are its meaning's (§55, §58A) plus §58C's (`NEEDS_REVIEW`, `UNCLASSIFIED`, `SHARE_DATE_OUTSIDE_TAX_YEAR`), at §58C's levels. Typical ones:
+  - `ATTRIBUTED_BY_10_DAY_RULE`: open while the origin is `DEFAULT`;
+  - `CLASSIFICATION_ON_CORRECTED_SPLIT`: open;
+  - `RULE_SUPERSEDED`: informative.
+
+  Decision 7: no flag is added or removed because the item came through a Loan.
+- **New item flag `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS`** (**open**, proposal, open question 4): on an attributed interest item whose treatment is `CAPITALIZED`, for example Bauzeitzinsen classified as Herstellungskosten. §58C places it in `capitalized` with P's part, but §59B's capitalised sources read the splits of the PropertyReference only (`capitalizedSources`: `s.property_reference_id = P`), so no AfA basis would take it. The flag keeps that year from looking complete. `details: { loanId, allocationSetId }`.
+- **The review table of §58C** gains the row `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` at level open. `LOAN_INTEREST_NOT_ATTRIBUTED` stays in the first row.
+- **Counts:** attributed items and not attributed entries are items of the view: they count in `review.reviewStates`, in the item flags' counts, in `ruleVersions` (`DE_CATEGORY_DEFAULTS`, `DE_CASH_TIMING` as their meanings name them) and against the cap of 5,000 (§58C "Limits": the response carries them). Today's `allocatedLoanInterest` counts in none of these.
+
+### The effect on `final`
+
+- **On main, `final` is always false**, because `DEPRECIATION_NOT_AVAILABLE` is raised in every year until VC-8-05 is implemented (§58C; `buildTaxYearView`). VC-X-29 changes no figure of that.
+- **The rule stays §58C's** (VC-8-05: "true only when `review.open` is empty"). What VC-X-29 changes is which interest holds a year open:
+  - a year whose interest via a Loan is **all attributed** is no longer held by `LOAN_INTEREST_NOT_ATTRIBUTED`. Its interest items hold it only through their own open flags, exactly as interest booked on the PropertyReference does;
+  - a year with **any** not attributed interest split stays not final, at both levels, whatever else is clear (decision 5);
+  - a year with an attributed `CAPITALIZED` interest item stays not final through `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (proposal).
+- **An attribution never confirms an item** (decision 7). A default interest item is `SUGGESTED`, which is not open by itself (§58C), the same as interest booked on the PropertyReference. The allocation adds no confirmation and requires none beyond the existing ones.
+- VC-8-05's list of what blocks `final` (item 4, Phase 7's year flags) reads `LOAN_INTEREST_NOT_ATTRIBUTED` in this narrowed sense. ACC7's debit with a `loanId` is allocated `MANUAL` `1/1` from 2026-03-15, so it becomes attributed (below). ACC8's step "interest via a Loan keeps the year from being final" needs a debit without a set on its booking date.
+
+### API shape (additive)
+
+No route, parameter, status code or order of checks changes. The response of §58C gains:
+
+- **`Item.loanAllocation`**, on every item: `null`, except on an item from a Loan's interest split:
+
+  ```text
+  loanAllocation: {
+    loanId,
+    allocationSetId,   // the set covering the booking date; null for NO_LOAN_ALLOCATION
+    validFrom,         // that set's, else null
+    validUntil,        // that set's derived end, else null
+    basis,             // MANUAL | PURCHASE_PRICE, else null
+    share,             // P's reduced share "n/d" in that set; null when not attributed
+    propertyPart       // P's part of the split, non-negative Money (like `amount`); null when not attributed
+  }
+  ```
+
+  At the owner level `propertyPart` stays P's part, so the owner's `lineAmount` and `share.amount` can be checked against it.
+- **Attributed items** sit in their place like any split item: `sourceType: "TRANSACTION_SPLIT"`, `transactionId`, `date` the booking date, `dateSource: "BOOKING"`, `direction`, `amount` the whole split, `lineAmount` P's (or the owner's) part. They are ordered within their place as §58C orders splits: by date, then Transaction id, then position. A line's `total` and `itemCount` include them.
+- **`notAttributed.items`** may now hold split entries besides deposits. Such an entry has `sourceType: "TRANSACTION_SPLIT"`, `lineAmount: null` and `share: null`, its meaning's fields as they are, and the fields that §58C's DTO adds to every entry there:
+  - `reason`: `NO_LOAN_ALLOCATION`, `ALLOCATION_BY_PURCHASE_PRICE` or `ALLOCATION_SUM_NOT_ONE`;
+  - `candidates`: the PropertyReferences named by any `VALID` set of the Loan, sorted;
+  - `href`: `/api/v1/loans/{loanId}/allocations?asOf={bookingDate}`.
+
+  A client that read only deposits there must accept the new `sourceType`.
+- **`LOAN_INTEREST_NOT_ATTRIBUTED.details`:** the same keys, narrowed content (above).
+- **The new open item flag** `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (proposal).
+- **§55's per-year list does not change.** It lists the splits of the PropertyReference (`s.property_reference_id`) and so does not hold Loan interest (open question 5). §58C's "the view is the list, grouped and summed" becomes "the list, plus the deposits not attributed (§58C), plus the attributed and not attributed interest of the candidate Loans (§58D)". Its test compares the view's other items with the list per source, and the Loan items with this section's derivation.
+
+### Concurrency
+
+- **A read, no locks:** the view stays one `REPEATABLE READ READ ONLY` transaction (`taxYearSnapshot`). The sets, their entries, the splits, the classifications, the Loan schedules and the Ownerships come from the same snapshot. A set appended or voided, a classification created or a split corrected while the view runs is either wholly seen (committed before the snapshot) or not at all.
+- **No half-written set:** a set and its rows commit together, and 0026's deferred trigger checks the sum at that commit. A snapshot never sees a set without its rows or with a partial sum.
+- **The writers are unchanged:** set writes lock the Loan row (§41.3, P3-D8). Split writes lock Transaction, then Loan (§41.5). Classification writes lock Transaction, then classification (§57). The view takes none of these locks and blocks none of them.
+- **Two views of one set** (P1's and P2's) are separate reads. Each is consistent in itself. Read at different moments, they may straddle a new set; neither view shows a mixed state.
+
+### Performance
+
+- **Candidate splits:** as today, one query: `transaction_split` by `loan_id IN (sets naming P)` through `loan_allocation_property_reference_idx` (0026) and `transaction_split_loan_idx` (0027), restricted to the windows around `year` or the overridden splits.
+- **Sets:** one query for the sets of all candidate Loans by `loan_allocation_set_loan_idx` (0026: `(loan_id, valid_from, created_at)`) and one for their entries by the primary key `(set_id, position)`. This is a batched variant of `setsOf` over several Loans, not one round trip per Loan.
+- **Meanings:** one `meaningsOf` batch over the candidate splits (classifications, corrected originals, the Loans' schedules for the 10-day rule), as today.
+- **The size:** a private landlord's property has a few Loans with about 12 interest debits a year each, plus the windows. The distribution is O(entries) per split, with at most 50 entries per set (§41.3).
+- **No new index.** A repository test reads the plan of the candidate-split query and of the batched set read inside the view's snapshot and finds the indexes above (§58C's plan risk).
+
+### Migration
+
+**None.** VC-X-29 is a read: no table, column, constraint, trigger or index is added or changed. The data it needs exists: `transaction_split.loan_id` (0027), the sets with `basis`, `valid_from` and `status`, and their entries (0026). The next migration number is not taken by this item.
+
+### The code that changes
+
+- **`services/de-backend/src/infrastructure/postgres/tax-classification-repository.ts`** (`readTaxYear` and its private `allocatedLoanInterest`; there is no separate `tax-year-view-repository.ts` on main, only its test). `allocatedLoanInterest` keeps its candidate query. It returns, per kept split, the list item (`TaxMeaning` as a `TaxListItem` with `yearAmount = amount`) and its `loanId`, and adds the candidate Loans' sets with `validUntil`. `TaxYearRead.allocatedLoanInterest` changes shape (below).
+- **`services/de-backend/src/infrastructure/postgres/loan-allocation-repository.ts`:** a batched `setsOfLoans(trx, loanIds)` beside `setsOf` (same columns, same order), used by the view. `setsOf` stays as it is.
+- **`services/de-backend/src/domains/taxation/tax-year-view.ts`:**
+  - `TaxYearRead.allocatedLoanInterest` becomes `{ item: TaxListItem; loanId: string }[]`, and `TaxYearRead` gains `loanAllocationSets: ReadonlyMap<string, readonly LoanAllocationSetView[]>`;
+  - a new pure `loanInterestOf(read)` returns, per split, `ATTRIBUTED` (set, P's share, P's signed part from `distribute`), `ELSEWHERE` or `NOT_ATTRIBUTED` (reason, set or `null`, candidates);
+  - `deriveItem` takes P's part for an attributed split instead of the split's whole `signedCents`, and shares that part out to the owners as today;
+  - `buildTaxYearView` merges the attributed items into the placed items in list order, lists the not attributed entries in `notAttributed`, raises the narrowed flag and the new item flag, and counts both kinds against the cap;
+  - `TaxYearItem` gains `loanAllocation`, and `OPEN_ITEM_FLAGS` gains `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS`.
+- **`services/de-backend/src/domains/financing/`:** no change. Taxation imports `setOn`, `distribute`, `sumsToOne` and the type `LoanAllocationSetView` through `domains/financing/index.ts`, which is a new edge Taxation → Financing. Financing imports neither Taxation nor Depreciation.
+- **`services/de-backend/src/architecture.test.ts`:** `forbiddenEdges` gains Financing → Taxation ("Taxation reads the allocation; Financing never reads tax meanings, §58D"), so the new edge cannot become a cycle.
+- **`services/de-backend/src/api/tax-classifications.ts`:** `taxYearItemDto` maps `loanAllocation`. The `notAttributed` spread (`reason`, `candidates`, `href`) already applies to any entry.
+- **No change:** `tax-property-context.ts` (WEG, Ownerships and the check's Acquisitions; a Loan split takes none of their effects), `application/tax-classifications.ts` (the use case passes the read through), §55's list, the Financing reads of §41.6.
+- **Docs, with the implementation:** this section's status and an "As implemented"; §58C's pointers; invariant-suite §45 (the rows "Interest of an allocated Loan is never silent" and ACC7's Loan debit); roadmap Phase 7's status line and backlog's Phase 7 exit line ("flagged … until VC-X-29").
+
+### Tests the implementation must have
+
+- **Domain (`tax-year-view.test.ts`, pure):**
+  - the example above literally: both properties' lines, the owners' parts, the not attributed entry in both views, the flag's details, 2028 without the moved debit, the variant without S3;
+  - the three cases: attributed, attributed elsewhere (a set that names only P2 is in P1's view neither as an item nor in the flag), not attributed for each reason (no set, before the first set, a `PURCHASE_PRICE` set with two entries, and a constructed set whose shares sum to `9/10`); and a `PURCHASE_PRICE` set with one entry, which is attributed;
+  - the set by the booking date: a split on a set's `validFrom` (the new set), on the day before (the old one), a 10-day-rule split and a `taxYear` override across a set change (the booking date's set); a `VOID` set covers nothing, and the previous `VALID` set extends over its period;
+  - rounding: ties by `propertyReferenceId`; a **property test** over random sets (1–50 entries, denominators up to 10,000 and a `PURCHASE_PRICE`-like large one), random signed amounts and random Ownerships. Per split, the parts over all the set's PropertyReferences sum to A. Each part equals Financing's `distribute`, and has A's sign. Per view, owners plus `NOT_OWNED` equal the property for every item, line, total and the result;
+  - a negative A (a synthetic `INFLOW`, which 0027 forbids for a counting split but the domain must still sign): negative parts, `REDUCES_LINE`, and `interestTotal` subtracting it;
+  - placement by meaning (decision 7): default `DEDUCTIBLE` on `LOAN_INTEREST`; classified `NOT_RELEVANT` in `notInView` with `loanAllocation.propertyPart` and `lineAmount: null`; `UNCLASSIFIED`; `CAPITALIZED` in `capitalized` with `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS`; `NEEDS_REVIEW` and `ATTRIBUTED_BY_10_DAY_RULE` open as for any item;
+  - an Ownership `NONE` on the booking date: P's part all `NOT_OWNED`, with `OWNERSHIP_INCOMPLETE`;
+  - `NOT_AN_OWNER_IN_YEAR` not raised for an owner whose only part is attributed interest;
+  - `review`: the narrowed flag open, `UNATTRIBUTED_ITEMS` not raised by interest alone, `reviewStates` and `ruleVersions` counting the Loan items, and the cap counting them (5,000 with Loan items → view, 5,001 → `TAX_YEAR_TOO_LARGE`).
+- **Repository (`tax-year-view-repository.test.ts`, PostgreSQL):**
+  - the existing test of #171 rewritten for the three cases: the same not counting splits (unconfirmed, corrected, reversal, principal, another year, overridden away, a Loan allocated elsewhere, a Loan without a set, a Loan whose only set is `VOID`) still reach nothing. The allocated Loan's interest on days with a set is now an item;
+  - two PropertyReferences of one set: the sum of the two views' parts of each split equals the split, and the two views' `LOAN_INTEREST` lines sum to the Loan's attributed interest of the year;
+  - the cross-check with Financing: for a year without unallocated splits and without 10-day moves, each property's attributed interest equals the `interest` column of `GET /loans/{id}/payments?year=&perProperty=true` (§41.6);
+  - **one snapshot:** a set appended (and, separately, the last set voided) and committed between two statements of the view's transaction is not seen. Counter-check: reading the sets in their own transaction turns the test red;
+  - the plans of the candidate-split query and the batched set read;
+  - "no cash mutated" unchanged (its table list already holds `loan`, `loan_terms`, `loan_allocation_set`, `loan_allocation`);
+  - **Realm isolation:** another Realm's Loan, set or split with a same-named setup reaches no view.
+- **API (`api/tax-years.test.ts`):** the DTO of `loanAllocation` (`null` on other items, every field on a Loan item, `propertyPart` at the owner level), and a split entry in `notAttributed` with `reason`, `candidates` and `href`.
+- **End to end (`tax-year-view.e2e.test.ts`):** the example above through the HTTP API: L created, its sets appended through §41.3, the debits split with `loanId` through §41.5 and confirmed, the views of P1 and P2 for 2027 and 2028 at both levels.
+- **ACC7 (`phase-7-acceptance.e2e.test.ts`, invariant-suite §45), changed:** the debit of 2027-07-20 is now attributed by its `MANUAL` `1/1` set from 2026-03-15. `LOAN_INTEREST` of 2027 becomes 2,899.48 (2,449.48 + 450.00), split by A `3/5` and B `2/5` (270.00, 180.00), and the flag is gone from 2027. A second debit booked against a Loan before its first set's `validFrom` keeps showing `LOAN_INTEREST_NOT_ATTRIBUTED` with exactly that split.
+
+### Counter-checks and mutations
+
+**Counter-checks** (each asserts that the thing is refused or left out):
+
+- **No estimate:** a not attributed split contributes to no line, no total, no owner, no `NOT_OWNED`, and `lineAmount` and `share` are `null`. Neither the previous set's shares, nor an equal split, nor a price ratio produce a figure for it.
+- **No double counting:** a split is an item in at most one place of a view. It is never both attributed and in the flag. Over all views of the set's PropertyReferences its parts sum to the split once. A `loanId` split never also appears as a list item (0027's CHECK), and principal with a `loanId` reaches no view.
+- **No retroactive re-distribution by a later set:** appending a set from a later `validFrom` leaves every earlier split's parts unchanged (the example's 2027-03-31 debit after S2 and S3).
+- **No silent gap:** with any not attributed split in `year`, the year flag is present and open at both levels, and `final` is false.
+- **No confirmation by attribution:** an attributed default item stays `SUGGESTED`, `origin: DEFAULT`, and keeps `ATTRIBUTED_BY_10_DAY_RULE` open.
+- **Nothing written:** "no cash mutated" holds around every view, with the allocation tables included.
+
+**Mutations** that must turn the tests red (each applied alone, the suite run, the code restored):
+
+- the set chosen by the tax year's 31 December, by today, or as the latest `VALID` set instead of by the booking date;
+- a `VOID` set used;
+- the year's interest distributed as one total instead of per split;
+- ties between properties by the larger share instead of `propertyReferenceId` (the example's 2027-07-30 debit);
+- the owners' parts taken from the split × allocation × ownership share in one step instead of from P's part;
+- the owners taken on the tax year's first or last day instead of the booking date;
+- a missing set replaced by the previous set, by the next set or by an equal split;
+- a multi-entry `PURCHASE_PRICE` set applied;
+- `LOAN_INTEREST_NOT_ATTRIBUTED` raised for attributed interest too (today's coarse scope), or not raised for a not attributed split;
+- the flag made informative, or `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` dropped;
+- not attributed entries counted in `UNATTRIBUTED_ITEMS`, or Loan items not counted toward the cap;
+- the sets read outside the view's transaction;
+- the Realm filter dropped from the set read.
+
+### Open questions
+
+1. **`PURCHASE_PRICE` sets against decision 2 and ADR-038.** ADR-038 defaults the allocation from the financed purchase amounts and applies it "uniformly to principal, interest, and remaining debt". Decision 2 excludes a derivation from purchase prices. **Proposal:** the tax view does not apply a `PURCHASE_PRICE` set with more than one entry (reason `ALLOCATION_BY_PURCHASE_PRICE`). The user records the actual use as a `MANUAL` set, possibly with the same fractions; since §41.3 appends only after the last set, that means voiding from the last set back, or a new set from a later date. Alternatives: (a) apply any `VALID` set, so the user's choice of a price-based set counts as the statement of use; (b) apply it, with an open item flag asking for confirmation. The owner should confirm. If (a) or (b) is chosen, the conflict with ADR-038 disappears. The proposal as written does not change ADR-038 (the set still serves Financing), but it reads less than ADR-038's "uniformly".
+2. **Interest of a Loan with no `VALID` set naming any PropertyReference** (never allocated, or all its sets voided) is in no view, as today: the candidate selection needs a set to name the property. **Proposal:** keep it so in VC-X-29. Alternative: list it in every view of the Realm, as §58C does for a deposit with `NO_RECONCILED_RENT`. That never hides it, but a Loan unrelated to letting would then hold every year of every property open, with no way to dismiss it before VC-X-28.
+3. **Backdated sets and voids** re-attribute interest already booked (above, "How the code's reality shapes"). **Proposal:** add them to VC-X-28's silent inputs (beside a Loan terms period added or voided, §58C open question 8). Each set's `created_at` and `voided_at` give "recorded after 31 December of the year" without an AuditRecord. Alternatives: forbid a `validFrom` before the set's recording in §41.3 (a Financing change that would also forbid legitimate late first allocations), or flag now.
+4. **Capitalised interest via a Loan** (Bauzeitzinsen as Herstellungskosten, `CAPITALIZED`): §58C places it in `capitalized` with P's part, but §59B does not read it. **Proposal:** the open item flag `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` now, and a follow-up row (§59B's `capitalizedSources` reads attributed Loan interest with P's part). Alternative: no flag, accepting that the AfA basis misses it silently, which decision 5 argues against.
+5. **§55's per-year list** keeps listing only the PropertyReference's own splits. Should it show the attributed Loan interest too, with P's part? **Proposal:** no in VC-X-29. The list is the classification worklist of the PropertyReference's cash, and a Loan's split is classified once for all its properties, through `GET /transaction-splits/{id}/tax-meaning` and §56.
+6. **The tie rule between properties:** §41.6's `propertyReferenceId` (proposal: the view's parts equal Financing's per-split parts) or §58C's larger share first. Within one set the two differ only on exact ties of the remainder.
+7. **An interest refund from the lender** (`INFLOW`) cannot carry a `loanId` (0027: only a reversal may, and it never counts). It is booked on a PropertyReference without a `loanId` and so is already in §58C's view as a refund (§58A). Allowing an `INFLOW` `LOAN_INTEREST` with a `loanId` would change §41.5 and 0027. Not in VC-X-29; the domain signs it correctly should it ever count.
+8. **VERIFY (checklist A1):** the spec takes the user's `MANUAL` set as the statement of the Loan's actual use (decision 2). Whether a share of a Loan financing several properties is deductible in that ratio is a question for the tax advisor, not a rule of DE. The view shows the set and its share on every item for that review.
 
 ---
 
