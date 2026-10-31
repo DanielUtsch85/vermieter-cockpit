@@ -57,9 +57,12 @@ export async function readScheduleIn(
   assetId: string,
   mreRealmId: string,
   ownerPartyId: string | null,
+  afterAssetRead?: () => Promise<void>,
 ): Promise<ScheduleRead | undefined> {
   const asset = await readAsset(trx, assetId, mreRealmId);
   if (asset === undefined) return undefined;
+  // A test seam between two statements of the derivation (the one-snapshot tests of §60); never set in production.
+  if (afterAssetRead !== undefined) await afterAssetRead();
   const ownerPartyFound =
     ownerPartyId === null
       ? null

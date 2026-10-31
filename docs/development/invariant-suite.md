@@ -950,6 +950,7 @@ The exit of `docs/roadmap.md` Phase 7: *a tax-year view derives Einkünfte aus V
 | A version is append-only: child rows only from its own transaction (never `xmin`), only `CURRENT` → `SUPERSEDED` with its successor, never deleted; one `CURRENT` per asset | VS; VRR "the no-op writes nothing …" (the superseded version's child rows keep their `xmin`) |
 | A frozen rule version is never changed in place: its hash is pinned, and a recorded hash unequal to the registry's stops the start | FR; VRR "the start check over the recorded references …" |
 | The start's rule parameters come from the version of the start year | SR "the start’s parameters come from the version of the start year …" |
+| A version is one snapshot: an input committed during the record is not in it; two records of one asset serialise on the PropertyReference row (never two `CURRENT`, no raw `23505`); the asset is locked before the derivation; a record and an amend serialise | `infrastructure/postgres/depreciation-schedule-version-concurrency.test.ts` |
 
 ## Keeping this current
 

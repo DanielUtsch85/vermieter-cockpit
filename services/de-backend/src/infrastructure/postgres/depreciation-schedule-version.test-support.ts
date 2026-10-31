@@ -59,7 +59,7 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    ctx.pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    ctx.pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(ctx.pool, { migrationTableSchema: schema });
     const db = createDatabase(ctx.pool);
     const capitalized = new PostgresTaxClassificationRepository(db).capitalizedSources;

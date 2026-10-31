@@ -53,6 +53,11 @@ export class PostgresScheduleVersionRepository implements ScheduleVersionReposit
     private readonly db: Kysely<Database>,
     private readonly capitalizedSources: CapitalizedSourcesReader,
     private readonly now: () => Date = () => new Date(),
+    /**
+     * Test seam only (§60 "Concurrency" tests): awaited inside the record's transaction between two statements of the
+     * derivation (after the asset's read), so a test can hold the transaction there. `main.ts` never sets it.
+     */
+    private readonly afterAssetRead?: () => Promise<void>,
   ) {}
 
   async record(input: Parameters<ScheduleVersionRepository['record']>[0]): Promise<RecordOutcome> {
@@ -79,7 +84,7 @@ export class PostgresScheduleVersionRepository implements ScheduleVersionReposit
           if (locked.rows.length === 0) throw new Rejected({ kind: 'NOT_FOUND' });
           // 4. The CURRENT version FOR UPDATE; 5. the derivation's inputs in this snapshot, and the decision.
           const current = await lockCurrentVersion(trx, assetId);
-          const schedule = await readScheduleIn(trx, this.capitalizedSources, businessDayOf(this.now()), assetId, mreRealmId, null);
+          const schedule = await readScheduleIn(trx, this.capitalizedSources, businessDayOf(this.now()), assetId, mreRealmId, null, this.afterAssetRead);
           if (schedule === undefined) throw new Rejected({ kind: 'NOT_FOUND' });
           const read: RecordRead = { schedule, current };
           const decision = decide(read);
