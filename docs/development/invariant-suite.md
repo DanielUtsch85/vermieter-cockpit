@@ -20,7 +20,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **CT** | `domains/ledger/confirm-transaction.test.ts` |
 | **CR** | `infrastructure/postgres/correction-repository.test.ts` (VC-1-11) |
 | **CC** | `domains/ledger/correct-transaction.test.ts` (VC-1-11) |
-| **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) |
+| **ACC2** | `phase-2-acceptance.e2e.test.ts` (Phase-2 exit through the API, VC-2-10) and `phase-2-ownership-change.e2e.test.ts` (its second case, VC-X-30, §28.1A); setup in `phase-2-acceptance.test-support.ts` |
 | **ACC3** | `phase-3-acceptance.e2e.test.ts` (Phase-3 exit through the API, VC-3-08) |
 | **ACC4** | `phase-4-acceptance.e2e.test.ts` (Phase-4 exit through the API, VC-4-06) |
 | **ACC5** | `phase-5-acceptance.e2e.test.ts` (Phase-5 exit through the API, VC-5-05) |

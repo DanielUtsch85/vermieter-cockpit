@@ -33,7 +33,6 @@ const EXCEPTIONS = {
   'services/de-backend/src/domains/taxation/tax-year-view.ts': 865,
   'services/de-backend/src/infrastructure/postgres/tax-weg-repository.test.ts': 1284,
   'services/de-backend/src/infrastructure/postgres/tax-year-repository.test.ts': 1103,
-  'services/de-backend/src/phase-2-acceptance.e2e.test.ts': 1063,
 };
 
 const countLines = (source) => {
