@@ -1,7 +1,14 @@
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
-import { getTaxYearView, type PrincipalVerifier, type TaxClassificationRepository, type TaxMeaning, type TaxYearRead } from '../application/index.js';
+import {
+  getTaxYearView,
+  type LoanAllocationSetView,
+  type PrincipalVerifier,
+  type TaxClassificationRepository,
+  type TaxMeaning,
+  type TaxYearRead,
+} from '../application/index.js';
 import { Money, type BusinessDate } from '../shared/index.js';
 import { createApp } from './app.js';
 import { commandsWith } from './app.test-support.js';
@@ -108,6 +115,7 @@ const reads: TaxYearRead = {
   checks: [],
   attribution: { references: [], candidates: [] },
   allocatedLoanInterest: [],
+  loanAllocationSets: new Map(),
 };
 
 async function start(read: (pr: string, owner: string | null) => TaxYearRead | undefined): Promise<string> {
@@ -243,6 +251,7 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
         { code: 'ATTRIBUTED_BY_10_DAY_RULE', details: { bookingDate: '2026-12-29' } },
         { code: 'SHARE_DATE_OUTSIDE_TAX_YEAR', details: { shareDate: '2026-12-29', nearestDayOfYear: '2027-01-01' } },
       ],
+      loanAllocation: null,
     });
     expect(v.werbungskosten.lines.find((l) => l.taxCategory === 'MAINTENANCE')?.subtotals).toEqual({
       immediate: { amount: '0.00', currency: 'EUR' },
@@ -294,5 +303,99 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       }),
     ]);
     expect(owner.notInView.items[0]?.share.amount).toBeNull();
+  });
+
+  it('§58D: loanAllocation on a Loan item (null elsewhere), the property’s part at the owner level; a split entry in notAttributed; the open flags', async () => {
+    const loanId = id();
+    const setId = id();
+    const otherPr = 'ffffffff-2f2c-4a8e-9d55-1f0d8c1e2a3d';
+    const loanSplit = (amount: string, bookingDate: string) => {
+      const m = meaning(amount, 'LOAN_INTEREST', 'DEDUCTIBLE', bookingDate);
+      return { item: { ...m.item, propertyReferenceId: null }, loanId };
+    };
+    const [attributed, gap] = [loanSplit('100.01', '2027-03-01'), loanSplit('40.00', '2027-01-15')];
+    const priced = {
+      id: setId as LoanAllocationSetView['id'],
+      loanId,
+      mreRealmId: REALM,
+      status: 'VALID' as const,
+      validFrom: day('2027-02-01'),
+      validUntil: null,
+      basis: 'PURCHASE_PRICE' as const,
+      allocations: [
+        { propertyReferenceId: PR, share: { numerator: 3n, denominator: 5n }, acquisitionId: id() },
+        { propertyReferenceId: otherPr, share: { numerator: 2n, denominator: 5n }, acquisitionId: id() },
+      ],
+      notes: null,
+      voidedAt: null,
+      voidReason: null,
+      createdAt: new Date('2027-02-01T08:00:00Z'),
+      version: 1,
+    } satisfies LoanAllocationSetView;
+    const read: TaxYearRead = {
+      ...reads,
+      sources: [rent],
+      unattributedDeposits: [],
+      allocatedLoanInterest: [attributed, gap],
+      loanAllocationSets: new Map([[loanId, [priced]]]),
+    };
+    const base = await start((pr, owner) => (pr === PR ? { ...read, ownerPartyFound: owner === null ? null : true } : undefined));
+    type Item = Record<string, unknown> & { sourceId: string; flags: { code: string; details: unknown }[] };
+    type View = {
+      einnahmen: { lines: { items: Item[] }[] };
+      werbungskosten: { lines: { taxCategory: string; items: Item[] }[] };
+      notAttributed: { items: Item[] };
+    };
+    const v = (await (await get(base, `/property-references/${PR}/tax-years/2027`)).json()) as View & {
+      flags: { code: string; details: unknown }[];
+      review: { open: unknown[] };
+    };
+    expect(v.einnahmen.lines[0]?.items[0]?.['loanAllocation']).toBeNull();
+    const item = v.werbungskosten.lines.find((l) => l.taxCategory === 'LOAN_INTEREST')?.items[0] as Item;
+    expect(item).toMatchObject({
+      sourceId: attributed.item.sourceId,
+      amount: { amount: '100.01', currency: 'EUR' },
+      lineAmount: { amount: '60.01', currency: 'EUR' },
+    });
+    expect(item['loanAllocation']).toEqual({
+      loanId,
+      allocationSetId: setId,
+      validFrom: '2027-02-01',
+      validUntil: null,
+      basis: 'PURCHASE_PRICE',
+      share: '3/5',
+      propertyPart: { amount: '60.01', currency: 'EUR' },
+    });
+    expect(item.flags).toEqual([{ code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId, allocationSetId: setId } }]);
+    expect(v.notAttributed.items).toEqual([
+      expect.objectContaining({
+        sourceType: 'TRANSACTION_SPLIT',
+        sourceId: gap.item.sourceId,
+        lineAmount: null,
+        share: null,
+        reason: 'NO_LOAN_ALLOCATION',
+        candidates: [PR, otherPr].sort(),
+        href: `/api/v1/loans/${loanId}/allocations?asOf=2027-01-15`,
+        loanAllocation: { loanId, allocationSetId: null, validFrom: null, validUntil: null, basis: null, share: null, propertyPart: null },
+      }),
+    ]);
+    expect(v.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual({
+      loanIds: [loanId],
+      interestTotal: { amount: '40.00', currency: 'EUR' },
+      splitIds: [gap.item.sourceId],
+    });
+    expect(v.review.open).toEqual(
+      expect.arrayContaining([
+        { code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 },
+        { code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', count: 1 },
+      ]),
+    );
+    // The owner level: A's half of the property's part, propertyPart still the property's.
+    const a = (await (await get(base, `/property-references/${PR}/tax-years/2027?ownerPartyId=${A}`)).json()) as View;
+    const own = a.werbungskosten.lines.find((l) => l.taxCategory === 'LOAN_INTEREST')?.items[0] as Item;
+    expect(own['lineAmount']).toEqual({ amount: '30.01', currency: 'EUR' });
+    expect(own['share']).toMatchObject({ share: '1/2', amount: { amount: '30.01', currency: 'EUR' } });
+    expect((own['loanAllocation'] as { propertyPart: unknown }).propertyPart).toEqual({ amount: '60.01', currency: 'EUR' });
+    expect(a.notAttributed.items.map((i) => [i.sourceId, i['share']])).toEqual([[gap.item.sourceId, null]]);
   });
 });

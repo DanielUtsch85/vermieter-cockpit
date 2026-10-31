@@ -121,6 +121,7 @@ const readOf = (items: readonly TaxListItem[], ownerships: readonly ViewOwnershi
   checks: [],
   attribution: { references: [], candidates: [] },
   allocatedLoanInterest: [],
+  loanAllocationSets: new Map(),
   ...extra,
 });
 
@@ -723,54 +724,6 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
       expect([v.einnahmen.total.amount, lineOf(v, 'RETAINED_DEPOSIT_RENT').total.amount]).toEqual(['100.00', '0.00']);
       expect(v.flags.find((f) => f.code === 'UNATTRIBUTED_ITEMS')?.details).toEqual({ count: 2 });
     }
-  });
-
-  it('LOAN_INTEREST_NOT_ATTRIBUTED: an allocated Loan’s interest of the year is flagged, open, at both levels, and summed nowhere', () => {
-    const [loan1, loan2] = ['0000bbbb-0000-4000-8000-000000000002', '0000bbbb-0000-4000-8000-000000000001'];
-    const interest = [
-      { splitId: id(), loanId: loan1, direction: 'OUTFLOW', amount: eur('612.37') },
-      { splitId: id(), loanId: loan2, direction: 'OUTFLOW', amount: eur('300.00') },
-      { splitId: id(), loanId: loan1, direction: 'OUTFLOW', amount: eur('0.01') },
-    ] as const;
-    const owners = [own(A, '1/1', '2020-01-01')];
-    const read = readOf([split({ amount: '100.00', taxCategory: 'LOAN_INTEREST', treatment: 'DEDUCTIBLE' })], owners, { allocatedLoanInterest: interest });
-    for (const v of [viewOf(read), viewOf(read, 2027, A)]) {
-      expect(v.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual({
-        loanIds: [loan2, loan1],
-        interestTotal: { amount: '912.38', currency: 'EUR' },
-        splitIds: interest.map((i) => i.splitId).sort(),
-      });
-      expect(v.review.open).toContainEqual({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 });
-      // Only the interest on the PropertyReference is on the line; no item names the Loan's splits.
-      expect([lineOf(v, 'LOAN_INTEREST').total.amount, v.werbungskosten.total.amount]).toEqual(['100.00', '100.00']);
-      const items = [
-        ...[...v.einnahmen.lines, ...v.werbungskosten.lines].flatMap((l) => l.items),
-        ...v.capitalized.items,
-        ...v.notInView.items,
-        ...v.unclassified.items,
-        ...v.notAttributed.items,
-      ];
-      expect(items.some((i) => interest.some((x) => x.splitId === i.sourceId))).toBe(false);
-    }
-    expect(codes(viewOf(readOf([], owners)).flags)).not.toContain('LOAN_INTEREST_NOT_ATTRIBUTED');
-  });
-
-  it('LOAN_INTEREST_NOT_ATTRIBUTED: interestTotal is signed as §58C says, an OUTFLOW positive; an INFLOW (an interest refund) subtracts', () => {
-    const loan = '0000bbbb-0000-4000-8000-000000000003';
-    const owners = [own(A, '1/1', '2020-01-01')];
-    const total = (interest: readonly { splitId: string; loanId: string; direction: 'INFLOW' | 'OUTFLOW'; amount: Money }[]) =>
-      (
-        viewOf(readOf([], owners, { allocatedLoanInterest: interest })).flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details as
-          | { interestTotal: unknown }
-          | undefined
-      )?.interestTotal;
-    expect(
-      total([
-        { splitId: id(), loanId: loan, direction: 'OUTFLOW', amount: eur('612.37') },
-        { splitId: id(), loanId: loan, direction: 'INFLOW', amount: eur('100.00') },
-      ]),
-    ).toEqual({ amount: '512.37', currency: 'EUR' });
-    expect(total([{ splitId: id(), loanId: loan, direction: 'INFLOW', amount: eur('50.00') }])).toEqual({ amount: '-50.00', currency: 'EUR' });
   });
 
   it('the cap: 5,000 items over all places (notInView and the deposits not attributed included) → the view; 5,001 → TAX_YEAR_TOO_LARGE', () => {

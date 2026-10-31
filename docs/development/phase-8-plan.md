@@ -372,7 +372,7 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 
 **Out of scope for Phase 8:**
 - the items of P8-D13;
-- the attribution of an allocated Loan's interest (VC-X-29);
+- the attribution of an allocated Loan's interest (VC-X-29; done outside Phase 8, api-design §58D);
 - the acknowledgement of attribution changes (VC-X-28);
 - maintenance paid from the Hausgeld in the 15 % check (VC-X-27);
 - snapshots, reports and dashboards (Phase 9);
@@ -417,7 +417,7 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 4. **P8-D4:** the shorter useful life in Phase 8?
 5. **P8-D3:** the allocation as entered, without a BMF computation?
 6. **P8-D13:** the scope, in particular § 7b and § 7h/§ 7i out?
-7. **VC-X-28 and VC-X-29** (P8-D12): the backlog says both come "before Phase 8 makes a year final". They do not block Phase 8: their flags (`ATTRIBUTION_INPUT_CHANGED`, `LOAN_INTEREST_NOT_ATTRIBUTED`) stay open, so a year they touch is never final. Phase 8 does not need loan interest to compute AfA. **Proposal:** keep them outside Phase 8, and schedule VC-X-29 next, since a landlord with a financed purchase has interest booked via a Loan in every year. The alternative is to pull them into Phase 8 before VC-8-05. **Decided by the project owner (2026-10-30); the review on #173 agreed:** they do not block Phase 8; VC-X-29 is scheduled next.
+7. **VC-X-28 and VC-X-29** (P8-D12): the backlog says both come "before Phase 8 makes a year final". They do not block Phase 8: their flags (`ATTRIBUTION_INPUT_CHANGED`, `LOAN_INTEREST_NOT_ATTRIBUTED`) stay open, so a year they touch is never final. Phase 8 does not need loan interest to compute AfA. **Proposal:** keep them outside Phase 8, and schedule VC-X-29 next, since a landlord with a financed purchase has interest booked via a Loan in every year. The alternative is to pull them into Phase 8 before VC-8-05. **Decided by the project owner (2026-10-30); the review on #173 agreed:** they do not block Phase 8; VC-X-29 is scheduled next. *(VC-X-29 is done, api-design §58D: `LOAN_INTEREST_NOT_ATTRIBUTED` now stands only for interest without a usable allocation set on its booking date.)*
 
 ---
 

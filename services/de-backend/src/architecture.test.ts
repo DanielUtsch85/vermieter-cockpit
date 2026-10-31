@@ -20,7 +20,8 @@ import { describe, expect, it } from 'vitest';
  *
  * Some module edges are forbidden even through an index (`forbiddenEdges`): the rule
  * registry is composed in `domains/tax-rules/` above Taxation and Depreciation, so
- * neither domain imports it, and Depreciation does not import Taxation (P8-D11, §59).
+ * neither domain imports it, and Depreciation does not import Taxation (P8-D11, §59). Taxation reads the Loan
+ * allocation through Financing's index; Financing never imports Taxation (§58D).
  */
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
@@ -125,6 +126,7 @@ const forbiddenEdges: readonly { readonly from: string; readonly to: string; rea
     why: 'Taxation imports Acquisition; the basis function is shared through Acquisition, §59A',
   },
   { from: join('domains', 'ownership'), to: join('domains', 'taxation'), why: 'Taxation imports Ownership; the tenure is shared through Ownership, §59A' },
+  { from: join('domains', 'financing'), to: join('domains', 'taxation'), why: 'Taxation reads the allocation; Financing never reads tax meanings, §58D' },
 ];
 
 /** `file` is relative to src/; a forbidden module edge, or undefined. Only relative specifiers name modules. */
@@ -157,10 +159,10 @@ describe('architecture: layer dependency direction', () => {
   }
 });
 
-describe('architecture: forbidden module edges (§59, §59A, §59B)', () => {
-  it('no file under domains/taxation/ or domains/depreciation/ imports domains/tax-rules/ or the other one, nor Acquisition or Ownership Taxation', () => {
+describe('architecture: forbidden module edges (§58D, §59, §59A, §59B)', () => {
+  it('no file under domains/taxation/ or domains/depreciation/ imports domains/tax-rules/ or the other one, nor Acquisition, Ownership or Financing Taxation', () => {
     const files = listSourceFiles(join(srcDir, 'domains'));
-    for (const module of ['depreciation', 'taxation', 'tax-rules', 'acquisition', 'ownership']) {
+    for (const module of ['depreciation', 'taxation', 'tax-rules', 'acquisition', 'ownership', 'financing']) {
       expect(files.some((path) => moduleOf(relative(srcDir, path)) === join('domains', module))).toBe(true);
     }
     const violations = files.flatMap((path) => {
@@ -179,6 +181,9 @@ describe('architecture: forbidden module edges (§59, §59A, §59B)', () => {
     ['domains/depreciation/probe.ts', '../taxation/index.js'],
     ['domains/acquisition/probe.ts', '../taxation/index.js'],
     ['domains/ownership/probe.ts', '../taxation/index.js'],
+    // §58D: Taxation → Financing is the edge; the way back would close a cycle.
+    ['domains/financing/probe.ts', '../taxation/index.js'],
+    ['domains/financing/debt.test.ts', '../taxation/tax-year-view.js'],
     // §59B: in both directions, type-only imports included (importSpecifiers scans them).
     ['domains/taxation/probe.ts', '../depreciation/index.js'],
     ['domains/taxation/rules/probe.test.ts', '../../depreciation/index.js'],
@@ -200,6 +205,7 @@ describe('architecture: forbidden module edges (§59, §59A, §59B)', () => {
     ['infrastructure/postgres/probe.ts', '../../domains/tax-rules/index.js'],
     ['domains/taxation/probe.ts', '../acquisition/index.js'],
     ['domains/taxation/probe.ts', '../ownership/index.js'],
+    ['domains/taxation/probe.ts', '../financing/index.js'],
     ['domains/depreciation/probe.ts', '../acquisition/index.js'],
     ['domains/acquisition/probe.ts', '../../shared/index.js'],
     // §59B: the two domains meet in infrastructure/postgres/.

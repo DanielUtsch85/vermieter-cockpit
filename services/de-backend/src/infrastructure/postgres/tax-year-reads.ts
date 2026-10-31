@@ -1,4 +1,5 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
+import { withValidUntil, type LoanAllocationSetView } from '../../domains/financing/index.js';
 import type { ChangedEntry, RentDueDay } from '../../domains/rental-contract-reference/index.js';
 import {
   depositNotCounted,
@@ -17,6 +18,7 @@ import {
 } from '../../domains/taxation/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
+import { setsOfLoans } from './loan-allocation-repository.js';
 import type { Database } from './schema.js';
 import { UUID, currentOf, currentOfDeposits } from './tax-classification-rows.js';
 import { COUNTED, factsQuery, meaningsOf, yearWindow, overriddenTo, countingSplits, toRead, depositFactsOf } from './tax-source-facts.js';
@@ -74,6 +76,7 @@ export async function readTaxYear(
       checks: [],
       attribution: { references: [], candidates: [] },
       allocatedLoanInterest: [],
+      loanAllocationSets: new Map(),
     };
     if (ownerPartyId !== null) {
       const party = UUID.test(ownerPartyId)
@@ -111,7 +114,7 @@ export async function readTaxYear(
       })),
       checks: effects.checks,
       attribution: await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, registry),
-      allocatedLoanInterest: await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today),
+      ...(await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today)),
     };
   });
 }
@@ -170,10 +173,12 @@ export async function capitalizedSources(
 }
 
 /**
- * `LOAN_INTEREST_NOT_ATTRIBUTED`'s input (§58C): the counting `LOAN_INTEREST` splits of the Loans with a `VALID`
- * allocation set naming the PropertyReference (whatever the set's period and share: which apply is VC-X-29's),
- * selected as `yearItems` selects (the windows around `year`, or overridden to it) and kept when §58A's derivation,
- * the list's, puts them in `year`.
+ * The interest of the allocated Loans (§58D "What the view reads"): the counting `LOAN_INTEREST` splits of the Loans
+ * with a `VALID` allocation set naming the PropertyReference (the candidates, whatever the set's period and share:
+ * which set applies is decided per split by `loanInterestOf`), selected as `yearItems` selects (the windows around
+ * `year`, or overridden to it) and kept when §58A's derivation, the list's, puts them in `year`; each as a list item
+ * with its own meaning (no treatment effects of the PropertyReference). And every set, `VALID` and `VOID`, of their
+ * Loans with `validUntil`, in the same snapshot.
  */
 async function allocatedLoanInterest(
   trx: Transaction<Database>,
@@ -182,7 +187,7 @@ async function allocatedLoanInterest(
   propertyReferenceId: string,
   year: number,
   today: BusinessDate,
-): Promise<TaxYearRead['allocatedLoanInterest']> {
+): Promise<Pick<TaxYearRead, 'allocatedLoanInterest' | 'loanAllocationSets'>> {
   const { from, to } = yearWindow(registry, year);
   const rows = await countingSplits(factsQuery(trx, mreRealmId))
     .where('c.code', '=', 'LOAN_INTEREST')
@@ -205,12 +210,13 @@ async function allocatedLoanInterest(
     .orderBy('s.position')
     .execute();
   const meanings = await meaningsOf(trx, registry, mreRealmId, rows.map(toRead), today);
-  return rows.flatMap((row, i) => {
+  const interest = rows.flatMap((row, i) => {
     const meaning = meanings[i]?.meaning;
-    return meaning === undefined || meaning.taxYear !== year
-      ? []
-      : [{ splitId: row.id, loanId: row.loan_id as string, direction: meaning.direction, amount: meaning.amount }];
+    return meaning === undefined || meaning.taxYear !== year ? [] : [{ item: { ...meaning, yearAmount: meaning.amount }, loanId: row.loan_id as string }];
   });
+  const sets = await setsOfLoans(trx, mreRealmId, [...new Set(interest.map((i) => i.loanId))]);
+  const loanAllocationSets = new Map<string, readonly LoanAllocationSetView[]>([...sets].map(([loanId, own]) => [loanId, withValidUntil(own)]));
+  return { allocatedLoanInterest: interest, loanAllocationSets };
 }
 
 /**
