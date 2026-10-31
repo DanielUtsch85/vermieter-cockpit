@@ -66,7 +66,8 @@ export interface ItemOwner {
   readonly ownershipIds: readonly string[];
   readonly share: string;
   readonly basis: Money;
-  readonly firstMonth: string;
+  /** `null` while the owner's start is unknown (`TRANSFER_DATE_MISSING`). */
+  readonly firstMonth: string | null;
   /** The part's annual rate (`"1/50"`, `"1/30"` with a shorter life), `null` when it is not known. */
   readonly rate: string | null;
   readonly tenure: {
@@ -442,6 +443,17 @@ function partOf(
   const rows = ctx.ownerships.filter((o) => o.partyId === part.participant);
   const tenure = tenureOf(rows, date);
   const tenureFrom = tenure?.from ?? date;
+  // The owner's purchase components of this tenure, read where their Ownerships begin (`ownedFrom`).
+  const tenurePurchases = separate
+    ? []
+    : ctx.works
+        .flatMap((w) => w.parts.filter((p) => p.ownerPartyId === part.participant && p.hasTenure).map((p) => ({ w, p })))
+        .filter(({ w }) => tenureOf(rows, w.ownedFrom)?.from === tenureFrom)
+        .sort((x, y) => byText(x.w.ownedFrom, y.w.ownedFrom) || byText(x.w.componentId, y.w.componentId));
+  // Never before the owner's start (§59B): unknown while the purchase opening the tenure has no `economicTransferDate`,
+  // and never taken from its contract date (VC-X-33).
+  const opening = tenurePurchases.find(({ w }) => w.ownedFrom === tenureFrom)?.w;
+  const startUnknown = input.notBeforeOwnerStart && opening !== undefined && opening.start === null;
   const firstMonth = input.notBeforeOwnerStart ? Math.max(input.startMonth, monthOf(tenureFrom)) : input.startMonth;
   const shareOnDate = heldOn(rows, date);
   // The cut-off of the tenure's end and of each reduction after the item's date: the buyer's transfer date (§59A).
@@ -499,6 +511,9 @@ function partOf(
 
   // The rate and the pool (B11, §59B "The rate in a pool"): the owner's purchase component whose tenure holds the date.
   const partReasons: Flag[] = [];
+  if (startUnknown && opening !== undefined) {
+    partReasons.push({ code: 'TRANSFER_DATE_MISSING', details: { acquisitionId: opening.acquisition.id, contractDate: opening.acquisition.contractDate } });
+  }
   let rate: PartRate | null;
   let poolKey: string;
   let purchases: { w: Work; p: Part }[] = [];
@@ -506,11 +521,8 @@ function partOf(
     rate = usefulLifeRate(registry, asset);
     poolKey = `${part.participant}|${tenureFrom}`;
   } else {
-    purchases = ctx.works
-      .flatMap((w) => w.parts.filter((p) => p.ownerPartyId === part.participant && p.hasTenure).map((p) => ({ w, p })))
-      .filter(({ w }) => tenureOf(rows, w.start)?.from === tenureFrom)
-      .sort((x, y) => byText(x.w.start, y.w.start) || byText(x.w.componentId, y.w.componentId));
-    const governing = purchases.find(({ w, p }) => w.start <= date && (p.tenureEnd === null || date <= p.tenureEnd));
+    purchases = tenurePurchases;
+    const governing = purchases.find(({ w, p }) => w.ownedFrom <= date && (p.tenureEnd === null || date <= p.tenureEnd));
     poolKey = governing === undefined ? `${part.participant}|${tenureFrom}|HEIR` : `${part.participant}|${tenureFrom}`;
     if (governing === undefined) {
       rate = bandRate(registry, asset);
@@ -575,6 +587,8 @@ function usefulLifeRate(registry: RuleRegistry, asset: DepreciationAsset): PartR
 
 /** The last month of a purchase if every year ran at the rate of its band (or `1/n`): `nominalLastMonth` of §59B. */
 function nominalLastMonth(ctx: ItemContext, w: Work): number | null {
+  // Without a start (TRANSFER_DATE_MISSING) there are no nominal months, never from the contract date.
+  if (w.firstMonth === null) return null;
   const versions = ctx.registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
   const earliest = versions[0];
   const fallback =
@@ -632,7 +646,8 @@ function walkPools(ctx: ItemContext, works: readonly ItemWork[]): void {
     if (!purchaseKnown) {
       for (const { w } of purchases.filter(({ w, p }) => !(w.computable && p.basisCents !== null))) {
         const nominal = nominalLastMonth(ctx, w);
-        const historical = w.reasons.some((r) => r.code === 'HISTORICAL_RULE_NOT_SUPPORTED' || r.code === 'NO_APPLICABLE_RULE') || nominal === null;
+        const historical =
+          w.reasons.some((r) => r.code === 'HISTORICAL_RULE_NOT_SUPPORTED' || r.code === 'NO_APPLICABLE_RULE') || (nominal === null && w.start !== null);
         const month = nominal ?? Number.MIN_SAFE_INTEGER;
         if (stop === null || month < stop.month) {
           const details = { poolComponentId: w.componentId, nominalLastMonth: nominal === null ? null : monthLabel(nominal) };
@@ -744,7 +759,7 @@ function walk(
     let ownSum = ZERO;
     if (pooled && ctx !== undefined) {
       for (const { w, p } of purchases) {
-        if (m < w.firstMonth || p.fractionAt === null || p.basisCents === null) continue;
+        if (w.firstMonth === null || m < w.firstMonth || p.fractionAt === null || p.basisCents === null) continue;
         const f = p.fractionAt(m);
         const q = w.monthly.get(m) ?? ZERO;
         const annual = rateOfYear(ctx.registry, year, ctx.asset.buildingCompletionYear, w.entry)?.annual ?? ZERO;
@@ -1012,7 +1027,7 @@ export function itemComponentOf(
         ownershipIds: p.ownershipIds,
         share: show(p.share),
         basis: moneyOfCents(p.basisCents, currency),
-        firstMonth: monthLabel(p.firstMonth),
+        firstMonth: p.partReasons.some((r) => r.code === 'TRANSFER_DATE_MISSING') ? null : monthLabel(p.firstMonth),
         rate: p.rate === null ? null : rateLabel(p.rate, firstYear),
         tenure: { from: p.tenureFrom, lastDay: p.lastDay, lastDaySource: p.lastDaySource },
       })),

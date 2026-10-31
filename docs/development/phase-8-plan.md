@@ -106,7 +106,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 ### P8-D5 The start and the first year (B6; depreciation.md §5)
 
 - **The start** of a component of P8-D2 (1) is its Acquisition's **transfer date** (P2-D6): the Übergang des wirtschaftlichen Eigentums, regularly Nutzen und Lasten (B6). A newly built building's completion is out of scope (P8-D13).
-- **No `economicTransferDate`:** the `contractDate` serves, flagged `TRANSFER_DATE_ASSUMED` (open). The assumption is never silent. This answers `depreciation.md` §9's second open point: the field exists (P2-D6). **Superseded (decided 2026-10-31, second set; api-design §59A open question 6):** not computable, `TRANSFER_DATE_MISSING`; implemented by VC-X-33 (until then the code still flags `TRANSFER_DATE_ASSUMED`).
+- **No `economicTransferDate`:** the `contractDate` serves, flagged `TRANSFER_DATE_ASSUMED` (open). The assumption is never silent. This answers `depreciation.md` §9's second open point: the field exists (P2-D6). **Superseded (decided 2026-10-31, second set; api-design §59A open question 6):** not computable, `TRANSFER_DATE_MISSING`; implemented by VC-X-33 (`TRANSFER_DATE_ASSUMED` withdrawn).
 - **The first year** (§ 7 Abs. 1 S. 4 EStG, B6): the annual amount less 1/12 for each **full** month before the transfer month; the transfer month counts in full. A transfer in April gives 9/12 (depreciation.md §5), one on 31 December gives 1/12, one on 1 January 12/12 of that year and nothing of the year before.
 - **The tax year of AfA is the calendar year of the months it covers.** § 11 EStG and the 10-day rule do not apply (AfA is no Abfluss); a capitalised item keeps its own date (P8-D6), not its tax year by §58A.
 - **Needs the user:** no (verified, B6).
