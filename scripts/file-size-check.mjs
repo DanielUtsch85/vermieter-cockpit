@@ -25,7 +25,6 @@ const PERMANENT = [/^infrastructure\/postgres\/schema\.ts$/, /^application\/inde
 // Repository path → line count on main when the check was introduced (2e4da1b; the four depreciation schedule files, split since, at
 // 923ad67, after VC-X-33). May shrink, never grow; remove when split.
 const EXCEPTIONS = {
-  'services/de-backend/src/infrastructure/postgres/tax-weg-repository.test.ts': 1284,
   'services/de-backend/src/phase-2-acceptance.e2e.test.ts': 1063,
 };
 

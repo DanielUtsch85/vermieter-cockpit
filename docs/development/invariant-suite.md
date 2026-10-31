@@ -824,7 +824,7 @@ A settlement counted as an advance does not turn ACC6 red (its back-payment is b
 
 ## 43. WEG spending, Erhaltungsaufwand, § 82b and the anschaffungsnahe check (VC-7-03, api-design §58B)
 
-`WS` = `domains/taxation/weg-spending.test.ts`, `TWR` = `infrastructure/postgres/tax-weg-repository.test.ts`, `TWE` = `tax-weg.e2e.test.ts`.
+`WS` = `domains/taxation/weg-spending.test.ts`, `TWR` = `infrastructure/postgres/tax-weg-repository.test.ts` and `tax-weg-guards.test.ts` (the guards past the repository, the indexes, the start check, `down` and the locks; setup in `tax-weg.test-support.ts`), `TWE` = `tax-weg.e2e.test.ts`.
 
 | Invariant | Tests |
 |---|---|
