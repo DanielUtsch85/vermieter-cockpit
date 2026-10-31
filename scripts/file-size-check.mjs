@@ -25,9 +25,6 @@ const PERMANENT = [/^infrastructure\/postgres\/schema\.ts$/, /^application\/inde
 // Repository path → line count on main when the check was introduced (2e4da1b; the four depreciation schedule files at
 // 923ad67, after VC-X-33). May shrink, never grow; remove when split.
 const EXCEPTIONS = {
-  'services/de-backend/src/api/depreciation-assets.ts': 610,
-  'services/de-backend/src/api/tax-classifications.test.ts': 1009,
-  'services/de-backend/src/api/tax-classifications.ts': 747,
   'services/de-backend/src/domains/depreciation/schedule-items.test.ts': 906,
   'services/de-backend/src/domains/depreciation/schedule-items.ts': 1064,
   'services/de-backend/src/domains/depreciation/schedule.test.ts': 1040,
