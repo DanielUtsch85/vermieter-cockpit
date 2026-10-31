@@ -265,7 +265,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     fx = fixtureIn(pool);
     source = new PostgresDepreciationScheduleSource(fx.db, new PostgresTaxClassificationRepository(fx.db).capitalizedSources);
@@ -370,7 +370,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
         Number(
           (
             await pool.query(
-              `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE '%"acquisition_payment"%' AND pid <> pg_backend_pid()`,
+              `SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE '%"acquisition_payment"%' AND pid <> pg_backend_pid()`,
             )
           ).rows[0].count,
         ) < 1
@@ -459,7 +459,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource: 
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 5 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 5 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
   });
 

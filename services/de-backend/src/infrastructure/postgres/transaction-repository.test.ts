@@ -43,7 +43,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     transactions = new PostgresTransactionRepository(db);
@@ -207,7 +207,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionRepository', () =
           (
             await pool.query(
               `SELECT 1 FROM pg_stat_activity
-               WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%financial_account%for share%'`,
+               WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE '%financial_account%for share%'`,
             )
           ).rowCount !== 0,
       );

@@ -79,7 +79,7 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     db = createDatabase(pool);
     classifications = new PostgresTaxClassificationRepository(db);
@@ -989,7 +989,7 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       await admin.connect();
       await admin.query(`CREATE SCHEMA "${startSchema}"`);
       await admin.end();
-      const startPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${startSchema}`, max: 2 });
+      const startPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${startSchema} -c application_name=${startSchema}`, max: 2 });
       try {
         await migrateToLatest(startPool, { migrationTableSchema: startSchema });
         const startDb = createDatabase(startPool);
@@ -1037,7 +1037,7 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         await admin.connect();
         await admin.query(`CREATE SCHEMA "${downSchema}"`);
         await admin.end();
-        const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
+        const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema} -c application_name=${downSchema}`, max: 2 });
         try {
           await migrateToLatest(downPool, { migrationTableSchema: downSchema });
           const down = async () => (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
@@ -1118,9 +1118,10 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       while (
         Number(
           (
-            await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
-              `%${text}%`,
-            ])
+            await pool.query(
+              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE $1`,
+              [`%${text}%`],
+            )
           ).rows[0].count,
         ) < 1
       ) {
