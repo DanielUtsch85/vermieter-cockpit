@@ -18,8 +18,8 @@ import { sql, type Kysely } from 'kysely';
  *   trigger and fires after every `BEFORE` trigger, so this one takes it itself to keep the order PropertyReference →
  *   Acquisition. A `DRAFT` next Acquisition is touched and allowed.
  * - `up` reports, with `RAISE NOTICE`, every `CONFIRMED` Acquisition that fails 5a or 5b under the new rule (confirmed
- *   before 0052 with a buyer who already held a share, the `1/1` workaround); none is changed. `down` restores 0022's
- *   function body; an Acquisition confirmed under 0052 stays confirmed.
+ *   before 0050 with a buyer who already held a share, the `1/1` workaround); none is changed. `down` restores 0022's
+ *   function body; an Acquisition confirmed under 0050 stays confirmed.
  */
 const confirmationViolation = (increase: boolean) =>
   sql.raw(`
@@ -208,7 +208,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       FOR EACH ROW EXECUTE FUNCTION ownership_predecessor_of_confirmed()
   `.execute(db);
 
-  // Legacy: confirmed before 0052 under the full-share rule, failing 5a or 5b now. Reported, never changed.
+  // Legacy: confirmed before 0050 under the full-share rule, failing 5a or 5b now. Reported, never changed.
   await sql`
     DO $$
     DECLARE

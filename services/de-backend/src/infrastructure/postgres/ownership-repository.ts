@@ -477,7 +477,7 @@ async function checkAcquisition(
 }
 
 /**
- * §28.1A guard, as the trigger `ownership_predecessor_of_confirmed` of 0052: a `VALID` row of an owner ending on a day
+ * §28.1A guard, as the trigger `ownership_predecessor_of_confirmed` of 0050: a `VALID` row of an owner ending on a day
  * is the predecessor of that owner's `VALID` Ownership starting the next day. When that one carries an Acquisition, the
  * Acquisition's row is written (the no-op of 0022, in id order), so a concurrent confirm is waited for and seen, and a
  * `CONFIRMED` one refuses the void, shortening or creation of the predecessor. A `DRAFT` one is touched and allowed.

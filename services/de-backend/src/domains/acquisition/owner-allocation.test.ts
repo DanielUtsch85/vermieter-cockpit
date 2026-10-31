@@ -279,7 +279,7 @@ describe('planOwnerAllocation', () => {
       expect(plan.owners[0]?.purchasePrice.amount).toBe('300000.00');
     });
 
-    it('a CONFIRMED legacy workaround (A 1/2 → 1/1 confirmed as 1/1 before 0052) is OWNERSHIP_BASIS_INCOMPLETE, never split', () => {
+    it('a CONFIRMED legacy workaround (A 1/2 → 1/1 confirmed as 1/1 before 0050) is OWNERSHIP_BASIS_INCOMPLETE, never split', () => {
       const o3 = own('o3', 'A', 1, 1);
       const plan = planOwnerAllocation(
         input({ acquisition: acquisition(['A']), own: [o3], onTransferDate: [o3], beforeTransferDate: [own('o1', 'A', 1, 2, '2024-03-01', '2026-07-31')] }),

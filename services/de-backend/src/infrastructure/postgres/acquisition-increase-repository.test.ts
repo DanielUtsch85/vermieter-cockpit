@@ -12,8 +12,8 @@ import { PostgresPartyRepository } from './party-repository.js';
 import { testSchemaName } from './test-schema.test-support.js';
 
 /**
- * VC-X-30 persistence (api-design.md §28.1A, migration 0052): an existing owner buying a further share. The
- * confirmation through the repository and past it (0052's `acquisition_confirmation_violation`), the owner-level
+ * VC-X-30 persistence (api-design.md §28.1A, migration 0050): an existing owner buying a further share. The
+ * confirmation through the repository and past it (0050's `acquisition_confirmation_violation`), the owner-level
  * allocation's source, the guard `ownership_predecessor_of_confirmed` with its counter-checks (the trigger disabled),
  * its lock order, the concurrency under READ COMMITTED and REPEATABLE READ, the legacy notice, and `down`/`up`. Every
  * name and figure is synthetic.
@@ -58,7 +58,7 @@ const outcomeOf = (statement: Promise<unknown>) =>
     (error: { message?: string }) => error.message ?? 'error',
   );
 
-describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a further share (migration 0052)', () => {
+describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a further share (migration 0050)', () => {
   const schema = testSchemaName('acquisition_increase_test');
   let pool: pg.Pool;
   let parties: PostgresPartyRepository;
@@ -305,7 +305,7 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
 
     it('a CONFIRMED legacy workaround (A 1/2 → 1/1 confirmed as 1/1 under 0022’s rule) answers OWNERSHIP_BASIS_INCOMPLETE', async () => {
       const s = await rowModel({ acquired: [1, 1] });
-      // Confirmed as before 0052: the old rule is in force for this one statement (the guard trigger stays as it is).
+      // Confirmed as before 0050: the old rule is in force for this one statement (the guard trigger stays as it is).
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
@@ -688,9 +688,9 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
     });
   });
 
-  describe('migration 0052: the legacy notice, down and up', () => {
+  describe('migration 0050: the legacy notice, down and up', () => {
     it(
-      'up reports a CONFIRMED workaround confirmed under 0051’s schema; down restores 0022’s rule; up again (under MIGRATION_ADVISORY_LOCK)',
+      'up reports a CONFIRMED workaround confirmed under 0049’s schema; down restores 0022’s rule; up again (under MIGRATION_ADVISORY_LOCK)',
       { timeout: 30_000 },
       async () => {
         const legacySchema = testSchemaName('acquisition_increase_legacy_test');
@@ -702,8 +702,8 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
         const legacyPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${legacySchema}`, max: 2 });
         legacyPool.on('connect', (client) => client.on('notice', (notice) => notices.push(notice.message ?? '')));
         try {
-          const before0052 = Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0052'));
-          await migrateToLatest(legacyPool, { migrations: before0052, migrationTableSchema: legacySchema });
+          const before0050 = Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0050'));
+          await migrateToLatest(legacyPool, { migrations: before0050, migrationTableSchema: legacySchema });
           const db = createDatabase(legacyPool);
           const legacyParties = new PostgresPartyRepository(db);
           const legacyAcquisitions = new PostgresAcquisitionRepository(db);
@@ -808,7 +808,7 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
           expect((await legacyPool.query(`SELECT status FROM acquisition WHERE id = $1`, [workaround])).rows[0].status).toBe('CONFIRMED');
 
           // down: 0022's rule again (the truthful confirm refused), the trigger and the helper gone; the workaround stays.
-          const migration = await import('./migrations/0052_acquisition_increase.js');
+          const migration = await import('./migrations/0050_acquisition_increase.js');
           await withMigrationLock(() => migration.down(createDatabase(legacyPool) as never));
           await expect(rawT()).rejects.toThrow(/SHARE_SUM_MISMATCH/);
           const objects = async () =>

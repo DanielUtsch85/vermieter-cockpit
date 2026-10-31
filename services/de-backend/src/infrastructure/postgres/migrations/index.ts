@@ -48,7 +48,7 @@ import * as m0046 from './0046_tax_year_and_income.js';
 import * as m0047 from './0047_tax_weg_spending.js';
 import * as m0048 from './0048_tax_year_view.js';
 import * as m0049 from './0049_depreciation_asset.js';
-import * as m0052 from './0052_acquisition_increase.js';
+import * as m0052 from './0050_acquisition_increase.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -106,5 +106,5 @@ export const migrations: Record<string, Migration> = {
   '0047_tax_weg_spending': m0047,
   '0048_tax_year_view': m0048,
   '0049_depreciation_asset': m0049,
-  '0052_acquisition_increase': m0052,
+  '0050_acquisition_increase': m0052,
 };

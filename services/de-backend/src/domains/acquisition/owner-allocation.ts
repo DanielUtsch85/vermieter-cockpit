@@ -71,7 +71,7 @@ export type OwnerAllocationPlan =
   | { readonly kind: 'ACQUISITION_CANCELLED' }
   /**
    * Ownerships not meeting requirements 2–5 of §28.1 (5 as §28.1A): a `DRAFT` under way, or a `CONFIRMED` one confirmed
-   * before migration 0052 under the full-share rule whose buyer already held a share (the legacy `1/1` workaround).
+   * before migration 0050 under the full-share rule whose buyer already held a share (the legacy `1/1` workaround).
    */
   | { readonly kind: 'OWNERSHIP_BASIS_INCOMPLETE'; readonly violations: readonly ConfirmationViolation[] };
 
@@ -123,7 +123,7 @@ export function planOwnerAllocation(input: OwnerAllocationInput): OwnerAllocatio
   const { acquisition } = input;
   if (acquisition.status === 'CANCELLED') return { kind: 'ACQUISITION_CANCELLED' };
   // The same structure check as confirmation (requirements 2–5), so PROVISIONAL means "would hold as confirmed". A
-  // CONFIRMED one is checked too: one confirmed before 0052 may fail 5a/5b, and its weights would not sum to 1.
+  // CONFIRMED one is checked too: one confirmed before 0050 may fail 5a/5b, and its weights would not sum to 1.
   const violations = structureViolations(acquisition, input.own, input.onTransferDate, input.beforeTransferDate);
   if (violations.length > 0) return { kind: 'OWNERSHIP_BASIS_INCOMPLETE', violations };
   const currency = acquisition.purchasePrice.currency;
