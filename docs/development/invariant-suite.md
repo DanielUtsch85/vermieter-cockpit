@@ -806,7 +806,7 @@ A settlement counted as an advance does not turn ACC6 red (its back-payment is b
 
 ## 42. Tax year and income (VC-7-02, api-design §58A)
 
-`CT` = `domains/taxation/cash-timing.test.ts`, `TYR` = `infrastructure/postgres/tax-year-repository.test.ts`, `RCA` = `api/rental-contract-references.test.ts`, `TYE` = `tax-year.e2e.test.ts`.
+`CT` = `domains/taxation/cash-timing.test.ts`, `TYR` = `infrastructure/postgres/tax-year-repository.test.ts` and `tax-year-deposit.test.ts` (the retained deposit, the RentalContractReference and the locks on the deposit row; setup in `tax-year.test-support.ts`), `RCA` = `api/rental-contract-references.test.ts`, `TYE` = `tax-year.e2e.test.ts`.
 
 | Invariant | Tests |
 |---|---|
