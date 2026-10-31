@@ -263,16 +263,35 @@ async function resolve(trx: Transaction<Database>, mreRealmId: string, request: 
   }));
 }
 
+const selectSets = (trx: Transaction<Database>) => trx.selectFrom('loan_allocation_set').select(SET_COLUMNS);
+type SetRow = Awaited<ReturnType<ReturnType<typeof selectSets>['execute']>>[number];
+
 /** The Loan's sets in `validFrom`, then `createdAt` order, each with its entries in the order given. */
 export async function setsOf(trx: Transaction<Database>, loanId: string): Promise<LoanAllocationSet[]> {
-  const rows = await trx
-    .selectFrom('loan_allocation_set')
-    .select(SET_COLUMNS)
-    .where('loan_id', '=', loanId)
+  const rows = await selectSets(trx).where('loan_id', '=', loanId).orderBy('valid_from').orderBy('created_at').orderBy('id').execute();
+  return withEntries(trx, rows);
+}
+
+/**
+ * `setsOf` batched over several Loans of the Realm (api-design.md §58D "Performance": one query for the sets by
+ * `loan_allocation_set_loan_idx`, one for their entries), in the caller's transaction; a Loan without a set maps to `[]`.
+ */
+export async function setsOfLoans(trx: Transaction<Database>, mreRealmId: string, loanIds: readonly string[]): Promise<Map<string, LoanAllocationSet[]>> {
+  const byLoan = new Map<string, LoanAllocationSet[]>(loanIds.map((id) => [id, []]));
+  if (loanIds.length === 0) return byLoan;
+  const rows = await selectSets(trx)
+    .where('mre_realm_id', '=', mreRealmId)
+    .where('loan_id', 'in', [...byLoan.keys()])
+    .orderBy('loan_id')
     .orderBy('valid_from')
     .orderBy('created_at')
     .orderBy('id')
     .execute();
+  for (const set of await withEntries(trx, rows)) byLoan.get(set.loanId)?.push(set);
+  return byLoan;
+}
+
+async function withEntries(trx: Transaction<Database>, rows: readonly SetRow[]): Promise<LoanAllocationSet[]> {
   if (rows.length === 0) return [];
   const entries = await trx
     .selectFrom('loan_allocation')

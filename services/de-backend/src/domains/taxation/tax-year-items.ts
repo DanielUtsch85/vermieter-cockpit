@@ -6,7 +6,7 @@ import type { TaxListItem } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
 import { partOf, type Distribution } from './distribution-82b.js';
 import { placementOf, signedCents, type Placement } from './tax-year-placement.js';
-import type { TaxYearItem, ViewFlag } from './tax-year-response.js';
+import type { TaxYearItem, TaxYearLoanAllocation, ViewFlag } from './tax-year-response.js';
 import {
   covers,
   foldPerOwner,
@@ -36,6 +36,8 @@ export interface Derived {
   readonly parts: ReadonlyMap<string, bigint>;
   readonly folded: { readonly parts: FoldedParts; readonly endYears: ReadonlyMap<string, number> } | null;
   readonly flags: readonly ViewFlag[];
+  /** An interest item of a Loan only (§58D): the set behind the property's part. */
+  readonly loanAllocation: TaxYearLoanAllocation | null;
 }
 
 const dateOf = (m: TaxListItem): BusinessDate =>
@@ -60,13 +62,20 @@ const sameOwnerships = (ownerships: readonly ViewOwnership[], a: BusinessDate, b
   return on(a) === on(b);
 };
 
+/**
+ * What the view derives for a source. `propertyCents` is the property's non-negative part of a Loan's interest split
+ * (§58D): it stands for the source's amount in every figure, and is shared out to the owners as any amount; `amount`
+ * stays the whole split.
+ */
 export function deriveItem(
   source: TaxListItem,
   year: number,
   ownerships: readonly ViewOwnership[],
   changed: readonly AttributionChange[],
+  propertyCents: bigint | null = null,
 ): Derived | undefined {
   const date = dateOf(source);
+  const amount = propertyCents === null ? source.amount : moneyOfCents(propertyCents, source.amount.currency);
   const placement: Placement = source.counts ? placementOf({ ...source, refund: refundOfItem(source) }) : { place: 'UNCLASSIFIED' };
   const flags: ViewFlag[] = [];
   const distribution = distributionOfItem(source);
@@ -76,10 +85,7 @@ export function deriveItem(
   let folded: Derived['folded'] = null;
   if (distribution !== null && source.counts && placement.place === 'LINE') {
     // § 82b: the per-owner fold decides the parts of `year`; the property's part is their sum.
-    const fold = foldPerOwner(
-      { amount: source.amount, firstYear: distribution.firstYear, years: distribution.years, rule: distribution.rule, date },
-      ownerships,
-    );
+    const fold = foldPerOwner({ amount, firstYear: distribution.firstYear, years: distribution.years, rule: distribution.rule, date }, ownerships);
     participants = fold.participants;
     for (const [key, byYear] of fold.parts) {
       const cents = byYear.get(year);
@@ -104,7 +110,7 @@ export function deriveItem(
     if (source.taxYear !== year && source.sourceType !== 'DEPOSIT_CLOSING') return undefined;
     participants = participantsOn(ownerships, date);
     if (placement.place === 'LINE' || placement.place === 'CAPITALIZED') {
-      lineCents = signedCents({ amount: source.amount, direction: directionOf(source), taxCategory: source.taxCategory }, placement);
+      lineCents = signedCents({ amount, direction: directionOf(source), taxCategory: source.taxCategory }, placement);
       parts = shareOut(lineCents, participants);
     } else {
       for (const p of participants) parts.set(p.key, 0n);
@@ -129,7 +135,7 @@ export function deriveItem(
   if (moved.length > 0 && source.taxYear === year) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: moved });
   if (source.reviewState === 'NEEDS_REVIEW') flags.push({ code: 'NEEDS_REVIEW', details: {} });
   if (source.treatment === null) flags.push({ code: 'UNCLASSIFIED', details: {} });
-  return { source, placement, date, participants, lineCents, parts, folded, flags };
+  return { source, placement, date, participants, lineCents, parts, folded, flags, loanAllocation: null };
 }
 
 const formatFraction = (f: Fraction) => `${f.numerator}/${f.denominator}`;
@@ -180,6 +186,7 @@ export function itemAt(d: Derived, year: number, currency: string, participant: 
           },
     flags: [...(m.flags as readonly ViewFlag[]), ...d.flags],
     notAttributed: null,
+    loanAllocation: d.loanAllocation,
   };
 }
 
@@ -215,6 +222,7 @@ export function notAttributedItem(m: DepositTaxMeaning): TaxYearItem {
       ...(m.treatment === null ? [{ code: 'UNCLASSIFIED', details: {} }] : []),
     ],
     notAttributed: { reason: details.reason, candidates: details.candidates ?? [], href: `/api/v1/security-deposits/${m.sourceId}/tax-meaning` },
+    loanAllocation: null,
   };
 }
 

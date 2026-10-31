@@ -1,4 +1,5 @@
 import type { BusinessDate, Money, RuleRef, RuleStatus } from '../../shared/index.js';
+import type { AllocationBasis } from '../financing/index.js';
 import type { Direction } from '../ledger/index.js';
 import type { CheckStatus, NotFinalReason } from './anschaffungsnahe.js';
 import type { RefundInfo } from './cash-timing.js';
@@ -42,8 +43,25 @@ export interface TaxYearItem {
   readonly suggestion: TreatmentSuggestion | null;
   readonly share: { readonly ownershipId: string; readonly share: string; readonly amount: Money | null } | null;
   readonly flags: readonly ViewFlag[];
-  /** "nicht zugeordnet" only: why, the candidates, and the deposit's tax meaning. */
+  /** "nicht zugeordnet" only: why, the candidates, and the deposit's tax meaning or the Loan's allocation on the day. */
   readonly notAttributed: { readonly reason: string; readonly candidates: readonly string[]; readonly href: string } | null;
+  /** An item from a Loan's interest split only (§58D): the set covering its booking date and this property's part. */
+  readonly loanAllocation: TaxYearLoanAllocation | null;
+}
+
+/**
+ * The Loan's allocation behind an interest item (api-design.md §58D "API shape"): the set covering the split's booking
+ * date (all `null` for `NO_LOAN_ALLOCATION`), the property's reduced share in it and its non-negative part of the split
+ * (both `null` when not attributed). At the owner level `propertyPart` stays the property's part.
+ */
+export interface TaxYearLoanAllocation {
+  readonly loanId: string;
+  readonly allocationSetId: string | null;
+  readonly validFrom: BusinessDate | null;
+  readonly validUntil: BusinessDate | null;
+  readonly basis: AllocationBasis | null;
+  readonly share: string | null;
+  readonly propertyPart: Money | null;
 }
 
 export interface TaxYearLine {
