@@ -1317,6 +1317,8 @@ Therefore recalculation should produce explicit versions or equivalent historica
 
 The exact persistence strategy remains an implementation decision.
 
+**Decided for Phase 8** (phase-8-plan P8-D10, 2026-10-30; api-design §60, data-model §39–§40, VC-8-04): the schedule is computed on every read, and a person records a version of it per asset, with its inputs, its output and its rule versions, append-only and reproducible from what it stores. The tax-year view compares the derived schedule with the current recorded version; a year is final only once its AfA is recorded and unchanged.
+
 ---
 
 # 52. Operating Cost Allocation
