@@ -569,24 +569,27 @@ describe('GET /tax-rules (§58)', () => {
     const now = () => new Date('2026-10-30T10:00:00Z');
     const base = await start({ taxation: { listRules: listTaxRules({ now }), getRule: getTaxRule({ now }) } });
     const list = (await (await get(base, '/tax-rules')).json()) as { items: { ruleCode: string; versions: Record<string, unknown>[] }[] };
-    // VC-7-02 adds DE_CASH_TIMING (§58A), VC-7-03 three rules of its own (§58B), VC-8-01 Depreciation's DE_AFA_BUILDING_LINEAR (§59).
+    // VC-7-02 adds DE_CASH_TIMING (§58A), VC-7-03 three rules of its own (§58B), VC-8-01 Depreciation's DE_AFA_BUILDING_LINEAR (§59),
+    // VC-8-03 DE_AFA_MOVABLE_LINEAR (§59B).
     expect(list.items.map((r) => r.ruleCode)).toEqual([
       'DE_82B_DISTRIBUTION',
       'DE_AFA_BUILDING_LINEAR',
+      'DE_AFA_MOVABLE_LINEAR',
       'DE_ANSCHAFFUNGSNAHE',
       'DE_CASH_TIMING',
       'DE_CATEGORY_DEFAULTS',
       'DE_WEG_SPENDING',
     ]);
-    const defaults = list.items[4];
-    expect(list.items[3]?.versions).toEqual([
+    const defaults = list.items[5];
+    expect(list.items[2]?.versions).toEqual([expect.objectContaining({ ruleCode: 'DE_AFA_MOVABLE_LINEAR', version: 1, status: 'ACTIVE' })]);
+    expect(list.items[4]?.versions).toEqual([
       expect.objectContaining({ ruleCode: 'DE_CASH_TIMING', version: 1, legalBasis: '§ 11 Abs. 1 S. 2 und Abs. 2 S. 2 EStG', status: 'ACTIVE' }),
     ]);
     expect(list.items[0]?.versions).toEqual([
       expect.objectContaining({ ruleCode: 'DE_82B_DISTRIBUTION', version: 1, effectiveFrom: '2004-01-01', legalBasis: '§ 82b EStDV; § 84 Abs. 4a EStDV' }),
     ]);
-    expect(list.items[2]?.versions[0]).toMatchObject({ effectiveFrom: '2004-01-01', parameters: { thresholdPercent: 15, windowYears: 3 } });
-    expect(list.items[5]?.versions[0]).toMatchObject({ effectiveFrom: '2000-01-01', legalBasis: '§ 9 Abs. 1, § 11 Abs. 2 EStG; BFH IX R 19/24' });
+    expect(list.items[3]?.versions[0]).toMatchObject({ effectiveFrom: '2004-01-01', parameters: { thresholdPercent: 15, windowYears: 3 } });
+    expect(list.items[6]?.versions[0]).toMatchObject({ effectiveFrom: '2000-01-01', legalBasis: '§ 9 Abs. 1, § 11 Abs. 2 EStG; BFH IX R 19/24' });
     expect(defaults?.versions).toEqual([
       expect.objectContaining({
         ruleCode: 'DE_CATEGORY_DEFAULTS',

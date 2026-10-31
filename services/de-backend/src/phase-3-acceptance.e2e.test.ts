@@ -415,7 +415,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         amend: amendDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
         confirm: confirmDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
         void: voidDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
-        schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db) }),
+        schedule: getDepreciationSchedule({
+          source: new PostgresDepreciationScheduleSource(db, new PostgresTaxClassificationRepository(db).capitalizedSources),
+        }),
       },
       rentReconciliations: {
         create: createReconciliation({ repository: new PostgresRentReconciliationRepository(db), lookupMreRentTerm: mreRentTermLookup(client) }),

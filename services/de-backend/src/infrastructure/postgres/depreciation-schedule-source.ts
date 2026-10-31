@@ -1,8 +1,17 @@
 import { sql, type Kysely } from 'kysely';
-import type { DepreciationScheduleSource, ScheduleAcquisition, ScheduleOwnership, ScheduleRead } from '../../domains/depreciation/index.js';
+import type {
+  AssetLink,
+  DepreciationScheduleSource,
+  ItemSourceType,
+  ScheduleAcquisition,
+  ScheduleOwnership,
+  ScheduleRead,
+} from '../../domains/depreciation/index.js';
 import { paymentStatusOf } from '../../domains/acquisition/index.js';
+import { businessDayOf } from '../../domains/ledger/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import { COUNTING } from './acquisition-cost-repository.js';
+import { capitalizedItemsIn, type CapitalizedSourcesReader } from './capitalized-items.js';
 import { depreciationSnapshot, readAsset } from './depreciation-asset-repository.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
@@ -14,10 +23,17 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * Acquisitions of its PropertyReference that are not `CANCELLED` with their parties, `ACTIVE` costs, counting payments
  * and current allocation, and every `VALID` Ownership of the PropertyReference, all in one `REPEATABLE READ READ ONLY`
  * transaction (P8-D14), one query per input on existing indexes, every one filtered by the caller's Realm. It writes
- * nothing; a write inside the transaction fails (`25006`). No MRE call.
+ * nothing; a write inside the transaction fails (`25006`). No MRE call. §59B adds, in the same snapshot, the capitalised
+ * items of the PropertyReference (Taxation's derivation through `capitalized-items.ts`) and the links of its `ACTIVE`
+ * separate assets.
  */
 export class PostgresDepreciationScheduleSource implements DepreciationScheduleSource {
-  constructor(private readonly db: Kysely<Database>) {}
+  /** `capitalizedSources` is the tax repository's reader (§59B), passed by the composition root; `now` gives `today`. */
+  constructor(
+    private readonly db: Kysely<Database>,
+    private readonly capitalizedSources: CapitalizedSourcesReader,
+    private readonly now: () => Date = () => new Date(),
+  ) {}
 
   read(assetId: string, mreRealmId: string, ownerPartyId: string | null): Promise<ScheduleRead | undefined> {
     if (!UUID.test(assetId)) return Promise.resolve(undefined);
@@ -161,9 +177,33 @@ export class PostgresDepreciationScheduleSource implements DepreciationScheduleS
                 },
         };
       });
+      // §59B: the links of the PropertyReference's ACTIVE separate assets (the building excludes their items).
+      const linkRows = await trx
+        .selectFrom('depreciation_asset_item')
+        .select(['asset_id', 'source_type', 'source_id', 'source_position'])
+        .where('property_reference_id', '=', asset.propertyReferenceId)
+        .where('mre_realm_id', '=', mreRealmId)
+        .where('asset_status', '=', 'ACTIVE')
+        .execute();
+      const links: AssetLink[] = linkRows.map((r) => ({
+        assetId: r.asset_id,
+        sourceType: r.source_type as ItemSourceType,
+        sourceId: r.source_id,
+        sourcePosition: r.source_position,
+      }));
+      const capitalizedItems = await capitalizedItemsIn(
+        trx,
+        mreRealmId,
+        asset.propertyReferenceId,
+        businessDayOf(this.now()),
+        this.capitalizedSources,
+        asset.items,
+      );
       return {
         asset,
         acquisitions,
+        capitalizedItems,
+        links,
         ownerships: ownerships.map(
           (o): ScheduleOwnership => ({
             id: o.id,

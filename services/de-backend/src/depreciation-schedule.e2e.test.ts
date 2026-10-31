@@ -112,7 +112,12 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       isReady: async () => true,
       verifyPrincipal: mrePrincipalVerifier(client),
       ...commandsWith({
-        depreciationAssets: { schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db), now }) },
+        depreciationAssets: {
+          schedule: getDepreciationSchedule({
+            source: new PostgresDepreciationScheduleSource(db, new PostgresTaxClassificationRepository(db).capitalizedSources, now),
+            now,
+          }),
+        },
         taxation: { anschaffungsnahe: getAnschaffungsnaheCheck({ repository: new PostgresTaxClassificationRepository(db), now }) },
       }),
     });
@@ -271,6 +276,11 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
         assetType: 'BUILDING',
         depreciationMethod: 'LINEAR_7_4',
         buildingCompletionYear: 1995,
+        description: null,
+        usefulLifeYears: null,
+        usefulLifeBasis: null,
+        acquiredOn: null,
+        items: [],
         sourceReferences: ['Teilungserklärung, Baujahr laut Anlage 1'],
         reviewState: 'CONFIRMED',
         advisorPartyId: null,

@@ -271,6 +271,8 @@ describe.skipIf(databaseUrl === undefined)('Tax classification (VC-7-01) end to 
           [2, 'ACTIVE'],
         ],
       ],
+      // VC-8-03 (§59B): the movable rule of a separate asset, after the building's.
+      ['DE_AFA_MOVABLE_LINEAR', [[1, 'ACTIVE']]],
       ['DE_ANSCHAFFUNGSNAHE', [[1, 'ACTIVE']]],
       ['DE_CASH_TIMING', [[1, 'ACTIVE']]],
       ['DE_CATEGORY_DEFAULTS', [[1, 'ACTIVE']]],

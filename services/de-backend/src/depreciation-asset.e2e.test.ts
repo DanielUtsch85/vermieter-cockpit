@@ -237,6 +237,7 @@ describe.skipIf(databaseUrl === undefined)('the DepreciationAsset (VC-8-01) end 
       rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
       band: 'B',
       ratePercent: '2',
+      rate: '1/50',
       legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
       shorterThanYears: 50,
       reasons: ['ASSET_NOT_CONFIRMED'],

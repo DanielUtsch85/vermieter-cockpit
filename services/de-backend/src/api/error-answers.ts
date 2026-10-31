@@ -156,7 +156,13 @@ import {
   WriteBackInProgressError,
   AdvisorConfirmedError,
   AssetAdvisorConfirmedError,
+  AssetFieldNotAllowedError,
   BuildingAssetExistsError,
+  CapitalizedItemNotFoundError,
+  ItemAnschaffungsnaheError,
+  ItemInOtherAssetError,
+  ItemNotCapitalizedError,
+  ItemNotOfPropertyError,
   CompletionYearMissingError,
   DepreciationAssetNotActiveError,
   DepreciationAssetNotFoundError,
@@ -1082,7 +1088,50 @@ const TABLE = [
       propertyReferenceId: error.propertyReferenceId,
     }),
   ),
+  // A separate asset's fields and capitalised items (api-design §59B, VC-8-03); `item` is `{ sourceType, sourceId, sourcePosition }`.
+  on(AssetFieldNotAllowedError, (error) => validation(error.fields.map((field) => ({ field, code: 'NOT_ALLOWED' })))),
+  on(CapitalizedItemNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', "The capitalised item's source does not exist.", {
+      sourceType: error.item.sourceType,
+      sourceId: error.item.sourceId,
+      sourcePosition: error.item.sourcePosition,
+    }),
+  ),
+  on(ItemNotOfPropertyError, (error) =>
+    answer(422, 'ITEM_NOT_OF_PROPERTY', 'The item belongs to another PropertyReference.', {
+      item: itemOf(error.item),
+      propertyReferenceId: error.propertyReferenceId,
+    }),
+  ),
+  on(ItemNotCapitalizedError, (error) =>
+    answer(409, 'CONFLICT', 'The item is not classified CAPITALIZED, or does not count.', {
+      reason: 'ITEM_NOT_CAPITALIZED',
+      item: itemOf(error.item),
+      counts: error.counts,
+      treatment: error.treatment,
+      reviewState: error.reviewState,
+    }),
+  ),
+  on(ItemAnschaffungsnaheError, (error) =>
+    answer(409, 'CONFLICT', 'The item is anschaffungsnahe Herstellungskosten of the building.', {
+      reason: 'ITEM_ANSCHAFFUNGSNAHE',
+      item: itemOf(error.item),
+      acquisitionId: error.acquisitionId,
+    }),
+  ),
+  on(ItemInOtherAssetError, (error) =>
+    answer(409, 'CONFLICT', 'The item belongs to another active depreciation asset.', {
+      reason: 'ITEM_IN_OTHER_ASSET',
+      item: itemOf(error.item),
+      assetId: error.assetId,
+    }),
+  ),
 ];
+
+/** An item as §59B's answers name it. */
+function itemOf(item: { readonly sourceType: string; readonly sourceId: string; readonly sourcePosition: number | null }) {
+  return { sourceType: item.sourceType, sourceId: item.sourceId, sourcePosition: item.sourcePosition };
+}
 
 /** The answer for an error a use case threw, or undefined (→ 500). */
 export function answerFor(error: unknown): ErrorAnswer | undefined {

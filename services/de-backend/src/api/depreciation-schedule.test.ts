@@ -37,6 +37,11 @@ const asset: DepreciationAsset = {
   assetType: 'BUILDING',
   status: 'ACTIVE',
   buildingCompletionYear: 1995,
+  description: null,
+  usefulLifeYears: null,
+  usefulLifeBasis: null,
+  acquiredOn: null,
+  items: [],
   sourceReferences: ['Teilungserklärung, Baujahr laut Anlage 1'],
   depreciationMethod: 'LINEAR_7_4',
   reviewState: 'CONFIRMED',
@@ -92,6 +97,8 @@ const acc8: ScheduleRead = {
       acquisitionId: W,
     },
   ],
+  capitalizedItems: [],
+  links: [],
   ownerPartyFound: null,
 };
 
@@ -231,6 +238,8 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
       range: { from: 2026, to: 2027, truncated: false },
       status: 'AVAILABLE',
       reasons: [],
+      // §59B: the schedule's own flags and the building's excluded items (none here).
+      flags: [],
       asset: { status: 'ACTIVE', buildingCompletionYear: 1995, reviewState: 'CONFIRMED' },
       components: [
         {
@@ -287,6 +296,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
               calculationStatus: 'CALCULATED',
               reasons: [],
               owners: owners('1526.40', '1017.60', '151113.60', '100742.40', 6),
+              notOwned: null,
               flags: [],
             },
             {
@@ -299,12 +309,14 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
               calculationStatus: 'CALCULATED',
               reasons: [],
               owners: owners('3052.80', '2035.20', '148060.80', '98707.20', 12),
+              notOwned: null,
               flags: [],
             },
           ],
           flags: [{ code: 'ACQUISITION_COST_UNPAID', details: { costIds: ['6f1c2a9e-0000-4000-8000-000000000051'] } }],
         },
       ],
+      excludedItems: [],
       years: [
         {
           year: 2026,

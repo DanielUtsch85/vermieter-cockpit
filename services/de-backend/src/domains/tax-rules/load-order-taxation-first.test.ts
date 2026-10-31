@@ -5,10 +5,11 @@ import { TAX_RULES } from './index.js';
 
 /** Load order (§59): this file loads Taxation before Depreciation and `tax-rules/`, in its own module graph. */
 describe('load order: Taxation first', () => {
-  it('TAX_RULES holds DE_AFA_BUILDING_LINEAR@1 and @2 and six codes', () => {
+  it('TAX_RULES holds DE_AFA_BUILDING_LINEAR@1 and @2, DE_AFA_MOVABLE_LINEAR@1 and seven codes', () => {
     expect(TAXATION_RULE_VERSIONS).toHaveLength(5);
     expect(TAX_RULES.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 })).toBeDefined();
     expect(TAX_RULES.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 })).toBeDefined();
-    expect(TAX_RULES.codes()).toHaveLength(6);
+    expect(TAX_RULES.find({ ruleCode: 'DE_AFA_MOVABLE_LINEAR', version: 1 })).toBeDefined();
+    expect(TAX_RULES.codes()).toHaveLength(7);
   });
 });

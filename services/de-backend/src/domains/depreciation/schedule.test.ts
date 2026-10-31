@@ -738,7 +738,7 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
 
   it('a DRAFT without Ownerships is not listed; a CANCELLED one never reaches the derivation', () => {
     const s = derive({ ...acc8(), acquisitions: [acquisition(), acquisition({ id: X, status: 'DRAFT' })] });
-    expect(s.components.map((c) => c.acquisitionId)).toEqual([W]);
+    expect(s.components.map((c) => (c as ScheduleComponent).acquisitionId)).toEqual([W]);
   });
 
   it('every reason in its order: the basis function’s first, then USEFUL_LIFE_NOT_CONFIRMED, HISTORICAL_RULE_NOT_SUPPORTED, DEPRECIATION_METHOD_UNKNOWN', () => {

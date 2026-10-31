@@ -30,6 +30,10 @@ export interface BuildingLinearParameters {
     readonly excludedCostCategories: readonly string[];
     readonly allocationReviewStates: readonly string[];
     readonly rounding: 'HALF_UP_CENT';
+    /** §59B (P8-D2): the classification states that feed a capitalised item's component; any other is not computed. */
+    readonly capitalizedItemReviewStates: readonly string[];
+    /** §59B: the item's signed gross `lineAmount` of §58C, never its `netAmount` (VERIFY, § 9b Abs. 1 EStG). */
+    readonly capitalizedItemAmount: 'GROSS_LINE_AMOUNT';
   };
   /** § 7 Abs. 1 S. 4 EStG (B6, P8-D5): less 1/12 per full month before the start month, so the start month counts. */
   readonly firstYear: { readonly startMonthCounts: boolean; readonly legalBasis: string };
@@ -51,7 +55,36 @@ export interface BuildingLinearParameters {
    * (`DEPRECIATION_METHOD_UNKNOWN`): § 7b (from 2018) or § 7 Abs. 5a EStG (from 2023) may have been claimed (B4).
    */
   readonly methodUnknownFromCompletionYear: number;
+  /**
+   * §59B (P8-D6, B11): from when a later capitalised cost counts. `START_OF_YEAR` (R 7.4 Abs. 9 S. 3 EStR, decided
+   * provisionally 2026-10-31) or `MONTH_OF_DATE`; never before the owner's start. Open (`SUBSEQUENT_COST_START_TO_VERIFY`)
+   * while `verified` is false.
+   */
+  readonly subsequentCostStart: {
+    readonly method: SubsequentCostStartMethod;
+    readonly notBeforeOwnerStart: boolean;
+    readonly verified: boolean;
+    readonly legalBasis: string;
+  };
+  /** §59B (B11): a later cost runs at the owner's purchase rate; a shorter life is open while `shorterLifeVerified` is false. */
+  readonly subsequentCostRate: { readonly rate: 'OWNER_PURCHASE_RATE'; readonly shorterLifeVerified: boolean };
+  /**
+   * §59B (R 7.4 Abs. 9 S. 1–2 EStR, decided provisionally 2026-10-31): one pooled basis per ownership tenure
+   * (`POOLED_BASIS`) or each item part its own series (`PER_ITEM_SERIES`); both are computed, and the years in which
+   * they differ are open (`SUBSEQUENT_COST_END_TO_VERIFY`). The remaining useful life of S. 2 is not computed.
+   */
+  readonly subsequentCostEnd: {
+    readonly method: SubsequentCostEndMethod;
+    readonly remainingUsefulLife: { readonly allowed: boolean; readonly computed: boolean };
+    readonly verified: boolean;
+    readonly legalBasis: string;
+  };
 }
+
+export const SUBSEQUENT_COST_START_METHODS = ['START_OF_YEAR', 'MONTH_OF_DATE'] as const;
+export type SubsequentCostStartMethod = (typeof SUBSEQUENT_COST_START_METHODS)[number];
+export const SUBSEQUENT_COST_END_METHODS = ['POOLED_BASIS', 'PER_ITEM_SERIES'] as const;
+export type SubsequentCostEndMethod = (typeof SUBSEQUENT_COST_END_METHODS)[number];
 
 export const AFA_BUILDING_LINEAR = 'DE_AFA_BUILDING_LINEAR';
 
@@ -62,7 +95,13 @@ const LEGAL_BASIS = '§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG';
 /** The parameters both versions share (§59A); only the bands and `verified` differ. */
 const COMMON = {
   shorterUsefulLife: { legalBasis: SHORTER, rate: 'RECIPROCAL_OF_YEARS' },
-  basis: { excludedCostCategories: ['FINANCING_RELATED'], allocationReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'], rounding: 'HALF_UP_CENT' },
+  basis: {
+    excludedCostCategories: ['FINANCING_RELATED'],
+    allocationReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'],
+    rounding: 'HALF_UP_CENT',
+    capitalizedItemReviewStates: ['USER_CONFIRMED', 'ADVISOR_CONFIRMED'],
+    capitalizedItemAmount: 'GROSS_LINE_AMOUNT',
+  },
   firstYear: { startMonthCounts: true, legalBasis: '§ 7 Abs. 1 S. 4 EStG' },
   end: {
     exhaustion: 'REMAINDER_IN_LAST_MONTH',
@@ -76,9 +115,24 @@ const COMMON = {
   },
   rounding: { unit: 'CENT', mode: 'HALF_UP', method: 'CUMULATIVE_PER_OWNER_PART' },
   methodUnknownFromCompletionYear: 2018,
+  // §59B (VC-8-03), added to both versions additively: neither is frozen before VC-8-04.
+  subsequentCostStart: {
+    method: 'START_OF_YEAR',
+    notBeforeOwnerStart: true,
+    verified: false,
+    legalBasis: 'R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)',
+  },
+  subsequentCostRate: { rate: 'OWNER_PURCHASE_RATE', shorterLifeVerified: false },
+  subsequentCostEnd: {
+    method: 'POOLED_BASIS',
+    remainingUsefulLife: { allowed: true, computed: false },
+    verified: false,
+    legalBasis: 'R 7.4 Abs. 9 S. 1–2 EStR (review on #179; VERIFY)',
+  },
 } as const;
 
-const SOURCE_SCHEDULE = 'depreciation.md §5, §7 v0.2; verification-checklist B5, B6; phase-8-plan P8-D2, P8-D5, P8-D8, P8-D9; api-design §59A';
+const SOURCE_SCHEDULE =
+  'depreciation.md §5, §7 v0.2; verification-checklist B5, B6; phase-8-plan P8-D2, P8-D5, P8-D8, P8-D9; api-design §59A; depreciation.md §6 v0.2; verification-checklist B11; phase-8-plan P8-D6';
 
 /**
  * Version 1 (§59A "The rule versions", decided 2026-10-31): the years 2006–2022, with the lettering of § 7 Abs. 4 S. 1

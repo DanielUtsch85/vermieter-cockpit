@@ -1,7 +1,7 @@
 import { Kysely, PostgresDialect, sql, type CompiledQuery } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { deriveSchedule, type DepreciationSchedule, type ScheduleRead } from '../../domains/depreciation/index.js';
+import { deriveSchedule, type DepreciationSchedule, type ScheduleComponent, type ScheduleRead } from '../../domains/depreciation/index.js';
 import type { SplitInput } from '../../domains/ledger/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { checkAnschaffungsnahe } from '../../domains/taxation/index.js';
@@ -16,6 +16,7 @@ import { PostgresLandBuildingAllocationRepository } from './land-building-alloca
 import { migrateToLatest } from './migrate.js';
 import { PostgresOwnershipRepository } from './ownership-repository.js';
 import { PostgresPartyRepository } from './party-repository.js';
+import { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import type { Database } from './schema.js';
 import { acquisitionsOf } from './tax-property-context.js';
 import { testSchemaName } from './test-schema.test-support.js';
@@ -215,6 +216,11 @@ function fixtureIn(pool: pg.Pool) {
         assetType: 'BUILDING',
         depreciationMethod: 'LINEAR_7_4',
         buildingCompletionYear: 1995,
+        description: null,
+        usefulLifeYears: null,
+        usefulLifeBasis: null,
+        acquiredOn: null,
+        items: [],
         sourceReferences: ['Teilungserklärung, Baujahr laut Anlage 1'],
         reviewState: 'CONFIRMED',
         advisorPartyId: null,
@@ -262,7 +268,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
     pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     fx = fixtureIn(pool);
-    source = new PostgresDepreciationScheduleSource(fx.db);
+    source = new PostgresDepreciationScheduleSource(fx.db, new PostgresTaxClassificationRepository(fx.db).capitalizedSources);
   });
 
   afterAll(async () => {
@@ -319,7 +325,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
     const third = await fx.allocate(s.w, '159000.00', second);
     const read = await source.read(s.assetId, REALM, null);
     expect(read?.acquisitions[0]?.allocation?.id).toBe(third);
-    const component = derive(read).components[0];
+    const component = derive(read).components[0] as ScheduleComponent | undefined;
     expect([component?.basis.allocationId, component?.basis.amount?.amount]).toEqual([third, '159000.00']);
   });
 
@@ -345,7 +351,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
     const read = await source.read(s.assetId, REALM, null);
     expect(read?.acquisitions.map((a) => a.id).sort()).toEqual([s.w, listed, unlisted].sort());
     const schedule = derive(read);
-    expect(schedule.components.map((c2) => [c2.acquisitionId, c2.acquisitionStatus, c2.reasons.map((r) => r.code)])).toEqual([
+    expect((schedule.components as ScheduleComponent[]).map((c2) => [c2.acquisitionId, c2.acquisitionStatus, c2.reasons.map((r) => r.code)])).toEqual([
       [s.w, 'CONFIRMED', []],
       [listed, 'DRAFT', ['ACQUISITION_NOT_CONFIRMED']],
     ]);
@@ -392,7 +398,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
         if (event.level === 'query') sent.push(event.query);
       },
     });
-    await new PostgresDepreciationScheduleSource(logged).read(s.assetId, REALM, null);
+    await new PostgresDepreciationScheduleSource(logged, new PostgresTaxClassificationRepository(logged).capitalizedSources).read(s.assetId, REALM, null);
     const plan = async (table: string) => {
       const query = sent.find((q) => q.sql.includes(`from "${table}"`) && q.sql.includes('"property_reference_id" = $'));
       if (query === undefined) throw new Error(`no ${table} query`);
@@ -480,7 +486,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource: 
        VALUES ($1, $2, $3, 1, 1, '2026-01-01', 'VALID', $4, 'x')`,
       [OTHER_REALM, s.pr, foreign, theirs],
     );
-    const read = await new PostgresDepreciationScheduleSource(fx.db).read(s.assetId, REALM, null);
+    const read = await new PostgresDepreciationScheduleSource(fx.db, new PostgresTaxClassificationRepository(fx.db).capitalizedSources).read(
+      s.assetId,
+      REALM,
+      null,
+    );
     expect(read?.acquisitions.map((a) => a.id)).toEqual([s.w]);
     expect(read?.ownerships.map((o) => o.partyId).sort()).toEqual([s.a, s.b].sort());
     const schedule = derive(read);

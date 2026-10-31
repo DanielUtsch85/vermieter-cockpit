@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import type { BusinessDate } from '../../shared/index.js';
 import {
+  addedItems,
   advisorsOf,
+  amendFieldsNotAllowed,
   assetFingerprint,
   entryAcquisitionRefusal,
+  itemLinkRefusal,
   planAssetAmend,
   planAssetConfirm,
   writtenEntries,
   type DepreciationAsset,
   type DepreciationAssetId,
   type EntryAcquisition,
+  type FoundItem,
   type NewDepreciationAsset,
   type ShorterUsefulLife,
 } from './asset.js';
+import type { ItemRef } from './capitalized-item.js';
 
 /**
  * VC-8-01 domain (api-design.md §59): the amend as a difference by `acquisitionId` with its review-state resets, the
@@ -42,6 +47,11 @@ const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset =>
   depreciationMethod: 'LINEAR_7_4',
   status: 'ACTIVE',
   buildingCompletionYear: 1995,
+  description: null,
+  usefulLifeYears: null,
+  usefulLifeBasis: null,
+  acquiredOn: null,
+  items: [],
   sourceReferences: ['Teilungserklärung, Anlage 1'],
   reviewState: 'ADVISOR_CONFIRMED',
   advisorPartyId: ADVISOR,
@@ -202,6 +212,11 @@ describe('assetFingerprint and advisorsOf', () => {
     assetType: 'BUILDING',
     depreciationMethod: 'LINEAR_7_4',
     buildingCompletionYear: 1995,
+    description: null,
+    usefulLifeYears: null,
+    usefulLifeBasis: null,
+    acquiredOn: null,
+    items: [],
     sourceReferences: [],
     reviewState: 'UNREVIEWED',
     advisorPartyId: null,
@@ -224,5 +239,122 @@ describe('assetFingerprint and advisorsOf', () => {
         shorterUsefulLives: [entry(ACQ_1, { advisorPartyId: ADVISOR }), entry(ACQ_2, { advisorPartyId: OTHER }), entry(ACQ_3)],
       }),
     ).toEqual([OTHER, ADVISOR]);
+  });
+});
+
+describe('a separate asset (VC-8-03, §59B)', () => {
+  const SPLIT_1 = '0000eeee-0000-4000-8000-000000000061';
+  const SPLIT_2 = '0000eeee-0000-4000-8000-000000000062';
+  const USE = '0000eeee-0000-4000-8000-000000000091';
+  const split = (sourceId: string): ItemRef => ({ sourceType: 'TRANSACTION_SPLIT', sourceId, sourcePosition: null });
+  const kitchen = (overrides: Partial<DepreciationAsset> = {}) =>
+    asset({
+      assetType: 'SEPARATE_ASSET',
+      depreciationMethod: 'LINEAR_7_1',
+      buildingCompletionYear: null,
+      description: 'Einbauküche (synthetisch)',
+      usefulLifeYears: 10,
+      usefulLifeBasis: 'BFH IX R 14/15 (B8)',
+      acquiredOn: day('2027-04-20'),
+      items: [split(SPLIT_1)],
+      shorterUsefulLives: [],
+      reviewState: 'CONFIRMED',
+      advisorPartyId: null,
+      ...overrides,
+    });
+
+  it('amend: the items as a difference (changedItems), a changed useful life, date or list resets the review state', () => {
+    const plan = planAssetAmend(kitchen(), { items: [split(SPLIT_2), { sourceType: 'WEG_ASSESSMENT_USE', sourceId: USE, sourcePosition: 2 }] });
+    expect(plan.changedItems).toEqual([
+      { item: split(SPLIT_1), change: 'REMOVED' },
+      { item: split(SPLIT_2), change: 'ADDED' },
+      { item: { sourceType: 'WEG_ASSESSMENT_USE', sourceId: USE, sourcePosition: 2 }, change: 'ADDED' },
+    ]);
+    expect(addedItems(plan).map((i) => i.sourceId)).toEqual([SPLIT_2, USE]);
+    expect(plan.reviewStateReset).toEqual({ from: 'CONFIRMED', to: 'UNREVIEWED' });
+    for (const amendment of [{ usefulLifeYears: 8 }, { acquiredOn: day('2027-05-01') }]) {
+      expect(planAssetAmend(kitchen(), amendment).next.reviewState).toBe('UNREVIEWED');
+    }
+    // The description and the basis of the useful life are facts too, but not of the figure: no reset.
+    const text = planAssetAmend(kitchen(), { description: 'Küche, Wohnung 3', usefulLifeBasis: 'Herstellerangabe' });
+    expect([text.changed, text.next.reviewState, Object.keys(text.changes)]).toEqual([true, 'CONFIRMED', ['description', 'usefulLifeBasis']]);
+    // The same list in another order is no change: nothing is re-linked.
+    expect(planAssetAmend(kitchen({ items: [split(SPLIT_1), split(SPLIT_2)] }), { items: [split(SPLIT_2), split(SPLIT_1)] }).changed).toBe(false);
+  });
+
+  it('amend: the fields of the other type are NOT_ALLOWED; confirm needs no completion year', () => {
+    expect(amendFieldsNotAllowed('BUILDING', { usefulLifeYears: 10, items: [] })).toEqual(['usefulLifeYears', 'items']);
+    expect(amendFieldsNotAllowed('SEPARATE_ASSET', { buildingCompletionYear: 1995, shorterUsefulLives: [] })).toEqual([
+      'buildingCompletionYear',
+      'shorterUsefulLives',
+    ]);
+    expect(amendFieldsNotAllowed('SEPARATE_ASSET', { description: 'x', notes: null })).toEqual([]);
+    expect(planAssetConfirm(kitchen({ reviewState: 'UNREVIEWED' }), 'CONFIRMED', null)).toEqual({ kind: 'CONFIRM', changed: true });
+  });
+
+  it('the fingerprint covers the separate asset’s facts and its items', () => {
+    const created = (overrides: Partial<NewDepreciationAsset> = {}): NewDepreciationAsset => {
+      const { id: _id, status: _s, voidedAt: _v, voidReason: _r, createdAt: _c, version: _n, ...facts } = kitchen();
+      return { ...facts, ...overrides };
+    };
+    for (const change of [
+      { description: 'y' },
+      { usefulLifeYears: 9 },
+      { usefulLifeBasis: 'z' },
+      { acquiredOn: day('2027-04-21') },
+      { items: [split(SPLIT_2)] },
+    ]) {
+      expect(assetFingerprint(created(change))).not.toBe(assetFingerprint(created()));
+    }
+    expect(assetFingerprint(created({ items: [split(SPLIT_2), split(SPLIT_1)] }))).toBe(assetFingerprint(created({ items: [split(SPLIT_1), split(SPLIT_2)] })));
+  });
+
+  it('itemLinkRefusal: each check over all items, in §59B’s order', () => {
+    const items = [split(SPLIT_1), split(SPLIT_2)];
+    const capitalized = { counts: true, treatment: 'CAPITALIZED', reviewState: 'USER_CONFIRMED', anschaffungsnaheAcquisitionId: null };
+    const found = (map: Record<string, FoundItem | undefined>) => (i: ItemRef) => map[i.sourceId];
+    const none = () => undefined;
+    const ok = { propertyReferenceId: PR, meaning: capitalized };
+    // Unknown first, even when another item is of another PropertyReference.
+    expect(itemLinkRefusal(items, found({ [SPLIT_1]: { propertyReferenceId: 'other' } }), PR, none)).toEqual({ kind: 'ITEM_NOT_FOUND', item: split(SPLIT_2) });
+    expect(itemLinkRefusal(items, found({ [SPLIT_1]: ok, [SPLIT_2]: { propertyReferenceId: null } }), PR, none)).toEqual({
+      kind: 'ITEM_NOT_OF_PROPERTY',
+      item: split(SPLIT_2),
+      propertyReferenceId: null,
+    });
+    const deductible = { propertyReferenceId: PR, meaning: { ...capitalized, treatment: 'DEDUCTIBLE' } };
+    const anschaffungsnah = { propertyReferenceId: PR, meaning: { ...capitalized, anschaffungsnaheAcquisitionId: ACQ_1 } };
+    expect(itemLinkRefusal(items, found({ [SPLIT_1]: anschaffungsnah, [SPLIT_2]: deductible }), PR, none)).toEqual({
+      kind: 'ITEM_NOT_CAPITALIZED',
+      item: split(SPLIT_2),
+      counts: true,
+      treatment: 'DEDUCTIBLE',
+      reviewState: 'USER_CONFIRMED',
+    });
+    expect(
+      itemLinkRefusal(items, found({ [SPLIT_1]: ok, [SPLIT_2]: { propertyReferenceId: PR, meaning: { ...capitalized, counts: false } } }), PR, none),
+    ).toMatchObject({
+      kind: 'ITEM_NOT_CAPITALIZED',
+      counts: false,
+    });
+    expect(itemLinkRefusal(items, found({ [SPLIT_1]: ok, [SPLIT_2]: anschaffungsnah }), PR, (i) => (i.sourceId === SPLIT_1 ? 'asset-x' : undefined))).toEqual({
+      kind: 'ITEM_ANSCHAFFUNGSNAHE',
+      item: split(SPLIT_2),
+      acquisitionId: ACQ_1,
+    });
+    expect(itemLinkRefusal(items, found({ [SPLIT_1]: ok, [SPLIT_2]: ok }), PR, (i) => (i.sourceId === SPLIT_2 ? 'asset-x' : undefined))).toEqual({
+      kind: 'ITEM_IN_OTHER_ASSET',
+      item: split(SPLIT_2),
+      assetId: 'asset-x',
+    });
+    // A NEEDS_REVIEW CAPITALIZED item may be linked: the read shows ITEM_CLASSIFICATION_NEEDS_REVIEW.
+    expect(
+      itemLinkRefusal(
+        items,
+        found({ [SPLIT_1]: ok, [SPLIT_2]: { propertyReferenceId: PR, meaning: { ...capitalized, reviewState: 'NEEDS_REVIEW' } } }),
+        PR,
+        none,
+      ),
+    ).toBeUndefined();
   });
 });

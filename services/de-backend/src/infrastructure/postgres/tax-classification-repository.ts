@@ -57,6 +57,7 @@ import {
 } from '../../domains/taxation/index.js';
 import { Money, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
+import type { CapitalizedSourcesReader } from './capitalized-items.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { readLoanIn } from './loan-repository.js';
 import { periodsOf } from './loan-terms-repository.js';
@@ -765,6 +766,52 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
       };
     });
   }
+
+  /**
+   * The capitalised sources of a PropertyReference for Depreciation (api-design.md §59B; module-internal to
+   * `infrastructure/postgres/`, not on Taxation's port), in the caller's transaction: every counting split of the
+   * PropertyReference whose current classification is `CAPITALIZED` and every counting WEG source of its memberships,
+   * over all years, each derived exactly as the list derives it (`meaningsOf`, `effectsOf`); and the sources named in
+   * `also` (a separate asset's links) whatever their meaning, so a link whose item was reclassified is still shown.
+   * Which of them Taxation places in `capitalized` is `capitalizedItemsOf`'s.
+   */
+  readonly capitalizedSources: CapitalizedSourcesReader = async (trx, mreRealmId, propertyReferenceId, today, also) => {
+    const alsoSplits = also.filter((r) => r.sourceType === 'TRANSACTION_SPLIT').map((r) => r.sourceId);
+    const rows = await factsQuery(trx, mreRealmId)
+      .where('s.property_reference_id', '=', propertyReferenceId)
+      .where((eb) => {
+        // The counting splits with a current CAPITALIZED classification (the current-per-source index), and the linked ones.
+        const capitalized = eb.and([
+          eb('t.status', 'in', COUNTED),
+          eb.or([eb('t.correction_role', 'is', null), eb('t.correction_role', '<>', 'REVERSAL')]),
+          eb(
+            's.id',
+            'in',
+            eb.selectFrom('tax_classification').select('transaction_split_id').where('superseded_at', 'is', null).where('treatment', '=', 'CAPITALIZED'),
+          ),
+        ]);
+        return alsoSplits.length === 0 ? capitalized : eb.or([capitalized, eb('s.id', 'in', alsoSplits)]);
+      })
+      .orderBy('t.booking_date')
+      .orderBy('t.id')
+      .orderBy('s.position')
+      .execute();
+    const effects = await this.effectsOf(trx, mreRealmId, propertyReferenceId, today);
+    const splits = (await this.meaningsOf(trx, mreRealmId, rows.map(toRead), today)).map((pair) => ({
+      meaning: this.splitWithEffects(pair, effects),
+      anschaffungsnaheAcquisitionId: pair.classification?.anschaffungsnaheAcquisitionId ?? null,
+    }));
+    const named = (f: WegSourceFacts) => also.some((r) => r.sourceType === f.sourceType && r.sourceId === f.sourceId && r.sourcePosition === f.sourcePosition);
+    const weg = effects.weg.facts
+      .filter((f) => f.notCounted === null || named(f))
+      .map((f) => ({ facts: f, meaning: this.wegWithEffects(f, effects, today) }))
+      .filter(({ facts, meaning }) => (meaning.counts && meaning.treatment === 'CAPITALIZED') || named(facts))
+      .map(({ facts, meaning }) => ({
+        meaning,
+        anschaffungsnaheAcquisitionId: effects.weg.current.get(wegSourceKey(facts))?.anschaffungsnaheAcquisitionId ?? null,
+      }));
+    return [...splits, ...weg];
+  };
 
   /**
    * `LOAN_INTEREST_NOT_ATTRIBUTED`'s input (§58C): the counting `LOAN_INTEREST` splits of the Loans with a `VALID`
