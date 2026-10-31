@@ -416,6 +416,25 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
     expect(owner(yearOf(item(old), 2023), A)?.flags).toEqual([]);
   });
 
+  it('the 2006 boundary from the other side: an item of 2006-06-30 on a purchase of 2006-01-01 is computed from 2006-01, HISTORICAL_RULE_TO_VERIFY (review on #187)', () => {
+    const s = derive({
+      asset: asset(),
+      acquisitions: [acquisition({ contractDate: day('2006-01-01'), economicTransferDate: day('2006-01-01') })],
+      ownerships: [ownership(A, '1/1', '2006-01-01', null, W)],
+      capitalizedItems: [capitalized(EXTENSION, '2006-06-30', '1000.00', [[A, '1/1']])],
+      today: day('2026-10-30'),
+      from: 2006,
+      to: 2006,
+      ownerPartyId: null,
+    });
+    const boundary = item(s);
+    expect(boundary.reasons).toEqual([]);
+    expect(boundary.start?.month).toBe('2006-01');
+    const year = owner(yearOf(boundary, 2006), A);
+    expect(year?.amount).not.toBeNull();
+    expect(codes(year?.flags ?? [])).toContain('HISTORICAL_RULE_TO_VERIFY');
+  });
+
   it('a purchase before 2006 (not computable): under POOLED_BASIS the item is computed until the purchase’s nominal last month, then NO_APPLICABLE_RULE', () => {
     const input = (transfer: string, from: number): ScheduleInput => ({
       asset: asset({ buildingCompletionYear: 1960 }),

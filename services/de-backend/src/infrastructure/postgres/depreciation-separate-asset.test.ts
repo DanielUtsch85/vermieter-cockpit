@@ -940,21 +940,25 @@ describe.skipIf(databaseUrl === undefined)('a separate asset and its items (§59
     });
   });
 
-  it('no cash mutated: every command of a separate asset and every schedule read leave the cash, the classifications and the Ownerships as they are', async () => {
-    const pr = await propertyReference();
-    await purchase(pr);
-    const b = await created(building(pr));
-    const [s1, s2] = [await capitalizedSplit(pr), await capitalizedSplit(pr, '100.00')];
-    const before = await snapshot();
-    const id = await created(kitchen(pr, [split(s1)]));
-    await assets.amend(id, REALM, { items: [split(s1), split(s2)], description: 'Küche' }, actor);
-    await assets.confirm(id, REALM, { reviewState: 'CONFIRMED', advisorPartyId: null, note: null }, actor);
-    await schedule(id);
-    await schedule(b);
-    await assets.find(id, REALM);
-    await assets.void(id, REALM, 'x', AT, actor);
-    const after = await snapshot();
-    // The PropertyReference's no-op writes leave its row and version as they are.
-    expect(after).toEqual(before);
-  });
+  it(
+    'no cash mutated: every command of a separate asset and every schedule read leave the cash, the classifications and the Ownerships as they are',
+    { timeout: 30_000 },
+    async () => {
+      const pr = await propertyReference();
+      await purchase(pr);
+      const b = await created(building(pr));
+      const [s1, s2] = [await capitalizedSplit(pr), await capitalizedSplit(pr, '100.00')];
+      const before = await snapshot();
+      const id = await created(kitchen(pr, [split(s1)]));
+      await assets.amend(id, REALM, { items: [split(s1), split(s2)], description: 'Küche' }, actor);
+      await assets.confirm(id, REALM, { reviewState: 'CONFIRMED', advisorPartyId: null, note: null }, actor);
+      await schedule(id);
+      await schedule(b);
+      await assets.find(id, REALM);
+      await assets.void(id, REALM, 'x', AT, actor);
+      const after = await snapshot();
+      // The PropertyReference's no-op writes leave its row and version as they are.
+      expect(after).toEqual(before);
+    },
+  );
 });

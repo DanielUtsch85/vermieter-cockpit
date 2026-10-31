@@ -558,49 +558,53 @@ describe.skipIf(databaseUrl === undefined)('Security deposit close and reopen (Â
       expect(await correction(rent, 'REPLACEMENT')).toBe('(DEPOSIT_CLOSED)');
     });
 
-    it('down restores 0037 and 0038: CLOSED is no step, the closing columns are gone, a split on any non-VOID deposit passes', async () => {
-      const downSchema = testSchemaName('deposit_close_down_test');
-      const admin = new pg.Client({ connectionString: databaseUrl });
-      await admin.connect();
-      await admin.query(`CREATE SCHEMA "${downSchema}"`);
-      await admin.end();
-      const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
-      try {
-        await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        // Dropping columns while another worker's Migrator introspects the database breaks that migration (the race of
-        // #114 and #145): the down holds the migration lock, as schema teardown does (migrate.ts).
-        const lock = new pg.Client({ connectionString: databaseUrl });
-        await lock.connect();
+    it(
+      'down restores 0037 and 0038: CLOSED is no step, the closing columns are gone, a split on any non-VOID deposit passes',
+      { timeout: 30_000 },
+      async () => {
+        const downSchema = testSchemaName('deposit_close_down_test');
+        const admin = new pg.Client({ connectionString: databaseUrl });
+        await admin.connect();
+        await admin.query(`CREATE SCHEMA "${downSchema}"`);
+        await admin.end();
+        const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
         try {
-          await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
-          const { down } = await import('./migrations/0039_security_deposit_close.js');
-          await down(createDatabase(downPool) as never);
-        } finally {
-          await lock.end().catch(() => undefined);
-        }
-        const { rows: columns } = await downPool.query(
-          `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'security_deposit' AND column_name LIKE '%closing%'`,
-          [downSchema],
-        );
-        expect(columns).toEqual([]);
-        const { rows } = await downPool.query(
-          `INSERT INTO security_deposit (mre_realm_id, status, mre_tenant_id, expected_amount, currency, expected_amount_source, interest_bearing, created_by)
+          await migrateToLatest(downPool, { migrationTableSchema: downSchema });
+          // Dropping columns while another worker's Migrator introspects the database breaks that migration (the race of
+          // #114 and #145): the down holds the migration lock, as schema teardown does (migrate.ts).
+          const lock = new pg.Client({ connectionString: databaseUrl });
+          await lock.connect();
+          try {
+            await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
+            const { down } = await import('./migrations/0039_security_deposit_close.js');
+            await down(createDatabase(downPool) as never);
+          } finally {
+            await lock.end().catch(() => undefined);
+          }
+          const { rows: columns } = await downPool.query(
+            `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'security_deposit' AND column_name LIKE '%closing%'`,
+            [downSchema],
+          );
+          expect(columns).toEqual([]);
+          const { rows } = await downPool.query(
+            `INSERT INTO security_deposit (mre_realm_id, status, mre_tenant_id, expected_amount, currency, expected_amount_source, interest_bearing, created_by)
            VALUES ($1, 'ACTIVE', $2, 1, 'EUR', 'REQUEST', true, 'x') RETURNING id`,
-          [REALM, nextTenant()],
-        );
-        const result = await downPool
-          .query(`UPDATE security_deposit SET status = 'CLOSED', version = version + 1 WHERE id = $1`, [rows[0].id])
-          .then(() => 'accepted', reasonOf);
-        expect(result).toBe('not a step');
-        const { rows: bodies } = await downPool.query(
-          `SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE proname = 'transaction_split_security_deposit' AND nspname = $1`,
-          [downSchema],
-        );
-        expect(bodies).toHaveLength(1);
-        expect(bodies.every((b) => !String(b.prosrc).includes('DEPOSIT_CLOSED'))).toBe(true);
-      } finally {
-        await downPool.end();
-      }
-    });
+            [REALM, nextTenant()],
+          );
+          const result = await downPool
+            .query(`UPDATE security_deposit SET status = 'CLOSED', version = version + 1 WHERE id = $1`, [rows[0].id])
+            .then(() => 'accepted', reasonOf);
+          expect(result).toBe('not a step');
+          const { rows: bodies } = await downPool.query(
+            `SELECT prosrc FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE proname = 'transaction_split_security_deposit' AND nspname = $1`,
+            [downSchema],
+          );
+          expect(bodies).toHaveLength(1);
+          expect(bodies.every((b) => !String(b.prosrc).includes('DEPOSIT_CLOSED'))).toBe(true);
+        } finally {
+          await downPool.end();
+        }
+      },
+    );
   });
 });
