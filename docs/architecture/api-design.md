@@ -4500,10 +4500,10 @@ GET /api/v1/tax-rules/{ruleCode}
 - **A rule version:** `{ ruleCode, version, title, legalBasis, effectiveFrom, effectiveTo, parameters, source, status }`, with `status` `ACTIVE` (applicable today), `SUPERSEDED` (a later version applies) or `RETIRED` (`effectiveTo` passed without a successor). `parameters` is the rule's own data (the default table above for `DE_CATEGORY_DEFAULTS`).
 - `GET /tax-rules`: every rule with its versions, by `ruleCode`, versions ascending; `GET /tax-rules/{ruleCode}`: one rule, `404` if unknown. The former `…/versions` route is folded into these (each rule lists its versions). No Realm: the registry is the same for everyone; authentication as every route.
 - **Selection:** the version whose `effectiveFrom` ≤ the date < `effectiveTo` (or open); for VC-7-01 the date is the split's booking date. Two versions of one rule never overlap (a registry test).
-- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items; VC-7-02 added `DE_CASH_TIMING@1` (§58A); VC-7-03 adds `DE_WEG_SPENDING@1`, `DE_82B_DISTRIBUTION@1` and `DE_ANSCHAFFUNGSNAHE@1` as separate rules, leaving `DE_CATEGORY_DEFAULTS@1` unchanged (§58B). VC-8-01 adds `DE_AFA_BUILDING_LINEAR@1` (§59), a module of the Depreciation domain (`domains/depreciation/rules/`) registered in this same registry, selected by the tax year computed (from 2023-01-01), and covered by the start check through a second source of stored references (P8-D11). **Freeze point:** `DE_CATEGORY_DEFAULTS@1` took VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen with VC-7-02's implementation. From then on every change, an additive one too, is a new version (review on #159).
+- **VC-7-01's rule:** `DE_CATEGORY_DEFAULTS` version 1, `effectiveFrom` 2000-01-01, legal basis § 8, § 9, § 11, § 21 EStG with taxation.md §4–§5 v0.2 and BFH IX R 19/24 for the `WEG_FUNDS`. The rules of VC-7-02 and VC-7-03 (P7-D1) join the registry with those items; VC-7-02 added `DE_CASH_TIMING@1` (§58A); VC-7-03 adds `DE_WEG_SPENDING@1`, `DE_82B_DISTRIBUTION@1` and `DE_ANSCHAFFUNGSNAHE@1` as separate rules, leaving `DE_CATEGORY_DEFAULTS@1` unchanged (§58B). VC-8-01 adds `DE_AFA_BUILDING_LINEAR@1` (§59), a module of the Depreciation domain (`domains/depreciation/rules/`) registered in this same registry, selected by the tax year computed (from 2023-01-01), and covered by the start check through a second source of stored references (P8-D11). **Freeze point:** `DE_CATEGORY_DEFAULTS@1` took VC-7-02's additive lines and its `DEPOSIT_CLOSING` default (§58A), and is frozen with VC-7-02's implementation. From then on every change, an additive one too, is a new version (review on #159). VC-8-04 freezes `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` with its implementation (§60), and `infrastructure/hashing/frozen-rules.test.ts` pins the rule-version hash (every field but `effectiveTo` and `status`) of every frozen version, `DE_CATEGORY_DEFAULTS@1` included.
 - **Every stored reference resolves** (review on #156):
   - **on write:** a classification may only name a registered `ruleCode@version`;
-  - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references);
+  - **on start:** the backend reads every distinct `rule_code`, `rule_version` of `tax_classification` and refuses to start if one is not registered, as the migration check does (logged with the missing references); from VC-8-04 also those of the recorded depreciation schedule versions, whose stored rule-version hash must equal the registry's (§60);
   - a test covers the mechanism with a stored reference to an unknown version.
 - **The database guards encode version 1:** `tax_classification_treatment` repeats the hard rules of `DE_CATEGORY_DEFAULTS@1` literally, whatever `rule_version` a row names. A later version with other prohibitions therefore needs a migration that changes the guard too (review on #158).
 
@@ -5421,6 +5421,7 @@ POST /api/v1/depreciation-assets/{assetId}/void                               (V
 GET  /api/v1/property-references/{propertyReferenceId}/depreciation-assets    (VC-8-01, §59; ?status=&year=)
 GET  /api/v1/depreciation-assets/{assetId}/schedule                           (VC-8-02, §59A)
 POST /api/v1/depreciation-assets/{assetId}/schedule-versions                  (VC-8-04, §60)
+GET  /api/v1/depreciation-assets/{assetId}/schedule-versions[/{versionId}]     (VC-8-04, §60)
 GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (VC-7-01, §58; lists DE_AFA_BUILDING_LINEAR from VC-8-01)
 ```
 
@@ -5549,7 +5550,7 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
 - **Body:** `{ "reason": "..." }` (required, trimmed, 1–500): a recording error, such as the wrong PropertyReference.
 - **Order of checks:** `400` → `404` → `VOID` → `200` no-op that keeps the first reason and time, whatever `If-Match` says → `If-Match` → `412`.
 - **Success:** `200` (`status = VOID`, `voidedAt`, `voidReason`, `version` + 1). AuditRecord `VOIDED` with the reason. A `VOID` asset feeds nothing (§59A: `NO_ASSET`).
-- **Recorded versions:** VC-8-04 decides whether a recorded schedule version holds the void (§60). In VC-8-01 nothing does.
+- **Recorded versions:** VC-8-04 **proposes** (§60, open question 8; not decided) that a recorded schedule version does **not** block the void. The asset's versions would stay as history, unchanged and readable; the view no longer reads the asset, and the void's effects show as open flags elsewhere (§60, "The tax-year view"). In VC-8-01 nothing holds the void.
 
 ### Reads
 
@@ -6244,7 +6245,7 @@ Field errors are `400 VALIDATION_ERROR` with `INVALID_FORMAT` and `OUT_OF_RANGE`
 ### Not in VC-8-02 (pointers)
 
 - **Capitalised costs and `SEPARATE_ASSET`:** VC-8-03 (§59A extended, §59B), with `subsequentCostStart` and the VAT point.
-- **Recorded versions:** §60 (VC-8-04), which stores what this read derives, with its inputs and rule versions.
+- **Recorded versions:** §60 (VC-8-04), which stores what this read derives, with its inputs and rule versions, and adds to this read each year's `inputFingerprint`, its `recording` state and the `recordedVersion` (§60, "Reads").
 - **The AfA in the tax-year view**, the flags in its review table and `final`: §58C (VC-8-05).
 - **The Phase-2 change** for an existing owner's additional share (open question 1).
 
@@ -6324,8 +6325,25 @@ From when a capitalised item counts is **not covered by `depreciation.md`** (pha
 
 - **The building's rate, applied to the item** (B11: "Die weitere AfA folgt der für das Gebäude einschlägigen gesetzlichen Methode"; P8-D6: no mode of its own, no "Restwert-AfA"): the rate of each year is the band's `ratePercent` of the rule version selected for that year (§59), as an exact fraction, from the asset's completion year. The asset's reasons (`ASSET_VOID`, `COMPLETION_YEAR_MISSING`, `ASSET_NOT_CONFIRMED`) stop the item components as they stop the purchases (§59A).
 - **An owner whose purchase uses a confirmed shorter useful life** (§59, P8-D4): the owner's part of the item takes the rate of that owner's purchase component whose tenure holds the item's date (B11 literally: the building's method is then § 7 Abs. 4 S. 2). It follows that component's state: `1/usefulLifeYears` when the entry applies, flagged **`SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`** (open; whether later costs then run over the building's remaining useful life is not covered by `depreciation.md`, **VERIFY**); not computable with `USEFUL_LIFE_NOT_CONFIRMED` when the entry is not confirmed; the band's rate when it is not shorter. A part of an owner without a purchase component (an heir who bore the cost, `OWNER_WITHOUT_ACQUISITION` in §59A) and the `NOT_OWNED` part take the band's rate.
-- **`NO_APPLICABLE_RULE`:** an item whose first month lies before 2023 (no version of `DE_AFA_BUILDING_LINEAR` before 2023-01-01, §59) is not computable in any year, as a purchase that starts before 2023 (§59A): its residual value in 2023 depends on the earlier years. An item dated 2023 or later on a building bought before 2023 **is** computable on its own: its series does not depend on the purchase's earlier years.
-- **The end: each item part is a linear series of its own**, capped at its own basis, with the remainder in its last month (§59A's arithmetic, `end.exhaustion` `REMAINDER_IN_LAST_MONTH`): 600, 480 or 400 months at 2 %, 2.5 % or 3 %, `12·n` at `1/n`. In every year in which the purchase component of the same owner is still running, the owner's AfA is then exactly the rate × the owner's whole basis at that time, as B11 and P8-D6 say ("the rate × the basis at that time"). **The two readings differ only after the purchase component is exhausted** (its last month, 33 to 50 years after the purchase): a pooled basis would go on at the rate × the whole basis until the whole residual is zero and so end earlier; the per-item series goes on at the rate × the item only and ends with the item's own last month. Which one the law means, and whether the remaining useful life of the building takes over once the full AfA cannot be reached within it, is **not covered by `depreciation.md`** (**VERIFY**, a new point, beratungsfragen §4). The schedule computes the per-item series and flags each owner's year of an item part **after** the end of that owner's purchase component by exhaustion with **`SUBSEQUENT_COST_END_TO_VERIFY`** (open) with `details: { purchaseComponentId, purchaseLastMonth }`. Without a shorter useful life no such year lies before 2056 (a purchase from 2023 at 3 %), so no year a user files today carries it; with a short confirmed life it can come much sooner.
+- **`NO_APPLICABLE_RULE`:** an item whose first month lies before 2023 (no version of `DE_AFA_BUILDING_LINEAR` before 2023-01-01, §59) is not computable in any year, as a purchase that starts before 2023 (§59A): its residual value in 2023 depends on the earlier years. An item dated 2023 or later on a building bought before 2023 is computable only where its figures do not depend on the purchase's earlier years (review on #180):
+  - the purchase's **nominal last month** is its start month plus its run at its band (600, 480 or 400 months) or at `1/n` (`12·n`), i.e. its end **if** the rates before 2023 were those of `@1`. That is only the context of §59A open question 2 (**VERIFY**, not decided); the actual last month depends on the pre-2023 rates, which are not verified (`NO_APPLICABLE_RULE`);
+  - **under `POOLED_BASIS`** (the proposal) the pool needs the purchase's exhaustion month and its residual value from the year in which it can end. So the owner's item parts of that pool are **not computable from the year of the purchase's nominal last month on** (`NO_APPLICABLE_RULE` with `details: { poolComponentId, nominalLastMonth }`), as the purchase's own years are; an item that starts in or after that year (a building bought long ago and nominally written off) is not computable in any year. The years before are computed: while the purchase runs, the pooled figures equal the item's own series (below), which holds as long as the pre-2023 rates were not above today's bands (the same VERIFY point). Once a version 0 of the rule is verified, the purchase becomes computable and the pool with it;
+  - **under `PER_ITEM_SERIES`** the item part is computable in every year (its series is its own), and its years from the purchase's nominal last month on carry `SUBSEQUENT_COST_END_TO_VERIFY` (below).
+- **The end: one pooled basis per ownership tenure** (a proposal; review on #179, made precise on #180). R 7.4 Abs. 9 EStR, as the reviewer quoted it from memory (**VERIFY**, the wording of the EStR to be read before it is relied on; AGENTS.md §30): **S. 1:** for a building depreciated under § 7 Abs. 4 S. 1 EStG, the further AfA is the previous percentage of the previous basis increased by the subsequent Herstellungskosten; **S. 2:** where the full depreciation is not reached within the actual useful life, the AfA may be based on the remaining useful life. The schedule therefore treats the parts of one **pool** as **one basis**: each month depreciates the rate × the whole basis started so far (with the still-held fractions), until the **whole** residual value is zero; the last month takes what is left (`end.exhaustion` `REMAINDER_IN_LAST_MONTH`, §59A's arithmetic: exact fractions, cumulative half-up rounding per owner part and year). Each point below that the EStR wording does not settle is part of the same **VERIFY** question (open question 2), with the stated proposal:
+  - **The pools.** One pool per **ownership tenure** (§59A "Per owner"), not per owner: the owner's purchase part of that tenure and the owner's item parts whose date that tenure holds. An owner who sells and buys back has a new tenure, a new purchase component (§59A) and a new pool; the earlier pool ends with its tenure and keeps its residual. The item parts of a tenure without a purchase component (an heir, `OWNER_WITHOUT_ACQUISITION`) form a pool of their own at the band's rate, as do the building's `NOT_OWNED` item parts (no tenure, no end but exhaustion). A separate asset is never pooled with the building (its items are its own basis, above).
+  - **The rate in a pool.** Every part of an owner's pool takes the rate of the owner's purchase component (B11, above), so a pool has one rate: a purchase at `1/n` and its items run at `1/n` (flagged `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`), while heir and `NOT_OWNED` parts, at the band's rate, are pools of their own and never mixed with it. Should two parts of one pool still have different rates in a month (a later rule version changing a rate from a year on), each part contributes its own rate (below).
+  - **The arithmetic, replacing §59A's monthly cap.** Each positive part `p` of the pool keeps its consumed fraction `u_p` (0 at its start, 1 when exhausted). In a month, with `f_p` its still-held fraction (§59A; for an item part relative to the share on the item's date, above) and `b_p` its basis:
+    - its **own step** is §59A's capped step, `own_p = min(rate_p / 12, 1 − u_p)`;
+    - the pool's **allowance** is `A = Σ f_p · b_p · rate_p / 12` over every positive part already started, **exhausted ones included**: the rate × the whole basis, each part weighted by the fraction still held;
+    - the **overflow** `O = A − Σ f_p · b_p · own_p` is zero while every part runs, and positive once a part is exhausted (or exhausts within the month). It goes to the parts still running **oldest first** (start month, then `componentId`): part `p` takes `extra_p = min(O_left / (f_p · b_p), 1 − u_p − own_p)`, and `O_left` falls by `f_p · b_p · extra_p`. Overflow that no part can take lapses: the pool has ended;
+    - the part's amount of the month is `f_p · b_p · (own_p + extra_p)`, and `u_p` grows by `own_p + extra_p`. So no part ever exceeds its basis (`u_p ≤ 1`), as §59A's cap guaranteed, and the owners + `NOT_OWNED` still sum to the components and the property to the cent.
+  - **Refunds** (negative parts, "A refund" below) take no part in the allowance or the overflow, and "oldest first" orders the positive parts only: a refund runs as a series of its own at the pool's rate, as under `PER_ITEM_SERIES`, so it neither takes overflow nor lengthens or shortens the pool. **Alternative:** a refund lowers the pooled basis and so the allowance from its start month (VERIFY, open question 2).
+  - **A sale** ends the pool with its tenure, by §59A's end rules (the cut-off at the buyer's `economicTransferDate`, else `validUntil` with `END_DATE_ASSUMED`; `endMonthCounts`; `DISPOSAL_YEAR_TO_VERIFY`) instead of by exhaustion: no part of it depreciates after the last month, no overflow passes beyond it, and each part's residual value stays (P8-D8). A share reduced within the tenure lowers each part's `f_p`, and with it both the part's own step and its share in the allowance.
+  - **The components stay visible.** While every part of the pool runs, the overflow is zero and each part depreciates its own rate × its own basis, so the components' figures are those of §59A and the response above.
+  - **Both readings give the same figures until the first part of the pool is exhausted** (in practice the purchase, 33 to 50 years after it at the band rate): up to then the rate × the whole basis is the sum of the rate × each part. Afterwards the per-item reading (each item part a linear series of its own, at the rate × the item only, ending with the item's own last month) gives less per year and ends later; the pooled reading goes on at the rate × the whole basis and ends earlier.
+  - **The remaining useful life of S. 2** is an option of the taxpayer that needs an input DE does not hold (the building's remaining useful life when the cost arises, with its evidence, as §59's shorter useful life). It is **not computed** in VC-8-03; the parameter names it (`remainingUsefulLife`, below), and a later item adds the input once the tax advisor confirms the reading.
+  - **`SUBSEQUENT_COST_END_TO_VERIFY`** (open) covers the difference, under either value of the parameter. The schedule computes each pool under both readings (the code implements both) and flags **every** owner's (and `NOT_OWNED`'s) year in which their item parts' amounts differ between the two: from the year of the first month after the first exhaustion of a part while another part of the pool still runs, **through the later of the two readings' last months**. Under `POOLED_BASIS` that is through the end of the **per-item** series, not only through the pool's end (review on #180): a year after the pool's end in which the per-item series still runs is listed in the schedule with the item part's amount 0.00 and the flag. (It is no active year for §60's recording, since the component's run ends with the selected reading; the open flag keeps it from being final.) `details: { exhaustedComponentId, exhaustedLastMonth, method, alternativeMethod, alternativeLastMonth, alternativeAmount }`, `alternativeAmount` being the owner's item amount of the year under the other reading. **ACC8** (synthetic): the purchase ends 2076-06; under `POOLED_BASIS` the repair ends 2076-07 and the use 2076-08, under `PER_ITEM_SERIES` 2076-12 and 2077-12; so A's and B's **2076 and 2077** carry the flag under either value, and under `POOLED_BASIS` their 2077 amount of the use is 0.00 with the per-item amount in `alternativeAmount`. Without a shorter useful life no flagged year lies before 2056 (a purchase from 2023 at 3 %), so no year a user files today carries it; with a short confirmed life, or on a purchase before 2023 (above), it can come much sooner.
+  - **The alternative** `PER_ITEM_SERIES` is implemented as the second value of the parameter (as `MONTH_OF_DATE` for the start), so the advisor's answer is one line in the rule and the tests cover both.
 - **The tenure ends** (a sale): the owner's part of the item ends with the owner's tenure, by §59A's end rules (the cut-off at the buyer's `economicTransferDate`, else `validUntil` with `END_DATE_ASSUMED`; `end.disposal.endMonthCounts`; `DISPOSAL_YEAR_TO_VERIFY` while unverified). The residual value of the sold part stays; the buyer depreciates their own acquisition cost, which includes the improvement in the price (P8-D8). Nothing passes from the seller's item to the buyer.
 
 ### Per owner (P8-D8; §58C's parts)
@@ -6438,7 +6456,7 @@ From when a capitalised item counts is **not covered by `depreciation.md`** (pha
 | `basis.capitalizedItemAmount` | `"GROSS_LINE_AMOUNT"`: the item's signed `lineAmount` of §58C, never `netAmount` | P8-D2 (reviewer input on #173; VERIFY, § 9b Abs. 1 EStG) |
 | `subsequentCostStart` | `{ method: "START_OF_YEAR", notBeforeOwnerStart: true, verified: false, legalBasis: "R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)" }`; `method` may also be `MONTH_OF_DATE` | P8-D6; B11 |
 | `subsequentCostRate` | `{ rate: "OWNER_PURCHASE_RATE", shorterLifeVerified: false }`: the owner's purchase component's rate (the band, or `1/n` with `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`) | B11; P8-D4, P8-D6 |
-| `subsequentCostEnd` | `{ method: "PER_ITEM_SERIES", verified: false }`: each item part runs to its own basis; `SUBSEQUENT_COST_END_TO_VERIFY` after the owner's purchase is exhausted | depreciation.md §7; B11; P8-D9 |
+| `subsequentCostEnd` | `{ method: "POOLED_BASIS", remainingUsefulLife: { allowed: true, computed: false }, verified: false, legalBasis: "R 7.4 Abs. 9 S. 1–2 EStR (review on #179; VERIFY)" }`: one basis per ownership tenure (and one for the `NOT_OWNED` parts) at the rate until the whole residual is zero, the overflow to the running parts oldest first, refunds as their own series; `method` may also be `PER_ITEM_SERIES` (each item part to its own basis); `SUBSEQUENT_COST_END_TO_VERIFY` on every year in which the two differ, through the later end | depreciation.md §7; B11; P8-D9 |
 
 - `source` gains "depreciation.md §6 v0.2; verification-checklist B11; phase-8-plan P8-D6".
 - A registry test asserts that no registered default rule gives `treatment` `CAPITALIZED` (above, "Only a classification moves the basis").
@@ -6509,7 +6527,7 @@ From when a capitalised item counts is **not covered by `depreciation.md`** (pha
       "basis": { "amount": { "amount": "35700.00", "currency": "EUR" }, "netAmount": { "amount": "30000.00", "currency": "EUR" }, "amountUsed": "GROSS_LINE_AMOUNT" },
       "start": { "date": "2027-03-10", "dateSource": "ITEM_DATE", "method": "START_OF_YEAR", "month": "2027-01", "firstYearMonths": 12 },
       "rate": { "kind": "BAND", "band": "B", "ratePercent": "2", "rate": "1/50", "usefulLifeYears": null, "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG" },
-      "end": { "lastYear": 2076, "lastMonth": "2076-12" },
+      "end": { "lastYear": 2076, "lastMonth": "2076-07" },
       "owners": [
         { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000041"], "share": "3/5", "basis": { "amount": "21420.00", "currency": "EUR" }, "firstMonth": "2027-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } },
         { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000042"], "share": "2/5", "basis": { "amount": "14280.00", "currency": "EUR" }, "firstMonth": "2027-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } }
@@ -6567,7 +6585,7 @@ From when a capitalised item counts is **not covered by `depreciation.md`** (pha
       "basis": { "amount": { "amount": "9000.00", "currency": "EUR" }, "netAmount": null, "amountUsed": "GROSS_LINE_AMOUNT" },
       "start": { "date": "2028-02-15", "dateSource": "ITEM_DATE", "method": "START_OF_YEAR", "month": "2028-01", "firstYearMonths": 12 },
       "rate": { "kind": "BAND", "band": "B", "ratePercent": "2", "rate": "1/50", "usefulLifeYears": null, "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG" },
-      "end": { "lastYear": 2077, "lastMonth": "2077-12" },
+      "end": { "lastYear": 2076, "lastMonth": "2076-08" },
       "owners": [
         { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000041"], "share": "3/5", "basis": { "amount": "5400.00", "currency": "EUR" }, "firstMonth": "2028-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } },
         { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000042"], "share": "2/5", "basis": { "amount": "3600.00", "currency": "EUR" }, "firstMonth": "2028-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } }
@@ -6761,8 +6779,8 @@ Entity type `DepreciationAsset`, as §59: `CREATED` with the separate asset's fi
 - **Depreciation (pure, `schedule.ts`):**
   - an item from `START_OF_YEAR` (12/12 in its year, the March repair and the February use) and, with a test registry, `MONTH_OF_DATE` (10/12 and 11/12); not before the owner's start (an item of 2026-09-15 after a transfer of 2026-07-01 starts in July); `SUBSEQUENT_COST_START_TO_VERIFY` on the first and last year only, and absent with `verified: true`;
   - the rate: the band; an owner whose purchase has an applying shorter life (`1/n`, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`), an unconfirmed one (`USEFUL_LIFE_NOT_CONFIRMED`), one not shorter (the band); an heir's part and `NOT_OWNED` at the band;
-  - `NO_APPLICABLE_RULE` for an item dated 2022; an item dated 2027 on a purchase of 2021 computable;
-  - the end: each part capped at its own basis; `SUBSEQUENT_COST_END_TO_VERIFY` exactly on the years after the owner's purchase is exhausted (a 3 % purchase of 2023 and an item of 2050); a sale ending the owner's item part with the purchase (`DISPOSAL_YEAR_TO_VERIFY`, `END_DATE_ASSUMED`); the buyer without a part;
+  - `NO_APPLICABLE_RULE` for an item dated 2022; an item dated 2027 on a purchase of 2021 (2 %, nominal last month 2070-12 for a transfer in January 2021): under `PER_ITEM_SERIES` computable in every year, flagged from 2070; under `POOLED_BASIS` computable through 2069 and `NO_APPLICABLE_RULE` from 2070 (`details.nominalLastMonth`); an item dated 2027 on a purchase of 1975 at 2 % (nominally ended 2024) not computable in any year under `POOLED_BASIS`;
+  - the end: the pooled basis (`POOLED_BASIS`): until the purchase is exhausted, every year equals the per-item reading exactly (a property test over random items and dates); afterwards the rate × the whole basis, the excess to the running parts oldest first, each part capped at its own basis, and the pool ending when the whole residual is zero (ACC8's repair ending 2076-07 and the use 2076-08); with a test registry `PER_ITEM_SERIES` (the repair ending 2076-12, the use 2077-12); `SUBSEQUENT_COST_END_TO_VERIFY` exactly on the years in which the two readings differ (a 3 % purchase of 2023 and an item of 2050), under both values, and **through the per-item end**: ACC8 under `POOLED_BASIS` flags A's and B's 2076 **and 2077** (2077 listed with the use's amount 0.00 and its per-item amount in `alternativeAmount`), counter-check: a schedule that flags only up to the pool's end (2076) fails; the pools per tenure (a buy-back after a sale starts a new pool, the earlier pool's residual kept), an heir's and the `NOT_OWNED` pool at the band's rate beside a `1/n` purchase pool; a reduced share lowering the allowance; a sale ending the pool with its parts unexhausted (no overflow after the last month); a refund taking no overflow and leaving the pool's end unchanged; the arithmetic: every part's `u_p ≤ 1`, the overflow assigned oldest first, owners + `NOT_OWNED` = the property (a property test over random pools, shares, sales and refunds); a sale ending the owner's item part with the purchase (`DISPOSAL_YEAR_TO_VERIFY`, `END_DATE_ASSUMED`); the buyer without a part;
   - per owner: §58C's parts as the owner bases; the running minimum against the share on the item's date; a share raised later taking nothing more; owners + `NOT_OWNED` = the component = the property (a property test over random shares, items, refunds and dates);
   - a refund: negative years summing to its basis, `CAPITALIZED_REFUND`; `REFUND_EXCEEDS_CAPITALIZED` for a refund after a sale;
   - `ITEM_CLASSIFICATION_NEEDS_REVIEW` (amounts `null`, `PARTIAL`); `CAPITALIZED_YEAR_DIFFERS` for a `taxYear` override; the carried flags;
@@ -6817,7 +6835,7 @@ Entity type `DepreciationAsset`, as §59: `CREATED` with the separate asset's fi
 
 ### Not in VC-8-03 (pointers)
 
-- **Recorded versions** of item components and separate assets: §60 (VC-8-04).
+- **Recorded versions** of item components and separate assets: §60 (VC-8-04, specified).
 - **The AfA in the tax-year view**, `AFA_SEPARATE_ASSETS`, `NO_ASSET` and the flags in its review table: §58C (VC-8-05), through the adapter fixed above.
 - **A link from a refund to the item it refunds**, and a refund netted against it: not modelled (no Phase-7 field); a later item if the advisor asks for it.
 - **The degressive AfA, § 7h/§ 7i, the Sammelposten** and every other point of P8-D13.
@@ -6825,22 +6843,481 @@ Entity type `DepreciationAsset`, as §59: `CREATED` with the separate asset's fi
 ### Open questions for review
 
 1. **The start of a later cost** (P8-D6). **Proposed; the owner has not decided:** `START_OF_YEAR` per the reviewer input on #173 (R 7.4 Abs. 9 S. 3 EStR), never before the owner's start, computed with the open flag `SUBSEQUENT_COST_START_TO_VERIFY` on the first and the last year until the tax advisor confirms it. **Alternative:** the item's amounts left empty until verified. The confirmation should come before VC-8-04 freezes version 1.
-2. **The end of a later cost** (new VERIFY point): each item as a linear series of its own, flagged `SUBSEQUENT_COST_END_TO_VERIFY` after the owner's purchase is exhausted (not before 2056). **Alternative:** one pooled basis per owner (the rate × the whole basis until the whole residual is zero), which reallocates the last years between the components. And with a shorter useful life: the owner's purchase rate, flagged `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`; the alternative is the band's rate. Both to the tax advisor (beratungsfragen §4).
+2. **The end of a later cost** (new VERIFY point). R 7.4 Abs. 9 EStR, quoted by the reviewer on #179 from memory (**VERIFY**: read the wording of the EStR; AGENTS.md §30): S. 1, for a building depreciated under § 7 Abs. 4 S. 1 EStG the further AfA is the previous percentage of the previous basis increased by the subsequent Herstellungskosten; S. 2, where the full depreciation is not reached within the actual useful life, the AfA may be based on the remaining useful life. **Proposed (review on #179, made precise on #180; the owner has not decided):** one **pooled basis** per ownership tenure (and one for the `NOT_OWNED` parts), the rate × the whole basis until the whole residual value is zero (`POOLED_BASIS`), with the remaining useful life of S. 2 as an option the user may claim, not computed until confirmed (`remainingUsefulLife.computed: false`). Until the first part is exhausted both readings give the same figures; every year after, where they differ, carries `SUBSEQUENT_COST_END_TO_VERIFY` through the later of the two ends (not before 2056 without a shorter useful life). The points the EStR wording does not settle, each with this spec's proposal ("The end" above), are part of the same question: the still-held fraction weighting each part's share in the allowance; a sale ending the pool instead of exhaustion, with each part's residual kept; one pool per tenure, so a buy-back starts a new pool; heir and `NOT_OWNED` parts as pools of their own at the band's rate, never mixed with a `1/n` purchase; refunds as a series of their own outside the pool (alternative: lowering the pooled basis); the overflow to the running parts oldest first, each capped at its basis, in place of §59A's monthly cap. On a purchase before 2023 the pooled years from the purchase's nominal last month on are not computable (`NO_APPLICABLE_RULE`) until §59A's question 2 is answered. **Alternative:** each item as a linear series of its own (`PER_ITEM_SERIES`), which ends later. And with a shorter useful life: the owner's purchase rate, flagged `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`; the alternative is the band's rate. Both to the tax advisor (beratungsfragen §4).
 3. **A separate asset's cost is its linked items only**, and an anschaffungsnahe item cannot be linked (`ITEM_ANSCHAFFUNGSNAHE`). The alternative is to let the user enter a cost on the asset, which would be a second source of truth beside the classified cash (AGENTS.md §16).
 4. **Separate assets acquired before 2023** are not computable (`NO_APPLICABLE_RULE`), as purchases before 2023 (§59A open question 2). A kitchen bought in 2020 is in its seventh year of ten today. **Proposal:** put the earlier years of `DE_AFA_MOVABLE_LINEAR` to the tax advisor together with §59A's question 2, and add a version for them once verified.
 5. **Later items on a separate asset** are computed from `acquiredOn`, flagged `LATER_ITEM_TO_VERIFY` (new VERIFY point). The alternative is to refuse an item dated after `acquiredOn`'s year, which would refuse the common case of an invoice paid in January for a December delivery.
 
 ---
 
-# 60. Depreciation Recalculate
+# 60. Recorded Depreciation Schedule Versions (VC-8-04, spec)
 
-Placeholder until VC-8-04 rewrites it (phase-8-plan P8-D10, decided 2026-10-30): the schedule is derived on every read (§59A), and a person **records** a version (`POST /api/v1/depreciation-assets/{id}/schedule-versions`, with `reason`). The former `…/recalculate` is withdrawn with §59's placeholder.
+**Status:** specified (VC-8-04); not implemented. Migration **0051** planned (the version tables; below).
+
+Decision P8-D10 of `docs/development/phase-8-plan.md`, as decided on 2026-10-30 (option 3: **computed on read, recorded as versions**; `DEPRECIATION_SCHEDULE_NOT_RECORDED` and `DEPRECIATION_CHANGED_SINCE_RECORDED` both **open**, so a year is final only once its AfA is recorded), with P8-D11 and P8-D14 (AGENTS.md §17, §18, §22, §28; ADR-022, ADR-041; `docs/germany/depreciation.md` v0.2 §8: "jede AfA-Zeile referenziert die angewandte AfA-Regelversion"; domain-model §50–§51; data-model §39–§40). The schedule stays what §59A and §59B derive on every read: the truth of today. A **recorded version** is a person's statement "this is the AfA of these years, derived from these inputs under these rules", kept for good. It stores the **inputs** of the derivation and its **output**, so it can be recomputed and compared, and it never changes. The tax-year view (VC-8-05, §58C) reads whether each year's AfA is recorded and unchanged; that is the last condition of a final year (P8-D12).
+
+The section replaces the placeholder `POST …/recalculate`, which §59 already withdrew: nothing is recalculated into a store. A version is recorded by a person, and the derived schedule is never replaced by it.
+
+### Routes
 
 ```text
-POST /api/v1/depreciation-assets/{id}/recalculate
+POST /api/v1/depreciation-assets/{assetId}/schedule-versions                  (VC-8-04, §60)
+GET  /api/v1/depreciation-assets/{assetId}/schedule-versions                  (VC-8-04, §60; ?status=)
+GET  /api/v1/depreciation-assets/{assetId}/schedule-versions/{versionId}      (VC-8-04, §60)
+GET  /api/v1/depreciation-assets/{assetId}/schedule                           (§59A; gains the fingerprints and the recording state, below)
 ```
 
-Must create a new schedule version rather than silently replace historical versions.
+- **Domain owner:** Depreciation (P8-D11). A version is the Depreciation domain's own record (data-model §39), not an `InvestmentMetricSnapshot` (ADR-040, Phase 9; P8-D10). **Authorization:** the caller's Realm, as every DE route; any user of the Realm may record (as §57's confirm: there is no advisor role in the MVP, and the actor is recorded). Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **No cash, no MRE, no classification written** (P8-D14, AGENTS.md §7, §17): a record writes only its own tables and the AuditRecords. It does not write the asset, the Acquisition, a classification or anything Taxation owns.
+
+### What a recorded version is: one asset, every year up to `throughYear`
+
+- **The unit is the asset** (a building or a separate asset, §59, §59B), and a version covers **every year of the asset's schedule from its first year up to `throughYear`**, all owners and `NOT_OWNED` included. Its `fromYear` is the schedule's first year (§59A's default `from`: the earliest start year of the listed components); `throughYear` is chosen by the person.
+- **Why the asset, and why the whole run of years** (rather than one version per asset and year):
+  - **A year depends on every year before it.** The amount of year Y is `round(C(Y)) − round(C(Y − 1))` (§59A's cumulative rounding), and the residual value and the pooled end (§59B) carry the earlier years. A version of 2027 alone could not be recomputed or compared without the inputs of 2026; one version holding both is one derivation, from one snapshot.
+  - **No mix of states.** Versions per year could record 2026 under one allocation and 2027 under a superseding one, a pair no single derivation produces. A whole-run version is one consistent state; a later version replaces it as a whole.
+  - **The inputs are stored once.** The components, the owner parts and the rule references are the same for every year; per-year versions would repeat them.
+  - **The view needs per year and per owner** (P8-D12: final per PropertyReference and year, at both levels). A version stores its output per year, component and owner part, so the view finds each year and each owner's figure in it without recomputing anything. A year is recorded for an asset when its current version covers it (`fromYear ≤ year ≤ throughYear`).
+  - **Per asset, not per PropertyReference**, because the asset is the unit the schedule and its inputs have (§59A), and a separate asset can be recorded without touching the building. The view combines the assets of a PropertyReference (below).
+- **Append-only:** a version is never changed or deleted. A newer version of the same asset **supersedes** it: its `status` moves from `CURRENT` to `SUPERSEDED`, its successor named, and that is the only change a version row ever takes. Both stay readable for good (domain-model §51, data-model §64 and §66).
+- **Coverage never shrinks:** a new version's `throughYear` is at least the current version's (`THROUGH_YEAR_BEFORE_CURRENT`, below). A recorded year can be recorded again, never unrecorded.
+- **What it is not:** a version does not feed a figure. The schedule and the view derive the AfA from today's inputs; the version is compared with them (below). A version never becomes the AfA of the view in place of the derivation (P8-D10, option 2 rejected).
+
+### What a version stores (as rows; AGENTS.md §28, no blob)
+
+The derivation is split into two pure stages in `domains/depreciation/schedule.ts` (VC-8-02 and VC-8-03 build one function; VC-8-04 separates it without changing a figure):
+
+1. **`resolveScheduleInputs(snapshot, registry)`** turns the snapshot read of §59A and §59B (the asset, the Acquisitions with their costs and allocation, the Ownerships, the capitalised items with their parts, the links of separate assets) into the **derivation inputs**: the asset's facts, each component with its basis inputs, basis, start and rate source, each owner part with its basis, first month, still-held fractions and end, and the rule version of each year with its rule-version hash.
+2. **`computeSchedule(inputs, registry)`** computes from them the months, the amounts, the cumulative AfA, the residual values and the flags (§59A's arithmetic, §59B's pooled end).
+
+The schedule read is `computeSchedule(resolveScheduleInputs(snapshot))`, as before. A version stores the output of stage 1 (the **inputs**) and of stage 2 (the **output**) for `fromYear … throughYear`:
+
+- **The header:** `versionId`, `versionNumber` (1, 2, … per asset), `status`, `supersedesVersionId`, `supersededByVersionId`, `supersededAt`, `fromYear`, `throughYear`, `reason`, `recordedAt`, `recordedBy`, `computedOn` (today in Europe/Berlin when recorded; the figures do not depend on it), `calculationVersion` (below), `inputFingerprint`, `outputFingerprint`.
+- **The asset's facts:** `assetType`, `depreciationMethod`, `buildingCompletionYear` (building) or `description`, `usefulLifeYears`, `acquiredOn` (separate asset), the asset's `reviewState`, and the asset's row `version` at the time (for traceability; not part of the fingerprint).
+- **The rule versions** (one row each): `ruleCode`, `version`, `ruleVersionHash` (below), and the first and last year the version computed. The start check resolves them (below).
+- **The components** (one row each, `componentId` as §59A and §59B):
+  - common: `kind` (`ACQUISITION`, `CAPITALIZED_ITEM`), its position, `basis`, the start (`date`, `dateSource`, `method`, first `month`), the rate source (`BAND`, `SHORTER_USEFUL_LIFE` with `usefulLifeYears`, `USEFUL_LIFE` on a separate asset);
+  - a purchase (P8-D2 (1)): `acquisitionId`, `purchasePrice`, the counted cost ids and their total, the excluded cost ids and their total, `allocationId`, the allocation's `reviewState`, `totalAllocableAmount`, `buildingAmount`, the transfer date and its source, and the shorter-life entry used (`usefulLifeYears`, its review state) if any;
+  - a capitalised item (P8-D2 (2)): `sourceType`, `sourceId`, `sourcePosition`, `classificationId` and its `reviewState`, `taxCategory`, the item's `date`, `dateSource` and `taxYear`, `lineAmount` (the basis, signed), `anschaffungsnaheAcquisitionId`.
+- **The owner parts** (one row per component and part): the part key (`OWNER:{partyId}` or `NOT_OWNED`), `ownerPartyId`, the `ownershipIds`, the share and the weight (exact fractions), the part's `basis`, its first month, its rate source, the tenure's start, `lastDay` and `lastDaySource`; and **the still-held fractions** as rows of their own, one per month in which the running fraction changes (§59A: the running minimum).
+- **The output:**
+  - one row per **year** (`year`, `amount`, `residualValue`, the year's `inputFingerprint` and `outputFingerprint`);
+  - one **entry** per year, component and owner part (data-model §40: `months`, `fraction`, `amount`, `cumulative`, `residualValue`). The owners' and `NOT_OWNED`'s year totals are their entries summed (summed, never distributed, as P8-D8);
+  - the **flags** the derivation raised, one row per year, code, component and part (the code and its level only; the details are re-derived on read). Recording does not clear a flag (below).
+
+**What is deliberately not stored:** the raw rows of other domains (the Acquisition, its costs, the Ownerships, the splits). The version names them by id and stores the values the derivation used, which is what it needs to be recomputed and compared. A later change to such a row does not change the version; it changes the current derivation, and the comparison shows it.
+
+### Reproducible: recomputed from its own inputs (P8-D10; AGENTS.md §17, §18)
+
+- **The check:** `computeSchedule(storedInputs, registry)`, with the stored rule versions, must give the stored entries **exactly** (every year, component and part, to the cent), and each stored `ruleVersionHash` must equal the registry's hash of that rule version.
+- **`ruleVersionHash`** (review on #180: it covers exactly what the freeze covers): SHA-256 (hex) of the canonical JSON (below) of the rule version's `{ ruleCode, version, title, legalBasis, effectiveFrom, parameters, source }`, i.e. every field of the registry's rule version (§58) except two:
+  - `effectiveTo` is **left out**: it is the one field a frozen version still takes, set once when a successor starts (below), and setting it must neither stop the start check nor mark a recorded version as not reproducible;
+  - `status` is left out: it is derived from today's date (§58), not part of the version.
+  So a change of `title`, `legalBasis`, `effectiveFrom`, `parameters` or `source` changes the hash, and the freeze (below) forbids exactly those changes. The name says "rule version", not "parameters", for that reason.
+- **Hashing behind a port** (review on #180; `src/architecture.test.ts` allows `domains/` and `application/` the package `zod` only, and tests additionally `vitest`, `node:http` and `node:net`, so neither may import `node:crypto`): the Depreciation domain owns the port `Fingerprinter` (`domains/depreciation/fingerprint.ts`: `sha256Hex(text: string): string`, over the UTF-8 bytes of `text`, 64 lower-case hex characters). `canonicalJson`, `ruleVersionHash(ruleVersion, fingerprinter)`, the per-year fingerprints (below) and the reproduction take it as an argument; the domain imports no Node module. The implementation is `infrastructure/hashing/sha256-fingerprinter.ts` (`createHash('sha256')` of `node:crypto`; infrastructure may import any package), handed to the use case through its dependencies in `wiring.ts`, as every other port. The start check (`infrastructure/postgres/tax-rule-check.ts`) uses it directly.
+- **`calculationVersion`:** an integer constant of `domains/depreciation/schedule.ts` (`SCHEDULE_CALCULATION_VERSION`, 1 at VC-8-04), raised by any deliberate change of the arithmetic (as data-model §39's `calculationMethodVersion`). A version recorded under another calculation version is compared, never recomputed as if it were current.
+- **On read** (the single version, the schedule's `recording` block, the view): the version is recomputed and the result is `reproduction: { reproducible, causes, years }`. When it is not reproducible, the open flag **`RECORDED_VERSION_NOT_REPRODUCIBLE`** (a proposal, open question 7) names the cause (`RULE_HASH_CHANGED`: a stored hash differs from the registry's, **reachable with test registries only**: in production the start check refuses such a hash before any read runs, below; `CALCULATION_VERSION_CHANGED`; `ENTRIES_DIFFER`: same rule and calculation version, other figures, i.e. a defect) and the years and entries that differ. Recomputing is cheap (at most 1,188 months per part, §59A).
+- **The guarantee is a test**, not only a flag (Tests, below): for every scenario of the e2e suite, a version recorded and read back from the database recomputes to its own entries.
+- **The start check** also refuses a stored `ruleVersionHash` that differs from the registry's (below), so a frozen rule changed in place stops the backend before any read could show a figure under it.
+
+### Changed since recorded: fingerprints, compared per year
+
+- **The year's input fingerprint** `inputFingerprint(Y)`: SHA-256 (hex) of the canonical JSON of the derivation inputs **truncated to the end of `Y`**: the asset's facts that feed a figure, `calculationVersion`, the rule references with their rule-version hashes of the years up to `Y`, every component whose first month is not after December of `Y` with its inputs (above), each owner part with its still-held fractions of the months up to December of `Y`, and its `lastDay` only when it is not after 31 December of `Y`. Year `Y`'s amounts depend only on the months up to December of `Y` (§59A's cumulative rounding, §59B's pool), so a change after `Y` never changes the fingerprint of `Y`: a sale in 2029 does not touch 2026–2028, and a repair capitalised in 2027 does not touch 2026.
+- **The version's `inputFingerprint`** is `inputFingerprint(throughYear)`, which covers every input of the recorded run. The record command takes it as the precondition (below).
+- **The year's output fingerprint:** SHA-256 of the canonical JSON of the year's entries (`componentId`, part key, `months`, `fraction`, `amount`, `cumulative`, `residualValue`), ordered by `componentId` and part key. The version's `outputFingerprint` covers all its entries.
+- **Canonical JSON:** keys sorted, no whitespace, Money as decimal strings with two places (`"600.00"`, never `"600"`), fractions reduced (`"3/5"`), dates as §88, months as `YYYY-MM`, lists in the orders of §59A and §59B, ids lower-case. One function (`canonicalJson`, `domains/depreciation/fingerprint.ts`) serves every hash; the SHA-256 comes through the `Fingerprinter` port (above), never from `node:crypto` in `domains/` or `application/`.
+- **What counts as a change** (in the fingerprint, so it flags the years it reaches even when no amount moves):
+  - a **capitalised item** added (a source classified `CAPITALIZED`, the anschaffungsnahe case of ACC8), removed (reclassified), its classification superseded (a new `classificationId`), its amount, date or tax year changed, or linked to or freed from a separate asset (§59B);
+  - a **cost** of a purchase added, voided or changed, or moved in or out of the excluded categories;
+  - an **allocation** superseded (a new `allocationId`, even with the same amounts: the figure now rests on another record), or its amounts changed;
+  - an **Ownership** change that changes an owner part: a new owner, a share, a still-held fraction, a tenure's start or end;
+  - an **asset amend** that changes a fact feeding a figure: the completion year (the band), a shorter useful life used (its years, its entry), for a separate asset `usefulLifeYears` or `acquiredOn`;
+  - a **rule version** change: another version selected for a year, or a rule-version hash that differs; a raised `calculationVersion`.
+- **What does not count:** the asset's `notes` and `sourceReferences`, a review state moving between `CONFIRMED` and `ADVISOR_CONFIRMED` (asset, allocation, shorter life, classification between `USER_CONFIRMED` and `ADVISOR_CONFIRMED`), a cost's payment status (`ACQUISITION_COST_UNPAID` is informative, P8-D2), row versions and timestamps, `computedOn`. None of them changes a figure or the record it rests on. A drop to `UNREVIEWED` or `NEEDS_REVIEW` makes a component not computable, which changes the output and is flagged.
+- **The comparison of a year `Y`** of an asset with its `CURRENT` version, in the read's snapshot:
+  - **`NOT_RECORDED`:** the asset has no `CURRENT` version, or `Y` > its `throughYear`, and some component of the asset is active in `Y` (§59A: from its start year to its last year; a not-computable one until `to`). A year with no active component needs no record and gets no flag (P8-D12: before the first start the AfA is 0.00, without a flag);
+  - **`UNCHANGED`:** the version covers `Y`, and both the stored input fingerprint and the stored output fingerprint of `Y` equal the current ones;
+  - **`CHANGED_SINCE_RECORDED`:** otherwise. The details name the **causes** (`INPUTS`: the input fingerprints differ; `RULE_VERSION`: a rule reference or rule-version hash of a year up to `Y` differs; `CALCULATION`: inputs equal, output differs, i.e. `RECORDED_VERSION_NOT_REPRODUCIBLE` as well), whether an **amount** moved (`amountChanged`), the recorded and the derived amount of the year (the derived one `null` when the year is now not computable), each owner's and `NOT_OWNED`'s recorded and derived amount, and the **components** that differ, each with `change` `ADDED`, `REMOVED`, `INPUTS_CHANGED` or `AMOUNT_CHANGED` (from comparing the stored component rows with today's inputs, which is only done when the fingerprints differ).
+- **Cheap:** the schedule is derived anyway for the read; the comparison adds the `CURRENT` version's header and year rows (one indexed read each) and up to 101 SHA-256 hashes of a few kilobytes. The stored component, part and entry rows are read only for a year that differs or for the single version's read.
+
+### Flags
+
+| Code | Where | Level |
+|---|---|---|
+| `DEPRECIATION_SCHEDULE_NOT_RECORDED` | the schedule's year (§59A); the view's year per asset (VC-8-05) | open |
+| `DEPRECIATION_CHANGED_SINCE_RECORDED` | the schedule's year; the view's year per asset | open |
+| `RECORDED_VERSION_NOT_REPRODUCIBLE` (proposal, open question 7) | the version's `reproduction`; the schedule's year and the view's year it reaches | open |
+
+- **Names:** P8-D10 and backlog VC-8-04 name the first flag `DEPRECIATION_SCHEDULE_NOT_RECORDED`; the name is kept. The first two flags are P8-D10's (decided); the third is new in this spec and a **proposal** (open question 7).
+- **Details:** `DEPRECIATION_SCHEDULE_NOT_RECORDED`: `{ assetId, assetType, currentVersionId, currentThroughYear }` (both `null` without a version). `DEPRECIATION_CHANGED_SINCE_RECORDED`: `{ assetId, versionId, versionNumber, year, recorded, derived, amountChanged, causes, owners: [{ partKey, ownerPartyId, recorded, derived }], components: [{ componentId, change, recorded, derived }] }`. `RECORDED_VERSION_NOT_REPRODUCIBLE`: `{ assetId, versionId, causes, years }`.
+- **At the owner level** (`?ownerPartyId=`): `NOT_RECORDED` as at the property level (the version is the asset's); `CHANGED_SINCE_RECORDED` only when the owner's own parts differ (their entries, or an input of a component in which they have a part), with that owner's figures in `details`.
+- **Recording clears neither its own nor any other flag.** The other open flags of a computed figure (`DISPOSAL_YEAR_TO_VERIFY`, `SUBSEQUENT_COST_START_TO_VERIFY`, `SUBSEQUENT_COST_END_TO_VERIFY`, `TRANSFER_DATE_ASSUMED`, `END_DATE_ASSUMED`, `OWNER_WITHOUT_ACQUISITION`, …) stay open after recording, so such a year is still not final (proposal; open question 1). The version stores which flags stood when it was recorded.
+
+### `POST /api/v1/depreciation-assets/{assetId}/schedule-versions`
+
+`201` with the version, `ETag: "<row version>"` and `Location: /api/v1/depreciation-assets/{assetId}/schedule-versions/{versionId}`. `Idempotency-Key` (scope `depreciation-schedule-version.record`, §15).
+
+```json
+{
+  "throughYear": 2027,
+  "reason": "AfA laut Einkommensteuererklärung 2027 (synthetisch)",
+  "expectedInputFingerprint": "15a8ea19273c3066d33130766b421a72c479b167e78cff49d8c5934c973fa7c9",
+  "acceptChangedYears": []
+}
+```
+
+- **Body** (strict; unknown keys are `400`):
+  - `throughYear` (integer, required): 2000–2100 (`INVALID_FORMAT`, `OUT_OF_RANGE`), and **not after today's year** in Europe/Berlin (`OUT_OF_RANGE`, `details.max`): a future year has no figures anyone files. The current year may be recorded (e.g. for a prepayment), and is compared like any other;
+  - `reason` (required, trimmed, 1–500): why it is recorded, e.g. the return it went into (P8-D10);
+  - `expectedInputFingerprint` (required, 64 lower-case hex characters, `INVALID_FORMAT`): `years[].inputFingerprint` of `throughYear` from the schedule read the person saw (below). It is the precondition, as `If-Match` is for a version (§16): the person records the figures they saw, or nothing;
+  - `acceptChangedYears` (optional, default `[]`, distinct integers, at most 101, `DUPLICATE`, `OUT_OF_RANGE`): the years of the current version whose figures the new version changes (below).
+- **No `If-Match`:** a version is created, not changed; the asset's `ETag` does not cover the inputs that live in other domains (an allocation, a classification), and the fingerprint does.
+- **Order of checks:**
+  1. `400`, all field errors at once;
+  2. the asset: unknown or of another Realm → `404` (`DepreciationAssetNotFoundError`);
+  3. `VOID` → `409 CONFLICT` with `reason = "ASSET_NOT_ACTIVE"` (§59's answer);
+  4. **the schedule of `fromYear … throughYear`, derived in the command's own snapshot** (below): the asset's reasons (`ASSET_NOT_CONFIRMED`, `COMPLETION_YEAR_MISSING`, `NO_CAPITALIZED_ITEMS`), or any year of the run whose `status` is not `AVAILABLE` (a not-computable component active in it: `ACQUISITION_NOT_CONFIRMED`, `NO_ALLOCATION`, `ALLOCATION_NOT_CONFIRMED`, `NO_BUILDING`, `USEFUL_LIFE_NOT_CONFIRMED`, `NO_APPLICABLE_RULE`, `BUYER_ALREADY_OWNER`, `ITEM_CLASSIFICATION_NEEDS_REVIEW`, `LINKED_ITEM_NOT_CAPITALIZED`) → `409 CONFLICT` with `reason = "SCHEDULE_NOT_COMPLETE"` and `details: { assetId, reasons, years: [{ year, status, components: [{ componentId, reasons }] }] }`. A version records figures; a year without one cannot be recorded, and stays `NOT_RECORDED` and open (the reason is open anyway). An earlier `throughYear` can still be recorded when only later years are incomplete;
+  5. no component active in any year up to `throughYear` → `409 CONFLICT` with `reason = "NOTHING_TO_RECORD"` and `details: { assetId, throughYear, firstYear }` (`firstYear` `null` without a component);
+  6. a `CURRENT` version with a later `throughYear` → `409 CONFLICT` with `reason = "THROUGH_YEAR_BEFORE_CURRENT"` and `details: { assetId, currentVersionId, currentThroughYear }`;
+  7. `inputFingerprint(throughYear)` of the snapshot ≠ `expectedInputFingerprint` → **`412 SCHEDULE_CHANGED`** with `details: { assetId, throughYear, expectedInputFingerprint, currentInputFingerprint }`. Nothing is written; the person reads the schedule again;
+  8. **the no-op:** a `CURRENT` version with the same `throughYear` whose every year is `UNCHANGED` → `200` with that version, no new version, no AuditRecord, whatever `reason` says (as §59's no-ops). So a retry without a key, or two people recording the same thing, records it once;
+  9. **the years it would change:** the years of the `CURRENT` version that compare `CHANGED_SINCE_RECORDED` must equal `acceptChangedYears` exactly; otherwise `409 CONFLICT` with `reason = "RECORDED_YEARS_WOULD_CHANGE"` and `details: { assetId, currentVersionId, changedYears: [{ year, recorded, derived, causes }], acceptChangedYears }`. A recorded year may have been filed; a new version never moves its figure without the person naming it. A year named that does not change is refused too, so the list says exactly what happened.
+- **Success:** `201` with the version (`status` `CURRENT`, `versionNumber` the previous + 1, or 1). The previous `CURRENT` version, if any, becomes `SUPERSEDED` by it in the same transaction. AuditRecords below. The command response carries the stored version only: `reproduction` and `comparison` are a read's (as §59's `rate: null` on a command), so they are `null`.
+- **Idempotency (§15):** the fingerprint is the normalized body. A replay answers with the recorded result (`201` or the no-op's `200`), its `ETag` and `Idempotent-Replayed: true`; the same key with another payload is `409 CONFLICT`.
+
+### Reads
+
+- **`GET …/schedule-versions[?status=]`:** `{ items }`, each a version's header, its rule versions and its year rows (`year`, `amount`, `residualValue`), without components, parts and entries, newest first (`versionNumber` descending). `status` filters by a comma-separated list of `CURRENT`, `SUPERSEDED`. Unpaged: an asset gains a version when a person records one, a few a year. Stored data only, no derivation, one `REPEATABLE READ READ ONLY` snapshot. A `VOID` asset's versions are listed (history stays readable).
+- **`GET …/schedule-versions/{versionId}`:** the whole version (header, asset facts, rule versions, components with their inputs and parts, years with their entries, owners' totals and flags), with `ETag: "<row version>"`, plus two derived blocks, both from one `REPEATABLE READ READ ONLY` snapshot:
+  - `reproduction` (above);
+  - `comparison`, for the `CURRENT` version of an `ACTIVE` asset only (else `null`): `{ computedOn, years: [{ year, state, … }], notRecordedYears }`, each year with its state and, when changed, the details of `DEPRECIATION_CHANGED_SINCE_RECORDED`; `notRecordedYears` lists the years after `throughYear` up to today's year with an active component.
+  - A version of another asset, or of another Realm, is `404` (`ScheduleVersionNotFoundError`, `details.versionId`).
+- **The schedule read (§59A) gains,** additively:
+  - `years[].inputFingerprint` (at both levels the asset's fingerprint, which the record command takes);
+  - `years[].recording`: `NOT_RECORDED`, `UNCHANGED` or `CHANGED_SINCE_RECORDED` (`null` for a year with no active component), and the flags of this section in `years[].flags` and `review`;
+  - `recordedVersion`: `{ versionId, versionNumber, throughYear, recordedAt, reproducible }` of the `CURRENT` version, or `null`.
+  The read stays one `REPEATABLE READ READ ONLY` snapshot, which now includes the `CURRENT` version's rows.
+- **Orders:** components and parts as §59A and §59B; years ascending; entries by `componentId`, then part key; rule versions by `ruleCode`, then `version`.
+
+### Response
+
+**Version 1, recorded on 2028-01-20** (synthetic clock; ACC8's purchase, before the anschaffungsnahe check crosses 15 %: the repair of 2027-03-10 is still `DEDUCTIBLE`). The fingerprints and the `ruleVersionHash` are synthetic values, not the hashes of the real inputs or rule.
+
+```json
+{
+  "versionId": "6f1c2a9e-0000-4000-8000-000000000101",
+  "assetId": "6f1c2a9e-0000-4000-8000-000000000010",
+  "propertyReferenceId": "6f1c2a9e-0000-4000-8000-000000000001",
+  "versionNumber": 1,
+  "status": "CURRENT",
+  "supersedesVersionId": null,
+  "supersededByVersionId": null,
+  "supersededAt": null,
+  "fromYear": 2026,
+  "throughYear": 2027,
+  "reason": "AfA laut Einkommensteuererklärung 2027 (synthetisch)",
+  "recordedAt": "2028-01-20T10:00:00.000Z",
+  "recordedBy": "user-synthetic-1",
+  "computedOn": "2028-01-20",
+  "calculationVersion": 1,
+  "inputFingerprint": "15a8ea19273c3066d33130766b421a72c479b167e78cff49d8c5934c973fa7c9",
+  "outputFingerprint": "aff64162affbf530a879a323b3c05bde588f1c118e3fdd5ae18ab57847528872",
+  "asset": { "assetType": "BUILDING", "assetVersion": 3, "depreciationMethod": "LINEAR_7_4", "buildingCompletionYear": 1995, "reviewState": "CONFIRMED" },
+  "ruleVersions": [
+    { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1, "ruleVersionHash": "71ce91647371f68fbe90187d54c74465d53bbaad2d59201c5df9f3602d7b0575", "firstYear": 2026, "lastYear": 2027 }
+  ],
+  "components": [
+    {
+      "componentId": "ACQUISITION:6f1c2a9e-0000-4000-8000-000000000002",
+      "kind": "ACQUISITION",
+      "inputs": {
+        "acquisitionId": "6f1c2a9e-0000-4000-8000-000000000002",
+        "purchasePrice": { "amount": "300000.00", "currency": "EUR" },
+        "countedCosts": { "ids": ["6f1c2a9e-0000-4000-8000-000000000051", "6f1c2a9e-0000-4000-8000-000000000052"], "total": { "amount": "18000.00", "currency": "EUR" } },
+        "excludedCosts": { "ids": ["6f1c2a9e-0000-4000-8000-000000000053"], "total": { "amount": "1200.00", "currency": "EUR" } },
+        "allocationId": "6f1c2a9e-0000-4000-8000-000000000030",
+        "allocationReviewState": "CONFIRMED",
+        "totalAllocableAmount": { "amount": "318000.00", "currency": "EUR" },
+        "buildingAmount": { "amount": "254400.00", "currency": "EUR" },
+        "shorterUsefulLife": null
+      },
+      "basis": { "amount": "254400.00", "currency": "EUR" },
+      "start": { "date": "2026-07-01", "dateSource": "ECONOMIC_TRANSFER_DATE", "method": "TRANSFER_DATE", "month": "2026-07" },
+      "rate": { "kind": "BAND", "usefulLifeYears": null },
+      "parts": [
+        {
+          "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000021",
+          "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021",
+          "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000041"],
+          "share": "3/5",
+          "weight": "3/5",
+          "basis": { "amount": "152640.00", "currency": "EUR" },
+          "firstMonth": "2026-07",
+          "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null },
+          "fractions": [{ "month": "2026-07", "fraction": "1/1" }]
+        },
+        {
+          "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000022",
+          "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022",
+          "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000042"],
+          "share": "2/5",
+          "weight": "2/5",
+          "basis": { "amount": "101760.00", "currency": "EUR" },
+          "firstMonth": "2026-07",
+          "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null },
+          "fractions": [{ "month": "2026-07", "fraction": "1/1" }]
+        }
+      ]
+    }
+  ],
+  "years": [
+    {
+      "year": 2026,
+      "amount": { "amount": "2544.00", "currency": "EUR" },
+      "residualValue": { "amount": "251856.00", "currency": "EUR" },
+      "inputFingerprint": "4c3f8a25b96831688cc4ceb4c160503723804dd935089f45b2267774761a283c",
+      "outputFingerprint": "8ce615b97fa38ff0d55d13b6efde5a0d720034ca54172e1076d625473ea526e3",
+      "owners": [
+        { "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000021", "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "1526.40", "currency": "EUR" } },
+        { "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000022", "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "1017.60", "currency": "EUR" } }
+      ],
+      "notOwned": null,
+      "entries": [
+        { "componentId": "ACQUISITION:6f1c2a9e-0000-4000-8000-000000000002", "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000021", "months": 6, "fraction": "1/1", "amount": { "amount": "1526.40", "currency": "EUR" }, "cumulative": { "amount": "1526.40", "currency": "EUR" }, "residualValue": { "amount": "151113.60", "currency": "EUR" } },
+        { "componentId": "ACQUISITION:6f1c2a9e-0000-4000-8000-000000000002", "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000022", "months": 6, "fraction": "1/1", "amount": { "amount": "1017.60", "currency": "EUR" }, "cumulative": { "amount": "1017.60", "currency": "EUR" }, "residualValue": { "amount": "100742.40", "currency": "EUR" } }
+      ],
+      "flags": []
+    },
+    {
+      "year": 2027,
+      "amount": { "amount": "5088.00", "currency": "EUR" },
+      "residualValue": { "amount": "246768.00", "currency": "EUR" },
+      "inputFingerprint": "15a8ea19273c3066d33130766b421a72c479b167e78cff49d8c5934c973fa7c9",
+      "outputFingerprint": "e987ae7355b07d01f1a8e33e5e4867d5c9decd22efbee06d7ae5b148b9b0f6b5",
+      "owners": [
+        { "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000021", "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "3052.80", "currency": "EUR" } },
+        { "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000022", "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "2035.20", "currency": "EUR" } }
+      ],
+      "notOwned": null,
+      "entries": [
+        { "componentId": "ACQUISITION:6f1c2a9e-0000-4000-8000-000000000002", "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000021", "months": 12, "fraction": "1/1", "amount": { "amount": "3052.80", "currency": "EUR" }, "cumulative": { "amount": "4579.20", "currency": "EUR" }, "residualValue": { "amount": "148060.80", "currency": "EUR" } },
+        { "componentId": "ACQUISITION:6f1c2a9e-0000-4000-8000-000000000002", "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000022", "months": 12, "fraction": "1/1", "amount": { "amount": "2035.20", "currency": "EUR" }, "cumulative": { "amount": "3052.80", "currency": "EUR" }, "residualValue": { "amount": "98707.20", "currency": "EUR" } }
+      ],
+      "flags": []
+    }
+  ],
+  "reproduction": { "reproducible": true, "causes": [], "years": [] },
+  "comparison": null,
+  "version": 1
+}
+```
+
+- **The figures** are §59A's: basis 254,400.00 at 2 % (`1/50`), transfer 2026-07-01, A `3/5` and B `2/5`. **2026: 6/12 = 2,544.00 = 1,526.40 + 1,017.60; 2027: 5,088.00 = 3,052.80 + 2,035.20.** `comparison` is `null` here because the example shows the command's answer; `reproduction` is shown as the single read gives it on the same day.
+- **`start.method`** is `TRANSFER_DATE` for a purchase (P8-D5), `START_OF_YEAR` or `MONTH_OF_DATE` for an item of the building (§59B), `MONTH_OF_ACQUISITION` for an item of a separate asset.
+
+**Changed since recorded** (`GET …/schedule-versions/6f1c2a9e-0000-4000-8000-000000000101` on 2028-03-01, synthetic clock). After the Sonderumlage use of 2028-02-15 the check is above 15 %, and the user capitalised the repair (35,700.00 gross) on the check; under the `START_OF_YEAR` proposal (§59B) it counts 12/12 in 2027. The stored part of the version is unchanged and abridged here:
+
+```json
+{
+  "versionId": "6f1c2a9e-0000-4000-8000-000000000101",
+  "versionNumber": 1,
+  "status": "CURRENT",
+  "throughYear": 2027,
+  "reproduction": { "reproducible": true, "causes": [], "years": [] },
+  "comparison": {
+    "computedOn": "2028-03-01",
+    "years": [
+      { "year": 2026, "state": "UNCHANGED" },
+      {
+        "year": 2027,
+        "state": "CHANGED_SINCE_RECORDED",
+        "recorded": { "amount": "5088.00", "currency": "EUR" },
+        "derived": { "amount": "5802.00", "currency": "EUR" },
+        "amountChanged": true,
+        "causes": ["INPUTS"],
+        "owners": [
+          { "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000021", "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "recorded": { "amount": "3052.80", "currency": "EUR" }, "derived": { "amount": "3481.20", "currency": "EUR" } },
+          { "partKey": "OWNER:6f1c2a9e-0000-4000-8000-000000000022", "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "recorded": { "amount": "2035.20", "currency": "EUR" }, "derived": { "amount": "2320.80", "currency": "EUR" } }
+        ],
+        "components": [
+          { "componentId": "TRANSACTION_SPLIT:6f1c2a9e-0000-4000-8000-000000000071", "change": "ADDED", "recorded": null, "derived": { "amount": "714.00", "currency": "EUR" } }
+        ]
+      }
+    ],
+    "notRecordedYears": [2028]
+  }
+}
+```
+
+- **2026 is unchanged:** the repair's first month is 2027-01, after December 2026, so `inputFingerprint(2026)` is the stored one and 2026 can stay final. **2027 differs:** 5,088.00 recorded, 5,802.00 derived (5,088.00 + 714.00; A 3,481.20, B 2,320.80, §59B), the repair `ADDED`. The schedule read and the view show `DEPRECIATION_CHANGED_SINCE_RECORDED` on 2027 with these details, and `DEPRECIATION_SCHEDULE_NOT_RECORDED` on 2028.
+- **Recording again:** a `POST` with `throughYear` 2028 (or 2027), the new fingerprint and `acceptChangedYears: []` is `409 RECORDED_YEARS_WOULD_CHANGE` naming 2027; with `acceptChangedYears: [2027]` it is `201`: version 2 `CURRENT`, 2027 recorded as 5,802.00, and version 1 `SUPERSEDED` and still readable with its 5,088.00. Under `MONTH_OF_DATE` the derived 2027 would be 5,683.00 (5,088.00 + 595.00).
+
+### Rule versions: frozen from VC-8-04 on (P8-D11; §58, §59)
+
+- **`DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` are frozen with VC-8-04's implementation**, as §59 and §59B fixed it, the rule of `DE_CATEGORY_DEFAULTS@1` (§58, review on #159). From then on a recorded version may name them, and a change of `parameters`, `effectiveFrom`, `legalBasis`, `title` or `source`, an additive one too, is a **new version** (`@2`) with its own `effectiveFrom`: exactly the fields the `ruleVersionHash` covers (above). The only change a frozen version still takes is `effectiveTo`, set once when a successor starts (the registry's non-overlap, §58), which the hash leaves out.
+- **What it means for the open VERIFY points** (§59A open question 3, §59B open questions 1 and 2): a confirmation by the tax advisor after the freeze becomes a version `@2` from a year on; the years computed under `@1` keep `verified: false` and their open flags (open question 5).
+- **A test pins every frozen version** (`infrastructure/hashing/frozen-rules.test.ts`, new; in `infrastructure/` because it hashes with the real SHA-256 adapter, which a test under `domains/` may not import, review on #180): the `ruleVersionHash` of `DE_CATEGORY_DEFAULTS@1`, `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1`, read from the registry (`domains/tax-rules`), as literals. Any edit of a covered field of a frozen version turns it red, an `effectiveTo` set on it does not; adding a version adds a line. Until now the freeze of `DE_CATEGORY_DEFAULTS@1` was a comment only.
+- **The start check** (§58, `checkStoredRuleReferences`): `PostgresDepreciationAssetRepository.storedRuleReferences()` stops returning `[]` (§59: "returns nothing until VC-8-04") and reads the distinct `rule_code`, `rule_version`, `rule_version_hash` of `depreciation_schedule_version_rule`, across Realms, as Taxation's source reads `tax_classification`. The backend refuses to start when a reference is not registered (as now) **or** when its stored `rule_version_hash` differs from the registry's hash of that version (new; the error names the reference and both hashes; hashed with the `Fingerprinter` adapter, above). Taxation's references stay checked (the union, §59). Because the backend does not start with such a hash, `RULE_HASH_CHANGED` (above) is reachable with test registries only.
+- **A version is never removed from the code while a recorded version names it** (P8-D11); the start check enforces it.
+
+### The tax-year view (pointer to VC-8-05, §58C; P8-D12)
+
+- The view reads, per `ACTIVE` asset of the PropertyReference, the derived schedule and its `CURRENT` version through `infrastructure/postgres/tax-year-depreciation.ts` (§59B), in the view's one snapshot, and takes this section's comparison for `year`.
+- **A year is final** (with every other condition of §58C and P8-D12) only when, for **every** `ACTIVE` asset with a component active in the year, the year is `UNCHANGED`: recorded and neither changed nor unreproducible. `DEPRECIATION_SCHEDULE_NOT_RECORDED` and `DEPRECIATION_CHANGED_SINCE_RECORDED` are open flags of the view's year, one per asset, with the details above, at both levels (an owner's year by the owner's parts).
+- **A `VOID` asset** is not read by the view. Its versions stay as history and are not superseded. The void's effects show through the other assets: a voided separate asset returns its items to the building, whose recorded years then differ; a voided building leaves the purchases without an asset, which VC-8-05 flags (`NO_ASSET` or `DEPRECIATION_NOT_AVAILABLE`, both open). So a void never leaves a year silently final. **Whether a recorded version blocks the void** is not decided: the proposal is that it does not (§59: a void corrects a recording error such as the wrong PropertyReference), open question 8.
+- VC-8-05 writes the view's shape; this section fixes only what it reads.
+
+### Error answers (`api/error-answers.ts`)
+
+| Error | Answer | `details` |
+|---|---|---|
+| `ScheduleVersionNotFoundError` | `404 NOT_FOUND`, "Schedule version not found." | `{ versionId }` |
+| `ScheduleNotCompleteError` | `409 CONFLICT`, "The schedule has years without a figure; they cannot be recorded." | `{ reason: "SCHEDULE_NOT_COMPLETE", assetId, reasons, years }` |
+| `NothingToRecordError` | `409 CONFLICT`, "The schedule has no year with AfA up to throughYear." | `{ reason: "NOTHING_TO_RECORD", assetId, throughYear, firstYear }` |
+| `ThroughYearBeforeCurrentError` | `409 CONFLICT`, "The current version already covers a later year." | `{ reason: "THROUGH_YEAR_BEFORE_CURRENT", assetId, currentVersionId, currentThroughYear }` |
+| `RecordedYearsWouldChangeError` | `409 CONFLICT`, "Recording would change already recorded years; name them in acceptChangedYears." | `{ reason: "RECORDED_YEARS_WOULD_CHANGE", assetId, currentVersionId, changedYears, acceptChangedYears }` |
+| `ScheduleChangedError` | `412 SCHEDULE_CHANGED`, "The schedule changed since it was read." | `{ assetId, throughYear, expectedInputFingerprint, currentInputFingerprint }` |
+
+Reused as they are: `DepreciationAssetNotFoundError` (`404`), `DepreciationAssetNotActiveError` (`409 ASSET_NOT_ACTIVE`), `IdempotencyKeyConflictError` (`409`). **Exhausted retries** reuse the repository's convention for a persistent concurrency conflict (review on #180): `ConcurrentUpdateError` (`application/errors.ts`) → `503 CONCURRENT_UPDATE` with `Retry-After: 1`, nothing written (`api/error-answers.ts`, as §20.1's claim of an external reference). Its message, today "The external reference kept changing concurrently; nothing was written. Retry.", becomes neutral ("The data kept changing concurrently; nothing was written. Retry."), since it now answers two commands; no `details`, as today. No new error class. Field errors are `400 VALIDATION_ERROR` with the existing codes (`REQUIRED`, `INVALID_FORMAT`, `OUT_OF_RANGE`, `DUPLICATE`); no new field code. Flags are data, never errors.
+
+### Concurrency and consistency (P8-D14)
+
+- **One `REPEATABLE READ` read-write transaction** per record: the derivation reads every input in the command's one snapshot and the version is written in the same transaction, so a version never mixes two states (P8-D14: "a version never mixes two snapshots"). READ COMMITTED would not do: the inputs live in other domains whose writers take no Depreciation lock (§56 locks a split's Transaction, §59B), so two statements of the derivation could see two states.
+- **Lock order** (every writer of the asset's PropertyReference keeps it, §59):
+  1. claim the key;
+  2. write the **PropertyReference** row (the no-op write);
+  3. lock the **asset** `FOR UPDATE`: a record serialises with amend, confirm and void of the asset (§59) and with another record of it;
+  4. lock the `CURRENT` version `FOR UPDATE`, if any;
+  5. derive (the snapshot read of §59A and §59B, factored to take the transaction, and the capitalised items through `infrastructure/postgres/capitalized-items.ts` in it), run the checks;
+  6. supersede the previous version, insert the new one with its rows, write the AuditRecords, record the key.
+- **Serialisation failures** (`40001`: a concurrent amend, confirm or void, another record, or a PropertyReference writer committed after the snapshot): the use case retries the whole transaction up to **three** times, each with a fresh snapshot. The retry then usually ends in the no-op (the same record won), `412 SCHEDULE_CHANGED` (the inputs moved) or `THROUGH_YEAR_BEFORE_CURRENT`. After the third failure: `503 CONCURRENT_UPDATE` with `Retry-After: 1` (`ConcurrentUpdateError`, above). A change in another domain that touches neither the PropertyReference nor the asset (a classification) does not conflict: the version is consistent with the snapshot, and the next read shows the year as changed. Nothing is lost silently.
+- **Two records of one asset:** the second waits at step 2, on the **PropertyReference** row the first wrote (the first lock both take; it never reaches the asset row while the first runs), then fails to serialise (`40001`, the row changed after its snapshot) and retries; it then sees the first version (no-op when identical, else its own checks). The partial unique index of the `CURRENT` version (0051) is the guarantee for any other writer.
+- **Reads** are `REPEATABLE READ READ ONLY` and write nothing (`25006` on a write, as §59A).
+
+### Performance
+
+- **Rows per version:** components × parts × years. A unit with two purchases, a handful of items and three owners recorded through year 10 holds a few hundred entries; 101 years at most (§59A). The record writes them with one multi-row insert per table.
+- **Reads:** the `CURRENT` version by `depreciation_schedule_version_current` (unique, partial); the year rows by their key; entries by `(version_id, year)`. The comparison reads the component and part rows only for a year that differs. A repository test reads the plans of the `CURRENT` lookup and the entry query.
+- **The start check** reads `SELECT DISTINCT` over `depreciation_schedule_version_rule` (a handful of rows per version) on start only.
+
+### In the database (migration 0051)
+
+All tables carry `mre_realm_id` and are bound to their version by the composite key `(version_id, mre_realm_id)`; amounts are `numeric` with scale 2 (Money, ADR-033), fractions as two `bigint`s, months as the `date` of their first day.
+
+- **`depreciation_schedule_version`:**
+  - `id`, `mre_realm_id`, `asset_id`, `property_reference_id`: a composite foreign key `(asset_id, mre_realm_id, property_reference_id)` to `depreciation_asset` (0049's `depreciation_asset_entry_key`);
+  - `version_number` (`integer` ≥ 1), `UNIQUE (asset_id, version_number)`;
+  - `status` (CHECK `CURRENT`, `SUPERSEDED`), `superseded_by_id`, `superseded_at`: set together exactly on `SUPERSEDED` (CHECK); `superseded_by_id` a composite key `(superseded_by_id, asset_id)` to `UNIQUE (id, asset_id)`, `DEFERRABLE INITIALLY DEFERRED` (the predecessor is superseded before its successor is inserted);
+  - `from_year`, `through_year` (`integer` 2000–2100, `from_year ≤ through_year`), `computed_on` (`date`), `calculation_version` (`integer` ≥ 1);
+  - the asset's facts: `asset_type`, `depreciation_method`, `building_completion_year`, `description`, `useful_life_years`, `acquired_on`, `asset_review_state` (CHECK `CONFIRMED`, `ADVISOR_CONFIRMED`: only a confirmed asset is recorded), `asset_version`;
+  - `input_fingerprint`, `output_fingerprint` (`text`, CHECK 64 lower-case hex);
+  - `reason` (1–500), `recorded_at`, `recorded_by`, `version` (the row's: 1, then 2 when superseded);
+  - **`created_txid`** (`bigint NOT NULL DEFAULT txid_current()`): the id of the transaction that inserted the version, stored because the row's own `xmin` does not keep it (review on #180): the supersede `UPDATE` writes a new row version whose `xmin` is the **superseding** transaction, so a guard reading `xmin` would let that transaction append rows to the version it just superseded. `txid_current()` gives the top-level transaction's id (also inside a savepoint) as a 64-bit value that does not wrap;
+  - `UNIQUE (id, mre_realm_id)` for the child keys, and `UNIQUE (id, mre_realm_id, property_reference_id)` for the component rows (below).
+- **`depreciation_schedule_version_rule`:** `rule_code`, `rule_version`, `rule_version_hash` (64 hex), `first_year`, `last_year`; key `(version_id, rule_code, rule_version)`.
+- **`depreciation_schedule_version_component`:** `property_reference_id`, bound to the header's by the composite key `(version_id, mre_realm_id, property_reference_id)` to the header's `UNIQUE (id, mre_realm_id, property_reference_id)` (review on #180: without the column bound to the header, the key to `acquisition_ownership_key` below would only check that the purchase belongs to **some** PropertyReference of the Realm); `component_id` (`text`), `kind` (CHECK `ACQUISITION`, `CAPITALIZED_ITEM`), `position`, `basis_amount`, `start_date`, `start_date_source`, `start_method`, `start_month`, `rate_kind` (CHECK `BAND`, `SHORTER_USEFUL_LIFE`, `USEFUL_LIFE`), `useful_life_years`; for `ACQUISITION` (CHECK: set exactly there): `acquisition_id` with a composite key `(acquisition_id, mre_realm_id, property_reference_id)` to `acquisition` (`acquisition_ownership_key`; with `property_reference_id` bound to the header's, which the header's own key binds to the asset's, a version never names another property's purchase), `purchase_price`, `counted_cost_ids` (`uuid[]`), `counted_costs_total`, `excluded_cost_ids` (`uuid[]`), `excluded_costs_total`, `allocation_id` with a composite key `(allocation_id, acquisition_id)` to `land_building_allocation` (`land_building_allocation_chain_key`), `allocation_review_state`, `total_allocable_amount`, `building_amount`, `shorter_life_review_state`; for `CAPITALIZED_ITEM` (CHECK: set exactly there): `source_type` (CHECK the three source types), `source_id`, `source_position` (as 0050's CHECK), `classification_id` with a composite key `(classification_id, mre_realm_id)` to `tax_classification` (`tax_classification_realm_key`), `classification_review_state`, `tax_category`, `item_date`, `item_date_source`, `item_tax_year`, `anschaffungsnahe_acquisition_id`. The item's source itself has no foreign key (it is one of three tables); its id and position are stored as values. Key `(version_id, component_id)`.
+- **`depreciation_schedule_version_part`:** `component_id`, `part_key` (CHECK `NOT_OWNED` or `OWNER:` + the party id), `owner_party_id` (a composite key `(owner_party_id, mre_realm_id)` to `party`; `NULL` exactly for `NOT_OWNED`), `ownership_ids` (`uuid[]`), `share_numerator`, `share_denominator`, `weight_numerator`, `weight_denominator` (CHECKs: positive, reduced is the domain's job), `basis_amount`, `first_month`, `rate_kind`, `useful_life_years`, `tenure_from`, `last_day`, `last_day_source`; key `(version_id, component_id, part_key)`, a foreign key to the component row.
+- **`depreciation_schedule_version_fraction`:** `component_id`, `part_key`, `month`, `fraction_numerator`, `fraction_denominator` (0 ≤ fraction ≤ 1); key `(version_id, component_id, part_key, month)`, a foreign key to the part.
+- **`depreciation_schedule_version_year`:** `year`, `amount`, `residual_value`, `input_fingerprint`, `output_fingerprint`; key `(version_id, year)`; a CHECK keeps `year` within the version's run (a trigger, since it reads the header).
+- **`depreciation_schedule_entry`** (data-model §40): `year`, `component_id`, `part_key`, `months` (0–12), `fraction_numerator`, `fraction_denominator`, `amount`, `cumulative`, `residual_value`; key `(version_id, year, component_id, part_key)`, foreign keys to the year and the part.
+- **`depreciation_schedule_version_flag`:** `year` (`NULL` for a flag of the whole version), `component_id`, `part_key` (both nullable), `code`, `level` (CHECK `OPEN`, `INFORMATIVE`); unique on all of them (`coalesce` for the nullable ones).
+- **Indexes:** `depreciation_schedule_version_current` **unique** on `(asset_id) WHERE status = 'CURRENT'` (one current version per asset); `depreciation_schedule_version_asset_idx` on `(asset_id, version_number DESC)` for the list; `depreciation_schedule_version_rule_ref_idx` on `(rule_code, rule_version)` for the start check.
+- **Guards** (triggers, as 0049's and 0050's):
+  - `depreciation_schedule_version_insert` (before insert): writes the PropertyReference row first (no-op; the lock order, as `depreciation_asset_touch`); the asset is `ACTIVE` and confirmed (read `FOR SHARE`); the row is `CURRENT`, `version` 1, not superseded; `version_number` is 1 + the asset's highest, or 1; `created_txid` = `txid_current()` (a value given by the client is refused, not overwritten);
+  - `depreciation_schedule_version_frozen` (before update or delete): the only change is `CURRENT` → `SUPERSEDED` with `superseded_by_id` and `superseded_at` set and `version` + 1, nothing else (`created_txid` included); a `SUPERSEDED` row never changes; **no delete**;
+  - `depreciation_schedule_version_chain` (a deferred constraint trigger, checked at commit, as 0023's allocation chain): a `SUPERSEDED` row's successor is a version of the same asset with `version_number` + 1; a version with `version_number` > 1 supersedes its predecessor in the same transaction;
+  - `depreciation_schedule_version_rows_append_only` (before insert, update or delete, on each of the seven child tables): a row is inserted only in the transaction that inserted its version: the version row's `created_txid` equals `txid_current()` (never its `xmin`, which the supersede step changes, above), so a recorded version is complete at commit and never added to, neither later nor by the transaction that supersedes it; **no update, no delete**.
+- **No column** on `depreciation_asset`, `acquisition`, `land_building_allocation`, `tax_classification`, `ownership`, `transaction_split` or any ledger table. Recording writes no row outside 0051's tables and `audit_record` (and the PropertyReference's no-op, which changes no value).
+- **`down`** drops the eight tables and their functions; with any version present it **refuses** (a recorded version is never dropped silently, as 0050's `down` with a separate asset).
+
+### AuditRecords
+
+Entity type `DepreciationScheduleVersion`, entity id the version's id:
+- `RECORDED`: `{ assetId, versionNumber, fromYear, throughYear, reason, inputFingerprint, outputFingerprint, calculationVersion, ruleVersions, supersedesVersionId, acceptedChangedYears, years: [{ year, amount }], openFlags: [codes] }`, version `null` → 1;
+- `SUPERSEDED` (on the predecessor): `{ supersededByVersionId, changedYears: [{ year, recorded, derived }] }`, version 1 → 2.
+
+Each carries the actor (§17). The no-op writes none. The asset gets no AuditRecord: recording does not change it.
+
+### Tests the implementation must have (VC-8-04)
+
+- **Domain (pure):**
+  - the split into `resolveScheduleInputs` and `computeSchedule` changes no figure: every domain test of §59A and §59B green unchanged, and `computeSchedule(resolveScheduleInputs(s))` equals the former single function for each of their inputs;
+  - **reproducibility, a property test:** random schedules (purchases, items, refunds, owners, sales, separate assets) serialised to the stored row shape and back, then recomputed, give the same entries to the cent;
+  - `canonicalJson`: key order, `"600"` and `"600.00"` the same Money, reduced fractions, list orders; one input, one hash;
+  - `inputFingerprint(Y)` is **truncated**: a sale in 2029 changes the fingerprints of 2029 onward and not of 2026–2028; an item dated 2027 changes 2027 onward and not 2026;
+  - **each counting change** changes it: an item added, removed, reclassified (same treatment, new `classificationId`), its amount or date; a cost added or voided; an allocation superseded with the **same** amounts; an owner part's share, fraction or end; the completion year; a shorter life's years; a separate asset's `usefulLifeYears` or `acquiredOn`; a link to a separate asset; another rule version; a changed rule-version hash; a raised `calculationVersion`;
+  - **each non-counting change** does not: `notes`, `sourceReferences`, `CONFIRMED` ↔ `ADVISOR_CONFIRMED` (asset, allocation, shorter life), `USER_CONFIRMED` ↔ `ADVISOR_CONFIRMED` (classification), a cost's payment status, row versions, `computedOn`;
+  - the comparison: `NOT_RECORDED` (no version; a year after `throughYear`; none for a year without an active component), `UNCHANGED`, `CHANGED_SINCE_RECORDED` with each cause, `amountChanged` false for an allocation superseded with the same amounts, the components named (`ADDED`, `REMOVED`, `INPUTS_CHANGED`, `AMOUNT_CHANGED`), the owners' figures; at the owner level only the owner's parts;
+  - `reproduction`: a test registry with another parameter under the same version (`RULE_HASH_CHANGED`), a raised calculation version (`CALCULATION_VERSION_CHANGED`), tampered stored entries in memory (`ENTRIES_DIFFER`);
+  - `ruleVersionHash`, with a deterministic test `Fingerprinter` (the identity: the canonical JSON itself, so the domain tests compare the hashed text and need no `node:crypto`; it does not meet the port's 64-hex contract and is used in pure domain tests only, never against the database): stable for the registered versions and changed by any change of `parameters`, `effectiveFrom`, `legalBasis`, `title` or `source`, not by `effectiveTo` or `status`;
+  - every fingerprint and hash in `domains/` computed through the injected `Fingerprinter` only (the architecture test keeps `node:crypto` out of `domains/` and `application/`, tests included).
+- **Infrastructure, hashing:** the SHA-256 adapter against a published test vector (`sha256Hex("abc")` = `ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad`) and on non-ASCII text (UTF-8 bytes); `frozen-rules.test.ts` with the three pinned hashes (counter-checks: a changed `shorterThanYears`, `title` or `legalBasis` in a copy of the building rule changes its hash; an `effectiveTo` set on the copy does not).
+- **Rules and registry:** the start check: the real Depreciation source returns the recorded references (VC-8-01's "returns `[]`" test changes accordingly), an unregistered reference stops the start, a stored hash unequal to the registry's stops the start and names both, a frozen version with `effectiveTo` set since the record starts, Taxation's references still checked.
+- **Repository and schema** (past the repository, raw SQL, each with a counter-check):
+  - an `UPDATE` of an entry, a year, a component, a part, a fraction, a rule row or a flag refused; a `DELETE` of any of them or of a version refused;
+  - a version's fields changed other than by the supersede step; `SUPERSEDED` → `CURRENT`; a second `CURRENT` version of one asset (`23505`);
+  - child rows inserted in a later transaction than their version;
+  - **appending to a just-superseded version is refused:** in the transaction that supersedes version 1 and inserts version 2, an insert of an entry (and of each other child row) naming version 1 is refused, although version 1's row now carries that transaction's `xmin`; counter-check: version 2's rows in the same transaction are accepted, and the mutation "guard reads `xmin`" lets the append through;
+  - a `created_txid` given on insert, or changed by an `UPDATE`, refused;
+  - a version on a `VOID` or an unconfirmed asset; a gap in `version_number`; a supersede without a successor at commit;
+  - the composite keys: another Realm's asset, party, Acquisition, allocation or classification; another PropertyReference's Acquisition (a component whose `property_reference_id` differs from the header's is refused, and one equal to the header's cannot name another property's purchase);
+  - `up` and `down` under `MIGRATION_ADVISORY_LOCK` (`{ timeout: 30_000 }`), `down` refused with a version present.
+- **Reproducible from the database:** for every e2e scenario of §59A and §59B, a version recorded, read back row by row and recomputed gives its stored entries exactly, and its entries equal the schedule read of the same state.
+- **Commands:** each step of the order of checks alone; the replay and another payload under the same key; the no-op (no row, no AuditRecord); `acceptChangedYears` missing a year, naming an unchanged year, and exact; the supersede in the same transaction; every AuditRecord with its details.
+- **Concurrency**, each with a counter-check:
+  - two records of one asset (RC callers, the command's RR transaction): one version, the other the no-op after its retry;
+  - a record against an amend of the completion year, both orders: the record either sees the old year and the amend waits, or fails, retries and answers `412 SCHEDULE_CHANGED`;
+  - **one snapshot:** a classification capitalising a source committed between two statements of the record's derivation is not in the version, and the version equals a schedule read of the state before it (counter-check: the record run in READ COMMITTED mixes the two states and the test turns red);
+  - three serialisation failures in a row (a stubbed transaction runner) answer `503 CONCURRENT_UPDATE` with `Retry-After: 1`, nothing written;
+  - the waiting point: with the first record's transaction held open after step 2, the second blocks on the PropertyReference row (`pg_locks` shows it waiting on that row's transaction, not on the asset).
+- **Reads:** the list (order, `status` filter, a `VOID` asset's versions); the single read with `reproduction` and `comparison`; `comparison` `null` on a `SUPERSEDED` version; the schedule read's `inputFingerprint`, `recording` and `recordedVersion` at both levels; the flags in `review`; the query plans.
+- **No cash mutated:** every row and `version` of `ledger_transaction`, `transaction_split`, `tax_classification`, `weg_annual_statement`, `weg_special_assessment`, `acquisition`, `acquisition_cost`, `land_building_allocation`, `ownership`, `property_reference` (compared row by row: the no-op write changes no value), `depreciation_asset`, `depreciation_asset_useful_life`, `depreciation_asset_item`, and the count of `audit_record` minus the version's own, equal before and after every record (including the no-op and each refusal) and every read.
+- **API:** every `400` with its field code; each error row above; the DTOs; `ETag` and `Location`; `reproduction` and `comparison` `null` on the command's answer.
+- **End to end** (synthetic, ACC8): version 1 through 2027 on 2028-01-20 (2,544.00 and 5,088.00, A and B as above); the repair capitalised after the crossing: 2026 `UNCHANGED`, 2027 `CHANGED_SINCE_RECORDED` (5,088.00 → 5,802.00, the repair `ADDED`, A 3,052.80 → 3,481.20, B 2,035.20 → 2,320.80), 2028 `NOT_RECORDED`; a record without `acceptChangedYears` refused, with `[2027]` accepted; version 1 `SUPERSEDED` with its figures intact; the Einbauküche's separate asset recorded on its own; an allocation superseded with the same amounts (`amountChanged: false`); a stale `expectedInputFingerprint` (`412`); **Realm isolation:** every route with another Realm's asset or version id is `404`, the list shows no foreign version, and a version id of another asset of the same Realm under this asset's path is `404`.
+
+### Counter-checks and mutations
+
+**Counter-checks** (each an assertion that the system refuses or leaves out the thing):
+
+- **a recorded version edited:** every `UPDATE` and `DELETE` of a version's rows is refused past the repository, the repository has no method that changes one except the supersede step, and a superseded version's figures are byte for byte the same after the next record (the `xmin` of its **child** rows unchanged; its header changes by the supersede step only);
+- **a version recorded on unconfirmed inputs:** an unconfirmed asset, an `UNREVIEWED` allocation, a `DRAFT` purchase with Ownerships, an unconfirmed shorter life, a `NEEDS_REVIEW` classification, a purchase before 2023 (`NO_APPLICABLE_RULE`) each answer `SCHEDULE_NOT_COMPLETE`, and no row is written;
+- **a recompute mismatch undetected:** a registry whose `DE_AFA_BUILDING_LINEAR@1` carries another parameter makes the version `RECORDED_VERSION_NOT_REPRODUCIBLE` (`RULE_HASH_CHANGED`) and stops the start; the frozen-rules test turns red;
+- **a cash row written:** the "no cash mutated" check above around every command and read;
+- **a record replacing the previous version's entries:** the previous version's child rows are untouched (their `xmin`), none is added to it (its `created_txid`, above), and both versions are readable;
+- **a version mixing two snapshots:** the snapshot test above;
+- **a filed year changed silently:** a record that changes a recorded year without naming it is refused;
+- **a year final without a record:** a schedule year with an active component and no version carries `DEPRECIATION_SCHEDULE_NOT_RECORDED` (open).
+
+**Mutations** that must turn the tests red (each applied alone, the suite run, the code restored):
+
+- the supersede step dropped (two `CURRENT` versions: the unique index), or the predecessor left `CURRENT`;
+- the append-only trigger dropped from the entry table (the raw `UPDATE` succeeds), or reading the version row's `xmin` instead of `created_txid` (the append to the just-superseded version succeeds);
+- the fingerprint ignoring `allocationId` (the same-amount supersede not flagged), or the rule-version hash left out of it;
+- the truncation off by one year (a 2027 item flagging 2026, or not flagging 2027);
+- the comparison by amounts only (`amountChanged: false` cases unflagged) or by fingerprints only (a calculation change unflagged);
+- `acceptChangedYears` not checked;
+- the record run in READ COMMITTED (the snapshot test);
+- the reproduction comparing year totals only (a tampered owner entry with the same total unflagged);
+- the start check ignoring Depreciation's source, or ignoring `rule_version_hash`;
+- the `412` precondition skipped (a stale fingerprint recorded);
+- the Realm filter dropped from the single version read (another Realm's version id answers).
+
+### Not in VC-8-04 (pointers)
+
+- **The view's AfA block, the review table and `final`:** §58C (VC-8-05), reading this section's comparison.
+- **An acknowledgement** that a changed year was refiled without recording a new version (as VC-X-28 for `ATTRIBUTION_INPUT_CHANGED`): not needed, recording again is the acknowledgement; named so it is not mistaken for a gap.
+- **Snapshots of investment metrics:** Phase 9 (ADR-040).
+
+### Open questions for review
+
+1. **Recording while open VERIFY flags stand.** **Proposed:** allowed. A version needs figures, so a not-computable year (a **reason**) refuses the record (`SCHEDULE_NOT_COMPLETE`); an open **flag** on a computed figure (`DISPOSAL_YEAR_TO_VERIFY`, `SUBSEQUENT_COST_START_TO_VERIFY`, `SUBSEQUENT_COST_END_TO_VERIFY`, `TRANSFER_DATE_ASSUMED`, `OWNER_WITHOUT_ACQUISITION`, …) does not: the person records what they file, the version stores which flags stood, and the year stays not final until the flag is resolved. **Alternative:** refuse a record while any open flag stands in the run, so only a fully clean year can be recorded. Under §59A's alternative for the disposal year (the amount left empty until verified) that year is a reason and refused either way.
+2. **The unit: one asset, every year up to `throughYear`.** The alternative is one version per asset and year, which is smaller per record but can combine years recorded under different inputs that no derivation produces, and stores the inputs again for each year.
+3. **A changed input with unchanged amounts is open** (`DEPRECIATION_CHANGED_SINCE_RECORDED` with `amountChanged: false`, e.g. an allocation superseded by a new appraisal with the same figures). **Alternative:** an informative flag only, so a year whose figures did not move stays final. The proposal keeps the record's provenance true: a filed year's figure now rests on other records.
+4. **`acceptChangedYears`:** a new version that changes a recorded year must name it. The alternative is that recording supersedes silently, with the change visible in the `SUPERSEDED` AuditRecord only.
+5. **The freeze and the VERIFY points: a gate for the project owner** (review on #180). `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` freeze with VC-8-04's implementation, and with them every parameter that still says `verified: false`: the disposal year (`end.disposal`, §59A question 3), the start of later costs (`subsequentCostStart`, §59B question 1), their end and the remaining useful life of R 7.4 Abs. 9 S. 2 EStR (`subsequentCostEnd`, `remainingUsefulLife.computed: false`, §59B question 2), the rate of later costs under a shorter useful life (`subsequentCostRate.shorterLifeVerified`). A confirmation after the freeze can only be a version `@2` from a year on (§58's non-overlap): **every year computed under `@1` until `@2` starts keeps its open VERIFY flags for good**, so it can never become final (P8-D12), whatever the advisor answers. **Proposed:** the tax advisor's answers (beratungsfragen §4) come **before VC-8-04 is implemented**, as a hard gate the project owner decides on: a version recorded in production names `@1`, so recording cannot ship before the freeze, and the freeze should not come before the answers. **Alternatives:** (a) implement and freeze now and accept the permanent flags on the years before `@2`; (b) a registry rule that lets a successor replace a frozen version for the same years when only `verified` changes, a decision of its own (it touches §58's non-overlap), not proposed here.
+6. **`throughYear` up to today's year.** The current year may be recorded (e.g. for a prepayment), and is compared like any other. The alternative is past years only.
+7. **`RECORDED_VERSION_NOT_REPRODUCIBLE`** (new open flag; review on #180: shown as decided, but it is a proposal). **Proposed:** a recorded version that does not recompute to its own entries is flagged open on the years it reaches, so they are not final, with the causes `CALCULATION_VERSION_CHANGED` and `ENTRIES_DIFFER` (and `RULE_HASH_CHANGED` with test registries only, since the start check refuses it in production). **Alternatives:** an informative flag only (the version stays what was filed, and the comparison already shows a changed figure as `DEPRECIATION_CHANGED_SINCE_RECORDED`); or no flag, the reproduction shown on the single version's read only.
+8. **A recorded version and the void of its asset** (§59; review on #180: shown as decided, but it is a proposal). **Proposed:** a recorded version does **not** block the void. A void corrects a recording error (such as the wrong PropertyReference); the versions stay as history, unchanged and readable, the view stops reading the asset, and the void's effects show as open flags through the other assets ("The tax-year view", above). **Alternative:** refuse the void of an asset with a `CURRENT` version (`409`), so a recorded and possibly filed AfA cannot lose its asset without a separate step; the user would then need a way to retire a version, which this spec does not have.
 
 ---
 
