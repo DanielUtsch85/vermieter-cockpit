@@ -34,8 +34,15 @@ export const split = (amount: string, financialCategoryCode = 'RENT_BASE'): Spli
   description: null,
 });
 
-export async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
-  const deadline = Date.now() + 5_000;
+/**
+ * Waits until `count` sessions of this pool wait on a lock. The pool must name itself (`-c application_name=<schema>`):
+ * every test file shares the database, so a count over all sessions is met early by another file under load (review
+ * on #187). Without a name the wait refuses rather than count the whole database.
+ */
+export async function waitForLocks(pool: pg.Pool, count = 1, timeoutMs = 5_000): Promise<void> {
+  const name = (await pool.query<{ name: string }>(`SELECT current_setting('application_name') AS name`)).rows[0]?.name ?? '';
+  if (name === '') throw new Error('waitForLocks needs a pool with an application_name (-c application_name=<schema>)');
+  const deadline = Date.now() + timeoutMs;
   while (
     Number(
       (
