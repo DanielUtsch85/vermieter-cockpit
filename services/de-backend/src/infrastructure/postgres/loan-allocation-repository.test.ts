@@ -26,7 +26,13 @@ const f = (n: bigint, d: bigint) => ({ numerator: n, denominator: d });
 async function waitForLock(pool: pg.Pool): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (
-    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < 1
+    Number(
+      (
+        await pool.query(
+          `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')`,
+        )
+      ).rows[0].count,
+    ) < 1
   ) {
     if (Date.now() > deadline) throw new Error('no session waits on a lock');
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -56,7 +62,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     parties = new PostgresPartyRepository(db);
