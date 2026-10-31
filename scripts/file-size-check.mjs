@@ -41,8 +41,6 @@ const EXCEPTIONS = {
   'services/de-backend/src/infrastructure/postgres/security-deposit-repository.ts': 615,
   'services/de-backend/src/infrastructure/postgres/tax-weg-repository.test.ts': 1284,
   'services/de-backend/src/infrastructure/postgres/tax-year-repository.test.ts': 1103,
-  'services/de-backend/src/infrastructure/postgres/weg-annual-statement-repository.ts': 916,
-  'services/de-backend/src/infrastructure/postgres/weg-repository.ts': 803,
   'services/de-backend/src/phase-2-acceptance.e2e.test.ts': 1063,
 };
 
