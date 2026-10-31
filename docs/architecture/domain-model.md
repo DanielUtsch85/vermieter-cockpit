@@ -1271,7 +1271,7 @@ Depreciation.
 Stored (the canonical inputs; phase-8-plan P8-D1, api-design §59, VC-8-01):
 
 - PropertyReference
-- asset type (`BUILDING`; `SEPARATE_ASSET` with VC-8-03)
+- asset type (`BUILDING`; `SEPARATE_ASSET` with VC-8-03, api-design §59B: description, useful life with its basis, acquisition date, and the capitalised items it consists of)
 - building completion year, with its sources (it selects the rate band; never guessed)
 - depreciation method (`LINEAR_7_4`)
 - an optional shorter useful life per Acquisition, with its evidence and its own review state (§ 7 Abs. 4 S. 2 EStG)
@@ -1280,7 +1280,7 @@ Stored (the canonical inputs; phase-8-plan P8-D1, api-design §59, VC-8-01):
 
 Derived, never stored (AGENTS.md §17):
 
-- depreciation basis (from the Acquisitions, their costs and their confirmed allocations; later the capitalised items)
+- depreciation basis (from the Acquisitions, their costs and their confirmed allocations; and the capitalised items, each in exactly one asset, api-design §59B)
 - start date and the first year (the transfer of economic ownership)
 - rate (the applicable Tax Rule's band, or the confirmed shorter life)
 - owner allocation (each Acquisition's buyers, P8-D8)

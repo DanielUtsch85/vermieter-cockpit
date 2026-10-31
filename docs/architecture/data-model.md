@@ -2075,8 +2075,8 @@ Record the facts of one depreciable asset that no other record holds, as inputs 
 - `id`
 - `mreRealmId`
 - `propertyReferenceId`
-- `assetType`: `BUILDING` (one `ACTIVE` per PropertyReference); `SEPARATE_ASSET` with VC-8-03 (P8-D7, api-design §59B)
-- `depreciationMethod`: `LINEAR_7_4` (§ 7 Abs. 4 EStG; the only method of Phase 8, P8-D13)
+- `assetType`: `BUILDING` (one `ACTIVE` per PropertyReference); `SEPARATE_ASSET` with VC-8-03 (P8-D7, api-design §59B; several per PropertyReference)
+- `depreciationMethod`: `LINEAR_7_4` (§ 7 Abs. 4 EStG) on a building; `LINEAR_7_1` (§ 7 Abs. 1 EStG) on a separate asset (VC-8-03)
 - `reviewState` (§6.7): `UNREVIEWED`, `NEEDS_REVIEW`, `CONFIRMED`, `ADVISOR_CONFIRMED`
 - `status`: `ACTIVE` → `VOID` (final)
 - `version`, `createdAt`
@@ -2091,12 +2091,14 @@ Record the facts of one depreciable asset that no other record holds, as inputs 
 - `shorterUsefulLives`: at most one per Acquisition of the PropertyReference (§ 7 Abs. 4 S. 2 EStG, P8-D4), each with `acquisitionId`, `usefulLifeYears` (1–99), `evidence` (`source`, `date`, `documentReference`), its own `reviewState` and `advisorPartyId`. Stored as rows of their own, never as a blob.
 - `notes`
 - `voidedAt`, `voidReason`
+- **On a `SEPARATE_ASSET` only, required there** (VC-8-03, api-design §59B; specified, migration 0050 planned): `description`, `usefulLifeYears` (1–99) with `usefulLifeBasis` (its legal or factual basis, e.g. BFH IX R 14/15 for an Einbauküche, B8), `acquiredOn` (the month of acquisition, § 7 Abs. 1 S. 4 EStG), and `items`: links to the capitalised items it consists of, as rows of `depreciation_asset_item` (`source_type`, `source_id`, `source_position`, and `asset_status` following the asset's status by an `ON UPDATE CASCADE` key), at most 50, an item in at most one `ACTIVE` asset (a partial unique index). `buildingCompletionYear` and `shorterUsefulLives` are building-only.
 
 ---
 
 ## Derived, never stored (AGENTS.md §17, §82)
 
-- the basis (the building's acquisition cost of each `CONFIRMED` Acquisition as §58B derives it, and from VC-8-03 the capitalised items), and the start, the first year, each year's amount and the residual value (api-design §59A, VC-8-02);
+- the basis (the building's acquisition cost of each `CONFIRMED` Acquisition as §58B derives it, and from VC-8-03 each capitalised item not linked to a separate asset: a source whose current confirmed classification is `CAPITALIZED`, at its gross `lineAmount`), and the start, the first year, each year's amount and the residual value (api-design §59A, VC-8-02; §59B, VC-8-03);
+- a separate asset's cost (the sum of its linked counting `CAPITALIZED` items, api-design §59B); no cost is ever entered on the asset;
 - the rate of a year (api-design §59: the band of `DE_AFA_BUILDING_LINEAR` by the completion year, or `1/usefulLifeYears` for a confirmed shorter life, which is shorter only below the band's `shorterThanYears`);
 - the applied rule version (a recorded schedule version stores it, §39, VC-8-04).
 
@@ -2107,6 +2109,7 @@ The former fields `basisAmount`, `currency`, `startDate`, `depreciationRate`, `l
 ## Invariants
 
 - Land is never in a depreciable basis (B5); the asset has no basis to hold it.
+- A capitalised item is in exactly one asset's basis: the `ACTIVE` separate asset that links it, else the `ACTIVE` building of its PropertyReference; only a `CAPITALIZED` classification puts it there, never a suggestion (VC-8-03, api-design §59B).
 - Every input has traceable provenance: the year has its sources, and a shorter life has its evidence.
 - Only a confirmed fact feeds a canonical figure: an asset or a shorter life in `UNREVIEWED` or `NEEDS_REVIEW` makes its component not computable (as §15's allocation).
 - A change is a command with `If-Match`, writes an AuditRecord, and resets the review state of the fact it changes. A changed input changes the derived schedule of every year, which a recorded version shows as `DEPRECIATION_CHANGED_SINCE_RECORDED` (P8-D10).
