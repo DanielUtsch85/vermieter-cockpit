@@ -47,7 +47,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     repository = new PostgresPropertyReferenceRepository(createDatabase(pool));
   });
@@ -104,7 +104,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
 
   it('a link racing a concurrent insert stays idempotent even when the session default is REPEATABLE READ', async () => {
     // A role or database may set default_transaction_isolation; linkOnce must not depend on it.
-    const strict = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 4 });
+    const strict = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 4 });
     strict.on('connect', (client) => {
       void client.query('SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ');
     });
@@ -128,7 +128,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyReferenceRepository'
           (
             await pool.query(
               `SELECT 1 FROM pg_stat_activity
-               WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE 'insert into "property_reference"%'`,
+               WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE 'insert into "property_reference"%'`,
             )
           ).rowCount !== 0,
       );

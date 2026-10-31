@@ -5816,7 +5816,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
             "start": { "date": "2026-07-01", "dateSource": "ECONOMIC_TRANSFER_DATE", "method": "TRANSFER_DATE", "month": "2026-07", "firstYearMonths": 6 },
             "months": 6,
             "amount": { "amount": "2544.00", "currency": "EUR" },
-            "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1 },
+            "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 2 },
             "share": null,
             "href": "/api/v1/depreciation-assets/6f1c2a9e-0000-4000-8000-000000000010/schedule?from=2026&to=2026",
             "flags": []
@@ -5898,7 +5898,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
     "reviewStates": { "SUGGESTED": 0, "USER_CONFIRMED": 18, "ADVISOR_CONFIRMED": 0, "NEEDS_REVIEW": 0 }
   },
   "ruleVersions": [
-    { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1, "title": "Lineare Gebäude-AfA im Privatvermögen (§ 7 Abs. 4 EStG)", "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG", "status": "ACTIVE", "itemCount": 1 }
+    { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 2, "title": "Lineare Gebäude-AfA im Privatvermögen (§ 7 Abs. 4 EStG)", "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG", "status": "ACTIVE", "itemCount": 1 }
   ]
 }
 ```
@@ -5953,7 +5953,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
 ```
 
 - **The figures:** Einnahmen 16,200.00 (rent 12 × 1,100.00, advances 12 × 250.00); Werbungskosten 8,772.00 = Hausgeld 2,520.00 + `AFA_BUILDING` **5,802.00** (5,088.00 + 714.00) + `AFA_SEPARATE_ASSETS` **450.00**; result **7,428.00**. The repair is in `capitalized` (35,700.00) and in no Werbungskosten line; its AfA of 714.00 is in `AFA_BUILDING`. A: 9,720.00 − (1,512.00 + **3,481.20** + **270.00**) = 4,456.80; B: 6,480.00 − (1,008.00 + **2,320.80** + **180.00**) = 2,971.20; together 7,428.00. `capitalized`: A 25,020.00 + B 16,680.00 = 41,700.00 (the repair's parts 21,420.00 / 14,280.00, the kitchen's 3,600.00 / 2,400.00).
-- **Not final, for four open reasons:** the building's recorded 2027 differs (5,088.00 recorded, 5,802.00 derived, the repair `ADDED`), the kitchen is not recorded, the repair's start is a proposal (`SUBSEQUENT_COST_START_TO_VERIFY` on its first year, §59B), and the check's window is open. Recording version 2 with `acceptChangedYears: [2027]` (§60) and the kitchen's version 1 clears the first two; the third clears only when the tax advisor confirms `subsequentCostStart`; the fourth when the window has closed and the check is final.
+- **Not final, for four open reasons:** the building's recorded 2027 differs (5,088.00 recorded, 5,802.00 derived, the repair `ADDED`), the kitchen is not recorded, the repair's start is a proposal (`SUBSEQUENT_COST_START_TO_VERIFY`, a flag of the repair's component and so open on **every** year of it, not only its first: §59B "As implemented (VC-8-03)" 1), and the check's window is open. Recording version 2 with `acceptChangedYears: [2027]` (§60) and the kitchen's version 1 clears the first two; the third clears, in every year of the repair at once, only when the tax advisor confirms `subsequentCostStart`; the fourth when the window has closed and the check is final.
 
 **Example 3: 2026 final** (synthetic, `computedOn` 2029-10-15). The same property after the building's version 2 was recorded through 2028 (2026 `UNCHANGED`: the repair's first month is 2027-01, §60), the check's window closed, every summed source with a `netAmount` (the Sonderumlage use's entered as 9,000.00), so the check is `final: true` (`ABOVE_THRESHOLD`). The 2026 view is Example 1 with:
 
@@ -5965,7 +5965,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
 "review": { "final": true, "open": [], "info": [] }
 ```
 
-- **Final for the first time:** no open flag of the year, of an item or of the AfA. 2027 at the same date is still not final, by `SUBSEQUENT_COST_START_TO_VERIFY` alone (until the advisor confirms the start); 2028 likewise by the Sonderumlage use's own first year.
+- **Final for the first time:** no open flag of the year, of an item or of the AfA. 2027 at the same date is still not final, by `SUBSEQUENT_COST_START_TO_VERIFY` alone (until the advisor confirms the start); so is 2028 and **every later year** in which the repair or the Sonderumlage use is active, since the flag is one of each item's component and marks all its years `PROVISIONAL` (§59B "As implemented (VC-8-03)" 1), not only the first.
 
 **Example 4: an unconfirmed allocation** (synthetic variants of ACC8):
 
@@ -6045,7 +6045,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
 #### Pointers for VC-8-06 (ACC8)
 
 - **ACC8's view steps** use the four examples above with their figures: 2026 `AFA_BUILDING` 2,544.00 (A 1,526.40, B 1,017.60), result 4,296.00 `AFTER_DEPRECIATION`, lower by exactly 2,544.00; 2027 `AFA_BUILDING` 5,802.00 (A 3,481.20, B 2,320.80) and `AFA_SEPARATE_ASSETS` 450.00 (A 270.00, B 180.00) once the repair is capitalised and the kitchen recorded as a separate asset; the variants `BEFORE_DEPRECIATION` and `PARTIAL_DEPRECIATION`.
-- **"2027 after recording: final when nothing else is open"** (the plan's ACC8 sketch) holds only once `subsequentCostStart` is verified (§59B open question 1) before the rule is frozen (§60 open question 5: after the freeze a confirmation is a version `@2` from a year on, and the years computed under `@1` keep the flag) and the check's window has closed: under the proposals, 2027 and 2028 stay not final by `SUBSEQUENT_COST_START_TO_VERIFY`. ACC8 should assert **2026 final** (Example 3, with an injected clock after the window) and 2027 **not final with exactly that flag** after recording.
+- **"2027 after recording: final when nothing else is open"** (the plan's ACC8 sketch) holds only once `subsequentCostStart` is verified (§59B open question 1) before the rule is frozen (§60 open question 5: after the freeze a confirmation is a version `@3` from a year on, and the years computed under `@2` keep the flag) and the check's window has closed: as implemented, `SUBSEQUENT_COST_START_TO_VERIFY` is a flag of the item's component (§59B "As implemented (VC-8-03)" 1), so 2027, 2028 and every later year in which the repair or the use is active stay not final by it, not only each item's first year. ACC8 should assert **2026 final** (Example 3, with an injected clock after the window), 2027 **not final with exactly that flag** after recording, and the flag on each later year of ACC8's range as well.
 - **Interest via a Loan** (ACC7's debit): `LOAN_INTEREST_NOT_ATTRIBUTED` keeps its year from being final after the AfA is recorded.
 - **Mutations of ACC8** that this section serves: "`result.basis` left at `BEFORE_DEPRECIATION`, or the AfA not subtracted", "a capitalised item left in the Werbungskosten as well".
 - **invariant-suite, VC-8-05's section** maps: the result moved by exactly the AfA; owners + `NOT_OWNED` = the property including the AfA; `final` only without an open flag; the view and the schedule from one snapshot; no AfA as cash.

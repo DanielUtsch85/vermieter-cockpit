@@ -642,6 +642,47 @@ describe('reasons and carried flags (§59B "Reasons and flags")', () => {
     expect(refund.years.every((y) => y.amount !== null)).toBe(true);
   });
 
+  it('REFUND_EXCEEDS_CAPITALIZED at the boundary: a sum of −0.01 is flagged, a sum of exactly 0.00 is not (review on #187)', () => {
+    const refundFlags = (refund: string) => {
+      const s = derive(
+        acc8({
+          from: 2031,
+          to: 2031,
+          ownerships: [ownership(A, '1/1', '2026-07-01', null, W)],
+          capitalizedItems: [capitalized(EXTENSION, '2028-05-05', '1000.00', [[A, '1/1']]), capitalized(REFUND, '2031-02-02', refund, [[A, '1/1']])],
+        }),
+      );
+      return (items(s)[1] as ItemComponent).flags.filter((f) => f.code === 'REFUND_EXCEEDS_CAPITALIZED');
+    };
+    expect(refundFlags('-1000.01')).toEqual([
+      {
+        code: 'REFUND_EXCEEDS_CAPITALIZED',
+        details: { ownerPartyId: A, basisSum: { amount: '-0.01', currency: 'EUR' }, refundComponentId: `TRANSACTION_SPLIT:${REFUND}` },
+      },
+    ]);
+    expect(refundFlags('-1000.00')).toEqual([]);
+  });
+
+  it('CAPITALIZED_ITEM_NOT_OWNED only for a NOT_OWNED basis other than 0.00: 0.01 at 3/5 leaves it 0.00, 0.02 gives it 0.01 (review on #187)', () => {
+    const notOwned = (amount: string) => {
+      const s = derive(
+        acc8({
+          from: 2028,
+          to: 2028,
+          acquisitions: [acquisition({ acquiredShare: { numerator: 3, denominator: 5 } })],
+          ownerships: [ownership(A, '3/5', '2026-07-01', null, W)],
+          capitalizedItems: [capitalized(EXTENSION, '2028-05-05', amount, [[A, '3/5']])],
+        }),
+      );
+      return [item(s).notOwned, item(s).flags.filter((f) => f.code === 'CAPITALIZED_ITEM_NOT_OWNED')];
+    };
+    expect(notOwned('0.01')).toEqual([{ share: '2/5', basis: eur('0.00') }, []]);
+    expect(notOwned('0.02')).toEqual([
+      { share: '2/5', basis: eur('0.01') },
+      [{ code: 'CAPITALIZED_ITEM_NOT_OWNED', details: { notOwnedBasis: { amount: '0.01', currency: 'EUR' }, date: '2028-05-05' } }],
+    ]);
+  });
+
   it('the asset’s reasons stop the items too', () => {
     const s = derive(acc8({ asset: asset({ reviewState: 'UNREVIEWED' }), from: 2027, to: 2027, capitalizedItems: [repair()] }));
     expect(item(s).status).toBe('NOT_COMPUTABLE');

@@ -449,7 +449,7 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
             Number(
               (
                 await pool.query(
-                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%SET status = ''VOID''%'`,
+                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE '%SET status = ''VOID''%'`,
                 )
               ).rows[0].count,
             ) >= 1,
@@ -508,9 +508,10 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
           async () =>
             Number(
               (
-                await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
-                  `%${lockText}%`,
-                ])
+                await pool.query(
+                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE $1`,
+                  [`%${lockText}%`],
+                )
               ).rows[0].count,
             ) >= 1,
         );
