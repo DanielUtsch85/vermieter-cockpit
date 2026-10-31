@@ -785,7 +785,7 @@ Over the `VALID` Ownerships of one PropertyReference, for every day of the new o
 
 - Body `{ "reason": "..." }` (required, trimmed, 1–500): a recording error ("1/3 entered instead of 1/2"; P2-D4). `200` with the Ownership: `status = VOID`, `voidedAt`, `voidReason`, `version` + 1; AuditRecord `VOIDED` with the reason. The record is kept and counts nowhere; the correct one is then created with the original dates.
 - Voiding a `VOID` Ownership is a `200` no-op keeping the first reason and time.
-- Allowed for an inactive owner. From VC-2-07 on, an Ownership referenced by a `CONFIRMED` Acquisition cannot be voided: `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"` and `details.acquisitionId` (§28.1); closing it stays allowed.
+- Allowed for an inactive owner. From VC-2-07 on, an Ownership referenced by a `CONFIRMED` Acquisition cannot be voided: `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"` and `details.acquisitionId` (§28.1); closing it stays allowed. VC-X-30 (§28.1A, specified) adds the same refusal for a buyer's row ending the day before such an Ownership starts.
 - `If-Match` as §16.1; a no-op answers regardless of the version.
 
 ### Reads
@@ -1053,7 +1053,7 @@ GET /api/v1/acquisitions/{acquisitionId}/owner-allocation
 ```
 
 - **Authorization:** as §27.1. Unknown or foreign `404`, malformed `400`, unknown query parameters `400`.
-- **Basis (P2-D10):** the Acquisition is split among **its own buyers**, not among all owners of the PropertyReference. The basis is the `VALID` Ownerships carrying its `acquisitionId` (P2-D8). An Ownership closed since still counts: closing ends it later, it does not undo the purchase. Each owner's **weight** is its share divided by `acquiredShare`, an exact reduced fraction (`"n/d"`, §26.1). In a partial acquisition the buyer of `1/2` has weight `1/1` and carries 100 % of price and costs.
+- **Basis (P2-D10):** the Acquisition is split among **its own buyers**, not among all owners of the PropertyReference. The basis is the `VALID` Ownerships carrying its `acquisitionId` (P2-D8). An Ownership closed since still counts: closing ends it later, it does not undo the purchase. Each owner's **weight** is its share divided by `acquiredShare`, an exact reduced fraction (`"n/d"`, §26.1). In a partial acquisition the buyer of `1/2` has weight `1/1` and carries 100 % of price and costs. **Amended by §28.1A (VC-X-30, specified):** the weight is the buyer's increase over the day before the transfer date divided by `acquiredShare`.
 - **When it answers:**
   - `CONFIRMED`: `basis = "CONFIRMED"`. P2-D8 guarantees one Ownership per buyer from the transfer date, with shares summing to `acquiredShare`, so the weights sum to exactly `1`.
   - `DRAFT`: `basis = "PROVISIONAL"` only when its Ownerships already have the **structure** confirmation requires, that is requirements 2–5 of §28.1 (all start on the transfer date, held only by buyers, every buyer holds one, shares sum to exactly `acquiredShare`). This is a preview while WF-002 is under way, and it never feeds anything; only `CONFIRMED` does (Phase 7/8). Requirements 1 (buyers active) and 6 (the PropertyReference `COMPLETE`) are not needed for a split among the buyers. Otherwise the answer is `409 CONFLICT` with `reason = "OWNERSHIP_BASIS_INCOMPLETE"` and `details.violations` in the format of `CONFIRMATION_BLOCKED` (§28.1, codes 2–5). So a non-buyer never receives a part, and every owner appears once (review on #54): a buyer with a second Ownership carrying the id fails requirement 2, since two of one owner cannot both start on the transfer date (no overlap, P2-D4).
@@ -1111,7 +1111,7 @@ Decision P2-D8 of `docs/development/phase-2-plan.md`, with P2-D6 (status) and P2
   2. `OWNERSHIP_NOT_FROM_TRANSFER_DATE` (`ownershipId`, `validFrom`, `transferDate`): each of its Ownerships starts on `d`;
   3. `OWNER_NOT_A_BUYER` (`ownershipId`, `ownerPartyId`): each is held by a buyer;
   4. `BUYER_WITHOUT_OWNERSHIP` (`partyId`): every buyer holds one (also when it has none at all);
-  5. `SHARE_SUM_MISMATCH` (`expected`, `actual`, reduced fractions as §26.1): their shares sum to exactly `acquiredShare`;
+  5. `SHARE_SUM_MISMATCH` (`expected`, `actual`, reduced fractions as §26.1): their shares sum to exactly `acquiredShare`. **Replaced by §28.1A (VC-X-30, specified):** each buyer's increase over the day before (5a `BUYER_SHARE_NOT_INCREASED`), and the sum of the increases (5b);
   6. `OWNERSHIP_INCOMPLETE` (`date`, `shareSum`): the PropertyReference's ownership is `COMPLETE` on `d` (§26.1, P2-D4), counting **all** its `VALID` Ownerships on that day, also those of other owners.
   Sellers are not checked: a seller's Ownership is closed or changed by WF-002 (§26.2), and requirement 6 catches a sum above or below one.
 - **Effect:** status only. Confirmation never creates, closes or changes Ownerships (P2-D8); costs and payments stay writable (§27.2).
@@ -1143,6 +1143,163 @@ Decision P2-D8 of `docs/development/phase-2-plan.md`, with P2-D6 (status) and P2
     - a raw confirm against a raw void of its Ownership, a raw insert carrying its id, and a raw `deactivate` of a buyer: `40001`;
     - a raw confirm against a raw close of another owner: both commit.
   - Each lock is counter-checked.
+
+## 28.1A An existing owner buying a further share (VC-X-30, spec)
+
+**Status:** specified (VC-X-30); not implemented. Migration **0052** planned (the confirmation function replaced, one guard added; below). No new table, no new route.
+
+§59A open question 1, option (a), as the reviewer agreed on #178: **the bought part is the increase over the share held the day before.** Today an owner who buys a further share cannot be recorded as a confirmable Acquisition (§59A "An existing owner who buys another share"): A holds `1/2` (Acquisition W) and buys B's `1/2` (Acquisition X, `acquiredShare` `1/2`). Recorded as §26.2 intends (A's `1/2` and B's `1/2` closed, A's `1/1` created with X), requirement 5 of §28.1 compares `1/1` with `1/2` (`SHARE_SUM_MISMATCH`); a second `1/2` Ownership for A is `OVERLAPPING_OWNERSHIP` (§26.1, data-model §12.4). This section changes requirement 5 of §28.1, the weights of §27.4 and §59A's share bought, and keeps every Ownership invariant as it is. Options (b) (a link table per Ownership and Acquisition) and (c) (two Ownerships per owner) stay as §59A describes them and are not taken.
+
+### The rule
+
+For an Acquisition X with transfer date `d` (§27.1, P2-D6) and each buyer `P` of X:
+
+- `held_P(day)` is the sum of the shares of the **`VALID`** Ownerships of `P` on X's PropertyReference that cover `day` (§26.1: inclusive `validFrom` and `validUntil`). `VOID` Ownerships count nowhere, as everywhere (P2-D4). Every `VALID` Ownership counts, whatever Acquisition it carries and whatever that Acquisition's status (none, `DRAFT`, `CONFIRMED`): the held share is ownership truth, not purchase truth.
+- **`acquired_P = held_P(d) − held_P(d − 1)`**, an exact reduced fraction (§26.1's arithmetic: numerators and denominators as integers, cross-multiplied, reduced by `gcd`, never decimals). `d − 1` is the calendar day before `d`.
+- Because a Party never holds two overlapping `VALID` Ownerships of one PropertyReference (§26.1), `held_P(day)` is the share of **at most one** row. When requirements 2 and 4 hold, `held_P(d)` is the share of `P`'s Ownership carrying X, and `held_P(d − 1)` is the share of the row that ends on `d − 1` (its **predecessor**), or `0` when `P` held nothing that day. The definition does not rely on this: it sums whatever covers the day, so a broken state is reported, not misread.
+- A buyer who held nothing on `d − 1` has `acquired_P` = the share of its Ownership carrying X: **unchanged behaviour** for every purchase recorded today.
+
+### Requirement 5 of §28.1, replaced
+
+Requirements 1–4 and 6, their order, codes and details are unchanged. Requirement 5 becomes two checks, reported in this order between 4 and 6:
+
+- **5a `BUYER_SHARE_NOT_INCREASED`** (`partyId`, `shareBefore` = `held_P(d − 1)`, `share` = `held_P(d)`), for each buyer that holds an Ownership carrying X (a buyer without one is requirement 4's) and whose `acquired_P ≤ 0`, by `partyId` ascending. A buyer whose share stays or falls on `d` bought nothing in X: **a decrease is not a purchase**, and a zero or negative part would give §27.4 a zero or negative weight.
+- **5b `SHARE_SUM_MISMATCH`** (`expected` = `acquiredShare`, `actual` = `Σ_P acquired_P` over the buyers holding an Ownership carrying X, and the new `byBuyer`: `[{ partyId, shareBefore, share, acquired }]` by `partyId`): the **sum of the increases**, not of the Ownerships' full shares, equals `acquiredShare` exactly. `byBuyer` is additive; the existing fields keep their meaning (`actual` is the sum the rule compares).
+- Sellers are still not checked (§28.1): a seller's row is closed by WF-002 (§26.2), and Σ ≤ 1 (§26.1) together with requirement 6 bounds what the buyers can have gained. That B's row ends on `d − 1` matters for B's AfA, not for X's confirmation (below, "The seller side").
+
+`structureViolations` (`domains/acquisition/acquisition.ts`) keeps its role (requirements 2–5 for §28.1 and §27.4) and gains the input it needs: `ConfirmationInput` gets **`beforeTransferDate`**, the `VALID` Ownerships of the PropertyReference covering `d − 1`, beside the existing `onTransferDate` (covering `d`); `structureViolations(current, own, onTransferDate, beforeTransferDate)` computes `held_P` from them. The repository's `confirm` reads `beforeTransferDate` in the same transaction, after the same locks, exactly as it reads `onTransferDate` (§28.1 "Concurrency and locks"). `ConfirmationViolation` gains the `BUYER_SHARE_NOT_INCREASED` variant and `SHARE_SUM_MISMATCH`'s `byBuyer`.
+
+### The row model
+
+The Ownerships stay what §26 makes them: one row per owner and day, shares and `validFrom` fixed, history never overwritten. **No row changes meaning**, and no Ownership is split by Acquisition. For A (W: `1/2`) buying B's `1/2` in X with transfer date `d`, after one §26.2 change with `effectiveDate` = `d`, `close` = [A's W-row, B's W-row], `create` = [A `1/1`], `acquisitionId` = X:
+
+| Ownership | Owner | Share | `validFrom` | `validUntil` | `acquisitionId` |
+|---|---|---|---|---|---|
+| O1 | A | `1/2` | W's transfer date | `d − 1` | W |
+| O2 | B | `1/2` | W's transfer date | `d − 1` | W |
+| O3 | A | `1/1` | `d` | open | X |
+
+- `acquired_A` = `1/1` − `1/2` = `1/2` = `acquiredShare`: X is confirmable. W is unaffected: closing O1 and O2 is allowed after W's confirmation (§28.1 "After confirmation"), and W's own requirements were checked on W's transfer date.
+- This is exactly data-model §78's temporal example, and the order of §26.2's writes (closes first, then creates) already makes it writable. No §26 rule changes.
+- **The other row model is not allowed:** "A's `1/1` starts on `d` while A's `1/2` still runs" overlaps (§26.1, `OVERLAPPING_OWNERSHIP`), and so does "A's old row ends on `d`" (inclusive dates). The old row ends on `d − 1`, the new row starts on `d`: no gap, no overlap.
+
+### The seller side
+
+- **B's row ends on `d − 1`**, which §26.2's `effectiveDate` = `d` gives. Later than `d − 1` is refused by Σ ≤ 1 on `d` (A `1/1` + B). Earlier leaves a gap that confirmation does not refuse (sellers are not checked, and requirement 6 looks at `d` only); it shows as `INCOMPLETE` on the days of the gap (§26.1) and in B's AfA as below.
+- **Consistency with §59A's disposal cut-off:** §59A looks for a `CONFIRMED` Acquisition naming B as a seller whose `transferDate` is the day after B's tenure's last `validUntil`. With B's row ending on `d − 1` that is X, and B's last day is the day before X's `economicTransferDate` (§59A, reviewer input on #173). With a gap, none is found and B's year carries `END_DATE_ASSUMED` (open), as today. Nothing in §59A's seller rule changes.
+- **A is not a seller** (`BUYER_IS_SELLER`, §27.1), and A's tenure does not end on `d − 1` (below), so no cut-off is searched for A.
+- **A seller who keeps a part** (B `3/4` → `1/4`, A `1/4` → `3/4`, X `acquiredShare` `1/2`): B's `3/4` row ends on `d − 1` and a new B `1/4` row starts on `d` **without** X (requirement 3: only buyers hold X's rows). §26.2 applies its `acquisitionId` to every created row, so this cannot be one change today: it is written with the single commands of §26.1 (close B's and A's rows at `d − 1`, create B `1/4` without and A `3/4` with X), each allowed while the PropertyReference is `INCOMPLETE` in between. That limitation is §26.2's and exists for a new buyer just the same; VC-X-30 does not change it (open question 2). For B's AfA it is §59A's reduced share within a tenure (`OWNER_SHARE_CHANGED`), unchanged.
+
+### Edge cases
+
+| Case | Rows on `d − 1` → `d` | Result |
+|---|---|---|
+| A held nothing, buys B's `1/2` | A — → `1/2` (X) | `acquired_A` = `1/2`: **unchanged** behaviour |
+| A `1/2` buys B's `1/2` | A `1/2` (W) → `1/1` (X) | `1/2`: confirmable |
+| Partial increase: A `1/4` buys `1/2` of B's `3/4` | A `1/4` → `3/4` (X); B `3/4` → `1/4` (no X) | `acquired_A` = `1/2` = `acquiredShare` |
+| Several sellers: A `1/3` buys B's and C's `1/3` in one X (`acquiredShare` `2/3`, sellers B, C) | A `1/3` → `1/1` (X); B, C `1/3` → — | `2/3`: confirmable |
+| Two buyers, one already an owner: A `1/2` and new C buy B's `1/2` (`acquiredShare` `1/2`) | A `1/2` → `3/4` (X); C — → `1/4` (X) | `1/4` + `1/4`; §27.4 weights `1/2` and `1/2` |
+| A buyer whose share does not rise: A `1/2` → `1/2` (X) beside C — → `1/2` (X), B's `1/2` sold | | 5a for A (`shareBefore` = `share` = `1/2`); 5b holds (`actual` `0 + 1/2`), so 5a alone refuses it |
+| A buyer whose share falls (a decrease recorded as a purchase): A `1/2` → `1/4` (X) beside C — → `3/4` (X) | | 5a for A; 5b holds (`−1/4 + 3/4`), so 5a alone keeps a negative part out |
+| A voided row on `d − 1` | A's `VOID` `1/2` → `1/1` (X) | the `VOID` row counts nowhere: `acquired_A` = `1/1` |
+| A sold, then buys again later (a gap) | A — on `d − 1` | the full share, as a new buyer (§59A: a later tenure, a component of its own) |
+| Other owners change on `d` (C sells to D in Acquisition Y, same `d`) | | independent: increases are per buyer of X |
+| **Same buyer, two Acquisitions on the same `d`** (A `1/3` buys B's `1/3` in X and C's `1/3` in Y) | A `1/3` → `1/1`, one row, one `acquisitionId` | **not expressible under (a):** the row carries X or Y, so X reads `SHARE_SUM_MISMATCH` (`actual` `2/3`) and Y `BUYER_WITHOUT_OWNERSHIP`. Record it as **one** Acquisition with both sellers (`acquiredShare` `2/3`, the summed price) when that is true; two separate purchases with separate bases on one day need option (b) (open question 1) |
+| **Same buyer buys and sells on the same `d`** (A `1/2` buys B's `1/2` in X and sells `1/4` to D in Y) | A `1/2` → `3/4` | **not expressible:** X reads `SHARE_SUM_MISMATCH` (`actual` `1/4`). The net change is all one row can say; open question 1 |
+| A `DRAFT` X | | §27.4 answers `PROVISIONAL` only when requirements 2–5 (5a and 5b) hold; §59A lists it with `ACQUISITION_NOT_CONFIRMED` only |
+| Rows of another `DRAFT` W' on `d − 1` | A `1/2` (W', `DRAFT`) → `1/1` (X) | the row of W' counts (it is `VALID`); once X is confirmed it can no longer be voided (guard below), so W' is resolved before X is confirmed |
+
+### Once confirmed, the increase stays as confirmed (guard)
+
+Confirmation today freezes X's own rows (no void, §28.1). The increase also depends on each buyer's **predecessor** (the `VALID` row of the buyer ending on `d − 1`), which no rule protects: voiding it, shortening it, or recording a row for the buyer that ends on `d − 1` after X is confirmed would change `acquired_P`, so §27.4's weights would no longer sum to 1 and §59A's bought share would move under a confirmed purchase. VC-X-30 therefore refuses, for a row `R` of owner `P` on PropertyReference `p`, whenever a `VALID` Ownership `N` of the same `P` and `p` with `N.validFrom = R.validUntil + 1` carries a `CONFIRMED` Acquisition:
+
+- a **void** of `R` (`VALID` → `VOID`);
+- a **close** of `R` that moves its `validUntil` (only earlier is possible, §26.1), directly or by §26.2;
+- a **create** of `R` (`POST /ownerships`, a §26.2 create cannot end before its `effectiveDate`) whose `validUntil` is `N.validFrom − 1`.
+
+Answer `409 CONFLICT` with `reason = "ACQUISITION_CONFIRMED"` (as §26.1's void of a confirmed row) and `details: { acquisitionId, ownershipId }`, `ownershipId` being `N`. The repository checks it under its existing locks (PropertyReference → Parties → Acquisition, §27.1): it reads `N` and writes `N`'s Acquisition row with the no-op `UPDATE … SET version = version` (as 0022 does), then refuses a `CONFIRMED` one. A close of `R` to the same day stays the `200` no-op. A close or void of `N` itself is §28.1's (close allowed, void refused) and unchanged. A row that ends on `d − 1` **before** X is confirmed is simply read by the confirmation. Since a `CONFIRMED` Acquisition's rows start on its transfer date (requirement 2), `N.validFrom` is X's `d` and `R` covers `d − 1`; under no overlap, a row of `P` covering `d − 1` ends exactly there.
+
+### Owner-level allocation (§27.4), amended
+
+- **The weight** of buyer `P` is `acquired_P / acquiredShare` (was: the share of `P`'s Ownership carrying X `/ acquiredShare`). For a buyer who held nothing the two are equal; every existing figure stays the same. The weights sum to exactly `1` whenever requirement 5 holds.
+- **When it answers:** `PROVISIONAL` for a `DRAFT` and `CONFIRMED` as today, now with 5a and 5b in "requirements 2–5". For a **`CONFIRMED`** Acquisition the read also evaluates requirements 2–5 and answers `409 CONFLICT` `OWNERSHIP_BASIS_INCOMPLETE` with the violations when they fail. That happens only for an Acquisition confirmed **before** 0052 under the full-share rule whose buyer held a share on `d − 1` (the false `1/1` workaround of §59A, "Legacy" below); it never splits by weights that do not sum to 1.
+- **Response:** each owner gains **`shareBefore`** (`held_P(d − 1)`, `"0/1"` when none) and **`acquiredShare`** (`acquired_P`); `share` stays the share of the Ownership carrying X, `weight` is derived from `acquiredShare`. Additive.
+- **Snapshot:** `owner-allocation-source.ts` also reads, in its one `REPEATABLE READ READ ONLY` transaction, the buyers' `VALID` Ownerships covering `d − 1` and `d`.
+
+### Effect on §59A (the schedule; VC-8-02 implements it with these rules)
+
+- **The share bought** in component X by owner `P` is `acquired_P`, and the owner's weight is §27.4's above. The schedule's owner entry gains `acquiredShare` beside `share` and `weight` (additive).
+- **`BUYER_ALREADY_OWNER`** no longer applies to a purchase recorded as above: X is computed. It is **kept only for the legacy case** that option (a) cannot express truthfully: a `CONFIRMED` Acquisition that fails requirement 5a or 5b when evaluated under this rule (confirmed before 0052 with a buyer holding a share on `d − 1`, in practice the `1/1` workaround). Its meaning is narrowed accordingly: "the buyers' increases over the day before do not make up `acquiredShare`", `details: { ownerPartyIds, expected, actual }`, still open, still in §59A's component reasons and §58C's review table (no code is added or removed there). A `DRAFT` X is listed with `ACQUISITION_NOT_CONFIRMED` only.
+- **Tenure continuity across the row change.** The tenure is §59A's: `continuousOwners()` (moved to `domains/ownership/tenure.ts` by VC-8-02, §59A "Moves and module edges") joins consecutive `VALID` rows of one Party with no day between them, **whatever their share or Acquisition**. O1 ends on `d − 1` and O3 starts on `d`, so A's tenure that holds W's start date runs on through O3: W's component does **not** end when O1 ends, and no disposal month, `END_DATE_ASSUMED` or cut-off search arises for A. X's component starts on `d` inside the same tenure. The tenure is derived from the Party's rows, never from the row that carries the component's id.
+- **The still-held fraction across the row change.** §59A takes the Party's share on a day (the sum of its `VALID` rows covering the day), not the share of the row carrying the component's id; so the half A bought in W keeps depreciating after O1 ends, because A holds it inside O3. §59A's formula "held ÷ share bought in this component, at most 1" is correct for one component per owner but counts a share twice when an owner has two (A at `1/2` after selling half of `1/1` would read `1` for W **and** X). With VC-X-30 it reads, for owner `P` on day `t`:
+  - `S_P(t)`: `P`'s components whose start is on or before `t` and whose tenure holds `t`; each `c` in it has its share bought `acquired_P(c)` (the increase of its Acquisition) and its fraction `f_c` (1 on its start day);
+  - the **attributed share** `A_P(t) = Σ acquired_P(c) × f_c` over `S_P(t)`, with the fractions as they stood the day before (and 1 for a component starting on `t`);
+  - when `held_P(t) ≥ A_P(t)`, every `f_c` stays as it is (a fraction never rises again, §59A; a surplus is §59A's `OWNER_WITHOUT_ACQUISITION`); when `held_P(t) < A_P(t)`, every `f_c` in `S_P(t)` is multiplied by `held_P(t) / A_P(t)`;
+  - each month then takes §59A's largest or smallest daily fraction (`endMonthCounts`), unchanged;
+  - with one component this is §59A's running minimum of `min(1, held / bought)` exactly. In the example W's attributed share before `d` is `1/2`, A holds `1/2`; from `d` it is `1/2 + 1/2 = 1/1`, A holds `1/1`: nothing is reduced, both purchases depreciate in full. A component whose fraction fell earlier keeps it when a later purchase raises the held share (W at `1/2` of `1/2` bought, then X `1/2` bought: attributed `1/4 + 1/2 = 3/4` = held, W stays `1/2`, X is `1`).
+- **A later reduction across several components** (A at `1/1` from W and X sells `1/2`): the rule reduces **all of A's components pro rata** (each `f_c` = `1/2`). Which purchase a partial sale disposes of (pro rata, the earliest first, the latest first, or as the sale contract names it) is **not covered by `depreciation.md`** and changes each component's residual value. **Proposed:** pro rata, with the new open flag **`SHARE_REDUCTION_SPLIT_TO_VERIFY`** on the owner's year of the reduction in every component concerned, `details: { date, from, to, componentIds }`, only when the owner holds more than one component on that day (open question 3, VERIFY with the tax advisor). It is in no year before such a reduction, so W and X compute without it while A holds `1/1`. §58C's review table gains the code at level open with VC-8-05.
+- **`OWNER_WITHOUT_ACQUISITION`** keeps its rule (held more than `Σ acquired_P(c) × f_c`): A at `1/1` from `d` is covered by W and X, and is not flagged. A share raised by §26.2 **without** an Acquisition is flagged as before.
+- **`OWNER_SHARE_CHANGED`** is raised on a reduction only, as §59A says; the raise on `d` is X's start, not a change of W.
+- **Tests and mutations** of §59A gain: W and X both computed in full from `d` (A `1/2` + `1/2`, owners' bases from each Acquisition); W's component unchanged by O1's end (the mutation "tenure taken from the row carrying the id" turns it red); the pro-rata reduction with `SHARE_REDUCTION_SPLIT_TO_VERIFY`, and its absence with one component; the legacy `1/1` workaround still `BUYER_ALREADY_OWNER`; the mutation "share bought = the Ownership's share" (X's basis owner weight `2/1`, refused by the owners-sum-to-component check).
+
+### Migration 0052 (planned)
+
+- **Number:** 0052, after VC-8-03's 0050 and VC-8-04's 0051 (planned); the next free number when it is implemented.
+- **`up`:**
+  - `CREATE OR REPLACE FUNCTION acquisition_confirmation_violation(target uuid)`: steps 1–4 and 6 as in 0022, byte for byte; step 5 replaced by **5a** (return `BUYER_SHARE_NOT_INCREASED` when, for a buyer holding a `VALID` Ownership carrying `target`, the sum of its `VALID` shares covering `d` is not greater than the sum covering `d − 1`) and **5b** (return `SHARE_SUM_MISMATCH` when the sum over those buyers of [shares covering `d`] − [shares covering `d − 1`] differs from `acquired_share`). The sums stay exact (`numeric` numerators and denominators, cross-multiplied, `gcd`-reduced, a subtraction as an addition with a negated numerator), as 0022. `acquisition_step` calls it unchanged, so a raw `DRAFT` → `CONFIRMED` is held to the new rule.
+  - **`ownership_predecessor_of_confirmed`**: a `BEFORE INSERT OR UPDATE` row trigger on `ownership`, firing on an insert of a `VALID` row with a `valid_until`, on `VALID` → `VOID`, and on a change of `valid_until`. For the row's `valid_until` (the old one on an update), it finds a `VALID` Ownership `n` of the same owner and PropertyReference with `n.valid_from = valid_until + 1` and `n.acquisition_id IS NOT NULL`, writes that Acquisition's row (`UPDATE acquisition SET version = version`, the touch of 0022, so a concurrent raw confirm and this write serialise: READ COMMITTED waits and sees, REPEATABLE READ fails `40001`), and raises `integrity_constraint_violation` with `ACQUISITION_CONFIRMED` when it is `CONFIRMED`. A `DRAFT` successor is touched and allowed.
+  - **Legacy check:** `up` lists, with `RAISE NOTICE`, every `CONFIRMED` Acquisition that fails 5a or 5b under the new function (none is changed and `up` does not fail: confirmed is final, and the schedule reports them as `BUYER_ALREADY_OWNER`). The repository test asserts the notice for a seeded case.
+- **`down`:** drops the trigger and its function, and restores 0022's function body with `CREATE OR REPLACE` (the text kept in 0052 as a constant, as 0022 keeps `ownershipAcquisitionDraft(false)` for its `down`). An Acquisition confirmed under 0052 stays confirmed after `down`; the old rule only governs new confirmations. `migrate.test.ts`'s up-down-up passes.
+- **No new index:** the trigger's lookup uses `ownership_property_reference_idx` (PropertyReference, then owner and `valid_from` filtered); a repository test reads its plan.
+
+### Tests the implementation must have (VC-X-30)
+
+- **Domain (`domains/acquisition/acquisition.test.ts`, `owner-allocation.test.ts`):**
+  - every row of the edge-case table above, through `structureViolations` and `planConfirm`, with the exact violations and details (5a's `shareBefore`/`share`, 5b's `byBuyer`);
+  - a buyer who held nothing: the result equal to today's for every existing test case (the existing tests unchanged and green);
+  - `VOID` rows on `d − 1` and on `d` ignored;
+  - the day-before boundary: a predecessor ending on `d − 2` (a gap) counts nothing; one ending on `d − 1` counts; a row starting on `d` is not a predecessor; `d` on 1 January and 1 March of a leap year (`d − 1` = 31 December, 29 February);
+  - §27.4: weights `acquired_P / acquiredShare` (A `1/2` → `3/4` and C `1/4`: `1/2` and `1/2`; A `1/2` → `1/1`: `1/1`), `shareBefore` and `acquiredShare` in the parts; the property test of §27.4 extended with random predecessors (every part ≥ 0, columns exact); a `CONFIRMED` legacy Acquisition answered `OWNERSHIP_BASIS_INCOMPLETE`.
+- **Database, past the repository (migration 0052), each with a counter-check (the guard neutralised, the test red):**
+  - a raw `DRAFT` → `CONFIRMED` for A `1/2` → `1/1` (X `1/2`): allowed; with X `acquiredShare` `1/1`: refused `SHARE_SUM_MISMATCH`; with A `1/2` → `1/2`: refused `BUYER_SHARE_NOT_INCREASED`; with the predecessor `VOID`: the full share counts;
+  - each of 0022's requirement tests still refused with its code (steps 1–4 and 6 unchanged);
+  - after X's confirmation: a raw void of the predecessor, a raw `valid_until` moved earlier, and a raw insert of a row of A ending on `d − 1` (after A's gap) are refused; the same three on a `DRAFT` X are allowed; a void of a row of another owner and a close of O3 are allowed;
+  - the legacy notice for a seeded workaround Acquisition (confirmed under 0051's schema, then `up`);
+  - `down` restores 0022's behaviour (the A `1/2` → `1/1` confirm refused again) and up-down-up.
+- **Concurrency:**
+  - through the repository (RC): confirm X against a void, a close and a create of A's predecessor; whichever comes second sees the first (confirm `BUYER_SHARE_NOT_INCREASED` or `SHARE_SUM_MISMATCH` after a void that made the predecessor vanish; the void `409 ACQUISITION_CONFIRMED` after the confirm);
+  - past the repository (RR): a raw confirm against a raw void of the predecessor and against a raw insert ending on `d − 1`: `40001`. Each lock counter-checked (the touch removed: both commit and the confirmed increase is wrong).
+- **API:** `422 CONFIRMATION_BLOCKED` with 5a and 5b in their order and shape; `409 ACQUISITION_CONFIRMED` with `ownershipId` on void, close, §26.2 change and create; §27.4's DTO with `shareBefore` and `acquiredShare`.
+- **End to end:** the §26.2 change of the row-model table, then confirm X, then §27.4 (`CONFIRMED`, A weight `1/1`) and, once VC-8-02 is implemented, the schedule with W and X both computed (no `BUYER_ALREADY_OWNER`, no `OWNER_WITHOUT_ACQUISITION`). ACC8 (VC-8-06) shows it.
+
+### Counter-checks and mutations
+
+**Counter-checks:** the full share of O3 is never compared with `acquiredShare` (A `1/2` → `1/1` confirms with `1/2`, refuses with `1/1`); a `VOID` predecessor never lowers an increase; no buyer gets a zero or negative weight; a confirmed increase cannot be changed by any later Ownership write; a seller's row is never required by confirmation.
+
+**Mutations** that must turn the tests red (each alone, the suite run, the code restored):
+
+- the day before off by one: `held(d − 2)` or `held(d)` read as the "before" (the gap test and the A `1/2` → `1/1` case);
+- summing the full shares again (today's step 5: the A `1/2` → `1/1` confirm refused), in the domain and in 0052's function separately;
+- `VOID` rows counted in `held` (the voided-predecessor case);
+- 5a dropped (the decrease case confirms with a negative weight; the §27.4 property test fails);
+- the seller side, two ways: the guard extended to sellers' rows (a void of B's own recording error after X's confirmation, allowed by §28.1, refused), and confirmation requiring a seller's row to end on `d − 1` (the seller-gap case, allowed, refused);
+- the guard's touch of the successor's Acquisition removed (the RR test commits both);
+- the guard firing for a `DRAFT` successor (the `DRAFT` cases refused);
+- §27.4's weight from the Ownership's share (A `1/1 / 1/2` = `2/1`: the columns no longer sum).
+
+### Not in VC-X-30
+
+- §26.2's `acquisitionId` per created row (a seller keeping a part in one atomic change; open question 2).
+- Option (b) for two Acquisitions of one buyer on one day, or a purchase and a sale of one owner on one day (open question 1).
+- The schedule's implementation itself (VC-8-02), which applies the "Effect on §59A" above.
+
+### Open questions for review
+
+1. **Same-day purchases and sales of one owner** cannot be expressed under (a): one row per owner and day carries one Acquisition. **Proposal:** accept the limitation (recorded as one Acquisition where that is true; otherwise not confirmable), and revisit option (b) only when a real case needs it.
+2. **A seller keeping a part** needs §26.1's single commands because §26.2 applies `acquisitionId` to every created row (a limitation that exists today for any partial sale). **Proposal:** leave as is; an `acquisitionId` per `create` item of §26.2 would be its own small backlog item.
+3. **A partial sale by an owner with several purchases:** pro rata across the owner's components with `SHARE_REDUCTION_SPLIT_TO_VERIFY` (open) is a proposal; earliest-first, latest-first or "as the contract names it" are the alternatives. **VERIFY** with the tax advisor (beratungsfragen.md).
+4. **The predecessor guard** refuses a later void or shortening of a buyer's previous row once X is confirmed (also when that row carries no Acquisition or a `DRAFT` one). **Proposal:** keep it (a confirmed purchase's share must not move); the alternative is to recompute and flag, which would let §27.4's weights stop summing to 1.
+5. **Legacy confirmations** (the `1/1` workaround confirmed before 0052) stay confirmed and read `BUYER_ALREADY_OWNER` in the schedule and `OWNERSHIP_BASIS_INCOMPLETE` in §27.4; 0052 reports them and changes nothing. The owner may know whether any exist in real data (real-data-run.md).
 
 ---
 
@@ -6466,7 +6623,7 @@ Every amount is computed in integer cents and exact fractions (`bigint`, never f
 
 ### An existing owner who buys another share (phase-8-plan §4)
 
-The plan asked this spec to check the case against the code before relying on it. **Finding: it cannot be recorded as a confirmable Acquisition today.**
+The plan asked this spec to check the case against the code before relying on it. **Finding: it cannot be recorded as a confirmable Acquisition today.** **Update: option (a) is specified in §28.1A (VC-X-30), which also narrows `BUYER_ALREADY_OWNER` to legacy confirmations and amends the share bought, the tenure across the row change and the still-held fraction below.**
 
 - **The case:** A holds `1/2` (bought in Acquisition W) and buys B's `1/2` in Acquisition X (`acquiredShare` `1/2`, buyer A).
 - **Recorded as §26.2 intends** (close A's `1/2` and B's `1/2`, create A's `1/1` with `acquisitionId` X): X cannot be confirmed. Requirement 5 of §28.1 sums the shares of the Ownerships carrying X (`1/1`) against `acquiredShare` (`1/2`) → `SHARE_SUM_MISMATCH`, in `structureViolations` (`domains/acquisition/acquisition.ts`) and again past the repository in `acquisition_confirmation_violation` (migration 0022, step 5).
