@@ -1,6 +1,6 @@
 # Phase 8 Plan — Depreciation (AfA)
 
-**Status:** Accepted (#173). The project owner's decisions of 2026-10-30 are recorded in §1 (**Decided** lines). VC-8-01 is implemented (api-design §59, migration 0049); VC-8-02 and VC-8-03 are specified (api-design §59A, §59B).
+**Status:** Accepted (#173). The project owner's decisions of 2026-10-30 are recorded in §1 (**Decided** lines). VC-8-01 is implemented (api-design §59, migration 0049); VC-8-02, VC-8-03 and VC-8-04 are specified (api-design §59A, §59B, §60).
 **Roadmap:** `docs/roadmap.md` Phase 8 · **Backlog:** `backlog.md` §3g (VC-8-xx)
 
 Phase 8 is modelled conceptually in several places:
@@ -124,7 +124,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **VERIFY:** the start of a later cost (the options above); whether an anschaffungsnahe item counts from the transfer date or from its own date.
 - **Needs the user:** yes (with the tax advisor).
 - **Reviewer input on #173** (a note for the tax advisor, not final law): R 7.4 Abs. 9 S. 3 EStR treats later Herstellungskosten as incurred at the **start of the year** in which they arise. That is option 1, `subsequentCostStart` = `START_OF_YEAR`, with no special case for anschaffungsnahe costs. Option 3 has no basis. To be confirmed with the tax advisor before VC-8-03 is specified.
-- **Specified (VC-8-03, api-design §59B), as a proposal, not decided:** `subsequentCostStart` `START_OF_YEAR` (option 1, the reviewer's reading), never before the owner's start (an item in the year of the purchase starts with the purchase), computed with the open flag `SUBSEQUENT_COST_START_TO_VERIFY` on the item's first and last year until the tax advisor confirms it (§59B open question 1); `MONTH_OF_DATE` (option 2) is implemented as the alternative value, option 3 is not. Only a `CAPITALIZED` classification moves the basis, never the check's suggestion. Each item is a linear series of its own at the owner's purchase rate; how it continues after the purchase is exhausted, and with a shorter useful life, is a new VERIFY point (`SUBSEQUENT_COST_END_TO_VERIFY`, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`; §59B open question 2).
+- **Specified (VC-8-03, api-design §59B), as a proposal, not decided:** `subsequentCostStart` `START_OF_YEAR` (option 1, the reviewer's reading), never before the owner's start (an item in the year of the purchase starts with the purchase), computed with the open flag `SUBSEQUENT_COST_START_TO_VERIFY` on the item's first and last year until the tax advisor confirms it (§59B open question 1); `MONTH_OF_DATE` (option 2) is implemented as the alternative value, option 3 is not. Only a `CAPITALIZED` classification moves the basis, never the check's suggestion. Items run at the owner's purchase rate; how they continue after the purchase is exhausted, and with a shorter useful life, is a new VERIFY point (`SUBSEQUENT_COST_END_TO_VERIFY`, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`; §59B open question 2). **Proposed (review on #179, not decided):** one pooled basis per owner, the rate × the whole basis until the whole residual value is zero (R 7.4 Abs. 9 S. 1 EStR, quoted from memory, VERIFY), with the remaining useful life of S. 2 as an option not yet computed; until the purchase is exhausted it gives the same figures as a series per item, and `SUBSEQUENT_COST_END_TO_VERIFY` marks the years after, where the two differ.
 
 ### P8-D7 Separate movable assets: the Einbauküche (B8, B9)
 
@@ -188,6 +188,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Not a snapshot:** a recorded schedule version is the Depreciation domain's record (data-model §39), not an `InvestmentMetricSnapshot` (ADR-040, Phase 9).
 - **Needs the user:** yes (1, 2 or 3; and whether "not recorded" is open).
 - **Decided (2026-10-30):** option 3. The schedule is computed on read and recorded as versions. `DEPRECIATION_SCHEDULE_NOT_RECORDED` and `DEPRECIATION_CHANGED_SINCE_RECORDED` are both **open** flags, so a year is final only once its AfA is recorded.
+- **Specified (VC-8-04, api-design §60):** a version per asset covers every year from the schedule's first year up to a chosen `throughYear`, all owners included; it stores the derivation's inputs (asset facts, components with their source ids and basis inputs, owner parts with their fractions and tenure, rule versions with a rule-version hash) and its output (entries per year, component and owner part) as rows of migration 0051, append-only (only `CURRENT` → `SUPERSEDED`); it is recomputed on read (`RECORDED_VERSION_NOT_REPRODUCIBLE` if not equal). "Changed since recorded" compares per year a SHA-256 fingerprint of the inputs truncated to that year, and the year's output. Recording needs every year of the run computable; open flags on computed figures do not block it (proposal, §60 open question 1); a recorded year whose figures change must be named (`acceptChangedYears`). `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` freeze with VC-8-04's implementation.
 
 ### P8-D11 Rules and the domain boundary (ADR-041, P7-D1; AGENTS.md §26)
 
@@ -278,7 +279,7 @@ See `backlog.md` §3g. Each item starts with a spec PR for its API section, as i
    - **Depends on:** VC-8-02; the VERIFY points of P8-D2 (VAT) and P8-D6 (start).
    - **Status:** specified (api-design §59B; migration 0050 planned). The start **proposed** (`START_OF_YEAR`, flagged `SUBSEQUENT_COST_START_TO_VERIFY`, §59B open question 1, not decided by the owner); the end after the purchase is exhausted and with a shorter life to verify (open question 2); separate assets acquired before 2023 `NO_APPLICABLE_RULE` (open question 4); the no-cycle path through `infrastructure/postgres/` (P8-D11 amended).
 4. **VC-8-04: recorded schedule versions** (P8-D10).
-   - **Spec:** api-design §60 rewritten: `POST /api/v1/depreciation-assets/{id}/schedule-versions` (with `reason`), `GET …/schedule-versions`, `GET …/schedule-versions/{version}`; data-model §39–§40 rewritten (the input components as rows).
+   - **Spec:** api-design §60 rewritten: `POST /api/v1/depreciation-assets/{id}/schedule-versions` (with `reason`), `GET …/schedule-versions`, `GET …/schedule-versions/{versionId}`; data-model §39–§40 rewritten (the input components as rows).
    - **Code:** migration (versions, entries, input components; append-only, guarded by a trigger as 0009 and 0013 freeze a confirmed Transaction).
    - **Tests:**
      - reproducibility: a version recomputed from its recorded inputs gives its entries exactly;
@@ -288,6 +289,7 @@ See `backlog.md` §3g. Each item starts with a spec PR for its API section, as i
      - RC/RR on two concurrent records.
    - **Counter-checks:** a record replacing the previous version's entries; a version mixing two snapshots.
    - **Depends on:** VC-8-02 (VC-8-03 for capitalised components).
+   - **Status:** specified (api-design §60; migration 0051 planned; data-model §39–§40 rewritten). The unit is the asset with every year up to `throughYear` (§60 open question 2); the inputs and the output stored as rows, append-only, reproducible from them; per-year input fingerprints for "changed since recorded", including input changes that move no amount (open question 3); `POST` with `throughYear`, `reason` and the schedule's `expectedInputFingerprint` (`412 SCHEDULE_CHANGED`), refused while a year of the run has no figure (`SCHEDULE_NOT_COMPLETE`), allowed with open VERIFY flags (proposal, open question 1), and naming every recorded year it changes (`acceptChangedYears`, open question 4); one `REPEATABLE READ` transaction with up to three retries, then `503 CONCURRENT_UPDATE` as the repository's other exhausted retries; child rows appended only in the transaction that created the version (its stored `created_txid`, not `xmin`); the two AfA rules frozen, a hash over every field of a rule version but `effectiveTo`, computed through a domain port with `node:crypto` in `infrastructure/` only, a test there pinning the hash of every frozen version, and the start check reading the recorded references and their hashes. The VERIFY answers of §59A question 3 and §59B questions 1–2 should come before the freeze; §60 open question 5 proposes them as a **hard gate for VC-8-04's implementation**, for the project owner to decide (after the freeze the years under `@1` keep their open flags for good).
 5. **VC-8-05: the AfA in the tax-year view** (P8-D12).
    - **Spec:** api-design §58C amended: the AfA block, the lines `AFA_BUILDING` (and `AFA_SEPARATE_ASSETS`), `result.basis`, the flags of P8-D2, P8-D10 and P8-D12 in the review table, `final`.
    - **Tests:**
@@ -399,7 +401,7 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 5. **A co-owner's AfA on their own acquisition cost** (P8-D8), and a successor's continuation (§ 11d EStDV; out of scope until verified).
 6. **A shorter useful life:** from the start or from the year evidenced (P8-D4).
 7. **§ 7b EStG:** whether it matters at all (P8-D13).
-8. **The end of a later cost** (VC-8-03, §59B): whether later Herstellungskosten run as their own series or as one pooled basis once the purchase's basis is exhausted, whether the building's remaining useful life then takes over, and how they run under a shorter useful life.
+8. **The end of a later cost** (VC-8-03, §59B): whether later Herstellungskosten run as their own series or as one pooled basis once the purchase's basis is exhausted (proposal: pooled, R 7.4 Abs. 9 S. 1 EStR as quoted on #179), whether the building's remaining useful life then takes over (S. 2), and how they run under a shorter useful life.
 9. **Later costs of a movable separate asset**, and `DE_AFA_MOVABLE_LINEAR` in years before 2023 (VC-8-03, §59B).
 
 **Still case-dependent, so the user decides and DE never guesses:**
@@ -425,7 +427,7 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 - **Earlier years change.** A crossing of 15 % in year 3, a superseding allocation or a corrected completion year changes the AfA of filed years. P8-D10 makes it visible. DE does not know which years were filed, as with §58C's `ATTRIBUTION_INPUT_CHANGED`.
 - **`final` becomes reachable.** Every open flag of Phase 7 now matters, since a year can be presented as final for the first time. VC-8-05 tests `final` against each open flag of the review table, not only the new ones.
 - **The completion year is often unknown** for older buildings in a WEG. The asset then stays without a rate and the AfA `DEPRECIATION_NOT_AVAILABLE`, never a default year.
-- **Five VERIFY points** gate VC-8-02 and VC-8-03 (§3). If the advisor's answers are late, VC-8-01 and VC-8-04's mechanics can proceed; the rule parameters wait.
+- **Five VERIFY points** gate VC-8-02 and VC-8-03 (§3). If the advisor's answers are late, VC-8-01 can proceed; the rule parameters wait. VC-8-04 freezes the rule versions, so §60 open question 5 proposes the answers as a hard gate for its implementation (the owner's decision).
 - **The view grows:** the AfA reads every `capitalized` item since the transfer, not only the year's. A private landlord's numbers are small; VC-8-05 checks the query plan as VC-7-04 did.
 - **Rounding on the form:** ELSTER takes whole euros; DE keeps cents. Out of scope (P8-D13), named so it is not mistaken for an error.
 - **The placeholders of api-design §59–§60** (`correct-basis`, `recalculate`) do not fit P8-D1 and P8-D10: the basis is never corrected on the asset, only through its inputs. VC-8-01 and VC-8-04 replace them.
