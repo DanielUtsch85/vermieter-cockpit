@@ -160,6 +160,7 @@ export {
   OwnershipIncompleteError,
   OwnershipOfConfirmedAcquisitionError,
   OwnershipTotalExceedsOneError,
+  PredecessorOfConfirmedAcquisitionError,
   changeOwnership,
   closeOwnership,
   createOwnership,

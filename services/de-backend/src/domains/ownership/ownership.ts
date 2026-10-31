@@ -151,6 +151,7 @@ export type CreateOwnershipOutcome =
   | { readonly kind: 'PARTY_NOT_FOUND' }
   | { readonly kind: 'PARTY_INACTIVE' }
   | AcquisitionRefusal
+  | PredecessorRefusal
   | InvariantViolation;
 
 /** The `acquisitionId` of a create or change names no Acquisition of this PropertyReference, or no draft (§27.1). */
@@ -158,10 +159,22 @@ export type AcquisitionRefusal =
   | { readonly kind: 'ACQUISITION_NOT_FOUND'; readonly acquisitionId: string }
   | { readonly kind: 'ACQUISITION_NOT_DRAFT'; readonly acquisitionId: string; readonly status: string };
 
+/**
+ * The row ends the day before the owner's `VALID` Ownership `ownershipId`, which carries the `CONFIRMED` Acquisition
+ * `acquisitionId`: voiding it, shortening it or recording it would move that purchase's confirmed increase
+ * (§28.1A; → 409 ACQUISITION_CONFIRMED).
+ */
+export interface PredecessorRefusal {
+  readonly kind: 'PREDECESSOR_OF_CONFIRMED';
+  readonly acquisitionId: string;
+  readonly ownershipId: string;
+}
+
 export type CloseOwnershipOutcome =
   | { readonly kind: 'CLOSED'; readonly ownership: Ownership; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'INVALID_OWNERSHIP'; readonly reason: InvalidOwnershipReason }
+  | PredecessorRefusal
   | VersionConflict;
 
 export type VoidOwnershipOutcome =
@@ -169,6 +182,7 @@ export type VoidOwnershipOutcome =
   | { readonly kind: 'NOT_FOUND' }
   /** It carries a `CONFIRMED` Acquisition: close it instead (→ 409 ACQUISITION_CONFIRMED, §28.1). */
   | { readonly kind: 'ACQUISITION_CONFIRMED'; readonly acquisitionId: string }
+  | PredecessorRefusal
   | VersionConflict;
 
 export interface OwnershipPage {
