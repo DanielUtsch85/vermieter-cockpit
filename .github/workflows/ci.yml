@@ -41,6 +41,7 @@ jobs:
       - run: yarn build
       - run: yarn typecheck
       - run: yarn lint
+      - run: yarn size:check
       - run: yarn format:check
       - run: yarn test
 

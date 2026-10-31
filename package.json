@@ -13,8 +13,9 @@
     "typecheck": "yarn workspaces foreach --verbose run typecheck",
     "test": "yarn workspaces foreach --verbose run test",
     "lint": "eslint services",
-    "format": "prettier --write services eslint.config.mjs",
-    "format:check": "prettier --check services eslint.config.mjs"
+    "format": "prettier --write services scripts eslint.config.mjs",
+    "format:check": "prettier --check services scripts eslint.config.mjs",
+    "size:check": "node scripts/file-size-check.mjs"
   },
   "packageManager": "yarn@3.3.0",
   "devDependencies": {
