@@ -1,5 +1,6 @@
-import { Money, type BusinessDate } from '../../shared/index.js';
+import { Money, centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
 import type { DepreciationAsset, DepreciationAssetId, ShorterUsefulLife } from './asset.js';
+import type { CapitalizedItem, ItemSourceType } from './capitalized-item.js';
 import type { ScheduleAcquisition, ScheduleInput, ScheduleOwnership } from './schedule.js';
 
 /** Synthetic inputs of the schedule (api-design.md §59A): ACC8's purchase and its variants. No personal data. */
@@ -22,6 +23,11 @@ export const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationA
   depreciationMethod: 'LINEAR_7_4',
   status: 'ACTIVE',
   buildingCompletionYear: 1995,
+  description: null,
+  usefulLifeYears: null,
+  usefulLifeBasis: null,
+  acquiredOn: null,
+  items: [],
   sourceReferences: [],
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
@@ -92,3 +98,81 @@ export const acc8 = (overrides: Partial<ScheduleInput> = {}): ScheduleInput => (
   ownerPartyId: null,
   ...overrides,
 });
+
+/** A separate asset (§59B): ACC8's Einbauküche, 10 years from 2027-04-20, confirmed. */
+export const kitchen = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset =>
+  asset({
+    id: '0000dddd-0000-4000-8000-000000000002' as DepreciationAssetId,
+    assetType: 'SEPARATE_ASSET',
+    depreciationMethod: 'LINEAR_7_1',
+    buildingCompletionYear: null,
+    description: 'Einbauküche, Wohnung 3 (synthetisch)',
+    usefulLifeYears: 10,
+    usefulLifeBasis: 'BFH IX R 14/15 (verification-checklist B8)',
+    acquiredOn: day('2027-04-20'),
+    ...overrides,
+  });
+
+/**
+ * A capitalised item (§59B) with §58C's parts by the given shares (largest remainder, ties to the larger share, then
+ * the Party, NOT_OWNED last), computed here independently of Taxation's code: synthetic, ACC8's by default.
+ */
+export const capitalized = (
+  id: string,
+  date: string,
+  amount: string,
+  shares: readonly (readonly [string, string])[] = [
+    [A, '3/5'],
+    [B, '2/5'],
+  ],
+  overrides: Partial<CapitalizedItem> & { sourceType?: ItemSourceType; sourcePosition?: number | null } = {},
+): CapitalizedItem => {
+  const total = centsOf(eur(amount));
+  const sign = total < 0n ? -1n : 1n;
+  const abs = total < 0n ? -total : total;
+  const parsed = shares.map(([party, share]) => {
+    const [n, d] = share.split('/').map((x) => BigInt(x)) as [bigint, bigint];
+    return { party, n, d };
+  });
+  const sumN = parsed.reduce((acc, p) => ({ n: acc.n * p.d + p.n * acc.d, d: acc.d * p.d }), { n: 0n, d: 1n });
+  if (sumN.n < sumN.d) parsed.push({ party: 'NOT_OWNED', n: sumN.d - sumN.n, d: sumN.d });
+  const floors = parsed.map((p) => ({ ...p, floor: (abs * p.n) / p.d, rest: (abs * p.n) % p.d }));
+  let left = abs - floors.reduce((s, p) => s + p.floor, 0n);
+  const byRest = [...floors].sort((x, y) => {
+    const l = x.rest * y.d;
+    const r = y.rest * x.d;
+    if (l !== r) return l > r ? -1 : 1;
+    return 0;
+  });
+  const extra = new Map<string, bigint>();
+  for (const p of byRest) {
+    if (left === 0n) break;
+    extra.set(p.party, 1n);
+    left -= 1n;
+  }
+  return {
+    sourceType: 'TRANSACTION_SPLIT',
+    sourceId: id,
+    sourcePosition: null,
+    propertyReferenceId: PR,
+    date: day(date),
+    dateSource: 'BOOKING',
+    taxYear: Number(date.slice(0, 4)),
+    lineAmount: eur(amount),
+    netAmount: null,
+    classificationId: `${id.slice(0, 30)}ff`,
+    reviewState: 'USER_CONFIRMED',
+    taxCategory: 'MAINTENANCE',
+    anschaffungsnaheAcquisitionId: null,
+    counts: true,
+    treatment: 'CAPITALIZED',
+    parts: floors.map((p) => ({
+      participant: p.party,
+      ownershipIds: [],
+      share: { numerator: p.n, denominator: p.d },
+      amount: moneyOfCents(sign * (p.floor + (extra.get(p.party) ?? 0n))),
+    })),
+    flags: [],
+    ...overrides,
+  };
+};

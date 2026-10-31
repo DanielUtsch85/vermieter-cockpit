@@ -1,6 +1,7 @@
 import { ExactDecimal, RoundingMode, type BusinessDate, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { isConfirmed, sortedEntries, type AssetRead } from './asset.js';
 import { AFA_BUILDING_LINEAR, type BuildingBand, type BuildingLinearParameters, type BuildingRateBand } from './rules/de-afa-building-linear.js';
+import { AFA_MOVABLE_LINEAR, type MovableLinearParameters } from './rules/de-afa-movable-linear.js';
 
 /** Why the band's rate is not usable for `year`, in this order (§59). */
 export const ASSET_RATE_REASONS = ['ASSET_VOID', 'COMPLETION_YEAR_MISSING', 'NO_APPLICABLE_RULE', 'ASSET_NOT_CONFIRMED'] as const;
@@ -26,6 +27,8 @@ export interface AssetRate {
   readonly rule: RuleRef | null;
   readonly band: BuildingBand | null;
   readonly ratePercent: string | null;
+  /** The exact fraction (`"1/50"` for 2 %, `"1/10"` for a separate asset of 10 years; §59B), `null` without a rate. */
+  readonly rate: string | null;
   readonly legalBasis: string | null;
   readonly shorterThanYears: number | null;
   readonly reasons: readonly AssetRateReason[];
@@ -35,6 +38,23 @@ export interface AssetRate {
 /** The version of `DE_AFA_BUILDING_LINEAR` applicable in `year`, selected on 1 January (§58); none before 2006 (§59A). */
 export function buildingRuleOn(registry: RuleRegistry, year: number): RuleVersion<BuildingLinearParameters> | undefined {
   return registry.select(AFA_BUILDING_LINEAR, `${year}-01-01` as BusinessDate) as RuleVersion<BuildingLinearParameters> | undefined;
+}
+
+/** The version of `DE_AFA_MOVABLE_LINEAR` applicable in `year` (§59B), selected on 1 January; none before 2023. */
+export function movableRuleOn(registry: RuleRegistry, year: number): RuleVersion<MovableLinearParameters> | undefined {
+  return registry.select(AFA_MOVABLE_LINEAR, `${year}-01-01` as BusinessDate) as RuleVersion<MovableLinearParameters> | undefined;
+}
+
+/** A §87 decimal percentage as the exact reduced fraction of one (`"2"` → `"1/50"`, `"2.5"` → `"1/40"`). */
+export function rateFraction(ratePercent: string): string {
+  const [whole, fraction = ''] = ratePercent.split('.') as [string, string?];
+  let n = BigInt(whole + fraction);
+  let d = 100n * 10n ** BigInt(fraction.length);
+  const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b));
+  const g = gcd(n, d);
+  n /= g;
+  d /= g;
+  return `${n}/${d}`;
 }
 
 /** The band of a completion year, from the rule's parameters (never a constant, AGENTS.md §16). */
@@ -60,6 +80,7 @@ export const reciprocalPercent = (usefulLifeYears: number) =>
  */
 export function deriveRate(read: AssetRead, year: number, registry: RuleRegistry): AssetRate {
   const { asset } = read;
+  if (asset.assetType === 'SEPARATE_ASSET') return separateAssetRate(read, year, registry);
   const rule = buildingRuleOn(registry, year);
   const band = rule === undefined || asset.buildingCompletionYear === null ? undefined : bandOf(rule.parameters, asset.buildingCompletionYear);
   const reasons: AssetRateReason[] = [];
@@ -87,9 +108,37 @@ export function deriveRate(read: AssetRead, year: number, registry: RuleRegistry
     rule: rule === undefined ? null : { ruleCode: rule.ruleCode, version: rule.version },
     band: band?.band ?? null,
     ratePercent: band === undefined ? null : ExactDecimal.of(band.ratePercent).toString(),
+    rate: band === undefined ? null : rateFraction(band.ratePercent),
     legalBasis: band?.legalBasis ?? null,
     shorterThanYears: band?.shorterUsefulLife.shorterThanYears ?? null,
     reasons,
     shorterUsefulLives,
+  };
+}
+
+/**
+ * The `rate` block of a separate asset (§59B): `1/usefulLifeYears` of `DE_AFA_MOVABLE_LINEAR` for `year`, no band, no
+ * shorter useful life. `NO_APPLICABLE_RULE` without a version for `year`, and for an asset acquired before the first
+ * version (decided 2026-10-31: its residual value depends on years DE has no rule for).
+ */
+function separateAssetRate(read: AssetRead, year: number, registry: RuleRegistry): AssetRate {
+  const { asset } = read;
+  const rule = movableRuleOn(registry, year);
+  const firstFrom = registry.versions(AFA_MOVABLE_LINEAR)[0]?.effectiveFrom;
+  const reasons: AssetRateReason[] = [];
+  if (asset.status === 'VOID') reasons.push('ASSET_VOID');
+  if (rule === undefined || firstFrom === undefined || asset.acquiredOn === null || asset.acquiredOn < firstFrom) reasons.push('NO_APPLICABLE_RULE');
+  if (!isConfirmed(asset.reviewState)) reasons.push('ASSET_NOT_CONFIRMED');
+  const years = asset.usefulLifeYears;
+  return {
+    year,
+    rule: rule === undefined ? null : { ruleCode: rule.ruleCode, version: rule.version },
+    band: null,
+    ratePercent: years === null ? null : reciprocalPercent(years),
+    rate: years === null ? null : `1/${years}`,
+    legalBasis: '§ 7 Abs. 1 EStG',
+    shorterThanYears: null,
+    reasons,
+    shorterUsefulLives: [],
   };
 }

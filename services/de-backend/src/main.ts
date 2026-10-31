@@ -228,7 +228,8 @@ const wegStatements = new PostgresWegAnnualStatementRepository(db);
 const wegAssessments = new PostgresWegSpecialAssessmentRepository(db);
 const taxClassifications = new PostgresTaxClassificationRepository(db);
 const rentalContractReferences = new PostgresRentalContractReferenceRepository(db);
-const depreciationAssets = new PostgresDepreciationAssetRepository(db);
+// §59B: Depreciation reads the capitalised items through the tax repository's reader, in infrastructure/ (P8-D11).
+const depreciationAssets = new PostgresDepreciationAssetRepository(db, { capitalizedSources: taxClassifications.capitalizedSources });
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -371,7 +372,7 @@ const app = createApp({
     amend: amendDepreciationAsset({ repository: depreciationAssets }),
     confirm: confirmDepreciationAsset({ repository: depreciationAssets }),
     void: voidDepreciationAsset({ repository: depreciationAssets }),
-    schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db) }),
+    schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db, taxClassifications.capitalizedSources) }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

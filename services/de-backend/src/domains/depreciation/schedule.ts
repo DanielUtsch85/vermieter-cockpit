@@ -1,10 +1,10 @@
 import {
+  Money,
   addDays,
   centsOf,
   divideHalfUp,
   moneyOfCents,
   type BusinessDate,
-  type Money,
   type RuleRegistry,
   type RuleStatus,
   type RuleVersion,
@@ -12,15 +12,43 @@ import {
 import { buildingAcquisitionCost, largestRemainder, type BuildingAcquisitionCost } from '../acquisition/index.js';
 import { continuousOwners } from '../ownership/index.js';
 import { isConfirmed, type DepreciationAsset, type ShorterUsefulLife } from './asset.js';
-import { bandOf, buildingRuleOn, isShorter, reciprocalPercent } from './rate.js';
-import { AFA_BUILDING_LINEAR, type BuildingBand, type BuildingLinearParameters, type BuildingRateBand } from './rules/de-afa-building-linear.js';
+import {
+  ONE,
+  ZERO,
+  add,
+  byText,
+  cmp,
+  div,
+  firstDay,
+  frac,
+  lastDayOf,
+  maxDate,
+  minF,
+  monthLabel,
+  monthOf,
+  mul,
+  ofShare,
+  rateOfYear,
+  show,
+  sub,
+  yearOfDate,
+  yearOfMonth,
+  type Frac,
+  type YearRate,
+} from './exact.js';
+import { componentIdOf, isCapitalized, sameItem, type CapitalizedItem, type ItemRef } from './capitalized-item.js';
+import { buildingRuleOn, movableRuleOn, reciprocalPercent } from './rate.js';
+import { AFA_BUILDING_LINEAR, type BuildingBand, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
+import { AFA_MOVABLE_LINEAR, type MovableLinearParameters } from './rules/de-afa-movable-linear.js';
+import { deriveItemWorks, itemComponentOf, itemYears, type ItemComponent, type ItemWork } from './schedule-items.js';
 
 /**
  * The depreciation schedule of the purchase (api-design.md §59A, backlog VC-8-02; P8-D2, P8-D3, P8-D5, P8-D8, P8-D9;
  * §28.1A "Effect on §59A"). Derived on every read from one snapshot, never stored: per Acquisition (a component) and per
  * owner part, month by month in exact fractions, each owner's year rounded once, cumulatively, half-up to the cent. A
- * figure that cannot be derived is `null` with a reason, never 0.00 (decided 2026-10-31). Capitalised items
- * (`CAPITALIZED_ITEM`, VC-8-03), recorded versions (VC-8-04) and the tax-year view (VC-8-05) build on this.
+ * figure that cannot be derived is `null` with a reason, never 0.00 (decided 2026-10-31). The capitalised items
+ * (`CAPITALIZED_ITEM`) and a separate asset's schedule are VC-8-03's (§59B, `schedule-items.ts`); recorded versions
+ * (VC-8-04) and the tax-year view (VC-8-05) build on this.
  */
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -74,6 +102,15 @@ export interface ScheduleInput {
   readonly from?: number | undefined;
   readonly to?: number | undefined;
   readonly ownerPartyId: string | null;
+  /** §59B: the capitalised items of the PropertyReference (and a separate asset's linked items), from Taxation's derivation. */
+  readonly capitalizedItems?: readonly CapitalizedItem[];
+  /** §59B: the links of the PropertyReference's `ACTIVE` separate assets (the building excludes their items). */
+  readonly links?: readonly AssetLink[];
+}
+
+/** An item linked to an `ACTIVE` separate asset (§59B, migration 0051). */
+export interface AssetLink extends ItemRef {
+  readonly assetId: string;
 }
 
 /** What the snapshot read gives the derivation (§59A "One snapshot"). */
@@ -81,6 +118,8 @@ export interface ScheduleRead {
   readonly asset: DepreciationAsset;
   readonly acquisitions: readonly ScheduleAcquisition[];
   readonly ownerships: readonly ScheduleOwnership[];
+  readonly capitalizedItems: readonly CapitalizedItem[];
+  readonly links: readonly AssetLink[];
   /** Whether `ownerPartyId` names a Party of the caller's Realm; `null` without one. */
   readonly ownerPartyFound: boolean | null;
 }
@@ -102,7 +141,17 @@ export type CalculationStatus = 'NOT_CALCULABLE' | 'PROVISIONAL' | 'CALCULATED';
 export type ScheduleStatus = 'AVAILABLE' | 'PARTIAL' | 'DEPRECIATION_NOT_AVAILABLE';
 
 /** Open: a person must act (P7-D8); informative: nothing to do. Everything not listed here is open. */
-export const INFORMATIVE_CODES: readonly string[] = ['SHORTER_USEFUL_LIFE', 'ACQUISITION_COST_UNPAID', 'OWNER_SHARE_CHANGED'];
+export const INFORMATIVE_CODES: readonly string[] = [
+  'SHORTER_USEFUL_LIFE',
+  'ACQUISITION_COST_UNPAID',
+  'OWNER_SHARE_CHANGED',
+  // §59B
+  'ANSCHAFFUNGSNAHE_CAPITALIZED',
+  'CAPITALIZED_REFUND',
+  'DATE_IS_BOOKING_DATE',
+  'WITHDRAWAL_DATE_ASSUMED',
+  'GWG_THRESHOLD_MAY_APPLY',
+];
 const isOpen = (code: string) => !INFORMATIVE_CODES.includes(code);
 
 export interface ComponentBasis {
@@ -170,6 +219,8 @@ export interface ComponentYear {
   readonly calculationStatus: CalculationStatus;
   readonly reasons: readonly Flag[];
   readonly owners: readonly OwnerYear[];
+  /** §59B: the `NOT_OWNED` part's amount of an item component; `null` on a purchase and without one. */
+  readonly notOwned: Money | null;
   readonly flags: readonly Flag[];
 }
 
@@ -201,7 +252,7 @@ export interface ScheduleYear {
   readonly amount: Money | null;
   readonly residualValue: Money | null;
   readonly owners: readonly { readonly ownerPartyId: string; readonly amount: Money | null }[] | null;
-  readonly notOwned: null;
+  readonly notOwned: Money | null;
   readonly reasons: readonly Flag[];
   readonly flags: readonly Flag[];
 }
@@ -216,8 +267,20 @@ export interface DepreciationSchedule {
   readonly range: { readonly from: number; readonly to: number; readonly truncated: boolean };
   readonly status: ScheduleStatus;
   readonly reasons: readonly Flag[];
-  readonly asset: { readonly status: string; readonly buildingCompletionYear: number | null; readonly reviewState: string };
-  readonly components: readonly ScheduleComponent[];
+  /** §59B: the schedule's own flags (`GWG_THRESHOLD_MAY_APPLY` on a separate asset). */
+  readonly flags: readonly Flag[];
+  readonly asset: {
+    readonly status: string;
+    readonly buildingCompletionYear?: number | null;
+    readonly description?: string | null;
+    readonly usefulLifeYears?: number | null;
+    readonly acquiredOn?: BusinessDate | null;
+    readonly reviewState: string;
+  };
+  /** The purchase components (§59A) and the item components (§59B), in that order. */
+  readonly components: readonly (ScheduleComponent | ItemComponent)[];
+  /** §59B: on the building, the items of `ACTIVE` separate assets (by `componentId`); on a separate asset `null`. */
+  readonly excludedItems: readonly { readonly componentId: string; readonly separateAssetId: string }[] | null;
   readonly years: readonly ScheduleYear[];
   readonly review: { readonly open: readonly { code: string; count: number }[]; readonly info: readonly { code: string; count: number }[] };
   readonly ruleVersions: readonly {
@@ -234,83 +297,10 @@ export const RANGE_MIN_YEAR = 2000;
 export const RANGE_MAX_YEAR = 2100;
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Exact fractions (bigint, reduced; never floating point, AGENTS.md §20)
-
-interface Frac {
-  readonly n: bigint;
-  readonly d: bigint;
-}
-const gcdOf = (a: bigint, b: bigint): bigint => {
-  let x = a < 0n ? -a : a;
-  let y = b < 0n ? -b : b;
-  while (y !== 0n) [x, y] = [y, x % y];
-  return x;
-};
-const frac = (n: bigint, d: bigint): Frac => {
-  const g = gcdOf(n, d) || 1n;
-  const sign = d < 0n ? -1n : 1n;
-  return { n: (sign * n) / g, d: (sign * d) / g };
-};
-const ZERO: Frac = { n: 0n, d: 1n };
-const ONE: Frac = { n: 1n, d: 1n };
-const add = (a: Frac, b: Frac) => frac(a.n * b.d + b.n * a.d, a.d * b.d);
-const sub = (a: Frac, b: Frac) => frac(a.n * b.d - b.n * a.d, a.d * b.d);
-const mul = (a: Frac, b: Frac) => frac(a.n * b.n, a.d * b.d);
-const div = (a: Frac, b: Frac) => frac(a.n * b.d, a.d * b.n);
-const cmp = (a: Frac, b: Frac) => {
-  const l = a.n * b.d;
-  const r = b.n * a.d;
-  return l < r ? -1 : l > r ? 1 : 0;
-};
-const minF = (a: Frac, b: Frac) => (cmp(a, b) <= 0 ? a : b);
-const ofShare = (s: { readonly numerator: number; readonly denominator: number }) => frac(BigInt(s.numerator), BigInt(s.denominator));
-const show = (f: Frac) => `${f.n}/${f.d}`;
-/** A §87 decimal string as an exact fraction: `"2.5"` → 5/2. */
-function ofDecimal(value: string): Frac {
-  const [whole, fraction = ''] = value.split('.') as [string, string?];
-  return frac(BigInt(whole + fraction), 10n ** BigInt(fraction.length));
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// Months and days
-
-const monthOf = (date: BusinessDate) => Number(date.slice(0, 4)) * 12 + Number(date.slice(5, 7)) - 1;
-const yearOfMonth = (m: number) => Math.floor(m / 12);
-const monthLabel = (m: number) => `${yearOfMonth(m)}-${String((m % 12) + 1).padStart(2, '0')}`;
-const firstDay = (m: number) => `${monthLabel(m)}-01` as BusinessDate;
-const lastDayOf = (m: number) => addDays(firstDay(m + 1), -1);
-const yearOfDate = (date: BusinessDate) => Number(date.slice(0, 4));
-const maxDate = (a: BusinessDate, b: BusinessDate) => (a > b ? a : b);
-const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The rule of a year
-
-interface YearRate {
-  readonly rule: RuleVersion<BuildingLinearParameters>;
-  readonly band: BuildingRateBand;
-  readonly kind: 'BAND' | 'SHORTER_USEFUL_LIFE';
-  readonly annual: Frac;
-  /** A confirmed shorter life whose years are not below the band's threshold (`USEFUL_LIFE_NOT_SHORTER`). */
-  readonly notShorter: boolean;
-}
-
-/** The rate of `year` for a component (§59A "The asset, the rate and the rule"); undefined without a rule or a band. */
-function rateOfYear(registry: RuleRegistry, year: number, completionYear: number | null, entry: ShorterUsefulLife | undefined): YearRate | undefined {
-  const rule = buildingRuleOn(registry, year);
-  if (rule === undefined || completionYear === null) return undefined;
-  const band = bandOf(rule.parameters, completionYear);
-  if (band === undefined) return undefined;
-  const bandRate = div(ofDecimal(band.ratePercent), frac(100n, 1n));
-  if (entry === undefined || !isConfirmed(entry.reviewState)) return { rule, band, kind: 'BAND', annual: bandRate, notShorter: false };
-  if (!isShorter(entry.usefulLifeYears, band)) return { rule, band, kind: 'BAND', annual: bandRate, notShorter: true };
-  return { rule, band, kind: 'SHORTER_USEFUL_LIFE', annual: frac(1n, BigInt(entry.usefulLifeYears)), notShorter: false };
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
 // The derivation
 
-interface Part {
+/** A buyer's part of a purchase component (internal; `schedule-items.ts` pools item parts with it, §59B). */
+export interface Part {
   readonly ownerPartyId: string;
   readonly ownershipId: string;
   readonly share: Frac;
@@ -330,9 +320,12 @@ interface Part {
   years: Map<number, { months: number; fraction: Frac; cumulative: Frac }>;
   /** Disposal months (the tenure's end or a reduction) with a cut-off: year → details. */
   disposals: Map<number, Record<string, unknown>>;
+  /** The still-held fraction of a month (§59A, `endMonthCounts`), set once the part's months are walked. */
+  fractionAt: ((m: number) => Frac) | null;
 }
 
-interface Work {
+/** A purchase component under derivation (internal; read by `schedule-items.ts`). */
+export interface Work {
   readonly acquisition: ScheduleAcquisition;
   readonly componentId: string;
   readonly start: BusinessDate;
@@ -375,13 +368,22 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
   const latest = versions[versions.length - 1];
   // DE computes no year before the first version, and a contract before it may run a method DE does not know (§59A).
   const supportedFrom = versions[0]?.effectiveFrom ?? null;
+  const separate = asset.assetType === 'SEPARATE_ASSET';
+  const capitalizedItems = input.capitalizedItems ?? [];
+  const links = input.links ?? [];
   const assetReasons: Flag[] = [];
   if (asset.status === 'VOID') assetReasons.push({ code: 'ASSET_VOID', details: {} });
-  if (asset.buildingCompletionYear === null) assetReasons.push({ code: 'COMPLETION_YEAR_MISSING', details: {} });
+  if (!separate && asset.buildingCompletionYear === null) assetReasons.push({ code: 'COMPLETION_YEAR_MISSING', details: {} });
   if (!isConfirmed(asset.reviewState)) assetReasons.push({ code: 'ASSET_NOT_CONFIRMED', details: {} });
+  // §59B: a separate asset without a counting CAPITALIZED item has nothing to depreciate.
+  const linkedItems = asset.items.map((ref) => ({ ref, item: capitalizedItems.find((i) => sameItem(i, ref)) ?? null }));
+  if (separate && !linkedItems.some(({ item }) => item !== null && isCapitalized(item) && item.anschaffungsnaheAcquisitionId === null)) {
+    assetReasons.push({ code: 'NO_CAPITALIZED_ITEMS', details: {} });
+  }
 
   const carrying = (id: string) => input.ownerships.filter((o) => o.acquisitionId === id);
-  const listed = input.acquisitions
+  // A separate asset has no purchase components: its cost is its items (§59B).
+  const listed = (separate ? [] : input.acquisitions)
     .filter((a) => a.status === 'CONFIRMED' || (a.status === 'DRAFT' && carrying(a.id).length > 0))
     .map((a) => ({ a, start: a.economicTransferDate ?? a.contractDate }))
     .sort((x, y) => byText(x.start, y.start) || byText(x.a.id, y.a.id));
@@ -430,6 +432,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
           missingFrom: null,
           years: new Map(),
           disposals: new Map(),
+          fractionAt: null,
         };
       });
 
@@ -541,8 +544,11 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     };
   });
 
-  // The tenure and the still-held fraction per Party, over all its components at once (§59A, §28.1A).
-  const parties = [...new Set([...input.ownerships.map((o) => o.partyId), ...works.flatMap((w) => w.parts.map((p) => p.ownerPartyId))])].sort(byText);
+  // The tenure and the still-held fraction per Party, over all its components at once (§59A, §28.1A). A separate
+  // asset's owners are its items' (§59B): OWNER_WITHOUT_ACQUISITION concerns the building's purchases only.
+  const parties = separate
+    ? []
+    : [...new Set([...input.ownerships.map((o) => o.partyId), ...works.flatMap((w) => w.parts.map((p) => p.ownerPartyId))])].sort(byText);
   const coverage = new Map<string, { date: BusinessDate; held: Frac; covered: Frac }[]>();
   for (const partyId of parties) {
     const rows = rowsOf(partyId);
@@ -618,11 +624,12 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
         for (const c of p.changes) if (c.date <= day) value = c.f;
         return value;
       };
+      const fractionAt = (m: number) => (endMonthCounts ? fractionOn(maxDate(firstDay(m), w.start)) : fractionOn(lastDayOf(m)));
+      p.fractionAt = fractionAt;
       let cumulative = ZERO;
       for (let m = w.firstMonth; m <= w.lastMonth; m++) {
         const q = w.monthly.get(m) ?? ZERO;
-        const from = maxDate(firstDay(m), w.start);
-        const f = endMonthCounts ? fractionOn(from) : fractionOn(lastDayOf(m));
+        const f = fractionAt(m);
         cumulative = add(cumulative, mul(f, q));
         const year = yearOfMonth(m);
         const seen = p.years.get(year) ?? { months: 0, fraction: ZERO, cumulative: ZERO };
@@ -638,6 +645,24 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     }
   }
 
+  // §59B: the item components. The building takes every capitalised item not linked to an ACTIVE separate asset; a
+  // separate asset its linked items.
+  const itemContext = { registry, asset, assetReasons, works, ownerships: input.ownerships, acquisitions: input.acquisitions };
+  const excluded = separate ? [] : capitalizedItems.filter((i) => isCapitalized(i) && links.some((l) => sameItem(l, i)));
+  const itemWorks: ItemWork[] = deriveItemWorks(
+    itemContext,
+    separate
+      ? linkedItems
+      : capitalizedItems
+          .filter((i) => isCapitalized(i) && !excluded.includes(i))
+          .map((item) => ({ ref: item as ItemRef, item: item as CapitalizedItem | null })),
+  );
+  const excludedItems = separate
+    ? null
+    : excluded
+        .map((i) => ({ componentId: componentIdOf(i), separateAssetId: (links.find((l) => sameItem(l, i)) as AssetLink).assetId }))
+        .sort((a, b) => byText(a.componentId, b.componentId));
+
   // The range (§59A "Path and query"): defaults from the components, clamped to 2000–2100.
   const todayYear = yearOfDate(input.today);
   const clamp = (y: number) => Math.min(RANGE_MAX_YEAR, Math.max(RANGE_MIN_YEAR, y));
@@ -645,12 +670,12 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     const years = w.parts.flatMap((p) => [...p.years.entries()].filter(([, v]) => v.months > 0).map(([y]) => y));
     return years.length === 0 ? null : Math.max(...years);
   };
-  const computableLast = works
-    .filter((w) => w.computable)
-    .map(lastYearOf)
-    .filter((y): y is number => y !== null);
+  const computableLast = [...works.filter((w) => w.computable).map(lastYearOf), ...itemWorks.filter((w) => w.computable).map((w) => itemYears(w).last)].filter(
+    (y): y is number => y !== null,
+  );
   const naturalTo = computableLast.length === 0 ? todayYear : Math.max(...computableLast);
-  const from = input.from ?? clamp(works.length === 0 ? todayYear : Math.min(...works.map((w) => yearOfDate(w.start))));
+  const starts = [...works.map((w) => yearOfDate(w.start)), ...itemWorks.map((w) => itemYears(w).first).filter((y): y is number => y !== null)];
+  const from = input.from ?? clamp(starts.length === 0 ? todayYear : Math.min(...starts));
   let to = input.to ?? clamp(naturalTo);
   if (to < from) to = from;
   const truncated = input.to === undefined && naturalTo > RANGE_MAX_YEAR;
@@ -659,14 +684,19 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
   const shown = input.ownerPartyId === null ? works : works.filter((w) => w.parts.some((p) => p.ownerPartyId === input.ownerPartyId));
   const partsShown = (w: Work) => (input.ownerPartyId === null ? w.parts : w.parts.filter((p) => p.ownerPartyId === input.ownerPartyId));
 
-  const components = shown.map((w) => componentOf(w, partsShown(w), { from, to }, assetReasons));
+  const components: (ScheduleComponent | ItemComponent)[] = [
+    ...shown.map((w) => componentOf(w, partsShown(w), { from, to }, assetReasons)),
+    ...itemWorks
+      .filter((w) => input.ownerPartyId === null || w.parts.some((p) => p.participant === input.ownerPartyId))
+      .map((w) => itemComponentOf(w, itemContext, { from, to }, input.ownerPartyId, INFORMATIVE_CODES)),
+  ];
 
   // The schedule's years: components summed, never distributed (P8-D8, F4b).
   const years: ScheduleYear[] = [];
   for (let year = from; year <= to; year++) {
     const active = components
       .map((c) => ({ c, y: c.years.find((y) => y.year === year) }))
-      .filter((x): x is { c: ScheduleComponent; y: ComponentYear } => x.y !== undefined);
+      .filter((x): x is { c: ScheduleComponent | ItemComponent; y: ComponentYear } => x.y !== undefined);
     const calculable = active.filter(({ y }) => y.calculationStatus !== 'NOT_CALCULABLE');
     const sum = (values: readonly (Money | null)[]) =>
       values.some((v) => v === null) ? null : moneyOfCents(values.reduce((s, v) => s + centsOf(v as Money), 0n));
@@ -706,10 +736,38 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
               ownerPartyId,
               amount: sum(active.flatMap(({ y }) => y.owners.filter((o) => o.ownerPartyId === ownerPartyId).map((o) => o.amount))),
             })),
-      notOwned: null,
+      // §59B: the NOT_OWNED parts of the item components, summed; null at the owner level and without one.
+      notOwned:
+        level === 'OWNER' || notCalculable || !active.some(({ y }) => y.notOwned !== null)
+          ? null
+          : sum(active.flatMap(({ y }) => (y.notOwned === null ? [] : [y.notOwned]))),
       reasons: sortFlags(reasons),
       flags: sortFlags(flags),
     });
+  }
+
+  // §59B: a separate asset whose cost is at most the GWG threshold (gross, or net when every item has a net amount).
+  const scheduleFlags: Flag[] = [];
+  if (separate) {
+    const counted = linkedItems.flatMap(({ item }) => (item !== null && isCapitalized(item) && item.anschaffungsnaheAcquisitionId === null ? [item] : []));
+    const versions = registry.versions(AFA_MOVABLE_LINEAR) as readonly RuleVersion<MovableLinearParameters>[];
+    const rule = (asset.acquiredOn === null ? undefined : movableRuleOn(registry, yearOfDate(asset.acquiredOn))) ?? versions[versions.length - 1];
+    if (counted.length > 0 && rule !== undefined) {
+      const threshold = centsOf(Money.of(rule.parameters.gwgHint.netThreshold, counted[0]?.lineAmount.currency ?? 'EUR'));
+      const gross = counted.reduce((s, i) => s + centsOf(i.lineAmount), 0n);
+      const net = counted.every((i) => i.netAmount !== null) ? counted.reduce((s, i) => s + centsOf(i.netAmount as Money), 0n) : null;
+      if (gross <= threshold || (net !== null && net <= threshold)) {
+        scheduleFlags.push({
+          code: 'GWG_THRESHOLD_MAY_APPLY',
+          details: {
+            netThreshold: rule.parameters.gwgHint.netThreshold,
+            grossCost: moneyOfCents(gross).toJSON(),
+            netCost: net === null ? null : moneyOfCents(net).toJSON(),
+            legalBasis: rule.parameters.gwgHint.legalBasis,
+          },
+        });
+      }
+    }
   }
 
   const status: ScheduleStatus =
@@ -731,10 +789,20 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     range: { from, to, truncated },
     status,
     reasons: assetReasons,
-    asset: { status: asset.status, buildingCompletionYear: asset.buildingCompletionYear, reviewState: asset.reviewState },
+    flags: scheduleFlags,
+    asset: separate
+      ? {
+          status: asset.status,
+          description: asset.description,
+          usefulLifeYears: asset.usefulLifeYears,
+          acquiredOn: asset.acquiredOn,
+          reviewState: asset.reviewState,
+        }
+      : { status: asset.status, buildingCompletionYear: asset.buildingCompletionYear, reviewState: asset.reviewState },
     components,
+    excludedItems,
     years,
-    review: reviewOf(assetReasons, components, years),
+    review: reviewOf(assetReasons, scheduleFlags, components, years),
     ruleVersions: ruleVersionsOf(components, registry, input.today),
   };
 }
@@ -857,6 +925,7 @@ function componentOf(w: Work, parts: readonly Part[], range: { readonly from: nu
           : 'CALCULATED',
       reasons: notCalculable ? mergeOwnerFlags(owners.map((o) => ({ ownerPartyId: o.ownerPartyId, flags: o.reasons }))) : [],
       owners,
+      notOwned: null,
       flags: mergeOwnerFlags(owners.map((o) => ({ ownerPartyId: o.ownerPartyId, flags: o.flags }))),
     });
   }
@@ -941,10 +1010,15 @@ function mergeOwnerFlags(entries: readonly { ownerPartyId: string; flags: readon
 }
 
 /** Over the range: each code once with the number of components (or owner-years, or owner and year) carrying it. */
-function reviewOf(assetReasons: readonly Flag[], components: readonly ScheduleComponent[], years: readonly ScheduleYear[]) {
+function reviewOf(
+  assetReasons: readonly Flag[],
+  scheduleFlags: readonly Flag[],
+  components: readonly (ScheduleComponent | ItemComponent)[],
+  years: readonly ScheduleYear[],
+) {
   const counts = new Map<string, number>();
   const count = (code: string, n = 1) => counts.set(code, (counts.get(code) ?? 0) + n);
-  for (const r of assetReasons) count(r.code);
+  for (const r of [...assetReasons, ...scheduleFlags]) count(r.code);
   for (const c of components) {
     for (const code of new Set([...c.reasons, ...c.flags].map((f) => f.code))) count(code);
     for (const y of c.years)
@@ -959,7 +1033,7 @@ function reviewOf(assetReasons: readonly Flag[], components: readonly ScheduleCo
   return { open: list(true), info: list(false) };
 }
 
-function ruleVersionsOf(components: readonly ScheduleComponent[], registry: RuleRegistry, today: BusinessDate) {
+function ruleVersionsOf(components: readonly (ScheduleComponent | ItemComponent)[], registry: RuleRegistry, today: BusinessDate) {
   const named = new Map<string, { ruleCode: string; version: number; years: Set<number> }>();
   for (const c of components) {
     for (const y of c.years) {

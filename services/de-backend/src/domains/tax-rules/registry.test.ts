@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { RuleRegistry, ruleKey, type BusinessDate, type RuleVersion } from '../../shared/index.js';
 import {
   AFA_BUILDING_LINEAR,
+  AFA_MOVABLE_LINEAR,
   DE_AFA_BUILDING_LINEAR_V1,
   DE_AFA_BUILDING_LINEAR_V2,
+  DE_AFA_MOVABLE_LINEAR_V1,
   DEPRECIATION_RULE_VERSIONS,
   type BuildingLinearParameters,
+  type MovableLinearParameters,
 } from '../depreciation/index.js';
 import {
   ANSCHAFFUNGSNAHE,
@@ -13,12 +16,15 @@ import {
   CATEGORY_DEFAULTS,
   DE_CATEGORY_DEFAULTS_V1,
   TAXATION_RULE_VERSIONS,
+  WEG_SPENDING,
   type AnschaffungsnaheParameters,
+  type CategoryDefaultsParameters,
+  type WegSpendingParameters,
 } from '../taxation/index.js';
 import { TAX_RULES } from './index.js';
 
 /**
- * The registry of the backend (api-design.md §58, §59; P8-D11): the six rules of both domains, none overlapping, each
+ * The registry of the backend (api-design.md §58, §59, §59B; P8-D11): the seven rules of both domains, none overlapping, each
  * exported by its own domain; `DE_AFA_BUILDING_LINEAR@2` (today's rule, `@1` until VC-8-02) with its bands and
  * thresholds, and `@1` for 2006–2022 (§59A "The rule versions"), read from `TAX_RULES`.
  */
@@ -26,12 +32,20 @@ const day = (value: string) => value as BusinessDate;
 const today = day('2026-10-30');
 
 describe('TAX_RULES (§58, §59)', () => {
-  it('six rules, none overlapping', () => {
+  it('seven rules, none overlapping (DE_AFA_MOVABLE_LINEAR since VC-8-03, §59B)', () => {
     expect(() => new RuleRegistry(TAX_RULES.codes().flatMap((code) => TAX_RULES.versions(code)))).not.toThrow();
-    expect(TAX_RULES.codes()).toEqual(['DE_82B_DISTRIBUTION', AFA_BUILDING_LINEAR, 'DE_ANSCHAFFUNGSNAHE', CASH_TIMING, CATEGORY_DEFAULTS, 'DE_WEG_SPENDING']);
+    expect(TAX_RULES.codes()).toEqual([
+      'DE_82B_DISTRIBUTION',
+      AFA_BUILDING_LINEAR,
+      AFA_MOVABLE_LINEAR,
+      'DE_ANSCHAFFUNGSNAHE',
+      CASH_TIMING,
+      CATEGORY_DEFAULTS,
+      'DE_WEG_SPENDING',
+    ]);
   });
 
-  it("Taxation's five versions and Depreciation's two, each from its domain's index, make up TAX_RULES: none twice, none left out", () => {
+  it("Taxation's five versions and Depreciation's three, each from its domain's index, make up TAX_RULES: none twice, none left out", () => {
     expect(TAXATION_RULE_VERSIONS.map(ruleKey).sort()).toEqual([
       'DE_82B_DISTRIBUTION@1',
       'DE_ANSCHAFFUNGSNAHE@1',
@@ -39,7 +53,7 @@ describe('TAX_RULES (§58, §59)', () => {
       'DE_CATEGORY_DEFAULTS@1',
       'DE_WEG_SPENDING@1',
     ]);
-    expect(DEPRECIATION_RULE_VERSIONS.map(ruleKey)).toEqual(['DE_AFA_BUILDING_LINEAR@1', 'DE_AFA_BUILDING_LINEAR@2']);
+    expect(DEPRECIATION_RULE_VERSIONS.map(ruleKey)).toEqual(['DE_AFA_BUILDING_LINEAR@1', 'DE_AFA_BUILDING_LINEAR@2', 'DE_AFA_MOVABLE_LINEAR@1']);
     const registered = TAX_RULES.codes().flatMap((code) => TAX_RULES.versions(code));
     expect(registered.map(ruleKey).sort()).toEqual([...TAXATION_RULE_VERSIONS, ...DEPRECIATION_RULE_VERSIONS].map(ruleKey).sort());
     for (const v of [...TAXATION_RULE_VERSIONS, ...DEPRECIATION_RULE_VERSIONS]) expect(TAX_RULES.find(v)).toBe(v);
@@ -110,7 +124,18 @@ describe('TAX_RULES (§58, §59)', () => {
   it('the schedule parameters are the same in both versions, and the basis excludes what DE_ANSCHAFFUNGSNAHE@1 excludes (§59A)', () => {
     const v1 = DE_AFA_BUILDING_LINEAR_V1.parameters;
     const v2 = DE_AFA_BUILDING_LINEAR_V2.parameters;
-    for (const key of ['basis', 'firstYear', 'end', 'rounding', 'methodUnknownFromCompletionYear', 'shorterUsefulLife'] as const)
+    for (const key of [
+      'basis',
+      'firstYear',
+      'end',
+      'rounding',
+      'methodUnknownFromCompletionYear',
+      'shorterUsefulLife',
+      // §59B: added to both versions additively, identically.
+      'subsequentCostStart',
+      'subsequentCostRate',
+      'subsequentCostEnd',
+    ] as const)
       expect(v1[key]).toEqual(v2[key]);
     expect(v2.methodUnknownFromCompletionYear).toBe(2018);
     expect('degressiveHint' in v2).toBe(false);
@@ -145,5 +170,78 @@ describe('TAX_RULES (§58, §59)', () => {
     ]);
     // 100 / 3 is not 33, and 100 / 2.5 is 40 only by coincidence: the statute names the years.
     expect(parameters.shorterUsefulLife).toEqual({ legalBasis: '§ 7 Abs. 4 S. 2 EStG', rate: 'RECIPROCAL_OF_YEARS' });
+  });
+
+  it('DE_AFA_BUILDING_LINEAR: the parameters of §59B in both versions, read from the registry', () => {
+    for (const version of [1, 2]) {
+      const { parameters } = TAX_RULES.find({ ruleCode: AFA_BUILDING_LINEAR, version }) as { parameters: BuildingLinearParameters };
+      expect(parameters.basis).toMatchObject({
+        capitalizedItemReviewStates: ['USER_CONFIRMED', 'ADVISOR_CONFIRMED'],
+        capitalizedItemAmount: 'GROSS_LINE_AMOUNT',
+      });
+      expect(parameters.subsequentCostStart).toEqual({
+        method: 'START_OF_YEAR',
+        notBeforeOwnerStart: true,
+        verified: false,
+        legalBasis: 'R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)',
+      });
+      expect(parameters.subsequentCostRate).toEqual({ rate: 'OWNER_PURCHASE_RATE', shorterLifeVerified: false });
+      expect(parameters.subsequentCostEnd).toEqual({
+        method: 'POOLED_BASIS',
+        remainingUsefulLife: { allowed: true, computed: false },
+        verified: false,
+        legalBasis: 'R 7.4 Abs. 9 S. 1–2 EStR (review on #179; VERIFY)',
+      });
+    }
+    expect(DE_AFA_BUILDING_LINEAR_V2.source).toContain('depreciation.md §6 v0.2; verification-checklist B11; phase-8-plan P8-D6');
+  });
+
+  it('DE_AFA_MOVABLE_LINEAR version 1 (§59B): its fields and parameters; end, rounding and basis.amount equal the building rule’s', () => {
+    const rule = TAX_RULES.find({ ruleCode: AFA_MOVABLE_LINEAR, version: 1 }) as RuleVersion<MovableLinearParameters>;
+    expect(rule).toBe(DE_AFA_MOVABLE_LINEAR_V1);
+    expect(rule).toMatchObject({
+      ruleCode: 'DE_AFA_MOVABLE_LINEAR',
+      version: 1,
+      title: 'Lineare AfA beweglicher Wirtschaftsgüter (§ 7 Abs. 1 EStG)',
+      legalBasis: '§ 7 Abs. 1 EStG (S. 4: the first year)',
+      effectiveFrom: '2023-01-01',
+      effectiveTo: null,
+    });
+    expect(rule.source).toBe(
+      'docs/germany/depreciation.md §5, §6 v0.2 (verified 29.10.2026); verification-checklist B6, B8, B9; phase-8-plan P8-D7; api-design §59B',
+    );
+    expect(rule.parameters.usefulLife).toEqual({ from: 'ASSET', minYears: 1, maxYears: 99, rate: 'RECIPROCAL_OF_YEARS' });
+    expect(rule.parameters.firstYear).toEqual({ startMonthCounts: true, from: 'ACQUIRED_ON', legalBasis: '§ 7 Abs. 1 S. 4 EStG' });
+    expect(rule.parameters.basis).toEqual({
+      itemReviewStates: ['USER_CONFIRMED', 'ADVISOR_CONFIRMED'],
+      amount: 'GROSS_LINE_AMOUNT',
+      laterItems: { verified: false },
+    });
+    expect(rule.parameters.gwgHint).toEqual({
+      netThreshold: '800.00',
+      legalBasis: '§ 9 Abs. 1 S. 3 Nr. 7 S. 2 i. V. m. § 6 Abs. 2 S. 1–3 EStG',
+      sammelposten: false,
+    });
+    // One end and one rounding for both rules; the same amount and review states as the building's items.
+    const building = DE_AFA_BUILDING_LINEAR_V2.parameters;
+    expect(rule.parameters.end).toEqual(building.end);
+    expect(rule.parameters.end.disposal.verified).toBe(false);
+    expect(rule.parameters.rounding).toEqual(building.rounding);
+    expect(rule.parameters.basis.amount).toBe(building.basis.capitalizedItemAmount);
+    expect(rule.parameters.basis.itemReviewStates).toEqual(building.basis.capitalizedItemReviewStates);
+    expect(TAX_RULES.status(rule, today)).toBe('ACTIVE');
+    for (const year of [2000, 2022]) expect(TAX_RULES.select(AFA_MOVABLE_LINEAR, day(`${year}-12-31`))).toBeUndefined();
+    for (const year of [2023, 2027, 2100]) expect(TAX_RULES.select(AFA_MOVABLE_LINEAR, day(`${year}-01-01`))?.version).toBe(1);
+  });
+
+  it('only a classification moves the basis (§59B): no registered default rule gives treatment CAPITALIZED', () => {
+    for (const rule of TAX_RULES.versions(CATEGORY_DEFAULTS) as readonly RuleVersion<CategoryDefaultsParameters>[]) {
+      const defaults = [...Object.values(rule.parameters.defaults), rule.parameters.unlisted];
+      expect(defaults.length).toBeGreaterThan(1);
+      for (const d of defaults) expect(d.treatment, ruleKey(rule)).not.toBe('CAPITALIZED');
+    }
+    for (const rule of TAX_RULES.versions(WEG_SPENDING) as readonly RuleVersion<WegSpendingParameters>[]) {
+      expect(rule.parameters.default.treatment, ruleKey(rule)).not.toBe('CAPITALIZED');
+    }
   });
 });

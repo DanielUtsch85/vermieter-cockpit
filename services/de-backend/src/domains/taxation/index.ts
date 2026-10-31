@@ -142,6 +142,8 @@ export type {
   ReferenceAmendment,
   ReferenceHistory,
 } from './attribution-changes.js';
+export { capitalizedItemsOf } from './capitalized-items.js';
+export type { CapitalizedSource, CapitalizedSourceInput } from './capitalized-items.js';
 export {
   EINNAHMEN_LINES,
   NOT_OWNED,

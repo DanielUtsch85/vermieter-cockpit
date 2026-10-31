@@ -712,6 +712,11 @@ export interface DepreciationAssetTable {
   asset_type: string;
   status: string;
   building_completion_year: number | null;
+  /** VC-8-03 (0051): a separate asset's facts, `null` on a building. `acquired_on` is a `date`, read as `YYYY-MM-DD`. */
+  description: string | null;
+  useful_life_years: number | null;
+  useful_life_basis: string | null;
+  acquired_on: string | null;
   source_references: Generated<string[]>;
   depreciation_method: string;
   review_state: string;
@@ -737,6 +742,19 @@ export interface DepreciationAssetUsefulLifeTable {
   evidence_document_reference: string | null;
   review_state: string;
   advisor_party_id: string | null;
+}
+
+/** VC-8-03 (0051): the capitalised items a separate asset consists of, as rows; `asset_status` follows the asset's. */
+export interface DepreciationAssetItemTable {
+  asset_id: string;
+  mre_realm_id: string;
+  property_reference_id: string;
+  asset_status: string;
+  source_type: string;
+  source_id: string;
+  source_position: number | null;
+  created_at: Generated<Date>;
+  created_by: string;
 }
 
 export interface Database {
@@ -774,4 +792,5 @@ export interface Database {
   rental_contract_reference: RentalContractReferenceTable;
   depreciation_asset: DepreciationAssetTable;
   depreciation_asset_useful_life: DepreciationAssetUsefulLifeTable;
+  depreciation_asset_item: DepreciationAssetItemTable;
 }

@@ -36,6 +36,11 @@ const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset =>
   depreciationMethod: 'LINEAR_7_4',
   status: 'ACTIVE',
   buildingCompletionYear: 1995,
+  description: null,
+  usefulLifeYears: null,
+  usefulLifeBasis: null,
+  acquiredOn: null,
+  items: [],
   sourceReferences: [],
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
@@ -156,6 +161,8 @@ describe('the rate block (§59)', () => {
       rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
       band: 'B',
       ratePercent: '2',
+      // §59B: the exact fraction beside the display value.
+      rate: '1/50',
       legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
       shorterThanYears: 50,
       reasons: [],
@@ -256,5 +263,47 @@ describe('the rate block (§59)', () => {
   it('the year of evidence computes nothing in VC-8-01 (VC-8-02 decides): a later evidence date applies all the same', () => {
     const later = entry({ evidence: { source: 'Gutachten', date: day('2099-01-01'), documentReference: null } });
     expect(deriveRate(read({ shorterUsefulLives: [later] }), 2026, registry).shorterUsefulLives[0]?.applies).toBe(true);
+  });
+});
+
+describe('the rate block of a separate asset (VC-8-03, §59B)', () => {
+  const separate = (overrides: Partial<DepreciationAsset> = {}) =>
+    read({
+      assetType: 'SEPARATE_ASSET',
+      depreciationMethod: 'LINEAR_7_1',
+      buildingCompletionYear: null,
+      description: 'Einbauküche (synthetisch)',
+      usefulLifeYears: 10,
+      usefulLifeBasis: 'BFH IX R 14/15 (B8)',
+      acquiredOn: day('2027-04-20'),
+      ...overrides,
+    });
+
+  it('DE_AFA_MOVABLE_LINEAR@1, no band, 1/usefulLifeYears exactly and as display value, § 7 Abs. 1 EStG', () => {
+    expect(deriveRate(separate(), 2027, registry)).toEqual({
+      year: 2027,
+      rule: { ruleCode: 'DE_AFA_MOVABLE_LINEAR', version: 1 },
+      band: null,
+      ratePercent: '10.0000',
+      rate: '1/10',
+      legalBasis: '§ 7 Abs. 1 EStG',
+      shorterThanYears: null,
+      reasons: [],
+      shorterUsefulLives: [],
+    });
+    expect(deriveRate(separate({ usefulLifeYears: 3 }), 2027, registry)).toMatchObject({ ratePercent: '33.3333', rate: '1/3' });
+  });
+
+  it('NO_APPLICABLE_RULE before 2023 and for an asset acquired before it; ASSET_VOID and ASSET_NOT_CONFIRMED as the building’s', () => {
+    expect(deriveRate(separate(), 2022, registry)).toMatchObject({ rule: null, reasons: ['NO_APPLICABLE_RULE'] });
+    expect(deriveRate(separate({ acquiredOn: day('2020-03-01') }), 2026, registry)).toMatchObject({ rule: { version: 1 }, reasons: ['NO_APPLICABLE_RULE'] });
+    expect(deriveRate(separate({ status: 'VOID', reviewState: 'UNREVIEWED' }), 2027, registry).reasons).toEqual(['ASSET_VOID', 'ASSET_NOT_CONFIRMED']);
+  });
+
+  it('the building’s block gains the exact rate: 1/50 for band B, 1/40 for 2.5 %, 3/100 for 3 %', () => {
+    expect(deriveRate(read(), 2026, registry).rate).toBe('1/50');
+    expect(deriveRate(read({ buildingCompletionYear: 1920 }), 2026, registry).rate).toBe('1/40');
+    expect(deriveRate(read({ buildingCompletionYear: 2024 }), 2026, registry).rate).toBe('3/100');
+    expect(deriveRate(read({ buildingCompletionYear: null }), 2026, registry).rate).toBeNull();
   });
 });

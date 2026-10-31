@@ -1,9 +1,14 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
+  addedItems,
   advisorsOf,
+  amendFieldsNotAllowed,
+  componentIdOf,
   entryAcquisitionRefusal,
+  itemLinkRefusal,
   planAssetAmend,
   planAssetConfirm,
+  sortedItems,
   writtenEntries,
   type AmendAssetOutcome,
   type AssetAmendment,
@@ -18,13 +23,18 @@ import {
   type DepreciationAssetRepository,
   type DepreciationMethod,
   type EntryAcquisition,
+  type FoundItem,
+  type ItemRef,
+  type ItemSourceType,
   type NewDepreciationAsset,
   type ShorterUsefulLife,
   type SupportedAssetType,
   type VoidAssetOutcome,
 } from '../../domains/depreciation/index.js';
+import { businessDayOf } from '../../domains/ledger/index.js';
 import { checkVersion, type AuditActor, type BusinessDate, type RuleRef } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
+import { capitalizedItemsIn, type CapitalizedSourcesReader } from './capitalized-items.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import type { Database } from './schema.js';
 
@@ -38,6 +48,10 @@ const ASSET_COLUMNS = [
   'asset_type',
   'status',
   'building_completion_year',
+  'description',
+  'useful_life_years',
+  'useful_life_basis',
+  sql<string | null>`to_char(acquired_on, 'YYYY-MM-DD')`.as('acquired_on'),
   'source_references',
   'depreciation_method',
   'review_state',
@@ -56,6 +70,10 @@ interface AssetRow {
   asset_type: string;
   status: string;
   building_completion_year: number | null;
+  description: string | null;
+  useful_life_years: number | null;
+  useful_life_basis: string | null;
+  acquired_on: string | null;
   source_references: string[];
   depreciation_method: string;
   review_state: string;
@@ -86,15 +104,50 @@ class Rejected extends Error {
 }
 
 /**
- * PostgreSQL implementation of the DepreciationAsset port (api-design.md §59, migration 0049). Every command is one
- * READ COMMITTED transaction in the lock order of every writer of a PropertyReference (§26.1, §28.1): the key, the
- * PropertyReference (no-op write), the advisors (no lock), the entries' Acquisitions `FOR SHARE` in id order, the asset
- * (`FOR UPDATE`, or the `ACTIVE` building on create). An amend writes its entries as a difference by `acquisitionId`.
- * The reads run in one `REPEATABLE READ READ ONLY` snapshot. Nothing outside the two tables and the AuditRecords is
- * written (P8-D14).
+ * PostgreSQL implementation of the DepreciationAsset port (api-design.md §59, §59B, migrations 0049, 0051). Every command
+ * is one READ COMMITTED transaction in the lock order of every writer of a PropertyReference (§26.1, §28.1): the key, the
+ * PropertyReference (no-op write), the advisors (no lock), the entries' Acquisitions `FOR SHARE` in id order, a
+ * separate asset's new items (read and derived through Taxation's derivation, no lock), the asset (`FOR UPDATE`, or the
+ * `ACTIVE` building on create). An amend writes its entries and its items as a difference. The reads run in one
+ * `REPEATABLE READ READ ONLY` snapshot. Nothing outside the three tables and the AuditRecords is written (P8-D14).
  */
 export class PostgresDepreciationAssetRepository implements DepreciationAssetRepository {
-  constructor(private readonly db: Kysely<Database>) {}
+  private readonly capitalizedSources: CapitalizedSourcesReader | undefined;
+  private readonly now: () => Date;
+
+  /**
+   * `capitalizedSources` is the tax repository's reader (§59B), passed by the composition root: without it an item of a
+   * separate asset cannot be checked, and a command naming one fails loudly instead of linking it unchecked.
+   */
+  constructor(
+    private readonly db: Kysely<Database>,
+    options: { readonly capitalizedSources?: CapitalizedSourcesReader; readonly now?: () => Date } = {},
+  ) {
+    this.capitalizedSources = options.capitalizedSources;
+    this.now = options.now ?? (() => new Date());
+  }
+
+  /** Steps 4–5 of §59B for the items written: found, of the PropertyReference, capitalised now, not anschaffungsnah, free. */
+  private async itemRefusal(trx: Transaction<Database>, items: readonly ItemRef[], mreRealmId: string, propertyReferenceId: string, assetId: string | null) {
+    if (items.length === 0) return undefined;
+    if (this.capitalizedSources === undefined) throw new Error('PostgresDepreciationAssetRepository: no capitalizedSources reader wired (api-design §59B)');
+    const found = await foundItems(trx, items, mreRealmId);
+    const own = items.filter((i) => found.get(componentIdOf(i))?.propertyReferenceId === propertyReferenceId);
+    const meanings = await capitalizedItemsIn(trx, mreRealmId, propertyReferenceId, businessDayOf(this.now()), this.capitalizedSources, own);
+    for (const item of own) {
+      const key = componentIdOf(item);
+      const meaning = meanings.find((m) => componentIdOf(m) === key);
+      const entry = found.get(key) as { propertyReferenceId: string | null };
+      found.set(key, meaning === undefined ? entry : { ...entry, meaning });
+    }
+    const linked = await linkedElsewhere(trx, items, mreRealmId, assetId);
+    return itemLinkRefusal(
+      items,
+      (i) => found.get(componentIdOf(i)),
+      propertyReferenceId,
+      (i) => linked.get(componentIdOf(i)),
+    );
+  }
 
   async create(
     asset: NewDepreciationAsset,
@@ -122,7 +175,10 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
           const acquisitions = await entryAcquisitions(trx, asset.shorterUsefulLives, asset.mreRealmId);
           const refusal = entryAcquisitionRefusal(asset.shorterUsefulLives, acquisitions, asset.propertyReferenceId);
           if (refusal !== undefined) throw new Rejected(refusal);
-          const existing = await activeBuilding(trx, asset.propertyReferenceId);
+          const itemRefusal = await this.itemRefusal(trx, asset.items, asset.mreRealmId, asset.propertyReferenceId, null);
+          if (itemRefusal !== undefined) throw new Rejected(itemRefusal);
+          // Several separate assets per PropertyReference are allowed (§59B): only a building is unique.
+          const existing = asset.assetType === 'BUILDING' ? await activeBuilding(trx, asset.propertyReferenceId) : undefined;
           if (existing !== undefined) throw new Rejected({ kind: 'BUILDING_ASSET_EXISTS', assetId: existing });
 
           const { id } = await trx
@@ -133,6 +189,10 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
               asset_type: asset.assetType,
               status: 'ACTIVE',
               building_completion_year: asset.buildingCompletionYear,
+              description: asset.description,
+              useful_life_years: asset.usefulLifeYears,
+              useful_life_basis: asset.usefulLifeBasis,
+              acquired_on: asset.acquiredOn,
               source_references: [...asset.sourceReferences],
               depreciation_method: asset.depreciationMethod,
               review_state: asset.reviewState,
@@ -143,6 +203,7 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
             .returning('id')
             .executeTakeFirstOrThrow();
           for (const entry of asset.shorterUsefulLives) await insertEntry(trx, id, asset, entry);
+          for (const item of asset.items) await insertItem(trx, id, asset, item, actor);
           const created = await readAsset(trx, id);
           if (created === undefined) throw new Error(`DepreciationAsset ${id} vanished`);
           await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CREATED', actor, { newVersion: created.version, metadata: storedFields(created) });
@@ -156,8 +217,18 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
         const existing = await activeBuilding(this.db, asset.propertyReferenceId);
         if (existing !== undefined) return { kind: 'BUILDING_ASSET_EXISTS', assetId: existing };
       }
+      const taken = await this.takenItem(error, asset.items, asset.mreRealmId, null);
+      if (taken !== undefined) return taken;
       throw error;
     }
+  }
+
+  /** The partial unique index of 0051 is the guarantee for any other writer: its violation is `ITEM_IN_OTHER_ASSET`. */
+  private async takenItem(error: unknown, items: readonly ItemRef[], mreRealmId: string, assetId: string | null) {
+    if (!isUniqueViolation(error, 'depreciation_asset_item_active')) return undefined;
+    const linked = await this.db.transaction().execute((trx) => linkedElsewhere(trx, items, mreRealmId, assetId));
+    const item = items.find((i) => linked.has(componentIdOf(i)));
+    return item === undefined ? undefined : ({ kind: 'ITEM_IN_OTHER_ASSET', item, assetId: linked.get(componentIdOf(item)) as string } as const);
   }
 
   async amend(id: string, mreRealmId: string, amendment: AssetAmendment, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendAssetOutcome> {
@@ -172,6 +243,8 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
           const before = await readAsset(trx, id, mreRealmId);
           if (before === undefined) return { kind: 'NOT_FOUND' };
           if (before.status !== 'ACTIVE') return { kind: 'ASSET_NOT_ACTIVE', status: before.status };
+          const notAllowed = amendFieldsNotAllowed(before.assetType, amendment);
+          if (notAllowed.length > 0) return { kind: 'FIELDS_NOT_ALLOWED', fields: notAllowed };
           // Only new or changed entries are checked again: an unchanged one of a later-cancelled DRAFT does not block.
           const written = writtenEntries(planAssetAmend(before, amendment));
           const party = await missingParty(
@@ -182,6 +255,9 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
           if (party !== undefined) return { kind: 'PARTY_NOT_FOUND', partyId: party };
           const refusal = entryAcquisitionRefusal(written, await entryAcquisitions(trx, written, mreRealmId), before.propertyReferenceId);
           if (refusal !== undefined) return refusal as AmendAssetOutcome;
+          // Only items new to the list are checked (§59B): an unchanged link of a since-reclassified item does not block.
+          const itemRefusal = await this.itemRefusal(trx, addedItems(planAssetAmend(before, amendment)), mreRealmId, before.propertyReferenceId, id);
+          if (itemRefusal !== undefined) return itemRefusal;
 
           const current = await lockAsset(trx, id);
           const plan = planAssetAmend(current, amendment);
@@ -193,6 +269,10 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
             .updateTable('depreciation_asset')
             .set({
               building_completion_year: plan.next.buildingCompletionYear,
+              description: plan.next.description,
+              useful_life_years: plan.next.usefulLifeYears,
+              useful_life_basis: plan.next.usefulLifeBasis,
+              acquired_on: plan.next.acquiredOn,
               source_references: [...plan.next.sourceReferences],
               review_state: plan.next.reviewState,
               advisor_party_id: plan.next.advisorPartyId,
@@ -223,6 +303,20 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
                 .execute();
             }
           }
+          // The links as a difference too (§59B): an unchanged link's row is not touched.
+          for (const { item, change } of plan.changedItems) {
+            if (change === 'ADDED') await insertItem(trx, id, current, item, actor);
+            else {
+              const link = trx
+                .deleteFrom('depreciation_asset_item')
+                .where('asset_id', '=', id)
+                .where('source_type', '=', item.sourceType)
+                .where('source_id', '=', item.sourceId);
+              await (
+                item.sourcePosition === null ? link.where('source_position', 'is', null) : link.where('source_position', '=', item.sourcePosition)
+              ).execute();
+            }
+          }
           const amended = await readAsset(trx, id);
           if (amended === undefined) throw new Error(`DepreciationAsset ${id} vanished`);
           await writeAudit(trx, { type: ENTITY_TYPE, id }, 'AMENDED', actor, {
@@ -231,6 +325,7 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
             metadata: {
               changes: plan.changes,
               ...(plan.changedEntries.length === 0 ? {} : { changedEntries: plan.changedEntries }),
+              ...(plan.changedItems.length === 0 ? {} : { changedItems: plan.changedItems }),
               ...(plan.reviewStateReset === null ? {} : { reviewStateReset: plan.reviewStateReset }),
             },
           });
@@ -238,6 +333,8 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
         });
     } catch (error) {
       if (error instanceof Rejected) return error.outcome as AmendAssetOutcome;
+      const taken = await this.takenItem(error, amendment.items ?? [], mreRealmId, id);
+      if (taken !== undefined) return taken;
       throw error;
     }
   }
@@ -304,7 +401,8 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
         await writeAudit(trx, { type: ENTITY_TYPE, id }, 'VOIDED', actor, {
           previousVersion: current.version,
           newVersion: voided.version,
-          metadata: { reason },
+          // §59B: the items a separate asset frees (its links stay as history, their status follows to VOID).
+          metadata: { reason, ...(voided.items.length === 0 ? {} : { items: voided.items }) },
         });
         return { kind: 'VOIDED', asset: voided, changed: true };
       });
@@ -422,6 +520,82 @@ async function activeBuilding(db: Kysely<Database> | Transaction<Database>, prop
   return row?.id;
 }
 
+async function insertItem(
+  trx: Transaction<Database>,
+  assetId: string,
+  asset: { readonly mreRealmId: string; readonly propertyReferenceId: string },
+  item: ItemRef,
+  actor: AuditActor,
+): Promise<void> {
+  await trx
+    .insertInto('depreciation_asset_item')
+    .values({
+      asset_id: assetId,
+      mre_realm_id: asset.mreRealmId,
+      property_reference_id: asset.propertyReferenceId,
+      asset_status: 'ACTIVE',
+      source_type: item.sourceType,
+      source_id: item.sourceId,
+      source_position: item.sourcePosition,
+      created_by: actor.actorId,
+    })
+    .execute();
+}
+
+/**
+ * Steps 4's first two checks (§59B): each item's source in the Realm with its PropertyReference; a WEG source only
+ * where its position names a withdrawal (a reserve line of kind `WITHDRAWAL`) resp. a use. Not found: absent.
+ */
+async function foundItems(trx: Transaction<Database>, items: readonly ItemRef[], mreRealmId: string): Promise<Map<string, FoundItem>> {
+  const found = new Map<string, FoundItem>();
+  const splits = items.filter((i) => i.sourceType === 'TRANSACTION_SPLIT' && UUID.test(i.sourceId)).map((i) => i.sourceId);
+  if (splits.length > 0) {
+    const rows = await trx
+      .selectFrom('transaction_split')
+      .select(['id', 'property_reference_id'])
+      .where('id', 'in', splits)
+      .where('mre_realm_id', '=', mreRealmId)
+      .execute();
+    for (const r of rows)
+      found.set(componentIdOf({ sourceType: 'TRANSACTION_SPLIT', sourceId: r.id, sourcePosition: null }), { propertyReferenceId: r.property_reference_id });
+  }
+  for (const item of items.filter((i) => i.sourceType !== 'TRANSACTION_SPLIT' && UUID.test(i.sourceId))) {
+    const withdrawal = item.sourceType === 'WEG_RESERVE_WITHDRAWAL';
+    const row = await sql<{ property_reference_id: string }>`
+      SELECT m.property_reference_id FROM ${sql.table(withdrawal ? 'weg_annual_statement' : 'weg_special_assessment')} src
+        JOIN weg_membership m ON m.id = src.membership_id
+        CROSS JOIN LATERAL jsonb_array_elements(${withdrawal ? sql`coalesce(src.reserve -> 'lines', '[]'::jsonb)` : sql`src.uses`}) AS e
+       WHERE src.id = ${item.sourceId} AND src.mre_realm_id = ${mreRealmId} AND (e ->> 'position')::integer = ${item.sourcePosition}
+         ${withdrawal ? sql`AND e ->> 'kind' = 'WITHDRAWAL'` : sql``}
+    `.execute(trx);
+    const pr = row.rows[0]?.property_reference_id;
+    if (pr !== undefined) found.set(componentIdOf(item), { propertyReferenceId: pr });
+  }
+  return found;
+}
+
+/** The `ACTIVE` asset (other than `assetId`) that links each item, if any (step 5, `ITEM_IN_OTHER_ASSET`). */
+async function linkedElsewhere(
+  trx: Transaction<Database>,
+  items: readonly ItemRef[],
+  mreRealmId: string,
+  assetId: string | null,
+): Promise<Map<string, string>> {
+  const ids = [...new Set(items.filter((i) => UUID.test(i.sourceId)).map((i) => i.sourceId))];
+  if (ids.length === 0) return new Map();
+  let query = trx
+    .selectFrom('depreciation_asset_item')
+    .select(['asset_id', 'source_type', 'source_id', 'source_position'])
+    .where('mre_realm_id', '=', mreRealmId)
+    .where('asset_status', '=', 'ACTIVE')
+    .where('source_id', 'in', ids);
+  if (assetId !== null) query = query.where('asset_id', '<>', assetId);
+  const rows = await query.execute();
+  return new Map(
+    rows.map((r) => [componentIdOf({ sourceType: r.source_type as ItemSourceType, sourceId: r.source_id, sourcePosition: r.source_position }), r.asset_id]),
+  );
+}
+
 async function insertEntry(
   trx: Transaction<Database>,
   assetId: string,
@@ -464,6 +638,16 @@ export async function readAsset(trx: Transaction<Database>, id: string, mreRealm
 
 async function withEntries(trx: Transaction<Database>, rows: readonly AssetRow[]): Promise<DepreciationAsset[]> {
   if (rows.length === 0) return [];
+  // §59B: a separate asset's links (every status: a void asset still lists the items it consisted of).
+  const items = await trx
+    .selectFrom('depreciation_asset_item')
+    .select(['asset_id', 'source_type', 'source_id', 'source_position'])
+    .where(
+      'asset_id',
+      'in',
+      rows.map((r) => r.id),
+    )
+    .execute();
   const entries = await trx
     .selectFrom('depreciation_asset_useful_life')
     .select([
@@ -487,6 +671,11 @@ async function withEntries(trx: Transaction<Database>, rows: readonly AssetRow[]
     toDomain(
       row,
       entries.filter((e) => e.asset_id === row.id),
+      sortedItems(
+        items
+          .filter((i) => i.asset_id === row.id)
+          .map((i): ItemRef => ({ sourceType: i.source_type as ItemSourceType, sourceId: i.source_id, sourcePosition: i.source_position })),
+      ),
     ),
   );
 }
@@ -504,7 +693,7 @@ async function withCancelled(trx: Transaction<Database>, assets: readonly Deprec
   }));
 }
 
-function toDomain(row: AssetRow, entries: readonly EntryRow[]): DepreciationAsset {
+function toDomain(row: AssetRow, entries: readonly EntryRow[], items: readonly ItemRef[]): DepreciationAsset {
   return {
     id: row.id as DepreciationAssetId,
     mreRealmId: row.mre_realm_id,
@@ -513,6 +702,11 @@ function toDomain(row: AssetRow, entries: readonly EntryRow[]): DepreciationAsse
     assetType: row.asset_type as SupportedAssetType,
     status: row.status as AssetStatus,
     buildingCompletionYear: row.building_completion_year,
+    description: row.description,
+    usefulLifeYears: row.useful_life_years,
+    usefulLifeBasis: row.useful_life_basis,
+    acquiredOn: row.acquired_on as BusinessDate | null,
+    items,
     sourceReferences: row.source_references,
     depreciationMethod: row.depreciation_method as DepreciationMethod,
     reviewState: row.review_state as AssetReviewState,
@@ -538,6 +732,15 @@ function storedFields(asset: DepreciationAsset): Record<string, unknown> {
     propertyReferenceId: asset.propertyReferenceId,
     assetType: asset.assetType,
     buildingCompletionYear: asset.buildingCompletionYear,
+    ...(asset.assetType === 'SEPARATE_ASSET'
+      ? {
+          description: asset.description,
+          usefulLifeYears: asset.usefulLifeYears,
+          usefulLifeBasis: asset.usefulLifeBasis,
+          acquiredOn: asset.acquiredOn,
+          items: asset.items,
+        }
+      : {}),
     sourceReferences: asset.sourceReferences,
     depreciationMethod: asset.depreciationMethod,
     reviewState: asset.reviewState,

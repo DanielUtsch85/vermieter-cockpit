@@ -1,26 +1,30 @@
 import type { AuditActor, BusinessDate, RuleRef, VersionConflict } from '../../shared/index.js';
+import { componentIdOf, sameItem, type ItemRef } from './capitalized-item.js';
 
 /**
  * The DepreciationAsset (data-model.md §38, api-design.md §59, phase-8-plan P8-D1, P8-D4; VC-8-01): the facts of a
  * depreciable asset that no other record holds. For the building: its completion year and the sources, the method, an
  * optional shorter useful life per Acquisition, and who reviewed them. It never stores a basis, a rate, a start or an
- * amount; those are derived on read (the rate here, the schedule in §59A).
+ * amount; those are derived on read (the rate here, the schedule in §59A). A separate asset (§59B, VC-8-03) records its
+ * description, useful life, acquisition date and the capitalised items it consists of; its cost is derived from them.
  */
 
 export type DepreciationAssetId = string & { readonly __brand: 'DepreciationAssetId' };
 
-/** `SEPARATE_ASSET` is VC-8-03's (§59B): accepted by the vocabulary, refused as `NOT_SUPPORTED` until then. */
+/** Both types are supported since VC-8-03 (§59B, P8-D7 option 1). */
 export const ASSET_TYPES = ['BUILDING', 'SEPARATE_ASSET'] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
-export const SUPPORTED_ASSET_TYPES = ['BUILDING'] as const;
+export const SUPPORTED_ASSET_TYPES = ['BUILDING', 'SEPARATE_ASSET'] as const;
 export type SupportedAssetType = (typeof SUPPORTED_ASSET_TYPES)[number];
 
 export const ASSET_STATUSES = ['ACTIVE', 'VOID'] as const;
 export type AssetStatus = (typeof ASSET_STATUSES)[number];
 
-/** Linear building AfA by § 7 Abs. 4 EStG, the only method of Phase 8 (P8-D13). */
-export const DEPRECIATION_METHODS = ['LINEAR_7_4'] as const;
+/** Linear building AfA by § 7 Abs. 4 EStG; linear AfA over the useful life by § 7 Abs. 1 EStG for a separate asset (§59B). */
+export const DEPRECIATION_METHODS = ['LINEAR_7_4', 'LINEAR_7_1'] as const;
 export type DepreciationMethod = (typeof DEPRECIATION_METHODS)[number];
+/** The one method of each type (§59B): the other is `400 NOT_ALLOWED`. */
+export const METHOD_OF_TYPE: Readonly<Record<AssetType, DepreciationMethod>> = { BUILDING: 'LINEAR_7_4', SEPARATE_ASSET: 'LINEAR_7_1' };
 
 /** data-model §6.7 without `SUGGESTED`, as the allocation's (§27.3). */
 export const ASSET_REVIEW_STATES = ['UNREVIEWED', 'NEEDS_REVIEW', 'CONFIRMED', 'ADVISOR_CONFIRMED'] as const;
@@ -37,6 +41,10 @@ export const MAX_SHORTER_USEFUL_LIVES = 20;
 export const MAX_ASSET_SOURCE_REFERENCES = 20;
 export const COMPLETION_YEAR_MIN = 1000;
 export const COMPLETION_YEAR_MAX = 2100;
+/** §59B: a separate asset consists of at most 50 capitalised items; its useful life is 1–99 years. */
+export const MAX_ASSET_ITEMS = 50;
+export const USEFUL_LIFE_MIN_YEARS = 1;
+export const USEFUL_LIFE_MAX_YEARS = 99;
 
 /** Where a shorter useful life comes from (depreciation.md §9). DE records it and judges nothing (B7). */
 export interface UsefulLifeEvidence {
@@ -55,7 +63,15 @@ export interface ShorterUsefulLife {
 }
 
 export interface DepreciationAssetFacts {
+  /** `BUILDING` only; `null` on a separate asset. */
   readonly buildingCompletionYear: number | null;
+  /** `SEPARATE_ASSET` only (§59B), each set on one and `null` on a building. */
+  readonly description: string | null;
+  readonly usefulLifeYears: number | null;
+  readonly usefulLifeBasis: string | null;
+  readonly acquiredOn: BusinessDate | null;
+  /** The capitalised items of a separate asset, in `componentId` order; `[]` on a building. */
+  readonly items: readonly ItemRef[];
   readonly sourceReferences: readonly string[];
   readonly reviewState: AssetReviewState;
   readonly advisorPartyId: string | null;
@@ -70,6 +86,9 @@ export interface NewDepreciationAsset extends DepreciationAssetFacts {
   readonly assetType: SupportedAssetType;
   readonly depreciationMethod: DepreciationMethod;
 }
+
+const byText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+export const sortedItems = <T extends ItemRef>(items: readonly T[]): T[] => [...items].sort((a, b) => byText(componentIdOf(a), componentIdOf(b)));
 
 export interface DepreciationAsset extends NewDepreciationAsset {
   readonly id: DepreciationAssetId;
@@ -97,6 +116,11 @@ export function assetFingerprint(asset: NewDepreciationAsset): string {
     asset.propertyReferenceId,
     asset.assetType,
     asset.buildingCompletionYear,
+    asset.description,
+    asset.usefulLifeYears,
+    asset.usefulLifeBasis,
+    asset.acquiredOn,
+    sortedItems(asset.items).map(componentIdOf),
     asset.sourceReferences,
     asset.depreciationMethod,
     asset.reviewState,
@@ -137,6 +161,12 @@ export interface AssetAmendment {
   readonly reviewState?: AmendReviewState;
   /** The whole list: an entry left out is removed. */
   readonly shorterUsefulLives?: readonly UsefulLifeAmendment[];
+  /** A separate asset's facts (§59B); `items` is the whole list. */
+  readonly description?: string;
+  readonly usefulLifeYears?: number;
+  readonly usefulLifeBasis?: string;
+  readonly acquiredOn?: BusinessDate;
+  readonly items?: readonly ItemRef[];
 }
 
 export type EntryChange = 'ADDED' | 'CHANGED' | 'REMOVED';
@@ -149,14 +179,30 @@ export interface ChangedUsefulLife {
   readonly to: ShorterUsefulLife | null;
 }
 
-export type AmendedField = 'buildingCompletionYear' | 'sourceReferences' | 'notes' | 'reviewState' | 'advisorPartyId';
+export type AmendedField =
+  | 'buildingCompletionYear'
+  | 'description'
+  | 'usefulLifeYears'
+  | 'usefulLifeBasis'
+  | 'acquiredOn'
+  | 'sourceReferences'
+  | 'notes'
+  | 'reviewState'
+  | 'advisorPartyId';
+
+/** An item an amend links or unlinks (the AuditRecord's `changedItems`, §59B). */
+export interface ChangedItem {
+  readonly item: ItemRef;
+  readonly change: 'ADDED' | 'REMOVED';
+}
 
 /** What an amend changes; no field and no entry is a `200` no-op. */
 export interface AssetAmendPlan {
   readonly next: DepreciationAssetFacts;
   readonly changes: Partial<Record<AmendedField, { readonly from: unknown; readonly to: unknown }>>;
   readonly changedEntries: readonly ChangedUsefulLife[];
-  /** The reset a changed completion year caused, when the body named no state (§59). */
+  readonly changedItems: readonly ChangedItem[];
+  /** The reset a changed completion year (or a separate asset's useful life, date or items) caused, when the body named no state (§59, §59B). */
   readonly reviewStateReset: { readonly from: AssetReviewState; readonly to: AssetReviewState } | null;
   readonly changed: boolean;
 }
@@ -179,11 +225,22 @@ function nextEntry(current: ShorterUsefulLife | undefined, named: UsefulLifeAmen
 /**
  * The amend of §59: a changed fact is never carried under an old confirmation. A changed completion year resets the
  * asset to `UNREVIEWED` (unless the body names a state) and clears the advisor, as lowering the state does. Entries are
- * matched by `acquisitionId`: added, changed or removed, an unchanged one untouched.
+ * matched by `acquisitionId`: added, changed or removed, an unchanged one untouched. On a separate asset (§59B) a changed
+ * useful life, acquisition date or item list resets the same way; items are matched by source, added or removed.
  */
 export function planAssetAmend(current: DepreciationAsset, amendment: AssetAmendment): AssetAmendPlan {
   const year = amendment.buildingCompletionYear === undefined ? current.buildingCompletionYear : amendment.buildingCompletionYear;
-  const yearChanged = year !== current.buildingCompletionYear;
+  const description = amendment.description ?? current.description;
+  const usefulLifeYears = amendment.usefulLifeYears ?? current.usefulLifeYears;
+  const usefulLifeBasis = amendment.usefulLifeBasis ?? current.usefulLifeBasis;
+  const acquiredOn = amendment.acquiredOn ?? current.acquiredOn;
+  const items = amendment.items === undefined ? current.items : sortedItems(amendment.items);
+  const changedItems: ChangedItem[] = [
+    ...items.filter((i) => !current.items.some((c) => sameItem(c, i))).map((item): ChangedItem => ({ item, change: 'ADDED' })),
+    ...current.items.filter((c) => !items.some((i) => sameItem(c, i))).map((item): ChangedItem => ({ item, change: 'REMOVED' })),
+  ].sort((a, b) => byText(componentIdOf(a.item), componentIdOf(b.item)));
+  const yearChanged =
+    year !== current.buildingCompletionYear || usefulLifeYears !== current.usefulLifeYears || acquiredOn !== current.acquiredOn || changedItems.length > 0;
   let reviewState = current.reviewState;
   let advisorPartyId = current.advisorPartyId;
   let reviewStateReset: AssetAmendPlan['reviewStateReset'] = null;
@@ -214,6 +271,11 @@ export function planAssetAmend(current: DepreciationAsset, amendment: AssetAmend
 
   const facts: DepreciationAssetFacts = {
     buildingCompletionYear: year,
+    description,
+    usefulLifeYears,
+    usefulLifeBasis,
+    acquiredOn,
+    items,
     sourceReferences: amendment.sourceReferences ?? current.sourceReferences,
     reviewState,
     advisorPartyId,
@@ -221,18 +283,40 @@ export function planAssetAmend(current: DepreciationAsset, amendment: AssetAmend
     notes: amendment.notes === undefined ? current.notes : amendment.notes,
   };
   const changes: Partial<Record<AmendedField, { from: unknown; to: unknown }>> = {};
-  if (yearChanged) changes.buildingCompletionYear = { from: current.buildingCompletionYear, to: year };
+  if (year !== current.buildingCompletionYear) changes.buildingCompletionYear = { from: current.buildingCompletionYear, to: year };
+  if (description !== current.description) changes.description = { from: current.description, to: description };
+  if (usefulLifeYears !== current.usefulLifeYears) changes.usefulLifeYears = { from: current.usefulLifeYears, to: usefulLifeYears };
+  if (usefulLifeBasis !== current.usefulLifeBasis) changes.usefulLifeBasis = { from: current.usefulLifeBasis, to: usefulLifeBasis };
+  if (acquiredOn !== current.acquiredOn) changes.acquiredOn = { from: current.acquiredOn, to: acquiredOn };
   if (JSON.stringify(facts.sourceReferences) !== JSON.stringify(current.sourceReferences)) {
     changes.sourceReferences = { from: current.sourceReferences, to: facts.sourceReferences };
   }
   if (facts.notes !== current.notes) changes.notes = { from: current.notes, to: facts.notes };
   if (reviewState !== current.reviewState) changes.reviewState = { from: current.reviewState, to: reviewState };
   if (advisorPartyId !== current.advisorPartyId) changes.advisorPartyId = { from: current.advisorPartyId, to: advisorPartyId };
-  return { next: facts, changes, changedEntries, reviewStateReset, changed: Object.keys(changes).length > 0 || changedEntries.length > 0 };
+  return {
+    next: facts,
+    changes,
+    changedEntries,
+    changedItems,
+    reviewStateReset,
+    changed: Object.keys(changes).length > 0 || changedEntries.length > 0 || changedItems.length > 0,
+  };
 }
 
 /** The entries an amend adds or changes: only their Acquisitions and advisors are checked again (§59, order 4–5). */
 export const writtenEntries = (plan: AssetAmendPlan): ShorterUsefulLife[] => plan.changedEntries.flatMap((c) => (c.to === null ? [] : [c.to]));
+
+/** The fields of the other type an amend names (§59B, `400 NOT_ALLOWED`): the body cannot know the asset's type. */
+export function amendFieldsNotAllowed(assetType: AssetType, amendment: AssetAmendment): string[] {
+  const named = (fields: readonly (keyof AssetAmendment)[]) => fields.filter((f) => amendment[f] !== undefined);
+  return assetType === 'BUILDING'
+    ? named(['description', 'usefulLifeYears', 'usefulLifeBasis', 'acquiredOn', 'items'])
+    : named(['buildingCompletionYear', 'shorterUsefulLives']);
+}
+
+/** The items an amend links: only they are checked (§59B, steps 4–5); an unchanged link is never checked again. */
+export const addedItems = (plan: AssetAmendPlan): ItemRef[] => plan.changedItems.filter((c) => c.change === 'ADDED').map((c) => c.item);
 
 export type ConfirmAssetPlan =
   | { readonly kind: 'CONFIRM'; readonly changed: boolean }
@@ -242,11 +326,12 @@ export type ConfirmAssetPlan =
 
 /**
  * §59's confirm, steps 3–5 and 7: `VOID`, no completion year, a user's `CONFIRMED` over an advisor's confirmation;
- * then the same state with the same advisor is a no-op. The advisor's Party (step 6) is the repository's.
+ * then the same state with the same advisor is a no-op. The advisor's Party (step 6) is the repository's. A separate
+ * asset has every fact set, so `COMPLETION_YEAR_MISSING` does not apply to it (§59B).
  */
 export function planAssetConfirm(current: DepreciationAsset, reviewState: ConfirmReviewState, advisorPartyId: string | null): ConfirmAssetPlan {
   if (current.status !== 'ACTIVE') return { kind: 'ASSET_NOT_ACTIVE', status: current.status };
-  if (current.buildingCompletionYear === null) return { kind: 'COMPLETION_YEAR_MISSING' };
+  if (current.assetType === 'BUILDING' && current.buildingCompletionYear === null) return { kind: 'COMPLETION_YEAR_MISSING' };
   if (reviewState === 'CONFIRMED' && current.reviewState === 'ADVISOR_CONFIRMED') return { kind: 'ADVISOR_CONFIRMED' };
   return { kind: 'CONFIRM', changed: reviewState !== current.reviewState || advisorPartyId !== current.advisorPartyId };
 }
@@ -256,7 +341,70 @@ export type CreateAssetRefusal =
   | { readonly kind: 'PARTY_NOT_FOUND'; readonly partyId: string }
   | { readonly kind: 'ACQUISITION_NOT_FOUND'; readonly acquisitionId: string }
   | { readonly kind: 'ACQUISITION_NOT_OF_PROPERTY'; readonly acquisitionId: string; readonly propertyReferenceId: string }
-  | { readonly kind: 'ACQUISITION_CANCELLED'; readonly acquisitionId: string };
+  | { readonly kind: 'ACQUISITION_CANCELLED'; readonly acquisitionId: string }
+  | ItemRefusal;
+
+/** Steps 4–5 of a separate asset's create and amend (§59B), each check over all items, in this order. */
+export type ItemRefusal =
+  | { readonly kind: 'ITEM_NOT_FOUND'; readonly item: ItemRef }
+  | { readonly kind: 'ITEM_NOT_OF_PROPERTY'; readonly item: ItemRef; readonly propertyReferenceId: string | null }
+  | {
+      readonly kind: 'ITEM_NOT_CAPITALIZED';
+      readonly item: ItemRef;
+      readonly counts: boolean;
+      readonly treatment: string | null;
+      readonly reviewState: string;
+    }
+  | { readonly kind: 'ITEM_ANSCHAFFUNGSNAHE'; readonly item: ItemRef; readonly acquisitionId: string }
+  | { readonly kind: 'ITEM_IN_OTHER_ASSET'; readonly item: ItemRef; readonly assetId: string };
+
+/** An item a link names, as the repository found it in the Realm, with its tax meaning now (Taxation's derivation). */
+export interface FoundItem {
+  /** `null` for a split without a PropertyReference. */
+  readonly propertyReferenceId: string | null;
+  /** `undefined` when the meaning was not derived (an item of another PropertyReference is refused before). */
+  readonly meaning?: {
+    readonly counts: boolean;
+    readonly treatment: string | null;
+    readonly reviewState: string;
+    readonly anschaffungsnaheAcquisitionId: string | null;
+  };
+}
+
+/**
+ * The order of checks of §59B for the items written: unknown or foreign (`404`), of another PropertyReference (`422`),
+ * not counting or not `CAPITALIZED` now (`409 ITEM_NOT_CAPITALIZED`), anschaffungsnahe (`409 ITEM_ANSCHAFFUNGSNAHE`),
+ * linked to another `ACTIVE` asset (`409 ITEM_IN_OTHER_ASSET`); each check over all items before the next. A link is
+ * never a way to capitalise: classifying is Taxation's (§56).
+ */
+export function itemLinkRefusal(
+  items: readonly ItemRef[],
+  found: (item: ItemRef) => FoundItem | undefined,
+  propertyReferenceId: string,
+  linkedTo: (item: ItemRef) => string | undefined,
+): ItemRefusal | undefined {
+  const missing = items.find((i) => found(i) === undefined);
+  if (missing !== undefined) return { kind: 'ITEM_NOT_FOUND', item: missing };
+  for (const item of items) {
+    const f = found(item) as FoundItem;
+    if (f.propertyReferenceId !== propertyReferenceId) return { kind: 'ITEM_NOT_OF_PROPERTY', item, propertyReferenceId: f.propertyReferenceId };
+  }
+  for (const item of items) {
+    const m = (found(item) as FoundItem).meaning;
+    if (m === undefined || !m.counts || m.treatment !== 'CAPITALIZED') {
+      return { kind: 'ITEM_NOT_CAPITALIZED', item, counts: m?.counts ?? false, treatment: m?.treatment ?? null, reviewState: m?.reviewState ?? 'NEEDS_REVIEW' };
+    }
+  }
+  for (const item of items) {
+    const acquisitionId = (found(item) as FoundItem).meaning?.anschaffungsnaheAcquisitionId ?? null;
+    if (acquisitionId !== null) return { kind: 'ITEM_ANSCHAFFUNGSNAHE', item, acquisitionId };
+  }
+  for (const item of items) {
+    const assetId = linkedTo(item);
+    if (assetId !== undefined) return { kind: 'ITEM_IN_OTHER_ASSET', item, assetId };
+  }
+  return undefined;
+}
 
 /** An Acquisition an entry names, as the repository read it in the Realm. */
 export interface EntryAcquisition {
@@ -297,6 +445,7 @@ export type AmendAssetOutcome =
   | { readonly kind: 'AMENDED'; readonly asset: DepreciationAsset; readonly changed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'ASSET_NOT_ACTIVE'; readonly status: AssetStatus }
+  | { readonly kind: 'FIELDS_NOT_ALLOWED'; readonly fields: readonly string[] }
   | Exclude<CreateAssetRefusal, { kind: 'PROPERTY_REFERENCE_NOT_FOUND' }>
   | VersionConflict;
 

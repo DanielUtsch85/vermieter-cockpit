@@ -40,6 +40,11 @@ const asset: DepreciationAsset = {
   assetType: 'BUILDING',
   status: 'ACTIVE',
   buildingCompletionYear: 1995,
+  description: null,
+  usefulLifeYears: null,
+  usefulLifeBasis: null,
+  acquiredOn: null,
+  items: [],
   sourceReferences: ['Teilungserklärung, Baujahr laut Anlage 1'],
   depreciationMethod: 'LINEAR_7_4',
   reviewState: 'CONFIRMED',
@@ -64,6 +69,7 @@ const rate: AssetRate = {
   rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
   band: 'B',
   ratePercent: '2',
+  rate: '1/50',
   legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
   shorterThanYears: 50,
   reasons: [],
@@ -77,6 +83,12 @@ const dto = {
   assetType: 'BUILDING',
   status: 'ACTIVE',
   buildingCompletionYear: 1995,
+  // §59B: a separate asset's fields, null on a building.
+  description: null,
+  usefulLifeYears: null,
+  usefulLifeBasis: null,
+  acquiredOn: null,
+  items: null,
   sourceReferences: ['Teilungserklärung, Baujahr laut Anlage 1'],
   depreciationMethod: 'LINEAR_7_4',
   reviewState: 'CONFIRMED',
@@ -100,6 +112,7 @@ const dto = {
     rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
     band: 'B',
     ratePercent: '2',
+    rate: '1/50',
     legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
     shorterThanYears: 50,
     reasons: [],
@@ -189,7 +202,13 @@ describe('POST /depreciation-assets (§59)', () => {
     const body = (extra: Record<string, unknown>) => send({ propertyReferenceId: PR, ...extra });
     expect(await fields(await send({}))).toEqual([{ field: 'propertyReferenceId', code: 'REQUIRED' }]);
     expect(await fields(await send({ propertyReferenceId: 'x' }))).toEqual([{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await body({ assetType: 'SEPARATE_ASSET' }))).toEqual([{ field: 'assetType', code: 'NOT_SUPPORTED' }]);
+    // VC-8-03 lifted §59's NOT_SUPPORTED (§59B): a separate asset needs its four facts.
+    expect(await fields(await body({ assetType: 'SEPARATE_ASSET' }))).toEqual([
+      { field: 'description', code: 'REQUIRED' },
+      { field: 'usefulLifeYears', code: 'REQUIRED' },
+      { field: 'usefulLifeBasis', code: 'REQUIRED' },
+      { field: 'acquiredOn', code: 'REQUIRED' },
+    ]);
     expect(await fields(await body({ assetType: 'LAND' }))).toEqual([{ field: 'assetType', code: 'INVALID_FORMAT' }]);
     expect(await fields(await body({ buildingCompletionYear: 999 }))).toEqual([{ field: 'buildingCompletionYear', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await body({ buildingCompletionYear: 2101 }))).toEqual([{ field: 'buildingCompletionYear', code: 'OUT_OF_RANGE' }]);

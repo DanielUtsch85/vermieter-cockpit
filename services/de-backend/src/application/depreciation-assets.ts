@@ -12,6 +12,8 @@ import {
   type DepreciationAssetRepository,
   type DepreciationSchedule,
   type DepreciationScheduleSource,
+  type ItemRef,
+  type ItemRefusal,
   type NewDepreciationAsset,
 } from '../domains/depreciation/index.js';
 import { businessDayOf } from '../domains/ledger/index.js';
@@ -90,6 +92,92 @@ export class AcquisitionNotOfPropertyError extends Error {
   }
 }
 
+/** A separate asset's item names no source of the Realm (→ 404 NOT_FOUND, §59B). */
+export class CapitalizedItemNotFoundError extends Error {
+  override readonly name = 'CapitalizedItemNotFoundError';
+
+  constructor(readonly item: ItemRef) {
+    super(`The capitalised item's source ${item.sourceType} ${item.sourceId} does not exist`);
+  }
+}
+
+/** The item belongs to another PropertyReference (→ 422 ITEM_NOT_OF_PROPERTY, §59B). */
+export class ItemNotOfPropertyError extends Error {
+  override readonly name = 'ItemNotOfPropertyError';
+
+  constructor(
+    readonly item: ItemRef,
+    readonly propertyReferenceId: string | null,
+  ) {
+    super(`The item ${item.sourceType} ${item.sourceId} belongs to another PropertyReference`);
+  }
+}
+
+/** The item does not count or is not classified `CAPITALIZED` now (→ 409 ITEM_NOT_CAPITALIZED, §59B). */
+export class ItemNotCapitalizedError extends Error {
+  override readonly name = 'ItemNotCapitalizedError';
+
+  constructor(
+    readonly item: ItemRef,
+    readonly counts: boolean,
+    readonly treatment: string | null,
+    readonly reviewState: string,
+  ) {
+    super(`The item ${item.sourceType} ${item.sourceId} is not classified CAPITALIZED, or does not count`);
+  }
+}
+
+/** The item is anschaffungsnahe Herstellungskosten of the building (→ 409 ITEM_ANSCHAFFUNGSNAHE, §59B). */
+export class ItemAnschaffungsnaheError extends Error {
+  override readonly name = 'ItemAnschaffungsnaheError';
+
+  constructor(
+    readonly item: ItemRef,
+    readonly acquisitionId: string,
+  ) {
+    super(`The item ${item.sourceType} ${item.sourceId} is anschaffungsnahe Herstellungskosten of the building`);
+  }
+}
+
+/** The item belongs to another `ACTIVE` depreciation asset (→ 409 ITEM_IN_OTHER_ASSET, §59B). */
+export class ItemInOtherAssetError extends Error {
+  override readonly name = 'ItemInOtherAssetError';
+
+  constructor(
+    readonly item: ItemRef,
+    readonly assetId: string,
+  ) {
+    super(`The item ${item.sourceType} ${item.sourceId} belongs to the active depreciation asset ${assetId}`);
+  }
+}
+
+/** An amend names a field of the other asset type (→ 400 NOT_ALLOWED, §59B). */
+export class AssetFieldNotAllowedError extends Error {
+  override readonly name = 'AssetFieldNotAllowedError';
+
+  constructor(readonly fields: readonly string[]) {
+    super(`Not a field of this asset type: ${fields.join(', ')}`);
+  }
+}
+
+/** The refusals of a separate asset's items (§59B, steps 4–5). */
+function refuseItem(outcome: ItemRefusal): never {
+  switch (outcome.kind) {
+    case 'ITEM_NOT_FOUND':
+      throw new CapitalizedItemNotFoundError(outcome.item);
+    case 'ITEM_NOT_OF_PROPERTY':
+      throw new ItemNotOfPropertyError(outcome.item, outcome.propertyReferenceId);
+    case 'ITEM_NOT_CAPITALIZED':
+      throw new ItemNotCapitalizedError(outcome.item, outcome.counts, outcome.treatment, outcome.reviewState);
+    case 'ITEM_ANSCHAFFUNGSNAHE':
+      throw new ItemAnschaffungsnaheError(outcome.item, outcome.acquisitionId);
+    case 'ITEM_IN_OTHER_ASSET':
+      throw new ItemInOtherAssetError(outcome.item, outcome.assetId);
+  }
+}
+
+const ITEM_REFUSALS: readonly string[] = ['ITEM_NOT_FOUND', 'ITEM_NOT_OF_PROPERTY', 'ITEM_NOT_CAPITALIZED', 'ITEM_ANSCHAFFUNGSNAHE', 'ITEM_IN_OTHER_ASSET'];
+
 /** The Party holds no share of the asset's PropertyReference and bought none (→ 422 NOT_AN_OWNER, §59A). */
 export class NotAnOwnerError extends Error {
   override readonly name = 'NotAnOwnerError';
@@ -109,24 +197,30 @@ const nowOf = (deps: Clock) => (deps.now ?? (() => new Date()))();
 type Deps = { readonly repository: DepreciationAssetRepository };
 type ReadDeps = Deps & Clock & { readonly registry?: RuleRegistry };
 
-/** The refusals create and amend share (§59, order 3–4). */
-function refuseEntry(outcome: {
-  readonly kind: string;
-  readonly partyId?: string;
-  readonly acquisitionId?: string;
-  readonly propertyReferenceId?: string;
-}): never {
-  switch (outcome.kind) {
+/** The refusals create and amend share (§59, order 3–4; §59B, order 4–5). */
+function refuseEntry(
+  outcome:
+    | ItemRefusal
+    | {
+        readonly kind: 'PARTY_NOT_FOUND' | 'ACQUISITION_NOT_FOUND' | 'ACQUISITION_NOT_OF_PROPERTY' | 'ACQUISITION_CANCELLED';
+        readonly partyId?: string;
+        readonly acquisitionId?: string;
+        readonly propertyReferenceId?: string;
+      },
+): never {
+  if (ITEM_REFUSALS.includes(outcome.kind)) return refuseItem(outcome as ItemRefusal);
+  const entry = outcome as { kind: string; partyId?: string; acquisitionId?: string; propertyReferenceId?: string };
+  switch (entry.kind) {
     case 'PARTY_NOT_FOUND':
-      throw new PartyNotFoundError(outcome.partyId as string);
+      throw new PartyNotFoundError(entry.partyId as string);
     case 'ACQUISITION_NOT_FOUND':
-      throw new AcquisitionNotFoundError(outcome.acquisitionId as string);
+      throw new AcquisitionNotFoundError(entry.acquisitionId as string);
     case 'ACQUISITION_NOT_OF_PROPERTY':
-      throw new AcquisitionNotOfPropertyError(outcome.acquisitionId as string, outcome.propertyReferenceId as string);
+      throw new AcquisitionNotOfPropertyError(entry.acquisitionId as string, entry.propertyReferenceId as string);
     case 'ACQUISITION_CANCELLED':
-      throw new AcquisitionCancelledError(outcome.acquisitionId as string);
+      throw new AcquisitionCancelledError(entry.acquisitionId as string);
     default:
-      throw new Error(`unexpected outcome ${outcome.kind}`);
+      throw new Error(`unexpected outcome ${entry.kind}`);
   }
 }
 
@@ -176,6 +270,8 @@ export function amendDepreciationAsset(deps: Deps): AmendDepreciationAsset {
         throw new DepreciationAssetNotFoundError(assetId);
       case 'ASSET_NOT_ACTIVE':
         throw new DepreciationAssetNotActiveError(assetId, outcome.status);
+      case 'FIELDS_NOT_ALLOWED':
+        throw new AssetFieldNotAllowedError(outcome.fields);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
       default:
@@ -290,8 +386,8 @@ export type GetDepreciationSchedule = (input: {
 }) => Promise<DepreciationSchedule>;
 
 /**
- * The schedule of the purchase (api-design.md §59A, backlog VC-8-02): derived on every read from one snapshot, never
- * stored. The checks in §59A's order after the `400`s: the asset (`404`), the Party (`404`), an owner of the asset's
+ * The schedule of the purchase (api-design.md §59A, backlog VC-8-02) and of the capitalised items or a separate asset
+ * (§59B, VC-8-03): derived on every read from one snapshot, never stored. The checks in §59A's order after the `400`s: the asset (`404`), the Party (`404`), an owner of the asset's
  * PropertyReference (`422 NOT_AN_OWNER`). `computedOn` is today in Europe/Berlin; only the default range depends on it.
  */
 export function getDepreciationSchedule(
@@ -304,6 +400,19 @@ export function getDepreciationSchedule(
     if (ownerPartyId !== null && read.ownerPartyFound !== true) throw new OwnerPartyNotFoundError(ownerPartyId);
     if (ownerPartyId !== null && !isOwnerOf(read.ownerships, ownerPartyId)) throw new NotAnOwnerError(ownerPartyId, read.asset.propertyReferenceId);
     const today = businessDayOf(nowOf(deps));
-    return deriveSchedule({ asset: read.asset, acquisitions: read.acquisitions, ownerships: read.ownerships, today, from, to, ownerPartyId }, registry);
+    return deriveSchedule(
+      {
+        asset: read.asset,
+        acquisitions: read.acquisitions,
+        ownerships: read.ownerships,
+        capitalizedItems: read.capitalizedItems,
+        links: read.links,
+        today,
+        from,
+        to,
+        ownerPartyId,
+      },
+      registry,
+    );
   };
 }

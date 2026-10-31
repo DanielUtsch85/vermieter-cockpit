@@ -15,6 +15,7 @@ import { createDatabase } from './database.js';
 import { PostgresDepreciationAssetRepository } from './depreciation-asset-repository.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
+import { migrations } from './migrations/index.js';
 import { PostgresPartyRepository } from './party-repository.js';
 import { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import { checkStoredRuleReferences } from './tax-rule-check.js';
@@ -163,6 +164,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
     assetType: 'BUILDING',
     depreciationMethod: 'LINEAR_7_4',
     buildingCompletionYear: 1995,
+    description: null,
+    usefulLifeYears: null,
+    usefulLifeBasis: null,
+    acquiredOn: null,
+    items: [],
     sourceReferences: ['Teilungserklärung, Baujahr laut Anlage 1'],
     reviewState: 'UNREVIEWED',
     advisorPartyId: null,
@@ -776,11 +782,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
     });
 
     it('the table has no basis, rate, start or amount column (information_schema); counter-check: one added is seen', async () => {
+      // 0051 (§59B) adds `useful_life_basis`, the legal or factual basis of a useful life (a text), and `acquired_on`, the
+      // date of a separate asset's acquisition (a fact): neither is a derived figure. Every other match stays forbidden.
       const forbidden = async (q: Queryable) =>
         (
           await q.query(
             `SELECT column_name FROM information_schema.columns
-              WHERE table_schema = $1 AND table_name = 'depreciation_asset' AND column_name ~ '(basis|rate|start|amount|allocation|rule|acquisition)'
+              WHERE table_schema = $1 AND table_name = 'depreciation_asset' AND column_name ~ '(basis|rate|start|amount|allocation|rule|acquisition|cost)'
+                AND column_name <> 'useful_life_basis'
               ORDER BY column_name`,
             [schema],
           )
@@ -809,6 +818,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
         'created_at',
         'created_by',
         'version',
+        // 0051 (§59B): a separate asset's facts.
+        'description',
+        'useful_life_years',
+        'useful_life_basis',
+        'acquired_on',
       ]);
       const client = await pool.connect();
       try {
@@ -1120,7 +1134,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
     await admin.end();
     const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
     try {
-      await migrateToLatest(downPool, { migrationTableSchema: downSchema });
+      // Up to 0050: 0051 (§59B) adds a table with a foreign key to `depreciation_asset`, so its own `down` runs first.
+      await migrateToLatest(downPool, {
+        migrations: Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0051')),
+        migrationTableSchema: downSchema,
+      });
       const tablesOf = async () =>
         (
           await downPool.query(
