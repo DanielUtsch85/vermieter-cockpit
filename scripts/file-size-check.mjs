@@ -22,18 +22,9 @@ const TEST_LIMIT = 900;
 // Relative to a service's src/: the schema of all tables, and the re-exports of the application and of each domain.
 const PERMANENT = [/^infrastructure\/postgres\/schema\.ts$/, /^application\/index\.ts$/, /^domains\/[^/]+\/index\.ts$/];
 
-// Repository path → line count on main when the check was introduced (2e4da1b; the four depreciation schedule files at
+// Repository path → line count on main when the check was introduced (2e4da1b; the four depreciation schedule files, split since, at
 // 923ad67, after VC-X-33). May shrink, never grow; remove when split.
-const EXCEPTIONS = {
-  'services/de-backend/src/domains/depreciation/schedule-items.test.ts': 906,
-  'services/de-backend/src/domains/depreciation/schedule-items.ts': 1064,
-  'services/de-backend/src/domains/depreciation/schedule.test.ts': 1040,
-  'services/de-backend/src/domains/depreciation/schedule.ts': 1091,
-  'services/de-backend/src/domains/taxation/classification.ts': 657,
-  'services/de-backend/src/domains/taxation/tax-year-view.ts': 865,
-  'services/de-backend/src/infrastructure/postgres/tax-weg-repository.test.ts': 1284,
-  'services/de-backend/src/infrastructure/postgres/tax-year-repository.test.ts': 1103,
-};
+const EXCEPTIONS = {};
 
 const countLines = (source) => {
   const breaks = source.split('\n').length - 1;
