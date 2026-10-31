@@ -5,7 +5,8 @@ import { amendmentLists, attributionChanges, listBefore, type AttributionInput, 
 import { refundOf, yearOf } from './cash-timing.js';
 import type { TaxListItem, TaxMeaning } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
-import { continuousOwners, distribute } from './distribution-82b.js';
+import { continuousOwners } from '../ownership/index.js';
+import { distribute } from './distribution-82b.js';
 import { TAXATION_RULE_VERSIONS } from './rules/versions.js';
 import {
   EINNAHMEN_LINES,

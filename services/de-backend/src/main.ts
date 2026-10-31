@@ -22,6 +22,7 @@ import {
   confirmDepreciationAsset,
   createDepreciationAsset,
   getDepreciationAsset,
+  getDepreciationSchedule,
   listPropertyDepreciationAssets,
   voidDepreciationAsset,
   deactivateParty,
@@ -166,6 +167,7 @@ import {
   PostgresWegSpecialAssessmentRepository,
   PostgresTaxClassificationRepository,
   PostgresDepreciationAssetRepository,
+  PostgresDepreciationScheduleSource,
   PostgresRentalContractReferenceRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
@@ -369,6 +371,7 @@ const app = createApp({
     amend: amendDepreciationAsset({ repository: depreciationAssets }),
     confirm: confirmDepreciationAsset({ repository: depreciationAssets }),
     void: voidDepreciationAsset({ repository: depreciationAssets }),
+    schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db) }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),

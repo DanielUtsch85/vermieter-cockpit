@@ -37,3 +37,4 @@ export { PostgresTaxClassificationRepository } from './tax-classification-reposi
 export { checkStoredRuleReferences } from './tax-rule-check.js';
 export { PostgresRentalContractReferenceRepository } from './rental-contract-reference-repository.js';
 export { PostgresDepreciationAssetRepository } from './depreciation-asset-repository.js';
+export { PostgresDepreciationScheduleSource } from './depreciation-schedule-source.js';

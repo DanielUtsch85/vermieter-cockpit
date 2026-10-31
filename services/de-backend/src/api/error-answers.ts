@@ -171,6 +171,7 @@ import {
   WegSourcePositionNotFoundError,
   WithdrawalTaxYearOutOfRangeError,
   NoApplicableTaxRuleError,
+  NotAnOwnerError,
   NotAnOwnerInYearError,
   OwnerPartyNotFoundError,
   TaxYearTooLargeError,
@@ -1066,6 +1067,13 @@ const TABLE = [
     answer(409, 'CONFLICT', 'A user cannot lower an advisor confirmation; amend the review state to NEEDS_REVIEW first.', {
       reason: 'ADVISOR_CONFIRMED',
       assetId: error.assetId,
+    }),
+  ),
+  // The schedule of the purchase (api-design §59A, VC-8-02).
+  on(NotAnOwnerError, (error) =>
+    answer(422, 'NOT_AN_OWNER', "The Party holds no share of the asset's PropertyReference and bought none.", {
+      ownerPartyId: error.ownerPartyId,
+      propertyReferenceId: error.propertyReferenceId,
     }),
   ),
   on(AcquisitionNotOfPropertyError, (error) =>

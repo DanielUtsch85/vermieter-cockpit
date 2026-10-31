@@ -96,8 +96,8 @@ export type {
 } from './classification.js';
 export { depositNotCounted, deriveDepositTaxMeaning, planDepositClassification } from './deposit-closing.js';
 export type { DepositFacts, DepositTaxMeaning, DepositTaxMeaningFlag } from './deposit-closing.js';
-export { continuousOwners, distribute, distributionRuleOn, partOf } from './distribution-82b.js';
-export type { Distribution, DistributionFlag, DistributionOwnership, DistributionPart, OwnershipPeriod } from './distribution-82b.js';
+export { distribute, distributionRuleOn, partOf } from './distribution-82b.js';
+export type { Distribution, DistributionFlag, DistributionOwnership, DistributionPart } from './distribution-82b.js';
 export {
   BOOKING_DATE_EDGE_DAYS,
   NOT_COMPUTABLE_REASONS,

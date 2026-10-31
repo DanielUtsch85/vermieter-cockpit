@@ -30,9 +30,9 @@ import { mrePrincipalVerifier } from './wiring.js';
 
 /**
  * VC-8-01 end to end (api-design.md §59), wired as in main.ts: a building asset created, amended, confirmed and voided
- * over HTTP; its `rate` of 2022, 2023 and 2026 and the default year from an injected clock; the shorter useful life of
- * an Acquisition through its review; the per-property list; `GET /tax-rules` with the new rule; and Realm isolation on
- * every route. Names, figures and texts are synthetic.
+ * over HTTP; its `rate` of 2005, 2022, 2023 and 2026 (2005 without a rule, 2022 with `@1` since VC-8-02, §59A) and the
+ * default year from an injected clock; the shorter useful life of an Acquisition through its review; the per-property
+ * list; `GET /tax-rules` with the new rule; and Realm isolation on every route. Names, figures and texts are synthetic.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
@@ -186,14 +186,24 @@ describe.skipIf(databaseUrl === undefined)('the DepreciationAsset (VC-8-01) end 
       'POST /depreciation-assets/:assetId/amend',
       'POST /depreciation-assets/:assetId/confirm',
       'POST /depreciation-assets/:assetId/void',
+      // VC-8-02 (§59A): the schedule, on the same router.
+      'GET /depreciation-assets/:assetId/schedule',
     ]);
   });
 
-  it('GET /tax-rules lists DE_AFA_BUILDING_LINEAR ACTIVE; GET /tax-rules/DE_AFA_BUILDING_LINEAR answers it with its bands', async () => {
+  it('GET /tax-rules lists DE_AFA_BUILDING_LINEAR @1 SUPERSEDED and @2 ACTIVE (§59A); GET /tax-rules/DE_AFA_BUILDING_LINEAR answers both with their bands', async () => {
     const list = (await (await get('/tax-rules')).json()) as { items: { ruleCode: string; versions: { version: number; status: string }[] }[] };
-    expect(list.items.find((r) => r.ruleCode === 'DE_AFA_BUILDING_LINEAR')?.versions.map((v) => [v.version, v.status])).toEqual([[1, 'ACTIVE']]);
-    const [version] = (await json(await get('/tax-rules/DE_AFA_BUILDING_LINEAR'))).versions;
-    expect(version).toMatchObject({ version: 1, effectiveFrom: '2023-01-01', effectiveTo: null, status: 'ACTIVE' });
+    expect(list.items.find((r) => r.ruleCode === 'DE_AFA_BUILDING_LINEAR')?.versions.map((v) => [v.version, v.status])).toEqual([
+      [1, 'SUPERSEDED'],
+      [2, 'ACTIVE'],
+    ]);
+    const [earlier, version] = (await json(await get('/tax-rules/DE_AFA_BUILDING_LINEAR'))).versions;
+    expect(earlier).toMatchObject({ version: 1, effectiveFrom: '2006-01-01', effectiveTo: '2023-01-01', status: 'SUPERSEDED' });
+    expect(earlier?.parameters.bands.map((b) => [b.band, b.shorterUsefulLife.shorterThanYears])).toEqual([
+      ['A', 50],
+      ['B', 40],
+    ]);
+    expect(version).toMatchObject({ version: 2, effectiveFrom: '2023-01-01', effectiveTo: null, status: 'ACTIVE' });
     expect(version?.parameters.bands.map((b) => [b.band, b.shorterUsefulLife.shorterThanYears])).toEqual([
       ['A', 33],
       ['B', 50],
@@ -221,10 +231,10 @@ describe.skipIf(databaseUrl === undefined)('the DepreciationAsset (VC-8-01) end 
     expect(asset).toMatchObject({ status: 'ACTIVE', reviewState: 'UNREVIEWED', version: 1, rate: null });
     const id = asset['assetId'];
 
-    // Unconfirmed: the band is shown, not usable. 2022 has no rule. The default year is the clock's, in Berlin.
+    // Unconfirmed: the band is shown, not usable. 2005 has no rule (2022 until VC-8-02, §59A). The default year is the clock's, in Berlin.
     expect((await json(await get(`/depreciation-assets/${id}?year=2026`)))['rate']).toEqual({
       year: 2026,
-      rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 },
+      rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 },
       band: 'B',
       ratePercent: '2',
       legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
@@ -233,6 +243,12 @@ describe.skipIf(databaseUrl === undefined)('the DepreciationAsset (VC-8-01) end 
       shorterUsefulLives: [{ acquisitionId: acq, rate: '1/30', ratePercent: '3.3333', applies: false, reasons: ['USEFUL_LIFE_NOT_CONFIRMED'] }],
     });
     expect((await json(await get(`/depreciation-assets/${id}?year=2022`)))['rate']).toMatchObject({
+      rule: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 },
+      band: 'A',
+      ratePercent: '2',
+      reasons: ['ASSET_NOT_CONFIRMED'],
+    });
+    expect((await json(await get(`/depreciation-assets/${id}?year=2005`)))['rate']).toMatchObject({
       rule: null,
       band: null,
       ratePercent: null,

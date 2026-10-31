@@ -32,7 +32,7 @@ export interface AssetRate {
   readonly shorterUsefulLives: readonly UsefulLifeRate[];
 }
 
-/** The version of `DE_AFA_BUILDING_LINEAR` applicable in `year`, selected on 1 January (§58); none before 2023. */
+/** The version of `DE_AFA_BUILDING_LINEAR` applicable in `year`, selected on 1 January (§58); none before 2006 (§59A). */
 export function buildingRuleOn(registry: RuleRegistry, year: number): RuleVersion<BuildingLinearParameters> | undefined {
   return registry.select(AFA_BUILDING_LINEAR, `${year}-01-01` as BusinessDate) as RuleVersion<BuildingLinearParameters> | undefined;
 }

@@ -17,13 +17,12 @@ import {
   type OtherWegSource,
   type TreatmentSuggestion,
   type CheckSource,
-  type OwnershipPeriod,
-  continuousOwners,
   type RuleRegistry,
   type TaxClassification,
   type WegSourceFacts,
   type WegTaxMeaning,
 } from '../../domains/taxation/index.js';
+import { continuousOwners, type OwnershipPeriod } from '../../domains/ownership/index.js';
 import { addDays, type BusinessDate, type Money } from '../../shared/index.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';

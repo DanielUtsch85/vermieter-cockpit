@@ -118,6 +118,12 @@ const forbiddenEdges: readonly { readonly from: string; readonly to: string; rea
   { from: join('domains', 'taxation'), to: join('domains', 'tax-rules'), why: 'the registry is composed above both domains' },
   { from: join('domains', 'depreciation'), to: join('domains', 'tax-rules'), why: 'the registry is composed above both domains' },
   { from: join('domains', 'depreciation'), to: join('domains', 'taxation'), why: 'VC-8-01 adds no edge between Depreciation and Taxation' },
+  {
+    from: join('domains', 'acquisition'),
+    to: join('domains', 'taxation'),
+    why: 'Taxation imports Acquisition; the basis function is shared through Acquisition, §59A',
+  },
+  { from: join('domains', 'ownership'), to: join('domains', 'taxation'), why: 'Taxation imports Ownership; the tenure is shared through Ownership, §59A' },
 ];
 
 /** `file` is relative to src/; a forbidden module edge, or undefined. Only relative specifiers name modules. */
@@ -150,11 +156,12 @@ describe('architecture: layer dependency direction', () => {
   }
 });
 
-describe('architecture: forbidden module edges (§59)', () => {
-  it('no file under domains/taxation/ or domains/depreciation/ imports domains/tax-rules/, nor Depreciation Taxation', () => {
+describe('architecture: forbidden module edges (§59, §59A)', () => {
+  it('no file under domains/taxation/ or domains/depreciation/ imports domains/tax-rules/, nor Depreciation, Acquisition or Ownership Taxation', () => {
     const files = listSourceFiles(join(srcDir, 'domains'));
-    expect(files.some((path) => moduleOf(relative(srcDir, path)) === join('domains', 'depreciation'))).toBe(true);
-    expect(files.some((path) => moduleOf(relative(srcDir, path)) === join('domains', 'tax-rules'))).toBe(true);
+    for (const module of ['depreciation', 'tax-rules', 'acquisition', 'ownership']) {
+      expect(files.some((path) => moduleOf(relative(srcDir, path)) === join('domains', module))).toBe(true);
+    }
     const violations = files.flatMap((path) => {
       const file = relative(srcDir, path);
       return importSpecifiers(readFileSync(path, 'utf8'))
@@ -169,6 +176,8 @@ describe('architecture: forbidden module edges (§59)', () => {
     ['domains/taxation/probe.ts', '../tax-rules/index.js'],
     ['domains/taxation/rules/probe.test.ts', '../../tax-rules/index.js'],
     ['domains/depreciation/probe.ts', '../taxation/index.js'],
+    ['domains/acquisition/probe.ts', '../taxation/index.js'],
+    ['domains/ownership/probe.ts', '../taxation/index.js'],
   ])('%s may not import %s', (file, specifier) => {
     expect(forbiddenEdge(file, specifier)).toBeDefined();
   });
@@ -179,6 +188,10 @@ describe('architecture: forbidden module edges (§59)', () => {
     ['domains/depreciation/probe.ts', '../../shared/index.js'],
     ['application/probe.ts', '../domains/tax-rules/index.js'],
     ['infrastructure/postgres/probe.ts', '../../domains/tax-rules/index.js'],
+    ['domains/taxation/probe.ts', '../acquisition/index.js'],
+    ['domains/taxation/probe.ts', '../ownership/index.js'],
+    ['domains/depreciation/probe.ts', '../acquisition/index.js'],
+    ['domains/acquisition/probe.ts', '../../shared/index.js'],
   ])('%s may import %s', (file, specifier) => {
     expect(forbiddenEdge(file, specifier)).toBeUndefined();
   });

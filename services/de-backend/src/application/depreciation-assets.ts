@@ -1,6 +1,8 @@
 import {
   assetFingerprint,
   deriveRate,
+  deriveSchedule,
+  isOwnerOf,
   type AssetAmendment,
   type AssetRate,
   type AssetRead,
@@ -8,6 +10,8 @@ import {
   type ConfirmReviewState,
   type DepreciationAsset,
   type DepreciationAssetRepository,
+  type DepreciationSchedule,
+  type DepreciationScheduleSource,
   type NewDepreciationAsset,
 } from '../domains/depreciation/index.js';
 import { businessDayOf } from '../domains/ledger/index.js';
@@ -19,6 +23,7 @@ import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { AcquisitionNotFoundError } from './ownerships.js';
 import { PartyNotFoundError } from './parties.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
+import { OwnerPartyNotFoundError } from './tax-classifications.js';
 
 /**
  * The DepreciationAsset (api-design.md §59, backlog VC-8-01), in the caller's verified Realm. Input arrives validated
@@ -82,6 +87,18 @@ export class AcquisitionNotOfPropertyError extends Error {
     readonly propertyReferenceId: string,
   ) {
     super(`Acquisition ${acquisitionId} belongs to PropertyReference ${propertyReferenceId}`);
+  }
+}
+
+/** The Party holds no share of the asset's PropertyReference and bought none (→ 422 NOT_AN_OWNER, §59A). */
+export class NotAnOwnerError extends Error {
+  override readonly name = 'NotAnOwnerError';
+
+  constructor(
+    readonly ownerPartyId: string,
+    readonly propertyReferenceId: string,
+  ) {
+    super(`Party ${ownerPartyId} holds no share of PropertyReference ${propertyReferenceId} and bought none`);
   }
 }
 
@@ -261,5 +278,32 @@ export function listPropertyDepreciationAssets(deps: ReadDeps): ListPropertyDepr
     if (reads === undefined) throw new PropertyReferenceNotFoundError(propertyReferenceId);
     const at = yearOf(deps, year);
     return reads.map((read) => viewOf(read, at, registry));
+  };
+}
+
+export type GetDepreciationSchedule = (input: {
+  readonly principal: RealmPrincipal;
+  readonly assetId: string;
+  readonly from?: number;
+  readonly to?: number;
+  readonly ownerPartyId: string | null;
+}) => Promise<DepreciationSchedule>;
+
+/**
+ * The schedule of the purchase (api-design.md §59A, backlog VC-8-02): derived on every read from one snapshot, never
+ * stored. The checks in §59A's order after the `400`s: the asset (`404`), the Party (`404`), an owner of the asset's
+ * PropertyReference (`422 NOT_AN_OWNER`). `computedOn` is today in Europe/Berlin; only the default range depends on it.
+ */
+export function getDepreciationSchedule(
+  deps: { readonly source: DepreciationScheduleSource; readonly registry?: RuleRegistry } & Clock,
+): GetDepreciationSchedule {
+  const registry = deps.registry ?? TAX_RULES;
+  return async ({ principal, assetId, from, to, ownerPartyId }) => {
+    const read = await deps.source.read(assetId, principal.mreRealmId, ownerPartyId);
+    if (read === undefined) throw new DepreciationAssetNotFoundError(assetId);
+    if (ownerPartyId !== null && read.ownerPartyFound !== true) throw new OwnerPartyNotFoundError(ownerPartyId);
+    if (ownerPartyId !== null && !isOwnerOf(read.ownerships, ownerPartyId)) throw new NotAnOwnerError(ownerPartyId, read.asset.propertyReferenceId);
+    const today = businessDayOf(nowOf(deps));
+    return deriveSchedule({ asset: read.asset, acquisitions: read.acquisitions, ownerships: read.ownerships, today, from, to, ownerPartyId }, registry);
   };
 }

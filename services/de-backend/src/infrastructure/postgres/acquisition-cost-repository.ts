@@ -35,7 +35,7 @@ const COST_SCOPE = 'acquisition.cost.create';
 const PAYMENT_SCOPE = 'acquisition.payment.create';
 
 /** A payment counts while it is not unlinked and its Transaction is current (§35.3); the Acquisition is checked apart. */
-const COUNTING = sql<boolean>`p.unlinked_at IS NULL AND t.status IN ('CONFIRMED', 'RECONCILED') AND t.correction_role IS DISTINCT FROM 'REVERSAL'`;
+export const COUNTING = sql<boolean>`p.unlinked_at IS NULL AND t.status IN ('CONFIRMED', 'RECONCILED') AND t.correction_role IS DISTINCT FROM 'REVERSAL'`;
 
 interface AcquisitionState {
   readonly status: AcquisitionStatus;
