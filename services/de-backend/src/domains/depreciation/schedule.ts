@@ -9,7 +9,7 @@ import {
   type RuleStatus,
   type RuleVersion,
 } from '../../shared/index.js';
-import { buildingAcquisitionCost, largestRemainder, type BuildingAcquisitionCost } from '../acquisition/index.js';
+import { buildingAcquisitionCost, largestRemainder, transferDate, type BuildingAcquisitionCost } from '../acquisition/index.js';
 import { continuousOwners } from '../ownership/index.js';
 import { isConfirmed, type DepreciationAsset, type ShorterUsefulLife } from './asset.js';
 import {
@@ -185,7 +185,8 @@ export interface ComponentOwner {
   readonly weight: string;
   readonly basis: Money | null;
   readonly tenure: {
-    readonly from: BusinessDate;
+    /** The component's start; `null` while it is unknown (`TRANSFER_DATE_MISSING`). */
+    readonly from: BusinessDate | null;
     readonly lastDay: BusinessDate | null;
     readonly lastDaySource: 'BUYER_ECONOMIC_TRANSFER_DATE' | 'VALID_UNTIL' | null;
   };
@@ -232,12 +233,13 @@ export interface ScheduleComponent {
   readonly status: 'COMPUTABLE' | 'NOT_COMPUTABLE';
   readonly reasons: readonly Flag[];
   readonly basis: ComponentBasis;
+  /** `null` without `economicTransferDate`: the component is not computable (`TRANSFER_DATE_MISSING`, VC-X-33). */
   readonly start: {
     readonly date: BusinessDate;
-    readonly dateSource: 'ECONOMIC_TRANSFER_DATE' | 'CONTRACT_DATE';
+    readonly dateSource: 'ECONOMIC_TRANSFER_DATE';
     readonly month: string;
     readonly firstYearMonths: number;
-  };
+  } | null;
   readonly rate: ComponentRate | null;
   readonly end: { readonly lastYear: number; readonly lastMonth: string } | null;
   readonly owners: readonly ComponentOwner[];
@@ -328,8 +330,15 @@ export interface Part {
 export interface Work {
   readonly acquisition: ScheduleAcquisition;
   readonly componentId: string;
-  readonly start: BusinessDate;
-  readonly firstMonth: number;
+  /** The AfA's start: `economicTransferDate`, never the contract date; `null` without it (`TRANSFER_DATE_MISSING`). */
+  readonly start: BusinessDate | null;
+  /**
+   * The day the buyers' Ownerships carrying the Acquisition begin (§27.1's `transferDate`, P2-D6): the tenure, the share
+   * bought (§28.1A) and the coverage are read there. Equal to `start` whenever that is known.
+   */
+  readonly ownedFrom: BusinessDate;
+  readonly firstMonth: number | null;
+  /** The first year (without a start, the contract's: `economicTransferDate` is never before `contractDate`, §27.1). */
   readonly firstYear: number;
   readonly cost: BuildingAcquisitionCost;
   readonly reasons: Flag[];
@@ -385,16 +394,18 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
   // A separate asset has no purchase components: its cost is its items (§59B).
   const listed = (separate ? [] : input.acquisitions)
     .filter((a) => a.status === 'CONFIRMED' || (a.status === 'DRAFT' && carrying(a.id).length > 0))
-    .map((a) => ({ a, start: a.economicTransferDate ?? a.contractDate }))
-    .sort((x, y) => byText(x.start, y.start) || byText(x.a.id, y.a.id));
+    .map((a) => ({ a, ownedFrom: transferDate(a) }))
+    .sort((x, y) => byText(x.ownedFrom, y.ownedFrom) || byText(x.a.id, y.a.id));
   const rowsOf = (partyId: string) => input.ownerships.filter((o) => o.partyId === partyId);
 
-  const works: Work[] = listed.map(({ a, start }) => {
-    const startYear = yearOfDate(start);
-    const ruleAtStart = buildingRuleOn(registry, startYear) ?? latest;
+  const works: Work[] = listed.map(({ a, ownedFrom }) => {
+    // §59A open question 6, decided 2026-10-31: without `economicTransferDate` there is no start, never the contract date.
+    const start = a.economicTransferDate;
+    const startYear = start === null ? null : yearOfDate(start);
+    const ruleAtStart = (startYear === null ? undefined : buildingRuleOn(registry, startYear)) ?? latest;
     const firstYearRule = ruleAtStart?.parameters;
     const startMonthCounts = firstYearRule?.firstYear.startMonthCounts ?? true;
-    const firstMonth = monthOf(start) + (startMonthCounts ? 0 : 1);
+    const firstMonth = start === null ? null : monthOf(start) + (startMonthCounts ? 0 : 1);
     const cost = buildingAcquisitionCost(
       { acquisition: a, costs: a.costs, allocation: a.allocation },
       {
@@ -404,7 +415,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     );
     // The owner parts: the Ownerships carrying the id, one per Party (the purchase row, the earliest).
     const acquiredShare = ofShare(a.acquiredShare);
-    const dayBefore = addDays(start, -1);
+    const dayBefore = addDays(ownedFrom, -1);
     const byParty = new Map<string, ScheduleOwnership>();
     for (const o of [...carrying(a.id)].sort((x, y) => byText(x.validFrom, y.validFrom) || byText(x.id, y.id))) {
       if (!byParty.has(o.partyId)) byParty.set(o.partyId, o);
@@ -415,7 +426,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
         const rows = rowsOf(o.partyId);
         // §28.1A: the share bought is the increase over the day before the transfer date.
         const shareBefore = heldOn(rows, dayBefore);
-        const acquired = sub(heldOn(rows, start), shareBefore);
+        const acquired = sub(heldOn(rows, ownedFrom), shareBefore);
         return {
           ownerPartyId: o.partyId,
           ownershipId: o.id,
@@ -442,10 +453,12 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     if (entry !== undefined && !isConfirmed(entry.reviewState)) {
       reasons.push({ code: 'USEFUL_LIFE_NOT_CONFIRMED', details: { usefulLifeYears: entry.usefulLifeYears, reviewState: entry.reviewState } });
     }
-    const historical = supportedFrom === null || start < supportedFrom || a.contractDate < supportedFrom;
+    if (start === null) reasons.push({ code: 'TRANSFER_DATE_MISSING', details: { contractDate: a.contractDate } });
+    const historical = supportedFrom === null || (start !== null && start < supportedFrom) || a.contractDate < supportedFrom;
     if (historical) reasons.push({ code: 'HISTORICAL_RULE_NOT_SUPPORTED', details: { contractDate: a.contractDate, startDate: start, supportedFrom } });
     const completionYear = asset.buildingCompletionYear;
-    const methodFrom = buildingRuleOn(registry, startYear)?.parameters.methodUnknownFromCompletionYear;
+    // Without a start neither check nor walk: both need the start year (they follow once the date is entered).
+    const methodFrom = startYear === null ? undefined : buildingRuleOn(registry, startYear)?.parameters.methodUnknownFromCompletionYear;
     if (completionYear !== null && methodFrom !== undefined && startYear === completionYear && completionYear >= methodFrom) {
       reasons.push({ code: 'DEPRECIATION_METHOD_UNKNOWN', details: { completionYear, firstYear: startYear } });
     }
@@ -456,7 +469,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     const yearsWithoutRule: number[] = [];
     let lastMonth: number | null = null;
     const supportedYear = supportedFrom === null ? RANGE_MAX_YEAR + 1 : yearOfDate(supportedFrom);
-    if (completionYear !== null) {
+    if (completionYear !== null && firstMonth !== null && startYear !== null) {
       let done = ZERO;
       // At most 99 years (1/99 is the smallest rate), so a century bounds the walk, past 2100 too (`range.truncated`).
       for (let m = firstMonth; cmp(done, ONE) < 0 && yearOfMonth(m) <= startYear + 100; m++) {
@@ -478,7 +491,6 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     if (yearsWithoutRule.length > 0 && !historical) reasons.push({ code: 'NO_APPLICABLE_RULE', details: { yearsWithoutRule } });
 
     const flags: Flag[] = [];
-    if (a.economicTransferDate === null) flags.push({ code: 'TRANSFER_DATE_ASSUMED', details: { contractDate: a.contractDate } });
     const rateList = [...rates.values()];
     if (rateList.some((r) => r.notShorter) && entry !== undefined) {
       flags.push({
@@ -492,7 +504,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     if (rateList.some((r) => r.kind === 'SHORTER_USEFUL_LIFE') && entry !== undefined) {
       flags.push({ code: 'SHORTER_USEFUL_LIFE', details: { usefulLifeYears: entry.usefulLifeYears } });
       // §59A: applied from the start; evidence dated after the first year is open (open question 4).
-      if (entry.evidence.date > `${startYear}-12-31`)
+      if (startYear !== null && entry.evidence.date > `${startYear}-12-31`)
         flags.push({ code: 'USEFUL_LIFE_START_TO_VERIFY', details: { evidenceDate: entry.evidence.date, firstYear: startYear } });
     }
     const unpaid = a.costs.filter((c) => c.paymentStatus !== 'PAID').map((c) => c.id);
@@ -530,8 +542,9 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
       acquisition: a,
       componentId: `ACQUISITION:${a.id}`,
       start,
+      ownedFrom,
       firstMonth,
-      firstYear: yearOfMonth(firstMonth),
+      firstYear: firstMonth === null ? yearOfDate(a.contractDate) : yearOfMonth(firstMonth),
       cost,
       reasons,
       flags,
@@ -556,7 +569,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     for (const { w, p } of mine) {
       const tenure = continuousOwners(
         rows.map((r) => ({ id: r.id, partyId: r.partyId, validFrom: r.validFrom, validUntil: r.validUntil })),
-        w.start,
+        w.ownedFrom,
       ).find(() => true);
       p.hasTenure = tenure !== undefined;
       p.tenureEnd = tenure?.validUntil ?? null;
@@ -566,11 +579,11 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     let heldBefore = ZERO;
     for (const day of eventDays(
       rows,
-      mine.map(({ w }) => w.start),
+      mine.map(({ w }) => w.ownedFrom),
     )) {
       const held = heldOn(rows, day);
-      for (const { w, p } of mine) if (w.start === day && p.hasTenure) f.set(p, ONE);
-      const active = mine.filter(({ w, p }) => p.hasTenure && w.start <= day && (p.tenureEnd === null || day <= p.tenureEnd));
+      for (const { w, p } of mine) if (w.ownedFrom === day && p.hasTenure) f.set(p, ONE);
+      const active = mine.filter(({ w, p }) => p.hasTenure && w.ownedFrom <= day && (p.tenureEnd === null || day <= p.tenureEnd));
       const attributed = active.reduce((sum, { p }) => add(sum, mul(cmp(p.acquired, ZERO) > 0 ? p.acquired : ZERO, f.get(p) ?? ZERO)), ZERO);
       if (cmp(held, attributed) < 0 && cmp(attributed, ZERO) > 0) {
         // A share reduced within the tenure: every component the Party holds that day falls pro rata (§28.1A).
@@ -591,7 +604,8 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
 
   // Per owner part: the cut-off, the months and the exact cumulative AfA (§59A "Per owner").
   for (const w of works) {
-    if (w.lastMonth === null) continue;
+    const { start, firstMonth } = w;
+    if (w.lastMonth === null || start === null || firstMonth === null) continue;
     const parameters = (w.rates.get(w.firstYear) ?? [...w.rates.values()][0])?.rule.parameters ?? latest?.parameters;
     const disposal = parameters?.end.disposal;
     const endMonthCounts = disposal?.endMonthCounts ?? true;
@@ -619,15 +633,15 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
       const reductions = p.changes.filter((c) => p.tenureEnd === null || c.date <= p.tenureEnd);
       const reducedWithCutOff = reductions.filter((c) => cutOff(c.date));
       const fractionOn = (day: BusinessDate): Frac => {
-        if (day < w.start || (p.lastDay !== null && day > p.lastDay)) return ZERO;
+        if (day < start || (p.lastDay !== null && day > p.lastDay)) return ZERO;
         let value = ONE;
         for (const c of p.changes) if (c.date <= day) value = c.f;
         return value;
       };
-      const fractionAt = (m: number) => (endMonthCounts ? fractionOn(maxDate(firstDay(m), w.start)) : fractionOn(lastDayOf(m)));
+      const fractionAt = (m: number) => (endMonthCounts ? fractionOn(maxDate(firstDay(m), start)) : fractionOn(lastDayOf(m)));
       p.fractionAt = fractionAt;
       let cumulative = ZERO;
-      for (let m = w.firstMonth; m <= w.lastMonth; m++) {
+      for (let m = firstMonth; m <= w.lastMonth; m++) {
         const q = w.monthly.get(m) ?? ZERO;
         const f = fractionAt(m);
         cumulative = add(cumulative, mul(f, q));
@@ -674,7 +688,10 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     (y): y is number => y !== null,
   );
   const naturalTo = computableLast.length === 0 ? todayYear : Math.max(...computableLast);
-  const starts = [...works.map((w) => yearOfDate(w.start)), ...itemWorks.map((w) => itemYears(w).first).filter((y): y is number => y !== null)];
+  const starts = [
+    ...works.map((w) => (w.start === null ? w.firstYear : yearOfDate(w.start))),
+    ...itemWorks.map((w) => itemYears(w).first).filter((y): y is number => y !== null),
+  ];
   const from = input.from ?? clamp(starts.length === 0 ? todayYear : Math.min(...starts));
   let to = input.to ?? clamp(naturalTo);
   if (to < from) to = from;
@@ -948,12 +965,15 @@ function componentOf(w: Work, parts: readonly Part[], range: { readonly from: nu
       totalAllocableAmount: a.allocation?.totalAllocableAmount ?? null,
       buildingAmount: a.allocation?.buildingAmount ?? null,
     },
-    start: {
-      date: w.start,
-      dateSource: a.economicTransferDate === null ? 'CONTRACT_DATE' : 'ECONOMIC_TRANSFER_DATE',
-      month: monthLabel(monthOf(w.start)),
-      firstYearMonths: yearOfMonth(w.firstMonth) === yearOfDate(w.start) ? 12 - (w.firstMonth % 12) : 0,
-    },
+    start:
+      w.start === null || w.firstMonth === null
+        ? null
+        : {
+            date: w.start,
+            dateSource: 'ECONOMIC_TRANSFER_DATE',
+            month: monthLabel(monthOf(w.start)),
+            firstYearMonths: yearOfMonth(w.firstMonth) === yearOfDate(w.start) ? 12 - (w.firstMonth % 12) : 0,
+          },
     rate,
     end: lastYear === null || lastMonth === null ? null : { lastYear, lastMonth: monthLabel(lastMonth) },
     owners: parts.map((p) => ({
