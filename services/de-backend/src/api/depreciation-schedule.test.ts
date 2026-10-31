@@ -29,6 +29,8 @@ const B = '6f1c2a9e-0000-4000-8000-000000000022';
 const D = '6f1c2a9e-0000-4000-8000-000000000029';
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const day = (value: string) => value as BusinessDate;
+/** A stand-in for the SHA-256 adapter (the API tests may not import infrastructure): the text's length as 64 hex. */
+const FAKE_FINGERPRINTER = { sha256Hex: (text: string) => text.length.toString(16).padStart(64, '0') };
 
 const asset: DepreciationAsset = {
   id: ASSET as DepreciationAsset['id'],
@@ -130,7 +132,12 @@ const real = (read: ScheduleRead | undefined, now = new Date('2026-10-30T10:00:0
       return read === undefined ? undefined : { ...read, ownerPartyFound: args[2] === null ? null : (read.ownerPartyFound ?? true) };
     },
   };
-  return { calls, commands: { depreciationAssets: { schedule: getDepreciationSchedule({ source, now: () => now }) } } satisfies CommandOverrides };
+  return {
+    calls,
+    commands: {
+      depreciationAssets: { schedule: getDepreciationSchedule({ source, now: () => now, recordingEnabled: false, fingerprinter: FAKE_FINGERPRINTER }) },
+    } satisfies CommandOverrides,
+  };
 };
 const path = `/depreciation-assets/${ASSET}/schedule`;
 
@@ -228,6 +235,10 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
     ];
     const rule = { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2, band: 'B', legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG' };
     const unpaid = { code: 'ACQUISITION_COST_UNPAID', details: { componentIds: [`ACQUISITION:${W}`] } };
+    const notRecorded = {
+      code: 'DEPRECIATION_SCHEDULE_NOT_RECORDED',
+      details: { assetId: ASSET, assetType: 'BUILDING', currentVersionId: null, currentThroughYear: null },
+    };
     expect(body).toEqual({
       assetId: ASSET,
       propertyReferenceId: PR,
@@ -330,7 +341,9 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
           ],
           notOwned: null,
           reasons: [],
-          flags: [unpaid],
+          flags: [unpaid, notRecorded],
+          inputFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+          recording: 'NOT_RECORDED',
         },
         {
           year: 2027,
@@ -344,10 +357,13 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
           ],
           notOwned: null,
           reasons: [],
-          flags: [unpaid],
+          flags: [unpaid, notRecorded],
+          inputFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+          recording: 'NOT_RECORDED',
         },
       ],
-      review: { open: [], info: [{ code: 'ACQUISITION_COST_UNPAID', count: 1 }] },
+      // §60: nothing recorded, so each year with AfA carries the open DEPRECIATION_SCHEDULE_NOT_RECORDED.
+      review: { open: [{ code: 'DEPRECIATION_SCHEDULE_NOT_RECORDED', count: 2 }], info: [{ code: 'ACQUISITION_COST_UNPAID', count: 1 }] },
       ruleVersions: [
         {
           ruleCode: 'DE_AFA_BUILDING_LINEAR',
@@ -358,6 +374,8 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
           years: [2026, 2027],
         },
       ],
+      recordedVersion: null,
+      recordingEnabled: false,
     });
   });
 

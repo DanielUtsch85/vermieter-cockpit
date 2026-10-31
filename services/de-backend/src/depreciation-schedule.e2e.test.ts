@@ -17,6 +17,7 @@ import {
   createDatabase,
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -116,6 +117,8 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
           schedule: getDepreciationSchedule({
             source: new PostgresDepreciationScheduleSource(db, new PostgresTaxClassificationRepository(db).capitalizedSources, now),
             now,
+            recordingEnabled: false,
+            fingerprinter: sha256Fingerprinter,
           }),
         },
         taxation: { anschaffungsnahe: getAnschaffungsnaheCheck({ repository: new PostgresTaxClassificationRepository(db), now }) },

@@ -101,7 +101,7 @@ export { ITEM_SOURCE_TYPES, NOT_OWNED_PART, componentIdOf, isCapitalized, sameIt
 export type { CapitalizedItem, CapitalizedItemPart, ItemRef, ItemSourceType } from './capitalized-item.js';
 export type { ItemComponent, ItemComponentRate, ItemOwner, ItemSourceView } from './schedule-items.js';
 export { DEPRECIATION_RULE_VERSIONS } from './rules/versions.js';
-export { INFORMATIVE_CODES, RANGE_MAX_YEAR, RANGE_MIN_YEAR, deriveSchedule, isOwnerOf } from './schedule.js';
+export { INFORMATIVE_CODES, RANGE_MAX_YEAR, RANGE_MIN_YEAR, SCHEDULE_CALCULATION_VERSION, deriveSchedule, isOwnerOf } from './schedule.js';
 export type {
   AssetLink,
   CalculationStatus,
@@ -124,3 +124,38 @@ export type {
   ScheduleYear,
   YearRule,
 } from './schedule.js';
+// Recorded schedule versions (api-design.md §60, VC-8-04).
+export { FINGERPRINT, canonicalJson, centsText, ruleVersionHash } from './fingerprint.js';
+export type { Fingerprinter } from './fingerprint.js';
+export { SCHEDULE_VERSION_STATUSES } from './version-model.js';
+export type {
+  NewScheduleVersion,
+  PartRateKind,
+  RecordDecision,
+  RecordOutcome,
+  RecordRead,
+  RecordRefusal,
+  RecordRequest,
+  ScheduleVersion,
+  ScheduleVersionRepository,
+  ScheduleVersionStatus,
+  VersionAcquisitionInputs,
+  VersionAssetFacts,
+  VersionComponent,
+  VersionEntry,
+  VersionFlag,
+  VersionFraction,
+  VersionInputs,
+  VersionItemInputs,
+  VersionPart,
+  VersionRule,
+  VersionYear,
+} from './version-model.js';
+export { entriesOf, resolveScheduleInputs } from './version-inputs.js';
+export { computeVersionEntries } from './version-compute.js';
+export { inputFingerprint, outputFingerprint, truncateInputs } from './version-fingerprint.js';
+export { compareYear, liveSchedule, reproduce } from './version-compare.js';
+export type { LiveSchedule, RecordingState, Reproduction, YearComparison } from './version-compare.js';
+export { planRecord, recordFingerprint } from './version-record.js';
+export { RECORDING_FLAGS, changedDetails, withRecording } from './version-schedule.js';
+export type { RecordedSchedule, RecordedScheduleYear } from './version-schedule.js';

@@ -188,6 +188,10 @@ describe.skipIf(databaseUrl === undefined)('the DepreciationAsset (VC-8-01) end 
       'POST /depreciation-assets/:assetId/void',
       // VC-8-02 (§59A): the schedule, on the same router.
       'GET /depreciation-assets/:assetId/schedule',
+      // VC-8-04 (§60): the recorded schedule versions.
+      'POST /depreciation-assets/:assetId/schedule-versions',
+      'GET /depreciation-assets/:assetId/schedule-versions',
+      'GET /depreciation-assets/:assetId/schedule-versions/:versionId',
     ]);
   });
 

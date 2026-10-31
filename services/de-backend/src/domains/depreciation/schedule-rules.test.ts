@@ -269,6 +269,33 @@ describe("the rule's parameters come from the registry (AGENTS.md §16)", () => 
     expect(component(derive(input, later)).status).toBe('COMPUTABLE');
   });
 
+  it('the start’s parameters come from the version of the start year, never the newest (closes the gap of #204)', () => {
+    // The registry's @1 and @2 read the same start parameters, so a test registry makes @1's differ: under @1 the first
+    // month does not count and NOTARY is excluded. A start in 2020 reads @1; one in 2024 reads @2. The mutation "always
+    // the newest version as the start's rule" (`ruleAtStart` in `purchase-work.ts`) turns this test red.
+    const v1 = DE_AFA_BUILDING_LINEAR_V1.parameters;
+    const differing = new RuleRegistry([
+      {
+        ...DE_AFA_BUILDING_LINEAR_V1,
+        parameters: {
+          ...v1,
+          firstYear: { ...v1.firstYear, startMonthCounts: false },
+          basis: { ...v1.basis, excludedCostCategories: ['FINANCING_RELATED', 'NOTARY'] },
+        },
+      },
+      DE_AFA_BUILDING_LINEAR_V2,
+    ]);
+    const at2020 = component(
+      derive(sole({ contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') }, {}, { from: 2020, to: 2020 }), differing),
+    );
+    // (300,000 + 15,000) × 254,400 / 318,000 = 252,000.00; April does not count, so May–December: 8 months.
+    expect([amount(at2020.basis.amount), at2020.start?.firstYearMonths, yearOf(at2020, 2020).months]).toEqual(['252000.00', 8, 8]);
+    const at2024 = component(
+      derive(sole({ contractDate: day('2024-03-01'), economicTransferDate: day('2024-04-01') }, {}, { from: 2024, to: 2024 }), differing),
+    );
+    expect([amount(at2024.basis.amount), at2024.start?.firstYearMonths, yearOf(at2024, 2024).months]).toEqual(['254400.00', 9, 9]);
+  });
+
   it('HISTORICAL_RULE_TO_VERIFY disappears with a test registry that marks @1 verified', () => {
     const verified = new RuleRegistry([
       { ...DE_AFA_BUILDING_LINEAR_V1, parameters: { ...DE_AFA_BUILDING_LINEAR_V1.parameters, verified: true } },

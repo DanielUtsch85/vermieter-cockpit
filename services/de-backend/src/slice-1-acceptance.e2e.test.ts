@@ -63,13 +63,6 @@ import {
   getRentalContractReference,
   listRentalContractReferences,
   amendRentalContractReference,
-  amendDepreciationAsset,
-  confirmDepreciationAsset,
-  createDepreciationAsset,
-  getDepreciationAsset,
-  listPropertyDepreciationAssets,
-  voidDepreciationAsset,
-  getDepreciationSchedule,
   getTaxRule,
   listTaxClassificationHistory,
   listTaxMeanings,
@@ -171,8 +164,6 @@ import {
   PostgresWegSpecialAssessmentRepository,
   PostgresTaxClassificationRepository,
   PostgresRentalContractReferenceRepository,
-  PostgresDepreciationAssetRepository,
-  PostgresDepreciationScheduleSource,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
   PostgresLoanAllocationRepository,
@@ -189,6 +180,7 @@ import {
   createDatabase,
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
+import { depreciationCommands } from './depreciation-commands.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
@@ -390,17 +382,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         list: listRentalContractReferences({ repository: new PostgresRentalContractReferenceRepository(db) }),
         amend: amendRentalContractReference({ repository: new PostgresRentalContractReferenceRepository(db) }),
       },
-      depreciationAssets: {
-        create: createDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
-        get: getDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
-        listForPropertyReference: listPropertyDepreciationAssets({ repository: new PostgresDepreciationAssetRepository(db) }),
-        amend: amendDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
-        confirm: confirmDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
-        void: voidDepreciationAsset({ repository: new PostgresDepreciationAssetRepository(db) }),
-        schedule: getDepreciationSchedule({
-          source: new PostgresDepreciationScheduleSource(db, new PostgresTaxClassificationRepository(db).capitalizedSources),
-        }),
-      },
+      depreciationAssets: depreciationCommands(db),
       rentReconciliations: {
         create: createReconciliation({ repository: new PostgresRentReconciliationRepository(db), lookupMreRentTerm: mreRentTermLookup(client) }),
         get: getReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),

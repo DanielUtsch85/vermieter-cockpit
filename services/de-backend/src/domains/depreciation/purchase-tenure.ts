@@ -117,15 +117,7 @@ export function walkOwnerMonths(
       };
       const fractionAt = (m: number) => (endMonthCounts ? fractionOn(maxDate(firstDay(m), start)) : fractionOn(lastDayOf(m)));
       p.fractionAt = fractionAt;
-      let cumulative = ZERO;
-      for (let m = firstMonth; m <= w.lastMonth; m++) {
-        const q = w.monthly.get(m) ?? ZERO;
-        const f = fractionAt(m);
-        cumulative = add(cumulative, mul(f, q));
-        const year = yearOfMonth(m);
-        const seen = p.years.get(year) ?? { months: 0, fraction: ZERO, cumulative: ZERO };
-        p.years.set(year, cmp(f, ZERO) > 0 ? { months: seen.months + 1, fraction: f, cumulative } : { ...seen, cumulative });
-      }
+      accumulateMonths(w, p, fractionAt);
       const legalBasis = disposal?.legalBasis ?? null;
       const noteDisposal = (lastDay: BusinessDate) => {
         const year = yearOfDate(lastDay);
@@ -144,4 +136,22 @@ export function uncoveredIn(steps: readonly { date: BusinessDate; held: Frac; co
   const inYear = steps.filter((s, i) => s.date <= end && (s.date >= start || (steps[i + 1]?.date ?? '9999-12-31') > start));
   const gap = inYear.find((s) => cmp(s.held, s.covered) > 0);
   return gap === undefined ? undefined : { from: maxDate(gap.date, start), heldShare: show(gap.held), coveredShare: show(gap.covered) };
+}
+
+/**
+ * A purchase part's months (§59A "Per owner"): the counted months, the last counted month's fraction and the exact
+ * cumulative share of the basis per year, from the component's nominal months and the part's still-held fraction.
+ * Shared by the derivation and the recomputation of a recorded version (§60).
+ */
+export function accumulateMonths(w: Pick<Work, 'firstMonth' | 'lastMonth' | 'monthly'>, p: Pick<Part, 'years'>, fractionAt: (m: number) => Frac): void {
+  if (w.firstMonth === null || w.lastMonth === null) return;
+  let cumulative = ZERO;
+  for (let m = w.firstMonth; m <= w.lastMonth; m++) {
+    const q = w.monthly.get(m) ?? ZERO;
+    const f = fractionAt(m);
+    cumulative = add(cumulative, mul(f, q));
+    const year = yearOfMonth(m);
+    const seen = p.years.get(year) ?? { months: 0, fraction: ZERO, cumulative: ZERO };
+    p.years.set(year, cmp(f, ZERO) > 0 ? { months: seen.months + 1, fraction: f, cumulative } : { ...seen, cumulative });
+  }
 }

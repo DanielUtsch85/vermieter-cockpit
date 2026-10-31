@@ -3,6 +3,7 @@ import {
   deriveRate,
   deriveSchedule,
   isOwnerOf,
+  withRecording,
   type AssetAmendment,
   type AssetRate,
   type AssetRead,
@@ -10,8 +11,9 @@ import {
   type ConfirmReviewState,
   type DepreciationAsset,
   type DepreciationAssetRepository,
-  type DepreciationSchedule,
   type DepreciationScheduleSource,
+  type Fingerprinter,
+  type RecordedSchedule,
   type ItemRef,
   type ItemRefusal,
   type NewDepreciationAsset,
@@ -383,15 +385,24 @@ export type GetDepreciationSchedule = (input: {
   readonly from?: number;
   readonly to?: number;
   readonly ownerPartyId: string | null;
-}) => Promise<DepreciationSchedule>;
+}) => Promise<RecordedSchedule>;
 
 /**
  * The schedule of the purchase (api-design.md §59A, backlog VC-8-02) and of the capitalised items or a separate asset
- * (§59B, VC-8-03): derived on every read from one snapshot, never stored. The checks in §59A's order after the `400`s: the asset (`404`), the Party (`404`), an owner of the asset's
- * PropertyReference (`422 NOT_AN_OWNER`). `computedOn` is today in Europe/Berlin; only the default range depends on it.
+ * (§59B, VC-8-03): derived on every read from one snapshot, never stored, with its recording state (§60, VC-8-04): the
+ * input fingerprints, each year compared with the `CURRENT` version, and `recordingEnabled`, which only reports the
+ * installation's switch (decided 2026-10-31, third set, open question 10). The checks in §59A's order after the `400`s:
+ * the asset (`404`), the Party (`404`), an owner of the asset's PropertyReference (`422 NOT_AN_OWNER`). `computedOn` is
+ * today in Europe/Berlin; only the default range depends on it.
  */
 export function getDepreciationSchedule(
-  deps: { readonly source: DepreciationScheduleSource; readonly registry?: RuleRegistry } & Clock,
+  deps: {
+    readonly source: DepreciationScheduleSource;
+    readonly registry?: RuleRegistry;
+    /** The installation's recording switch, reported as `recordingEnabled`; no default (§60). */
+    readonly recordingEnabled: boolean;
+    readonly fingerprinter: Fingerprinter;
+  } & Clock,
 ): GetDepreciationSchedule {
   const registry = deps.registry ?? TAX_RULES;
   return async ({ principal, assetId, from, to, ownerPartyId }) => {
@@ -400,7 +411,7 @@ export function getDepreciationSchedule(
     if (ownerPartyId !== null && read.ownerPartyFound !== true) throw new OwnerPartyNotFoundError(ownerPartyId);
     if (ownerPartyId !== null && !isOwnerOf(read.ownerships, ownerPartyId)) throw new NotAnOwnerError(ownerPartyId, read.asset.propertyReferenceId);
     const today = businessDayOf(nowOf(deps));
-    return deriveSchedule(
+    const schedule = deriveSchedule(
       {
         asset: read.asset,
         acquisitions: read.acquisitions,
@@ -414,5 +425,12 @@ export function getDepreciationSchedule(
       },
       registry,
     );
+    return withRecording(schedule, read, {
+      registry,
+      fingerprinter: deps.fingerprinter,
+      today,
+      current: read.currentVersion ?? null,
+      recordingEnabled: deps.recordingEnabled,
+    });
   };
 }

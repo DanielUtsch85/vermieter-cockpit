@@ -5,7 +5,7 @@ import { access, answer, on } from './answer.js';
 export const COMMON_ANSWERS = [
   on(AccessError, (error) => access(error.code)),
   on(ConcurrentUpdateError, () => ({
-    ...answer(503, 'CONCURRENT_UPDATE', 'The external reference kept changing concurrently; nothing was written. Retry.'),
+    ...answer(503, 'CONCURRENT_UPDATE', 'The data kept changing concurrently; nothing was written. Retry.'),
     headers: { 'Retry-After': '1' },
   })),
   on(IdempotencyKeyConflictError, () => answer(409, 'CONFLICT', 'Idempotency-Key was already used with a different payload.')),

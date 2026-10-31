@@ -14,6 +14,7 @@ import type {
 import type { AuditActor, RuleRef } from '../../shared/index.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
 import { findAsset, listForPropertyReference } from './depreciation-asset-reads.js';
+import { storedRuleVersionHashes } from './depreciation-schedule-version-reads.js';
 import * as store from './depreciation-asset-store.js';
 import type { Database } from './schema.js';
 
@@ -81,8 +82,10 @@ export class PostgresDepreciationAssetRepository implements DepreciationAssetRep
     return listForPropertyReference(this.db, propertyReferenceId, mreRealmId, statuses);
   }
 
-  /** VC-8-01 stores no rule reference: the rate is derived (P8-D1). VC-8-04's recorded versions will. */
-  storedRuleReferences(): Promise<readonly RuleRef[]> {
-    return Promise.resolve([]);
+  /** The rule versions recorded schedule versions name (§60, `depreciation_schedule_version_rule`), across Realms. */
+  async storedRuleReferences(): Promise<readonly RuleRef[]> {
+    return [
+      ...new Map((await storedRuleVersionHashes(this.db)).map((r) => [`${r.ruleCode}@${r.version}`, { ruleCode: r.ruleCode, version: r.version }])).values(),
+    ];
   }
 }

@@ -14,6 +14,7 @@ import { principalOf } from './access-middleware.js';
 import { readId } from './acquisitions.js';
 import { amendBody, confirmBody, createBody, entriesOf, getQuery, itemsOf, listQuery, references, voidBody } from './depreciation-asset-dto.js';
 import { depreciationScheduleRoutes } from './depreciation-schedule.js';
+import { scheduleVersionRoutes, type ScheduleVersionCommands } from './depreciation-schedule-versions.js';
 import { fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 export interface DepreciationAssetCommands {
@@ -26,8 +27,11 @@ export interface DepreciationAssetCommands {
   readonly schedule: GetDepreciationSchedule;
 }
 
+/** The asset's commands with the recorded schedule versions' (§60). */
+export type DepreciationAssetCommandsWithVersions = DepreciationAssetCommands & ScheduleVersionCommands;
+
 /** The DepreciationAsset API (api-design.md §59, §59B; backlogs VC-8-01, VC-8-03). */
-export function depreciationAssetRoutes(commands: DepreciationAssetCommands): Router {
+export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithVersions): Router {
   const router = express.Router();
 
   router.post('/depreciation-assets', express.json({ limit: '64kb' }), (req, res, next) => {
@@ -180,6 +184,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommands): Ro
       .catch(next);
   });
   router.use(depreciationScheduleRoutes(commands));
+  router.use(scheduleVersionRoutes(commands));
 
   return router;
 }

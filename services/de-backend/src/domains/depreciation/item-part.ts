@@ -303,11 +303,11 @@ export function partOf(
   };
 }
 
-function bandRate(registry: RuleRegistry, asset: DepreciationAsset): PartRate {
+export function bandRate(registry: RuleRegistry, asset: DepreciationAsset): PartRate {
   return { kind: 'BAND', usefulLifeYears: null, annualOf: (y) => rateOfYear(registry, y, asset.buildingCompletionYear, undefined)?.annual };
 }
 
-function usefulLifeRate(registry: RuleRegistry, asset: DepreciationAsset): PartRate {
+export function usefulLifeRate(registry: RuleRegistry, asset: DepreciationAsset): PartRate {
   const years = asset.usefulLifeYears ?? 0;
   return {
     kind: 'USEFUL_LIFE',

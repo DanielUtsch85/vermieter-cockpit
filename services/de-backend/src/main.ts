@@ -23,6 +23,9 @@ import {
   createDepreciationAsset,
   getDepreciationAsset,
   getDepreciationSchedule,
+  getScheduleVersion,
+  listScheduleVersions,
+  recordScheduleVersion,
   listPropertyDepreciationAssets,
   voidDepreciationAsset,
   deactivateParty,
@@ -168,6 +171,7 @@ import {
   PostgresTaxClassificationRepository,
   PostgresDepreciationAssetRepository,
   PostgresDepreciationScheduleSource,
+  PostgresScheduleVersionRepository,
   PostgresRentalContractReferenceRepository,
   PostgresLoanDebtRepository,
   PostgresLoanTermsRepository,
@@ -189,6 +193,7 @@ import {
   isDatabaseReachable,
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import {
@@ -230,6 +235,8 @@ const taxClassifications = new PostgresTaxClassificationRepository(db);
 const rentalContractReferences = new PostgresRentalContractReferenceRepository(db);
 // §59B: Depreciation reads the capitalised items through the tax repository's reader, in infrastructure/ (P8-D11).
 const depreciationAssets = new PostgresDepreciationAssetRepository(db, { capitalizedSources: taxClassifications.capitalizedSources });
+// §60: the recorded schedule versions; the record command is behind the installation's switch, read once above.
+const scheduleVersions = new PostgresScheduleVersionRepository(db, taxClassifications.capitalizedSources);
 const loanTerms = new PostgresLoanTermsRepository(db);
 const loanAllocations = new PostgresLoanAllocationRepository(db);
 const loanDebt = new PostgresLoanDebtRepository(db);
@@ -372,7 +379,18 @@ const app = createApp({
     amend: amendDepreciationAsset({ repository: depreciationAssets }),
     confirm: confirmDepreciationAsset({ repository: depreciationAssets }),
     void: voidDepreciationAsset({ repository: depreciationAssets }),
-    schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db, taxClassifications.capitalizedSources) }),
+    schedule: getDepreciationSchedule({
+      source: new PostgresDepreciationScheduleSource(db, taxClassifications.capitalizedSources),
+      recordingEnabled: config.DEPRECIATION_RECORDING_ENABLED,
+      fingerprinter: sha256Fingerprinter,
+    }),
+    recordVersion: recordScheduleVersion({
+      repository: scheduleVersions,
+      recordingEnabled: config.DEPRECIATION_RECORDING_ENABLED,
+      fingerprinter: sha256Fingerprinter,
+    }),
+    listVersions: listScheduleVersions({ repository: scheduleVersions }),
+    getVersion: getScheduleVersion({ repository: scheduleVersions, fingerprinter: sha256Fingerprinter }),
   },
   rentReconciliations: {
     create: createReconciliation({ repository: rentReconciliations, lookupMreRentTerm: mreRentTermLookup(mreClient) }),
@@ -470,6 +488,7 @@ try {
 
 const server = app.listen(config.PORT, () => {
   console.log(`de-backend listening on port ${config.PORT}`);
+  console.log(`depreciation schedule recording: ${config.DEPRECIATION_RECORDING_ENABLED ? 'enabled' : 'disabled'}`);
 });
 
 function shutdown(signal: string): void {
