@@ -1,615 +1,67 @@
-import { sql, type Kysely, type Transaction } from 'kysely';
-import {
-  cashKindOf,
-  deriveFigures,
-  planAmend,
-  planClose,
-  planReopen,
-  planVoid,
-  type AmendDepositOutcome,
-  type CloseCash,
-  type CloseDepositOutcome,
-  type CloseRequest,
-  type DepositClosingReason,
-  type CreateDepositOutcome,
-  type CountedCash,
-  type CreatePrecheck,
-  type DepositChanges,
-  type DepositFilter,
-  type DepositPage,
-  type DepositRefusal,
-  type DepositRequest,
-  type DepositStatus,
-  type DepositView,
-  type ExpectedAmountSource,
-  type NewDeposit,
-  type ReopenDepositOutcome,
-  type SecurityDeposit,
-  type SecurityDepositId,
-  type SecurityDepositRepository,
-  type VoidDepositOutcome,
+import type { Kysely } from 'kysely';
+import type {
+  AmendDepositOutcome,
+  CloseDepositOutcome,
+  CloseRequest,
+  CreateDepositOutcome,
+  CreatePrecheck,
+  DepositChanges,
+  DepositFilter,
+  DepositPage,
+  DepositRequest,
+  DepositView,
+  NewDeposit,
+  ReopenDepositOutcome,
+  SecurityDepositRepository,
+  VoidDepositOutcome,
 } from '../../domains/security-deposit/index.js';
-import { checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
-import { writeAudit } from './audit.js';
-import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
-import { fromNumericAmount, toNumericAmount } from './money-column.js';
+import type { AuditActor } from '../../shared/index.js';
 import type { Database } from './schema.js';
+import * as closing from './security-deposit-closing.js';
+import * as store from './security-deposit-store.js';
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ENTITY_TYPE = 'SecurityDeposit';
-const CREATE_SCOPE = 'security-deposit.create';
+export { lockDepositsOf } from './security-deposit-rows.js';
 
-/** Every column, the amount as text (exact). */
-const COLUMNS = [
-  'id',
-  'mre_realm_id',
-  'status',
-  'mre_tenant_id',
-  sql<string>`expected_amount::text`.as('expected_amount'),
-  'currency',
-  'expected_amount_source',
-  'holding_financial_account_id',
-  'interest_bearing',
-  'notes',
-  'voided_at',
-  'void_reason',
-  sql<string | null>`to_char(closing_date, 'YYYY-MM-DD')`.as('closing_date'),
-  'closing_reason',
-  'closing_note',
-  sql<string | null>`held_at_closing::text`.as('held_at_closing'),
-  'created_at',
-  'version',
-] as const;
-
-interface DepositRow {
-  id: string;
-  mre_realm_id: string;
-  status: string;
-  mre_tenant_id: string;
-  expected_amount: string;
-  currency: string;
-  expected_amount_source: string;
-  holding_financial_account_id: string | null;
-  interest_bearing: boolean;
-  notes: string | null;
-  voided_at: Date | null;
-  void_reason: string | null;
-  closing_date: string | null;
-  closing_reason: string | null;
-  closing_note: string | null;
-  held_at_closing: string | null;
-  created_at: Date;
-  version: number;
-}
-
-/** Thrown inside the transaction to roll back the key claim and every write together. */
-class Rejected extends Error {
-  constructor(readonly outcome: CreateDepositOutcome) {
-    super(outcome.kind);
-  }
-}
-
-/** PostgreSQL implementation of the SecurityDeposit port (api-design.md §47.1). */
+/**
+ * PostgreSQL implementation of the SecurityDeposit port (api-design.md §47.1).
+ *
+ * One class for the one port, delegating along the domain's cuts: the record (the precheck, create, find, list, amend,
+ * void) in `security-deposit-store.ts`; its closing (§47.4's close and reopen) in `security-deposit-closing.ts`. The
+ * rows, their mapping, the idempotency snapshot, §47.3's counted cash and the deposit locks of a split write (P5-D9)
+ * are in `security-deposit-rows.ts`.
+ */
 export class PostgresSecurityDepositRepository implements SecurityDepositRepository {
   constructor(private readonly db: Kysely<Database>) {}
 
-  async createPrecheck(request: DepositRequest, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreatePrecheck> {
-    return this.db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .setAccessMode('read only')
-      .execute(async (trx): Promise<CreatePrecheck> => {
-        if (idempotency !== undefined) {
-          const existing = await trx
-            .selectFrom('idempotency_key')
-            .select(['request_fingerprint', 'result'])
-            .where('mre_realm_id', '=', request.mreRealmId)
-            .where('scope', '=', CREATE_SCOPE)
-            .where('key', '=', idempotency.key)
-            .executeTakeFirst();
-          // A key claimed but not yet recorded belongs to a request still running: create decides.
-          if (existing !== undefined && existing.request_fingerprint !== idempotency.fingerprint) return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (existing?.result != null) return { kind: 'REPLAYED', deposit: asCreated(fromSnapshot(existing.result)) };
-        }
-        const refusal = await accountRefusalOf(trx, request.mreRealmId, request.holdingFinancialAccountId, false);
-        if (refusal !== undefined) return refusal;
-        const existing = await activeDepositOf(trx, request.mreRealmId, request.mreTenantId);
-        return existing === undefined ? { kind: 'PROCEED' } : { kind: 'DEPOSIT_EXISTS', securityDepositId: existing };
-      });
+  createPrecheck(request: DepositRequest, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreatePrecheck> {
+    return store.createPrecheck(this.db, request, idempotency);
   }
 
-  async create(deposit: NewDeposit, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateDepositOutcome> {
-    try {
-      // READ COMMITTED explicitly: the idempotency claim and the re-reads after the locks rely on it.
-      return await this.db
-        .transaction()
-        .setIsolationLevel('read committed')
-        .execute(async (trx): Promise<CreateDepositOutcome> => {
-          const keyed =
-            idempotency === undefined
-              ? undefined
-              : { ref: { mreRealmId: deposit.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key }, fingerprint: idempotency.fingerprint };
-          if (keyed !== undefined) {
-            const claim = await claimIdempotencyKey(trx, keyed.ref, keyed.fingerprint);
-            if (claim.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
-            if (claim.kind === 'REPLAY') return { kind: 'REPLAYED', deposit: asCreated(fromSnapshot(claim.result)) };
-          }
-          // Check 2 again, the holding account FOR SHARE (its type cannot change meanwhile).
-          const refusal = await accountRefusalOf(trx, deposit.mreRealmId, deposit.holdingFinancialAccountId, true);
-          if (refusal !== undefined) throw new Rejected(refusal);
-          // Check 3 is the partial unique index alone: an insert waits on a concurrent void of the Tenant's deposit and
-          // succeeds once it commits (§47.1), where a read of the committed row would refuse too early.
-          const inserted = await trx
-            .insertInto('security_deposit')
-            .values({
-              mre_realm_id: deposit.mreRealmId,
-              status: 'ACTIVE' satisfies DepositStatus,
-              mre_tenant_id: deposit.mreTenantId,
-              expected_amount: toNumericAmount(deposit.expectedAmount),
-              currency: deposit.expectedAmount.currency,
-              expected_amount_source: deposit.expectedAmountSource,
-              holding_financial_account_id: deposit.holdingFinancialAccountId,
-              interest_bearing: deposit.interestBearing,
-              notes: deposit.notes,
-              created_by: actor.actorId,
-            })
-            .onConflict((oc) => oc.columns(['mre_realm_id', 'mre_tenant_id']).where('status', '<>', 'VOID').doNothing())
-            .returning('id')
-            .executeTakeFirst();
-          if (inserted === undefined) {
-            const existing = await activeDepositOf(trx, deposit.mreRealmId, deposit.mreTenantId);
-            throw new Rejected({ kind: 'DEPOSIT_EXISTS', securityDepositId: existing ?? '' });
-          }
-          const created = await readOne(trx, inserted.id);
-          if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, inserted.id, toSnapshot(created));
-          await writeAudit(trx, { type: ENTITY_TYPE, id: inserted.id }, 'CREATED', actor, {
-            newVersion: created.version,
-            metadata: {
-              mreTenantId: created.mreTenantId,
-              expectedAmount: created.expectedAmount.toJSON(),
-              expectedAmountSource: created.expectedAmountSource,
-              holdingFinancialAccountId: created.holdingFinancialAccountId,
-              interestBearing: created.interestBearing,
-            },
-          });
-          return { kind: 'CREATED', deposit: asCreated(created) };
-        });
-    } catch (error) {
-      if (error instanceof Rejected) return error.outcome;
-      throw error;
-    }
+  create(deposit: NewDeposit, actor: AuditActor, idempotency?: { readonly key: string; readonly fingerprint: string }): Promise<CreateDepositOutcome> {
+    return store.create(this.db, deposit, actor, idempotency);
   }
 
-  async findById(id: string, mreRealmId: string): Promise<DepositView | undefined> {
-    if (!UUID.test(id)) return undefined;
-    // The record and its cash in one snapshot (§47.3).
-    return this.db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .setAccessMode('read only')
-      .execute(async (trx) => {
-        const row = await trx.selectFrom('security_deposit').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
-        if (row === undefined) return undefined;
-        const deposit = toDeposit(row);
-        const cash = (await countedCashOf(trx, [deposit.id])).get(deposit.id) ?? [];
-        return { ...deposit, figures: deriveFigures(deposit, cash), cash };
-      });
+  findById(id: string, mreRealmId: string): Promise<DepositView | undefined> {
+    return store.findById(this.db, id, mreRealmId);
   }
 
-  async list(mreRealmId: string, filter: DepositFilter, page: { readonly page: number; readonly pageSize: number }): Promise<DepositPage> {
-    // Count and page in one snapshot, so `total` and `items` agree.
-    return this.db
-      .transaction()
-      .setIsolationLevel('repeatable read')
-      .setAccessMode('read only')
-      .execute(async (trx) => {
-        const filtered = () => {
-          let query = trx.selectFrom('security_deposit').where('mre_realm_id', '=', mreRealmId);
-          if (filter.statuses !== undefined && filter.statuses.length > 0) query = query.where('status', 'in', [...filter.statuses]);
-          if (filter.mreTenantId !== undefined) query = query.where('mre_tenant_id', '=', filter.mreTenantId);
-          const account = filter.holdingFinancialAccountId;
-          // A malformed account id matches nothing, as an unknown one (§30.1: a read filter, never 404).
-          if (account !== undefined) query = UUID.test(account) ? query.where('holding_financial_account_id', '=', account) : query.where(sql<boolean>`false`);
-          return query;
-        };
-        const ordered = () => filtered().select(COLUMNS).orderBy('created_at', 'desc').orderBy('id');
-        const offset = (page.page - 1) * page.pageSize;
-        if (filter.states === undefined || filter.states.length === 0) {
-          const { n } = await filtered()
-            .select((eb) => eb.fn.countAll<string>().as('n'))
-            .executeTakeFirstOrThrow();
-          const rows = (await ordered().limit(page.pageSize).offset(offset).execute()).map(toDeposit);
-          return { items: await viewsOf(trx, rows), page: page.page, pageSize: page.pageSize, total: Number(n) };
-        }
-        // The state is derived (§47.3): every deposit the other filters leave, then the state, then the page. A Realm
-        // holds one deposit per lease, so this stays small.
-        const states = new Set(filter.states);
-        const matching = (await viewsOf(trx, (await ordered().execute()).map(toDeposit))).filter((d) => states.has(d.figures.state));
-        return { items: matching.slice(offset, offset + page.pageSize), page: page.page, pageSize: page.pageSize, total: matching.length };
-      });
+  list(mreRealmId: string, filter: DepositFilter, page: { readonly page: number; readonly pageSize: number }): Promise<DepositPage> {
+    return store.list(this.db, mreRealmId, filter, page);
   }
 
-  async amend(id: string, mreRealmId: string, changes: DepositChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendDepositOutcome> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx): Promise<AmendDepositOutcome> => {
-        // Account → deposit: a newly named account FOR SHARE first, as the holding-account guard reads it.
-        const named = changes.holdingFinancialAccountId ?? null;
-        const account = named === null ? undefined : await accountOf(trx, named, mreRealmId, true);
-        const row = await trx
-          .selectFrom('security_deposit')
-          .select(COLUMNS)
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (row === undefined) return { kind: 'NOT_FOUND' };
-        const current = toDeposit(row);
-        const plan = planAmend(current, changes);
-        if (plan.kind === 'UNCHANGED') return { kind: 'AMENDED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
-        if (plan.kind !== 'AMEND') return plan;
-        if (plan.newHoldingAccountId !== null) {
-          if (account === undefined) return { kind: 'ACCOUNT_NOT_FOUND', financialAccountId: plan.newHoldingAccountId };
-          if (account.accountType !== 'SECURITY_DEPOSIT') {
-            return { kind: 'NOT_A_SECURITY_DEPOSIT_ACCOUNT', financialAccountId: plan.newHoldingAccountId, accountType: account.accountType };
-          }
-        }
-        const conflict = checkVersion(current.version, expectedVersions);
-        if (conflict !== undefined) return conflict;
-        await trx
-          .updateTable('security_deposit')
-          .set((eb) => ({
-            expected_amount: toNumericAmount(plan.values.expectedAmount),
-            // An amended amount is the user's, whatever it was on create.
-            expected_amount_source: (plan.changed.includes('expectedAmount') ? 'REQUEST' : current.expectedAmountSource) satisfies ExpectedAmountSource,
-            holding_financial_account_id: plan.values.holdingFinancialAccountId,
-            interest_bearing: plan.values.interestBearing,
-            notes: plan.values.notes,
-            version: eb('version', '+', 1),
-            updated_at: new Date(),
-          }))
-          .where('id', '=', id)
-          .execute();
-        const amended = await readOne(trx, id);
-        const json = (field: (typeof plan.changed)[number], d: SecurityDeposit) => (field === 'expectedAmount' ? d.expectedAmount.toJSON() : d[field]);
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'AMENDED', actor, {
-          previousVersion: current.version,
-          newVersion: amended.version,
-          metadata: { changes: Object.fromEntries(plan.changed.map((field) => [field, { from: json(field, current), to: json(field, amended) }])) },
-        });
-        return { kind: 'AMENDED', deposit: (await viewsOf(trx, [amended]))[0] as DepositView, changed: true };
-      });
+  amend(id: string, mreRealmId: string, changes: DepositChanges, actor: AuditActor, expectedVersions?: readonly number[]): Promise<AmendDepositOutcome> {
+    return store.amend(this.db, id, mreRealmId, changes, actor, expectedVersions);
   }
 
-  async void(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidDepositOutcome> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx): Promise<VoidDepositOutcome> => {
-        const row = await trx
-          .selectFrom('security_deposit')
-          .select(COLUMNS)
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (row === undefined) return { kind: 'NOT_FOUND' };
-        const current = toDeposit(row);
-        // §47.2: every split naming it, a reversal's included, read after the deposit's lock; a split write locks the
-        // deposit too (P5-D9), so none can appear meanwhile. security_deposit_void_unreferenced is the backstop.
-        const referencing = await trx.selectFrom('transaction_split').select('transaction_id').where('security_deposit_id', '=', id).execute();
-        const plan = planVoid(
-          current,
-          reason,
-          at,
-          referencing.map((r) => r.transaction_id),
-        );
-        if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
-        if (plan.kind !== 'VOID') return plan;
-        const conflict = checkVersion(current.version, expectedVersions);
-        if (conflict !== undefined) return conflict;
-        await trx
-          .updateTable('security_deposit')
-          .set({ status: plan.next.status, voided_at: at, voided_by: actor.actorId, void_reason: reason, version: plan.next.version, updated_at: at })
-          .where('id', '=', id)
-          .execute();
-        const voided = await readOne(trx, id);
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'VOIDED', actor, {
-          previousVersion: current.version,
-          newVersion: voided.version,
-          metadata: { reason },
-        });
-        return { kind: 'VOIDED', deposit: (await viewsOf(trx, [voided]))[0] as DepositView, changed: true };
-      });
+  void(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<VoidDepositOutcome> {
+    return store.voidDeposit(this.db, id, mreRealmId, reason, at, actor, expectedVersions);
   }
 
-  async close(id: string, mreRealmId: string, request: CloseRequest, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseDepositOutcome> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx): Promise<CloseDepositOutcome> => {
-        const row = await trx
-          .selectFrom('security_deposit')
-          .select(COLUMNS)
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (row === undefined) return { kind: 'NOT_FOUND' };
-        const current = toDeposit(row);
-        // P5-D9: the splits after the deposit's lock; a split write locks the deposit too, so none changes meanwhile.
-        // security_deposit_close_guard is the backstop.
-        const plan = planClose(current, request, await closeCashOf(trx, id));
-        if (plan.kind === 'UNCHANGED') return { kind: 'CLOSED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
-        if (plan.kind !== 'CLOSE') return plan;
-        const conflict = checkVersion(current.version, expectedVersions);
-        if (conflict !== undefined) return conflict;
-        const { closing } = plan;
-        await trx
-          .updateTable('security_deposit')
-          .set((eb) => ({
-            status: 'CLOSED' satisfies DepositStatus,
-            closing_date: closing.closingDate,
-            closing_reason: closing.reason,
-            closing_note: closing.closingNote,
-            held_at_closing: toNumericAmount(closing.heldAtClosing),
-            version: eb('version', '+', 1),
-            updated_at: new Date(),
-          }))
-          .where('id', '=', id)
-          .execute();
-        const closed = await readOne(trx, id);
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'CLOSED', actor, {
-          previousVersion: current.version,
-          newVersion: closed.version,
-          metadata: closingJson(closing),
-        });
-        return { kind: 'CLOSED', deposit: (await viewsOf(trx, [closed]))[0] as DepositView, changed: true };
-      });
+  close(id: string, mreRealmId: string, request: CloseRequest, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CloseDepositOutcome> {
+    return closing.close(this.db, id, mreRealmId, request, actor, expectedVersions);
   }
 
-  async reopen(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ReopenDepositOutcome> {
-    if (!UUID.test(id)) return { kind: 'NOT_FOUND' };
-    return this.db
-      .transaction()
-      .setIsolationLevel('read committed')
-      .execute(async (trx): Promise<ReopenDepositOutcome> => {
-        const row = await trx
-          .selectFrom('security_deposit')
-          .select(COLUMNS)
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (row === undefined) return { kind: 'NOT_FOUND' };
-        const current = toDeposit(row);
-        const plan = planReopen(current);
-        if (plan.kind === 'UNCHANGED') return { kind: 'REOPENED', deposit: (await viewsOf(trx, [current]))[0] as DepositView, changed: false };
-        if (plan.kind !== 'REOPEN') return plan;
-        const conflict = checkVersion(current.version, expectedVersions);
-        if (conflict !== undefined) return conflict;
-        await trx
-          .updateTable('security_deposit')
-          .set((eb) => ({
-            status: 'ACTIVE' satisfies DepositStatus,
-            closing_date: null,
-            closing_reason: null,
-            closing_note: null,
-            held_at_closing: null,
-            version: eb('version', '+', 1),
-            updated_at: new Date(),
-          }))
-          .where('id', '=', id)
-          .execute();
-        const reopened = await readOne(trx, id);
-        // The cleared closing stays in the audit trail (§47.4).
-        await writeAudit(trx, { type: ENTITY_TYPE, id }, 'REOPENED', actor, {
-          previousVersion: current.version,
-          newVersion: reopened.version,
-          metadata: { cleared: current.closing === null ? null : closingJson(current.closing) },
-        });
-        return { kind: 'REOPENED', deposit: (await viewsOf(trx, [reopened]))[0] as DepositView, changed: true };
-      });
+  reopen(id: string, mreRealmId: string, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ReopenDepositOutcome> {
+    return closing.reopen(this.db, id, mreRealmId, actor, expectedVersions);
   }
-}
-
-/** §47.4: the deposit's counted cash and its open splits, read after the deposit's lock (P5-D9). */
-async function closeCashOf(trx: Transaction<Database>, id: string): Promise<CloseCash> {
-  const counted = (await countedCashOf(trx, [id])).get(id) ?? [];
-  const open = await trx
-    .selectFrom('transaction_split as s')
-    .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
-    .select(['t.id as transaction_id', sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date')])
-    .where('s.security_deposit_id', '=', id)
-    .where('t.status', 'in', ['IMPORTED', 'UNREVIEWED', 'CLASSIFIED', 'IGNORED'])
-    .where(sql<boolean>`t.correction_role IS DISTINCT FROM 'REVERSAL'`)
-    .orderBy('t.booking_date')
-    .orderBy('t.id')
-    .orderBy('s.position')
-    .execute();
-  return { counted, open: open.map((r) => ({ transactionId: r.transaction_id, bookingDate: r.booking_date as BusinessDate })) };
-}
-
-const closingJson = (closing: NonNullable<SecurityDeposit['closing']>) => ({
-  closingDate: closing.closingDate,
-  reason: closing.reason,
-  closingNote: closing.closingNote,
-  heldAtClosing: closing.heldAtClosing.toJSON(),
-});
-
-/** §47.1 check 2: the holding account, if one is named. */
-async function accountRefusalOf(
-  trx: Transaction<Database>,
-  mreRealmId: string,
-  holdingFinancialAccountId: string | null,
-  lock: boolean,
-): Promise<DepositRefusal | undefined> {
-  if (holdingFinancialAccountId === null) return undefined;
-  const account = await accountOf(trx, holdingFinancialAccountId, mreRealmId, lock);
-  if (account === undefined) return { kind: 'ACCOUNT_NOT_FOUND', financialAccountId: holdingFinancialAccountId };
-  if (account.accountType !== 'SECURITY_DEPOSIT') {
-    return { kind: 'NOT_A_SECURITY_DEPOSIT_ACCOUNT', financialAccountId: holdingFinancialAccountId, accountType: account.accountType };
-  }
-  return undefined;
-}
-
-/** The account of the Realm with its type, `FOR SHARE` when the caller writes; undefined for unknown or foreign. */
-async function accountOf(trx: Transaction<Database>, id: string, mreRealmId: string, lock: boolean): Promise<{ readonly accountType: string } | undefined> {
-  if (!UUID.test(id)) return undefined;
-  const query = trx.selectFrom('financial_account').select('account_type').where('id', '=', id).where('mre_realm_id', '=', mreRealmId);
-  const row = await (lock ? query.forShare() : query).executeTakeFirst();
-  return row === undefined ? undefined : { accountType: row.account_type };
-}
-
-/**
- * The deposits a split write names, locked `FOR UPDATE` in id order after the Transaction and its Loans (P5-D9), with
- * their status; unknown, foreign and malformed ids are left out (§47.2's 404).
- */
-export async function lockDepositsOf(trx: Transaction<Database>, mreRealmId: string, depositIds: readonly string[]): Promise<Map<string, string>> {
-  const ids = [...new Set(depositIds)].filter((id) => UUID.test(id)).sort();
-  if (ids.length === 0) return new Map();
-  const rows = await trx
-    .selectFrom('security_deposit')
-    .select(['id', 'status'])
-    .where('id', 'in', ids)
-    .where('mre_realm_id', '=', mreRealmId)
-    .orderBy('id')
-    .forUpdate()
-    .execute();
-  return new Map(rows.map((r) => [r.id, r.status]));
-}
-
-async function activeDepositOf(trx: Transaction<Database>, mreRealmId: string, mreTenantId: string): Promise<string | undefined> {
-  const row = await trx
-    .selectFrom('security_deposit')
-    .select('id')
-    .where('mre_realm_id', '=', mreRealmId)
-    .where('mre_tenant_id', '=', mreTenantId)
-    .where('status', '<>', 'VOID')
-    .executeTakeFirst();
-  return row?.id;
-}
-
-/** A new deposit has no cash yet: zeros, `EXPECTED`, no flags; a replay answers it as created. */
-function asCreated(deposit: SecurityDeposit): DepositView {
-  return { ...deposit, figures: deriveFigures(deposit, []) };
-}
-
-/** The deposits with their figures, from one read of their counted cash. */
-async function viewsOf(trx: Transaction<Database>, deposits: readonly SecurityDeposit[]): Promise<DepositView[]> {
-  const cash = await countedCashOf(
-    trx,
-    deposits.map((d) => d.id),
-  );
-  return deposits.map((d) => ({ ...d, figures: deriveFigures(d, cash.get(d.id) ?? []) }));
-}
-
-/**
- * §47.3's cash that counts, per deposit: its splits on current Transactions (`CONFIRMED`, `RECONCILED`, not a
- * reversal), in booking-date order, then Transaction id and position.
- */
-async function countedCashOf(trx: Transaction<Database>, depositIds: readonly string[]): Promise<Map<string, CountedCash[]>> {
-  const out = new Map<string, CountedCash[]>();
-  if (depositIds.length === 0) return out;
-  const rows = await trx
-    .selectFrom('transaction_split as s')
-    .innerJoin('ledger_transaction as t', 't.id', 's.transaction_id')
-    .innerJoin('financial_category as c', 'c.id', 's.financial_category_id')
-    .select([
-      's.security_deposit_id',
-      's.amount',
-      's.currency',
-      'c.code',
-      't.id as transaction_id',
-      't.direction',
-      't.financial_account_id',
-      sql<string>`to_char(t.booking_date, 'YYYY-MM-DD')`.as('booking_date'),
-    ])
-    .where('s.security_deposit_id', 'in', [...depositIds])
-    .where('t.status', 'in', ['CONFIRMED', 'RECONCILED'])
-    .where(sql<boolean>`t.correction_role IS DISTINCT FROM 'REVERSAL'`)
-    .orderBy('t.booking_date')
-    .orderBy('t.id')
-    .orderBy('s.position')
-    .execute();
-  for (const r of rows) {
-    const kind = cashKindOf(r.code, r.direction);
-    // The split guard admits nothing else on a counted Transaction (0038); skip rather than miscount.
-    if (kind === undefined || r.security_deposit_id === null) continue;
-    const list = out.get(r.security_deposit_id) ?? [];
-    list.push({
-      transactionId: r.transaction_id,
-      bookingDate: r.booking_date as BusinessDate,
-      financialAccountId: r.financial_account_id,
-      kind,
-      amount: fromNumericAmount(r.amount, r.currency),
-    });
-    out.set(r.security_deposit_id, list);
-  }
-  return out;
-}
-
-async function readOne(trx: Transaction<Database>, id: string): Promise<SecurityDeposit> {
-  return toDeposit(await trx.selectFrom('security_deposit').select(COLUMNS).where('id', '=', id).executeTakeFirstOrThrow());
-}
-
-function toDeposit(row: DepositRow): SecurityDeposit {
-  return {
-    id: row.id as SecurityDepositId,
-    mreRealmId: row.mre_realm_id,
-    status: row.status as DepositStatus,
-    mreTenantId: row.mre_tenant_id,
-    expectedAmount: fromNumericAmount(row.expected_amount, row.currency),
-    expectedAmountSource: row.expected_amount_source as ExpectedAmountSource,
-    holdingFinancialAccountId: row.holding_financial_account_id,
-    interestBearing: row.interest_bearing,
-    notes: row.notes,
-    voidedAt: row.voided_at,
-    voidReason: row.void_reason,
-    // The closing columns are set together while CLOSED (security_deposit_closing_fields).
-    closing:
-      row.closing_date === null || row.held_at_closing === null
-        ? null
-        : {
-            closingDate: row.closing_date as BusinessDate,
-            reason: row.closing_reason as DepositClosingReason,
-            closingNote: row.closing_note,
-            heldAtClosing: fromNumericAmount(row.held_at_closing, row.currency),
-          },
-    createdAt: row.created_at,
-    version: row.version,
-  };
-}
-
-/** The created deposit as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
-interface DepositSnapshot extends Omit<SecurityDeposit, 'expectedAmount' | 'createdAt' | 'voidedAt' | 'closing'> {
-  readonly expectedAmount: { readonly amount: string; readonly currency: string };
-  readonly createdAt: string;
-  readonly voidedAt: string | null;
-}
-
-function toSnapshot({ closing: _closing, ...deposit }: SecurityDeposit): DepositSnapshot {
-  return {
-    ...deposit,
-    expectedAmount: { amount: deposit.expectedAmount.amount, currency: deposit.expectedAmount.currency },
-    createdAt: deposit.createdAt.toISOString(),
-    voidedAt: deposit.voidedAt?.toISOString() ?? null,
-  };
-}
-
-/** Written by toSnapshot in the same codebase, so its shape is trusted. */
-function fromSnapshot(result: unknown): SecurityDeposit {
-  const s = result as DepositSnapshot;
-  return {
-    ...s,
-    expectedAmount: fromNumericAmount(s.expectedAmount.amount, s.expectedAmount.currency),
-    createdAt: new Date(s.createdAt),
-    voidedAt: s.voidedAt === null ? null : new Date(s.voidedAt),
-    // A created deposit is ACTIVE, never closed.
-    closing: null,
-  };
 }

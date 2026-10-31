@@ -32,8 +32,6 @@ const EXCEPTIONS = {
   'services/de-backend/src/domains/depreciation/schedule-items.ts': 1064,
   'services/de-backend/src/domains/depreciation/schedule.test.ts': 1040,
   'services/de-backend/src/domains/depreciation/schedule.ts': 1091,
-  'services/de-backend/src/infrastructure/postgres/ownership-repository.ts': 635,
-  'services/de-backend/src/infrastructure/postgres/security-deposit-repository.ts': 615,
   'services/de-backend/src/infrastructure/postgres/tax-weg-repository.test.ts': 1284,
   'services/de-backend/src/infrastructure/postgres/tax-year-repository.test.ts': 1103,
   'services/de-backend/src/phase-2-acceptance.e2e.test.ts': 1063,
