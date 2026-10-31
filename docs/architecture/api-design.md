@@ -5430,7 +5430,7 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
 
 ### The asset
 
-- **`assetType`:** `BUILDING` in VC-8-01. **One `ACTIVE` building per PropertyReference** (a partial unique index): the completion year is a fact of the building, shared by every Acquisition of a share of the unit (P8-D1). `SEPARATE_ASSET` (an Einbauküche over 10 years, B8) is decided for Phase 8 (P8-D7, option 1). Its fields (the items it names, `usefulLifeYears`) and the rule `DE_AFA_MOVABLE_LINEAR@1` are VC-8-03's (§59B). Until then `SEPARATE_ASSET` is `400 NOT_SUPPORTED`.
+- **`assetType`:** `BUILDING` in VC-8-01. **One `ACTIVE` building per PropertyReference** (a partial unique index): the completion year is a fact of the building, shared by every Acquisition of a share of the unit (P8-D1). `SEPARATE_ASSET` (an Einbauküche over 10 years, B8) is decided for Phase 8 (P8-D7, option 1). Its fields (the items it names, `usefulLifeYears`) and the rule `DE_AFA_MOVABLE_LINEAR@1` are VC-8-03's (§59B, specified). Until VC-8-03 is implemented `SEPARATE_ASSET` is `400 NOT_SUPPORTED`.
 - **Status:** `ACTIVE` → `VOID` (final). A wrongly recorded asset is voided, and a new one is created. A void frees the PropertyReference for a new building asset.
 - **Stored fields** (the canonical inputs, P8-D1):
   - `buildingCompletionYear`: an integer, or `null` while unknown. **Never defaulted or guessed** (phase-8-plan §4: an older building in a WEG often has no known year). The year is enough for the rate, since every band boundary of § 7 Abs. 4 S. 1 Nr. 2 EStG is a year-end (P8-D4; depreciation.md §3).
@@ -5851,7 +5851,7 @@ Each record carries the actor, and the version before and after (§17). No-ops w
 - **The basis, the start, the first year, the owners, the end and the schedule:** §59A (VC-8-02), including the shared basis function with §58B, `TRANSFER_DATE_ASSUMED`, `DEGRESSIVE_AFA_MAY_APPLY` and the disposal year (P8-D9).
 - **Capitalised costs and `SEPARATE_ASSET`:** §59A extended and §59B (VC-8-03), with `DE_AFA_MOVABLE_LINEAR@1`, `subsequentCostStart` and the VAT point (P8-D2, P8-D6).
 - **Recorded versions** and their rule references: §60 (VC-8-04).
-- **The direction between Depreciation and Taxation:** VC-8-01 adds no import between them (the registry is composed in `domains/tax-rules/`). P8-D11 has Depreciation read the `capitalized` items through Taxation (VC-8-03) and the tax-year view read the schedule through Depreciation (VC-8-05). Both edges together would be a cycle, so VC-8-03's spec decides which one goes through a layer above both (as the registry does here).
+- **The direction between Depreciation and Taxation:** VC-8-01 adds no import between them (the registry is composed in `domains/tax-rules/`). P8-D11 has Depreciation read the `capitalized` items through Taxation (VC-8-03) and the tax-year view read the schedule through Depreciation (VC-8-05). Both edges together would be a cycle, so VC-8-03's spec decides which one goes through a layer above both (as the registry does here). **Decided by §59B:** neither; the two domains meet only in `infrastructure/postgres/`, each owning the input type it reads, and Taxation → Depreciation is forbidden as well (§59B, "Depreciation, Taxation and infrastructure: no cycle").
 - **The AfA in the tax-year view**, the flags' levels and `final`: §58C (VC-8-05).
 
 ### Open questions for review
@@ -6002,7 +6002,7 @@ The plan asked this spec to check the case against the code before relying on it
 
 ### Extension points (VC-8-03, P8-D6, P8-D7)
 
-- **No behaviour in VC-8-02.** Later capitalised costs, anschaffungsnahe Herstellungskosten and separate assets are VC-8-03's.
+- **No behaviour in VC-8-02.** Later capitalised costs, anschaffungsnahe Herstellungskosten and separate assets are VC-8-03's, **specified in §59B** (the component, its start, rate, end and owners, the separate asset, and the path without a cycle).
 - **Where they plug in:**
   - a component of `kind` `CAPITALIZED_ITEM`, with its own basis (the item's `lineAmount`, a refund negative), its owners on its date (P7-D7) and a `NOT_OWNED` part;
   - its start from the rule parameter **`subsequentCostStart`** (P8-D6; reviewer input on #173: `START_OF_YEAR`, R 7.4 Abs. 9 S. 3 EStR, to be confirmed). VC-8-03 adds the parameter to version 1 additively; VC-8-02 does not add it, so no unused parameter waits untested;
@@ -6255,6 +6255,580 @@ Field errors are `400 VALIDATION_ERROR` with `INVALID_FORMAT` and `OUT_OF_RANGE`
 3. **The disposal year** (P8-D9). **Proposed; the owner has not decided:** computed pro rata with the open flag `DISPOSAL_YEAR_TO_VERIFY`, with `endMonthCounts` true per the reviewer input on #173. **Alternative:** left empty (`amount` `null` for the seller's last year) until verified, as P8-D9's "never computed on a guess" says. Either way the year is not final. The spec describes the proposal. The confirmation of the rule should come before VC-8-04 freezes version 1.
 4. **A confirmed shorter useful life applies from the start**, flagged open when its evidence is dated after the first year. The alternative is from the year of the evidence. **Reviewer agreed (review on #178); owner to confirm.**
 5. **A `DRAFT` Acquisition with Ownerships** is listed as an open reason; one without is not listed. The alternative is to list every `DRAFT`. **Reviewer agreed (review on #178); owner to confirm.**
+
+---
+
+# 59B. Capitalised Items and Separate Assets (VC-8-03, spec)
+
+**Status:** specified (VC-8-03); not implemented. Migration **0050** planned (the separate asset's fields and its item links; below).
+
+Decisions P8-D2 (2), P8-D6, P8-D7, P8-D8 and P8-D11 of `docs/development/phase-8-plan.md` (P8-D7 decided on 2026-10-30: option 1; P8-D6 still VERIFY; AGENTS.md §17, ADR-010, ADR-041; `docs/germany/depreciation.md` v0.2 §1, §5, §6, §7; `verification-checklist.md` B6, B8, B9, B11). VC-8-03 adds two things to the schedule of §59A:
+
+1. **Capitalised items as components of the building:** every source that Taxation places in the tax-year view's `capitalized` (§58C), that is every counting source whose current classification has `treatment` `CAPITALIZED`, later Herstellungskosten and anschaffungsnahe Herstellungskosten alike, becomes a component of `kind` `CAPITALIZED_ITEM` (the extension point of §59A). It raises the building's basis at the building's rate (B11). A refund lowers it.
+2. **Separate assets** (`assetType` `SEPARATE_ASSET`, lifting §59's `400 NOT_SUPPORTED`): a movable asset such as a complete Einbauküche over 10 years (B8; BFH IX R 14/15), recorded with its useful life, its acquisition date and the capitalised items it consists of. Those items leave the building's basis. Its own rule is `DE_AFA_MOVABLE_LINEAR@1`.
+
+It also settles the open design problem of §59 ("Not in VC-8-01") and P8-D11: **how Depreciation reads the capitalised items, which are Taxation's derivation, and how the tax-year view (Taxation, VC-8-05) reads the schedule, without an import cycle.** The answer is below ("Depreciation, Taxation and infrastructure: no cycle").
+
+The schedule is still **computed on every read** and stores nothing (P8-D10). The new commands store only the separate asset's facts and its item links. No cash, no split, no classification is written (AGENTS.md §7, §16, §17). Recorded versions are VC-8-04's (§60), and the AfA in the tax-year view is VC-8-05's (§58C).
+
+### Routes
+
+No new route. Changed:
+
+```text
+POST /api/v1/depreciation-assets                                              (§59; accepts SEPARATE_ASSET, §59B)
+POST /api/v1/depreciation-assets/{assetId}/amend                              (§59; the separate asset's fields, §59B)
+POST /api/v1/depreciation-assets/{assetId}/confirm                            (§59; a separate asset's facts, §59B)
+POST /api/v1/depreciation-assets/{assetId}/void                               (§59; frees its items, §59B)
+GET  /api/v1/depreciation-assets/{assetId}[?year=]                            (§59; the separate asset's fields and rate)
+GET  /api/v1/property-references/{propertyReferenceId}/depreciation-assets    (§59; lists separate assets too)
+GET  /api/v1/depreciation-assets/{assetId}/schedule                           (§59A; CAPITALIZED_ITEM components; a separate asset's schedule)
+GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (§58; lists DE_AFA_MOVABLE_LINEAR from VC-8-03)
+```
+
+- **Domain owner:** Depreciation (P8-D11). It never reads a Taxation table or calls a Taxation function itself; the capitalised items arrive as Depreciation's own input type, filled in infrastructure from Taxation's derivation (below). **Authorization:** the caller's Realm, as every DE route; a linked item's source belongs to the asset's Realm and PropertyReference (the guard of 0050, below).
+- **No cash, no MRE, no classification written** (P8-D14). Taxation's classifications stay the only place where "this is Herstellungskosten" is said; Depreciation reads them and never changes one.
+
+### Which items count (P8-D2 (2), P8-D6)
+
+- **Exactly the view's `capitalized` items, over every year:** a source of the asset's PropertyReference (a split, a reserve withdrawal, a Sonderumlage use; §55, §58B) that **counts** (`counts: true`) and whose **current classification** has `treatment` `CAPITALIZED`. Its placement is §58C's (`placementOf` → `CAPITALIZED`). A deposit closing is never one (its lines are income lines, §58A).
+- **Only a classification moves the basis** (P8-D2, §58B: "DE changes nothing on its own"). No default of a registered rule has `treatment` `CAPITALIZED` (`DE_CATEGORY_DEFAULTS@1`, `DE_WEG_SPENDING@1`), so a source with `origin` `DEFAULT` is never a component. Should a later rule version give one, it is **not** taken: the adapter keeps `origin` `CLASSIFICATION` only (a registry test asserts that no registered default is `CAPITALIZED`, so the guard is visible when one is added).
+- **A suggestion moves nothing.** The anschaffungsnahe check's `suggestion` (`treatment: "CAPITALIZED"`) and its flag `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` change no meaning (§58B). Above 15 % the sources stay `DEDUCTIBLE` (or `DISTRIBUTED_82B`) in the Werbungskosten until the user supersedes their classification with `CAPITALIZED` and `anschaffungsnaheAcquisitionId` (§58B). **Never automatically from the 15 % check.** From that classification on, the source is a component like any other, flagged `ANSCHAFFUNGSNAHE_CAPITALIZED` (informative) with `details: { acquisitionId }`. A source capitalised on the check that later falls below 15 % keeps its classification and stays a component; §58B's `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE` is carried onto it (open, as in §58C).
+- **Confirmed only feeds a figure.** A classification in `USER_CONFIRMED` or `ADVISOR_CONFIRMED` feeds the component. One in `NEEDS_REVIEW` makes the component **not computable** (`ITEM_CLASSIFICATION_NEEDS_REVIEW`, open): it is listed with its basis, and its amounts are `null`. It is in no Werbungskosten line either (§58C places it in `capitalized`), so the year shows `PARTIAL`, never a figure without it. The accepted states are the rule parameter `basis.capitalizedItemReviewStates` (below), never a constant.
+- **Never twice:**
+  - an item in `capitalized` is in no Werbungskosten line (§58C's placement), and the basis reads exactly that list;
+  - each item is a component of **exactly one** asset: the `ACTIVE` separate asset that links it (below), else the `ACTIVE` building of its PropertyReference;
+  - one component per source (`componentId`), whatever the number of years its classification has existed;
+  - a reclassification (a new classification superseding the `CAPITALIZED` one) removes the component on the next read; a refund is its own source and its own component (below).
+- **Without an `ACTIVE` building asset** the items have no schedule to be part of. The building route cannot be read, and VC-8-05's view names them with the reason `NO_ASSET` (pointer below).
+
+### The component (`kind` `CAPITALIZED_ITEM`)
+
+- **`componentId`** is `{sourceType}:{sourceId}:{sourcePosition}`, as §59A reserved it; for a split, which has no position, `TRANSACTION_SPLIT:{splitId}`.
+- **`source`:** `{ sourceType, sourceId, sourcePosition, classificationId, reviewState, taxCategory, date, dateSource, taxYear, anschaffungsnaheAcquisitionId }`, as the item's tax-meaning read gives them (§55, §58B).
+- **The basis** is the item's signed `lineAmount` in `capitalized` (§58C "Signs"): an `OUTFLOW`, a withdrawal and a use positive, a refund (`INFLOW`) negative. It is the source's **gross** amount: `netAmount` (§58B) serves the 15 % threshold only and never the basis (P8-D2). For a private landlord without a VAT option, non-deductible input VAT belongs to the production cost (§ 9b Abs. 1 EStG; reviewer input on #173). **VERIFY** with the tax advisor (phase-8-plan §3, 3); not covered by `depreciation.md`. A landlord who opted under § 9 UStG is out of scope (P8-D13), as in §59A.
+- **Order:** the purchase components first (§59A), then the items by their start month, then `componentId`.
+- **The date** that decides the start is the item's `date` as Phase 7 has it (booking date, withdrawal or use date; P8-D6), not its tax year by §58A (P8-D5: "a capitalised item keeps its own date"). Where the two differ (a `taxYear` override, the 10-day rule), the component carries `CAPITALIZED_YEAR_DIFFERS` (open) with `details: { date, taxYear }`: the view lists the item in `capitalized` of its tax year while the AfA starts by its date, and a person should see that. The item's own date flags are carried as they are: `DATE_IS_BOOKING_DATE` (informative, P8-D6) and `WITHDRAWAL_DATE_ASSUMED` (informative here: a confirmed classification stands for the item, §58C's level).
+
+### The start (P8-D6; `subsequentCostStart`, a proposal)
+
+From when a capitalised item counts is **not covered by `depreciation.md`** (phase-8-plan §3, 1). This spec **proposes** the reviewer's reading and marks it, as §59A does with the disposal year:
+
+- **`START_OF_YEAR`** (P8-D6 option 1; reviewer input on #173: R 7.4 Abs. 9 S. 3 EStR treats later Herstellungskosten as incurred at the start of the year in which they arise): the item's first month is **January of the year of its date**, with no special case for anschaffungsnahe items (P8-D6 option 3 has no basis, per the reviewer). **VERIFY**, to be confirmed with the tax advisor.
+- **Not before the owner's start** (this spec's reading, part of the same VERIFY point): an owner's part never starts before the first month of the owner's tenure that holds the item's date. An item dated in the year of the purchase therefore starts with the purchase, not in January: a repair on 2026-09-15 after a transfer on 2026-07-01 counts from July 2026 (6/12), as the building does. Treating it "as incurred at the start of the year" cannot give AfA for months before the owner held the building.
+- **The rule parameter** `subsequentCostStart` (§59A reserved it) of `DE_AFA_BUILDING_LINEAR@1`: `{ method: "START_OF_YEAR", notBeforeOwnerStart: true, verified: false, legalBasis: "R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)" }`. The code also implements `method` `MONTH_OF_DATE` (P8-D6 option 2: the month of the date counts in full, prorated as P8-D5), so the choice is one line in the rule and ACC8's figures for both are tested (a test registry with `MONTH_OF_DATE`). P8-D6's option 3 is not implemented.
+- **`SUBSEQUENT_COST_START_TO_VERIFY`** (open) while `verified` is false, with `details: { date, method, firstMonth, legalBasis }`. It sits on the component's **first year** and on its **last year** (where the remainder falls), the only years the choice changes; the years between have the full annual amount under every option and can become final. **Alternative** (open question 1): the item's amounts left empty (`null`) until verified, as P8-D9's wording for the disposal year.
+- **Once the tax advisor confirms** before VC-8-04 freezes version 1 (§59), the parameter's `verified` (and `method`, if the answer differs) changes in version 1 and the flag disappears. After VC-8-04 a new rule version is needed (§59A, "`end.disposal.verified`").
+
+### The rate and the end (B11; P8-D6, P8-D9)
+
+- **The building's rate, applied to the item** (B11: "Die weitere AfA folgt der für das Gebäude einschlägigen gesetzlichen Methode"; P8-D6: no mode of its own, no "Restwert-AfA"): the rate of each year is the band's `ratePercent` of the rule version selected for that year (§59), as an exact fraction, from the asset's completion year. The asset's reasons (`ASSET_VOID`, `COMPLETION_YEAR_MISSING`, `ASSET_NOT_CONFIRMED`) stop the item components as they stop the purchases (§59A).
+- **An owner whose purchase uses a confirmed shorter useful life** (§59, P8-D4): the owner's part of the item takes the rate of that owner's purchase component whose tenure holds the item's date (B11 literally: the building's method is then § 7 Abs. 4 S. 2). It follows that component's state: `1/usefulLifeYears` when the entry applies, flagged **`SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`** (open; whether later costs then run over the building's remaining useful life is not covered by `depreciation.md`, **VERIFY**); not computable with `USEFUL_LIFE_NOT_CONFIRMED` when the entry is not confirmed; the band's rate when it is not shorter. A part of an owner without a purchase component (an heir who bore the cost, `OWNER_WITHOUT_ACQUISITION` in §59A) and the `NOT_OWNED` part take the band's rate.
+- **`NO_APPLICABLE_RULE`:** an item whose first month lies before 2023 (no version of `DE_AFA_BUILDING_LINEAR` before 2023-01-01, §59) is not computable in any year, as a purchase that starts before 2023 (§59A): its residual value in 2023 depends on the earlier years. An item dated 2023 or later on a building bought before 2023 **is** computable on its own: its series does not depend on the purchase's earlier years.
+- **The end: each item part is a linear series of its own**, capped at its own basis, with the remainder in its last month (§59A's arithmetic, `end.exhaustion` `REMAINDER_IN_LAST_MONTH`): 600, 480 or 400 months at 2 %, 2.5 % or 3 %, `12·n` at `1/n`. In every year in which the purchase component of the same owner is still running, the owner's AfA is then exactly the rate × the owner's whole basis at that time, as B11 and P8-D6 say ("the rate × the basis at that time"). **The two readings differ only after the purchase component is exhausted** (its last month, 33 to 50 years after the purchase): a pooled basis would go on at the rate × the whole basis until the whole residual is zero and so end earlier; the per-item series goes on at the rate × the item only and ends with the item's own last month. Which one the law means, and whether the remaining useful life of the building takes over once the full AfA cannot be reached within it, is **not covered by `depreciation.md`** (**VERIFY**, a new point, beratungsfragen §4). The schedule computes the per-item series and flags each owner's year of an item part **after** the end of that owner's purchase component by exhaustion with **`SUBSEQUENT_COST_END_TO_VERIFY`** (open) with `details: { purchaseComponentId, purchaseLastMonth }`. Without a shorter useful life no such year lies before 2056 (a purchase from 2023 at 3 %), so no year a user files today carries it; with a short confirmed life it can come much sooner.
+- **The tenure ends** (a sale): the owner's part of the item ends with the owner's tenure, by §59A's end rules (the cut-off at the buyer's `economicTransferDate`, else `validUntil` with `END_DATE_ASSUMED`; `end.disposal.endMonthCounts`; `DISPOSAL_YEAR_TO_VERIFY` while unverified). The residual value of the sold part stays; the buyer depreciates their own acquisition cost, which includes the improvement in the price (P8-D8). Nothing passes from the seller's item to the buyer.
+
+### Per owner (P8-D8; §58C's parts)
+
+- **The owners who bore the cost:** an item's owner parts are **§58C's per-item parts**: the participants on the item's share date (the `VALID` Ownerships covering the date, each with its exact share; `NOT_OWNED` for shares summing to less than 1), with the `lineAmount` in cents distributed by **largest remainder**, ties to the larger share, then `ownerPartyId`, `NOT_OWNED` last (§58C "Per owner", P7-D7 as decided on #168). This is P8-D8's "a capitalised item goes to the owners on its date, by the shares then (P7-D7)".
+- **One function computes both:** the parts come from Taxation's pure `capitalizedItemsOf` (below), which uses the very functions of the view (`participantsOn`, `shareOut`, `domains/taxation/tax-year-view.ts`). So an owner's basis of an item equals, to the cent, the owner's part of that item in the view's `capitalized` at the owner level. A test compares them for every item of the e2e scenarios.
+- **The owner's tenure** is §58C's (and §59A's): the continuous run of `VALID` Ownerships of the Party that holds the item's date. The **still-held fraction** of a month is the share the Party holds on a day of the month within the tenure divided by its share on the item's date, at most 1, as a running minimum (§59A, with "the share bought" read as "the share on the item's date"). An owner who later raises their share takes no more of an earlier item.
+- **The arithmetic** is §59A's, per owner part: exact monthly fractions in `bigint`, cumulative half-up rounding per owner part and year, the component and the property **summed, never distributed**. Owners + `NOT_OWNED` = the component = its basis over its life, to the cent.
+- **`NOT_OWNED` part** (shares summing to less than 1 on the item's date, §26.1): it depreciates at the asset's rate (the band's on the building, `1/usefulLifeYears` on a separate asset) from the item's start to exhaustion, with no tenure to end it. The component carries **`CAPITALIZED_ITEM_NOT_OWNED`** (open) with `details: { notOwnedBasis, date }`, and the schedule's year shows it in `notOwned` (no longer always `null`, as §59A foresaw). The owners' figures are complete only when the Ownerships are (as §58C's `OWNERSHIP_INCOMPLETE`).
+- **`OWNER_WITHOUT_ACQUISITION`** (§59A) counts purchase components only: an item part never covers a share.
+- **At the owner level** (`?ownerPartyId=`): the item components in which the Party has a part, each with that owner only, as §59A's purchase components.
+
+### A refund of Herstellungskosten (§58C "Signs")
+
+- **A refund is a component of its own:** a source classified `CAPITALIZED` with a negative `lineAmount` (a split `INFLOW`). DE does not link a refund to the item it refunds (no such field exists in Phase 7), so it is not netted; it lowers the basis from its own start by the same rules: the same start, rate and owners on its own date, with negative amounts.
+- **Rounding of a negative part:** the cumulative rounding of §59A on the absolute value, the sign restored (as §58C distributes a negative item). Every year's amount of a refund part is ≤ 0, and its years sum to its basis.
+- **Flags:** `CAPITALIZED_REFUND` (informative). **`REFUND_EXCEEDS_CAPITALIZED`** (open) when, for an owner (or `NOT_OWNED`), the sum of the bases of their item parts dated up to the refund's date is negative: a refund larger than what that owner capitalised, typically a refund dated after a sale or recorded against the wrong property. `details: { ownerPartyId, basisSum, refundComponentId }`. The owner's figures are computed all the same; the year is not final.
+
+### Separate assets (P8-D7, decided option 1; B8, B9)
+
+**The record.** A `DepreciationAsset` with `assetType` `SEPARATE_ASSET` (§59's record; data-model §38). Stored, beside §59's common fields (`propertyReferenceId`, `status`, `reviewState`, `advisorPartyId`, `sourceReferences`, `notes`, `voidedAt`, `voidReason`, `createdAt`, `version`):
+
+- `depreciationMethod`: `LINEAR_7_1` (linear over the useful life, § 7 Abs. 1 EStG; depreciation.md §6). Default for a separate asset; `LINEAR_7_4` on a separate asset, or `LINEAR_7_1` on a building, is `400 NOT_ALLOWED`.
+- `description` (required, 1–200): what the asset is, e.g. "Einbauküche, Wohnung 3 (synthetisch)".
+- `usefulLifeYears` (required, integer 1–99): the useful life of § 7 Abs. 1 EStG. The rate is the exact fraction `1/usefulLifeYears`.
+- `usefulLifeBasis` (required, 1–500): its legal or factual basis, e.g. "BFH IX R 14/15: Einbauküche als einheitliches Wirtschaftsgut, 10 Jahre (verification-checklist B8)". DE judges nothing: there is no table of useful lives in the project's documentation, and none is invented (AGENTS.md §30). A kitchen over 10 years is the one case `depreciation.md` §6 names.
+- `acquiredOn` (required, a business date): the date of acquisition (Anschaffung), which sets the first month (§ 7 Abs. 1 S. 4 EStG, B6; depreciation.md §5). It is **never** taken from the items' dates: an invoice paid weeks after the delivery does not move the start.
+- `items` (0–50): the capitalised items it consists of, each `{ sourceType, sourceId, sourcePosition }`. `sourceType` is `TRANSACTION_SPLIT`, `WEG_RESERVE_WITHDRAWAL` or `WEG_ASSESSMENT_USE` (`DEPOSIT_CLOSING` → `400 NOT_ALLOWED`); `sourcePosition` is required for the two WEG sources and not allowed for a split (as §58B). An empty list is allowed: the asset can be recorded before its invoice is classified, and its schedule says `NO_CAPITALIZED_ITEMS`.
+- **Not on a separate asset:** `buildingCompletionYear` and `shorterUsefulLives` (`400 NOT_ALLOWED`). **Not on a building:** `description`, `usefulLifeYears`, `usefulLifeBasis`, `acquiredOn`, `items` (`400 NOT_ALLOWED`).
+- **Derived, never stored:** its cost (the sum of its counting `CAPITALIZED` items), the start, every year's amount, the residual value, the owners' parts. No column holds any of them (the counter-check of §59 extended to the new columns).
+- **Several separate assets** per PropertyReference are allowed (no unique index on the type).
+
+**Its cost: capitalised items, linked.**
+
+- **An item belongs to at most one `ACTIVE` asset.** The link removes it from the building's basis for as long as the separate asset is `ACTIVE`; the building's schedule lists it in `excludedItems` (`{ componentId, separateAssetId }`) so the user sees where it went. A partial unique index enforces it (0050, below).
+- **At link time** (create, or an item new to the list in an amend), the item must exist in the Realm, belong to the asset's PropertyReference, **count**, and have a current classification with `treatment` `CAPITALIZED` **without** `anschaffungsnaheAcquisitionId` (order of checks below). A link is never a way to capitalise: classifying is Taxation's, by §56. An anschaffungsnahe item is Herstellungskosten of the **building** (§ 6 Abs. 1 Nr. 1a EStG, A2) and is summed in the building's 15 % check (§58B), so it cannot also be a separate movable asset (`409 ITEM_ANSCHAFFUNGSNAHE`).
+- **Later, on read:** a linked item whose source no longer counts, or whose current classification is no longer `CAPITALIZED` (superseded by `DEDUCTIBLE`, for example) or has gained `anschaffungsnaheAcquisitionId`, is listed in the separate asset's schedule, **not computed**, with the reason `LINKED_ITEM_NOT_CAPITALIZED` (open) and `details: { counts, treatment, anschaffungsnaheAcquisitionId }`. It is in neither asset's basis: if it is now `DEDUCTIBLE`, it is in the Werbungskosten (§58C), and if it is anschaffungsnah, the user unlinks it (amend) to return it to the building. Nothing moves silently.
+- **The GWG** (B9): a movable asset up to 800 € net is deducted at once (§ 9 Abs. 1 S. 3 Nr. 7 S. 2 EStG with § 6 Abs. 2 S. 1–3 EStG): that is Phase 7's `DEDUCTIBLE`, nothing to do here. A separate asset whose cost is at most the rule's `gwgHint.netThreshold` (800.00), either by its gross cost or by the sum of `netAmount` when every item has one, is flagged **`GWG_THRESHOLD_MAY_APPLY`** (informative): the user may prefer to classify it `DEDUCTIBLE`. DE does not decide it (the asset must be selbständig nutzbar, which DE cannot know). The **Sammelposten** of § 6 Abs. 2a EStG is not modelled (B9).
+
+**Its schedule** (`GET /depreciation-assets/{id}/schedule` on a `SEPARATE_ASSET`, the shape of §59A):
+
+- **One component per linked item** (`kind` `CAPITALIZED_ITEM`, the same `componentId`), with the item's basis and §58C's owner parts as above.
+- **The start** is the **month of `acquiredOn`**, counted in full (§ 7 Abs. 1 S. 4 EStG; depreciation.md §5, B6: less 1/12 for each full month before the month of acquisition), for every item of the asset, and for an owner part not before the first month of the owner's tenure holding the item's date. `subsequentCostStart` does not apply: the items are the asset's acquisition cost, not later costs of it.
+- **An item dated in a later calendar year than `acquiredOn`** may be a later cost of the movable asset, not its acquisition cost. How later costs of a movable asset are depreciated is not covered by `depreciation.md` (**VERIFY**, a new point). The schedule computes it from `acquiredOn` like the rest (the case of an invoice paid in January for a delivery in December is the common one) and flags it **`LATER_ITEM_TO_VERIFY`** (open) with `details: { date, acquiredOn }`.
+- **The rate:** `1/usefulLifeYears`, exact, of the version of `DE_AFA_MOVABLE_LINEAR` selected for the year (below). **`NO_APPLICABLE_RULE`** for an asset whose `acquiredOn` lies before 2023, in every year (as §59A: the residual value of 2023 depends on the earlier years; open question 4).
+- **The end:** exhaustion after `12 · usefulLifeYears` months, the remainder in the last month; the tenure's end by §59A's disposal rules and flags. The parameters are the movable rule's own (below), with the same values as the building's.
+- **The asset's reasons** (no component computed while one holds): `ASSET_VOID`, `ASSET_NOT_CONFIRMED`, and `NO_CAPITALIZED_ITEMS` (no linked item counts as `CAPITALIZED`). `COMPLETION_YEAR_MISSING` does not apply.
+- **Example** (synthetic; ACC8's owners A `3/5`, B `2/5`): an Einbauküche, `acquiredOn` 2027-04-20, 10 years, one split of 6,000.00 booked on 2027-04-28 and classified `taxCategory` `OTHER_EXPENSE`, `treatment` `CAPITALIZED`. A's part 3,600.00, B's 2,400.00. 2027: 9/12 of 600.00 = **450.00** (A 270.00, B 180.00); 2028–2036: 600.00 (A 360.00, B 240.00); 2037: 3/12 = 150.00 (A 90.00, B 60.00), the last month 2037-03; the 120 months sum to 6,000.00. The split is in the view's `capitalized` of 2027 and in **no** component of the building.
+
+**Changes to §59's commands for a separate asset:**
+
+- **Create** (`Idempotency-Key`, scope `depreciation-asset.create`): the body as above. **Order of checks:**
+  1. `400`, all field errors at once: shape; the fields of the other type (`NOT_ALLOWED`); the separate asset's required fields (`REQUIRED`); `usefulLifeYears` (`INVALID_FORMAT`, `OUT_OF_RANGE`); `items` over 50 (`OUT_OF_RANGE`), an item twice (`DUPLICATE`), `sourcePosition` (`REQUIRED`, `NOT_ALLOWED`, `OUT_OF_RANGE` outside 1–1000);
+  2. the PropertyReference: `404`;
+  3. the advisor Party: `404`;
+  4. the items, each check over all items in this order (as §59's step 4 as implemented): unknown or of another Realm → `404` with `details: { sourceType, sourceId, sourcePosition }` (a split, a statement or assessment, a position naming no withdrawal or use); of another PropertyReference → `422 ITEM_NOT_OF_PROPERTY`; not counting or not `CAPITALIZED` now → `409 CONFLICT` with `reason = "ITEM_NOT_CAPITALIZED"` and `details: { item, counts, treatment, reviewState }`; with `anschaffungsnaheAcquisitionId` → `409 CONFLICT` with `reason = "ITEM_ANSCHAFFUNGSNAHE"` and `details: { item, acquisitionId }`;
+  5. an item linked to another `ACTIVE` asset → `409 CONFLICT` with `reason = "ITEM_IN_OTHER_ASSET"` and `details: { item, assetId }`.
+  
+  No `BUILDING_ASSET_EXISTS` for a separate asset. **Without a key,** a retried create makes a second asset only when its items list is empty; with items, the retry is refused as `ITEM_IN_OTHER_ASSET`. That is the same exposure as any create without a key (§15).
+- **Amend** (`If-Match`): amendable are `description`, `usefulLifeYears`, `usefulLifeBasis`, `acquiredOn`, `items` (the **whole list**, as §59's `shorterUsefulLives`), `sourceReferences`, `notes`, and `reviewState` lowered. A change of `usefulLifeYears`, `acquiredOn` or `items` resets `reviewState` to `UNREVIEWED` (unless the body names `NEEDS_REVIEW`) and clears the advisor: a changed fact is never carried under an old confirmation (§59). The repository writes the item links **as a difference** (matched by `sourceType`, `sourceId`, `sourcePosition`), as §59's entries: an unchanged link is not touched, so an item whose classification changed since does not block the amend; only **new** items run step 4–5 of create. `AMENDED` lists `details.changedItems` (`{ item, change: "ADDED" | "REMOVED" }`).
+- **Confirm:** confirms the separate asset's facts (`description`, `usefulLifeYears`, `usefulLifeBasis`, `acquiredOn`, the list of items). Its order of checks is §59's without `COMPLETION_YEAR_MISSING` (every fact is required, so there is always something to confirm).
+- **Void:** as §59. The links stay as history, their `asset_status` follows to `VOID` (0050), and the items return to the building's basis on the next read. `VOIDED` lists the items.
+- **Reads:** the single read and the list return the new fields (`null` on a building; `buildingCompletionYear` `null` and `shorterUsefulLives` `[]` on a separate asset). The `rate` block of a separate asset: `rule` `DE_AFA_MOVABLE_LINEAR@1` (or `null` before 2023), `band` `null`, `ratePercent` the display value of `1/usefulLifeYears` (§59's half-even rounding to four places, `"10.0000"` for 10 years), `legalBasis` `"§ 7 Abs. 1 EStG"`, `shorterThanYears` `null`, `shorterUsefulLives` `[]`, `reasons` from `ASSET_VOID`, `NO_APPLICABLE_RULE`, `ASSET_NOT_CONFIRMED`. The block gains `rate` (the exact fraction) on both types, additively: `"1/50"` for band `B`.
+
+### Depreciation, Taxation and infrastructure: no cycle (P8-D11; the problem of §59 "Not in VC-8-01")
+
+**The problem.** Depreciation must read the capitalised items, which are Taxation's derivation over cash (§55–§58C). The tax-year view, which is Taxation's (VC-8-05), must read the schedule, which is Depreciation's. `architecture.test.ts` refuses Depreciation → Taxation (§59), and both edges together would be a cycle. Its layer rules are: `domains/` may import `shared/` and another domain through its `index.js` only; `infrastructure/` may import `shared/` and `domains/`; `application/` may import `shared/` and `domains/`; `infrastructure/` never imports `application/`.
+
+**Options weighed:**
+
+1. **Ports owned by each consuming domain, implemented in `infrastructure/`** (chosen). Depreciation owns the input type of the capitalised items; Taxation owns the input type of the view's AfA block. `infrastructure/postgres/` imports both domains and fills each from the other's derivation, inside the one snapshot of the read.
+2. **The derivation of capitalised items in a module both depend on.** Whether a source is `CAPITALIZED` is the whole of Taxation's meaning: the default rules, the classifications and their history, the tax year (§58A), the WEG sources and their counting rules (§58B), the § 82b parts and the anschaffungsnahe effects. A module below Taxation holding that would be most of Taxation; one holding only "the `CAPITALIZED` ones" would still need all of it. Rejected.
+3. **Composition in `application/`**, which may import both domains. The schedule's capitalised input is derived **inside** the repository's transaction (the meanings are derived in `infrastructure/postgres/tax-classification-repository.ts`: `meaningsOf`, `effectsOf`), and VC-8-05 requires the view and the schedule to be read in **one** snapshot (phase-8-plan VC-8-05; P8-D14). Two repository calls from `application/` are two snapshots. One combined repository method would need a port type naming both domains' types, which only `application/` could declare, and `infrastructure/` may not import `application/`. Rejected.
+4. **Lift the forbidden edge Depreciation → Taxation**, and let the view reach the schedule through infrastructure. It would tie the AfA domain to Taxation's internals (`TaxListItem`, its vocabulary) for a few fields of data, and Taxation already imports Acquisition and Ownership, which VC-8-02 keeps free of Taxation for the same reason. Rejected.
+
+**The path chosen** (option 1). The domains never meet; they meet only in `infrastructure/postgres/`, which the layer rules allow to import both.
+
+- **Taxation exports a pure function** `capitalizedItemsOf(sources, ownerships)` (new `domains/taxation/capitalized-items.ts`, exported through `domains/taxation/index.ts` with its result type `CapitalizedSource`): for each source whose meaning has `origin` `CLASSIFICATION` and placement `CAPITALIZED` (`placementOf`), its `lineAmount` (`signedCents`), its share date, its participants (`participantsOn`) and parts (`shareOut`), its classification's id, review state and `anschaffungsnaheAcquisitionId`, and its flags. The functions are the view's own, so the parts are the view's. Taxation does not know that Depreciation exists.
+- **Depreciation owns its input type** `CapitalizedItem` (new `domains/depreciation/capitalized-item.ts`, exported through its index): `{ sourceType, sourceId, sourcePosition, propertyReferenceId, date, dateSource, taxYear, lineAmount, classificationId, reviewState, taxCategory, anschaffungsnaheAcquisitionId, counts, treatment, parts: [{ participant, ownershipIds, share, amount }], flags }`. It is plain data: no Taxation type in it. The schedule's read (§59A's snapshot read, the Depreciation port implemented by `PostgresDepreciationAssetRepository`) gains `capitalizedItems: readonly CapitalizedItem[]` and, for the building, the active links of the PropertyReference's separate assets. The commands' port gains the item check of a link (`items` → the refusals of steps 4–5), answered by the same adapter inside the command's transaction. The schedule (`domains/depreciation/schedule.ts`) receives them as input and never asks for them.
+- **The adapter** `infrastructure/postgres/capitalized-items.ts` (new): `capitalizedItemsIn(trx, mreRealmId, propertyReferenceId, today, registry)`. It reads the capitalised sources of the PropertyReference through a new method of the tax repository, `capitalizedSources(trx, …)` (in `tax-classification-repository.ts`, beside `yearItems`; module-internal to `infrastructure/postgres/`, not on Taxation's port): the counting splits of the PropertyReference with a current `CAPITALIZED` classification (selected as `yearItems` selects § 82b sources, by `transaction_split_property_reference_idx` and the classification's current-per-source index) and the counting WEG sources of its memberships (`effectsOf`, as now), each derived by `meaningsOf` / `wegWithEffects` exactly as the list derives it, over **all** years. It reads the `VALID` Ownerships of the PropertyReference, calls `capitalizedItemsOf`, and maps each `CapitalizedSource` to a `CapitalizedItem` (a field-for-field copy). It runs in the caller's transaction, so the schedule's snapshot holds the items too.
+- **For VC-8-05 (fixed here, shaped there):** Taxation owns the view's input type for the AfA block (`TaxYearRead.depreciation`, its shape written by VC-8-05's spec) and never imports Depreciation. A new adapter `infrastructure/postgres/tax-year-depreciation.ts` reads, in `readTaxYear`'s snapshot, the schedule inputs of the PropertyReference's `ACTIVE` assets (the snapshot read of §59A, factored to take a `trx`), runs Depreciation's pure schedule derivation for `year`, and maps the result to Taxation's type. So the view and the schedule come from one snapshot, and P8-D11's "the tax-year view reads the schedule through the Depreciation domain's index" becomes "through an infrastructure adapter that reads it through the Depreciation domain's index" (phase-8-plan P8-D11 amended).
+- **The registry** reaches both derivations by injection, as now (`TAX_RULES` from `domains/tax-rules/`, the repository's default; §59).
+- **The import graph** after VC-8-03, among the modules concerned: `infrastructure/postgres` → `domains/taxation`, `domains/depreciation`, `domains/tax-rules`; `domains/tax-rules` → `domains/taxation`, `domains/depreciation`; `domains/taxation` → `domains/acquisition`, `domains/ownership`, `domains/ledger`; `domains/depreciation` → `domains/acquisition`, `domains/ownership` (VC-8-02). Acyclic among the domains.
+
+**Files** (VC-8-03 unless marked):
+
+- **New:** `domains/taxation/capitalized-items.ts` and its test; `domains/depreciation/capitalized-item.ts`; `domains/depreciation/rules/de-afa-movable-linear.ts`; `infrastructure/postgres/capitalized-items.ts` and its tests; `infrastructure/postgres/migrations/0050_depreciation_separate_asset.ts`; `infrastructure/postgres/tax-year-depreciation.ts` (VC-8-05).
+- **Changed:** `domains/taxation/index.ts` (the export); `domains/depreciation/asset.ts` (`SEPARATE_ASSET` supported, its fields, plans and fingerprint), `schedule.ts` (the item components, the separate asset's schedule), `rate.ts` (the movable rate), `rules/de-afa-building-linear.ts` (parameters added), `rules/versions.ts`, `index.ts`; `infrastructure/postgres/tax-classification-repository.ts` (`capitalizedSources`), `depreciation-asset-repository.ts` (the items in the schedule read, the links in the commands), `migrations/index.ts`; `application/depreciation-assets.ts` (the separate asset's inputs and refusals); `api/depreciation-assets.ts` (bodies, DTOs); `api/error-answers.ts` (four rows); `architecture.test.ts`.
+- **Not changed:** `domains/taxation/tax-year-view.ts` (its `capitalized` stays as it is; a test proves the parts equal), every Taxation command, every Phase-7 test.
+
+**`architecture.test.ts`:**
+
+- `forbiddenEdges` gains `domains/taxation` → `domains/depreciation` ("Depreciation and Taxation meet only in infrastructure/, §59B"); the reason of the existing Depreciation → Taxation entry becomes the same text.
+- The `it` that scans every domain file names both directions. The refused fixtures gain `['domains/taxation/probe.ts', '../depreciation/index.js']` and `['domains/taxation/rules/probe.test.ts', '../../depreciation/index.js']`; the allowed fixtures gain `['infrastructure/postgres/probe.ts', '../../domains/depreciation/index.js']` and `['infrastructure/postgres/probe.ts', '../../domains/taxation/index.js']`.
+- **Counter-check:** an `import type { CapitalizedItem } from '../depreciation/index.js'` in a Taxation file, or of `TaxListItem` from Taxation in a Depreciation file, turns the test red (type-only imports are scanned, as `importSpecifiers` shows).
+
+**Load order** (as #177's `domains/tax-rules/load-order-*.test.ts`):
+
+- `infrastructure/postgres/capitalized-items-load-order-depreciation-first.test.ts` imports `../../domains/depreciation/index.js` as its **first** import, then `./capitalized-items.js`, and asserts that `DEPRECIATION_RULE_VERSIONS` holds both Depreciation rules, that `TAX_RULES.codes()` has **seven** codes with `DE_AFA_MOVABLE_LINEAR@1` resolvable, and that the adapter's mapping turns a synthetic `CapitalizedSource` into the expected `CapitalizedItem`. `…-taxation-first.test.ts` does the same with `../../domains/taxation/index.js` first. A third case calls `vi.resetModules()` and imports the adapter first, then both domain indexes dynamically, with the same assertions. Vitest isolates each file (`isolate`, the default), so each is a fresh load.
+- The existing `domains/tax-rules/load-order-*.test.ts` expect seven codes.
+- **Counter-check:** a Depreciation module importing Taxation's index (to reach `capitalizedItemsOf` directly) turns the architecture test red; a re-export of the adapter through `domains/depreciation/index.ts` is refused as a layer violation.
+
+### The rules
+
+**`DE_AFA_BUILDING_LINEAR@1`: parameters added** (additively: version 1 is not frozen before VC-8-04, §59):
+
+| Parameter | Value | Source |
+|---|---|---|
+| `basis.capitalizedItemReviewStates` | `["USER_CONFIRMED", "ADVISOR_CONFIRMED"]`: the classification states that feed an item component | P8-D2; §57 |
+| `basis.capitalizedItemAmount` | `"GROSS_LINE_AMOUNT"`: the item's signed `lineAmount` of §58C, never `netAmount` | P8-D2 (reviewer input on #173; VERIFY, § 9b Abs. 1 EStG) |
+| `subsequentCostStart` | `{ method: "START_OF_YEAR", notBeforeOwnerStart: true, verified: false, legalBasis: "R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)" }`; `method` may also be `MONTH_OF_DATE` | P8-D6; B11 |
+| `subsequentCostRate` | `{ rate: "OWNER_PURCHASE_RATE", shorterLifeVerified: false }`: the owner's purchase component's rate (the band, or `1/n` with `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`) | B11; P8-D4, P8-D6 |
+| `subsequentCostEnd` | `{ method: "PER_ITEM_SERIES", verified: false }`: each item part runs to its own basis; `SUBSEQUENT_COST_END_TO_VERIFY` after the owner's purchase is exhausted | depreciation.md §7; B11; P8-D9 |
+
+- `source` gains "depreciation.md §6 v0.2; verification-checklist B11; phase-8-plan P8-D6".
+- A registry test asserts that no registered default rule gives `treatment` `CAPITALIZED` (above, "Only a classification moves the basis").
+
+**`DE_AFA_MOVABLE_LINEAR@1`** (new; `domains/depreciation/rules/de-afa-movable-linear.ts`, in `DEPRECIATION_RULE_VERSIONS`, registered in `TAX_RULES`):
+
+| Field | Value |
+|---|---|
+| `ruleCode`, `version` | `DE_AFA_MOVABLE_LINEAR`, `1` |
+| `title` | Lineare AfA beweglicher Wirtschaftsgüter (§ 7 Abs. 1 EStG) |
+| `legalBasis` | § 7 Abs. 1 EStG (S. 4: the first year) |
+| `effectiveFrom`, `effectiveTo` | `2023-01-01`, open: aligned with `DE_AFA_BUILDING_LINEAR@1`; earlier years are not computed until verified (open question 4) |
+| `source` | `docs/germany/depreciation.md` §5, §6 v0.2 (verified 29.10.2026); verification-checklist B6, B8, B9; phase-8-plan P8-D7 |
+| `parameters.usefulLife` | `{ from: "ASSET", minYears: 1, maxYears: 99, rate: "RECIPROCAL_OF_YEARS" }` |
+| `parameters.firstYear` | `{ startMonthCounts: true, from: "ACQUIRED_ON", legalBasis: "§ 7 Abs. 1 S. 4 EStG" }` |
+| `parameters.basis` | `{ itemReviewStates: ["USER_CONFIRMED", "ADVISOR_CONFIRMED"], amount: "GROSS_LINE_AMOUNT", laterItems: { verified: false } }` |
+| `parameters.end` | the same object as `DE_AFA_BUILDING_LINEAR@1`'s `end` (§59A), including `disposal.verified: false` |
+| `parameters.rounding` | `{ unit: "CENT", mode: "HALF_UP", method: "CUMULATIVE_PER_OWNER_PART" }` |
+| `parameters.gwgHint` | `{ netThreshold: "800.00", legalBasis: "§ 9 Abs. 1 S. 3 Nr. 7 S. 2 i. V. m. § 6 Abs. 2 S. 1–3 EStG", sammelposten: false }`: the hint only (B9) |
+
+- **Selection** by the tax year computed (§58), as the building rule. **Registry tests:** seven rules, none overlapping; the movable rule's `end`, `rounding` and `basis.amount` equal the building rule's (one end and one rounding for both); `GET /tax-rules` lists `DE_AFA_MOVABLE_LINEAR` with `status` `ACTIVE`. The two Phase-7 tests that list every rule (`api/tax-classifications.test.ts`, `tax-classification.e2e.test.ts`) list seven, `DE_AFA_MOVABLE_LINEAR` after `DE_AFA_BUILDING_LINEAR` (as VC-8-01 did).
+- **Frozen with VC-8-04**, as the building rule (§59).
+
+### Response
+
+**The building's schedule** (ACC8, synthetic, property level, `?from=2027&to=2028`, after the user capitalised both sources on the anschaffungsnahe check, P8-D2 (2)): the repair of 2027-03-10, gross 35,700.00 (`netAmount` 30,000.00), and the Sonderumlage use of 2028-02-15, 9,000.00. The purchase component is §59A's, shortened here to its key fields; the Einbauküche is linked to a separate asset and therefore excluded.
+
+```json
+{
+  "assetId": "6f1c2a9e-0000-4000-8000-000000000010",
+  "propertyReferenceId": "6f1c2a9e-0000-4000-8000-000000000001",
+  "assetType": "BUILDING",
+  "level": "PROPERTY",
+  "ownerPartyId": null,
+  "computedOn": "2026-10-30",
+  "range": { "from": 2027, "to": 2028, "truncated": false },
+  "status": "AVAILABLE",
+  "reasons": [],
+  "asset": { "status": "ACTIVE", "buildingCompletionYear": 1995, "reviewState": "CONFIRMED" },
+  "components": [
+    {
+      "componentId": "ACQUISITION:6f1c2a9e-0000-4000-8000-000000000002",
+      "kind": "ACQUISITION",
+      "status": "COMPUTABLE",
+      "basis": { "amount": { "amount": "254400.00", "currency": "EUR" } },
+      "years": [
+        { "year": 2027, "months": 12, "amount": { "amount": "5088.00", "currency": "EUR" } },
+        { "year": 2028, "months": 12, "amount": { "amount": "5088.00", "currency": "EUR" } }
+      ]
+    },
+    {
+      "componentId": "TRANSACTION_SPLIT:6f1c2a9e-0000-4000-8000-000000000071",
+      "kind": "CAPITALIZED_ITEM",
+      "source": {
+        "sourceType": "TRANSACTION_SPLIT",
+        "sourceId": "6f1c2a9e-0000-4000-8000-000000000071",
+        "sourcePosition": null,
+        "classificationId": "6f1c2a9e-0000-4000-8000-000000000081",
+        "reviewState": "USER_CONFIRMED",
+        "taxCategory": "MAINTENANCE",
+        "date": "2027-03-10",
+        "dateSource": "BOOKING",
+        "taxYear": 2027,
+        "anschaffungsnaheAcquisitionId": "6f1c2a9e-0000-4000-8000-000000000002"
+      },
+      "status": "COMPUTABLE",
+      "reasons": [],
+      "basis": { "amount": { "amount": "35700.00", "currency": "EUR" }, "netAmount": { "amount": "30000.00", "currency": "EUR" }, "amountUsed": "GROSS_LINE_AMOUNT" },
+      "start": { "date": "2027-03-10", "dateSource": "ITEM_DATE", "method": "START_OF_YEAR", "month": "2027-01", "firstYearMonths": 12 },
+      "rate": { "kind": "BAND", "band": "B", "ratePercent": "2", "rate": "1/50", "usefulLifeYears": null, "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG" },
+      "end": { "lastYear": 2076, "lastMonth": "2076-12" },
+      "owners": [
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000041"], "share": "3/5", "basis": { "amount": "21420.00", "currency": "EUR" }, "firstMonth": "2027-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } },
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000042"], "share": "2/5", "basis": { "amount": "14280.00", "currency": "EUR" }, "firstMonth": "2027-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } }
+      ],
+      "notOwned": null,
+      "years": [
+        {
+          "year": 2027,
+          "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1 },
+          "months": 12,
+          "amount": { "amount": "714.00", "currency": "EUR" },
+          "cumulative": { "amount": "714.00", "currency": "EUR" },
+          "residualValue": { "amount": "34986.00", "currency": "EUR" },
+          "owners": [
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "months": 12, "fraction": "1/1", "amount": { "amount": "428.40", "currency": "EUR" }, "residualValue": { "amount": "20991.60", "currency": "EUR" }, "flags": [] },
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "months": 12, "fraction": "1/1", "amount": { "amount": "285.60", "currency": "EUR" }, "residualValue": { "amount": "13994.40", "currency": "EUR" }, "flags": [] }
+          ],
+          "notOwned": null,
+          "flags": [{ "code": "SUBSEQUENT_COST_START_TO_VERIFY", "details": { "date": "2027-03-10", "method": "START_OF_YEAR", "firstMonth": "2027-01", "legalBasis": "R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)" } }]
+        },
+        {
+          "year": 2028,
+          "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1 },
+          "months": 12,
+          "amount": { "amount": "714.00", "currency": "EUR" },
+          "cumulative": { "amount": "1428.00", "currency": "EUR" },
+          "residualValue": { "amount": "34272.00", "currency": "EUR" },
+          "owners": [
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "months": 12, "fraction": "1/1", "amount": { "amount": "428.40", "currency": "EUR" }, "residualValue": { "amount": "20563.20", "currency": "EUR" }, "flags": [] },
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "months": 12, "fraction": "1/1", "amount": { "amount": "285.60", "currency": "EUR" }, "residualValue": { "amount": "13708.80", "currency": "EUR" }, "flags": [] }
+          ],
+          "notOwned": null,
+          "flags": []
+        }
+      ],
+      "flags": [{ "code": "ANSCHAFFUNGSNAHE_CAPITALIZED", "details": { "acquisitionId": "6f1c2a9e-0000-4000-8000-000000000002" } }]
+    },
+    {
+      "componentId": "WEG_ASSESSMENT_USE:6f1c2a9e-0000-4000-8000-000000000091:1",
+      "kind": "CAPITALIZED_ITEM",
+      "source": {
+        "sourceType": "WEG_ASSESSMENT_USE",
+        "sourceId": "6f1c2a9e-0000-4000-8000-000000000091",
+        "sourcePosition": 1,
+        "classificationId": "6f1c2a9e-0000-4000-8000-000000000082",
+        "reviewState": "USER_CONFIRMED",
+        "taxCategory": "WEG_SPENDING",
+        "date": "2028-02-15",
+        "dateSource": "USE",
+        "taxYear": 2028,
+        "anschaffungsnaheAcquisitionId": "6f1c2a9e-0000-4000-8000-000000000002"
+      },
+      "status": "COMPUTABLE",
+      "reasons": [],
+      "basis": { "amount": { "amount": "9000.00", "currency": "EUR" }, "netAmount": null, "amountUsed": "GROSS_LINE_AMOUNT" },
+      "start": { "date": "2028-02-15", "dateSource": "ITEM_DATE", "method": "START_OF_YEAR", "month": "2028-01", "firstYearMonths": 12 },
+      "rate": { "kind": "BAND", "band": "B", "ratePercent": "2", "rate": "1/50", "usefulLifeYears": null, "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG" },
+      "end": { "lastYear": 2077, "lastMonth": "2077-12" },
+      "owners": [
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000041"], "share": "3/5", "basis": { "amount": "5400.00", "currency": "EUR" }, "firstMonth": "2028-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } },
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "ownershipIds": ["6f1c2a9e-0000-4000-8000-000000000042"], "share": "2/5", "basis": { "amount": "3600.00", "currency": "EUR" }, "firstMonth": "2028-01", "rate": "1/50", "tenure": { "from": "2026-07-01", "lastDay": null, "lastDaySource": null } }
+      ],
+      "notOwned": null,
+      "years": [
+        {
+          "year": 2028,
+          "rule": { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1 },
+          "months": 12,
+          "amount": { "amount": "180.00", "currency": "EUR" },
+          "cumulative": { "amount": "180.00", "currency": "EUR" },
+          "residualValue": { "amount": "8820.00", "currency": "EUR" },
+          "owners": [
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "months": 12, "fraction": "1/1", "amount": { "amount": "108.00", "currency": "EUR" }, "residualValue": { "amount": "5292.00", "currency": "EUR" }, "flags": [] },
+            { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "months": 12, "fraction": "1/1", "amount": { "amount": "72.00", "currency": "EUR" }, "residualValue": { "amount": "3528.00", "currency": "EUR" }, "flags": [] }
+          ],
+          "notOwned": null,
+          "flags": [{ "code": "SUBSEQUENT_COST_START_TO_VERIFY", "details": { "date": "2028-02-15", "method": "START_OF_YEAR", "firstMonth": "2028-01", "legalBasis": "R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)" } }]
+        }
+      ],
+      "flags": [{ "code": "ANSCHAFFUNGSNAHE_CAPITALIZED", "details": { "acquisitionId": "6f1c2a9e-0000-4000-8000-000000000002" } }]
+    }
+  ],
+  "excludedItems": [{ "componentId": "TRANSACTION_SPLIT:6f1c2a9e-0000-4000-8000-000000000061", "separateAssetId": "6f1c2a9e-0000-4000-8000-000000000011" }],
+  "years": [
+    {
+      "year": 2027,
+      "status": "AVAILABLE",
+      "amount": { "amount": "5802.00", "currency": "EUR" },
+      "residualValue": { "amount": "281754.00", "currency": "EUR" },
+      "owners": [
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "3481.20", "currency": "EUR" } },
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "2320.80", "currency": "EUR" } }
+      ],
+      "notOwned": null,
+      "flags": [{ "code": "SUBSEQUENT_COST_START_TO_VERIFY", "details": { "componentIds": ["TRANSACTION_SPLIT:6f1c2a9e-0000-4000-8000-000000000071"] } }]
+    },
+    {
+      "year": 2028,
+      "status": "AVAILABLE",
+      "amount": { "amount": "5982.00", "currency": "EUR" },
+      "residualValue": { "amount": "284772.00", "currency": "EUR" },
+      "owners": [
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "3589.20", "currency": "EUR" } },
+        { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "2392.80", "currency": "EUR" } }
+      ],
+      "notOwned": null,
+      "flags": [{ "code": "SUBSEQUENT_COST_START_TO_VERIFY", "details": { "componentIds": ["WEG_ASSESSMENT_USE:6f1c2a9e-0000-4000-8000-000000000091:1"] } }]
+    }
+  ],
+  "review": { "open": [{ "code": "SUBSEQUENT_COST_START_TO_VERIFY", "count": 2 }], "info": [{ "code": "ANSCHAFFUNGSNAHE_CAPITALIZED", "count": 2 }] },
+  "ruleVersions": [
+    { "ruleCode": "DE_AFA_BUILDING_LINEAR", "version": 1, "title": "Lineare Gebäude-AfA im Privatvermögen (§ 7 Abs. 4 EStG)", "legalBasis": "§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG", "status": "ACTIVE", "years": [2027, 2028] }
+  ]
+}
+```
+
+- **The figures** (ACC8): 2 % of 35,700.00 is **714.00** a year, A `3/5` 428.40 and B `2/5` 285.60 (§58C's parts of 21,420.00 and 14,280.00); 2 % of 9,000.00 is **180.00**, A 108.00 and B 72.00. Under the proposal (`START_OF_YEAR`) the repair counts 12/12 in 2027 and the use 12/12 in 2028; under `MONTH_OF_DATE` they would be 595.00 (10/12) and 165.00 (11/12), as phase-8-plan's ACC8 shows. The year totals: 2027 5,088.00 + 714.00 = **5,802.00**; 2028 5,088.00 + 714.00 + 180.00 = **5,982.00**; the residual value at the end of 2028 is 241,680.00 + 34,272.00 + 8,820.00 = 284,772.00.
+- **The extension** of ACC8 (a split of 2030-09-15, 12,000.00, `CAPITALIZED` without `anschaffungsnaheAcquisitionId`, outside the window): **240.00** a year from 2030 (A 144.00, B 96.00), so 2030 is 6,222.00; it carries `SUBSEQUENT_COST_START_TO_VERIFY` in 2030 and no `ANSCHAFFUNGSNAHE_CAPITALIZED`.
+- **Before the user capitalises** (both sources `DEDUCTIBLE`, the check `ABOVE_THRESHOLD` with its suggestion): the schedule has the purchase component only, 5,088.00 in 2027 and 2028. The suggestion changes nothing.
+- **New fields:** `components[].source`, `start.method`, `owners[].firstMonth`, `owners[].rate` and `owners[].ownershipIds` (on item components; a purchase component's `owners` stay as §59A's), `notOwned` on the component and its years (`{ share, basis }` resp. Money, else `null`), and `excludedItems` on the building (on a separate asset `null`). `start.dateSource` is `ITEM_DATE` for an item of the building and `ACQUIRED_ON` for an item of a separate asset; `start.date` is then `acquiredOn`.
+- **Order:** components as above; `excludedItems` by `componentId`; the rest as §59A.
+
+**A separate asset, create** (`POST /api/v1/depreciation-assets`):
+
+```json
+{
+  "propertyReferenceId": "6f1c2a9e-0000-4000-8000-000000000001",
+  "assetType": "SEPARATE_ASSET",
+  "description": "Einbauküche, Wohnung 3 (synthetisch)",
+  "usefulLifeYears": 10,
+  "usefulLifeBasis": "BFH IX R 14/15: Einbauküche als einheitliches Wirtschaftsgut, 10 Jahre (verification-checklist B8)",
+  "acquiredOn": "2027-04-20",
+  "items": [{ "sourceType": "TRANSACTION_SPLIT", "sourceId": "6f1c2a9e-0000-4000-8000-000000000061", "sourcePosition": null }],
+  "sourceReferences": ["Lieferschein 2027-04-20 (synthetisch)"],
+  "reviewState": "UNREVIEWED",
+  "notes": null
+}
+```
+
+**Its schedule** (after `confirm`; property level, `?from=2027&to=2028`, abridged to the fields that differ from the building's):
+
+```json
+{
+  "assetId": "6f1c2a9e-0000-4000-8000-000000000011",
+  "assetType": "SEPARATE_ASSET",
+  "status": "AVAILABLE",
+  "asset": { "status": "ACTIVE", "description": "Einbauküche, Wohnung 3 (synthetisch)", "usefulLifeYears": 10, "acquiredOn": "2027-04-20", "reviewState": "CONFIRMED" },
+  "components": [
+    {
+      "componentId": "TRANSACTION_SPLIT:6f1c2a9e-0000-4000-8000-000000000061",
+      "kind": "CAPITALIZED_ITEM",
+      "status": "COMPUTABLE",
+      "basis": { "amount": { "amount": "6000.00", "currency": "EUR" }, "netAmount": null, "amountUsed": "GROSS_LINE_AMOUNT" },
+      "start": { "date": "2027-04-20", "dateSource": "ACQUIRED_ON", "method": "MONTH_OF_ACQUISITION", "month": "2027-04", "firstYearMonths": 9 },
+      "rate": { "kind": "USEFUL_LIFE", "band": null, "ratePercent": "10.0000", "rate": "1/10", "usefulLifeYears": 10, "legalBasis": "§ 7 Abs. 1 EStG" },
+      "end": { "lastYear": 2037, "lastMonth": "2037-03" },
+      "years": [
+        { "year": 2027, "rule": { "ruleCode": "DE_AFA_MOVABLE_LINEAR", "version": 1 }, "months": 9, "amount": { "amount": "450.00", "currency": "EUR" }, "residualValue": { "amount": "5550.00", "currency": "EUR" } },
+        { "year": 2028, "rule": { "ruleCode": "DE_AFA_MOVABLE_LINEAR", "version": 1 }, "months": 12, "amount": { "amount": "600.00", "currency": "EUR" }, "residualValue": { "amount": "4950.00", "currency": "EUR" } }
+      ]
+    }
+  ],
+  "excludedItems": null,
+  "years": [
+    { "year": 2027, "status": "AVAILABLE", "amount": { "amount": "450.00", "currency": "EUR" }, "owners": [{ "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "270.00", "currency": "EUR" } }, { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "180.00", "currency": "EUR" } }] },
+    { "year": 2028, "status": "AVAILABLE", "amount": { "amount": "600.00", "currency": "EUR" }, "owners": [{ "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000021", "amount": { "amount": "360.00", "currency": "EUR" } }, { "ownerPartyId": "6f1c2a9e-0000-4000-8000-000000000022", "amount": { "amount": "240.00", "currency": "EUR" } }] }
+  ],
+  "ruleVersions": [{ "ruleCode": "DE_AFA_MOVABLE_LINEAR", "version": 1, "title": "Lineare AfA beweglicher Wirtschaftsgüter (§ 7 Abs. 1 EStG)", "legalBasis": "§ 7 Abs. 1 EStG (S. 4: the first year)", "status": "ACTIVE", "years": [2027, 2028] }]
+}
+```
+
+- `rate.kind` gains `USEFUL_LIFE` (a separate asset's `1/usefulLifeYears`); `start.method` `MONTH_OF_ACQUISITION`. The separate asset's single read shows the new stored fields and `items`, and `rate` as described under "Changes to §59's commands".
+
+### Reasons and flags
+
+In addition to §59A's table (a **reason** means a figure is not computed, a **flag** marks a computed one):
+
+| Code | Where | Level |
+|---|---|---|
+| `NO_CAPITALIZED_ITEMS` | schedule `reasons` of a separate asset | open |
+| `ITEM_CLASSIFICATION_NEEDS_REVIEW`, `LINKED_ITEM_NOT_CAPITALIZED` | item component `reasons`, in this order, then §59A's `USEFUL_LIFE_NOT_CONFIRMED` and `NO_APPLICABLE_RULE` where they hold | open |
+| `SUBSEQUENT_COST_START_TO_VERIFY` | the item component's first and last year (building) | open |
+| `SUBSEQUENT_COST_END_TO_VERIFY`, `DISPOSAL_YEAR_TO_VERIFY`, `END_DATE_ASSUMED` | the owner's year in an item component | open |
+| `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`, `CAPITALIZED_YEAR_DIFFERS`, `CAPITALIZED_ITEM_NOT_OWNED`, `REFUND_EXCEEDS_CAPITALIZED`, `LATER_ITEM_TO_VERIFY`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE` | item component `flags` | open |
+| `ANSCHAFFUNGSNAHE_CAPITALIZED`, `CAPITALIZED_REFUND`, `DATE_IS_BOOKING_DATE`, `WITHDRAWAL_DATE_ASSUMED`, `GWG_THRESHOLD_MAY_APPLY` | item component `flags` (`GWG_THRESHOLD_MAY_APPLY` on the separate asset's schedule) | informative |
+
+- A year's `flags`, `review` and `ruleVersions` collect them as §59A says. Every open flag keeps the year from being final in the view (VC-8-05).
+
+### Error answers (`api/error-answers.ts`)
+
+| Error | Answer | `details` |
+|---|---|---|
+| `CapitalizedItemNotFoundError` | `404 NOT_FOUND`, "The capitalised item's source does not exist." | `{ sourceType, sourceId, sourcePosition }` |
+| `ItemNotOfPropertyError` | `422 ITEM_NOT_OF_PROPERTY`, "The item belongs to another PropertyReference." | `{ item, propertyReferenceId }` |
+| `ItemNotCapitalizedError` | `409 CONFLICT`, "The item is not classified CAPITALIZED, or does not count." | `{ reason: "ITEM_NOT_CAPITALIZED", item, counts, treatment, reviewState }` |
+| `ItemAnschaffungsnaheError` | `409 CONFLICT`, "The item is anschaffungsnahe Herstellungskosten of the building." | `{ reason: "ITEM_ANSCHAFFUNGSNAHE", item, acquisitionId }` |
+| `ItemInOtherAssetError` | `409 CONFLICT`, "The item belongs to another active depreciation asset." | `{ reason: "ITEM_IN_OTHER_ASSET", item, assetId }` |
+
+`item` is `{ sourceType, sourceId, sourcePosition }`. §59's answers are reused as they are. Field errors use the existing codes (`REQUIRED`, `INVALID_FORMAT`, `OUT_OF_RANGE`, `NOT_ALLOWED`, `NOT_AMENDABLE`, `DUPLICATE`); there is no new field code.
+
+### Concurrency and locks (P8-D14)
+
+- **A separate asset's command** follows §59's order, with one step added: (1) the key; (2) the **PropertyReference** written (no-op); (3) the advisor Parties; (4) the Acquisitions of §59 (none for a separate asset); (5) **the items new to the list**, read and derived through the adapter, without a lock; (6) the asset `FOR UPDATE` (amend, confirm, void); (7) evaluate, write the asset, write the links as a difference, the AuditRecords, the key.
+- **Two assets linking one item:** both write the PropertyReference first, so under RC the second waits and then sees the first's link (`ITEM_IN_OTHER_ASSET`); under RR it fails to serialise (`40001`); the partial unique index is the guarantee for any other writer, and the repository answers its `23505` as `ITEM_IN_OTHER_ASSET`. Counter-check: without the PropertyReference write, two RC creates race to the index.
+- **A link against a reclassification of its item** (§56 locks the split's Transaction or the statement or assessment row, not the PropertyReference): they do not serialise, by design. A reclassification may land just after the link was checked. The link stays, and the read shows `LINKED_ITEM_NOT_CAPITALIZED`; nothing is counted twice or lost silently. Taxation's commands take no Depreciation lock, so no lock order between the two domains arises.
+- **The schedule read** stays one `REPEATABLE READ READ ONLY` transaction; the capitalised items, their classifications, the Ownerships and the links come from that snapshot (the adapter runs in it). A classification committed between two statements of the read is not seen.
+
+### Performance
+
+- **The capitalised sources** of a PropertyReference over all years are a handful. The split query uses `transaction_split_property_reference_idx` (0048) and the current classification per source; the WEG sources come from `effectsOf`, as the list reads them. A repository test reads the plan of the split query.
+- **The links:** the building's read looks up the `ACTIVE` links of its PropertyReference by `depreciation_asset_item_property_reference_idx` (0050).
+- **Bounded:** at most 50 items per separate asset; the derivation walks at most 1,188 months per owner part and component, as §59A.
+
+### In the database (migration 0050)
+
+- **`depreciation_asset`** (0049's table, widened; the existing rows stay valid):
+  - `asset_type` CHECK `IN ('BUILDING', 'SEPARATE_ASSET')`; `depreciation_method` CHECK `IN ('LINEAR_7_4', 'LINEAR_7_1')`, and a CHECK pairing them (`BUILDING` ↔ `LINEAR_7_4`, `SEPARATE_ASSET` ↔ `LINEAR_7_1`);
+  - new columns `description` (`text`, 1–200), `useful_life_years` (`integer`, CHECK 1–99), `useful_life_basis` (`text`, 1–500), `acquired_on` (`date`), all `NULL`; a CHECK sets all four exactly on `SEPARATE_ASSET` rows, and `building_completion_year` only on `BUILDING` rows;
+  - 0049's CHECK "confirmed only with a completion year" now applies to `BUILDING` rows only;
+  - `UNIQUE (id, mre_realm_id, property_reference_id, status)` for the link table's key;
+  - still **no column** for a basis, a cost, a rate, a start, an amount, an Acquisition or a rule;
+  - the partial unique index of the building (`depreciation_asset_building_active`) is unchanged.
+- **`depreciation_asset_item`** (the links, as rows; AGENTS.md §28):
+  - `asset_id`, `mre_realm_id`, `property_reference_id`, `asset_status` (CHECK `ACTIVE`, `VOID`): a composite foreign key `(asset_id, mre_realm_id, property_reference_id, asset_status)` to `depreciation_asset (id, mre_realm_id, property_reference_id, status)` **`ON UPDATE CASCADE`**, so a void carries `VOID` into every link of the asset without a second writer;
+  - `source_type` (CHECK `IN ('TRANSACTION_SPLIT', 'WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE')`), `source_id` (`uuid`), `source_position` (`integer` NULL; a CHECK: `NULL` exactly for `TRANSACTION_SPLIT`, else 1–1000), `created_at`, `created_by`;
+  - `UNIQUE (asset_id, source_type, source_id, coalesce(source_position, 0))` (an expression index): an item once per asset;
+  - **`depreciation_asset_item_active`**, unique on `(mre_realm_id, source_type, source_id, coalesce(source_position, 0)) WHERE asset_status = 'ACTIVE'`: **an item in at most one `ACTIVE` asset** (P8-D7);
+  - `depreciation_asset_item_property_reference_idx` on `(property_reference_id) WHERE asset_status = 'ACTIVE'`.
+- **Guards** (triggers, as 0049's):
+  - `depreciation_asset_item_guard` (before insert, update, delete): writes the PropertyReference row first (the lock order; it fires before the asset's own triggers, as 0049's `…_useful_life_open` does); an insert or a delete only while the asset is `ACTIVE` and of type `SEPARATE_ASSET`; an update only of `asset_status` from `ACTIVE` to `VOID` (the cascade of a void), every other change refused; on insert, the source exists in the Realm and belongs to the PropertyReference: a `transaction_split` with that `property_reference_id`, a `weg_annual_statement` or `weg_special_assessment` whose membership has it (its `position` naming a reserve line of kind `WITHDRAWAL` resp. a use); at most 50 rows per asset. Whether the item is `CAPITALIZED` is Taxation's derivation and is **not** checked in the database: the repository checks it, and the read flags a later change;
+  - `depreciation_asset_useful_life_open` (0049) additionally refuses an entry on a `SEPARATE_ASSET`;
+  - `depreciation_asset_frozen` (0049) unchanged: `asset_type` and `depreciation_method` never change, so a building never becomes a separate asset.
+- **The text check** (`depreciation_asset_texts_valid()`) covers `description` and `useful_life_basis`.
+- **`down`** drops `depreciation_asset_item`, its function and the new columns, and restores 0049's CHECKs. With a `SEPARATE_ASSET` row present the restored CHECK refuses it and `down` fails: a separate asset is never dropped silently.
+- **No column** on `tax_classification`, `transaction_split`, a WEG table or any ledger table: a link is Depreciation's record, and Taxation does not see it.
+
+### AuditRecords
+
+Entity type `DepreciationAsset`, as §59: `CREATED` with the separate asset's fields and its items; `AMENDED` with the changed fields, `changedItems` and a review-state reset; `CONFIRMED`; `VOIDED` with the reason and the items freed. A link has no AuditRecord of its own: it is part of its asset.
+
+### Recorded versions and the view (pointers to VC-8-04 and VC-8-05)
+
+- **VC-8-04 (§60):** a recorded version stores each item component as an input row (`sourceType`, `sourceId`, `sourcePosition`, `classificationId`, the amount, the date, the start, the owners' parts) beside the purchase components, and the `ruleCode@version`s, `DE_AFA_MOVABLE_LINEAR@1` included. **`DEPRECIATION_CHANGED_SINCE_RECORDED`** then names the item components that differ, on each year whose derived amount differs: a source capitalised after recording (the anschaffungsnahe case of ACC8: the version of 2027 differs and names the repair), a classification superseded, a refund added, an item linked to or freed from a separate asset (the building's version and the separate asset's both differ), a changed `acquiredOn` or useful life. A separate asset has versions of its own, by the same route.
+- **VC-8-05 (§58C):** the view reads the schedules through `infrastructure/postgres/tax-year-depreciation.ts` (above), in its own snapshot. The line `AFA_BUILDING` holds the building's components and `AFA_SEPARATE_ASSETS` the separate assets' (P8-D12); each item of `capitalized` names the component it became (`componentId`, the asset's id) or the reason it became none (`NO_ASSET`, `ITEM_CLASSIFICATION_NEEDS_REVIEW`, `LINKED_ITEM_NOT_CAPITALIZED`). Its open flags (above) enter the review table.
+
+### Tests the implementation must have (VC-8-03)
+
+- **Taxation (pure, `capitalized-items.test.ts`):** only `origin` `CLASSIFICATION` with `CAPITALIZED`; a default never (a test registry with a `CAPITALIZED` default yields nothing); signs (a refund negative); the parts equal the view's for the same item and Ownerships (the view's own `participantsOn` and `shareOut`), including ties, `NOT_OWNED` and a negative item; the flags carried.
+- **Depreciation (pure, `schedule.ts`):**
+  - an item from `START_OF_YEAR` (12/12 in its year, the March repair and the February use) and, with a test registry, `MONTH_OF_DATE` (10/12 and 11/12); not before the owner's start (an item of 2026-09-15 after a transfer of 2026-07-01 starts in July); `SUBSEQUENT_COST_START_TO_VERIFY` on the first and last year only, and absent with `verified: true`;
+  - the rate: the band; an owner whose purchase has an applying shorter life (`1/n`, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`), an unconfirmed one (`USEFUL_LIFE_NOT_CONFIRMED`), one not shorter (the band); an heir's part and `NOT_OWNED` at the band;
+  - `NO_APPLICABLE_RULE` for an item dated 2022; an item dated 2027 on a purchase of 2021 computable;
+  - the end: each part capped at its own basis; `SUBSEQUENT_COST_END_TO_VERIFY` exactly on the years after the owner's purchase is exhausted (a 3 % purchase of 2023 and an item of 2050); a sale ending the owner's item part with the purchase (`DISPOSAL_YEAR_TO_VERIFY`, `END_DATE_ASSUMED`); the buyer without a part;
+  - per owner: §58C's parts as the owner bases; the running minimum against the share on the item's date; a share raised later taking nothing more; owners + `NOT_OWNED` = the component = the property (a property test over random shares, items, refunds and dates);
+  - a refund: negative years summing to its basis, `CAPITALIZED_REFUND`; `REFUND_EXCEEDS_CAPITALIZED` for a refund after a sale;
+  - `ITEM_CLASSIFICATION_NEEDS_REVIEW` (amounts `null`, `PARTIAL`); `CAPITALIZED_YEAR_DIFFERS` for a `taxYear` override; the carried flags;
+  - the separate asset: the month of `acquiredOn` (April 9/12; December 1/12; January 12/12), `12·n` months and the remainder, an item booked after `acquiredOn` in the same year (no flag) and in the next year (`LATER_ITEM_TO_VERIFY`), `NO_CAPITALIZED_ITEMS`, `LINKED_ITEM_NOT_CAPITALIZED`, `GWG_THRESHOLD_MAY_APPLY` at 800.00 and not at 800.01 (gross and net), `NO_APPLICABLE_RULE` for `acquiredOn` in 2022;
+  - the building excludes the items of `ACTIVE` separate assets and lists them in `excludedItems`; after a void it includes them again;
+  - **the components equal the `capitalized` items:** for every year Y, the item components of the building and the separate assets, together, are exactly the view's `capitalized` items of all years up to Y (by source), each once; the components starting in Y are exactly those whose `date` lies in Y.
+- **Rules and registry:** seven rules; `DE_AFA_MOVABLE_LINEAR@1`'s fields and parameters; its `end`, `rounding` and `basis.amount` equal the building rule's; the building rule's new parameters read from the registry (a test registry with other values changes the figures); no registered default is `CAPITALIZED`; `GET /tax-rules` and the two Phase-7 listing tests with seven rules.
+- **Module boundary and load order:** `architecture.test.ts` with the new forbidden edge and its fixtures; the three load-order cases above; the existing load-order files with seven codes.
+- **Repository and schema** (past the repository, raw SQL, each with a counter-check):
+  - an item in two `ACTIVE` assets (`23505`), and allowed again after a void (the cascade sets `asset_status`);
+  - a link to another PropertyReference's split, withdrawal or use; to another Realm's source; to a position naming no withdrawal or use;
+  - a link inserted or deleted on a `VOID` asset or a building; a link updated other than by the cascade; a 51st link;
+  - a separate asset without `useful_life_years` or `acquired_on`, a building with `description`, a `LINEAR_7_4` separate asset, a shorter-life entry on a separate asset;
+  - the amend writing the links as a difference: an unchanged link of a since-reclassified item keeps its row (`xmin` unchanged); counter-check: a delete-and-reinsert repository fails the `xmin` assertion;
+  - the columns: still no basis, cost, rate, start or amount (from `information_schema.columns`);
+  - `up` and `down` under `MIGRATION_ADVISORY_LOCK` (`{ timeout: 30_000 }`), `down` refused with a `SEPARATE_ASSET` row;
+  - one snapshot: a classification committed between two statements of the schedule read is not seen; the query plan of the capitalised split query.
+- **Commands:** create with each step of the order of checks (each refusal alone and the order across items), the replay, another payload under the same key; amend (each field, the reset, `changedItems`, only new items checked); confirm; void (the items back in the building on the next read); every AuditRecord; no-ops without a record.
+- **Concurrency**, RC and RR, each with a counter-check: two assets linking one item; a link against a reclassification of its item (the read flags it, nothing deadlocks).
+- **No cash mutated:** every row and `version` of `ledger_transaction`, `transaction_split`, `tax_classification`, `weg_annual_statement`, `weg_special_assessment`, `acquisition`, `acquisition_cost`, `land_building_allocation`, `ownership`, `property_reference`, and the count of `audit_record` minus the asset's own, equal before and after every command of a separate asset and every schedule read.
+- **API:** every `400` with its field code; the five error rows; the DTOs of both types; `rate` of a separate asset.
+- **End to end** (synthetic, ACC8): the purchase; the repair and the use `DEDUCTIBLE`, the check above 15 %, the schedule unchanged; both capitalised on the check: 5,802.00 in 2027 and 5,982.00 in 2028 at both levels (A 3,481.20 / 3,589.20, B 2,320.80 / 2,392.80), each item in `capitalized` of its year and in no Werbungskosten line; the extension (240.00 from 2030); the Einbauküche as a separate asset (450.00 in 2027, 600.00 in 2028) and not in the building; a refund of 1,000.00 of the extension in 2031 (−20.00 a year from 2031); **Realm isolation:** another Realm's split, statement or assessment as an item is `404`, and another Realm's capitalised source never appears in a schedule.
+
+### Counter-checks and mutations
+
+**Counter-checks** (each an assertion that the system refuses or leaves out the thing):
+
+- **an item counted twice:** a capitalised source is in no Werbungskosten line of any year and in exactly one component of one asset; the sum of the item components' bases equals the sum of `capitalized.total` over all years;
+- **a suggestion counted:** above 15 % with the suggestion standing, the schedule equals the purchase alone;
+- **anschaffungsnahe capitalised automatically:** no item component exists for a source whose classification is not `CAPITALIZED`, whatever the check says; a source the user capitalised is flagged `ANSCHAFFUNGSNAHE_CAPITALIZED` and nothing else marks it;
+- **an item in the building and a separate asset:** a linked item is in the separate asset's components and in the building's `excludedItems`, never in both assets' components; the unique index refuses a second `ACTIVE` link;
+- **an unconfirmed classification feeding a figure:** a `NEEDS_REVIEW` `CAPITALIZED` item has amounts `null`;
+- **the net amount used:** the repair's basis is 35,700.00, not 30,000.00;
+- **a useful life guessed:** a separate asset without `usefulLifeYears` is refused (`REQUIRED`); no default exists in the rule or the code;
+- **a cycle between the domains:** no file of `domains/taxation/` imports `domains/depreciation/` and none of `domains/depreciation/` imports `domains/taxation/` (the architecture test).
+
+**Mutations** that must turn the tests red (each applied alone, the suite run, the code restored):
+
+- the adapter taking the suggestion (`suggestedTreatment`) instead of the meaning's treatment, or `origin` `DEFAULT` too;
+- `NEEDS_REVIEW` accepted (`capitalizedItemReviewStates` read from a constant, or extended);
+- `netAmount` used for the basis;
+- the start rule as `MONTH_OF_DATE` while the rule says `START_OF_YEAR` (ACC8: 595.00 for 714.00), or `notBeforeOwnerStart` ignored (an item in the purchase year counting from January);
+- `SUBSEQUENT_COST_START_TO_VERIFY` dropped, or raised on every year;
+- the owner parts taken by the property's shares on 1 January instead of the item's date, or by the purchase's buyers (the wrong owner: an owner change between the purchase and the item);
+- a refund ignored, or its sign lost;
+- an item linked to a separate asset left in the building as well (`excludedItems` not applied), or a voided asset's items not returned;
+- the separate asset starting at the item's date instead of `acquiredOn`;
+- the cascade dropped from the link's foreign key (a void leaving the index occupied: the item cannot be linked again);
+- the PropertyReference write dropped from the separate asset's create (the RC concurrency test);
+- `domains/taxation/` importing `domains/depreciation/` (or the reverse): the architecture test;
+- the PropertyReference filter dropped from the capitalised split query: another property's capitalised split appears in the schedule (red).
+
+### Not in VC-8-03 (pointers)
+
+- **Recorded versions** of item components and separate assets: §60 (VC-8-04).
+- **The AfA in the tax-year view**, `AFA_SEPARATE_ASSETS`, `NO_ASSET` and the flags in its review table: §58C (VC-8-05), through the adapter fixed above.
+- **A link from a refund to the item it refunds**, and a refund netted against it: not modelled (no Phase-7 field); a later item if the advisor asks for it.
+- **The degressive AfA, § 7h/§ 7i, the Sammelposten** and every other point of P8-D13.
+
+### Open questions for review
+
+1. **The start of a later cost** (P8-D6). **Proposed; the owner has not decided:** `START_OF_YEAR` per the reviewer input on #173 (R 7.4 Abs. 9 S. 3 EStR), never before the owner's start, computed with the open flag `SUBSEQUENT_COST_START_TO_VERIFY` on the first and the last year until the tax advisor confirms it. **Alternative:** the item's amounts left empty until verified. The confirmation should come before VC-8-04 freezes version 1.
+2. **The end of a later cost** (new VERIFY point): each item as a linear series of its own, flagged `SUBSEQUENT_COST_END_TO_VERIFY` after the owner's purchase is exhausted (not before 2056). **Alternative:** one pooled basis per owner (the rate × the whole basis until the whole residual is zero), which reallocates the last years between the components. And with a shorter useful life: the owner's purchase rate, flagged `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`; the alternative is the band's rate. Both to the tax advisor (beratungsfragen §4).
+3. **A separate asset's cost is its linked items only**, and an anschaffungsnahe item cannot be linked (`ITEM_ANSCHAFFUNGSNAHE`). The alternative is to let the user enter a cost on the asset, which would be a second source of truth beside the classified cash (AGENTS.md §16).
+4. **Separate assets acquired before 2023** are not computable (`NO_APPLICABLE_RULE`), as purchases before 2023 (§59A open question 2). A kitchen bought in 2020 is in its seventh year of ten today. **Proposal:** put the earlier years of `DE_AFA_MOVABLE_LINEAR` to the tax advisor together with §59A's question 2, and add a version for them once verified.
+5. **Later items on a separate asset** are computed from `acquiredOn`, flagged `LATER_ITEM_TO_VERIFY` (new VERIFY point). The alternative is to refuse an item dated after `acquiredOn`'s year, which would refuse the common case of an invoice paid in January for a December delivery.
 
 ---
 

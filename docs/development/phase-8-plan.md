@@ -1,6 +1,6 @@
 # Phase 8 Plan — Depreciation (AfA)
 
-**Status:** Accepted (#173). The project owner's decisions of 2026-10-30 are recorded in §1 (**Decided** lines). VC-8-01 is implemented (api-design §59, migration 0049).
+**Status:** Accepted (#173). The project owner's decisions of 2026-10-30 are recorded in §1 (**Decided** lines). VC-8-01 is implemented (api-design §59, migration 0049); VC-8-02 and VC-8-03 are specified (api-design §59A, §59B).
 **Roadmap:** `docs/roadmap.md` Phase 8 · **Backlog:** `backlog.md` §3g (VC-8-xx)
 
 Phase 8 is modelled conceptually in several places:
@@ -124,6 +124,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **VERIFY:** the start of a later cost (the options above); whether an anschaffungsnahe item counts from the transfer date or from its own date.
 - **Needs the user:** yes (with the tax advisor).
 - **Reviewer input on #173** (a note for the tax advisor, not final law): R 7.4 Abs. 9 S. 3 EStR treats later Herstellungskosten as incurred at the **start of the year** in which they arise. That is option 1, `subsequentCostStart` = `START_OF_YEAR`, with no special case for anschaffungsnahe costs. Option 3 has no basis. To be confirmed with the tax advisor before VC-8-03 is specified.
+- **Specified (VC-8-03, api-design §59B), as a proposal, not decided:** `subsequentCostStart` `START_OF_YEAR` (option 1, the reviewer's reading), never before the owner's start (an item in the year of the purchase starts with the purchase), computed with the open flag `SUBSEQUENT_COST_START_TO_VERIFY` on the item's first and last year until the tax advisor confirms it (§59B open question 1); `MONTH_OF_DATE` (option 2) is implemented as the alternative value, option 3 is not. Only a `CAPITALIZED` classification moves the basis, never the check's suggestion. Each item is a linear series of its own at the owner's purchase rate; how it continues after the purchase is exhausted, and with a shorter useful life, is a new VERIFY point (`SUBSEQUENT_COST_END_TO_VERIFY`, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`; §59B open question 2).
 
 ### P8-D7 Separate movable assets: the Einbauküche (B8, B9)
 
@@ -136,6 +137,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **GWG** (B9): a movable asset up to 800 € net is deducted at once; it is Phase 7's `DEDUCTIBLE`, nothing to do here. The Sammelposten of § 6 Abs. 2a is not modelled (B9).
 - **Needs the user:** yes (1 or 2).
 - **Decided (2026-10-30):** option 1. Separate assets (e.g. the Einbauküche over 10 years) are **in Phase 8** as `SEPARATE_ASSET`, with their own rule `DE_AFA_MOVABLE_LINEAR@1` (VC-8-03, api-design §59B).
+- **Specified (VC-8-03, api-design §59B):** the asset stores `description`, `usefulLifeYears` with its basis, `acquiredOn` and the links to its capitalised items (migration 0050, `depreciation_asset_item`, one `ACTIVE` asset per item by a partial unique index); its cost is derived from those items, its start is the month of `acquiredOn` (§ 7 Abs. 1 S. 4 EStG); an anschaffungsnahe item cannot be linked; GWG only as the informative hint `GWG_THRESHOLD_MAY_APPLY`.
 
 ### P8-D8 Owners: each Acquisition's AfA belongs to its buyers (P2-D10, P7-D7, data-model §12.5)
 
@@ -197,6 +199,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 - **Where the registry lives** (decided by VC-8-01's spec, api-design §59, review on #174): not in `domains/taxation/rules/registry.ts`, which could reach the Depreciation rules only by a deep import (refused by `architecture.test.ts`) or through `depreciation/index.js` (a runtime cycle with Depreciation, which needs the registry as a value). `RuleVersion` (`rule-version.ts`) and the class `RuleRegistry` move to `shared/`. Each domain keeps its rule modules and exports its versions through its index (`TAXATION_RULE_VERSIONS`, `DEPRECIATION_RULE_VERSIONS`). `TAX_RULES` is composed in a new module `domains/tax-rules/`, above both domains; neither domain imports it. A domain function receives the registry as a parameter (injection), as Taxation's functions already do. `GET /tax-rules`, the start check and the Phase-7 code read the same `TAX_RULES`, and only their imports change.
 - **Every derived figure names its rule version** (taxation.md §9, depreciation.md §8). A version is never removed while a recorded version names it.
 - **Needs the user:** no (for review).
+- **Amended by VC-8-03's spec (api-design §59B):** Depreciation and Taxation never import each other (both edges forbidden in `architecture.test.ts`). Each owns the input type it reads, and `infrastructure/postgres/` fills it from the other's derivation in the read's own snapshot: `capitalized-items.ts` maps Taxation's `capitalizedItemsOf` to Depreciation's `CapitalizedItem`, and (VC-8-05) `tax-year-depreciation.ts` maps Depreciation's schedule to the view's AfA input. The view reads the schedule through that adapter, not through a domain edge.
 
 ### P8-D12 The tax-year view (completes P7-D8; §58C "The AfA block")
 
@@ -273,6 +276,7 @@ See `backlog.md` §3g. Each item starts with a spec PR for its API section, as i
      - the components of every year equal the `capitalized` items up to it.
    - **Counter-checks:** an item in the Werbungskosten and the basis at once; an item in two assets.
    - **Depends on:** VC-8-02; the VERIFY points of P8-D2 (VAT) and P8-D6 (start).
+   - **Status:** specified (api-design §59B; migration 0050 planned). The start **proposed** (`START_OF_YEAR`, flagged `SUBSEQUENT_COST_START_TO_VERIFY`, §59B open question 1, not decided by the owner); the end after the purchase is exhausted and with a shorter life to verify (open question 2); separate assets acquired before 2023 `NO_APPLICABLE_RULE` (open question 4); the no-cycle path through `infrastructure/postgres/` (P8-D11 amended).
 4. **VC-8-04: recorded schedule versions** (P8-D10).
    - **Spec:** api-design §60 rewritten: `POST /api/v1/depreciation-assets/{id}/schedule-versions` (with `reason`), `GET …/schedule-versions`, `GET …/schedule-versions/{version}`; data-model §39–§40 rewritten (the input components as rows).
    - **Code:** migration (versions, entries, input components; append-only, guarded by a trigger as 0009 and 0013 freeze a confirmed Transaction).
@@ -394,6 +398,8 @@ One scenario through the API, against PostgreSQL and the fake MRE, figures hand-
 5. **A co-owner's AfA on their own acquisition cost** (P8-D8), and a successor's continuation (§ 11d EStDV; out of scope until verified).
 6. **A shorter useful life:** from the start or from the year evidenced (P8-D4).
 7. **§ 7b EStG:** whether it matters at all (P8-D13).
+8. **The end of a later cost** (VC-8-03, §59B): whether later Herstellungskosten run as their own series or as one pooled basis once the purchase's basis is exhausted, whether the building's remaining useful life then takes over, and how they run under a shorter useful life.
+9. **Later costs of a movable separate asset**, and `DE_AFA_MOVABLE_LINEAR` in years before 2023 (VC-8-03, §59B).
 
 **Still case-dependent, so the user decides and DE never guesses:**
 - the completion year and its source;
