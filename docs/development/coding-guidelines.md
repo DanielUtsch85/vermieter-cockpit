@@ -69,6 +69,7 @@ Rules:
 - No "god service" spanning multiple domains' business logic.
 - `domains/property-reference/` holds the `PropertyReference` entity and its repository port (MRE Integration domain, api-design §23.1); the MRE client and DTOs stay in `integrations/mre/`, so application code reaches MRE only through ports wired in `src/wiring.ts`.
 - Another module (another domain, or another top-level layer) is imported only through its public `index.js`; deep imports into its internals are rejected by `src/architecture.test.ts`.
+- **File size** (issue #191): a production `.ts` file under `services/*/src` has at most **600 lines**, a test file (`*.test.ts`, `*.test-support.ts`) at most **900**; `migrations/` is not counted. `yarn size:check` (`scripts/file-size-check.mjs`, in CI after lint) enforces it. Files that were over the limit when the check came are on its exception list with their line count then: a listed file may not grow, and once split below the limit it is removed from the list (the check fails until it is). Permanently exempt, because they carry declarations only: `infrastructure/postgres/schema.ts`, `application/index.ts` and `domains/*/index.ts`. Split along ports or rules, as #91 and #104 did, not into numbered parts.
 
 ---
 
