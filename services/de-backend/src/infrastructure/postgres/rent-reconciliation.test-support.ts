@@ -34,10 +34,23 @@ export const split = (amount: string, financialCategoryCode = 'RENT_BASE'): Spli
   description: null,
 });
 
-export async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
-  const deadline = Date.now() + 5_000;
+/**
+ * Waits until `count` sessions of this pool wait on a lock. The pool must name itself (`-c application_name=<schema>`):
+ * every test file shares the database, so a count over all sessions is met early by another file under load (review
+ * on #187). Without a name the wait refuses rather than count the whole database.
+ */
+export async function waitForLocks(pool: pg.Pool, count = 1, timeoutMs = 5_000): Promise<void> {
+  const name = (await pool.query<{ name: string }>(`SELECT current_setting('application_name') AS name`)).rows[0]?.name ?? '';
+  if (name === '') throw new Error('waitForLocks needs a pool with an application_name (-c application_name=<schema>)');
+  const deadline = Date.now() + timeoutMs;
   while (
-    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count
+    Number(
+      (
+        await pool.query(
+          `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')`,
+        )
+      ).rows[0].count,
+    ) < count
   ) {
     if (Date.now() > deadline) throw new Error(`fewer than ${count} sessions wait on a lock`);
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -80,7 +93,7 @@ export function useRentReconciliationDatabase(name: `${string}_test`) {
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    ctx.pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    ctx.pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(ctx.pool, { migrationTableSchema: schema });
     const db = createDatabase(ctx.pool);
     ctx.accounts = new PostgresFinancialAccountRepository(db);

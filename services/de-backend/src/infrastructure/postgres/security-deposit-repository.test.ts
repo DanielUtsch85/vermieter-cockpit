@@ -44,7 +44,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresSecurityDepositRepository', 
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     repository = new PostgresSecurityDepositRepository(createDatabase(pool));
     depositAccount = await account(REALM, 'SECURITY_DEPOSIT', 'Kautionskonto');

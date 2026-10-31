@@ -39,7 +39,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     parties = new PostgresPartyRepository(db);
@@ -295,8 +295,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
         const creating = loans.create(newLoan(bank, [anna]), actor);
         await waitUntil(
           async () =>
-            Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >=
-            1,
+            Number(
+              (
+                await pool.query(
+                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')`,
+                )
+              ).rows[0].count,
+            ) >= 1,
         );
         await holder.query('COMMIT');
         expect(await creating).toEqual({ kind: 'PARTY_INACTIVE', partyId: anna });
@@ -325,8 +330,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
           );
         await waitUntil(
           async () =>
-            Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >=
-            1,
+            Number(
+              (
+                await pool.query(
+                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')`,
+                )
+              ).rows[0].count,
+            ) >= 1,
         );
         await two.query('COMMIT');
         expect(await inserting).toBe('40001');
@@ -347,8 +357,13 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanRepository', () => {
         const amending = loans.amend(loan.id, REALM, { notes: 'zu spät' }, actor);
         await waitUntil(
           async () =>
-            Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) >=
-            1,
+            Number(
+              (
+                await pool.query(
+                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')`,
+                )
+              ).rows[0].count,
+            ) >= 1,
         );
         await holder.query('COMMIT');
         expect(await amending).toEqual({ kind: 'LOAN_NOT_ACTIVE', status: 'VOID' });

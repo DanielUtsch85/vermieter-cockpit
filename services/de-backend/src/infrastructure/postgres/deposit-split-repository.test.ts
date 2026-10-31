@@ -42,7 +42,13 @@ const nextTenant = () => `6512f0c2a1b3${(++tenantCounter).toString(16).padStart(
 async function waitForLocks(pool: pg.Pool, count = 1): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (
-    Number((await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count) < count
+    Number(
+      (
+        await pool.query(
+          `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')`,
+        )
+      ).rows[0].count,
+    ) < count
   ) {
     if (Date.now() > deadline) throw new Error(`fewer than ${count} sessions wait on a lock`);
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -71,7 +77,7 @@ describe.skipIf(databaseUrl === undefined)('Security deposit splits (§47.2)', (
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     deposits = new PostgresSecurityDepositRepository(db);

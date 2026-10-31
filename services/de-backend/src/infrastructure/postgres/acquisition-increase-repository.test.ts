@@ -71,7 +71,7 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     parties = new PostgresPartyRepository(db);
@@ -623,7 +623,11 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
           waitUntil(
             async () =>
               Number(
-                (await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).rows[0].count,
+                (
+                  await pool.query(
+                    `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')`,
+                  )
+                ).rows[0].count,
               ) >= 1,
           ),
         ]);
@@ -699,7 +703,11 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
         await admin.query(`CREATE SCHEMA "${legacySchema}"`);
         await admin.end();
         const notices: string[] = [];
-        const legacyPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${legacySchema}`, max: 2 });
+        const legacyPool = new pg.Pool({
+          connectionString: databaseUrl,
+          options: `-c search_path=${legacySchema} -c application_name=${legacySchema}`,
+          max: 2,
+        });
         legacyPool.on('connect', (client) => client.on('notice', (notice) => notices.push(notice.message ?? '')));
         try {
           const before0050 = Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0050'));
