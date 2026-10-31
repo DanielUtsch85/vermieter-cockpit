@@ -1,241 +1,52 @@
-import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  DEPRECIATION_RULE_VERSIONS,
-  deriveRate,
-  type DepreciationAsset,
-  type NewDepreciationAsset,
-  type ShorterUsefulLife,
-} from '../../domains/depreciation/index.js';
+import type pg from 'pg';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { deriveRate } from '../../domains/depreciation/index.js';
 import type { SplitInput } from '../../domains/ledger/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
-import { Money, RuleRegistry, type BusinessDate, type RuleRef } from '../../shared/index.js';
-import { PostgresAcquisitionRepository } from './acquisition-repository.js';
+import { RuleRegistry, type RuleRef } from '../../shared/index.js';
+import type { PostgresAcquisitionRepository } from './acquisition-repository.js';
 import { createDatabase } from './database.js';
-import { PostgresDepreciationAssetRepository } from './depreciation-asset-repository.js';
+import type { PostgresDepreciationAssetRepository } from './depreciation-asset-repository.js';
+import {
+  OTHER_REALM,
+  REALM,
+  actor,
+  codeOf,
+  databaseUrl,
+  day,
+  eur,
+  evidence,
+  messageOf,
+  registry,
+  useDepreciationAssetDatabase,
+  waitUntil,
+  type Queryable,
+} from './depreciation-asset.test-support.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
-import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
-import { migrations } from './migrations/index.js';
-import { PostgresPartyRepository } from './party-repository.js';
 import { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import { checkStoredRuleReferences } from './tax-rule-check.js';
-import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
 
 /**
  * VC-8-01 persistence (api-design.md §59, migration 0049): the commands in their order of checks with their
  * AuditRecords, the amend as a difference against the guard `depreciation_asset_useful_life_open` (the row of an
- * unchanged entry keeps its `xmin`), the schema past the repository with a counter-check each, the concurrency of §59
- * under READ COMMITTED and REPEATABLE READ, the reads, the start check with Depreciation's source, "no cash mutated",
- * and `up`/`down`. Figures, names and texts are synthetic.
+ * unchanged entry keeps its `xmin`), the concurrency of §59 under READ COMMITTED and REPEATABLE READ, the reads, the
+ * start check with Depreciation's source and "no cash mutated". The schema past the repository and `up`/`down` are in
+ * `depreciation-asset-schema.test.ts`, the setup in `depreciation-asset.test-support.ts`. Figures, names and texts are
+ * synthetic.
  */
-const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
-
-const REALM = '64b0c0ffee00000000000801';
-const OTHER_REALM = '64b0c0ffee00000000000802';
-const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
-const day = (value: string) => value as BusinessDate;
-const eur = (amount: string) => Money.of(amount, 'EUR');
-const registry = new RuleRegistry(DEPRECIATION_RULE_VERSIONS);
-const evidence = { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: 'Gutachten Nr. 0000-SYN' };
 let counter = 0;
 
-type Queryable = Pick<pg.PoolClient, 'query'>;
-
-async function waitUntil(condition: () => Promise<boolean>, timeoutMs = 5_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (!(await condition())) {
-    if (Date.now() > deadline) throw new Error('condition not reached');
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-}
-
-async function withMigrationLock(work: () => Promise<unknown>): Promise<void> {
-  const lock = new pg.Client({ connectionString: databaseUrl });
-  await lock.connect();
-  try {
-    await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK]);
-    await work();
-  } finally {
-    await lock.end().catch(() => undefined);
-  }
-}
-
-/** The SQLSTATE a statement fails with, or `accepted`. */
-const codeOf = (statement: Promise<unknown>) =>
-  statement.then(
-    () => 'accepted',
-    (error: { code?: string }) => error.code,
-  );
-/** The message a statement fails with, or `accepted`. */
-const messageOf = (statement: Promise<unknown>) =>
-  statement.then(
-    () => 'accepted',
-    (error: { message?: string }) => error.message,
-  );
-
 describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository (§59)', () => {
-  const schema = testSchemaName('depreciation_test');
+  const { ctx, propertyReference, party, acquisition, cancel, life, building, created, audit, xminOf, insertAsset, insertLife, blockedBy, holding } =
+    useDepreciationAssetDatabase('depreciation_test');
   let pool: pg.Pool;
-  let parties: PostgresPartyRepository;
   let acquisitions: PostgresAcquisitionRepository;
   let assets: PostgresDepreciationAssetRepository;
-
-  beforeAll(async () => {
-    const admin = new pg.Client({ connectionString: databaseUrl });
-    await admin.connect();
-    await admin.query(`CREATE SCHEMA "${schema}"`);
-    await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
-    await migrateToLatest(pool, { migrationTableSchema: schema });
-    const db = createDatabase(pool);
-    parties = new PostgresPartyRepository(db);
-    acquisitions = new PostgresAcquisitionRepository(db);
-    assets = new PostgresDepreciationAssetRepository(db);
+  beforeAll(() => {
+    ({ pool, acquisitions, assets } = ctx);
   });
-
-  afterAll(async () => {
-    await pool.end();
-  });
-
-  async function propertyReference(realm = REALM): Promise<string> {
-    const mrePropertyId = (0x6512f0c2a1b2c3d4e5f80000n + BigInt(++counter)).toString(16).padStart(24, '0');
-    const { rows } = await pool.query(
-      `INSERT INTO property_reference (mre_realm_id, mre_property_id, external_reference_state, created_by) VALUES ($1, $2, 'ACTIVE', 'x') RETURNING id`,
-      [realm, mrePropertyId],
-    );
-    return rows[0].id as string;
-  }
-  async function party(name = 'Steuerberatung S', realm = REALM): Promise<string> {
-    const outcome = await parties.create(
-      {
-        mreRealmId: realm,
-        partyType: 'PERSON',
-        displayName: name,
-        firstName: null,
-        lastName: null,
-        legalName: null,
-        registrationNumber: null,
-        email: null,
-        phone: null,
-      },
-      actor,
-    );
-    if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
-    return outcome.party.id;
-  }
-  /** A DRAFT Acquisition of the PropertyReference. */
-  async function acquisition(pr: string, realm = REALM): Promise<string> {
-    const outcome = await acquisitions.create(
-      {
-        mreRealmId: realm,
-        propertyReferenceId: pr,
-        purchasePrice: eur('250000.00'),
-        acquiredShare: { numerator: 1, denominator: 2 },
-        contractDate: day('2026-03-01'),
-        economicTransferDate: day('2026-05-01'),
-        landRegistryTransferDate: null,
-        buyerPartyIds: [await party('Käuferin K', realm)],
-        sellerPartyIds: [],
-        sourceReferences: [],
-        notes: null,
-      },
-      actor,
-    );
-    if (outcome.kind !== 'CREATED') throw new Error(outcome.kind);
-    return outcome.acquisition.id;
-  }
-  async function cancel(acquisitionId: string, realm = REALM) {
-    const outcome = await acquisitions.cancel(acquisitionId, realm, 'Rücktritt vom Vertrag', new Date('2026-10-30T10:00:00Z'), actor);
-    expect(outcome.kind).toBe('CANCELLED');
-  }
-  const life = (acquisitionId: string, overrides: Partial<ShorterUsefulLife> = {}): ShorterUsefulLife => ({
-    acquisitionId,
-    usefulLifeYears: 30,
-    evidence,
-    reviewState: 'UNREVIEWED',
-    advisorPartyId: null,
-    ...overrides,
-  });
-  const building = (pr: string, overrides: Partial<NewDepreciationAsset> = {}): NewDepreciationAsset => ({
-    mreRealmId: REALM,
-    propertyReferenceId: pr,
-    assetType: 'BUILDING',
-    depreciationMethod: 'LINEAR_7_4',
-    buildingCompletionYear: 1995,
-    description: null,
-    usefulLifeYears: null,
-    usefulLifeBasis: null,
-    acquiredOn: null,
-    items: [],
-    sourceReferences: ['Teilungserklärung, Baujahr laut Anlage 1'],
-    reviewState: 'UNREVIEWED',
-    advisorPartyId: null,
-    shorterUsefulLives: [],
-    notes: null,
-    ...overrides,
-  });
-  async function created(asset: NewDepreciationAsset): Promise<DepreciationAsset> {
-    const outcome = await assets.create(asset, actor);
-    if (outcome.kind !== 'CREATED') throw new Error(JSON.stringify(outcome));
-    return outcome.asset;
-  }
-  const audit = async (id: string) =>
-    (await pool.query(`SELECT action, metadata, actor_id, previous_version, new_version FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, id`, [id]))
-      .rows as { action: string; metadata: Record<string, unknown>; actor_id: string; previous_version: number | null; new_version: number }[];
-  const xminOf = async (assetId: string, acquisitionId: string) =>
-    (await pool.query(`SELECT xmin::text AS x FROM depreciation_asset_useful_life WHERE asset_id = $1 AND acquisition_id = $2`, [assetId, acquisitionId]))
-      .rows[0]?.x as string | undefined;
-
-  /** A raw insert past the repository, with the defaults of a fresh `ACTIVE` building. */
-  const insertAsset = (values: Record<string, unknown>, q: Queryable = pool) => {
-    const v: Record<string, unknown> = {
-      mre_realm_id: REALM,
-      asset_type: 'BUILDING',
-      status: 'ACTIVE',
-      depreciation_method: 'LINEAR_7_4',
-      review_state: 'UNREVIEWED',
-      created_by: 'x',
-      ...values,
-    };
-    const columns = Object.keys(v);
-    return q.query(
-      `INSERT INTO depreciation_asset (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING id`,
-      Object.values(v),
-    );
-  };
-  const insertLife = (values: Record<string, unknown>, q: Queryable = pool) => {
-    const v: Record<string, unknown> = {
-      mre_realm_id: REALM,
-      useful_life_years: 30,
-      evidence_source: 'Gutachten',
-      evidence_date: '2026-06-15',
-      review_state: 'UNREVIEWED',
-      ...values,
-    };
-    const columns = Object.keys(v);
-    return q.query(
-      `INSERT INTO depreciation_asset_useful_life (${columns.join(', ')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')})`,
-      Object.values(v),
-    );
-  };
-  /** The statements a connection's open transaction blocks (by its backend pid): unique to this test, whatever runs beside. */
-  const blockedBy = async (holder: Queryable) => {
-    const pid = (await holder.query('SELECT pg_backend_pid() AS pid')).rows[0].pid as number;
-    return async () => (await pool.query(`SELECT query FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid))`, [pid])).rows.map((r) => r.query as string);
-  };
-  /** An open transaction on its own connection; rolled back and released at the end whatever happened. */
-  async function holding(work: (holder: pg.PoolClient) => Promise<void>): Promise<void> {
-    const holder = await pool.connect();
-    try {
-      await holder.query('BEGIN');
-      await work(holder);
-    } finally {
-      await holder.query('ROLLBACK').catch(() => undefined);
-      holder.release();
-    }
-  }
 
   describe('create (§59)', () => {
     it('creates ACTIVE with version 1, the entries in acquisitionId order; AuditRecord CREATED with every stored field and each entry', async () => {
@@ -627,215 +438,6 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
     });
   });
 
-  describe('the schema past the repository (0049), each with its counter-check', () => {
-    it('a second ACTIVE building for one PropertyReference is 23505; after a void a new one is allowed', async () => {
-      const pr = await propertyReference();
-      const { rows } = await insertAsset({ property_reference_id: pr });
-      expect(await codeOf(insertAsset({ property_reference_id: pr }))).toBe('23505');
-      await pool.query(`UPDATE depreciation_asset SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [
-        rows[0].id,
-      ]);
-      expect(await codeOf(insertAsset({ property_reference_id: pr }))).toBe('accepted');
-    });
-
-    it('a foreign PropertyReference, advisor or Acquisition (composite keys) is 23503; the same of this Realm is accepted', async () => {
-      const pr = await propertyReference();
-      const foreignPr = await propertyReference(OTHER_REALM);
-      const foreignParty = await party('Fremd', OTHER_REALM);
-      const ownParty = await party();
-      expect(await codeOf(insertAsset({ property_reference_id: foreignPr }))).toBe('23503');
-      expect(
-        await codeOf(
-          insertAsset({ property_reference_id: pr, review_state: 'ADVISOR_CONFIRMED', building_completion_year: 1995, advisor_party_id: foreignParty }),
-        ),
-      ).toBe('23503');
-      const { rows } = await insertAsset({
-        property_reference_id: pr,
-        review_state: 'ADVISOR_CONFIRMED',
-        building_completion_year: 1995,
-        advisor_party_id: ownParty,
-      });
-      const asset = rows[0].id as string;
-      const foreignAcquisition = await acquisition(foreignPr, OTHER_REALM);
-      expect(await codeOf(insertLife({ asset_id: asset, property_reference_id: pr, acquisition_id: foreignAcquisition }))).toBe('23503');
-      expect(
-        await codeOf(
-          insertLife({
-            asset_id: asset,
-            property_reference_id: pr,
-            acquisition_id: await acquisition(pr),
-            review_state: 'ADVISOR_CONFIRMED',
-            advisor_party_id: foreignParty,
-          }),
-        ),
-      ).toBe('23503');
-      expect(await codeOf(insertLife({ asset_id: asset, property_reference_id: pr, acquisition_id: await acquisition(pr) }))).toBe('accepted');
-    });
-
-    it("an entry naming another property's Acquisition is 23503, past the repository too", async () => {
-      const pr = await propertyReference();
-      const otherPr = await propertyReference();
-      const asset = (await insertAsset({ property_reference_id: pr })).rows[0].id as string;
-      const elsewhere = await acquisition(otherPr);
-      expect(await codeOf(insertLife({ asset_id: asset, property_reference_id: pr, acquisition_id: elsewhere }))).toBe('23503');
-      // Nor by naming the other PropertyReference on the row: the asset's key holds it.
-      expect(await codeOf(insertLife({ asset_id: asset, property_reference_id: otherPr, acquisition_id: elsewhere }))).toBe('23503');
-    });
-
-    it('CONFIRMED without a year, an advisor without ADVISOR_CONFIRMED (asset and entry) are 23514; with the year, or the state, accepted', async () => {
-      const pr = await propertyReference();
-      const advisor = await party();
-      expect(await codeOf(insertAsset({ property_reference_id: pr, review_state: 'CONFIRMED' }))).toBe('23514');
-      expect(await codeOf(insertAsset({ property_reference_id: pr, review_state: 'ADVISOR_CONFIRMED' }))).toBe('23514');
-      expect(
-        await codeOf(insertAsset({ property_reference_id: pr, review_state: 'CONFIRMED', building_completion_year: 1995, advisor_party_id: advisor })),
-      ).toBe('23514');
-      const asset = (await insertAsset({ property_reference_id: pr, review_state: 'CONFIRMED', building_completion_year: 1995 })).rows[0].id as string;
-      expect(
-        await codeOf(
-          insertLife({
-            asset_id: asset,
-            property_reference_id: pr,
-            acquisition_id: await acquisition(pr),
-            review_state: 'CONFIRMED',
-            advisor_party_id: advisor,
-          }),
-        ),
-      ).toBe('23514');
-      expect(
-        await codeOf(
-          insertLife({
-            asset_id: asset,
-            property_reference_id: pr,
-            acquisition_id: await acquisition(pr),
-            review_state: 'ADVISOR_CONFIRMED',
-            advisor_party_id: advisor,
-          }),
-        ),
-      ).toBe('accepted');
-      expect(await codeOf(insertAsset({ property_reference_id: await propertyReference(), building_completion_year: 999 }))).toBe('23514');
-      expect(await codeOf(insertLife({ asset_id: asset, property_reference_id: pr, acquisition_id: await acquisition(pr), useful_life_years: 100 }))).toBe(
-        '23514',
-      );
-    });
-
-    it('a fixed field, a VOID row, a missing version step, a delete are refused; a change with version + 1 is accepted', async () => {
-      const pr = await propertyReference();
-      const asset = (await insertAsset({ property_reference_id: pr })).rows[0].id as string;
-      expect(
-        await codeOf(
-          pool.query(`UPDATE depreciation_asset SET property_reference_id = $2, version = version + 1 WHERE id = $1`, [asset, await propertyReference()]),
-        ),
-      ).toBe('23000');
-      expect(
-        await codeOf(pool.query(`UPDATE depreciation_asset SET created_at = now() - interval '1 day', version = version + 1 WHERE id = $1`, [asset])),
-      ).toBe('23000');
-      expect(await codeOf(pool.query(`UPDATE depreciation_asset SET notes = 'x' WHERE id = $1`, [asset]))).toBe('23000');
-      expect(await codeOf(pool.query(`UPDATE depreciation_asset SET notes = 'x', version = version + 2 WHERE id = $1`, [asset]))).toBe('23000');
-      expect(await codeOf(pool.query(`UPDATE depreciation_asset SET notes = 'x', version = version + 1 WHERE id = $1`, [asset]))).toBe('accepted');
-      // The no-op write passes.
-      expect(await codeOf(pool.query(`UPDATE depreciation_asset SET version = version WHERE id = $1`, [asset]))).toBe('accepted');
-      expect(await codeOf(pool.query(`DELETE FROM depreciation_asset WHERE id = $1`, [asset]))).toBe('23000');
-      expect(
-        await codeOf(
-          pool.query(`UPDATE depreciation_asset SET status = 'VOID', voided_at = now(), void_reason = 'x', notes = 'y', version = version + 1 WHERE id = $1`, [
-            asset,
-          ]),
-        ),
-      ).toBe('23000');
-      expect(
-        await codeOf(
-          pool.query(`UPDATE depreciation_asset SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [asset]),
-        ),
-      ).toBe('accepted');
-      expect(await codeOf(pool.query(`UPDATE depreciation_asset SET notes = 'z', version = version + 1 WHERE id = $1`, [asset]))).toBe('23000');
-      expect(
-        await codeOf(
-          pool.query(`UPDATE depreciation_asset SET status = 'ACTIVE', voided_at = NULL, void_reason = NULL, version = version + 1 WHERE id = $1`, [asset]),
-        ),
-      ).toBe('23000');
-      // Only inserted ACTIVE with version 1.
-      expect(await codeOf(insertAsset({ property_reference_id: await propertyReference(), version: 2 }))).toBe('23000');
-      expect(await codeOf(insertAsset({ property_reference_id: await propertyReference(), status: 'VOID', voided_at: new Date(), void_reason: 'x' }))).toBe(
-        '23000',
-      );
-    });
-
-    it('an entry on a VOID asset, or a new one for a CANCELLED Acquisition, is refused; on an ACTIVE asset for a DRAFT accepted', async () => {
-      const pr = await propertyReference();
-      const asset = (await insertAsset({ property_reference_id: pr })).rows[0].id as string;
-      const draft = await acquisition(pr);
-      const cancelled = await acquisition(pr);
-      await cancel(cancelled);
-      expect(await messageOf(insertLife({ asset_id: asset, property_reference_id: pr, acquisition_id: cancelled }))).toContain('ACQUISITION_CANCELLED');
-      expect(await codeOf(insertLife({ asset_id: asset, property_reference_id: pr, acquisition_id: draft }))).toBe('accepted');
-      // An existing entry may still change once its Acquisition is cancelled (the amend's difference), and never move.
-      await cancel(draft);
-      expect(await codeOf(pool.query(`UPDATE depreciation_asset_useful_life SET review_state = 'NEEDS_REVIEW' WHERE asset_id = $1`, [asset]))).toBe('accepted');
-      expect(await codeOf(pool.query(`UPDATE depreciation_asset_useful_life SET acquisition_id = $2 WHERE asset_id = $1`, [asset, cancelled]))).toBe('23000');
-      await pool.query(`UPDATE depreciation_asset SET status = 'VOID', voided_at = now(), void_reason = 'x', version = version + 1 WHERE id = $1`, [asset]);
-      expect(await messageOf(insertLife({ asset_id: asset, property_reference_id: pr, acquisition_id: await acquisition(pr) }))).toContain('ASSET_NOT_ACTIVE');
-      expect(await messageOf(pool.query(`UPDATE depreciation_asset_useful_life SET review_state = 'UNREVIEWED' WHERE asset_id = $1`, [asset]))).toContain(
-        'ASSET_NOT_ACTIVE',
-      );
-      expect(await messageOf(pool.query(`DELETE FROM depreciation_asset_useful_life WHERE asset_id = $1`, [asset]))).toContain('ASSET_NOT_ACTIVE');
-    });
-
-    it('the table has no basis, rate, start or amount column (information_schema); counter-check: one added is seen', async () => {
-      // 0051 (§59B) adds `useful_life_basis`, the legal or factual basis of a useful life (a text), and `acquired_on`, the
-      // date of a separate asset's acquisition (a fact): neither is a derived figure. Every other match stays forbidden.
-      const forbidden = async (q: Queryable) =>
-        (
-          await q.query(
-            `SELECT column_name FROM information_schema.columns
-              WHERE table_schema = $1 AND table_name = 'depreciation_asset' AND column_name ~ '(basis|rate|start|amount|allocation|rule|acquisition|cost)'
-                AND column_name <> 'useful_life_basis'
-              ORDER BY column_name`,
-            [schema],
-          )
-        ).rows.map((r) => r.column_name as string);
-      expect(await forbidden(pool)).toEqual([]);
-      const columns = (
-        await pool.query(
-          `SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = 'depreciation_asset' ORDER BY ordinal_position`,
-          [schema],
-        )
-      ).rows.map((r) => r.column_name as string);
-      expect(columns).toEqual([
-        'id',
-        'mre_realm_id',
-        'property_reference_id',
-        'asset_type',
-        'status',
-        'building_completion_year',
-        'source_references',
-        'depreciation_method',
-        'review_state',
-        'advisor_party_id',
-        'notes',
-        'voided_at',
-        'void_reason',
-        'created_at',
-        'created_by',
-        'version',
-        // 0051 (§59B): a separate asset's facts.
-        'description',
-        'useful_life_years',
-        'useful_life_basis',
-        'acquired_on',
-      ]);
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        await client.query(`ALTER TABLE depreciation_asset ADD COLUMN basis_amount numeric`);
-        expect(await forbidden(client)).toEqual(['basis_amount']);
-      } finally {
-        await client.query('ROLLBACK');
-        client.release();
-      }
-    });
-  });
-
   describe('concurrency (§59, P8-D14)', () => {
     it('two creates for one PropertyReference, RC: the second waits on the PropertyReference row, then sees the first one’s asset', async () => {
       const pr = await propertyReference();
@@ -1124,57 +726,5 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
     await assets.listForPropertyReference(pr, REALM, null);
     await assets.void(asset.id, REALM, 'falsche Einheit', new Date('2026-10-30T12:00:00Z'), actor);
     expect(await snapshot()).toEqual(before);
-  });
-
-  it('0049: up creates both tables; down drops them and their functions, nothing else (under MIGRATION_ADVISORY_LOCK)', { timeout: 30_000 }, async () => {
-    const downSchema = testSchemaName('depreciation_down_test');
-    const admin = new pg.Client({ connectionString: databaseUrl });
-    await admin.connect();
-    await admin.query(`CREATE SCHEMA "${downSchema}"`);
-    await admin.end();
-    const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
-    try {
-      // Up to 0050: 0051 (§59B) adds a table with a foreign key to `depreciation_asset`, so its own `down` runs first.
-      await migrateToLatest(downPool, {
-        migrations: Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0051')),
-        migrationTableSchema: downSchema,
-      });
-      const tablesOf = async () =>
-        (
-          await downPool.query(
-            `SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name LIKE 'depreciation_asset%' ORDER BY table_name`,
-            [downSchema],
-          )
-        ).rows.map((r) => r.table_name as string);
-      const functionsOf = async () =>
-        (
-          await downPool.query(
-            `SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = $1 AND p.proname LIKE 'depreciation_asset%' ORDER BY p.proname`,
-            [downSchema],
-          )
-        ).rows.map((r) => r.proname as string);
-      const columnsOf = async (table: string) =>
-        (await downPool.query(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2`, [downSchema, table]))
-          .rows[0].n as number;
-      expect(await tablesOf()).toEqual(['depreciation_asset', 'depreciation_asset_useful_life']);
-      expect(await functionsOf()).toEqual([
-        'depreciation_asset_frozen',
-        'depreciation_asset_initial',
-        'depreciation_asset_texts_valid',
-        'depreciation_asset_touch',
-        'depreciation_asset_useful_life_open',
-      ]);
-      const untouched = ['acquisition', 'property_reference', 'land_building_allocation', 'ledger_transaction', 'transaction_split'];
-      const before = await Promise.all(untouched.map(columnsOf));
-      const migration = await import('./migrations/0049_depreciation_asset.js');
-      await withMigrationLock(() => migration.down(createDatabase(downPool) as never));
-      expect(await tablesOf()).toEqual([]);
-      expect(await functionsOf()).toEqual([]);
-      expect(await Promise.all(untouched.map(columnsOf))).toEqual(before);
-      await withMigrationLock(() => migration.up(createDatabase(downPool) as never));
-      expect(await tablesOf()).toEqual(['depreciation_asset', 'depreciation_asset_useful_life']);
-    } finally {
-      await downPool.end();
-    }
   });
 });
