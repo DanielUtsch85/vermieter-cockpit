@@ -13,6 +13,7 @@ import {
   OwnershipOfConfirmedAcquisitionError,
   OwnershipTotalExceedsOneError,
   PartyNotFoundError,
+  PredecessorOfConfirmedAcquisitionError,
   PropertyReferenceNotFoundError,
   VersionConflictError,
   type ChangeOwnershipInput,
@@ -372,5 +373,32 @@ describe('POST /api/v1/property-references/{id}/ownership-changes', () => {
     const answer = await errorOf(res);
     expect(answer.code).toBe(code);
     if (details !== undefined) expect(answer.details).toEqual(details);
+  });
+});
+
+describe('§28.1A: the predecessor of a confirmed purchase (VC-X-30)', () => {
+  it('409 ACQUISITION_CONFIRMED with acquisitionId and the next Ownership’s id on void, close, ownership change and create', async () => {
+    const ACQ = '3b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
+    const NEXT = '4b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
+    const refuse = async (): Promise<never> => {
+      throw new PredecessorOfConfirmedAcquisitionError(ACQ, NEXT);
+    };
+    const base = await start({ ownerships: { void: refuse, close: refuse, create: refuse, change: refuse } });
+    const answers = [
+      await call(base, 'POST', `/ownerships/${ID}/void`, { reason: 'Tippfehler' }),
+      await call(base, 'POST', `/ownerships/${ID}/close`, { validUntil: '2026-06-30' }),
+      await call(base, 'POST', `/property-references/${PR}/ownership-changes`, { effectiveDate: '2026-07-01', reason: 'Verkauf', close: [ID] }),
+      await call(base, 'POST', '/ownerships', { ...body, validFrom: '2020-01-01', validUntil: '2026-07-31' }),
+    ];
+    for (const res of answers) {
+      expect([res.status, await errorOf(res)]).toEqual([
+        409,
+        {
+          code: 'CONFLICT',
+          message: "The owner's next Ownership carries a confirmed Acquisition; its acquired share cannot change.",
+          details: { reason: 'ACQUISITION_CONFIRMED', acquisitionId: ACQ, ownershipId: NEXT },
+        },
+      ]);
+    }
   });
 });

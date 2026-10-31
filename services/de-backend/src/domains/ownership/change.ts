@@ -7,6 +7,7 @@ import {
   type InvalidOwnershipReason,
   type InvariantViolation,
   type Ownership,
+  type PredecessorRefusal,
 } from './ownership.js';
 import type { Fraction, Share } from './share.js';
 
@@ -116,6 +117,7 @@ export type ChangeOwnershipOutcome =
   | { readonly kind: 'PARTY_NOT_FOUND'; readonly partyId: string }
   | { readonly kind: 'PARTY_INACTIVE'; readonly partyId: string }
   | AcquisitionRefusal
+  | PredecessorRefusal
   | Exclude<ChangePlan, { kind: 'CHANGE' | 'UNCHANGED' }>;
 
 /** Persistence port for the change, implemented in infrastructure/postgres. */

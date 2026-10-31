@@ -1,4 +1,4 @@
-import type { AuditActor, BusinessDate, Money, VersionConflict } from '../../shared/index.js';
+import { addDays, type AuditActor, type BusinessDate, type Money, type VersionConflict } from '../../shared/index.js';
 
 /**
  * Acquisition (data-model.md §13, api-design.md §27.1, backlog VC-2-05): the purchase of a share of a PropertyReference.
@@ -98,6 +98,18 @@ export interface ConfirmationOwnership {
   readonly ownerPartyId: string;
   readonly share: AcquiredShare;
   readonly validFrom: BusinessDate;
+  /** Inclusive; `null` while open. */
+  readonly validUntil: BusinessDate | null;
+}
+
+/** A buyer's increase over the day before the transfer date (§28.1A): `acquired = share − shareBefore`, exact. */
+export interface BuyerIncrease {
+  readonly partyId: string;
+  /** `held_P(d − 1)`. */
+  readonly shareBefore: ExactFraction;
+  /** `held_P(d)`. */
+  readonly share: ExactFraction;
+  readonly acquired: ExactFraction;
 }
 
 /** A failed requirement of §28.1, in the order they are reported. */
@@ -106,7 +118,8 @@ export type ConfirmationViolation =
   | { readonly code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE'; readonly ownershipId: string; readonly validFrom: BusinessDate; readonly transferDate: BusinessDate }
   | { readonly code: 'OWNER_NOT_A_BUYER'; readonly ownershipId: string; readonly ownerPartyId: string }
   | { readonly code: 'BUYER_WITHOUT_OWNERSHIP'; readonly partyId: string }
-  | { readonly code: 'SHARE_SUM_MISMATCH'; readonly expected: ExactFraction; readonly actual: ExactFraction }
+  | { readonly code: 'BUYER_SHARE_NOT_INCREASED'; readonly partyId: string; readonly shareBefore: ExactFraction; readonly share: ExactFraction }
+  | { readonly code: 'SHARE_SUM_MISMATCH'; readonly expected: ExactFraction; readonly actual: ExactFraction; readonly byBuyer: readonly BuyerIncrease[] }
   | { readonly code: 'OWNERSHIP_INCOMPLETE'; readonly date: BusinessDate; readonly shareSum: ExactFraction };
 
 export interface ConfirmationInput {
@@ -116,6 +129,8 @@ export interface ConfirmationInput {
   readonly own: readonly ConfirmationOwnership[];
   /** All `VALID` Ownerships of the PropertyReference covering the transfer date. */
   readonly onTransferDate: readonly ConfirmationOwnership[];
+  /** All `VALID` Ownerships of the PropertyReference covering the day before the transfer date (§28.1A). */
+  readonly beforeTransferDate: readonly ConfirmationOwnership[];
 }
 
 export type ConfirmPlan =
@@ -141,6 +156,47 @@ export function sumOf(shares: readonly AcquiredShare[]): ExactFraction {
   return { numerator, denominator };
 }
 
+const ZERO: ExactFraction = { numerator: 0n, denominator: 1n };
+
+/** `x + y`, exact and reduced; a difference is the sum with a negated numerator (the sign stays on the numerator). */
+function plus(x: ExactFraction, y: ExactFraction): ExactFraction {
+  const numerator = x.numerator * y.denominator + y.numerator * x.denominator;
+  const denominator = x.denominator * y.denominator;
+  const g = gcd(numerator, denominator);
+  return { numerator: numerator / g, denominator: denominator / g };
+}
+
+const negated = (x: ExactFraction): ExactFraction => ({ numerator: -x.numerator, denominator: x.denominator });
+
+/** `held_P(day)`: the exact sum of the shares of `partyId`'s rows that cover `day` (inclusive dates). */
+function heldOn(partyId: string, rows: readonly ConfirmationOwnership[], day: BusinessDate): ExactFraction {
+  return sumOf(rows.filter((o) => o.ownerPartyId === partyId && o.validFrom <= day && (o.validUntil === null || o.validUntil >= day)).map((o) => o.share));
+}
+
+/**
+ * §28.1A: for each buyer holding an Ownership carrying this Acquisition, by `partyId`, the share held on the transfer
+ * date `d` minus the share held on `d − 1`, over the `VALID` Ownerships given (whatever Acquisition they carry). A
+ * buyer who held nothing on `d − 1` acquires its full share, as before VC-X-30.
+ */
+export function buyerIncreases(
+  current: Acquisition,
+  own: readonly ConfirmationOwnership[],
+  onTransferDate: readonly ConfirmationOwnership[],
+  beforeTransferDate: readonly ConfirmationOwnership[],
+): BuyerIncrease[] {
+  const d = transferDate(current);
+  const dayBefore = addDays(d, -1);
+  const holders = new Set(own.map((o) => o.ownerPartyId));
+  return [...current.buyerPartyIds]
+    .filter((partyId) => holders.has(partyId))
+    .sort()
+    .map((partyId) => {
+      const shareBefore = heldOn(partyId, beforeTransferDate, dayBefore);
+      const share = heldOn(partyId, onTransferDate, d);
+      return { partyId, shareBefore, share, acquired: plus(share, negated(shareBefore)) };
+    });
+}
+
 /**
  * Status first (a no-op before a cancelled one), then requirements 1–6 of §28.1, all of them reported. The version is
  * checked by the caller between `ACQUISITION_CANCELLED` and the requirements.
@@ -153,7 +209,7 @@ export function planConfirm(current: Acquisition, input: ConfirmationInput, at: 
   for (const partyId of [...current.buyerPartyIds].sort()) {
     if (input.buyerStatuses.get(partyId) !== 'ACTIVE') violations.push({ code: 'BUYER_INACTIVE', partyId });
   }
-  violations.push(...structureViolations(current, input.own));
+  violations.push(...structureViolations(current, input.own, input.onTransferDate, input.beforeTransferDate));
   const total = sumOf(input.onTransferDate.map((o) => o.share));
   if (total.numerator !== total.denominator) violations.push({ code: 'OWNERSHIP_INCOMPLETE', date: d, shareSum: total });
   if (violations.length > 0) return { kind: 'CONFIRMATION_BLOCKED', violations };
@@ -162,10 +218,16 @@ export function planConfirm(current: Acquisition, input: ConfirmationInput, at: 
 
 /**
  * Requirements 2–5 of §28.1, the structure of an Acquisition's own Ownerships: all from the transfer date, held only
- * by buyers, every buyer holds one, the shares sum to exactly `acquiredShare`. Confirmation adds 1 and 6; the
- * owner-level allocation (§27.4) needs exactly these four for a `PROVISIONAL` answer.
+ * by buyers, every buyer holds one, and (5, as §28.1A replaces it) every such buyer's share rises on the transfer date
+ * (5a) and the increases sum to exactly `acquiredShare` (5b). Confirmation adds 1 and 6; the owner-level allocation
+ * (§27.4) needs exactly these for an answer.
  */
-export function structureViolations(current: Acquisition, own: readonly ConfirmationOwnership[]): ConfirmationViolation[] {
+export function structureViolations(
+  current: Acquisition,
+  own: readonly ConfirmationOwnership[],
+  onTransferDate: readonly ConfirmationOwnership[],
+  beforeTransferDate: readonly ConfirmationOwnership[],
+): ConfirmationViolation[] {
   const d = transferDate(current);
   const buyers = new Set(current.buyerPartyIds);
   const byId = [...own].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
@@ -180,9 +242,17 @@ export function structureViolations(current: Acquisition, own: readonly Confirma
   for (const partyId of [...current.buyerPartyIds].sort()) {
     if (!holders.has(partyId)) violations.push({ code: 'BUYER_WITHOUT_OWNERSHIP', partyId });
   }
-  const actual = sumOf(own.map((o) => o.share));
+  const byBuyer = buyerIncreases(current, own, onTransferDate, beforeTransferDate);
+  // 5a: a decrease (or no change) is not a purchase, and would give §27.4 a zero or negative weight.
+  for (const { partyId, shareBefore, share, acquired } of byBuyer) {
+    if (acquired.numerator <= 0n) violations.push({ code: 'BUYER_SHARE_NOT_INCREASED', partyId, shareBefore, share });
+  }
+  // 5b: the increases, not the Ownerships' full shares, make up `acquiredShare`.
+  const actual = byBuyer.reduce((sum, b) => plus(sum, b.acquired), ZERO);
   const expected = { numerator: BigInt(current.acquiredShare.numerator), denominator: BigInt(current.acquiredShare.denominator) };
-  if (actual.numerator !== expected.numerator || actual.denominator !== expected.denominator) violations.push({ code: 'SHARE_SUM_MISMATCH', expected, actual });
+  if (actual.numerator !== expected.numerator || actual.denominator !== expected.denominator) {
+    violations.push({ code: 'SHARE_SUM_MISMATCH', expected, actual, byBuyer });
+  }
   return violations;
 }
 
@@ -241,7 +311,8 @@ export interface AcquisitionRepository {
   cancel(id: string, mreRealmId: string, reason: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<CancelAcquisitionOutcome>;
   /**
    * Locks PropertyReference (no-op write) → buyers `FOR SHARE` in id order → the Acquisition `FOR UPDATE`, then reads
-   * its Ownerships and those of the PropertyReference on the transfer date, and applies `planConfirm` (§28.1).
+   * its Ownerships and those of the PropertyReference on the transfer date and the day before, and applies
+   * `planConfirm` (§28.1, §28.1A).
    */
   confirm(id: string, mreRealmId: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmAcquisitionOutcome>;
 }

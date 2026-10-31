@@ -2056,7 +2056,7 @@ Rule versions used in historical calculations must remain addressable.
 
 **VC-8-01 (P8-D11, api-design §59, implemented: migration 0049):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed; renumbered `@2` by VC-8-02, with an earlier `@1` for 2006–2022, api-design §59A "The rule versions") is a module of the Depreciation domain, registered in the same registry. The registry (`RuleRegistry` and `rule-version.ts` in `shared/`) is composed as `TAX_RULES` in `domains/tax-rules/`, above both domains, from the versions each domain exports (api-design §59). Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule, and so is each band's threshold of the shorter useful life (`shorterThanYears`: 33 / 50 / 40 years, § 7 Abs. 4 S. 2 EStG; verified against the official text on 30.10.2026). No table stores them, and the asset stores no rule reference.
 
-**VC-8-04 (P8-D10, api-design §60, specified; migration 0051 planned):** a recorded schedule version (§39) stores each `ruleCode@version` it applied with the SHA-256 hash of the rule version (`ruleVersionHash`: every field but `effectiveTo` and the derived `status`, i.e. `title`, `legalBasis`, `effectiveFrom`, `parameters` and `source` included; computed through a port, with `node:crypto` in `infrastructure/` only). `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` are frozen with VC-8-04's implementation: a change of any hashed field is a new version, and only `effectiveTo` is set once when a successor starts. The start check reads the recorded references too and refuses to start on an unregistered version or a stored hash that differs from the registry's.
+**VC-8-04 (P8-D10, api-design §60, specified; migration 0052 planned):** a recorded schedule version (§39) stores each `ruleCode@version` it applied with the SHA-256 hash of the rule version (`ruleVersionHash`: every field but `effectiveTo` and the derived `status`, i.e. `title`, `legalBasis`, `effectiveFrom`, `parameters` and `source` included; computed through a port, with `node:crypto` in `infrastructure/` only). `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` are frozen with VC-8-04's implementation: a change of any hashed field is a new version, and only `effectiveTo` is set once when a successor starts. The start check reads the recorded references too and refuses to start on an unregistered version or a stored hash that differs from the registry's.
 
 ---
 
@@ -2093,7 +2093,7 @@ Record the facts of one depreciable asset that no other record holds, as inputs 
 - `shorterUsefulLives`: at most one per Acquisition of the PropertyReference (§ 7 Abs. 4 S. 2 EStG, P8-D4), each with `acquisitionId`, `usefulLifeYears` (1–99), `evidence` (`source`, `date`, `documentReference`), its own `reviewState` and `advisorPartyId`. Stored as rows of their own, never as a blob.
 - `notes`
 - `voidedAt`, `voidReason`
-- **On a `SEPARATE_ASSET` only, required there** (VC-8-03, api-design §59B; specified, migration 0050 planned): `description`, `usefulLifeYears` (1–99) with `usefulLifeBasis` (its legal or factual basis, e.g. BFH IX R 14/15 for an Einbauküche, B8), `acquiredOn` (the month of acquisition, § 7 Abs. 1 S. 4 EStG), and `items`: links to the capitalised items it consists of, as rows of `depreciation_asset_item` (`source_type`, `source_id`, `source_position`, and `asset_status` following the asset's status by an `ON UPDATE CASCADE` key), at most 50, an item in at most one `ACTIVE` asset (a partial unique index). `buildingCompletionYear` and `shorterUsefulLives` are building-only.
+- **On a `SEPARATE_ASSET` only, required there** (VC-8-03, api-design §59B; specified, migration 0051 planned): `description`, `usefulLifeYears` (1–99) with `usefulLifeBasis` (its legal or factual basis, e.g. BFH IX R 14/15 for an Einbauküche, B8), `acquiredOn` (the month of acquisition, § 7 Abs. 1 S. 4 EStG), and `items`: links to the capitalised items it consists of, as rows of `depreciation_asset_item` (`source_type`, `source_id`, `source_position`, and `asset_status` following the asset's status by an `ON UPDATE CASCADE` key), at most 50, an item in at most one `ACTIVE` asset (a partial unique index). `buildingCompletionYear` and `shorterUsefulLives` are building-only.
 
 ---
 
@@ -2126,7 +2126,7 @@ The former fields `basisAmount`, `currency`, `startDate`, `depreciationRate`, `l
 
 ## Purpose
 
-A person's record of the derived schedule of one `DepreciationAsset` for every year from its first year up to `throughYear`: the **inputs** of the derivation and its **output**, so that it can be recomputed and compared with today's derivation (phase-8-plan P8-D10, decided 2026-10-30: computed on read, recorded as versions; api-design §60, VC-8-04, specified; migration 0051 planned). The derived schedule stays the truth of the reads; a version never feeds a figure in its place. It is not an `InvestmentMetricSnapshot` (ADR-040).
+A person's record of the derived schedule of one `DepreciationAsset` for every year from its first year up to `throughYear`: the **inputs** of the derivation and its **output**, so that it can be recomputed and compared with today's derivation (phase-8-plan P8-D10, decided 2026-10-30: computed on read, recorded as versions; api-design §60, VC-8-04, specified; migration 0052 planned). The derived schedule stays the truth of the reads; a version never feeds a figure in its place. It is not an `InvestmentMetricSnapshot` (ADR-040).
 
 ---
 
@@ -2161,7 +2161,7 @@ A person's record of the derived schedule of one `DepreciationAsset` for every y
 
 ## Invariants
 
-- **Append-only:** no row of a version is updated or deleted; the only change is the step `CURRENT` → `SUPERSEDED` when a newer version of the same asset is recorded, in the same transaction. Child rows are inserted only in the transaction that inserted their version, checked against the version's stored `created_txid` (`txid_current()` at its insert), never its `xmin`, which the supersede step changes (migration 0051's guards).
+- **Append-only:** no row of a version is updated or deleted; the only change is the step `CURRENT` → `SUPERSEDED` when a newer version of the same asset is recorded, in the same transaction. Child rows are inserted only in the transaction that inserted their version, checked against the version's stored `created_txid` (`txid_current()` at its insert), never its `xmin`, which the supersede step changes (migration 0052's guards).
 - **Reproducible:** recomputing the entries from the stored inputs with the stored rule versions gives the stored entries exactly, and each stored rule-version hash equals the registry's; otherwise the read flags `RECORDED_VERSION_NOT_REPRODUCIBLE` (open), and a hash mismatch stops the backend's start.
 - **Recorded only with figures:** every year of the run has a computed AfA (no not-computable component); the inputs come from one `REPEATABLE READ` snapshot.
 - **Coverage never shrinks:** a new version's `throughYear` is at least the current one's, and a recorded year whose figures it changes is named by the person (`acceptChangedYears`).
@@ -2965,7 +2965,7 @@ For an Acquisition (P2-D10, api-design §27.4) the share is taken relative to th
 Ownerships of that Acquisition, and money is split into cents by largest remainder per amount, with totals derived
 from the parts.
 A buyer who already held a share the day before the transfer date takes part with the increase only (VC-X-30,
-api-design §28.1A, specified); the Ownerships stay as §78 shows them.
+api-design §28.1A, implemented with migration 0050); the Ownerships stay as §78 shows them.
 
 ---
 

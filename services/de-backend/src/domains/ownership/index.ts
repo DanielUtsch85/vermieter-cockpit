@@ -20,6 +20,7 @@ export type {
   OwnershipPage,
   OwnershipRepository,
   OwnershipStatus,
+  PredecessorRefusal,
   VoidOwnershipOutcome,
   VoidPlan,
 } from './ownership.js';

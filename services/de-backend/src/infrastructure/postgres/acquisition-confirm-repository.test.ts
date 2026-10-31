@@ -193,6 +193,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
       const late = await insertOwnership(pool, { pr, owner: anna, share: [1, 4], from: '2026-08-02', acquisitionId: id });
       const stranger = await insertOwnership(pool, { pr, owner: carl, share: [1, 8], acquisitionId: id });
       await rawDeactivate(pool, anna);
+      const zero = { numerator: 0n, denominator: 1n };
       expect(await acquisitions.confirm(id, REALM, AT, actor)).toEqual({
         kind: 'CONFIRMATION_BLOCKED',
         violations: [
@@ -200,7 +201,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
           { code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: late, validFrom: '2026-08-02', transferDate: D },
           { code: 'OWNER_NOT_A_BUYER', ownershipId: stranger, ownerPartyId: carl },
           { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: ben },
-          { code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 2n }, actual: { numerator: 3n, denominator: 8n } },
+          // §28.1A: Anna's only row starts the day after, so she holds nothing on the transfer date (5a, 5b with 0).
+          { code: 'BUYER_SHARE_NOT_INCREASED', partyId: anna, shareBefore: zero, share: zero },
+          {
+            code: 'SHARE_SUM_MISMATCH',
+            expected: { numerator: 1n, denominator: 2n },
+            actual: zero,
+            byBuyer: [{ partyId: anna, shareBefore: zero, share: zero, acquired: zero }],
+          },
           { code: 'OWNERSHIP_INCOMPLETE', date: D, shareSum: { numerator: 1n, denominator: 8n } },
         ],
       });

@@ -15,7 +15,7 @@ import {
   type CreateAcquisitionOutcome,
   type NewAcquisition,
 } from '../../domains/acquisition/index.js';
-import { checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
+import { addDays, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
@@ -309,18 +309,23 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
         const d = transferDate(current);
         const ownerships = (query: (q: ReturnType<typeof ownershipQuery>) => ReturnType<typeof ownershipQuery>) => query(ownershipQuery(trx)).execute();
         const own = await ownerships((q) => q.where('acquisition_id', '=', id));
-        const onTransferDate = await ownerships((q) =>
-          q
-            .where('property_reference_id', '=', current.propertyReferenceId)
-            .where('valid_from', '<=', d)
-            .where((eb) => eb.or([eb('valid_until', 'is', null), eb('valid_until', '>=', d)])),
-        );
+        const covering = (day: BusinessDate) =>
+          ownerships((q) =>
+            q
+              .where('property_reference_id', '=', current.propertyReferenceId)
+              .where('valid_from', '<=', day)
+              .where((eb) => eb.or([eb('valid_until', 'is', null), eb('valid_until', '>=', day)])),
+          );
+        const onTransferDate = await covering(d);
+        // §28.1A: the share each buyer held the day before, read after the same locks as the transfer date's.
+        const beforeTransferDate = await covering(addDays(d, -1));
         const plan = planConfirm(
           current,
           {
             buyerStatuses: new Map(buyers.map((b) => [b.id, b.status])),
             own: own.map(toConfirmationOwnership),
             onTransferDate: onTransferDate.map(toConfirmationOwnership),
+            beforeTransferDate: beforeTransferDate.map(toConfirmationOwnership),
           },
           at,
         );
@@ -346,26 +351,35 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
   }
 }
 
-/** `VALID` Ownerships with the columns the confirmation reads; the date as `YYYY-MM-DD` text. */
-function ownershipQuery(trx: Transaction<Database>) {
+/** `VALID` Ownerships with the columns the confirmation reads; the dates as `YYYY-MM-DD` text. */
+export function ownershipQuery(trx: Transaction<Database>) {
   return trx
     .selectFrom('ownership')
-    .select(['id', 'owner_party_id', 'share_numerator', 'share_denominator', sql<string>`to_char(valid_from, 'YYYY-MM-DD')`.as('valid_from')])
+    .select([
+      'id',
+      'owner_party_id',
+      'share_numerator',
+      'share_denominator',
+      sql<string>`to_char(valid_from, 'YYYY-MM-DD')`.as('valid_from'),
+      sql<string | null>`to_char(valid_until, 'YYYY-MM-DD')`.as('valid_until'),
+    ])
     .where('status', '=', 'VALID');
 }
 
-function toConfirmationOwnership(row: {
+export function toConfirmationOwnership(row: {
   id: string;
   owner_party_id: string;
   share_numerator: number;
   share_denominator: number;
   valid_from: string;
+  valid_until: string | null;
 }): ConfirmationOwnership {
   return {
     id: row.id,
     ownerPartyId: row.owner_party_id,
     share: { numerator: row.share_numerator, denominator: row.share_denominator },
     validFrom: row.valid_from as BusinessDate,
+    validUntil: row.valid_until as BusinessDate | null,
   };
 }
 

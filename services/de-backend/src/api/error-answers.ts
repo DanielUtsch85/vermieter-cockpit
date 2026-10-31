@@ -102,6 +102,7 @@ import {
   PaymentNotProposableError,
   PaymentRefusedError,
   PeriodOutsideYearError,
+  PredecessorOfConfirmedAcquisitionError,
   SettlementDirectionMismatchError,
   SettlementNotProposableError,
   SpecialAssessmentNotFoundError,
@@ -220,8 +221,20 @@ export const access = (code: AccessError['code']): ErrorAnswer => ACCESS[code];
 /** A confirmation violation as the API shows it (§27.3). */
 export function violationDto(v: ConfirmationViolation) {
   switch (v.code) {
+    case 'BUYER_SHARE_NOT_INCREASED':
+      return { code: v.code, partyId: v.partyId, shareBefore: formatShare(v.shareBefore), share: formatShare(v.share) };
     case 'SHARE_SUM_MISMATCH':
-      return { code: v.code, expected: formatShare(v.expected), actual: formatShare(v.actual) };
+      return {
+        code: v.code,
+        expected: formatShare(v.expected),
+        actual: formatShare(v.actual),
+        byBuyer: v.byBuyer.map((b) => ({
+          partyId: b.partyId,
+          shareBefore: formatShare(b.shareBefore),
+          share: formatShare(b.share),
+          acquired: formatShare(b.acquired),
+        })),
+      };
     case 'OWNERSHIP_INCOMPLETE':
       return { code: v.code, date: v.date, shareSum: formatShare(v.shareSum) };
     default:
@@ -625,7 +638,7 @@ const TABLE = [
   ),
   on(OwnerInactiveError, (error) => answer(422, 'PARTY_INACTIVE', 'A Party named here must be active.', { partyId: error.partyId })),
   on(OwnershipBasisIncompleteError, (error) =>
-    answer(409, 'CONFLICT', "The draft's Ownerships do not yet form a complete basis.", {
+    answer(409, 'CONFLICT', "The Acquisition's Ownerships do not form a complete basis.", {
       reason: 'OWNERSHIP_BASIS_INCOMPLETE',
       violations: error.violations.map(violationDto),
     }),
@@ -666,6 +679,13 @@ const TABLE = [
   ),
   on(PaymentRefusedError, (error) => refusalAnswer(error.refusal)),
   on(PeriodOutsideYearError, (error) => validation([{ field: error.field, code: 'OUT_OF_RANGE' }])),
+  on(PredecessorOfConfirmedAcquisitionError, (error) =>
+    answer(409, 'CONFLICT', "The owner's next Ownership carries a confirmed Acquisition; its acquired share cannot change.", {
+      reason: 'ACQUISITION_CONFIRMED',
+      acquisitionId: error.acquisitionId,
+      ownershipId: error.successorOwnershipId,
+    }),
+  ),
   on(SettlementDirectionMismatchError, (error) =>
     answer(422, 'SETTLEMENT_DIRECTION_MISMATCH', 'A back-payment is an OUTFLOW, a refund an INFLOW.', { expected: error.expected }),
   ),
