@@ -3,7 +3,7 @@ import { RuleRegistry, centsOf, type Money } from '../../shared/index.js';
 import type { CapitalizedItem } from './capitalized-item.js';
 import { DE_AFA_BUILDING_LINEAR_V1, DE_AFA_BUILDING_LINEAR_V2, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { DEPRECIATION_RULE_VERSIONS } from './rules/versions.js';
-import { deriveSchedule, type ComponentYear, type DepreciationSchedule, type ScheduleInput } from './schedule.js';
+import { deriveSchedule, type ComponentYear, type DepreciationSchedule, type ScheduleComponent, type ScheduleInput } from './schedule.js';
 import type { ItemComponent } from './schedule-items.js';
 import { A, B, C, D, W, X, Y, acc8, acquisition, asset, capitalized, day, eur, kitchen, life, ownership } from './schedule.test-support.js';
 
@@ -460,6 +460,109 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
     // A purchase of 1975, nominally ended 2024: the item is not computed in any year under POOLED_BASIS.
     const old = item(derive(input('1975-01-01', 2027)));
     expect(old.years.every((y) => y.owners.every((o) => o.amount === null))).toBe(true);
+  });
+});
+
+describe('the owner’s purchase without economicTransferDate (§59A open question 6, decided 2026-10-31; VC-X-33)', () => {
+  /** ACC8 with W undated: contract 2026-03-01, the Ownerships from it (§27.1's transferDate), an item of 2026-09-15. */
+  const undated = (reg: RuleRegistry = registry) =>
+    derive(
+      acc8({
+        from: 2026,
+        to: 2027,
+        acquisitions: [acquisition({ contractDate: day('2026-03-01'), economicTransferDate: null })],
+        ownerships: [ownership(A, '3/5', '2026-03-01', null, W), ownership(B, '2/5', '2026-03-01', null, W)],
+        capitalizedItems: [capitalized(EXTENSION, '2026-09-15', '12000.00')],
+      }),
+      reg,
+    );
+
+  it('never before the owner’s start, and that start unknown: every owner part TRANSFER_DATE_MISSING, amounts null, under either end method', () => {
+    for (const reg of [registry, perItem]) {
+      const c = item(undated(reg));
+      const reason = { code: 'TRANSFER_DATE_MISSING', details: { acquisitionId: W, contractDate: '2026-03-01' } };
+      // The contract date is never the owner's first month (it would be 2026-03).
+      expect(c.owners.map((o) => [o.ownerPartyId, o.firstMonth])).toEqual([
+        [A, null],
+        [B, null],
+      ]);
+      expect(c.years.map((y) => [y.year, y.amount, y.calculationStatus, y.owners.map((o) => [o.amount, o.calculationStatus, o.reasons])])).toEqual(
+        [2026, 2027].map((year) => [
+          year,
+          null,
+          'NOT_CALCULABLE',
+          [
+            [null, 'NOT_CALCULABLE', [reason]],
+            [null, 'NOT_CALCULABLE', [reason]],
+          ],
+        ]),
+      );
+    }
+  });
+
+  it('a later purchase of the pool undated: POOL_PURCHASE_NOT_COMPUTABLE from the first year (no nominal months from the contract date); the seller’s DISPOSAL_DATE_MISSING names it', () => {
+    const input = (reg: RuleRegistry) =>
+      derive(
+        {
+          asset: asset(),
+          acquisitions: [
+            acquisition(),
+            acquisition({
+              id: X,
+              sellerPartyIds: [B],
+              acquiredShare: { numerator: 1, denominator: 2 },
+              contractDate: day('2028-06-01'),
+              economicTransferDate: null,
+            }),
+          ],
+          ownerships: [
+            ownership(A, '1/2', '2026-07-01', '2028-05-31', W),
+            ownership(B, '1/2', '2026-07-01', '2028-05-31', W),
+            ownership(A, '1/1', '2028-06-01', null, X),
+          ],
+          capitalizedItems: [
+            capitalized(EXTENSION, '2027-04-04', '12000.00', [
+              [A, '1/2'],
+              [B, '1/2'],
+            ]),
+          ],
+          today: day('2026-10-30'),
+          from: 2027,
+          to: 2029,
+          ownerPartyId: null,
+        },
+        reg,
+      );
+    const s = input(registry);
+    const [w, x] = s.components as [ScheduleComponent, ScheduleComponent];
+    expect([x.acquisitionId, x.status, x.reasons, x.start]).toEqual([
+      X,
+      'NOT_COMPUTABLE',
+      [{ code: 'TRANSFER_DATE_MISSING', details: { contractDate: '2028-06-01' } }],
+      null,
+    ]);
+    // §28.1A: A's half bought in X is still read at its Ownership change: no BUYER_ALREADY_OWNER, no OWNER_WITHOUT_ACQUISITION.
+    expect(x.owners.map((o) => [o.ownerPartyId, o.shareBefore, o.acquiredShare, o.tenure.from])).toEqual([[A, '1/2', '1/2', null]]);
+    expect(s.years.flatMap((y) => codes(y.flags))).not.toContain('OWNER_WITHOUT_ACQUISITION');
+    // The seller B's year of the sale: DISPOSAL_DATE_MISSING naming the undated buyer X; A's W part goes on.
+    const w2028 = w.years.find((y) => y.year === 2028) as ComponentYear;
+    expect(owner(w2028, B)?.reasons).toEqual([{ code: 'DISPOSAL_DATE_MISSING', details: { validUntil: '2028-05-31', buyerAcquisitionId: X } }]);
+    expect(amount(owner(w2028, A)?.amount)).toBe('2544.00');
+    // A's item part: the pool's purchase X has no start, so no nominal last month; not computed in any year.
+    const c = item(s);
+    const pool = {
+      code: 'POOL_PURCHASE_NOT_COMPUTABLE',
+      details: { poolComponentId: `ACQUISITION:${X}`, nominalLastMonth: null, reasons: ['TRANSFER_DATE_MISSING', 'NOT_COMPUTABLE'] },
+    };
+    expect([2027, 2028, 2029].map((y) => owner(yearOf(c, y), A))).toEqual(
+      [2027, 2028, 2029].map(() => expect.objectContaining({ amount: null, calculationStatus: 'NOT_CALCULABLE', reasons: [pool] })),
+    );
+    // B's part (B's own tenure, W only) is computed until the sale, then DISPOSAL_DATE_MISSING.
+    expect(amount(owner(yearOf(c, 2027), B)?.amount)).toBe('120.00');
+    expect(owner(yearOf(c, 2028), B)?.reasons).toEqual([{ code: 'DISPOSAL_DATE_MISSING', details: { validUntil: '2028-05-31', buyerAcquisitionId: X } }]);
+    // PER_ITEM_SERIES (a test registry): A's part computed on its own series and flagged from its first year.
+    const series = item(input(perItem));
+    expect(owner(yearOf(series, 2027), A)).toMatchObject({ amount: eur('120.00'), flags: [{ code: 'SUBSEQUENT_COST_END_TO_VERIFY' }] });
   });
 });
 
