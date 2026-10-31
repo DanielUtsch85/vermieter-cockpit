@@ -26,7 +26,6 @@ const PERMANENT = [/^infrastructure\/postgres\/schema\.ts$/, /^application\/inde
 // 923ad67, after VC-X-33). May shrink, never grow; remove when split.
 const EXCEPTIONS = {
   'services/de-backend/src/api/depreciation-assets.ts': 610,
-  'services/de-backend/src/api/error-answers.ts': 1139,
   'services/de-backend/src/api/tax-classifications.test.ts': 1009,
   'services/de-backend/src/api/tax-classifications.ts': 747,
   'services/de-backend/src/domains/depreciation/schedule-items.test.ts': 906,
@@ -37,12 +36,8 @@ const EXCEPTIONS = {
   'services/de-backend/src/domains/taxation/tax-year-view.ts': 865,
   'services/de-backend/src/infrastructure/postgres/ownership-repository.ts': 635,
   'services/de-backend/src/infrastructure/postgres/security-deposit-repository.ts': 615,
-  'services/de-backend/src/infrastructure/postgres/tax-classification-repository.test.ts': 944,
-  'services/de-backend/src/infrastructure/postgres/tax-classification-repository.ts': 1682,
   'services/de-backend/src/infrastructure/postgres/tax-weg-repository.test.ts': 1284,
   'services/de-backend/src/infrastructure/postgres/tax-year-repository.test.ts': 1103,
-  'services/de-backend/src/infrastructure/postgres/weg-annual-statement-repository.ts': 916,
-  'services/de-backend/src/infrastructure/postgres/weg-repository.ts': 803,
   'services/de-backend/src/phase-2-acceptance.e2e.test.ts': 1063,
 };
 
