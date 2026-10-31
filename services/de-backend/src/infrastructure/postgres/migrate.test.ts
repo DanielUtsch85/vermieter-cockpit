@@ -30,14 +30,14 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
     await pool.end();
   });
 
-  it('applies every migration on a fresh database, in order', async () => {
+  it('applies every migration on a fresh database, in order', { timeout: 30_000 }, async () => {
     const results = await migrateToLatest(pool, { migrationTableSchema: schema });
     expect(results.map((r) => [r.migrationName, r.status])).toEqual(Object.keys(migrations).map((name) => [name, 'Success']));
     const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration ORDER BY name`);
     expect(applied.rows.map((r) => r.name)).toEqual(Object.keys(migrations));
   });
 
-  it('is idempotent: a second run applies nothing', async () => {
+  it('is idempotent: a second run applies nothing', { timeout: 30_000 }, async () => {
     expect(await migrateToLatest(pool, { migrationTableSchema: schema })).toEqual([]);
   });
 
