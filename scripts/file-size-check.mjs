@@ -37,8 +37,6 @@ const EXCEPTIONS = {
   'services/de-backend/src/infrastructure/postgres/depreciation-asset-repository.test.ts': 1180,
   'services/de-backend/src/infrastructure/postgres/depreciation-asset-repository.ts': 768,
   'services/de-backend/src/infrastructure/postgres/depreciation-separate-asset.test.ts': 964,
-  'services/de-backend/src/infrastructure/postgres/ownership-repository.ts': 635,
-  'services/de-backend/src/infrastructure/postgres/security-deposit-repository.ts': 615,
   'services/de-backend/src/infrastructure/postgres/tax-weg-repository.test.ts': 1284,
   'services/de-backend/src/infrastructure/postgres/tax-year-repository.test.ts': 1103,
   'services/de-backend/src/phase-2-acceptance.e2e.test.ts': 1063,
