@@ -457,6 +457,30 @@ describe('the tenure, a reduced share, the end (P8-D8, P8-D9)', () => {
     expect(b2029?.reasons).toEqual([{ code: 'DISPOSAL_DATE_MISSING', details: { validUntil: '2029-06-30', buyerAcquisitionId: X } }]);
   });
 
+  it('a DRAFT buyer’s Acquisition gives no cut-off, even with its economicTransferDate: B’s 2029 DISPOSAL_DATE_MISSING, 2028 computed', () => {
+    const s = derive({
+      ...acc8({ from: 2028, to: 2030 }),
+      acquisitions: [
+        acquisition(),
+        acquisition({
+          ...exactBasis('110000.00'),
+          id: X,
+          status: 'DRAFT',
+          sellerPartyIds: [B],
+          acquiredShare: { numerator: 2, denominator: 5 },
+          contractDate: day('2029-07-01'),
+          economicTransferDate: day('2029-07-01'),
+        }),
+      ],
+      ownerships: [ownership(A, '3/5', '2026-07-01', null, W), ownership(B, '2/5', '2026-07-01', '2029-06-30', W), ownership(C, '2/5', '2029-07-01', null, X)],
+    });
+    const w = component(s, 0);
+    const b2029 = ownerIn(yearOf(w, 2029), B);
+    expect(b2029).toMatchObject({ amount: null, calculationStatus: 'NOT_CALCULABLE' });
+    expect(b2029?.reasons).toEqual([{ code: 'DISPOSAL_DATE_MISSING', details: { validUntil: '2029-06-30', buyerAcquisitionId: null } }]);
+    expect(amount(ownerIn(yearOf(w, 2028), B)?.amount)).toBe('2035.20');
+  });
+
   it('DISPOSAL_YEAR_TO_VERIFY only while the rule says unverified: a test registry with verified true computes the same, CALCULATED', () => {
     const verified = withParameters((p) => ({ ...p, end: { ...p.end, disposal: { ...p.end.disposal, verified: true } } }));
     const b2029 = ownerIn(yearOf(component(sale('2029-07-01', true, verified), 0), 2029), B);

@@ -226,7 +226,7 @@ function fixtureIn(pool: pg.Pool) {
     if (created.kind !== 'CREATED') throw new Error(created.kind);
     return { pr, a, b, w, tax, notary, allocation, assetId: created.asset.id };
   }
-  return { db, party, propertyReference, acquisition, own, allocate, acc8, acquisitions, ownerships };
+  return { db, party, propertyReference, acquisition, own, cost, allocate, acc8, acquisitions, ownerships, costs };
 }
 
 const derive = (read: ScheduleRead | undefined, ownerPartyId: string | null = null): DepreciationSchedule => {
@@ -300,6 +300,27 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
     ]);
     expect(schedule.components[0]?.flags).toEqual([{ code: 'ACQUISITION_COST_UNPAID', details: { costIds: expect.any(Array) } }]);
     expect((schedule.components[0]?.flags[0]?.details['costIds'] as string[]).length).toBe(2);
+  });
+
+  it('a VOID cost is not in the basis, nor in acquisitionCosts or ACQUISITION_COST_UNPAID (§59A: ACTIVE costs only)', async () => {
+    const s = await fx.acc8();
+    const extra = await fx.cost(s.w, 'NOTARY', '5000.00');
+    expect((await fx.costs.voidCost(s.w, extra, REALM, 'doppelt erfasst', AT, actor)).kind).toBe('VOIDED');
+    const read = await source.read(s.assetId, REALM, null);
+    expect(read?.acquisitions[0]?.costs.map((c) => c.id)).not.toContain(extra);
+    const schedule = derive(read);
+    expect(schedule.components[0]?.basis.amount?.amount).toBe('254400.00');
+    expect(schedule.components[0]?.flags[0]?.details['costIds']).not.toContain(extra);
+  });
+
+  it('only the current allocation feeds the basis: superseded twice, the newest one, whatever the row order', async () => {
+    const s = await fx.acc8();
+    const second = await fx.allocate(s.w, '200000.00', s.allocation);
+    const third = await fx.allocate(s.w, '159000.00', second);
+    const read = await source.read(s.assetId, REALM, null);
+    expect(read?.acquisitions[0]?.allocation?.id).toBe(third);
+    const component = derive(read).components[0];
+    expect([component?.basis.allocationId, component?.basis.amount?.amount]).toEqual([third, '159000.00']);
   });
 
   it('the schedule’s basis equals the anschaffungsnahe check’s basis for the same snapshot (§59A, one function)', async () => {

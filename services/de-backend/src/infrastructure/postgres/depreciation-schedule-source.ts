@@ -121,6 +121,13 @@ export class PostgresDepreciationScheduleSource implements DepreciationScheduleS
         .execute();
 
       const paidOf = new Map(paid.map((p) => [p.acquisition_cost_id as string, p.paid]));
+      // At most one current allocation per Acquisition (§27.3, the index `land_building_allocation_current`): checked
+      // here too, so a read that saw a superseded one fails instead of taking whichever row comes first.
+      const current = new Set<string>();
+      for (const a of allocations) {
+        if (current.has(a.acquisition_id)) throw new Error(`two current allocations for acquisition ${a.acquisition_id}`);
+        current.add(a.acquisition_id);
+      }
       const acquisitions = rows.map((r): ScheduleAcquisition => {
         const allocation = allocations.find((a) => a.acquisition_id === r.id);
         return {
