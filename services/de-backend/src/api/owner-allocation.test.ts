@@ -38,7 +38,9 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
             {
               ownerPartyId: 'p1',
               ownershipId: 'o1',
-              share: { numerator: 1n, denominator: 2n },
+              share: { numerator: 1n, denominator: 1n },
+              shareBefore: { numerator: 1n, denominator: 2n },
+              acquiredShare: { numerator: 1n, denominator: 2n },
               weight: { numerator: 1n, denominator: 1n },
               purchasePrice: eur('300000.00'),
               costs: new Map([['NOTARY', eur('4000.00')]]),
@@ -69,7 +71,9 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
         {
           ownerPartyId: 'p1',
           ownershipId: 'o1',
-          share: '1/2',
+          share: '1/1',
+          shareBefore: '1/2',
+          acquiredShare: '1/2',
           weight: '1/1',
           purchasePrice: { amount: '300000.00', currency: 'EUR' },
           costs: { NOTARY: { amount: '4000.00', currency: 'EUR' } },
@@ -95,7 +99,19 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
       new AcquisitionNotFoundError(ACQ),
       new AcquisitionCancelledError(ACQ),
       new OwnershipBasisIncompleteError(ACQ, [
-        { code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 1n }, actual: { numerator: 1n, denominator: 2n } },
+        {
+          code: 'SHARE_SUM_MISMATCH',
+          expected: { numerator: 1n, denominator: 1n },
+          actual: { numerator: 1n, denominator: 2n },
+          byBuyer: [
+            {
+              partyId: 'p1',
+              shareBefore: { numerator: 1n, denominator: 2n },
+              share: { numerator: 1n, denominator: 1n },
+              acquired: { numerator: 1n, denominator: 2n },
+            },
+          ],
+        },
       ]),
     ];
     const base = await start({
@@ -111,7 +127,13 @@ describe('GET /api/v1/acquisitions/{id}/owner-allocation', () => {
     expect(await (await get(base, path)).json()).toMatchObject({
       error: {
         code: 'CONFLICT',
-        details: { reason: 'OWNERSHIP_BASIS_INCOMPLETE', violations: [{ code: 'SHARE_SUM_MISMATCH', expected: '1/1', actual: '1/2' }] },
+        message: "The Acquisition's Ownerships do not form a complete basis.",
+        details: {
+          reason: 'OWNERSHIP_BASIS_INCOMPLETE',
+          violations: [
+            { code: 'SHARE_SUM_MISMATCH', expected: '1/1', actual: '1/2', byBuyer: [{ partyId: 'p1', shareBefore: '1/2', share: '1/1', acquired: '1/2' }] },
+          ],
+        },
       },
     });
     expect((await get(base, `${path}?asOf=2026-01-01`)).status).toBe(400);

@@ -2965,7 +2965,7 @@ For an Acquisition (P2-D10, api-design §27.4) the share is taken relative to th
 Ownerships of that Acquisition, and money is split into cents by largest remainder per amount, with totals derived
 from the parts.
 A buyer who already held a share the day before the transfer date takes part with the increase only (VC-X-30,
-api-design §28.1A, specified); the Ownerships stay as §78 shows them.
+api-design §28.1A, implemented with migration 0052); the Ownerships stay as §78 shows them.
 
 ---
 

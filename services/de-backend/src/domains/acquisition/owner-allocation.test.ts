@@ -29,19 +29,26 @@ const acquisition = (buyers: string[], overrides: Partial<Acquisition> = {}): Ac
   version: 2,
   ...overrides,
 });
-const own = (id: string, owner: string, n: number, d: number, from = '2026-08-01'): ConfirmationOwnership => ({
+const own = (id: string, owner: string, n: number, d: number, from = '2026-08-01', until: string | null = null): ConfirmationOwnership => ({
   id,
   ownerPartyId: owner,
   share: { numerator: n, denominator: d },
   validFrom: day(from),
+  validUntil: until === null ? null : day(until),
 });
-const input = (overrides: Partial<OwnerAllocationInput> = {}): OwnerAllocationInput => ({
-  acquisition: acquisition(['p1']),
-  own: [own('o1', 'p1', 1, 1)],
-  costs: new Map(),
-  allocation: null,
-  ...overrides,
-});
+/** Without predecessors unless given: the buyers held nothing the day before, their own rows cover the transfer date. */
+const input = (overrides: Partial<OwnerAllocationInput> = {}): OwnerAllocationInput => {
+  const rows = overrides.own ?? [own('o1', 'p1', 1, 1)];
+  return {
+    acquisition: acquisition(['p1']),
+    own: rows,
+    onTransferDate: rows,
+    beforeTransferDate: [],
+    costs: new Map(),
+    allocation: null,
+    ...overrides,
+  };
+};
 const amounts = (
   plan: ReturnType<typeof planOwnerAllocation>,
   pick: (o: { landAmount: Money | null; buildingAmount: Money | null; totalAllocableAmount: Money | null }) => Money | null,
@@ -145,6 +152,8 @@ describe('planOwnerAllocation', () => {
     if (plan.kind !== 'ALLOCATED') return;
     const [only] = plan.owners;
     expect(only?.weight).toEqual({ numerator: 1n, denominator: 1n });
+    expect(only?.shareBefore).toEqual({ numerator: 0n, denominator: 1n });
+    expect(only?.acquiredShare).toEqual({ numerator: 1n, denominator: 2n });
     expect(only?.purchasePrice.amount).toBe('300000.00');
     expect([...(only?.costs.keys() ?? [])]).toEqual(['BROKER', 'NOTARY']);
     expect(only?.costsTotal.amount).toBe('14000.00');
@@ -159,10 +168,15 @@ describe('planOwnerAllocation', () => {
     const stranger = planOwnerAllocation(input({ acquisition: draft, own: [own('o1', 'p1', 1, 4), own('o2', 'x', 1, 4)] }));
     expect(stranger).toMatchObject({
       kind: 'OWNERSHIP_BASIS_INCOMPLETE',
-      violations: [{ code: 'OWNER_NOT_A_BUYER' }, { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'p2' }],
+      // 5b (§28.1A) sums the buyers' increases only: the non-buyer's 1/4 no longer makes up the 1/2.
+      violations: [{ code: 'OWNER_NOT_A_BUYER' }, { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: 'p2' }, { code: 'SHARE_SUM_MISMATCH' }],
     });
     const twice = planOwnerAllocation(input({ acquisition: draft, own: [own('o1', 'p1', 1, 8), own('o3', 'p1', 1, 8, '2027-01-01'), own('o2', 'p2', 1, 4)] }));
-    expect(twice).toMatchObject({ kind: 'OWNERSHIP_BASIS_INCOMPLETE', violations: [{ code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: 'o3' }] });
+    // p1's later row does not cover the transfer date, so it adds nothing to p1's increase (5b, §28.1A).
+    expect(twice).toMatchObject({
+      kind: 'OWNERSHIP_BASIS_INCOMPLETE',
+      violations: [{ code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: 'o3' }, { code: 'SHARE_SUM_MISMATCH' }],
+    });
   });
 
   it('property: parts ≥ 0, every column exact, per-owner totals equal their parts, each part within a cent of A·w', () => {
@@ -203,6 +217,8 @@ describe('planOwnerAllocation', () => {
           { purchasePrice: amount(priceCents) },
         ),
         own: ownerships,
+        onTransferDate: ownerships,
+        beforeTransferDate: [],
         costs,
         allocation: { id: 'l', landAmount: amount(land), buildingAmount: amount(building) },
       });
@@ -222,5 +238,135 @@ describe('planOwnerAllocation', () => {
         expect(diff < o.weight.denominator && -diff < o.weight.denominator).toBe(true);
       }
     }
+  });
+
+  describe('VC-X-30: the weight is the increase over the day before / acquiredShare (§28.1A)', () => {
+    const half = { numerator: 1, denominator: 2 };
+    const f = (numerator: bigint, denominator: bigint) => ({ numerator, denominator });
+
+    it('A 1/2 → 3/4 and new C — → 1/4 buying 1/2: weights 1/2 and 1/2, with shareBefore and acquiredShare per owner', () => {
+      const xa = own('xa', 'A', 3, 4);
+      const xc = own('xc', 'C', 1, 4);
+      const plan = planOwnerAllocation(
+        input({
+          acquisition: acquisition(['A', 'C'], { acquiredShare: half }),
+          own: [xa, xc],
+          onTransferDate: [xa, xc],
+          beforeTransferDate: [own('a', 'A', 1, 2, '2020-01-01', '2026-07-31')],
+        }),
+      );
+      if (plan.kind !== 'ALLOCATED') throw new Error(plan.kind);
+      expect(plan.owners.map((o) => [o.ownerPartyId, o.share, o.shareBefore, o.acquiredShare, o.weight])).toEqual([
+        ['A', f(3n, 4n), f(1n, 2n), f(1n, 4n), f(1n, 2n)],
+        ['C', f(1n, 4n), f(0n, 1n), f(1n, 4n), f(1n, 2n)],
+      ]);
+      expect(plan.owners.map((o) => o.purchasePrice.amount)).toEqual(['150000.00', '150000.00']);
+    });
+
+    it('A 1/2 → 1/1 buying 1/2: weight 1/1, not the Ownership share 1/1 over 1/2 (= 2/1)', () => {
+      const o3 = own('o3', 'A', 1, 1);
+      const plan = planOwnerAllocation(
+        input({
+          acquisition: acquisition(['A'], { acquiredShare: half }),
+          own: [o3],
+          onTransferDate: [o3],
+          beforeTransferDate: [own('o1', 'A', 1, 2, '2024-03-01', '2026-07-31')],
+        }),
+      );
+      expect(plan).toMatchObject({ kind: 'ALLOCATED', basis: 'CONFIRMED' });
+      if (plan.kind !== 'ALLOCATED') return;
+      expect(plan.owners[0]).toMatchObject({ share: f(1n, 1n), shareBefore: f(1n, 2n), acquiredShare: f(1n, 2n), weight: f(1n, 1n) });
+      expect(plan.owners[0]?.purchasePrice.amount).toBe('300000.00');
+    });
+
+    it('a CONFIRMED legacy workaround (A 1/2 → 1/1 confirmed as 1/1 before 0052) is OWNERSHIP_BASIS_INCOMPLETE, never split', () => {
+      const o3 = own('o3', 'A', 1, 1);
+      const plan = planOwnerAllocation(
+        input({ acquisition: acquisition(['A']), own: [o3], onTransferDate: [o3], beforeTransferDate: [own('o1', 'A', 1, 2, '2024-03-01', '2026-07-31')] }),
+      );
+      expect(plan).toEqual({
+        kind: 'OWNERSHIP_BASIS_INCOMPLETE',
+        violations: [
+          {
+            code: 'SHARE_SUM_MISMATCH',
+            expected: f(1n, 1n),
+            actual: f(1n, 2n),
+            byBuyer: [{ partyId: 'A', shareBefore: f(1n, 2n), share: f(1n, 1n), acquired: f(1n, 2n) }],
+          },
+        ],
+      });
+    });
+
+    it('a DRAFT is PROVISIONAL only with 5a and 5b: a buyer whose share does not rise is refused', () => {
+      const xa = own('xa', 'A', 1, 2);
+      const xc = own('xc', 'C', 1, 2);
+      const plan = planOwnerAllocation(
+        input({
+          acquisition: acquisition(['A', 'C'], { status: 'DRAFT', acquiredShare: half }),
+          own: [xa, xc],
+          onTransferDate: [xa, xc],
+          beforeTransferDate: [own('a', 'A', 1, 2, '2020-01-01', '2026-07-31')],
+        }),
+      );
+      expect(plan).toEqual({
+        kind: 'OWNERSHIP_BASIS_INCOMPLETE',
+        violations: [{ code: 'BUYER_SHARE_NOT_INCREASED', partyId: 'A', shareBefore: f(1n, 2n), share: f(1n, 2n) }],
+      });
+    });
+
+    it('property, with random predecessors: weights sum to 1, each = acquired / acquiredShare > 0, parts ≥ 0, columns exact', () => {
+      let seed = 20261031;
+      const random = (n: number) => {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) % n;
+      };
+      const gcdN = (a: number, b: number): number => (b === 0 ? a : gcdN(b, a % b));
+      const reduced = (n: number, d: number) => [n / gcdN(n, d), d / gcdN(n, d)] as const;
+      for (let round = 0; round < 300; round++) {
+        // acquiredShare = 1/2 over a denominator 2·den (≤ 10 000); acquired parts a_i > 0 summing to it; random
+        // predecessors b_i ≥ 0 with Σ b_i ≤ 1/2, so every buyer's share a_i + b_i ≤ 1.
+        const owners = 1 + random(12);
+        const den = Math.max(owners, 1 + random(5_000));
+        const cuts = new Set<number>();
+        while (cuts.size < owners - 1) cuts.add(1 + random(den - 1));
+        const points = [0, ...[...cuts].sort((x, y) => x - y), den];
+        let budget = den;
+        const rows = points.slice(1).map((p, i) => {
+          const a = p - (points[i] ?? 0);
+          const b = random(2) === 0 ? 0 : random(budget + 1);
+          budget -= b;
+          const owner = `p${String(i).padStart(2, '0')}`;
+          const [n, d] = reduced(a + b, 2 * den);
+          const before = b === 0 ? [] : [own(`b${i}`, owner, ...reduced(b, 2 * den), '2020-01-01', '2026-07-31')];
+          return { x: own(`o${i}`, owner, n, d), before, a };
+        });
+        const priceCents = BigInt(1 + random(1_000_000_000));
+        const plan = planOwnerAllocation(
+          input({
+            acquisition: acquisition(
+              rows.map((r) => r.x.ownerPartyId),
+              { acquiredShare: half, purchasePrice: fromCents(priceCents, 'EUR') },
+            ),
+            own: rows.map((r) => r.x),
+            onTransferDate: rows.map((r) => r.x),
+            beforeTransferDate: rows.flatMap((r) => r.before),
+          }),
+        );
+        if (plan.kind !== 'ALLOCATED') throw new Error(plan.kind);
+        const weights = plan.owners.map((o) => o.weight);
+        expect(weights.reduce((s, w) => ({ n: s.n * w.denominator + w.numerator * s.d, d: s.d * w.denominator }), { n: 0n, d: 1n })).toSatisfy(
+          (sum: { n: bigint; d: bigint }) => sum.n === sum.d,
+        );
+        for (const [i, o] of plan.owners.entries()) {
+          expect(o.weight.numerator > 0n).toBe(true);
+          // weight = acquired / acquiredShare = (a / 2·den) / (1/2) = a / den, reduced.
+          expect(o.weight.numerator * BigInt(den)).toBe(BigInt(rows[i]?.a ?? 0) * o.weight.denominator);
+          expect(toCents(o.purchasePrice) >= 0n).toBe(true);
+        }
+        expect(plan.owners.reduce((s, o) => s + toCents(o.purchasePrice), 0n)).toBe(priceCents);
+      }
+    });
   });
 });

@@ -106,6 +106,22 @@ export class OwnershipOfConfirmedAcquisitionError extends Error {
   }
 }
 
+/**
+ * The row ends the day before the owner's Ownership `successorOwnershipId`, which carries the `CONFIRMED` Acquisition:
+ * voiding, shortening or recording it would move that purchase's confirmed increase (→ 409 ACQUISITION_CONFIRMED with
+ * `{ acquisitionId, ownershipId }`, §28.1A).
+ */
+export class PredecessorOfConfirmedAcquisitionError extends Error {
+  override readonly name = 'PredecessorOfConfirmedAcquisitionError';
+
+  constructor(
+    readonly acquisitionId: string,
+    readonly successorOwnershipId: string,
+  ) {
+    super(`The next Ownership ${successorOwnershipId} of this owner carries the confirmed Acquisition ${acquisitionId}`);
+  }
+}
+
 /** The Acquisition is no longer a draft (→ 422 ACQUISITION_NOT_DRAFT, §27.1). */
 export class AcquisitionNotDraftError extends Error {
   override readonly name = 'AcquisitionNotDraftError';
@@ -156,6 +172,8 @@ export function createOwnership(deps: { readonly repository: OwnershipRepository
         throw new AcquisitionNotFoundError(outcome.acquisitionId);
       case 'ACQUISITION_NOT_DRAFT':
         throw new AcquisitionNotDraftError(outcome.acquisitionId, outcome.status);
+      case 'PREDECESSOR_OF_CONFIRMED':
+        throw new PredecessorOfConfirmedAcquisitionError(outcome.acquisitionId, outcome.ownershipId);
     }
   };
 }
@@ -187,6 +205,8 @@ export function closeOwnership(deps: { readonly repository: OwnershipRepository 
         throw new OwnershipNotFoundError(ownershipId);
       case 'INVALID_OWNERSHIP':
         throw new InvalidOwnershipError(ownershipId, outcome.reason);
+      case 'PREDECESSOR_OF_CONFIRMED':
+        throw new PredecessorOfConfirmedAcquisitionError(outcome.acquisitionId, outcome.ownershipId);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
@@ -211,6 +231,8 @@ export function voidOwnership(deps: { readonly repository: OwnershipRepository; 
         throw new OwnershipNotFoundError(ownershipId);
       case 'ACQUISITION_CONFIRMED':
         throw new OwnershipOfConfirmedAcquisitionError(ownershipId, outcome.acquisitionId);
+      case 'PREDECESSOR_OF_CONFIRMED':
+        throw new PredecessorOfConfirmedAcquisitionError(outcome.acquisitionId, outcome.ownershipId);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
     }
@@ -282,6 +304,8 @@ export function changeOwnership(deps: { readonly repository: OwnershipChangeRepo
         throw new AcquisitionNotFoundError(outcome.acquisitionId);
       case 'ACQUISITION_NOT_DRAFT':
         throw new AcquisitionNotDraftError(outcome.acquisitionId, outcome.status);
+      case 'PREDECESSOR_OF_CONFIRMED':
+        throw new PredecessorOfConfirmedAcquisitionError(outcome.acquisitionId, outcome.ownershipId);
     }
   };
 }

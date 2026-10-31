@@ -20,9 +20,10 @@ import {
   type OwnershipPage,
   type OwnershipRepository,
   type OwnershipStatus,
+  type PredecessorRefusal,
   type VoidOwnershipOutcome,
 } from '../../domains/ownership/index.js';
-import { checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
+import { addDays, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import type { Database } from './schema.js';
@@ -125,6 +126,8 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
           if (owner.status !== 'ACTIVE') throw new Rejected<CreateOwnershipOutcome>({ kind: 'PARTY_INACTIVE' });
           const acquisitionRefusal = await checkAcquisition(trx, ownership.acquisitionId, ownership.mreRealmId, ownership.propertyReferenceId);
           if (acquisitionRefusal !== undefined) throw new Rejected<CreateOwnershipOutcome>(acquisitionRefusal);
+          const predecessorRefusal = await checkPredecessors(trx, [{ ...ownership, status: 'VALID' }]);
+          if (predecessorRefusal !== undefined) throw new Rejected<CreateOwnershipOutcome>(predecessorRefusal);
           const violation = checkInvariants(await ownershipsOf(trx, ownership.propertyReferenceId), ownership);
           if (violation !== undefined) throw new Rejected<CreateOwnershipOutcome>(violation);
 
@@ -229,6 +232,13 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
           }
           const acquisitionRefusal = await checkAcquisition(trx, change.acquisitionId, change.mreRealmId, change.propertyReferenceId);
           if (acquisitionRefusal !== undefined) throw new Rejected<ChangeOwnershipOutcome>(acquisitionRefusal);
+          // §28.1A: a listed Ownership whose end moves must not be the predecessor of a confirmed purchase. The
+          // Acquisitions are written after the Ownership locks here, as `checkAcquisition`'s; the PropertyReference
+          // taken first serialises every writer of these rows anyway.
+          const lastDay = addDays(change.effectiveDate, -1);
+          const moving = existing.filter((o) => change.close.includes(o.id) && o.status === 'VALID' && o.validUntil !== null && o.validUntil !== lastDay);
+          const predecessorRefusal = await checkPredecessors(trx, moving);
+          if (predecessorRefusal !== undefined) throw new Rejected<ChangeOwnershipOutcome>(predecessorRefusal);
           if (plan.kind === 'UNCHANGED') {
             // Nothing written; the key claim is rolled back with it, so a retry with the key answers the same no-op.
             throw new Rejected<ChangeOwnershipOutcome>({ kind: 'UNCHANGED', result: resultOf(change, existing, change.close, []) });
@@ -318,11 +328,16 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
       .setIsolationLevel('read committed')
       .execute(async (trx): Promise<CloseOwnershipOutcome> => {
         await touchPropertyReferenceOf(trx, id, mreRealmId);
+        // §28.1A: the Acquisition of the owner's next Ownership is written before the row is locked (PropertyReference
+        // → Acquisition → Ownership); the row's owner and PropertyReference never change, and its end changes only
+        // under the PropertyReference held here.
+        const predecessorRefusal = await checkPredecessors(trx, await unlockedRow(trx, id, mreRealmId));
         const current = await lockAndRead(trx, id, mreRealmId);
         if (current === undefined) return { kind: 'NOT_FOUND' };
         const plan = planClose(current, validUntil);
         if (plan.kind === 'UNCHANGED') return { kind: 'CLOSED', ownership: current, changed: false };
         if (plan.kind === 'INVALID_OWNERSHIP') return plan;
+        if (predecessorRefusal !== undefined) return predecessorRefusal;
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
         // Shortening never raises a sum; the invariant trigger checks (and serialises) anyway.
@@ -346,12 +361,7 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
         await touchPropertyReferenceOf(trx, id, mreRealmId);
         // Lock order PropertyReference → Acquisition → Ownership (§28.1): its Acquisition is written (a no-op) before the
         // row is locked, so a running confirm is waited for and seen; its id never changes, so reading it first is safe.
-        const linked = await trx
-          .selectFrom('ownership')
-          .select('acquisition_id')
-          .where('id', '=', id)
-          .where('mre_realm_id', '=', mreRealmId)
-          .executeTakeFirst();
+        const linked = await trx.selectFrom('ownership').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
         const acquisitionId = linked?.acquisition_id ?? null;
         const acquisition =
           acquisitionId === null
@@ -362,11 +372,14 @@ export class PostgresOwnershipRepository implements OwnershipRepository, Ownersh
                 .where('id', '=', acquisitionId)
                 .returning('status')
                 .executeTakeFirst();
+        // §28.1A: then the Acquisition of the owner's next Ownership, still before the row lock.
+        const predecessorRefusal = await checkPredecessors(trx, linked === undefined ? [] : [toOwnership(linked)]);
         const current = await lockAndRead(trx, id, mreRealmId);
         if (current === undefined) return { kind: 'NOT_FOUND' };
         const plan = planVoid(current, reason, at);
         if (plan.kind === 'UNCHANGED') return { kind: 'VOIDED', ownership: current, changed: false };
         if (acquisitionId !== null && acquisition?.status === 'CONFIRMED') return { kind: 'ACQUISITION_CONFIRMED', acquisitionId };
+        if (predecessorRefusal !== undefined) return predecessorRefusal;
         const conflict = checkVersion(current.version, expectedVersions);
         if (conflict !== undefined) return conflict;
         await trx
@@ -461,6 +474,57 @@ async function checkAcquisition(
   if (acquisition === undefined) return { kind: 'ACQUISITION_NOT_FOUND', acquisitionId };
   if (acquisition.status !== 'DRAFT') return { kind: 'ACQUISITION_NOT_DRAFT', acquisitionId, status: acquisition.status };
   return undefined;
+}
+
+/**
+ * §28.1A guard, as the trigger `ownership_predecessor_of_confirmed` of 0052: a `VALID` row of an owner ending on a day
+ * is the predecessor of that owner's `VALID` Ownership starting the next day. When that one carries an Acquisition, the
+ * Acquisition's row is written (the no-op of 0022, in id order), so a concurrent confirm is waited for and seen, and a
+ * `CONFIRMED` one refuses the void, shortening or creation of the predecessor. A `DRAFT` one is touched and allowed.
+ */
+async function checkPredecessors(
+  trx: Transaction<Database>,
+  rows: readonly Pick<Ownership, 'propertyReferenceId' | 'ownerPartyId' | 'validUntil' | 'status'>[],
+): Promise<PredecessorRefusal | undefined> {
+  const ends = rows.filter((r) => r.status === 'VALID' && r.validUntil !== null);
+  if (ends.length === 0) return undefined;
+  const successors = await trx
+    .selectFrom('ownership')
+    .select(['id', 'acquisition_id'])
+    .where('status', '=', 'VALID')
+    .where('acquisition_id', 'is not', null)
+    .where((eb) =>
+      eb.or(
+        ends.map((r) =>
+          eb.and([
+            eb('property_reference_id', '=', r.propertyReferenceId),
+            eb('owner_party_id', '=', r.ownerPartyId),
+            eb('valid_from', '=', addDays(r.validUntil as BusinessDate, 1)),
+          ]),
+        ),
+      ),
+    )
+    .orderBy('acquisition_id')
+    .orderBy('id')
+    .execute();
+  let refusal: PredecessorRefusal | undefined;
+  for (const successor of successors) {
+    const acquisitionId = successor.acquisition_id as string;
+    const acquisition = await trx
+      .updateTable('acquisition')
+      .set((eb) => ({ version: eb.ref('version') }))
+      .where('id', '=', acquisitionId)
+      .returning('status')
+      .executeTakeFirst();
+    if (refusal === undefined && acquisition?.status === 'CONFIRMED') refusal = { kind: 'PREDECESSOR_OF_CONFIRMED', acquisitionId, ownershipId: successor.id };
+  }
+  return refusal;
+}
+
+/** The Ownership as committed, without a lock; `[]` for an unknown or foreign id. */
+async function unlockedRow(trx: Transaction<Database>, id: string, mreRealmId: string): Promise<Ownership[]> {
+  const row = await trx.selectFrom('ownership').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
+  return row === undefined ? [] : [toOwnership(row)];
 }
 
 /** The PropertyReference's Ownerships, `VOID` ones included (the domain ignores them); a new statement each call. */

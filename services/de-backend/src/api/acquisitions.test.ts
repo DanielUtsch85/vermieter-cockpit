@@ -26,6 +26,8 @@ const ID = '0b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const PR = '1b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const BUYER = '2b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const SELLER = '3b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
+/** A buyer who already held a share (§28.1A). */
+const CO_BUYER = '4b6f1f9e-2f2c-4a8e-9d55-1f0d8c1e2a3b';
 const acquisition = {
   id: ID,
   mreRealmId: REALM,
@@ -169,7 +171,27 @@ describe('POST /api/v1/acquisitions/{id}/confirm', () => {
       new AcquisitionCancelledError(ID),
       new ConfirmationBlockedError(ID, [
         { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: BUYER },
-        { code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 2n }, actual: { numerator: 3n, denominator: 8n } },
+        // §28.1A: 5a, then 5b with byBuyer.
+        { code: 'BUYER_SHARE_NOT_INCREASED', partyId: CO_BUYER, shareBefore: { numerator: 1n, denominator: 2n }, share: { numerator: 1n, denominator: 2n } },
+        {
+          code: 'SHARE_SUM_MISMATCH',
+          expected: { numerator: 1n, denominator: 2n },
+          actual: { numerator: 3n, denominator: 8n },
+          byBuyer: [
+            {
+              partyId: CO_BUYER,
+              shareBefore: { numerator: 1n, denominator: 2n },
+              share: { numerator: 1n, denominator: 2n },
+              acquired: { numerator: 0n, denominator: 1n },
+            },
+            {
+              partyId: BUYER,
+              shareBefore: { numerator: 0n, denominator: 1n },
+              share: { numerator: 3n, denominator: 8n },
+              acquired: { numerator: 3n, denominator: 8n },
+            },
+          ],
+        },
         { code: 'OWNERSHIP_INCOMPLETE', date: '2026-08-01' as never, shareSum: { numerator: 1n, denominator: 8n } },
       ]),
       new VersionConflictError([1], 2),
@@ -201,7 +223,16 @@ describe('POST /api/v1/acquisitions/{id}/confirm', () => {
       details: {
         violations: [
           { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: BUYER },
-          { code: 'SHARE_SUM_MISMATCH', expected: '1/2', actual: '3/8' },
+          { code: 'BUYER_SHARE_NOT_INCREASED', partyId: CO_BUYER, shareBefore: '1/2', share: '1/2' },
+          {
+            code: 'SHARE_SUM_MISMATCH',
+            expected: '1/2',
+            actual: '3/8',
+            byBuyer: [
+              { partyId: CO_BUYER, shareBefore: '1/2', share: '1/2', acquired: '0/1' },
+              { partyId: BUYER, shareBefore: '0/1', share: '3/8', acquired: '3/8' },
+            ],
+          },
           { code: 'OWNERSHIP_INCOMPLETE', date: '2026-08-01', shareSum: '1/8' },
         ],
       },

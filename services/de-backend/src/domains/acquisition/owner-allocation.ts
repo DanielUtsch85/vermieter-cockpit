@@ -1,10 +1,18 @@
 import { Money } from '../../shared/index.js';
-import { structureViolations, type Acquisition, type ConfirmationOwnership, type ConfirmationViolation, type ExactFraction } from './acquisition.js';
+import {
+  buyerIncreases,
+  structureViolations,
+  type Acquisition,
+  type ConfirmationOwnership,
+  type ConfirmationViolation,
+  type ExactFraction,
+} from './acquisition.js';
 import type { CostCategory } from './cost.js';
 
 /**
  * Owner-level allocation (api-design.md §27.4, phase-2-plan P2-D10, data-model §61): the Acquisition split among its
- * own buyers by weight = share / acquiredShare. Each amount (price, each cost category, land, building) is split into
+ * own buyers by weight = acquired share / acquiredShare, the acquired share being the buyer's increase over the day
+ * before the transfer date (§28.1A; the full share for a buyer who held nothing). Each amount (price, each cost category, land, building) is split into
  * cents separately by largest remainder, ties by `ownerPartyId`; totals are derived from the parts, never distributed
  * (F4b). Everything is exact: cents and fractions as bigint, no floating point.
  */
@@ -15,6 +23,10 @@ export interface OwnerAllocationInput {
   readonly acquisition: Acquisition;
   /** The `VALID` Ownerships carrying the Acquisition's id. */
   readonly own: readonly ConfirmationOwnership[];
+  /** The buyers' `VALID` Ownerships covering the transfer date (§28.1A). */
+  readonly onTransferDate: readonly ConfirmationOwnership[];
+  /** The buyers' `VALID` Ownerships covering the day before the transfer date (§28.1A). */
+  readonly beforeTransferDate: readonly ConfirmationOwnership[];
   /** Sum of the `ACTIVE` costs' expected amounts per category; categories without costs absent. */
   readonly costs: ReadonlyMap<CostCategory, Money>;
   /** The current land/building allocation, or `null`. */
@@ -24,7 +36,12 @@ export interface OwnerAllocationInput {
 export interface OwnerPart {
   readonly ownerPartyId: string;
   readonly ownershipId: string;
+  /** The share of the Ownership carrying the Acquisition. */
   readonly share: ExactFraction;
+  /** `held_P(d − 1)`, `0/1` when none (§28.1A). */
+  readonly shareBefore: ExactFraction;
+  /** `held_P(d) − held_P(d − 1)`; the weight is derived from it. */
+  readonly acquiredShare: ExactFraction;
   readonly weight: ExactFraction;
   readonly purchasePrice: Money;
   readonly costs: ReadonlyMap<CostCategory, Money>;
@@ -52,7 +69,10 @@ export type OwnerAllocationPlan =
       readonly totals: AllocationTotals;
     }
   | { readonly kind: 'ACQUISITION_CANCELLED' }
-  /** A `DRAFT` whose Ownerships do not yet meet requirements 2–5 of §28.1. */
+  /**
+   * Ownerships not meeting requirements 2–5 of §28.1 (5 as §28.1A): a `DRAFT` under way, or a `CONFIRMED` one confirmed
+   * before migration 0052 under the full-share rule whose buyer already held a share (the legacy `1/1` workaround).
+   */
   | { readonly kind: 'OWNERSHIP_BASIS_INCOMPLETE'; readonly violations: readonly ConfirmationViolation[] };
 
 const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? (a < 0n ? -a : a) : gcd(b, a % b));
@@ -102,18 +122,20 @@ export function fromCents(cents: bigint, currency: string): Money {
 export function planOwnerAllocation(input: OwnerAllocationInput): OwnerAllocationPlan {
   const { acquisition } = input;
   if (acquisition.status === 'CANCELLED') return { kind: 'ACQUISITION_CANCELLED' };
-  if (acquisition.status === 'DRAFT') {
-    // The same structure check as confirmation (requirements 2–5), so PROVISIONAL means "would hold as confirmed".
-    const violations = structureViolations(acquisition, input.own);
-    if (violations.length > 0) return { kind: 'OWNERSHIP_BASIS_INCOMPLETE', violations };
-  }
+  // The same structure check as confirmation (requirements 2–5), so PROVISIONAL means "would hold as confirmed". A
+  // CONFIRMED one is checked too: one confirmed before 0052 may fail 5a/5b, and its weights would not sum to 1.
+  const violations = structureViolations(acquisition, input.own, input.onTransferDate, input.beforeTransferDate);
+  if (violations.length > 0) return { kind: 'OWNERSHIP_BASIS_INCOMPLETE', violations };
   const currency = acquisition.purchasePrice.currency;
   const acquired = { numerator: BigInt(acquisition.acquiredShare.numerator), denominator: BigInt(acquisition.acquiredShare.denominator) };
+  // Requirements 2–5 hold: one Ownership per buyer, every increase > 0, and the increases sum to `acquiredShare`.
+  const increases = new Map(buyerIncreases(acquisition, input.own, input.onTransferDate, input.beforeTransferDate).map((b) => [b.partyId, b]));
   const owners = [...input.own]
     .sort((x, y) => (x.ownerPartyId < y.ownerPartyId ? -1 : x.ownerPartyId > y.ownerPartyId ? 1 : 0))
     .map((o) => {
       const share = { numerator: BigInt(o.share.numerator), denominator: BigInt(o.share.denominator) };
-      return { o, share, weight: reduce(share.numerator * acquired.denominator, share.denominator * acquired.numerator) };
+      const { shareBefore, acquired: bought } = increases.get(o.ownerPartyId) as { shareBefore: ExactFraction; acquired: ExactFraction };
+      return { o, share, shareBefore, bought, weight: reduce(bought.numerator * acquired.denominator, bought.denominator * acquired.numerator) };
     });
   const weights = owners.map(({ o, weight }) => ({ key: o.ownerPartyId, weight }));
   const split = (amount: Money) => largestRemainder(toCents(amount), weights);
@@ -124,7 +146,7 @@ export function planOwnerAllocation(input: OwnerAllocationInput): OwnerAllocatio
   const land = input.allocation === null ? null : split(input.allocation.landAmount);
   const building = input.allocation === null ? null : split(input.allocation.buildingAmount);
 
-  const parts: OwnerPart[] = owners.map(({ o, share, weight }) => {
+  const parts: OwnerPart[] = owners.map(({ o, share, shareBefore, bought, weight }) => {
     const key = o.ownerPartyId;
     const costs = new Map(categories.map((category) => [category, costParts.get(category)?.get(key) ?? 0n]));
     const costsTotal = [...costs.values()].reduce((sum, c) => sum + c, 0n);
@@ -134,6 +156,8 @@ export function planOwnerAllocation(input: OwnerAllocationInput): OwnerAllocatio
       ownerPartyId: key,
       ownershipId: o.id,
       share: reduce(share.numerator, share.denominator),
+      shareBefore,
+      acquiredShare: bought,
       weight,
       purchasePrice: fromCents(price.get(key) ?? 0n, currency),
       costs: new Map([...costs].map(([category, cents]) => [category, fromCents(cents, currency)])),
