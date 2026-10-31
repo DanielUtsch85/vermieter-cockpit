@@ -6883,7 +6883,7 @@ VC-8-02 adds the edges Depreciation → Acquisition, Depreciation → Ownership 
 ### The start and the first year (P8-D5; B6)
 
 - **The start date** is the Acquisition's `transferDate` (§27.1, P2-D6): `economicTransferDate`, the transfer of economic ownership (Nutzen und Lasten, B6; depreciation.md §5).
-- **Without `economicTransferDate`**, `transferDate` is the `contractDate`, and the component carries `TRANSFER_DATE_ASSUMED` (open) with `details: { contractDate }`. The assumption is never silent (P8-D5).
+- **Without `economicTransferDate`**, `transferDate` is the `contractDate`, and the component carries `TRANSFER_DATE_ASSUMED` (open) with `details: { contractDate }`. The assumption is never silent (P8-D5). **Superseded (decided 2026-10-31, second set; api-design §59A open question 6):** not computable, `TRANSFER_DATE_MISSING`; implemented by VC-X-33 (until then the code still flags `TRANSFER_DATE_ASSUMED`).
 - **The start month counts in full** (§ 7 Abs. 1 S. 4 EStG: less 1/12 for each **full** month before the month of acquisition; B6). The first year therefore has 13 − (start month) twelfths: a transfer on 1 January gives 12/12 of that year and nothing of the year before, one in April 9/12 (depreciation.md §5), one in July 6/12, one on 31 December 1/12.
 - **The year of AfA** is the calendar year of the months it covers (P8-D5). § 11 EStG and the 10-day rule do not apply.
 
