@@ -2056,7 +2056,7 @@ Rule versions used in historical calculations must remain addressable.
 
 **VC-8-01 (P8-D11, api-design §59, implemented: migration 0049):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed) is a module of the Depreciation domain, registered in the same registry. The registry (`RuleRegistry` and `rule-version.ts` in `shared/`) is composed as `TAX_RULES` in `domains/tax-rules/`, above both domains, from the versions each domain exports (api-design §59). Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule, and so is each band's threshold of the shorter useful life (`shorterThanYears`: 33 / 50 / 40 years, § 7 Abs. 4 S. 2 EStG; verified against the official text on 30.10.2026). No table stores them, and the asset stores no rule reference.
 
-**VC-8-04 (P8-D10, api-design §60, specified; migration 0051 planned):** a recorded schedule version (§39) stores each `ruleCode@version` it applied with the SHA-256 hash of the version's parameters. `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` are frozen with VC-8-04's implementation: a change is a new version, and only `effectiveTo` is set once when a successor starts. The start check reads the recorded references too and refuses to start on an unregistered version or a stored hash that differs from the registry's.
+**VC-8-04 (P8-D10, api-design §60, specified; migration 0051 planned):** a recorded schedule version (§39) stores each `ruleCode@version` it applied with the SHA-256 hash of the rule version (`ruleVersionHash`: every field but `effectiveTo` and the derived `status`, i.e. `title`, `legalBasis`, `effectiveFrom`, `parameters` and `source` included; computed through a port, with `node:crypto` in `infrastructure/` only). `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` are frozen with VC-8-04's implementation: a change of any hashed field is a new version, and only `effectiveTo` is set once when a successor starts. The start check reads the recorded references too and refuses to start on an unregistered version or a stored hash that differs from the registry's.
 
 ---
 
@@ -2151,7 +2151,7 @@ A person's record of the derived schedule of one `DepreciationAsset` for every y
 
 ## Rows (AGENTS.md §28: no blob)
 
-- **rule versions:** `ruleCode`, `version`, `parametersHash`, first and last year (replaces `taxRuleVersionId`);
+- **rule versions:** `ruleCode`, `version`, `ruleVersionHash`, first and last year (replaces `taxRuleVersionId`);
 - **components:** `componentId`, `kind` (`ACQUISITION`, `CAPITALIZED_ITEM`), basis, start, rate source; a purchase's `acquisitionId`, price, counted and excluded cost ids and totals, `allocationId` with its amounts and review state; an item's `sourceType`, `sourceId`, `sourcePosition`, `classificationId`, its date, tax year and signed `lineAmount`;
 - **owner parts:** per component, `OWNER:{partyId}` or `NOT_OWNED`, the Ownership ids, share, weight, basis, first month, tenure start and end, and the still-held fractions as rows of their own;
 - **years:** amount, residual value, and the year's input and output fingerprints;
@@ -2161,8 +2161,8 @@ A person's record of the derived schedule of one `DepreciationAsset` for every y
 
 ## Invariants
 
-- **Append-only:** no row of a version is updated or deleted; the only change is the step `CURRENT` → `SUPERSEDED` when a newer version of the same asset is recorded, in the same transaction. Child rows are inserted only in the transaction that inserted their version (migration 0051's guards).
-- **Reproducible:** recomputing the entries from the stored inputs with the stored rule versions gives the stored entries exactly, and each stored parameter hash equals the registry's; otherwise the read flags `RECORDED_VERSION_NOT_REPRODUCIBLE` (open), and a hash mismatch stops the backend's start.
+- **Append-only:** no row of a version is updated or deleted; the only change is the step `CURRENT` → `SUPERSEDED` when a newer version of the same asset is recorded, in the same transaction. Child rows are inserted only in the transaction that inserted their version, checked against the version's stored `created_txid` (`txid_current()` at its insert), never its `xmin`, which the supersede step changes (migration 0051's guards).
+- **Reproducible:** recomputing the entries from the stored inputs with the stored rule versions gives the stored entries exactly, and each stored rule-version hash equals the registry's; otherwise the read flags `RECORDED_VERSION_NOT_REPRODUCIBLE` (open), and a hash mismatch stops the backend's start.
 - **Recorded only with figures:** every year of the run has a computed AfA (no not-computable component); the inputs come from one `REPEATABLE READ` snapshot.
 - **Coverage never shrinks:** a new version's `throughYear` is at least the current one's, and a recorded year whose figures it changes is named by the person (`acceptChangedYears`).
 - **Compared, never applied:** a year of the asset with an active component is `NOT_RECORDED` (no current version covers it), `UNCHANGED` or `CHANGED_SINCE_RECORDED`; the first and the last are open flags of the schedule and of the tax-year view (`DEPRECIATION_SCHEDULE_NOT_RECORDED`, `DEPRECIATION_CHANGED_SINCE_RECORDED`), so a year is final only once every asset's AfA of it is recorded and unchanged (P8-D12).
