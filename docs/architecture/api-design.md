@@ -6050,6 +6050,7 @@ Line = { line, taxCategory, total, itemCount, subtotals, items: [Item] | [AfaIte
 - **Interest via a Loan** (ACC7's debit): `LOAN_INTEREST_NOT_ATTRIBUTED` keeps its year from being final after the AfA is recorded. Since §58D (VC-X-29) is implemented, ACC7's debit is attributed (its Loan is allocated `MANUAL` `1/1` from 2026-03-15); this step uses ACC7's second Loan debit (120.00 on 2027-09-20, before its Loan's first set from 2027-10-01), which keeps the flag.
 - **Mutations of ACC8** that this section serves: "`result.basis` left at `BEFORE_DEPRECIATION`, or the AfA not subtracted", "a capitalised item left in the Werbungskosten as well".
 - **invariant-suite, VC-8-05's section** maps: the result moved by exactly the AfA; owners + `NOT_OWNED` = the property including the AfA; `final` only without an open flag; the view and the schedule from one snapshot; no AfA as cash.
+- **As implemented (VC-8-06):** ACC8 is `phase-8-acceptance.e2e.test.ts` (invariant-suite §51) with these steps on its own fixture through the API, the Einbauküche included and an odd-cent item of 1,234.56 on 2027-12-30, so its 2027 is 5,826.69 + 450.00 (not 5,802.00); 2026 final after recording, 2027 and 2028 open by `SUBSEQUENT_COST_START_TO_VERIFY` alone; the Loan step a 120.00 debit before the Loan's first set (2026-09-20, set from 2026-10-01). Both mutations of this section turn it red.
 
 #### Open questions for review
 
