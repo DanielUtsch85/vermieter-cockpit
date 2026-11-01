@@ -162,6 +162,7 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 
 - Bug fixes ship a regression test. Never weaken/delete a test to make a change pass.
 - Prefer deterministic tests; no reliance on wall-clock or timezone of the host.
+- **Timeouts under load.** The suite runs at Vitest's default parallelism, locally and in CI; tests are never skipped or quarantined for being slow. A database test file migrates a fresh schema in its `beforeAll`. Migrations run one at a time (`MIGRATION_ADVISORY_LOCK`), and Kysely's `Migrator` introspects every schema of the database, so a hook waits for the other workers' migrations and gets slower with each schema present. Hence `hookTimeout: 30_000` in `vitest.config.ts`. A test that migrates in its body, or runs a `down` under the lock, declares `{ timeout: 30_000 }`; any other test slower than about 1 s on its own (e.g. a large property run) declares its own timeout, with a comment saying why. Schemas left behind by aborted runs slow every migration. To clear them, use a fresh test database, or drop the `*_test_*`/`*_e2e_*` schemas while no run is active.
 
 ---
 
