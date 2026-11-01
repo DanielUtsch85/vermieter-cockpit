@@ -201,6 +201,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`CREATE INDEX tax_classification_construction_period_idx ON tax_classification (construction_period_interest_id) WHERE construction_period_interest_id IS NOT NULL`.execute(
     db,
   );
+  // The current classifications naming a record (the conditions' read of mixed treatment, §59E), beside every one (the record's read).
+  await sql`
+    CREATE INDEX tax_classification_construction_period_current ON tax_classification (construction_period_interest_id)
+      WHERE construction_period_interest_id IS NOT NULL AND superseded_at IS NULL
+  `.execute(db);
 
   await sql`
     CREATE FUNCTION tax_classification_construction_period() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -307,6 +312,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
   await sql`DROP TRIGGER tax_classification_construction_period ON tax_classification`.execute(db);
   await sql`DROP FUNCTION tax_classification_construction_period_fixed()`.execute(db);
   await sql`DROP FUNCTION tax_classification_construction_period()`.execute(db);
+  await sql`DROP INDEX tax_classification_construction_period_current`.execute(db);
   await sql`DROP INDEX tax_classification_construction_period_idx`.execute(db);
   await treatmentRuleCheck(db, false);
   await sql`

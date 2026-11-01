@@ -1,8 +1,11 @@
+import { Kysely, PostgresDialect, type CompiledQuery } from 'kysely';
 import { describe, expect, it } from 'vitest';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { buildTaxYearView, type TaxYearView } from '../../domains/taxation/index.js';
 import { capitalizedItemsIn } from './capitalized-items.js';
 import { REALM, OTHER_REALM, actor, databaseUrl, day, facts, useConstructionDatabase } from './construction-period.test-support.js';
+import type { Database } from './schema.js';
+import { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import { capitalizedSources, readTaxYear, taxYearSnapshot } from './tax-year-reads.js';
 
 /**
@@ -10,7 +13,8 @@ import { capitalizedSources, readTaxYear, taxYearSnapshot } from './tax-year-rea
  * Realm isolation; a classification's five checks through the repository, each refusal leaving cash, classification and
  * record unchanged; the two disjoint reads of the capitalised sources (a PropertyReference's split and a Loan's split
  * each once, P's part per PropertyReference, a classification superseded twice one source); the adapter refusing a
- * source read twice; the view's one snapshot. Synthetic data.
+ * source read twice; the view's one snapshot; the plans of the new queries (the pattern of `tax-year-depreciation.test.ts`).
+ * Synthetic data.
  */
 const today = day('2029-10-15');
 
@@ -267,6 +271,81 @@ describe.skipIf(databaseUrl === undefined)('construction-period records and capi
     // The classification committed before the void names a record now VOID: no source (RECORD_VOID).
     expect((await ctx.records.find(other.id, REALM))?.classifications.map((c) => c.splitId)).toEqual([second]);
   });
+
+  it(
+    'the plans of the second read of Loan interest and of the construction-period conditions inside the view snapshot use their indexes',
+    { timeout: 60_000 },
+    async () => {
+      const pr = await ctx.propertyReference();
+      await ctx.owner(pr, await ctx.party('Eigentümerin'), [1, 1]);
+      const { loanId } = await ctx.loan([[pr, 1n, 1n]]);
+      const record = await ctx.record(facts([pr], { loanId }));
+      const {
+        splitIds: [split],
+      } = await ctx.booked([ctx.split('100.00', 'LOAN_INTEREST', { loanId })], '2028-03-31');
+      await ctx.classify(split as string, { constructionPeriodInterestId: record.id });
+      // Real statistics: 3,000 classifications of repairs on another PropertyReference, naming no record (as the §58D plans).
+      const other = await ctx.propertyReference();
+      const giro = (await ctx.pool.query(`SELECT id FROM financial_account WHERE mre_realm_id = $1 LIMIT 1`, [REALM])).rows[0].id as string;
+      await ctx.pool.query(
+        `WITH t AS (INSERT INTO ledger_transaction (mre_realm_id, financial_account_id, amount, currency, direction, booking_date, provenance, status, created_by)
+         SELECT $1, $2, 1, 'EUR', 'OUTFLOW', date '2027-03-01' + (g % 200), 'MANUAL', 'UNREVIEWED', 'x' FROM generate_series(1, 3000) g RETURNING id)
+       INSERT INTO transaction_split (transaction_id, mre_realm_id, position, amount, currency, financial_category_id, property_reference_id, created_by)
+       SELECT t.id, $1, 1, 1, 'EUR', (SELECT id FROM financial_category WHERE code = 'MAINTENANCE'), $3, 'x' FROM t`,
+        [REALM, giro, other],
+      );
+      await ctx.pool.query(
+        `UPDATE ledger_transaction SET status = 'CONFIRMED', confirmed_at = now(), confirmed_by = 'x', version = version + 1
+        WHERE status = 'UNREVIEWED' AND id IN (SELECT transaction_id FROM transaction_split WHERE property_reference_id = $1)`,
+        [other],
+      );
+      await ctx.pool.query(
+        `INSERT INTO tax_classification (mre_realm_id, source_type, transaction_split_id, tax_category, treatment, review_state, rule_code, rule_version, created_by)
+       SELECT $1, 'TRANSACTION_SPLIT', s.id, 'MAINTENANCE', 'DEDUCTIBLE', 'USER_CONFIRMED', 'DE_CATEGORY_DEFAULTS', 1, 'x' FROM transaction_split s WHERE s.property_reference_id = $2`,
+        [REALM, other],
+      );
+      await ctx.pool.query('ANALYZE');
+      const sent: CompiledQuery[] = [];
+      const logged = new Kysely<Database>({ dialect: new PostgresDialect({ pool: ctx.pool }), log: (e) => void (e.level === 'query' && sent.push(e.query)) });
+      await new PostgresTaxClassificationRepository(logged).readTaxYear(pr, REALM, 2028, null, today);
+      /** The plan of the first statement sent that matches, with seq scans off; `without` drops an index in a rolled-back transaction. */
+      const planOf = async (match: (sql: string) => boolean, without?: string) => {
+        const query = sent.find((q) => match(q.sql));
+        if (query === undefined) throw new Error('query not sent');
+        const client = await ctx.pool.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query('SET LOCAL enable_seqscan = off');
+          if (without !== undefined) await client.query(`DROP INDEX ${without}`);
+          return JSON.stringify((await client.query(`EXPLAIN (FORMAT JSON) ${query.sql}`, [...query.parameters])).rows[0]['QUERY PLAN']);
+        } finally {
+          await client.query('ROLLBACK');
+          client.release();
+        }
+      };
+      // (a) The second read: the Loans' interest splits of the Loans whose VALID sets name P, every year.
+      const loanRead = (q: string) => q.includes('"la"."property_reference_id" = $') && q.includes('"c"."code" = $') && q.includes('"treatment" = $');
+      const loanPlan = await planOf(loanRead);
+      expect(loanPlan).toContain('transaction_split_loan_idx');
+      // The entries by the PropertyReference (0026's loan_allocation_property_reference_idx) or, from the set side, by the
+      // unique (set_id, property_reference_id) of 0026: whichever the planner prices lower (as §58D's plans).
+      expect(loanPlan).toMatch(/"loan_allocation_(property_reference_idx|property)"/);
+      // (b) The conditions: the current classification of each split, the current classifications naming a record, and the
+      // interest of the split's Transaction (the record and its PropertyReferences are read by their primary keys).
+      const links = (q: string) => q.includes('"construction_period_interest_id" from "tax_classification"') && q.includes('"superseded_at" is null');
+      // By the split (the current classification's unique index, or the history's by split): never a scan of the table.
+      expect(await planOf(links)).toMatch(/"tax_classification_(current|split_idx)"/);
+      const naming = (q: string) => q.includes('"tc"."construction_period_interest_id" in');
+      // The current classifications naming the records (0055's partial index for exactly this read).
+      expect(await planOf(naming)).toContain('tax_classification_construction_period_current');
+      const transactionInterest = (q: string) => q.includes('select "s"."id", "s"."transaction_id", "s"."loan_id", "s"."property_reference_id", "c"."code"');
+      expect(await planOf(transactionInterest)).toContain('transaction_split_position_key');
+      // Counter-checks: without the index the plan names it no more (the assertions above are not vacuous).
+      expect(await planOf(loanRead, 'transaction_split_loan_idx')).not.toContain('transaction_split_loan_idx');
+      const dropped = 'tax_classification_construction_period_current';
+      expect(await planOf(naming, dropped)).not.toContain(dropped);
+    },
+  );
 
   it('one snapshot: a record confirmed between the view’s own reads and the AfA’s is seen by neither', async () => {
     const pr = await ctx.propertyReference();

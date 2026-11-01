@@ -217,6 +217,17 @@ describe.skipIf(databaseUrl === undefined)('migration 0055 past the repository (
     );
   });
 
+  it('the indexes of the conditions’ reads: the current classifications naming a record (partial), every classification naming one', async () => {
+    const { rows } = await ctx.pool.query(
+      `SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = current_schema() AND indexname LIKE 'tax_classification_construction_period%' ORDER BY indexname`,
+    );
+    expect(rows.map((r) => r.indexname)).toEqual(['tax_classification_construction_period_current', 'tax_classification_construction_period_idx']);
+    expect(rows[0].indexdef).toMatch(
+      /\(construction_period_interest_id\) WHERE \(\(construction_period_interest_id IS NOT NULL\) AND \(superseded_at IS NULL\)\)/,
+    );
+    expect(rows[1].indexdef).toMatch(/\(construction_period_interest_id\) WHERE \(construction_period_interest_id IS NOT NULL\)$/);
+  });
+
   it(
     'down refuses while a record exists; without one it drops the tables, the columns and the functions (under MIGRATION_ADVISORY_LOCK)',
     { timeout: 30_000 },
