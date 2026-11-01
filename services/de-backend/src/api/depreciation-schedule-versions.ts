@@ -187,6 +187,8 @@ function sendVersion(
               purchasePrice: money(c.acquisition.purchasePrice, currency),
               countedCosts: { ids: c.acquisition.countedCostIds, total: money(c.acquisition.countedCostsTotal, currency) },
               excludedCosts: { ids: c.acquisition.excludedCostIds, total: money(c.acquisition.excludedCostsTotal, currency) },
+              // §59D: the classifications that decided a counted or excluded cost.
+              costClassificationIds: c.acquisition.costClassificationIds,
               allocationId: c.acquisition.allocationId,
               allocationReviewState: c.acquisition.allocationReviewState,
               totalAllocableAmount: money(c.acquisition.totalAllocableAmount, currency),

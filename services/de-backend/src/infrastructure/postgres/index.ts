@@ -14,6 +14,7 @@ export { PostgresPartyExternalReferenceRepository } from './party-external-refer
 export { PostgresOwnershipRepository } from './ownership-repository.js';
 export { PostgresAcquisitionRepository } from './acquisition-repository.js';
 export { PostgresAcquisitionCostRepository } from './acquisition-cost-repository.js';
+export { PostgresAcquisitionCostClassificationRepository } from './acquisition-cost-classification-repository.js';
 export { PostgresLandBuildingAllocationRepository } from './land-building-allocation-repository.js';
 export { PostgresLoanRepository } from './loan-repository.js';
 export { PostgresSecurityDepositRepository } from './security-deposit-repository.js';

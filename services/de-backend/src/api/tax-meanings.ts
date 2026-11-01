@@ -267,6 +267,8 @@ function checkDto(c: AnschaffungsnaheCheck) {
     basis: plain(c.basis),
     thresholdPercent: c.thresholdPercent,
     threshold: c.threshold === null ? null : { amount: c.threshold, currency: 'EUR' },
+    // §59D: the threshold of the upper bound (with the unclassified costs); null when equal or not computable.
+    thresholdWithUnclassified: c.thresholdWithUnclassified === null ? null : { amount: c.thresholdWithUnclassified, currency: 'EUR' },
     sum: c.sum.toJSON(),
     attributableAmount: c.attributableAmount.toJSON(),
     percentOfBasis: c.percentOfBasis,

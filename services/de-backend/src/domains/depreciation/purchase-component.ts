@@ -169,6 +169,8 @@ export function componentOf(
       purchasePrice: w.cost.purchasePrice,
       acquisitionCosts: w.cost.acquisitionCosts,
       excludedCosts: w.cost.excludedCosts,
+      unclassifiedCosts: w.cost.unclassifiedCosts,
+      amountWithUnclassified: w.cost.basisAmountWithUnclassified,
       allocationId: a.allocation?.id ?? null,
       allocationMethod: a.allocation?.method ?? null,
       allocationReviewState: a.allocation?.reviewState ?? null,

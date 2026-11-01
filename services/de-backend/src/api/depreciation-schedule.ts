@@ -98,7 +98,15 @@ function scheduleDto(s: RecordedSchedule) {
       amount: money(c.basis.amount),
       purchasePrice: money(c.basis.purchasePrice),
       acquisitionCosts: money(c.basis.acquisitionCosts),
-      excludedCosts: c.basis.excludedCosts.map((e) => ({ category: e.category, amount: money(e.amount) })),
+      excludedCosts: c.basis.excludedCosts.map((e) => ({ category: e.category, purpose: e.purpose, amount: money(e.amount) })),
+      // §59D: the costs not in `amount`, and the basis with them (what confirming would give at most).
+      unclassifiedCosts: c.basis.unclassifiedCosts.map((u) => ({
+        costId: u.costId,
+        category: u.category,
+        amount: money(u.amount),
+        classificationReviewState: u.classificationReviewState,
+      })),
+      basisAmountWithUnclassified: money(c.basis.amountWithUnclassified),
       allocationId: c.basis.allocationId,
       allocationMethod: c.basis.allocationMethod,
       allocationReviewState: c.basis.allocationReviewState,

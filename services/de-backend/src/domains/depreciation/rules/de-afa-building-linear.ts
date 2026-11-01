@@ -1,4 +1,5 @@
 import type { BusinessDate, RuleVersion } from '../../../shared/index.js';
+import type { CostClassificationParameters } from '../../acquisition/index.js';
 import type { MethodStatusParameters } from '../purchase-method.js';
 
 export const BUILDING_BANDS = ['A', 'B', 'C'] as const;
@@ -43,6 +44,12 @@ export interface BuildingLinearParameters {
      * mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01.
      */
     readonly capitalizedItemAmount: 'GROSS_LINE_AMOUNT';
+    /**
+     * §59D (VC-X-42): a `NOTARY`, `LAND_REGISTRY` or `OTHER` cost enters only by a confirmed classification, and only its
+     * `OWNERSHIP_TRANSFER` parts; equal to `DE_ANSCHAFFUNGSNAHE@1`'s `costClassification` (a registry test).
+     * Prüfbericht 01.11.2026, Fragen 10 und 24; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01.
+     */
+    readonly costClassification: CostClassificationParameters;
   };
   /** § 7 Abs. 1 S. 4 EStG (B6, P8-D5): less 1/12 per full month before the start month, so the start month counts. */
   readonly firstYear: { readonly startMonthCounts: boolean; readonly legalBasis: string };
@@ -128,6 +135,14 @@ const COMMON = {
     rounding: 'HALF_UP_CENT',
     capitalizedItemReviewStates: ['USER_CONFIRMED', 'ADVISOR_CONFIRMED'],
     capitalizedItemAmount: 'GROSS_LINE_AMOUNT',
+    // §59D (VC-X-42), taken into both versions in place before the first productive enablement (§60 open question 11).
+    costClassification: {
+      requiredFor: ['NOTARY', 'LAND_REGISTRY', 'OTHER'],
+      basisPurposes: ['OWNERSHIP_TRANSFER'],
+      confirmedReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'],
+      legalBasis: '§ 255 Abs. 1 HGB i. V. m. § 9b Abs. 1 EStG; Finanzierungskosten keine Anschaffungskosten',
+      source: 'Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+    },
   },
   firstYear: { startMonthCounts: true, legalBasis: '§ 7 Abs. 1 S. 4 EStG' },
   end: {
@@ -222,7 +237,7 @@ export const DE_AFA_BUILDING_LINEAR_V1: RuleVersion<BuildingLinearParameters> = 
     ],
     verified: { rates: true, shorterUsefulLifeThresholds: true },
   },
-  source: `api-design §59A (decided 2026-10-31); EStG i. d. F. vor dem JStG 2022 (BGBl. I S. 2294); BT-Drs. 20/3879 S. 88; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 1, 2, 4, 10, 11`,
+  source: `api-design §59A (decided 2026-10-31); EStG i. d. F. vor dem JStG 2022 (BGBl. I S. 2294); BT-Drs. 20/3879 S. 88; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 1, 2, 4, 10, 11, 24`,
 };
 
 /**
@@ -269,5 +284,5 @@ export const DE_AFA_BUILDING_LINEAR_V2: RuleVersion<BuildingLinearParameters> = 
     // Today's text, read in the official text before VC-8-01 (30.10.2026): no historical version to confirm.
     verified: { rates: true, shorterUsefulLifeThresholds: true },
   },
-  source: `docs/germany/depreciation.md §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 2, 4, 10, 11`,
+  source: `docs/germany/depreciation.md §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 2, 4, 10, 11, 24`,
 };

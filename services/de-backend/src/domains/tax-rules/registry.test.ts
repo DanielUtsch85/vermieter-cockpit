@@ -160,6 +160,19 @@ describe('TAX_RULES (§58, §59)', () => {
     expect('degressiveHint' in v2).toBe(false);
     const check = TAX_RULES.find({ ruleCode: ANSCHAFFUNGSNAHE, version: 1 }) as { parameters: AnschaffungsnaheParameters };
     expect([...v2.basis.excludedCostCategories]).toEqual([...check.parameters.excludedCostCategories]);
+    // §59D (VC-X-42): the schedule and the check never compute two bases: the classification policy is equal in both
+    // rules (v1 equals v2 through `basis` above), and read from them (never a constant).
+    expect(v2.basis.costClassification).toEqual(check.parameters.costClassification);
+    expect(v2.basis.costClassification).toEqual({
+      requiredFor: ['NOTARY', 'LAND_REGISTRY', 'OTHER'],
+      basisPurposes: ['OWNERSHIP_TRANSFER'],
+      confirmedReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'],
+      legalBasis: '§ 255 Abs. 1 HGB i. V. m. § 9b Abs. 1 EStG; Finanzierungskosten keine Anschaffungskosten',
+      source: 'Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+    });
+    expect((TAX_RULES.find({ ruleCode: ANSCHAFFUNGSNAHE, version: 1 }) as { source: string }).source).toContain(
+      'changed in place 2026-11-01 by api-design §59D (VC-X-42): costClassification, Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+    );
     // Prüfbericht 01.11.2026, Fragen 4 and 11; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01.
     expect(v2.end.disposal).toMatchObject({ endMonthCounts: true, verified: true, cutOff: 'BUYER_ECONOMIC_TRANSFER_DATE' });
     expect(v2.end.disposal.legalBasis).toBe(

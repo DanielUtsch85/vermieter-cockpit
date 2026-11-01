@@ -69,7 +69,17 @@ export const standard = (overrides: Partial<PurchaseMethod> = {}): PurchaseMetho
   ...overrides,
 });
 
-/** ACC8's purchase: price 300,000.00, costs 18,000.00 counted, 1,200.00 FINANCING_RELATED; building 254,400.00 of 318,000.00. */
+/** §59D: a confirmed classification of the whole cost as `OWNERSHIP_TRANSFER` (synthetic id), so it counts. */
+export const transferClassification = (id: string, amount: string) => ({
+  id,
+  reviewState: 'CONFIRMED',
+  parts: [{ purpose: 'OWNERSHIP_TRANSFER', amount: eur(amount) }],
+});
+
+/**
+ * ACC8's purchase: price 300,000.00, costs 18,000.00 counted (the notary cost classified, §59D), 1,200.00 FINANCING_RELATED;
+ * building 254,400.00 of 318,000.00.
+ */
 export const acquisition = (overrides: Partial<ScheduleAcquisition> = {}): ScheduleAcquisition => ({
   id: W,
   status: 'CONFIRMED',
@@ -79,9 +89,15 @@ export const acquisition = (overrides: Partial<ScheduleAcquisition> = {}): Sched
   economicTransferDate: day('2026-07-01'),
   sellerPartyIds: [D],
   costs: [
-    { id: '0000ffff-0000-4000-8000-000000000051', category: 'REAL_ESTATE_TRANSFER_TAX', amount: eur('15000.00'), paymentStatus: 'PAID' },
-    { id: '0000ffff-0000-4000-8000-000000000052', category: 'NOTARY', amount: eur('3000.00'), paymentStatus: 'PAID' },
-    { id: '0000ffff-0000-4000-8000-000000000053', category: 'FINANCING_RELATED', amount: eur('1200.00'), paymentStatus: 'PAID' },
+    { id: '0000ffff-0000-4000-8000-000000000051', category: 'REAL_ESTATE_TRANSFER_TAX', amount: eur('15000.00'), paymentStatus: 'PAID', classification: null },
+    {
+      id: '0000ffff-0000-4000-8000-000000000052',
+      category: 'NOTARY',
+      amount: eur('3000.00'),
+      paymentStatus: 'PAID',
+      classification: transferClassification('0000ffff-0000-4000-8000-000000000062', '3000.00'),
+    },
+    { id: '0000ffff-0000-4000-8000-000000000053', category: 'FINANCING_RELATED', amount: eur('1200.00'), paymentStatus: 'PAID', classification: null },
   ],
   allocation: {
     id: '0000bbbb-0000-4000-8000-000000000030',

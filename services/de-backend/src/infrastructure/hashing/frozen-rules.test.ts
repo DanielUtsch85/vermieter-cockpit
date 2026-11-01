@@ -25,9 +25,19 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // Again for @1 and @2 for §59C (VC-X-37, decided by the owner on 2026-11-01; Prüfbericht 01.11.2026, Frage 2): the new
   // parameter `methodStatus` in both versions, the withdrawn DEPRECIATION_METHOD_UNKNOWN noted, and Frage 2 in both
   // sources. Recording is still disabled. Before: @1 a020ad6d…5f1f, @2 f8b7119c…1025.
-  ['DE_AFA_BUILDING_LINEAR', 1, '0f63d02c8bf98c1bd94aa5e3d7f96a55d74146dcc07a82b9293891ccc2e2bb64'],
-  ['DE_AFA_BUILDING_LINEAR', 2, '4ff946ebc7789e681cad96b64fe91cbcd87cb3527cc2bc8a4419bcfcaf7454c6'],
+  // Again for @1 and @2 for §59D (VC-X-42, decided by the owner on 2026-11-01; Prüfbericht 2026-11-01, Fragen 10 und 24,
+  // mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): the new parameter
+  // `basis.costClassification` in both versions, and Frage 24 in both sources. Recording is still disabled.
+  // Before: @1 0f63d02c…bb64, @2 4ff946eb…54c6.
+  ['DE_AFA_BUILDING_LINEAR', 1, '260758f8b1bd16d85179b3e08faae6893b8060dbf66ce10fff9d7c7760c84bda'],
+  ['DE_AFA_BUILDING_LINEAR', 2, '4b2b9c28909fe8c518e8f06ea29bfcf0363738c11abed63c385bff808bb38c3a'],
   ['DE_AFA_MOVABLE_LINEAR', 1, '85d929633060b63636187e42a65e5856bdc58c65f86bd1ae22284a8278b1f06a'],
+  // A Phase-7 rule, pinned from §59D on (VC-X-42; §59D open question 3, decided by the owner on 2026-11-01): changed in
+  // place by the parameter `costClassification` (Prüfbericht 2026-11-01, Fragen 10 und 24, mündlich bestätigt durch den
+  // Steuerberater, laut Projektinhaber am 2026-11-01), with a change note in its `source`. Its freeze point is the
+  // documented go-live of the first productive installation (the owner's version decision of 2026-11-01), not the
+  // enablement of recording: until then a change updates this literal explicitly, in the same commit.
+  ['DE_ANSCHAFFUNGSNAHE', 1, 'e8e55a5894d1eed98cd53e772c539d06a4c7ca1e7ca1c93200e2dd81fdc7c3ff'],
 ];
 
 describe('the frozen rule versions (§60)', () => {
@@ -49,6 +59,9 @@ describe('the frozen rule versions (§60)', () => {
     // §59C: the method status's standard is a covered parameter too.
     const methodStatus = { ...v.parameters.methodStatus, confirmedReviewStates: ['ADVISOR_CONFIRMED'] };
     expect(hash({ ...v, parameters: { ...v.parameters, methodStatus } })).not.toBe(hash(v));
+    // §59D: the cost classification policy is a covered parameter too.
+    const basis = { ...v.parameters.basis, costClassification: { ...v.parameters.basis.costClassification, requiredFor: ['OTHER'] } };
+    expect(hash({ ...v, parameters: { ...v.parameters, basis } })).not.toBe(hash(v));
     expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
   });
 });

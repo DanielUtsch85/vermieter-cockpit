@@ -11,6 +11,9 @@ import {
   confirmTransaction,
   createAcquisition,
   createAcquisitionCost,
+  createCostClassification,
+  listAcquisitionCosts,
+  listCostClassifications,
   createFinancialAccount,
   createLandBuildingAllocation,
   createLoan,
@@ -32,6 +35,7 @@ import {
 } from './application/index.js';
 import { depreciationCommands } from './depreciation-commands.test-support.js';
 import {
+  PostgresAcquisitionCostClassificationRepository,
   PostgresAcquisitionCostRepository,
   PostgresAcquisitionRepository,
   PostgresFinancialAccountRepository,
@@ -144,7 +148,14 @@ export function useAcc8(name: `${string}_e2e`) {
           parties: { create: createParty({ repository: new PostgresPartyRepository(db) }) },
           ownerships: { create: createOwnership({ repository: ownerships }), change: changeOwnership({ repository: ownerships }) },
           acquisitions: { create: createAcquisition({ repository: acquisitions }), confirm: confirmAcquisition({ repository: acquisitions, now }) },
-          acquisitionCosts: { createCost: createAcquisitionCost({ repository: new PostgresAcquisitionCostRepository(db) }) },
+          acquisitionCosts: {
+            createCost: createAcquisitionCost({ repository: new PostgresAcquisitionCostRepository(db) }),
+            listCosts: listAcquisitionCosts({ repository: new PostgresAcquisitionCostRepository(db) }),
+          },
+          costClassifications: {
+            create: createCostClassification({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
+            list: listCostClassifications({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
+          },
           landBuildingAllocations: { create: createLandBuildingAllocation({ repository: new PostgresLandBuildingAllocationRepository(db) }) },
           wegs: { createWeg: createWeg({ repository: wegs }), createMembership: createMembership({ repository: wegs }) },
           wegSpecialAssessments: {
@@ -218,7 +229,8 @@ export function useAcc8(name: `${string}_e2e`) {
     party: async (displayName: string): Promise<string> => (await post('/parties', { partyType: 'PERSON', displayName })).partyId,
     /**
      * An Acquisition through the API: the DRAFT, its costs, its allocation (confirmed unless said otherwise). The
-     * Ownerships and the confirmation are the caller's (`own`, `confirm`).
+     * Ownerships and the confirmation are the caller's (`own`, `confirm`). §59D: a `NOTARY`, `LAND_REGISTRY` or `OTHER`
+     * cost is classified as a confirmed `OWNERSHIP_TRANSFER` unless `classify` is false (then `api.classifyCost` later).
      */
     purchase: async (p: {
       pr: string;
@@ -230,7 +242,8 @@ export function useAcc8(name: `${string}_e2e`) {
       transfer: string;
       costs?: readonly (readonly [string, string])[];
       allocation: { total: string; land: string; building: string; reviewState?: 'CONFIRMED' | 'UNREVIEWED' };
-    }): Promise<{ acquisitionId: string; allocationId: string }> => {
+      classify?: boolean;
+    }): Promise<{ acquisitionId: string; allocationId: string; costIds: string[] }> => {
       const { acquisitionId } = await post('/acquisitions', {
         propertyReferenceId: p.pr,
         purchasePrice: eur(p.price),
@@ -240,10 +253,25 @@ export function useAcc8(name: `${string}_e2e`) {
         buyerPartyIds: p.buyers,
         sellerPartyIds: p.sellers ?? [],
       });
-      for (const [category, amount] of p.costs ?? []) await post(`/acquisitions/${acquisitionId}/costs`, { category, amount: eur(amount) });
+      const costIds: string[] = [];
+      for (const [category, amount] of p.costs ?? []) {
+        const { costId } = await post(`/acquisitions/${acquisitionId}/costs`, { category, amount: eur(amount) });
+        costIds.push(costId);
+        if (p.classify !== false && ['NOTARY', 'LAND_REGISTRY', 'OTHER'].includes(category)) await api.classifyCost(acquisitionId, costId, amount);
+      }
       const allocationId = await api.allocate(acquisitionId, p.allocation, null);
-      return { acquisitionId, allocationId };
+      return { acquisitionId, allocationId, costIds };
     },
+    /** §59D: the whole cost classified as a confirmed `OWNERSHIP_TRANSFER` (the first classification); its id. */
+    classifyCost: async (acquisitionId: string, costId: string, amount: string): Promise<string> =>
+      (
+        await post(`/acquisitions/${acquisitionId}/costs/${costId}/classifications`, {
+          parts: [{ purpose: 'OWNERSHIP_TRANSFER', amount: eur(amount) }],
+          description: 'Kosten der Eigentumsübertragung (synthetisch)',
+          reviewState: 'CONFIRMED',
+          supersedes: null,
+        })
+      ).classificationId,
     allocate: async (
       acquisitionId: string,
       a: { total: string; land: string; building: string; reviewState?: 'CONFIRMED' | 'UNREVIEWED' },

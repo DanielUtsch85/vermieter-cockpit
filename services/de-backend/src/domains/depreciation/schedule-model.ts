@@ -1,4 +1,5 @@
 import type { BusinessDate, Money, RuleStatus } from '../../shared/index.js';
+import type { BasisCostClassification, UnclassifiedCost } from '../acquisition/index.js';
 import type { DepreciationAsset } from './asset.js';
 import type { CapitalizedItem, ItemRef } from './capitalized-item.js';
 import type { BuildingBand } from './rules/de-afa-building-linear.js';
@@ -19,6 +20,8 @@ export interface ScheduleCost {
   readonly amount: Money;
   /** §27.2's payment status of the `ACTIVE` cost. */
   readonly paymentStatus: string | null;
+  /** §59D: the current classification, `null` without one. */
+  readonly classification: BasisCostClassification | null;
 }
 
 export interface ScheduleAllocation {
@@ -105,7 +108,11 @@ export interface ComponentBasis {
   readonly amount: Money | null;
   readonly purchasePrice: Money;
   readonly acquisitionCosts: Money;
-  readonly excludedCosts: readonly { readonly category: string; readonly amount: Money }[];
+  /** §59D: by category and purpose (`null` for an excluded category). */
+  readonly excludedCosts: readonly { readonly category: string; readonly purpose: string | null; readonly amount: Money }[];
+  /** §59D: the costs that are not classified (not in `amount`), and the basis with them (the upper bound). */
+  readonly unclassifiedCosts: readonly UnclassifiedCost[];
+  readonly amountWithUnclassified: Money | null;
   readonly allocationId: string | null;
   readonly allocationMethod: string | null;
   readonly allocationReviewState: string | null;

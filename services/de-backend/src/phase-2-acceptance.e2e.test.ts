@@ -380,6 +380,12 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
       'POST /acquisitions/:acquisitionId/costs': { expect: 404, body: { category: 'OTHER', amount: eur('1.00') } },
       'POST /acquisitions/:acquisitionId/costs/:costId/void': { expect: 404, body: { reason: 'x' } },
       'GET /acquisitions/:acquisitionId/costs': { expect: 404 },
+      // §59D (VC-X-42): the classification of a cost.
+      'POST /acquisitions/:acquisitionId/costs/:costId/classifications': {
+        expect: 404,
+        body: { parts: [{ purpose: 'OWNERSHIP_TRANSFER', amount: eur('1234.57') }], description: 'x', supersedes: null },
+      },
+      'GET /acquisitions/:acquisitionId/costs/:costId/classifications': { expect: 404 },
       'POST /acquisitions/:acquisitionId/payments': { expect: 404, body: { transactionId, acquisitionCostId: notaryFee, amount: eur('1.00') } },
       'POST /acquisitions/:acquisitionId/payments/:paymentId/unlink': { expect: 404, body: { reason: 'x' } },
       'GET /acquisitions/:acquisitionId/payments': { expect: 404 },

@@ -734,7 +734,7 @@ Transaction to a cost or to the purchase price. Contract: api-design §27.2.
   There is **no** `PURCHASE_PRICE`: the price is `Acquisition.purchasePrice`, entered once. Categories must remain
   extensible.
 - The former `transactionSplitId` is replaced by AcquisitionPayment.
-- **Planned (VC-X-42, api-design §59D; specified and decided, not implemented; migration 0055 planned): `AcquisitionCostClassification`**,
+- **Implemented (VC-X-42, api-design §59D; migration 0054): `AcquisitionCostClassification`**,
   the purpose of one cost, recorded as entered and only superseded (as §15's allocation), the cost itself staying frozen:
   `parts` (1–5 `{ purpose, amount }` summing exactly to the cost's amount; `purpose` `OWNERSHIP_TRANSFER` |
   `FINANCING` | `NOT_ACQUISITION_COST`), `description`, `sourceReferences`, `reviewState`, `advisorPartyId`, `notes`,
@@ -742,7 +742,10 @@ Transaction to a cost or to the purchase price. Contract: api-design §27.2.
   (rows, not a blob); no column on `acquisition_cost`. A `NOTARY`, `LAND_REGISTRY` or `OTHER` cost enters a tax basis
   only with a confirmed classification as `OWNERSHIP_TRANSFER`; a `FINANCING_RELATED` cost never does (tax review of
   2026-11-01, questions 10 and 24). No input VAT per classification (decided by the owner on 2026-11-01, §59D open
-  question 6): the scope assumption without a VAT option stays global, as for capitalised items.
+  question 6): the scope assumption without a VAT option stays global, as for capitalised items. As implemented: a
+  part is `(classificationId, position 1–5)`; `createdTxid` binds the parts to their classification's transaction; the
+  cost's response carries its current `classification` (or `null`); the recorded purchase component stores
+  `costClassificationIds` (`cost_classification_ids`, the classifications that decided a counted or excluded cost).
 
 ---
 
@@ -2019,7 +2022,7 @@ Represent the tax interpretation of an existing economic item.
 
 **VC-7-04 (P7-D7, P7-D8, api-design §58C, implemented; migration 0048, an index only):** the tax-year view per PropertyReference and per owner is derived on every read and never stored; it adds no field to `TaxClassification`. `ownerAllocationBasis` is not stored: the owner level takes each item × the owner's Ownership share valid on the item's date (§12.5; AGENTS.md §12), by largest remainder per item.
 
-**VC-X-28 (api-design §58E; specified, not implemented; migration 0054 planned; 0053 taken by VC-X-37):** a person's statements that the tax-year view reads, never a figure: `TaxYearAcknowledgement` and `LoanAllocationTaxConfirmation` (§36A).
+**VC-X-28 (api-design §58E; specified, not implemented; migration 0055 planned; 0053 taken by VC-X-37, 0054 by VC-X-42):** a person's statements that the tax-year view reads, never a figure: `TaxYearAcknowledgement` and `LoanAllocationTaxConfirmation` (§36A).
 
 ---
 

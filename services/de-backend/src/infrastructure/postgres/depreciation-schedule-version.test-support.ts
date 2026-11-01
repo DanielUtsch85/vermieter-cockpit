@@ -12,6 +12,7 @@ import {
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import { sha256Fingerprinter } from '../hashing/index.js';
+import { classifyAsTransfer } from './acquisition-cost-classification.test-support.js';
 import { PostgresAcquisitionCostRepository } from './acquisition-cost-repository.js';
 import { PostgresAcquisitionRepository } from './acquisition-repository.js';
 import { createDatabase } from './database.js';
@@ -180,6 +181,8 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
         actor,
       );
       if (cost.kind !== 'CREATED') throw new Error(cost.kind);
+      // §59D: the notary cost confirmed as a cost of the transfer, so the basis is unchanged.
+      if (category === 'NOTARY') await classifyAsTransfer(db, { mreRealmId: realm, acquisitionId: w, costId: cost.cost.id, amount });
     }
     const allocation = await allocate(realm, w, null);
     expect((await new PostgresAcquisitionRepository(db).confirm(w, realm, NOW, actor)).kind).toBe('CONFIRMED');
