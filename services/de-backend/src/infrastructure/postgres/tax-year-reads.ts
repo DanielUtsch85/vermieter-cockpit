@@ -2,6 +2,7 @@ import { sql, type Kysely, type Transaction } from 'kysely';
 import { withValidUntil, type LoanAllocationSetView } from '../../domains/financing/index.js';
 import type { ChangedEntry, RentDueDay } from '../../domains/rental-contract-reference/index.js';
 import {
+  NO_DEPRECIATION,
   depositNotCounted,
   deriveDepositTaxMeaning,
   partOf,
@@ -19,6 +20,7 @@ import {
 import { Money, type BusinessDate } from '../../shared/index.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
+import { taxYearDepreciationIn } from './tax-year-depreciation.js';
 import type { Database } from './schema.js';
 import { UUID, currentOf, currentOfDeposits } from './tax-classification-rows.js';
 import { COUNTED, factsQuery, meaningsOf, yearWindow, overriddenTo, countingSplits, toRead, depositFactsOf } from './tax-source-facts.js';
@@ -46,8 +48,11 @@ export function taxYearSnapshot<T>(db: Kysely<Database>, work: (trx: Transaction
  * The inputs of the tax-year view (§58C), in one `REPEATABLE READ READ ONLY` snapshot: the PropertyReference, the
  * owner's Party, §55's items of `year` (the very derivation of the list) with the earlier § 82b sources beside them,
  * the Realm's deposit closings of `year` without a PropertyReference, the Ownerships with their shares, the
- * anschaffungsnahe checks, and the RentalContractReferences with their AuditRecords for `ATTRIBUTION_INPUT_CHANGED`.
- * No MRE call; nothing is written (the transaction is `READ ONLY`).
+ * anschaffungsnahe checks, the RentalContractReferences with their AuditRecords for `ATTRIBUTION_INPUT_CHANGED`, and
+ * (VC-8-05) the AfA: every `ACTIVE` asset's schedule and `CURRENT` recorded version through the adapter
+ * `tax-year-depreciation.ts`, after the view's own reads and in the same transaction, so `capitalized` and the AfA
+ * come from one state (P8-D14). No MRE call; nothing is written (the transaction is `READ ONLY`). `afterOwnReads` is a
+ * test seam between the view's own reads and the adapter's (the one-snapshot tests); never set in production.
  */
 export async function readTaxYear(
   db: Kysely<Database>,
@@ -57,6 +62,8 @@ export async function readTaxYear(
   year: number,
   ownerPartyId: string | null,
   today: BusinessDate,
+  capitalizedSourcesOf: CapitalizedSourcesReader = (trx, realm, pr, day, also) => capitalizedSources(trx, registry, realm, pr, day, also),
+  afterOwnReads?: () => Promise<void>,
 ): Promise<TaxYearRead | undefined> {
   if (!UUID.test(propertyReferenceId)) return undefined;
   return taxYearSnapshot(db, async (trx): Promise<TaxYearRead | undefined> => {
@@ -77,6 +84,7 @@ export async function readTaxYear(
       attribution: { references: [], candidates: [] },
       allocatedLoanInterest: [],
       loanAllocationSets: new Map(),
+      depreciation: NO_DEPRECIATION(year),
     };
     if (ownerPartyId !== null) {
       const party = UUID.test(ownerPartyId)
@@ -100,6 +108,18 @@ export async function readTaxYear(
       .where('status', '=', 'VALID')
       .orderBy('id')
       .execute();
+    const attribution = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, registry);
+    const loans = await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today);
+    if (afterOwnReads !== undefined) await afterOwnReads();
+    const depreciation = await taxYearDepreciationIn(trx, {
+      mreRealmId,
+      propertyReferenceId,
+      year,
+      ownerPartyId,
+      today,
+      registry,
+      capitalizedSources: capitalizedSourcesOf,
+    });
     return {
       propertyReferenceId,
       ownerPartyFound: ownerPartyId === null ? null : true,
@@ -113,8 +133,9 @@ export async function readTaxYear(
         validUntil: o.valid_until as BusinessDate | null,
       })),
       checks: effects.checks,
-      attribution: await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, registry),
-      ...(await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today)),
+      attribution,
+      ...loans,
+      depreciation,
     };
   });
 }

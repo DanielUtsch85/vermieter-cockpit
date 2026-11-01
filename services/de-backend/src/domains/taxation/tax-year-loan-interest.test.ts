@@ -1,3 +1,4 @@
+import { PHASE_7_DEPRECIATION } from './tax-year-depreciation.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, centsOf, type BusinessDate } from '../../shared/index.js';
 import { distribute, withValidUntil, type AllocationBasis, type LoanAllocationSet, type LoanAllocationSetView } from '../financing/index.js';
@@ -139,6 +140,7 @@ function readOf(
     attribution: { references: [], candidates: [] },
     allocatedLoanInterest: splits,
     loanAllocationSets: sets,
+    depreciation: PHASE_7_DEPRECIATION,
     ...extra,
   };
 }
@@ -406,7 +408,7 @@ describe('§58D: PURCHASE_PRICE sets (decided 2026-10-31, third set)', () => {
       const v = viewOf(readOf(P1, [split], setsOf({ [L]: [s] })));
       expect(line(v).total.amount).toBe('999.99');
       expect(codes(placed(v).flatMap((i) => i.flags))).toEqual([]);
-      expect(v.review.open.map((o) => o.code)).toEqual(['DEPRECIATION_NOT_AVAILABLE']);
+      expect(v.review.open.map((o) => o.code)).toEqual(['DEPRECIATION_NOT_AVAILABLE', 'NO_ASSET']);
     }
   });
 });

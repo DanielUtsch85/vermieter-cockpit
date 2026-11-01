@@ -117,7 +117,7 @@ export class PostgresTaxClassificationRepository implements TaxClassificationRep
     ownerPartyId: string | null,
     today: BusinessDate,
   ): Promise<TaxYearRead | undefined> {
-    return readTaxYear(this.db, this.registry, propertyReferenceId, mreRealmId, year, ownerPartyId, today);
+    return readTaxYear(this.db, this.registry, propertyReferenceId, mreRealmId, year, ownerPartyId, today, this.capitalizedSources);
   }
 
   /** The capitalised sources of a PropertyReference for Depreciation (§59B; not on Taxation's port): see `tax-year-reads.ts`. */

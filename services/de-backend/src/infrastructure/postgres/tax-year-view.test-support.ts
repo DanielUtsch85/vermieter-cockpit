@@ -2,7 +2,7 @@ import type pg from 'pg';
 
 /**
  * The counter-check "no cash mutated" of the tax-year view (api-design.md §58C): every row of the tables the view
- * reads, with its `version` where it has one (whole rows, so a table without one is compared as well), and the count of
+ * reads (VC-8-05: the depreciation tables and §60's recorded versions too), with its `version` where it has one (whole rows, so a table without one is compared as well), and the count of
  * `audit_record`. Two snapshots taken around views must be equal.
  */
 export const VIEW_TABLES = [
@@ -21,6 +21,20 @@ export const VIEW_TABLES = [
   'loan_terms',
   'loan_allocation_set',
   'loan_allocation',
+  // VC-8-05: the AfA's inputs and §60's recorded versions (migration 0052), and the property reference itself.
+  'acquisition_cost',
+  'property_reference',
+  'depreciation_asset',
+  'depreciation_asset_useful_life',
+  'depreciation_asset_item',
+  'depreciation_schedule_version',
+  'depreciation_schedule_version_rule',
+  'depreciation_schedule_version_component',
+  'depreciation_schedule_version_part',
+  'depreciation_schedule_version_fraction',
+  'depreciation_schedule_version_year',
+  'depreciation_schedule_entry',
+  'depreciation_schedule_version_flag',
 ] as const;
 
 export async function rowsSnapshot(pool: pg.Pool): Promise<Record<string, unknown>> {
