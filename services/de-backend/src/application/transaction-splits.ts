@@ -19,7 +19,7 @@ import { PropertyReferenceNotFoundError } from './refresh-property-reference.js'
 import { VersionConflictError } from './errors.js';
 import { LoanClosedOnError, LoanNotActiveError, LoanNotFoundError } from './loans.js';
 import { DepositClosedError, DepositNotActiveError, SecurityDepositNotFoundError } from './security-deposits.js';
-import { CurrencyMismatchError } from './transactions.js';
+import { CurrencyMismatchError } from './errors.js';
 
 /**
  * Set Transaction splits (api-design.md §33, backlog VC-1-07): replaces the
