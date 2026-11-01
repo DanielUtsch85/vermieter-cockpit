@@ -46,7 +46,7 @@ export type LoanInterestCase =
 
 /** The open item flag on interest attributed by a `PURCHASE_PRICE` set with more than one entry (§58D, third set). */
 export const LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY = 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY';
-/** The open item flag on attributed interest placed in `capitalized`, which no AfA basis reads yet (§58D, a proposal). */
+/** The open item flag on attributed interest placed in `capitalized`, which no AfA basis reads yet (§58D open question 4, decided by the owner on 2026-11-01; §59E). */
 export const LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS = 'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS';
 
 const bookingDateOf = (item: TaxListItem): BusinessDate => (item as TaxMeaning).bookingDate;

@@ -120,16 +120,24 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
     expect(before.review.open).toEqual([{ code: 'HISTORICAL_RULE_TO_VERIFY', count: 3 }]);
   });
 
-  it('a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY: Frage 8 confirms the thresholds in the current lettering, not expressly for 2006–2022', () => {
-    const s = derive(
-      sole(
-        { contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') },
-        { shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-04-01') } })] },
-        { from: 2022, to: 2023 },
-      ),
+  it('a shorter useful life under @1 is CALCULATED: Frage 8 covers the thresholds of @1 (owner 2026-11-01); with them unverified the flag is back', () => {
+    const input = sole(
+      { contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') },
+      { shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-04-01') } })] },
+      { from: 2022, to: 2023 },
     );
-    const c = component(s);
-    expect(c.years.map((y) => [y.year, y.rule?.version, y.calculationStatus, codes(ownerIn(y, A)?.flags ?? [])])).toEqual([
+    const statuses = (registry?: RuleRegistry) =>
+      component(derive(input, registry)).years.map((y) => [y.year, y.rule?.version, y.calculationStatus, codes(ownerIn(y, A)?.flags ?? [])]);
+    expect(statuses()).toEqual([
+      [2022, 1, 'CALCULATED', []],
+      [2023, 2, 'CALCULATED', []],
+    ]);
+    const v1 = DE_AFA_BUILDING_LINEAR_V1.parameters;
+    const thresholdsOpen = new RuleRegistry([
+      { ...DE_AFA_BUILDING_LINEAR_V1, parameters: { ...v1, verified: { ...v1.verified, shorterUsefulLifeThresholds: false } } },
+      DE_AFA_BUILDING_LINEAR_V2,
+    ]);
+    expect(statuses(thresholdsOpen)).toEqual([
       [2022, 1, 'PROVISIONAL', ['HISTORICAL_RULE_TO_VERIFY']],
       [2023, 2, 'CALCULATED', []],
     ]);
