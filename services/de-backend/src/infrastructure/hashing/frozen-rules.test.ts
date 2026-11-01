@@ -20,7 +20,9 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // (docs/germany/pruefbericht-2026-11-01.md, "Nach Bestätigung auflösbare VERIFY-Punkte"): `verified.rates` of @1,
   // `end.disposal.verified`, the new `shareReduction`, and the sources. Before: @1 75dec496…3bc6, @2 6ccacf8e…6827,
   // movable @1 8a5d3a77…3ece (its `end` is the building rule's).
-  ['DE_AFA_BUILDING_LINEAR', 1, '6c590e6c25686fb47bc25570f5b801437ba15271d3bb7dae8a1c10bb209c12ff'],
+  // Again for @1 on 2026-11-01: `verified.shorterUsefulLifeThresholds` true (the owner decided that Frage 8 covers @1's
+  // two bands of 50 and 40 years). Before: 6c590e6c…12ff.
+  ['DE_AFA_BUILDING_LINEAR', 1, 'a020ad6d68073128d2608965d25615b3983e9f38b998bd503b803d60df105f1f'],
   ['DE_AFA_BUILDING_LINEAR', 2, 'f8b7119cb1324332d6e5556b823a82550b946c366f2d43c49ab9ad19a8501025'],
   ['DE_AFA_MOVABLE_LINEAR', 1, '85d929633060b63636187e42a65e5856bdc58c65f86bd1ae22284a8278b1f06a'],
 ];

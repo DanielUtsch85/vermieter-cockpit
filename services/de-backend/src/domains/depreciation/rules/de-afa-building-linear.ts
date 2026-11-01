@@ -165,10 +165,11 @@ const SOURCE_SCHEDULE =
  * of S. 2 then (50 / 40 years). The text was read in the official consolidated text (Stand 2.7.2012 and 13.2.2022) and
  * BT-Drs. 20/3879, 20/8628 on 31.10.2026 (depreciation.md §3). The rates by the completion year are confirmed
  * (Prüfbericht 01.11.2026, Frage 1; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01):
- * `verified.rates` is true. Frage 8 confirms the thresholds < 33 / < 50 / < 40 in today's lettering; whether < 50 / < 40
- * held in 2006–2022 the review does not say expressly, and the text of 2006–2011 was not read directly (depreciation.md
- * §3). Until the owner decides that Frage 8 covers this lettering too, a year computed with a shorter useful life keeps
- * `HISTORICAL_RULE_TO_VERIFY` (`verified.shorterUsefulLifeThresholds` false).
+ * `verified.rates` is true. Frage 8 confirms the thresholds < 33 / < 50 / < 40 in today's lettering; the review does not
+ * say expressly that < 50 / < 40 held in 2006–2022. The owner decided on 2026-11-01 that Frage 8 covers @1, since @1 has
+ * only the two bands of 50 and 40 years: `verified.shorterUsefulLifeThresholds` is true, and a year computed with a
+ * shorter useful life no longer carries `HISTORICAL_RULE_TO_VERIFY`. Taken in within this version before the first
+ * enablement (§60 open question 11), with the pinned hash updated explicitly.
  */
 export const DE_AFA_BUILDING_LINEAR_V1: RuleVersion<BuildingLinearParameters> = {
   ruleCode: AFA_BUILDING_LINEAR,
@@ -197,7 +198,7 @@ export const DE_AFA_BUILDING_LINEAR_V1: RuleVersion<BuildingLinearParameters> = 
         shorterUsefulLife: { shorterThanYears: 40, legalBasis: SHORTER },
       },
     ],
-    verified: { rates: true, shorterUsefulLifeThresholds: false },
+    verified: { rates: true, shorterUsefulLifeThresholds: true },
   },
   source: `api-design §59A (decided 2026-10-31); EStG i. d. F. vor dem JStG 2022 (BGBl. I S. 2294); BT-Drs. 20/3879 S. 88; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 1, 4, 10, 11`,
 };

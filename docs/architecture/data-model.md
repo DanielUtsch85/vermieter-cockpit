@@ -734,15 +734,15 @@ Transaction to a cost or to the purchase price. Contract: api-design §27.2.
   There is **no** `PURCHASE_PRICE`: the price is `Acquisition.purchasePrice`, entered once. Categories must remain
   extensible.
 - The former `transactionSplitId` is replaced by AcquisitionPayment.
-- **Planned (VC-X-42, api-design §59D; specified, not implemented; migration 0055 planned): `AcquisitionCostClassification`**,
+- **Planned (VC-X-42, api-design §59D; specified and decided, not implemented; migration 0055 planned): `AcquisitionCostClassification`**,
   the purpose of one cost, recorded as entered and only superseded (as §15's allocation), the cost itself staying frozen:
   `parts` (1–5 `{ purpose, amount }` summing exactly to the cost's amount; `purpose` `OWNERSHIP_TRANSFER` |
-  `FINANCING` | `NOT_ACQUISITION_COST`), `inputVat` (`NONE` | `NOT_DEDUCTIBLE` | `DEDUCTIBLE`), `description`,
-  `sourceReferences`, `reviewState`, `advisorPartyId`, `notes`, `supersedesId`, `supersededAt`. Tables
-  `acquisition_cost_classification` and `acquisition_cost_classification_part` (rows, not a blob); no column on
-  `acquisition_cost`. A `NOTARY`, `LAND_REGISTRY` or `OTHER` cost enters a tax basis only with a confirmed
-  classification as `OWNERSHIP_TRANSFER`; a `FINANCING_RELATED` cost never does (tax review of 2026-11-01, questions 10
-  and 24).
+  `FINANCING` | `NOT_ACQUISITION_COST`), `description`, `sourceReferences`, `reviewState`, `advisorPartyId`, `notes`,
+  `supersedesId`, `supersededAt`. Tables `acquisition_cost_classification` and `acquisition_cost_classification_part`
+  (rows, not a blob); no column on `acquisition_cost`. A `NOTARY`, `LAND_REGISTRY` or `OTHER` cost enters a tax basis
+  only with a confirmed classification as `OWNERSHIP_TRANSFER`; a `FINANCING_RELATED` cost never does (tax review of
+  2026-11-01, questions 10 and 24). No input VAT per classification (decided by the owner on 2026-11-01, §59D open
+  question 6): the scope assumption without a VAT option stays global, as for capitalised items.
 
 ---
 
