@@ -38,6 +38,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { reproductionFromDatabase } from './depreciation-reproduction.test-support.js';
 
 /**
  * VC-8-03 end to end (api-design.md §59B), wired as in main.ts, with ACC8 (synthetic): the purchase; the repair and the
@@ -45,6 +46,9 @@ import { mrePrincipalVerifier } from './wiring.js';
  * capitalised on the check (5,802.00 in 2027 and 5,982.00 in 2028 at both levels), each in `capitalized` of its year and
  * in no Werbungskosten line; the extension (240.00 from 2030); the Einbauküche as a separate asset (450.00, 600.00), not
  * in the building; a refund of 1,000.00 of the extension in 2031 (−20.00 a year); `GET /tax-rules`; Realm isolation.
+ * VC-X-35: each stage of the scenario ends with its reproduction from the database (`depreciation-reproduction.test-support.ts`,
+ * the switch on in test-only wiring, its own clock in 2033): a version recorded (superseding the stage before, its
+ * changed years named), read back, recomputed to its own entries and equal to the schedule read.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
@@ -64,13 +68,16 @@ type Schedule = {
   readonly years: { readonly year: number; readonly amount: Amount; readonly owners: { ownerPartyId: string; amount: Amount }[] | null }[];
 };
 
-describe.skipIf(databaseUrl === undefined)('capitalised items and a separate asset (VC-8-03) end to end', () => {
+// Each test ends with the reproduction from the database (VC-X-35): several versions recorded and read back, past
+// Vitest's default of 5 s when the suite runs in parallel.
+describe.skipIf(databaseUrl === undefined)('capitalised items and a separate asset (VC-8-03) end to end', { timeout: 30_000 }, () => {
   const schema = testSchemaName('depreciation_items_e2e');
   let pool: pg.Pool;
   let mre: FakeMre;
   let server: Server;
   let base: string;
   let classifications: PostgresTaxClassificationRepository;
+  let reproduction: ReturnType<typeof reproductionFromDatabase>;
   let giro = '';
   const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
   const now = () => new Date('2027-10-30T10:00:00Z');
@@ -89,6 +96,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
     const client = new HttpMreClient({ apiBaseUrl: mre.apiBaseUrl, timeoutMs: 2000 });
     const db = createDatabase(pool);
     classifications = new PostgresTaxClassificationRepository(db);
+    reproduction = reproductionFromDatabase(db, () => new Date('2033-01-15T10:00:00Z'));
     const assets = new PostgresDepreciationAssetRepository(db, { capitalizedSources: classifications.capitalizedSources, now });
     const account = await new PostgresFinancialAccountRepository(db).create(
       { mreRealmId: REALM_A, accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: null },
@@ -369,6 +377,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
     const before = await schedule(building, '?from=2027&to=2028');
     expect(before.components.map((c) => c.kind)).toEqual(['ACQUISITION']);
     expect(before.years.map((y) => money(y.amount))).toEqual(['5088.00', '5088.00']);
+    await reproduction.expectReproducible(building, 2028, REALM_A);
 
     // Both capitalised on the check (the user's classification, P8-D2 (2)).
     await classify({ sourceId: repair, netAmount: eur('30000.00'), anschaffungsnaheAcquisitionId: w, supersedes: repairDeductible });
@@ -392,6 +401,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
     ] as const) {
       expect((await schedule(building, `?from=2027&to=2028&ownerPartyId=${owner}`)).years.map((y) => money(y.amount))).toEqual(amounts);
     }
+    await reproduction.expectReproducible(building, 2028, REALM_A, [2027, 2028]);
     // Each item in `capitalized` of its year and in no Werbungskosten line: never twice.
     for (const [year, source] of [
       [2027, repair],
@@ -436,6 +446,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
     const withKitchen = await schedule(building, '?from=2027&to=2028');
     expect(withKitchen.years.map((y) => money(y.amount))).toEqual(['5802.00', '5982.00']);
     expect(withKitchen.excludedItems).toEqual([{ componentId: `TRANSACTION_SPLIT:${kitchenSplit}`, separateAssetId: kitchen.assetId }]);
+    await reproduction.expectReproducible(kitchen.assetId, 2028, REALM_A);
 
     // The extension of 2030 (240.00 a year) and a refund of 1,000.00 of it in 2031 (−20.00 a year).
     const extension = await splitOf(pr, '12000.00', '2030-09-15');
@@ -454,6 +465,8 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
       [2032, '-20.00'],
     ]);
     expect(later.years.map((y) => money(y.amount))).toEqual(['6222.00', '6202.00', '6202.00']);
+    await reproduction.expectReproducible(building, 2032, REALM_A);
+    await reproduction.expectReproducible(kitchen.assetId, 2032, REALM_A);
   });
 
   it('GET /tax-rules lists DE_AFA_MOVABLE_LINEAR @1 ACTIVE; Realm isolation: another Realm’s split as an item is 404', async () => {

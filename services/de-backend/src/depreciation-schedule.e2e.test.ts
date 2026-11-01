@@ -4,7 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
-import { getAnschaffungsnaheCheck, getDepreciationSchedule } from './application/index.js';
+import { ScheduleVersionRefusedError, getAnschaffungsnaheCheck, getDepreciationSchedule } from './application/index.js';
 import {
   PostgresAcquisitionCostRepository,
   PostgresAcquisitionRepository,
@@ -23,13 +23,17 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { reproductionFromDatabase } from './depreciation-reproduction.test-support.js';
 
 /**
  * VC-8-02 end to end (api-design.md §59A), wired as in main.ts, with ACC8's purchase (synthetic): the response example
  * for 2026 and 2027 at both levels; the transfer on 2026-12-31 (424.00) and on 2027-01-01 (0.00 in 2026); no confirmed
  * allocation; a second Acquisition of a share with an unconfirmed allocation (PARTIAL); B selling to C on 2029-07-01,
  * with and without C's `economicTransferDate`; an existing owner buying a further share (§28.1A); the schedule's basis
- * equal to the anschaffungsnahe check's; `NOT_AN_OWNER`; Realm isolation. The clock is injected.
+ * equal to the anschaffungsnahe check's; `NOT_AN_OWNER`; Realm isolation. The clock is injected. VC-X-35: each scenario
+ * with a schedule ends with its reproduction from the database (`depreciation-reproduction.test-support.ts`, the switch
+ * on in test-only wiring, its own clock in 2033): a version recorded, read back, recomputed to its own entries and equal
+ * to the schedule read; a scenario with a year without a figure is not recordable through that year.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
@@ -74,7 +78,9 @@ type Schedule = {
   readonly error: { readonly code: string; readonly details: unknown };
 };
 
-describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-02) end to end', () => {
+// Each test ends with the reproduction from the database (VC-X-35): several versions recorded and read back, past
+// Vitest's default of 5 s when the suite runs in parallel.
+describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-02) end to end', { timeout: 30_000 }, () => {
   const schema = testSchemaName('depreciation_schedule_e2e');
   let pool: pg.Pool;
   let mre: FakeMre;
@@ -86,6 +92,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
   let costs: PostgresAcquisitionCostRepository;
   let allocations: PostgresLandBuildingAllocationRepository;
   let assets: PostgresDepreciationAssetRepository;
+  let reproduction: ReturnType<typeof reproductionFromDatabase>;
   const member = [{ name: 'Anna', email: 'anna@example.com', role: 'administrator' as const, registered: true }];
   const clock = { now: new Date('2026-10-30T10:00:00Z') };
 
@@ -108,6 +115,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     costs = new PostgresAcquisitionCostRepository(db);
     allocations = new PostgresLandBuildingAllocationRepository(db);
     assets = new PostgresDepreciationAssetRepository(db);
+    reproduction = reproductionFromDatabase(db, () => new Date('2033-01-15T10:00:00Z'));
     const now = () => clock.now;
     const app = createApp({
       isReady: async () => true,
@@ -325,6 +333,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     const check = (await (await get(`/acquisitions/${s.w}/anschaffungsnahe-herstellungskosten`)).json()) as { basis: { basisAmount: Amount } };
     expect(money(check.basis.basisAmount)).toBe(money(body.components[0]?.basis.amount ?? null));
     expect(money(check.basis.basisAmount)).toBe('254400.00');
+    await reproduction.expectReproducible(s.assetId, 2027, REALM_A);
   });
 
   it('the variants: a transfer on 2026-12-31 gives 424.00 in 2026; one on 2027-01-01 gives 0.00 in 2026 and 5,088.00 in 2027', async () => {
@@ -336,6 +345,8 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       [2026, 'AVAILABLE', '0.00'],
       [2027, 'AVAILABLE', '5088.00'],
     ]);
+    await reproduction.expectReproducible(late.assetId, 2026, REALM_A);
+    await reproduction.expectReproducible(next.assetId, 2027, REALM_A);
   });
 
   it('no confirmed allocation: ALLOCATION_NOT_CONFIRMED, DEPRECIATION_NOT_AVAILABLE, the amounts null (never 0.00)', async () => {
@@ -348,6 +359,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       ['DEPRECIATION_NOT_AVAILABLE', null],
       ['DEPRECIATION_NOT_AVAILABLE', null],
     ]);
+    await reproduction.expectNotRecordable(s.assetId, 2027, REALM_A);
   });
 
   it('a second Acquisition of a share with an unconfirmed allocation: PARTIAL', async () => {
@@ -359,7 +371,8 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     await own(pr, b, [2, 5], '2026-07-01', x);
     await confirm(w);
     await confirm(x);
-    const body = await ok(await building(pr), '?from=2027&to=2027');
+    const assetId = await building(pr);
+    const body = await ok(assetId, '?from=2027&to=2027');
     expect(body.status).toBe('PARTIAL');
     // Both start on 2026-07-01, so they are ordered by acquisitionId (§59A "Order").
     expect(body.components.map((c) => [c.acquisitionId, c.status, c.reasons.map((r) => r.code)])).toEqual(
@@ -369,6 +382,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       ].sort(([p], [q]) => ((p as string) < (q as string) ? -1 : 1)),
     );
     expect(body.years[0]).toMatchObject({ status: 'PARTIAL', amount: null });
+    await reproduction.expectNotRecordable(assetId, 2026, REALM_A);
   });
 
   /** B sells its 2/5 to C effective 2029-07-01 (§26.2), C's Acquisition X with or without `economicTransferDate`. */
@@ -414,6 +428,8 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     expect(w?.years.find((y) => y.year === 2030)?.owners.map((o) => o.ownerPartyId)).toEqual([s.a]);
     expect([x?.acquisitionId, x?.status, x?.start?.month]).toEqual([s.x, 'COMPUTABLE', '2029-07']);
     expect(body.years[0]?.owners?.map((o) => o.ownerPartyId).sort()).toEqual([s.a, s.b, s.c].sort());
+    // B's provisional disposal year is recorded with its open flag (§60 open question 1), C's component from July.
+    await reproduction.expectReproducible(s.assetId, 2030, REALM_A);
   });
 
   it('C’s Acquisition without economicTransferDate: B’s 2029 NOT_CALCULABLE with DISPOSAL_DATE_MISSING, C’s component TRANSFER_DATE_MISSING', async () => {
@@ -432,6 +448,24 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       null,
     ]);
     expect(x?.years.map((y) => [y.year, y.amount, y.calculationStatus])).toEqual([[2029, null, 'NOT_CALCULABLE']]);
+    // Not recordable through 2029 (the years before: the open finding below).
+    await reproduction.expectNotRecordable(s.assetId, 2029, REALM_A);
+  });
+
+  /**
+   * VC-X-35 finding, open (not fixed here: it needs a decision): through 2028 every year has a figure, so step 4 does
+   * not refuse, but `truncateInputs` keeps C's not-computable component (no start: `firstYearOfComponent` is `null`) in
+   * the stored inputs, and its `start_date` NULL breaks 0052's NOT NULL: a raw `23502`, a `500`. Either the record is
+   * refused (`SCHEDULE_NOT_COMPLETE`, as "As implemented (VC-8-04)" 3 says: "never stored (step 4 refuses it)") or the
+   * component is left out of the stored inputs. Marked `fails` so it turns red once fixed; then drop `.fails`.
+   */
+  it.fails('VC-X-35 finding: through 2028 a version or a business refusal, never a database error (fails until fixed)', async () => {
+    const s = await sale(false);
+    try {
+      await reproduction.expectReproducible(s.assetId, 2028, REALM_A);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ScheduleVersionRefusedError);
+    }
   });
 
   it('an existing owner buys a further share (§28.1A): W and X both computed, no BUYER_ALREADY_OWNER, no OWNER_WITHOUT_ACQUISITION', async () => {
@@ -456,7 +490,8 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     );
     if (changed.kind !== 'CHANGED') throw new Error(changed.kind);
     await confirm(x);
-    const body = await ok(await building(pr), '?from=2028&to=2029');
+    const assetId = await building(pr);
+    const body = await ok(assetId, '?from=2028&to=2029');
     expect(body.components.map((c) => [c.acquisitionId, c.status, c.reasons])).toEqual([
       [w, 'COMPUTABLE', []],
       [x, 'COMPUTABLE', []],
@@ -466,6 +501,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     expect(body.components[0]?.years.map((y) => money(y.owners.find((o) => o.ownerPartyId === a)?.amount ?? null))).toEqual(['2544.00', '2544.00']);
     expect(body.years.flatMap((y) => y.flags.map((f) => f.code))).not.toContain('OWNER_WITHOUT_ACQUISITION');
     expect(body.status).toBe('AVAILABLE');
+    await reproduction.expectReproducible(assetId, 2029, REALM_A);
   });
 
   it('NOT_AN_OWNER for a Party of the Realm that holds no share and bought none', async () => {
@@ -485,5 +521,6 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     const body = await ok(mine.assetId, '?from=2026&to=2026');
     expect(body.components.map((c) => c.acquisitionId)).toEqual([mine.w]);
     expect(body.years[0]?.owners?.map((o) => o.ownerPartyId)).toEqual([mine.a, mine.b]);
+    await reproduction.expectReproducible(theirs.assetId, 2027, REALM_B);
   });
 });
