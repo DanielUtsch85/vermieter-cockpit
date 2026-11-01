@@ -101,12 +101,12 @@ describe('TAX_RULES (§58, §59)', () => {
     expect(rule?.source).toContain('B1–B3');
   });
 
-  it('DE_AFA_BUILDING_LINEAR version 1 (§59A): 2006-01-01 to 2023-01-01, the same title and legal basis, its rates verified (Prüfbericht 01.11.2026)', () => {
+  it('DE_AFA_BUILDING_LINEAR version 1 (§59A): 2006-01-01 to 2023-01-01, the same title and legal basis, its rates and thresholds verified (Prüfbericht 01.11.2026; owner 2026-11-01)', () => {
     const rule = TAX_RULES.find({ ruleCode: AFA_BUILDING_LINEAR, version: 1 }) as RuleVersion<BuildingLinearParameters>;
     expect(rule).toMatchObject({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1, effectiveFrom: '2006-01-01', effectiveTo: '2023-01-01' });
     expect(rule.legalBasis).toBe('§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG');
     expect(rule.source).toContain('JStG 2022');
-    expect(rule.parameters.verified).toEqual({ rates: true, shorterUsefulLifeThresholds: false });
+    expect(rule.parameters.verified).toEqual({ rates: true, shorterUsefulLifeThresholds: true });
     expect(rule.source).toContain('mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Fragen 1, 4, 10, 11');
     expect(rule.parameters.bands.map((b) => [b.band, b.completedFromYear, b.completedToYear, b.ratePercent, b.shorterUsefulLife.shorterThanYears])).toEqual([
       ['A', 1925, null, '2', 50],

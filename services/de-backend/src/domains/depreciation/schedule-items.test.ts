@@ -396,15 +396,15 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
     // HISTORICAL_RULE_TO_VERIFY no longer appears on an item year computed with @1's rates.
     expect(codes(owner(yearOf(item(old), 2022), A)?.flags ?? [])).toEqual([]);
     expect(owner(yearOf(item(old), 2023), A)?.flags).toEqual([]);
-    // @1's rates unverified again (only @1: its thresholds are the unverified ones): the flag is back on 2022 alone.
-    const ratesOpen = withParameters((p) => (p.verified.shorterUsefulLifeThresholds ? p : { ...p, verified: { ...p.verified, rates: false } }));
+    // @1's rates unverified again (only @1, the version with two bands): the flag is back on 2022 alone.
+    const ratesOpen = withParameters((p) => (p.bands.length === 2 ? { ...p, verified: { ...p.verified, rates: false } } : p));
     const reopened = item(derive(oldInput, ratesOpen));
     expect(codes(owner(yearOf(reopened, 2022), A)?.flags ?? [])).toEqual(['HISTORICAL_RULE_TO_VERIFY']);
     expect(owner(yearOf(reopened, 2023), A)?.flags).toEqual([]);
   });
 
-  it('an item on a purchase with a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY (the thresholds confirmed in the current lettering, not expressly for 2006–2022)', () => {
-    const s = derive({
+  it('an item on a purchase with a shorter useful life under @1 carries no HISTORICAL_RULE_TO_VERIFY (Frage 8 covers the thresholds of @1, owner 2026-11-01); with them unverified it is back', () => {
+    const input: ScheduleInput = {
       asset: asset({ shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-01-01') } })] }),
       acquisitions: [acquisition({ contractDate: day('2019-11-01'), economicTransferDate: day('2020-01-01') })],
       ownerships: [ownership(A, '1/1', '2020-01-01', null, W)],
@@ -413,9 +413,15 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
       from: 2022,
       to: 2023,
       ownerPartyId: null,
-    });
-    expect(codes(owner(yearOf(item(s), 2022), A)?.flags ?? [])).toContain('HISTORICAL_RULE_TO_VERIFY');
+    };
+    const s = derive(input);
+    expect(codes(owner(yearOf(item(s), 2022), A)?.flags ?? [])).not.toContain('HISTORICAL_RULE_TO_VERIFY');
     expect(codes(owner(yearOf(item(s), 2023), A)?.flags ?? [])).not.toContain('HISTORICAL_RULE_TO_VERIFY');
+    // Counter-check: @1's thresholds unverified (only @1, the version with two bands): the flag is back on 2022 alone.
+    const thresholdsOpen = withParameters((p) => (p.bands.length === 2 ? { ...p, verified: { ...p.verified, shorterUsefulLifeThresholds: false } } : p));
+    const reopened = item(derive(input, thresholdsOpen));
+    expect(codes(owner(yearOf(reopened, 2022), A)?.flags ?? [])).toContain('HISTORICAL_RULE_TO_VERIFY');
+    expect(codes(owner(yearOf(reopened, 2023), A)?.flags ?? [])).not.toContain('HISTORICAL_RULE_TO_VERIFY');
   });
 
   it('the 2006 boundary from the other side: an item of 2006-06-30 on a purchase of 2006-01-01 is computed from 2006-01 by @1 (review on #187)', () => {
