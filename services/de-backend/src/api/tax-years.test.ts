@@ -80,6 +80,9 @@ const principal = meaning('2400.00', 'NOT_RELEVANT', 'NOT_RELEVANT', '2027-05-01
 const other = meaning('70.00', 'UNCLASSIFIED', null, '2027-05-02');
 const deposit = id();
 
+/** No depreciation asset, the property owned in the year (`NO_ASSET`): the Phase-7 fixtures' state (VC-8-05). */
+const PHASE_7_DEPRECIATION: TaxYearRead['depreciation'] = { year: 2027, assets: [], withoutAsset: { acquisitionIds: [], items: [], ownershipInYear: true } };
+
 const reads: TaxYearRead = {
   propertyReferenceId: PR,
   ownerPartyFound: null,
@@ -116,6 +119,7 @@ const reads: TaxYearRead = {
   attribution: { references: [], candidates: [] },
   allocatedLoanInterest: [],
   loanAllocationSets: new Map(),
+  depreciation: PHASE_7_DEPRECIATION,
 };
 
 async function start(read: (pr: string, owner: string | null) => TaxYearRead | undefined): Promise<string> {
@@ -397,5 +401,161 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
     expect(own['share']).toMatchObject({ share: '1/2', amount: { amount: '30.01', currency: 'EUR' } });
     expect((own['loanAllocation'] as { propertyPart: unknown }).propertyPart).toEqual({ amount: '60.01', currency: 'EUR' });
     expect(a.notAttributed.items.map((i) => [i.sourceId, i['share']])).toEqual([[gap.item.sourceId, null]]);
+  });
+
+  it('VC-8-05: Line.line, the AfA lines and AfaItem, depreciation, capitalized.component and result.basis at both levels', async () => {
+    const asset = 'eeeeeeee-0000-4000-8000-000000000010';
+    const acquisition = 'eeeeeeee-0000-4000-8000-000000000002';
+    const flag = (code: string, level: 'OPEN' | 'INFORMATIVE') => ({ code, level, details: {}, ownerPartyIds: [] });
+    const part = (owner: string, amount: string, share: string) => ({
+      partKey: `OWNER:${owner}`,
+      ownerPartyId: owner,
+      ownershipIds: [`own-${owner}`],
+      share,
+      months: 12,
+      fraction: '1/50',
+      amount: eur(amount),
+      reasons: [],
+      flags: [],
+    });
+    const itemStart = { date: day('2027-01-01'), dateSource: 'ITEM_DATE', method: 'START_OF_YEAR', month: '2027-01', firstYearMonths: 12 };
+    const rate = { kind: 'BAND', rate: '1/50', ratePercent: '2', usefulLifeYears: null, legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG' };
+    const rule = { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 };
+    const component = (componentId: string, kind: 'ACQUISITION' | 'CAPITALIZED_ITEM', amount: string, parts: ReturnType<typeof part>[]) => ({
+      componentId,
+      kind,
+      acquisitionId: kind === 'ACQUISITION' ? acquisition : null,
+      source: kind === 'ACQUISITION' ? null : { sourceType: 'TRANSACTION_SPLIT', sourceId: repair.item.sourceId, sourcePosition: null },
+      computable: true,
+      reasons: [],
+      basis: eur(kind === 'ACQUISITION' ? '254400.00' : '5000.00'),
+      rate,
+      start:
+        kind === 'ACQUISITION'
+          ? { ...itemStart, date: day('2026-07-01'), dateSource: 'ECONOMIC_TRANSFER_DATE', method: 'TRANSFER_DATE', month: '2026-07', firstYearMonths: 6 }
+          : itemStart,
+      months: 12,
+      amount: eur(amount),
+      rule,
+      parts,
+      flags: kind === 'ACQUISITION' ? [] : [flag('SUBSEQUENT_COST_START_TO_VERIFY', 'OPEN')],
+    });
+    const components = [
+      component(`ACQUISITION:${acquisition}`, 'ACQUISITION', '2544.00', [part(A, '1272.00', '1/2'), part(B, '1272.00', '1/2')]),
+      component(`TRANSACTION_SPLIT:${repair.item.sourceId}`, 'CAPITALIZED_ITEM', '100.00', [part(A, '50.00', '1/2'), part(B, '50.00', '1/2')]),
+    ];
+    const depreciation: TaxYearRead['depreciation'] = {
+      year: 2027,
+      withoutAsset: null,
+      assets: [
+        {
+          assetId: asset,
+          assetType: 'BUILDING',
+          description: null,
+          reviewState: 'CONFIRMED',
+          reasons: [],
+          components,
+          componentIndex: components.map((c) => ({ componentId: c.componentId, source: c.source, computable: true, reasons: [] })),
+          yearFlags: [],
+          recording: {
+            state: 'NOT_RECORDED',
+            versionId: null,
+            versionNumber: null,
+            throughYear: null,
+            reproducible: null,
+            flags: [flag('DEPRECIATION_SCHEDULE_NOT_RECORDED', 'OPEN')],
+          },
+        },
+      ],
+    };
+    const base = await start((pr, owner) =>
+      pr !== PR ? undefined : { ...reads, depreciation, ownerPartyFound: owner === null ? null : [A, B].includes(owner) },
+    );
+    type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const v = (await (await get(base, `/property-references/${PR}/tax-years/2027`)).json()) as Json;
+    const lines = v['werbungskosten'].lines as Json[];
+    expect(
+      lines.every((l) => (l['line'] === 'AFA_BUILDING' || l['line'] === 'AFA_SEPARATE_ASSETS' ? l['taxCategory'] === null : l['line'] === l['taxCategory'])),
+    ).toBe(true);
+    expect(lines.slice(-3).map((l) => [l['line'], l['taxCategory'], l['total'].amount, l['itemCount']])).toEqual([
+      ['OTHER_EXPENSE', 'OTHER_EXPENSE', '0.00', 0],
+      ['AFA_BUILDING', null, '2644.00', 2],
+      ['AFA_SEPARATE_ASSETS', null, '0.00', 0],
+    ]);
+    expect(lines.at(-2)?.['items'][0]).toEqual({
+      assetId: asset,
+      assetType: 'BUILDING',
+      description: null,
+      componentId: `ACQUISITION:${acquisition}`,
+      kind: 'ACQUISITION',
+      acquisitionId: acquisition,
+      source: null,
+      basis: { amount: '254400.00', currency: 'EUR' },
+      rate,
+      start: { date: '2026-07-01', dateSource: 'ECONOMIC_TRANSFER_DATE', method: 'TRANSFER_DATE', month: '2026-07', firstYearMonths: 6 },
+      months: 12,
+      amount: { amount: '2544.00', currency: 'EUR' },
+      rule,
+      share: null,
+      href: `/api/v1/depreciation-assets/${asset}/schedule?from=2027&to=2027`,
+      flags: [],
+    });
+    expect(v['depreciation']).toEqual({
+      status: 'AVAILABLE',
+      amount: { amount: '2644.00', currency: 'EUR' },
+      assets: [
+        {
+          assetId: asset,
+          assetType: 'BUILDING',
+          description: null,
+          reviewState: 'CONFIRMED',
+          status: 'AVAILABLE',
+          amount: { amount: '2644.00', currency: 'EUR' },
+          itemCount: 2,
+          reasons: [],
+          recording: { state: 'NOT_RECORDED', versionId: null, versionNumber: null, throughYear: null, reproducible: null },
+          href: `/api/v1/depreciation-assets/${asset}/schedule?from=2027&to=2027`,
+        },
+      ],
+      gaps: [],
+      note: 'Ergebnis nach AfA.',
+    });
+    expect(v['result']).toEqual({ amount: { amount: '-1143.98', currency: 'EUR' }, kind: 'LOSS', basis: 'AFTER_DEPRECIATION' });
+    expect(v['capitalized'].items[0].component).toEqual({
+      assetId: asset,
+      assetType: 'BUILDING',
+      componentId: `TRANSACTION_SPLIT:${repair.item.sourceId}`,
+      computable: true,
+      reasons: [],
+    });
+    expect((v['owners'] as Json[]).map((o) => [o['ownerPartyId'], (o['werbungskosten'].lines as Json[]).slice(-2), o['result'].basis])).toEqual([
+      [
+        A,
+        [
+          { line: 'AFA_BUILDING', taxCategory: null, total: { amount: '1322.00', currency: 'EUR' }, itemCount: 2, subtotals: null },
+          { line: 'AFA_SEPARATE_ASSETS', taxCategory: null, total: { amount: '0.00', currency: 'EUR' }, itemCount: 0, subtotals: null },
+        ],
+        'AFTER_DEPRECIATION',
+      ],
+      [
+        B,
+        [
+          { line: 'AFA_BUILDING', taxCategory: null, total: { amount: '1322.00', currency: 'EUR' }, itemCount: 2, subtotals: null },
+          { line: 'AFA_SEPARATE_ASSETS', taxCategory: null, total: { amount: '0.00', currency: 'EUR' }, itemCount: 0, subtotals: null },
+        ],
+        'AFTER_DEPRECIATION',
+      ],
+      [SELLER, expect.any(Array), 'AFTER_DEPRECIATION'],
+    ]);
+    expect((v['flags'] as Json[]).map((f) => f['code'])).toEqual(['DEPRECIATION_SCHEDULE_NOT_RECORDED', 'UNATTRIBUTED_ITEMS']);
+    expect(v['review'].open).toEqual(expect.arrayContaining([{ code: 'SUBSEQUENT_COST_START_TO_VERIFY', count: 1 }]));
+    const a = (await (await get(base, `/property-references/${PR}/tax-years/2027?ownerPartyId=${A}`)).json()) as Json;
+    const own = (a['werbungskosten'].lines as Json[]).at(-2)?.['items'][1];
+    expect([own.amount, own.share, own.href]).toEqual([
+      { amount: '50.00', currency: 'EUR' },
+      { ownershipId: `own-${A}`, share: '1/2', amount: { amount: '50.00', currency: 'EUR' }, ownershipIds: [`own-${A}`], partKey: `OWNER:${A}` },
+      `/api/v1/depreciation-assets/${asset}/schedule?from=2027&to=2027&ownerPartyId=${A}`,
+    ]);
+    expect(a['result'].basis).toBe('AFTER_DEPRECIATION');
   });
 });

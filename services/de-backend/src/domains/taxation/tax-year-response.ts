@@ -47,6 +47,98 @@ export interface TaxYearItem {
   readonly notAttributed: { readonly reason: string; readonly candidates: readonly string[]; readonly href: string } | null;
   /** An item from a Loan's interest split only (§58D): the set covering its booking date and this property's part. */
   readonly loanAllocation: TaxYearLoanAllocation | null;
+  /** An item of `capitalized` only (VC-8-05): the AfA component it became, or `NO_ASSET`; `null` when no asset lists it. */
+  readonly component?: CapitalizedComponent | null;
+}
+
+/** The component a capitalised item became (§58C "VC-8-05", `capitalized`). */
+export interface CapitalizedComponent {
+  readonly assetId: string | null;
+  readonly assetType: 'BUILDING' | 'SEPARATE_ASSET' | null;
+  readonly componentId: string | null;
+  readonly computable: boolean;
+  readonly reasons: readonly ViewFlag[];
+}
+
+/** A component computed for `year` on an AfA line (§58C "VC-8-05"): never a cash item, no Transaction, no split. */
+export interface AfaItem {
+  readonly assetId: string;
+  readonly assetType: 'BUILDING' | 'SEPARATE_ASSET';
+  readonly description: string | null;
+  readonly componentId: string;
+  readonly kind: 'ACQUISITION' | 'CAPITALIZED_ITEM';
+  readonly acquisitionId: string | null;
+  readonly source: { readonly sourceType: string; readonly sourceId: string; readonly sourcePosition: number | null } | null;
+  readonly basis: Money | null;
+  readonly rate: {
+    readonly kind: string;
+    readonly rate: string;
+    readonly ratePercent: string;
+    readonly usefulLifeYears: number | null;
+    readonly legalBasis: string;
+  } | null;
+  readonly start: {
+    readonly date: BusinessDate | null;
+    readonly dateSource: string;
+    readonly method: string;
+    readonly month: string | null;
+    readonly firstYearMonths: number | null;
+  } | null;
+  readonly months: number | null;
+  readonly amount: Money;
+  readonly rule: RuleRef | null;
+  /** `null` at the property level; the owner's (or `NOT_OWNED`'s) part of the schedule, never re-split. */
+  readonly share: {
+    readonly ownershipId: string;
+    readonly share: string | null;
+    readonly amount: Money;
+    readonly ownershipIds: readonly string[];
+    readonly partKey: string;
+  } | null;
+  readonly href: string;
+  readonly flags: readonly ViewFlag[];
+}
+
+/** `AFA_BUILDING` or `AFA_SEPARATE_ASSETS`, after `OTHER_EXPENSE` (decided 2026-10-31, second set, Q4). */
+export interface AfaLine {
+  readonly line: 'AFA_BUILDING' | 'AFA_SEPARATE_ASSETS';
+  readonly taxCategory: null;
+  readonly total: Money;
+  readonly itemCount: number;
+  readonly subtotals: null;
+  readonly items: readonly AfaItem[];
+}
+
+/** The `depreciation` block (§58C "VC-8-05"), replacing Phase 7's `DEPRECIATION_NOT_AVAILABLE` placeholder. */
+export interface TaxYearDepreciationBlock {
+  readonly status: 'AVAILABLE' | 'PARTIAL' | 'DEPRECIATION_NOT_AVAILABLE';
+  readonly amount: Money | null;
+  readonly assets: readonly {
+    readonly assetId: string;
+    readonly assetType: 'BUILDING' | 'SEPARATE_ASSET';
+    readonly description: string | null;
+    readonly reviewState: string;
+    readonly status: 'AVAILABLE' | 'PARTIAL' | 'DEPRECIATION_NOT_AVAILABLE';
+    readonly amount: Money | null;
+    readonly itemCount: number;
+    readonly reasons: readonly ViewFlag[];
+    readonly recording: {
+      readonly state: string;
+      readonly versionId: string | null;
+      readonly versionNumber: number | null;
+      readonly throughYear: number | null;
+      readonly reproducible: boolean | null;
+    } | null;
+    readonly href: string;
+  }[];
+  readonly gaps: readonly {
+    readonly code: string;
+    readonly assetId: string | null;
+    readonly componentId: string | null;
+    readonly ownerPartyIds: readonly string[];
+    readonly details: unknown;
+  }[];
+  readonly note: string;
 }
 
 /**
@@ -65,6 +157,8 @@ export interface TaxYearLoanAllocation {
 }
 
 export interface TaxYearLine {
+  /** The line code: the `taxCategory` on a cash line (VC-8-05). */
+  readonly line: string;
   readonly taxCategory: TaxCategory;
   readonly total: Money;
   readonly itemCount: number;
@@ -75,18 +169,24 @@ export interface TaxYearLine {
 export interface TaxYearSection {
   readonly total: Money;
   readonly lines: readonly TaxYearLine[];
+  /** Werbungskosten only (VC-8-05): `AFA_BUILDING` and `AFA_SEPARATE_ASSETS`, answered after the cash lines. */
+  readonly afaLines?: readonly AfaLine[];
 }
 
 export interface TaxYearResult {
   readonly amount: Money;
   readonly kind: 'SURPLUS' | 'LOSS' | 'ZERO';
-  readonly basis: 'BEFORE_DEPRECIATION';
+  readonly basis: 'AFTER_DEPRECIATION' | 'PARTIAL_DEPRECIATION' | 'BEFORE_DEPRECIATION';
 }
 
 /** An owner's (or `NOT_OWNED`'s) totals at the property level: summed from their item parts, never distributed. */
 export interface TaxYearTotals {
   readonly einnahmen: { readonly total: Money; readonly lines: readonly Omit<TaxYearLine, 'items'>[] };
-  readonly werbungskosten: { readonly total: Money; readonly lines: readonly Omit<TaxYearLine, 'items'>[] };
+  readonly werbungskosten: {
+    readonly total: Money;
+    readonly lines: readonly Omit<TaxYearLine, 'items'>[];
+    readonly afaLines?: readonly Omit<AfaLine, 'items'>[];
+  };
   readonly result: TaxYearResult;
   readonly capitalized: { readonly total: Money };
 }
@@ -125,7 +225,7 @@ export interface TaxYearView {
   readonly computedOn: BusinessDate;
   readonly einnahmen: TaxYearSection;
   readonly werbungskosten: TaxYearSection;
-  readonly depreciation: { readonly status: 'DEPRECIATION_NOT_AVAILABLE'; readonly amount: null; readonly note: string };
+  readonly depreciation: TaxYearDepreciationBlock;
   readonly result: TaxYearResult;
   readonly capitalized: { readonly total: Money; readonly items: readonly TaxYearItem[] };
   readonly notInView: { readonly items: readonly TaxYearItem[] };

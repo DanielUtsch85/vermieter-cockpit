@@ -663,6 +663,8 @@ export type {
   TaxMeaning,
   TaxMeaningFlag,
   TaxCategory,
+  AfaItem,
+  AfaLine,
   TaxYearItem,
   TaxYearLine,
   TaxYearRead,

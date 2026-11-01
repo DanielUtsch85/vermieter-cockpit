@@ -1,3 +1,4 @@
+import { PHASE_7_DEPRECIATION } from './tax-year-depreciation.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import type { Direction } from '../ledger/index.js';
@@ -120,6 +121,7 @@ function viewOf(
       attribution: { references: [], candidates: [] },
       allocatedLoanInterest: [],
       loanAllocationSets: new Map(),
+      depreciation: PHASE_7_DEPRECIATION,
     },
     { year, ownerPartyId, today: day('2026-10-30'), registry },
   );

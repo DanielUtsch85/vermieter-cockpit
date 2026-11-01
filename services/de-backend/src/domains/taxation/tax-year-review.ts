@@ -3,6 +3,7 @@ import type { AnschaffungsnaheCheck } from './anschaffungsnahe.js';
 import type { TaxYearItem, TaxYearReview, TaxYearRuleVersion, ViewFlag } from './tax-year-response.js';
 import type { Origin, ReviewState, Treatment } from './vocabulary.js';
 import { REVIEW_STATES } from './vocabulary.js';
+import { OPEN_AFA_YEAR_FLAGS } from './tax-year-depreciation.js';
 
 /**
  * The review of the tax-year view (api-design.md §58C "Review"): which flags are open, whether the year is final, and
@@ -38,6 +39,8 @@ const OPEN_YEAR_FLAGS = new Set([
   'UNATTRIBUTED_ITEMS',
   'LOAN_INTEREST_NOT_ATTRIBUTED',
   'ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL',
+  // VC-8-05: the AfA's year flags (the status's and §60's recording flags, one per asset); GWG_THRESHOLD_MAY_APPLY is informative.
+  ...OPEN_AFA_YEAR_FLAGS,
 ]);
 
 /**
@@ -52,7 +55,15 @@ export function flagIsOpen(code: string, item: { readonly treatment: Treatment |
   return false;
 }
 
-export function reviewOf(yearFlags: readonly ViewFlag[], items: readonly TaxYearItem[]): TaxYearReview {
+/**
+ * `afaUnits` (VC-8-05): each AfA item's flags and each gap's reason codes, with their carried levels; a code counts once
+ * per unit, as a cash item's.
+ */
+export function reviewOf(
+  yearFlags: readonly ViewFlag[],
+  items: readonly TaxYearItem[],
+  afaUnits: readonly (readonly { readonly code: string; readonly open: boolean }[])[] = [],
+): TaxYearReview {
   const open = new Map<string, number>();
   const info = new Map<string, number>();
   const bump = (map: Map<string, number>, code: string) => map.set(code, (map.get(code) ?? 0) + 1);
@@ -62,6 +73,14 @@ export function reviewOf(yearFlags: readonly ViewFlag[], items: readonly TaxYear
     for (const code of new Set(item.flags.map((f) => f.code))) {
       const seen = itemCodes.get(code) ?? { open: 0, info: 0 };
       if (flagIsOpen(code, item)) seen.open += 1;
+      else seen.info += 1;
+      itemCodes.set(code, seen);
+    }
+  }
+  for (const unit of afaUnits) {
+    for (const code of new Set(unit.map((u) => u.code))) {
+      const seen = itemCodes.get(code) ?? { open: 0, info: 0 };
+      if (unit.some((u) => u.code === code && u.open)) seen.open += 1;
       else seen.info += 1;
       itemCodes.set(code, seen);
     }
@@ -80,6 +99,7 @@ export function ruleVersionsOf(
   checks: readonly AnschaffungsnaheCheck[],
   registry: RuleRegistry,
   today: BusinessDate,
+  afaRefs: readonly RuleRef[] = [],
 ): TaxYearRuleVersion[] {
   const counted = new Map<string, { ref: RuleRef; count: number }>();
   const count = (refs: readonly (RuleRef | null | undefined)[]) => {
@@ -92,6 +112,8 @@ export function ruleVersionsOf(
     count([item.rule, item.treatmentRule, attribution?.rule, item.distribution?.rule]);
   }
   for (const check of checks) count([check.rule]);
+  // VC-8-05: each AfA item's rule version.
+  for (const ref of afaRefs) count([ref]);
   return [...counted.values()]
     .map(({ ref, count: itemCount }) => {
       const version = registry.find(ref);

@@ -1,3 +1,4 @@
+import { PHASE_7_DEPRECIATION } from './tax-year-depreciation.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import type { Direction } from '../ledger/index.js';
@@ -122,6 +123,7 @@ const readOf = (items: readonly TaxListItem[], ownerships: readonly ViewOwnershi
   attribution: { references: [], candidates: [] },
   allocatedLoanInterest: [],
   loanAllocationSets: new Map(),
+  depreciation: PHASE_7_DEPRECIATION,
   ...extra,
 });
 
@@ -742,7 +744,7 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
     });
   });
 
-  it('the levels of the review table; DEPRECIATION_NOT_AVAILABLE always open, so final is always false', () => {
+  it('the levels of the review table; DEPRECIATION_NOT_AVAILABLE open where raised (here: NO_ASSET, the Phase-7 fixture), so final is false', () => {
     const item = { treatment: 'DEDUCTIBLE', origin: 'DEFAULT', reviewState: 'SUGGESTED' } as const;
     const confirmed = { treatment: 'DEDUCTIBLE', origin: 'CLASSIFICATION', reviewState: 'USER_CONFIRMED' } as const;
     for (const code of [
@@ -814,6 +816,7 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
         { code: 'OWNERSHIP_INCOMPLETE', count: 1 },
         { code: 'ATTRIBUTED_BY_10_DAY_RULE', count: 1 },
         { code: 'NEEDS_REVIEW', count: 1 },
+        { code: 'NO_ASSET', count: 1 },
       ],
       info: [
         { code: 'ATTRIBUTED_BY_10_DAY_RULE', count: 1 },

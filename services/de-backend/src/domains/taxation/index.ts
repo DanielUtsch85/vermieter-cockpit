@@ -145,7 +145,12 @@ export type {
 export { capitalizedItemsOf } from './capitalized-items.js';
 export type { CapitalizedSource, CapitalizedSourceInput } from './capitalized-items.js';
 export {
+  AFA_LINES,
   EINNAHMEN_LINES,
+  NO_DEPRECIATION,
+  OPEN_AFA_YEAR_FLAGS,
+  afaOf,
+  componentOfItem,
   LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY,
   LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS,
   NOT_OWNED,
@@ -165,6 +170,12 @@ export {
   sourceKeyOf,
 } from './tax-year-view.js';
 export type {
+  AfaItem,
+  AfaLine,
+  AfaLineCode,
+  CapitalizedComponent,
+  DepreciationFlag,
+  DepreciationSourceRef,
   FoldedParts,
   Level,
   LoanInterestCase,
@@ -173,6 +184,11 @@ export type {
   Participant,
   Placement,
   TaxYearAcquisition,
+  TaxYearDepreciation,
+  TaxYearDepreciationAsset,
+  TaxYearDepreciationBlock,
+  TaxYearDepreciationComponent,
+  TaxYearDepreciationPart,
   TaxYearItem,
   TaxYearLine,
   TaxYearLoanAllocation,

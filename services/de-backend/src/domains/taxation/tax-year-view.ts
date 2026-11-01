@@ -16,13 +16,14 @@ import {
 } from './tax-year-loan-interest.js';
 import { reviewOf, ruleVersionsOf } from './tax-year-review.js';
 import type { TaxYearAcquisition, TaxYearTotals, TaxYearView, ViewFlag } from './tax-year-response.js';
-import { sectionsOf, withoutItems } from './tax-year-sections.js';
+import { afaComponentCount, afaOf, afaParticipants, componentOfItem, type TaxYearDepreciation } from './tax-year-depreciation.js';
+import { sectionsOf, withAfa, withoutItems } from './tax-year-sections.js';
 import { NOT_OWNED, type ViewOwnership } from './tax-year-shares.js';
 
 /**
  * The tax-year view (api-design.md §58C, phase-7-plan P7-D7, P7-D8): §55's per-year list, with the interest of the
- * allocated Loans (§58D), grouped and summed into Einnahmen, Werbungskosten and the result before AfA, per
- * PropertyReference and per owner. Derived on every read from
+ * allocated Loans (§58D), grouped and summed into Einnahmen, Werbungskosten (with the AfA lines of VC-8-05, P8-D12) and
+ * the result, per PropertyReference and per owner. Derived on every read from
  * one snapshot (the repository's), never stored; it applies no tax rule of its own and writes nothing. Every figure is
  * exact in cents (`bigint`), and the owners' figures with `NOT_OWNED` sum to the property's to the cent.
  */
@@ -33,8 +34,12 @@ export type { Placement, Section } from './tax-year-placement.js';
 export { NOT_OWNED, foldPerOwner, participantsOn, shareOut } from './tax-year-shares.js';
 export type { FoldedParts, Participant, ViewOwnership } from './tax-year-shares.js';
 export type {
+  AfaItem,
+  AfaLine,
+  CapitalizedComponent,
   Level,
   TaxYearAcquisition,
+  TaxYearDepreciationBlock,
   TaxYearItem,
   TaxYearLine,
   TaxYearLoanAllocation,
@@ -47,11 +52,24 @@ export type {
   ViewFlag,
 } from './tax-year-response.js';
 export { sourceKeyOf } from './tax-year-items.js';
+export { AFA_LINES, NO_DEPRECIATION, OPEN_AFA_YEAR_FLAGS, afaOf, componentOfItem } from './tax-year-depreciation.js';
+export type {
+  AfaLineCode,
+  DepreciationFlag,
+  DepreciationSourceRef,
+  TaxYearDepreciation,
+  TaxYearDepreciationAsset,
+  TaxYearDepreciationComponent,
+  TaxYearDepreciationPart,
+} from './tax-year-depreciation.js';
 export { flagIsOpen, reviewOf, ruleVersionsOf } from './tax-year-review.js';
 export { LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS, loanInterestOf } from './tax-year-loan-interest.js';
 export type { LoanInterestCase, LoanInterestSplit, NotAttributedReason } from './tax-year-loan-interest.js';
 
-/** At most this many items over all places, `notInView` and everything not attributed included (§58C, §58D). */
+/**
+ * At most this many items over all places, `notInView` and everything not attributed included (§58C, §58D), and the
+ * AfA components the response lists (decided 2026-10-31, second set, VC-8-05 open question 1).
+ */
 export const TAX_YEAR_ITEM_LIMIT = 5000;
 
 /** What the view reads, in one snapshot (§58C "One snapshot"). */
@@ -79,14 +97,14 @@ export interface TaxYearRead {
   readonly allocatedLoanInterest: readonly LoanInterestSplit[];
   /** Every set, `VALID` and `VOID`, of each Loan in `allocatedLoanInterest`, with `validUntil` derived (§41.3). */
   readonly loanAllocationSets: ReadonlyMap<string, readonly LoanAllocationSetView[]>;
+  /** VC-8-05: every `ACTIVE` asset's live schedule of `year` and its `CURRENT` recorded version, from the same snapshot. */
+  readonly depreciation: TaxYearDepreciation;
 }
 
 export type TaxYearOutcome =
   | { readonly kind: 'VIEW'; readonly view: TaxYearView }
   | { readonly kind: 'NOT_AN_OWNER_IN_YEAR' }
   | { readonly kind: 'TAX_YEAR_TOO_LARGE'; readonly itemCount: number; readonly limit: number };
-
-const DEPRECIATION_NOTE = 'Die AfA wird in Phase 8 abgeleitet; das Ergebnis ist vor AfA (P7-D8).';
 
 /**
  * The view of `year` at the property level (`ownerPartyId` null) or of one owner, in §58C's order of checks after the
@@ -120,16 +138,18 @@ export function buildTaxYearView(
     );
     if (!owns && !derived.some((d) => d.parts.has(ownerPartyId))) return { kind: 'NOT_AN_OWNER_IN_YEAR' };
   }
-  const itemCount = derived.length + unattributed.length + unattributedLoans.length;
+  const itemCount = derived.length + unattributed.length + unattributedLoans.length + afaComponentCount(read.depreciation);
   if (itemCount > TAX_YEAR_ITEM_LIMIT) return { kind: 'TAX_YEAR_TOO_LARGE', itemCount, limit: TAX_YEAR_ITEM_LIMIT };
 
   const participant = ownerPartyId ?? undefined;
-  const sections = sectionsOf(derived, year, currency, participant);
+  // VC-8-05: the AfA of the level, from the schedule's parts (never re-split), its lines in the Werbungskosten.
+  const afa = afaOf(read.depreciation, currency, participant);
+  const sections = withAfa(sectionsOf(derived, year, currency, participant), afa, currency);
   const notAttributedDeposits = unattributed.map(notAttributedItem);
   const notAttributed = [...notAttributedDeposits, ...unattributedLoans.map((c) => notAttributedLoanItem(c, year))];
 
   // The flags of the year.
-  const flags: ViewFlag[] = [{ code: 'DEPRECIATION_NOT_AVAILABLE', details: {} }];
+  const flags: ViewFlag[] = [...afa.yearFlags];
   if (attribution.changes.length > 0) {
     flags.push({
       code: 'ATTRIBUTION_INPUT_CHANGED',
@@ -184,9 +204,9 @@ export function buildTaxYearView(
   let owners: TaxYearView['owners'] = null;
   let notOwned: TaxYearTotals | null = null;
   if (ownerPartyId === null) {
-    const keys = new Set(derived.flatMap((d) => [...d.parts.keys()]));
+    const keys = new Set([...derived.flatMap((d) => [...d.parts.keys()]), ...afaParticipants(read.depreciation)]);
     const totalsOf = (key: string): TaxYearTotals => {
-      const s = sectionsOf(derived, year, currency, key);
+      const s = withAfa(sectionsOf(derived, year, currency, key), afaOf(read.depreciation, currency, key), currency);
       return {
         einnahmen: withoutItems(s.einnahmen),
         werbungskosten: withoutItems(s.werbungskosten),
@@ -207,6 +227,10 @@ export function buildTaxYearView(
     notOwned = keys.has(NOT_OWNED) ? totalsOf(NOT_OWNED) : null;
   }
 
+  const capitalized = {
+    total: sections.capitalized.total,
+    items: sections.capitalized.items.map((item) => ({ ...item, component: componentOfItem(read.depreciation, item) })),
+  };
   const placed = [
     ...sections.einnahmen.lines.flatMap((l) => l.items),
     ...sections.werbungskosten.lines.flatMap((l) => l.items),
@@ -225,9 +249,9 @@ export function buildTaxYearView(
       computedOn: today,
       einnahmen: sections.einnahmen,
       werbungskosten: sections.werbungskosten,
-      depreciation: { status: 'DEPRECIATION_NOT_AVAILABLE', amount: null, note: DEPRECIATION_NOTE },
+      depreciation: afa.block,
       result: sections.result,
-      capitalized: sections.capitalized,
+      capitalized,
       notInView: sections.notInView,
       unclassified: sections.unclassified,
       notAttributed: { items: notAttributed },
@@ -235,12 +259,13 @@ export function buildTaxYearView(
       owners,
       notOwned,
       flags,
-      review: reviewOf(flags, placed),
+      review: reviewOf(flags, placed, afa.reviewUnits),
       ruleVersions: ruleVersionsOf(
         placed,
         read.checks.filter((c) => acquisitions.some((a) => a.acquisitionId === c.acquisitionId)),
         registry,
         today,
+        afa.ruleRefs,
       ),
     },
   };
