@@ -4,7 +4,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
-import { ScheduleVersionRefusedError, getAnschaffungsnaheCheck, getDepreciationSchedule } from './application/index.js';
+import { getAnschaffungsnaheCheck, getDepreciationSchedule } from './application/index.js';
 import {
   PostgresAcquisitionCostRepository,
   PostgresAcquisitionRepository,
@@ -448,24 +448,19 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       null,
     ]);
     expect(x?.years.map((y) => [y.year, y.amount, y.calculationStatus])).toEqual([[2029, null, 'NOT_CALCULABLE']]);
-    // Not recordable through 2029 (the years before: the open finding below).
+    // Not recordable through 2029, nor through 2028 (the test below).
     await reproduction.expectNotRecordable(s.assetId, 2029, REALM_A);
   });
 
   /**
-   * VC-X-35 finding, open (not fixed here: it needs a decision): through 2028 every year has a figure, so step 4 does
-   * not refuse, but `truncateInputs` keeps C's not-computable component (no start: `firstYearOfComponent` is `null`) in
-   * the stored inputs, and its `start_date` NULL breaks 0052's NOT NULL: a raw `23502`, a `500`. Either the record is
-   * refused (`SCHEDULE_NOT_COMPLETE`, as "As implemented (VC-8-04)" 3 says: "never stored (step 4 refuses it)") or the
-   * component is left out of the stored inputs. Marked `fails` so it turns red once fixed; then drop `.fails`.
+   * VC-X-35 finding, fixed: through 2028 every year has a figure, but C's component has no start (no
+   * `economicTransferDate`, `firstYearOfComponent` is `null`), so whether it started by 2028 is unknown. It is never
+   * stored ("As implemented (VC-8-04)" 3), so step 4 refuses the record (`SCHEDULE_NOT_COMPLETE`, the component named
+   * with `TRANSFER_DATE_MISSING`) instead of a `23502` from 0052's NOT NULL; nothing is stored.
    */
-  it.fails('VC-X-35 finding: through 2028 a version or a business refusal, never a database error (fails until fixed)', async () => {
+  it('VC-X-35 finding: through 2028 the sale without a transfer date refuses the record, never a database error', async () => {
     const s = await sale(false);
-    try {
-      await reproduction.expectReproducible(s.assetId, 2028, REALM_A);
-    } catch (error) {
-      expect(error).toBeInstanceOf(ScheduleVersionRefusedError);
-    }
+    await reproduction.expectNotRecordable(s.assetId, 2028, REALM_A);
   });
 
   it('an existing owner buys a further share (§28.1A): W and X both computed, no BUYER_ALREADY_OWNER, no OWNER_WITHOUT_ACQUISITION', async () => {

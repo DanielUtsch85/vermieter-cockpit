@@ -4,6 +4,7 @@ import { canonicalJson, type Fingerprinter } from './fingerprint.js';
 import { isOpen } from './schedule-review.js';
 import { activeIn, compareYear, liveSchedule, type LiveSchedule } from './version-compare.js';
 import { inputFingerprint, outputFingerprint, truncateInputs } from './version-fingerprint.js';
+import { firstYearOfComponent } from './version-inputs.js';
 import type { NewScheduleVersion, RecordDecision, RecordRead, RecordRequest, VersionFlag } from './version-model.js';
 
 /**
@@ -40,7 +41,16 @@ export function planRecord(
   // 4. Every year of the run has a figure.
   const reasons = live.schedule.reasons.filter((r) => ASSET_REASONS.includes(r.code)).map((r) => r.code);
   const incomplete = live.schedule.years.filter((y) => y.year <= throughYear && y.status !== 'AVAILABLE');
-  if (reasons.length > 0 || incomplete.length > 0) {
+  // A not-computable component without a first year (no start: `TRANSFER_DATE_MISSING`) is kept by `truncateInputs` as
+  // started, since its start is unknown; it is never stored ("As implemented (VC-8-04)" 3), so the record is refused
+  // even when every year of the run has a figure (VC-X-35 finding).
+  const unstarted = truncateInputs(live.inputs, throughYear)
+    .components.filter((c) => !c.computable && firstYearOfComponent(c) === null)
+    .map((c) => ({
+      componentId: c.componentId,
+      reasons: [...new Set((live.schedule.components.find((x) => x.componentId === c.componentId)?.reasons ?? []).map((r) => r.code))],
+    }));
+  if (reasons.length > 0 || incomplete.length > 0 || unstarted.length > 0) {
     const years = incomplete.map((y) => ({
       year: y.year,
       status: y.status,
@@ -50,7 +60,7 @@ export function planRecord(
         return cy === undefined || cy.calculationStatus !== 'NOT_CALCULABLE' ? [] : [{ componentId: c.componentId, reasons: codes }];
       }),
     }));
-    return { kind: 'REFUSED', refusal: { kind: 'SCHEDULE_NOT_COMPLETE', details: { reasons, years } } };
+    return { kind: 'REFUSED', refusal: { kind: 'SCHEDULE_NOT_COMPLETE', details: { reasons, years, components: unstarted } } };
   }
   // 5. Something to record.
   if (!run.some((year) => activeIn(live, year))) {
