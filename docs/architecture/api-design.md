@@ -8488,6 +8488,221 @@ A purchase component's stored inputs gain the classification ids and, per cost, 
 
 ---
 
+# 59E. Capitalised Loan interest in the AfA basis (VC-X-36, specified)
+
+**Status:** specified, not implemented (VC-X-36; open questions for the owner below). **Migration 0056** (0052 is the highest on disk; 0053 is claimed by §58E, 0054 and 0055 by §59C and §59D of PR #224; if that order changes, the next free number at implementation). It amends §58D (the flag `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS`: when it is raised and when it is dropped), §59B ("Which items count", the adapter `capitalizedSources`, the component's `source`), §56 (one new check on create) and §60 (the stored item component and its fingerprint). §58D's attribution, §58C's placement, signs and per-owner arithmetic, §59B's start, rate, pools and refunds, and the rule for `final` are unchanged.
+
+**Why a section of its own, after §59B:** VC-X-36 is a backlog item of its own, decided by the owner on 2026-11-01 (§58D open question 4, fourth set) and informed by the tax review of the same day (`docs/germany/pruefbericht-2026-11-01.md`, question 23; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01). §59B keeps its statements and points here where they change. (PR #224 adds §59C and §59D after §59B; this section is numbered §59E so the two do not collide.)
+
+### The problem, and the owner's decision
+
+- **Today:** a Loan interest split that the user classifies `CAPITALIZED` (for example Bauzeitzinsen as Herstellungskosten) is attributed to each PropertyReference P of its Loan's allocation set by §58D and placed by §58C in P's `capitalized` with P's part. §59B's reader `capitalizedSources` selects the splits of the PropertyReference only (`s.property_reference_id = P`, `infrastructure/postgres/tax-year-reads.ts`), and a split with a `loanId` never has a PropertyReference (0027's `CHECK (loan_id IS NULL OR property_reference_id IS NULL)`). So no AfA basis takes it, and the item carries the open flag `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (`tax-year-loan-interest.ts`, `deriveLoanItem`), which keeps the year from being `final`.
+- **The owner's decision (2026-11-01, fourth set):** the flag stays open until these amounts **provably enter the AfA basis correctly and exactly once**, or until their classification is corrected so they are no longer `CAPITALIZED`. User text: „Aktivierte Darlehenszinsen sind noch nicht in der AfA-Bemessungsgrundlage berücksichtigt.“ Removing the flag alone would hide a gap in the calculation.
+- **The tax review, question 23** ("Nur unter folgenden Voraussetzungen"; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): Bauzeitzinsen are either vorab entstandene Werbungskosten (case A) or, under § 255 Abs. 3 S. 2 HGB (BFH IX R 2/12), Herstellungskosten (case B). There is **no free choice** to move deductible interest into the AfA. Interest that is lawfully capitalised as building cost enters the **building's** basis, and the share on land **never** does. The report asks for Bauzeitzinsen as a cost category of their own, for capitalisation only **after the conditions are checked**, and for the treatment of the earlier years to be documented.
+- **What DE does today against question 23:** `CAPITALIZED` on interest is a free classification. §56 accepts every treatment on every category except the hard rules (`LOAN_PRINCIPAL` never `DEDUCTIBLE`, `ACQUISITION` never `CAPITALIZED`), nothing checks the conditions, there is no category of their own and no separation of building and land (the report's "Stand in DE": teilweise). **This applies to interest booked on a PropertyReference as well:** such a split classified `CAPITALIZED` enters §59B's basis today without any check (open question 3).
+
+So VC-X-36 has two parts: (1) a capitalised Loan interest item enters P's building basis with P's part, exactly once; (2) only interest that meets question 23's conditions is a capitalised source at all.
+
+### What becomes a capitalised source
+
+A split S is a **capitalised interest source of P** (a §59B source of P, `kind` `CAPITALIZED_ITEM` on P's building) exactly when all of these hold, in the snapshot of the read:
+
+1. **It counts** (`countingSplits`, §55: `CONFIRMED` or `RECONCILED`, not a reversal), and its **current classification** has `treatment` `CAPITALIZED` with `origin` `CLASSIFICATION` (§59B: a default never moves the basis; no registered default gives `CAPITALIZED`).
+2. **It is interest** (below, "Which splits are interest"), and that classification names a **`VALID` construction-period interest record** (below) whose conditions hold: `advanceExpenseDeductible` is `false`, its `reviewState` is `CONFIRMED` or `ADVISOR_CONFIRMED`, it names P, and it names S's Loan (for a split with a `loanId`).
+3. **It reaches P:**
+   - **a split with a `loanId`:** §58D's case for P is `ATTRIBUTED` (`loanInterestOf`: the set covering S's booking date is usable and has an entry for P). The source's amount is **P's part** of S (`distribute` over the whole set, §41.6), never the split's whole amount. `ELSEWHERE` and `NOT_ATTRIBUTED` give no source of P (not attributed interest has no part to capitalise; it stays in `notAttributed` with `LOAN_INTEREST_NOT_ATTRIBUTED`, §58D);
+   - **a split of the PropertyReference** (`s.property_reference_id = P`, no `loanId`): as §59B reads it today, the whole `lineAmount`, now with conditions 1 and 2.
+4. **It is not linked to a separate asset.** A Loan split cannot be: `depreciation_asset_item_guard` (0051) refuses an item that is not on the asset's PropertyReference, and §59B's step 4 answers `422 ITEM_NOT_OF_PROPERTY` with `propertyReferenceId: null` ("As implemented (VC-8-03)" 17). This stays so: Bauzeitzinsen are Herstellungskosten of the building (question 23), never of a movable asset.
+
+**Exactly once, by construction:**
+
+- **Never through both reads.** The PropertyReference's own splits (`s.property_reference_id = P`) and the Loan's splits (`s.loan_id IS NOT NULL`) are disjoint by 0027's `CHECK`, so no split can come through both. The adapter reads them with two disjoint predicates and asserts the disjointness (a duplicate `componentId` in one asset's input is an internal error, never a second component).
+- **One part per P.** At most one set covers a booking date (`setOn`, §41.3), and a set has at most one entry per PropertyReference (0026's unique `(set_id, property_reference_id)`), so S has at most one part for P, and P's building at most one component for S.
+- **The parts sum to the split.** Over all PropertyReferences of the covering set, the parts sum exactly to S's signed amount (§58D "The arithmetic", step 5). Each part goes to the building of its own PropertyReference only, so S's capitalised amount over all buildings is S once, or less where a P's part is not a source (a record not naming P, no `ACTIVE` building), never more.
+- **One function for the view and the basis.** The part comes from the same `loanInterestOf` and `distribute` as the view's item, and the owners' parts from the same `participantsOn` and `shareOut` on the booking date (§58C, §59B "One function computes both"). So the component's basis equals the item's `lineAmount` in P's `capitalized`, at both levels, to the cent. Should §58D's attribution change (VC-X-40: interest by periods of use instead of the booking date's set), §59E takes P's part from the changed function unchanged; it never computes a part of its own.
+
+**The component** is §59B's, with these values:
+
+- `componentId` `TRANSACTION_SPLIT:{splitId}`, as for every split. The same split has a component on P1's and on P2's building, each with its own part; a `componentId` is unique within an asset, which is all §59B and §60 require.
+- `source` gains, additively, `loan: { loanId, allocationSetId, share, propertyPart } | null` (`null` for a PropertyReference's split; the values of the view's `Item.loanAllocation`) and `constructionPeriodInterestId`. `taxCategory` is the classification's.
+- **The basis** is P's signed part (an `OUTFLOW` positive; a negative part only for an `INFLOW`, which 0027 does not allow for a counting Loan split, §58D open question 7).
+- **The date** is S's **booking date**, as for every split in §59B. So the start is §59B's: `START_OF_YEAR` of the booking date's year, never before the owner's start, flagged `SUBSEQUENT_COST_START_TO_VERIFY` while unverified; the rate and the end are the building's (B11; the pool of the ownership tenure). `LOAN_INTEREST` is a recurring category of `DE_CASH_TIMING@1`, so interest due on 31 December and paid in January has its tax year in the old year and its start in the new one: the component carries `CAPITALIZED_YEAR_DIFFERS` (open), as §59B has it.
+- **VC-X-38 (`performedOn`) is separate.** It moves the date of capitalised **work** to the date of performance. Interest has no performance; its economic period is its interest period (VC-X-40). This section keeps the booking date and does not anticipate either item (open question 6).
+
+### Which splits are interest
+
+Question 23's conditions apply to a split that is interest, whatever line the user puts it on (so the conditions cannot be avoided by classifying interest as `MAINTENANCE`):
+
+- every split with a `loanId` whose category is `LOAN_INTEREST` (a Loan's principal reaches no view and no basis, §58D);
+- every split of a PropertyReference whose **financial category code** is `LOAN_INTEREST`;
+- every split whose classification names the `taxCategory` `LOAN_INTEREST` or `FINANCING_COSTS`.
+
+The list is a parameter of the new rule (below), not a constant.
+
+### Bauzeitzinsen: a category of their own, and the conditions (question 23)
+
+**The record** (`ConstructionPeriodInterest`, Taxation's, stored; data-model with the implementation). One record states, once, the facts for the interest of one financing of one Herstellung measure; the monthly interest splits name it. Fields:
+
+- `loanId` (optional): the Loan whose interest it covers. Required for interest booked against a Loan; `null` for interest booked on a PropertyReference (a loan DE does not model).
+- `propertyReferenceIds` (1–50): the PropertyReferences whose building is being produced or extended by the measure. A Loan split's part for a PropertyReference that is not named is not a source of it (the Loan's set may name properties the measure does not concern).
+- `measure` (1–200): what is being built, e.g. "Dachgeschossausbau, zwei neue Wohnungen (synthetisch)".
+- `herstellungFrom` (required) and `herstellungUntil` (optional while the measure runs): the Herstellung period. A source whose booking date lies outside it carries the open item flag `CONSTRUCTION_PERIOD_DATE_OUTSIDE` (`details: { bookingDate, herstellungFrom, herstellungUntil }`). It is not refused: the last payment after completion may cover interest of the period, and DE has no interest periods until VC-X-40.
+- `useIntent` (1–1000): the intended use at the time the interest arose, which decides case A or B.
+- `advanceExpenseDeductible` (required boolean): whether the interest is deductible as vorab entstandene Werbungskosten (case A). **`true` makes `CAPITALIZED` impossible** (below): there is no free choice to move deductible interest into the AfA. The record may still exist with `true`, to name Bauzeitzinsen that are deducted (the category of their own also in case A).
+- `buildingFundsShare` (required, a fraction `n/d`, 0 < share ≤ 1, denominator ≤ 10,000): the share of the Loan's funds used for the building's Herstellung, by the actual use of the funds (question 21). Interest on funds used for land (or for anything else) is never Herstellungskosten of the building (below, "Land").
+- `earlierYearsTreatment` (1–2000, required): how the interest of this measure was treated in the years already filed (e.g. "2025: als Werbungskosten abgezogen, Bescheid bestandskräftig"), as question 23 requires before a capitalisation.
+- `sourceReferences` (1–20, required: the evidence, e.g. the loan contract, the building contract, the planning permission), `notes`.
+- `reviewState` (`UNREVIEWED`, `CONFIRMED`, `ADVISOR_CONFIRMED`, `NEEDS_REVIEW`; as §59's asset), `advisorPartyId`, `status` (`VALID`, `VOID`), `voidedAt`, `voidReason`, `createdAt`, `version`.
+
+**Routes** (Taxation; Realm-scoped, `Idempotency-Key` on create, `If-Match` on the others, AuditRecords `CREATED`, `AMENDED`, `CONFIRMED`, `VOIDED`):
+
+```text
+POST /api/v1/construction-period-interest                         (create)
+GET  /api/v1/construction-period-interest/{id}                    (read, with the classifications naming it)
+GET  /api/v1/construction-period-interest?loanId=&propertyReferenceId=   (list)
+POST /api/v1/construction-period-interest/{id}/amend              (facts; resets reviewState to UNREVIEWED, as §59)
+POST /api/v1/construction-period-interest/{id}/confirm            (CONFIRMED, or ADVISOR_CONFIRMED with advisorPartyId)
+POST /api/v1/construction-period-interest/{id}/void
+```
+
+A changed fact is never carried under an old confirmation (§59): an amend of `advanceExpenseDeductible`, `buildingFundsShare`, the period or the PropertyReferences resets the review state, and the sources stop being sources until the record is confirmed again.
+
+**The classification** (§56) gains `constructionPeriodInterestId` (nullable; like `anschaffungsnaheAcquisitionId`, §58B), stored on `tax_classification`, allowed with `CAPITALIZED` and `DEDUCTIBLE`. **Order of checks on create**, after `422 TREATMENT_NOT_ALLOWED` and before `supersedes`:
+
+1. `treatment` `CAPITALIZED` on an interest split without `constructionPeriodInterestId` → **`422 TREATMENT_NOT_ALLOWED`** with `details.reason = "CONSTRUCTION_PERIOD_INTEREST_REQUIRED"`. Interest is capitalised only as Bauzeitzinsen with their facts recorded.
+2. The record unknown or of another Realm → `404`; `VOID` → `409 CONFLICT` `reason = "CONSTRUCTION_PERIOD_INTEREST_VOID"`.
+3. The record does not match the split: another Loan, or for a PropertyReference's split a record that does not name its PropertyReference → `409 CONFLICT` `reason = "CONSTRUCTION_PERIOD_INTEREST_MISMATCH"` with `details: { loanId, propertyReferenceId, recordLoanId, recordPropertyReferenceIds }`.
+4. `CAPITALIZED` with a record saying `advanceExpenseDeductible: true` → `409 CONFLICT` `reason = "CONSTRUCTION_PERIOD_INTEREST_DEDUCTIBLE"` (case A: no free choice).
+5. `constructionPeriodInterestId` on a split that is not interest, or with a treatment other than `CAPITALIZED` or `DEDUCTIBLE` → `400` `NOT_ALLOWED`.
+
+The record's `reviewState` is **not** a condition of the create (the user may classify before the advisor confirms the facts, as a `NEEDS_REVIEW` item may be linked in §59B); it is a condition of being a source. The existing classifications of `CAPITALIZED` interest (stored before 0056, without a record) are not changed (classifications are never edited, §57); they are simply no source (below), and the user supersedes them.
+
+**The new rule `DE_CONSTRUCTION_PERIOD_INTEREST@1`** (Taxation, `domains/taxation/rules/`, registered in `TAX_RULES`; the classification's `treatmentRule`, as `DE_WEG_SPENDING@1` is for WEG sources, so the start check resolves it):
+
+| Parameter | Value |
+|---|---|
+| `interestCategoryCodes` | `["LOAN_INTEREST"]` |
+| `interestTaxCategories` | `["LOAN_INTEREST", "FINANCING_COSTS"]` |
+| `capitalizedRequiresRecord` | `true` |
+| `recordReviewStates` | `["CONFIRMED", "ADVISOR_CONFIRMED"]` |
+| `deductibleBlocksCapitalization` | `true` |
+| `legalBasis` | § 255 Abs. 3 S. 2 HGB; § 9 Abs. 1 S. 3 Nr. 1 EStG; BFH IX R 2/12 |
+| `source` | `docs/germany/pruefbericht-2026-11-01.md`, question 23 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01) |
+
+`effectiveFrom` `2000-01-01`, as `DE_CATEGORY_DEFAULTS@1`, so it applies to every year DE classifies. **`DE_CATEGORY_DEFAULTS@1` is not changed** (frozen since #159): the category of their own is the record and the classification's link to it, not a new `taxCategory` (open question 1). The view and the schedule show it: the item's and the component's `source.constructionPeriodInterestId`, and the label "Bauzeitzinsen" in the UI's translation.
+
+**A source with mixed treatment:** when the interest splits naming one record are classified partly `DEDUCTIBLE` and partly `CAPITALIZED` (one measure, two treatments), each such item carries the open flag `CONSTRUCTION_PERIOD_TREATMENT_MIXED` with `details: { constructionPeriodInterestId, deductibleSplitIds, capitalizedSplitIds }`. The figures are computed as classified; the year is not final until the advisor confirms the record (`ADVISOR_CONFIRMED` makes the flag informative) or the classifications agree (open question 8).
+
+### Land: never in the building's basis
+
+- **Structurally:** DE depreciates no land. A capitalised source is a component of P's **building** asset (or of a separate asset, which a Loan split can never be); there is no asset it could reach on land.
+- **By the amount:** the interest on funds used for land (the land's purchase, or anything other than the Herstellung) is not Bauzeitzinsen. With `buildingFundsShare` below `1/1`, a `CAPITALIZED` interest split is a source only if its amount does not exceed `buildingFundsShare` × the sum of the `LOAN_INTEREST` splits of its Loan in its Transaction (for a PropertyReference's split: of its Transaction's interest splits); else it is no source, with the reason `LAND_SHARE_NOT_SEPARATED`. The user separates the land share **in the cash**: the interest of the debit as two `LOAN_INTEREST` splits with the same `loanId` (§41.5 does not refuse two; to be confirmed at implementation), one `CAPITALIZED` naming the record, the other `DEDUCTIBLE` (financing costs of the land are Werbungskosten, question 24). A confirmed Transaction is changed only through the correction chain (VC-1-11, ADR-037).
+- **Why not the purchase's land/building allocation** (§27.3): it divides a purchase price, not the use of a Loan's funds for a later measure, and land is not produced, so it has no Herstellungskosten to which interest could belong. The allocation ratio is therefore not used (open question 4 has it as the alternative).
+- **A self-built building (Neubau)** is not computed by DE (phase-8-plan P8-D13: its start at completion, B6). Its Bauzeitzinsen have no building component to enter: the item keeps `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` with the reason `NO_COMPONENT`, for good until a self-built building is modelled (open question 7). §59E's scope is interest on a Herstellung measure of an existing building DE depreciates (an Ausbau or an Erweiterung, §59B's later Herstellungskosten). Interest is never part of the anschaffungsnahe 15 % check (§58B reads `MAINTENANCE` and `WEG_SPENDING` only).
+
+### The flag's lifecycle
+
+`LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (open, item flag, both levels, unchanged code and level) is decided per attributed `CAPITALIZED` Loan item of P's view:
+
+- **Dropped** only when the item **provably entered P's basis exactly once**: the view's AfA block (`componentOfItem`, VC-8-05) finds the component `TRANSACTION_SPLIT:{splitId}` on P's `ACTIVE` **building** asset, and that component's basis equals the item's `lineAmount` (P's part) at the property level and each owner's part at the owner level. Both are read in the view's one snapshot. The component's own reasons and flags (`ITEM_CLASSIFICATION_NEEDS_REVIEW`, `SUBSEQUENT_COST_START_TO_VERIFY`, `CAPITALIZED_YEAR_DIFFERS`, …) hold the year open by themselves, as for every capitalised item.
+- **Kept**, with `details` gaining `reason` (additively; `loanId`, `allocationSetId` unchanged), when it did not:
+  - `CONSTRUCTION_PERIOD_INTEREST_MISSING`: the classification names no record (every classification stored before 0056);
+  - `RECORD_VOID`, `RECORD_NOT_CONFIRMED`, `RECORD_DEDUCTIBLE` (amended to case A after the classification), `PROPERTY_NOT_NAMED`, `LAND_SHARE_NOT_SEPARATED`: a condition of "What becomes a capitalised source" fails;
+  - `NO_COMPONENT`: a source, but no component on an `ACTIVE` building (no building asset: the view's `NO_ASSET` gap as well; a self-built building);
+  - `BASIS_MISMATCH` (defensive): a component exists but its basis differs from P's part. Never expected; a test constructs it, and it is logged as an internal inconsistency.
+- **Gone with the classification:** a new classification that is not `CAPITALIZED` (for example `DEDUCTIBLE` naming the record: case A) moves the item out of `capitalized`, and the flag is not raised (§58D, unchanged).
+- **Never dropped by** confirming the classification, confirming the Loan's set, displaying the item, or the record alone without a component.
+- **Interest of a PropertyReference** (`CAPITALIZED`, no `loanId`) that fails the conditions is no longer a source either (open question 3). It carries the new open item flag **`INTEREST_CAPITALIZED_CONDITIONS_MISSING`** with `details: { reason }` (the reasons above except `NO_COMPONENT` and `BASIS_MISMATCH`, which §59B's `NO_ASSET` covers for such an item). User text proposal: „Aktivierte Zinsen erfüllen die Voraussetzungen für Bauzeitzinsen noch nicht und sind nicht in der AfA-Bemessungsgrundlage berücksichtigt.“
+- **The review table** (§58C) lists `INTEREST_CAPITALIZED_CONDITIONS_MISSING` and `CONSTRUCTION_PERIOD_DATE_OUTSIDE`, `CONSTRUCTION_PERIOD_TREATMENT_MIXED` at level open. `OPEN_ITEM_FLAGS` (`tax-year-review.ts`) gains them.
+
+### Recorded versions and fingerprints (§60)
+
+- **The stored item component** (`depreciation_schedule_version_component`, 0052) gains `loanId`, `allocationSetId`, P's share (`share_numerator`, `share_denominator`) and `constructionPeriodInterestId`, all nullable; `lineAmount` is P's part.
+- **The input fingerprint** includes, for a Loan component only, the keys `loan: { loanId, allocationSetId, share }` and `constructionPeriodInterestId`; for every other component the canonical JSON is unchanged (no key, not `null`), so **no existing fingerprint changes** and `calculationVersion` is not raised. A recorded version without interest sources stays `UNCHANGED`.
+- **What counts as a change** (§60's list) gains: a Loan interest source added or removed (a record confirmed, voided, amended; a classification superseded), a set appended or voided that changes the covering set or P's share of a split already capitalised (§58D open question 3, §58E open question 4), and a changed P's part. Each changes `inputFingerprint` of the years from the component's first month on, and the comparison names the component (`ADDED`, `REMOVED`, `INPUTS_CHANGED`).
+- **Effect in production: none today.** Recording is disabled (`DEPRECIATION_RECORDING_ENABLED`, §60 "The recording switch"); no productive version exists. Before the first enablement, the treatment of earlier interest is part of the answers worked in.
+- **Frozen rules (§60 open question 11):** `DE_AFA_BUILDING_LINEAR@1`, `@2` and `DE_AFA_MOVABLE_LINEAR@1` are not changed: a Loan source uses their existing parameters (`basis.capitalizedItemReviewStates`, `capitalizedItemAmount`, `subsequentCostStart`, `subsequentCostEnd`). `frozen-rules.test.ts` keeps its literals. `DE_CONSTRUCTION_PERIOD_INTEREST@1` is new and is pinned there once merged (it is a classification's `treatmentRule`, so a later change is `@2`).
+
+### The code that changes
+
+- **`domains/taxation/`:** `capitalized-items.ts`: `CapitalizedSourceInput` gains `loan: { loanId, set, propertyCents } | null` and `constructionPeriod: ConstructionPeriodInterestView | null`; `capitalizedItemsOf` checks the conditions (a pure `sourceConditionOf`, returning the source or the reason), takes P's part as `lineCents` for a Loan split, and returns the reasons of the items that are not sources. `tax-year-loan-interest.ts`: `deriveLoanItem` no longer raises the flag by placement alone; `buildTaxYearView` raises or drops it after the AfA block is merged (`componentOfItem`), with the reason. New `construction-period-interest.ts` (the record, its plans, its checks), `rules/de-construction-period-interest.ts`; `classification-checks.ts` (the five checks); `tax-year-review.ts` (`OPEN_ITEM_FLAGS`).
+- **`domains/depreciation/`:** `capitalized-item.ts`: `CapitalizedItem` gains `loan` and `constructionPeriodInterestId` (plain data, no Taxation type); `fingerprint.ts` (the Loan keys); the version's component rows.
+- **`infrastructure/postgres/`:** `tax-year-reads.ts`: `capitalizedSources` gains a second, disjoint query: the counting `LOAN_INTEREST` splits with a `loanId` of a Loan whose `VALID` sets name P, with a current `CAPITALIZED` classification, over all years (`transaction_split_loan_idx`, `loan_allocation_property_reference_idx`, `tax_classification_current`), their Loans' sets (`setsOfLoans`, `withValidUntil`) and the records they name, all in the caller's transaction. `capitalized-items.ts` maps the new fields. New repository for the record; `tax-classification-repository.ts` (the link and its checks, locking record before classification, after Transaction).
+- **`application/`, `api/`:** the record's use cases and routes; `constructionPeriodInterestId` on §56's body and DTO; `error-answers.ts` (the new reasons).
+- **No change:** `domains/financing/` (Taxation reads `setOn`, `distribute`, `sumsToOne` as in §58D), `schedule.ts` and `schedule-items.ts` (a Loan source is a `CapitalizedItem` like any other), the frozen AfA rules.
+
+### In the database (migration 0056)
+
+- `construction_period_interest` (`id`, `mre_realm_id`, `loan_id` nullable with composite FK `(loan_id, mre_realm_id)` to `loan`, the fields above, `building_funds_share_numerator`/`_denominator` with `CHECK (0 < n ≤ d ≤ 10000)`, text-length CHECKs, `status`, `review_state`, `version`, timestamps; `UNIQUE (id, mre_realm_id)`), and `construction_period_interest_property` (`(record_id, property_reference_id)` primary key, composite FKs with the Realm). A frozen-on-void trigger, as `depreciation_asset_frozen`.
+- `tax_classification.construction_period_interest_id` (nullable, composite FK `(construction_period_interest_id, mre_realm_id)`), `CHECK (construction_period_interest_id IS NULL OR treatment IN ('CAPITALIZED', 'DEDUCTIBLE'))`; the classification's frozen trigger covers the column.
+- `depreciation_schedule_version_component` (0052) gains the nullable `loan_id`, `allocation_set_id`, `share_numerator`, `share_denominator`, `construction_period_interest_id`, with a CHECK that they are all null or `loan_id`, the set and the share all set.
+- `down` refuses up front (SQLSTATE `23514`) while a record or a classification naming one exists, as 0051.
+
+### ACC7, ACC8 and the invariant suite
+
+- **ACC7** (`phase-7-acceptance.e2e.test.ts`): unchanged. Its Loan debit is `DEDUCTIBLE`; none of its splits is `CAPITALIZED` interest.
+- **ACC8** (`phase-8-acceptance.e2e.test.ts`): unchanged in figures. Its capitalised sources are a repair and a Sonderumlage use, not interest. The new end-to-end test builds on its support module (`phase-8-acceptance.test-support.ts`) instead of extending it, so ACC8's recorded versions and its final 2026 stay as they are.
+- **Invariant suite** (with the implementation): §50 gains the rows "a capitalised Loan interest source enters P's building basis with P's part, exactly once", "interest is capitalised only with a confirmed construction-period record (question 23)", "never land"; §44/§47 the row "`LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` dropped only with the component on P's building whose basis equals P's part"; §41 the new refusals; §46 the Loan keys of the fingerprint.
+
+### Tests the implementation must have
+
+- **Taxation, pure (`capitalized-items.test.ts`, `tax-year-loan-interest.test.ts`, new `construction-period-interest.test.ts`):**
+  - **the example** below, literally: P1's and P2's sources and parts, the owners' parts, the components' bases equal to the view's `lineAmount` at both levels;
+  - each condition alone fails the source with its reason (no record, `VOID`, `UNREVIEWED`, `NEEDS_REVIEW`, `advanceExpenseDeductible: true`, P not named, the land share exceeded, origin `DEFAULT` with a test registry giving `CAPITALIZED`), and `CONFIRMED` and `ADVISOR_CONFIRMED` both make it one;
+  - `NOT_ATTRIBUTED` and `ELSEWHERE` give no source; a set from a later `validFrom` leaves the source's part unchanged;
+  - `CONSTRUCTION_PERIOD_DATE_OUTSIDE` on the day before `herstellungFrom` and after `herstellungUntil`, not on the two edges; `CONSTRUCTION_PERIOD_TREATMENT_MIXED` open, informative under `ADVISOR_CONFIRMED`;
+  - a **property test** over random sets (1–50 entries), random amounts and Ownerships: for each split, the sum over all the set's PropertyReferences of the sources' bases is the split's amount when every P is named and has a building, and never more otherwise.
+- **The owner's counter-checks** (each in the pure view test and end to end):
+  - **only a `CAPITALIZED` Loan interest ⇒ `final: false`**, isolated: a year that is `final: true` with `review.open: []` (the clean fixture of `tax-year-depreciation.test.ts`; end to end, a 2026 brought to `final` as ACC8 brings its 2026, with a version recorded through 2026 and the Loan item's tax year 2026), plus one attributed `CAPITALIZED` Loan item that is no source (a record `UNREVIEWED`): `review.open` is exactly `[LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS]` with `reason: "RECORD_NOT_CONFIRMED"`, and `final` is false at both levels. Pure: the same item as a source with its component (basis = P's part, no flags) makes `review.open` `[]` and `final` true again. End to end, after the record is confirmed, the flag is gone and the year is held open only by the component's own flags (`SUBSEQUENT_COST_START_TO_VERIFY`, `DEPRECIATION_CHANGED_SINCE_RECORDED`), which the test names;
+  - **exactly once per P's part, never twice:** a split of one Loan with a set P1 `"3/5"`, P2 `"2/5"`: P1's building has exactly one component for it with P1's part, P2's one with P2's part, and their sum is the split; a PropertyReference split and a Loan split on one Transaction each appear once; the adapter fed a split through both predicates (a constructed row breaking 0027) throws instead of returning two components; a classification superseded twice still gives one component.
+- **Refusals (`classification-checks.test.ts`, `tax-classification-repository.test.ts`, `api/tax-classifications.test.ts`):** the five checks in their order, each refused body leaving cash, classification and record unchanged (row and version); `MAINTENANCE` on an interest split classified `CAPITALIZED` without a record refused too; the existing classification without a record stays readable and flagged.
+- **Repository (`capitalized-items-repository.test.ts`, PostgreSQL):** the two predicates disjoint; one snapshot (a set appended, a record confirmed between two statements is not seen; reading them in their own transaction turns it red); the plans of the new query; Realm isolation of record, set and split; "no cash mutated".
+- **§60 (`depreciation-schedule-version-repository.test.ts`, `fingerprint.test.ts`):** a version without interest sources keeps its fingerprints byte for byte; a Loan source added, its set's share changed by a backdated set, its record voided each turn the year `CHANGED_SINCE_RECORDED` naming the component; the stored Loan columns reproduce the figures.
+- **Migration 0056:** the CHECKs, FKs, the frozen triggers, `down` refusing with rows.
+- **End to end (`loan-interest-capitalized.e2e.test.ts`, new):** the example through the HTTP API, both PropertyReferences, both levels, from the classification refused without a record to the source with its component, the flag's reasons on the way, and the two counter-checks above.
+
+### Counter-checks and mutations
+
+**Mutations** that must turn the tests red (each alone, the code restored):
+
+- the Loan split's whole amount used as the basis instead of P's part;
+- the `s.property_reference_id = P` predicate widened to `OR s.loan_id IN (…)` without the separate query's attribution (both reads see the split);
+- the source taken for `ELSEWHERE` or `NOT_ATTRIBUTED` splits, or by the latest set instead of the booking date's;
+- the record's `reviewState`, `status`, `advanceExpenseDeductible`, its PropertyReferences or the land-share check ignored;
+- the `CONSTRUCTION_PERIOD_INTEREST_REQUIRED` refusal dropped, or applied by the classification's `taxCategory` only (interest classified `MAINTENANCE` slips through);
+- `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` dropped whenever the item is a source (without the component check), dropped on a separate asset's component, kept although the component exists, or made informative;
+- the owners' parts of the component taken from the split instead of P's part, or on the tax year's dates instead of the booking date;
+- the Loan keys written into every component's canonical JSON (an existing version's fingerprint changes), or left out of the Loan component's (a backdated set goes unnoticed);
+- the component's date taken as the tax year (the 10-day case) instead of the booking date.
+
+### Example (synthetic)
+
+ACC8's building on P1 (owners A `"3/5"`, B `"2/5"` from 2026-07-01, band B, 2 %), and a second PropertyReference P2 (owner C `"1/1"`, band B). A Loan L finances a Dachgeschossausbau of both, set S `MANUAL` from 2028-01-01: P1 `"3/5"`, P2 `"2/5"`. A record R names L, P1 and P2, `herstellungFrom` 2028-01-15, `herstellungUntil` 2028-10-31, `advanceExpenseDeductible: false`, `buildingFundsShare` `"1/1"`, `CONFIRMED`. Two confirmed interest splits with `loanId` L, classified `CAPITALIZED` naming R:
+
+| Booking date | Interest | P1 | P2 | P1: A / B | P1's component 2028 (2 %, `START_OF_YEAR`) | P2's (C) |
+|---|---|---|---|---|---|---|
+| 2028-03-31 | 500.00 | 300.00 | 200.00 | 180.00 / 120.00 | 6.00 (A 3.60, B 2.40) | 4.00 |
+| 2028-06-30 | 450.01 | 270.01 | 180.00 | 162.01 / 108.00 | 5.40 (A 3.24, B 2.16) | 3.60 |
+
+- **The odd cent:** 45,001 × 3/5 = 27,000.6 → P1 270.01, P2 180.00 (§58D's example); P1's 27,001 over A and B: 16,200.6 and 10,800.4 → A 162.01, B 108.00.
+- **P1, 2028:** bases 570.01 (A 342.01, B 228.00); AfA 6.00 + 5.40 = **11.40** (A 6.84, B 4.56; 270.01 × 2 % = 5.4002 rounds to 5.40). **P2, 2028:** basis 380.00, AfA **7.60**. Over both buildings 570.01 + 380.00 = 950.01 = the two splits, once.
+- **The flags:** both items in P1's and P2's `capitalized` of 2028 without `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS`; each component carries `SUBSEQUENT_COST_START_TO_VERIFY`, so 2028 is still not final, by that flag.
+- **Variants:** R `UNREVIEWED`: no component, both items flagged with `RECORD_NOT_CONFIRMED`, the AfA without them (P1 2028: 0.00 from the interest). R naming P1 only: P1 as above; P2's items flagged `PROPERTY_NOT_NAMED`, P2's AfA without them. A third split booked 2029-01-03, due 2028-12-31: tax year 2028 (10-day rule), its component starts 2029-01 with `CAPITALIZED_YEAR_DIFFERS`.
+
+### Open questions for the owner
+
+1. **A category of their own: a record and a link, or a new `taxCategory`?** **Proposal:** the record (`ConstructionPeriodInterest`) and the classification's `constructionPeriodInterestId`, with `taxCategory` staying `LOAN_INTEREST`; a new rule `DE_CONSTRUCTION_PERIOD_INTEREST@1` holds the conditions. It applies to every year without touching the frozen `DE_CATEGORY_DEFAULTS@1`, and states the facts once per measure. **Alternative:** a `taxCategory` `CONSTRUCTION_PERIOD_INTEREST` (a line of its own in the view) through `DE_CATEGORY_DEFAULTS@2`, which needs `@1` closed by `effectiveTo` and so is unavailable for years before `@2`'s start, plus the record for the facts anyway.
+2. **Without a record: refuse or flag?** **Proposal:** refuse new `CAPITALIZED` interest without a record (`422 … CONSTRUCTION_PERIOD_INTEREST_REQUIRED`); the classifications stored before stay readable, are no source and carry the open flag with `CONSTRUCTION_PERIOD_INTEREST_MISSING`. **Alternative:** accept and flag only (never refused), as §59B accepts a `NEEDS_REVIEW` item; simpler for the user, but it keeps "free choice" possible in the record.
+3. **Interest booked on a PropertyReference.** Today it enters §59B's basis when `CAPITALIZED`, without any check. **Proposal:** the same conditions; without them it leaves the basis and carries `INTEREST_CAPITALIZED_CONDITIONS_MISSING` (open). No productive version is recorded, so no filed figure moves. **Alternative:** leave it in the basis and flag it informative, which keeps today's figures but leaves question 23's "no free choice" unchecked for such interest.
+4. **The land share.** **Proposal:** separated in the cash by the use of funds (two splits), checked against the record's `buildingFundsShare`; land never has a component. **Alternative:** apply the purchase allocation's building ratio (§27.3, `buildingAmount / totalAllocableAmount`) to each interest source automatically, flagged for review; no cash change, but it divides a purchase price, not the use of the funds for a measure (question 21 says the use decides).
+5. **The flag without an `ACTIVE` building.** **Proposal:** it stays (`NO_COMPONENT`) beside the view's `NO_ASSET`: the amount is not in a basis, which is what the owner's decision asks to be proven. **Alternative:** drop it once the item is a source and let `NO_ASSET` alone hold the year, as for a PropertyReference's capitalised item.
+6. **The date of the source.** **Proposal:** the booking date, with §59B's `START_OF_YEAR` (and `CAPITALIZED_YEAR_DIFFERS` after the 10-day rule); VC-X-38's `performedOn` does not apply to interest, and VC-X-40's interest periods may later give the period's end. **Alternative:** the end of the interest period now (from the Loan's schedule), or `herstellungUntil` (the measure's completion) for every source of the record.
+7. **Bauzeitzinsen of a self-built building.** **Proposal:** out of scope; they keep the flag (`NO_COMPONENT`) until a self-built building with its start at completion is modelled (phase-8-plan P8-D13). **Alternative:** refuse a record whose PropertyReferences have no building asset from a purchase, so the user learns it at once.
+8. **Who confirms the record, and mixed treatment.** **Proposal:** the user's `CONFIRMED` (with evidence and the earlier years documented) makes the sources count; mixed `DEDUCTIBLE`/`CAPITALIZED` under one record is computed as classified and flagged `CONSTRUCTION_PERIOD_TREATMENT_MIXED` until `ADVISOR_CONFIRMED`. **Alternative:** only `ADVISOR_CONFIRMED` makes a source ("Aktivierung erst nach Prüfung" read strictly), and mixed treatment is refused.
+9. **Release stage (VC-X-45).** **Proposal:** capitalised interest is stage 2 (extended); a year with such a component is not recordable before stage 2 is released. **Alternative:** stage 3 (special), since it rests on a case distinction the user states.
+
+---
+
 # 60. Recorded Depreciation Schedule Versions (VC-8-04, implemented: migration 0052; recording disabled by default)
 
 **Status:** implemented (VC-8-04, migration **0052**; "As implemented (VC-8-04)" below), **with the recording switch off**: the record command ships disabled behind `DEPRECIATION_RECORDING_ENABLED` (unset = `false`) until the tax advisor's answers are worked in and the owner documents the decision to start recording (owner's decision of 2026-10-31, second set; its mechanics decided on 2026-10-31, third set: open questions 9–11; "The recording switch" below). No productive version is recorded before that.
