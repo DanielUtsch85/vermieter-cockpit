@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Fingerprinter } from '../../domains/depreciation/index.js';
+import type { Fingerprinter } from '../../shared/index.js';
 
 /**
  * The `Fingerprinter` port of api-design.md §60 (review on #180): SHA-256 over the UTF-8 bytes of the text, 64

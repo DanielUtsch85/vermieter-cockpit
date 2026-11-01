@@ -16,3 +16,5 @@ export type { BusinessDate, BusinessDateError } from './business-date.js';
 export { RULE_STATUSES, ruleKey } from './rule-version.js';
 export type { RuleRef, RuleStatus, RuleVersion } from './rule-version.js';
 export { RuleRegistry } from './rule-registry.js';
+export { FINGERPRINT, canonicalJson, centsText } from './canonical-json.js';
+export type { Fingerprinter } from './canonical-json.js';

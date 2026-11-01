@@ -6557,7 +6557,7 @@ Reused: `PropertyReferenceNotFoundError`, `LoanNotFoundError`, `LoanAllocationSe
 ### The code that changes (pointers)
 
 - **`domains/taxation/attribution-changes.ts`:** `AttributionInput` gains the reconciliation and terms histories; `attributionChanges` judges every kind by the one rule above and returns entries with `kind`, the kind's keys and `changeFingerprint` (through the `Fingerprinter` port); a pure `matchAcknowledgements`. The candidates and timing reuse `attributeTaxYear` and `rentTiming` (rent), and the Loan's schedule derivation that `meaningsOf` uses (terms).
-- **`Fingerprinter` and `canonicalJson`** move from `domains/depreciation` to `shared/` (Depreciation re-exports them), since Taxation may not import Depreciation (`architecture.test.ts`).
+- **`Fingerprinter` and `canonicalJson`** move from `domains/depreciation` to `shared/` (Depreciation re-exports them), since Taxation may not import Depreciation (`architecture.test.ts`). **Done ahead of the implementation:** `shared/canonical-json.ts` (with `centsText` and `FINGERPRINT`), re-exported by `domains/depreciation/fingerprint.ts`; the SHA-256 adapter imports the port from `shared/`.
 - **`domains/taxation/tax-year-review.ts`:** `flagIsOpen` decides `ATTRIBUTION_INPUT_CHANGED` and `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` by their `details` (every entry acknowledged; `confirmation` set) instead of the code alone. `tax-year-loan-interest.ts`: `deriveLoanItem` adds `confirmation` to the flag's `details` and `taxConfirmation` to `loanAllocation`.
 - **`infrastructure/postgres/tax-year-reads.ts`:** `attributionInputOf` widened, plus the acknowledgements and confirmations in the snapshot; new repositories for the two tables; `application/` use cases with the orders of checks; `api/` routes and DTOs; migration `0053_tax_year_acknowledgements`.
 
@@ -8615,7 +8615,7 @@ The schedule read is `computeSchedule(resolveScheduleInputs(snapshot))`, as befo
 | Error | Answer | `details` |
 |---|---|---|
 | `ScheduleVersionNotFoundError` | `404 NOT_FOUND`, "Schedule version not found." | `{ versionId }` |
-| `ScheduleNotCompleteError` | `409 CONFLICT`, "The schedule has years without a figure; they cannot be recorded." | `{ reason: "SCHEDULE_NOT_COMPLETE", assetId, reasons, years }` |
+| `ScheduleNotCompleteError` | `409 CONFLICT`, "The schedule is not complete up to throughYear; it cannot be recorded." | `{ reason: "SCHEDULE_NOT_COMPLETE", assetId, reasons, years }` |
 | `NothingToRecordError` | `409 CONFLICT`, "The schedule has no year with AfA up to throughYear." | `{ reason: "NOTHING_TO_RECORD", assetId, throughYear, firstYear }` |
 | `ThroughYearBeforeCurrentError` | `409 CONFLICT`, "The current version already covers a later year." | `{ reason: "THROUGH_YEAR_BEFORE_CURRENT", assetId, currentVersionId, currentThroughYear }` |
 | `RecordedYearsWouldChangeError` | `409 CONFLICT`, "Recording would change already recorded years; name them in acceptChangedYears." | `{ reason: "RECORDED_YEARS_WOULD_CHANGE", assetId, currentVersionId, changedYears, acceptChangedYears }` |

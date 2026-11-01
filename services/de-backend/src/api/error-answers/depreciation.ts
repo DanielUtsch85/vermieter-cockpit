@@ -108,7 +108,7 @@ export const DEPRECIATION_ANSWERS = [
 function refusalAnswer({ assetId, refusal }: ScheduleVersionRefusedError) {
   switch (refusal.kind) {
     case 'SCHEDULE_NOT_COMPLETE':
-      return answer(409, 'CONFLICT', 'The schedule has years without a figure; they cannot be recorded.', {
+      return answer(409, 'CONFLICT', 'The schedule is not complete up to throughYear; it cannot be recorded.', {
         reason: refusal.kind,
         assetId,
         ...refusal.details,
