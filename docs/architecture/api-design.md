@@ -6613,6 +6613,273 @@ Reused: `PropertyReferenceNotFoundError`, `LoanNotFoundError`, `LoanAllocationSe
 
 ---
 
+# 58F. No 10-Day Shift Without a Recorded Due Date (VC-X-39, specified)
+
+**Status:** specified, not implemented (VC-X-39; open questions for the owner below). **No migration:** nothing new is stored. The tax year is derived on read (§58A), and the new flag is derived too. It amends:
+- §58A: the exception gains a fourth condition, and the freeze statement for `DE_CASH_TIMING@1` changes;
+- §58C: the review table gains one item flag;
+- §58E: Part 1 now computes before and after under the amended rule (open question 7);
+- the parameters of `DE_CASH_TIMING@1`, in place.
+
+The window, the recurring categories, each source's economic period, Hausgeld (never moved on a guess), Loan interest, the `taxYear` override and its ±1 range, refunds and the per-year list's read range are unchanged.
+
+**Why:** the tax review of 2026-11-01 (`docs/germany/pruefbericht-2026-11-01.md`), question 18, „Zehntagesregel ohne Fälligkeit“ (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01). The report rates it **„Muss geändert werden, wenn die Fälligkeit nur angenommen wird“**:
+- „Zahlung **und** Fälligkeit im Zehntageszeitraum; nur regelmäßig wiederkehrend“;
+- „**ohne nachgewiesene Fälligkeit keine automatische Verschiebung**“.
+
+Its comparison column reads „**abweichend** (Miete)“. `beratungsfragen.md` §3 records the answer „Nein … dann bleibt der Zu- bzw. Abfluss maßgeblich“ and points here. The report lists `DUE_DATE_ASSUMED` under „Nicht auflösbar, weil die Antwort DE widerspricht“, and its P1 item „Zehntagesregel nur bei nachgewiesener Fälligkeit“ as not met. The confirmation covers the legal statements, not DE's calculation (the report's own reservation).
+
+**Decided by the owner on 2026-11-01** (recorded in §59F and in the report, „Regelversionen“):
+- **In place:** `DE_CASH_TIMING@1` takes the answer **in the same version**, not as `@2`. Its pinned hash is set explicitly, and a change note in the rule's `source` cites the report.
+- **Freeze point:** the Phase-7 rules freeze at the **documented go-live of the first productive installation**. The AfA rules freeze earlier, at the first enablement of recording (§60 open question 11).
+- **Prerequisites:** VC-X-39, VC-X-27 and VC-X-40 must be done before that go-live. They are not prerequisites of stage 1.
+- **The principle** „lieber nicht rechnen als falsch rechnen“: DE never moves a rent into another year silently. It shows the proposed year and flags it. The person decides, either with the classification's `taxYear` or by recording `rentDueDays`.
+
+This revises §58A's "v1 is frozen with VC-7-02's implementation … every later change … is a new version" for `DE_CASH_TIMING@1` only. `DE_CATEGORY_DEFAULTS@1` stays frozen as it is.
+
+**Why a section of its own, after §58E:** VC-X-39 is a backlog item of its own and changes a Phase-7 rule (§58A) that §58C and §58E read. It belongs with the Phase-7 sections, so it is §58F and comes after §58E, not as a §59 letter: §59 to §59F are Phase 8. §58A, §58C and §58E keep their statements, and this section names where each one changes.
+
+### As the code stands (main, before VC-X-39)
+
+- **The assumption is made in `rentTiming`.** Without a due day for the term, the term's first day is the due date, with `dueDateSource: 'PERIOD_START'` and `periodGuessed: false` (`domains/taxation/cash-timing.ts:68–79`). The comment there (`:73–77`) justifies it with § 556b Abs. 1 BGB: rent is due "at the latest by the 3rd working day".
+  - A term has no due day in three cases: no RentalContractReference for the Tenant, an empty list, or a term before the first entry (`dueDayOn`, `domains/rental-contract-reference/reference.ts:51–59`).
+  - The rent's timing is read in `infrastructure/postgres/tax-source-facts.ts:186–214` (`dueDays.get(…) ?? null`, `:213`).
+- **The assumption moves the year.** `attributeTaxYear` (`cash-timing.ts:217–263`) works in four steps:
+  - it pushes `DUE_DATE_ASSUMED` for any `PERIOD_START` (`:233–234`);
+  - it moves the year when the economic year lies across the year-end and the due date lies in the same window (`:235–236`);
+  - only a guessed period stops the move. That is Hausgeld's `ECONOMIC_PERIOD_ASSUMED` (`:238–242`);
+  - every other timing sets `moves = true` with `ATTRIBUTED_BY_10_DAY_RULE` (`:244–248`), and `taxYear` becomes the economic year (`:254`).
+
+  So a rent's `PERIOD_START` moves the year exactly as a recorded day does.
+- **The assumption can only move rent forward.** The first day of a December term (1 December) never lies in the window, which starts on 22 December. The first day of a January term does. So the assumption moves exactly one case: a January rent (or advance) paid from 22 to 31 December, which goes to the following year. It never moves a December rent paid late back into December's year. That move needs a recorded day from 22 to 31.
+- **Hausgeld is already as the report wants.** `hausgeldTiming` sets `periodGuessed: true` always (`cash-timing.ts:94–113`), and `PERIOD_START` when the plan has no `advanceDueDay` (`:110`). It never moves, and the user decides with `taxYear`.
+- **Loan interest moves on its schedule's payment date** (`LOAN_SCHEDULE`, `:121–139`). That is a recorded fact (§41.4), not an assumption.
+- **The review closes the flags with any confirmed classification.** `DUE_DATE_ASSUMED` and `ATTRIBUTED_BY_10_DAY_RULE` are in `CONFIRMABLE` (`domains/taxation/tax-year-review.ts:13–20`). Each is open until a classification in `USER_CONFIRMED` or `ADVISOR_CONFIRMED` stands for the item (`:54`).
+  - A create defaults to `USER_CONFIRMED` (§56).
+  - So a classification of the rent's treatment, made for any reason and without `taxYear`, closes both and accepts the moved year.
+- **The rule has no parameter for it.** `DE_CASH_TIMING@1` has `windowDays` and `recurringCategories` only (`domains/taxation/rules/de-cash-timing.ts:18–30`). Which due-date sources may move a year is code (`cash-timing.ts:238–244`), not the rule's (AGENTS.md §16).
+- **`DE_CASH_TIMING@1` is not pinned, and nothing stores it.**
+  - Pins: `infrastructure/hashing/frozen-rules.test.ts:16–28` pins `DE_CATEGORY_DEFAULTS@1` and the three AfA versions only, although §58A calls `@1` frozen.
+  - Classifications: they store `rule` (`DE_CATEGORY_DEFAULTS`) and `treatmentRule` (§56, `domains/taxation/classification-checks.ts:157–200`), never the cash rule.
+  - The derived attribution: it names `DE_CASH_TIMING@1` only on read (`tax-year-review.ts:110–113`).
+  - Recorded versions: they store AfA rules only (§60).
+
+  So no stored hash and no start check (`infrastructure/postgres/tax-rule-check.ts:27–53`) depends on it. Its hash today (`ruleVersionHash`, on main 92e2d22) is `b7fa5cf1648fb12179487933fd305f895983853021362877ff6c4c38a74487f8`.
+- **The derived year feeds two further places.** The first is §58E's history: `attributionChanges` computes each candidate's year under the list before and after each amendment with `attributeTaxYear(…, rentTiming(term, list), override, registry)` (`domains/taxation/attribution-changes.ts:106–137`, `:121`). A reference's `CREATED` record is only the base of that history and is never a change (`:87–100`). The second is the classification create's `refundOfYear` bound without `taxYear` (`infrastructure/postgres/tax-classification-store.ts:207–208`, `domains/taxation/classification-checks.ts:194–195`).
+- **Tests that assert the move under the assumption:**
+  - `cash-timing.test.ts:51–60`;
+  - `infrastructure/postgres/tax-year-repository.test.ts:63–72`;
+  - `tax-year.e2e.test.ts:228–231`.
+
+  The flag levels are asserted in `tax-year-view.test.ts:772–785`.
+
+### The rule (§58A, amended)
+
+The exception of §58A applies when **all four** hold. The fourth condition is new:
+1. the booking date is in the window;
+2. the due date is in the same window;
+3. the economic year differs from the booking year;
+4. **the due date is recorded:** its `dueDateSource` is one of the rule's `dueDate.recordedSources`, and the period is not guessed.
+
+Conditions 1–3 decide the **proposal**. Condition 4 decides whether the proposal is **applied**:
+
+| Case (1–3 hold) | `taxYear` | `attribution.proposedYear` | Flags |
+|---|---|---|---|
+| recorded due date (`RENTAL_CONTRACT_REFERENCE`, `LOAN_SCHEDULE`), period known | economic year | economic year | `ATTRIBUTED_BY_10_DAY_RULE` (unchanged) |
+| period guessed (Hausgeld; any due-date source) | booking year | guessed year | `ECONOMIC_PERIOD_ASSUMED` (unchanged), and `DUE_DATE_ASSUMED` before it when `PERIOD_START` |
+| **due date not recorded (`PERIOD_START`), period known (rent)** | **booking year** | economic year | `DUE_DATE_ASSUMED`, then the new **`PROPOSED_BY_10_DAY_RULE`** |
+| any of the above with a classification's `taxYear` | `taxYear` | as above | as above; `overridden: true` |
+
+- **When 1–3 do not hold**, nothing changes. A rent in the window whose term starts its own year (paid 2 January for January) carries `DUE_DATE_ASSUMED` alone, informative as today. So does a December rent paid late without a due day: its assumed due date, 1 December, lies outside the window, so there is no proposal (open question 4).
+- **`PROPOSED_BY_10_DAY_RULE`** is the rent's counterpart of `ECONOMIC_PERIOD_ASSUMED`: "the rule would move this split if its due date were the one assumed". Its `details` are `{ bookingDate, dueDate, economicPeriod, dueDateSource, proposedYear }`: the keys of `ATTRIBUTED_BY_10_DAY_RULE` plus `proposedYear`. A new code, not a new meaning for an existing one (open question 1).
+- **What the person can do:** two ways decide the year. A third way does not.
+  - **Record the due day** (`rentDueDays` on the Tenant's RentalContractReference, §58A). Day 1–10 then applies the proposal for every term the entry covers, flagged `ATTRIBUTED_BY_10_DAY_RULE`. Day 11–31 keeps the booking year without a flag. Both of the Transaction's rent splits follow (`RENT_BASE` and `RENT_OPERATING_COST_ADVANCE`).
+  - **Set `taxYear`** on the split's classification, either the booking year or the proposed year. This decides one split. The advance split needs its own classification.
+  - **Confirming a classification without `taxYear` decides nothing** (open question 2).
+- **Unchanged for Hausgeld:** a recorded `advanceDueDay` still never moves it (the period is guessed). The table's second row decides before condition 4 is read.
+- **Unchanged for Loan interest:** `LOAN_SCHEDULE` is a recorded source. VC-X-40 changes how interest is allocated, not its year.
+
+### The parameter, in place (the owner's decision of 2026-11-01)
+
+| Rule | Parameter | Value |
+|---|---|---|
+| `DE_CASH_TIMING@1` | `dueDate` (new) | `{ recordedSources: ["RENTAL_CONTRACT_REFERENCE", "ECONOMIC_PLAN", "LOAN_SCHEDULE"], legalBasis: "§ 11 Abs. 1 S. 2, Abs. 2 S. 2 EStG", source: "Prüfbericht 2026-11-01, Frage 18 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)" }` |
+
+- **What stays and what changes:** `windowDays` 10, `recurringCategories`, `title`, `legalBasis` and `effectiveFrom` 2000-01-01 are unchanged. The rule's `source` gains the change note "VC-X-39 in place: Prüfbericht 2026-11-01, Frage 18 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §58F".
+- **Code:** `attributeTaxYear` reads `rule.parameters.dueDate.recordedSources`, never a constant.
+  - `ECONOMIC_PLAN` is listed because a recorded `advanceDueDay` is a recorded due date. Hausgeld still does not move, because its period is guessed.
+  - The type is `readonly string[]`, as `recurringCategories` is. `rules/` does not import `DueDateSource` from `cash-timing.ts`, which imports the rule.
+  - A registry test asserts that every listed value is a `DueDateSource` and that `PERIOD_START` is not among them.
+- **`GET /tax-rules`** shows the new parameter. That is the only visible change to a route besides the flag.
+- **Pinned hash:** `frozen-rules.test.ts` gains `['DE_CASH_TIMING', 1, <the hash after the change>]`, with a comment naming question 18, the owner's decision and the hash before (`b7fa5cf1…87f8`, never pinned).
+  - If §59D or §59F lands first, its pin of `DE_ANSCHAFFUNGSNAHE@1` sits beside this one. Neither change touches the other's rule.
+  - From the documented go-live of the first productive installation on, a change of `DE_CASH_TIMING` is `@2`, and this literal is never updated again.
+- **`DE_CATEGORY_DEFAULTS@1`, `DE_WEG_SPENDING@1`, `DE_82B_DISTRIBUTION@1`, `DE_ANSCHAFFUNGSNAHE@1`** and the AfA rules are not changed.
+
+### The review (§58C, amended)
+
+| Flag | Level |
+|---|---|
+| `PROPOSED_BY_10_DAY_RULE` (new) | **open** until a current classification in `USER_CONFIRMED` or `ADVISOR_CONFIRMED` sets `taxYear` (`attribution.overridden: true`), whichever of the two years it names; then informative. A recorded due day removes the flag, because the split is then attributed or stays in its booking year by a recorded date. |
+| `DUE_DATE_ASSUMED` | unchanged (open while no confirmed classification stands for the item). The flag now says only that the due date is not recorded: it no longer moves anything. |
+| `ATTRIBUTED_BY_10_DAY_RULE`, `ECONOMIC_PERIOD_ASSUMED`, `NO_ECONOMIC_PERIOD` | unchanged |
+
+- **`flagIsOpen`** (`tax-year-review.ts:51–56`) takes the item's `attribution.overridden` for the new code. A `NEEDS_REVIEW` classification with `taxYear` leaves it open, as for every confirmable flag.
+- **The year:** a rent with an open `PROPOSED_BY_10_DAY_RULE` keeps its booking year not `final`, where it is shown as an item. The proposed year does not list it, since the item is not in that year: §58A's per-year list holds the splits whose tax year is Y. The proposed year is therefore not held open by it (open question 4 covers the symmetric case). `review.open` counts it per item, as every item flag.
+- **Owners:** the per-owner parts are unchanged, since the share date is the booking date (§58C). An assumed January rent now stays in its booking year, so it no longer carries `SHARE_DATE_OUTSIDE_TAX_YEAR` (informative).
+
+### Texts for the user (German; proposals for the UI)
+
+The UI texts live in `docs/development/ui-guide.md`, which this spec does not change. These are the proposals:
+
+- `PROPOSED_BY_10_DAY_RULE`: „Für diese Miete ist keine Fälligkeit erfasst. Ohne nachgewiesene Fälligkeit bleibt das Zahlungsjahr {bookingYear} maßgeblich. Nach der Zehntageregel gehörte die Zahlung in {proposedYear}, wenn sie am {dueDate} fällig war. Bitte die Fälligkeit im Mietverhältnis erfassen oder das Steuerjahr festlegen.“
+- `DUE_DATE_ASSUMED` (revised): „Keine Fälligkeit erfasst. Der {dueDate} dient nur als Vorschlag; das Steuerjahr folgt der Zahlung.“
+
+### Effect on existing data, §58E, ACC7 and the stages
+
+- **Existing data, no backfill** (open question 6). Nothing is stored per split, so every assumed January rent paid in late December returns to its booking year on the first read after the deployment, flagged `PROPOSED_BY_10_DAY_RULE`.
+  - **Classifications with `taxYear`** are unchanged: the override wins, and the flag is informative once confirmed.
+  - **Confirmed classifications without `taxYear`** do not change the year. Under the old rule they closed `ATTRIBUTED_BY_10_DAY_RULE` on the moved year. Now they leave `PROPOSED_BY_10_DAY_RULE` open: the person confirmed a year that the rule no longer proposes as the tax year, so the year is shown again for a decision, never kept silently.
+  - **No AuditRecord marks the deployment.** It is a change of the rule, not of an input, so §58E does not flag it. That is acceptable only because no productive installation exists: the Phase-7 freeze point is its documented go-live. After it, a change is `@2`, and the item names it as `RULE_SUPERSEDED` does today.
+- **The `refundOfYear` bound** without `taxYear` follows the derived year (`classification-checks.ts:194–195`). For an assumed January rent paid in December that is now the booking year, so a `refundOfYear` of the following year is `422 REFUND_YEAR_OUT_OF_RANGE` without `taxYear`. The database guard (booking year + 1) is unchanged.
+- **§58E (VC-X-28, specified, not implemented):** Part 1 computes "before" and "after" with the rule as it now stands. This changes which amendments flag a year:
+  - **An amendment from no due day to a day 1–10** for a January term paid in late December now moves the rent from the booking year to January's year. Recorded after the end of a year it touches, it raises `ATTRIBUTION_INPUT_CHANGED` in that year, and in both years when it is recorded after both have ended. Under the old rule it moved nothing, because the assumption gave the same year. The reverse amendment moves the rent back and is flagged the same way.
+  - **An amendment from a day 11–31 to no due day** no longer moves anything (booking year under both). Today it moves the rent forward and is flagged.
+  - **A reconciliation confirmed late without a due day** (§58E open question 5) now moves nothing: `NO_ECONOMIC_PERIOD` before and `PROPOSED_BY_10_DAY_RULE` after both give the booking year. With a recorded day it moves and is flagged, as proposed there.
+  - **The `CREATED` record of a reference.** From VC-X-39 on, creating a reference after the year end with a day 1–10 moves such a rent out of a closed year. §58E reads `CREATED` only as the base of the history, so that move is not flagged (open question 7).
+  - **Fingerprints:** an acknowledgement covers `items` with `yearBefore`/`yearAfter`. If §58E is implemented before VC-X-39, a change whose years VC-X-39 alters gets another fingerprint and opens again, as §58E intends.
+- **ACC7** (`phase-7-acceptance.e2e.test.ts`) has **no figure change**.
+  - Its one rent in a window is December's, paid 2028-01-04 (`:327–336`), and its RentalContractReference records day 31 from the start of the tenancy (`:337–338`). The due date 2027-12-31 is recorded, so the rent still moves to 2027 with `ATTRIBUTED_BY_10_DAY_RULE` (`:580–585`).
+  - The totals stay as they are, for example `einnahmen` 13,284.01 with `RENT` 10,800.00.
+  - Its Hausgeld (the 15th) and interest (the 20th) lie outside every window.
+  - **ACC8** books its rents on the 15th and is not touched either (`phase-8-acceptance.e2e.test.ts:93`). Open question 8 proposes leaving both unchanged.
+- **VC-X-45 and the AfA:** the tax-year view is not the AfA recording. No AfA component reads a rent's tax year. The only cash years §59B reads are those of capitalised sources (§58A), and §59E's interest keeps its schedule's year. So VC-X-39 changes no AfA figure, no `inputFingerprint`, no recorded version and no stage of VC-X-45. `DEPRECIATION_RECORDING_ENABLED` is not read. VC-X-39 is a prerequisite of the Phase-7 go-live, not of recording stage 1.
+
+### Tests the implementation must have
+
+- **Domain** (`cash-timing.test.ts`, replacing `:51–60`). Synthetic figures, window 2026/27:
+  - **A January rent paid on 2026-12-29 without a due day** stays in 2026. Its flags are exactly `DUE_DATE_ASSUMED` and `PROPOSED_BY_10_DAY_RULE` (`dueDate` 2027-01-01, `dueDateSource` `PERIOD_START`, `proposedYear` 2027). Its `attribution` is `{ bookingYear: 2026, proposedYear: 2027, overridden: false }`.
+  - **With `rentDueDays` day 1** it moves to 2027, `ATTRIBUTED_BY_10_DAY_RULE` alone with `dueDateSource` `RENTAL_CONTRACT_REFERENCE`. Day 3 does the same. Day 15 keeps 2026 without a flag.
+  - **A term before the first entry** behaves as with no due day.
+  - **The same split with `taxYear` 2027** goes to 2027 with `overridden: true`, and `PROPOSED_BY_10_DAY_RULE` stays in its flags. With `taxYear` 2026: 2026, `overridden: true`.
+  - **A December rent paid on 2027-01-05, due on 1 December** (recorded day 1) stays in 2027 without a flag. Its due date lies outside the window. **Without a due day:** 2027, `DUE_DATE_ASSUMED` alone, no proposal.
+  - **`RENT_OPERATING_COST_ADVANCE`** behaves as `RENT_BASE` in each case above.
+  - **Non-recurring categories never move:** `MAINTENANCE` and `OTHER_INCOME` booked 2026-12-29 stay in 2026 without a flag, whatever the timing passed.
+  - **Unchanged:** Hausgeld (`advanceDueDay` 1 and `null`) and interest, as today (`:105–180`).
+  - **The parameter is read:**
+    - a test registry whose copy of `@1` adds `PERIOD_START` to `recordedSources` moves the assumed rent again (`ATTRIBUTED_BY_10_DAY_RULE`);
+    - a copy without `RENTAL_CONTRACT_REFERENCE` leaves the day-3 rent in 2026 with `PROPOSED_BY_10_DAY_RULE`;
+    - a copy with `ECONOMIC_PLAN` removed changes nothing for Hausgeld.
+- **Review** (`tax-year-view.test.ts`, beside `:772–785`): `PROPOSED_BY_10_DAY_RULE` is open on a `DEFAULT` item, open with a `USER_CONFIRMED` classification without `taxYear`, informative with `USER_CONFIRMED` or `ADVISOR_CONFIRMED` and `taxYear` (either year), and open with `NEEDS_REVIEW` and `taxYear`. A year with it open is not `final`, and `review.open` counts it per item.
+- **§58E's history** (`tax-year-view.test.ts`, `ATTRIBUTION_INPUT_CHANGED`):
+  - an amendment from `[]` to day 1, recorded 2029-02-01, of a January 2028 rent paid 2027-12-29 is flagged with `yearBefore` 2027 and `yearAfter` 2028 in both views;
+  - the same recorded on 2027-12-30 raises nothing (31-December rule);
+  - day 15 → `[]` raises nothing;
+  - the existing day 3 → 15 tests stay unchanged.
+- **Rule and pin:**
+  - the registry test of the parameter;
+  - `frozen-rules.test.ts` with the new pin. Its counter-check on a copy of the cash rule: `recordedSources` with `PERIOD_START` added changes the hash, and `effectiveTo` does not;
+  - `GET /tax-rules` lists `dueDate`.
+- **Repository** (`tax-year-repository.test.ts:63–80`): the assumed January rent is in 2026's list, not in 2027's, with both flags. After the reference with day 3 it is in 2027's list with `ATTRIBUTED_BY_10_DAY_RULE`.
+- **End to end** (`tax-year.e2e.test.ts:222–261`): the example below, steps 1–3, through the routes. Step 2b goes through `POST /tax-classifications` with `taxYear` and is then read back. Realm isolation is unchanged.
+- **Existing tests** that assert the move under the assumption (listed above) are rewritten to the new outcome. None is deleted, and none is weakened. The Hausgeld, interest and day-3/15/28 tests stay literally as they are.
+
+### Counter-checks and mutations
+
+**Counter-checks:**
+- no year is moved on `PERIOD_START`;
+- no proposal is lost: `attribution.proposedYear` and the flag are always present when 1–3 hold;
+- no recorded due day is ignored;
+- no Hausgeld is moved;
+- no interest year changes;
+- no non-recurring category is touched;
+- no confirmation without `taxYear` closes the proposal;
+- no ACC7 figure changes.
+
+**Mutations** (each alone, restored byte for byte):
+- `moves = true` for `PERIOD_START` again (condition 4 dropped): the domain test, the repository test and the e2e test turn red;
+- condition 4 hard-coded (`dueDateSource !== 'PERIOD_START'`) instead of read from `recordedSources`: the parameter counter-check turns red;
+- `PROPOSED_BY_10_DAY_RULE` not raised, or `proposedYear` set to the booking year: the domain test turns red;
+- `PROPOSED_BY_10_DAY_RULE` put into `CONFIRMABLE` (closed by any confirmed classification): the review test turns red;
+- `periodGuessed` checked after condition 4, so Hausgeld with `ECONOMIC_PLAN` would move: the Hausgeld test turns red;
+- `RENT_OPERATING_COST_ADVANCE` left on the old path: the advance case turns red;
+- `attributionChanges` computing "before" with a fixed `PERIOD_START` move: the §58E case turns red;
+- the pinned literal not updated, or the parameter left out of the rule: `frozen-rules.test.ts` turns red.
+
+### Example (synthetic)
+
+One flat P, one owner A (`"1/1"`), one Tenant T. Rent 850.00 (`RENT_BASE`) and advance 150.00 (`RENT_OPERATING_COST_ADVANCE`), one Transaction per month, each matched to its term (`CONFIRMED` reconciliation). The rents of January to November 2026 are paid on the 15th. Window 2026-12-22 to 2027-01-10. Read on 2027-02-01.
+
+| Transaction | Booked | Term | Before VC-X-39 (no reference) | §58F (no reference) |
+|---|---|---|---|---|
+| R-Jan…R-Nov | the 15th of each month 2026 | January–November 2026 | 2026, no flag (outside the windows) | the same |
+| R1 | 2026-12-29 | January 2027 | **2027**, `DUE_DATE_ASSUMED`, `ATTRIBUTED_BY_10_DAY_RULE` | **2026**, `DUE_DATE_ASSUMED`, `PROPOSED_BY_10_DAY_RULE` (`proposedYear` 2027) |
+| R2 | 2027-01-04 | December 2026 | 2027, `DUE_DATE_ASSUMED` (1 December is outside the window) | the same |
+| M | 2026-12-30, `MAINTENANCE` 300.00 | – | 2026, no flag | the same |
+
+**1. Without a reference.**
+
+| 2026 view | Before VC-X-39 | §58F |
+|---|---|---|
+| `RENT` | 11 × 850.00 = **9,350.00** | 9,350.00 + 850.00 = **10,200.00** |
+| `OPERATING_COST_ADVANCES` | 11 × 150.00 = **1,650.00** | **1,800.00** |
+| `review.open`, 10-day flags | none | `DUE_DATE_ASSUMED` 2, `PROPOSED_BY_10_DAY_RULE` 2 (R1's two splits) |
+
+- **The 2027 view** holds R1 and R2 before VC-X-39 (`RENT` 1,700.00, advances 300.00), and R2 alone under §58F (850.00 and 150.00). 2027 counts `DUE_DATE_ASSUMED` 4 and `ATTRIBUTED_BY_10_DAY_RULE` 2 before VC-X-39, and `DUE_DATE_ASSUMED` 2 (R2's splits) under §58F.
+- **The 10-day items of 2026 under §58F:** R1 counts in 2026, the year it was paid, as the report requires without a proven due date. Before VC-X-39, 2026 showed no open 10-day flag at all.
+
+**2. The person decides.**
+- **(a) Records `rentDueDays` `[{ validFrom: 2026-01-01, day: 3 }]`** (created on 2026-12-30, before the year end):
+  - R1 is due on 2027-01-03, in the window, so it goes to **2027** with `ATTRIBUTED_BY_10_DAY_RULE` (`dueDateSource` `RENTAL_CONTRACT_REFERENCE`).
+  - R2 is due on 2026-12-03, outside the window, so it stays in 2027 with no flag.
+  - 2026: `RENT` 9,350.00, advances 1,650.00, the same totals as before VC-X-39, now on a recorded date. 2027: `RENT` 1,700.00, advances 300.00.
+- **(b) Without a reference, classifies R1's `RENT_BASE` split** as `RENT`/`INCOME` with `taxYear` 2027 (`USER_CONFIRMED`):
+  - that split goes to 2027 (`overridden: true`), and its `PROPOSED_BY_10_DAY_RULE` becomes informative;
+  - R1's advance split stays in 2026 with the flag open;
+  - 2026: `RENT` 9,350.00, advances 1,800.00. 2027: `RENT` 1,700.00, advances 150.00.
+
+**3. Day 28 instead** (`[{ validFrom: 2026-01-01, day: 28 }]`):
+- R2 is due on 2026-12-28, in the window, and paid on 2027-01-04. It moves back to **2026** with `ATTRIBUTED_BY_10_DAY_RULE`.
+- R1 is due on 2027-01-28, outside the window. It stays in **2026** with no flag.
+- 2026: `RENT` 9,350.00 + 850.00 (R1) + 850.00 (R2) = **11,050.00**, advances 1,650.00 + 150.00 + 150.00 = **1,950.00**. 2027: `RENT` 0.00 from these Transactions.
+- That is the law's outcome for a lease due on the 28th. The assumption (1st) could never reach it.
+
+**4. §58E, with the amendment recorded after the year end.** The reference was created on 2026-12-30 with `[]` and amended to day 3 on 2027-03-01:
+- under §58F, before `[]` gives R1 2026, and after day 3 gives 2027;
+- `ATTRIBUTION_INPUT_CHANGED` appears in 2026's view with `items: [{ R1 rent, 2026 → 2027 }, { R1 advance, 2026 → 2027 }]`. 2027's view does not: the amendment was recorded on 2027-03-01, within 2027, so the 31-December rule keeps it out of that year;
+- under the old rule both lists gave 2027, so nothing was flagged.
+
+M stays in 2026 in every step.
+
+### Not in VC-X-39 (pointers)
+
+- **Loan interest by periods of use:** VC-X-40 (question 22). The interest's tax year by its schedule's payment date is unchanged here.
+- **Hausgeld:** already never moved on a guess (§58A). Maintenance paid from the Hausgeld in the 15 % check is VC-X-27, a separate matter.
+- **Acknowledging a change:** VC-X-28 (§58E). This section only says what its Part 1 computes under the amended rule (open question 7).
+- **The due day from MRE:** MRE's lease has no due day (§58A). An import or a link of `rentalContractReferenceId` on splits is a later item.
+- **A rent split of several terms** (`SEVERAL_TERMS`) or without a reconciliation (`NO_ECONOMIC_PERIOD`): unchanged, booking year.
+- **The AfA, recording and VC-X-45's stages:** not affected (above).
+- **Docs to align at implementation:**
+  - `invariant-suite.md` (the cash-timing rows, `:815`);
+  - `phase-7-plan.md` P7-D3 ("the start of the period serves as the due date");
+  - `beratungsfragen.md` §3 ("Was die Software tut");
+  - the report's gap row 18 (as a Nachtrag);
+  - `ui-guide.md` for the texts.
+
+### Open questions for review
+
+1. **A new flag, or a new meaning for an existing one.** **Proposal:** a new item flag `PROPOSED_BY_10_DAY_RULE` (with `proposedYear`) beside `DUE_DATE_ASSUMED`, parallel to `ATTRIBUTED_BY_10_DAY_RULE`. A client then sees "proposed, not applied" by its code, and `DUE_DATE_ASSUMED` keeps one meaning for rent and Hausgeld. **Alternative:** no new code. `DUE_DATE_ASSUMED.details` would gain `proposedYear` (`null` where nothing would move), with fewer codes but one code at two levels of urgency. Reusing `ECONOMIC_PERIOD_ASSUMED` is not proposed: the rent's period is known.
+2. **What closes the proposal.** **Proposal:** only a confirmed classification that sets `taxYear` (either year), or a recorded due day. The owner's words name exactly these two, and a create defaults to `USER_CONFIRMED`, so "any confirmed classification" would close it as a side effect of classifying the treatment. **Alternative:** as `ECONOMIC_PERIOD_ASSUMED`, any confirmed classification closes it (the booking year is then the accepted year). Fewer open items, but a classification made for another reason would decide the year.
+3. **What counts as a proven due date.** **Proposal:** a recorded `rentDueDays` entry covering the term. The person states it from the lease, and the reference's `sourceReferences` can name the lease. **Alternative:** the reference must carry at least one `sourceReference` (or a review state) before its due day moves a year, which needs a new field or rule for the reference and leaves existing references without evidence unproven.
+4. **A December rent paid late without a due day.** **Proposal:** no proposal. Its assumed due date (the 1st) lies outside the window, so the rule has nothing to propose. `DUE_DATE_ASSUMED` alone shows that a recorded day 22–31 could move it back. **Alternative:** propose the economic year whenever the term and the payment straddle the year end (`PROPOSED_BY_10_DAY_RULE` with `dueDate: null`), so both directions are shown alike. This would hold more years open on a guess about the lease.
+5. **The rule's shape.** **Proposal:** the parameter `dueDate.recordedSources` in place in `@1`, the hash pinned for the first time, the change note in `source`. The judgement is the rule's (AGENTS.md §16), and the hash changes visibly. **Alternative:** a code change only, with the note in `source`. The hash still changes, but the parameter list shows nothing of the condition, and a test registry cannot restore the old reading.
+6. **Existing data: no backfill.** **Proposal:** none. Assumed rents return to their booking year on read, and confirmed classifications without `taxYear` show the open proposal again. This is acceptable because no productive installation exists (the Phase-7 freeze point is its go-live), and DE writes no classification (ADR-006, P7-D8). **Alternative:** a one-off migration writing `taxYear` = the previously moved year into confirmed classifications without one. DE would then write tax statements on the person's behalf, which the principle forbids.
+7. **§58E: a reference's `CREATED` record as a change.** **Proposal:** in VC-X-28 (an amendment of §58E's Part 1, not done here), the `CREATED` record counts as a change against the empty list, as kind `RENT_DUE_DAYS_AMENDED` or a new `RENT_DUE_DAYS_CREATED`. From VC-X-39 on, recording a day 1–10 after the year end moves a January rent paid in December out of a closed year, whether by a create or an amend. **Alternative:** leave `CREATED` out as today. The moved item still carries `ATTRIBUTED_BY_10_DAY_RULE` (open until confirmed), but the closed year gets no year flag.
+8. **ACC7 and ACC8.** **Proposal:** unchanged. Their window rent has a recorded due day, so no figure moves, and `tax-year.e2e.test.ts` carries the example above. **Alternative:** ACC7 gains a step for a January rent paid in December without a reference (on a second Tenant, so the existing totals stay), showing the proposal and its decision in the phase's acceptance test.
+9. **The proposed year's view.** **Proposal:** the proposal is shown on the item in its booking year only. The proposed year neither lists it nor is held open by it, as for Hausgeld's `ECONOMIC_PERIOD_ASSUMED` today. **Alternative:** the proposed year carries a year flag `PROPOSED_ITEMS_ELSEWHERE` naming the splits that may belong to it, so a person reviewing only that year sees them too. This would be a new year flag and a second read range.
+
+---
+
 # 59. Depreciation Asset API (VC-8-01, implemented: migration 0049)
 
 **Status:** implemented (VC-8-01, migration 0049). The deviations and interpretations are listed under "As implemented (VC-8-01)" below.
