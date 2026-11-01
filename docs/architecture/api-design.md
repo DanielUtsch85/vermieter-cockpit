@@ -6932,7 +6932,7 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
 - **"Shorter" is a fixed number of years per band**, as § 7 Abs. 4 S. 2 EStG names them, never derived from the rate: fewer than **33** years in band `A` (S. 1 Nr. 2 Buchst. a), fewer than **50** in band `B` (Buchst. b), fewer than **40** in band `C` (Buchst. c). Each band of the rule carries its threshold as the parameter `shorterUsefulLife.shorterThanYears` (below). The check is `usefulLifeYears < shorterThanYears`, with no arithmetic on `ratePercent`. So 33 years in band `A` is **not** shorter, although `1/33` exceeds 3 %: the statute names the years. An entry that is not shorter gets the band's rate, and it is flagged `USEFUL_LIFE_NOT_SHORTER`. The entry is never refused, since the band can change with an amended completion year.
 - **Verified (30.10.2026, VC-8-01):** the thresholds were taken from the statute text quoted in the review on #174 (recorded in `docs/germany/depreciation.md` §3, B7) and re-read in the official text (gesetze-im-internet.de, `estg/__7.html`) before VC-8-01 was implemented: „in den Fällen des Satzes 1 Nummer 1 und 2 Buchstabe a weniger als 33 Jahre, in den Fällen des Satzes 1 Nummer 2 Buchstabe b weniger als 50 Jahre, in den Fällen des Satzes 1 Nummer 2 Buchstabe c weniger als 40 Jahre“. The rule's parameters match; nothing was corrected.
 - **Only a confirmed entry feeds a figure.** An entry in `UNREVIEWED` or `NEEDS_REVIEW` makes its Acquisition's component not computable (`USEFUL_LIFE_NOT_CONFIRMED`, §59A). DE then uses neither the claimed rate nor the band's rate, since either would be a guess: the user has claimed a shorter life, but nobody has confirmed it. A confirmed entry gives the rate `1/usefulLifeYears`, flagged `SHORTER_USEFUL_LIFE` (informative), as P8-D4 says.
-- **Still VERIFY** (phase-8-plan §3, 6): whether a shorter life, once claimed, applies from the purchase or from the year it is evidenced. VC-8-02 decides how the schedule uses `evidence.date`. VC-8-01 stores the date and computes nothing with it.
+- **Still VERIFY** (phase-8-plan §3, 6): whether a shorter life, once claimed, applies from the purchase or from the year it is evidenced. VC-8-02 decides how the schedule uses `evidence.date`. VC-8-01 stores the date and computes nothing with it. **Specified by §59G (VC-X-41, not implemented):** the date is the Stichtag of the remaining useful life; an evidence after the first year applies from its year, on the residual value.
 
 ### `POST /api/v1/depreciation-assets`
 
@@ -7464,7 +7464,7 @@ VC-8-02 adds the edges Depreciation → Acquisition, Depreciation → Ownership 
   - the entry `applies` (§59): `1/usefulLifeYears`, flagged `SHORTER_USEFUL_LIFE` (informative);
   - the entry is not confirmed: the component is not computable (`USEFUL_LIFE_NOT_CONFIRMED`, §59: neither rate is a fact yet);
   - the entry is not shorter than the band's threshold: the band's rate, flagged `USEFUL_LIFE_NOT_SHORTER` (open: the user claimed a life the statute does not treat as shorter, §59).
-- **From when a confirmed shorter life applies** is not covered by `depreciation.md` (phase-8-plan §3, 6, **VERIFY**; §59 leaves it to VC-8-02). **The schedule applies it from the component's start.** When `evidence.date` lies after 31 December of the component's first year, the component carries `USEFUL_LIFE_START_TO_VERIFY` (open) with `details: { evidenceDate, firstYear }`, so the year is never final on this choice. When the evidence is dated in the first year, both readings agree and nothing is flagged.
+- **From when a confirmed shorter life applies** is not covered by `depreciation.md` (phase-8-plan §3, 6, **VERIFY**; §59 leaves it to VC-8-02). **The schedule applies it from the component's start.** When `evidence.date` lies after 31 December of the component's first year, the component carries `USEFUL_LIFE_START_TO_VERIFY` (open) with `details: { evidenceDate, firstYear }`, so the year is never final on this choice. When the evidence is dated in the first year, both readings agree and nothing is flagged. **Specified by §59G (VC-X-41, not implemented):** the tax review (questions 8 and 9) rejects the retroactive `1/n`; §59G keeps the band's rate before the evidence year and spreads the residual value from it, withdrawing `USEFUL_LIFE_START_TO_VERIFY`.
 - **`HISTORICAL_RULE_NOT_SUPPORTED`** (decided 2026-10-31, above): a component whose start or contract date lies before 2006-01-01 is **not computable in any year**. Years 2006–2022 are computed with `DE_AFA_BUILDING_LINEAR@1` and flagged `HISTORICAL_RULE_TO_VERIFY` (open) while it is unverified. **`NO_APPLICABLE_RULE`** remains for a year without any version (none from 2006 on), with `details: { yearsWithoutRule }`.
 - **The rule version of a year** is selected on 1 January of that year (§58), and every year names it.
 - **`DEPRECIATION_METHOD_UNKNOWN`** (open, decided 2026-10-31, above): the component's first year equals the completion year, and the completion year is at least the rule's `methodUnknownFromCompletionYear` (2018). The component is not computable: § 7 Abs. 5a or § 7b EStG may have been claimed (B4). Replaces the informative `DEGRESSIVE_AFA_MAY_APPLY`. **Withdrawn by §59C (VC-X-37), decided by the owner on 2026-11-01** (§59C open question 2; implemented by VC-X-37, migration 0053): every purchase needs a confirmed method entry that is `STANDARD` (`DEPRECIATION_METHOD_NOT_CONFIRMED`, `DEPRECIATION_METHOD_NOT_SUPPORTED`). Since VC-X-37 the code no longer raises this reason.
@@ -7905,7 +7905,7 @@ From when a capitalised item counts is **not covered by `depreciation.md`** (pha
 ### The rate and the end (B11; P8-D6, P8-D9)
 
 - **The building's rate, applied to the item** (B11: "Die weitere AfA folgt der für das Gebäude einschlägigen gesetzlichen Methode"; P8-D6: no mode of its own, no "Restwert-AfA"): the rate of each year is the band's `ratePercent` of the rule version selected for that year (§59), as an exact fraction, from the asset's completion year. The asset's reasons (`ASSET_VOID`, `COMPLETION_YEAR_MISSING`, `ASSET_NOT_CONFIRMED`) stop the item components as they stop the purchases (§59A).
-- **An owner whose purchase uses a confirmed shorter useful life** (§59, P8-D4): the owner's part of the item takes the rate of that owner's purchase component whose tenure holds the item's date (B11 literally: the building's method is then § 7 Abs. 4 S. 2). It follows that component's state: `1/usefulLifeYears` when the entry applies, flagged **`SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`** (open; whether later costs then run over the building's remaining useful life is not covered by `depreciation.md`, **VERIFY**); not computable with `USEFUL_LIFE_NOT_CONFIRMED` when the entry is not confirmed; the band's rate when it is not shorter. A part of an owner without a purchase component (an heir who bore the cost, `OWNER_WITHOUT_ACQUISITION` in §59A) and the `NOT_OWNED` part take the band's rate.
+- **An owner whose purchase uses a confirmed shorter useful life** (§59, P8-D4): the owner's part of the item takes the rate of that owner's purchase component whose tenure holds the item's date (B11 literally: the building's method is then § 7 Abs. 4 S. 2). It follows that component's state: `1/usefulLifeYears` when the entry applies, flagged **`SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`** (open; whether later costs then run over the building's remaining useful life is not covered by `depreciation.md`, **VERIFY**; **specified by §59G (VC-X-41, not implemented):** they run over the remaining useful life, and the flag is withdrawn); not computable with `USEFUL_LIFE_NOT_CONFIRMED` when the entry is not confirmed; the band's rate when it is not shorter. A part of an owner without a purchase component (an heir who bore the cost, `OWNER_WITHOUT_ACQUISITION` in §59A) and the `NOT_OWNED` part take the band's rate.
 - **`NO_APPLICABLE_RULE`:** an item whose first month lies before 2023 (no version of `DE_AFA_BUILDING_LINEAR` before 2023-01-01, §59) is not computable in any year, as a purchase that starts before 2023 (§59A): its residual value in 2023 depends on the earlier years. An item dated 2023 or later on a building bought before 2023 is computable only where its figures do not depend on the purchase's earlier years (review on #180):
   - the purchase's **nominal last month** is its start month plus its run at its band (600, 480 or 400 months) or at `1/n` (`12·n`), i.e. its end **if** the rates before 2023 were those of `@1`. That is only the context of §59A open question 2 (**VERIFY**, not decided); the actual last month depends on the pre-2023 rates, which are not verified (`NO_APPLICABLE_RULE`);
   - **under `POOLED_BASIS`** (the proposal) the pool needs the purchase's exhaustion month and its residual value from the year in which it can end. So the owner's item parts of that pool are **not computable from the year of the purchase's nominal last month on** (`NO_APPLICABLE_RULE` with `details: { poolComponentId, nominalLastMonth }`), as the purchase's own years are; an item that starts in or after that year (a building bought long ago and nominally written off) is not computable in any year. The years before are computed: while the purchase runs, the pooled figures equal the item's own series (below), which holds as long as the pre-2023 rates were not above today's bands (the same VERIFY point). Once a version 0 of the rule is verified, the purchase becomes computable and the pool with it;
@@ -9178,6 +9178,235 @@ An Acquisition with economic transfer **2026-03-15**, basis 198,000.00 (§58B's 
 11. **`subsequentCostStart.verified`.** **Proposal:** `true` with VC-X-38 (question 5 confirms the method, and the year now follows the performance), resolving `SUBSEQUENT_COST_START_TO_VERIFY`; `notBeforeOwnerStart` is this spec's reading, which the report's „stimmt (Jahresbeginn)“ covers. **Alternative:** keep `verified: false` until the advisor confirms `notBeforeOwnerStart` separately.
 12. **A capitalisation on the check without performance.** **Proposal:** refused (`PERFORMANCE_REQUIRED`): capitalising on the check asserts that the work fell in the window. **Alternative:** allowed, judged by the source's date as today, the source then `undetermined` in the check.
 13. **Existing classifications: no backfill.** **Proposal:** none; the user supersedes each relevant classification with its performance. **Alternative:** the migration copies nothing but the read offers the booking date as a suggestion in the meaning (`suggestedPerformance`, never used by a figure), which saves typing and invites a confirmation without looking at the invoice.
+
+---
+
+# 59G. The Shorter Useful Life from the Evidence, and Later Costs over the Remaining Useful Life (VC-X-41, specified)
+
+**Status:** specified, not implemented (VC-X-41; open questions for the owner below). **Migration:** the next free number at implementation (0053 is §59C's; 0054–0057 are taken or planned by §59D/§58E/§59E/§59F). It amends:
+- §59: what `evidence.date` and `usefulLifeYears` of a shorter-life entry mean, and when an entry is shorter;
+- §59A: the rate of a year for a purchase with a confirmed shorter life, the residual value from the evidence year, and the withdrawal of `USEFUL_LIFE_START_TO_VERIFY`;
+- §59B: the rate and the end of a later cost in the pool of such a purchase, and the withdrawal of `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`;
+- §60: the stored inputs, the fingerprint and the pinned hashes;
+- §58C: the gaps and the review table (codes withdrawn and added, below);
+- the parameters of `DE_AFA_BUILDING_LINEAR@1` and `@2`, in place.
+
+The bands and thresholds of S. 2, the start and the first year, the owners' bases, the cumulative rounding, the tenure, the disposal year, the share reduction, §59C's method gate, §59D's basis, §59F's start of a capitalised item and the separate assets are unchanged.
+
+**Why:** the tax review of 2026-11-01 (`docs/germany/pruefbericht-2026-11-01.md`), questions 8 and 9 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01).
+- **Question 8**, „Kürzere tatsächliche ND“, rated „Nur unter folgenden Voraussetzungen“: the thresholds < 33 / < 50 / < 40 are correct; „bisherige AfA ins Restvolumen, Gutachten-Stichtag nicht beliebig rückwirkend; eigene, dokumentationspflichtige Methode mit Freigabevermerk“. Its comparison column reads „teilweise / **abweichend** bei späterem Nachweis“.
+- **Question 9**, „Nachträgliche HK bei kürzerer ND“, rated **„Berechnung muss geändert werden“**, „wenn der frühere Satz immer unverändert bleibt: Restwert + HK über die Restnutzungsdauer; R 7.4 Abs. 9 S. 2 erlaubt die Vereinfachung, zwingend ist sie nicht“. Its comparison column reads „**abweichend**“.
+- **The reading** taken here: a shorter useful life is not applied arbitrarily retroactively. When the evidence is dated after the first year, the AfA so far stays at the band rate and goes into the residual value, and from the evidence's year the residual value is spread over the remaining useful life. With later costs on such a purchase, the residual value plus the costs run over the remaining useful life; keeping the old rate is an allowed simplification, not a must.
+- The report lists `USEFUL_LIFE_START_TO_VERIFY` and `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY` under „Nicht auflösbar, weil die Antwort DE widerspricht“, and its P1 item „Kürzere ND mit Nachweisen und Restwertrechnung“ as „teilweise (Nachweis ja, Restwert nein; VC-X-41)“. Its section F puts the shorter useful life in **stage 3** („Spezial“). The confirmation covers the legal statements, not DE's calculation (the report's own reservation).
+
+**The owner's decisions this section builds on:**
+- **In place:** the AfA rules take the answers in the same version before the first enablement of recording (§60 open question 11, decided 2026-10-31, third set), with the pinned hashes of `infrastructure/hashing/frozen-rules.test.ts` updated explicitly in the same commit. `DEPRECIATION_RECORDING_ENABLED` stays `false`; nothing here enables recording.
+- **Stage 3, not a prerequisite of stage 1** (the owner's decision in chat on 2026-11-01, with the release stages of VC-X-45: „VC-X-41 (kürzere Nutzungsdauer) ist Stufe 3 und VC-X-27 (Hausgeld-Instandsetzung) ist Stufe 2. Beide blockieren Stufe 1 nicht mehr.“. It departs from the report's list „Vor der Freischaltung zu ändern“ (`pruefbericht-2026-11-01.md`, line 116) on the report's own stages: a shorter useful life is stage 3 (report F), and a stage-3 case is not released with stage 1). **This holds only with VC-X-45's stage gate:** the release stages are VC-X-45 (specified by the owner's own pending PR, not on `main`). Provided VC-X-45 refuses a record of a year with a stage-3 component while only stage 1 is released, a stage-1 release keeps a purchase with a shorter useful life unrecordable whatever VC-X-41's state, and VC-X-41 gates only the release of stage 3. **Requirement on VC-X-45:** a purchase with a shorter-life entry (`kind: SHORTER_USEFUL_LIFE`, `FROM_START` included, which after Part 1 carries only the informative `SHORTER_USEFUL_LIFE`) is stage 3. Without that gate, §60 step 4 refuses only open reasons, so VC-X-41 (at least Part 1) stays **before enablement**.
+- **The thresholds are verified in both versions:** `@1`'s `verified.shorterUsefulLifeThresholds` is `true` (owner decision B1, #229; §59A "Resolved by the tax review (2026-11-01)"), so no year computed with a shorter life carries `HISTORICAL_RULE_TO_VERIFY` for its threshold. VC-X-41 does not touch `verified`.
+- **„Lieber nicht rechnen als falsch rechnen“** (§59A "Decided on 2026-10-31"): a figure DE cannot derive is `null` with a reason, never 0.00 and never a plausible substitute. Until the residual-value computation exists (Part 2), the cases it covers are **not computed** (Part 1), instead of computed with `1/n` from the start and an open flag as today.
+
+**Why a section of its own, after §59F:** VC-X-41 is a backlog item of its own and touches §59, §59A, §59B and §60 at once. Each keeps its statements and points here where they change. It reads §59F's start of a capitalised item (the year of `performance.until`) and so follows it.
+
+### As the code stands (main, before VC-X-41)
+
+- **The rate of a year ignores the evidence date.** `rateOfYear` (`domains/depreciation/exact.ts:67–76`) returns `1/usefulLifeYears` for every year in which the entry is confirmed and shorter than the year's band threshold (`isShorter`, `domains/depreciation/rate.ts:76`). `nominalMonths` (`domains/depreciation/purchase-work.ts:256–288`) asks it once per year and steps `min(rate/12, 1 − done)` (`:282`), so a confirmed shorter life runs from the component's first month whatever `evidence.date` says.
+- **A later evidence is only flagged.** `purchase-work.ts:194–199` adds `SHORTER_USEFUL_LIFE` (informative, `schedule-review.ts:11–13`) and, when `evidence.date` lies after 31 December of the first year, `USEFUL_LIFE_START_TO_VERIFY` (open, since it is not in `INFORMATIVE_CODES`). The year is `PROVISIONAL`, the figure is `1/n` from the start: what question 8 calls „beliebig rückwirkend“.
+- **A later cost always takes the owner's purchase rate.** `item-part.ts:257` finds the purchase whose tenure holds the item's date; `:282–290` give the part `1/usefulLifeYears` for every year when that purchase's entry applies. `schedule-items.ts:118–127` flags `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY` while the rule's `subsequentCostRate.shorterLifeVerified` is `false` (`domains/depreciation/rules/de-afa-building-linear.ts:91`, value `:172`). The pool's allowance and the nominal last month ask `rateOfYear` again (`item-pools.ts:21–24`, `:191`), so the rate is derived in four places from the same entry.
+- **The remaining useful life is a parameter that computes nothing:** `subsequentCostEnd.remainingUsefulLife: { allowed: true, computed: false }` (`de-afa-building-linear.ts:99`, `:175`).
+- **The evidence date reaches no recorded version.** A recorded purchase component stores `rate_kind` and `useful_life_years` (`migrations/0052_depreciation_schedule_version.ts:102–103`) and `shorter_life_review_state` (`:114`), not the evidence date. `version-compute.ts:76–79` rebuilds the entry for the recomputation as `{ acquisitionId, usefulLifeYears, reviewState: 'CONFIRMED' }` with a type cast and no `evidence`, and the fingerprint covers `usefulLifeYears` only (`version-inputs.ts:129–131`, `:176`). Today that is consistent, since the date moves no figure; after VC-X-41 it moves the switch year, so it must be stored and fingerprinted.
+- **The asset's `rate` read** (§59, `rate.ts:89–123`) shows `rate: "1/n"` and `applies` per entry, judged on the year's band. It has no start year and does not know the switch.
+- **Tests that assert today's behaviour:** `schedule-rules.test.ts:188–209` (`USEFUL_LIFE_START_TO_VERIFY` with `evidenceDate: '2027-02-01', firstYear: 2026`), `schedule-items.test.ts:328–346` (`1/30` for the item, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`), and the lists of open codes in `domains/taxation/tax-year-depreciation.test.ts:543–549` and `infrastructure/postgres/tax-year-depreciation.test.ts:122–129`. ACC8 (`phase-8-acceptance.e2e.test.ts`) records no shorter life.
+
+### The reading: the evidence year decides from when
+
+For a purchase component with a confirmed entry (§59), let `Y1` be the year of the component's first month (§59A), `YC` the year of the Acquisition's `contractDate`, `YE` the year of `evidence.date` and `n` the entry's `usefulLifeYears`.
+
+- **What the entry states** (§59, made precise): `usefulLifeYears` is the building's **remaining** useful life as of `evidence.date`, and `evidence.date` is the **Stichtag** of the evidence (the date as of which the evidence states that remaining life; „Gutachten-Stichtag“), not the day the document was written (open question 6). The stored fields do not change; the UI label of the date becomes „Stichtag des Nachweises“.
+- **Three cases**, judged per component:
+  1. **`FROM_START`** (`YC` ≤ `YE` ≤ `Y1`: the evidence lies in the first year, or between the contract year and the first year): `1/n` from the component's first month for `12·n` months. The figures of today; the review confirms that an evidence of the first year applies from the start.
+  2. **`FROM_EVIDENCE_YEAR`** (`YE` > `Y1`): the years `Y1` … `YE − 1` at the band's rate of each year's version (§59A, the same months and amounts as without an entry); from the **switch month** `S` = January of `YE`, the residual value is spread evenly over `n` years, through the **last month** `L` = December of `YE + n − 1` (Part 2). The evidence year counts in full at the new rate (open question 2).
+  3. **Evidence before the purchase** (`YE` < `YC`): not computable in any year, reason **`USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE`** (open, `details: { acquisitionId, evidenceDate, contractDate }`). The remaining life the evidence states is not the buyer's remaining life at the purchase, and DE does not shorten it by the years elapsed (open question 5).
+- **Shorter, for a late evidence** (§59, amended; open question 4): the entry is shorter when the useful life it implies **from the component's first year**, `(max(YE, Y1) − Y1) + n` years, is below the band's `shorterThanYears` (§ 7 Abs. 4 S. 2 EStG compares the building's actual useful life, which for a buyer runs from the purchase). For `FROM_START` that is `n`, today's check. Otherwise the entry is not shorter: the band's rate in every year, flagged `USEFUL_LIFE_NOT_SHORTER` (open) as today, with `details` gaining `yearsFromFirstYear`. The threshold is read from the version selected for `max(YE, Y1)`; a registry test asserts that `@1` and `@2` give every completion year the same threshold, so the version cannot change the answer today.
+- **`USEFUL_LIFE_NOT_CONFIRMED`** is unchanged: an unconfirmed entry stops the component in every year, whatever its date.
+
+### Part 1: not computed until the residual value is (the guard)
+
+Part 1 can land on its own, before Part 2 (open question 1). Its rule values are `shorterUsefulLife.fromEvidenceYear: "NOT_COMPUTABLE"` and `subsequentCostRate.shorterLife: "NOT_COMPUTABLE"` (below).
+
+- **`FROM_EVIDENCE_YEAR`:** the years `Y1` … `YE − 1` are computed at the band's rate (`rate.kind` `BAND`; the review says this AfA stays). From `YE` on, every owner's year is **not computable**, reason **`SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED`** (open, `details: { acquisitionId, evidenceDate, firstYear, fromYear }`), the amounts, cumulative AfA and residual value `null`, never 0.00. It works as `DISPOSAL_DATE_MISSING` does (§59A, the owner's `missingFrom`): the earlier years stand, nothing follows.
+- **`FROM_START`:** computed as today (`1/n` from the start, `SHORTER_USEFUL_LIFE`); `USEFUL_LIFE_START_TO_VERIFY` cannot arise any more.
+- **Later costs:** an owner's item part whose pool (§59B "The pools": the purchase parts of the owner's tenure) contains a purchase with an applying shorter life is **not computable**, part reason **`SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`** (open, `details: { acquisitionId, usefulLifeYears }`):
+  - for a `FROM_START` purchase, in every year of the part: today's `1/n` on the item is the simplification the review allows but does not require (question 9), and DE does not choose it for the taxpayer (open question 7);
+  - for a `FROM_EVIDENCE_YEAR` purchase, from `YE` on (a part that starts in or after `YE`: in every year). Before `YE` the pool runs at the band's rate by §59B, unchanged.
+  - Heir parts (`OWNER_WITHOUT_ACQUISITION`) and the `NOT_OWNED` part keep the band's rate in pools of their own (§59B), and are not affected.
+- **Withdrawn by Part 1:** `USEFUL_LIFE_START_TO_VERIFY` and `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`, and the parameter `subsequentCostRate.shorterLifeVerified`. Their cases are not computed now, so no figure rests on them.
+
+### Part 2: the residual value over the remaining useful life
+
+Part 2 replaces Part 1's two reasons with the computation; its rule values are `shorterUsefulLife.fromEvidenceYear: "RESIDUAL_OVER_REMAINING_LIFE"` and `subsequentCostRate.shorterLife: "REMAINING_USEFUL_LIFE"`. The code implements both values of each parameter, so that moving between them is one line in the rule, and the tests cover both (as `subsequentCostStart` did with `MONTH_OF_DATE`).
+
+**The purchase** (`FROM_EVIDENCE_YEAR`). Every amount is computed in integer cents and exact fractions, as §59A does (`bigint`, AGENTS.md §20):
+- **Before `S`:** §59A's monthly steps at the band's rate of each year, `q_m = min(rate_m / 12, 1 − done)`. Let `U` be the consumed fraction of the basis at the end of month `S − 1`, the sum of those steps (exact).
+- **From `S` through `L`:** each month consumes `q_m = (1 − U) / (12·n)` of the basis; month `L` takes what is left (`1 − done`), which equals that step exactly, so the component ends in `L` with nothing left over. The steps are fractions of the **component's** basis and the same for every owner, as §59A's nominal months are.
+- **The owners** are §59A's: owner `i`'s month is `b_i · f_m · q_m` (`f_m` the still-held fraction, the running minimum), its exact cumulative AfA `C_i(Y)`, its year `round(C_i(Y)) − round(C_i(Y − 1))`, half-up to the cent (P8-D8). An owner who held the whole part to `S` therefore spreads the residual value `b_i · (1 − U)` over `n` years exactly, and the series sums to `b_i` to the cent.
+- **The residual value** (Restbuchwert) shown at the end of `YE − 1` is §59A's `b_i − round(C_i(YE − 1))`. The spreading uses the exact `b_i · (1 − U)`, which differs from it by less than half a cent; the cumulative rounding absorbs the difference, so no year drifts and the last year closes the part (open question 3).
+- **A share reduced or a tenure ended** in or after `YE`: `f_m` falls as §59A says; the sold fraction keeps its residual value, and nothing passes to the buyer (P8-D8). The month of the last day counts by `end.disposal.endMonthCounts` (verified, Prüfbericht Frage 4). A tenure that ends before `YE` never reaches the switch: the entry changes none of that owner's figures. A share reduction across several purchases stays `PRO_RATA_ALL_COMPONENTS` (Frage 11): each purchase keeps its own entry and switch.
+- **The buyer** of a share depreciates their own Acquisition (§59A). Their component has its own entry or none: an evidence the seller obtained before the buyer's contract year is case 3 for the buyer.
+- **The rule version of each year** is still the one selected for the year (§58) and named in each year with its band and `legalBasis`. A year without a version stays `NO_APPLICABLE_RULE`; a year before 2006 stays `HISTORICAL_RULE_NOT_SUPPORTED` (§59A, §59C open question 3).
+
+**Later costs** (question 9; §59B, amended). In a pool whose governing purchase has an applying shorter life, from the purchase's `S` (for `FROM_START`, its first month), every positive part `p` with consumed fraction `u_p` spreads what is left of it evenly to the purchase's last month `L`:
+- a part that **starts in or after `S`** (`firstMonth_p` ≥ `S`): `q_m = 1 / (L − firstMonth_p + 1)` for each month from its first month through `L`. Its first month is §59B's (`START_OF_YEAR` of the year of `performance.until` by §59F, never before the owner's start);
+- a part that **started before `S`** (`FROM_EVIDENCE_YEAR` only): §59B's pooled arithmetic at the band's rate up to `S − 1`, then `q_m = (1 − u_p(S − 1)) / (L − S + 1)` through `L` (open question 8);
+- **a refund** (a negative part, §59B) spreads its own negative basis the same way, from its first month to `L`; it takes no overflow;
+- **no overflow:** every part of the pool ends in `L`, so the pool's allowance equals the sum of its parts' steps in every month. `POOLED_BASIS` and `PER_ITEM_SERIES` give the same figures, and such a pool never carries `SUBSEQUENT_COST_END_TO_VERIFY`;
+- **a part that starts after `L`** (the evidenced remaining life has ended): not computable, part reason **`REMAINING_USEFUL_LIFE_ENDED`** (open, `details: { acquisitionId, lastMonth }`). A new evidence is needed (open question 9);
+- the owners, the still-held fractions, the tenure's end and the rounding are §59B's and §59A's, as for the purchase.
+
+This is „Restwert + HK über die Restnutzungsdauer“: the purchase's own steps do not change when an item arrives (its residual already runs to `L`), and each item runs from its start to the same `L`. The simplification the review allows (the old rate on the item) is not offered (open question 7).
+
+**Not affected by Part 2:** a purchase without an entry or with an entry that is not shorter (the band's rate; §59B's pool and `SUBSEQUENT_COST_END_TO_VERIFY` as today); heir and `NOT_OWNED` parts; separate assets (`DE_AFA_MOVABLE_LINEAR`, whose `1/n` is the asset's own life).
+
+### Interplay with §59A, §59B, §59C, §59D, §59F
+
+- **§59A's order of component reasons** gains `USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE` directly after `USEFUL_LIFE_NOT_CONFIRMED`: the basis function's reason, `USEFUL_LIFE_NOT_CONFIRMED`, `USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE`, `TRANSFER_DATE_MISSING`, `HISTORICAL_RULE_NOT_SUPPORTED`, the method reason, `NO_APPLICABLE_RULE`, `BUYER_ALREADY_OWNER`. `SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED` is an owner's reason from a year on, after `DISPOSAL_DATE_MISSING`.
+- **§59A's start:** without `economicTransferDate` the component has no `Y1` (`TRANSFER_DATE_MISSING`), so the case is not judged and no case reason is added.
+- **§59B's order of part reasons** gains `SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED` (Part 1) or `REMAINING_USEFUL_LIFE_ENDED` (Part 2) after `USEFUL_LIFE_NOT_CONFIRMED` and the method reason.
+- **§59C:** the method gate is checked first, as today. A purchase with a method reason is not computed whatever its shorter life, and its items stop with it (§59C "Items of such a purchase"). §59C's "its own open points are VC-X-41's" now points here.
+- **§59D:** the basis and its bounds are unchanged. A purchase not computable for its basis is not computed, and no case is judged.
+- **§59F:** an item's start year (`performance.until`) decides whether it starts before or after `S`. Without `performance` it stays `PERFORMANCE_DATE_MISSING`, before any reason of this section. Until §59F is implemented, the item's start is today's (the share date's year).
+- **`HISTORICAL_RULE_TO_VERIFY`:** `isRateVerified(parameters, shorter)` (`rate.ts:72–73`) is asked with `shorter` true for the years from `S`. Both versions carry `shorterUsefulLifeThresholds: true`, so the flag does not appear.
+
+### The rule, in place (§60 open question 11)
+
+| Parameter (`DE_AFA_BUILDING_LINEAR@1` and `@2`, identical) | Today | Part 1 | Part 2 |
+|---|---|---|---|
+| `shorterUsefulLife` | `{ legalBasis: "§ 7 Abs. 4 S. 2 EStG", rate: "RECIPROCAL_OF_YEARS" }` | adds `evidenceDate: "STICHTAG"`, `fromStart: "EVIDENCE_NOT_AFTER_FIRST_YEAR"`, `evidenceBeforeContractYear: "NOT_COMPUTABLE"`, `thresholdYears: "FROM_FIRST_YEAR"`, `fromEvidenceYear: "NOT_COMPUTABLE"`, `source: "Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)"` | `fromEvidenceYear: "RESIDUAL_OVER_REMAINING_LIFE"`, `evidenceYearCounts: "FROM_JANUARY"` |
+| `subsequentCostRate` | `{ rate: "OWNER_PURCHASE_RATE", shorterLifeVerified: false }` | `{ rate: "OWNER_PURCHASE_RATE", shorterLife: "NOT_COMPUTABLE", legalBasis: "R 7.4 Abs. 9 S. 2 EStR; Prüfbericht 2026-11-01, Frage 9 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)" }` | `shorterLife: "REMAINING_USEFUL_LIFE"` |
+| `subsequentCostEnd.remainingUsefulLife` | `{ allowed: true, computed: false }` | unchanged | unchanged: it is S. 2's option for a building **without** a shorter-life entry (question 6, „ggf. tatsächliche ND“), not this section's case |
+
+- **The values are the rule's, never constants** (AGENTS.md §16): the code reads each value, and a test registry with the other value turns the corresponding tests.
+- **Both versions identically** (a registry test asserts it, as for `basis` and `methodStatus`); the schedule reads them from the version of the component's first year, else the latest (§59A "As implemented (VC-8-02)" 5).
+- **The pinned hashes** of both versions are updated explicitly in the commit of each part, the comment naming questions 8 and 9. `DE_AFA_MOVABLE_LINEAR@1` is not changed.
+
+### Reasons, flags and the response
+
+| Code | Where | Level | Part |
+|---|---|---|---|
+| `USEFUL_LIFE_START_TO_VERIFY` | component | **withdrawn** | 1 |
+| `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY` | item component | **withdrawn** | 1 |
+| `USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE` | component reason, every year | open | 1 and 2 |
+| `SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED` | owner's reason from `YE` on | open | 1 only |
+| `SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED` | item part reason | open | 1 only |
+| `REMAINING_USEFUL_LIFE_ENDED` | item part reason, every year | open | 2 |
+| `SHORTER_USEFUL_LIFE` | component flag | informative (unchanged) | `details` gain `evidenceDate`, `method` (`FROM_START`, `FROM_EVIDENCE_YEAR`), `fromYear`, `lastMonth` |
+| `USEFUL_LIFE_NOT_SHORTER` | component flag | open (unchanged) | `details` gain `yearsFromFirstYear` |
+
+- **The schedule's component** (§59A's response, additively): `rate.shorterUsefulLife` `{ usefulLifeYears, evidenceDate, method, fromYear, lastMonth }` or `null`. Each year's `rate` names its `kind`: `BAND` before `S`, `SHORTER_USEFUL_LIFE` from `S`. From `S` on, the year's `annualFraction` is the exact share of the basis per full year (`12·q`, e.g. `"63/2200"` in the example below), not a percentage.
+- **The asset's `rate` read** (§59): `rate` and `ratePercent` of an entry keep showing `1/n`, the claimed remaining life. They are not the year's effective rate, which only the schedule knows, since it alone knows the start. `applies` is unchanged. `USEFUL_LIFE_NOT_SHORTER` in the asset read is still judged on `n` alone, and the schedule's judgement (from the first year) governs the figures. The read states this in its documentation; it does not change shape.
+- **§58C:** the tax-year view's gaps and review table gain the four open codes and lose the two withdrawn ones. A year with `SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED` is `PARTIAL` or `DEPRECIATION_NOT_AVAILABLE`, as for any not-computable component.
+- **No new route, no new error answer:** the entry is §59's, written with create and amend.
+
+### Texts for the user (German; proposals for the UI)
+
+The UI texts live in `docs/development/ui-guide.md`, which this spec does not change. These are the proposals:
+
+- `SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED`: „Die kürzere Nutzungsdauer ist erst zum {evidenceDate} nachgewiesen. Bis {fromYear − 1} gilt der gesetzliche AfA-Satz. Die Verteilung des Restwerts auf die Restnutzungsdauer ab {fromYear} berechnet DE noch nicht.“
+- `SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`: „Für diesen Erwerb gilt eine kürzere Nutzungsdauer. Nachträgliche Herstellungskosten über die Restnutzungsdauer berechnet DE noch nicht.“
+- `USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE`: „Der Nachweis der Nutzungsdauer hat den Stichtag {evidenceDate} und liegt vor dem Kaufvertrag ({contractDate}). Bitte einen Nachweis zum Erwerb erfassen.“
+- `REMAINING_USEFUL_LIFE_ENDED`: „Die nachgewiesene Restnutzungsdauer endete {lastMonth}. Für diese Kosten ist ein neuer Nachweis nötig.“
+- `SHORTER_USEFUL_LIFE` with `FROM_EVIDENCE_YEAR`: „Kürzere Nutzungsdauer ab {fromYear}: Restwert zum 31.12.{fromYear − 1} verteilt auf {usefulLifeYears} Jahre (bis {lastMonth}).“
+- The entry's date field: „Stichtag des Nachweises“, with the hint „Der Tag, zu dem der Nachweis die Restnutzungsdauer angibt“.
+
+### In the database (migration: the next free number at implementation)
+
+- **Nothing on the asset:** `depreciation_asset_useful_life` already stores `evidence_date` (0049); no column changes.
+- **The recorded versions (0052's tables):** `depreciation_schedule_version_component` gains `shorter_life_evidence_date` (`date`), set exactly when `kind` is `ACQUISITION` and `rate_kind` is `SHORTER_USEFUL_LIFE` (CHECK), as `shorter_life_review_state` is. Nothing productive is recorded (the switch has never been on), so **`up` refuses while any `depreciation_schedule_version` row exists**, naming the reset of a non-production database (as 0053 does).
+- **The migration lands with whichever part is implemented first**, since Part 1 already makes the years computed depend on the date. Part 2 needs no further migration: the item parts' last month follows from their pool's purchase, which the version stores (`poolKey`).
+- **No backfill;** `down` drops the column and refuses while a recorded version exists.
+
+### Recorded versions and the fingerprint (§60)
+
+- **Stored inputs:** a purchase component's inputs gain the entry's `evidenceDate` when a shorter life is used, so `computeSchedule(storedInputs)` re-derives the case, `S` and `L`. `version-compute.ts` rebuilds the entry with its evidence date, without the type cast.
+- **`inputFingerprint(Y)`** covers the evidence date from the component's first year. A changed Stichtag that moves the switch changes every year from the earlier of the two `S`, and a recorded year shows `DEPRECIATION_CHANGED_SINCE_RECORDED`. A changed entry resets its review state anyway (§59 amend), so the component stops until it is confirmed again.
+- **`SCHEDULE_CALCULATION_VERSION`** stays 1: the migration refuses while any version row exists, so no version computed under the old arithmetic can exist, and the rule hash changes with the parameters.
+- **The record command** (§60 step 4) refuses a run with any of the four new open reasons (`409 SCHEDULE_NOT_COMPLETE`; its list gains them). Recording stays disabled; nothing here enables it.
+
+### Effect on existing data, ACC8, the tests and the stages
+
+- **Existing entries with an evidence in the first year** (`FROM_START`): no figure changes. `USEFUL_LIFE_START_TO_VERIFY` never applied to them.
+- **Existing entries with a later evidence:** with Part 1 the years before `YE` change from `1/n` to the band's rate (lower amounts, higher residual values), and the years from `YE` on become `null`. That is the intended correction (question 8: „nicht beliebig rückwirkend“). With Part 2 the years from `YE` on are the residual spreading.
+- **Existing entries whose evidence predates the contract year:** not computable (case 3).
+- **Items in a shorter-life pool:** with Part 1 not computable, with Part 2 the remaining-life figures (lower or higher than `1/n` on the item, depending on how much of the life remains).
+- **ACC7 and ACC8:** no shorter life, no change.
+- **Existing tests:** `schedule-rules.test.ts:188–209` is rewritten for the three cases. `schedule-items.test.ts:328–346` asserts Part 1's reason and, with the Part 2 registry, the remaining-life figures. The open-code lists of both `tax-year-depreciation.test.ts` files swap the codes. `frozen-rules.test.ts` takes the new hashes explicitly. None is weakened.
+- **Stages (VC-X-45):** a shorter useful life is stage 3 (report F). VC-X-41 is not a prerequisite of stage 1 (owner's decision in chat on 2026-11-01, a departure from the report's line 116, above), **provided VC-X-45 gates stage 3** (the requirement above). With that gate a stage-1 release keeps every purchase with a shorter-life entry unrecordable, whether Part 1, Part 2 or neither is implemented; without it, VC-X-41 (at least Part 1) stays before enablement. Part 1 is the backlog row's „or the cases kept not computable“: with it, no preview figure rests on a retroactive `1/n` even before stage 3 is released.
+
+### Tests the implementation must have
+
+- **The case (pure):** `FROM_START` for an evidence on the first month's day, on 31 December of `Y1`, and in the contract year before a transfer in the next year; `FROM_EVIDENCE_YEAR` for an evidence on 1 January of `Y1 + 1`; case 3 for an evidence on 31 December of `YC − 1`. Each case read from the rule (a test registry with other values changes it).
+- **The threshold from the first year:** band 2 % (50 years), `Y1` 2024, `YE` 2027: `n` 46 is shorter (49), `n` 47 is not (50; `USEFUL_LIFE_NOT_SHORTER` with `yearsFromFirstYear: 50`, the band's rate in every year). The same `n` with `FROM_START` judged on `n`.
+- **Part 1:** the band years before `YE` exactly as a component without an entry; `null` from `YE` (in the component, owner and property sums, never 0.00); the reason's `details`; an item part in every year (`FROM_START`) and from `YE` (`FROM_EVIDENCE_YEAR`); an heir part and `NOT_OWNED` computed at the band; the two withdrawn codes absent everywhere.
+- **Part 2, the purchase:** the example below literally (both owners, every year 2024–2059, the sums 144,000.00 and 96,000.00); `U` exact across a band year of `@1` and of `@2` (a start in 2021, `YE` 2024); a share reduced in `YE`, a sale after it (the sold residual stays), a tenure ending before `YE` (band only); the last month `L` taking exactly the rest; `HISTORICAL_RULE_TO_VERIFY` absent with both `verified` flags true and present with a test registry setting `shorterUsefulLifeThresholds` false.
+- **Part 2, later costs:** an item starting after `S` (`1/(L − first + 1)`), one starting before `S` (band, then the spread), a refund, an item after `L` (`REMAINING_USEFUL_LIFE_ENDED`); the pool's figures equal under `POOLED_BASIS` and `PER_ITEM_SERIES` and without `SUBSEQUENT_COST_END_TO_VERIFY`; the owners and `NOT_OWNED` summing to the component and the property to the cent.
+- **Recorded versions:** the round trip and the reproduction with a `FROM_EVIDENCE_YEAR` component (the evidence date stored, the version recomputed equal); a changed Stichtag changing the fingerprint from the earlier `S`; the CHECK of `shorter_life_evidence_date` past the repository (set on an item, missing on a shorter-life purchase: refused `23514`; counter-check: set on a shorter-life purchase); the migration's `up` refusing with a version row.
+- **End to end:** the example below through the API (create the asset with the entry, confirm, read the schedule), with the Part 1 registry and the Part 2 registry.
+
+### Counter-checks and mutations
+
+**Counter-checks:** no shorter life applied to a year before the evidence year; no `1/n` on the original basis after a late evidence; no year from `YE` computed under Part 1; no 0.00 in place of a missing figure; no item in a shorter-life pool at the purchase's rate under Part 2; no evidence before the contract year accepted as the buyer's.
+
+**Mutations** that must turn the tests red (each applied alone, restored byte for byte):
+- the evidence date ignored (`1/n` from the start in every case);
+- the switch at the evidence's month instead of January (or the reverse, for the alternative);
+- the residual spread over `n` years from the first year instead of from `YE` (`L` too early);
+- `U` rounded to the cent per owner before the spread instead of exact;
+- the threshold judged on `n` alone for a late evidence;
+- case 3 computed from the start;
+- Part 1's reason dropped for the years from `YE` (computed at the band's rate instead);
+- an item part under Part 2 at `1/n` of its basis, or ending at its own `12·n` months instead of `L`;
+- the overflow of §59B left on in a shorter-life pool;
+- the evidence date left out of the stored inputs or of `inputFingerprint`;
+- a parameter read from a constant, or differing between `@1` and `@2`.
+
+### Example (synthetic)
+
+One Acquisition, buyers A `3/5` and B `2/5`, basis 240,000.00 (A 144,000.00, B 96,000.00), economic transfer **2024-04-01** (`Y1` 2024, 9/12), contract 2024-02-10 (`YC` 2024). A building completed 1965: band `B` of `@2`, 2 %, `shorterThanYears` 50. A confirmed entry: `usefulLifeYears` **33**, evidence „Gutachten zur Restnutzungsdauer“ with Stichtag **2027-05-20** (`YE` 2027). A confirmed `STANDARD` method entry (§59C). Shorter: (2027 − 2024) + 33 = 36 < 50.
+
+| Year | Band only (no entry) | Today (`1/33` from the start, `USEFUL_LIFE_START_TO_VERIFY`) | Part 1 | Part 2 |
+|---|---|---|---|---|
+| 2024 | A 2,160.00 · B 1,440.00 | A 3,272.73 · B 2,181.82 | A 2,160.00 · B 1,440.00 | A 2,160.00 · B 1,440.00 |
+| 2025 | A 2,880.00 · B 1,920.00 | A 4,363.63 · B 2,909.09 | A 2,880.00 · B 1,920.00 | A 2,880.00 · B 1,920.00 |
+| 2026 | A 2,880.00 · B 1,920.00 | A 4,363.64 · B 2,909.09 | A 2,880.00 · B 1,920.00 | A 2,880.00 · B 1,920.00 |
+| 2027 | A 2,880.00 · B 1,920.00 | A 4,363.64 · B 2,909.09 | `null` (`SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED`) | A 4,123.64 · B 2,749.09 |
+| 2028 | A 2,880.00 · B 1,920.00 | A 4,363.63 · B 2,909.09 | `null` | A 4,123.63 · B 2,749.09 |
+| last month | 2074-03 | 2057-03 | — | 2059-12 |
+
+- **Part 2:** at the end of 2026 `U` = 13,200.00 / 240,000.00 = `11/200`; the residual values are A 136,080.00 and B 90,720.00 (here whole cents, so open question 3's readings agree). From 2027-01 each month consumes `(189/200) / 396` of the basis, a year `63/2200` (`annualFraction`), i.e. 6,872.7272… for the component: A 4,123.6363… (136,080.00 / 33), B 2,749.0909… (90,720.00 / 33). The cumulative rounding gives A 4,123.64, 4,123.63, 4,123.64, … (2058: 4,123.63, 2059: 4,123.64), B 2,749.09, and 2,749.10 in 2032, 2043 and 2054 (the 1/11 cent B carries each year). A's series sums to 144,000.00 and B's to 96,000.00. `L` = 2059-12, A's residual value at the end of 2058 is 4,123.64, and it is 0.00 after 2059. `SHORTER_USEFUL_LIFE` `details: { usefulLifeYears: 33, evidenceDate: "2027-05-20", method: "FROM_EVIDENCE_YEAR", fromYear: 2027, lastMonth: "2059-12" }`.
+- **A later cost:** a modernisation classified `CAPITALIZED`, `performance.until` 2030-10-15 (§59F: start 2030-01), gross 33,000.00, A 19,800.00 and B 13,200.00 by the shares on its date. **Part 2:** 2030-01 to 2059-12 is 360 months, so A 660.00 and B 440.00 a year, 2030–2059, ending with the purchase. **Today:** `1/33` of the item, A 600.00 and B 400.00, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`, pooled past 2059. **Part 1:** `null` in every year (`SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`).
+- **A sale:** B sells the whole `2/5` to C, C's `economicTransferDate` 2032-07-01. Part 2: B's 2032 is 1,374.55 on the purchase (cumulative 19,025.45 → 20,400.00) and 220.00 on the item; B's residual values stay 75,600.00 and 12,100.00, and B has nothing after 2032. C's own Acquisition is a component of its own: with the same Gutachten (Stichtag 2027-05-20) it is case 3 (`USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE`), and without an entry it runs at the band's 2 %.
+- **Variant `FROM_START`:** the same Gutachten with Stichtag 2024-11-30: `1/33` from 2024-04, A 3,272.73 and B 2,181.82 in 2024 (today's figures, now without any open flag), `L` = 2057-03. Under Part 2 the item then runs 2030-01 to 2057-03 (327 months): A 726.61, 726.60, 726.61, … with 181.65 in 2057; B 484.40, 484.41, 484.40, … with 121.10 in 2057; sums 19,800.00 and 13,200.00.
+- **Variant threshold:** `n` 48 with Stichtag 2027-05-20 gives 51 years from the first year: not shorter, the band column in every year, `USEFUL_LIFE_NOT_SHORTER` with `yearsFromFirstYear: 51`. Judged on `n` alone (the alternative of open question 4) it would be shorter.
+
+### Not in VC-X-41 (pointers)
+
+- **A second evidence** (a later Gutachten that shortens or lengthens the remaining life again): one entry per purchase (§59). A changed entry replaces the earlier one and is judged afresh; a history of evidences is not modelled.
+- **The remaining useful life of R 7.4 Abs. 9 S. 2 for a building at the band's rate** (question 6, „ggf. tatsächliche ND“, without a shorter-life entry): `subsequentCostEnd.remainingUsefulLife.computed` stays `false`; §59B open question 2.
+- **Judging the evidence:** DE judges nothing (B7; the BMF letter of 22.02.2023 was repealed on 01.12.2025). It records and shows; the person or the advisor confirms.
+- **The release stages:** VC-X-45 (the owner's own pending PR). A shorter useful life is stage 3.
+- **Separate assets:** their `1/n` is the asset's own useful life (§59B), not § 7 Abs. 4 S. 2.
+
+### Open questions for review
+
+1. **Part 1 first, or both parts together.** **Proposal:** Part 1 first, as its own small PR: it stops the retroactive `1/n` now, and Part 2 follows when stage 3 is approached. **Alternative:** one PR with both parts. That means one review, but the wrong figure stays until the larger change is done.
+2. **The evidence year.** **Proposal:** from January of `YE`, `n` whole years to December of `YE + n − 1` (the review: „ab dem Jahr“). **Alternative:** from the month of the Stichtag, `12·n` months, with the evidence year split between the band's rate and the spread.
+3. **The residual value spread.** **Proposal:** the exact `b_i · (1 − U)`, with one rounding per owner and year (§59A): the owners sum to the component by construction, and the series closes at `b_i`. **Alternative:** the rounded residual value `b_i − round(C_i(YE − 1))` spread exactly from `YE`. Both agree whenever the band years end on whole cents, as in the example.
+4. **The threshold for a late evidence.** **Proposal:** `(YE − Y1) + n` below `shorterThanYears`: the building's actual useful life from the purchase. **Alternative:** `n` alone, as today. That admits, for example, 47 remaining years found three years after the purchase, although the actual life from the purchase is 50.
+5. **An evidence before the contract year.** **Proposal:** not computable (`USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE`): its remaining life is not the buyer's. **Alternatives:** (a) computed from the start as today, overstating the remaining life by the years elapsed; (b) `n` reduced by the whole years from `YE` to `Y1`.
+6. **What `evidence.date` is.** **Proposal:** the Stichtag of the remaining life, with no new field and a new label only. **Alternative:** a separate `evidence.valuationDate` beside the document date, which means a migration of 0049's table and one more required field.
+7. **Later costs: the remaining life only, or the taxpayer's choice.** **Proposal:** only „Restwert + HK über die Restnutzungsdauer“ (Part 2), which the review states as the rule. **Alternative:** a recorded election per entry (`laterCosts: "REMAINING_USEFUL_LIFE" | "PREVIOUS_RATE"`, required once an item exists in the pool, not computable without it), so that a taxpayer who used the allowed simplification sees the figures filed.
+8. **Items that started before the switch.** **Proposal:** from `S`, their residual value is spread to `L` with the purchase's, since the building's residual value includes them. **Alternative:** they keep §59B's band-rate pool, and only the purchase switches; the pool then has two rates and its overflow again.
+9. **An item after the evidenced life.** **Proposal:** not computable (`REMAINING_USEFUL_LIFE_ENDED`), so that a new evidence is recorded. **Alternative:** the band's rate on the item (§59B), as if no shorter life existed.
+10. **Who confirms a late evidence.** **Proposal:** a user's `CONFIRMED` suffices, as for every shorter life (§59); the report's „Freigabevermerk“ is the review state with its evidence. **Alternative:** `FROM_EVIDENCE_YEAR` entries need `ADVISOR_CONFIRMED`, since they change a running AfA.
 
 ---
 
