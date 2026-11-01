@@ -7163,8 +7163,8 @@ GET /api/v1/depreciation-assets/{assetId}/schedule[?from=&to=&ownerPartyId=]    
   - `NO_ALLOCATION`: no current allocation;
   - `ALLOCATION_NOT_CONFIRMED`: the current allocation is `UNREVIEWED` or `NEEDS_REVIEW` (data-model §15: "only confirmed allocation should feed canonical depreciation calculations"). The basis is still shown, so the user sees what confirming would give;
   - `NO_BUILDING`: `buildingAmount` is 0.00 (undeveloped land, §27.3). Nothing to depreciate.
-- **`FINANCING_RELATED`** is excluded (taxation.md §6, A6: not acquisition cost), as in the check. `OTHER` counts, as in the check (the VERIFY point of P8-D2 stays the user's: DE records the category, it does not judge it).
 - **Gross amounts** (P8-D2): the costs and the price are entered as agreed and invoiced, so the basis is gross. For a private landlord without a VAT option, non-deductible input VAT belongs to the acquisition cost (§ 9b Abs. 1 EStG; reviewer input on #173; confirmed by the Prüfbericht 01.11.2026, Frage 10, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: no longer VERIFY). A landlord who opted under § 9 UStG would need the net amounts; that case is out of scope (P8-D13), and DE records no such option.
+- **`FINANCING_RELATED`** is excluded (taxation.md §6, A6: not acquisition cost), as in the check. `OTHER` counts, as in the check (the VERIFY point of P8-D2 stays the user's: DE records the category, it does not judge it). **To be superseded by §59D (VC-X-42, specified, not implemented):** a `NOTARY`, `LAND_REGISTRY` or `OTHER` cost enters only with a confirmed classification as a cost of the transfer of ownership; unclassified, the basis is not computable (tax review of 2026-11-01, questions 10 and 24).
 - **The allocation as entered** (P8-D3, decided option 1): its `method` and sources are shown, never recomputed (A3, E2). A superseding allocation changes the basis of every year from the start; a recorded version that differs shows it (VC-8-04).
 - **A test asserts** that for every Acquisition of the e2e scenarios the schedule's `basis.amount` equals the check's `basis.basisAmount` (§58B) for the same snapshot, and a registry test that both rules' excluded categories are equal.
 - **`ACQUISITION_COST_UNPAID`** (informative, P8-D2): an `ACTIVE` cost whose `paymentStatus` (§27.2) is not `PAID`. It changes nothing: the basis uses the expected amount.
@@ -7200,7 +7200,7 @@ VC-8-02 adds the edges Depreciation → Acquisition, Depreciation → Ownership 
 - **From when a confirmed shorter life applies** is not covered by `depreciation.md` (phase-8-plan §3, 6, **VERIFY**; §59 leaves it to VC-8-02). **The schedule applies it from the component's start.** When `evidence.date` lies after 31 December of the component's first year, the component carries `USEFUL_LIFE_START_TO_VERIFY` (open) with `details: { evidenceDate, firstYear }`, so the year is never final on this choice. When the evidence is dated in the first year, both readings agree and nothing is flagged.
 - **`HISTORICAL_RULE_NOT_SUPPORTED`** (decided 2026-10-31, above): a component whose start or contract date lies before 2006-01-01 is **not computable in any year**. Years 2006–2022 are computed with `DE_AFA_BUILDING_LINEAR@1` and flagged `HISTORICAL_RULE_TO_VERIFY` (open) while it is unverified. **`NO_APPLICABLE_RULE`** remains for a year without any version (none from 2006 on), with `details: { yearsWithoutRule }`.
 - **The rule version of a year** is selected on 1 January of that year (§58), and every year names it.
-- **`DEPRECIATION_METHOD_UNKNOWN`** (open, decided 2026-10-31, above): the component's first year equals the completion year, and the completion year is at least the rule's `methodUnknownFromCompletionYear` (2018). The component is not computable: § 7 Abs. 5a or § 7b EStG may have been claimed (B4). Replaces the informative `DEGRESSIVE_AFA_MAY_APPLY`.
+- **`DEPRECIATION_METHOD_UNKNOWN`** (open, decided 2026-10-31, above): the component's first year equals the completion year, and the completion year is at least the rule's `methodUnknownFromCompletionYear` (2018). The component is not computable: § 7 Abs. 5a or § 7b EStG may have been claimed (B4). Replaces the informative `DEGRESSIVE_AFA_MAY_APPLY`. **To be replaced by §59C (VC-X-37, specified, not implemented):** every purchase needs a confirmed method entry that is `STANDARD` (`DEPRECIATION_METHOD_NOT_CONFIRMED`, `DEPRECIATION_METHOD_NOT_SUPPORTED`); this reason is withdrawn there (§59C open question 2).
 
 ### The start and the first year (P8-D5; B6)
 
@@ -8188,6 +8188,303 @@ Implemented with this section and §59A's conventions. Code: `domains/depreciati
 3. **A separate asset's cost is its linked items only**, and an anschaffungsnahe item cannot be linked (`ITEM_ANSCHAFFUNGSNAHE`). The alternative is to let the user enter a cost on the asset, which would be a second source of truth beside the classified cash (AGENTS.md §16). **Decided by the owner on 2026-10-31 (second set):** confirmed: the cost comes only from linked capitalised items, no manually kept total; `ITEM_ANSCHAFFUNGSNAHE` stays refused.
 4. **Separate assets acquired before 2023** are not computable (`NO_APPLICABLE_RULE`), as purchases before 2006 are (§59A's decision of 2026-10-31, "Decided on 2026-10-31: historical cases and the disposal year"). A kitchen bought in 2020 is in its seventh year of ten today. **Proposal:** put the earlier years of `DE_AFA_MOVABLE_LINEAR` to the tax advisor together with the confirmation of `DE_AFA_BUILDING_LINEAR@1` (§59A's decision of 2026-10-31), and add a version for them once verified. **Decided 2026-10-31:** not computable until verified; the question to the tax advisor stays in beratungsfragen §4.
 5. **Later items on a separate asset** are computed from `acquiredOn`, flagged `LATER_ITEM_TO_VERIFY` (new VERIFY point). The alternative is to refuse an item dated after `acquiredOn`'s year, which would refuse the common case of an invoice paid in January for a December delivery. **Decided by the owner on 2026-10-31 (second set):** the proposal, provisionally: later items allowed, computed from `acquiredOn` with `LATER_ITEM_TO_VERIFY`; never refused for a later invoice date alone. The tax treatment stays open and is never shown as confirmed.
+
+---
+
+# 59C. The Method Status of a Purchase (VC-X-37, specified)
+
+**Status:** specified, not implemented (VC-X-37; open questions for review below). **Migration 0054**: 0052 is the highest number on disk, and 0053 is planned by §58E (VC-X-28, specified); whichever of 0053, 0054 and §59D's 0055 is implemented first takes the lowest free number, and the others move up. It amends §59 (the building asset gains an entry per purchase), §59A (the component's reasons, `DEPRECIATION_METHOD_UNKNOWN`, the rule's parameters), §59B (an item part of such a purchase), §60 (the stored inputs, the fingerprint, the pinned hashes) and §58C (the gaps and the review table). The arithmetic, the rates, the start, the end and the owners of §59A are unchanged.
+
+**Why:** the tax review of 2026-11-01 (`docs/germany/pruefbericht-2026-11-01.md`), question 2, "Berechnung muss geändert werden", **mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01**: a depreciation method that is not known must **never be assumed linear**; DE needs a method status per purchase (dates, paid / unpaid / partly paid acquisition, the method chosen, special depreciation, subsidies, conversions). The report's product principle (section F): „Ein steuerlich nicht unterstützter Fall darf nicht stillschweigend mit der Standardformel berechnet werden.“ The confirmation covers the legal statements, not DE's calculation (the report's own reservation).
+
+**Why a section of its own, after §59B:** VC-X-37 is a backlog item of its own and touches §59, §59A, §59B and §60 at once; each keeps its statements and points here where they change. §59D (VC-X-42) is the other half of a clean stage-1 basis and follows directly.
+
+### As the code stands (main, before VC-X-37)
+
+- `purchaseWorkOf` (`domains/depreciation/purchase-work.ts`) stops a purchase component for two method reasons only: a contract or start before 2006 (`HISTORICAL_RULE_NOT_SUPPORTED`, line 159) and a new building bought in its completion year from 2018 (`DEPRECIATION_METHOD_UNKNOWN`, lines 160–165, the rule's `methodUnknownFromCompletionYear: 2018`). Every other confirmed purchase is `computable` (line 235) and depreciated linearly by § 7 Abs. 4 EStG: §§ 7h/7i, § 7 Abs. 5/5a outside those two cases, § 7b outside the completion year, a building newly created by conversion, a partly paid acquisition and subsidies are not recognised.
+- The building asset's `depreciationMethod` (§59) is `LINEAR_7_4`, the only value, set by default on create. It names the method DE computes, not a fact about any purchase: no record says which method a buyer applied. VC-X-32 (planned) was to record it.
+- An acquisition without consideration has no Acquisition at all (`purchasePrice` > 0, §27.1): its successor is `OWNER_WITHOUT_ACQUISITION` and not computed (§59A, § 11d EStDV out of scope). That stays.
+
+### The model: one method entry per purchase (subsumes VC-X-32; open question 1)
+
+The building asset gains **`purchaseMethods`**, beside `shorterUsefulLives` and on the same pattern (§59 "The shorter useful life"): at most one entry per Acquisition of the asset's PropertyReference, at most 20, written with the asset's create and amend (as a difference by `acquisitionId`), an entry for a `DRAFT` Acquisition waiting for its confirmation. Building only: on a `SEPARATE_ASSET` the key is `NOT_ALLOWED`.
+
+| Field | Values | The report's fact (question 2) |
+|---|---|---|
+| `acquisitionId` | UUID, required | the purchase |
+| `consideration` | `PAID` (entgeltlich), `PARTLY_PAID` (teilentgeltlich), `UNPAID` (unentgeltlich), required | entgeltlich / unentgeltlich / teilentgeltlich |
+| `method` | `LINEAR_7_4`, `DEGRESSIVE_7_5`, `DEGRESSIVE_7_5A`, `OTHER`, required | the method applied so far, or in the first year the method chosen (VC-X-32's record) |
+| `specialDepreciation` | a list of `SPECIAL_7B`, `INCREASED_7H`, `INCREASED_7I`, `OTHER`, required; `[]` states that none was claimed | special or increased depreciation |
+| `subsidiesReceived` | boolean, required | subsidies (Zuschüsse; question 7: by their character, not modelled) |
+| `newBuildingByConversion` | boolean, required | a building newly created by conversion (Umbau, question 1) |
+| `otherSpecialCase` | boolean, required; `otherSpecialCaseNote` (1–500) required exactly when true | any other known special case |
+| `evidence` | `source` (1–500), `date`, `documentReference` (≤ 500, optional), required, as §59's shorter life | where the statement comes from (contract, an earlier return's Anlage V, the advisor) |
+| `reviewState`, `advisorPartyId` | as the shorter life's entry (`SUGGESTED` `NOT_ALLOWED`, the advisor only with `ADVISOR_CONFIRMED`) | the review |
+| `notes` | ≤ 2000, optional | |
+
+- **The dates are not repeated:** the contract and the transfer of economic ownership are the Acquisition's (§27.1), the completion year is the asset's (§59). Further dates the excluded methods depend on (Bauantrag, Herstellungsbeginn) are not recorded: DE computes none of them, and an entry that names such a method is not supported anyway.
+- **No value "unknown":** an entry is a statement. A person who does not know records no entry, and the purchase is not computed (open question 7).
+- **Derived, never stored: `methodStatus`** `STANDARD` or `NOT_SUPPORTED`, with `causes`. `STANDARD` exactly when the facts match the rule's parameter `methodStatus.standard` (below): `consideration` `PAID`, `method` `LINEAR_7_4`, `specialDepreciation` empty, `subsidiesReceived`, `newBuildingByConversion` and `otherSpecialCase` false. Otherwise `NOT_SUPPORTED`, `causes` listing each fact that differs, in the table's order: `PARTLY_PAID`, `UNPAID`, `METHOD_DEGRESSIVE_7_5`, `METHOD_DEGRESSIVE_7_5A`, `METHOD_OTHER`, `SPECIAL_7B`, `INCREASED_7H`, `INCREASED_7I`, `SPECIAL_OTHER`, `SUBSIDIES_RECEIVED`, `NEW_BUILDING_BY_CONVERSION`, `OTHER_SPECIAL_CASE`. The judgement is the rule's, never a constant (AGENTS.md §16).
+- **A changed fact resets the entry's review state** to `UNREVIEWED` (as §59's amend does for a shorter life); a changed `evidence`, `notes` or note does not. Confirming is amend's job, as for the shorter life.
+- **The asset's `depreciationMethod`** stays `LINEAR_7_4`: the method DE computes. The entry's `method` is the purchase's fact; a purchase computes only when the two agree.
+
+### The gate in the schedule (§59A)
+
+- **No confirmed `STANDARD` entry, no figure.** A purchase component is computable only when its Acquisition has an entry that is `CONFIRMED` or `ADVISOR_CONFIRMED` (the rule's `methodStatus.confirmedReviewStates`) and `STANDARD`. Otherwise it is `NOT_COMPUTABLE` in every year, the amounts `null`, **never 0.00**, with one of two new open reasons:
+  - **`DEPRECIATION_METHOD_NOT_CONFIRMED`**: no entry, or an entry `UNREVIEWED` or `NEEDS_REVIEW` (whatever its status), `details: { acquisitionId, reviewState, methodStatus, causes, newBuildingInCompletionYear }` (`null` where there is no entry; the last is true when the start year equals the completion year and the completion year is at least `methodUnknownFromCompletionYear`, the case of today's `DEPRECIATION_METHOD_UNKNOWN`). Text for the user: „Für diesen Erwerb ist das AfA-Verfahren nicht bestätigt; eine automatische Berechnung ist nicht möglich.“
+  - **`DEPRECIATION_METHOD_NOT_SUPPORTED`**: a confirmed entry that is `NOT_SUPPORTED`, `details: { acquisitionId, reviewState, causes }`. Text: „Für diesen Erwerb liegt ein nicht unterstütztes AfA-Verfahren vor; eine automatische Berechnung ist nicht möglich.“
+- **Evaluated for every listed component**, a `DRAFT` and one without `economicTransferDate` included (unlike `DEPRECIATION_METHOD_UNKNOWN`, it needs no start year), so the user sees every missing fact at once.
+- **Order** of §59A's component reasons: the basis function's reason, `USEFUL_LIFE_NOT_CONFIRMED`, `TRANSFER_DATE_MISSING`, `HISTORICAL_RULE_NOT_SUPPORTED`, **the method reason**, `NO_APPLICABLE_RULE`, `BUYER_ALREADY_OWNER`.
+- **`DEPRECIATION_METHOD_UNKNOWN` is withdrawn** (open question 2): its case is a `DEPRECIATION_METHOD_NOT_CONFIRMED` with `newBuildingInCompletionYear: true` until an entry is confirmed, and computed once a confirmed entry says `STANDARD` (no § 7 Abs. 5a, no § 7b claimed). `methodUnknownFromCompletionYear` stays a parameter, now only for that detail.
+- **`HISTORICAL_RULE_NOT_SUPPORTED` is unchanged**, with or without an entry: DE has no rule version before 2006, so a confirmed linear history before 2006 is still not computed (open question 3).
+- **The shorter useful life is independent:** a `STANDARD` entry with a confirmed shorter life is computed as today (`SHORTER_USEFUL_LIFE`; its own open points are VC-X-41's).
+- **The schedule's component** gains `method`: the entry as stored (without `evidence` texts) with `methodStatus` and `causes`, or `null` without an entry. `review` counts the two reasons as open; the schedule's `status` follows as for any not-computable component (`PARTIAL`, `DEPRECIATION_NOT_AVAILABLE`).
+
+### Items of such a purchase (§59B)
+
+A later cost is depreciated with the method and rate of the building it belongs to (§59B: `subsequentCostRate` `OWNER_PURCHASE_RATE`, and the pool of `POOLED_BASIS`). An owner's item part whose rate source is a purchase with a method reason is therefore **not computable**, part reason `DEPRECIATION_METHOD_NOT_CONFIRMED` or `DEPRECIATION_METHOD_NOT_SUPPORTED` with `details: { acquisitionId }`, in every year, on the owner's years as `USEFUL_LIFE_NOT_CONFIRMED` is (§59B "As implemented (VC-8-03)" 6): the component stays `COMPUTABLE` for the other owners. This replaces, for these two reasons, the reading "computed until the purchase's nominal last month" of `POOL_PURCHASE_NOT_COMPUTABLE` (§59B "As implemented (VC-8-03)" 3), which would compute an item linearly under a method nobody confirmed. Separate assets (`DE_AFA_MOVABLE_LINEAR`) are not affected.
+
+### The rule: `DE_AFA_BUILDING_LINEAR@1` and `@2` gain `methodStatus`
+
+| Parameter | Value |
+|---|---|
+| `methodStatus` | `{ required: true, standard: { consideration: ["PAID"], methods: ["LINEAR_7_4"], specialDepreciation: [], subsidiesReceived: false, newBuildingByConversion: false, otherSpecialCase: false }, confirmedReviewStates: ["CONFIRMED", "ADVISOR_CONFIRMED"], legalBasis: "§ 7 Abs. 4 EStG; abgegrenzt: § 7 Abs. 5, 5a, § 7b, §§ 7h, 7i EStG, § 11d EStDV", source: "Prüfbericht 2026-11-01, Frage 2 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)" }` |
+
+- **Both versions, identically** (a registry test asserts it, as for `basis`); the schedule reads it from the version of the start year, else the latest (§59A "As implemented (VC-8-02)" 5).
+- **In place, not a new version:** recording is off (`DEPRECIATION_RECORDING_ENABLED` unset = `false`), and §60 open question 11 (decided 2026-10-31, third set) lets both versions take the advisor's answers before the first productive enablement, **with the pinned hashes of `infrastructure/hashing/frozen-rules.test.ts` updated explicitly in the same commit**. A development database with versions recorded under the old hashes stops at the start check and is reset (§60 "The database and the start check").
+- `source` gains the report; `legalBasis` of the rule is unchanged.
+
+### API (§59)
+
+- **`POST /depreciation-assets`, `POST …/amend`:** the body gains `purchaseMethods` (strict, optional, default `[]`; `null` in an amend removes every entry, as `shorterUsefulLives`). Field errors at once: a missing field `REQUIRED`, an unknown value `INVALID_FORMAT`, a duplicate in `specialDepreciation` or a second entry for one `acquisitionId` `DUPLICATE`, more than 20 `OUT_OF_RANGE`, `otherSpecialCaseNote` without `otherSpecialCase` `NOT_ALLOWED`, `SUGGESTED` `NOT_ALLOWED`, on a `SEPARATE_ASSET` `NOT_ALLOWED`. The checks of new or changed entries are the shorter life's (§59: the Acquisition `404`, `ACQUISITION_NOT_OF_PROPERTY`, `ACQUISITION_CANCELLED`, the advisor `404`), in the same step, shorter lives first. The idempotency fingerprint includes the entries ordered by `acquisitionId`.
+- **Responses:** the asset gains `purchaseMethods` (each entry with the derived `methodStatus` and `causes`; the status needs the rule, so the read takes the version of the entry's start year, else the latest); the schedule's component gains `method` (above).
+- **AuditRecords:** `CREATED` lists the entries; `AMENDED` adds `details.changedPurchaseMethods` (`{ acquisitionId, change: "ADDED" | "CHANGED" | "REMOVED", from, to }`) with a reset review state's `from` and `to`, as `changedEntries` of the shorter lives.
+- **No new route, no new error class:** the answers are §59's.
+
+### In the database (migration 0054)
+
+- **`depreciation_asset_purchase_method`**, as `depreciation_asset_useful_life` (0049): key `(asset_id, acquisition_id)`; the Acquisition by the composite key `(acquisition_id, mre_realm_id, property_reference_id)`; `consideration`, `method` (CHECKs of the values), `special_depreciation` (`text[]`, CHECK: a subset of the four values, no duplicates), `subsidies_received`, `new_building_by_conversion`, `other_special_case` (`boolean NOT NULL`), `other_special_case_note` (set exactly when `other_special_case`), `evidence_source`, `evidence_date`, `evidence_document_reference`, `review_state`, `advisor_party_id` (the asset's CHECKs), `notes`; an index on `acquisition_id`.
+- **Guards:** `depreciation_asset_purchase_method_open` as `depreciation_asset_useful_life_open` (the PropertyReference written first; only an `ACTIVE` `BUILDING` asset's entries change; an entry is inserted only for an Acquisition that is not `CANCELLED`; never moved to another asset or Acquisition; at most 20). No column on `depreciation_asset` or `acquisition`.
+- **The recorded versions (0052's tables):** `depreciation_schedule_version_component` gains, set exactly for `kind` `ACQUISITION`, `method_consideration`, `method`, `method_special_depreciation`, `method_subsidies_received`, `method_new_building_by_conversion`, `method_other_special_case` and `method_review_state` (CHECK: the standard values and a confirmed state, since only a computable component is recorded). Nothing productive is recorded (the switch has never been on), so **`up` refuses while any `depreciation_schedule_version` row exists**, naming the reset of a non-production database.
+- **No backfill** (open question 4): the migration creates no entry.
+- **`down`** drops the table and the columns; with any entry present it refuses (a person's statement is never dropped silently, as 0051 and 0052).
+
+### Recorded versions and the fingerprint (§60)
+
+- **Stored inputs:** a purchase component's inputs gain its method entry's facts and review state (not the evidence texts), so `computeSchedule(storedInputs)` re-derives the same computability.
+- **`inputFingerprint(Y)`** covers them from the component's first year: confirming, changing or removing the entry changes the fingerprint of every year of the component (it gates the whole component), and a recorded year shows `DEPRECIATION_CHANGED_SINCE_RECORDED`. `SCHEDULE_CALCULATION_VERSION` stays 1: the arithmetic does not change, and the rule-version hash already changes with the parameter.
+- **The record command** (§60 step 4) refuses a run in which a component carries a method reason, as any not-computable component (`409 SCHEDULE_NOT_COMPLETE`, the reason in `details.components` and `details.years`; §60's list of step 4 gains both codes). Recording stays disabled; nothing here enables it.
+
+### Effect on existing data, ACC8 and the tests
+
+- **Every existing purchase becomes not computable** until a person records and confirms its entry: the schedule reads `DEPRECIATION_METHOD_NOT_CONFIRMED`, the tax-year view's AfA a gap (§58C: `PARTIAL` or `DEPRECIATION_NOT_AVAILABLE`, `result.basis` `BEFORE_DEPRECIATION` where nothing else is computed). That is the intended correction (report, question 2): today's figures were computed on an assumption. Productive figures are a provisional preview anyway (§60, VC-8-05).
+- **§58C:** the gaps and the review table gain both reasons (open) and lose `DEPRECIATION_METHOD_UNKNOWN`. The anschaffungsnahe check (§58B) does not depend on the method and is unchanged.
+- **ACC8** (`phase-8-acceptance.e2e.test.ts`): its purchases record a confirmed `STANDARD` entry with the asset; its figures do not change. **Proposal** (open question 6): one step before the entry shows the year `DEPRECIATION_NOT_AVAILABLE` with `DEPRECIATION_METHOD_NOT_CONFIRMED`, and C's purchase gets its entry with the others.
+- **Existing tests** that build a computable purchase (the schedule, item, version, reproduction and tax-year AfA tests: `domains/depreciation/schedule*.test.ts`, `version-*.test.ts`, `depreciation-schedule.e2e.test.ts`, `depreciation-items.e2e.test.ts`, `tax-year-afa.e2e.test.ts`, `depreciation-schedule-version-*.test.ts`, the reproduction support) gain a confirmed `STANDARD` entry in their fixtures; none is weakened. The tests of `DEPRECIATION_METHOD_UNKNOWN` become those of the detail `newBuildingInCompletionYear`; `frozen-rules.test.ts` takes the new hashes explicitly.
+
+### Tests the implementation must have
+
+- **Domain (pure):** `methodStatus` for each fact alone (each cause), all together (every cause in order), and the standard case; the gate: no entry, `UNREVIEWED`, `NEEDS_REVIEW` (also with a `NOT_SUPPORTED` entry), `CONFIRMED` and `ADVISOR_CONFIRMED` × `STANDARD` / `NOT_SUPPORTED`; never 0.00 (`amount`, `cumulative`, `residualValue` `null` in the component, owner and property sums); the reason's place in the order, alone and with `TRANSFER_DATE_MISSING` and `HISTORICAL_RULE_NOT_SUPPORTED` (a pre-2006 purchase with a confirmed standard entry stays not computable); `newBuildingInCompletionYear` for completion = start year 2018 (true), 2017 and a 2018 building bought in 2019 (false); a 2018 new building with a confirmed standard entry computed; an item part of an owner whose purchase carries the reason not computable while the other owner's part is computed; the parameter read from the registry (a test registry with another `standard` changes the status).
+- **Repository and schema:** create and amend with entries (the difference written, an unchanged entry of a later-cancelled `DRAFT` not blocking, the reset); past the repository, each with a counter-check: an entry for a `CANCELLED` Acquisition, on a `VOID` or `SEPARATE_ASSET` asset, a 21st entry, a moved entry, a note without the flag, an unknown special value, a duplicate; concurrency as §59's shorter life (an entry against a cancel of its `DRAFT`, both orders; amend against void); 0054 `up` refusing with a recorded version, `down` refusing with an entry.
+- **API:** every `400` above; the DTOs of the asset and the schedule; the AuditRecord's `changedPurchaseMethods`.
+- **End to end:** a purchase without an entry (`NOT_COMPUTABLE`, the view's gap), with an unconfirmed standard entry (still not computable), confirmed (the figures of §59A's example exactly), changed to `DEGRESSIVE_7_5` (reset, not confirmed), confirmed again (`DEPRECIATION_METHOD_NOT_SUPPORTED` with `causes: ["METHOD_DEGRESSIVE_7_5"]`); Realm isolation (another Realm's Acquisition in an entry `404`).
+
+### Counter-checks and mutations
+
+**Counter-checks:** no confirmed method, no figure (the report's "nie still linear"); a confirmed non-standard method never computed; an unconfirmed standard entry never computed; no 0.00 in place of a missing figure; no item computed under an unconfirmed purchase method.
+
+**Mutations** that must turn the tests red (each applied alone, restored byte for byte):
+- the entry missing treated as `STANDARD` (linear assumed);
+- the review state ignored (an `UNREVIEWED` standard entry computed);
+- one fact dropped from the standard check (each of the six);
+- `DEPRECIATION_METHOD_NOT_SUPPORTED` made informative, or the reason evaluated only with a start date;
+- the item part computed under a purchase with a method reason;
+- `methodStatus` read from a constant instead of the rule, or from one version only;
+- the entry left out of the stored inputs or of `inputFingerprint` (a confirmed change not seen by a recorded version).
+
+### Release stages (VC-X-45, the owner's decision): how §59C and §59D fit stage 1
+
+The report (section F) recommends releasing **stage 1** first: a paid acquisition from 2006, linear building AfA, clear ownership, an evidenced transfer. VC-X-45 (planned, the owner's decision) decides whether recording is limited by stage. §59C and §59D **do not wait for it and do not decide it**:
+
+- **They are prerequisites of every stage, not stage gates.** They decide whether a purchase component is **computable** at all; VC-X-45 decides which computable components may be **recorded**. Whatever VC-X-45 decides (one switch, a refusal of stage 2/3 years, a switch per stage), nothing here changes.
+- **They are stage 1's admission criteria on their side:** a confirmed `STANDARD` entry is "entgeltlicher Erwerb, lineare Gebäude-AfA" for one purchase (§59C); `HISTORICAL_RULE_NOT_SUPPORTED` is "ab 2006" (§59A); `TRANSFER_DATE_MISSING` is "belegter Übergang" (§59A, VC-X-33); `BUYER_ALREADY_OWNER` and `OWNER_WITHOUT_ACQUISITION` are the cases of unclear ownership DE knows (§59A, §28.1A); a basis whose every counted cost is classified is the clean basis of stage 1 (§59D).
+- **No stage field here.** If VC-X-45 adopts stages, it can derive a component's stage from these facts (stage 1: a purchase computable under §59C and §59D, without a shorter life, items, an anschaffungsnahe capitalisation or a second purchase of the same owner), as its own proposal lists.
+
+### Not in VC-X-37 (pointers)
+
+- Rule versions before 2006 for a confirmed linear history (open question 3).
+- Computing a non-standard method (degressive, special AfA, subsidies, partly paid, § 11d EStDV): out of scope (P8-D13); such a purchase stays not computed.
+- A plausibility check of the statements (e.g. a completion year from 2023 with `DEGRESSIVE_7_5A` claimed): DE records, the person or the advisor confirms (as B7).
+- The release stages: VC-X-45 (above).
+
+### Open questions for review
+
+1. **VC-X-32 and VC-X-37.** **Proposal:** VC-X-37 subsumes VC-X-32: the entry's `method` is VC-X-32's record of the method applied so far, with the same evidence and review state, and one entry per purchase carries both the fact and the gate; VC-X-32 is closed as merged into VC-X-37 (§59C), which gives it the owner's go it was waiting for. **Alternative:** two items in order: VC-X-32 records the method only (no gate), VC-X-37 then adds the other facts and the gate; two migrations and two reviews of the same rows.
+2. **`DEPRECIATION_METHOD_UNKNOWN` (decided 2026-10-31).** **Proposal:** withdrawn; a new building bought in its completion year from 2018 is computed once a confirmed entry says `STANDARD` (no § 7 Abs. 5a, no § 7b), which is what VC-X-32 was meant to allow, and until then reads `DEPRECIATION_METHOD_NOT_CONFIRMED` with `newBuildingInCompletionYear`. **Alternative:** keep the decision of 2026-10-31 for that case: not computable unless the entry is `ADVISOR_CONFIRMED`, since a buyer of a new building is the one most likely to have claimed § 7b or § 7 Abs. 5a.
+3. **Purchases before 2006 with a confirmed linear history.** **Proposal:** stay `HISTORICAL_RULE_NOT_SUPPORTED`; the report assumes years from 2006, and DE has no rule version before. **Alternative:** a backlog item for earlier versions of `DE_AFA_BUILDING_LINEAR` (the lettering before 2006, read and verified as `@1` was), computing such a purchase once its entry is confirmed `STANDARD`.
+4. **Existing purchases: no backfill.** **Proposal:** the migration creates no entry; every existing purchase is not computable until a person records and confirms one (the figures were computed on an assumption). **Alternatives:** (a) the migration creates an `UNREVIEWED` `STANDARD` entry per confirmed Acquisition, still not counted until confirmed, which saves typing but invites a confirmation without looking; (b) require an entry only where today's two exclusions apply (rejected by the report: "nicht automatisch linear unterstellen").
+5. **Where the entry lives.** **Proposal:** on the building asset, as `shorterUsefulLives` (Depreciation's facts per purchase, one amend, one review pattern, no new route). **Alternative:** on the Acquisition, with a command of its own in the Acquisition domain (`consideration` is a fact of the contract); the Acquisition is frozen after confirmation (§27.1), so it would need a new table and route there, and the Depreciation domain would read it through Acquisition.
+6. **Who confirms, and ACC8.** **Proposal:** a user's `CONFIRMED` suffices, as for the shorter life and the allocation; ACC8 gains the step without an entry (above). **Alternative:** stage 1 recording (VC-X-45) requires `ADVISOR_CONFIRMED` entries; ACC8 unchanged apart from the fixtures.
+7. **An explicit "unknown".** **Proposal:** no such value; no entry means unknown. **Alternative:** `method: UNKNOWN` and `consideration: UNKNOWN` as storable values (the person records what is known so far), always `NOT_SUPPORTED`-like until changed; more states for the same effect.
+
+---
+
+# 59D. Acquisition Costs in the Basis Only When Classified (VC-X-42, specified)
+
+**Status:** specified, not implemented (VC-X-42; open questions for review below). **Migration 0055** (after §59C's 0054; renumbered as §59C says). It amends §27.2 (a classification per cost), §59A (the basis function and its reasons; the bullet "`OTHER` counts" is withdrawn), §58B (the 15 % check's denominator), §60 (the stored inputs) and the parameters of `DE_AFA_BUILDING_LINEAR@1`/`@2` and `DE_ANSCHAFFUNGSNAHE@1`.
+
+**Why:** the tax review of 2026-11-01, questions 10 and 24, **mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01**. Question 10: Grunderwerbsteuer, notary and land registry for the **transfer of ownership** and the broker are incidental acquisition costs, split between land and building; non-deductible VAT belongs to the acquisition cost, deductible input VAT does not; financing costs are not in the basis; "sonstige Erwerbskosten" **not without a classification**. Question 24: notary and land registry costs **of the land charge** (Grundschuld) are financing costs; disagio and commitment interest are financing costs; financing costs **never by default** in the AfA basis.
+
+### As the code stands (main, before VC-X-42)
+
+- `buildingAcquisitionCost` (`domains/acquisition/building-cost.ts`) sums every `ACTIVE` cost except the categories the rule excludes (`FINANCING_RELATED` in both `DE_AFA_BUILDING_LINEAR`'s `basis.excludedCostCategories` and `DE_ANSCHAFFUNGSNAHE@1`'s `excludedCostCategories`). So `OTHER` enters unreviewed (§59A: "`OTHER` counts, as in the check"), and `NOTARY` and `LAND_REGISTRY` enter whether they paid for the transfer or the land charge, unless the user filed them as `FINANCING_RELATED`.
+- A cost is frozen once created (§27.2: only `ACTIVE` → `VOID`, and void is refused while payments are linked, `COST_HAS_PAYMENTS`). An existing cost cannot take a new field.
+- The categories are `COST_CATEGORIES` of `domains/acquisition/cost.ts`; there is none for disagio or commitment interest, which are cash (`LOAN_INTEREST`, §58D), not acquisition costs.
+
+### The model: a classification per cost (§27.2, amended)
+
+An **AcquisitionCostClassification** states the purpose of one cost, as the land/building allocation states the split of a purchase (§27.3): recorded as entered, never changed, only superseded, with its own review state. A cost stays frozen.
+
+- **`parts`** (1–5, required): `{ purpose, amount }`, the amounts > 0 and summing **exactly** to the cost's `amount`. One notary invoice for the purchase contract and the land charge is one cost with two parts.
+- **`purpose`:**
+  - `OWNERSHIP_TRANSFER`: incidental cost of acquiring the property (Eigentumserwerb); **enters the basis**, split by the allocation as today (question 17: the same ratio);
+  - `FINANCING`: a financing cost, the land charge's notary and land registry costs included (question 24); **never in the basis**;
+  - `NOT_ACQUISITION_COST`: anything else that is not part of the purchase; **never in the basis**. DE does not deduct it either: a deductible expense is cash, classified in the ledger (§55).
+- **`inputVat`** (required; question 10): `NONE` (no VAT invoiced: Grunderwerbsteuer, court fees), `NOT_DEDUCTIBLE` (VAT included that is not deductible: the scope of a private landlord without a VAT option, gross in the basis), `DEDUCTIBLE` (input VAT deductible: an option under § 9 UStG, out of scope, P8-D13).
+- **`description`** (1–500, required): what the cost is ("Beschreibung", question 10). **`sourceReferences`** (≤ 10, each 1–500): the evidence. The amount is the cost's; the attribution to land and building is the allocation's (a cost of the land alone is not modelled, below).
+- **`reviewState`** (`UNREVIEWED`, `NEEDS_REVIEW`, `CONFIRMED`, `ADVISOR_CONFIRMED`; `SUGGESTED` `NOT_ALLOWED`), `advisorPartyId` (only with `ADVISOR_CONFIRMED`), `notes`.
+- **`supersedes`** (UUID or `null`): the current classification it replaces, the optimistic check (as §27.3).
+
+**Which costs need one** (the rule's `basis.costClassification`, below; open question 1):
+
+| Category | Without a classification | With a current classification |
+|---|---|---|
+| `REAL_ESTATE_TRANSFER_TAX`, `BROKER` | enters the basis by its category (question 10 names them) | the classification decides, once confirmed |
+| `NOTARY`, `LAND_REGISTRY`, `OTHER` | **unclassified**: does not enter, the basis is not computable | the classification decides, once confirmed |
+| `FINANCING_RELATED` | excluded, as today | excluded; a purpose other than `FINANCING` is refused (`PURPOSE_NOT_ALLOWED`; question 24: never in the basis) |
+
+A current classification that is not confirmed (`UNREVIEWED`, `NEEDS_REVIEW`) holds the cost as **unclassified**, whatever its category: a person has said that its purpose is in question.
+
+### The basis function (§59A, amended)
+
+`buildingAcquisitionCost` takes each cost's current classification (its parts, `inputVat`, `reviewState`) and the policy below, and classifies each `ACTIVE` cost:
+
+- **in the basis:** the `OWNERSHIP_TRANSFER` parts of a confirmed classification, or the whole amount of `REAL_ESTATE_TRANSFER_TAX` and `BROKER` without one;
+- **excluded:** an excluded category, and the `FINANCING` and `NOT_ACQUISITION_COST` parts of a confirmed classification;
+- **unclassified:** a category of `requiredFor` without a current classification, and any cost whose current classification is not confirmed.
+
+Then:
+
+- **`basisAmount`** = (`purchasePrice` + the amounts in the basis) × `buildingAmount` / `totalAllocableAmount`, half-up once: the arithmetic is unchanged, only what enters.
+- **New outputs:** `unclassifiedCosts: [{ costId, category, amount, classificationReviewState }]` (`null` without a classification), and **`basisAmountWithUnclassified`**: the same formula with the unclassified amounts added (the upper bound; equal to `basisAmount` when there are none). `excludedCosts` entries gain `purpose` (`null` for an excluded category).
+- **Two new reasons**, after `NO_BUILDING`, the first that applies (the function still stops at the first):
+  - **`ACQUISITION_COST_UNCLASSIFIED`**, `details: { costIds }`;
+  - **`ACQUISITION_COST_VAT_DEDUCTIBLE`**: a part in the basis whose classification says `DEDUCTIBLE`, `details: { costIds }` (out of scope; the net amount would be the cost, and DE does not record an option).
+- **The schedule (§59A):** the component is `NOT_COMPUTABLE` with that reason, in every year, never 0.00; `basis` shows `basisAmount` (without the unclassified costs) with `unclassifiedCosts` listed, so the person sees what is pending and what confirming would give. `ACQUISITION_COST_UNPAID` is unchanged (every `ACTIVE` cost).
+- **§27.4 (the owner-level allocation of price and costs)** is an economic read, not a tax basis: unchanged.
+
+### The 15 % check's denominator (§58B; open question 2)
+
+The check calls the same function (§59A "One function, extracted"). With unclassified costs its threshold lies between 15 % of `basisAmount` and 15 % of `basisAmountWithUnclassified`. **Proposal:**
+
+- the sum **above** 15 % of the upper bound → `ABOVE_THRESHOLD` (above whatever the classification);
+- the sum **not above** 15 % of the lower bound → `NOT_ABOVE_THRESHOLD`;
+- in between → `NOT_COMPUTABLE`, `notComputableReason` `ACQUISITION_COST_UNCLASSIFIED`;
+- in the first two cases `final` is false with the new `NOT_FINAL` reason **`ACQUISITION_COSTS_UNCLASSIFIED`**: the outcome holds, but `threshold` and `percentOfBasis` are not final until the costs are classified;
+- `ACQUISITION_COST_VAT_DEDUCTIBLE` → `NOT_COMPUTABLE` with that reason;
+- the response's `basis` gains `unclassifiedCosts` and `basisAmountWithUnclassified`, and the check `thresholdWithUnclassified` (`null` when equal).
+
+So a clear case is still flagged (a check far above 15 % keeps its `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` suggestions), and an uncertain one is never decided on a guess. Unclassified costs neither silently raise the threshold nor lower it.
+
+### The rules: `basis.costClassification`
+
+| Parameter | Value |
+|---|---|
+| `DE_AFA_BUILDING_LINEAR@1`/`@2` `basis.costClassification`, `DE_ANSCHAFFUNGSNAHE@1` `costClassification` | `{ requiredFor: ["NOTARY", "LAND_REGISTRY", "OTHER"], basisPurposes: ["OWNERSHIP_TRANSFER"], confirmedReviewStates: ["CONFIRMED", "ADVISOR_CONFIRMED"], supportedInputVat: ["NONE", "NOT_DEDUCTIBLE"], legalBasis: "§ 255 Abs. 1 HGB i. V. m. § 9b Abs. 1 EStG; Finanzierungskosten keine Anschaffungskosten", source: "Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)" }` |
+
+- `excludedCostCategories` stays `["FINANCING_RELATED"]`. The registry test of §59A ("both rules' excluded categories are equal") extends to `costClassification`, so the schedule and the check never compute two bases.
+- **`DE_AFA_BUILDING_LINEAR@1`/`@2`:** in place, with the pinned hashes updated explicitly (§60 open question 11, as §59C).
+- **`DE_ANSCHAFFUNGSNAHE@1`** is a Phase-7 rule: §60's decision does not cover it, and the report leaves in-place or a new version to the owner (open question 3). It is selected by the Acquisition's `transferDate` from 2004-01-01, and two versions may not overlap (§58), so a second version could only cover purchases from a later date and would leave every earlier one unchanged. It is not pinned in `frozen-rules.test.ts` today; classifications store it as `treatmentRule` (§58B).
+
+### API (§27.2, amended)
+
+```text
+POST /api/v1/acquisitions/{acquisitionId}/costs/{costId}/classifications     (VC-X-42, §59D)
+GET  /api/v1/acquisitions/{acquisitionId}/costs/{costId}/classifications     (VC-X-42, §59D)
+```
+
+- **Domain owner:** Acquisition (the purpose is a fact of the cost; which purposes enter a basis is the rule's). **Authorization** as §27.2.
+- **`POST`**, body (strict): `parts`, `inputVat`, `description`, `sourceReferences`, `reviewState` (default `UNREVIEWED`), `advisorPartyId`, `notes`, `supersedes` (required, `null` for the first). `201` with the classification, `ETag`, `Location`. `Idempotency-Key` (scope `acquisition.cost.classification.create`, fingerprint the cost id and the normalized body); without a key a retry is `409 CURRENT_CLASSIFICATION_CHANGED`, as §27.3.
+- **Order of checks:**
+  1. `400`, all field errors at once (a part's amount `NOT_POSITIVE`, an unknown purpose or VAT value `INVALID_FORMAT`, more than 5 parts `OUT_OF_RANGE`, `SUGGESTED` and an advisor without `ADVISOR_CONFIRMED` `NOT_ALLOWED`);
+  2. the Acquisition unknown or foreign `404`; the cost unknown or of another Acquisition `404` (`details.costId`); the advisor `404` (`details.partyId`);
+  3. the Acquisition `CANCELLED` → `409 ACQUISITION_CANCELLED`; the cost `VOID` → `409 COST_VOID` (as §27.2);
+  4. `supersedes` not the current classification's id (or not `null` without one) → `409 CONFLICT` with `reason = "CURRENT_CLASSIFICATION_CHANGED"` and `details.currentClassificationId`;
+  5. the parts not summing to the cost's amount → `422 PARTS_SUM_MISMATCH` with `details: { costAmount, partsSum }`; a `FINANCING_RELATED` cost with another purpose → `422 PURPOSE_NOT_ALLOWED` with `details: { category, purpose }`;
+  6. `201`; the previous current one gets `supersededAt`. AuditRecords `CREATED` (parts, VAT, review state, `supersedes`) and `SUPERSEDED`.
+- **Allowed on `DRAFT` and `CONFIRMED` Acquisitions**, as costs (invoices arrive after the transfer). A correction or a confirmation is a new classification that supersedes the current one (as §27.3).
+- **`GET`:** `{ current, items }`, newest first, one `REPEATABLE READ READ ONLY` snapshot, unpaged; unknown parameters `400`.
+- **The cost's response** (§27.2) gains `classification` (the current one, or `null`). It carries no "in the basis" verdict: that is the rule's, shown by the basis readers (§59A's `basis`, §58B's `basis`).
+- **Error answers** (`api/error-answers.ts`): `AcquisitionCostClassificationNotFoundError` `404`; `CurrentClassificationChangedError` `409` (`CURRENT_CLASSIFICATION_CHANGED`); `ClassificationPartsSumMismatchError` `422 PARTS_SUM_MISMATCH`; `ClassificationPurposeNotAllowedError` `422 PURPOSE_NOT_ALLOWED`. Reused: §27.2's `404`s, `ACQUISITION_CANCELLED`, `COST_VOID`, the idempotency conflict.
+
+### Concurrency and the database (migration 0055)
+
+- **One READ COMMITTED transaction**, as §27.3: claim the key → write the Acquisition row (the no-op of §27.2, so it serialises with cancel, confirm, void and every cost write) → read the cost and its current classification → checks → set the old one's `superseded_at` → insert the new one and its parts → AuditRecords → record the key. Lock order Acquisition only.
+- **`acquisition_cost_classification`:** `id`, `mre_realm_id`, `acquisition_id`, `cost_id` (a composite key `(cost_id, acquisition_id)` to `acquisition_cost`'s `UNIQUE (id, acquisition_id)`), `input_vat`, `description`, `source_references`, `review_state`, `advisor_party_id` (composite key to `party`), `notes`, `supersedes_id` (a composite key `(supersedes_id, cost_id)`, unique), `superseded_at`, `created_at`, `created_by`, `created_txid`; at most one current per cost (a partial unique index); the chain checked at commit by a deferred trigger, as 0023's.
+- **`acquisition_cost_classification_part`:** `classification_id`, `position` (1–5), `purpose` (CHECK), `amount` (> 0, scale 2); key `(classification_id, position)`; inserted only in its classification's transaction (`created_txid`); a deferred trigger checks at commit that the parts sum to the cost's amount and that a `FINANCING_RELATED` cost has `FINANCING` parts only.
+- **Guards:** a classification is inserted only for an `ACTIVE` cost of an Acquisition that is not `CANCELLED` (the Acquisition's row written first, 0021's `acquisition_touch_open`); frozen (only `superseded_at`, once); no delete.
+- **No column** on `acquisition_cost`. **No backfill** (open question 4).
+- **The recorded versions:** `depreciation_schedule_version_component` gains, for `ACQUISITION`, `cost_classification_ids` (`uuid[]`, the classifications that decided a counted or excluded cost); `counted_costs_total` is the total in the basis. `up` refuses with any recorded version, as 0054.
+- **`down`** drops both tables; with any row it refuses.
+
+### Recorded versions and the fingerprint (§60)
+
+A purchase component's stored inputs gain the classification ids and, per cost, the amount in the basis and excluded; `inputFingerprint` covers them from the component's first year (a superseding classification changes it, as a superseding allocation does). The record command refuses a run with `ACQUISITION_COST_UNCLASSIFIED` or `ACQUISITION_COST_VAT_DEDUCTIBLE` (`409 SCHEDULE_NOT_COMPLETE`, §60 step 4, whose list gains both codes). `SCHEDULE_CALCULATION_VERSION` stays 1.
+
+### Effect on existing data, ACC7, ACC8 and the tests
+
+- **Existing data:** every confirmed Acquisition with an `ACTIVE` `NOTARY`, `LAND_REGISTRY` or `OTHER` cost has a not-computable AfA basis until those costs are classified and confirmed; its 15 % check is decided by the bounds above. Acquisitions with only `REAL_ESTATE_TRANSFER_TAX`, `BROKER` and `FINANCING_RELATED` costs are unchanged.
+- **ACC7** (`phase-7-acceptance.e2e.test.ts`) has only `REAL_ESTATE_TRANSFER_TAX` and `FINANCING_RELATED` costs: unchanged.
+- **ACC8** (`phase-8-acceptance.e2e.test.ts`) has `NOTARY` 2,000.00 and `LAND_REGISTRY` 1,000.00: each gains a confirmed `OWNERSHIP_TRANSFER` classification with `inputVat` `NOT_DEDUCTIBLE` resp. `NONE`; the figures (basis 254,400.00) do not change. **Proposal:** one step shows the basis before the classification: `ACQUISITION_COST_UNCLASSIFIED`, `basisAmount` 252,000.00 (315,000.00 × 254,400.00 / 318,000.00, without the 3,000.00) and `basisAmountWithUnclassified` 254,400.00.
+- **Existing tests** that count a `NOTARY`, `LAND_REGISTRY` or `OTHER` cost in a basis (`building-cost.test.ts`, `schedule-rules.test.ts`, `schedule.test-support.ts`, `version-fingerprint.test.ts`, `version-random.test-support.ts`, `depreciation-schedule-source.test.ts`, `depreciation-schedule-version.test-support.ts`, `depreciation-schedule.e2e.test.ts`, `depreciation-items.e2e.test.ts`, `tax-year-afa.e2e.test.ts`, `api/depreciation-schedule.test.ts`) gain confirmed classifications in their fixtures; none is weakened. §59A's test "the schedule's basis equals the check's" stays and covers the classified case.
+
+### Tests the implementation must have
+
+- **Domain (pure, `building-cost.test.ts`):** each category with and without a classification (the table above); a two-part notary cost (the transfer part in, the land-charge part out); an unconfirmed classification on a `BROKER` cost (unclassified); a `FINANCING` purpose on `OTHER` (excluded); `DEDUCTIBLE` on a part in the basis (the reason) and on an excluded part (no reason); both bounds, rounding half-up once each; the reasons' order; the policy read from the parameter (another `requiredFor` changes the result).
+- **The 15 % check:** above the upper bound (`ABOVE_THRESHOLD`, not final), below the lower (`NOT_ABOVE_THRESHOLD`, not final), between (`NOT_COMPUTABLE`), all classified (as today, final when nothing else holds it); the registry test of the two rules' `costClassification`.
+- **Repository and schema:** the order of checks, each answer; supersede; idempotency; past the repository, each with a counter-check: parts not summing (at commit), a second current classification, a supersede without a successor, a changed or deleted row, a part added later, a `FINANCING_RELATED` cost with an `OWNERSHIP_TRANSFER` part, an insert for a `VOID` cost or a `CANCELLED` Acquisition; concurrency (two classifications of one cost: the second `CURRENT_CLASSIFICATION_CHANGED`; against a cancel and a void, both orders); 0055 `up`/`down`.
+- **End to end:** a purchase with an `OTHER` cost (schedule `NOT_COMPUTABLE`, check by the bounds), classified `UNREVIEWED` (still unclassified), confirmed `NOT_ACQUISITION_COST` (excluded, computed), superseded by `OWNERSHIP_TRANSFER` (in, the fingerprint changed); a land-charge notary cost classified `FINANCING` (excluded from both bases); Realm isolation.
+
+### Counter-checks and mutations
+
+**Counter-checks:** no unclassified `OTHER`, `NOTARY` or `LAND_REGISTRY` cost in a basis; no financing cost in a basis, whatever its category or classification; an unconfirmed classification never decides; the schedule and the check never compute two bases; no 15 % outcome on a guess.
+
+**Mutations** (each alone, restored byte for byte):
+- `OTHER` counted without a classification (today's behaviour), or `NOTARY`/`LAND_REGISTRY` counted by category;
+- an `UNREVIEWED` classification counted;
+- the `FINANCING` part of a two-part cost counted;
+- the unclassified costs added to `basisAmount`, or dropped from the upper bound (the check decides on one bound);
+- `ACQUISITION_COST_VAT_DEDUCTIBLE` dropped;
+- the policy read from a constant, or only one rule given the parameter (the registry test red);
+- the classification ids left out of the stored inputs or the fingerprint.
+
+### Not in VC-X-42 (pointers)
+
+- **A cost of the land or the building alone** (e.g. a survey of the land): split by the allocation like every cost (question 17). A direct attribution is a later item if the advisor asks for it.
+- **Disagio and commitment interest:** cash interest (§58D), not acquisition costs; a new cost category is not proposed. Entered as an acquisition cost by mistake, they are classified `FINANCING`.
+- **The VAT option (§ 9 UStG):** out of scope (P8-D13); `DEDUCTIBLE` stops the basis.
+- **Capitalised items** (§59B) keep `GROSS_LINE_AMOUNT` (question 10 answered it for the scope; the VERIFY point is the code PR's of the resolved flags).
+- **Capitalised loan interest** in the basis: VC-X-36.
+
+### Open questions for review
+
+1. **Which categories need a classification.** **Proposal:** `NOTARY`, `LAND_REGISTRY` and `OTHER`; `REAL_ESTATE_TRANSFER_TAX` and `BROKER` enter by category, since question 10 names them as incidental costs and neither has a financing variant in practice. **Alternative:** every category but `FINANCING_RELATED` (a broker may have arranged the loan, not the purchase); stricter, and every existing Acquisition's basis waits.
+2. **The 15 % check with unclassified costs.** **Proposal:** decided by the two bounds, `NOT_COMPUTABLE` only in between, `NOT_FINAL` (`ACQUISITION_COSTS_UNCLASSIFIED`) otherwise (above). **Alternative:** `NOT_COMPUTABLE` whenever a cost is unclassified, exactly as the schedule: one rule, but a check far above 15 % then shows no suggestion until the notary invoice is classified.
+3. **`DE_ANSCHAFFUNGSNAHE@1` in place.** **Proposal:** the parameter in place in `@1` (selected by the transfer date from 2004, so a later version could not cover the existing purchases), recorded as a deliberate change of the rule's reading with the report as source; a pinned hash for it added to `frozen-rules.test.ts` from then on. **Alternative:** leave the rule unchanged and make the classification requirement a fact of the Acquisition domain (a cost of those categories without a confirmed classification has no known purpose, whatever the rule), so no tax rule changes; the categories are then a constant of the domain instead of a rule parameter (AGENTS.md §16 would need the owner's exception).
+4. **Existing costs: no backfill.** **Proposal:** none; every affected basis waits for a person (question 10: "nicht ohne Klassifizierung"). **Alternative:** the migration creates an `UNREVIEWED` `OWNERSHIP_TRANSFER` classification for each `NOTARY` and `LAND_REGISTRY` cost, not counted until confirmed; less typing, but a suggestion the person may confirm without reading the invoice.
+5. **Parts or one purpose per cost.** **Proposal:** parts (1–5) summing to the amount, since a notary often bills the contract and the land charge on one invoice. **Alternative:** one purpose per cost, a mixed invoice entered as two costs; that needs a void and new entries, which `COST_HAS_PAYMENTS` blocks while payments are linked.
+6. **Input VAT per classification.** **Proposal:** recorded, `DEDUCTIBLE` stops the basis (the scope made explicit per cost, as question 10 asks). **Alternative:** not recorded; the scope assumption (no VAT option) stays global, as for capitalised items.
+7. **A `FINANCING_RELATED` cost with another purpose.** **Proposal:** refused (`PURPOSE_NOT_ALLOWED`): question 24, "nie pauschal" in the basis, and a wrong category is corrected by void and a new cost. **Alternative:** allowed, so a cost filed under the wrong category can be corrected by a classification when payments block its void.
 
 ---
 
