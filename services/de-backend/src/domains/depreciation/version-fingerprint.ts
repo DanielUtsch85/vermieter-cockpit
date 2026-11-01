@@ -55,6 +55,8 @@ export function countedComponent(c: VersionComponent): Record<string, unknown> {
             totalAllocableAmount: centsText(c.acquisition.totalAllocableAmount),
             buildingAmount: centsText(c.acquisition.buildingAmount),
           },
+    // §59C: the method entry gates the whole component, so its facts and review state count from its first year.
+    method: c.method,
     item:
       c.item === null
         ? null

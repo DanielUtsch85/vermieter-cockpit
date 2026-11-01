@@ -166,6 +166,7 @@ export function useDepreciationAssetDatabase(name: `${string}_test`) {
     reviewState: 'UNREVIEWED',
     advisorPartyId: null,
     shorterUsefulLives: [],
+    purchaseMethods: [],
     notes: null,
     ...overrides,
   });

@@ -1,5 +1,6 @@
 import { ExactDecimal, RoundingMode, type BusinessDate, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
-import { isConfirmed, sortedEntries, type AssetRead } from './asset.js';
+import { isConfirmed, sortedEntries, type AssetRead, type DepreciationAsset } from './asset.js';
+import { methodStatusOf, type MethodStatus } from './purchase-method.js';
 import { AFA_BUILDING_LINEAR, type BuildingBand, type BuildingLinearParameters, type BuildingRateBand } from './rules/de-afa-building-linear.js';
 import { AFA_MOVABLE_LINEAR, type MovableLinearParameters } from './rules/de-afa-movable-linear.js';
 
@@ -121,6 +122,34 @@ export function deriveRate(read: AssetRead, year: number, registry: RuleRegistry
     reasons,
     shorterUsefulLives,
   };
+}
+
+/** §59C: a method entry's derived status, as the asset's response shows it beside the entry. */
+export interface PurchaseMethodStatus {
+  readonly acquisitionId: string;
+  /** `null` only without any version of `DE_AFA_BUILDING_LINEAR` to judge it. */
+  readonly methodStatus: MethodStatus | null;
+  readonly causes: readonly string[] | null;
+}
+
+/**
+ * The `methodStatus` and `causes` of each method entry (§59C "Responses"): judged by the `methodStatus` parameter of
+ * the version of the entry's start year (the Acquisition's `economicTransferDate`), else the latest. A command's
+ * answer does not read the start years and takes the latest (both versions carry the same parameter, a registry test).
+ */
+export function purchaseMethodStatuses(
+  asset: DepreciationAsset,
+  registry: RuleRegistry,
+  startYears: Readonly<Record<string, number | null>> = {},
+): PurchaseMethodStatus[] {
+  const versions = registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
+  const latest = versions[versions.length - 1];
+  return sortedEntries(asset.purchaseMethods).map((entry) => {
+    const year = startYears[entry.acquisitionId] ?? null;
+    const rule = (year === null ? undefined : buildingRuleOn(registry, year)) ?? latest;
+    const status = rule === undefined ? null : methodStatusOf(entry, rule.parameters.methodStatus);
+    return { acquisitionId: entry.acquisitionId, methodStatus: status?.methodStatus ?? null, causes: status?.causes ?? null };
+  });
 }
 
 /**

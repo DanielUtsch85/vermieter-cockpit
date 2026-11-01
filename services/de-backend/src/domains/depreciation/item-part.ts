@@ -2,6 +2,7 @@ import { addDays, divideHalfUp, type BusinessDate, type RuleRegistry } from '../
 import { isConfirmed, type DepreciationAsset } from './asset.js';
 import { NOT_OWNED_PART, type CapitalizedItem, type ItemRef } from './capitalized-item.js';
 import { ONE, ZERO, add, byText, cmp, div, firstDay, frac, lastDayOf, maxDate, minF, monthOf, ofShare, rateOfYear, yearOfDate, type Frac } from './exact.js';
+import { isMethodReason } from './purchase-method.js';
 import { buildingRuleOn, movableRuleOn } from './rate.js';
 import type { BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import type { Flag, ItemComponent, ScheduleAcquisition, ScheduleOwnership } from './schedule-model.js';
@@ -56,7 +57,7 @@ export interface ItemPart {
   readonly changes: readonly { readonly date: BusinessDate; readonly from: Frac; readonly to: Frac }[];
   readonly fractionAt: (m: number) => Frac;
   readonly rate: PartRate | null;
-  /** Part-level reasons: the part is not computed in any year (`USEFUL_LIFE_NOT_CONFIRMED`). */
+  /** Part-level reasons: the part is not computed in any year (`USEFUL_LIFE_NOT_CONFIRMED`, a method reason of §59C). */
   readonly partReasons: Flag[];
   /** The part is not computed from this year on (a year without a rule; the pool's purchase not computable). */
   stopFrom: { readonly year: number; readonly reason: Flag } | null;
@@ -265,6 +266,17 @@ export function partOf(
           code: 'USEFUL_LIFE_NOT_CONFIRMED',
           details: { acquisitionId: entry.acquisitionId, usefulLifeYears: entry.usefulLifeYears, reviewState: entry.reviewState },
         });
+      }
+      // §59C: a later cost runs with the method of its owner's purchase. A method reason of the purchase that gives the
+      // rate, or of any purchase of the owner's pool (whose months the pooled end reads), stops the part in every year:
+      // it is never computed linearly under a method nobody confirmed.
+      const methodBlocked = [governing, ...purchases.filter((x) => x !== governing)]
+        .map(({ w }) => w.reasons.find((r) => isMethodReason(r.code)))
+        .find((r) => r !== undefined);
+      if (methodBlocked !== undefined) {
+        partReasons.push({ code: methodBlocked.code, details: { acquisitionId: methodBlocked.details['acquisitionId'] } });
+        rate = null;
+      } else if (partReasons.some((r) => r.code === 'USEFUL_LIFE_NOT_CONFIRMED')) {
         rate = null;
       } else {
         const atDate = rateOfYear(registry, yearOfDate(date), asset.buildingCompletionYear, entry);

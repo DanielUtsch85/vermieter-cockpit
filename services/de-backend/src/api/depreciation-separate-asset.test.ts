@@ -47,6 +47,7 @@ const asset: DepreciationAsset = {
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
   shorterUsefulLives: [],
+  purchaseMethods: [],
   notes: null,
   voidedAt: null,
   voidReason: null,
@@ -82,6 +83,7 @@ const dto = {
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
   shorterUsefulLives: [],
+  purchaseMethods: [],
   notes: null,
   voidedAt: null,
   voidReason: null,
@@ -138,9 +140,9 @@ describe('POST /depreciation-assets with a separate asset (§59B)', () => {
       depreciationAssets: {
         create: async (input) => {
           seen.push(input);
-          return { asset, replayed: false };
+          return { asset, replayed: false, methods: [] };
         },
-        get: async () => ({ asset, rate }),
+        get: async () => ({ asset, rate, methods: [] }),
       },
     });
     const res = await post(base, '/depreciation-assets', {
@@ -221,7 +223,7 @@ describe('POST /depreciation-assets with a separate asset (§59B)', () => {
       depreciationAssets: {
         amend: async (input) => {
           seen.push(input);
-          return { asset, changed: true };
+          return { asset, changed: true, methods: [] };
         },
       },
     });

@@ -24,6 +24,7 @@ import { PostgresOwnershipRepository } from './ownership-repository.js';
 import { PostgresPartyRepository } from './party-repository.js';
 import { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import { testSchemaName } from './test-schema.test-support.js';
+import { standardMethod } from './depreciation-method.test-support.js';
 
 /**
  * The shared setup of the recorded-version persistence tests (VC-8-04, api-design.md §60, migration 0052): one migrated
@@ -198,6 +199,7 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
         reviewState,
         advisorPartyId: null,
         shorterUsefulLives: [],
+        purchaseMethods: [standardMethod(w)],
         notes: null,
       },
       actor,

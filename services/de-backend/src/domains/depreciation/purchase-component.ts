@@ -147,6 +147,23 @@ export function componentOf(
     acquisitionStatus: a.status,
     status: w.computable ? 'COMPUTABLE' : 'NOT_COMPUTABLE',
     reasons: w.reasons,
+    method:
+      w.method === null
+        ? null
+        : {
+            consideration: w.method.entry.consideration,
+            method: w.method.entry.method,
+            specialDepreciation: w.method.entry.specialDepreciation,
+            subsidiesReceived: w.method.entry.subsidiesReceived,
+            newBuildingByConversion: w.method.entry.newBuildingByConversion,
+            otherSpecialCase: w.method.entry.otherSpecialCase,
+            otherSpecialCaseNote: w.method.entry.otherSpecialCaseNote,
+            reviewState: w.method.entry.reviewState,
+            advisorPartyId: w.method.entry.advisorPartyId,
+            notes: w.method.entry.notes,
+            methodStatus: w.method.methodStatus,
+            causes: w.method.causes,
+          },
     basis: {
       amount: w.cost.basisAmount,
       purchasePrice: w.cost.purchasePrice,

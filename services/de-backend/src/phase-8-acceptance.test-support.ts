@@ -54,6 +54,7 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
+import { standardMethodBody } from './infrastructure/postgres/depreciation-method.test-support.js';
 
 /**
  * The setup of ACC8 (`phase-8-acceptance.e2e.test.ts`, invariant-suite.md §51): one migrated schema, the fake MRE and the
@@ -261,9 +262,20 @@ export function useAcc8(name: `${string}_e2e`) {
     own: async (pr: string, ownerPartyId: string, share: string, validFrom: string, acquisitionId: string): Promise<string> =>
       (await post('/ownerships', { propertyReferenceId: pr, ownerPartyId, share, validFrom, acquisitionId })).ownershipId,
     confirm: async (acquisitionId: string) => post(`/acquisitions/${acquisitionId}/confirm`, {}, 200),
-    /** The building of 1995 (band 2 %), confirmed. */
-    building: async (pr: string): Promise<string> =>
-      (await post('/depreciation-assets', { propertyReferenceId: pr, buildingCompletionYear: 1995, reviewState: 'CONFIRMED' })).assetId,
+    /** The building of 1995 (band 2 %), confirmed; §59C: a confirmed STANDARD method entry for each purchase named. */
+    building: async (pr: string, purchases: readonly string[] = []): Promise<string> =>
+      (
+        await post('/depreciation-assets', {
+          propertyReferenceId: pr,
+          buildingCompletionYear: 1995,
+          reviewState: 'CONFIRMED',
+          purchaseMethods: purchases.map((id) => standardMethodBody(id)),
+        })
+      ).assetId,
+    /** §59C: the confirmed STANDARD method entries of the purchases named, by an amend (the whole list). */
+    methods: async (assetId: string, purchases: readonly string[]): Promise<void> => {
+      await post(`/depreciation-assets/${assetId}/amend`, { purchaseMethods: purchases.map((id) => standardMethodBody(id)) }, 200);
+    },
     account: async (): Promise<string> =>
       (await post('/financial-accounts', { accountType: 'BANK', displayName: 'Girokonto', currency: 'EUR' })).financialAccountId,
     /** A Transaction entered, split and confirmed; its split ids in order. */

@@ -2,7 +2,7 @@ import type { BusinessDate } from '../../shared/index.js';
 import type { DepreciationAssetId } from './asset.js';
 import type { CapitalizedItem, ItemRef } from './capitalized-item.js';
 import type { ScheduleAcquisition, ScheduleCost, ScheduleInput, ScheduleOwnership } from './schedule-model.js';
-import { asset, capitalized, eur, kitchen, life } from './schedule.test-support.js';
+import { asset, capitalized, eur, kitchen, life, standard } from './schedule.test-support.js';
 
 /**
  * Seeded random schedules for the round-trip property tests of VC-X-35 (api-design.md §60 "As implemented (VC-8-04)"
@@ -194,6 +194,8 @@ export function randomSchedule(random: () => number, ids: RandomIds, run: number
         propertyReferenceId: ids.propertyReferenceId,
         buildingCompletionYear: completion,
         shorterUsefulLives: shorterLife,
+        // §59C: every drawn purchase has a confirmed STANDARD method entry, so the schedules compute as before.
+        purchaseMethods: acquisitions.map((a) => standard({ acquisitionId: a.id })),
       }),
       acquisitions,
       ownerships,

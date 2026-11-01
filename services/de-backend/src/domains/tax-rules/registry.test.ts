@@ -107,7 +107,7 @@ describe('TAX_RULES (§58, §59)', () => {
     expect(rule.legalBasis).toBe('§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG');
     expect(rule.source).toContain('JStG 2022');
     expect(rule.parameters.verified).toEqual({ rates: true, shorterUsefulLifeThresholds: true });
-    expect(rule.source).toContain('mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Fragen 1, 4, 10, 11');
+    expect(rule.source).toContain('mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Fragen 1, 2, 4, 10, 11');
     expect(rule.parameters.bands.map((b) => [b.band, b.completedFromYear, b.completedToYear, b.ratePercent, b.shorterUsefulLife.shorterThanYears])).toEqual([
       ['A', 1925, null, '2', 50],
       ['B', null, 1924, '2.5', 40],
@@ -137,9 +137,26 @@ describe('TAX_RULES (§58, §59)', () => {
       'subsequentCostStart',
       'subsequentCostRate',
       'subsequentCostEnd',
+      // §59C (VC-X-37): in both versions, identically.
+      'methodStatus',
     ] as const)
       expect(v1[key]).toEqual(v2[key]);
     expect(v2.methodUnknownFromCompletionYear).toBe(2018);
+    // §59C "The rule": the standard of a purchase DE computes, read from the rule (never a constant); `required` is true.
+    expect(v2.methodStatus).toEqual({
+      required: true,
+      standard: {
+        consideration: ['PAID'],
+        methods: ['LINEAR_7_4'],
+        specialDepreciation: [],
+        subsidiesReceived: false,
+        newBuildingByConversion: false,
+        otherSpecialCase: false,
+      },
+      confirmedReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'],
+      legalBasis: '§ 7 Abs. 4 EStG; abgegrenzt: § 7 Abs. 5, 5a, § 7b, §§ 7h, 7i EStG, § 11d EStDV',
+      source: 'Prüfbericht 2026-11-01, Frage 2 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+    });
     expect('degressiveHint' in v2).toBe(false);
     const check = TAX_RULES.find({ ruleCode: ANSCHAFFUNGSNAHE, version: 1 }) as { parameters: AnschaffungsnaheParameters };
     expect([...v2.basis.excludedCostCategories]).toEqual([...check.parameters.excludedCostCategories]);

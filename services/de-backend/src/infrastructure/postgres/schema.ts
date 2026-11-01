@@ -744,6 +744,28 @@ export interface DepreciationAssetUsefulLifeTable {
   advisor_party_id: string | null;
 }
 
+/** VC-X-37 (0053, api-design §59C): the method entry of a purchase, one per Acquisition of a building asset. */
+export interface DepreciationAssetPurchaseMethodTable {
+  asset_id: string;
+  mre_realm_id: string;
+  property_reference_id: string;
+  acquisition_id: string;
+  consideration: string;
+  method: string;
+  special_depreciation: string[];
+  subsidies_received: boolean;
+  new_building_by_conversion: boolean;
+  other_special_case: boolean;
+  other_special_case_note: string | null;
+  evidence_source: string;
+  /** `date`, read as `YYYY-MM-DD`. */
+  evidence_date: string;
+  evidence_document_reference: string | null;
+  review_state: string;
+  advisor_party_id: string | null;
+  notes: string | null;
+}
+
 /** VC-8-03 (0051): the capitalised items a separate asset consists of, as rows; `asset_status` follows the asset's. */
 export interface DepreciationAssetItemTable {
   asset_id: string;
@@ -792,5 +814,6 @@ export interface Database {
   rental_contract_reference: RentalContractReferenceTable;
   depreciation_asset: DepreciationAssetTable;
   depreciation_asset_useful_life: DepreciationAssetUsefulLifeTable;
+  depreciation_asset_purchase_method: DepreciationAssetPurchaseMethodTable;
   depreciation_asset_item: DepreciationAssetItemTable;
 }

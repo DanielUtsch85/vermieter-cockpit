@@ -76,6 +76,20 @@ export interface VersionAcquisitionInputs {
   readonly shorterLifeReviewState: string | null;
 }
 
+/**
+ * §59C (VC-X-37): the purchase's method entry as it gates the component (its facts and review state, not the evidence
+ * texts), so `computeSchedule(storedInputs)` re-derives the same computability and the fingerprint sees a change.
+ */
+export interface VersionMethodInputs {
+  readonly consideration: string;
+  readonly method: string;
+  readonly specialDepreciation: readonly string[];
+  readonly subsidiesReceived: boolean;
+  readonly newBuildingByConversion: boolean;
+  readonly otherSpecialCase: boolean;
+  readonly reviewState: string;
+}
+
 export interface VersionItemInputs {
   readonly sourceType: string;
   readonly sourceId: string;
@@ -99,6 +113,8 @@ export interface VersionComponent {
   readonly start: { readonly date: BusinessDate | null; readonly dateSource: string; readonly method: string; readonly month: string | null };
   readonly rate: { readonly kind: PartRateKind; readonly usefulLifeYears: number | null };
   readonly acquisition: VersionAcquisitionInputs | null;
+  /** §59C: `ACQUISITION` only, `null` without an entry (and always on an item). */
+  readonly method: VersionMethodInputs | null;
   readonly item: VersionItemInputs | null;
   readonly parts: readonly VersionPart[];
 }

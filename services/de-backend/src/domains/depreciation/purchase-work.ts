@@ -20,6 +20,7 @@ import {
   type Frac,
   type YearRate,
 } from './exact.js';
+import { methodReasonOf, methodStatusOf, type MethodStatus, type PurchaseMethod } from './purchase-method.js';
 import { buildingRuleOn } from './rate.js';
 import type { BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { RANGE_MAX_YEAR, type Flag, type ScheduleAcquisition, type ScheduleOwnership } from './schedule-model.js';
@@ -74,6 +75,8 @@ export interface Work {
   readonly reasons: Flag[];
   readonly flags: Flag[];
   readonly entry: ShorterUsefulLife | undefined;
+  /** §59C: the purchase's method entry with its derived status (the rule of the start, else the latest); `null` without one. */
+  readonly method: { readonly entry: PurchaseMethod; readonly methodStatus: MethodStatus | null; readonly causes: readonly string[] | null } | null;
   readonly parts: Part[];
   computable: boolean;
   /** month index → the nominal share of the basis depreciated in it (capped), from the first month to the last. */
@@ -158,11 +161,16 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
   const historical = supportedFrom === null || (start !== null && start < supportedFrom) || a.contractDate < supportedFrom;
   if (historical) reasons.push({ code: 'HISTORICAL_RULE_NOT_SUPPORTED', details: { contractDate: a.contractDate, startDate: start, supportedFrom } });
   const completionYear = asset.buildingCompletionYear;
-  // Without a start neither check nor walk: both need the start year (they follow once the date is entered).
+  // §59C (VC-X-37): no confirmed STANDARD method entry, no figure; evaluated for every listed component, a DRAFT and one
+  // without a start included. The rule's `methodStatus` of the start year, else the latest. `newBuildingInCompletionYear`
+  // is the case of the withdrawn DEPRECIATION_METHOD_UNKNOWN (it needs the start year).
   const methodFrom = startYear === null ? undefined : buildingRuleOn(registry, startYear)?.parameters.methodUnknownFromCompletionYear;
-  if (completionYear !== null && methodFrom !== undefined && startYear === completionYear && completionYear >= methodFrom) {
-    reasons.push({ code: 'DEPRECIATION_METHOD_UNKNOWN', details: { completionYear, firstYear: startYear } });
-  }
+  const newBuildingInCompletionYear = completionYear !== null && methodFrom !== undefined && startYear === completionYear && completionYear >= methodFrom;
+  const methodEntry = asset.purchaseMethods.find((e) => e.acquisitionId === a.id);
+  const methodParameters = firstYearRule?.methodStatus;
+  const methodReason = methodReasonOf(a.id, methodEntry, methodParameters, newBuildingInCompletionYear);
+  if (methodReason !== null) reasons.push(methodReason);
+  const methodView = methodEntry === undefined ? null : methodParameters === undefined ? null : methodStatusOf(methodEntry, methodParameters);
 
   // The nominal months (§59A "The arithmetic"): rate_j / 12 each, capped so the whole never exceeds the basis.
   const supportedYear = supportedFrom === null ? RANGE_MAX_YEAR + 1 : yearOfDate(supportedFrom);
@@ -231,6 +239,7 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
     reasons,
     flags,
     entry,
+    method: methodEntry === undefined ? null : { entry: methodEntry, methodStatus: methodView?.methodStatus ?? null, causes: methodView?.causes ?? null },
     parts,
     computable: assetReasons.length === 0 && reasons.length === 0 && lastMonth !== null && parts.length > 0 && parts.every((p) => p.basisCents !== null),
     monthly,

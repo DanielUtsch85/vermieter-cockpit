@@ -11,6 +11,11 @@ import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
 
+/** §59C (0053): a purchase component's method entry, a confirmed STANDARD one (its CHECK). */
+const METHOD_COLUMNS = `method_consideration, method, method_special_depreciation, method_subsidies_received, method_new_building_by_conversion,
+             method_other_special_case, method_review_state`;
+const METHOD_VALUES = `'PAID', 'LINEAR_7_4', '{}', false, false, false, 'CONFIRMED'`;
+
 /**
  * Migration 0052 past the repository (api-design.md §60 "In the database"), each with a counter-check: every child row
  * append-only, a version changed only by the supersede step, never deleted; one `CURRENT` per asset; child rows only from
@@ -147,8 +152,8 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
         await client.query(
           `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
              start_date_source, start_method, start_month, rate_kind, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total, excluded_cost_ids,
-             excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount)
-           VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1)`,
+             excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, ${METHOD_COLUMNS})
+           VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${METHOD_VALUES})`,
           [mine.version.versionId, REALM, pr, acquisitionId, acquisitionId === mine.w ? mine.allocation : other.allocation],
         );
         await client.query('ROLLBACK');
@@ -256,8 +261,8 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
       client.query(
         `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
            start_date_source, start_method, start_month, rate_kind, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total, excluded_cost_ids,
-           excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount)
-         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1)`,
+           excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, ${METHOD_COLUMNS})
+         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${METHOD_VALUES})`,
         [mine.version.versionId, REALM, mine.pr, mine.w, allocationId],
       );
     const item = (client: pg.PoolClient, realm: string, pr: string, classificationId: string) =>

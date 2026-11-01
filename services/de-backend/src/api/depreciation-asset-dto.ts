@@ -6,14 +6,19 @@ import {
   COMPLETION_YEAR_MAX,
   COMPLETION_YEAR_MIN,
   CONFIRM_REVIEW_STATES,
+  CONSIDERATIONS,
   DEPRECIATION_METHODS,
   ITEM_SOURCE_TYPES,
   MAX_ASSET_ITEMS,
   MAX_ASSET_SOURCE_REFERENCES,
+  MAX_PURCHASE_METHODS,
   MAX_SHORTER_USEFUL_LIVES,
+  PURCHASE_METHODS,
+  SPECIAL_DEPRECIATIONS,
   USEFUL_LIFE_MAX_YEARS,
   USEFUL_LIFE_MIN_YEARS,
   type ItemRef,
+  type PurchaseMethodAmendment,
   type UsefulLifeAmendment,
 } from '../application/index.js';
 import { businessDate, optionalText } from './acquisitions.js';
@@ -77,6 +82,48 @@ const entries = z.array(entry).superRefine((list, ctx) => {
   });
 });
 
+/**
+ * §59C: a purchase's method entry. Every fact is required (a missing one `REQUIRED`, an unknown value `INVALID_FORMAT`);
+ * the special depreciations each once (`DUPLICATE`); the note exactly with `otherSpecialCase` (`REQUIRED`, else
+ * `NOT_ALLOWED`); the review state and advisor as a shorter life's entry.
+ */
+const purchaseMethod = z
+  .object({
+    acquisitionId: uuid,
+    consideration: z.enum(CONSIDERATIONS),
+    method: z.enum(PURCHASE_METHODS),
+    specialDepreciation: z.array(z.enum(SPECIAL_DEPRECIATIONS)).superRefine((list, ctx) => {
+      list.forEach((value, index) => {
+        if (list.indexOf(value) !== index) issue(ctx, [index], 'DUPLICATE');
+      });
+    }),
+    subsidiesReceived: z.boolean(),
+    newBuildingByConversion: z.boolean(),
+    otherSpecialCase: z.boolean(),
+    otherSpecialCaseNote: optionalText(500).nullish(),
+    evidence,
+    reviewState: reviewStateOf(ASSET_REVIEW_STATES).optional(),
+    advisorPartyId: uuid.nullish(),
+    notes: optionalText(2000).nullish(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (given(value.advisorPartyId) && value.reviewState !== 'ADVISOR_CONFIRMED') issue(ctx, ['advisorPartyId'], 'NOT_ALLOWED');
+    if (value.otherSpecialCase === true && !given(value.otherSpecialCaseNote)) issue(ctx, ['otherSpecialCaseNote'], 'REQUIRED');
+    if (value.otherSpecialCase !== true && given(value.otherSpecialCaseNote)) issue(ctx, ['otherSpecialCaseNote'], 'NOT_ALLOWED');
+  });
+
+/** At most one entry per Acquisition (`DUPLICATE`), at most 20 (`OUT_OF_RANGE`), as the shorter lives. */
+const purchaseMethods = z.array(purchaseMethod).superRefine((list, ctx) => {
+  if (list.length > MAX_PURCHASE_METHODS) issue(ctx, [], 'OUT_OF_RANGE');
+  const seen = new Set<unknown>();
+  list.forEach((e, index) => {
+    if (typeof e?.acquisitionId !== 'string') return;
+    if (seen.has(e.acquisitionId)) issue(ctx, [index, 'acquisitionId'], 'DUPLICATE');
+    seen.add(e.acquisitionId);
+  });
+});
+
 const assetType = z.string().transform((value, ctx) => {
   if (value === 'BUILDING' || value === 'SEPARATE_ASSET') return value;
   ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
@@ -124,7 +171,7 @@ export const itemsOf = (list: readonly z.infer<typeof item>[]): ItemRef[] =>
   list.map((i) => ({ sourceType: i.sourceType, sourceId: i.sourceId, sourcePosition: i.sourcePosition ?? null }));
 
 /** The fields of each type (§59B): named on the other, they are `NOT_ALLOWED`. */
-const BUILDING_FIELDS = ['buildingCompletionYear', 'shorterUsefulLives'] as const;
+const BUILDING_FIELDS = ['buildingCompletionYear', 'shorterUsefulLives', 'purchaseMethods'] as const;
 const SEPARATE_FIELDS = ['description', 'usefulLifeYears', 'usefulLifeBasis', 'acquiredOn', 'items'] as const;
 const SEPARATE_REQUIRED = ['description', 'usefulLifeYears', 'usefulLifeBasis', 'acquiredOn'] as const;
 
@@ -147,6 +194,7 @@ export const createBody = z
     reviewState: reviewStateOf(ASSET_REVIEW_STATES).optional(),
     advisorPartyId: uuid.nullish(),
     shorterUsefulLives: entries.nullish(),
+    purchaseMethods: purchaseMethods.nullish(),
     notes: optionalText(2000).nullish(),
     documentIds: z.unknown().optional(),
   })
@@ -183,6 +231,7 @@ export const amendBody = z
     sourceReferences: sourceReferences.nullable().optional(),
     notes: optionalText(2000).nullable().optional(),
     shorterUsefulLives: entries.nullable().optional(),
+    purchaseMethods: purchaseMethods.nullable().optional(),
     reviewState: reviewStateOf(AMEND_REVIEW_STATES).optional(),
     ...Object.fromEntries(FIXED.map((field) => [field, z.unknown().optional()])),
   })
@@ -234,6 +283,25 @@ export const entriesOf = (list: readonly z.infer<typeof entry>[] | null | undefi
       acquisitionId: e.acquisitionId,
       usefulLifeYears: e.usefulLifeYears,
       evidence: { source: e.evidence.source, date: e.evidence.date, documentReference: e.evidence.documentReference ?? null },
+      ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
+      ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
+    }),
+  );
+
+/** §59C: the method entries of a body; `null` (an amend's "remove every entry") is `[]`. */
+export const purchaseMethodsOf = (list: readonly z.infer<typeof purchaseMethod>[] | null | undefined) =>
+  (list ?? []).map(
+    (e): PurchaseMethodAmendment => ({
+      acquisitionId: e.acquisitionId,
+      consideration: e.consideration,
+      method: e.method,
+      specialDepreciation: e.specialDepreciation,
+      subsidiesReceived: e.subsidiesReceived,
+      newBuildingByConversion: e.newBuildingByConversion,
+      otherSpecialCase: e.otherSpecialCase,
+      otherSpecialCaseNote: e.otherSpecialCaseNote ?? null,
+      evidence: { source: e.evidence.source, date: e.evidence.date, documentReference: e.evidence.documentReference ?? null },
+      notes: e.notes ?? null,
       ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
       ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
     }),

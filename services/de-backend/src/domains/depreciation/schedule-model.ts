@@ -172,6 +172,23 @@ export interface ComponentYear {
   readonly flags: readonly Flag[];
 }
 
+/** §59C: the purchase's method entry as stored (without the evidence), with its derived status and causes. */
+export interface ComponentMethod {
+  readonly consideration: string;
+  readonly method: string;
+  readonly specialDepreciation: readonly string[];
+  readonly subsidiesReceived: boolean;
+  readonly newBuildingByConversion: boolean;
+  readonly otherSpecialCase: boolean;
+  readonly otherSpecialCaseNote: string | null;
+  readonly reviewState: string;
+  readonly advisorPartyId: string | null;
+  readonly notes: string | null;
+  /** `null` only without a rule version to judge it. */
+  readonly methodStatus: 'STANDARD' | 'NOT_SUPPORTED' | null;
+  readonly causes: readonly string[] | null;
+}
+
 export interface ScheduleComponent {
   readonly componentId: string;
   readonly kind: 'ACQUISITION';
@@ -179,6 +196,8 @@ export interface ScheduleComponent {
   readonly acquisitionStatus: string;
   readonly status: 'COMPUTABLE' | 'NOT_COMPUTABLE';
   readonly reasons: readonly Flag[];
+  /** §59C: `null` without an entry (the component is then `DEPRECIATION_METHOD_NOT_CONFIRMED`). */
+  readonly method: ComponentMethod | null;
   readonly basis: ComponentBasis;
   /** `null` without `economicTransferDate`: the component is not computable (`TRANSFER_DATE_MISSING`, VC-X-33). */
   readonly start: {

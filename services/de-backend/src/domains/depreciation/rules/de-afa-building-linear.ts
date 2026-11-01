@@ -1,4 +1,5 @@
 import type { BusinessDate, RuleVersion } from '../../../shared/index.js';
+import type { MethodStatusParameters } from '../purchase-method.js';
 
 export const BUILDING_BANDS = ['A', 'B', 'C'] as const;
 export type BuildingBand = (typeof BUILDING_BANDS)[number];
@@ -25,7 +26,7 @@ export interface BuildingLinearParameters {
    * split by what a confirmation covers: `rates` the bands (their `ratePercent` by the completion year), and
    * `shorterUsefulLifeThresholds` the years of S. 2 (`shorterThanYears`). A year is flagged while `rates` is false, and
    * a year computed with a shorter useful life also while `shorterUsefulLifeThresholds` is false. Neither covers the
-   * methods DE does not recognise (§ 7 Abs. 5, 5a, § 7b, §§ 7h/7i, VC-X-37): those are no parameter of this rule.
+   * methods DE does not recognise (§ 7 Abs. 5, 5a, § 7b, §§ 7h/7i): those are judged by `methodStatus` (§59C).
    * The answers are taken in the same version until the first productive enablement (§60, open question 11).
    */
   readonly verified: { readonly rates: boolean; readonly shorterUsefulLifeThresholds: boolean };
@@ -65,10 +66,16 @@ export interface BuildingLinearParameters {
    */
   readonly shareReduction: { readonly method: 'PRO_RATA_ALL_COMPONENTS'; readonly verified: boolean; readonly legalBasis: string };
   /**
-   * A new building bought in its completion year from this completion year on is not computable
-   * (`DEPRECIATION_METHOD_UNKNOWN`): § 7b (from 2018) or § 7 Abs. 5a EStG (from 2023) may have been claimed (B4).
+   * A new building bought in its completion year from this completion year on: § 7b (from 2018) or § 7 Abs. 5a EStG
+   * (from 2023) may have been claimed (B4). Since §59C (VC-X-37) only the detail `newBuildingInCompletionYear` of
+   * `DEPRECIATION_METHOD_NOT_CONFIRMED`; the withdrawn `DEPRECIATION_METHOD_UNKNOWN` is no longer raised.
    */
   readonly methodUnknownFromCompletionYear: number;
+  /**
+   * §59C (VC-X-37): a purchase is computed only under a method entry in `confirmedReviewStates` whose facts match
+   * `standard` (`STANDARD`); any other is `NOT_SUPPORTED` and never computed. Prüfbericht 01.11.2026, Frage 2.
+   */
+  readonly methodStatus: MethodStatusParameters;
   /**
    * §59B (P8-D6, B11): from when a later capitalised cost counts. `START_OF_YEAR` (R 7.4 Abs. 9 S. 3 EStR, decided
    * provisionally 2026-10-31) or `MONTH_OF_DATE`; never before the owner's start. Open (`SUBSEQUENT_COST_START_TO_VERIFY`)
@@ -140,6 +147,21 @@ const COMMON = {
     legalBasis: `${CONFIRMED}: Frage 11, a partial sale takes the share of each purchase pro rata, never FIFO or LIFO`,
   },
   methodUnknownFromCompletionYear: 2018,
+  // §59C (VC-X-37), taken into both versions in place before the first productive enablement (§60 open question 11).
+  methodStatus: {
+    required: true,
+    standard: {
+      consideration: ['PAID'],
+      methods: ['LINEAR_7_4'],
+      specialDepreciation: [],
+      subsidiesReceived: false,
+      newBuildingByConversion: false,
+      otherSpecialCase: false,
+    },
+    confirmedReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'],
+    legalBasis: '§ 7 Abs. 4 EStG; abgegrenzt: § 7 Abs. 5, 5a, § 7b, §§ 7h, 7i EStG, § 11d EStDV',
+    source: 'Prüfbericht 2026-11-01, Frage 2 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+  },
   // §59B (VC-8-03), added to both versions additively: neither is frozen before VC-8-04.
   subsequentCostStart: {
     method: 'START_OF_YEAR',
@@ -200,7 +222,7 @@ export const DE_AFA_BUILDING_LINEAR_V1: RuleVersion<BuildingLinearParameters> = 
     ],
     verified: { rates: true, shorterUsefulLifeThresholds: true },
   },
-  source: `api-design §59A (decided 2026-10-31); EStG i. d. F. vor dem JStG 2022 (BGBl. I S. 2294); BT-Drs. 20/3879 S. 88; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 1, 4, 10, 11`,
+  source: `api-design §59A (decided 2026-10-31); EStG i. d. F. vor dem JStG 2022 (BGBl. I S. 2294); BT-Drs. 20/3879 S. 88; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 1, 2, 4, 10, 11`,
 };
 
 /**
@@ -247,5 +269,5 @@ export const DE_AFA_BUILDING_LINEAR_V2: RuleVersion<BuildingLinearParameters> = 
     // Today's text, read in the official text before VC-8-01 (30.10.2026): no historical version to confirm.
     verified: { rates: true, shorterUsefulLifeThresholds: true },
   },
-  source: `docs/germany/depreciation.md §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 4, 10, 11`,
+  source: `docs/germany/depreciation.md §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 2, 4, 10, 11`,
 };

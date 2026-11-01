@@ -7,6 +7,7 @@ import {
   planAssetAmend,
   planAssetConfirm,
   writtenEntries,
+  writtenPurchaseMethods,
   type AmendAssetOutcome,
   type AssetAmendment,
   type ConfirmAssetOutcome,
@@ -15,6 +16,7 @@ import {
   type DepreciationAsset,
   type EntryAcquisition,
   type NewDepreciationAsset,
+  type PurchaseMethod,
   type ShorterUsefulLife,
   type VoidAssetOutcome,
 } from '../../domains/depreciation/index.js';
@@ -29,7 +31,8 @@ import type { Database } from './schema.js';
 
 /**
  * The commands of §59 (create, amend, confirm, void), each one READ COMMITTED transaction in the lock order of every
- * writer of a PropertyReference (§26.1, §28.1), with the shorter useful lives (the entries) written as a difference.
+ * writer of a PropertyReference (§26.1, §28.1), with the shorter useful lives (the entries) and the purchase methods
+ * (§59C) written as a difference.
  * A separate asset's items are checked and linked through `depreciation-separate-assets.ts`.
  */
 
@@ -69,8 +72,10 @@ export async function create(
         }
         const party = await missingParty(trx, advisorsOf(asset), asset.mreRealmId);
         if (party !== undefined) throw new Rejected({ kind: 'PARTY_NOT_FOUND', partyId: party });
-        const acquisitions = await entryAcquisitions(trx, asset.shorterUsefulLives, asset.mreRealmId);
-        const refusal = entryAcquisitionRefusal(asset.shorterUsefulLives, acquisitions, asset.propertyReferenceId);
+        // §59C: the method entries' Acquisitions in the same step as the shorter lives', shorter lives first.
+        const named = [...asset.shorterUsefulLives, ...asset.purchaseMethods];
+        const acquisitions = await entryAcquisitions(trx, named, asset.mreRealmId);
+        const refusal = entryAcquisitionRefusal(named, acquisitions, asset.propertyReferenceId);
         if (refusal !== undefined) throw new Rejected(refusal);
         const itemRefusal = await separateAssets.itemRefusal(trx, capitalizedSources, now, asset.items, asset.mreRealmId, asset.propertyReferenceId, null);
         if (itemRefusal !== undefined) throw new Rejected(itemRefusal);
@@ -100,6 +105,7 @@ export async function create(
           .returning('id')
           .executeTakeFirstOrThrow();
         for (const entry of asset.shorterUsefulLives) await insertEntry(trx, id, asset, entry);
+        for (const entry of asset.purchaseMethods) await insertMethod(trx, id, asset, entry);
         for (const item of asset.items) await separateAssets.insertItem(trx, id, asset, item, actor);
         const created = await readAsset(trx, id);
         if (created === undefined) throw new Error(`DepreciationAsset ${id} vanished`);
@@ -144,12 +150,9 @@ export async function amend(
         const notAllowed = amendFieldsNotAllowed(before.assetType, amendment);
         if (notAllowed.length > 0) return { kind: 'FIELDS_NOT_ALLOWED', fields: notAllowed };
         // Only new or changed entries are checked again: an unchanged one of a later-cancelled DRAFT does not block.
-        const written = writtenEntries(planAssetAmend(before, amendment));
-        const party = await missingParty(
-          trx,
-          written.flatMap((e) => (e.advisorPartyId === null ? [] : [e.advisorPartyId])),
-          mreRealmId,
-        );
+        const beforePlan = planAssetAmend(before, amendment);
+        const written = [...writtenEntries(beforePlan), ...writtenPurchaseMethods(beforePlan)];
+        const party = await missingParty(trx, [...new Set(written.flatMap((e) => (e.advisorPartyId === null ? [] : [e.advisorPartyId])))], mreRealmId);
         if (party !== undefined) return { kind: 'PARTY_NOT_FOUND', partyId: party };
         const refusal = entryAcquisitionRefusal(written, await entryAcquisitions(trx, written, mreRealmId), before.propertyReferenceId);
         if (refusal !== undefined) return refusal as AmendAssetOutcome;
@@ -209,6 +212,20 @@ export async function amend(
               .execute();
           }
         }
+        // §59C: the method entries as a difference too, under the same guard pattern (0053).
+        for (const entry of plan.changedPurchaseMethods) {
+          if (entry.change === 'ADDED') await insertMethod(trx, id, current, entry.to as PurchaseMethod);
+          else if (entry.change === 'REMOVED') {
+            await trx.deleteFrom('depreciation_asset_purchase_method').where('asset_id', '=', id).where('acquisition_id', '=', entry.acquisitionId).execute();
+          } else {
+            await trx
+              .updateTable('depreciation_asset_purchase_method')
+              .set(methodColumns(entry.to as PurchaseMethod))
+              .where('asset_id', '=', id)
+              .where('acquisition_id', '=', entry.acquisitionId)
+              .execute();
+          }
+        }
         // The links as a difference too (§59B): an unchanged link's row is not touched.
         for (const { item, change } of plan.changedItems) {
           if (change === 'ADDED') await separateAssets.insertItem(trx, id, current, item, actor);
@@ -231,6 +248,7 @@ export async function amend(
           metadata: {
             changes: plan.changes,
             ...(plan.changedEntries.length === 0 ? {} : { changedEntries: plan.changedEntries }),
+            ...(plan.changedPurchaseMethods.length === 0 ? {} : { changedPurchaseMethods: plan.changedPurchaseMethods }),
             ...(plan.changedItems.length === 0 ? {} : { changedItems: plan.changedItems }),
             ...(plan.reviewStateReset === null ? {} : { reviewStateReset: plan.reviewStateReset }),
           },
@@ -408,6 +426,43 @@ async function insertEntry(
       evidence_document_reference: entry.evidence.documentReference,
       review_state: entry.reviewState,
       advisor_party_id: entry.advisorPartyId,
+    })
+    .execute();
+}
+
+/** A method entry's own columns (§59C, 0053). */
+function methodColumns(entry: PurchaseMethod) {
+  return {
+    consideration: entry.consideration,
+    method: entry.method,
+    special_depreciation: [...entry.specialDepreciation],
+    subsidies_received: entry.subsidiesReceived,
+    new_building_by_conversion: entry.newBuildingByConversion,
+    other_special_case: entry.otherSpecialCase,
+    other_special_case_note: entry.otherSpecialCaseNote,
+    evidence_source: entry.evidence.source,
+    evidence_date: entry.evidence.date,
+    evidence_document_reference: entry.evidence.documentReference,
+    review_state: entry.reviewState,
+    advisor_party_id: entry.advisorPartyId,
+    notes: entry.notes,
+  };
+}
+
+async function insertMethod(
+  trx: Transaction<Database>,
+  assetId: string,
+  asset: { readonly mreRealmId: string; readonly propertyReferenceId: string },
+  entry: PurchaseMethod,
+): Promise<void> {
+  await trx
+    .insertInto('depreciation_asset_purchase_method')
+    .values({
+      asset_id: assetId,
+      mre_realm_id: asset.mreRealmId,
+      property_reference_id: asset.propertyReferenceId,
+      acquisition_id: entry.acquisitionId,
+      ...methodColumns(entry),
     })
     .execute();
 }

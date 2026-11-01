@@ -237,6 +237,22 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
       const id = await transaction({ amount: '600.00' });
       expect((await replaced(id, [...payment(l1.id), ...payment(l2.id)])).splits.map((s) => s.loanId)).toEqual([l1.id, l1.id, l2.id, l2.id]);
     });
+
+    it('two LOAN_INTEREST splits with the same loanId in one Transaction are allowed, confirmed, and both count (§59E, the land share)', async () => {
+      // §59E "By the amount" separates the land share of a debit's interest as two LOAN_INTEREST splits of one Loan; §41.5
+      // names no refusal and the schema (0027) has no unique key on (transaction, loan, category): confirmed here.
+      const l = await loan();
+      const id = await transaction();
+      const set = [split('2.53', 'LOAN_INTEREST', l.id), split('1.00', 'LOAN_INTEREST', l.id), split('296.47', 'LOAN_PRINCIPAL', l.id)];
+      const stored = await replaced(id, set);
+      expect(stored.splits.map((s) => [s.financialCategoryCode, s.loanId, s.amount.amount])).toEqual([
+        ['LOAN_INTEREST', l.id, '2.53'],
+        ['LOAN_INTEREST', l.id, '1.00'],
+        ['LOAN_PRINCIPAL', l.id, '296.47'],
+      ]);
+      expect((await transactions.confirm(id, REALM, actor)).kind).toBe('CONFIRMED');
+      expect(await counted(l.id)).toEqual({ LOAN_INTEREST: '3.53', LOAN_PRINCIPAL: '296.47' });
+    });
   });
 
   describe('void of a Loan with splits', () => {
