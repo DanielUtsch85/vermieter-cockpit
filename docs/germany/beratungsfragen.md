@@ -1,7 +1,7 @@
 # Beratungsfragen für die Steuerberatung
 
 **Projekt:** Vermieter Cockpit DE
-**Stand:** 31.10.2026 (#172; VC-X-30)
+**Stand:** 31.10.2026 (#172; VC-X-30); Antworten nachgetragen am 01.11.2026 (Prüfbericht, [`pruefbericht-2026-11-01.md`](pruefbericht-2026-11-01.md))
 **Bezug:** [`verification-checklist.md`](verification-checklist.md) v0.3, Spalte „Bestätigt durch“
 
 > **Zweck:** Die Prüfliste ist von einer Coding-Session recherchiert, nicht von einer Fachperson bestätigt. Diese Seite fasst die fünf Punkte zusammen, bei denen Geld und Unsicherheit zusammentreffen, als Vorlage für ein Gespräch mit der Steuerberatung. Je Punkt: die Frage in einem Satz, der heutige Stand der Spezifikation und was die Software damit tut. Alle Rechtsangaben stammen aus der Prüfliste, `taxation.md` oder `depreciation.md`; was dort nicht belegt ist, ist mit **VERIFY** markiert. Die Seite enthält keine personenbezogenen Daten; Beispiele im Gespräch nur mit erfundenen Werten.
@@ -9,6 +9,8 @@
 **Nicht auf dieser Seite:** Punkte mit `Primärquelle` (C1, E1, E6) und A7 (GrESt-Sätze, ein datierter Länderparameter, der mit dem jeweiligen Landesgesetz zu belegen ist, keine Beratungsfrage), sowie alles Mechanische (Rundung, Stichtagsgrenzen, Idempotenz).
 
 **Nach dem Gespräch:** Die Antworten werden als datierte Notiz (Datum, Fachperson in ihrer Funktion, Form der Bestätigung) in `docs/germany/` abgelegt, die betroffenen Zeilen der Prüfliste erhalten in „Bestätigt durch“ den Wert `Fachperson, <Datum>` mit Verweis auf die Notiz, und die Phasenpläne (Phase 7, Phase 8) verweisen für die betroffenen Entscheidungen auf diese Notiz.
+
+**Stand der Antworten (01.11.2026):** Der steuerrechtliche Prüfbericht vom 01.11.2026 beantwortet die Fragen dieser Seite weitgehend; er ist nach eigener Aussage eine fachliche Vorprüfung und wurde mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01. Die Notiz dazu, mit dem Abgleich gegen DE, ist [`pruefbericht-2026-11-01.md`](pruefbericht-2026-11-01.md). Je Frage steht die Antwort unten als „Beantwortet“; was der Bericht nicht beantwortet, bleibt offen. Die Bestätigung betrifft die Rechtsaussagen, nicht die Berechnung der Software. Nichts auf dieser Seite ändert eine Regelversion oder schaltet etwas frei.
 
 ---
 
@@ -22,6 +24,8 @@
 
 **Warum es zählt:** Das Dreijahresfenster läuft. Kippt die Grenze, werden Sofortabzüge rückwirkend zu AfA-Bemessungsgrundlage (Phase 8, P8-D6); bereits abgegebene Jahre können betroffen sein.
 
+**Beantwortet** (Prüfbericht 2026-11-01, Fragen 14–16, 20; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): Maßgeblich ist die **Durchführung** der Maßnahme, nicht Rechnung oder Zahlung; die Frist beginnt taggenau mit dem Übergang des wirtschaftlichen Eigentums; bei Maßnahmen über das Fristende hinaus zählen die bis dahin erbrachten Leistungen (ggf. geschätzt). Die Grenze ist strikt „mehr als 15 %“, Kosten ohne USt und abzüglich Erstattungen, über alle Kosten des Zeitraums. Der Anteil an Instandsetzungen am Gemeinschaftseigentum, auch aus dem Hausgeld bezahlt, **zählt mit**, datiert nach der erbrachten Bauleistung; die Rücklagenzuführung nicht. Ein Über- oder Unterschreiten wirkt auf alle betroffenen Jahre zurück. **Folge für DE:** Buchungsdatum statt Leistung widerspricht der Antwort (VC-X-38, VC-X-34), Hausgeld-Instandsetzung ist zu zählen (VC-X-27).
+
 ---
 
 ## 2. Aufteilung Grund und Boden / Gebäude (A3, E2)
@@ -34,6 +38,8 @@
 
 **Warum es zählt:** Der Gebäudeanteil bestimmt die AfA-Bemessungsgrundlage für Jahrzehnte und die 15-%-Schwelle.
 
+**Beantwortet** (Prüfbericht 2026-11-01, Frage 17; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): Die vertragliche Aufteilung ist zu übernehmen, sofern sie wirtschaftlich haltbar und nicht missbräuchlich ist (BFH IX R 12/14), sonst nach Verkehrswerten; die BMF-Arbeitshilfe dient der Plausibilisierung, ist aber kein Zwang; bei Auffälligkeit warnen und ggf. eine Begründung verlangen; Nebenkosten im selben Verhältnis; Quelle und Methodik speichern. **Folge für DE:** P8-D3 stimmt; die Warnung fehlt (VC-X-44).
+
 ---
 
 ## 3. Die 10-Tage-Regel bei angenommener Fälligkeit (A4)
@@ -45,6 +51,8 @@
 **Was die Software tut:** Sie ordnet nach der Regel `DE_CASH_TIMING@1` zu, markiert jede Annahme mit `DUE_DATE_ASSUMED` und die Zuordnung mit `ATTRIBUTED_BY_10_DAY_RULE`. Hausgeld wird ohne bekannte Periode nie auf Verdacht verschoben (`ECONOMIC_PERIOD_ASSUMED`). Der Nutzer kann das Steuerjahr je Split um ein Jahr übersteuern.
 
 **Warum es zählt:** Eine Miete für Januar, Ende Dezember gezahlt, wechselt mit der Annahme das Steuerjahr; bei Monatsersten als Fälligkeit trifft das regelmäßig zu.
+
+**Beantwortet** (Prüfbericht 2026-11-01, Frage 18; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): **Nein.** Zahlung und Fälligkeit müssen beide im Zehntageszeitraum liegen, nur bei regelmäßig wiederkehrenden Beträgen (BFH X R 2/21); **ohne nachgewiesene Fälligkeit keine automatische Verschiebung**, dann bleibt der Zu- bzw. Abfluss maßgeblich. **Folge für DE:** Die Annahme `PERIOD_START` mit Verschiebung widerspricht der Antwort (VC-X-39).
 
 ---
 
@@ -66,6 +74,18 @@
 
 **Was die Software tut** (vom Projektverantwortlichen am 31.10.2026 entschieden, api-design §59A): Sie rechnet lieber nicht als falsch. Ein Betrag, der sich nicht sicher ableiten lässt, bleibt leer, mit einem Grund, nie 0 €. Jahre 2006–2022 rechnet sie mit der früheren Regelversion, als vorläufig markiert (`HISTORICAL_RULE_TO_VERIFY`); Kaufvertrag oder Beginn vor 2006 und ein im Fertigstellungsjahr ab 2018 gekaufter Neubau werden nicht gerechnet. Das Veräußerungsjahr rechnet sie zeitanteilig bis zum Übergang des wirtschaftlichen Eigentums des Käufers, als vorläufig markiert (`DISPOSAL_YEAR_TO_VERIFY`); fehlt dieses Datum, bleibt das Jahr leer (`DISPOSAL_DATE_MISSING`). Nachträgliche Herstellungskosten rechnet sie (vom Projektverantwortlichen am 31.10.2026 als vorläufig entschieden, §59B) ab Jahresbeginn nach dem Hinweis aus der Durchsicht, nie vor dem eigenen Erwerb, mit dem offenen Hinweis `SUBSEQUENT_COST_START_TO_VERIFY`, und bis zum Ende über eine gemeinsame Bemessungsgrundlage je Besitzzeit, mit dem offenen Hinweis `SUBSEQUENT_COST_END_TO_VERIFY` in den Jahren, in denen die Lesarten auseinandergehen. Bewegliche Wirtschaftsgüter, die vor 2023 angeschafft wurden, rechnet sie bis zur Bestätigung nicht. Die Antworten zum Veräußerungsjahr, zu den Sätzen 2006–2022, zu Beginn und Ende nachträglicher Herstellungskosten und zur Restnutzungsdauer sollten vor der Umsetzung von VC-8-04 vorliegen (vorgeschlagen als feste Voraussetzung, über die der Projektverantwortliche entscheidet): Damit werden die AfA-Regeln eingefroren, und eine spätere Bestätigung gilt nur noch über eine neue Regelversion ab einem Jahr; die Jahre davor behalten ihre offenen Hinweise auf Dauer (`api-design.md` §60, offene Frage 5).
 
+**Beantwortet** (Prüfbericht 2026-11-01, Fragen 1–13; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): 
+
+- **Beginn nachträglicher (auch anschaffungsnaher) HK** (Frage 5): ab **Jahresbeginn** des Entstehungsjahres (R 7.4 Abs. 9 S. 3 EStR), umqualifizierte anschaffungsnahe Aufwendungen in ihren jeweiligen Entstehungsjahren; maßgeblich die Leistung, nicht automatisch Rechnungs- oder Zahlungsdatum. DE: Methode stimmt, das Datum nicht (VC-X-38).
+- **Jahr der Veräußerung** (Frage 4): bestätigt, der Veräußerungsmonat zählt beim Verkäufer voll (15.11. → 11/12). DE stimmt.
+- **Nicht abziehbare USt** (Frage 10): gehört in die AK/HK; abziehbare Vorsteuer nicht. DE stimmt im Scope ohne USt-Option. Sonstige Erwerbskosten nicht ohne Klassifizierung in die Basis (VC-X-42).
+- **Sätze vor 2023** (Frage 1): 2,5 % bei Fertigstellung vor 1925, 2 % 1925–2022, maßgeblich das Fertigstellungsjahr; die Lesart trifft zu. **Die Grenze 2006 reicht nicht** (Frage 2): auch §§ 7h/7i, Umbau zu einem neuen Gebäude, teilentgeltlicher Erwerb, Zuschüsse und eine abweichende bisher gewählte Methode sind abzugrenzen; bei unbekannter Methode nicht linear unterstellen (VC-X-37).
+- **Kürzere Nutzungsdauer** (Frage 8): Schwellen < 33 / < 50 / < 40 Jahre bestätigt; nicht beliebig rückwirkend ab Beginn, die bisherige AfA geht in das Restvolumen ein (VC-X-41).
+- **Ende nachträglicher HK** (Fragen 6, 9): Basis um die HK erhöht, Satz bleibt, nie über das Restvolumen, kein Abschalten nach 40/50 Jahren (die Kernlesart `POOLED_BASIS`). Bei kürzerer Nutzungsdauer Restwert + HK über die Restnutzungsdauer; der bisherige Satz ist eine zulässige, aber nicht zwingende Vereinfachung (VC-X-41). **Nicht beantwortet:** die Einzelheiten des Vorschlags (Erstattung als eigene negative Reihe, Überlauf auf laufende Teile, Pools der Erben).
+- **Teilverkauf nach mehreren Erwerben** (Frage 11): **anteilig** über alle Erwerbe, nicht FIFO/LIFO; getrennte AfA-Historien. Der Vorschlag trifft zu.
+- **Bewegliche Wirtschaftsgüter** (Fragen 12, 13): vor 2023 linear nach § 7 Abs. 1 EStG, monatsanteilig; Einbauküche 10 Jahre ab Anschaffungsmonat; Reparatur Erhaltung, wesentliche Ergänzung nachträgliche AK, vollständige Erneuerung neues Wirtschaftsgut. **Nicht beantwortet:** wie die AfA einer späteren Ergänzung zu rechnen ist (`LATER_ITEM_TO_VERIFY`).
+- **Miteigentümer, Fortführung durch Rechtsnachfolger:** vom Bericht nicht beantwortet.
+
 ---
 
 ## 5. § 82b EStDV: Verteilung und Verkauf eines Miteigentumsanteils (A5)
@@ -77,3 +97,5 @@
 **Was die Software tut:** Sie leitet die Jahresteile ab (Rest im letzten Jahr), verlangt die Bestätigung der überwiegenden Wohnnutzung und markiert den Fall mit `OWNERSHIP_PARTLY_ENDED` und `DISTRIBUTION_FOLDED_PER_OWNER`. Gespeichert wird nur die Wahl, nie die Teile.
 
 **Warum es zählt:** Bei mehreren Eigentümern verschiebt die Faltung Werbungskosten zwischen Personen und Jahren.
+
+**Beantwortet** (Prüfbericht 2026-11-01, Frage 19; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): **Ja.** Gleicher Verteilungszeitraum für alle; verkauft nur ein Miteigentümer, zieht er seinen eigenen Rest im Veräußerungsjahr ab, die übrigen verteilen weiter; eigentümer- und anteilsbezogen, kein pauschaler Vollabzug der gemeinschaftlichen Restsumme beim Ausscheidenden; vorübergehender Leerstand beendet die Verteilung nicht. DE stimmt. **Nicht beantwortet:** der Verkauf nur eines Teils des eigenen Anteils (der Bericht verweist dafür auf eine gesonderte Bestätigung).
