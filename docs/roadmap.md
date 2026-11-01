@@ -115,7 +115,7 @@ Scope: Werbungskosten classification, acquisition-cost classification, umlagefä
 
 **Exit:** a tax-year view derives Einkünfte aus Vermietung und Verpachtung from classified cash + AfA, every figure traceable, no cash mutated.
 
-**Status:** met for the classified cash on the PropertyReference by ACC7 (`phase-7-acceptance.e2e.test.ts`, invariant-suite §45); interest booked via a Loan is in the figures through the Loan's allocation set valid on its booking date since VC-X-29 (api-design §58D), and flagged `LOAN_INTEREST_NOT_ATTRIBUTED` only where no usable set covers that date; the AfA figure follows with Phase 8 (P7-D8, ACC8).
+**Status:** met for the classified cash on the PropertyReference by ACC7 (`phase-7-acceptance.e2e.test.ts`, invariant-suite §45); interest booked via a Loan is in the figures through the Loan's allocation set valid on its booking date since VC-X-29 (api-design §58D), and flagged `LOAN_INTEREST_NOT_ATTRIBUTED` only where no usable set covers that date; the AfA figure is delivered by Phase 8 (P7-D8; ACC8, invariant-suite §51), as a provisional preview while productive recording is disabled: a year with AfA is not final until recording is enabled (api-design §60 "Turning it on").
 
 ## Phase 8 — Depreciation (AfA)
 
@@ -127,7 +127,7 @@ Scope: AfA schedules from acquisition + land/building allocation; version-aware 
 
 **Exit:** an AfA schedule is reproducible from acquisition truth, stored as derivation (not cash), and feeds the tax-year view.
 
-**Status:** planning — decisions P8-D1…D14 and items VC-8-01…06 in `docs/development/phase-8-plan.md` (backlog §3g); its VERIFY points (plan §3) go to the tax advisor before the rule parameters are specified.
+**Status:** implemented; productive recording disabled pending the tax advisor's answers (VC-X-35 + owner decision). VC-8-01…06 (backlog §3g, `docs/development/phase-8-plan.md`) are implemented and the exit is shown end to end by ACC8 (`phase-8-acceptance.e2e.test.ts`, invariant-suite §51), with the recording switch on in test wiring only. `DEPRECIATION_RECORDING_ENABLED` ships off; turning it on needs the tax advisor's answers to the VERIFY points (plan §3), the open tests of VC-X-35 and a documented owner decision (api-design §60 "Turning it on"). Until then the productive AfA is a provisional preview, no year with AfA is final, and "stored as derivation" holds in production only from that enablement: Phase 8 is not marked done.
 
 ## Phase 9 — Investment analytics & scenarios + Reporting
 

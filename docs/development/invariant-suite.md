@@ -26,6 +26,7 @@ Paths are relative to `services/de-backend/src/`. Abbreviations:
 | **ACC5** | `phase-5-acceptance.e2e.test.ts` (Phase-5 exit through the API, VC-5-05) |
 | **ACC6** | `phase-6-acceptance.e2e.test.ts` (Phase-6 exit through the API, VC-6-06) |
 | **ACC7** | `phase-7-acceptance.e2e.test.ts` (Phase-7 exit through the API, VC-7-05) |
+| **ACC8** | `phase-8-acceptance.e2e.test.ts` (Phase-8 exit through the API, VC-8-06); setup in `phase-8-acceptance.test-support.ts` |
 | **LN / LR / LA** | the Loan's domain, repository and API tests (VC-3-01, §16) |
 | **TM / TR2 / TA** | the Loan terms' domain, repository and API tests (VC-3-02, §17) |
 
@@ -932,7 +933,7 @@ The exit of `docs/roadmap.md` Phase 7: *a tax-year view derives Einkünfte aus V
 
 **Not expressible through the API, and how ACC7 stands in:**
 - **Interest of a `Loan` in the figures.** A split with a `loanId` carries no PropertyReference (0027: a Loan reaches its properties through its allocation, §41.3). Since VC-X-29 (api-design §58D) the view attributes it through the Loan's set valid on its booking date, and ACC7 shows it with a debit of a Loan allocated `MANUAL` `1/1`; the debit of a second Loan before its first set shows the narrowed flag `LOAN_INTEREST_NOT_ATTRIBUTED`. Two properties of one set, `PURCHASE_PRICE` sets and the example of §58D are shown below the API in `TLR` and end to end in `TLE` (§44); ACC7 has one unit.
-- **The AfA figure** is Phase 8's (P7-D8, ACC8): ACC7 asserts the block `DEPRECIATION_NOT_AVAILABLE` and the result `BEFORE_DEPRECIATION`.
+- **The AfA figure** is Phase 8's (P7-D8, ACC8): ACC7 asserts the block `DEPRECIATION_NOT_AVAILABLE` and the result `BEFORE_DEPRECIATION`; ACC8 (§51) shows the AfA in the view.
 - **A deposit received on the PropertyReference.** A split naming a deposit carries no PropertyReference (0038), so "principal or a deposit counted" is shown by the deposit's absence from every view and the refusal of its classification, not by a `notInView` entry.
 
 ## 46. Recorded depreciation schedule versions (VC-8-04, api-design §60; recording disabled by default)
@@ -967,6 +968,121 @@ The exit of `docs/roadmap.md` Phase 7: *a tax-year view derives Einkünfte aus V
 | **No AfA as cash:** an AfA item has no Transaction, split or direction; a capitalised item's amount is in `capitalized` (never summed) and its AfA in exactly one AfA line; "no cash mutated" holds over the cash tables, the depreciation tables and 0052's; a write inside the view's transaction is refused (`25006`) | TD "both present and empty …", "capitalized names its component …"; TDR "no cash mutated …"; TDE "no cash mutated …" |
 | **The cap counts the AfA components** (5,000 → the view, 5,001 → `TAX_YEAR_TOO_LARGE`) | TD "the cap counts the AfA components …"; TDR "the cap counts the AfA components …" |
 | **Realm isolation:** another Realm's asset, version, capitalised source or Ownership never reaches the AfA lines, the gaps or the flags | TDR "Realm: …"; TDE "… Realm isolation of the AfA" |
+
+## 48. The building as a `DepreciationAsset` and its rule (VC-8-01, api-design §59)
+
+`AS` = `domains/depreciation/asset.test.ts`, `RT` = `domains/depreciation/rate.test.ts`, `DAR` = `infrastructure/postgres/depreciation-asset-repository.test.ts`, `DAS` = `infrastructure/postgres/depreciation-asset-schema.test.ts`, `DAA` = `api/depreciation-assets.test.ts`, `DAE` = `depreciation-asset.e2e.test.ts`. (Numbered after §46–§47: VC-8-04 and VC-8-05 took their sections first; phase-8-plan's "§46–§50" is §46–§51.)
+
+| Invariant | Tests |
+|---|---|
+| **Facts, never figures:** the asset stores its completion year and sources, never a basis, rate, start or amount; such fields are unknown keys | DAS "the table has no basis, rate, start or amount column …"; DAA "not input: a basis, a rate, a start …" |
+| One `ACTIVE` building per PropertyReference (a new one after a void); two creates serialise on the PropertyReference row | DAS "a second ACTIVE building …"; DAR "two creates for one PropertyReference, RC …", "… RR …" |
+| The band by completion year at each boundary (1924/1925, 2022/2023), from the rule passed in, never a constant; the rate version by the tax year (2006–2022 `@1`, from 2023 `@2`, none before 2006) | RT "at each boundary and at the outer ends …", "the bands cover 1000–2100 once each …", "selection by the tax year computed …", "the bands and thresholds come from the rule passed in …"; ACC8 (1995 → 2 %, mutation "band boundary moved": RT red, ACC8 green as the plan expects) |
+| A completion year is never guessed (`COMPLETION_YEAR_MISSING`, band `null`); an amended fact resets the review state; a shorter useful life only below the band's threshold, used only once confirmed | RT "a completion year is never guessed …", "shortness at each threshold …", "an unconfirmed shorter life is never used …"; AS "a changed completion year resets the asset to UNREVIEWED …" |
+| The order of checks and Realm isolation on every §59 route (another Realm's asset, PropertyReference, Party or Acquisition is `404`) | DAR "order of checks …"; DAS "a foreign PropertyReference, advisor or Acquisition (composite keys) is 23503 …"; DAE "Realm isolation: …"; ACC8 (every Phase-8 route) |
+| No cash mutated by any asset command | DAR "no cash mutated: …"; ACC8 (the cash rows around every Phase-8 command) |
+
+## 49. The schedule of the purchase (VC-8-02, api-design §59A)
+
+`SC` = `domains/depreciation/schedule.test.ts`, `ST` = `domains/depreciation/schedule-tenure.test.ts`, `SRU` = `domains/depreciation/schedule-rules.test.ts`, `BC` = `domains/acquisition/building-cost.test.ts`, `DSS` = `infrastructure/postgres/depreciation-schedule-source.test.ts`, `DSA` = `api/depreciation-schedule.test.ts`, `DSE` = `depreciation-schedule.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| **The basis from acquisition truth, one function:** (price + counted costs) × building / total allocable, half-up once; land and `FINANCING_RELATED` never in it; only a confirmed allocation feeds it; it equals the anschaffungsnahe check's basis | BC "ACC8: (300,000.00 + 18,000.00) × 254,400.00 / 318,000.00 …"; SC "counter-check: land is never in the basis …"; DSS "the schedule’s basis equals the anschaffungsnahe check’s basis …", "only the current allocation feeds the basis …"; DSE "the response example …"; ACC8 (mutations "building ratio dropped", "`FINANCING_RELATED` counted") |
+| **The first year by the transfer month:** 6/12 from July, 1/12 for 31 December, nothing in 2026 for 1 January; never from the contract date (`TRANSFER_DATE_MISSING`) | SC "January 12/12, April 9/12, July 6/12, December 1/12 …", "a transfer on 2027-01-01 …", "counter-check: the contract date is never the start …"; DSE "the variants …"; ACC8 (mutations "first year 5/12 or 7/12") |
+| **Never more than the basis:** the cumulative AfA reaches the basis exactly at the end and nothing after; a shorter life past its end takes nothing | SC "600, 480 and 400 months …", "a shorter life past its end takes nothing …", "property: random bases …" (mutation "cap removed": SC red; ACC8 green, its building runs to 2076) |
+| **Per Acquisition among its buyers, owners = the property to the cent:** the basis split by largest remainder, each part's year rounded once, cumulatively, half-up | SC "largest remainder on an odd cent …", "property: random shares …", "mutation guard: a buyer of a later purchase never depreciates the seller’s basis …"; ACC8 (the odd-cent item, A + B = the property every year) |
+| **Nothing estimated:** a missing figure is `null` with its reason, never 0.00 (`ALLOCATION_NOT_CONFIRMED`, `DISPOSAL_DATE_MISSING`, a second Acquisition not confirmed → `PARTIAL`) | SRU "counter-check: every NOT_CALCULABLE year has amount null …", "a second Acquisition with an unconfirmed allocation makes the years PARTIAL …"; ST "DISPOSAL_DATE_MISSING …"; DSE; ACC8 variants |
+| **The disposal year as decided (2026-10-31):** pro rata up to the buyer's economic transfer, `PROVISIONAL` with `DISPOSAL_YEAR_TO_VERIFY`; the buyer's own component from their Acquisition | ST "B sells to C on 2029-07-01 …"; DSE "B sells to C …"; ACC8 variant (B 1,017.60, C 880.00) |
+| Derived on read in one snapshot, read-only, Realm-scoped | DSS "one snapshot …", "no cash mutated …", "Realm isolation …", "another Realm’s Acquisition, cost, allocation and Ownership …"; DSA "the asset unknown or of another Realm → 404 …" |
+
+## 50. Capitalised costs and separate assets (VC-8-03, api-design §59B)
+
+`SI` = `domains/depreciation/schedule-items.test.ts`, `SIO` = `domains/depreciation/schedule-items-owners.test.ts`, `SSA` = `domains/depreciation/schedule-separate-asset.test.ts`, `DSP` = `infrastructure/postgres/depreciation-separate-asset.test.ts`, `CI` = `infrastructure/postgres/capitalized-items.test.ts`, `DIE` = `depreciation-items.e2e.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| **Only the user's `CAPITALIZED` moves the basis:** the check's suggestion moves nothing; `NEEDS_REVIEW` is listed, not computed | SI "before the user capitalises (the sources DEDUCTIBLE): no item component …"; SIO "ITEM_CLASSIFICATION_NEEDS_REVIEW …"; DSP "a NEEDS_REVIEW capitalised item is listed, not computed …"; DIE; ACC8 (mutation "a suggested `CAPITALIZED` counted") |
+| **Gross, never the net amount; at the owner's purchase rate (B11); `START_OF_YEAR` (provisional) with the open `SUBSEQUENT_COST_START_TO_VERIFY`** | SI "START_OF_YEAR: 714.00 …", "the net amount is never the basis …", "SUBSEQUENT_COST_START_TO_VERIFY: an open flag …"; ACC8 (35,700.00 gross; 2027 and 2028 open by that flag alone) |
+| **Never counted twice:** a capitalised source is in `capitalized`, in no Werbungskosten line, and in exactly one asset (the building or one separate asset) | SSA "every capitalised item is a component of exactly one asset …", "a linked item leaves the building’s basis …"; DSP "an item in two ACTIVE assets is refused (23505) …"; DIE; ACC8 (every year 2026–2031 at both levels; mutation "a capitalised item left in the Werbungskosten as well") |
+| Owners + `NOT_OWNED` = the component = the property; a refund lowers the basis, never below zero | SIO "owners + NOT_OWNED = the component = the property …" (random), "REFUND_EXCEEDS_CAPITALIZED …"; SI "a refund takes no overflow …" |
+| A separate asset runs from the month of `acquiredOn` under its own rule (`DE_AFA_MOVABLE_LINEAR@1`), not computable before 2023 | SSA "ACC8’s Einbauküche: 2027 450.00 …", "the month of acquiredOn, never the item’s date …", "NO_APPLICABLE_RULE for acquiredOn in 2022 …"; ACC8 (450.00, 600.00) |
+| Realm isolation of the sources | CI "another Realm’s Ownership on the same PropertyReference takes no part"; DSP "a link to … another Realm’s source … is refused"; DIE "… Realm isolation …"; ACC8 (a separate asset naming Realm A's split from Realm B is `404`) |
+
+## 51. Phase 8 exit (VC-8-06, roadmap Phase 8; implemented, productive recording disabled)
+
+The exit of `docs/roadmap.md` Phase 8: *an AfA schedule is reproducible from acquisition truth, stored as derivation (not cash), and feeds the tax-year view.* With it the AfA figure of Phase 7's exit (P7-D8, §45). Each claim is shown **end to end through the HTTP API** by **ACC8** (`phase-8-acceptance.e2e.test.ts`, setup in `phase-8-acceptance.test-support.ts`), one scenario against PostgreSQL and the fake MRE, backed by §46–§50. The figures are invented and hand-computed here, so the test checks them literally. Every write goes through the API; a settable clock stands in for today.
+
+**The switch.** Two servers share the database: one built as shipped (`DEPRECIATION_RECORDING_ENABLED` off) and one whose record use case is built with the switch on, as api-design §60 "Tests while it is off, and with it on" prescribes (no environment variable is set). Every version of ACC8 is recorded through the second; productively, nothing can be recorded until the switch is turned on (§60 "Turning it on"), so in production the AfA is a provisional preview and no year with AfA is final.
+
+**The scenario (Realm A):** a unit linked from MRE; an Acquisition W (price 300,000.00; transfer tax 15,000.00, notary 2,000.00, land registry 1,000.00, `FINANCING_RELATED` 1,200.00; contract 2026-05-20, transfer **2026-07-01**; confirmed allocation 318,000.00 = land 63,600.00 + building 254,400.00) bought by A `3/5` and B `2/5` from 2026-07-01; a WEG membership (MEA 125/1000); the building, completed 1995, confirmed. Cash July–December 2026: rent 1,100.00 and advances 250.00 on the 15th, Hausgeld 210.00 on the 5th, classified by the user.
+
+| Source | Date | Amount | Classification | AfA |
+|---|---|---|---|---|
+| Repair R | 2027-03-10 | 35,700.00 (net 30,000.00) | `MAINTENANCE`/`DEDUCTIBLE`, then `CAPITALIZED` on the check | 2 % of 35,700.00 = 714.00 a year from 2027 (A 428.40, B 285.60) |
+| Einbauküche K | 2027-04-28 (acquired 2027-04-20) | 6,000.00 | `OTHER_EXPENSE`/`CAPITALIZED`, linked to a separate asset (10 years) | 600.00 a year; 2027 9/12 = 450.00 (A 270.00, B 180.00) |
+| Item O | 2027-12-30 | 1,234.56 | `MAINTENANCE`/`CAPITALIZED` (not on the check) | see the odd cent below |
+| Sonderumlage use U | 2028-02-15 | 9,000.00 | `WEG_SPENDING`/`DEDUCTIBLE`, then `CAPITALIZED` on the check | 180.00 a year from 2028 (A 108.00, B 72.00) |
+| Extension E | 2030-09-15 | 12,000.00 | `MAINTENANCE`/`CAPITALIZED` (after the window) | 240.00 a year from 2030 (A 144.00, B 96.00) |
+
+**The odd cent (O):** the parts by largest remainder: 1,234.56 × 3/5 = 740.736 and × 2/5 = 493.824, floors 740.73 + 493.82 = 1,234.55, the cent to the larger remainder: A 740.74, B 493.82. At 2 % a year, each part rounded cumulatively half-up: A 14.81484 → cumulative 14.81, 29.63, 44.44, 59.26, 74.07 → 14.81, 14.82, 14.81, 14.82, 14.81 (2027–2031); B 9.8764 → 9.88, 19.75, 29.63, 39.51, 49.38 → 9.88, 9.87, 9.88, 9.88, 9.87; the property the sum of its parts: 24.69, 24.69, 24.69, 24.70, 24.68.
+
+**The building's AfA per year** (purchase 5,088.00 = A 3,052.80 + B 2,035.20; 2026 6/12):
+
+| Year | Property | A | B | Arithmetic |
+|---|---|---|---|---|
+| 2026 | 2,544.00 | 1,526.40 | 1,017.60 | 254,400.00 × 2 % × 6/12 |
+| 2027 | 5,826.69 | 3,496.01 | 2,330.68 | 5,088.00 + 714.00 + 24.69 (A 3,052.80 + 428.40 + 14.81) |
+| 2028 | 6,006.69 | 3,604.02 | 2,402.67 | + 180.00, O 24.69 (A + 108.00, O 14.82) |
+| 2029 | 6,006.69 | 3,604.01 | 2,402.68 | O 14.81 / 9.88 |
+| 2030 | 6,246.70 | 3,748.02 | 2,498.68 | + 240.00, O 24.70 |
+| 2031 | 6,246.68 | 3,748.01 | 2,498.67 | O 24.68 |
+
+Before R and U are capitalised, 2027 and 2028 are 5,112.69 (5,088.00 + 24.69; A 3,067.61 / 3,067.62, B 2,045.08 / 2,045.07).
+
+| Exit claim | ACC8 step | Backed by |
+|---|---|---|
+| **Reproducible from acquisition truth** | The schedule of W: basis 254,400.00 = (300,000.00 + 18,000.00) × 254,400.00 / 318,000.00, `excludedCosts` `FINANCING_RELATED` 1,200.00, the land in no component, rate `1/50`, start 2026-07 (6 months), owners' bases 152,640.00 and 101,760.00; 2026 2,544.00 (1,526.40, 1,017.60), 2027 5,088.00 (3,052.80, 2,035.20); the check's basis is the same 254,400.00; the shipped default reads the same years (`recordingEnabled` false vs true) | §49 |
+| **… with later costs and a separate asset** | R and U capitalised: components R 35,700.00 from 2027-01 (714.00), O 1,234.56 from 2027-01 (24.69), U 9,000.00 from 2028-01 (180.00); E 12,000.00 from 2030-01 (240.00); the figures of the table; K under `DE_AFA_MOVABLE_LINEAR@1` (`1/10`, 2027-04, 450.00 / 600.00) and in the building's `excludedItems` | §50 |
+| **Stored as derivation (not cash)** | Version 1 through 2026 (2027-02-15), version 2 through 2027 (2028-01-20: 2,544.00, 5,112.69); after R and U, 2027 `DEPRECIATION_CHANGED_SINCE_RECORDED` (recorded 5,112.69, derived 5,826.69, R `ADDED` 714.00), the line showing the derived figure; a record not naming 2027 `409 RECORDED_YEARS_WOULD_CHANGE`; version 3 through 2028 naming 2027 (2029-10-15), K's version 1 through 2028; version 3 read back through the shipped default `reproducible: true`, every year `UNCHANGED`, its years equal to the schedule's at both levels; the list 3 `CURRENT`, 2 and 1 `SUPERSEDED`; the start check resolves `DE_AFA_BUILDING_LINEAR@2` and `DE_AFA_MOVABLE_LINEAR@1` with their hashes | §46 |
+| **The shipped default** | With the switch off the record is `409 RECORDING_NOT_ENABLED`, the version list stays empty, and 2026 is not final (`DEPRECIATION_SCHEDULE_NOT_RECORDED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL`); the view is the same through both servers | §46, §47 |
+| **Feeds the tax-year view** | **2026:** Einnahmen 8,100.00 (6 × 1,100.00 + 6 × 250.00), Werbungskosten 3,804.00 (`WEG_HAUSGELD` 1,260.00 + `AFA_BUILDING` 2,544.00), result 4,296.00 `SURPLUS` `AFTER_DEPRECIATION` = 6,840.00 − 2,544.00; A 4,860.00 − 2,282.40 (756.00 + 1,526.40) = 2,577.60, B 3,240.00 − 1,521.60 = 1,718.40. After version 1: only `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` open. After the window (and version 3): **2026 final** (no flag, nothing open) at both levels. **2027** after capitalising: `MAINTENANCE` 0.00, `AFA_BUILDING` 5,826.69, `AFA_SEPARATE_ASSETS` 450.00, `capitalized` 42,934.56 (35,700.00 + 6,000.00 + 1,234.56), result −6,276.69 `LOSS`; **2028:** `WEG_SPENDING` 0.00, 6,006.69 and 600.00, `capitalized` 9,000.00; 2027 and 2028 stay open by `SUBSEQUENT_COST_START_TO_VERIFY` alone (counts 2 and 3: R, O, and U), as the VERIFY proposal intends (§58C "Pointers for VC-8-06") | §47 |
+| **Every figure traceable** | Every year 2026–2031 at both levels: each AfA line the sum of its items and `itemCount` their number, each item naming asset, component, basis, rate, start, months and a rule listed in `ruleVersions`, no `sourceId` or direction; `AFA_BUILDING` and `AFA_SEPARATE_ASSETS` equal the schedules' year, per owner the schedules' owner parts | §47 |
+| **Per owner** | Every year 2026–2031: A + B = the property for every Einnahmen and Werbungskosten line (both AfA lines included), both totals, `capitalized` and the result, to the cent; `notOwned` null; the owner views' result and AfA equal their `owners` entries | §47, §49 |
+| **The anschaffungsnahe check crossing 15 %** | Threshold 38,160.00 (15 % of 254,400.00); R `DEDUCTIBLE` 30,000.00 net: `NOT_ABOVE_THRESHOLD` (O, `CAPITALIZED` not on the check, is not summed); U `DEDUCTIBLE` 9,000.00: 39,000.00 `ABOVE_THRESHOLD`, `affectedYears` [2027, 2028], both sources `suggestedTreatment` `CAPITALIZED`; the check `final` after 2029-07-01 and its strip | §43, §50 |
+| **A year with interest via a Loan** | A Loan (allocated `MANUAL` `1/1` from 2026-10-01) with a 120.00 interest debit on 2026-09-20: 2026 not final again, `LOAN_INTEREST_NOT_ATTRIBUTED` its only flag, the AfA still 2,544.00 `UNCHANGED` | §44, §47 |
+| **Variants** | Transfer 2026-12-31: 1/12 = 424.00 (254.40, 169.60), one month in the view; transfer 2027-01-01: 2026 0.00, 2027 5,088.00 from 2027-01; no confirmed allocation: `DEPRECIATION_NOT_AVAILABLE`, `AFA_BUILDING` 0.00 with no item, amount `null`, `BEFORE_DEPRECIATION`, gap `ALLOCATION_NOT_CONFIRMED`; two Acquisitions of 3/5 (building 144,000.00) and 2/5 (allocation unreviewed): 2027 `PARTIAL_DEPRECIATION`, `AFA_BUILDING` 2,880.00 (A 2,880.00, B 0.00), the gap naming X and B; B sells to C effective 2029-07-01 (§26.2): B's 2029 1,017.60 `PROVISIONAL` `DISPOSAL_YEAR_TO_VERIFY`, C's own component (building 88,000.00) from 2029-07: 880.00, then 1,760.00; 2029 4,950.40 (3,052.80 + 1,017.60 + 880.00), 2030 4,812.80 | §49 |
+| **Realm isolation** across Phase 8 | Realm B calls **every route of §59–§60** with Realm A's ids, one or more rows each in a table ACC8 compares with the routes the app serves (a new route without a row turns ACC8 red): the creates (a building on A's PropertyReference, a separate asset naming A's split), the read (with and without `?year`), the per-property list, amend, confirm, void, the schedule (with `ownerPartyId`), the record (through the server with the switch on), the version list and read: each `404 NOT_FOUND`; every row of §58C's tables (the depreciation tables and 0052's included) and the AuditRecord count unchanged after each | §46, §48 |
+
+**Counter-checks** within ACC8 (phase-8-plan §2 "ACC8"):
+- **AfA as cash:** every row and version of `ledger_transaction` and `transaction_split` is the same after every Phase-8 command (the asset creates and confirm, the records, the schedule reads); no AfA item names a split or a direction;
+- **land in the basis:** the basis is 254,400.00, not 318,000.00 (the schedule and the check);
+- **a source counted twice:** R, O, K, U and E are in no Werbungskosten line of any year 2026–2031 at either level;
+- **a suggestion moving money:** above 15 % and before the user capitalises, the schedule of 2027–2028 is unchanged (5,112.69), R stays on `MAINTENANCE` (35,700.00, `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`) and U on `WEG_SPENDING` (9,000.00), neither year final;
+- **a recorded version changed:** a direct `UPDATE` and a `DELETE` of version 3's entries are refused by the schema (`23000`);
+- **a figure without its components:** the traceability step above.
+
+**Mutations** that turn ACC8 red (each applied alone, ACC8 run, the code restored; run on VC-8-06's branch):
+
+| Mutation | Result |
+|---|---|
+| the first-year rule off by one month: the start month not counted (5/12; 0/12 for 31 December), or one month early (7/12; 2/12) | ACC8 red (the schedule of W) |
+| the band boundary at 2023 made inclusive of 2022; the 1925 boundary moved to 1926 | RT red; ACC8 green, as the plan expects (1995 keeps 2 %) |
+| the building ratio dropped (land in the basis) | ACC8 red |
+| `FINANCING_RELATED` counted | ACC8 red |
+| a suggested `CAPITALIZED` counted in the basis (a `DEDUCTIBLE` `MAINTENANCE` source read and computed as capitalised) | ACC8 red (version 2 of 2027) |
+| a capitalised item left in the Werbungskosten as well | ACC8 red (`MAINTENANCE` of 2027) |
+| the owners' parts floored with the rest dropped (`largestRemainder` keeps the floors) | ACC8 red (A + B ≠ the property in 2027: 42,934.55 against 42,934.56) |
+| the cap at the basis removed (the walk past full depreciation) | SC red; ACC8 green, as the plan expects (the building runs to 2076) |
+| `result.basis` left at `BEFORE_DEPRECIATION`; the AfA not subtracted from the result | ACC8 red, each |
+| a recorded version overwritten in place (0052's append-only guard letting an `UPDATE` through) | ACC8 red (the counter-check) |
+| the Realm filter dropped from the asset read | ACC8 red (Realm B reads Realm A's asset) |
+
+**Not shown by ACC8, and where it is:**
+- **The productive enablement.** Turning the switch on is an operator's act after the tax advisor's answers, the open tests of VC-X-35 and a documented owner decision (api-design §60 "Turning it on"); ACC8 records through test wiring only. Until then "stored as derivation" holds in tests, not in production: the productive AfA is a provisional preview and no year with AfA is final.
+- **2027 final after recording** (the plan's sketch) needs `SUBSEQUENT_COST_START_TO_VERIFY` verified before the freeze (§59B open question 1, §60 open question 5); ACC8 asserts 2026 final and 2027, 2028 open by that flag alone.
+- **The start `MONTH_OF_DATE`** (595.00 and 165.00) and the pooled end are shown in SI with test registries, not in ACC8, which runs the decided `START_OF_YEAR`.
+- **An existing owner's additional share** (VC-X-30, §28.1A) is shown in DSE and `phase-2-ownership-change.e2e.test.ts`, the cap counting the AfA components in TD and TDR (§47).
 
 ## Keeping this current
 
