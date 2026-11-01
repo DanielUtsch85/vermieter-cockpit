@@ -71,6 +71,25 @@ describe('the record command’s order of checks (§60, steps 3–9)', () => {
     }
   });
 
+  it('4. a component without a start (no economicTransferDate, VC-X-35 finding): SCHEDULE_NOT_COMPLETE, named, even when every year of the run has a figure', () => {
+    const later = acquisition({ id: '0000ffff-0000-4000-8000-0000000000c9', contractDate: day('2029-03-01'), economicTransferDate: null, sellerPartyIds: [A] });
+    const undated = { ...base, acquisitions: [acquisition(), later] };
+    const refused = plan(undated, null, request(undated, 2028));
+    expect(refused).toMatchObject({
+      kind: 'REFUSED',
+      refusal: {
+        kind: 'SCHEDULE_NOT_COMPLETE',
+        details: {
+          reasons: [],
+          years: [],
+          components: [{ componentId: `ACQUISITION:${later.id}`, reasons: expect.arrayContaining(['TRANSFER_DATE_MISSING']) }],
+        },
+      },
+    });
+    // Without it the same run records, with no component listed.
+    expect(plan(base, null, request(base, 2028)).kind).toBe('RECORD');
+  });
+
   it('5. nothing active up to throughYear: NOTHING_TO_RECORD with the first year (null without a component)', () => {
     expect(plan(base, null, request(base, 2025))).toMatchObject({
       kind: 'REFUSED',
