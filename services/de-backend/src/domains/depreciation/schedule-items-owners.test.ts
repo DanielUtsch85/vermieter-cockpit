@@ -180,7 +180,8 @@ describe('per owner (§59B "Per owner"; §58C’s parts)', () => {
     );
     const c = item(s);
     expect([2029, 2030, 2031].map((y) => amount(owner(yearOf(c, y), A)?.amount))).toEqual(['90.00', '60.00', '60.00']);
-    expect(codes(owner(yearOf(c, 2029), A)?.flags ?? [])).toEqual(['DISPOSAL_YEAR_TO_VERIFY', 'OWNER_SHARE_CHANGED']);
+    // The disposal year confirmed (Prüfbericht 01.11.2026, Frage 4): DISPOSAL_YEAR_TO_VERIFY no longer appears.
+    expect(codes(owner(yearOf(c, 2029), A)?.flags ?? [])).toEqual(['OWNER_SHARE_CHANGED']);
   });
 
   it('owners + NOT_OWNED = the component = the property, and every part at most its basis (random shares, items, refunds, sales)', () => {

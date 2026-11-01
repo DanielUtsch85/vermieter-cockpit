@@ -358,7 +358,8 @@ describe('architecture rules (fixtures)', () => {
 /**
  * Specifiers of the imports and re-exports that bind a value at run time. A binding written `type X`, and
  * `import type` / `export type`, are left out: they carry no value, so a cycle through them cannot leave a module
- * reading another one before it is initialised.
+ * reading another one before it is initialised. A dynamic `import()` is deliberately not counted: it does not run at
+ * load time, so it cannot take part in such an initialisation cycle.
  */
 function valueImportSpecifiers(source: string): string[] {
   const file = ts.createSourceFile('probe.ts', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);

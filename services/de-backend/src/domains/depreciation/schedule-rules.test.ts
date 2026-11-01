@@ -88,23 +88,51 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
     expect(component(derive(sole({ contractDate: day('2006-01-01'), economicTransferDate: day('2006-01-01') }))).status).toBe('COMPUTABLE');
   });
 
-  it('a start in 2020: 2020–2022 with @1 (HISTORICAL_RULE_TO_VERIFY, PROVISIONAL), from 2023 @2 (CALCULATED), the same rate, no break', () => {
+  it('a start in 2020: 2020–2022 with @1, from 2023 @2, the same rate, no break; @1’s rates confirmed, so CALCULATED throughout', () => {
     const s = derive(sole({ contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') }, {}, { from: 2020, to: 2024 }));
     const c = component(s);
+    // Prüfbericht 01.11.2026, Frage 1 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01):
+    // HISTORICAL_RULE_TO_VERIFY no longer rests on a year computed with @1's rates.
     expect(c.years.map((y) => [y.year, y.rule?.version, y.rule?.band, amount(y.amount), y.calculationStatus, codes(ownerIn(y, A)?.flags ?? [])])).toEqual([
-      [2020, 1, 'A', '3816.00', 'PROVISIONAL', ['HISTORICAL_RULE_TO_VERIFY']],
-      [2021, 1, 'A', '5088.00', 'PROVISIONAL', ['HISTORICAL_RULE_TO_VERIFY']],
-      [2022, 1, 'A', '5088.00', 'PROVISIONAL', ['HISTORICAL_RULE_TO_VERIFY']],
+      [2020, 1, 'A', '3816.00', 'CALCULATED', []],
+      [2021, 1, 'A', '5088.00', 'CALCULATED', []],
+      [2022, 1, 'A', '5088.00', 'CALCULATED', []],
       [2023, 2, 'B', '5088.00', 'CALCULATED', []],
       [2024, 2, 'B', '5088.00', 'CALCULATED', []],
     ]);
     expect(amount(yearOf(c, 2023).cumulative)).toBe('19080.00');
-    expect(ownerIn(yearOf(c, 2020), A)?.flags[0]).toEqual({ code: 'HISTORICAL_RULE_TO_VERIFY', details: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 } });
     expect(s.ruleVersions.map((v) => [v.version, v.status, v.years])).toEqual([
       [1, 'SUPERSEDED', [2020, 2021, 2022]],
       [2, 'ACTIVE', [2023, 2024]],
     ]);
-    expect(s.review.open).toEqual([{ code: 'HISTORICAL_RULE_TO_VERIFY', count: 3 }]);
+    expect(s.review.open).toEqual([]);
+    // The same start with @1's rates unverified again: the flag on each of 2020–2022, as before the review.
+    const v1 = DE_AFA_BUILDING_LINEAR_V1.parameters;
+    const unverified = new RuleRegistry([
+      { ...DE_AFA_BUILDING_LINEAR_V1, parameters: { ...v1, verified: { ...v1.verified, rates: false } } },
+      DE_AFA_BUILDING_LINEAR_V2,
+    ]);
+    const before = derive(sole({ contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') }, {}, { from: 2020, to: 2024 }), unverified);
+    expect(ownerIn(yearOf(component(before), 2020), A)?.flags[0]).toEqual({
+      code: 'HISTORICAL_RULE_TO_VERIFY',
+      details: { ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 },
+    });
+    expect(before.review.open).toEqual([{ code: 'HISTORICAL_RULE_TO_VERIFY', count: 3 }]);
+  });
+
+  it('a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY: Frage 8 confirms the thresholds in the current lettering, not expressly for 2006–2022', () => {
+    const s = derive(
+      sole(
+        { contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') },
+        { shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-04-01') } })] },
+        { from: 2022, to: 2023 },
+      ),
+    );
+    const c = component(s);
+    expect(c.years.map((y) => [y.year, y.rule?.version, y.calculationStatus, codes(ownerIn(y, A)?.flags ?? [])])).toEqual([
+      [2022, 1, 'PROVISIONAL', ['HISTORICAL_RULE_TO_VERIFY']],
+      [2023, 2, 'CALCULATED', []],
+    ]);
   });
 
   it('a building completed in 1920, bought in 2010: 2.5 % in both versions (band B in @1, C in @2)', () => {
@@ -182,7 +210,7 @@ describe('calculationStatus (decided 2026-10-31): never 0.00 for a missing figur
     expect(component(calculated).years.map((y) => y.calculationStatus)).toEqual(['CALCULATED', 'CALCULATED']);
     const provisional = derive(
       acc8(),
-      withParameters((p) => ({ ...p, verified: false })),
+      withParameters((p) => ({ ...p, verified: { ...p.verified, rates: false } })),
     );
     expect(component(provisional).years.map((y) => y.calculationStatus)).toEqual(['PROVISIONAL', 'PROVISIONAL']);
     // Without economicTransferDate it is no longer provisional (TRANSFER_DATE_ASSUMED withdrawn) but not calculable.
@@ -296,9 +324,9 @@ describe("the rule's parameters come from the registry (AGENTS.md §16)", () => 
     expect([amount(at2024.basis.amount), at2024.start?.firstYearMonths, yearOf(at2024, 2024).months]).toEqual(['254400.00', 9, 9]);
   });
 
-  it('HISTORICAL_RULE_TO_VERIFY disappears with a test registry that marks @1 verified', () => {
+  it('HISTORICAL_RULE_TO_VERIFY disappears with a test registry that marks @1 verified in full (rates and thresholds)', () => {
     const verified = new RuleRegistry([
-      { ...DE_AFA_BUILDING_LINEAR_V1, parameters: { ...DE_AFA_BUILDING_LINEAR_V1.parameters, verified: true } },
+      { ...DE_AFA_BUILDING_LINEAR_V1, parameters: { ...DE_AFA_BUILDING_LINEAR_V1.parameters, verified: { rates: true, shorterUsefulLifeThresholds: true } } },
       DE_AFA_BUILDING_LINEAR_V2,
     ]);
     const c = component(derive(sole({ contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') }, {}, { from: 2020, to: 2020 }), verified));

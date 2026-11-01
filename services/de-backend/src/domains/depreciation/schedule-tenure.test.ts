@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Money, RuleRegistry } from '../../shared/index.js';
-import type { DepreciationSchedule } from './schedule.js';
+import type { DepreciationSchedule, ScheduleAcquisition } from './schedule.js';
 import { A, B, C, D, W, X, Y, acc8, acquisition, day, ownership } from './schedule.test-support.js';
 import { amount, codes, component, derive, exactBasis, ownerIn, registry, withParameters, yearOf } from './schedule-purchase.test-support.js';
 
@@ -35,17 +35,14 @@ describe('the tenure, a reduced share, the end (P8-D8, P8-D9)', () => {
     );
   };
 
-  it('B sells to C on 2029-07-01: B’s 2029 is 6/12 = 1,017.60, PROVISIONAL with DISPOSAL_YEAR_TO_VERIFY; C’s component from July', () => {
+  it('B sells to C on 2029-07-01: B’s 2029 is 6/12 = 1,017.60, CALCULATED (the disposal year confirmed); C’s component from July', () => {
     const s = sale('2029-07-01', true);
     const w = component(s, 0);
     const b2029 = ownerIn(yearOf(w, 2029), B);
-    expect([b2029?.months, amount(b2029?.amount), b2029?.calculationStatus]).toEqual([6, '1017.60', 'PROVISIONAL']);
-    expect(b2029?.flags).toEqual([
-      {
-        code: 'DISPOSAL_YEAR_TO_VERIFY',
-        details: { lastDay: '2029-06-30', months: 6, endMonthCounts: true, legalBasis: 'R 7.4 Abs. 8 EStR (reviewer input on #173; VERIFY)' },
-      },
-    ]);
+    expect([b2029?.months, amount(b2029?.amount), b2029?.calculationStatus]).toEqual([6, '1017.60', 'CALCULATED']);
+    // Prüfbericht 01.11.2026, Frage 4 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01):
+    // DISPOSAL_YEAR_TO_VERIFY no longer appears.
+    expect(b2029?.flags).toEqual([]);
     expect(w.owners.find((o) => o.ownerPartyId === B)?.tenure).toEqual({
       from: '2026-07-01',
       lastDay: '2029-06-30',
@@ -131,10 +128,22 @@ describe('the tenure, a reduced share, the end (P8-D8, P8-D9)', () => {
     expect(amount(ownerIn(yearOf(w, 2028), B)?.amount)).toBe('2035.20');
   });
 
-  it('DISPOSAL_YEAR_TO_VERIFY only while the rule says unverified: a test registry with verified true computes the same, CALCULATED', () => {
-    const verified = withParameters((p) => ({ ...p, end: { ...p.end, disposal: { ...p.end.disposal, verified: true } } }));
-    const b2029 = ownerIn(yearOf(component(sale('2029-07-01', true, verified), 0), 2029), B);
-    expect([amount(b2029?.amount), b2029?.flags, b2029?.calculationStatus]).toEqual(['1017.60', [], 'CALCULATED']);
+  it('DISPOSAL_YEAR_TO_VERIFY only while the rule says unverified: a test registry with verified false computes the same, PROVISIONAL', () => {
+    const unverified = withParameters((p) => ({ ...p, end: { ...p.end, disposal: { ...p.end.disposal, verified: false } } }));
+    const b2029 = ownerIn(yearOf(component(sale('2029-07-01', true, unverified), 0), 2029), B);
+    expect([amount(b2029?.amount), b2029?.calculationStatus]).toEqual(['1017.60', 'PROVISIONAL']);
+    expect(b2029?.flags).toEqual([
+      {
+        code: 'DISPOSAL_YEAR_TO_VERIFY',
+        details: {
+          lastDay: '2029-06-30',
+          months: 6,
+          endMonthCounts: true,
+          legalBasis:
+            'R 7.4 Abs. 8 EStR; Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Frage 4, the month of disposal counts in full for the seller',
+        },
+      },
+    ]);
   });
 
   it('a share changed by §26.2 without a sale does not end the tenure: A 1/1 closed and continued at 1/1 the next day', () => {
@@ -174,14 +183,9 @@ describe('the tenure, a reduced share, the end (P8-D8, P8-D9)', () => {
     const w = component(s, 0);
     const a2028 = ownerIn(yearOf(w, 2028), A);
     // 6 months at 1/1, 6 at 1/2: 2,544.00 + 1,272.00.
-    expect([amount(a2028?.amount), a2028?.fraction, a2028?.calculationStatus]).toEqual(['3816.00', '1/2', 'PROVISIONAL']);
-    expect(a2028?.flags).toEqual([
-      {
-        code: 'DISPOSAL_YEAR_TO_VERIFY',
-        details: { lastDay: '2028-06-30', months: 12, endMonthCounts: true, legalBasis: 'R 7.4 Abs. 8 EStR (reviewer input on #173; VERIFY)' },
-      },
-      { code: 'OWNER_SHARE_CHANGED', details: { date: '2028-07-01', from: '1/1', to: '1/2' } },
-    ]);
+    // The disposal year confirmed (Prüfbericht 01.11.2026, Frage 4): only the informative OWNER_SHARE_CHANGED remains.
+    expect([amount(a2028?.amount), a2028?.fraction, a2028?.calculationStatus]).toEqual(['3816.00', '1/2', 'CALCULATED']);
+    expect(a2028?.flags).toEqual([{ code: 'OWNER_SHARE_CHANGED', details: { date: '2028-07-01', from: '1/1', to: '1/2' } }]);
     expect([2030, 2031].map((y) => [amount(ownerIn(yearOf(w, y), A)?.amount), ownerIn(yearOf(w, y), A)?.fraction])).toEqual([
       ['2544.00', '1/2'],
       ['2544.00', '1/2'],
@@ -319,9 +323,9 @@ describe('an existing owner buying a further share (§28.1A "Effect on §59A")',
     expect(s.years.flatMap((y) => codes(y.flags)).filter((c) => c === 'OWNER_WITHOUT_ACQUISITION' || c === 'BUYER_ALREADY_OWNER')).toEqual([]);
   });
 
-  it('a later reduction across both components is pro rata, flagged SHARE_REDUCTION_SPLIT_TO_VERIFY; with one component it is not', () => {
+  it('a later reduction across both components is pro rata; SHARE_REDUCTION_SPLIT_TO_VERIFY only while the rule leaves it unverified', () => {
     const base = furtherShare('1/2');
-    const s = derive({
+    const input = {
       ...base,
       acquisitions: [
         ...base.acquisitions,
@@ -341,11 +345,23 @@ describe('an existing owner buying a further share (§28.1A "Effect on §59A")',
         ownership(A, '1/2', '2029-07-01', null, null),
         ownership(C, '1/2', '2029-07-01', null, Y),
       ],
-    });
+    };
+    const s = derive(input);
+    // Prüfbericht 01.11.2026, Fragen 4 and 11 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am
+    // 2026-11-01): neither DISPOSAL_YEAR_TO_VERIFY nor SHARE_REDUCTION_SPLIT_TO_VERIFY appears any more.
     for (const c of [component(s, 0), component(s, 1)]) {
       const a = ownerIn(yearOf(c, 2029), A);
       expect(a?.fraction).toBe('1/2');
-      expect(codes(a?.flags ?? [])).toEqual(['DISPOSAL_YEAR_TO_VERIFY', 'OWNER_SHARE_CHANGED', 'SHARE_REDUCTION_SPLIT_TO_VERIFY']);
+      expect([codes(a?.flags ?? []), a?.calculationStatus]).toEqual([['OWNER_SHARE_CHANGED'], 'CALCULATED']);
+    }
+    // With the split unverified again (a test registry), the flag is back on both components, naming them.
+    const unverified = derive(
+      input,
+      withParameters((p) => ({ ...p, shareReduction: { ...p.shareReduction, verified: false } })),
+    );
+    for (const c of [component(unverified, 0), component(unverified, 1)]) {
+      const a = ownerIn(yearOf(c, 2029), A);
+      expect(codes(a?.flags ?? [])).toEqual(['OWNER_SHARE_CHANGED', 'SHARE_REDUCTION_SPLIT_TO_VERIFY']);
       expect(a?.flags.find((f) => f.code === 'SHARE_REDUCTION_SPLIT_TO_VERIFY')?.details).toEqual({
         date: '2029-07-01',
         from: '1/1',
@@ -353,7 +369,86 @@ describe('an existing owner buying a further share (§28.1A "Effect on §59A")',
         componentIds: [`ACQUISITION:${W}`, `ACQUISITION:${X}`],
       });
     }
-    // One component only: the reduction is not split, so no SHARE_REDUCTION_SPLIT_TO_VERIFY (the reduced-share test above).
+    // One component only: the reduction is not split, so no SHARE_REDUCTION_SPLIT_TO_VERIFY (the reference case below).
+  });
+
+  /**
+   * The reference case of the tax review (Prüfbericht 01.11.2026, Frage 11; mündlich bestätigt durch den Steuerberater,
+   * laut Projektinhaber am 2026-11-01): A bought 50 % (W, building 100,000.00 for A's half) and later the other 50 %
+   * (X, building 160,000.00); A sells 50 % to C. Pro rata over both purchases, 130,000.00 of basis remain
+   * (50,000.00 + 80,000.00), never 80,000.00 (FIFO: W sold first) or 50,000.00 (LIFO: X sold first).
+   */
+  it('the review’s reference case: 50 % of 100,000 and 160,000 sold pro rata leaves a 130,000.00 basis share, 2,600.00 a year at 2 %', () => {
+    const input = {
+      ...acc8({ from: 2028, to: 2030 }),
+      acquisitions: [
+        acquisition({ ...exactBasis('200000.00'), economicTransferDate: day('2026-01-01') }),
+        acquisition({
+          ...exactBasis('160000.00'),
+          id: X,
+          sellerPartyIds: [B],
+          acquiredShare: { numerator: 1, denominator: 2 },
+          contractDate: day('2028-06-01'),
+          economicTransferDate: day('2028-07-01'),
+        }),
+        acquisition({
+          ...exactBasis('150000.00'),
+          id: Y,
+          sellerPartyIds: [A],
+          acquiredShare: { numerator: 1, denominator: 2 },
+          contractDate: day('2029-12-01'),
+          economicTransferDate: day('2030-01-01'),
+        }),
+      ],
+      ownerships: [
+        ownership(A, '1/2', '2026-01-01', '2028-06-30', W),
+        ownership(B, '1/2', '2026-01-01', '2028-06-30', W),
+        ownership(A, '1/1', '2028-07-01', '2029-12-31', X),
+        ownership(A, '1/2', '2030-01-01', null, null),
+        ownership(C, '1/2', '2030-01-01', null, Y),
+      ],
+    };
+    const s = derive(input);
+    const [w, x] = [component(s, 0), component(s, 1)];
+    const basisOf = (c: typeof w) => c.owners.find((o) => o.ownerPartyId === A)?.basis;
+    expect([amount(basisOf(w)), amount(basisOf(x))]).toEqual(['100000.00', '160000.00']);
+    // 2029: A holds both purchases in full, 2 % of 260,000.00.
+    const a2029 = [w, x].map((c) => ownerIn(yearOf(c, 2029), A));
+    expect(a2029.map((o) => [amount(o?.amount), o?.fraction])).toEqual([
+      ['2000.00', '1/1'],
+      ['3200.00', '1/1'],
+    ]);
+    // 2030: each purchase keeps half, 50,000.00 + 80,000.00 = 130,000.00; 2 % of it is 2,600.00 (FIFO 1,600.00, LIFO 1,000.00).
+    const a2030 = [w, x].map((c) => ownerIn(yearOf(c, 2030), A));
+    expect(a2030.map((o) => [amount(o?.amount), o?.fraction, o?.calculationStatus])).toEqual([
+      ['1000.00', '1/2', 'CALCULATED'],
+      ['1600.00', '1/2', 'CALCULATED'],
+    ]);
+    const remaining = [w, x].reduce((sum, c, i) => {
+      const [n, d] = (a2030[i]?.fraction ?? '0/1').split('/').map(BigInt) as [bigint, bigint];
+      return sum + (BigInt((amount(basisOf(c)) ?? '0').replace('.', '')) * n) / d;
+    }, 0n);
+    expect(remaining).toBe(13_000_000n);
+    expect(a2030.reduce((sum, o) => sum + Number(amount(o?.amount)), 0)).toBe(2600);
+    // The confirmed split carries no SHARE_REDUCTION_SPLIT_TO_VERIFY; the reduction is informative only.
+    expect(a2030.map((o) => codes(o?.flags ?? []))).toEqual([['OWNER_SHARE_CHANGED'], ['OWNER_SHARE_CHANGED']]);
+    // One component only (A sells half of W alone, never having bought X): never split, never flagged, verified or not.
+    const one = derive(
+      {
+        ...input,
+        acquisitions: [
+          input.acquisitions[0] as ScheduleAcquisition,
+          { ...(input.acquisitions[2] as ScheduleAcquisition), contractDate: day('2027-12-01'), economicTransferDate: day('2028-01-01') },
+        ],
+        ownerships: [
+          ownership(A, '1/1', '2026-01-01', '2027-12-31', W),
+          ownership(A, '1/2', '2028-01-01', null, null),
+          ownership(C, '1/2', '2028-01-01', null, Y),
+        ],
+      },
+      withParameters((p) => ({ ...p, shareReduction: { ...p.shareReduction, verified: false } })),
+    );
+    expect(codes(ownerIn(yearOf(component(one, 0), 2028), A)?.flags ?? [])).toEqual(['OWNER_SHARE_CHANGED']);
   });
 
   it('the legacy 1/1 workaround (X confirmed with acquiredShare 1/1) is still BUYER_ALREADY_OWNER, not computed; W unaffected', () => {

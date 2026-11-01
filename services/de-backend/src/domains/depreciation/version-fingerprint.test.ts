@@ -38,7 +38,7 @@ describe('canonicalJson and the rule-version hash (§60)', () => {
       { ...v, legalBasis: `${v.legalBasis}.` },
       { ...v, effectiveFrom: day('2023-01-02') },
       { ...v, source: `${v.source}.` },
-      { ...v, parameters: { ...v.parameters, verified: !v.parameters.verified } },
+      { ...v, parameters: { ...v.parameters, verified: { ...v.parameters.verified, rates: !v.parameters.verified.rates } } },
     ]) {
       expect(hash(changed)).not.toBe(hash(v));
     }

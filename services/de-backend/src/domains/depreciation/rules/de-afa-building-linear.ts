@@ -21,10 +21,14 @@ export interface BuildingLinearParameters {
   /** The claimed rate is `1/usefulLifeYears`, and only below the band's `shorterThanYears`. */
   readonly shorterUsefulLife: { readonly legalBasis: string; readonly rate: 'RECIPROCAL_OF_YEARS' };
   /**
-   * Whether the version may give a figure without the open flag `HISTORICAL_RULE_TO_VERIFY` (§59A, decided 2026-10-31):
-   * false until the tax advisor confirms an earlier version; a confirmation is a new version once VC-8-04 froze them.
+   * Whether the version may give a figure without the open flag `HISTORICAL_RULE_TO_VERIFY` (§59A, decided 2026-10-31),
+   * split by what a confirmation covers: `rates` the bands (their `ratePercent` by the completion year), and
+   * `shorterUsefulLifeThresholds` the years of S. 2 (`shorterThanYears`). A year is flagged while `rates` is false, and
+   * a year computed with a shorter useful life also while `shorterUsefulLifeThresholds` is false. Neither covers the
+   * methods DE does not recognise (§ 7 Abs. 5, 5a, § 7b, §§ 7h/7i, VC-X-37): those are no parameter of this rule.
+   * The answers are taken in the same version until the first productive enablement (§60, open question 11).
    */
-  readonly verified: boolean;
+  readonly verified: { readonly rates: boolean; readonly shorterUsefulLifeThresholds: boolean };
   /** The building's acquisition cost (§58B, P8-D2): the same excluded categories as `DE_ANSCHAFFUNGSNAHE@1`. */
   readonly basis: {
     readonly excludedCostCategories: readonly string[];
@@ -32,7 +36,11 @@ export interface BuildingLinearParameters {
     readonly rounding: 'HALF_UP_CENT';
     /** §59B (P8-D2): the classification states that feed a capitalised item's component; any other is not computed. */
     readonly capitalizedItemReviewStates: readonly string[];
-    /** §59B: the item's signed gross `lineAmount` of §58C, never its `netAmount` (VERIFY, § 9b Abs. 1 EStG). */
+    /**
+     * §59B: the item's signed gross `lineAmount` of §58C, never its `netAmount`: non-deductible input VAT belongs to the
+     * cost (§ 9b Abs. 1 EStG), within the scope without a VAT option (P8-D13). Prüfbericht 01.11.2026, Frage 10;
+     * mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01.
+     */
     readonly capitalizedItemAmount: 'GROSS_LINE_AMOUNT';
   };
   /** § 7 Abs. 1 S. 4 EStG (B6, P8-D5): less 1/12 per full month before the start month, so the start month counts. */
@@ -50,6 +58,12 @@ export interface BuildingLinearParameters {
     };
   };
   readonly rounding: { readonly unit: 'CENT'; readonly mode: 'HALF_UP'; readonly method: 'CUMULATIVE_PER_OWNER_PART' };
+  /**
+   * §28.1A, §59A: a share an owner reduces while holding several purchase components falls pro rata across all of them
+   * (`PRO_RATA_ALL_COMPONENTS`, never the earliest or latest first). Open (`SHARE_REDUCTION_SPLIT_TO_VERIFY`) while
+   * `verified` is false.
+   */
+  readonly shareReduction: { readonly method: 'PRO_RATA_ALL_COMPONENTS'; readonly verified: boolean; readonly legalBasis: string };
   /**
    * A new building bought in its completion year from this completion year on is not computable
    * (`DEPRECIATION_METHOD_UNKNOWN`): § 7b (from 2018) or § 7 Abs. 5a EStG (from 2023) may have been claimed (B4).
@@ -92,6 +106,12 @@ const SHORTER = '§ 7 Abs. 4 S. 2 EStG';
 const TITLE = 'Lineare Gebäude-AfA im Privatvermögen (§ 7 Abs. 4 EStG)';
 const LEGAL_BASIS = '§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG';
 
+/**
+ * The tax review of 01.11.2026 (docs/germany/pruefbericht-2026-11-01.md), taken into these versions in place before
+ * the first productive enablement (api-design §60, open question 11; the pinned hashes of `frozen-rules.test.ts`).
+ */
+const CONFIRMED = 'Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01';
+
 /** The parameters both versions share (§59A); only the bands and `verified` differ. */
 const COMMON = {
   shorterUsefulLife: { legalBasis: SHORTER, rate: 'RECIPROCAL_OF_YEARS' },
@@ -109,11 +129,16 @@ const COMMON = {
       method: 'PRO_RATA_MONTHS',
       cutOff: 'BUYER_ECONOMIC_TRANSFER_DATE',
       endMonthCounts: true,
-      verified: false,
-      legalBasis: 'R 7.4 Abs. 8 EStR (reviewer input on #173; VERIFY)',
+      verified: true,
+      legalBasis: `R 7.4 Abs. 8 EStR; ${CONFIRMED}: Frage 4, the month of disposal counts in full for the seller`,
     },
   },
   rounding: { unit: 'CENT', mode: 'HALF_UP', method: 'CUMULATIVE_PER_OWNER_PART' },
+  shareReduction: {
+    method: 'PRO_RATA_ALL_COMPONENTS',
+    verified: true,
+    legalBasis: `${CONFIRMED}: Frage 11, a partial sale takes the share of each purchase pro rata, never FIFO or LIFO`,
+  },
   methodUnknownFromCompletionYear: 2018,
   // §59B (VC-8-03), added to both versions additively: neither is frozen before VC-8-04.
   subsequentCostStart: {
@@ -138,8 +163,12 @@ const SOURCE_SCHEDULE =
  * Version 1 (§59A "The rule versions", decided 2026-10-31): the years 2006–2022, with the lettering of § 7 Abs. 4 S. 1
  * Nr. 2 EStG before the JStG 2022 (Buchst. a 2 % after 31.12.1924, Buchst. b 2.5 % before 1.1.1925) and the thresholds
  * of S. 2 then (50 / 40 years). The text was read in the official consolidated text (Stand 2.7.2012 and 13.2.2022) and
- * BT-Drs. 20/3879, 20/8628 on 31.10.2026 (depreciation.md §3). `verified` stays false until the tax advisor confirms
- * the version (beratungsfragen.md §4): every year it computes is provisional.
+ * BT-Drs. 20/3879, 20/8628 on 31.10.2026 (depreciation.md §3). The rates by the completion year are confirmed
+ * (Prüfbericht 01.11.2026, Frage 1; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01):
+ * `verified.rates` is true. Frage 8 confirms the thresholds < 33 / < 50 / < 40 in today's lettering; whether < 50 / < 40
+ * held in 2006–2022 the review does not say expressly, and the text of 2006–2011 was not read directly (depreciation.md
+ * §3). Until the owner decides that Frage 8 covers this lettering too, a year computed with a shorter useful life keeps
+ * `HISTORICAL_RULE_TO_VERIFY` (`verified.shorterUsefulLifeThresholds` false).
  */
 export const DE_AFA_BUILDING_LINEAR_V1: RuleVersion<BuildingLinearParameters> = {
   ruleCode: AFA_BUILDING_LINEAR,
@@ -168,9 +197,9 @@ export const DE_AFA_BUILDING_LINEAR_V1: RuleVersion<BuildingLinearParameters> = 
         shorterUsefulLife: { shorterThanYears: 40, legalBasis: SHORTER },
       },
     ],
-    verified: false,
+    verified: { rates: true, shorterUsefulLifeThresholds: false },
   },
-  source: `api-design §59A (decided 2026-10-31); EStG i. d. F. vor dem JStG 2022 (BGBl. I S. 2294); BT-Drs. 20/3879 S. 88; ${SOURCE_SCHEDULE}`,
+  source: `api-design §59A (decided 2026-10-31); EStG i. d. F. vor dem JStG 2022 (BGBl. I S. 2294); BT-Drs. 20/3879 S. 88; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 1, 4, 10, 11`,
 };
 
 /**
@@ -215,7 +244,7 @@ export const DE_AFA_BUILDING_LINEAR_V2: RuleVersion<BuildingLinearParameters> = 
       },
     ],
     // Today's text, read in the official text before VC-8-01 (30.10.2026): no historical version to confirm.
-    verified: true,
+    verified: { rates: true, shorterUsefulLifeThresholds: true },
   },
-  source: `docs/germany/depreciation.md §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11; ${SOURCE_SCHEDULE}`,
+  source: `docs/germany/depreciation.md §3 v0.2 (verified 29.10.2026); verification-checklist B1–B3, B7; phase-8-plan P8-D4, P8-D11; ${SOURCE_SCHEDULE}; ${CONFIRMED}: Fragen 4, 10, 11`,
 };

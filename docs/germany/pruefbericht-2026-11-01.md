@@ -94,16 +94,16 @@ Der heutige Umfang reicht also bis in Stufe 3. Der Bericht empfiehlt, zuerst nur
 
 ## Nach Bestätigung auflösbare VERIFY-Punkte
 
-Für einen eigenen Code-PR. Nach `api-design.md` §60, offene Frage 11 (Entscheidung vom 31.10.2026) dürfen `DE_AFA_BUILDING_LINEAR@1`/`@2` und `DE_AFA_MOVABLE_LINEAR@1` die Antworten vor der ersten produktiven Freischaltung in derselben Version aufnehmen, mit ausdrücklich aktualisierten Hashwerten in `frozen-rules.test.ts`. **In diesem PR wird nichts davon geändert.**
+Für einen eigenen Code-PR. Nach `api-design.md` §60, offene Frage 11 (Entscheidung vom 31.10.2026) dürfen `DE_AFA_BUILDING_LINEAR@1`/`@2` und `DE_AFA_MOVABLE_LINEAR@1` die Antworten vor der ersten produktiven Freischaltung in derselben Version aufnehmen, mit ausdrücklich aktualisierten Hashwerten in `frozen-rules.test.ts`. **In diesem PR wird nichts davon geändert.** **Nachtrag:** Die mit „ja“ markierten Zeilen sind im Folge-PR `feat(depreciation): resolve the VERIFY points the tax review confirmed` **aufgelöst** (Spalte „Auflösbar?“, `api-design.md` §59A „Resolved by the tax review (2026-11-01)“); die übrigen Zeilen bleiben, wie sie sind.
 
 | Hinweis / Parameter | Antwort | Auflösbar? |
 |---|---|---|
-| `HISTORICAL_RULE_TO_VERIFY` (`DE_AFA_BUILDING_LINEAR@1`, `verified`) | Frage 1: Sätze und Fertigstellungsjahr wie `@1` | ja, für die Sätze; die Abgrenzung der Verfahren ist VC-X-37 |
-| `DISPOSAL_YEAR_TO_VERIFY` (`end.disposal.verified`) | Frage 4: Veräußerungsmonat voll beim Verkäufer | ja |
+| `HISTORICAL_RULE_TO_VERIFY` (`DE_AFA_BUILDING_LINEAR@1`, `verified`) | Frage 1: Sätze und Fertigstellungsjahr wie `@1` | ja, für die Sätze; die Abgrenzung der Verfahren ist VC-X-37. **Aufgelöst in diesem PR** (Folge-PR): `verified` aufgeteilt in `rates` (`@1` true) und `shorterUsefulLifeThresholds` (`@1` false: Frage 8 bestätigt die Schwellen < 50 / < 40 im heutigen Wortlaut, für 2006–2022 nicht ausdrücklich; der Stand 2006–2011 ist nicht gelesen, `depreciation.md` §3); der Hinweis bleibt nur an Jahren 2006–2022 mit kürzerer Nutzungsdauer |
+| `DISPOSAL_YEAR_TO_VERIFY` (`end.disposal.verified`) | Frage 4: Veräußerungsmonat voll beim Verkäufer | ja. **Aufgelöst in diesem PR** (Folge-PR): `verified: true` (auch `DE_AFA_MOVABLE_LINEAR@1`, dessen `end` das der Gebäuderegel ist) |
 | `SUBSEQUENT_COST_START_TO_VERIFY` (`subsequentCostStart.verified`) | Frage 5: Jahresbeginn des Entstehungsjahres | Methode ja; das Jahr folgt der Leistung → erst mit VC-X-38 vollständig |
 | `SUBSEQUENT_COST_END_TO_VERIFY` (`subsequentCostEnd.verified`) | Frage 6: Basis erhöht, Satz bleibt, bis Restvolumen | Kernlesart `POOLED_BASIS` ja; Einzelheiten (Erstattung als eigene negative Reihe, Überlauf auf laufende Teile, Pools der Erben) beantwortet der Bericht nicht → Entscheidung des Projektinhabers |
-| `SHARE_REDUCTION_SPLIT_TO_VERIFY` | Frage 11: anteilig über alle Erwerbe | ja; der Bericht (G) empfiehlt dafür Musterfälle mit Soll-Ergebnis |
-| `capitalizedItemAmount: GROSS_LINE_AMOUNT` (VERIFY § 9b im `legalBasis`-Text) | Frage 10: nicht abziehbare USt gehört in AK/HK | ja, im Scope ohne USt-Option |
+| `SHARE_REDUCTION_SPLIT_TO_VERIFY` | Frage 11: anteilig über alle Erwerbe | ja; der Bericht (G) empfiehlt dafür Musterfälle mit Soll-Ergebnis. **Aufgelöst in diesem PR** (Folge-PR): neuer Parameter `shareReduction` (`PRO_RATA_ALL_COMPONENTS`, `verified: true`); Musterfall des Berichts (100.000 / 160.000, Verkauf 50 % → 130.000) als Test auf Ebene des AfA-Plans |
+| `capitalizedItemAmount: GROSS_LINE_AMOUNT` (VERIFY § 9b im `legalBasis`-Text) | Frage 10: nicht abziehbare USt gehört in AK/HK | ja, im Scope ohne USt-Option. **Aufgelöst in diesem PR** (Folge-PR): der VERIFY-Vermerk steht im Kommentar des Parametertyps und in `api-design.md` §59A/§59B (kein `legalBasis`-Feld, kein Flag); dort jetzt als bestätigt vermerkt |
 | `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED` | Frage 16: zählt mit | Frage beantwortet; der Hinweis entfällt erst mit VC-X-27 |
 | `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` | Frage 21: Kaufpreisschlüssel nur bei einheitlicher Finanzierung ohne abweichenden Nachweis | nein, bleibt je Darlehen zu bestätigen (Folgepunkt VC-X-28); die Antwort sagt, was die Bestätigung festhält |
 

@@ -1,6 +1,6 @@
 import { centsOf, divideHalfUp, moneyOfCents, type Money } from '../../shared/index.js';
 import { ZERO, cmp, monthLabel, monthOf, show, yearOfDate, yearOfMonth, type Frac } from './exact.js';
-import { reciprocalPercent } from './rate.js';
+import { isRateVerified, reciprocalPercent } from './rate.js';
 import type { ComponentRate, ComponentYear, Flag, OwnerYear, ScheduleComponent, YearRule } from './schedule-model.js';
 import { isOpen, mergeOwnerFlags, sortFlags } from './schedule-review.js';
 import type { Part, Work } from './purchase-work.js';
@@ -45,7 +45,8 @@ export function componentOf(
   const reasonsOfComponent = [...assetReasons, ...w.reasons];
 
   const ownerYearOf = (p: Part, year: number): OwnerYear => {
-    const ruleOfYear = w.rates.get(year)?.rule;
+    const rateOfThisYear = w.rates.get(year);
+    const ruleOfYear = rateOfThisYear?.rule;
     if (!w.computable || p.basisCents === null) {
       return {
         ownerPartyId: p.ownerPartyId,
@@ -76,7 +77,7 @@ export function componentOf(
     const before = cumulativeOf(p, year - 1);
     const y = p.years.get(year);
     const flags: Flag[] = [];
-    if (ruleOfYear !== undefined && !ruleOfYear.parameters.verified) {
+    if (ruleOfYear !== undefined && !isRateVerified(ruleOfYear.parameters, rateOfThisYear?.kind === 'SHORTER_USEFUL_LIFE')) {
       flags.push({ code: 'HISTORICAL_RULE_TO_VERIFY', details: { ruleCode: ruleOfYear.ruleCode, version: ruleOfYear.version } });
     }
     const disposal = p.disposals.get(year);
@@ -84,7 +85,7 @@ export function componentOf(
       flags.push({ code: 'DISPOSAL_YEAR_TO_VERIFY', details: disposal });
     for (const c of p.changes.filter((c) => yearOfDate(c.date) === year && (p.tenureEnd === null || c.date <= p.tenureEnd))) {
       flags.push({ code: 'OWNER_SHARE_CHANGED', details: { date: c.date, from: show(c.from), to: show(c.to) } });
-      if (c.split)
+      if (c.split && ruleOfYear !== undefined && !ruleOfYear.parameters.shareReduction.verified)
         flags.push({ code: 'SHARE_REDUCTION_SPLIT_TO_VERIFY', details: { date: c.date, from: show(c.from), to: show(c.to), componentIds: c.componentIds } });
     }
     const open = componentOpen || flags.some((f) => isOpen(f.code));

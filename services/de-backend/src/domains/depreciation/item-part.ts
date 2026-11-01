@@ -81,7 +81,7 @@ export interface ItemWork {
   readonly flags: Flag[];
   readonly parts: ItemPart[];
   readonly selected: 'POOLED_BASIS' | 'PER_ITEM_SERIES';
-  readonly parameters: { readonly disposalVerified: boolean; readonly rateVerified: (year: number) => boolean };
+  readonly parameters: { readonly disposalVerified: boolean; readonly rateVerified: (year: number, shorter: boolean) => boolean };
   computable: boolean;
 }
 
