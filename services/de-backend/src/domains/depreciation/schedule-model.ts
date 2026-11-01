@@ -2,6 +2,7 @@ import type { BusinessDate, Money, RuleStatus } from '../../shared/index.js';
 import type { DepreciationAsset } from './asset.js';
 import type { CapitalizedItem, ItemRef } from './capitalized-item.js';
 import type { BuildingBand } from './rules/de-afa-building-linear.js';
+import type { ScheduleVersion } from './version-model.js';
 
 /**
  * The schedule's inputs and its response (api-design.md §59A, §59B): the snapshot read by the repository, the purchase
@@ -80,6 +81,8 @@ export interface ScheduleRead {
   readonly links: readonly AssetLink[];
   /** Whether `ownerPartyId` names a Party of the caller's Realm; `null` without one. */
   readonly ownerPartyFound: boolean | null;
+  /** §60: the asset's `CURRENT` recorded version, read in the same snapshot; `null` without one. */
+  readonly currentVersion?: ScheduleVersion | null;
 }
 
 /** The schedule's inputs in one `REPEATABLE READ READ ONLY` transaction (P8-D14); undefined for an unknown or foreign asset. */

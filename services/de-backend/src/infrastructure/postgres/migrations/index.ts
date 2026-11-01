@@ -50,6 +50,7 @@ import * as m0048 from './0048_tax_year_view.js';
 import * as m0049 from './0049_depreciation_asset.js';
 import * as m0050 from './0050_acquisition_increase.js';
 import * as m0051 from './0051_depreciation_separate_asset.js';
+import * as m0052 from './0052_depreciation_schedule_version.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -109,4 +110,5 @@ export const migrations: Record<string, Migration> = {
   '0049_depreciation_asset': m0049,
   '0050_acquisition_increase': m0050,
   '0051_depreciation_separate_asset': m0051,
+  '0052_depreciation_schedule_version': m0052,
 };

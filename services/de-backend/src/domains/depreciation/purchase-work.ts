@@ -165,30 +165,11 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
   }
 
   // The nominal months (§59A "The arithmetic"): rate_j / 12 each, capped so the whole never exceeds the basis.
-  const monthly = new Map<number, Frac>();
-  const rates = new Map<number, YearRate>();
-  const yearsWithoutRule: number[] = [];
-  let lastMonth: number | null = null;
   const supportedYear = supportedFrom === null ? RANGE_MAX_YEAR + 1 : yearOfDate(supportedFrom);
-  if (completionYear !== null && firstMonth !== null && startYear !== null) {
-    let done = ZERO;
-    // At most 99 years (1/99 is the smallest rate), so a century bounds the walk, past 2100 too (`range.truncated`).
-    for (let m = firstMonth; cmp(done, ONE) < 0 && yearOfMonth(m) <= startYear + 100; m++) {
-      const year = yearOfMonth(m);
-      let rate = rates.get(year);
-      if (rate === undefined && !rates.has(year)) {
-        const found = rateOfYear(registry, year, completionYear, entry);
-        if (found !== undefined) rates.set(year, found);
-        rate = found;
-        if (found === undefined && year >= supportedYear && !yearsWithoutRule.includes(year)) yearsWithoutRule.push(year);
-      }
-      if (rate === undefined) continue;
-      const q = minF(div(rate.annual, frac(12n, 1n)), sub(ONE, done));
-      monthly.set(m, q);
-      done = add(done, q);
-      lastMonth = m;
-    }
-  }
+  const { monthly, rates, yearsWithoutRule, lastMonth } =
+    completionYear !== null && firstMonth !== null && startYear !== null
+      ? nominalMonths(registry, { firstMonth, startYear, completionYear, entry, supportedYear })
+      : { monthly: new Map<number, Frac>(), rates: new Map<number, YearRate>(), yearsWithoutRule: [] as number[], lastMonth: null };
   if (yearsWithoutRule.length > 0 && !historical) reasons.push({ code: 'NO_APPLICABLE_RULE', details: { yearsWithoutRule } });
 
   const flags: Flag[] = [];
@@ -256,4 +237,43 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
     lastMonth,
     rates,
   };
+}
+
+/**
+ * The nominal months of a purchase component (§59A "The arithmetic"): from its first counted month, rate_j / 12 each,
+ * capped so the whole never exceeds the basis; the rate of each year with it. Shared by the derivation and the
+ * recomputation of a recorded version from its stored inputs (§60), so both run the very same arithmetic.
+ */
+export function nominalMonths(
+  registry: RuleRegistry,
+  c: {
+    readonly firstMonth: number;
+    readonly startYear: number;
+    readonly completionYear: number;
+    readonly entry: ShorterUsefulLife | undefined;
+    readonly supportedYear: number;
+  },
+): { monthly: Map<number, Frac>; rates: Map<number, YearRate>; yearsWithoutRule: number[]; lastMonth: number | null } {
+  const monthly = new Map<number, Frac>();
+  const rates = new Map<number, YearRate>();
+  const yearsWithoutRule: number[] = [];
+  let lastMonth: number | null = null;
+  let done = ZERO;
+  // At most 99 years (1/99 is the smallest rate), so a century bounds the walk, past 2100 too (`range.truncated`).
+  for (let m = c.firstMonth; cmp(done, ONE) < 0 && yearOfMonth(m) <= c.startYear + 100; m++) {
+    const year = yearOfMonth(m);
+    let rate = rates.get(year);
+    if (rate === undefined && !rates.has(year)) {
+      const found = rateOfYear(registry, year, c.completionYear, c.entry);
+      if (found !== undefined) rates.set(year, found);
+      rate = found;
+      if (found === undefined && year >= c.supportedYear && !yearsWithoutRule.includes(year)) yearsWithoutRule.push(year);
+    }
+    if (rate === undefined) continue;
+    const q = minF(div(rate.annual, frac(12n, 1n)), sub(ONE, done));
+    monthly.set(m, q);
+    done = add(done, q);
+    lastMonth = m;
+  }
+  return { monthly, rates, yearsWithoutRule, lastMonth };
 }

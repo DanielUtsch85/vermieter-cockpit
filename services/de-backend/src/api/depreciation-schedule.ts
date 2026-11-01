@@ -1,5 +1,5 @@
 import express, { type Router } from 'express';
-import type { ComponentYear, DepreciationSchedule, Flag, ItemComponent, OwnerYear, ScheduleComponent, ScheduleYear } from '../application/index.js';
+import type { ComponentYear, Flag, ItemComponent, OwnerYear, RecordedSchedule, RecordedScheduleYear, ScheduleComponent } from '../application/index.js';
 import type { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { scheduleQuery } from './depreciation-asset-dto.js';
@@ -45,7 +45,7 @@ const money = (m: Money | null) => (m === null ? null : m.toJSON());
 const flagDto = (f: Flag) => ({ code: f.code, details: f.details });
 
 /** §59A's response: Money as §86, fractions as `"n/d"`, months as `YYYY-MM`, flags as `{ code, details }`. */
-function scheduleDto(s: DepreciationSchedule) {
+function scheduleDto(s: RecordedSchedule) {
   const ownerYear = (o: OwnerYear) => ({
     ownerPartyId: o.ownerPartyId,
     months: o.months,
@@ -110,7 +110,7 @@ function scheduleDto(s: DepreciationSchedule) {
     years: c.years.map(componentYear),
     flags: c.flags.map(flagDto),
   });
-  const year = (y: ScheduleYear) => ({
+  const year = (y: RecordedScheduleYear) => ({
     year: y.year,
     status: y.status,
     calculationStatus: y.calculationStatus,
@@ -120,6 +120,9 @@ function scheduleDto(s: DepreciationSchedule) {
     notOwned: money(y.notOwned),
     reasons: y.reasons.map(flagDto),
     flags: y.flags.map(flagDto),
+    // §60: the asset's input fingerprint (the record command's precondition) and the year's recording state.
+    inputFingerprint: y.inputFingerprint,
+    recording: y.recording,
   });
   return {
     assetId: s.assetId,
@@ -138,5 +141,8 @@ function scheduleDto(s: DepreciationSchedule) {
     years: s.years.map(year),
     review: s.review,
     ruleVersions: s.ruleVersions,
+    recordedVersion: s.recordedVersion === null ? null : { ...s.recordedVersion, recordedAt: s.recordedVersion.recordedAt.toISOString() },
+    // Only the installation's switch (§60, decided 2026-10-31, third set, open question 10); no figure depends on it.
+    recordingEnabled: s.recordingEnabled,
   };
 }

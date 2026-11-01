@@ -509,8 +509,9 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
       const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema} -c application_name=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        // 0046 (VC-7-02) builds on 0045: its own down first.
+        // 0046 (VC-7-02) builds on 0045: its own down first; 0052 (VC-8-04) names a classification by foreign key.
         await withMigrationLock(async () => {
+          await (await import('./migrations/0052_depreciation_schedule_version.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0045_tax_classification.js')).down(createDatabase(downPool) as never);

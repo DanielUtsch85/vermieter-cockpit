@@ -32,6 +32,7 @@ import {
   createDatabase,
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -104,7 +105,12 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
           confirm: confirmDepreciationAsset({ repository: assets }),
           get: getDepreciationAsset({ repository: assets, now }),
           listForPropertyReference: listPropertyDepreciationAssets({ repository: assets, now }),
-          schedule: getDepreciationSchedule({ source: new PostgresDepreciationScheduleSource(db, classifications.capitalizedSources, now), now }),
+          schedule: getDepreciationSchedule({
+            source: new PostgresDepreciationScheduleSource(db, classifications.capitalizedSources, now),
+            now,
+            recordingEnabled: false,
+            fingerprinter: sha256Fingerprinter,
+          }),
         },
         taxation: { taxYear: getTaxYearView({ repository: classifications, now }), listRules: listTaxRules({ now }) },
       }),

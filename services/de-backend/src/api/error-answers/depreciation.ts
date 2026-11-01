@@ -12,6 +12,11 @@ import {
   DepreciationAssetNotActiveError,
   DepreciationAssetNotFoundError,
   NotAnOwnerError,
+  RecordingNotEnabledError,
+  ScheduleVersionNotFoundError,
+  ScheduleVersionRefusedError,
+  ThroughYearInFutureError,
+  centsText,
 } from '../../application/index.js';
 import { answer, on, validation } from './answer.js';
 
@@ -88,7 +93,67 @@ export const DEPRECIATION_ANSWERS = [
       assetId: error.assetId,
     }),
   ),
+  // Recorded schedule versions (api-design §60 "Error answers", VC-8-04).
+  on(RecordingNotEnabledError, () =>
+    answer(409, 'CONFLICT', 'Recording depreciation schedule versions is not enabled in this installation.', { reason: 'RECORDING_NOT_ENABLED' }),
+  ),
+  on(ThroughYearInFutureError, (error) =>
+    answer(400, 'VALIDATION_ERROR', 'Validation failed.', { fields: [{ field: 'throughYear', code: 'OUT_OF_RANGE' }], max: error.max }),
+  ),
+  on(ScheduleVersionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Schedule version not found.', { versionId: error.versionId })),
+  on(ScheduleVersionRefusedError, (error) => refusalAnswer(error)),
 ];
+
+/** The refusals of the record command's steps 4–9 (§60 "Error answers"); amounts as Money, never a `bigint`. */
+function refusalAnswer({ assetId, refusal }: ScheduleVersionRefusedError) {
+  switch (refusal.kind) {
+    case 'SCHEDULE_NOT_COMPLETE':
+      return answer(409, 'CONFLICT', 'The schedule has years without a figure; they cannot be recorded.', {
+        reason: refusal.kind,
+        assetId,
+        ...refusal.details,
+      });
+    case 'NOTHING_TO_RECORD':
+      return answer(409, 'CONFLICT', 'The schedule has no year with AfA up to throughYear.', {
+        reason: refusal.kind,
+        assetId,
+        throughYear: refusal.throughYear,
+        firstYear: refusal.firstYear,
+      });
+    case 'THROUGH_YEAR_BEFORE_CURRENT':
+      return answer(409, 'CONFLICT', 'The current version already covers a later year.', {
+        reason: refusal.kind,
+        assetId,
+        currentVersionId: refusal.currentVersionId,
+        currentThroughYear: refusal.currentThroughYear,
+      });
+    case 'RECORDED_YEARS_WOULD_CHANGE': {
+      const money = (c: unknown) => (typeof c === 'bigint' ? { amount: centsText(c), currency: 'EUR' } : null);
+      const changedYears = (refusal.changedYears as { year: number; recorded: bigint | null; derived: bigint | null; causes: readonly string[] }[]).map(
+        (c) => ({
+          year: c.year,
+          recorded: money(c.recorded),
+          derived: money(c.derived),
+          causes: c.causes,
+        }),
+      );
+      return answer(409, 'CONFLICT', 'Recording would change already recorded years; name them in acceptChangedYears.', {
+        reason: refusal.kind,
+        assetId,
+        currentVersionId: refusal.currentVersionId === '' ? null : refusal.currentVersionId,
+        changedYears,
+        acceptChangedYears: refusal.acceptChangedYears,
+      });
+    }
+    case 'SCHEDULE_CHANGED':
+      return answer(412, 'SCHEDULE_CHANGED', 'The schedule changed since it was read.', {
+        assetId,
+        throughYear: refusal.throughYear,
+        expectedInputFingerprint: refusal.expectedInputFingerprint,
+        currentInputFingerprint: refusal.currentInputFingerprint,
+      });
+  }
+}
 
 /** An item as §59B's answers name it. */
 function itemOf(item: { readonly sourceType: string; readonly sourceId: string; readonly sourcePosition: number | null }) {

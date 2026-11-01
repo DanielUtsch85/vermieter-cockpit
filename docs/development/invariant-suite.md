@@ -935,6 +935,23 @@ The exit of `docs/roadmap.md` Phase 7: *a tax-year view derives Einkünfte aus V
 - **The AfA figure** is Phase 8's (P7-D8, ACC8): ACC7 asserts the block `DEPRECIATION_NOT_AVAILABLE` and the result `BEFORE_DEPRECIATION`.
 - **A deposit received on the PropertyReference.** A split naming a deposit carries no PropertyReference (0038), so "principal or a deposit counted" is shown by the deposit's absence from every view and the refusal of its classification, not by a `notInView` entry.
 
+## 46. Recorded depreciation schedule versions (VC-8-04, api-design §60; recording disabled by default)
+
+`VR` = `domains/depreciation/version-record.test.ts`, `VF` = `domains/depreciation/version-fingerprint.test.ts`, `VP` = `domains/depreciation/version-reproduce.test.ts`, `SR` = `domains/depreciation/schedule-rules.test.ts`, `FR` = `infrastructure/hashing/frozen-rules.test.ts`, `VRR` = `infrastructure/postgres/depreciation-schedule-version-repository.test.ts`, `VS` = `infrastructure/postgres/depreciation-schedule-version-schema.test.ts`, `UC` = `application/depreciation-schedule-versions.test.ts`, `VA` = `api/depreciation-schedule-versions.test.ts`, `VE` = `depreciation-schedule-versions.e2e.test.ts`, `CF` = `config.test.ts`.
+
+| Invariant | Tests |
+|---|---|
+| The recording switch is off unless set to exactly `true`; any other value fails the start naming it, never echoing the value | CF "DEPRECIATION_RECORDING_ENABLED …" |
+| While off, the record command touches no data: no transaction, key, lock, read or write, the same answer for every well-formed request; `400`s come first; the reads never look at the switch | UC "the recording switch in the use case …"; VA "POST …/schedule-versions: 400 first, then the switch …"; VE "off: 409 RECORDING_NOT_ENABLED …" (0052's tables, `audit_record`, `idempotency_key` and no cash compared row by row) |
+| `recordingEnabled` reports the switch and changes no figure, flag or reason; every year with AfA and no version is `NOT_RECORDED` with the open `DEPRECIATION_SCHEDULE_NOT_RECORDED` | VE "the schedule read off and on …"; `api/depreciation-schedule.test.ts` "the response example …" |
+| A version recomputes from its stored inputs alone to its own entries, to the cent, per owner part (not only the year totals) | VP; VRR "records ACC8 through 2027 …" |
+| The input fingerprint of a year is truncated at its end, moves with every counting change and with none of the others | VF |
+| A recorded year never changes silently: a changed year must be named (`acceptChangedYears`); a same-amount change of inputs is still `CHANGED_SINCE_RECORDED` | VR "9. acceptChangedYears …", "an allocation superseded with the same amounts …" |
+| A version is append-only: child rows only from its own transaction (never `xmin`), only `CURRENT` → `SUPERSEDED` with its successor, never deleted; one `CURRENT` per asset | VS; VRR "the no-op writes nothing …" (the superseded version's child rows keep their `xmin`) |
+| A frozen rule version is never changed in place: its hash is pinned, and a recorded hash unequal to the registry's stops the start | FR; VRR "the start check over the recorded references …" |
+| The start's rule parameters come from the version of the start year | SR "the start’s parameters come from the version of the start year …" |
+| A version is one snapshot: an input committed during the record is not in it; two records of one asset serialise on the PropertyReference row (never two `CURRENT`, no raw `23505`); the asset is locked before the derivation; a record and an amend serialise | `infrastructure/postgres/depreciation-schedule-version-concurrency.test.ts` |
+
 ## Keeping this current
 
 A new invariant gets a schema-level test when the schema can express it, a

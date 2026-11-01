@@ -6,9 +6,9 @@ import { componentIdOf, isCapitalized, sameItem, type CapitalizedItem, type Item
 import { movableRuleOn } from './rate.js';
 import { AFA_BUILDING_LINEAR, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { AFA_MOVABLE_LINEAR, type MovableLinearParameters } from './rules/de-afa-movable-linear.js';
-import { deriveItemWorks, itemComponentOf, itemYears, type ItemComponent, type ItemWork } from './schedule-items.js';
+import { deriveItemWorks, itemComponentOf, itemYears, type ItemComponent, type ItemContext, type ItemWork } from './schedule-items.js';
 import { componentOf } from './purchase-component.js';
-import { uncoveredIn, walkOwnerMonths, walkTenures } from './purchase-tenure.js';
+import { uncoveredIn, walkOwnerMonths, walkTenures, type CoverageStep } from './purchase-tenure.js';
 import { purchaseWorkOf, type Work } from './purchase-work.js';
 import {
   RANGE_MAX_YEAR,
@@ -65,7 +65,32 @@ export { RANGE_MAX_YEAR, RANGE_MIN_YEAR } from './schedule-model.js';
 export { INFORMATIVE_CODES } from './schedule-review.js';
 export type { Part, Work } from './purchase-work.js';
 
-export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): DepreciationSchedule {
+/**
+ * The calculation version of the schedule's arithmetic (api-design.md §60, data-model §39's `calculationMethodVersion`):
+ * raised by any deliberate change of the arithmetic. A version recorded under another one is compared, never recomputed
+ * as if it were current.
+ */
+export const SCHEDULE_CALCULATION_VERSION = 1;
+
+/** The derivation's components under work (§59A, §59B): the purchases and the items with their parts walked. */
+export interface ScheduleWorks {
+  readonly separate: boolean;
+  readonly assetReasons: readonly Flag[];
+  readonly linkedItems: readonly { readonly ref: ItemRef; readonly item: CapitalizedItem | null }[];
+  readonly works: readonly Work[];
+  readonly itemWorks: readonly ItemWork[];
+  readonly itemContext: ItemContext;
+  readonly parties: readonly string[];
+  readonly coverage: Map<string, CoverageStep[]>;
+  readonly excluded: readonly CapitalizedItem[];
+}
+
+/**
+ * The derivation up to its components (§59A, §59B): the asset's reasons, the purchase components with their owner
+ * parts' months and the item components with their pools walked. `deriveSchedule` builds the response from it; a
+ * recorded version (§60) reads its inputs and entries from it.
+ */
+export function scheduleWorks(input: Omit<ScheduleInput, 'today' | 'from' | 'to' | 'ownerPartyId'>, registry: RuleRegistry): ScheduleWorks {
   const { asset } = input;
   const versions = registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
   const latest = versions[versions.length - 1];
@@ -108,7 +133,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
 
   // §59B: the item components. The building takes every capitalised item not linked to an ACTIVE separate asset; a
   // separate asset its linked items.
-  const itemContext = { registry, asset, assetReasons, works, ownerships: input.ownerships, acquisitions: input.acquisitions };
+  const itemContext: ItemContext = { registry, asset, assetReasons, works, ownerships: input.ownerships, acquisitions: input.acquisitions };
   const excluded = separate ? [] : capitalizedItems.filter((i) => isCapitalized(i) && links.some((l) => sameItem(l, i)));
   const itemWorks: ItemWork[] = deriveItemWorks(
     itemContext,
@@ -118,12 +143,18 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
           .filter((i) => isCapitalized(i) && !excluded.includes(i))
           .map((item) => ({ ref: item as ItemRef, item: item as CapitalizedItem | null })),
   );
+  return { separate, assetReasons, linkedItems, works, itemWorks, itemContext, parties, coverage, excluded };
+}
+
+export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): DepreciationSchedule {
+  const { asset } = input;
+  const { separate, assetReasons, linkedItems, works, itemWorks, itemContext, parties, coverage, excluded } = scheduleWorks(input, registry);
+  const links = input.links ?? [];
   const excludedItems = separate
     ? null
     : excluded
         .map((i) => ({ componentId: componentIdOf(i), separateAssetId: (links.find((l) => sameItem(l, i)) as AssetLink).assetId }))
         .sort((a, b) => byText(a.componentId, b.componentId));
-
   // The range (§59A "Path and query"): defaults from the components, clamped to 2000–2100.
   const todayYear = yearOfDate(input.today);
   const clamp = (y: number) => Math.min(RANGE_MAX_YEAR, Math.max(RANGE_MIN_YEAR, y));
