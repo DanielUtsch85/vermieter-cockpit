@@ -276,6 +276,39 @@ describe('VC-8-05: statuses, bases and gaps (§58C "The `depreciation` block")',
     expect([none.depreciation.status, none.depreciation.gaps, none.review.final]).toEqual(['AVAILABLE', [], true]);
   });
 
+  it('two assets in different states: each asset’s status from its own gaps; the building AVAILABLE, the unconfirmed separate asset not available, the year PARTIAL', () => {
+    const notConfirmed = [flag('ASSET_NOT_CONFIRMED')];
+    const dep = depreciationOf(2027, [
+      asset(BUILDING, [component(W, [part(A, '3052.80'), part(B, '2035.20')])], { recording: UNCHANGED }),
+      asset(
+        KITCHEN,
+        [
+          component(`TRANSACTION_SPLIT:${KITCHEN_SPLIT.sourceId}`, [part(A, null, { reasons: notConfirmed }), part(B, null, { reasons: notConfirmed })], {
+            kind: 'CAPITALIZED_ITEM',
+            source: KITCHEN_SPLIT,
+            reasons: notConfirmed,
+          }),
+        ],
+        {
+          assetType: 'SEPARATE_ASSET',
+          reasons: notConfirmed,
+          recording: UNCHANGED,
+        },
+      ),
+    ]);
+    const v = viewOf(readOf(dep));
+    expect(v.depreciation.assets.map((x) => [x.assetId, x.status, amount(x.amount), x.itemCount])).toEqual([
+      [BUILDING, 'AVAILABLE', '5088.00', 1],
+      [KITCHEN, 'DEPRECIATION_NOT_AVAILABLE', null, 0],
+    ]);
+    expect([v.depreciation.status, amount(v.depreciation.amount), v.result.basis]).toEqual(['PARTIAL', '5088.00', 'PARTIAL_DEPRECIATION']);
+    expect(v.depreciation.gaps).toEqual([
+      { code: 'ASSET_NOT_CONFIRMED', assetId: KITCHEN, componentId: null, ownerPartyIds: [], details: { reasons: ['ASSET_NOT_CONFIRMED'] } },
+    ]);
+    expect(codes(v.flags)).toEqual(['DEPRECIATION_INCOMPLETE']);
+    expect([afaLine(v, 'AFA_BUILDING')?.total, afaLine(v, 'AFA_SEPARATE_ASSETS')?.total]).toEqual([eur('5088.00'), eur('0.00')]);
+  });
+
   it('OWNER_WITHOUT_ACQUISITION: one gap per asset (not a year flag), counted once; the heir’s level not available, A’s available', () => {
     const heir = flag('OWNER_WITHOUT_ACQUISITION', 'OPEN', [C]);
     const dep = depreciationOf(2026, [
