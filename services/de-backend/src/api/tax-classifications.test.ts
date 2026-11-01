@@ -577,9 +577,13 @@ describe('VC-7-03 (§58B)', () => {
         totalAllocableAmount: eur('264000.00'),
         buildingAmount: eur('198000.00'),
         basisAmount: eur('198000.00'),
+        // §59D: an unclassified cost of 2,000.00 (as 2,000.00 × 0.75 = 1,500.00 of the building) in the upper bound only.
+        basisAmountWithUnclassified: eur('199500.00'),
+        unclassifiedCosts: [{ costId: OTHER, category: 'OTHER', amount: eur('2000.00'), classificationReviewState: null }],
       },
       thresholdPercent: 15,
       threshold: '29700.00',
+      thresholdWithUnclassified: '29925.00',
       sum: eur('29926.05'),
       attributableAmount: eur('29926.05'),
       percentOfBasis: '15.11',
@@ -607,7 +611,7 @@ describe('VC-7-03 (§58B)', () => {
       unclassified: [],
       affectedYears: [2027],
       final: false,
-      flags: [{ code: 'NOT_FINAL', details: { reasons: ['GROSS_AMOUNTS', 'WINDOW_OPEN'] } }],
+      flags: [{ code: 'NOT_FINAL', details: { reasons: ['GROSS_AMOUNTS', 'WINDOW_OPEN', 'ACQUISITION_COSTS_UNCLASSIFIED'] } }],
     };
     const base = await start({
       taxation: {
@@ -638,9 +642,12 @@ describe('VC-7-03 (§58B)', () => {
         totalAllocableAmount: { amount: '264000.00', currency: 'EUR' },
         buildingAmount: { amount: '198000.00', currency: 'EUR' },
         basisAmount: { amount: '198000.00', currency: 'EUR' },
+        basisAmountWithUnclassified: { amount: '199500.00', currency: 'EUR' },
+        unclassifiedCosts: [{ costId: OTHER, category: 'OTHER', amount: { amount: '2000.00', currency: 'EUR' }, classificationReviewState: null }],
       },
       thresholdPercent: 15,
       threshold: { amount: '29700.00', currency: 'EUR' },
+      thresholdWithUnclassified: { amount: '29925.00', currency: 'EUR' },
       sum: { amount: '29926.05', currency: 'EUR' },
       attributableAmount: { amount: '29926.05', currency: 'EUR' },
       percentOfBasis: '15.11',
@@ -668,7 +675,7 @@ describe('VC-7-03 (§58B)', () => {
       unclassified: [],
       affectedYears: [2027],
       final: false,
-      flags: [{ code: 'NOT_FINAL', details: { reasons: ['GROSS_AMOUNTS', 'WINDOW_OPEN'] } }],
+      flags: [{ code: 'NOT_FINAL', details: { reasons: ['GROSS_AMOUNTS', 'WINDOW_OPEN', 'ACQUISITION_COSTS_UNCLASSIFIED'] } }],
     });
     expect((await get(base, `/acquisitions/${PARTY}/anschaffungsnahe-herstellungskosten`)).status).toBe(404);
     const cancelled = await get(base, `/acquisitions/${OTHER}/anschaffungsnahe-herstellungskosten`);

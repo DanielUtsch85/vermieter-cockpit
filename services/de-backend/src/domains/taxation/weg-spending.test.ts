@@ -425,8 +425,8 @@ describe('the anschaffungsnahe check (§58B)', () => {
     purchasePrice: eur('240000.00'),
   };
   const costs = [
-    { category: 'REAL_ESTATE_TRANSFER_TAX', amount: eur('24000.00') },
-    { category: 'FINANCING_RELATED', amount: eur('1500.00') },
+    { id: 'cost-1', category: 'REAL_ESTATE_TRANSFER_TAX', amount: eur('24000.00'), classification: null },
+    { id: 'cost-2', category: 'FINANCING_RELATED', amount: eur('1500.00'), classification: null },
   ];
   const allocation = { id: 'al-1', reviewState: 'CONFIRMED', totalAllocableAmount: eur('264000.00'), buildingAmount: eur('198000.00') };
   const source = (overrides: Partial<CheckSource> = {}): CheckSource => ({

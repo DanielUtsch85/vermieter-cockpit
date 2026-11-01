@@ -8,6 +8,7 @@ import { errorHandler } from './errors.js';
 import { financialAccountRoutes, type FinancialAccountCommands } from './financial-accounts.js';
 import { financialCategoryRoutes, type FinancialCategoryQueries } from './financial-categories.js';
 import { importRoutes, type ImportCommands } from './imports.js';
+import { costClassificationRoutes, type CostClassificationCommands } from './acquisition-cost-classifications.js';
 import { landBuildingAllocationRoutes, type LandBuildingAllocationCommands } from './land-building-allocations.js';
 import { loanAllocationRoutes, type LoanAllocationCommands } from './loan-allocations.js';
 import { loanDebtRoutes, type LoanDebtCommands } from './loan-debt.js';
@@ -52,6 +53,8 @@ export interface AppCommands {
   readonly landBuildingAllocations: LandBuildingAllocationCommands;
   /** Acquisition costs and payment links (VC-2-06). */
   readonly acquisitionCosts: AcquisitionCostCommands;
+  /** The classification of an acquisition cost (VC-X-42, §59D). */
+  readonly costClassifications: CostClassificationCommands;
   /** Loans, including closing (VC-3-01, VC-3-07). */
   readonly loans: LoanCommands;
   readonly securityDeposits: SecurityDepositCommands;
@@ -126,6 +129,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(ownerAllocationRoutes(deps.ownerAllocation));
   api.use(landBuildingAllocationRoutes(deps.landBuildingAllocations));
   api.use(acquisitionCostRoutes(deps.acquisitionCosts));
+  api.use(costClassificationRoutes(deps.costClassifications));
   api.use(loanRoutes(deps.loans));
   api.use(securityDepositRoutes(deps.securityDeposits));
   api.use(wegRoutes(deps.wegs));

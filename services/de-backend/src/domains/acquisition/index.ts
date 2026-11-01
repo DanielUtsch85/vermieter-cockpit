@@ -73,5 +73,37 @@ export type {
 } from './allocation.js';
 export { fromCents, largestRemainder, planOwnerAllocation, toCents } from './owner-allocation.js';
 export type { AllocationBasis, AllocationTotals, OwnerAllocationInput, OwnerAllocationPlan, OwnerAllocationSource, OwnerPart } from './owner-allocation.js';
-export { BUILDING_COST_REASONS, buildingAcquisitionCost } from './building-cost.js';
-export type { BasisAcquisition, BasisAllocation, BasisCost, BasisPolicy, BuildingAcquisitionCost, BuildingCostReason } from './building-cost.js';
+export { BUILDING_COST_REASONS, NO_RULE_COST_CLASSIFICATION, buildingAcquisitionCost, buildingCostReasonDetails, treatCost } from './building-cost.js';
+export type {
+  BasisAcquisition,
+  BasisAllocation,
+  BasisCost,
+  BasisCostClassification,
+  BasisCostTreatment,
+  BasisPolicy,
+  BuildingAcquisitionCost,
+  BuildingCostReason,
+  CostClassificationParameters,
+  UnclassifiedCost,
+} from './building-cost.js';
+export {
+  CLASSIFICATION_PURPOSES,
+  CLASSIFICATION_REVIEW_STATES,
+  FINANCING_CATEGORY,
+  FINANCING_PURPOSE,
+  MAX_CLASSIFICATION_PARTS,
+  checkClassification,
+  classificationFingerprint,
+  partsSum,
+} from './cost-classification.js';
+export type {
+  AcquisitionCostClassification,
+  AcquisitionCostClassificationRepository,
+  ClassificationData,
+  ClassificationPart,
+  ClassificationPurpose,
+  ClassificationRefusal,
+  ClassificationReviewState,
+  CreateClassificationOutcome,
+  NewCostClassification,
+} from './cost-classification.js';

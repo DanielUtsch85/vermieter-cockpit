@@ -23,6 +23,7 @@ import {
   type VoidCostOutcome,
 } from '../../domains/acquisition/index.js';
 import { Money, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
+import { currentClassificationByCost } from './acquisition-cost-classification-repository.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
@@ -416,6 +417,11 @@ async function costsOf(
   if (onlyId !== undefined) query = query.where('c.id', '=', onlyId);
   if (filter.status !== undefined) query = query.where('c.status', '=', filter.status);
   const rows = await query.orderBy('c.created_at').orderBy('c.id').execute();
+  // §59D: each cost's current classification, read in the same snapshot.
+  const classifications = await currentClassificationByCost(
+    trx,
+    rows.map((row) => row.id),
+  );
   return rows.map((row) => {
     const amount = fromNumericAmount(row.amount, row.currency);
     const status = row.status as CostStatus;
@@ -436,6 +442,7 @@ async function costsOf(
       voidReason: row.void_reason,
       paidAmount: paid,
       paymentStatus: cancelled || status === 'VOID' ? null : paymentStatusOf(amount, paid),
+      classification: classifications.get(row.id) ?? null,
       createdAt: row.created_at,
       version: row.version,
     };
@@ -504,10 +511,14 @@ async function paymentsOf(
   );
 }
 
-/** The created cost or payment as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
+/**
+ * The created cost or payment as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. A cost
+ * is created without a classification (§59D), so its replay carries `classification: null`, as the first answer did.
+ */
 function costToSnapshot(c: AcquisitionCost): unknown {
   return {
     ...c,
+    classification: null,
     amount: c.amount.toJSON(),
     paidAmount: c.paidAmount.toJSON(),
     createdAt: c.createdAt.toISOString(),
@@ -525,6 +536,7 @@ function costFromSnapshot(result: unknown): AcquisitionCost {
   };
   return {
     ...s,
+    classification: null,
     amount: fromNumericAmount(s.amount.amount, s.amount.currency),
     paidAmount: fromNumericAmount(s.paidAmount.amount, s.paidAmount.currency),
     createdAt: new Date(s.createdAt),

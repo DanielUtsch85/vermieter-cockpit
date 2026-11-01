@@ -73,12 +73,14 @@ export function randomSchedule(random: () => number, ids: RandomIds, run: number
   while (cuts.size < owners - 1) cuts.add(between(1, denominator - 1));
   const bounds = [0, ...[...cuts].sort((p, q) => p - q), denominator];
   const holders = ids.parties.slice(0, owners).map((party, i) => ({ party, share: (bounds[i + 1] as number) - (bounds[i] as number) }));
-  const costs: ScheduleCost[] = Array.from({ length: between(0, 3) }, () => ({
-    id: uuid('0000c057'),
-    category: pick(['REAL_ESTATE_TRANSFER_TAX', 'NOTARY', 'FINANCING_RELATED']),
-    amount: eur(centsText(amount(100, 40_000))),
-    paymentStatus: 'PAID',
-  }));
+  // §59D: a NOTARY cost counts only with a confirmed OWNERSHIP_TRANSFER classification, which it is given here.
+  const costs: ScheduleCost[] = Array.from({ length: between(0, 3) }, () => {
+    const category = pick(['REAL_ESTATE_TRANSFER_TAX', 'NOTARY', 'FINANCING_RELATED']);
+    const value = eur(centsText(amount(100, 40_000)));
+    const classification =
+      category === 'NOTARY' ? { id: uuid('0000c1a5'), reviewState: 'CONFIRMED', parts: [{ purpose: 'OWNERSHIP_TRANSFER', amount: value }] } : null;
+    return { id: uuid('0000c057'), category, amount: value, paymentStatus: 'PAID', classification };
+  });
   const price = amount(20_000, 3_000_000);
   const counted = costs.filter((c) => c.category !== 'FINANCING_RELATED').reduce((s, c) => s + BigInt(c.amount.amount.replace('.', '')), 0n);
   const total = price + counted;

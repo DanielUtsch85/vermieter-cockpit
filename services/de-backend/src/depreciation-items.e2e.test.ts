@@ -33,6 +33,7 @@ import {
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
 import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
+import { classifyAsTransfer } from './infrastructure/postgres/acquisition-cost-classification.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -219,6 +220,8 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
         actor,
       );
       if (c.kind !== 'CREATED') throw new Error(c.kind);
+      // §59D: the notary cost confirmed as a cost of the transfer, so the figures are unchanged.
+      if (category === 'NOTARY') await classifyAsTransfer(db(), { mreRealmId: REALM_A, acquisitionId: w, costId: c.cost.id, amount });
     }
     const allocation = await new PostgresLandBuildingAllocationRepository(db()).create(
       {

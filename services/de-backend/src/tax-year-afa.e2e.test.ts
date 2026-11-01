@@ -27,6 +27,7 @@ import {
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
+import { classifyAsTransfer } from './infrastructure/postgres/acquisition-cost-classification.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
@@ -233,6 +234,8 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
         actor,
       );
       if (cost.kind !== 'CREATED') throw new Error(cost.kind);
+      // §59D: the notary cost confirmed as a cost of the transfer, so the figures are unchanged.
+      if (category === 'NOTARY') await classifyAsTransfer(db(), { mreRealmId: realm, acquisitionId: w, costId: cost.cost.id, amount });
     }
     const allocation = await allocate(realm, w, reviewState, null);
     for (const [owner, n] of [

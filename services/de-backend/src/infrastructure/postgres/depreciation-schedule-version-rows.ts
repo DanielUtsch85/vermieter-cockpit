@@ -138,6 +138,7 @@ const COMPONENT_COLUMNS = [
   'shorter_life_review_state', 'source_type', 'source_id', 'source_position', 'classification_id', 'classification_review_state', 'tax_category',
   'item_date', 'item_date_source', 'item_tax_year', 'anschaffungsnahe_acquisition_id', 'method_consideration', 'method',
   'method_special_depreciation', 'method_subsidies_received', 'method_new_building_by_conversion', 'method_other_special_case', 'method_review_state',
+  'cost_classification_ids',
 ]; // prettier-ignore
 
 function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
@@ -158,6 +159,8 @@ function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
     v(m?.consideration ?? null, 'text'), v(m?.method ?? null, 'text'), v(m === null ? null : m.specialDepreciation, 'text[]'),
     v(m?.subsidiesReceived ?? null, 'boolean'), v(m?.newBuildingByConversion ?? null, 'boolean'), v(m?.otherSpecialCase ?? null, 'boolean'),
     v(m?.reviewState ?? null, 'text'),
+    // §59D (migration 0054): the classifications that decided a counted or excluded cost.
+    v(q === null ? null : q.costClassificationIds, 'uuid[]'),
   ]; // prettier-ignore
 }
 
@@ -314,6 +317,7 @@ function componentOf(c: Row, parts: readonly Row[], fractions: readonly Row[]): 
           countedCostsTotal: cents(text(c['counted'])),
           excludedCostIds: c['excluded_cost_ids'] as string[],
           excludedCostsTotal: cents(text(c['excluded'])),
+          costClassificationIds: c['cost_classification_ids'] as string[],
           allocationId: text(c['allocation_id']),
           allocationReviewState: text(c['allocation_review_state']),
           totalAllocableAmount: cents(text(c['total'])),

@@ -24,6 +24,7 @@ import {
 } from '../../domains/taxation/index.js';
 import { continuousOwners, type OwnershipPeriod } from '../../domains/ownership/index.js';
 import { addDays, type BusinessDate, type Money } from '../../shared/index.js';
+import { currentClassificationByCost } from './acquisition-cost-classification-repository.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { readAssessmentViewIn } from './weg-special-assessment-repository.js';
@@ -222,10 +223,16 @@ export async function acquisitionsOf(
   for (const r of rows) {
     const costs = await trx
       .selectFrom('acquisition_cost')
-      .select(['category', 'currency', sql<string>`amount::text`.as('amount')])
+      .select(['id', 'category', 'currency', sql<string>`amount::text`.as('amount')])
       .where('acquisition_id', '=', r.id)
       .where('status', '=', 'ACTIVE')
+      .orderBy('id')
       .execute();
+    // §59D: each cost's current classification, in the same snapshot.
+    const classifications = await currentClassificationByCost(
+      trx,
+      costs.map((c) => c.id),
+    );
     const allocation = await trx
       .selectFrom('land_building_allocation')
       .select(['id', 'review_state', 'currency', sql<string>`total_allocable_amount::text`.as('total'), sql<string>`building_amount::text`.as('building')])
@@ -241,7 +248,12 @@ export async function acquisitionsOf(
         acquiredShare: { numerator: r.acquired_share_numerator, denominator: r.acquired_share_denominator },
         purchasePrice: fromNumericAmount(r.purchase_price, r.currency),
       },
-      costs: costs.map((c) => ({ category: c.category, amount: fromNumericAmount(c.amount, c.currency) })),
+      costs: costs.map((c) => ({
+        id: c.id,
+        category: c.category,
+        amount: fromNumericAmount(c.amount, c.currency),
+        classification: classifications.get(c.id) ?? null,
+      })),
       allocation:
         allocation === undefined
           ? null

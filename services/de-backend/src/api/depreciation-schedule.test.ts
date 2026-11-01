@@ -85,9 +85,26 @@ const acc8: ScheduleRead = {
       economicTransferDate: day('2026-07-01'),
       sellerPartyIds: [D],
       costs: [
-        { id: '6f1c2a9e-0000-4000-8000-000000000051', category: 'REAL_ESTATE_TRANSFER_TAX', amount: eur('15000.00'), paymentStatus: 'EXPECTED' },
-        { id: '6f1c2a9e-0000-4000-8000-000000000052', category: 'NOTARY', amount: eur('3000.00'), paymentStatus: 'PAID' },
-        { id: '6f1c2a9e-0000-4000-8000-000000000053', category: 'FINANCING_RELATED', amount: eur('1200.00'), paymentStatus: 'PAID' },
+        {
+          id: '6f1c2a9e-0000-4000-8000-000000000051',
+          category: 'REAL_ESTATE_TRANSFER_TAX',
+          amount: eur('15000.00'),
+          paymentStatus: 'EXPECTED',
+          classification: null,
+        },
+        {
+          id: '6f1c2a9e-0000-4000-8000-000000000052',
+          category: 'NOTARY',
+          amount: eur('3000.00'),
+          paymentStatus: 'PAID',
+          // §59D: confirmed as a cost of the transfer, so it counts.
+          classification: {
+            id: '6f1c2a9e-0000-4000-8000-000000000062',
+            reviewState: 'CONFIRMED',
+            parts: [{ purpose: 'OWNERSHIP_TRANSFER', amount: eur('3000.00') }],
+          },
+        },
+        { id: '6f1c2a9e-0000-4000-8000-000000000053', category: 'FINANCING_RELATED', amount: eur('1200.00'), paymentStatus: 'PAID', classification: null },
       ],
       allocation: {
         id: '6f1c2a9e-0000-4000-8000-000000000030',
@@ -296,7 +313,10 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
             amount: { amount: '254400.00', currency: 'EUR' },
             purchasePrice: { amount: '300000.00', currency: 'EUR' },
             acquisitionCosts: { amount: '18000.00', currency: 'EUR' },
-            excludedCosts: [{ category: 'FINANCING_RELATED', amount: { amount: '1200.00', currency: 'EUR' } }],
+            excludedCosts: [{ category: 'FINANCING_RELATED', purpose: null, amount: { amount: '1200.00', currency: 'EUR' } }],
+            // §59D: nothing unclassified (the notary cost confirmed as a cost of the transfer): both bounds equal.
+            unclassifiedCosts: [],
+            basisAmountWithUnclassified: { amount: '254400.00', currency: 'EUR' },
             allocationId: '6f1c2a9e-0000-4000-8000-000000000030',
             allocationMethod: 'PURCHASE_CONTRACT',
             allocationReviewState: 'CONFIRMED',

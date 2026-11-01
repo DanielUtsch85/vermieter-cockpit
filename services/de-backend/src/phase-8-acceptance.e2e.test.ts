@@ -55,11 +55,15 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     return ids.sort() as [string, string];
   }
   /** ACC8's purchase on one of Realm A's MRE properties: W, its costs, the allocation, the Ownerships, confirmed; the building. */
-  async function acc8Unit(property: number, transfer: string, reviewState: 'CONFIRMED' | 'UNREVIEWED' = 'CONFIRMED', withMethod = true) {
+  async function acc8Unit(property: number, transfer: string, reviewState: 'CONFIRMED' | 'UNREVIEWED' = 'CONFIRMED', withMethod = true, classify = true) {
     at('2026-07-01');
     const pr = await api.link(PROPERTIES[property] as string);
     const [a, b] = await buyers();
-    const { acquisitionId: w, allocationId } = await api.purchase({
+    const {
+      acquisitionId: w,
+      allocationId,
+      costIds,
+    } = await api.purchase({
       pr,
       buyers: [a, b],
       share: '1/1',
@@ -68,12 +72,13 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
       transfer,
       costs: ACC8_COSTS,
       allocation: { ...ACC8_ALLOCATION, reviewState },
+      classify,
     });
     const ownerships = [await api.own(pr, a, '3/5', transfer, w), await api.own(pr, b, '2/5', transfer, w)];
     await api.confirm(w);
     // §59C: W's confirmed STANDARD method entry with the building (ACC8's main run records it one step later).
     const building = await phase8(() => api.building(pr, withMethod ? [w] : []));
-    return { pr, a, b, w, allocationId, ownerships, building };
+    return { pr, a, b, w, allocationId, ownerships, building, costIds };
   }
   const years = (s: Json) => s.years.map((y: Json) => [y.year, y.amount?.amount ?? null, ...(y.owners ?? []).map((o: Json) => o.amount?.amount ?? null)]);
   const ownerFigures = (v: Json) =>
@@ -81,7 +86,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
   const recordingOf = (v: Json) => v.depreciation.assets.map((x: Json) => x.recording.state);
 
   it('the Phase-8 exit, claim by claim (ACC8)', { timeout: 300_000 }, async () => {
-    const { pr, a, b, w, building } = await acc8Unit(0, '2026-07-01', 'CONFIRMED', false);
+    const { pr, a, b, w, building, costIds } = await acc8Unit(0, '2026-07-01', 'CONFIRMED', false, false);
     const weg = await post('/wegs', { displayName: 'WEG Beispielallee (synthetisch)' });
     const membership = (await post(`/wegs/${weg.wegId}/memberships`, { propertyReferenceId: pr, miteigentumsanteil: '125/1000', validFrom: '2026-07-01' }))
       .membershipId;
@@ -101,6 +106,26 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // Claim 1, the schedule of the purchase from acquisition truth: basis 254,400.00 = 318,000.00 × 254,400/318,000 (the
     // land and the FINANCING_RELATED 1,200.00 in no component), 2 % for 1995, 6/12 in 2026, per Acquisition among its buyers.
     at('2027-02-15');
+    // §59D (decided by the owner on 2026-11-01): before the notary (2,000.00) and land registry (1,000.00) costs are
+    // classified, the basis is not computable (never counted unreviewed): 252,000.00 = 315,000.00 × 254,400 / 318,000
+    // without the 3,000.00, and 254,400.00 with them; then both are confirmed as costs of the transfer.
+    const [notary, landRegistry] = [costIds[1] as string, costIds[2] as string];
+    const unclassified = await phase8(() => schedule(building, 'from=2026&to=2026'));
+    expect([unclassified.years[0].status, unclassified.years[0].amount, unclassified.components[0].reasons]).toEqual([
+      'DEPRECIATION_NOT_AVAILABLE',
+      null,
+      [
+        { code: 'ACQUISITION_COST_UNCLASSIFIED', details: { costIds: [notary, landRegistry].sort() } },
+        { code: 'DEPRECIATION_METHOD_NOT_CONFIRMED', details: expect.anything() },
+      ],
+    ]);
+    expect(unclassified.components[0].basis).toMatchObject({ amount: eur('252000.00'), basisAmountWithUnclassified: eur('254400.00') });
+    expect([...unclassified.components[0].basis.unclassifiedCosts].sort((x: Json, y: Json) => (x.category < y.category ? -1 : 1))).toEqual([
+      { costId: landRegistry, category: 'LAND_REGISTRY', amount: eur('1000.00'), classificationReviewState: null },
+      { costId: notary, category: 'NOTARY', amount: eur('2000.00'), classificationReviewState: null },
+    ]);
+    await api.classifyCost(w, notary, '2000.00');
+    await api.classifyCost(w, landRegistry, '1000.00');
     // §59C (decided by the owner on 2026-11-01, open question 6): before W's method entry the year is not available,
     // never assumed linear: DEPRECIATION_METHOD_NOT_CONFIRMED, the amounts null; the entry is then recorded and confirmed.
     const unknown = await phase8(() => schedule(building, 'from=2026&to=2026'));
@@ -132,7 +157,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
         '254400.00',
         '300000.00',
         '18000.00',
-        [{ category: 'FINANCING_RELATED', amount: eur('1200.00') }],
+        [{ category: 'FINANCING_RELATED', purpose: null, amount: eur('1200.00') }],
         '318000.00',
         '1/50',
         '2026-07',

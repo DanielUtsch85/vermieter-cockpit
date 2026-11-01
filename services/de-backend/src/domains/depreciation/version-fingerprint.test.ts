@@ -93,7 +93,10 @@ describe('what counts as a change (§60)', () => {
     'an item’s amount': acc8({ ownerships: owners, capitalizedItems: [repair({ anschaffungsnaheAcquisitionId: null, lineAmount: eur('35000.00') })] }),
     'an item’s date': acc8({ ownerships: owners, capitalizedItems: [repair({ anschaffungsnaheAcquisitionId: null, date: day('2027-03-11') })] }),
     'a cost added': withAcq({
-      costs: [...a.costs, { id: '0000bbbb-0000-4000-8000-000000000099', category: 'NOTARY', amount: eur('100.00'), paymentStatus: 'PAID' }],
+      costs: [
+        ...a.costs,
+        { id: '0000bbbb-0000-4000-8000-000000000099', category: 'BROKER', amount: eur('100.00'), paymentStatus: 'PAID', classification: null },
+      ],
     }),
     'a cost voided': withAcq({ costs: a.costs.slice(1) }),
     'an allocation superseded with the same amounts': withAcq({

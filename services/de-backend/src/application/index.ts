@@ -225,6 +225,17 @@ export type {
 } from './acquisition-costs.js';
 export { COST_CATEGORIES, COST_STATUSES } from '../domains/acquisition/index.js';
 export type { AcquisitionCost, AcquisitionPayment, LinkRefusal, PurchasePricePayments } from '../domains/acquisition/index.js';
+export {
+  AcquisitionCostVoidError,
+  ClassificationPartsSumMismatchError,
+  ClassificationPurposeNotAllowedError,
+  CurrentClassificationChangedError,
+  createCostClassification,
+  listCostClassifications,
+} from './acquisition-cost-classifications.js';
+export type { CreateCostClassification, ListCostClassifications } from './acquisition-cost-classifications.js';
+export { CLASSIFICATION_PURPOSES, CLASSIFICATION_REVIEW_STATES, MAX_CLASSIFICATION_PARTS } from '../domains/acquisition/index.js';
+export type { AcquisitionCostClassification } from '../domains/acquisition/index.js';
 export { CurrentAllocationChangedError, createLandBuildingAllocation, listLandBuildingAllocations } from './land-building-allocations.js';
 export type { CreateLandBuildingAllocation, ListLandBuildingAllocations } from './land-building-allocations.js';
 export { ALLOCATION_METHODS, ALLOCATION_REVIEW_STATES, shareOf } from '../domains/acquisition/index.js';

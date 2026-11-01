@@ -1,5 +1,6 @@
 import type { AuditActor, BusinessDate, Money, VersionConflict } from '../../shared/index.js';
 import type { AcquisitionStatus } from './acquisition.js';
+import type { AcquisitionCostClassification } from './cost-classification.js';
 
 /**
  * Acquisition costs and payment links (data-model.md §14, api-design.md §27.2, phase-2-plan P2-D7). The price is
@@ -45,6 +46,8 @@ export interface AcquisitionCost extends CostData {
   readonly paidAmount: Money;
   /** `null` for a `VOID` cost and on a `CANCELLED` Acquisition. */
   readonly paymentStatus: PaymentStatus | null;
+  /** §59D: the current classification, or `null`; no "in the basis" verdict, which is the rule's. */
+  readonly classification: AcquisitionCostClassification | null;
   readonly createdAt: Date;
   readonly version: number;
 }

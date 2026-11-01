@@ -51,6 +51,8 @@ export function countedComponent(c: VersionComponent): Record<string, unknown> {
             countedCostsTotal: centsText(c.acquisition.countedCostsTotal),
             excludedCostIds: c.acquisition.excludedCostIds,
             excludedCostsTotal: centsText(c.acquisition.excludedCostsTotal),
+            // §59D: the classifications that decided, from the component's first year.
+            costClassificationIds: c.acquisition.costClassificationIds,
             allocationId: c.acquisition.allocationId,
             totalAllocableAmount: centsText(c.acquisition.totalAllocableAmount),
             buildingAmount: centsText(c.acquisition.buildingAmount),
