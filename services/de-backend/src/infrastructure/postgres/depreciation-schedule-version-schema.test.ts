@@ -1,21 +1,26 @@
 import pg from 'pg';
 import { describe, expect, it } from 'vitest';
+import { Money, type BusinessDate } from '../../shared/index.js';
 import { createDatabase } from './database.js';
 import { codeOf, withMigrationLock } from './depreciation-asset.test-support.js';
-import { OTHER_REALM, REALM, VERSION_TABLES, databaseUrl, useScheduleVersionDatabase } from './depreciation-schedule-version.test-support.js';
+import { OTHER_REALM, REALM, VERSION_TABLES, actor, databaseUrl, useScheduleVersionDatabase } from './depreciation-schedule-version.test-support.js';
+import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { migrateToLatest } from './migrate.js';
 import { migrations } from './migrations/index.js';
 import { testSchemaName } from './test-schema.test-support.js';
+import { PostgresTransactionRepository } from './transaction-repository.js';
+import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
 
 /**
  * Migration 0052 past the repository (api-design.md §60 "In the database"), each with a counter-check: every child row
  * append-only, a version changed only by the supersede step, never deleted; one `CURRENT` per asset; child rows only from
  * the version's own transaction (never `xmin`: an append to the version just superseded is refused); `created_txid`
  * never given; a version only on an `ACTIVE`, confirmed asset with the next number; the chain checked at commit; the
- * composite keys; `up` and `down` under `MIGRATION_ADVISORY_LOCK`, `down` refused with a version present.
+ * composite keys (another Realm's asset, party, allocation and classification, another PropertyReference's purchase);
+ * `up` and `down` under `MIGRATION_ADVISORY_LOCK`, `down` refused with a version present.
  */
 describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (§60)', () => {
-  const { ctx, acc8, record } = useScheduleVersionDatabase('schedule_version_schema_test');
+  const { ctx, acc8, record, party } = useScheduleVersionDatabase('schedule_version_schema_test');
   const versionOf = async (throughYear = 2026) => {
     const fixture = await acc8();
     const outcome = await record(fixture.assetId, { throughYear });
@@ -153,6 +158,133 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
     expect(await component(mine.pr, other.w)).toBe('23503');
     // Counter-check: its own purchase is accepted (the append-only guard disabled for the probe only).
     expect(await component(mine.pr, mine.w)).toBe('accepted');
+  });
+
+  /** A confirmed maintenance split of `pr` in `realm`, classified (synthetic); the classification's id. */
+  const classification = async (realm: string, pr: string): Promise<string> => {
+    const db = createDatabase(ctx.pool);
+    const eur = Money.of('4800.00', 'EUR');
+    const account = await new PostgresFinancialAccountRepository(db).create(
+      { mreRealmId: realm, accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: null },
+      actor,
+    );
+    if (account.kind !== 'CREATED') throw new Error(account.kind);
+    const transactions = new PostgresTransactionRepository(db);
+    const created = await transactions.createManual(
+      {
+        mreRealmId: realm,
+        financialAccountId: account.account.id,
+        amount: eur,
+        direction: 'OUTFLOW',
+        bookingDate: '2027-03-15' as BusinessDate,
+        valueDate: null,
+        description: 'Dachreparatur (synthetisch)',
+        propertyReferenceId: null,
+      },
+      actor,
+    );
+    if (created.kind !== 'CREATED') throw new Error(created.kind);
+    const split = { amount: eur, financialCategoryCode: 'MAINTENANCE', propertyReferenceId: pr, loanId: null, securityDepositId: null, description: null };
+    const replaced = await new PostgresTransactionSplitRepository(db).replaceSplits(created.transaction.id, realm, [split], actor);
+    if (replaced.kind !== 'REPLACED') throw new Error(replaced.kind);
+    if ((await transactions.confirm(created.transaction.id, realm, actor)).kind !== 'CONFIRMED') throw new Error('confirm');
+    const splitId = (await ctx.pool.query(`SELECT id FROM transaction_split WHERE transaction_id = $1`, [created.transaction.id])).rows[0].id as string;
+    const { rows } = await ctx.pool.query(
+      `INSERT INTO tax_classification (mre_realm_id, source_type, transaction_split_id, tax_category, treatment, review_state, rule_code, rule_version, created_by)
+       VALUES ($1, 'TRANSACTION_SPLIT', $2, 'MAINTENANCE', 'DEDUCTIBLE', 'USER_CONFIRMED', 'DE_CATEGORY_DEFAULTS', 1, 'x') RETURNING id`,
+      [realm, splitId],
+    );
+    return rows[0].id as string;
+  };
+  /**
+   * Runs `statements` with the append-only guards of `tables` disabled (for the probe only), rolled back: the SQLSTATE and
+   * the violated constraint of the first failure, or `accepted`.
+   */
+  const probe = async (tables: readonly string[], statements: (client: pg.PoolClient) => Promise<unknown>) => {
+    const client = await ctx.pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const table of tables) await client.query(`ALTER TABLE ${table} DISABLE TRIGGER ${table}_append_only`);
+      await statements(client);
+      return 'accepted';
+    } catch (error) {
+      const { code, constraint } = error as { code?: string; constraint?: string };
+      return `${code} ${constraint}`;
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  };
+
+  it('the composite keys: an owner part naming another Realm’s party, and an entry of it, are refused; so is the part in the other Realm’s name', async () => {
+    const mine = await versionOf();
+    const theirs = await acc8(OTHER_REALM);
+    const third = await party('Käuferin C', REALM);
+    const component = (
+      await ctx.pool.query(`SELECT component_id FROM depreciation_schedule_version_component WHERE version_id = $1 AND kind = 'ACQUISITION'`, [
+        mine.version.versionId,
+      ])
+    ).rows[0].component_id as string;
+    const part = (client: pg.PoolClient, realm: string, owner: string) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_part (version_id, mre_realm_id, component_id, part_key, owner_party_id, ownership_ids, share_numerator,
+           share_denominator, weight_numerator, weight_denominator, basis_amount, first_month, rate_kind)
+         VALUES ($1, $2, $3, 'OWNER:' || $4::text, $4::uuid, '{}', 1, 5, 1, 5, 1, '2026-07-01', 'BAND')`,
+        [mine.version.versionId, realm, component, owner],
+      );
+    const entry = (client: pg.PoolClient, owner: string) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_entry (version_id, mre_realm_id, year, component_id, part_key, months, amount, cumulative, residual_value)
+         VALUES ($1, $2, 2026, $3, 'OWNER:' || $4::text, 6, 1, 1, 0)`,
+        [mine.version.versionId, REALM, component, owner],
+      );
+    const tables = ['depreciation_schedule_version_part', 'depreciation_schedule_entry'];
+    // Another Realm's party in this Realm's name (the party key), and in the other Realm's name (the version key).
+    expect(await probe(tables, (client) => part(client, REALM, theirs.a))).toBe('23503 depreciation_schedule_version_part_party_fk');
+    expect(await probe(tables, (client) => part(client, OTHER_REALM, theirs.a))).toBe('23503 depreciation_schedule_version_part_version_fk');
+    // An entry of another Realm's party (its part cannot exist).
+    expect(await probe(tables, (client) => entry(client, theirs.a))).toBe('23503 depreciation_schedule_entry_part_fk');
+    // Counter-check: a party of this Realm, its part and its entry, are accepted.
+    expect(await probe(tables, async (client) => [await part(client, REALM, third), await entry(client, third)])).toBe('accepted');
+  });
+
+  it('the composite keys: a purchase component with another Realm’s allocation, and an item component with another Realm’s classification, are refused', async () => {
+    const mine = await versionOf();
+    const theirs = await acc8(OTHER_REALM);
+    const [ownClassification, theirClassification] = [await classification(REALM, mine.pr), await classification(OTHER_REALM, theirs.pr)];
+    const purchase = (client: pg.PoolClient, allocationId: string) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total, excluded_cost_ids,
+           excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount)
+         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1)`,
+        [mine.version.versionId, REALM, mine.pr, mine.w, allocationId],
+      );
+    const item = (client: pg.PoolClient, realm: string, pr: string, classificationId: string) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, source_type, source_id, classification_id, classification_review_state, tax_category,
+           item_date, item_date_source, item_tax_year)
+         VALUES ($1, $2, $3, 'ITEM:x', 'CAPITALIZED_ITEM', 9, 1, '2027-03-15', 'BOOKING_DATE', 'MONTH_OF_DATE', '2027-03-01', 'BAND', 'TRANSACTION_SPLIT',
+           gen_random_uuid(), $4, 'USER_CONFIRMED', 'MAINTENANCE', '2027-03-15', 'BOOKING_DATE', 2027)`,
+        [mine.version.versionId, realm, pr, classificationId],
+      );
+    const tables = ['depreciation_schedule_version_component'];
+    // Another Realm's allocation beside this version's own purchase (the allocation key binds it to the purchase).
+    expect(await probe(tables, (client) => purchase(client, theirs.allocation))).toBe('23503 depreciation_schedule_version_component_allocation_fk');
+    // Another Realm's classification in this Realm's name (the classification key), and in the other Realm's name (the version key).
+    expect(await probe(tables, (client) => item(client, REALM, mine.pr, theirClassification))).toBe(
+      '23503 depreciation_schedule_version_component_classification_fk',
+    );
+    expect(await probe(tables, (client) => item(client, OTHER_REALM, mine.pr, theirClassification))).toBe(
+      '23503 depreciation_schedule_version_component_version_fk',
+    );
+    expect(await probe(tables, (client) => item(client, OTHER_REALM, theirs.pr, theirClassification))).toBe(
+      '23503 depreciation_schedule_version_component_version_fk',
+    );
+    // Counter-check: this Realm's allocation and classification are accepted.
+    expect(await probe(tables, (client) => purchase(client, mine.allocation))).toBe('accepted');
+    expect(await probe(tables, (client) => item(client, REALM, mine.pr, ownClassification))).toBe('accepted');
   });
 
   it(
