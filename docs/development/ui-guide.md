@@ -12,7 +12,7 @@
 **Übergabe an Entwicklung und Design · Version 1.0 · 30.10.2026**
 
 **Referenzstand:** [dd110b9](https://github.com/DanielUtsch85/vermieter-cockpit/commit/dd110b90f9da6680ffcb22a79323d6350021449d)  
-**Geltung:** vorhandene DE-API für Phasen 0–8 (Stand `main` [6582365](https://github.com/DanielUtsch85/vermieter-cockpit/commit/6582365c9bde59b6c2b99b336fcb9a75a3f753c0)). Phase 8 (AfA) ist implementiert: Anlagen, Plan, aktivierte Posten und Planversionen (api-design §59–§60); das Erfassen von Planversionen ist standardmäßig ausgeschaltet (`DEPRECIATION_RECORDING_ENABLED`). Die Detailaussagen dieses Leitfadens (Limits, Lücken, Rollen) sind gegen den Referenzstand dd110b9 geprüft; Routenbestand und Phasenstand gegen 6582365. Das aktuelle Routeninventar steht in `docs/development/api-inventory.md`.  
+**Geltung:** vorhandene DE-API für Phasen 0–8 (Stand `main` [6582365](https://github.com/DanielUtsch85/vermieter-cockpit/commit/6582365c9bde59b6c2b99b336fcb9a75a3f753c0)). Phase 8 (AfA) ist implementiert: Anlagen, Plan, aktivierte Posten und Planversionen (api-design §59–§60); das Erfassen von Planversionen ist standardmäßig ausgeschaltet (`DEPRECIATION_RECORDING_ENABLED`). Die Detailaussagen dieses Leitfadens (Limits, Lücken, Rollen) sind gegen den Referenzstand dd110b9 geprüft, und die Permalinks im Quellenabschnitt am Ende zeigen bewusst auf diesen Stand; Routenbestand und Phasenstand sind gegen 6582365 geprüft. Das aktuelle Routeninventar steht in `docs/development/api-inventory.md`.  
 **Ziel:** eine verständliche Oberfläche auf vorhandenen Datenstrukturen und Fachbefehlen aufbauen, ohne diese für das Layout umzubauen.
 
 ## 1. Entscheidung für den Projektstart
