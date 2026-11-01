@@ -354,3 +354,103 @@ describe('architecture rules (fixtures)', () => {
     expect(['a.ts', 'b.mts', 'c.cts', 'd.d.ts', 'e.js'].filter(isSourceFile)).toEqual(['a.ts', 'b.mts', 'c.cts']);
   });
 });
+
+/**
+ * Specifiers of the imports and re-exports that bind a value at run time. A binding written `type X`, and
+ * `import type` / `export type`, are left out: they carry no value, so a cycle through them cannot leave a module
+ * reading another one before it is initialised.
+ */
+function valueImportSpecifiers(source: string): string[] {
+  const file = ts.createSourceFile('probe.ts', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const valueNamed = (elements: ts.NodeArray<ts.ImportSpecifier | ts.ExportSpecifier>) => elements.some((e) => !e.isTypeOnly);
+  return file.statements.flatMap((s) => {
+    if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier)) {
+      const clause = s.importClause;
+      if (clause === undefined) return [s.moduleSpecifier.text];
+      if (clause.isTypeOnly) return [];
+      const bindings = clause.namedBindings;
+      const hasValue = clause.name !== undefined || (bindings !== undefined && (ts.isNamespaceImport(bindings) || valueNamed(bindings.elements)));
+      return hasValue ? [s.moduleSpecifier.text] : [];
+    }
+    if (ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined && ts.isStringLiteral(s.moduleSpecifier)) {
+      if (s.isTypeOnly) return [];
+      const clause = s.exportClause;
+      return clause === undefined || ts.isNamespaceExport(clause) || valueNamed(clause.elements) ? [s.moduleSpecifier.text] : [];
+    }
+    return [];
+  });
+}
+
+/** The cycles (strongly connected components of more than one file, or a file importing itself) of a value-import graph. */
+function valueImportCycles(graph: ReadonlyMap<string, readonly string[]>): string[][] {
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const cycles: string[][] = [];
+  const visit = (v: string) => {
+    index.set(v, index.size);
+    low.set(v, index.get(v) as number);
+    stack.push(v);
+    onStack.add(v);
+    for (const w of graph.get(v) ?? []) {
+      if (!index.has(w)) {
+        visit(w);
+        low.set(v, Math.min(low.get(v) as number, low.get(w) as number));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v) as number, index.get(w) as number));
+    }
+    if (low.get(v) === index.get(v)) {
+      const component: string[] = [];
+      for (let w = stack.pop(); w !== undefined; w = w === v ? undefined : stack.pop()) {
+        onStack.delete(w);
+        component.push(w);
+      }
+      if (component.length > 1 || (graph.get(v) ?? []).includes(v)) cycles.push(component.sort());
+    }
+  };
+  for (const v of graph.keys()) if (!index.has(v)) visit(v);
+  return cycles;
+}
+
+describe('architecture: no value-import cycle in production code', () => {
+  it('no production file reaches itself through value imports (type-only bindings excluded)', () => {
+    const production = listSourceFiles(srcDir).filter((path) => !testFilePattern.test(path) && !/\.test-support\.(c|m)?ts$/.test(path));
+    const known = new Set(production.map((path) => relative(srcDir, path)));
+    const graph = new Map<string, string[]>();
+    for (const path of production) {
+      const file = relative(srcDir, path);
+      const targets = valueImportSpecifiers(readFileSync(path, 'utf8'))
+        .filter((specifier) => specifier.startsWith('.'))
+        .map((specifier) => relative(srcDir, resolve(srcDir, dirname(file), specifier)).replace(/\.js$/, '.ts'))
+        .filter((target) => known.has(target));
+      graph.set(file, targets);
+    }
+    expect(graph.size).toBeGreaterThan(100);
+    expect(valueImportCycles(graph)).toEqual([]);
+  });
+
+  it('counter-check: the detector finds a cycle, and ignores one made of type-only bindings', () => {
+    expect(valueImportSpecifiers("import { a } from './a.js';\nexport { b } from './b.js';")).toEqual(['./a.js', './b.js']);
+    expect(valueImportSpecifiers("import type { A } from './a.js';\nimport { type B } from './b.js';\nexport type { C } from './c.js';")).toEqual([]);
+    expect(valueImportSpecifiers("import { type A, b } from './a.js';\nimport * as n from './n.js';\nimport './side.js';")).toEqual([
+      './a.js',
+      './n.js',
+      './side.js',
+    ]);
+    const cyclic = new Map([
+      ['a.ts', ['b.ts']],
+      ['b.ts', ['c.ts']],
+      ['c.ts', ['a.ts']],
+      ['d.ts', ['a.ts']],
+    ]);
+    expect(valueImportCycles(cyclic)).toEqual([['a.ts', 'b.ts', 'c.ts']]);
+    expect(
+      valueImportCycles(
+        new Map([
+          ['a.ts', ['b.ts']],
+          ['b.ts', []],
+        ]),
+      ),
+    ).toEqual([]);
+  });
+});

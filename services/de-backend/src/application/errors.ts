@@ -32,3 +32,16 @@ export class VersionConflictError extends Error {
     super(`Expected version ${expectedVersions.join(' or ') || '(none)'}, the current version is ${currentVersion}`);
   }
 }
+
+/** The Transaction's currency differs from its account's; there is no FX handling (data-model.md §17.7). */
+export class CurrencyMismatchError extends Error {
+  override readonly name = 'CurrencyMismatchError';
+
+  constructor(
+    message: string,
+    /** Where, when known: the amount, and the splits by position (1-based), so the API can name the field. */
+    readonly where: { readonly amount: boolean; readonly splitPositions: readonly number[] } = { amount: true, splitPositions: [] },
+  ) {
+    super(message);
+  }
+}
