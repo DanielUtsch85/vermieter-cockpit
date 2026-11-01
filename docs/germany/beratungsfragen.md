@@ -86,6 +86,8 @@
 - **Bewegliche Wirtschaftsgüter** (Fragen 12, 13): vor 2023 linear nach § 7 Abs. 1 EStG, monatsanteilig; Einbauküche 10 Jahre ab Anschaffungsmonat; Reparatur Erhaltung, wesentliche Ergänzung nachträgliche AK, vollständige Erneuerung neues Wirtschaftsgut. **Nicht beantwortet:** wie die AfA einer späteren Ergänzung zu rechnen ist (`LATER_ITEM_TO_VERIFY`).
 - **Miteigentümer, Fortführung durch Rechtsnachfolger:** vom Bericht nicht beantwortet.
 
+**Im Code aufgelöst** (Folge-PR zum Prüfbericht, `api-design.md` §59A „Resolved by the tax review (2026-11-01)“): `DISPOSAL_YEAR_TO_VERIFY` (Frage 4) und `SHARE_REDUCTION_SPLIT_TO_VERIFY` (Frage 11) entfallen; `HISTORICAL_RULE_TO_VERIFY` (Frage 1) entfällt für Jahre 2006–2022 zum Bandsatz und bleibt bei kürzerer Nutzungsdauer; der VERIFY-Vermerk zur USt (Frage 10) ist als bestätigt vermerkt. Aufgenommen in derselben Regelversion (§60, offene Frage 11); die Erfassung bleibt ausgeschaltet.
+
 ---
 
 ## 5. § 82b EStDV: Verteilung und Verkauf eines Miteigentumsanteils (A5)

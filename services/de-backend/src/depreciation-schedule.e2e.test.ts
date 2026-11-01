@@ -415,20 +415,17 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     return { ...s, c, x };
   }
 
-  it('B sells to C on 2029-07-01: B’s 2029 is 1,017.60, PROVISIONAL, DISPOSAL_YEAR_TO_VERIFY; C’s component from July', async () => {
+  it('B sells to C on 2029-07-01: B’s 2029 is 1,017.60, CALCULATED, no DISPOSAL_YEAR_TO_VERIFY (confirmed); C’s component from July', async () => {
     const s = await sale(true);
     const body = await ok(s.assetId, '?from=2029&to=2030');
     const [w, x] = body.components;
     const b2029 = w?.years.find((y) => y.year === 2029)?.owners.find((o) => o.ownerPartyId === s.b);
-    expect([money(b2029?.amount ?? null), b2029?.calculationStatus, b2029?.flags.map((f) => f.code)]).toEqual([
-      '1017.60',
-      'PROVISIONAL',
-      ['DISPOSAL_YEAR_TO_VERIFY'],
-    ]);
+    // Prüfbericht 01.11.2026, Frage 4 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01).
+    expect([money(b2029?.amount ?? null), b2029?.calculationStatus, b2029?.flags.map((f) => f.code)]).toEqual(['1017.60', 'CALCULATED', []]);
     expect(w?.years.find((y) => y.year === 2030)?.owners.map((o) => o.ownerPartyId)).toEqual([s.a]);
     expect([x?.acquisitionId, x?.status, x?.start?.month]).toEqual([s.x, 'COMPUTABLE', '2029-07']);
     expect(body.years[0]?.owners?.map((o) => o.ownerPartyId).sort()).toEqual([s.a, s.b, s.c].sort());
-    // B's provisional disposal year is recorded with its open flag (§60 open question 1), C's component from July.
+    // B's disposal year is recorded (its flag confirmed away, Prüfbericht 01.11.2026), C's component from July.
     await reproduction.expectReproducible(s.assetId, 2030, REALM_A);
   });
 

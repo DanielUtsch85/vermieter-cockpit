@@ -64,6 +64,13 @@ export function bandOf(parameters: BuildingLinearParameters, completionYear: num
   );
 }
 
+/**
+ * Whether a year of `parameters` is free of `HISTORICAL_RULE_TO_VERIFY` (§59A): the rates confirmed, and for a year
+ * computed with a shorter useful life (`shorter`) also the thresholds of S. 2 that admitted it.
+ */
+export const isRateVerified = (parameters: BuildingLinearParameters, shorter: boolean) =>
+  parameters.verified.rates && (!shorter || parameters.verified.shorterUsefulLifeThresholds);
+
 /** § 7 Abs. 4 S. 2 EStG: shorter only below the years the statute names for the band; no arithmetic on the rate. */
 export const isShorter = (usefulLifeYears: number, band: BuildingRateBand) => usefulLifeYears < band.shorterUsefulLife.shorterThanYears;
 

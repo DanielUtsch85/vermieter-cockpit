@@ -23,6 +23,7 @@ import {
   repair,
   startVerified,
   use,
+  withParameters,
   yearOf,
 } from './schedule-items.test-support.js';
 
@@ -243,7 +244,10 @@ describe('the end: one pooled basis per tenure (§59B "The end", decided 2026-10
     const s = derive(input);
     const e = item(s);
     expect(owner(yearOf(e, 2030), B)).toMatchObject({ months: 6, amount: eur('40.00'), calculationStatus: 'PROVISIONAL' });
-    expect(codes(owner(yearOf(e, 2030), B)?.flags ?? [])).toContain('DISPOSAL_YEAR_TO_VERIFY');
+    // The disposal year confirmed (Prüfbericht 01.11.2026, Frage 4): no DISPOSAL_YEAR_TO_VERIFY; back with the rule unverified.
+    expect(codes(owner(yearOf(e, 2030), B)?.flags ?? [])).not.toContain('DISPOSAL_YEAR_TO_VERIFY');
+    const disposalOpen = withParameters((p) => ({ ...p, end: { ...p.end, disposal: { ...p.end.disposal, verified: false } } }));
+    expect(codes(owner(yearOf(item(derive(input, disposalOpen)), 2030), B)?.flags ?? [])).toContain('DISPOSAL_YEAR_TO_VERIFY');
     expect(owner(yearOf(e, 2031), B)).toBeUndefined();
     expect(owner(yearOf(e, 2031), C)).toBeUndefined();
     expect(e.owners.find((o) => o.ownerPartyId === B)?.tenure).toEqual({
@@ -373,11 +377,11 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
     expect(amount(s.years[0]?.notOwned)).toBe('40.00');
   });
 
-  it('NO_APPLICABLE_RULE for an item starting before 2006 (§59A as decided: no version before it); 2006–2022 HISTORICAL_RULE_TO_VERIFY', () => {
+  it('NO_APPLICABLE_RULE for an item starting before 2006 (§59A as decided: no version before it); 2006–2022 by @1, its rates confirmed', () => {
     const early = item(derive(acc8({ capitalizedItems: [capitalized(EXTENSION, '2005-12-31', '1000.00')] })));
     expect(early.reasons).toEqual([{ code: 'NO_APPLICABLE_RULE', details: { firstMonth: '2005-01', supportedFrom: '2006-01-01' } }]);
     expect(early.years.every((y) => y.amount === null)).toBe(true);
-    const old = derive({
+    const oldInput: ScheduleInput = {
       asset: asset(),
       acquisitions: [acquisition({ contractDate: day('2019-11-01'), economicTransferDate: day('2020-01-01') })],
       ownerships: [ownership(A, '1/1', '2020-01-01', null, W)],
@@ -386,12 +390,35 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
       from: 2022,
       to: 2023,
       ownerPartyId: null,
-    });
-    expect(codes(owner(yearOf(item(old), 2022), A)?.flags ?? [])).toEqual(['HISTORICAL_RULE_TO_VERIFY']);
+    };
+    const old = derive(oldInput);
+    // Prüfbericht 01.11.2026, Frage 1 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01):
+    // HISTORICAL_RULE_TO_VERIFY no longer appears on an item year computed with @1's rates.
+    expect(codes(owner(yearOf(item(old), 2022), A)?.flags ?? [])).toEqual([]);
     expect(owner(yearOf(item(old), 2023), A)?.flags).toEqual([]);
+    // @1's rates unverified again (only @1: its thresholds are the unverified ones): the flag is back on 2022 alone.
+    const ratesOpen = withParameters((p) => (p.verified.shorterUsefulLifeThresholds ? p : { ...p, verified: { ...p.verified, rates: false } }));
+    const reopened = item(derive(oldInput, ratesOpen));
+    expect(codes(owner(yearOf(reopened, 2022), A)?.flags ?? [])).toEqual(['HISTORICAL_RULE_TO_VERIFY']);
+    expect(owner(yearOf(reopened, 2023), A)?.flags).toEqual([]);
   });
 
-  it('the 2006 boundary from the other side: an item of 2006-06-30 on a purchase of 2006-01-01 is computed from 2006-01, HISTORICAL_RULE_TO_VERIFY (review on #187)', () => {
+  it('an item on a purchase with a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY (the thresholds 50 / 40 not confirmed)', () => {
+    const s = derive({
+      asset: asset({ shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-01-01') } })] }),
+      acquisitions: [acquisition({ contractDate: day('2019-11-01'), economicTransferDate: day('2020-01-01') })],
+      ownerships: [ownership(A, '1/1', '2020-01-01', null, W)],
+      capitalizedItems: [capitalized(EXTENSION, '2022-03-03', '1000.00', [[A, '1/1']])],
+      today: day('2026-10-30'),
+      from: 2022,
+      to: 2023,
+      ownerPartyId: null,
+    });
+    expect(codes(owner(yearOf(item(s), 2022), A)?.flags ?? [])).toContain('HISTORICAL_RULE_TO_VERIFY');
+    expect(codes(owner(yearOf(item(s), 2023), A)?.flags ?? [])).not.toContain('HISTORICAL_RULE_TO_VERIFY');
+  });
+
+  it('the 2006 boundary from the other side: an item of 2006-06-30 on a purchase of 2006-01-01 is computed from 2006-01 by @1 (review on #187)', () => {
     const s = derive({
       asset: asset(),
       acquisitions: [acquisition({ contractDate: day('2006-01-01'), economicTransferDate: day('2006-01-01') })],
@@ -407,7 +434,8 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
     expect(boundary.start?.month).toBe('2006-01');
     const year = owner(yearOf(boundary, 2006), A);
     expect(year?.amount).not.toBeNull();
-    expect(codes(year?.flags ?? [])).toContain('HISTORICAL_RULE_TO_VERIFY');
+    // @1's rates confirmed (Prüfbericht 01.11.2026, Frage 1): no HISTORICAL_RULE_TO_VERIFY.
+    expect(codes(year?.flags ?? [])).not.toContain('HISTORICAL_RULE_TO_VERIFY');
   });
 
   it('a purchase before 2006 (not computable): under POOLED_BASIS the item is computed until the purchase’s nominal last month, then NO_APPLICABLE_RULE', () => {

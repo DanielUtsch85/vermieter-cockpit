@@ -565,8 +565,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     ]);
     expectOwnersAddUp(p2027, 'partial');
 
-    // B sells its 2/5 to C effective 2029-07-01 (§26.2): B's 2029 is 6/12 of 2,035.20 = 1,017.60 PROVISIONAL with
-    // DISPOSAL_YEAR_TO_VERIFY (as decided 2026-10-31); C's own component from C's Acquisition (building 88,000.00):
+    // B sells its 2/5 to C effective 2029-07-01 (§26.2): B's 2029 is 6/12 of 2,035.20 = 1,017.60, CALCULATED: the
+    // disposal year as decided 2026-10-31, confirmed by the Prüfbericht 01.11.2026, Frage 4 (mündlich bestätigt durch den
+    // Steuerberater, laut Projektinhaber am 2026-11-01), so DISPOSAL_YEAR_TO_VERIFY no longer appears; C's own component from C's Acquisition (building 88,000.00):
     // 1,760.00 a year, 880.00 in 2029. 2029: 3,052.80 + 1,017.60 + 880.00 = 4,950.40; 2030: 3,052.80 + 1,760.00 = 4,812.80.
     const sold = await acc8Unit(5, '2026-07-01');
     const c = await api.party('Käuferin C');
@@ -598,7 +599,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     const sale = await schedule(sold.building, 'from=2029&to=2030');
     const [ofW, ofX] = sale.components;
     const b2029 = ofW.years[0].owners.find((o: Json) => o.ownerPartyId === sold.b);
-    expect([b2029.amount.amount, b2029.calculationStatus, codes(b2029.flags)]).toEqual(['1017.60', 'PROVISIONAL', ['DISPOSAL_YEAR_TO_VERIFY']]);
+    expect([b2029.amount.amount, b2029.calculationStatus, codes(b2029.flags)]).toEqual(['1017.60', 'CALCULATED', []]);
     expect([ofX.acquisitionId, ofX.basis.amount.amount, ofX.start.month, ofX.years.map((y: Json) => y.amount.amount)]).toEqual([
       x.acquisitionId,
       '88000.00',

@@ -42,5 +42,6 @@ export const DE_AFA_MOVABLE_LINEAR_V1: RuleVersion<MovableLinearParameters> = {
     rounding: DE_AFA_BUILDING_LINEAR_V2.parameters.rounding,
     gwgHint: { netThreshold: '800.00', legalBasis: '§ 9 Abs. 1 S. 3 Nr. 7 S. 2 i. V. m. § 6 Abs. 2 S. 1–3 EStG', sammelposten: false },
   },
-  source: 'docs/germany/depreciation.md §5, §6 v0.2 (verified 29.10.2026); verification-checklist B6, B8, B9; phase-8-plan P8-D7; api-design §59B',
+  source:
+    'docs/germany/depreciation.md §5, §6 v0.2 (verified 29.10.2026); verification-checklist B6, B8, B9; phase-8-plan P8-D7; api-design §59B; Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Fragen 4, 10',
 };

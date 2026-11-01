@@ -101,12 +101,13 @@ describe('TAX_RULES (§58, §59)', () => {
     expect(rule?.source).toContain('B1–B3');
   });
 
-  it('DE_AFA_BUILDING_LINEAR version 1 (§59A): 2006-01-01 to 2023-01-01, the same title and legal basis, not verified', () => {
+  it('DE_AFA_BUILDING_LINEAR version 1 (§59A): 2006-01-01 to 2023-01-01, the same title and legal basis, its rates verified (Prüfbericht 01.11.2026)', () => {
     const rule = TAX_RULES.find({ ruleCode: AFA_BUILDING_LINEAR, version: 1 }) as RuleVersion<BuildingLinearParameters>;
     expect(rule).toMatchObject({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1, effectiveFrom: '2006-01-01', effectiveTo: '2023-01-01' });
     expect(rule.legalBasis).toBe('§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG');
     expect(rule.source).toContain('JStG 2022');
-    expect(rule.parameters.verified).toBe(false);
+    expect(rule.parameters.verified).toEqual({ rates: true, shorterUsefulLifeThresholds: false });
+    expect(rule.source).toContain('mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Fragen 1, 4, 10, 11');
     expect(rule.parameters.bands.map((b) => [b.band, b.completedFromYear, b.completedToYear, b.ratePercent, b.shorterUsefulLife.shorterThanYears])).toEqual([
       ['A', 1925, null, '2', 50],
       ['B', null, 1924, '2.5', 40],
@@ -129,6 +130,7 @@ describe('TAX_RULES (§58, §59)', () => {
       'firstYear',
       'end',
       'rounding',
+      'shareReduction',
       'methodUnknownFromCompletionYear',
       'shorterUsefulLife',
       // §59B: added to both versions additively, identically.
@@ -141,7 +143,17 @@ describe('TAX_RULES (§58, §59)', () => {
     expect('degressiveHint' in v2).toBe(false);
     const check = TAX_RULES.find({ ruleCode: ANSCHAFFUNGSNAHE, version: 1 }) as { parameters: AnschaffungsnaheParameters };
     expect([...v2.basis.excludedCostCategories]).toEqual([...check.parameters.excludedCostCategories]);
-    expect(v2.end.disposal).toMatchObject({ endMonthCounts: true, verified: false, cutOff: 'BUYER_ECONOMIC_TRANSFER_DATE' });
+    // Prüfbericht 01.11.2026, Fragen 4 and 11; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01.
+    expect(v2.end.disposal).toMatchObject({ endMonthCounts: true, verified: true, cutOff: 'BUYER_ECONOMIC_TRANSFER_DATE' });
+    expect(v2.end.disposal.legalBasis).toBe(
+      'R 7.4 Abs. 8 EStR; Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Frage 4, the month of disposal counts in full for the seller',
+    );
+    expect(v2.shareReduction).toEqual({
+      method: 'PRO_RATA_ALL_COMPONENTS',
+      verified: true,
+      legalBasis:
+        'Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Frage 11, a partial sale takes the share of each purchase pro rata, never FIFO or LIFO',
+    });
   });
 
   it('the bands are parameters of the rule: they cover every completion year from 1000 to 2100 exactly once', () => {
@@ -208,7 +220,7 @@ describe('TAX_RULES (§58, §59)', () => {
       effectiveTo: null,
     });
     expect(rule.source).toBe(
-      'docs/germany/depreciation.md §5, §6 v0.2 (verified 29.10.2026); verification-checklist B6, B8, B9; phase-8-plan P8-D7; api-design §59B',
+      'docs/germany/depreciation.md §5, §6 v0.2 (verified 29.10.2026); verification-checklist B6, B8, B9; phase-8-plan P8-D7; api-design §59B; Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01: Fragen 4, 10',
     );
     expect(rule.parameters.usefulLife).toEqual({ from: 'ASSET', minYears: 1, maxYears: 99, rate: 'RECIPROCAL_OF_YEARS' });
     expect(rule.parameters.firstYear).toEqual({ startMonthCounts: true, from: 'ACQUIRED_ON', legalBasis: '§ 7 Abs. 1 S. 4 EStG' });
@@ -225,7 +237,7 @@ describe('TAX_RULES (§58, §59)', () => {
     // One end and one rounding for both rules; the same amount and review states as the building's items.
     const building = DE_AFA_BUILDING_LINEAR_V2.parameters;
     expect(rule.parameters.end).toEqual(building.end);
-    expect(rule.parameters.end.disposal.verified).toBe(false);
+    expect(rule.parameters.end.disposal.verified).toBe(true);
     expect(rule.parameters.rounding).toEqual(building.rounding);
     expect(rule.parameters.basis.amount).toBe(building.basis.capitalizedItemAmount);
     expect(rule.parameters.basis.itemReviewStates).toEqual(building.basis.capitalizedItemReviewStates);

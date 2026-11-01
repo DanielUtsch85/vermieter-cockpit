@@ -1,7 +1,7 @@
 import { centsOf, moneyOfCents, type BusinessDate, type RuleVersion } from '../../shared/index.js';
 import { NOT_OWNED_PART, componentIdOf, type CapitalizedItem, type ItemRef } from './capitalized-item.js';
 import { byText, monthLabel, monthOf, yearOfDate } from './exact.js';
-import { buildingRuleOn, movableRuleOn } from './rate.js';
+import { buildingRuleOn, isRateVerified, movableRuleOn } from './rate.js';
 import { AFA_BUILDING_LINEAR, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { AFA_MOVABLE_LINEAR, type MovableLinearParameters } from './rules/de-afa-movable-linear.js';
 import type { Flag, ItemComponent } from './schedule-model.js';
@@ -139,7 +139,10 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
       selected,
       parameters: {
         disposalVerified: disposal?.verified ?? false,
-        rateVerified: (y: number) => (separate ? true : (buildingRuleOn(registry, y)?.parameters.verified ?? true)),
+        rateVerified: (y: number, shorter: boolean) => {
+          const rule = separate ? undefined : buildingRuleOn(registry, y);
+          return rule === undefined || isRateVerified(rule.parameters, shorter);
+        },
       },
       computable: ctx.assetReasons.length === 0 && reasons.length === 0,
     };

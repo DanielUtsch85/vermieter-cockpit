@@ -52,6 +52,8 @@ Der maßgebliche AfA-Satz für Gebäude im Privatvermögen hängt vom **Fertigst
 
 **Nicht unmittelbar gelesen:** ein Stand aus den Jahren 2006–2011 selbst (die gesetze-im-internet-Spiegelung beginnt am 02.07.2012; die BMF-Handbücher und buzer.de waren nicht abrufbar). Dass Nr. 2 Buchst. a/b und die Schwellen 50 / 40 Jahre seit 2006 unverändert sind, ist daher aus den gelesenen Ständen 2012 und 2022 und der Begründung „bisher“ geschlossen, nicht für jedes Jahr belegt. Das Unternehmensteuerreformgesetz 2008 änderte Nr. 1 (Wirtschaftsgebäude, 4 % → 3 %, 25 → 33 Jahre), nicht Nr. 2. `verified` der Version bleibt **false**, bis der Steuerberater sie bestätigt (`beratungsfragen.md` §4); jedes Jahr 2006–2022 trägt bis dahin `HISTORICAL_RULE_TO_VERIFY`.
 
+**Aufgelöst am 01.11.2026 (Sätze):** Der Prüfbericht vom 01.11.2026 ([`pruefbericht-2026-11-01.md`](pruefbericht-2026-11-01.md), Frage 1), **mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01**, bestätigt die Sätze 2 % / 2,5 % nach dem Fertigstellungsjahr. `verified` ist seither aufgeteilt (`api-design.md` §59A „Resolved by the tax review (2026-11-01)“): `@1` trägt `rates: true`, `shorterUsefulLifeThresholds: false`. Ein Jahr 2006–2022 zum Bandsatz trägt `HISTORICAL_RULE_TO_VERIFY` nicht mehr; ein Jahr 2006–2022 mit kürzerer Nutzungsdauer (`1/n`) trägt es weiter, weil der Bericht die Schwellen 50 / 40 der alten Buchstaben nicht nennt. Die Abgrenzung anderer Verfahren (§ 7 Abs. 5, 5a, § 7b, §§ 7h/7i) bleibt VC-X-37. Aufgenommen in derselben Version (`api-design.md` §60, offene Frage 11); die Erfassung bleibt ausgeschaltet.
+
 ---
 
 # 4. Degressive Wohngebäude-AfA (§ 7 Abs. 5a EStG)
@@ -109,6 +111,8 @@ Restbuchwert = Bemessungsgrundlage − kumulierte AfA (abgeleitet, kein Cash).
 ---
 
 # 9. Offene Punkte
+
+- **Aufgelöst am 01.11.2026** (Prüfbericht, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): die Sätze 2006–2022 (Frage 1, §3), das Veräußerungsjahr (Frage 4: Veräußerungsmonat voll beim Verkäufer, `DISPOSAL_YEAR_TO_VERIFY` entfällt), der Teilverkauf nach mehreren Erwerben (Frage 11: anteilig über alle Erwerbe, `SHARE_REDUCTION_SPLIT_TO_VERIFY` entfällt), die nicht abziehbare USt in der Bemessungsgrundlage (Frage 10, brutto ohne USt-Option). Offen bleiben Beginn und Ende nachträglicher HK und die kürzere Nutzungsdauer (VC-X-38, VC-X-41).
 
 - Kürzere Nutzungsdauer (§ 7 Abs. 4 S. 2): Datenfelder für den Nachweis (Gutachten, Quelle, Datum) in Phase 8 festlegen.
 - Datum des Übergangs von Nutzen und Lasten als Acquisition-Feld (ADR-010) prüfen; es bestimmt den AfA-Beginn.

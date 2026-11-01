@@ -69,7 +69,7 @@ export function itemComponentOf(
     const before = roundCents(cumulativeCents(reading, year - 1));
     const counted = reading.counted.get(year);
     const flags: Flag[] = [];
-    if (!w.parameters.rateVerified(year)) {
+    if (!w.parameters.rateVerified(year, p.rate?.kind === 'SHORTER_USEFUL_LIFE')) {
       const rule = buildingRuleOn(ctx.registry, year);
       flags.push({ code: 'HISTORICAL_RULE_TO_VERIFY', details: { ruleCode: rule?.ruleCode ?? AFA_BUILDING_LINEAR, version: rule?.version ?? null } });
     }
