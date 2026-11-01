@@ -72,6 +72,7 @@ const classification = (overrides: Partial<TaxClassification> = {}): TaxClassifi
   distributionYears: null,
   mostlyResidentialConfirmed: null,
   anschaffungsnaheAcquisitionId: null,
+  constructionPeriodInterestId: null,
   supersedes: null,
   supersededBy: null,
   supersededAt: null,
@@ -89,6 +90,7 @@ const wegRequest = {
   netAmount: null,
   mostlyResidentialConfirmed: null,
   anschaffungsnaheAcquisitionId: null,
+  constructionPeriodInterestId: null,
 } as const;
 const codes = (flags: readonly { code: string }[]) => flags.map((f) => f.code);
 
@@ -619,9 +621,10 @@ describe('the anschaffungsnahe check (§58B)', () => {
 });
 
 describe('the registry of VC-7-03 (§58B)', () => {
-  it('five rules, no overlap; DE_CATEGORY_DEFAULTS@1 unchanged (its parameters against a fixed copy)', () => {
+  it('six rules (DE_CONSTRUCTION_PERIOD_INTEREST since VC-X-36), no overlap; DE_CATEGORY_DEFAULTS@1 unchanged (its parameters against a fixed copy)', () => {
     expect(() => new RuleRegistry(TAX_RULES.codes().flatMap((code) => TAX_RULES.versions(code)))).not.toThrow();
-    expect(TAX_RULES.codes()).toHaveLength(5);
+    expect(TAX_RULES.codes()).toHaveLength(6);
+    expect(TAX_RULES.select('DE_CONSTRUCTION_PERIOD_INTEREST', day('2000-01-01'))?.version).toBe(1);
     expect(TAX_RULES.select('DE_ANSCHAFFUNGSNAHE', day('2003-12-31'))).toBeUndefined();
     expect(TAX_RULES.select('DE_82B_DISTRIBUTION', day('2004-01-01'))?.version).toBe(1);
     expect(JSON.stringify(DE_CATEGORY_DEFAULTS_V1.parameters)).toBe(FROZEN_DEFAULTS_V1);

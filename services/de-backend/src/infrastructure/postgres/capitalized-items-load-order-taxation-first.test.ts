@@ -8,8 +8,8 @@ import { assertLoaded } from './capitalized-items-load-order.test-support.js';
 
 /** Load order (§59B): this file loads Taxation's index first, then Depreciation's and the adapter, in its own module graph. */
 describe('load order: Taxation, then the adapter', () => {
-  it('both Depreciation rules, seven codes, the mapping of a CapitalizedSource', () => {
-    expect(TAXATION_RULE_VERSIONS).toHaveLength(5);
+  it('both Depreciation rules, eight codes, the mapping of a CapitalizedSource', () => {
+    expect(TAXATION_RULE_VERSIONS).toHaveLength(6);
     assertLoaded(DEPRECIATION_RULE_VERSIONS, TAX_RULES, toCapitalizedItem);
   });
 });

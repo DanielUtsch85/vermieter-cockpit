@@ -1,5 +1,7 @@
 import { moneyOfCents, type BusinessDate, type Money } from '../../shared/index.js';
+import type { LoanAllocationSetView } from '../financing/index.js';
 import type { TaxMeaning } from './classification.js';
+import { STRICT_INTEREST_POLICY, interestReasonOf, type InterestFacts, type InterestReason } from './construction-period-interest.js';
 import { participantsOn, placementOf, shareOut, signedCents, type ViewOwnership } from './tax-year-view.js';
 import type { ReviewState, TaxCategory, Treatment } from './vocabulary.js';
 import type { WegTaxMeaning } from './weg-sources.js';
@@ -15,6 +17,22 @@ import type { WegTaxMeaning } from './weg-sources.js';
 export interface CapitalizedSourceInput {
   readonly meaning: TaxMeaning | WegTaxMeaning;
   readonly anschaffungsnaheAcquisitionId: string | null;
+  /**
+   * §59E: a Loan's interest split attributed to the PropertyReference by §58D (`loanInterestOf`: the set covering its
+   * booking date, P's part by `distribute` over the whole set); absent or `null` for a split of the PropertyReference.
+   */
+  readonly loan?: { readonly loanId: string; readonly set: LoanAllocationSetView; readonly propertyCents: bigint } | null;
+  /** §59E: the conditions' facts of an interest split (`isInterestSplit`); absent or `null` for every other source. */
+  readonly interest?: InterestFacts | null;
+}
+
+/** The Loan of a capitalised Loan interest source (§59E "The component"): the values of the view's `loanAllocation`. */
+export interface CapitalizedSourceLoan {
+  readonly loanId: string;
+  readonly allocationSetId: string;
+  /** P's share in the set, `"3/5"`. */
+  readonly share: string;
+  readonly propertyPart: Money;
 }
 
 export interface CapitalizedSource {
@@ -35,6 +53,9 @@ export interface CapitalizedSource {
   readonly treatment: Treatment | null;
   readonly counts: boolean;
   readonly anschaffungsnaheAcquisitionId: string | null;
+  /** §59E: the Loan of a Loan interest source (`null` for a split of the PropertyReference), and the record it names. */
+  readonly loan: CapitalizedSourceLoan | null;
+  readonly constructionPeriodInterestId: string | null;
   /** §58C's per-item parts: the participants on the date (`NOT_OWNED` for the rest), by largest remainder. */
   readonly parts: readonly {
     readonly participant: string;
@@ -45,18 +66,69 @@ export interface CapitalizedSource {
   readonly flags: readonly { readonly code: string; readonly details: Readonly<Record<string, unknown>> }[];
 }
 
-/** Each counting source whose current classification places it in `capitalized`, in the input's order. */
-export function capitalizedItemsOf(sources: readonly CapitalizedSourceInput[], ownerships: readonly ViewOwnership[]): CapitalizedSource[] {
-  return sources.flatMap(({ meaning, anschaffungsnaheAcquisitionId }): CapitalizedSource[] => {
+/** An interest split classified `CAPITALIZED` that is no source of the PropertyReference, with the reason (§59E). */
+export interface NotASource {
+  readonly sourceId: string;
+  readonly loanId: string | null;
+  readonly reason: InterestReason;
+}
+
+/** Each counting source whose current classification places it in `capitalized`, in the input's order (§59B, §59E). */
+export function capitalizedItemsOf(
+  sources: readonly CapitalizedSourceInput[],
+  ownerships: readonly ViewOwnership[],
+  propertyReferenceId?: string,
+): CapitalizedSource[] {
+  return capitalizedSourcesOf(sources, ownerships, propertyReferenceId).items;
+}
+
+/**
+ * The capitalised sources and, for the interest splits classified `CAPITALIZED` that fail §59E's conditions, the reasons.
+ * A Loan's interest split enters with P's part (never the split's whole amount), on its booking date.
+ */
+export function capitalizedSourcesOf(
+  sources: readonly CapitalizedSourceInput[],
+  ownerships: readonly ViewOwnership[],
+  propertyReferenceId?: string,
+): { readonly items: CapitalizedSource[]; readonly notSources: NotASource[] } {
+  const notSources: NotASource[] = [];
+  const items = sources.flatMap(({ meaning, anschaffungsnaheAcquisitionId, loan = null, interest = null }): CapitalizedSource[] => {
     // A default (or a suggestion) never moves the basis: only the user's classification does (§58B, §59B).
     if (!meaning.counts || meaning.origin !== 'CLASSIFICATION') return [];
     const split = meaning.sourceType === 'TRANSACTION_SPLIT';
     const placement = placementOf({ taxCategory: meaning.taxCategory, treatment: meaning.treatment, refund: split ? meaning.refund : null });
     if (placement.place !== 'CAPITALIZED') return [];
+    // §59E: interest is a source only with its conditions; a Loan's split only with P's part. A Loan's split is always
+    // interest: read without its facts, it is held as without a record, never a source on a guess.
+    const facts: InterestFacts | null =
+      interest ??
+      (loan === null || !split
+        ? null
+        : {
+            splitId: meaning.sourceId,
+            loanId: loan.loanId,
+            bookingDate: meaning.bookingDate,
+            amountCents: 0n,
+            transactionInterestCents: 0n,
+            constructionPeriodInterestId: null,
+            record: null,
+            policy: STRICT_INTEREST_POLICY,
+          });
+    if (facts !== null) {
+      const reason = interestReasonOf(facts, propertyReferenceId ?? meaning.propertyReferenceId ?? '');
+      if (reason !== null) {
+        notSources.push({ sourceId: meaning.sourceId, loanId: loan?.loanId ?? null, reason });
+        return [];
+      }
+    }
     const date = split ? meaning.bookingDate : meaning.date;
-    const lineCents = signedCents({ amount: meaning.amount, direction: split ? meaning.direction : null, taxCategory: meaning.taxCategory }, placement);
+    const amount = loan === null ? meaning.amount : moneyOfCents(loan.propertyCents, meaning.amount.currency);
+    const lineCents = signedCents({ amount, direction: split ? meaning.direction : null, taxCategory: meaning.taxCategory }, placement);
     const participants = participantsOn(ownerships, date);
     const parts = shareOut(lineCents, participants);
+    const entry = loan === null ? undefined : loan.set.allocations.find((a) => a.propertyReferenceId === propertyReferenceId);
+    // A Loan source reaches P only through P's entry of the covering set (§58D's ATTRIBUTED): anything else is a bug.
+    if (loan !== null && entry === undefined) throw new Error(`Loan interest split ${meaning.sourceId}: the set ${loan.set.id} names no entry for P`);
     return [
       {
         sourceType: meaning.sourceType,
@@ -74,6 +146,16 @@ export function capitalizedItemsOf(sources: readonly CapitalizedSourceInput[], o
         treatment: meaning.treatment,
         counts: meaning.counts,
         anschaffungsnaheAcquisitionId,
+        loan:
+          loan === null || entry === undefined
+            ? null
+            : {
+                loanId: loan.loanId,
+                allocationSetId: loan.set.id,
+                share: `${entry.share.numerator}/${entry.share.denominator}`,
+                propertyPart: moneyOfCents(loan.propertyCents, meaning.amount.currency),
+              },
+        constructionPeriodInterestId: interest?.constructionPeriodInterestId ?? null,
         parts: participants.map((p) => ({
           participant: p.key,
           ownershipIds: p.ownershipIds,
@@ -84,4 +166,5 @@ export function capitalizedItemsOf(sources: readonly CapitalizedSourceInput[], o
       },
     ];
   });
+  return { items, notSources };
 }

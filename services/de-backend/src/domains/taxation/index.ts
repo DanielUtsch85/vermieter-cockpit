@@ -71,6 +71,7 @@ export type {
   AnschaffungsnaheNotApplicableReason,
   CorrectedOriginal,
   DistributionNotAllowedReason,
+  InterestContext,
   TreatmentSuggestion,
   WegSourceNotCounted,
   CreateClassificationOutcome,
@@ -142,8 +143,53 @@ export type {
   ReferenceAmendment,
   ReferenceHistory,
 } from './attribution-changes.js';
-export { capitalizedItemsOf } from './capitalized-items.js';
-export type { CapitalizedSource, CapitalizedSourceInput } from './capitalized-items.js';
+export { capitalizedItemsOf, capitalizedSourcesOf } from './capitalized-items.js';
+export type { CapitalizedSource, CapitalizedSourceInput, CapitalizedSourceLoan, NotASource } from './capitalized-items.js';
+export { CONSTRUCTION_PERIOD_INTEREST, DE_CONSTRUCTION_PERIOD_INTEREST_V1 } from './rules/de-construction-period-interest.js';
+export type { ConstructionPeriodInterestParameters } from './rules/de-construction-period-interest.js';
+export {
+  CONSTRUCTION_PERIOD_DATE_OUTSIDE,
+  CONSTRUCTION_PERIOD_REVIEW_STATES,
+  CONSTRUCTION_PERIOD_STATUSES,
+  CONSTRUCTION_PERIOD_TREATMENT_MIXED,
+  INTEREST_CAPITALIZED_CONDITIONS_MISSING,
+  INTEREST_REASONS,
+  MAX_CONSTRUCTION_PERIOD_PROPERTIES,
+  MAX_FUNDS_SHARE_DENOMINATOR,
+  STRICT_INTEREST_POLICY,
+  canonicalFacts,
+  constructionPeriodFlags,
+  interestPolicyOn,
+  interestReasonOf,
+  isInterestSplit,
+  pickFacts,
+  planAmend,
+} from './construction-period-interest.js';
+export type {
+  AmendPlan,
+  ConstructionPeriodChanges,
+  ConstructionPeriodFacts,
+  ConstructionPeriodInterest,
+  ConstructionPeriodReviewState,
+  ConstructionPeriodStatus,
+  ConstructionPeriodView,
+  FundsShare,
+  InterestFacts,
+  InterestPolicy,
+  InterestReason,
+  NewConstructionPeriodInterest,
+} from './construction-period-interest.js';
+export type {
+  ChangeRecordOutcome,
+  ConfirmStep,
+  ConstructionPeriodInterestRepository,
+  CreateRecordOutcome,
+  NamingClassification,
+} from './construction-period-repository.js';
+export { constructionPeriodCheck } from './construction-period-checks.js';
+export type { ConstructionPeriodRecordFacts, ConstructionPeriodRefusal, InterestSplitFacts } from './construction-period-checks.js';
+export { inBuildingBasis, withInterestFlags, withLoanInterestFlags } from './tax-year-interest.js';
+export type { NotInBasisReason } from './tax-year-interest.js';
 export {
   AFA_LINES,
   EINNAHMEN_LINES,

@@ -72,6 +72,11 @@ export function countedComponent(c: VersionComponent): Record<string, unknown> {
             itemDateSource: c.item.itemDateSource,
             itemTaxYear: c.item.itemTaxYear,
             anschaffungsnaheAcquisitionId: c.item.anschaffungsnaheAcquisitionId,
+            // §59E: the Loan keys for a Loan component only (no key, not null, on every other one), so no existing
+            // fingerprint changes and a backdated set changing P's share is seen.
+            ...(c.item.loan === undefined || c.item.loan === null
+              ? {}
+              : { loan: c.item.loan, constructionPeriodInterestId: c.item.constructionPeriodInterestId ?? null }),
           },
     parts: c.parts.map((p) => ({ ...p, basis: centsText(p.basis) })),
   };

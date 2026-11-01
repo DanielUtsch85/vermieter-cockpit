@@ -24,7 +24,7 @@ import {
 import { TAX_RULES } from './index.js';
 
 /**
- * The registry of the backend (api-design.md §58, §59, §59B; P8-D11): the seven rules of both domains, none overlapping, each
+ * The registry of the backend (api-design.md §58, §59, §59B, §59E; P8-D11): the eight rules of both domains, none overlapping, each
  * exported by its own domain; `DE_AFA_BUILDING_LINEAR@2` (today's rule, `@1` until VC-8-02) with its bands and
  * thresholds, and `@1` for 2006–2022 (§59A "The rule versions"), read from `TAX_RULES`.
  */
@@ -32,7 +32,7 @@ const day = (value: string) => value as BusinessDate;
 const today = day('2026-10-30');
 
 describe('TAX_RULES (§58, §59)', () => {
-  it('seven rules, none overlapping (DE_AFA_MOVABLE_LINEAR since VC-8-03, §59B)', () => {
+  it('eight rules, none overlapping (DE_AFA_MOVABLE_LINEAR since VC-8-03, §59B; DE_CONSTRUCTION_PERIOD_INTEREST since VC-X-36, §59E)', () => {
     expect(() => new RuleRegistry(TAX_RULES.codes().flatMap((code) => TAX_RULES.versions(code)))).not.toThrow();
     expect(TAX_RULES.codes()).toEqual([
       'DE_82B_DISTRIBUTION',
@@ -41,16 +41,18 @@ describe('TAX_RULES (§58, §59)', () => {
       'DE_ANSCHAFFUNGSNAHE',
       CASH_TIMING,
       CATEGORY_DEFAULTS,
+      'DE_CONSTRUCTION_PERIOD_INTEREST',
       'DE_WEG_SPENDING',
     ]);
   });
 
-  it("Taxation's five versions and Depreciation's three, each from its domain's index, make up TAX_RULES: none twice, none left out", () => {
+  it("Taxation's six versions and Depreciation's three, each from its domain's index, make up TAX_RULES: none twice, none left out", () => {
     expect(TAXATION_RULE_VERSIONS.map(ruleKey).sort()).toEqual([
       'DE_82B_DISTRIBUTION@1',
       'DE_ANSCHAFFUNGSNAHE@1',
       'DE_CASH_TIMING@1',
       'DE_CATEGORY_DEFAULTS@1',
+      'DE_CONSTRUCTION_PERIOD_INTEREST@1',
       'DE_WEG_SPENDING@1',
     ]);
     expect(DEPRECIATION_RULE_VERSIONS.map(ruleKey)).toEqual(['DE_AFA_BUILDING_LINEAR@1', 'DE_AFA_BUILDING_LINEAR@2', 'DE_AFA_MOVABLE_LINEAR@1']);

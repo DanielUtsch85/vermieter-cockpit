@@ -39,12 +39,25 @@ export interface CapitalizedItem extends ItemRef {
   readonly reviewState: string;
   readonly taxCategory: string;
   readonly anschaffungsnaheAcquisitionId: string | null;
+  /**
+   * §59E: a capitalised Loan interest source (`lineAmount` is P's part, never the split's whole amount), and the
+   * construction-period record its classification names; absent or `null` otherwise.
+   */
+  readonly loan?: CapitalizedItemLoan | null;
+  readonly constructionPeriodInterestId?: string | null;
   readonly counts: boolean;
   readonly treatment: string | null;
   /** §58C's parts, summing to `lineAmount`; empty for a linked item that is no longer capitalised. */
   readonly parts: readonly CapitalizedItemPart[];
   /** The item's own flags as Taxation gives them (date flags, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`). */
   readonly flags: readonly { readonly code: string; readonly details: Readonly<Record<string, unknown>> }[];
+}
+
+/** The Loan of a Loan interest source: P's covering set and P's share in it (`"3/5"`). */
+export interface CapitalizedItemLoan {
+  readonly loanId: string;
+  readonly allocationSetId: string;
+  readonly share: string;
 }
 
 export const NOT_OWNED_PART = 'NOT_OWNED';

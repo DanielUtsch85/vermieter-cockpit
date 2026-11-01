@@ -381,6 +381,8 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
             actor,
           );
           expect(created.kind).toBe('CREATED');
+          // 0055 (VC-X-36) adds a column and guards to tax_classification: its own down first (it keeps classifications).
+          await withMigrationLock(async () => (await import('./migrations/0055_construction_period_interest.js')).down(createDatabase(downPool) as never));
           let refused = '';
           await withMigrationLock(async () => {
             refused = await down().then(

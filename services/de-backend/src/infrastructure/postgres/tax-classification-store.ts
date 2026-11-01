@@ -9,6 +9,7 @@ import {
   planReview,
   planWegClassification,
   wegNotCounted,
+  type ConstructionPeriodRecordFacts,
   type CreateClassificationOutcome,
   type DepositFacts,
   type NewTaxClassification,
@@ -136,6 +137,7 @@ export async function createClassification(
             distribution_years: classification.distributionYears ?? null,
             mostly_residential_confirmed: classification.mostlyResidentialConfirmed ?? null,
             anschaffungsnahe_acquisition_id: classification.anschaffungsnaheAcquisitionId ?? null,
+            construction_period_interest_id: type === 'TRANSACTION_SPLIT' ? (classification.constructionPeriodInterestId ?? null) : null,
             supersedes_id: current?.id ?? null,
             created_by: actor.actorId,
           })
@@ -162,6 +164,7 @@ export async function createClassification(
             ...(created.distributionYears === null ? {} : { distributionYears: created.distributionYears }),
             ...(created.mostlyResidentialConfirmed === null ? {} : { mostlyResidentialConfirmed: created.mostlyResidentialConfirmed }),
             ...(created.anschaffungsnaheAcquisitionId === null ? {} : { anschaffungsnaheAcquisitionId: created.anschaffungsnaheAcquisitionId }),
+            ...(created.constructionPeriodInterestId === null ? {} : { constructionPeriodInterestId: created.constructionPeriodInterestId }),
             ...(created.treatmentRule === null ? {} : { treatmentRule: created.treatmentRule }),
             ...(current === undefined ? {} : { supersedes: current.id }),
           },
@@ -207,9 +210,43 @@ async function planSplit(trx: Transaction<Database>, registry: RuleRegistry, cla
   const timing = await timingOf(trx, realm, [read], registry);
   const derived = attributeTaxYear(read.facts, timing.get(read.facts.splitId), null, registry).taxYear;
   const acquisition = await acquisitionFactsOf(trx, realm, classification.anschaffungsnaheAcquisitionId ?? null);
-  const plan = planClassification(read.facts, current?.id ?? null, classification, registry, derived, acquisition);
+  // §59E: the record named, written first as a no-op (after the Transaction, before the classification is inserted), so
+  // the create serialises with the record's amend and void; read after the lock.
+  const record = await constructionPeriodRecordOf(trx, realm, classification.constructionPeriodInterestId ?? null);
+  const plan = planClassification(read.facts, current?.id ?? null, classification, registry, derived, acquisition, { loanId: read.loanId, record });
   if (plan.kind !== 'CLASSIFY') throw new Rejected(plan);
   return { current, rule: plan.rule, treatmentRule: plan.treatmentRule, depositClosing: undefined, reserveWithdrawal: null, assessmentUse: null };
+}
+
+/** The record a classification names (`undefined`: none; `null`: not of the Realm), its row written first as a no-op. */
+async function constructionPeriodRecordOf(
+  trx: Transaction<Database>,
+  realm: string,
+  id: string | null,
+): Promise<ConstructionPeriodRecordFacts | null | undefined> {
+  if (id === null) return undefined;
+  if (!UUID.test(id)) return null;
+  const locked = await trx
+    .updateTable('construction_period_interest')
+    .set((eb) => ({ version: eb.ref('version') }))
+    .where('id', '=', id)
+    .where('mre_realm_id', '=', realm)
+    .returning(['id', 'loan_id', 'advance_expense_deductible', 'status'])
+    .executeTakeFirst();
+  if (locked === undefined) return null;
+  const properties = await trx
+    .selectFrom('construction_period_interest_property')
+    .select('property_reference_id')
+    .where('record_id', '=', id)
+    .orderBy('property_reference_id')
+    .execute();
+  return {
+    id: locked.id,
+    loanId: locked.loan_id,
+    propertyReferenceIds: properties.map((p) => p.property_reference_id),
+    advanceExpenseDeductible: locked.advance_expense_deductible,
+    status: locked.status as ConstructionPeriodRecordFacts['status'],
+  };
 }
 
 /** Deposit → classification (§58A, P7-D9): the deposit written first, as a no-op; then §58A's checks. */

@@ -46,7 +46,10 @@ export type LoanInterestCase =
 
 /** The open item flag on interest attributed by a `PURCHASE_PRICE` set with more than one entry (§58D, third set). */
 export const LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY = 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY';
-/** The open item flag on attributed interest placed in `capitalized`, which no AfA basis reads yet (§58D open question 4, decided by the owner on 2026-11-01; §59E). */
+/**
+ * The open item flag on attributed interest placed in `capitalized` that did not provably enter P's building basis exactly
+ * once (§58D open question 4, decided by the owner on 2026-11-01; raised or dropped by §59E's `withLoanInterestFlags`).
+ */
 export const LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS = 'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS';
 
 const bookingDateOf = (item: TaxListItem): BusinessDate => (item as TaxMeaning).bookingDate;
@@ -105,7 +108,8 @@ export function loanInterestOf(
 
 /**
  * An attributed split as an item of the view (§58D "The arithmetic"): §58C's derivation with the property's part in
- * place of the split's amount, its meaning's flags, and the two flags about the Loan's allocation itself.
+ * place of the split's amount, its meaning's flags, and the flag about the Loan's allocation itself. Whether a
+ * `CAPITALIZED` item is in P's basis is §59E's, decided once the AfA is read (`withLoanInterestFlags`).
  */
 export function deriveLoanItem(
   c: Extract<LoanInterestCase, { kind: 'ATTRIBUTED' }>,
@@ -118,7 +122,6 @@ export function deriveLoanItem(
   const details = { loanId: c.split.loanId, allocationSetId: c.set.id };
   const flags: ViewFlag[] = [...derived.flags];
   if (c.set.basis === 'PURCHASE_PRICE' && c.set.allocations.length > 1) flags.push({ code: LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, details });
-  if (derived.placement.place === 'CAPITALIZED') flags.push({ code: LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS, details });
   return { ...derived, flags, loanAllocation: c.allocation };
 }
 

@@ -23,6 +23,11 @@ import {
   TaxSourceNotFoundError,
   TaxYearOutOfRangeError,
   TreatmentNotAllowedError,
+  ConstructionPeriodInterestDeductibleError,
+  ConstructionPeriodInterestMismatchError,
+  ConstructionPeriodInterestNotAllowedError,
+  ConstructionPeriodInterestNotFoundError,
+  ConstructionPeriodInterestVoidError,
 } from '../../application/index.js';
 import { answer, on, validation } from './answer.js';
 
@@ -72,27 +77,33 @@ export const TAXATION_ANSWERS = [
   ),
   on(TaxSourceNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Source not found.', { sourceType: error.sourceType, sourceId: error.sourceId })),
   on(TreatmentNotAllowedError, (error) =>
-    error.reason !== undefined
-      ? answer(422, 'TREATMENT_NOT_ALLOWED', 'WEG_SPENDING is the line of reserve withdrawals and Sonderumlage uses only.', {
-          sourceType: error.sourceType,
+    error.reason === 'CONSTRUCTION_PERIOD_INTEREST_REQUIRED'
+      ? answer(422, 'TREATMENT_NOT_ALLOWED', 'Interest is capitalised only as Bauzeitzinsen with a construction-period record (api-design §59E).', {
+          categoryType: error.categoryType,
+          allowed: error.allowed,
           reason: error.reason,
         })
-      : error.categoryType === null && error.sourceType !== undefined && error.sourceType !== 'DEPOSIT_CLOSING'
-        ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A WEG withdrawal or use is WEG_SPENDING (Erhaltungsaufwand or Herstellungskosten), or not relevant.', {
+      : error.reason !== undefined
+        ? answer(422, 'TREATMENT_NOT_ALLOWED', 'WEG_SPENDING is the line of reserve withdrawals and Sonderumlage uses only.', {
             sourceType: error.sourceType,
-            allowed: error.allowed,
-            allowedTaxCategories: error.taxCategories ?? [],
+            reason: error.reason,
           })
-        : error.categoryType === null
-          ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A retained deposit is rent or damage compensation, or not relevant.', {
-              sourceType: 'DEPOSIT_CLOSING',
+        : error.categoryType === null && error.sourceType !== undefined && error.sourceType !== 'DEPOSIT_CLOSING'
+          ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A WEG withdrawal or use is WEG_SPENDING (Erhaltungsaufwand or Herstellungskosten), or not relevant.', {
+              sourceType: error.sourceType,
               allowed: error.allowed,
               allowedTaxCategories: error.taxCategories ?? [],
             })
-          : answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
-              categoryType: error.categoryType,
-              allowed: error.allowed,
-            }),
+          : error.categoryType === null
+            ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A retained deposit is rent or damage compensation, or not relevant.', {
+                sourceType: 'DEPOSIT_CLOSING',
+                allowed: error.allowed,
+                allowedTaxCategories: error.taxCategories ?? [],
+              })
+            : answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
+                categoryType: error.categoryType,
+                allowed: error.allowed,
+              }),
   ),
   // Tax year and income (api-design §58A, VC-7-02).
   on(DepositNotCountedError, (error) =>
@@ -144,6 +155,29 @@ export const TAXATION_ANSWERS = [
       allowedYears: error.allowedYears,
     }),
   ),
+  // Bauzeitzinsen (api-design §59E, VC-X-36).
+  on(ConstructionPeriodInterestNotFoundError, (error) =>
+    answer(404, 'NOT_FOUND', 'Construction-period record not found.', { constructionPeriodInterestId: error.constructionPeriodInterestId }),
+  ),
+  on(ConstructionPeriodInterestVoidError, (error) =>
+    answer(409, 'CONFLICT', 'The construction-period record is void.', {
+      reason: 'CONSTRUCTION_PERIOD_INTEREST_VOID',
+      constructionPeriodInterestId: error.constructionPeriodInterestId,
+    }),
+  ),
+  on(ConstructionPeriodInterestMismatchError, (error) =>
+    answer(409, 'CONFLICT', 'The construction-period record does not cover the split (another Loan, or not its PropertyReference).', {
+      reason: 'CONSTRUCTION_PERIOD_INTEREST_MISMATCH',
+      ...error.details,
+    }),
+  ),
+  on(ConstructionPeriodInterestDeductibleError, (error) =>
+    answer(409, 'CONFLICT', 'The record states the interest as deductible (vorab entstandene Werbungskosten): it cannot be capitalised.', {
+      reason: 'CONSTRUCTION_PERIOD_INTEREST_DEDUCTIBLE',
+      constructionPeriodInterestId: error.constructionPeriodInterestId,
+    }),
+  ),
+  on(ConstructionPeriodInterestNotAllowedError, () => validation([{ field: 'constructionPeriodInterestId', code: 'NOT_ALLOWED' }])),
   // The tax-year view (api-design §58C, VC-7-04).
   on(OwnerPartyNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Party not found.', { ownerPartyId: error.ownerPartyId })),
   on(NotAnOwnerInYearError, (error) =>

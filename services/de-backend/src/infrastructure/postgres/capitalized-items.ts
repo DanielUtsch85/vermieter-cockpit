@@ -41,6 +41,8 @@ export function toCapitalizedItem(source: CapitalizedSource, propertyReferenceId
     reviewState: source.reviewState,
     taxCategory: source.taxCategory,
     anschaffungsnaheAcquisitionId: source.anschaffungsnaheAcquisitionId,
+    loan: source.loan === null ? null : { loanId: source.loan.loanId, allocationSetId: source.loan.allocationSetId, share: source.loan.share },
+    constructionPeriodInterestId: source.constructionPeriodInterestId,
     counts: source.counts,
     treatment: source.treatment,
     parts: source.parts.map((p) => ({ participant: p.participant, ownershipIds: p.ownershipIds, share: p.share, amount: p.amount })),
@@ -111,7 +113,15 @@ export async function capitalizedItemsIn(
     validFrom: o.valid_from as BusinessDate,
     validUntil: o.valid_until as BusinessDate | null,
   }));
-  const items = capitalizedItemsOf(sources, view).map((s) => toCapitalizedItem(s, propertyReferenceId));
+  // §59E "Exactly once": the two reads of the sources are disjoint (0027), so a source twice is an internal error,
+  // never a second component.
+  const keys = sources.map(({ meaning: m }) =>
+    keyOf({ sourceType: m.sourceType, sourceId: m.sourceId, sourcePosition: m.sourceType === 'TRANSACTION_SPLIT' ? null : m.sourcePosition }),
+  );
+  const twice = keys.find((k, i) => keys.indexOf(k) !== i);
+  if (twice !== undefined)
+    throw new Error(`Capitalised source ${twice} read twice for PropertyReference ${propertyReferenceId} (api-design §59E: exactly once)`);
+  const items = capitalizedItemsOf(sources, view, propertyReferenceId).map((s) => toCapitalizedItem(s, propertyReferenceId));
   const known = new Set(items.map(keyOf));
   const wanted = new Set(also.map(keyOf));
   for (const input of sources) {

@@ -11,7 +11,7 @@ import { assertLoaded } from './capitalized-items-load-order.test-support.js';
  * uninitialised here. The third case imports the adapter first, then both domain indexes dynamically.
  */
 describe('load order: Depreciation, then the adapter', () => {
-  it('both Depreciation rules, seven codes, the mapping of a CapitalizedSource', () => {
+  it('both Depreciation rules, eight codes, the mapping of a CapitalizedSource', () => {
     assertLoaded(DEPRECIATION_RULE_VERSIONS, TAX_RULES, toCapitalizedItem);
   });
 

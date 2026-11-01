@@ -43,7 +43,12 @@ export interface TaxClassification {
   readonly mostlyResidentialConfirmed: boolean | null;
   /** A capitalisation that follows the anschaffungsnahe check of this Acquisition. */
   readonly anschaffungsnaheAcquisitionId: string | null;
-  /** The second rule reference: `DE_82B_DISTRIBUTION` for an election, `DE_ANSCHAFFUNGSNAHE` for such a capitalisation. */
+  /** §59E: the construction-period record (Bauzeitzinsen) of an interest split classified `CAPITALIZED` or `DEDUCTIBLE`. */
+  readonly constructionPeriodInterestId: string | null;
+  /**
+   * The second rule reference: `DE_82B_DISTRIBUTION` for an election, `DE_ANSCHAFFUNGSNAHE` for such a capitalisation,
+   * `DE_CONSTRUCTION_PERIOD_INTEREST` for a classification naming a construction-period record (§59E).
+   */
   readonly treatmentRule: RuleRef | null;
   readonly supersedes: string | null;
   readonly supersededBy: string | null;
@@ -74,6 +79,8 @@ export interface NewTaxClassification {
   readonly distributionYears?: number | null;
   readonly mostlyResidentialConfirmed?: boolean | null;
   readonly anschaffungsnaheAcquisitionId?: string | null;
+  /** §59E: splits only; omitted means `null`. */
+  readonly constructionPeriodInterestId?: string | null;
 }
 
 /** The Acquisition a capitalisation following the check names, as a create reads it (without a lock, §58B). */
@@ -97,6 +104,20 @@ export function classificationFingerprint(c: NewTaxClassification): string {
   ];
   // VC-7-03's fields only when one is given (§58B): a body without them keeps the fingerprint of VC-7-02.
   const later = JSON.stringify(fields) === JSON.stringify([null, null, false, null, null, null]) ? [] : [{ vc703: fields }];
+  // §59E's record only when given, so a key stored before VC-X-36 still replays.
+  const record = (c.constructionPeriodInterestId ?? null) === null ? [] : [{ vcx36: c.constructionPeriodInterestId }];
   // VC-7-01's fingerprint unchanged without the years, so a key stored before VC-7-02 still replays.
-  return JSON.stringify([c.sourceType, c.sourceId, c.taxCategory, c.treatment, c.reviewState, c.supersedes, c.notes, c.sourceReferences, ...years, ...later]);
+  return JSON.stringify([
+    c.sourceType,
+    c.sourceId,
+    c.taxCategory,
+    c.treatment,
+    c.reviewState,
+    c.supersedes,
+    c.notes,
+    c.sourceReferences,
+    ...years,
+    ...later,
+    ...record,
+  ]);
 }

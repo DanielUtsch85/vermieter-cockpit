@@ -29,6 +29,10 @@ const OPEN_ITEM_FLAGS = new Set([
   // §58D: about the Loan's allocation itself; no classification of the split clears them.
   'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY',
   'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS',
+  // §59E: Bauzeitzinsen. CONSTRUCTION_PERIOD_TREATMENT_MIXED is informative once the record is ADVISOR_CONFIRMED.
+  'INTEREST_CAPITALIZED_CONDITIONS_MISSING',
+  'CONSTRUCTION_PERIOD_DATE_OUTSIDE',
+  'CONSTRUCTION_PERIOD_TREATMENT_MIXED',
 ]);
 /** Every flag of the year is open (§58C's review table). */
 const OPEN_YEAR_FLAGS = new Set([
@@ -48,7 +52,13 @@ const OPEN_YEAR_FLAGS = new Set([
  * not `CAPITALIZED`; an attribution flag while no confirmed classification stands for the item; every flag the table
  * does not name as open is informative.
  */
-export function flagIsOpen(code: string, item: { readonly treatment: Treatment | null; readonly origin: Origin; readonly reviewState: ReviewState }): boolean {
+export function flagIsOpen(
+  code: string,
+  item: { readonly treatment: Treatment | null; readonly origin: Origin; readonly reviewState: ReviewState },
+  details?: unknown,
+): boolean {
+  if (code === 'CONSTRUCTION_PERIOD_TREATMENT_MIXED')
+    return (details as { recordReviewState?: unknown } | undefined)?.recordReviewState !== 'ADVISOR_CONFIRMED';
   if (OPEN_YEAR_FLAGS.has(code) || OPEN_ITEM_FLAGS.has(code)) return true;
   if (code === 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN') return item.treatment !== 'CAPITALIZED';
   if (CONFIRMABLE.has(code)) return !(item.origin === 'CLASSIFICATION' && (item.reviewState === 'USER_CONFIRMED' || item.reviewState === 'ADVISOR_CONFIRMED'));
@@ -72,7 +82,7 @@ export function reviewOf(
   for (const item of items) {
     for (const code of new Set(item.flags.map((f) => f.code))) {
       const seen = itemCodes.get(code) ?? { open: 0, info: 0 };
-      if (flagIsOpen(code, item)) seen.open += 1;
+      if (item.flags.some((f) => f.code === code && flagIsOpen(code, item, f.details))) seen.open += 1;
       else seen.info += 1;
       itemCodes.set(code, seen);
     }

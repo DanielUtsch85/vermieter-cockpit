@@ -38,6 +38,10 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // documented go-live of the first productive installation (the owner's version decision of 2026-11-01), not the
   // enablement of recording: until then a change updates this literal explicitly, in the same commit.
   ['DE_ANSCHAFFUNGSNAHE', 1, 'e8e55a5894d1eed98cd53e772c539d06a4c7ca1e7ca1c93200e2dd81fdc7c3ff'],
+  // New with §59E (VC-X-36, decided by the owner on 2026-11-01; Prüfbericht 2026-11-01, Frage 23, mündlich bestätigt
+  // durch den Steuerberater, laut Projektinhaber am 2026-11-01): a classification's `treatmentRule`, so pinned from its
+  // first commit on; a change is `@2` (§59E "Frozen rules"). The AfA rules and DE_CATEGORY_DEFAULTS@1 are unchanged.
+  ['DE_CONSTRUCTION_PERIOD_INTEREST', 1, '554fb1d188d9e4660e4628f4b35c9ed855f91cc312627e630e400af917b9809b'],
 ];
 
 describe('the frozen rule versions (§60)', () => {

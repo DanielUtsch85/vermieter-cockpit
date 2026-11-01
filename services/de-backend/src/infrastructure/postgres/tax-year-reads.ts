@@ -13,12 +13,15 @@ import {
   type RuleRegistry,
   type SourceType,
   type TaxListItem,
+  type TaxMeaning,
   type TaxYearRead,
   type WegSourceFacts,
   type WegTaxMeaning,
 } from '../../domains/taxation/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
+import { capitalizedLoanInterestOf, refOf } from './capitalized-loan-interest.js';
+import { interestFactsIn } from './construction-period-reads.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
 import { taxYearDepreciationIn } from './tax-year-depreciation.js';
 import type { Database } from './schema.js';
@@ -110,6 +113,11 @@ export async function readTaxYear(
       .execute();
     const attribution = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, registry);
     const loans = await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today);
+    // §59E: the conditions' facts of the listed and the attributed interest splits, in this snapshot.
+    const interest = await interestFactsIn(trx, registry, mreRealmId, [
+      ...entries.flatMap((e) => (e.item.sourceType === 'TRANSACTION_SPLIT' ? [refOf(e.item, null)] : [])),
+      ...loans.allocatedLoanInterest.map((l) => refOf(l.item as TaxMeaning, l.loanId)),
+    ]);
     if (afterOwnReads !== undefined) await afterOwnReads();
     const depreciation = await taxYearDepreciationIn(trx, {
       mreRealmId,
@@ -136,6 +144,7 @@ export async function readTaxYear(
       attribution,
       ...loans,
       depreciation,
+      interest,
     };
   });
 }
@@ -177,10 +186,21 @@ export async function capitalizedSources(
     .orderBy('s.position')
     .execute();
   const effects = await effectsOf(trx, registry, mreRealmId, propertyReferenceId, today);
-  const splits = (await meaningsOf(trx, registry, mreRealmId, rows.map(toRead), today)).map((pair) => ({
+  const pairs = await meaningsOf(trx, registry, mreRealmId, rows.map(toRead), today);
+  // §59E: a PropertyReference's interest split is a source only with its conditions (open question 3).
+  const interest = await interestFactsIn(
+    trx,
+    registry,
+    mreRealmId,
+    pairs.map((pair) => refOf(pair.meaning, null)),
+  );
+  const splits = pairs.map((pair) => ({
     meaning: splitWithEffects(pair, effects),
     anschaffungsnaheAcquisitionId: pair.classification?.anschaffungsnaheAcquisitionId ?? null,
+    interest: interest.get(pair.meaning.sourceId) ?? null,
   }));
+  // §59E: the second, disjoint read (0027: a split with a loanId has no PropertyReference): the Loans' interest, P's part.
+  const loans = await capitalizedLoanInterestOf(trx, registry, mreRealmId, propertyReferenceId, today);
   const named = (f: WegSourceFacts) => also.some((r) => r.sourceType === f.sourceType && r.sourceId === f.sourceId && r.sourcePosition === f.sourcePosition);
   const weg = effects.weg.facts
     .filter((f) => f.notCounted === null || named(f))
@@ -190,7 +210,7 @@ export async function capitalizedSources(
       meaning,
       anschaffungsnaheAcquisitionId: effects.weg.current.get(wegSourceKey(facts))?.anschaffungsnaheAcquisitionId ?? null,
     }));
-  return [...splits, ...weg];
+  return [...splits, ...loans, ...weg];
 }
 
 /**

@@ -36,6 +36,7 @@ import {
   cancelAcquisition,
   confirmAcquisition,
   createCostClassification,
+  constructionPeriodInterestCommands,
   createLandBuildingAllocation,
   listCostClassifications,
   listLandBuildingAllocations,
@@ -164,6 +165,7 @@ import {
   PostgresOwnershipRepository,
   PostgresAcquisitionCostRepository,
   PostgresAcquisitionCostClassificationRepository,
+  PostgresConstructionPeriodInterestRepository,
   PostgresLandBuildingAllocationRepository,
   PostgresLoanRepository,
   PostgresSecurityDepositRepository,
@@ -228,6 +230,7 @@ const externalReferences = new PostgresPartyExternalReferenceRepository(db);
 const ownerships = new PostgresOwnershipRepository(db);
 const acquisitions = new PostgresAcquisitionRepository(db);
 const acquisitionCosts = new PostgresAcquisitionCostRepository(db);
+const constructionPeriodInterest = new PostgresConstructionPeriodInterestRepository(db);
 const loans = new PostgresLoanRepository(db);
 const securityDeposits = new PostgresSecurityDepositRepository(db);
 const wegs = new PostgresWegRepository(db);
@@ -286,6 +289,7 @@ const app = createApp({
     confirm: confirmAcquisition({ repository: acquisitions }),
   },
   ownerAllocation: { get: getOwnerAllocation({ source: new PostgresOwnerAllocationSource(db) }) },
+  constructionPeriodInterest: constructionPeriodInterestCommands(constructionPeriodInterest),
   costClassifications: {
     create: createCostClassification({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
     list: listCostClassifications({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),

@@ -88,6 +88,12 @@ export interface TaxYearDepreciationAsset {
     readonly source: DepreciationSourceRef | null;
     readonly computable: boolean;
     readonly reasons: readonly DepreciationFlag[];
+    /**
+     * §59E: an item component's basis and its participants' bases (the owners' by Party, `NOT_OWNED`), what
+     * `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` compares with the item; absent where not read (then never equal).
+     */
+    readonly basis?: Money | null;
+    readonly partBases?: readonly { readonly participant: string; readonly amount: Money }[];
   }[];
   /** The schedule's own flags of the year (`GWG_THRESHOLD_MAY_APPLY`, `OWNER_WITHOUT_ACQUISITION`). */
   readonly yearFlags: readonly DepreciationFlag[];

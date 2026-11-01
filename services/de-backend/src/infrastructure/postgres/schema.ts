@@ -714,6 +714,41 @@ export interface TaxClassificationTable {
   anschaffungsnahe_acquisition_id: Generated<string | null>;
   treatment_rule_code: Generated<string | null>;
   treatment_rule_version: Generated<number | null>;
+  /** VC-X-36 (0055, §59E): the construction-period record of an interest split (Bauzeitzinsen). */
+  construction_period_interest_id: Generated<string | null>;
+}
+
+/** §59E (VC-X-36, migration 0055): the facts of the interest of one financing of one Herstellung measure. */
+export interface ConstructionPeriodInterestTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  loan_id: string | null;
+  measure: string;
+  /** `date` columns as `YYYY-MM-DD` via `to_char` on read. */
+  herstellung_from: string;
+  herstellung_until: string | null;
+  use_intent: string;
+  advance_expense_deductible: boolean;
+  building_funds_share_numerator: string;
+  building_funds_share_denominator: string;
+  earlier_years_treatment: string;
+  source_references: string[];
+  notes: string | null;
+  review_state: string;
+  advisor_party_id: string | null;
+  status: Generated<string>;
+  voided_at: Date | null;
+  void_reason: string | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  updated_at: Generated<Date>;
+  version: Generated<number>;
+}
+
+export interface ConstructionPeriodInterestPropertyTable {
+  record_id: string;
+  mre_realm_id: string;
+  property_reference_id: string;
 }
 
 /** VC-7-02 (0046, api-design §58A): the minimal RentalContractReference. */
@@ -840,6 +875,8 @@ export interface Database {
   financial_category: FinancialCategoryTable;
   transaction_split: TransactionSplitTable;
   tax_classification: TaxClassificationTable;
+  construction_period_interest: ConstructionPeriodInterestTable;
+  construction_period_interest_property: ConstructionPeriodInterestPropertyTable;
   rental_contract_reference: RentalContractReferenceTable;
   depreciation_asset: DepreciationAssetTable;
   depreciation_asset_useful_life: DepreciationAssetUsefulLifeTable;
