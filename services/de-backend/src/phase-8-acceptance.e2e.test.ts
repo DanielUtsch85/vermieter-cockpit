@@ -168,6 +168,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     expect([refused.status, ((await refused.json()) as Json).error.details.reason]).toEqual([409, 'RECORDING_NOT_ENABLED']);
     expect((await get(`/depreciation-assets/${building}/schedule-versions`, { base: 'off' })).items).toEqual([]);
     expect([v2026.review.final, codes(v2026.flags)]).toEqual([false, ['DEPRECIATION_SCHEDULE_NOT_RECORDED', 'ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL']]);
+    // The recording flag itself is open (not only some other flag): final would stay false without the 15 % check too.
+    expect(v2026.review.open.map((o: Json) => o.code)).toContain('DEPRECIATION_SCHEDULE_NOT_RECORDED');
 
     // Claim 3, stored as derivation: version 1 through 2026, recorded through the use case built with the switch on.
     const v1 = await phase8(() => record(building, 2026));
@@ -357,6 +359,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
       derived: eur('5826.69'),
       components: [{ componentId: `TRANSACTION_SPLIT:${repair}`, change: 'ADDED', recorded: null, derived: eur('714.00') }],
     });
+    // The changed recorded year is held open by the recording flag itself, not only by other flags.
+    expect(c2027.review.open.map((o: Json) => o.code)).toContain('DEPRECIATION_CHANGED_SINCE_RECORDED');
     expect(recordingOf(await view(pr, 2026))).toEqual(['UNCHANGED']);
 
     // After the window (2029-07-01) and its 90-day strip: version 3 through 2028, naming the changed 2027. 2026 is final
