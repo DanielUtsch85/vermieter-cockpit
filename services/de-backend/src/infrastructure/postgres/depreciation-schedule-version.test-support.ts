@@ -1,6 +1,14 @@
 import pg from 'pg';
 import { afterAll, beforeAll, expect } from 'vitest';
-import { inputFingerprint, liveSchedule, planRecord, type RecordOutcome, type RecordRequest } from '../../domains/depreciation/index.js';
+import {
+  inputFingerprint,
+  liveSchedule,
+  planRecord,
+  type NewScheduleVersion,
+  type RecordOutcome,
+  type RecordRequest,
+  type ScheduleVersion,
+} from '../../domains/depreciation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import { sha256Fingerprinter } from '../hashing/index.js';
@@ -42,6 +50,16 @@ export const VERSION_TABLES = [
   'depreciation_schedule_entry',
   'depreciation_schedule_version_flag',
 ] as const;
+
+/**
+ * VC-X-35: a version read back from the database row by row equals the version the domain planned, field by field and in
+ * order (inputs, components, parts, fractions, years, entries, flags, fingerprints), what the database assigns aside.
+ */
+export function expectStoredAsPlanned(stored: ScheduleVersion, planned: NewScheduleVersion, label = '') {
+  const picked = Object.fromEntries(Object.keys(planned).map((key) => [key, stored[key as keyof ScheduleVersion]]));
+  expect(Object.keys(planned).length, label).toBeGreaterThan(10);
+  expect(picked, label).toStrictEqual(planned);
+}
 
 export function useScheduleVersionDatabase(name: `${string}_test`) {
   const schema = testSchemaName(name);
