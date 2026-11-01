@@ -734,6 +734,15 @@ Transaction to a cost or to the purchase price. Contract: api-design §27.2.
   There is **no** `PURCHASE_PRICE`: the price is `Acquisition.purchasePrice`, entered once. Categories must remain
   extensible.
 - The former `transactionSplitId` is replaced by AcquisitionPayment.
+- **Planned (VC-X-42, api-design §59D; specified, not implemented; migration 0055 planned): `AcquisitionCostClassification`**,
+  the purpose of one cost, recorded as entered and only superseded (as §15's allocation), the cost itself staying frozen:
+  `parts` (1–5 `{ purpose, amount }` summing exactly to the cost's amount; `purpose` `OWNERSHIP_TRANSFER` |
+  `FINANCING` | `NOT_ACQUISITION_COST`), `inputVat` (`NONE` | `NOT_DEDUCTIBLE` | `DEDUCTIBLE`), `description`,
+  `sourceReferences`, `reviewState`, `advisorPartyId`, `notes`, `supersedesId`, `supersededAt`. Tables
+  `acquisition_cost_classification` and `acquisition_cost_classification_part` (rows, not a blob); no column on
+  `acquisition_cost`. A `NOTARY`, `LAND_REGISTRY` or `OTHER` cost enters a tax basis only with a confirmed
+  classification as `OWNERSHIP_TRANSFER`; a `FINANCING_RELATED` cost never does (tax review of 2026-11-01, questions 10
+  and 24).
 
 ---
 
@@ -2126,6 +2135,7 @@ Record the facts of one depreciable asset that no other record holds, as inputs 
 - `sourceReferences` (where the year comes from)
 - `advisorPartyId` (only with `ADVISOR_CONFIRMED`)
 - `shorterUsefulLives`: at most one per Acquisition of the PropertyReference (§ 7 Abs. 4 S. 2 EStG, P8-D4), each with `acquisitionId`, `usefulLifeYears` (1–99), `evidence` (`source`, `date`, `documentReference`), its own `reviewState` and `advisorPartyId`. Stored as rows of their own, never as a blob.
+- **Planned (VC-X-37, api-design §59C; specified, not implemented; migration 0054 planned): `purchaseMethods`** on a building: at most one entry per Acquisition of the PropertyReference, at most 20, each with `acquisitionId`, `consideration` (`PAID`, `PARTLY_PAID`, `UNPAID`), `method` (`LINEAR_7_4`, `DEGRESSIVE_7_5`, `DEGRESSIVE_7_5A`, `OTHER`; the method applied so far, VC-X-32's record), `specialDepreciation` (a list of `SPECIAL_7B`, `INCREASED_7H`, `INCREASED_7I`, `OTHER`; `[]` = none claimed), `subsidiesReceived`, `newBuildingByConversion`, `otherSpecialCase` with `otherSpecialCaseNote`, `evidence` (`source`, `date`, `documentReference`), its own `reviewState` and `advisorPartyId`, `notes`. Rows of `depreciation_asset_purchase_method`, keyed `(asset_id, acquisition_id)`. The `methodStatus` (`STANDARD` or `NOT_SUPPORTED` with `causes`) is derived by the rule, never stored; a purchase component is computed only with a confirmed `STANDARD` entry (tax review of 2026-11-01, question 2: never linear by default).
 - `notes`
 - `voidedAt`, `voidReason`
 - **On a `SEPARATE_ASSET` only, required there** (VC-8-03, api-design §59B; implemented, migration 0051): `description`, `usefulLifeYears` (1–99) with `usefulLifeBasis` (its legal or factual basis, e.g. BFH IX R 14/15 for an Einbauküche, B8), `acquiredOn` (the month of acquisition, § 7 Abs. 1 S. 4 EStG), and `items`: links to the capitalised items it consists of, as rows of `depreciation_asset_item` (`source_type`, `source_id`, `source_position`, and `asset_status` following the asset's status by an `ON UPDATE CASCADE` key), at most 50, an item in at most one `ACTIVE` asset (a partial unique index). `buildingCompletionYear` and `shorterUsefulLives` are building-only.
