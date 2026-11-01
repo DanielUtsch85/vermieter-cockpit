@@ -24,6 +24,7 @@ import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre
 import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
 import { reproductionFromDatabase } from './depreciation-reproduction.test-support.js';
+import { standardMethod } from './infrastructure/postgres/depreciation-method.test-support.js';
 
 /**
  * VC-8-02 end to end (api-design.md §59A), wired as in main.ts, with ACC8's purchase (synthetic): the response example
@@ -279,7 +280,8 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     const outcome = await acquisitions.confirm(acquisitionId, realm, AT, actor);
     if (outcome.kind !== 'CONFIRMED') throw new Error(JSON.stringify(outcome));
   }
-  async function building(pr: string, realm = REALM_A): Promise<string> {
+  /** §59C: a confirmed STANDARD method entry for each purchase named, so it computes. */
+  async function building(pr: string, realm = REALM_A, purchases: readonly string[] = []): Promise<string> {
     const created = await assets.create(
       {
         mreRealmId: realm,
@@ -296,12 +298,20 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
         reviewState: 'CONFIRMED',
         advisorPartyId: null,
         shorterUsefulLives: [],
+        purchaseMethods: purchases.map((id) => standardMethod(id)),
         notes: null,
       },
       actor,
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
     return created.asset.id;
+  }
+  /** §59C: a later purchase's confirmed STANDARD entry, added by an amend (the entries named are the whole list). */
+  async function addMethod(assetId: string, acquisitionId: string, realm = REALM_A): Promise<void> {
+    const read = await assets.find(assetId, realm);
+    const purchaseMethods = [...(read?.asset.purchaseMethods ?? []), standardMethod(acquisitionId)];
+    const amended = await assets.amend(assetId, realm, { purchaseMethods }, actor);
+    if (amended.kind !== 'AMENDED') throw new Error(amended.kind);
   }
   /** ACC8: A 3/5 and B 2/5 of W (basis 254,400.00), the transfer as given. */
   async function acc8(transfer = '2026-07-01', options: { reviewState?: 'CONFIRMED' | 'UNREVIEWED'; realm?: string } = {}) {
@@ -311,7 +321,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     const w = await purchase({ pr, buyers: [a, b], share: [1, 1], contract: '2026-05-15', transfer, building: '254400.00', realm, ...options });
     const rows = [await own(pr, a, [3, 5], transfer, w, realm), await own(pr, b, [2, 5], transfer, w, realm)];
     await confirm(w, realm);
-    return { pr, a, b, w, rows, assetId: await building(pr, realm) };
+    return { pr, a, b, w, rows, assetId: await building(pr, realm, [w]) };
   }
 
   it('the response example: 2026 and 2027 at both levels; the basis equal to the anschaffungsnahe check’s', async () => {
@@ -371,7 +381,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     await own(pr, b, [2, 5], '2026-07-01', x);
     await confirm(w);
     await confirm(x);
-    const assetId = await building(pr);
+    const assetId = await building(pr, REALM_A, [w, x]);
     const body = await ok(assetId, '?from=2027&to=2027');
     expect(body.status).toBe('PARTIAL');
     // Both start on 2026-07-01, so they are ordered by acquisitionId (§59A "Order").
@@ -412,6 +422,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     );
     if (changed.kind !== 'CHANGED') throw new Error(changed.kind);
     await confirm(x);
+    await addMethod(s.assetId, x);
     return { ...s, c, x };
   }
 
@@ -482,7 +493,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
     );
     if (changed.kind !== 'CHANGED') throw new Error(changed.kind);
     await confirm(x);
-    const assetId = await building(pr);
+    const assetId = await building(pr, REALM_A, [w, x]);
     const body = await ok(assetId, '?from=2028&to=2029');
     expect(body.components.map((c) => [c.acquisitionId, c.status, c.reasons])).toEqual([
       [w, 'COMPUTABLE', []],

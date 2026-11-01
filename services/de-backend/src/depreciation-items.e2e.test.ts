@@ -39,6 +39,7 @@ import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre
 import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
 import { reproductionFromDatabase } from './depreciation-reproduction.test-support.js';
+import { standardMethodBody } from './infrastructure/postgres/depreciation-method.test-support.js';
 
 /**
  * VC-8-03 end to end (api-design.md §59B), wired as in main.ts, with ACC8 (synthetic): the purchase; the repair and the
@@ -259,7 +260,13 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
     }
     if ((await acquisitions.confirm(w, REALM_A, AT, actor)).kind !== 'CONFIRMED') throw new Error('confirm');
     const asset = await json<{ assetId: string }>(
-      await call('POST', '/depreciation-assets', { propertyReferenceId: pr, buildingCompletionYear: 1995, reviewState: 'CONFIRMED' }),
+      // §59C: W's confirmed STANDARD method entry, so the purchase computes.
+      await call('POST', '/depreciation-assets', {
+        propertyReferenceId: pr,
+        buildingCompletionYear: 1995,
+        reviewState: 'CONFIRMED',
+        purchaseMethods: [standardMethodBody(w)],
+      }),
       201,
     );
     return { pr, a, b, w, building: asset.assetId };

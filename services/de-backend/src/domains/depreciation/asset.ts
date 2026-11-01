@@ -1,5 +1,13 @@
 import type { AuditActor, BusinessDate, RuleRef, VersionConflict } from '../../shared/index.js';
 import { componentIdOf, sameItem, type ItemRef } from './capitalized-item.js';
+import {
+  changedPurchaseMethods,
+  nextPurchaseMethod,
+  purchaseMethodFingerprint,
+  type ChangedPurchaseMethod,
+  type PurchaseMethod,
+  type PurchaseMethodAmendment,
+} from './purchase-method.js';
 
 /**
  * The DepreciationAsset (data-model.md §38, api-design.md §59, phase-8-plan P8-D1, P8-D4; VC-8-01): the facts of a
@@ -77,6 +85,8 @@ export interface DepreciationAssetFacts {
   readonly advisorPartyId: string | null;
   /** In `acquisitionId` order. */
   readonly shorterUsefulLives: readonly ShorterUsefulLife[];
+  /** §59C (VC-X-37): the method entry of each purchase, in `acquisitionId` order; `[]` on a separate asset. */
+  readonly purchaseMethods: readonly PurchaseMethod[];
   readonly notes: string | null;
 }
 
@@ -103,6 +113,8 @@ export interface DepreciationAsset extends NewDepreciationAsset {
 export interface AssetRead {
   readonly asset: DepreciationAsset;
   readonly cancelledAcquisitionIds: readonly string[];
+  /** §59C: the start year (`economicTransferDate`) of each method entry's Acquisition, `null` without one. */
+  readonly purchaseStartYears?: Readonly<Record<string, number | null>>;
 }
 
 const byAcquisition = (a: { acquisitionId: string }, b: { acquisitionId: string }) =>
@@ -135,12 +147,15 @@ export function assetFingerprint(asset: NewDepreciationAsset): string {
       e.advisorPartyId,
     ]),
     asset.notes,
+    sortedEntries(asset.purchaseMethods).map(purchaseMethodFingerprint),
   ]);
 }
 
 /** The Parties a body names as advisors, each once, in the order named (the asset's first). */
-export function advisorsOf(facts: Pick<DepreciationAssetFacts, 'advisorPartyId' | 'shorterUsefulLives'>): string[] {
-  const named = [facts.advisorPartyId, ...facts.shorterUsefulLives.map((e) => e.advisorPartyId)].filter((id): id is string => id !== null);
+export function advisorsOf(facts: Pick<DepreciationAssetFacts, 'advisorPartyId' | 'shorterUsefulLives' | 'purchaseMethods'>): string[] {
+  const named = [facts.advisorPartyId, ...facts.shorterUsefulLives.map((e) => e.advisorPartyId), ...facts.purchaseMethods.map((e) => e.advisorPartyId)].filter(
+    (id): id is string => id !== null,
+  );
   return [...new Set(named)];
 }
 
@@ -161,6 +176,8 @@ export interface AssetAmendment {
   readonly reviewState?: AmendReviewState;
   /** The whole list: an entry left out is removed. */
   readonly shorterUsefulLives?: readonly UsefulLifeAmendment[];
+  /** §59C: the whole list of method entries; an entry left out is removed. */
+  readonly purchaseMethods?: readonly PurchaseMethodAmendment[];
   /** A separate asset's facts (§59B); `items` is the whole list. */
   readonly description?: string;
   readonly usefulLifeYears?: number;
@@ -201,6 +218,8 @@ export interface AssetAmendPlan {
   readonly next: DepreciationAssetFacts;
   readonly changes: Partial<Record<AmendedField, { readonly from: unknown; readonly to: unknown }>>;
   readonly changedEntries: readonly ChangedUsefulLife[];
+  /** §59C: the method entries added, changed or removed (the AuditRecord's `changedPurchaseMethods`). */
+  readonly changedPurchaseMethods: readonly ChangedPurchaseMethod[];
   readonly changedItems: readonly ChangedItem[];
   /** The reset a changed completion year (or a separate asset's useful life, date or items) caused, when the body named no state (§59, §59B). */
   readonly reviewStateReset: { readonly from: AssetReviewState; readonly to: AssetReviewState } | null;
@@ -269,6 +288,19 @@ export function planAssetAmend(current: DepreciationAsset, amendment: AssetAmend
     return sameEntry(from, to) ? [] : [{ acquisitionId, change: 'CHANGED', from, to }];
   });
 
+  const methods =
+    amendment.purchaseMethods === undefined
+      ? current.purchaseMethods
+      : sortedEntries(
+          amendment.purchaseMethods.map((named) =>
+            nextPurchaseMethod(
+              current.purchaseMethods.find((e) => e.acquisitionId === named.acquisitionId),
+              named,
+            ),
+          ),
+        );
+  const changedMethods = changedPurchaseMethods(current.purchaseMethods, methods);
+
   const facts: DepreciationAssetFacts = {
     buildingCompletionYear: year,
     description,
@@ -280,6 +312,7 @@ export function planAssetAmend(current: DepreciationAsset, amendment: AssetAmend
     reviewState,
     advisorPartyId,
     shorterUsefulLives: entries,
+    purchaseMethods: methods,
     notes: amendment.notes === undefined ? current.notes : amendment.notes,
   };
   const changes: Partial<Record<AmendedField, { from: unknown; to: unknown }>> = {};
@@ -298,21 +331,25 @@ export function planAssetAmend(current: DepreciationAsset, amendment: AssetAmend
     next: facts,
     changes,
     changedEntries,
+    changedPurchaseMethods: changedMethods,
     changedItems,
     reviewStateReset,
-    changed: Object.keys(changes).length > 0 || changedEntries.length > 0 || changedItems.length > 0,
+    changed: Object.keys(changes).length > 0 || changedEntries.length > 0 || changedMethods.length > 0 || changedItems.length > 0,
   };
 }
 
 /** The entries an amend adds or changes: only their Acquisitions and advisors are checked again (§59, order 4–5). */
 export const writtenEntries = (plan: AssetAmendPlan): ShorterUsefulLife[] => plan.changedEntries.flatMap((c) => (c.to === null ? [] : [c.to]));
 
+/** The method entries an amend adds or changes (§59C): checked as the shorter lives, in the same step after them. */
+export const writtenPurchaseMethods = (plan: AssetAmendPlan): PurchaseMethod[] => plan.changedPurchaseMethods.flatMap((c) => (c.to === null ? [] : [c.to]));
+
 /** The fields of the other type an amend names (§59B, `400 NOT_ALLOWED`): the body cannot know the asset's type. */
 export function amendFieldsNotAllowed(assetType: AssetType, amendment: AssetAmendment): string[] {
   const named = (fields: readonly (keyof AssetAmendment)[]) => fields.filter((f) => amendment[f] !== undefined);
   return assetType === 'BUILDING'
     ? named(['description', 'usefulLifeYears', 'usefulLifeBasis', 'acquiredOn', 'items'])
-    : named(['buildingCompletionYear', 'shorterUsefulLives']);
+    : named(['buildingCompletionYear', 'shorterUsefulLives', 'purchaseMethods']);
 }
 
 /** The items an amend links: only they are checked (§59B, steps 4–5); an unchanged link is never checked again. */
@@ -418,7 +455,7 @@ export interface EntryAcquisition {
  * (`422`), `CANCELLED` (`409`); each check over all entries, in the order named.
  */
 export function entryAcquisitionRefusal(
-  entries: readonly ShorterUsefulLife[],
+  entries: readonly { readonly acquisitionId: string }[],
   found: ReadonlyMap<string, EntryAcquisition>,
   propertyReferenceId: string,
 ): CreateAssetRefusal | undefined {

@@ -18,6 +18,7 @@ import {
   type CreateDepreciationAssetInput,
   type DepreciationAsset,
   type PrincipalVerifier,
+  type PurchaseMethodStatus,
 } from '../application/index.js';
 import type { BusinessDate } from '../shared/index.js';
 import { createApp } from './app.js';
@@ -56,6 +57,22 @@ const asset: DepreciationAsset = {
       evidence: { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15' as BusinessDate, documentReference: 'Gutachten Nr. 0000-SYN' },
       reviewState: 'NEEDS_REVIEW',
       advisorPartyId: null,
+    },
+  ],
+  purchaseMethods: [
+    {
+      acquisitionId: ACQ,
+      consideration: 'PAID',
+      method: 'DEGRESSIVE_7_5',
+      specialDepreciation: [],
+      subsidiesReceived: false,
+      newBuildingByConversion: false,
+      otherSpecialCase: false,
+      otherSpecialCaseNote: null,
+      evidence: { source: 'Anlage V 2025 (synthetisch)', date: '2026-06-15' as BusinessDate, documentReference: null },
+      reviewState: 'CONFIRMED',
+      advisorPartyId: null,
+      notes: null,
     },
   ],
   notes: null,
@@ -102,6 +119,25 @@ const dto = {
       advisorPartyId: null,
     },
   ],
+  // §59C: the entry with its derived status and causes.
+  purchaseMethods: [
+    {
+      acquisitionId: ACQ,
+      consideration: 'PAID',
+      method: 'DEGRESSIVE_7_5',
+      specialDepreciation: [],
+      subsidiesReceived: false,
+      newBuildingByConversion: false,
+      otherSpecialCase: false,
+      otherSpecialCaseNote: null,
+      evidence: { source: 'Anlage V 2025 (synthetisch)', date: '2026-06-15', documentReference: null },
+      reviewState: 'CONFIRMED',
+      advisorPartyId: null,
+      notes: null,
+      methodStatus: 'NOT_SUPPORTED',
+      causes: ['METHOD_DEGRESSIVE_7_5'],
+    },
+  ],
   notes: null,
   voidedAt: null,
   voidReason: null,
@@ -119,6 +155,9 @@ const dto = {
     shorterUsefulLives: [{ acquisitionId: ACQ, rate: '1/30', ratePercent: '3.3333', applies: false, reasons: ['USEFUL_LIFE_NOT_CONFIRMED'] }],
   },
 };
+
+/** §59C: the status the application derives for the entry. */
+const methods: PurchaseMethodStatus[] = [{ acquisitionId: ACQ, methodStatus: 'NOT_SUPPORTED', causes: ['METHOD_DEGRESSIVE_7_5'] }];
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
 let server: Server | undefined;
@@ -152,7 +191,7 @@ describe('POST /depreciation-assets (§59)', () => {
       depreciationAssets: {
         create: async (input) => {
           seen.push(input);
-          return { asset, replayed: input.idempotencyKey === 'again' };
+          return { asset, replayed: input.idempotencyKey === 'again', methods };
         },
       },
     });
@@ -170,6 +209,7 @@ describe('POST /depreciation-assets (§59)', () => {
       reviewState: 'UNREVIEWED',
       advisorPartyId: null,
       shorterUsefulLives: [],
+      purchaseMethods: [],
       notes: null,
       idempotencyKey: 'k1',
       principal: { mreRealmId: REALM },
@@ -289,7 +329,7 @@ describe('amend, confirm, void (§59)', () => {
       depreciationAssets: {
         amend: async (input) => {
           seen.push(input);
-          return { asset, changed: true };
+          return { asset, changed: true, methods };
         },
       },
     });
@@ -337,7 +377,7 @@ describe('amend, confirm, void (§59)', () => {
       depreciationAssets: {
         confirm: async (input) => {
           seen.push(input);
-          return { asset, changed: true };
+          return { asset, changed: true, methods };
         },
       },
     });
@@ -367,7 +407,11 @@ describe('amend, confirm, void (§59)', () => {
       depreciationAssets: {
         void: async (input) => {
           seen.push(input);
-          return { asset: { ...asset, status: 'VOID', voidedAt: new Date('2026-10-30T12:00:00Z'), voidReason: 'falsche Einheit', version: 4 }, changed: true };
+          return {
+            asset: { ...asset, status: 'VOID', voidedAt: new Date('2026-10-30T12:00:00Z'), voidReason: 'falsche Einheit', version: 4 },
+            changed: true,
+            methods,
+          };
         },
       },
     });
@@ -388,7 +432,7 @@ describe('reads (§59)', () => {
       depreciationAssets: {
         get: async (input) => {
           seen.push(input);
-          return { asset, rate };
+          return { asset, rate, methods };
         },
       },
     });
@@ -412,7 +456,7 @@ describe('reads (§59)', () => {
       depreciationAssets: {
         listForPropertyReference: async (input) => {
           seen.push(input);
-          return [{ asset, rate }];
+          return [{ asset, rate, methods }];
         },
       },
     });

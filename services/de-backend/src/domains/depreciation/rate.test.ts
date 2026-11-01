@@ -45,6 +45,7 @@ const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset =>
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
   shorterUsefulLives: [],
+  purchaseMethods: [],
   notes: null,
   voidedAt: null,
   voidReason: null,

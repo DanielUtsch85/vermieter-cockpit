@@ -92,6 +92,8 @@ function scheduleDto(s: RecordedSchedule) {
     acquisitionStatus: c.acquisitionStatus,
     status: c.status,
     reasons: c.reasons.map(flagDto),
+    // §59C: the purchase's method entry (without the evidence) with its status, `null` without one.
+    method: c.method,
     basis: {
       amount: money(c.basis.amount),
       purchasePrice: money(c.basis.purchasePrice),

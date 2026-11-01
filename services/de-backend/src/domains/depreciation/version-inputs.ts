@@ -175,6 +175,18 @@ function purchaseComponent(
             buildingAmount: centsOf(a.allocation.buildingAmount),
             shorterLifeReviewState: shorter ? (w.entry?.reviewState ?? null) : null,
           },
+    method:
+      w.method === null
+        ? null
+        : {
+            consideration: w.method.entry.consideration,
+            method: w.method.entry.method,
+            specialDepreciation: [...w.method.entry.specialDepreciation],
+            subsidiesReceived: w.method.entry.subsidiesReceived,
+            newBuildingByConversion: w.method.entry.newBuildingByConversion,
+            otherSpecialCase: w.method.entry.otherSpecialCase,
+            reviewState: w.method.entry.reviewState,
+          },
     item: null,
     parts,
   };
@@ -215,6 +227,7 @@ function itemComponent(w: ItemWork, position: number, horizon: number, pools: Ma
     },
     rate: { kind: rate?.kind ?? (w.separate ? 'USEFUL_LIFE' : 'BAND'), usefulLifeYears: rate?.usefulLifeYears ?? null },
     acquisition: null,
+    method: null,
     item:
       item === null
         ? null

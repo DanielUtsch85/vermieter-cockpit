@@ -108,7 +108,9 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
       'NO_BUILDING',
       'USEFUL_LIFE_NOT_CONFIRMED',
       'HISTORICAL_RULE_NOT_SUPPORTED',
-      'DEPRECIATION_METHOD_UNKNOWN',
+      // §59C (VC-X-37): the two method reasons replace the withdrawn DEPRECIATION_METHOD_UNKNOWN.
+      'DEPRECIATION_METHOD_NOT_CONFIRMED',
+      'DEPRECIATION_METHOD_NOT_SUPPORTED',
       'NO_APPLICABLE_RULE',
       'BUYER_ALREADY_OWNER',
       'DISPOSAL_DATE_MISSING',

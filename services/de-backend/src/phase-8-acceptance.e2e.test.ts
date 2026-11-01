@@ -55,7 +55,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     return ids.sort() as [string, string];
   }
   /** ACC8's purchase on one of Realm A's MRE properties: W, its costs, the allocation, the Ownerships, confirmed; the building. */
-  async function acc8Unit(property: number, transfer: string, reviewState: 'CONFIRMED' | 'UNREVIEWED' = 'CONFIRMED') {
+  async function acc8Unit(property: number, transfer: string, reviewState: 'CONFIRMED' | 'UNREVIEWED' = 'CONFIRMED', withMethod = true) {
     at('2026-07-01');
     const pr = await api.link(PROPERTIES[property] as string);
     const [a, b] = await buyers();
@@ -71,7 +71,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     });
     const ownerships = [await api.own(pr, a, '3/5', transfer, w), await api.own(pr, b, '2/5', transfer, w)];
     await api.confirm(w);
-    const building = await phase8(() => api.building(pr));
+    // §59C: W's confirmed STANDARD method entry with the building (ACC8's main run records it one step later).
+    const building = await phase8(() => api.building(pr, withMethod ? [w] : []));
     return { pr, a, b, w, allocationId, ownerships, building };
   }
   const years = (s: Json) => s.years.map((y: Json) => [y.year, y.amount?.amount ?? null, ...(y.owners ?? []).map((o: Json) => o.amount?.amount ?? null)]);
@@ -80,7 +81,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
   const recordingOf = (v: Json) => v.depreciation.assets.map((x: Json) => x.recording.state);
 
   it('the Phase-8 exit, claim by claim (ACC8)', { timeout: 300_000 }, async () => {
-    const { pr, a, b, w, building } = await acc8Unit(0, '2026-07-01');
+    const { pr, a, b, w, building } = await acc8Unit(0, '2026-07-01', 'CONFIRMED', false);
     const weg = await post('/wegs', { displayName: 'WEG Beispielallee (synthetisch)' });
     const membership = (await post(`/wegs/${weg.wegId}/memberships`, { propertyReferenceId: pr, miteigentumsanteil: '125/1000', validFrom: '2026-07-01' }))
       .membershipId;
@@ -100,6 +101,15 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // Claim 1, the schedule of the purchase from acquisition truth: basis 254,400.00 = 318,000.00 × 254,400/318,000 (the
     // land and the FINANCING_RELATED 1,200.00 in no component), 2 % for 1995, 6/12 in 2026, per Acquisition among its buyers.
     at('2027-02-15');
+    // §59C (decided by the owner on 2026-11-01, open question 6): before W's method entry the year is not available,
+    // never assumed linear: DEPRECIATION_METHOD_NOT_CONFIRMED, the amounts null; the entry is then recorded and confirmed.
+    const unknown = await phase8(() => schedule(building, 'from=2026&to=2026'));
+    expect([unknown.years[0].status, unknown.years[0].amount, codes(unknown.components[0].reasons)]).toEqual([
+      'DEPRECIATION_NOT_AVAILABLE',
+      null,
+      ['DEPRECIATION_METHOD_NOT_CONFIRMED'],
+    ]);
+    await phase8(() => api.methods(building, [w]));
     const first = await phase8(() => schedule(building, 'from=2026&to=2027'));
     expect(
       first.components.map((c: Json) => [
@@ -552,7 +562,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     await api.own(partPr, pb, '2/5', '2026-07-01', px.acquisitionId);
     await api.confirm(pw.acquisitionId);
     await api.confirm(px.acquisitionId);
-    await phase8(() => api.building(partPr));
+    await phase8(() => api.building(partPr, [pw.acquisitionId, px.acquisitionId]));
     at('2028-02-15');
     const p2027 = await view(partPr, 2027);
     expect([totalOf(p2027, 'AFA_BUILDING'), p2027.result.basis, ownerFigures(p2027).map((o: string[]) => o[2])]).toEqual([
@@ -595,6 +605,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
       { headers: { 'idempotency-key': 'acc8-sale' } },
     );
     await api.confirm(x.acquisitionId);
+    // §59C: C's purchase gets its confirmed STANDARD entry with the others.
+    await phase8(() => api.methods(sold.building, [sold.w, x.acquisitionId]));
     at('2031-02-15');
     const sale = await schedule(sold.building, 'from=2029&to=2030');
     const [ofW, ofX] = sale.components;

@@ -1,5 +1,6 @@
 import { Money, centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
 import type { DepreciationAsset, DepreciationAssetId, ShorterUsefulLife } from './asset.js';
+import type { PurchaseMethod } from './purchase-method.js';
 import type { CapitalizedItem, ItemSourceType } from './capitalized-item.js';
 import type { ScheduleAcquisition, ScheduleInput, ScheduleOwnership } from './schedule.js';
 
@@ -32,6 +33,8 @@ export const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationA
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
   shorterUsefulLives: [],
+  // §59C: a confirmed STANDARD method entry for each purchase the fixtures use, so they compute as before.
+  purchaseMethods: [W, X, Y].map((acquisitionId) => standard({ acquisitionId })),
   notes: null,
   voidedAt: null,
   voidReason: null,
@@ -46,6 +49,23 @@ export const life = (overrides: Partial<ShorterUsefulLife> = {}): ShorterUsefulL
   evidence: { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: null },
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
+  ...overrides,
+});
+
+/** A confirmed `STANDARD` method entry of a purchase (§59C): paid, linear § 7 Abs. 4, nothing special. */
+export const standard = (overrides: Partial<PurchaseMethod> = {}): PurchaseMethod => ({
+  acquisitionId: W,
+  consideration: 'PAID',
+  method: 'LINEAR_7_4',
+  specialDepreciation: [],
+  subsidiesReceived: false,
+  newBuildingByConversion: false,
+  otherSpecialCase: false,
+  otherSpecialCaseNote: null,
+  evidence: { source: 'Kaufvertrag und Anlage V (synthetisch)', date: day('2026-06-15'), documentReference: null },
+  reviewState: 'CONFIRMED',
+  advisorPartyId: null,
+  notes: null,
   ...overrides,
 });
 
@@ -110,6 +130,7 @@ export const kitchen = (overrides: Partial<DepreciationAsset> = {}): Depreciatio
     usefulLifeYears: 10,
     usefulLifeBasis: 'BFH IX R 14/15 (verification-checklist B8)',
     acquiredOn: day('2027-04-20'),
+    purchaseMethods: [],
     ...overrides,
   });
 

@@ -31,6 +31,7 @@ import { PostgresTransactionSplitRepository } from './transaction-split-reposito
 import { PostgresWegAnnualStatementRepository } from './weg-annual-statement-repository.js';
 import { PostgresWegRepository } from './weg-repository.js';
 import { PostgresWegSpecialAssessmentRepository } from './weg-special-assessment-repository.js';
+import { standardMethod } from './depreciation-method.test-support.js';
 
 /**
  * The shared setup of the separate asset's tests (VC-8-03, api-design.md §59B, migration 0051): one migrated schema per
@@ -362,10 +363,12 @@ export function useSeparateAssetDatabase(name: `${string}_test`) {
     reviewState: 'UNREVIEWED',
     advisorPartyId: null,
     shorterUsefulLives: [],
+    purchaseMethods: [],
     notes: null,
     ...overrides,
   });
-  const building = (pr: string): NewDepreciationAsset => ({
+  /** §59C: a confirmed STANDARD method entry for each purchase named, so it computes. */
+  const building = (pr: string, purchases: readonly string[] = []): NewDepreciationAsset => ({
     mreRealmId: REALM,
     propertyReferenceId: pr,
     assetType: 'BUILDING',
@@ -380,6 +383,7 @@ export function useSeparateAssetDatabase(name: `${string}_test`) {
     reviewState: 'CONFIRMED',
     advisorPartyId: null,
     shorterUsefulLives: [],
+    purchaseMethods: purchases.map((id) => standardMethod(id)),
     notes: null,
   });
   async function created(asset: NewDepreciationAsset): Promise<string> {

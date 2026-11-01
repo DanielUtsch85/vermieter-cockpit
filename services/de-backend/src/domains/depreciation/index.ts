@@ -34,7 +34,34 @@ export {
   sortedEntries,
   sortedItems,
   writtenEntries,
+  writtenPurchaseMethods,
 } from './asset.js';
+// The method status of a purchase (api-design.md §59C, VC-X-37).
+export {
+  CONSIDERATIONS,
+  MAX_PURCHASE_METHODS,
+  METHOD_CAUSES,
+  METHOD_REASONS,
+  PURCHASE_METHODS,
+  SPECIAL_DEPRECIATIONS,
+  canonicalSpecial,
+  isMethodReason,
+  methodReasonOf,
+  methodStatusOf,
+} from './purchase-method.js';
+export type {
+  ChangedPurchaseMethod,
+  Consideration,
+  MethodCause,
+  MethodReason,
+  MethodStatus,
+  MethodStatusParameters,
+  PurchaseMethod,
+  PurchaseMethodAmendment,
+  PurchaseMethodCode,
+  PurchaseMethodFacts,
+  SpecialDepreciation,
+} from './purchase-method.js';
 export type {
   AmendAssetOutcome,
   AmendReviewState,
@@ -76,10 +103,11 @@ export {
   deriveRate,
   isShorter,
   movableRuleOn,
+  purchaseMethodStatuses,
   rateFraction,
   reciprocalPercent,
 } from './rate.js';
-export type { AssetRate, AssetRateReason, UsefulLifeRate, UsefulLifeReason } from './rate.js';
+export type { AssetRate, AssetRateReason, PurchaseMethodStatus, UsefulLifeRate, UsefulLifeReason } from './rate.js';
 export {
   AFA_BUILDING_LINEAR,
   BUILDING_BANDS,
@@ -106,6 +134,7 @@ export type {
   AssetLink,
   CalculationStatus,
   ComponentBasis,
+  ComponentMethod,
   ComponentOwner,
   ComponentRate,
   ComponentYear,
@@ -147,6 +176,7 @@ export type {
   VersionFraction,
   VersionInputs,
   VersionItemInputs,
+  VersionMethodInputs,
   VersionPart,
   VersionRule,
   VersionYear,

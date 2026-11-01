@@ -715,6 +715,7 @@ export {
 } from './depreciation-assets.js';
 export type {
   AmendDepreciationAsset,
+  AssetCommandResult,
   ConfirmDepreciationAsset,
   CreateDepreciationAsset,
   CreateDepreciationAssetInput,
@@ -756,6 +757,10 @@ export {
   centsText,
   MAX_ASSET_SOURCE_REFERENCES,
   MAX_SHORTER_USEFUL_LIVES,
+  CONSIDERATIONS,
+  MAX_PURCHASE_METHODS,
+  PURCHASE_METHODS,
+  SPECIAL_DEPRECIATIONS,
   USEFUL_LIFE_MAX_YEARS,
   USEFUL_LIFE_MIN_YEARS,
 } from '../domains/depreciation/index.js';
@@ -783,4 +788,7 @@ export type {
   ScheduleComponent,
   ScheduleYear,
   UsefulLifeAmendment,
+  PurchaseMethod,
+  PurchaseMethodAmendment,
+  PurchaseMethodStatus,
 } from '../domains/depreciation/index.js';

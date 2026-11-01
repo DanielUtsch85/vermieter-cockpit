@@ -86,6 +86,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationAssetRepository 
         reviewState: 'ADVISOR_CONFIRMED',
         advisorPartyId: advisor,
         shorterUsefulLives: JSON.parse(JSON.stringify(asset.shorterUsefulLives)),
+        purchaseMethods: [],
         notes: 'Baujahr laut Anlage',
       });
     });

@@ -3,6 +3,7 @@ import {
   deriveRate,
   deriveSchedule,
   isOwnerOf,
+  purchaseMethodStatuses,
   withRecording,
   type AssetAmendment,
   type AssetRate,
@@ -17,6 +18,7 @@ import {
   type ItemRef,
   type ItemRefusal,
   type NewDepreciationAsset,
+  type PurchaseMethodStatus,
 } from '../domains/depreciation/index.js';
 import { businessDayOf } from '../domains/ledger/index.js';
 import { TAX_RULES } from '../domains/tax-rules/index.js';
@@ -196,7 +198,11 @@ const actorOf = (principal: RealmPrincipal) => ({ actorType: 'USER', actorId: pr
 
 type Clock = { readonly now?: () => Date };
 const nowOf = (deps: Clock) => (deps.now ?? (() => new Date()))();
-type Deps = { readonly repository: DepreciationAssetRepository };
+/** `registry` judges the method entries' status in the answer (§59C); the tax rules by default. */
+type Deps = { readonly repository: DepreciationAssetRepository; readonly registry?: RuleRegistry };
+
+/** A command's answer: the asset, and its method entries' status by the latest rule version (§59C "Responses"). */
+const statusesOf = (deps: Deps, asset: DepreciationAsset) => purchaseMethodStatuses(asset, deps.registry ?? TAX_RULES);
 type ReadDeps = Deps & Clock & { readonly registry?: RuleRegistry };
 
 /** The refusals create and amend share (§59, order 3–4; §59B, order 4–5). */
@@ -231,7 +237,9 @@ export interface CreateDepreciationAssetInput extends Omit<NewDepreciationAsset,
   readonly idempotencyKey?: string;
 }
 
-export type CreateDepreciationAsset = (input: CreateDepreciationAssetInput) => Promise<{ readonly asset: DepreciationAsset; readonly replayed: boolean }>;
+export type CreateDepreciationAsset = (
+  input: CreateDepreciationAssetInput,
+) => Promise<{ readonly asset: DepreciationAsset; readonly replayed: boolean; readonly methods: readonly PurchaseMethodStatus[] }>;
 
 export function createDepreciationAsset(deps: Deps): CreateDepreciationAsset {
   return async ({ principal, idempotencyKey, ...fields }) => {
@@ -243,9 +251,9 @@ export function createDepreciationAsset(deps: Deps): CreateDepreciationAsset {
     );
     switch (outcome.kind) {
       case 'CREATED':
-        return { asset: outcome.asset, replayed: false };
+        return { asset: outcome.asset, replayed: false, methods: statusesOf(deps, outcome.asset) };
       case 'REPLAYED':
-        return { asset: outcome.asset, replayed: true };
+        return { asset: outcome.asset, replayed: true, methods: statusesOf(deps, outcome.asset) };
       case 'IDEMPOTENCY_CONFLICT':
         throw new IdempotencyKeyConflictError('Idempotency-Key was already used with a different payload');
       case 'PROPERTY_REFERENCE_NOT_FOUND':
@@ -258,16 +266,23 @@ export function createDepreciationAsset(deps: Deps): CreateDepreciationAsset {
   };
 }
 
+/** A command's answer (§59, §59C). */
+export interface AssetCommandResult {
+  readonly asset: DepreciationAsset;
+  readonly changed: boolean;
+  readonly methods: readonly PurchaseMethodStatus[];
+}
+
 export type AmendDepreciationAsset = (
   input: AssetAmendment & { readonly principal: RealmPrincipal; readonly assetId: string; readonly expectedVersions?: readonly number[] },
-) => Promise<{ readonly asset: DepreciationAsset; readonly changed: boolean }>;
+) => Promise<AssetCommandResult>;
 
 export function amendDepreciationAsset(deps: Deps): AmendDepreciationAsset {
   return async ({ principal, assetId, expectedVersions, ...amendment }) => {
     const outcome = await deps.repository.amend(assetId, principal.mreRealmId, amendment, actorOf(principal), expectedVersions);
     switch (outcome.kind) {
       case 'AMENDED':
-        return { asset: outcome.asset, changed: outcome.changed };
+        return { asset: outcome.asset, changed: outcome.changed, methods: statusesOf(deps, outcome.asset) };
       case 'NOT_FOUND':
         throw new DepreciationAssetNotFoundError(assetId);
       case 'ASSET_NOT_ACTIVE':
@@ -289,14 +304,14 @@ export type ConfirmDepreciationAsset = (input: {
   readonly advisorPartyId: string | null;
   readonly note: string | null;
   readonly expectedVersions?: readonly number[];
-}) => Promise<{ readonly asset: DepreciationAsset; readonly changed: boolean }>;
+}) => Promise<AssetCommandResult>;
 
 export function confirmDepreciationAsset(deps: Deps): ConfirmDepreciationAsset {
   return async ({ principal, assetId, expectedVersions, ...request }) => {
     const outcome = await deps.repository.confirm(assetId, principal.mreRealmId, request, actorOf(principal), expectedVersions);
     switch (outcome.kind) {
       case 'CONFIRMED':
-        return { asset: outcome.asset, changed: outcome.changed };
+        return { asset: outcome.asset, changed: outcome.changed, methods: statusesOf(deps, outcome.asset) };
       case 'NOT_FOUND':
         throw new DepreciationAssetNotFoundError(assetId);
       case 'ASSET_NOT_ACTIVE':
@@ -318,14 +333,14 @@ export type VoidDepreciationAsset = (input: {
   readonly assetId: string;
   readonly reason: string;
   readonly expectedVersions?: readonly number[];
-}) => Promise<{ readonly asset: DepreciationAsset; readonly changed: boolean }>;
+}) => Promise<AssetCommandResult>;
 
 export function voidDepreciationAsset(deps: Deps & Clock): VoidDepreciationAsset {
   return async ({ principal, assetId, reason, expectedVersions }) => {
     const outcome = await deps.repository.void(assetId, principal.mreRealmId, reason, nowOf(deps), actorOf(principal), expectedVersions);
     switch (outcome.kind) {
       case 'VOIDED':
-        return { asset: outcome.asset, changed: outcome.changed };
+        return { asset: outcome.asset, changed: outcome.changed, methods: statusesOf(deps, outcome.asset) };
       case 'NOT_FOUND':
         throw new DepreciationAssetNotFoundError(assetId);
       case 'VERSION_CONFLICT':
@@ -334,10 +349,11 @@ export function voidDepreciationAsset(deps: Deps & Clock): VoidDepreciationAsset
   };
 }
 
-/** An asset with the `rate` of a year, derived on read. */
+/** An asset with the `rate` of a year and its method entries' status (§59C), derived on read. */
 export interface DepreciationAssetView {
   readonly asset: DepreciationAsset;
   readonly rate: AssetRate;
+  readonly methods: readonly PurchaseMethodStatus[];
 }
 
 /** `year` defaults to today's year in Europe/Berlin, from the clock (as §58C's `computedOn`). */
@@ -345,6 +361,7 @@ const yearOf = (deps: Clock, year: number | undefined) => year ?? Number(busines
 const viewOf = (read: AssetRead, year: number, registry: RuleRegistry): DepreciationAssetView => ({
   asset: read.asset,
   rate: deriveRate(read, year, registry),
+  methods: purchaseMethodStatuses(read.asset, registry, read.purchaseStartYears),
 });
 
 export type GetDepreciationAsset = (input: {

@@ -11,6 +11,11 @@ import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
 
+/** §59C (0053): a purchase component's method entry, a confirmed STANDARD one (its CHECK). */
+const METHOD_COLUMNS = `method_consideration, method, method_special_depreciation, method_subsidies_received, method_new_building_by_conversion,
+             method_other_special_case, method_review_state`;
+const METHOD_VALUES = `'PAID', 'LINEAR_7_4', '{}', false, false, false, 'CONFIRMED'`;
+
 /**
  * Migration 0052 past the repository (api-design.md §60 "In the database"), each with a counter-check: every child row
  * append-only, a version changed only by the supersede step, never deleted; one `CURRENT` per asset; child rows only from
@@ -147,8 +152,8 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
         await client.query(
           `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
              start_date_source, start_method, start_month, rate_kind, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total, excluded_cost_ids,
-             excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount)
-           VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1)`,
+             excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, ${METHOD_COLUMNS})
+           VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${METHOD_VALUES})`,
           [mine.version.versionId, REALM, pr, acquisitionId, acquisitionId === mine.w ? mine.allocation : other.allocation],
         );
         await client.query('ROLLBACK');
@@ -256,8 +261,8 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
       client.query(
         `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
            start_date_source, start_method, start_month, rate_kind, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total, excluded_cost_ids,
-           excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount)
-         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1)`,
+           excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, ${METHOD_COLUMNS})
+         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${METHOD_VALUES})`,
         [mine.version.versionId, REALM, mine.pr, mine.w, allocationId],
       );
     const item = (client: pg.PoolClient, realm: string, pr: string, classificationId: string) =>
@@ -285,6 +290,51 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
     // Counter-check: this Realm's allocation and classification are accepted.
     expect(await probe(tables, (client) => purchase(client, mine.allocation))).toBe('accepted');
     expect(await probe(tables, (client) => item(client, REALM, mine.pr, ownClassification))).toBe('accepted');
+  });
+
+  it('§59C (0053): a recorded purchase component only as a confirmed STANDARD entry; an item component without method values (its CHECK, review on #230)', async () => {
+    const mine = await versionOf();
+    const ownClassification = await classification(REALM, mine.pr);
+    const purchase = (values: string) => (client: pg.PoolClient) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total, excluded_cost_ids,
+           excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, ${METHOD_COLUMNS})
+         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${values})`,
+        [mine.version.versionId, REALM, mine.pr, mine.w, mine.allocation],
+      );
+    const item = (values: string) => (client: pg.PoolClient) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, source_type, source_id, classification_id, classification_review_state, tax_category,
+           item_date, item_date_source, item_tax_year, ${METHOD_COLUMNS})
+         VALUES ($1, $2, $3, 'ITEM:x', 'CAPITALIZED_ITEM', 9, 1, '2027-03-15', 'BOOKING_DATE', 'MONTH_OF_DATE', '2027-03-01', 'BAND', 'TRANSACTION_SPLIT',
+           gen_random_uuid(), $4, 'USER_CONFIRMED', 'MAINTENANCE', '2027-03-15', 'BOOKING_DATE', 2027, ${values})`,
+        [mine.version.versionId, REALM, mine.pr, ownClassification],
+      );
+    const tables = ['depreciation_schedule_version_component'];
+    const refused = '23514 depreciation_schedule_version_component_method';
+    // Each value off the standard case, one at a time, and a missing one (coalesce: NULL never passes).
+    for (const values of [
+      `'PARTLY_PAID', 'LINEAR_7_4', '{}', false, false, false, 'CONFIRMED'`,
+      `'PAID', 'DEGRESSIVE_7_5', '{}', false, false, false, 'CONFIRMED'`,
+      `'PAID', 'LINEAR_7_4', '{SECTION_7B}', false, false, false, 'CONFIRMED'`,
+      `'PAID', 'LINEAR_7_4', '{}', true, false, false, 'CONFIRMED'`,
+      `'PAID', 'LINEAR_7_4', '{}', false, true, false, 'CONFIRMED'`,
+      `'PAID', 'LINEAR_7_4', '{}', false, false, true, 'CONFIRMED'`,
+      `'PAID', 'LINEAR_7_4', '{}', false, false, false, 'UNREVIEWED'`,
+      `'PAID', 'LINEAR_7_4', '{}', false, false, false, 'NEEDS_REVIEW'`,
+      `'PAID', 'LINEAR_7_4', '{}', false, false, false, NULL`,
+      `NULL, NULL, NULL, NULL, NULL, NULL, NULL`,
+    ]) {
+      expect(await probe(tables, purchase(values)), values).toBe(refused);
+    }
+    // An item component carrying method values (only a purchase has an entry).
+    expect(await probe(tables, item(METHOD_VALUES))).toBe(refused);
+    // Counter-checks: the standard case, as CONFIRMED and as ADVISOR_CONFIRMED; an item without method values.
+    expect(await probe(tables, purchase(METHOD_VALUES))).toBe('accepted');
+    expect(await probe(tables, purchase(`'PAID', 'LINEAR_7_4', '{}', false, false, false, 'ADVISOR_CONFIRMED'`))).toBe('accepted');
+    expect(await probe(tables, item(`NULL, NULL, NULL, NULL, NULL, NULL, NULL`))).toBe('accepted');
   });
 
   it(

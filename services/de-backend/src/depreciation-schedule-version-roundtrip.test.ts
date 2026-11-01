@@ -142,6 +142,7 @@ describe.skipIf(databaseUrl === undefined)('random schedules round trip through 
         reviewState: 'CONFIRMED',
         advisorPartyId: null,
         shorterUsefulLives: [],
+        purchaseMethods: [],
         notes: null,
       },
       actor,

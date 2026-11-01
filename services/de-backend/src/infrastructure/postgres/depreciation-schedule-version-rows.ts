@@ -136,12 +136,14 @@ const COMPONENT_COLUMNS = [
   'start_method', 'start_month', 'rate_kind', 'useful_life_years', 'acquisition_id', 'purchase_price', 'counted_cost_ids', 'counted_costs_total',
   'excluded_cost_ids', 'excluded_costs_total', 'allocation_id', 'allocation_review_state', 'total_allocable_amount', 'building_amount',
   'shorter_life_review_state', 'source_type', 'source_id', 'source_position', 'classification_id', 'classification_review_state', 'tax_category',
-  'item_date', 'item_date_source', 'item_tax_year', 'anschaffungsnahe_acquisition_id',
+  'item_date', 'item_date_source', 'item_tax_year', 'anschaffungsnahe_acquisition_id', 'method_consideration', 'method',
+  'method_special_depreciation', 'method_subsidies_received', 'method_new_building_by_conversion', 'method_other_special_case', 'method_review_state',
 ]; // prettier-ignore
 
 function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
   const q = c.acquisition;
   const i = c.item;
+  const m = c.method;
   const money = (x: bigint | undefined) => v(x === undefined ? null : centsText(x), 'numeric');
   return [
     v(c.componentId), v(c.kind), v(c.position), money(c.basis), v(c.start.date, 'date'), v(c.start.dateSource), v(c.start.method),
@@ -152,6 +154,10 @@ function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
     v(i?.sourceType ?? null, 'text'), v(i?.sourceId ?? null, 'uuid'), v(i?.sourcePosition ?? null, 'integer'), v(i?.classificationId ?? null, 'uuid'),
     v(i?.classificationReviewState ?? null, 'text'), v(i?.taxCategory ?? null, 'text'), v(i?.itemDate ?? null, 'date'), v(i?.itemDateSource ?? null, 'text'),
     v(i?.itemTaxYear ?? null, 'integer'), v(i?.anschaffungsnaheAcquisitionId ?? null, 'uuid'),
+    // §59C (migration 0053): the method entry that let the purchase compute.
+    v(m?.consideration ?? null, 'text'), v(m?.method ?? null, 'text'), v(m === null ? null : m.specialDepreciation, 'text[]'),
+    v(m?.subsidiesReceived ?? null, 'boolean'), v(m?.newBuildingByConversion ?? null, 'boolean'), v(m?.otherSpecialCase ?? null, 'boolean'),
+    v(m?.reviewState ?? null, 'text'),
   ]; // prettier-ignore
 }
 
@@ -315,6 +321,18 @@ function componentOf(c: Row, parts: readonly Row[], fractions: readonly Row[]): 
           shorterLifeReviewState: (c['shorter_life_review_state'] as string | null) ?? null,
         }
       : null,
+    method:
+      acquisition && c['method'] !== null
+        ? {
+            consideration: text(c['method_consideration']),
+            method: text(c['method']),
+            specialDepreciation: c['method_special_depreciation'] as string[],
+            subsidiesReceived: c['method_subsidies_received'] as boolean,
+            newBuildingByConversion: c['method_new_building_by_conversion'] as boolean,
+            otherSpecialCase: c['method_other_special_case'] as boolean,
+            reviewState: text(c['method_review_state']),
+          }
+        : null,
     item: acquisition
       ? null
       : {

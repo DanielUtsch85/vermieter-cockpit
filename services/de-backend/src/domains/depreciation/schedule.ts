@@ -43,6 +43,7 @@ export type {
   AssetLink,
   CalculationStatus,
   ComponentBasis,
+  ComponentMethod,
   ComponentOwner,
   ComponentRate,
   ComponentYear,

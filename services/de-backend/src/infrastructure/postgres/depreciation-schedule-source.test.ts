@@ -22,6 +22,7 @@ import { acquisitionsOf } from './tax-property-context.js';
 import { testSchemaName } from './test-schema.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
+import { standardMethod } from './depreciation-method.test-support.js';
 
 /**
  * VC-8-02 persistence (api-design.md §59A "One snapshot", "Concurrency and consistency", "Performance"): the inputs of
@@ -225,6 +226,7 @@ function fixtureIn(pool: pg.Pool) {
         reviewState: 'CONFIRMED',
         advisorPartyId: null,
         shorterUsefulLives: [],
+        purchaseMethods: [standardMethod(w)],
         notes: null,
       },
       actor,
@@ -353,7 +355,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
     const schedule = derive(read);
     expect((schedule.components as ScheduleComponent[]).map((c2) => [c2.acquisitionId, c2.acquisitionStatus, c2.reasons.map((r) => r.code)])).toEqual([
       [s.w, 'CONFIRMED', []],
-      [listed, 'DRAFT', ['ACQUISITION_NOT_CONFIRMED']],
+      // §59C: the method reason is evaluated for a DRAFT too (no entry yet).
+      [listed, 'DRAFT', ['ACQUISITION_NOT_CONFIRMED', 'DEPRECIATION_METHOD_NOT_CONFIRMED']],
     ]);
   });
 

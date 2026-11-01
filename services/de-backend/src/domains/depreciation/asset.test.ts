@@ -56,6 +56,7 @@ const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset =>
   reviewState: 'ADVISOR_CONFIRMED',
   advisorPartyId: ADVISOR,
   shorterUsefulLives: [entry(ACQ_1), entry(ACQ_2, { reviewState: 'ADVISOR_CONFIRMED', advisorPartyId: ADVISOR })],
+  purchaseMethods: [],
   notes: null,
   voidedAt: null,
   voidReason: null,
@@ -221,6 +222,7 @@ describe('assetFingerprint and advisorsOf', () => {
     reviewState: 'UNREVIEWED',
     advisorPartyId: null,
     shorterUsefulLives: [entry(ACQ_1), entry(ACQ_2)],
+    purchaseMethods: [],
     notes: null,
     ...overrides,
   });
@@ -237,6 +239,7 @@ describe('assetFingerprint and advisorsOf', () => {
       advisorsOf({
         advisorPartyId: OTHER,
         shorterUsefulLives: [entry(ACQ_1, { advisorPartyId: ADVISOR }), entry(ACQ_2, { advisorPartyId: OTHER }), entry(ACQ_3)],
+        purchaseMethods: [],
       }),
     ).toEqual([OTHER, ADVISOR]);
   });
@@ -258,6 +261,7 @@ describe('a separate asset (VC-8-03, §59B)', () => {
       acquiredOn: day('2027-04-20'),
       items: [split(SPLIT_1)],
       shorterUsefulLives: [],
+      purchaseMethods: [],
       reviewState: 'CONFIRMED',
       advisorPartyId: null,
       ...overrides,

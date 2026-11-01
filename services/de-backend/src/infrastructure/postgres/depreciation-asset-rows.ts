@@ -6,11 +6,12 @@ import type {
   DepreciationAssetId,
   DepreciationMethod,
   ItemRef,
+  PurchaseMethod,
   SupportedAssetType,
 } from '../../domains/depreciation/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 
-/** The DepreciationAsset rows (migrations 0049, 0051): the columns read, their mapping, the stored fields and the snapshot. */
+/** The DepreciationAsset rows (migrations 0049, 0051, 0053): the columns read, their mapping, the stored fields and the snapshot. */
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const ASSET_COLUMNS = [
@@ -68,7 +69,42 @@ export interface EntryRow {
   advisor_party_id: string | null;
 }
 
-export function toDomain(row: AssetRow, entries: readonly EntryRow[], items: readonly ItemRef[]): DepreciationAsset {
+/** §59C (0053): a purchase's method entry. */
+export interface MethodRow {
+  asset_id: string;
+  acquisition_id: string;
+  consideration: string;
+  method: string;
+  special_depreciation: string[];
+  subsidies_received: boolean;
+  new_building_by_conversion: boolean;
+  other_special_case: boolean;
+  other_special_case_note: string | null;
+  evidence_source: string;
+  evidence_date: string;
+  evidence_document_reference: string | null;
+  review_state: string;
+  advisor_party_id: string | null;
+  notes: string | null;
+}
+
+/** Checked by the table's CHECKs. */
+export const methodOf = (m: MethodRow): PurchaseMethod => ({
+  acquisitionId: m.acquisition_id,
+  consideration: m.consideration as PurchaseMethod['consideration'],
+  method: m.method as PurchaseMethod['method'],
+  specialDepreciation: m.special_depreciation as PurchaseMethod['specialDepreciation'],
+  subsidiesReceived: m.subsidies_received,
+  newBuildingByConversion: m.new_building_by_conversion,
+  otherSpecialCase: m.other_special_case,
+  otherSpecialCaseNote: m.other_special_case_note,
+  evidence: { source: m.evidence_source, date: m.evidence_date as BusinessDate, documentReference: m.evidence_document_reference },
+  reviewState: m.review_state as AssetReviewState,
+  advisorPartyId: m.advisor_party_id,
+  notes: m.notes,
+});
+
+export function toDomain(row: AssetRow, entries: readonly EntryRow[], items: readonly ItemRef[], methods: readonly MethodRow[] = []): DepreciationAsset {
   return {
     id: row.id as DepreciationAssetId,
     mreRealmId: row.mre_realm_id,
@@ -93,6 +129,7 @@ export function toDomain(row: AssetRow, entries: readonly EntryRow[], items: rea
       reviewState: e.review_state as AssetReviewState,
       advisorPartyId: e.advisor_party_id,
     })),
+    purchaseMethods: methods.map(methodOf),
     notes: row.notes,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,
@@ -121,6 +158,8 @@ export function storedFields(asset: DepreciationAsset): Record<string, unknown> 
     reviewState: asset.reviewState,
     advisorPartyId: asset.advisorPartyId,
     shorterUsefulLives: asset.shorterUsefulLives,
+    // §59C: the entries a building is created with (`[]` on a separate asset).
+    purchaseMethods: asset.purchaseMethods,
     notes: asset.notes,
   };
 }

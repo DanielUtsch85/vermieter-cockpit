@@ -115,6 +115,8 @@ function purchaseWork(c: VersionComponent, registry: RuleRegistry, completionYea
     reasons: [],
     flags: [],
     entry,
+    // A recorded component is computable, so its method entry was a confirmed STANDARD one (§59C); the arithmetic does not read it.
+    method: null,
     parts,
     computable: nominal.lastMonth !== null,
     monthly: nominal.monthly,

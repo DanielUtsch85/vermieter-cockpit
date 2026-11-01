@@ -8,11 +8,23 @@ import type {
   GetDepreciationAsset,
   GetDepreciationSchedule,
   ListPropertyDepreciationAssets,
+  PurchaseMethodStatus,
   VoidDepreciationAsset,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { readId } from './acquisitions.js';
-import { amendBody, confirmBody, createBody, entriesOf, getQuery, itemsOf, listQuery, references, voidBody } from './depreciation-asset-dto.js';
+import {
+  amendBody,
+  confirmBody,
+  createBody,
+  entriesOf,
+  getQuery,
+  itemsOf,
+  listQuery,
+  purchaseMethodsOf,
+  references,
+  voidBody,
+} from './depreciation-asset-dto.js';
 import { depreciationScheduleRoutes } from './depreciation-schedule.js';
 import { scheduleVersionRoutes, type ScheduleVersionCommands } from './depreciation-schedule-versions.js';
 import { fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
@@ -65,13 +77,19 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
           reviewState: e.reviewState ?? 'UNREVIEWED',
           advisorPartyId: e.advisorPartyId ?? null,
         })),
+        // §59C: likewise for a method entry.
+        purchaseMethods: purchaseMethodsOf(body.purchaseMethods).map((e) => ({
+          ...e,
+          reviewState: e.reviewState ?? 'UNREVIEWED',
+          advisorPartyId: e.advisorPartyId ?? null,
+        })),
         notes: body.notes ?? null,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
-      .then(({ asset, replayed }) => {
+      .then(({ asset, replayed, methods }) => {
         if (replayed) res.setHeader('Idempotent-Replayed', 'true');
         res.setHeader('Location', `/api/v1/depreciation-assets/${asset.id}`);
-        sendAsset(res.status(201), asset, null);
+        sendAsset(res.status(201), asset, null, methods);
       })
       .catch(next);
   });
@@ -86,7 +104,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
     }
     commands
       .get({ principal: principalOf(res), assetId, ...(query.data.year === undefined ? {} : { year: query.data.year }) })
-      .then(({ asset, rate }) => sendAsset(res, asset, rate))
+      .then(({ asset, rate, methods }) => sendAsset(res, asset, rate, methods))
       .catch(next);
   });
 
@@ -105,7 +123,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
         statuses: query.data.status ?? null,
         ...(query.data.year === undefined ? {} : { year: query.data.year }),
       })
-      .then((items) => res.json({ items: items.map(({ asset, rate }) => assetDto(asset, rate)) }))
+      .then((items) => res.json({ items: items.map(({ asset, rate, methods }) => assetDto(asset, rate, methods)) }))
       .catch(next);
   });
 
@@ -133,10 +151,11 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
         ...(body.sourceReferences === undefined ? {} : { sourceReferences: references(body.sourceReferences) }),
         ...(body.notes === undefined ? {} : { notes: body.notes }),
         ...(body.shorterUsefulLives === undefined ? {} : { shorterUsefulLives: entriesOf(body.shorterUsefulLives) }),
+        ...(body.purchaseMethods === undefined ? {} : { purchaseMethods: purchaseMethodsOf(body.purchaseMethods) }),
         ...(body.reviewState === undefined ? {} : { reviewState: body.reviewState }),
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
-      .then(({ asset }) => sendAsset(res, asset, null))
+      .then(({ asset, methods }) => sendAsset(res, asset, null, methods))
       .catch(next);
   });
 
@@ -159,7 +178,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
         note: parsed.data.note ?? null,
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
-      .then(({ asset }) => sendAsset(res, asset, null))
+      .then(({ asset, methods }) => sendAsset(res, asset, null, methods))
       .catch(next);
   });
 
@@ -180,7 +199,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
         reason: parsed.data.reason,
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
-      .then(({ asset }) => sendAsset(res, asset, null))
+      .then(({ asset, methods }) => sendAsset(res, asset, null, methods))
       .catch(next);
   });
   router.use(depreciationScheduleRoutes(commands));
@@ -190,12 +209,12 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
 }
 
 /** A single asset with its version as `ETag` for the next `If-Match` (§16.1); a command answers `rate: null` (§59). */
-function sendAsset(res: Response, asset: DepreciationAsset, rate: AssetRate | null): void {
+function sendAsset(res: Response, asset: DepreciationAsset, rate: AssetRate | null, methods: readonly PurchaseMethodStatus[]): void {
   res.setHeader('ETag', `"${asset.version}"`);
-  res.json(assetDto(asset, rate));
+  res.json(assetDto(asset, rate, methods));
 }
 
-function assetDto(a: DepreciationAsset, rate: AssetRate | null) {
+function assetDto(a: DepreciationAsset, rate: AssetRate | null, methods: readonly PurchaseMethodStatus[]) {
   return {
     assetId: a.id,
     mreRealmId: a.mreRealmId,
@@ -220,6 +239,26 @@ function assetDto(a: DepreciationAsset, rate: AssetRate | null) {
       reviewState: e.reviewState,
       advisorPartyId: e.advisorPartyId,
     })),
+    // §59C: each entry with its derived status and causes (`[]` on a separate asset).
+    purchaseMethods: a.purchaseMethods.map((e) => {
+      const status = methods.find((m) => m.acquisitionId === e.acquisitionId);
+      return {
+        acquisitionId: e.acquisitionId,
+        consideration: e.consideration,
+        method: e.method,
+        specialDepreciation: e.specialDepreciation,
+        subsidiesReceived: e.subsidiesReceived,
+        newBuildingByConversion: e.newBuildingByConversion,
+        otherSpecialCase: e.otherSpecialCase,
+        otherSpecialCaseNote: e.otherSpecialCaseNote,
+        evidence: { source: e.evidence.source, date: e.evidence.date, documentReference: e.evidence.documentReference },
+        reviewState: e.reviewState,
+        advisorPartyId: e.advisorPartyId,
+        notes: e.notes,
+        methodStatus: status?.methodStatus ?? null,
+        causes: status?.causes ?? null,
+      };
+    }),
     notes: a.notes,
     voidedAt: a.voidedAt?.toISOString() ?? null,
     voidReason: a.voidReason,

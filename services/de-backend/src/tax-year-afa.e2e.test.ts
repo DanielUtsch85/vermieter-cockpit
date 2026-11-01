@@ -32,6 +32,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { standardMethodBody } from './infrastructure/postgres/depreciation-method.test-support.js';
 
 /**
  * VC-8-05 end to end (api-design.md §58C "VC-8-05: the AfA in the view", Examples 1–4 and "Pointers for VC-8-06"),
@@ -256,7 +257,13 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
     }
     if ((await acquisitions.confirm(w, realm, new Date('2026-07-01T10:00:00Z'), actor)).kind !== 'CONFIRMED') throw new Error('confirm');
     const asset = await json(
-      await call('POST', '/depreciation-assets', { propertyReferenceId: pr, buildingCompletionYear: 1995, reviewState: 'CONFIRMED' }, { realm }),
+      // §59C: W's confirmed STANDARD method entry, so the purchase computes.
+      await call(
+        'POST',
+        '/depreciation-assets',
+        { propertyReferenceId: pr, buildingCompletionYear: 1995, reviewState: 'CONFIRMED', purchaseMethods: [standardMethodBody(w)] },
+        { realm },
+      ),
       201,
     );
     return { pr, a, b, w, allocation, building: asset.assetId as string, membership: await membershipOf(pr, realm) };

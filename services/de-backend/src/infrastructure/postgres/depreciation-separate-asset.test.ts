@@ -394,8 +394,8 @@ describe.skipIf(databaseUrl === undefined)('a separate asset and its items (§59
   describe('the schedule read (§59B "Concurrency and locks", "Performance")', () => {
     it('the building’s items from Taxation’s derivation: a split and a WEG use, another PropertyReference’s capitalised split never', async () => {
       const pr = await propertyReference();
-      await purchase(pr);
-      const b = await created(building(pr));
+      const { acquisitionId } = await purchase(pr);
+      const b = await created(building(pr, [acquisitionId]));
       const item = await capitalizedSplit(pr, '12000.00', '2027-04-28');
       const { assessmentId } = await wegSources(pr);
       await classify(assessmentId, { sourceType: 'WEG_ASSESSMENT_USE', sourcePosition: 1, taxCategory: 'WEG_SPENDING' });

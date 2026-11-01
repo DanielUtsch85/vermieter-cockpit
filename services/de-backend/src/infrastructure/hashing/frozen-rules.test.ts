@@ -22,8 +22,11 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // movable @1 8a5d3a77…3ece (its `end` is the building rule's).
   // Again for @1 on 2026-11-01: `verified.shorterUsefulLifeThresholds` true (the owner decided that Frage 8 covers @1's
   // two bands of 50 and 40 years). Before: 6c590e6c…12ff.
-  ['DE_AFA_BUILDING_LINEAR', 1, 'a020ad6d68073128d2608965d25615b3983e9f38b998bd503b803d60df105f1f'],
-  ['DE_AFA_BUILDING_LINEAR', 2, 'f8b7119cb1324332d6e5556b823a82550b946c366f2d43c49ab9ad19a8501025'],
+  // Again for @1 and @2 for §59C (VC-X-37, decided by the owner on 2026-11-01; Prüfbericht 01.11.2026, Frage 2): the new
+  // parameter `methodStatus` in both versions, the withdrawn DEPRECIATION_METHOD_UNKNOWN noted, and Frage 2 in both
+  // sources. Recording is still disabled. Before: @1 a020ad6d…5f1f, @2 f8b7119c…1025.
+  ['DE_AFA_BUILDING_LINEAR', 1, '0f63d02c8bf98c1bd94aa5e3d7f96a55d74146dcc07a82b9293891ccc2e2bb64'],
+  ['DE_AFA_BUILDING_LINEAR', 2, '4ff946ebc7789e681cad96b64fe91cbcd87cb3527cc2bc8a4419bcfcaf7454c6'],
   ['DE_AFA_MOVABLE_LINEAR', 1, '85d929633060b63636187e42a65e5856bdc58c65f86bd1ae22284a8278b1f06a'],
 ];
 
@@ -43,6 +46,9 @@ describe('the frozen rule versions (§60)', () => {
     expect(hash({ ...v, parameters: { ...v.parameters, bands } })).not.toBe(hash(v));
     expect(hash({ ...v, title: `${v.title} ` })).not.toBe(hash(v));
     expect(hash({ ...v, legalBasis: `${v.legalBasis} ` })).not.toBe(hash(v));
+    // §59C: the method status's standard is a covered parameter too.
+    const methodStatus = { ...v.parameters.methodStatus, confirmedReviewStates: ['ADVISOR_CONFIRMED'] };
+    expect(hash({ ...v, parameters: { ...v.parameters, methodStatus } })).not.toBe(hash(v));
     expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
   });
 });

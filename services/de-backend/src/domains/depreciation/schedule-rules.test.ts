@@ -30,18 +30,23 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
     expect(s.components.map((c) => (c as ScheduleComponent).acquisitionId)).toEqual([W]);
   });
 
-  it('every reason in its order: the basis function’s first, then USEFUL_LIFE_NOT_CONFIRMED, HISTORICAL_RULE_NOT_SUPPORTED, DEPRECIATION_METHOD_UNKNOWN', () => {
+  it('every reason in its order: the basis function’s first, then USEFUL_LIFE_NOT_CONFIRMED, HISTORICAL_RULE_NOT_SUPPORTED, the method reason (§59C)', () => {
     const input = sole(
       { status: 'DRAFT', allocation: null, contractDate: day('2005-06-01'), economicTransferDate: day('2005-07-01') },
-      { buildingCompletionYear: 2005, shorterUsefulLives: [life({ reviewState: 'NEEDS_REVIEW' })] },
+      { buildingCompletionYear: 2005, shorterUsefulLives: [life({ reviewState: 'NEEDS_REVIEW' })], purchaseMethods: [] },
     );
-    // 2005 has no rule: DEPRECIATION_METHOD_UNKNOWN reads the rule of the first year, so it cannot hold before 2006.
-    expect(reasonsOf(input)).toEqual(['ACQUISITION_NOT_CONFIRMED', 'USEFUL_LIFE_NOT_CONFIRMED', 'HISTORICAL_RULE_NOT_SUPPORTED']);
+    expect(reasonsOf(input)).toEqual([
+      'ACQUISITION_NOT_CONFIRMED',
+      'USEFUL_LIFE_NOT_CONFIRMED',
+      'HISTORICAL_RULE_NOT_SUPPORTED',
+      'DEPRECIATION_METHOD_NOT_CONFIRMED',
+    ]);
+    // §59C withdrew DEPRECIATION_METHOD_UNKNOWN: a new building bought in its completion year reads the method reason.
     const later = sole(
       { status: 'DRAFT', allocation: null, contractDate: day('2019-03-01'), economicTransferDate: day('2019-04-01') },
-      { buildingCompletionYear: 2019, shorterUsefulLives: [life({ reviewState: 'UNREVIEWED' })] },
+      { buildingCompletionYear: 2019, shorterUsefulLives: [life({ reviewState: 'UNREVIEWED' })], purchaseMethods: [] },
     );
-    expect(reasonsOf(later)).toEqual(['ACQUISITION_NOT_CONFIRMED', 'USEFUL_LIFE_NOT_CONFIRMED', 'DEPRECIATION_METHOD_UNKNOWN']);
+    expect(reasonsOf(later)).toEqual(['ACQUISITION_NOT_CONFIRMED', 'USEFUL_LIFE_NOT_CONFIRMED', 'DEPRECIATION_METHOD_NOT_CONFIRMED']);
   });
 
   it('NO_APPLICABLE_RULE for a year without a version from 2006 on (a test registry ending @2 in 2040)', () => {
@@ -160,20 +165,24 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
     expect([c.rate?.ratePercent, amount(yearOf(c, 2023).amount)]).toEqual(['2', '5088.00']);
   });
 
-  it('DEPRECIATION_METHOD_UNKNOWN only for completion year = first year ≥ 2018: 2017 computed, a 2018 building bought in 2019 computed', () => {
-    const run = (completion: number, start: string) =>
-      component(derive(sole({ contractDate: day(start), economicTransferDate: day(start) }, { buildingCompletionYear: completion })));
-    expect(run(2018, '2018-06-01').reasons).toEqual([{ code: 'DEPRECIATION_METHOD_UNKNOWN', details: { completionYear: 2018, firstYear: 2018 } }]);
-    expect(run(2026, '2026-06-01').reasons.map((r) => r.code)).toEqual(['DEPRECIATION_METHOD_UNKNOWN']);
-    expect(run(2017, '2017-06-01').status).toBe('COMPUTABLE');
-    expect(run(2018, '2019-01-01').status).toBe('COMPUTABLE');
-    // It is a reason (open), never informative.
+  it('newBuildingInCompletionYear (the case of the withdrawn DEPRECIATION_METHOD_UNKNOWN, §59C): 2018 = start true; 2017 and a 2018 building bought in 2019 false', () => {
+    const run = (completion: number, start: string, facts: Partial<DepreciationAsset> = { purchaseMethods: [] }) =>
+      component(derive(sole({ contractDate: day(start), economicTransferDate: day(start) }, { buildingCompletionYear: completion, ...facts })));
+    const detail = { acquisitionId: W, reviewState: null, methodStatus: null, causes: null };
+    expect(run(2018, '2018-06-01').reasons).toEqual([{ code: 'DEPRECIATION_METHOD_NOT_CONFIRMED', details: { ...detail, newBuildingInCompletionYear: true } }]);
+    expect(run(2026, '2026-06-01').reasons[0]?.details['newBuildingInCompletionYear']).toBe(true);
+    expect(run(2017, '2017-06-01').reasons).toEqual([
+      { code: 'DEPRECIATION_METHOD_NOT_CONFIRMED', details: { ...detail, newBuildingInCompletionYear: false } },
+    ]);
+    expect(run(2018, '2019-01-01').reasons[0]?.details['newBuildingInCompletionYear']).toBe(false);
+    // A confirmed STANDARD entry (no § 7 Abs. 5a, no § 7b claimed) computes the 2018 new building (§59C open question 2).
+    expect(run(2018, '2018-06-01', {}).status).toBe('COMPUTABLE');
+    // DEPRECIATION_METHOD_UNKNOWN is never raised again; the method reason is open, never informative.
+    expect(codes(run(2018, '2018-06-01').reasons)).not.toContain('DEPRECIATION_METHOD_UNKNOWN');
     expect(
-      derive(sole({ contractDate: day('2018-06-01'), economicTransferDate: day('2018-06-01') }, { buildingCompletionYear: 2018 })).review.open,
-    ).toContainEqual({
-      code: 'DEPRECIATION_METHOD_UNKNOWN',
-      count: 1,
-    });
+      derive(sole({ contractDate: day('2018-06-01'), economicTransferDate: day('2018-06-01') }, { buildingCompletionYear: 2018, purchaseMethods: [] })).review
+        .open,
+    ).toContainEqual({ code: 'DEPRECIATION_METHOD_NOT_CONFIRMED', count: 1 });
   });
 
   it('a shorter life: applied (SHORTER_USEFUL_LIFE), not confirmed (not computable), not shorter (band rate, open), evidence after the first year (USEFUL_LIFE_START_TO_VERIFY)', () => {
@@ -299,10 +308,11 @@ describe("the rule's parameters come from the registry (AGENTS.md §16)", () => 
     expect(amount(component(derive(acc8(), noNotary)).basis.amount)).toBe('252000.00');
   });
 
-  it('methodUnknownFromCompletionYear read from the rule: 2019 in a test registry computes a 2018 new building', () => {
+  it('methodUnknownFromCompletionYear read from the rule: 2019 in a test registry makes a 2018 new building no newBuildingInCompletionYear', () => {
     const later = withParameters((p) => ({ ...p, methodUnknownFromCompletionYear: 2019 }));
-    const input = sole({ contractDate: day('2018-06-01'), economicTransferDate: day('2018-06-01') }, { buildingCompletionYear: 2018 });
-    expect(component(derive(input, later)).status).toBe('COMPUTABLE');
+    const input = sole({ contractDate: day('2018-06-01'), economicTransferDate: day('2018-06-01') }, { buildingCompletionYear: 2018, purchaseMethods: [] });
+    expect(component(derive(input, later)).reasons[0]?.details['newBuildingInCompletionYear']).toBe(false);
+    expect(component(derive(input)).reasons[0]?.details['newBuildingInCompletionYear']).toBe(true);
   });
 
   it('the start’s parameters come from the version of the start year, never the newest (closes the gap of #204)', () => {

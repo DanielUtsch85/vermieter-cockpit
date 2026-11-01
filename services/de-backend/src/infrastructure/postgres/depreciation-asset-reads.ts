@@ -90,6 +90,33 @@ async function withEntries(trx: Transaction<Database>, rows: readonly AssetRow[]
     )
     .orderBy('acquisition_id')
     .execute();
+  // §59C (0053): the method entries of each purchase.
+  const methods = await trx
+    .selectFrom('depreciation_asset_purchase_method')
+    .select([
+      'asset_id',
+      'acquisition_id',
+      'consideration',
+      'method',
+      'special_depreciation',
+      'subsidies_received',
+      'new_building_by_conversion',
+      'other_special_case',
+      'other_special_case_note',
+      'evidence_source',
+      sql<string>`to_char(evidence_date, 'YYYY-MM-DD')`.as('evidence_date'),
+      'evidence_document_reference',
+      'review_state',
+      'advisor_party_id',
+      'notes',
+    ])
+    .where(
+      'asset_id',
+      'in',
+      rows.map((r) => r.id),
+    )
+    .orderBy('acquisition_id')
+    .execute();
   return rows.map((row) =>
     toDomain(
       row,
@@ -99,19 +126,30 @@ async function withEntries(trx: Transaction<Database>, rows: readonly AssetRow[]
           .filter((i) => i.asset_id === row.id)
           .map((i): ItemRef => ({ sourceType: i.source_type as ItemSourceType, sourceId: i.source_id, sourcePosition: i.source_position })),
       ),
+      methods.filter((m) => m.asset_id === row.id),
     ),
   );
 }
 
-/** The entries whose Acquisition is `CANCELLED` now, per asset (the rate's `ACQUISITION_CANCELLED`). */
+/**
+ * The entries whose Acquisition is `CANCELLED` now, per asset (the rate's `ACQUISITION_CANCELLED`), and the start year
+ * of each method entry's Acquisition (§59C: its status is judged by the rule version of that year, else the latest).
+ */
 async function withCancelled(trx: Transaction<Database>, assets: readonly DepreciationAsset[]): Promise<AssetRead[]> {
-  const ids = [...new Set(assets.flatMap((a) => a.shorterUsefulLives.map((e) => e.acquisitionId)))];
-  const cancelled =
+  const ids = [...new Set(assets.flatMap((a) => [...a.shorterUsefulLives, ...a.purchaseMethods].map((e) => e.acquisitionId)))];
+  const rows =
     ids.length === 0
-      ? new Set<string>()
-      : new Set((await trx.selectFrom('acquisition').select('id').where('id', 'in', ids).where('status', '=', 'CANCELLED').execute()).map((r) => r.id));
+      ? []
+      : await trx
+          .selectFrom('acquisition')
+          .select(['id', 'status', sql<number | null>`extract(year FROM economic_transfer_date)::int`.as('start_year')])
+          .where('id', 'in', ids)
+          .execute();
+  const cancelled = new Set(rows.filter((r) => r.status === 'CANCELLED').map((r) => r.id));
+  const startYears = new Map(rows.map((r) => [r.id, r.start_year]));
   return assets.map((asset) => ({
     asset,
     cancelledAcquisitionIds: asset.shorterUsefulLives.map((e) => e.acquisitionId).filter((id) => cancelled.has(id)),
+    purchaseStartYears: Object.fromEntries(asset.purchaseMethods.map((e) => [e.acquisitionId, startYears.get(e.acquisitionId) ?? null])),
   }));
 }
