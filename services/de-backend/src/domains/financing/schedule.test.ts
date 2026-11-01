@@ -234,7 +234,8 @@ describe('property: the plan against an independent oracle (§41.4)', () => {
     }
   });
 
-  it('over 400 seeded random plans with follow-up periods, principalAtStart, interest-only and maturity', () => {
+  // CPU-bound: ~4 s alone, up to ~5.3 s with every worker busy — past the default 5 s.
+  it('over 400 seeded random plans with follow-up periods, principalAtStart, interest-only and maturity', { timeout: 20_000 }, () => {
     const random = seeded(4104);
     const between = (min: number, max: number) => min + Math.floor(random() * (max - min + 1));
     const chance = (p: number) => random() < p;

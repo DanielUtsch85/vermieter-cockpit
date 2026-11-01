@@ -303,7 +303,8 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       expect(referencePlan).not.toContain('"Sort"');
     });
 
-    it('the start check resolves the treatmentRule too: a stored unknown one stops the start', async () => {
+    // Migrates a schema of its own in the test body: waits for MIGRATION_ADVISORY_LOCK like a beforeAll (vitest.config.ts).
+    it('the start check resolves the treatmentRule too: a stored unknown one stops the start', { timeout: 30_000 }, async () => {
       const startSchema = testSchemaName('tax_weg_start_test');
       const admin = new pg.Client({ connectionString: databaseUrl });
       await admin.connect();

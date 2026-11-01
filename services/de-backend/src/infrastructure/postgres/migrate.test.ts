@@ -41,7 +41,7 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
     expect(await migrateToLatest(pool, { migrationTableSchema: schema })).toEqual([]);
   });
 
-  it('a failing migration throws (startup aborts) and is not recorded as applied', async () => {
+  it('a failing migration throws (startup aborts) and is not recorded as applied', { timeout: 30_000 }, async () => {
     const failing = {
       ...migrations,
       '9999_failing': {
@@ -59,7 +59,7 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
 describe.skipIf(databaseUrl === undefined)('migrateToLatest with a single-connection pool', () => {
   const schema = testSchemaName('migrate_single_test');
 
-  it('does not deadlock: the advisory lock uses its own connection, not one of the pool', async () => {
+  it('does not deadlock: the advisory lock uses its own connection, not one of the pool', { timeout: 30_000 }, async () => {
     const admin = new pg.Client({ connectionString: databaseUrl });
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
