@@ -1,4 +1,4 @@
-import { centsOf, type Money, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
+import { centsOf, type Money, type RuleRegistry } from '../../shared/index.js';
 import { NOT_OWNED_PART } from './capitalized-item.js';
 import { ZERO, add, byText, cmp, monthLabel, monthOf, show, yearOfDate, yearOfMonth, type Frac } from './exact.js';
 import { ruleVersionHash, type Fingerprinter } from './fingerprint.js';
@@ -6,7 +6,6 @@ import type { ItemPart, ItemWork } from './item-part.js';
 import { roundCents, tenureOf } from './item-part.js';
 import { buildingRuleOn, movableRuleOn } from './rate.js';
 import type { Part, Work } from './purchase-work.js';
-import { AFA_BUILDING_LINEAR, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { SCHEDULE_CALCULATION_VERSION, scheduleWorks, type ScheduleWorks } from './schedule.js';
 import type { ScheduleInput } from './schedule-model.js';
 import type { PartRateKind, VersionComponent, VersionEntry, VersionFraction, VersionInputs, VersionPart, VersionRule } from './version-model.js';
@@ -77,7 +76,7 @@ export function resolveScheduleInputs(
     }
   }
   const components: VersionComponent[] = [];
-  for (const w of derived.works) components.push(purchaseComponent(w, components.length, asset.shorterUsefulLives, horizon, purchasePool, registry));
+  for (const w of derived.works) components.push(purchaseComponent(w, components.length, asset.shorterUsefulLives, horizon, purchasePool));
   for (const w of derived.itemWorks) components.push(itemComponent(w, components.length, horizon, poolOf));
   const firstYears = components.map(firstYearOfComponent).filter((y): y is number => y !== null);
   const rules: VersionRule[] = [];
@@ -123,18 +122,18 @@ function purchaseComponent(
   entries: readonly { readonly acquisitionId: string; readonly usefulLifeYears: number }[],
   horizon: number,
   pools: Map<Part, string>,
-  registry: RuleRegistry,
 ): VersionComponent {
   const a = w.acquisition;
   const shorter = w.entry !== undefined && [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE');
   const rateKind: PartRateKind = shorter ? 'SHORTER_USEFUL_LIFE' : 'BAND';
   const usefulLifeYears = shorter ? (entries.find((e) => e.acquisitionId === a.id)?.usefulLifeYears ?? null) : null;
-  // The cost categories the rule of the start excludes (§59A, P8-D2 (1)); the ids counted and excluded.
-  const rule = (w.start === null ? undefined : buildingRuleOn(registry, yearOfDate(w.start))) ?? latestBuilding(registry);
-  const excludedCategories = rule?.parameters.basis.excludedCostCategories ?? [];
-  const excluded = a.costs.filter((c) => excludedCategories.includes(c.category));
-  const counted = a.costs.filter((c) => !excludedCategories.includes(c.category));
-  const sum = (costs: readonly { amount: Money }[]) => costs.reduce((s, c) => s + centsOf(c.amount), 0n);
+  // The costs as the basis treated them under the rule of the start (§59A, P8-D2 (1); §59D): the ids with an amount in
+  // the basis and with an amount excluded (a cost of two parts in both), the totals, and the classifications that decided.
+  const treated = w.cost.costs;
+  const counted = treated.filter((c) => c.inBasis.isPositive());
+  const excluded = treated.filter((c) => c.excluded.isPositive());
+  const sum = (amounts: readonly Money[]) => amounts.reduce((s, m) => s + centsOf(m), 0n);
+  const decided = treated.filter((c) => !c.unclassified && c.classificationId !== null).map((c) => c.classificationId as string);
   const parts: VersionPart[] = w.parts.map((p) => ({
     partKey: ownerKey(p.ownerPartyId),
     ownerPartyId: p.ownerPartyId,
@@ -165,10 +164,11 @@ function purchaseComponent(
         : {
             acquisitionId: a.id,
             purchasePrice: centsOf(a.purchasePrice),
-            countedCostIds: counted.map((c) => c.id).sort(byText),
-            countedCostsTotal: sum(counted),
-            excludedCostIds: excluded.map((c) => c.id).sort(byText),
-            excludedCostsTotal: sum(excluded),
+            countedCostIds: counted.map((c) => c.costId).sort(byText),
+            countedCostsTotal: sum(counted.map((c) => c.inBasis)),
+            excludedCostIds: excluded.map((c) => c.costId).sort(byText),
+            excludedCostsTotal: sum(excluded.map((c) => c.excluded)),
+            costClassificationIds: [...decided].sort(byText),
             allocationId: a.allocation.id,
             allocationReviewState: a.allocation.reviewState,
             totalAllocableAmount: centsOf(a.allocation.totalAllocableAmount),
@@ -246,11 +246,6 @@ function itemComponent(w: ItemWork, position: number, horizon: number, pools: Ma
     parts,
   };
 }
-
-const latestBuilding = (registry: RuleRegistry) => {
-  const versions = registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
-  return versions[versions.length - 1];
-};
 
 /** The cumulative exact share of a purchase part to the end of `year`. */
 function purchaseCumulative(p: Part, year: number): Frac {

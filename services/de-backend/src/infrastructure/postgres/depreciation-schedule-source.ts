@@ -10,6 +10,7 @@ import type {
 import { paymentStatusOf } from '../../domains/acquisition/index.js';
 import { businessDayOf } from '../../domains/ledger/index.js';
 import type { BusinessDate } from '../../shared/index.js';
+import { currentClassificationByCost } from './acquisition-cost-classification-repository.js';
 import { COUNTING } from './acquisition-cost-repository.js';
 import { capitalizedItemsIn, type CapitalizedSourcesReader } from './capitalized-items.js';
 import { depreciationSnapshot, readAsset } from './depreciation-asset-repository.js';
@@ -159,6 +160,11 @@ export async function readScheduleIn(
     .orderBy('id')
     .execute();
 
+  // §59D: each cost's current classification, in the same snapshot.
+  const classifications = await currentClassificationByCost(
+    trx,
+    costs.map((c) => c.id),
+  );
   const paidOf = new Map(paid.map((p) => [p.acquisition_cost_id as string, p.paid]));
   // At most one current allocation per Acquisition (§27.3, the index `land_building_allocation_current`): checked
   // here too, so a read that saw a superseded one fails instead of taking whichever row comes first.
@@ -186,6 +192,7 @@ export async function readScheduleIn(
             category: c.category,
             amount,
             paymentStatus: paymentStatusOf(amount, fromNumericAmount(paidOf.get(c.id) ?? '0', c.currency)),
+            classification: classifications.get(c.id) ?? null,
           };
         }),
       allocation:

@@ -6,6 +6,8 @@ import type { SplitInput } from '../../domains/ledger/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { checkAnschaffungsnahe } from '../../domains/taxation/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
+import { PostgresAcquisitionCostClassificationRepository } from './acquisition-cost-classification-repository.js';
+import { classifyAsTransfer, entered } from './acquisition-cost-classification.test-support.js';
 import { PostgresAcquisitionCostRepository } from './acquisition-cost-repository.js';
 import { PostgresAcquisitionRepository } from './acquisition-repository.js';
 import { createDatabase } from './database.js';
@@ -198,7 +200,7 @@ function fixtureIn(pool: pg.Pool) {
     return outcome.allocation.id;
   }
   /** ACC8: A 3/5 and B 2/5 of W from 2026-07-01, confirmed; the building asset of 1995, confirmed. */
-  async function acc8() {
+  async function acc8(classified = true) {
     const pr = await propertyReference();
     const [a, b] = [await party('Käuferin A'), await party('Käufer B')].sort() as [string, string];
     const w = await acquisition(pr, [a, b]);
@@ -206,6 +208,8 @@ function fixtureIn(pool: pg.Pool) {
     await own(pr, b, [2, 5], '2026-07-01', w);
     const tax = await cost(w, 'REAL_ESTATE_TRANSFER_TAX', '15000.00');
     const notary = await cost(w, 'NOTARY', '3000.00');
+    // §59D: the notary cost confirmed as a cost of the transfer (unless said otherwise), so the basis is unchanged.
+    const classification = classified ? await classifyAsTransfer(db, { mreRealmId: REALM, acquisitionId: w, costId: notary, amount: '3000.00' }) : null;
     await cost(w, 'FINANCING_RELATED', '1200.00');
     await pay(w, notary, '3000.00');
     const allocation = await allocate(w, '254400.00');
@@ -232,9 +236,10 @@ function fixtureIn(pool: pg.Pool) {
       actor,
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
-    return { pr, a, b, w, tax, notary, allocation, assetId: created.asset.id };
+    return { pr, a, b, w, tax, notary, classification, allocation, assetId: created.asset.id };
   }
-  return { db, party, propertyReference, acquisition, own, cost, allocate, acc8, acquisitions, ownerships, costs };
+  const classifications = new PostgresAcquisitionCostClassificationRepository(db);
+  return { db, party, propertyReference, acquisition, own, cost, allocate, acc8, acquisitions, ownerships, costs, classifications };
 }
 
 const derive = (read: ScheduleRead | undefined, ownerPartyId: string | null = null): DepreciationSchedule => {
@@ -337,6 +342,34 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
     const inputs = await depreciationSnapshot(fx.db, (trx) => acquisitionsOf(trx, REALM, { propertyReferenceId: s.pr }));
     const check = checkAnschaffungsnahe({ ...(inputs[0] as (typeof inputs)[number]), sources: [], statements: [], today: day('2026-10-30') }, TAX_RULES);
     expect(check.basis?.basisAmount.amount).toBe(derive(read).components[0]?.basis.amount?.amount);
+  });
+
+  it('§59D: each cost’s current classification read in the snapshot; unclassified, the schedule and the check agree on both bounds', async () => {
+    const s = await fx.acc8(false);
+    const read = await source.read(s.assetId, REALM, null);
+    expect(read?.acquisitions[0]?.costs.find((c) => c.id === s.notary)?.classification).toBeNull();
+    const unclassified = derive(read).components[0] as ScheduleComponent | undefined;
+    expect([unclassified?.status, unclassified?.basis.amount?.amount, unclassified?.basis.amountWithUnclassified?.amount]).toEqual([
+      'NOT_COMPUTABLE',
+      '252000.00',
+      '254400.00',
+    ]);
+    const checkOf = async () => {
+      const inputs = await depreciationSnapshot(fx.db, (trx) => acquisitionsOf(trx, REALM, { propertyReferenceId: s.pr }));
+      return checkAnschaffungsnahe({ ...(inputs[0] as (typeof inputs)[number]), sources: [], statements: [], today: day('2026-10-30') }, TAX_RULES);
+    };
+    const open = await checkOf();
+    expect([open.basis?.basisAmount.amount, open.basis?.basisAmountWithUnclassified.amount]).toEqual(['252000.00', '254400.00']);
+    // An unconfirmed classification, then a confirmed one superseding it: the current one is read.
+    const first = await fx.classifications.create({ ...entered(s.w, s.notary, null, { reviewState: 'NEEDS_REVIEW' }, '3000.00'), mreRealmId: REALM }, actor);
+    if (first.kind !== 'CREATED') throw new Error(first.kind);
+    expect(derive(await source.read(s.assetId, REALM, null)).components[0]?.status).toBe('NOT_COMPUTABLE');
+    const second = await fx.classifications.create({ ...entered(s.w, s.notary, first.classification.id, {}, '3000.00'), mreRealmId: REALM }, actor);
+    if (second.kind !== 'CREATED') throw new Error(second.kind);
+    const after = await source.read(s.assetId, REALM, null);
+    expect(after?.acquisitions[0]?.costs.find((c) => c.id === s.notary)?.classification?.id).toBe(second.classification.id);
+    expect(derive(after).components[0]?.basis.amount?.amount).toBe('254400.00');
+    expect((await checkOf()).basis?.basisAmount.amount).toBe('254400.00');
   });
 
   it('a DRAFT with Ownerships is listed (ACQUISITION_NOT_CONFIRMED), one without is not; a CANCELLED one is absent', async () => {

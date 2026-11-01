@@ -68,6 +68,11 @@ export interface VersionAcquisitionInputs {
   readonly countedCostsTotal: bigint;
   readonly excludedCostIds: readonly string[];
   readonly excludedCostsTotal: bigint;
+  /**
+   * §59D (VC-X-42): the current classifications that decided a counted or excluded cost, sorted. They are frozen rows, so
+   * the ids name the parts and amounts; a superseding classification changes the ids and so the fingerprint.
+   */
+  readonly costClassificationIds: readonly string[];
   readonly allocationId: string;
   readonly allocationReviewState: string;
   readonly totalAllocableAmount: bigint;

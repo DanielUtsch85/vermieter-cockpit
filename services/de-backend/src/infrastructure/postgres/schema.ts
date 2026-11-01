@@ -163,6 +163,33 @@ export interface AcquisitionCostTable {
   version: Generated<number>;
 }
 
+/** §59D (VC-X-42, migration 0054): the purpose of one cost, superseded only (as `land_building_allocation`). */
+export interface AcquisitionCostClassificationTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  acquisition_id: string;
+  cost_id: string;
+  description: string;
+  source_references: Generated<string[]>;
+  review_state: string;
+  advisor_party_id: string | null;
+  notes: string | null;
+  supersedes_id: string | null;
+  superseded_at: Date | null;
+  created_at: Generated<Date>;
+  created_by: string;
+  created_txid: Generated<string>;
+}
+
+export interface AcquisitionCostClassificationPartTable {
+  classification_id: string;
+  position: number;
+  purpose: string;
+  amount: string;
+  currency: string;
+  created_txid: Generated<string>;
+}
+
 export interface AcquisitionPaymentTable {
   id: Generated<string>;
   mre_realm_id: string;
@@ -791,6 +818,8 @@ export interface Database {
   acquisition_party: AcquisitionPartyTable;
   acquisition_cost: AcquisitionCostTable;
   acquisition_payment: AcquisitionPaymentTable;
+  acquisition_cost_classification: AcquisitionCostClassificationTable;
+  acquisition_cost_classification_part: AcquisitionCostClassificationPartTable;
   land_building_allocation: LandBuildingAllocationTable;
   loan: LoanTable;
   security_deposit: SecurityDepositTable;

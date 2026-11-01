@@ -39,6 +39,7 @@ const cost: AcquisitionCost = {
   voidReason: null,
   paidAmount: eur('0.00'),
   paymentStatus: 'EXPECTED',
+  classification: null,
   createdAt: new Date('2026-10-26T08:00:00Z'),
   version: 1,
 };
@@ -107,6 +108,7 @@ describe('POST /api/v1/acquisitions/{id}/costs', () => {
       voidReason: null,
       paidAmount: { amount: '0.00', currency: 'EUR' },
       paymentStatus: 'EXPECTED',
+      classification: null,
       createdAt: '2026-10-26T08:00:00.000Z',
       version: 1,
     });

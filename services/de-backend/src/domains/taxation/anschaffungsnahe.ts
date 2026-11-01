@@ -12,7 +12,7 @@ import {
   type RuleRegistry,
   type RuleVersion,
 } from '../../shared/index.js';
-import { buildingAcquisitionCost } from '../acquisition/index.js';
+import { NO_RULE_COST_CLASSIFICATION, buildingAcquisitionCost, type BasisCost, type UnclassifiedCost } from '../acquisition/index.js';
 import { ANSCHAFFUNGSNAHE, type AnschaffungsnaheParameters } from './rules/de-anschaffungsnahe.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
 
@@ -65,10 +65,25 @@ export interface CheckAllocation {
   readonly buildingAmount: Money;
 }
 
-export const NOT_COMPUTABLE_REASONS = ['NO_APPLICABLE_RULE', 'ACQUISITION_NOT_CONFIRMED', 'NO_ALLOCATION', 'ALLOCATION_NOT_CONFIRMED', 'NO_BUILDING'] as const;
+export const NOT_COMPUTABLE_REASONS = [
+  'NO_APPLICABLE_RULE',
+  'ACQUISITION_NOT_CONFIRMED',
+  'NO_ALLOCATION',
+  'ALLOCATION_NOT_CONFIRMED',
+  'NO_BUILDING',
+  // §59D: only while the sum lies between 15 % of the two bounds.
+  'ACQUISITION_COST_UNCLASSIFIED',
+] as const;
 export type NotComputableReason = (typeof NOT_COMPUTABLE_REASONS)[number];
 export type CheckStatus = 'NOT_COMPUTABLE' | 'ABOVE_THRESHOLD' | 'NOT_ABOVE_THRESHOLD';
-export type NotFinalReason = 'GROSS_AMOUNTS' | 'UNCLASSIFIED_SOURCES' | 'WINDOW_OPEN' | 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED' | 'DATES_NEAR_WINDOW_EDGE';
+export type NotFinalReason =
+  | 'GROSS_AMOUNTS'
+  | 'UNCLASSIFIED_SOURCES'
+  | 'WINDOW_OPEN'
+  | 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED'
+  | 'DATES_NEAR_WINDOW_EDGE'
+  /** §59D: the outcome holds by the bounds, but `threshold` and `percentOfBasis` wait for the costs' classification. */
+  | 'ACQUISITION_COSTS_UNCLASSIFIED';
 
 export type CheckEntryFlag =
   | { readonly code: 'VAT_NOT_SEPARATED'; readonly details: { readonly acquisitionId: string } }
@@ -121,7 +136,11 @@ export interface CheckBasis {
   readonly acquisitionCosts: Money;
   readonly totalAllocableAmount: Money;
   readonly buildingAmount: Money;
+  /** Without the unclassified costs (the lower bound, §59D). */
   readonly basisAmount: Money;
+  /** §59D: with the unclassified costs (the upper bound); equal to `basisAmount` without any. */
+  readonly basisAmountWithUnclassified: Money;
+  readonly unclassifiedCosts: readonly UnclassifiedCost[];
 }
 
 export interface AnschaffungsnaheCheck {
@@ -138,6 +157,8 @@ export interface AnschaffungsnaheCheck {
   readonly thresholdPercent: number | null;
   /** basis × percent / 100, exact (up to four places), never rounded; `null` when not computable. */
   readonly threshold: string | null;
+  /** §59D: the threshold of `basisAmountWithUnclassified`, exact; `null` when equal to `threshold` or not computable. */
+  readonly thresholdWithUnclassified: string | null;
   readonly sum: Money;
   /** sum × acquiredShare, shown rounded half-up to the cent; the comparison uses the exact fraction. */
   readonly attributableAmount: Money;
@@ -181,7 +202,7 @@ const NOTE_GROSS = 'Summed at gross amounts where no netAmount is given: the gro
 export function checkAnschaffungsnahe(
   input: {
     readonly acquisition: CheckAcquisition;
-    readonly costs: readonly { readonly category: string; readonly amount: Money }[];
+    readonly costs: readonly BasisCost[];
     readonly allocation: CheckAllocation | null;
     readonly sources: readonly CheckSource[];
     readonly statements: readonly { readonly id: string; readonly periodFrom: BusinessDate; readonly periodUntil: BusinessDate }[];
@@ -230,11 +251,17 @@ export function checkAnschaffungsnahe(
 
   // The building's acquisition cost: the allocation's ratio applied to price + costs (open question 5), rounded once. One
   // function with the AfA schedule (§59A), in the Acquisition domain; the check keeps its own NO_APPLICABLE_RULE in front.
+  // §59D: which costs enter is the rule's `costClassification`; without a rule nothing is decided by a classification.
   const cost = buildingAcquisitionCost(
     { acquisition, costs: input.costs, allocation: input.allocation },
-    { excludedCostCategories: p?.excludedCostCategories ?? ['FINANCING_RELATED'], confirmedAllocationReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'] },
+    {
+      excludedCostCategories: p?.excludedCostCategories ?? ['FINANCING_RELATED'],
+      confirmedAllocationReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'],
+      costClassification: p?.costClassification ?? NO_RULE_COST_CLASSIFICATION,
+    },
   );
   const basisCents = cost.basisAmount === null ? 0n : centsOf(cost.basisAmount);
+  const upperCents = cost.basisAmountWithUnclassified === null ? 0n : centsOf(cost.basisAmountWithUnclassified);
   const basis: CheckBasis | null =
     cost.allocation === null || cost.basisAmount === null
       ? null
@@ -246,12 +273,26 @@ export function checkAnschaffungsnahe(
           totalAllocableAmount: cost.allocation.totalAllocableAmount,
           buildingAmount: cost.allocation.buildingAmount,
           basisAmount: cost.basisAmount,
+          basisAmountWithUnclassified: cost.basisAmountWithUnclassified ?? cost.basisAmount,
+          unclassifiedCosts: cost.unclassifiedCosts,
         };
 
-  const notComputableReason: NotComputableReason | null = rule === undefined ? 'NO_APPLICABLE_RULE' : cost.reason;
   const percent = BigInt(p?.thresholdPercent ?? 0);
   // Above: sum × n / d > basis × percent / 100, in cents and without a division (§58B).
-  const above = notComputableReason === null && sumCents * n * 100n > basisCents * percent * d;
+  const aboveOf = (cents: bigint) => sumCents * n * 100n > cents * percent * d;
+  // §59D (open question 2, decided 2026-11-01): with unclassified costs only the two bounds decide. Above 15 % of the
+  // upper bound is above whatever the classification; not above 15 % of the lower bound is not above; in between the
+  // check is not computable. Never decided on a guess.
+  const unclassifiedOnly = cost.reason === 'ACQUISITION_COST_UNCLASSIFIED';
+  const notComputableReason: NotComputableReason | null =
+    rule === undefined
+      ? 'NO_APPLICABLE_RULE'
+      : unclassifiedOnly
+        ? aboveOf(upperCents) || !aboveOf(basisCents)
+          ? null
+          : 'ACQUISITION_COST_UNCLASSIFIED'
+        : cost.reason;
+  const above = notComputableReason === null && (unclassifiedOnly ? aboveOf(upperCents) : aboveOf(basisCents));
   const status: CheckStatus = notComputableReason !== null ? 'NOT_COMPUTABLE' : above ? 'ABOVE_THRESHOLD' : 'NOT_ABOVE_THRESHOLD';
 
   const statementIds =
@@ -267,6 +308,7 @@ export function checkAnschaffungsnahe(
   if (window !== null && input.today <= window.until) reasons.push('WINDOW_OPEN');
   if (statementIds.length > 0) reasons.push('WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED');
   if ([...summed, ...excluded, ...unclassified].some((s) => edgeFlag(s).length > 0)) reasons.push('DATES_NEAR_WINDOW_EDGE');
+  if (cost.unclassifiedCosts.length > 0) reasons.push('ACQUISITION_COSTS_UNCLASSIFIED');
   const final = reasons.length === 0;
   const ruleRef = rule === undefined ? null : { ruleCode: rule.ruleCode, version: rule.version };
 
@@ -318,9 +360,10 @@ export function checkAnschaffungsnahe(
     thresholdPercent: p?.thresholdPercent ?? null,
     // basis × percent / 100 in ten-thousandths of a euro: exact, never rounded.
     threshold: computable ? trimDecimal(decimalOf(basisCents * percent, 4)) : null,
+    thresholdWithUnclassified: computable && upperCents !== basisCents ? trimDecimal(decimalOf(upperCents * percent, 4)) : null,
     sum: moneyOfCents(sumCents),
     attributableAmount: moneyOfCents(divideHalfUp(sumCents * n, d)),
-    percentOfBasis: computable ? decimalOf(divideHalfEven(sumCents * n * 10_000n, d * basisCents), 2) : null,
+    percentOfBasis: computable && basisCents > 0n ? decimalOf(divideHalfEven(sumCents * n * 10_000n, d * basisCents), 2) : null,
     sources: summed.map((s) => entry(s, true)),
     excluded: [...recurring.map((s) => entry(s, false, 'ANNUALLY_RECURRING')), ...afterWindow.map((s) => entry(s, false, 'AFTER_WINDOW_NEAR_EDGE'))],
     unclassified: unclassified.map((s) => entry(s, false)),

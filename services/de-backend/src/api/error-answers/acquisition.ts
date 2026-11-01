@@ -2,6 +2,10 @@ import {
   AcquisitionCancelledError,
   AcquisitionConfirmedError,
   AcquisitionCostNotFoundError,
+  AcquisitionCostVoidError,
+  ClassificationPartsSumMismatchError,
+  ClassificationPurposeNotAllowedError,
+  CurrentClassificationChangedError,
   AcquisitionHasValidOwnershipsError,
   AcquisitionPaymentNotFoundError,
   ConfirmationBlockedError,
@@ -50,6 +54,23 @@ export const ACQUISITION_ANSWERS = [
       reason: 'CURRENT_ALLOCATION_CHANGED',
       currentAllocationId: error.currentAllocationId,
     }),
+  ),
+  // §59D: the classification of a cost.
+  on(AcquisitionCostVoidError, () => answer(409, 'CONFLICT', 'The cost is void.', { reason: 'COST_VOID' })),
+  on(CurrentClassificationChangedError, (error) =>
+    answer(409, 'CONFLICT', 'supersedes does not name the current classification.', {
+      reason: 'CURRENT_CLASSIFICATION_CHANGED',
+      currentClassificationId: error.currentClassificationId,
+    }),
+  ),
+  on(ClassificationPartsSumMismatchError, (error) =>
+    answer(422, 'PARTS_SUM_MISMATCH', "The parts do not sum to the cost's amount.", {
+      costAmount: error.costAmount.toJSON(),
+      partsSum: error.partsSum.toJSON(),
+    }),
+  ),
+  on(ClassificationPurposeNotAllowedError, (error) =>
+    answer(422, 'PURPOSE_NOT_ALLOWED', 'A FINANCING_RELATED cost takes FINANCING parts only.', { category: error.category, purpose: error.purpose }),
   ),
   on(OwnershipBasisIncompleteError, (error) =>
     answer(409, 'CONFLICT', "The Acquisition's Ownerships do not form a complete basis.", {

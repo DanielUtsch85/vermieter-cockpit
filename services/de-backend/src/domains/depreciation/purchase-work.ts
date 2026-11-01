@@ -1,5 +1,11 @@
 import { addDays, centsOf, type BusinessDate, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
-import { buildingAcquisitionCost, largestRemainder, type BuildingAcquisitionCost } from '../acquisition/index.js';
+import {
+  NO_RULE_COST_CLASSIFICATION,
+  buildingAcquisitionCost,
+  buildingCostReasonDetails,
+  largestRemainder,
+  type BuildingAcquisitionCost,
+} from '../acquisition/index.js';
 import { isConfirmed, type DepreciationAsset, type ShorterUsefulLife } from './asset.js';
 import {
   ONE,
@@ -115,6 +121,8 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
     {
       excludedCostCategories: firstYearRule?.basis.excludedCostCategories ?? [],
       confirmedAllocationReviewStates: firstYearRule?.basis.allocationReviewStates ?? [],
+      // §59D: the rule of the start decides which costs need a classification; without one, every cost does.
+      costClassification: firstYearRule?.basis.costClassification ?? NO_RULE_COST_CLASSIFICATION,
     },
   );
   // The owner parts: the Ownerships carrying the id, one per Party (the purchase row, the earliest).
@@ -152,7 +160,7 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
     });
 
   const reasons: Flag[] = [];
-  if (cost.reason !== null) reasons.push({ code: cost.reason, details: {} });
+  if (cost.reason !== null) reasons.push({ code: cost.reason, details: buildingCostReasonDetails(cost) });
   const entry = asset.shorterUsefulLives.find((e) => e.acquisitionId === a.id);
   if (entry !== undefined && !isConfirmed(entry.reviewState)) {
     reasons.push({ code: 'USEFUL_LIFE_NOT_CONFIRMED', details: { usefulLifeYears: entry.usefulLifeYears, reviewState: entry.reviewState } });

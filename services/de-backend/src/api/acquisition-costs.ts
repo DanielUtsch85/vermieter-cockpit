@@ -15,6 +15,7 @@ import {
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
+import { classificationDto } from './acquisition-cost-classifications.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
@@ -237,6 +238,8 @@ function costDto(c: AcquisitionCost) {
     voidReason: c.voidReason,
     paidAmount: c.paidAmount.toJSON(),
     paymentStatus: c.paymentStatus,
+    // §59D: the current classification, or null; no "in the basis" verdict (that is the rule's, in the basis readers).
+    classification: c.classification === null ? null : classificationDto(c.classification),
     createdAt: c.createdAt.toISOString(),
     version: c.version,
   };
