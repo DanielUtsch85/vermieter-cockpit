@@ -43,6 +43,7 @@ jobs:
       - run: yarn lint
       - run: yarn size:check
       - run: yarn format:check
+      - run: yarn api:inventory:check
       - run: yarn test
 
   # VC-0-07: the full local stack (DE + pinned MRE images) starts and is healthy.

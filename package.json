@@ -13,9 +13,11 @@
     "typecheck": "yarn workspaces foreach --verbose run typecheck",
     "test": "yarn workspaces foreach --verbose run test",
     "lint": "eslint services scripts eslint.config.mjs",
-    "format": "prettier --write services scripts eslint.config.mjs",
-    "format:check": "prettier --check services scripts eslint.config.mjs",
-    "size:check": "node scripts/file-size-check.mjs"
+    "format": "prettier --write services scripts docs/development/design-tokens.css eslint.config.mjs",
+    "format:check": "prettier --check services scripts docs/development/design-tokens.css eslint.config.mjs",
+    "size:check": "node scripts/file-size-check.mjs",
+    "api:inventory": "yarn workspace @vermieter-cockpit/de-backend run api:inventory",
+    "api:inventory:check": "yarn workspace @vermieter-cockpit/de-backend run api:inventory:check"
   },
   "packageManager": "yarn@3.3.0",
   "devDependencies": {

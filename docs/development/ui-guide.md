@@ -3,7 +3,7 @@
 >
 > 1. **Backend-Voraussetzungen:** erledigt. Die Lese-Endpunkte für FinancialAccounts und PropertyReferences (#160, mit #162 und #165; `docs/architecture/api-design.md` §23.3 und §29.3) sowie der Token-Verifikations-Cache und der Sitzungsvertrag für Clients (#161, mit #163; `docs/architecture/mre-integration.md` §47.1 und §47.2).
 > 2. **Entscheidungen des Projektinhabers:** am 30.10.2026 getroffen und in Abschnitt 7.1, 7.2, 11 und 13 eingetragen: gemeinsame Origin hinter einem Reverse-Proxy, eigene App im Monorepo mit dem MRE-Stack, Version 1 auf die drei P0-Bereiche begrenzt, Import ohne Vorschau, kein Audit-Verlauf in Version 1.
-> 3. **Beilagen:** `design-tokens.css` und das Routeninventar liegen nicht im Repository. Das Inventar sollte aus `services/de-backend/src/api/app.ts` erzeugt werden, nicht von Hand gepflegt; `main` entwickelt sich schneller als eine statische Liste.
+> 3. **Beilagen:** im Repository. `docs/development/design-tokens.css` trägt die Tokens aus Abschnitt 4.1; `docs/development/api-inventory.md` ist das Routeninventar, erzeugt aus dem Router der App (`createApp`) durch `yarn api:inventory` und in CI durch `yarn api:inventory:check` und die Backend-Tests geprüft, damit es nicht von `main` abweicht.
 >
 > Die in Abschnitt 9 genannten HTML-Entwürfe sind die Canvas-Skizzen vom 29.10.2026; sie sind Gestaltungsskizzen, keine Spezifikation.
 
@@ -12,7 +12,7 @@
 **Übergabe an Entwicklung und Design · Version 1.0 · 30.10.2026**
 
 **Referenzstand:** [dd110b9](https://github.com/DanielUtsch85/vermieter-cockpit/commit/dd110b90f9da6680ffcb22a79323d6350021449d)  
-**Geltung:** vorhandene DE-API für Phasen 0–6. Phase 7 ist zu diesem Stand spezifiziert, aber noch nicht als HTTP-Routen implementiert.  
+**Geltung:** vorhandene DE-API für Phasen 0–8 (Stand `main` [6582365](https://github.com/DanielUtsch85/vermieter-cockpit/commit/6582365c9bde59b6c2b99b336fcb9a75a3f753c0)). Phase 8 (AfA) ist implementiert: Anlagen, Plan, aktivierte Posten und Planversionen (api-design §59–§60); das Erfassen von Planversionen ist standardmäßig ausgeschaltet (`DEPRECIATION_RECORDING_ENABLED`). Die Detailaussagen dieses Leitfadens (Limits, Lücken, Rollen) sind gegen den Referenzstand dd110b9 geprüft, und die Permalinks im Quellenabschnitt am Ende zeigen bewusst auf diesen Stand; Routenbestand und Phasenstand sind gegen 6582365 geprüft. Das aktuelle Routeninventar steht in `docs/development/api-inventory.md`.  
 **Ziel:** eine verständliche Oberfläche auf vorhandenen Datenstrukturen und Fachbefehlen aufbauen, ohne diese für das Layout umzubauen.
 
 ## 1. Entscheidung für den Projektstart
@@ -40,7 +40,7 @@ Die bisherigen Bilder und HTML-Dateien sind **Gestaltungsskizzen**. Dieser Leitf
 - Eingaben und Versionierung: src/api/validation.ts.
 - Transaktions-DTO und Filter: src/api/transaction-dto.ts.
 - Gemeinsame Fehler: src/api/error-answers.ts.
-- Das beiliegende API-INVENTAR.csv/.json listet implementierte Routen am Referenzstand, **nicht** geplante Routen aus der Spezifikation. Es ist kein OpenAPI-Schema.
+- `docs/development/api-inventory.md` listet implementierte Routen, **nicht** geplante Routen aus der Spezifikation. Es wird mit `yarn api:inventory` aus dem Router der App erzeugt und in CI geprüft; es ist kein OpenAPI-Schema.
 
 Bei einem Widerspruch nicht stillschweigend ein UI-Verhalten erfinden: Fundstelle dokumentieren, Vertragsfrage klären und erst dann anbinden. Nach neuem Backend-Stand Routen und DTOs erneut prüfen; ein alter Prototyp ist keine API-Spezifikation.
 
@@ -60,10 +60,11 @@ Bei einem Widerspruch nicht stillschweigend ein UI-Verhalten erfinden: Fundstell
 | Personen | Personen/Organisationen, Kontaktangaben, MRE-Referenzen | P1 |
 | Objekte | MRE-Verknüpfung und kontextbezogene Fachansichten | P1, Einstiegslücke beachten |
 | Erwerbe | Erwerb, Nebenkosten, Zahlungslinks, Eigentümerverteilung | P1 |
+| Steuern | Steuerjahressicht pro Objekt und Eigentümer, Klassifikationen, 15 %-Prüfung (Phase 7) | P2, nach den P1-Bereichen; AfA (Phase 8, Routen vorhanden): Einordnung offen, Entscheidung des Projektinhabers |
 
 **Entscheidung (30.10.2026):** Version 1 umfasst genau die P0-Zeilen, Buchungen, Import und Mietabgleich, als durchgehender Ablauf gegen die echte API, dazu die Übersicht als Arbeitsnavigation. Die P1-Zeilen folgen danach in der Reihenfolge Finanzierung, Kautionen, WEG, Erwerbe, Personen, Objekte. Menüpunkte für P1 erscheinen erst, wenn ihr Bereich fertig ist.
 
-Keine aktiven Menüpunkte für Steuern, AfA oder Investment ohne implementierte Routen. Späteres Modul höchstens in der Produktplanung nennen, nicht mit einem scheinbar funktionierenden Leerformular veröffentlichen.
+Keine aktiven Menüpunkte für Investment (keine Routen). Die Steuerrouten von Phase 7 und die AfA-Routen von Phase 8 existieren, sind aber nicht Teil von Version 1; ob und wann AfA in die Oberfläche kommt, entscheidet der Projektinhaber (offen). Späteres Modul höchstens in der Produktplanung nennen, nicht mit einem scheinbar funktionierenden Leerformular veröffentlichen.
 
 ### 3.2 App-Shell
 
@@ -87,7 +88,7 @@ Keine komplette Mandantenhistorie bei jedem Seitenaufruf herunterladen, um fehle
 
 Ruhige Arbeitsoberfläche für private Vermieter: helle Flächen, klare Tabellen, wenig Dekoration. Vertrauen entsteht durch nachvollziehbare Zahlen, erkennbare Quellen und eindeutige Aktionen. Keine großen Renditegrafiken ohne Berechnungsgrundlage.
 
-Die beiliegende design-tokens.css ist ein Vorschlag, keine neue Framework-Vorgabe.
+`docs/development/design-tokens.css` trägt diese Werte als CSS-Custom-Properties; sie ist ein Vorschlag, keine neue Framework-Vorgabe.
 
 | Token | Wert | Verwendung |
 |---|---|---|
@@ -195,7 +196,9 @@ Kategorien aus GET /financial-categories laden. Fachcodes in Requests verwenden;
 | Server-Sortierung nach beliebiger Tabellenspalte | Lücke | Kein generischer sort-Parameter |
 | Suche/Benachrichtigungen über alle Module | Lücke | Kein globaler Dienst |
 | Dokument-Upload und PDF-Anhänge | Lücke | Quellenangaben sind kein Dokumentenmanagement |
-| Steuer-, AfA- und Investment-Oberflächen | Nicht verfügbar | Phase-7-Vertrag allein ist keine Implementierung |
+| Steuerjahressicht, Klassifikationen, 15 %-Prüfung (Phase 7) | Direkt, nach Version 1 | Routen vorhanden (api-design §55–§58C); der AfA-Block der Sicht liest die AfA aus Phase 8 (VC-8-05), nicht berechenbare AfA ist mit `DEPRECIATION_NOT_AVAILABLE` geflaggt |
+| AfA-Oberflächen | Offen, Entscheidung des Projektinhabers | Routen vorhanden (api-design §59–§60); das Erfassen von Planversionen ist ausgeschaltet und wird in Stufen freigegeben (VC-X-45) |
+| Investment-Oberflächen | Nicht verfügbar | Keine Routen |
 
 **Nicht als Workaround verwenden:** refresh-POST bei jedem Rendern zum Lesen; Datenbankzugriff aus dem Frontend; kompletter Export aller Seiten für jede Kachel; Kontolisten ausschließlich in localStorage; MRE-IDs als DE-UUIDs; Browserberechnung einer steuerlichen Wahrheit.
 
@@ -516,7 +519,7 @@ Dieses Objekt an POST /transactions/{id}/correct mit unterstütztem If-Match und
 | Objektfoto, Zimmerzahl, Status | Nur mit geprüftem MRE-Datenweg |
 | Restschuld-Kurve „Ist“ | Ohne historische Quelle nicht zeichnen |
 | Bankbestätigung als PDF-Link | Als Datum/Betrag/Quelle darstellen; Upload ist nicht vorhanden |
-| Zusätzliche Fachmodule | Kautionen und WEG können nun aufgenommen werden; Steuern noch nicht |
+| Zusätzliche Fachmodule | Kautionen, WEG und die Steuerjahressicht können aufgenommen werden; AfA erst nach Entscheidung des Projektinhabers (Routen vorhanden, Erfassen ausgeschaltet) |
 
 Die Mockups sind keine pixelgenaue Pflicht. Fachlich korrekte, einfache Abläufe haben Vorrang.
 
@@ -543,7 +546,7 @@ Die Mockups sind keine pixelgenaue Pflicht. Fachlich korrekte, einfache Abläufe
 
 ### Danach
 
-Darlehen und Erwerb → Kautionen → WEG. Arbeitsübersicht erst mit belastbaren Datenquellen ausbauen. Steueransichten erst nach implementiertem Vertrag integrieren; ein neuer Spezifikations-PR ist kein Go-live-Signal.
+Darlehen und Erwerb → Kautionen → WEG. Arbeitsübersicht erst mit belastbaren Datenquellen ausbauen. Die Steuerjahressicht (Phase 7) als letztes Modul nach WEG; der AfA-Block erst nach Entscheidung des Projektinhabers (Phase 8 implementiert, Erfassen ausgeschaltet). Ein Spezifikations-PR ist kein Go-live-Signal, nur eine Zeile im Routeninventar ist eines.
 
 ## 11. Abnahmekriterien für die Programmierer
 
@@ -600,7 +603,7 @@ API-Mocks ausschließlich aus den echten DTO-Mappings ableiten. Neu spezifiziert
 | Soll ein vollständiger Audit-Verlauf sichtbar sein? | Produkt + Backend | Falls ja, expliziter Read-Vertrag und Datenschutzumfang | **Entschieden:** nicht in Version 1; Korrekturkette aus dem Transaction-DTO reicht (Abschnitt 6.1). |
 | Eigene App oder Erweiterung der MRE-Landlord-App; welcher Stack? | Produkt + Frontend | Keine Grundsatzdiskussion im ersten Sprint | **Entschieden:** eigene App unter `webapps/cockpit`, React 18, TypeScript, Tailwind, TanStack Query, Vite; DTO-Typen aus den Backend-Schemata (Abschnitt 7.1). |
 
-Damit ist vor dem Sprint 0 keine Backend-Frage mehr offen; alles andere ist entschieden oder wird im Integrations-Gate demonstriert. Offen bleiben die Beilagen aus dem Statusblock (`design-tokens.css`, Routeninventar).
+Damit ist vor dem Sprint 0 keine Backend-Frage mehr offen; alles andere ist entschieden oder wird im Integrations-Gate demonstriert. Die Beilagen liegen im Repository (`docs/development/design-tokens.css`, `docs/development/api-inventory.md`).
 
 ## 14. Definition des Erfolgs
 
