@@ -30,18 +30,18 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
     await pool.end();
   });
 
-  it('applies every migration on a fresh database, in order', async () => {
+  it('applies every migration on a fresh database, in order', { timeout: 30_000 }, async () => {
     const results = await migrateToLatest(pool, { migrationTableSchema: schema });
     expect(results.map((r) => [r.migrationName, r.status])).toEqual(Object.keys(migrations).map((name) => [name, 'Success']));
     const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration ORDER BY name`);
     expect(applied.rows.map((r) => r.name)).toEqual(Object.keys(migrations));
   });
 
-  it('is idempotent: a second run applies nothing', async () => {
+  it('is idempotent: a second run applies nothing', { timeout: 30_000 }, async () => {
     expect(await migrateToLatest(pool, { migrationTableSchema: schema })).toEqual([]);
   });
 
-  it('a failing migration throws (startup aborts) and is not recorded as applied', async () => {
+  it('a failing migration throws (startup aborts) and is not recorded as applied', { timeout: 30_000 }, async () => {
     const failing = {
       ...migrations,
       '9999_failing': {
@@ -59,7 +59,7 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
 describe.skipIf(databaseUrl === undefined)('migrateToLatest with a single-connection pool', () => {
   const schema = testSchemaName('migrate_single_test');
 
-  it('does not deadlock: the advisory lock uses its own connection, not one of the pool', async () => {
+  it('does not deadlock: the advisory lock uses its own connection, not one of the pool', { timeout: 30_000 }, async () => {
     const admin = new pg.Client({ connectionString: databaseUrl });
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);

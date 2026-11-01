@@ -5,7 +5,10 @@ import { AcquisitionNotFoundError } from './ownerships.js';
 
 /** Owner-level allocation read (api-design.md §27.4, backlog VC-2-09), in the caller's verified Realm. */
 
-/** A `DRAFT` whose Ownerships do not yet meet requirements 2–5 of §28.1 (→ 409 OWNERSHIP_BASIS_INCOMPLETE). */
+/**
+ * Ownerships not meeting requirements 2–5 of §28.1 (5 as §28.1A): a `DRAFT` under way, or a legacy `CONFIRMED` one
+ * (→ 409 OWNERSHIP_BASIS_INCOMPLETE).
+ */
 export class OwnershipBasisIncompleteError extends Error {
   override readonly name = 'OwnershipBasisIncompleteError';
 

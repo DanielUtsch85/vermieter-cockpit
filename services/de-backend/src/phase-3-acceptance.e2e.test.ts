@@ -181,6 +181,7 @@ import {
   createDatabase,
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
+import { depreciationCommands } from './depreciation-commands.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { findBankStatementAdapter } from './integrations/bank-import/index.js';
 import { HttpMreClient } from './integrations/mre/index.js';
@@ -399,6 +400,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         list: listRentalContractReferences({ repository: new PostgresRentalContractReferenceRepository(db) }),
         amend: amendRentalContractReference({ repository: new PostgresRentalContractReferenceRepository(db) }),
       },
+      depreciationAssets: depreciationCommands(db),
       rentReconciliations: {
         create: createReconciliation({ repository: new PostgresRentReconciliationRepository(db), lookupMreRentTerm: mreRentTermLookup(client) }),
         get: getReconciliation({ repository: new PostgresRentReconciliationRepository(db) }),

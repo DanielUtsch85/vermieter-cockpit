@@ -20,8 +20,11 @@ export type {
   OwnershipPage,
   OwnershipRepository,
   OwnershipStatus,
+  PredecessorRefusal,
   VoidOwnershipOutcome,
   VoidPlan,
 } from './ownership.js';
 export { changeFingerprint, planChange } from './change.js';
 export type { ChangeOwnershipOutcome, ChangePlan, ChangeResult, NewOwner, OwnershipChange, OwnershipChangeRepository } from './change.js';
+export { continuousOwners } from './tenure.js';
+export type { ContinuousOwnership, OwnershipPeriod } from './tenure.js';

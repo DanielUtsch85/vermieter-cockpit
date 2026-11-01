@@ -271,3 +271,12 @@ curl -fsS -o /dev/null -X POST "$DE/financial-accounts/$ledger_account/close" \
   -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id"
 tx -d "$rent"
 expect "transaction on closed account" "$tx_status" 409
+
+# VC-8-04 (api-design.md §60 "The recording switch"): the default stack runs with DEPRECIATION_RECORDING_ENABLED unset,
+# so recording a schedule version answers 409 RECORDING_NOT_ENABLED. The switch is checked before the asset is read,
+# so any well-formed asset id proves the shipped default is off.
+record_out=$(curl -s -w '\n%{http_code}' -X POST "$DE/depreciation-assets/00000000-0000-4000-8000-000000000001/schedule-versions" \
+  -H "authorization: Bearer $(token "$admin")" -H "organizationid: $realm_id" -H 'content-type: application/json' \
+  -d '{"throughYear":2026,"reason":"Smoke (synthetisch)","expectedInputFingerprint":"0000000000000000000000000000000000000000000000000000000000000000"}')
+expect "record a schedule version while the switch is off" "$(echo "$record_out" | tail -n1)" 409
+expect "the refusal names the switch" "$(echo "$record_out" | sed '$d' | jq -r .error.details.reason)" RECORDING_NOT_ENABLED

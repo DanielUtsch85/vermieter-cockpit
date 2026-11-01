@@ -1,4 +1,4 @@
-import { Money } from '../../shared/index.js';
+import { Money } from './money.js';
 
 /**
  * Exact cents of a Money in EUR (scale 2), and back (api-design.md §86): the § 82b parts and the anschaffungsnahe check

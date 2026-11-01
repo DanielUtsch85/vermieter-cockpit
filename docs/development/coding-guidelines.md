@@ -69,6 +69,7 @@ Rules:
 - No "god service" spanning multiple domains' business logic.
 - `domains/property-reference/` holds the `PropertyReference` entity and its repository port (MRE Integration domain, api-design §23.1); the MRE client and DTOs stay in `integrations/mre/`, so application code reaches MRE only through ports wired in `src/wiring.ts`.
 - Another module (another domain, or another top-level layer) is imported only through its public `index.js`; deep imports into its internals are rejected by `src/architecture.test.ts`.
+- **File size** (issue #191): a production `.ts` file under `services/*/src` has at most **600 lines**, a test file (`*.test.ts`, `*.test-support.ts`) at most **900**; `migrations/` is not counted. `yarn size:check` (`scripts/file-size-check.mjs`, in CI after lint) enforces it. Files that were over the limit when the check came are on its exception list with their line count then: a listed file may not grow, and once split below the limit it is removed from the list (the check fails until it is). Permanently exempt, because they carry declarations only: `infrastructure/postgres/schema.ts`, `application/index.ts` and `domains/*/index.ts`. Split along ports or rules, as #91 and #104 did, not into numbered parts.
 
 ---
 
@@ -161,6 +162,7 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 
 - Bug fixes ship a regression test. Never weaken/delete a test to make a change pass.
 - Prefer deterministic tests; no reliance on wall-clock or timezone of the host.
+- **Timeouts under load.** The suite runs at Vitest's default parallelism, locally and in CI; tests are never skipped or quarantined for being slow. A database test file migrates a fresh schema in its `beforeAll`. Migrations run one at a time (`MIGRATION_ADVISORY_LOCK`), and Kysely's `Migrator` introspects every schema of the database, so a hook waits for the other workers' migrations and gets slower with each schema present. Hence `hookTimeout: 30_000` in `vitest.config.ts`. A test that migrates in its body, or runs a `down` under the lock, declares `{ timeout: 30_000 }`; any other test slower than about 1 s on its own (e.g. a large property run) declares its own timeout, with a comment saying why. Schemas left behind by aborted runs slow every migration. To clear them, use a fresh test database, or drop the `*_test_*`/`*_e2e_*` schemas while no run is active.
 
 ---
 
@@ -169,8 +171,8 @@ Business invariants require tests (`AGENTS.md` §29). At minimum: ownership shar
 - Terminology from `docs/glossary.md` is mandatory; introducing a new domain term updates the glossary in the same change (`AGENTS.md` §27).
 - Prefer explicit code, cohesive modules, small interfaces, documented invariants, narrow dependencies (`AGENTS.md` §35). Avoid hidden side effects, clever metaprogramming, broad shared utilities carrying business logic, magic constants.
 - Match surrounding code's conventions once a baseline exists.
-- **API errors:** a use case throws a typed error; its HTTP answer (status, code, message, details) is one entry of the central table in `api/error-answers.ts`, which the error handler applies. Routes pass errors on with `next(error)` and answer locally only where the answer depends on the request (field errors named after the request's body). One message per error class, worded for every route that can throw it (#89).
-- ESLint is authoritative (`eslint.config.mjs`, `yarn lint`, run in CI): typescript-eslint's type-checked recommendations plus no unused code, no floating promise and type-only imports; tests relax only the rules for untyped JSON and `async` test doubles. Prettier formats the code (`.prettierrc.json`: width 160, single quotes, trailing commas; `yarn format`, checked in CI by `yarn format:check`); style is not reviewed by hand.
+- **API errors:** a use case throws a typed error; its HTTP answer (status, code, message, details) is one entry of the central table in `api/error-answers.ts`, which the error handler applies. The table is composed of one table per module in `api/error-answers/` (the module whose use case throws the error; shared helpers in `answer.ts`); a new error goes into its module's table (#191). Routes pass errors on with `next(error)` and answer locally only where the answer depends on the request (field errors named after the request's body). One message per error class, worded for every route that can throw it (#89).
+- ESLint is authoritative (`eslint.config.mjs`, `yarn lint`, run in CI, over `services/`, `scripts/` and the config itself; the `.mjs` files without type information and with Node's globals): typescript-eslint's type-checked recommendations plus no unused code, no floating promise and type-only imports; tests relax only the rules for untyped JSON and `async` test doubles. Prettier formats the code (`.prettierrc.json`: width 160, single quotes, trailing commas; `yarn format`, checked in CI by `yarn format:check`); style is not reviewed by hand.
 
 ---
 

@@ -55,7 +55,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     splits = new PostgresTransactionSplitRepository(db);
@@ -220,7 +220,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
           (
             await pool.query(
               `SELECT 1 FROM pg_stat_activity
-               WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%ledger_transaction%for update%'`,
+               WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE '%ledger_transaction%for update%'`,
             )
           ).rowCount !== 0,
       );
@@ -248,7 +248,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresTransactionSplitRepository',
           (
             await pool.query(
               `SELECT 1 FROM pg_stat_activity
-               WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%ledger_transaction%for update%'`,
+               WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE '%ledger_transaction%for update%'`,
             )
           ).rowCount !== 0,
       );
@@ -272,7 +272,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresFinancialCategoryRepository'
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}` });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}` });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     categories = new PostgresFinancialCategoryRepository(createDatabase(pool));
   });

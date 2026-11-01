@@ -55,6 +55,8 @@ function ownerDto(o: OwnerPart) {
     ownerPartyId: o.ownerPartyId,
     ownershipId: o.ownershipId,
     share: formatShare(o.share),
+    shareBefore: formatShare(o.shareBefore),
+    acquiredShare: formatShare(o.acquiredShare),
     weight: formatShare(o.weight),
     purchasePrice: o.purchasePrice.toJSON(),
     costs: costsDto(o.costs),

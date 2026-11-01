@@ -2,7 +2,7 @@
 
 A Germany-focused investment, finance, tax, and condominium-management extension for [MicroRealEstate](https://github.com/microrealestate/microrealestate).
 
-> **Project status:** Phases 0–7 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back, Security Deposit, WEG, Taxation up to the tax-year view before AfA). A [run with real landlord data](docs/development/real-data-run.md) has checked the bank import and the rent reconciliation against reality, and the loan schedule in part (the comparison with the bank's own plan is still open); its findings are fixed or tracked in issues.  
+> **Project status:** Phases 0–7 implemented (cash ledger, Party & Ownership & Acquisition, Financing, Rent reconciliation with MRE write-back, Security Deposit, WEG, Taxation with the tax-year view); Phase 8 (Depreciation) implemented, its exit shown by ACC8, with productive recording of AfA schedule versions disabled pending the tax advisor's answers (VC-X-35 + owner decision), so the AfA in the tax-year view is a provisional preview and no year with AfA is final yet. A [run with real landlord data](docs/development/real-data-run.md) has checked the bank import and the rent reconciliation against reality, and the loan schedule in part (the comparison with the bank's own plan is still open); its findings are fixed or tracked in issues.  
 > There is no DE cockpit UI yet. The project is not yet intended for production use. See [Project Status](#project-status).
 
 ## Vision
@@ -172,7 +172,8 @@ Before implementing significant functionality, read the relevant documents rathe
 | [`docs/germany/depreciation.md`](docs/germany/depreciation.md) | AfA and depreciation rules |
 | [`docs/germany/weg.md`](docs/germany/weg.md) | WEG-specific concepts and processing |
 | [`docs/germany/rent-and-operating-costs.md`](docs/germany/rent-and-operating-costs.md) | Rent, operating costs, settlement, and related financial treatment |
-| [`docs/germany/verification-checklist.md`](docs/germany/verification-checklist.md) | Consolidated `VERIFY` points for a tax/legal professional to confirm before implementation |
+| [`docs/germany/verification-checklist.md`](docs/germany/verification-checklist.md) | Consolidated `VERIFY` points with their research result and, per point, who confirmed it ("Bestätigt durch": research, primary source or a professional) |
+| [`docs/germany/beratungsfragen.md`](docs/germany/beratungsfragen.md) | The five open questions for the tax advisor, where money and uncertainty meet, with the spec's current state |
 
 ### Development
 
@@ -336,7 +337,7 @@ Historical `InvestmentMetricSnapshot` records may preserve derived results for c
 
 ## Project Status
 
-Phases 0–7 are implemented, each phase exit shown end to end through the API by an acceptance test (ACC, ACC2 to ACC7 in the [invariant suite](docs/development/invariant-suite.md)); Phase 7's tax-year view is complete but for the AfA figure, which Phase 8 adds, and for interest booked via a Loan, which it flags as not attributed (`LOAN_INTEREST_NOT_ATTRIBUTED`) until backlog VC-X-29 decides its attribution. After Phase 4 the implemented API was run with real data ([real-data run](docs/development/real-data-run.md), #93): a real bank export imported twice, a real annuity loan's schedule, and six months of real rent inflows reconciled against MRE rent terms. The findings led to ADR-043 and to the items VC-1-12 to VC-1-14, VC-3-09 and VC-4-07, all done. The [implementation backlog](docs/development/backlog.md) tracks individual items, and the [roadmap](docs/roadmap.md) defines phase exits.
+Phases 0–7 are implemented, each phase exit shown end to end through the API by an acceptance test (ACC, ACC2 to ACC7 in the [invariant suite](docs/development/invariant-suite.md)). Phase 8 is implemented and its exit shown by ACC8, with the recording of AfA schedule versions tested through test wiring only: `DEPRECIATION_RECORDING_ENABLED` ships off until the tax advisor's answers, the open tests of VC-X-35 and an owner decision (api-design §60 "Turning it on"). Interest booked via a Loan is attributed through the Loan's allocation set since VC-X-29, and flagged `LOAN_INTEREST_NOT_ATTRIBUTED` where no set covers its date. After Phase 4 the implemented API was run with real data ([real-data run](docs/development/real-data-run.md), #93): a real bank export imported twice, a real annuity loan's schedule, and six months of real rent inflows reconciled against MRE rent terms. The findings led to ADR-043 and to the items VC-1-12 to VC-1-14, VC-3-09 and VC-4-07, all done. The [implementation backlog](docs/development/backlog.md) tracks individual items, and the [roadmap](docs/roadmap.md) defines phase exits.
 
 ### Implemented
 
@@ -353,6 +354,7 @@ Phases 0–7 are implemented, each phase exit shown end to end through the API b
 | Acquisition | Acquisition records with costs and linked payments, confirmation, land/building allocation and owner-level allocation |
 | Financing | Loans with terms and planned schedules (including the balance at the end of the fixed-rate period), interest/principal splits into the ledger with `loanId`, allocation across properties, derived remaining debt, lender balance statements, closing and refinancing |
 | Taxation (Phase 7) | Versioned tax rules (`GET /tax-rules`); the default tax meaning of every split by its category; classifications of splits and of retained deposits with review states and history; the tax year by § 11 EStG with the 10-day rule, from the rent's due day on a minimal RentalContractReference, the Wirtschaftsplan's `advanceDueDay` and the loan schedule; refunds by year (VC-7-01, VC-7-02); reserve withdrawals and Sonderumlage uses classified when the WEG spends the money, § 82b distributions with their yearly parts, and the anschaffungsnahe check per Acquisition (VC-7-03); the tax-year view per PropertyReference and per owner (`GET /property-references/{id}/tax-years/{year}`): Einnahmen, Werbungskosten and the result before AfA, every line with its items, owners summed by largest remainder per item, § 82b parts folded per owner, retained deposits without a PropertyReference listed as not attributed, `ATTRIBUTION_INPUT_CHANGED` from the RentalContractReference history (VC-7-04); the Phase-7 exit shown end to end by ACC7 (VC-7-05), with interest booked via an allocated Loan flagged `LOAN_INTEREST_NOT_ATTRIBUTED`, not yet attributed (VC-X-29) |
+| Depreciation (Phase 8) | The building as a `DepreciationAsset` with its completion year and rate (VC-8-01); the AfA schedule of each purchase derived on read from the Acquisition and its confirmed land/building allocation, per owner (VC-8-02); capitalised later costs and separate assets such as an Einbauküche (VC-8-03); recorded, append-only schedule versions, **disabled by default** (`409 RECORDING_NOT_ENABLED`, VC-8-04); the AfA lines and `result.basis` in the tax-year view (VC-8-05); the exit shown by ACC8 (VC-8-06). Until recording is enabled the AfA is a provisional preview and no year with AfA is final |
 | Rent reconciliation | Match rent Transactions to MRE rent terms (by hand or from suggestions confirmed by a human, including tenants who pay before the month), coverage per term and per Transaction, release, write-back of DE's payment to MRE exactly once, and its removal after a release |
 | Integrity and audit | Exact Money arithmetic, Realm-scoped references, idempotency and version checks where specified, AuditRecords, and database constraints and triggers for financial and Ownership invariants |
 
@@ -360,12 +362,12 @@ The public business API is under `/api/v1`. Its contracts are documented in [API
 
 ### Next work and current limits
 
-- **Phase 8:** Depreciation (AfA) per `docs/roadmap.md`: schedules derived from the Acquisition and its land/building allocation, feeding the AfA block of the tax-year view (ACC8).
+- **Phase 8, turning recording on:** the tax advisor's answers to the VERIFY points (`phase-8-plan.md` §3), the open tests of VC-X-35 and a documented owner decision, then `DEPRECIATION_RECORDING_ENABLED=true` (api-design §60 "Turning it on"); only then can a year with AfA be final.
 - **Real-data run, open part:** the comparison of the computed loan schedule with the bank's own amortization plan (step 2, part 2), and with it F9, the first interest period ([#121](https://github.com/DanielUtsch85/vermieter-cockpit/issues/121)); F11, a split proposal from the MRE term for rent payments ([#126](https://github.com/DanielUtsch85/vermieter-cockpit/issues/126)), is tracked and not yet decided. See the [real-data run](docs/development/real-data-run.md).
-- **Later domains:** depreciation (Phase 8, which also fills the AfA block of the tax-year view), investment analytics and reporting are planned; their specifications do not imply implemented APIs.
+- **Later domains:** investment analytics and reporting (Phase 9) are planned; their specifications do not imply implemented APIs.
 - **User interface:** There is no DE cockpit UI yet. FinancialAccounts and PropertyReferences can be read and listed (api-design §23.3, §29.3; VC-X-25).
 - **Operational work:** Export tooling, structured logging and rate limiting, idempotency retention, personal-data retention in AuditRecords, and further migration and dependency hardening remain in the [cross-cutting backlog](docs/development/backlog.md#5-cross-cutting-backlog-any-phase).
-- **German rules:** The `VERIFY` points in [the verification checklist](docs/germany/verification-checklist.md) must be resolved before implementing the affected tax, depreciation and WEG rules.
+- **German rules:** The column "Bestätigt durch" of [the verification checklist](docs/germany/verification-checklist.md) shows who confirmed each point. Today every point is research (`Recherche`) or a primary source (`Primärquelle`); none is confirmed by a professional yet, and a result of `OK` is not an approval. Phases 6–7 were built on research and keep their VERIFY points and open flags; a point should be confirmed (`Fachperson, <date>`) before a year's figures are relied on for a tax return, and before the Phase 8 depreciation rules leave their VERIFY state; the open questions for the tax advisor are in [`beratungsfragen.md`](docs/germany/beratungsfragen.md).
 
 ### Continuous integration
 

@@ -45,7 +45,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     parties = new PostgresPartyRepository(db);
@@ -127,9 +127,10 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
       async () =>
         Number(
           (
-            await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
-              `%${text}%`,
-            ])
+            await pool.query(
+              `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE $1`,
+              [`%${text}%`],
+            )
           ).rows[0].count,
         ) >= 1,
     );
@@ -193,6 +194,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
       const late = await insertOwnership(pool, { pr, owner: anna, share: [1, 4], from: '2026-08-02', acquisitionId: id });
       const stranger = await insertOwnership(pool, { pr, owner: carl, share: [1, 8], acquisitionId: id });
       await rawDeactivate(pool, anna);
+      const zero = { numerator: 0n, denominator: 1n };
       expect(await acquisitions.confirm(id, REALM, AT, actor)).toEqual({
         kind: 'CONFIRMATION_BLOCKED',
         violations: [
@@ -200,7 +202,14 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository.confir
           { code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE', ownershipId: late, validFrom: '2026-08-02', transferDate: D },
           { code: 'OWNER_NOT_A_BUYER', ownershipId: stranger, ownerPartyId: carl },
           { code: 'BUYER_WITHOUT_OWNERSHIP', partyId: ben },
-          { code: 'SHARE_SUM_MISMATCH', expected: { numerator: 1n, denominator: 2n }, actual: { numerator: 3n, denominator: 8n } },
+          // §28.1A: Anna's only row starts the day after, so she holds nothing on the transfer date (5a, 5b with 0).
+          { code: 'BUYER_SHARE_NOT_INCREASED', partyId: anna, shareBefore: zero, share: zero },
+          {
+            code: 'SHARE_SUM_MISMATCH',
+            expected: { numerator: 1n, denominator: 2n },
+            actual: zero,
+            byBuyer: [{ partyId: anna, shareBefore: zero, share: zero, acquired: zero }],
+          },
           { code: 'OWNERSHIP_INCOMPLETE', date: D, shareSum: { numerator: 1n, denominator: 8n } },
         ],
       });

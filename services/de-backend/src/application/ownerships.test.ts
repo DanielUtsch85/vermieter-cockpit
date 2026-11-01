@@ -17,6 +17,7 @@ import {
   OwnershipIncompleteError,
   OwnershipNotFoundError,
   OwnershipTotalExceedsOneError,
+  PredecessorOfConfirmedAcquisitionError,
   changeOwnership,
   closeOwnership,
   createOwnership,
@@ -94,6 +95,12 @@ describe('Ownership use cases', () => {
     await expect(voided({ kind: 'NOT_FOUND' })).rejects.toBeInstanceOf(OwnershipNotFoundError);
     await expect(voided({ kind: 'VERSION_CONFLICT', expectedVersions: [1], currentVersion: 2 })).rejects.toBeInstanceOf(VersionConflictError);
     const read = readPropertyOwnerships({ repository: repository({}) });
+    // §28.1A: the predecessor of a confirmed purchase's Ownership, on create, close, void (and change below).
+    const predecessor = { kind: 'PREDECESSOR_OF_CONFIRMED', acquisitionId: 'x', ownershipId: 'o3' } as const;
+    const refusal = new PredecessorOfConfirmedAcquisitionError('x', 'o3');
+    await expect(close(predecessor)).rejects.toMatchObject(refusal);
+    await expect(voided(predecessor)).rejects.toMatchObject(refusal);
+    await expect(createOwnership({ repository: repository({ create: async () => predecessor }) })({ principal, ...fields })).rejects.toMatchObject(refusal);
     await expect(read({ principal, propertyReferenceId: 'pr', asOf: day('2026-08-01') })).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
     await expect(read({ principal, propertyReferenceId: 'pr', page: { page: 1, pageSize: 50 } })).rejects.toBeInstanceOf(PropertyReferenceNotFoundError);
   });
@@ -142,6 +149,9 @@ describe('Ownership change use case', () => {
     ).rejects.toBeInstanceOf(OwnershipTotalExceedsOneError);
     await expect(refused({ kind: 'OWNERSHIP_INCOMPLETE', date: day('2030-01-01'), shareSum: { numerator: 5n, denominator: 6n } })).rejects.toBeInstanceOf(
       OwnershipIncompleteError,
+    );
+    await expect(refused({ kind: 'PREDECESSOR_OF_CONFIRMED', acquisitionId: 'x', ownershipId: 'o3' })).rejects.toMatchObject(
+      new PredecessorOfConfirmedAcquisitionError('x', 'o3'),
     );
   });
 });

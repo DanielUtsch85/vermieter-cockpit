@@ -1,52 +1,28 @@
 import pg from 'pg';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Direction, SplitInput } from '../../domains/ledger/index.js';
-import { DE_CATEGORY_DEFAULTS_V1, type NewTaxClassification, type TaxListItem, type TaxMeaning, type TaxPage } from '../../domains/taxation/index.js';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { parseMea, type Mea } from '../../domains/weg/index.js';
-import { Money, type BusinessDate } from '../../shared/index.js';
-import { PostgresCorrectionRepository } from './correction-repository.js';
+import type { PostgresCorrectionRepository } from './correction-repository.js';
 import { createDatabase } from './database.js';
-import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
-import { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
+import type { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import { checkStoredRuleReferences } from './tax-rule-check.js';
 import { testSchemaName } from './test-schema.test-support.js';
-import { PostgresTransactionRepository } from './transaction-repository.js';
-import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
-import { PostgresWegRepository } from './weg-repository.js';
+import { databaseUrl, REALM, OTHER_REALM, actor, day, today, UNKNOWN, split, useTaxClassificationDatabase } from './tax-classification.test-support.js';
+import type { PostgresWegRepository } from './weg-repository.js';
 
 /**
  * VC-7-01 persistence (api-design.md §55–§58): create with its order of checks, supersede and replay; the history; the
- * review steps with their AuditRecords, no-ops and refusals; the tax meaning per split and per property and year; the
- * split and its Transaction unchanged by every command; every guard of 0045 past the repository; the start check; the
- * serialisation on the Transaction row under RC and RR; and `down`. Figures are invented.
+ * review steps with their AuditRecords, no-ops and refusals; the split and its Transaction unchanged by every command;
+ * every guard of 0045 past the repository; the start check; the serialisation on the Transaction row under RC and RR;
+ * and `down`. The tax meaning per split and per property and year is in `tax-meaning-reads.test.ts`. Figures are
+ * invented.
  */
-const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
-
-const REALM = '64b0c0ffee000000000000a1';
-const OTHER_REALM = '64b0c0ffee000000000000a2';
-const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
-const day = (value: string) => value as BusinessDate;
-const eur = (amount: string) => Money.of(amount, 'EUR');
-const today = day('2026-10-30');
-const UNKNOWN = '00000000-0000-4000-8000-000000000000';
-const split = (amount: string, financialCategoryCode: string, propertyReferenceId: string | null): SplitInput => ({
-  amount: eur(amount),
-  financialCategoryCode,
-  propertyReferenceId,
-  loanId: null,
-  securityDepositId: null,
-  description: null,
-});
 const mea = (text: string): Mea => {
   const parsed = parseMea(text);
   if (!('mea' in parsed)) throw new Error(text);
   return parsed.mea;
 };
 let counter = 0;
-/** The split items of a page of the per-property list (VC-7-02 adds retained deposits). */
-const splitsOf = (page: TaxPage<TaxListItem> | undefined): TaxMeaning[] =>
-  (page?.items ?? []).filter((m): m is TaxMeaning & TaxListItem => m.sourceType === 'TRANSACTION_SPLIT');
 
 async function withMigrationLock(work: () => Promise<unknown>): Promise<void> {
   const lock = new pg.Client({ connectionString: databaseUrl });
@@ -79,108 +55,13 @@ function reasonOf(error: { message?: string; constraint?: string; code?: string 
 }
 
 describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', () => {
-  const schema = testSchemaName('tax_classification_test');
+  const { ctx, propertyReference, booked, oneSplit, request, classified, audit, cashOf } = useTaxClassificationDatabase('tax_classification_test');
   let pool: pg.Pool;
   let classifications: PostgresTaxClassificationRepository;
-  let accounts: PostgresFinancialAccountRepository;
-  let transactions: PostgresTransactionRepository;
-  let splits: PostgresTransactionSplitRepository;
   let corrections: PostgresCorrectionRepository;
   let wegs: PostgresWegRepository;
-
-  beforeAll(async () => {
-    const admin = new pg.Client({ connectionString: databaseUrl });
-    await admin.connect();
-    await admin.query(`CREATE SCHEMA "${schema}"`);
-    await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
-    await migrateToLatest(pool, { migrationTableSchema: schema });
-    const db = createDatabase(pool);
-    classifications = new PostgresTaxClassificationRepository(db);
-    accounts = new PostgresFinancialAccountRepository(db);
-    transactions = new PostgresTransactionRepository(db);
-    splits = new PostgresTransactionSplitRepository(db);
-    corrections = new PostgresCorrectionRepository(db);
-    wegs = new PostgresWegRepository(db);
-  });
-
-  afterAll(async () => {
-    await pool.end();
-  });
-
-  async function propertyReference(realm = REALM) {
-    const mrePropertyId = (0x6512f0c2a1b2c3d4e5fb0000n + BigInt(++counter)).toString(16).padStart(24, '0');
-    const { rows } = await pool.query(
-      `INSERT INTO property_reference (mre_realm_id, mre_property_id, external_reference_state, created_by) VALUES ($1, $2, 'ACTIVE', 'x') RETURNING id`,
-      [realm, mrePropertyId],
-    );
-    return rows[0].id as string;
-  }
-  async function transaction(options: { direction?: Direction; amount?: string; bookingDate?: string; realm?: string } = {}) {
-    const realm = options.realm ?? REALM;
-    const account = await accounts.create({ mreRealmId: realm, accountType: 'BANK', displayName: 'Giro', currency: 'EUR', iban: null }, actor);
-    if (account.kind !== 'CREATED') throw new Error(account.kind);
-    const created = await transactions.createManual(
-      {
-        mreRealmId: realm,
-        financialAccountId: account.account.id,
-        amount: eur(options.amount ?? '120.00'),
-        direction: options.direction ?? 'OUTFLOW',
-        bookingDate: day(options.bookingDate ?? '2026-03-02'),
-        valueDate: null,
-        description: 'Handwerker',
-        propertyReferenceId: null,
-      },
-      actor,
-    );
-    if (created.kind !== 'CREATED') throw new Error(created.kind);
-    return created.transaction.id;
-  }
-  /** A Transaction with its splits, confirmed unless `confirm` is false; returns it and its split ids by position. */
-  async function booked(
-    set: SplitInput[],
-    options: { direction?: Direction; bookingDate?: string; confirm?: boolean; realm?: string } = {},
-  ): Promise<{ tx: string; splitIds: string[] }> {
-    const total = set.reduce((sum, s) => sum.add(s.amount), eur('0.00'));
-    const realm = options.realm ?? REALM;
-    const tx = await transaction({ ...options, amount: total.amount });
-    const outcome = await splits.replaceSplits(tx, realm, set, actor);
-    if (outcome.kind !== 'REPLACED') throw new Error(JSON.stringify(outcome));
-    if (options.confirm !== false) expect((await transactions.confirm(tx, realm, actor)).kind).toBe('CONFIRMED');
-    const { rows } = await pool.query(`SELECT id FROM transaction_split WHERE transaction_id = $1 ORDER BY position`, [tx]);
-    return { tx, splitIds: rows.map((r) => r.id as string) };
-  }
-  async function oneSplit(code = 'MAINTENANCE', options: Parameters<typeof booked>[1] & { amount?: string } = {}) {
-    const pr = await propertyReference(options.realm);
-    const { tx, splitIds } = await booked([split(options.amount ?? '120.00', code, pr)], options);
-    return { tx, splitId: splitIds[0] as string, pr };
-  }
-  const request = (sourceId: string, overrides: Partial<NewTaxClassification> = {}): NewTaxClassification => ({
-    mreRealmId: REALM,
-    sourceType: 'TRANSACTION_SPLIT',
-    sourceId,
-    taxCategory: 'MAINTENANCE',
-    treatment: 'CAPITALIZED',
-    reviewState: 'USER_CONFIRMED',
-    supersedes: null,
-    notes: 'Austausch Thermostatventile',
-    sourceReferences: ['Rechnung 2026-117'],
-    ...overrides,
-  });
-  async function classified(sourceId: string, overrides: Partial<NewTaxClassification> = {}) {
-    const created = await classifications.createClassification(request(sourceId, overrides), actor);
-    if (created.kind !== 'CREATED') throw new Error(JSON.stringify(created));
-    return created.classification;
-  }
-  const audit = async (id: string) =>
-    (await pool.query(`SELECT action, metadata, actor_id, previous_version, new_version FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, id`, [id]))
-      .rows as { action: string; metadata: Record<string, unknown>; actor_id: string; previous_version: number | null; new_version: number }[];
-  /** The Transaction row and its split rows as stored, for the "nothing changes" counter-check. */
-  const cashOf = async (tx: string) => ({
-    transaction: (await pool.query(`SELECT row_to_json(t)::text AS j FROM ledger_transaction t WHERE id = $1`, [tx])).rows[0].j as string,
-    splits: (await pool.query(`SELECT row_to_json(s)::text AS j FROM transaction_split s WHERE transaction_id = $1 ORDER BY position`, [tx])).rows.map(
-      (r) => r.j as string,
-    ),
+  beforeAll(() => {
+    ({ pool, classifications, corrections, wegs } = ctx);
   });
 
   describe('create (§56)', () => {
@@ -418,123 +299,6 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
     });
   });
 
-  describe('tax meaning (§55)', () => {
-    it('DEFAULT, CLASSIFICATION, NOT_COUNTED, CLASSIFICATION_ON_CORRECTED_SPLIT; 404 of another Realm', async () => {
-      const pr = await propertyReference();
-      const { tx, splitIds } = await booked([split('100.00', 'MAINTENANCE', pr), split('20.00', 'OTHER_EXPENSE', pr)]);
-      const [maintenance, other] = splitIds as [string, string];
-      expect(await classifications.findTaxMeaning(maintenance, REALM, today)).toMatchObject({
-        splitId: maintenance,
-        transactionId: tx,
-        bookingDate: '2026-03-02',
-        direction: 'OUTFLOW',
-        amount: eur('100.00'),
-        financialCategoryCode: 'MAINTENANCE',
-        propertyReferenceId: pr,
-        counts: true,
-        taxCategory: 'MAINTENANCE',
-        treatment: 'DEDUCTIBLE',
-        reviewState: 'SUGGESTED',
-        origin: 'DEFAULT',
-        rule: { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 },
-        classificationId: null,
-        flags: [],
-      });
-      expect(await classifications.findTaxMeaning(other, REALM, today)).toMatchObject({
-        taxCategory: 'UNCLASSIFIED',
-        treatment: null,
-        reviewState: 'NEEDS_REVIEW',
-      });
-      const c = await classified(maintenance);
-      expect(await classifications.findTaxMeaning(maintenance, REALM, today)).toMatchObject({
-        origin: 'CLASSIFICATION',
-        treatment: 'CAPITALIZED',
-        reviewState: 'USER_CONFIRMED',
-        classificationId: c.id,
-      });
-      const corrected = await corrections.correct(tx, REALM, { reason: 'Beschreibung', replacement: { description: 'Heizung' } }, actor);
-      if (corrected.kind !== 'CORRECTED' || corrected.result.replacement === null) throw new Error(corrected.kind);
-      expect(await classifications.findTaxMeaning(maintenance, REALM, today)).toMatchObject({
-        counts: false,
-        origin: 'CLASSIFICATION',
-        flags: [{ code: 'NOT_COUNTED', details: { transactionStatus: 'CORRECTED', correctionRole: null } }],
-      });
-      const { rows } = await pool.query(`SELECT id FROM transaction_split WHERE transaction_id = $1 ORDER BY position`, [corrected.result.replacement.id]);
-      expect(await classifications.findTaxMeaning(rows[0].id, REALM, today)).toMatchObject({
-        counts: true,
-        origin: 'DEFAULT',
-        treatment: 'DEDUCTIBLE',
-        flags: [{ code: 'CLASSIFICATION_ON_CORRECTED_SPLIT', details: { originalTransactionId: tx, classificationIds: [c.id] } }],
-      });
-      // The replacement's other split shares the Transaction: the flag is per Transaction's original (P7-D2).
-      expect((await classifications.findTaxMeaning(rows[1].id, REALM, today))?.flags.map((f) => f.code)).toEqual(['CLASSIFICATION_ON_CORRECTED_SPLIT']);
-      const { rows: reversal } = await pool.query(
-        `SELECT s.id FROM transaction_split s JOIN ledger_transaction t ON t.id = s.transaction_id WHERE t.correction_of_transaction_id = $1 AND t.correction_role = 'REVERSAL' ORDER BY position`,
-        [tx],
-      );
-      expect(await classifications.findTaxMeaning(reversal[0].id, REALM, today)).toMatchObject({
-        counts: false,
-        flags: [{ code: 'NOT_COUNTED', details: { transactionStatus: 'CONFIRMED', correctionRole: 'REVERSAL' } }],
-      });
-      expect(await classifications.findTaxMeaning(maintenance, OTHER_REALM, today)).toBeUndefined();
-      expect(await classifications.findTaxMeaning(UNKNOWN, REALM, today)).toBeUndefined();
-      const open = await oneSplit('MAINTENANCE', { confirm: false });
-      expect((await classifications.findTaxMeaning(open.splitId, REALM, today))?.flags).toEqual([
-        { code: 'NOT_COUNTED', details: { transactionStatus: 'CLASSIFIED', correctionRole: null } },
-      ]);
-    });
-
-    it('per property and year: only counting splits of the year, ordered, filtered and paged; unknown property', async () => {
-      const pr = await propertyReference();
-      const a = await booked([split('900.00', 'RENT_BASE', pr), split('150.00', 'RENT_OPERATING_COST_ADVANCE', pr)], {
-        direction: 'INFLOW',
-        bookingDate: '2026-02-01',
-      });
-      const b = await booked([split('80.00', 'OTHER_EXPENSE', pr)], { bookingDate: '2026-01-15' });
-      const c = await booked([split('300.00', 'MAINTENANCE', pr)], { bookingDate: '2026-12-31' });
-      await booked([split('300.00', 'MAINTENANCE', pr)], { bookingDate: '2025-12-31' });
-      await booked([split('300.00', 'MAINTENANCE', pr)], { bookingDate: '2027-01-01' });
-      await booked([split('300.00', 'MAINTENANCE', pr)], { bookingDate: '2026-06-01', confirm: false });
-      await booked([split('300.00', 'MAINTENANCE', await propertyReference())], { bookingDate: '2026-06-01' });
-      const reversed = await booked([split('40.00', 'BANK_FEES', pr)], { bookingDate: '2026-05-01' });
-      await corrections.correct(reversed.tx, REALM, { reason: 'falsch', replacement: null }, actor);
-      await classified(c.splitIds[0] as string, { reviewState: 'NEEDS_REVIEW' });
-      const page = { page: 1, pageSize: 200 };
-      const all = await classifications.listTaxMeanings(pr, REALM, 2026, {}, page, today);
-      expect(splitsOf(all).map((m) => [m.bookingDate, m.financialCategoryCode, m.origin])).toEqual([
-        ['2026-01-15', 'OTHER_EXPENSE', 'DEFAULT'],
-        ['2026-02-01', 'RENT_BASE', 'DEFAULT'],
-        ['2026-02-01', 'RENT_OPERATING_COST_ADVANCE', 'DEFAULT'],
-        ['2026-12-31', 'MAINTENANCE', 'CLASSIFICATION'],
-      ]);
-      expect(all?.total).toBe(4);
-      expect(splitsOf(await classifications.listTaxMeanings(pr, REALM, 2026, { reviewStates: ['NEEDS_REVIEW'] }, page, today)).map((m) => m.splitId)).toEqual([
-        b.splitIds[0],
-        c.splitIds[0],
-      ]);
-      expect(splitsOf(await classifications.listTaxMeanings(pr, REALM, 2026, { origins: ['CLASSIFICATION'] }, page, today)).map((m) => m.splitId)).toEqual([
-        c.splitIds[0],
-      ]);
-      expect(
-        splitsOf(await classifications.listTaxMeanings(pr, REALM, 2026, { taxCategories: ['RENT', 'OPERATING_COST_ADVANCES'] }, page, today)).map(
-          (m) => m.splitId,
-        ),
-      ).toEqual(a.splitIds);
-      const second = await classifications.listTaxMeanings(pr, REALM, 2026, {}, { page: 2, pageSize: 3 }, today);
-      expect(second).toMatchObject({ page: 2, pageSize: 3, total: 4 });
-      expect(splitsOf(second).map((m) => m.splitId)).toEqual([c.splitIds[0]]);
-      expect(await classifications.listTaxMeanings(pr, OTHER_REALM, 2026, {}, page, today)).toBeUndefined();
-      expect(await classifications.listTaxMeanings(UNKNOWN, REALM, 2026, {}, page, today)).toBeUndefined();
-      expect((await classifications.listTaxMeanings(pr, REALM, 2024, {}, page, today))?.items).toEqual([]);
-    });
-
-    it('every category seeded by the migrations is listed in the default table', async () => {
-      const { rows } = await pool.query(`SELECT code, category_type FROM financial_category ORDER BY code`);
-      for (const row of rows) expect(Object.keys(DE_CATEGORY_DEFAULTS_V1.parameters.defaults), row.code).toContain(row.code);
-      expect(rows.length).toBe(Object.keys(DE_CATEGORY_DEFAULTS_V1.parameters.defaults).length);
-    });
-  });
-
   it('no command changes the split or its Transaction (rows and versions)', async () => {
     const { tx, splitId } = await oneSplit();
     const before = await cashOf(tx);
@@ -742,11 +506,12 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
       await admin.connect();
       await admin.query(`CREATE SCHEMA "${downSchema}"`);
       await admin.end();
-      const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 2 });
+      const downPool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema} -c application_name=${downSchema}`, max: 2 });
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
-        // 0046 (VC-7-02) builds on 0045: its own down first.
+        // 0046 (VC-7-02) builds on 0045: its own down first; 0052 (VC-8-04) names a classification by foreign key.
         await withMigrationLock(async () => {
+          await (await import('./migrations/0052_depreciation_schedule_version.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0045_tax_classification.js')).down(createDatabase(downPool) as never);
@@ -802,9 +567,10 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
         async () =>
           Number(
             (
-              await pool.query(`SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [
-                `%${text}%`,
-              ])
+              await pool.query(
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE $1`,
+                [`%${text}%`],
+              )
             ).rows[0].count,
           ) >= 1,
       );

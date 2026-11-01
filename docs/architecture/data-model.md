@@ -734,6 +734,15 @@ Transaction to a cost or to the purchase price. Contract: api-design §27.2.
   There is **no** `PURCHASE_PRICE`: the price is `Acquisition.purchasePrice`, entered once. Categories must remain
   extensible.
 - The former `transactionSplitId` is replaced by AcquisitionPayment.
+- **Planned (VC-X-42, api-design §59D; specified and decided, not implemented; migration 0055 planned): `AcquisitionCostClassification`**,
+  the purpose of one cost, recorded as entered and only superseded (as §15's allocation), the cost itself staying frozen:
+  `parts` (1–5 `{ purpose, amount }` summing exactly to the cost's amount; `purpose` `OWNERSHIP_TRANSFER` |
+  `FINANCING` | `NOT_ACQUISITION_COST`), `description`, `sourceReferences`, `reviewState`, `advisorPartyId`, `notes`,
+  `supersedesId`, `supersededAt`. Tables `acquisition_cost_classification` and `acquisition_cost_classification_part`
+  (rows, not a blob); no column on `acquisition_cost`. A `NOTARY`, `LAND_REGISTRY` or `OTHER` cost enters a tax basis
+  only with a confirmed classification as `OWNERSHIP_TRANSFER`; a `FINANCING_RELATED` cost never does (tax review of
+  2026-11-01, questions 10 and 24). No input VAT per classification (decided by the owner on 2026-11-01, §59D open
+  question 6): the scope assumption without a VAT option stays global, as for capitalised items.
 
 ---
 
@@ -1428,6 +1437,9 @@ The allocation does not create new Loans.
 - `allocationShare` is an exact reduced fraction (`"n/d"`), not a percent; a set sums to exactly `1/1`, enforced at
   commit. `allocationBasis`: `MANUAL`, or `PURCHASE_PRICE` with the Acquisition per property whose price derives the
   fraction exactly (ADR-038's default). `allocatedPrincipalReference` is dropped: allocated amounts are derived.
+- **Tax confirmation (VC-X-28, api-design §58E; specified, not implemented):** a multi-entry `PURCHASE_PRICE` set
+  can be confirmed for the tax view by a `LoanAllocationTaxConfirmation` (§36A), Taxation's record that references the
+  set; the set itself never changes, and Financing never reads the confirmation.
 
 ---
 
@@ -2007,6 +2019,38 @@ Represent the tax interpretation of an existing economic item.
 
 **VC-7-04 (P7-D7, P7-D8, api-design §58C, implemented; migration 0048, an index only):** the tax-year view per PropertyReference and per owner is derived on every read and never stored; it adds no field to `TaxClassification`. `ownerAllocationBasis` is not stored: the owner level takes each item × the owner's Ownership share valid on the item's date (§12.5; AGENTS.md §12), by largest remainder per item.
 
+**VC-X-28 (api-design §58E; specified, not implemented; migration 0053 planned):** a person's statements that the tax-year view reads, never a figure: `TaxYearAcknowledgement` and `LoanAllocationTaxConfirmation` (§36A).
+
+---
+
+# 36A. TaxYearAcknowledgement and LoanAllocationTaxConfirmation (planned)
+
+**Domain:** Taxation  
+**Stability:** Evolving (specified in api-design §58E, VC-X-28; open questions there, e.g. one table or two)  
+**Aggregate Role:** Entities of their own; never changed, only withdrawn
+
+## Purpose
+
+Record, traceably, that a person has seen and dealt with an open review flag of the tax-year view that no classification can clear:
+- a **TaxYearAcknowledgement** acknowledges one attribution change (one AuditRecord of a `rentDueDays` amendment, a reconciliation confirmed or released, a Loan terms period added or voided) for one PropertyReference and tax year, as it was shown (its fingerprint). It makes `ATTRIBUTION_INPUT_CHANGED` informative for that change; a new change, or the same change moving other items, is open again;
+- a **LoanAllocationTaxConfirmation** confirms one multi-entry `PURCHASE_PRICE` LoanAllocation set as a whole for the tax attribution of its interest (§23; api-design §58D, decided 2026-10-31, third set). It makes `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` informative on the items that set attributes. Showing or applying the key is no confirmation.
+
+---
+
+## Fields
+
+- **TaxYearAcknowledgement:** `id`, `mreRealmId`, `propertyReferenceId`, `taxYear`, `auditRecordId` (the change), `changeKind`, `changeEntityType`, `changeEntityId`, `changeRecordedAt`, `changeFingerprint`, the moved items as rows (`sourceId`, `yearBefore`, `yearAfter`), `reason`, `acknowledgedAt`, `acknowledgedBy`, `status` (`ACTIVE` → `WITHDRAWN`), `withdrawnAt`, `withdrawnBy`, `withdrawReason`, `version`.
+- **LoanAllocationTaxConfirmation:** `id`, `mreRealmId`, `allocationSetId` (the Loan is the set's), `reason`, `advisorPartyId` (optional), `confirmedAt`, `confirmedBy`, `status` (`ACTIVE` → `WITHDRAWN`), `withdrawnAt`, `withdrawnBy`, `withdrawReason`, `version`.
+
+---
+
+## Invariants
+
+- Append-only: no field changes; the only step is `ACTIVE` → `WITHDRAWN` (if withdrawal is decided, api-design §58E open question 2); never deleted.
+- At most one `ACTIVE` acknowledgement per PropertyReference, year, change and fingerprint; at most one `ACTIVE` confirmation per set.
+- A confirmation names a `VALID` set with `basis = PURCHASE_PRICE` and more than one entry, of the same Realm.
+- Neither creates cash, changes a classification, an allocation or any figure (ADR-006); the view derives the flag's level from them on read.
+
 ---
 
 # 37. TaxRuleVersion
@@ -2054,6 +2098,10 @@ Rule versions used in historical calculations must remain addressable.
 
 **VC-7-03 (api-design §58B, implemented):** `DE_CATEGORY_DEFAULTS@1` stays frozen and unchanged. Three rules join the registry: `DE_WEG_SPENDING@1` (the WEG sources' default, lines and treatments; from 2000-01-01), `DE_82B_DISTRIBUTION@1` (2–5 years; from 2004-01-01) and `DE_ANSCHAFFUNGSNAHE@1` (15 %, 3 years; from 2004-01-01, selected by the transfer date). A classification may store a second reference (`treatmentRule`); the start check resolves it too.
 
+**VC-8-01 (P8-D11, api-design §59, implemented: migration 0049):** `DE_AFA_BUILDING_LINEAR@1` (§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG; from 2023-01-01, selected by the tax year computed; renumbered `@2` by VC-8-02, with an earlier `@1` for 2006–2022, api-design §59A "The rule versions") is a module of the Depreciation domain, registered in the same registry. The registry (`RuleRegistry` and `rule-version.ts` in `shared/`) is composed as `TAX_RULES` in `domains/tax-rules/`, above both domains, from the versions each domain exports (api-design §59). Its rate bands (3 % / 2 % / 2.5 % by completion year, B1–B3) are parameters of the rule, and so is each band's threshold of the shorter useful life (`shorterThanYears`: 33 / 50 / 40 years, § 7 Abs. 4 S. 2 EStG; verified against the official text on 30.10.2026). No table stores them, and the asset stores no rule reference.
+
+**VC-8-04 (P8-D10, api-design §60, implemented; migration 0052; recording disabled by default):** a recorded schedule version (§39) stores each `ruleCode@version` it applied with the SHA-256 hash of the rule version (`ruleVersionHash`: every field but `effectiveTo` and the derived `status`, i.e. `title`, `legalBasis`, `effectiveFrom`, `parameters` and `source` included; computed through a port, with `node:crypto` in `infrastructure/` only). `DE_AFA_BUILDING_LINEAR@1` and `DE_AFA_MOVABLE_LINEAR@1` are frozen from the recording switch's first productive enablement (§60, decided 2026-10-31, third set; their hashes pinned in `infrastructure/hashing/frozen-rules.test.ts` since VC-8-04): a change of any hashed field is a new version, and only `effectiveTo` is set once when a successor starts. The start check reads the recorded references too and refuses to start on an unregistered version or a stored hash that differs from the registry's.
+
 ---
 
 # 38. DepreciationAsset
@@ -2064,87 +2112,105 @@ Rule versions used in historical calculations must remain addressable.
 
 ## Purpose
 
-Represent one canonical depreciation basis.
+Record the facts of one depreciable asset that no other record holds, as inputs to its derived schedule. Rewritten by phase-8-plan P8-D1 (decided; VC-8-01, api-design §59, implemented: migration 0049): the asset stores its own inputs and **never** its basis. Tables `depreciation_asset` and `depreciation_asset_useful_life` (one row per shorter useful life, keyed `(asset_id, acquisition_id)`; the Acquisition by the composite key `(acquisition_id, mre_realm_id, property_reference_id)`); no column for a basis, rate, start, amount, allocation, Acquisition or rule. An amend writes the entries as a difference by `acquisitionId`; the guard `depreciation_asset_useful_life_open` refuses a new entry for a `CANCELLED` Acquisition and any entry change on a `VOID` asset.
 
 ---
 
 ## Required Fields
 
 - `id`
+- `mreRealmId`
 - `propertyReferenceId`
-- `assetType`
-- `basisAmount`
-- `currency`
-- `startDate`
-- `depreciationMethod`
-- `status`
+- `assetType`: `BUILDING` (one `ACTIVE` per PropertyReference); `SEPARATE_ASSET` with VC-8-03 (P8-D7, api-design §59B; several per PropertyReference)
+- `depreciationMethod`: `LINEAR_7_4` (§ 7 Abs. 4 EStG) on a building; `LINEAR_7_1` (§ 7 Abs. 1 EStG) on a separate asset (VC-8-03)
+- `reviewState` (§6.7): `UNREVIEWED`, `NEEDS_REVIEW`, `CONFIRMED`, `ADVISOR_CONFIRMED`
+- `status`: `ACTIVE` → `VOID` (final)
+- `version`, `createdAt`
 
 ---
 
 ## Optional Fields
 
-- `acquisitionId`
-- `maintenanceProjectId`
-- `landBuildingAllocationId`
-- `taxRuleVersionId`
-- `depreciationRate`
-- `usefulLife`
-- `ownershipBasis`
-- `sourceReferences`
+- `buildingCompletionYear` (`null` while unknown; never defaulted). It selects the rate band of § 7 Abs. 4 S. 1 Nr. 2 EStG (P8-D4).
+- `sourceReferences` (where the year comes from)
+- `advisorPartyId` (only with `ADVISOR_CONFIRMED`)
+- `shorterUsefulLives`: at most one per Acquisition of the PropertyReference (§ 7 Abs. 4 S. 2 EStG, P8-D4), each with `acquisitionId`, `usefulLifeYears` (1–99), `evidence` (`source`, `date`, `documentReference`), its own `reviewState` and `advisorPartyId`. Stored as rows of their own, never as a blob.
+- **Planned (VC-X-37, api-design §59C; specified, not implemented; migration 0054 planned): `purchaseMethods`** on a building: at most one entry per Acquisition of the PropertyReference, at most 20, each with `acquisitionId`, `consideration` (`PAID`, `PARTLY_PAID`, `UNPAID`), `method` (`LINEAR_7_4`, `DEGRESSIVE_7_5`, `DEGRESSIVE_7_5A`, `OTHER`; the method applied so far, VC-X-32's record), `specialDepreciation` (a list of `SPECIAL_7B`, `INCREASED_7H`, `INCREASED_7I`, `OTHER`; `[]` = none claimed), `subsidiesReceived`, `newBuildingByConversion`, `otherSpecialCase` with `otherSpecialCaseNote`, `evidence` (`source`, `date`, `documentReference`), its own `reviewState` and `advisorPartyId`, `notes`. Rows of `depreciation_asset_purchase_method`, keyed `(asset_id, acquisition_id)`. The `methodStatus` (`STANDARD` or `NOT_SUPPORTED` with `causes`) is derived by the rule, never stored; a purchase component is computed only with a confirmed `STANDARD` entry (tax review of 2026-11-01, question 2: never linear by default).
 - `notes`
+- `voidedAt`, `voidReason`
+- **On a `SEPARATE_ASSET` only, required there** (VC-8-03, api-design §59B; implemented, migration 0051): `description`, `usefulLifeYears` (1–99) with `usefulLifeBasis` (its legal or factual basis, e.g. BFH IX R 14/15 for an Einbauküche, B8), `acquiredOn` (the month of acquisition, § 7 Abs. 1 S. 4 EStG), and `items`: links to the capitalised items it consists of, as rows of `depreciation_asset_item` (`source_type`, `source_id`, `source_position`, and `asset_status` following the asset's status by an `ON UPDATE CASCADE` key), at most 50, an item in at most one `ACTIVE` asset (a partial unique index). `buildingCompletionYear` and `shorterUsefulLives` are building-only.
 
 ---
 
-## Suggested Asset Types
+## Derived, never stored (AGENTS.md §17, §82)
 
-- `BUILDING_ACQUISITION_BASIS`
-- `CAPITALIZED_IMPROVEMENT`
-- `SEPARATE_COMPONENT`
-- `OTHER`
+- the basis (the building's acquisition cost of each `CONFIRMED` Acquisition as §58B derives it, and from VC-8-03 each capitalised item not linked to a separate asset: a source whose current confirmed classification is `CAPITALIZED`, at its gross `lineAmount`), and the start, the first year, each year's amount and the residual value (api-design §59A, VC-8-02; §59B, VC-8-03);
+- a separate asset's cost (the sum of its linked counting `CAPITALIZED` items, api-design §59B); no cost is ever entered on the asset;
+- the rate of a year (api-design §59: the band of `DE_AFA_BUILDING_LINEAR` by the completion year, or `1/usefulLifeYears` for a confirmed shorter life, which is shorter only below the band's `shorterThanYears`);
+- the applied rule version (a recorded schedule version stores it, §39, VC-8-04).
+
+The former fields `basisAmount`, `currency`, `startDate`, `depreciationRate`, `landBuildingAllocationId`, `taxRuleVersionId`, `usefulLife` and `ownershipBasis` are derived in this way. `acquisitionId` gives way to the components of P8-D2, one per `CONFIRMED` Acquisition. `maintenanceProjectId` and the former types `BUILDING_ACQUISITION_BASIS`, `CAPITALIZED_IMPROVEMENT`, `SEPARATE_COMPONENT` and `OTHER` are withdrawn. A capitalised improvement is a component of the building's basis (P8-D6), and a separate component is a `SEPARATE_ASSET` (P8-D7).
 
 ---
 
 ## Invariants
 
-- Land must not be included in a depreciable building basis.
-- Basis must have traceable provenance.
-- Confirmed Assets should not silently change basis without versioned correction.
+- Land is never in a depreciable basis (B5); the asset has no basis to hold it.
+- A capitalised item is in exactly one asset's basis: the `ACTIVE` separate asset that links it, else the `ACTIVE` building of its PropertyReference; only a `CAPITALIZED` classification puts it there, never a suggestion (VC-8-03, api-design §59B).
+- Every input has traceable provenance: the year has its sources, and a shorter life has its evidence.
+- Only a confirmed fact feeds a canonical figure: an asset or a shorter life in `UNREVIEWED` or `NEEDS_REVIEW` makes its component not computable (as §15's allocation).
+- A change is a command with `If-Match`, writes an AuditRecord, and resets the review state of the fact it changes. A changed input changes the derived schedule of every year, which a recorded version shows as `DEPRECIATION_CHANGED_SINCE_RECORDED` (P8-D10).
 
 ---
 
 # 39. DepreciationScheduleVersion
 
 **Domain:** Depreciation  
-**Stability:** Stable
+**Stability:** Stable  
+**Aggregate Role:** Entity of `DepreciationAsset` (recorded through the asset's route; never changed)
 
 ## Purpose
 
-Represent one reproducible version of a depreciation schedule.
+A person's record of the derived schedule of one `DepreciationAsset` for every year from its first year up to `throughYear`: the **inputs** of the derivation and its **output**, so that it can be recomputed and compared with today's derivation (phase-8-plan P8-D10, decided 2026-10-30: computed on read, recorded as versions; api-design §60, VC-8-04, implemented; migration 0052, with two columns beyond §60's list: the version's `currency` and a part's `pool_key`, api-design §60 "As implemented (VC-8-04)" 2; recording disabled by default until the productive enablement). The derived schedule stays the truth of the reads; a version never feeds a figure in its place. It is not an `InvestmentMetricSnapshot` (ADR-040).
 
 ---
 
 ## Required Fields
 
-- `id`
-- `depreciationAssetId`
-- `version`
-- `generatedAt`
-- `calculationMethodVersion`
-- `status`
+- `id`, `mreRealmId`, `depreciationAssetId`, `propertyReferenceId` (the asset's, by composite key)
+- `versionNumber` (1, 2, … per asset)
+- `status`: `CURRENT` → `SUPERSEDED` (final); at most one `CURRENT` per asset
+- `fromYear`, `throughYear`
+- `reason`, `recordedAt`, `recordedBy`, `computedOn`
+- `calculationVersion` (the schedule arithmetic's version; formerly `calculationMethodVersion`)
+- `inputFingerprint`, `outputFingerprint` (SHA-256 of the canonical inputs truncated to `throughYear`, and of the entries)
+- the asset's facts used: `assetType`, `depreciationMethod`, `buildingCompletionYear` or `description`, `usefulLifeYears`, `acquiredOn`, the asset's `reviewState` (confirmed only) and its row `version`
 
 ---
 
 ## Optional Fields
 
-- `taxRuleVersionId`
-- `reason`
-- `supersedesVersionId`
+- `supersedesVersionId`, `supersededByVersionId`, `supersededAt`
 
 ---
 
-## Invariant
+## Rows (AGENTS.md §28: no blob)
 
-A schedule version must remain reproducible from referenced inputs.
+- **rule versions:** `ruleCode`, `version`, `ruleVersionHash`, first and last year (replaces `taxRuleVersionId`);
+- **components:** `componentId`, `kind` (`ACQUISITION`, `CAPITALIZED_ITEM`), basis, start, rate source; a purchase's `acquisitionId`, price, counted and excluded cost ids and totals, `allocationId` with its amounts and review state; an item's `sourceType`, `sourceId`, `sourcePosition`, `classificationId`, its date, tax year and signed `lineAmount`;
+- **owner parts:** per component, `OWNER:{partyId}` or `NOT_OWNED`, the Ownership ids, share, weight, basis, first month, tenure start and end, and the still-held fractions as rows of their own;
+- **years:** amount, residual value, and the year's input and output fingerprints;
+- **entries** (§40) and the **flags** that stood when it was recorded (code and level).
+
+---
+
+## Invariants
+
+- **Append-only:** no row of a version is updated or deleted; the only change is the step `CURRENT` → `SUPERSEDED` when a newer version of the same asset is recorded, in the same transaction. Child rows are inserted only in the transaction that inserted their version, checked against the version's stored `created_txid` (`txid_current()` at its insert), never its `xmin`, which the supersede step changes (migration 0052's guards).
+- **Reproducible:** recomputing the entries from the stored inputs with the stored rule versions gives the stored entries exactly, and each stored rule-version hash equals the registry's; otherwise the read flags `RECORDED_VERSION_NOT_REPRODUCIBLE` (open), and a hash mismatch stops the backend's start.
+- **Recorded only with figures:** every year of the run has a computed AfA (no not-computable component); the inputs come from one `REPEATABLE READ` snapshot.
+- **Coverage never shrinks:** a new version's `throughYear` is at least the current one's, and a recorded year whose figures it changes is named by the person (`acceptChangedYears`).
+- **Compared, never applied:** a year of the asset with an active component is `NOT_RECORDED` (no current version covers it), `UNCHANGED` or `CHANGED_SINCE_RECORDED`; the first and the last are open flags of the schedule and of the tax-year view (`DEPRECIATION_SCHEDULE_NOT_RECORDED`, `DEPRECIATION_CHANGED_SINCE_RECORDED`), so a year is final only once every asset's AfA of it is recorded and unchanged (P8-D12).
 
 ---
 
@@ -2153,22 +2219,27 @@ A schedule version must remain reproducible from referenced inputs.
 **Domain:** Depreciation  
 **Stability:** Stable
 
-## Required Fields
+## Purpose
 
-- `id`
-- `scheduleVersionId`
-- `taxYear`
-- `amount`
+One year's AfA of one component's owner part in a recorded version (§39; api-design §60). Stored only as part of a version, never on its own, and never a Transaction (AGENTS.md §7, §17).
 
 ---
 
-## Optional Fields
+## Required Fields
 
-- `periodStart`
-- `periodEnd`
-- `ownerPartyId`
-- `ownershipShareApplied`
-- `notes`
+- `scheduleVersionId`, `mreRealmId`
+- `taxYear`
+- `componentId`, `partKey` (`OWNER:{partyId}` or `NOT_OWNED`; `ownerPartyId` follows from it)
+- `months` (0–12), `fraction` (the still-held fraction of the year's last counted month)
+- `amount`, `cumulative`, `residualValue` (Money, EUR)
+
+---
+
+## Invariants
+
+- Never updated or deleted; inserted with its version only.
+- The entries of a year summed are the year's amount: owners + `NOT_OWNED` = the components = the property, to the cent (P8-D8: summed, never distributed).
+- `periodStart`, `periodEnd`, `ownershipShareApplied` and `notes` of the former placeholder are withdrawn: the months, the fraction and the part's share and weight (§39) say what they meant.
 
 ---
 
@@ -2938,6 +3009,8 @@ Then, unless a future accepted override mechanism exists:
 For an Acquisition (P2-D10, api-design §27.4) the share is taken relative to the acquired share, over the buyers' own
 Ownerships of that Acquisition, and money is split into cents by largest remainder per amount, with totals derived
 from the parts.
+A buyer who already held a share the day before the transfer date takes part with the increase only (VC-X-30,
+api-design §28.1A, implemented with migration 0050); the Ownerships stay as §78 shows them.
 
 ---
 

@@ -1,5 +1,5 @@
 /**
- * Taxation domain (phase-7-plan.md, api-design.md §55–§58A): the rule registry, the category defaults, the tax year of
+ * Taxation domain (phase-7-plan.md, api-design.md §55–§58A): its rule versions, the category defaults, the tax year of
  * cash (the 10-day rule), refunds, and the TaxClassification of a split or a retained deposit. Taxation interprets
  * cash; it never writes it. See docs/development/coding-guidelines.md §3.
  */
@@ -21,9 +21,10 @@ export {
   treatmentFits,
 } from './vocabulary.js';
 export type { CreateReviewState, Origin, ReviewState, SourceType, StoredReviewState, TaxCategory, Treatment, WegSourceType } from './vocabulary.js';
-export { RULE_STATUSES, ruleKey } from './rules/rule-version.js';
-export type { RuleRef, RuleStatus, RuleVersion } from './rules/rule-version.js';
-export { RuleRegistry, TAX_RULES } from './rules/registry.js';
+// The registry kernel is shared (P8-D11, §59); re-exported for the Phase-7 importers. `TAX_RULES` is `domains/tax-rules/`'s.
+export { RULE_STATUSES, RuleRegistry, ruleKey } from '../../shared/index.js';
+export type { RuleRef, RuleStatus, RuleVersion } from '../../shared/index.js';
+export { TAXATION_RULE_VERSIONS } from './rules/versions.js';
 export { CATEGORY_DEFAULTS, DE_CATEGORY_DEFAULTS_V1 } from './rules/de-category-defaults.js';
 export type { CategoryDefault, CategoryDefaultsParameters } from './rules/de-category-defaults.js';
 export { CASH_TIMING, DE_CASH_TIMING_V1 } from './rules/de-cash-timing.js';
@@ -95,8 +96,8 @@ export type {
 } from './classification.js';
 export { depositNotCounted, deriveDepositTaxMeaning, planDepositClassification } from './deposit-closing.js';
 export type { DepositFacts, DepositTaxMeaning, DepositTaxMeaningFlag } from './deposit-closing.js';
-export { continuousOwners, distribute, distributionRuleOn, partOf } from './distribution-82b.js';
-export type { Distribution, DistributionFlag, DistributionOwnership, DistributionPart, OwnershipPeriod } from './distribution-82b.js';
+export { distribute, distributionRuleOn, partOf } from './distribution-82b.js';
+export type { Distribution, DistributionFlag, DistributionOwnership, DistributionPart } from './distribution-82b.js';
 export {
   BOOKING_DATE_EDGE_DAYS,
   NOT_COMPUTABLE_REASONS,
@@ -141,8 +142,17 @@ export type {
   ReferenceAmendment,
   ReferenceHistory,
 } from './attribution-changes.js';
+export { capitalizedItemsOf } from './capitalized-items.js';
+export type { CapitalizedSource, CapitalizedSourceInput } from './capitalized-items.js';
 export {
+  AFA_LINES,
   EINNAHMEN_LINES,
+  NO_DEPRECIATION,
+  OPEN_AFA_YEAR_FLAGS,
+  afaOf,
+  componentOfItem,
+  LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY,
+  LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS,
   NOT_OWNED,
   TAX_YEAR_ITEM_LIMIT,
   TAX_YEAR_PLACES,
@@ -150,6 +160,7 @@ export {
   buildTaxYearView,
   flagIsOpen,
   foldPerOwner,
+  loanInterestOf,
   participantsOn,
   placementOf,
   reviewOf,
@@ -159,13 +170,28 @@ export {
   sourceKeyOf,
 } from './tax-year-view.js';
 export type {
+  AfaItem,
+  AfaLine,
+  AfaLineCode,
+  CapitalizedComponent,
+  DepreciationFlag,
+  DepreciationSourceRef,
   FoldedParts,
   Level,
+  LoanInterestCase,
+  LoanInterestSplit,
+  NotAttributedReason,
   Participant,
   Placement,
   TaxYearAcquisition,
+  TaxYearDepreciation,
+  TaxYearDepreciationAsset,
+  TaxYearDepreciationBlock,
+  TaxYearDepreciationComponent,
+  TaxYearDepreciationPart,
   TaxYearItem,
   TaxYearLine,
+  TaxYearLoanAllocation,
   TaxYearOutcome,
   TaxYearRead,
   TaxYearResult,

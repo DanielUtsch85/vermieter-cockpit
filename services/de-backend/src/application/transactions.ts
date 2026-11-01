@@ -8,10 +8,12 @@ import {
 } from '../domains/ledger/index.js';
 import type { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
-import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
+import { CurrencyMismatchError, IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { FinancialAccountNotFoundError } from './financial-accounts.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
 import { SplitSumMismatchError, TransactionNotFoundError } from './transaction-splits.js';
+
+export { CurrencyMismatchError } from './errors.js';
 
 /**
  * Create Manual Transaction (api-design.md §31, backlog VC-1-04): a cash-only
@@ -26,19 +28,6 @@ export class FinancialAccountClosedError extends Error {
 
   constructor(readonly financialAccountId: string) {
     super(`FinancialAccount ${financialAccountId} is closed`);
-  }
-}
-
-/** The Transaction's currency differs from its account's; there is no FX handling (data-model.md §17.7). */
-export class CurrencyMismatchError extends Error {
-  override readonly name = 'CurrencyMismatchError';
-
-  constructor(
-    message: string,
-    /** Where, when known: the amount, and the splits by position (1-based), so the API can name the field. */
-    readonly where: { readonly amount: boolean; readonly splitPositions: readonly number[] } = { amount: true, splitPositions: [] },
-  ) {
-    super(message);
   }
 }
 

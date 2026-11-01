@@ -41,7 +41,7 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}` });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}` });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     accounts = new PostgresFinancialAccountRepository(db);
@@ -116,8 +116,12 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
     });
 
     const lockWait = (fragment: string) => async () =>
-      (await pool.query(`SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE $1`, [`%${fragment}%`]))
-        .rowCount !== 0;
+      (
+        await pool.query(
+          `SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE $1`,
+          [`%${fragment}%`],
+        )
+      ).rowCount !== 0;
 
     it('two writers: a confirmation waits for an uncommitted split and is refused (no 150 on 100)', async () => {
       const id = await transaction(REALM, '100.00');
@@ -423,7 +427,7 @@ describe.skipIf(databaseUrl === undefined)('ledger invariants in the schema', ()
             Number(
               (
                 await pool.query(
-                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'
+                  `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name')
                  AND query LIKE 'INSERT INTO ledger_transaction%'`,
                 )
               ).rows[0].count,

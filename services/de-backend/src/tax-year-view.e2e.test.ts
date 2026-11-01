@@ -99,6 +99,7 @@ type View = {
   einnahmen: { total: Money; lines: Line[] };
   werbungskosten: { total: Money; lines: Line[] };
   result: { amount: Money; kind: string; basis: string };
+  depreciation: { status: string };
   capitalized: { total: Money; items: Item[] };
   notInView: { items: Item[] };
   unclassified: { items: Item[] };
@@ -698,8 +699,9 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
     for (const { pr, parties } of properties) {
       for (const year of [2026, 2027, 2028]) {
         const property = await view(pr, year);
-        expect(property.review.final).toBe(false);
-        expect(property.flags[0]?.code).toBe('DEPRECIATION_NOT_AVAILABLE');
+        // VC-8-05: no asset here; NO_ASSET keeps a year with an Ownership from being final, an empty year needs no AfA.
+        expect(property.review.final).toBe(property.review.open.length === 0);
+        if (property.depreciation.status !== 'AVAILABLE') expect(property.flags[0]?.code).toBe('DEPRECIATION_NOT_AVAILABLE');
         reconciles(property);
         for (const p of parties) {
           const res = await A('GET', `/property-references/${pr}/tax-years/${year}?ownerPartyId=${p}`);

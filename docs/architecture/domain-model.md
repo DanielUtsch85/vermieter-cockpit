@@ -1268,17 +1268,22 @@ Depreciation.
 
 # 49. Depreciation Asset Attributes
 
-Conceptually:
+Stored (the canonical inputs; phase-8-plan P8-D1, api-design §59, VC-8-01):
 
 - PropertyReference
-- acquisition or creation date
-- depreciation basis
-- depreciation method
-- start date
-- useful period/rate
-- applicable Tax Rule
-- owner allocation
-- status
+- asset type (`BUILDING`; `SEPARATE_ASSET` with VC-8-03, api-design §59B: description, useful life with its basis, acquisition date, and the capitalised items it consists of)
+- building completion year, with its sources (it selects the rate band; never guessed)
+- depreciation method (`LINEAR_7_4`)
+- an optional shorter useful life per Acquisition, with its evidence and its own review state (§ 7 Abs. 4 S. 2 EStG)
+- review state, advisor
+- status (`ACTIVE`, `VOID`)
+
+Derived, never stored (AGENTS.md §17):
+
+- depreciation basis (from the Acquisitions, their costs and their confirmed allocations; and the capitalised items, each in exactly one asset, api-design §59B)
+- start date and the first year (the transfer of economic ownership)
+- rate (the applicable Tax Rule's band, or the confirmed shorter life)
+- owner allocation (each Acquisition's buyers, P8-D8)
 
 ---
 
@@ -1311,6 +1316,8 @@ If an input or tax interpretation changes, historical calculations must remain a
 Therefore recalculation should produce explicit versions or equivalent historical traceability.
 
 The exact persistence strategy remains an implementation decision.
+
+**Decided for Phase 8** (phase-8-plan P8-D10, 2026-10-30; api-design §60, data-model §39–§40, VC-8-04): the schedule is computed on every read, and a person records a version of it per asset, with its inputs, its output and its rule versions, append-only and reproducible from what it stores. The tax-year view compares the derived schedule with the current recorded version; a year is final only once its AfA is recorded and unchanged.
 
 ---
 

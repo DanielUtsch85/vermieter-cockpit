@@ -1,6 +1,5 @@
-import type { BusinessDate, Money } from '../../shared/index.js';
+import { centsOf, divideHalfUp, moneyOfCents, type BusinessDate, type Money, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { yearOf } from './cash-timing.js';
-import { centsOf, divideHalfUp, moneyOfCents } from './cents.js';
 import {
   distributionRuleCheck,
   ruleSupersededFlags,
@@ -15,8 +14,6 @@ import {
 import type { CheckEntryFlag } from './anschaffungsnahe.js';
 import type { Distribution, DistributionFlag } from './distribution-82b.js';
 import { WEG_SPENDING, type WegSpendingParameters } from './rules/de-weg-spending.js';
-import type { RuleRegistry } from './rules/registry.js';
-import type { RuleRef, RuleVersion } from './rules/rule-version.js';
 import type { Origin, ReviewState, TaxCategory, Treatment, WegSourceType } from './vocabulary.js';
 
 /**

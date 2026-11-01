@@ -37,4 +37,9 @@ export default tseslint.config(
     },
   },
   { files: ['**/*.mjs', '**/*.js'], ...tseslint.configs.disableTypeChecked },
+  {
+    // Repository scripts and this config run on Node: its globals, without a dependency on the `globals` package.
+    files: ['scripts/**/*.mjs', 'eslint.config.mjs'],
+    languageOptions: { globals: { console: 'readonly', process: 'readonly', URL: 'readonly' } },
+  },
 );

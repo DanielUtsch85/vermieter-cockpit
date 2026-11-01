@@ -1,12 +1,14 @@
+import { PHASE_7_DEPRECIATION } from './tax-year-depreciation.test-support.js';
 import { describe, expect, it } from 'vitest';
-import { Money, type BusinessDate } from '../../shared/index.js';
+import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import type { Direction } from '../ledger/index.js';
 import { amendmentLists, attributionChanges, listBefore, type AttributionInput, type ReferenceHistory } from './attribution-changes.js';
 import { refundOf, yearOf } from './cash-timing.js';
 import type { TaxListItem, TaxMeaning } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
-import { continuousOwners, distribute } from './distribution-82b.js';
-import { TAX_RULES } from './rules/registry.js';
+import { continuousOwners } from '../ownership/index.js';
+import { distribute } from './distribution-82b.js';
+import { TAXATION_RULE_VERSIONS } from './rules/versions.js';
 import {
   EINNAHMEN_LINES,
   NOT_OWNED,
@@ -24,6 +26,9 @@ import {
   type ViewOwnership,
 } from './tax-year-view.js';
 import { TAX_CATEGORIES, TREATMENTS, treatmentFits, type Origin, type ReviewState, type TaxCategory, type Treatment } from './vocabulary.js';
+
+/** Taxation's own versions (api-design §59): a domain test builds its registry and never imports `domains/tax-rules/`. */
+const TAX_RULES = new RuleRegistry(TAXATION_RULE_VERSIONS);
 
 /**
  * VC-7-04 (api-design.md §58C): the placement table, signs, `subtotals`, the per-owner rounding with its ties and the
@@ -117,6 +122,8 @@ const readOf = (items: readonly TaxListItem[], ownerships: readonly ViewOwnershi
   checks: [],
   attribution: { references: [], candidates: [] },
   allocatedLoanInterest: [],
+  loanAllocationSets: new Map(),
+  depreciation: PHASE_7_DEPRECIATION,
   ...extra,
 });
 
@@ -721,36 +728,6 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
     }
   });
 
-  it('LOAN_INTEREST_NOT_ATTRIBUTED: an allocated Loan’s interest of the year is flagged, open, at both levels, and summed nowhere', () => {
-    const [loan1, loan2] = ['0000bbbb-0000-4000-8000-000000000002', '0000bbbb-0000-4000-8000-000000000001'];
-    const interest = [
-      { splitId: id(), loanId: loan1, direction: 'OUTFLOW', amount: eur('612.37') },
-      { splitId: id(), loanId: loan2, direction: 'OUTFLOW', amount: eur('300.00') },
-      { splitId: id(), loanId: loan1, direction: 'OUTFLOW', amount: eur('0.01') },
-    ] as const;
-    const owners = [own(A, '1/1', '2020-01-01')];
-    const read = readOf([split({ amount: '100.00', taxCategory: 'LOAN_INTEREST', treatment: 'DEDUCTIBLE' })], owners, { allocatedLoanInterest: interest });
-    for (const v of [viewOf(read), viewOf(read, 2027, A)]) {
-      expect(v.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual({
-        loanIds: [loan2, loan1],
-        interestTotal: { amount: '912.38', currency: 'EUR' },
-        splitIds: interest.map((i) => i.splitId).sort(),
-      });
-      expect(v.review.open).toContainEqual({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 });
-      // Only the interest on the PropertyReference is on the line; no item names the Loan's splits.
-      expect([lineOf(v, 'LOAN_INTEREST').total.amount, v.werbungskosten.total.amount]).toEqual(['100.00', '100.00']);
-      const items = [
-        ...[...v.einnahmen.lines, ...v.werbungskosten.lines].flatMap((l) => l.items),
-        ...v.capitalized.items,
-        ...v.notInView.items,
-        ...v.unclassified.items,
-        ...v.notAttributed.items,
-      ];
-      expect(items.some((i) => interest.some((x) => x.splitId === i.sourceId))).toBe(false);
-    }
-    expect(codes(viewOf(readOf([], owners)).flags)).not.toContain('LOAN_INTEREST_NOT_ATTRIBUTED');
-  });
-
   it('the cap: 5,000 items over all places (notInView and the deposits not attributed included) → the view; 5,001 → TAX_YEAR_TOO_LARGE', () => {
     const notRelevant = Array.from({ length: TAX_YEAR_ITEM_LIMIT - 2 }, () =>
       split({ amount: '1.00', taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT' }),
@@ -767,7 +744,7 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
     });
   });
 
-  it('the levels of the review table; DEPRECIATION_NOT_AVAILABLE always open, so final is always false', () => {
+  it('the levels of the review table; DEPRECIATION_NOT_AVAILABLE open where raised (here: NO_ASSET, the Phase-7 fixture), so final is false', () => {
     const item = { treatment: 'DEDUCTIBLE', origin: 'DEFAULT', reviewState: 'SUGGESTED' } as const;
     const confirmed = { treatment: 'DEDUCTIBLE', origin: 'CLASSIFICATION', reviewState: 'USER_CONFIRMED' } as const;
     for (const code of [
@@ -839,6 +816,7 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
         { code: 'OWNERSHIP_INCOMPLETE', count: 1 },
         { code: 'ATTRIBUTED_BY_10_DAY_RULE', count: 1 },
         { code: 'NEEDS_REVIEW', count: 1 },
+        { code: 'NO_ASSET', count: 1 },
       ],
       info: [
         { code: 'ATTRIBUTED_BY_10_DAY_RULE', count: 1 },

@@ -11,6 +11,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
+    "api:inventory": "API_INVENTORY_WRITE=1 vitest run src/route-inventory.test.ts",
+    "api:inventory:check": "vitest run src/route-inventory.test.ts",
     "start": "node dist/main.js"
   },
   "devDependencies": {

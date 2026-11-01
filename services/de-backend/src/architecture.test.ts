@@ -17,6 +17,11 @@ import { describe, expect, it } from 'vitest';
  * Imports into another module (another domain, or another top-level layer) must go
  * through that module's public `index.js`; deep imports into its internals are
  * rejected (ADR-026 "strong internal boundaries").
+ *
+ * Some module edges are forbidden even through an index (`forbiddenEdges`): the rule
+ * registry is composed in `domains/tax-rules/` above Taxation and Depreciation, so
+ * neither domain imports it, and Depreciation does not import Taxation (P8-D11, §59). Taxation reads the Loan
+ * allocation through Financing's index; Financing never imports Taxation (§58D).
  */
 
 const srcDir = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +114,29 @@ function violation(rule: LayerRule, file: string, specifier: string): string | u
     : `${file} imports non-allowlisted package '${specifier}'`;
 }
 
+/** Module edges refused even through an index (api-design.md §59, P8-D11): `from` module → `to` module, tests included. */
+const forbiddenEdges: readonly { readonly from: string; readonly to: string; readonly why: string }[] = [
+  { from: join('domains', 'taxation'), to: join('domains', 'tax-rules'), why: 'the registry is composed above both domains' },
+  { from: join('domains', 'depreciation'), to: join('domains', 'tax-rules'), why: 'the registry is composed above both domains' },
+  { from: join('domains', 'depreciation'), to: join('domains', 'taxation'), why: 'Depreciation and Taxation meet only in infrastructure/, §59B' },
+  { from: join('domains', 'taxation'), to: join('domains', 'depreciation'), why: 'Depreciation and Taxation meet only in infrastructure/, §59B' },
+  {
+    from: join('domains', 'acquisition'),
+    to: join('domains', 'taxation'),
+    why: 'Taxation imports Acquisition; the basis function is shared through Acquisition, §59A',
+  },
+  { from: join('domains', 'ownership'), to: join('domains', 'taxation'), why: 'Taxation imports Ownership; the tenure is shared through Ownership, §59A' },
+  { from: join('domains', 'financing'), to: join('domains', 'taxation'), why: 'Taxation reads the allocation; Financing never reads tax meanings, §58D' },
+];
+
+/** `file` is relative to src/; a forbidden module edge, or undefined. Only relative specifiers name modules. */
+function forbiddenEdge(file: string, specifier: string): string | undefined {
+  if (!specifier.startsWith('.')) return undefined;
+  const target = moduleOf(relative(srcDir, resolve(srcDir, dirname(file), specifier)));
+  const edge = forbiddenEdges.find((e) => moduleOf(file) === e.from && target === e.to);
+  return edge === undefined ? undefined : `${file} imports '${specifier}' (${edge.from} → ${edge.to} is forbidden: ${edge.why})`;
+}
+
 function ruleFor(layer: string): LayerRule {
   const rule = rules.find((r) => r.layer === layer);
   if (rule === undefined) throw new Error(`no rule for layer ${layer}`);
@@ -129,6 +157,63 @@ describe('architecture: layer dependency direction', () => {
       expect(violations).toEqual([]);
     });
   }
+});
+
+describe('architecture: forbidden module edges (§58D, §59, §59A, §59B)', () => {
+  it('no file under domains/taxation/ or domains/depreciation/ imports domains/tax-rules/ or the other one, nor Acquisition, Ownership or Financing Taxation', () => {
+    const files = listSourceFiles(join(srcDir, 'domains'));
+    for (const module of ['depreciation', 'taxation', 'tax-rules', 'acquisition', 'ownership', 'financing']) {
+      expect(files.some((path) => moduleOf(relative(srcDir, path)) === join('domains', module))).toBe(true);
+    }
+    const violations = files.flatMap((path) => {
+      const file = relative(srcDir, path);
+      return importSpecifiers(readFileSync(path, 'utf8'))
+        .map((specifier) => forbiddenEdge(file, specifier))
+        .filter((v): v is string => v !== undefined);
+    });
+    expect(violations).toEqual([]);
+  });
+
+  it.each([
+    ['domains/depreciation/probe.ts', '../tax-rules/index.js'],
+    ['domains/taxation/probe.ts', '../tax-rules/index.js'],
+    ['domains/taxation/rules/probe.test.ts', '../../tax-rules/index.js'],
+    ['domains/depreciation/probe.ts', '../taxation/index.js'],
+    ['domains/acquisition/probe.ts', '../taxation/index.js'],
+    ['domains/ownership/probe.ts', '../taxation/index.js'],
+    // §58D: Taxation → Financing is the edge; the way back would close a cycle.
+    ['domains/financing/probe.ts', '../taxation/index.js'],
+    ['domains/financing/debt.test.ts', '../taxation/tax-year-view.js'],
+    // §59B: in both directions, type-only imports included (importSpecifiers scans them).
+    ['domains/taxation/probe.ts', '../depreciation/index.js'],
+    ['domains/taxation/rules/probe.test.ts', '../../depreciation/index.js'],
+  ])('%s may not import %s', (file, specifier) => {
+    expect(forbiddenEdge(file, specifier)).toBeDefined();
+  });
+
+  it('§59B counter-check: a type-only import of the other domain is refused in both directions', () => {
+    const refused = (file: string, source: string) => importSpecifiers(source).map((specifier) => forbiddenEdge(file, specifier));
+    expect(refused('domains/taxation/capitalized-items.ts', "import type { CapitalizedItem } from '../depreciation/index.js';")[0]).toBeDefined();
+    expect(refused('domains/depreciation/schedule.ts', "import type { TaxListItem } from '../taxation/index.js';")[0]).toBeDefined();
+  });
+
+  it.each([
+    ['domains/tax-rules/probe.ts', '../taxation/index.js'],
+    ['domains/tax-rules/probe.ts', '../depreciation/index.js'],
+    ['domains/depreciation/probe.ts', '../../shared/index.js'],
+    ['application/probe.ts', '../domains/tax-rules/index.js'],
+    ['infrastructure/postgres/probe.ts', '../../domains/tax-rules/index.js'],
+    ['domains/taxation/probe.ts', '../acquisition/index.js'],
+    ['domains/taxation/probe.ts', '../ownership/index.js'],
+    ['domains/taxation/probe.ts', '../financing/index.js'],
+    ['domains/depreciation/probe.ts', '../acquisition/index.js'],
+    ['domains/acquisition/probe.ts', '../../shared/index.js'],
+    // §59B: the two domains meet in infrastructure/postgres/.
+    ['infrastructure/postgres/probe.ts', '../../domains/depreciation/index.js'],
+    ['infrastructure/postgres/probe.ts', '../../domains/taxation/index.js'],
+  ])('%s may import %s', (file, specifier) => {
+    expect(forbiddenEdge(file, specifier)).toBeUndefined();
+  });
 });
 
 describe('architecture rules (fixtures)', () => {
@@ -267,5 +352,106 @@ describe('architecture rules (fixtures)', () => {
 
   it('scans .ts, .mts and .cts files but not declaration files', () => {
     expect(['a.ts', 'b.mts', 'c.cts', 'd.d.ts', 'e.js'].filter(isSourceFile)).toEqual(['a.ts', 'b.mts', 'c.cts']);
+  });
+});
+
+/**
+ * Specifiers of the imports and re-exports that bind a value at run time. A binding written `type X`, and
+ * `import type` / `export type`, are left out: they carry no value, so a cycle through them cannot leave a module
+ * reading another one before it is initialised. A dynamic `import()` is deliberately not counted: it does not run at
+ * load time, so it cannot take part in such an initialisation cycle.
+ */
+function valueImportSpecifiers(source: string): string[] {
+  const file = ts.createSourceFile('probe.ts', source, ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+  const valueNamed = (elements: ts.NodeArray<ts.ImportSpecifier | ts.ExportSpecifier>) => elements.some((e) => !e.isTypeOnly);
+  return file.statements.flatMap((s) => {
+    if (ts.isImportDeclaration(s) && ts.isStringLiteral(s.moduleSpecifier)) {
+      const clause = s.importClause;
+      if (clause === undefined) return [s.moduleSpecifier.text];
+      if (clause.isTypeOnly) return [];
+      const bindings = clause.namedBindings;
+      const hasValue = clause.name !== undefined || (bindings !== undefined && (ts.isNamespaceImport(bindings) || valueNamed(bindings.elements)));
+      return hasValue ? [s.moduleSpecifier.text] : [];
+    }
+    if (ts.isExportDeclaration(s) && s.moduleSpecifier !== undefined && ts.isStringLiteral(s.moduleSpecifier)) {
+      if (s.isTypeOnly) return [];
+      const clause = s.exportClause;
+      return clause === undefined || ts.isNamespaceExport(clause) || valueNamed(clause.elements) ? [s.moduleSpecifier.text] : [];
+    }
+    return [];
+  });
+}
+
+/** The cycles (strongly connected components of more than one file, or a file importing itself) of a value-import graph. */
+function valueImportCycles(graph: ReadonlyMap<string, readonly string[]>): string[][] {
+  const index = new Map<string, number>();
+  const low = new Map<string, number>();
+  const stack: string[] = [];
+  const onStack = new Set<string>();
+  const cycles: string[][] = [];
+  const visit = (v: string) => {
+    index.set(v, index.size);
+    low.set(v, index.get(v) as number);
+    stack.push(v);
+    onStack.add(v);
+    for (const w of graph.get(v) ?? []) {
+      if (!index.has(w)) {
+        visit(w);
+        low.set(v, Math.min(low.get(v) as number, low.get(w) as number));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v) as number, index.get(w) as number));
+    }
+    if (low.get(v) === index.get(v)) {
+      const component: string[] = [];
+      for (let w = stack.pop(); w !== undefined; w = w === v ? undefined : stack.pop()) {
+        onStack.delete(w);
+        component.push(w);
+      }
+      if (component.length > 1 || (graph.get(v) ?? []).includes(v)) cycles.push(component.sort());
+    }
+  };
+  for (const v of graph.keys()) if (!index.has(v)) visit(v);
+  return cycles;
+}
+
+describe('architecture: no value-import cycle in production code', () => {
+  it('no production file reaches itself through value imports (type-only bindings excluded)', () => {
+    const production = listSourceFiles(srcDir).filter((path) => !testFilePattern.test(path) && !/\.test-support\.(c|m)?ts$/.test(path));
+    const known = new Set(production.map((path) => relative(srcDir, path)));
+    const graph = new Map<string, string[]>();
+    for (const path of production) {
+      const file = relative(srcDir, path);
+      const targets = valueImportSpecifiers(readFileSync(path, 'utf8'))
+        .filter((specifier) => specifier.startsWith('.'))
+        .map((specifier) => relative(srcDir, resolve(srcDir, dirname(file), specifier)).replace(/\.js$/, '.ts'))
+        .filter((target) => known.has(target));
+      graph.set(file, targets);
+    }
+    expect(graph.size).toBeGreaterThan(100);
+    expect(valueImportCycles(graph)).toEqual([]);
+  });
+
+  it('counter-check: the detector finds a cycle, and ignores one made of type-only bindings', () => {
+    expect(valueImportSpecifiers("import { a } from './a.js';\nexport { b } from './b.js';")).toEqual(['./a.js', './b.js']);
+    expect(valueImportSpecifiers("import type { A } from './a.js';\nimport { type B } from './b.js';\nexport type { C } from './c.js';")).toEqual([]);
+    expect(valueImportSpecifiers("import { type A, b } from './a.js';\nimport * as n from './n.js';\nimport './side.js';")).toEqual([
+      './a.js',
+      './n.js',
+      './side.js',
+    ]);
+    const cyclic = new Map([
+      ['a.ts', ['b.ts']],
+      ['b.ts', ['c.ts']],
+      ['c.ts', ['a.ts']],
+      ['d.ts', ['a.ts']],
+    ]);
+    expect(valueImportCycles(cyclic)).toEqual([['a.ts', 'b.ts', 'c.ts']]);
+    expect(
+      valueImportCycles(
+        new Map([
+          ['a.ts', ['b.ts']],
+          ['b.ts', []],
+        ]),
+      ),
+    ).toEqual([]);
   });
 });

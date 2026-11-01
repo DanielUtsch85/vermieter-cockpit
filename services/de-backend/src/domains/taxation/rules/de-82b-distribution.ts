@@ -1,6 +1,5 @@
-import type { BusinessDate } from '../../../shared/index.js';
+import type { BusinessDate, RuleVersion } from '../../../shared/index.js';
 import type { TaxCategory } from '../vocabulary.js';
-import type { RuleVersion } from './rule-version.js';
 
 /** The parameters of the § 82b EStDV election (api-design.md §58B, P7-D6). */
 export interface Distribution82bParameters {

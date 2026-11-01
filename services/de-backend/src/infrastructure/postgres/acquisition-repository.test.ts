@@ -42,7 +42,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
     await admin.connect();
     await admin.query(`CREATE SCHEMA "${schema}"`);
     await admin.end();
-    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 10 });
+    pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema} -c application_name=${schema}`, max: 10 });
     await migrateToLatest(pool, { migrationTableSchema: schema });
     const db = createDatabase(pool);
     parties = new PostgresPartyRepository(db);
@@ -302,7 +302,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionRepository', () =
           Number(
             (
               await pool.query(
-                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND query LIKE '%"property_reference"%'`,
+                `SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND application_name = current_setting('application_name') AND query LIKE '%"property_reference"%'`,
               )
             ).rows[0].count,
           ) >= 1,
