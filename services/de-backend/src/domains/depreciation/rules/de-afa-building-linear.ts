@@ -165,8 +165,10 @@ const SOURCE_SCHEDULE =
  * of S. 2 then (50 / 40 years). The text was read in the official consolidated text (Stand 2.7.2012 and 13.2.2022) and
  * BT-Drs. 20/3879, 20/8628 on 31.10.2026 (depreciation.md §3). The rates by the completion year are confirmed
  * (Prüfbericht 01.11.2026, Frage 1; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01):
- * `verified.rates` is true. The review names the thresholds 50 / 40 of this lettering nowhere, so a year computed
- * with a shorter useful life keeps `HISTORICAL_RULE_TO_VERIFY` (`verified.shorterUsefulLifeThresholds` false).
+ * `verified.rates` is true. Frage 8 confirms the thresholds < 33 / < 50 / < 40 in today's lettering; whether < 50 / < 40
+ * held in 2006–2022 the review does not say expressly, and the text of 2006–2011 was not read directly (depreciation.md
+ * §3). Until the owner decides that Frage 8 covers this lettering too, a year computed with a shorter useful life keeps
+ * `HISTORICAL_RULE_TO_VERIFY` (`verified.shorterUsefulLifeThresholds` false).
  */
 export const DE_AFA_BUILDING_LINEAR_V1: RuleVersion<BuildingLinearParameters> = {
   ruleCode: AFA_BUILDING_LINEAR,

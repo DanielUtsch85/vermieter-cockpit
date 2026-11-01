@@ -125,7 +125,7 @@ describe('DE_AFA_BUILDING_LINEAR@1 (2006–2022, §59A "The rule versions"): the
   const v1 = DE_AFA_BUILDING_LINEAR_V1.parameters;
   const v1Band = (year: number) => bandOf(v1, year) as BuildingRateBand;
 
-  it('two bands: 1924 → B 2.5 % (Buchst. b a. F.), 1925 → A 2 % (Buchst. a a. F.), 2022 → A 2 %; thresholds 50 / 40; rates verified, thresholds not (Prüfbericht 01.11.2026)', () => {
+  it('two bands: 1924 → B 2.5 % (Buchst. b a. F.), 1925 → A 2 % (Buchst. a a. F.), 2022 → A 2 %; thresholds 50 / 40; rates verified; thresholds confirmed in the current lettering, not expressly for 2006–2022 (Prüfbericht 01.11.2026, Frage 8)', () => {
     expect([1000, 1924, 1925, 2022, 2100].map((y) => [y, v1Band(y).band, v1Band(y).ratePercent, v1Band(y).shorterUsefulLife.shorterThanYears])).toEqual([
       [1000, 'B', '2.5', 40],
       [1924, 'B', '2.5', 40],
@@ -134,7 +134,7 @@ describe('DE_AFA_BUILDING_LINEAR@1 (2006–2022, §59A "The rule versions"): the
       [2100, 'A', '2', 50],
     ]);
     // The rates confirmed (Frage 1; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01);
-    // the thresholds 50 / 40 of this lettering the review does not name.
+    // the thresholds < 50 / < 40 are confirmed in today's lettering (Frage 8), not expressly for 2006–2022 (owner to decide).
     expect(v1.verified).toEqual({ rates: true, shorterUsefulLifeThresholds: false });
     expect(DE_AFA_BUILDING_LINEAR_V2.parameters.verified).toEqual({ rates: true, shorterUsefulLifeThresholds: true });
     for (let year = 1000; year <= 2100; year++) {

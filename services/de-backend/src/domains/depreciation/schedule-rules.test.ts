@@ -120,7 +120,7 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
     expect(before.review.open).toEqual([{ code: 'HISTORICAL_RULE_TO_VERIFY', count: 3 }]);
   });
 
-  it('a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY: the review confirmed the rates, not the thresholds 50 / 40 of S. 2 then', () => {
+  it('a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY: Frage 8 confirms the thresholds in the current lettering, not expressly for 2006–2022', () => {
     const s = derive(
       sole(
         { contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') },

@@ -403,7 +403,7 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
     expect(owner(yearOf(reopened, 2023), A)?.flags).toEqual([]);
   });
 
-  it('an item on a purchase with a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY (the thresholds 50 / 40 not confirmed)', () => {
+  it('an item on a purchase with a shorter useful life under @1 keeps HISTORICAL_RULE_TO_VERIFY (the thresholds confirmed in the current lettering, not expressly for 2006–2022)', () => {
     const s = derive({
       asset: asset({ shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-01-01') } })] }),
       acquisitions: [acquisition({ contractDate: day('2019-11-01'), economicTransferDate: day('2020-01-01') })],
