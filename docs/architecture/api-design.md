@@ -5262,7 +5262,7 @@ A derived read per Acquisition, never stored; one `REPEATABLE READ READ ONLY` sn
 
 # 58C. Tax-Year View (VC-7-04, implemented: migration 0048)
 
-**Status:** implemented (VC-7-04, migration 0048; VC-7-05 review on #171). **Amended by VC-8-05: implemented, no migration** (the AfA in the view, `result.basis`, `final`; section "VC-8-05: the AfA in the view" below and its "As implemented (VC-8-05)"; builds on §60 (VC-8-04, implemented with the recording switch off, so productive AfA figures stay a provisional preview and no productive year with AfA is final until recording is enabled)). **Amended by VC-X-29: implemented** (the interest of an allocated Loan in the figures, `LOAN_INTEREST_NOT_ATTRIBUTED` narrowed; §58D).
+**Status:** implemented (VC-7-04, migration 0048; VC-7-05 review on #171). **Amended by VC-8-05: implemented, no migration** (the AfA in the view, `result.basis`, `final`; section "VC-8-05: the AfA in the view" below and its "As implemented (VC-8-05)"; builds on §60 (VC-8-04, implemented with the recording switch off, so productive AfA figures stay a provisional preview and no productive year with AfA is final until recording is enabled)). **Amended by VC-X-29: implemented** (the interest of an allocated Loan in the figures, `LOAN_INTEREST_NOT_ATTRIBUTED` narrowed; §58D). **Amended by VC-X-28: specified, not implemented** (acknowledgements of `ATTRIBUTION_INPUT_CHANGED`, the flag widened to reconciliations and Loan terms, the confirmation of a multi-entry `PURCHASE_PRICE` set; §58E).
 
 Decisions P7-D7 and P7-D8 of `docs/development/phase-7-plan.md` (`docs/product/reports.md` §2.2; `docs/germany/taxation.md` §3–§7, §10; domain-model §45, §47; checklist A1, A4, A5, A10–A12). VC-7-01 to VC-7-03 give every source a **tax meaning** and a tax year (§55, §58A, §58B). VC-7-04 adds the one read that turns them into Einkünfte aus Vermietung und Verpachtung: per PropertyReference and tax year, and per owner. It is derived on every read and never stored (P7-D8; snapshots are Phase 9's, ADR-040). It writes nothing: no cash, no split, no classification, no AuditRecord (ADR-006). The AfA block stayed empty in Phase 7; VC-8-05 fills it (below).
 
@@ -5423,9 +5423,9 @@ A correction of a `RentalContractReference`'s `rentDueDays` moves the tax year o
 - **When a year is flagged:** for an amendment with the lists B (before) and A (after) and a candidate item, its effective tax year is computed twice by `DE_CASH_TIMING`, with B and with A, everything else as read now. The year `year` is flagged when the two differ, one of them is `year`, **and the amendment was recorded after 31 December of `year`** (its `amendedAt`, Europe/Berlin). An amendment recorded while `year` was still running cannot have changed a filed return of `year`, so it raises nothing for `year` (review on #168).
   - A classification's `taxYear` override wins under both lists, so it moves nothing and raises nothing.
   - Adding an entry with a later `validFrom` changes no earlier term, so it raises nothing (§58A). An amendment of `notes` or `sourceReferences` alone has no `changedEntries`.
-- **The flag** (of the year): `ATTRIBUTION_INPUT_CHANGED` with `details: [{ rentalContractReferenceId, auditRecordId, amendedAt, changedEntries, items: [{ sourceId, yearBefore, yearAfter }] }]`. An item now in `year` carries the flag too; one moved out is named in the details only. Both years an item moved between are flagged.
-- **It stays:** it is derived from the history, so it shows as long as the history does. DE does not know which years were filed; the flag says that a filed year may be affected, and `auditRecordId` with `amendedAt` lets the user judge whether their return predates the change. An acknowledgement is not part of VC-7-04 (open question 7; backlog VC-X-28).
-- **Other inputs of the attribution** (a reconciliation confirmed or removed, a Loan's schedule changed by a new or voided period) also move items silently. They are not flagged in VC-7-04 (open question 8).
+- **The flag** (of the year): `ATTRIBUTION_INPUT_CHANGED` with `details: [{ rentalContractReferenceId, auditRecordId, amendedAt, changedEntries, items: [{ sourceId, yearBefore, yearAfter }] }]`. An item now in `year` carries the flag too; one moved out is named in the details only. Of the two years an item moved between, each year whose 31 December the amendment postdates is flagged: both when it was recorded after the later year's end, only the earlier one when it was recorded during the later year (§58E, review of #218).
+- **It stays:** it is derived from the history, so it shows as long as the history does. DE does not know which years were filed; the flag says that a filed year may be affected, and `auditRecordId` with `amendedAt` lets the user judge whether their return predates the change. An acknowledgement is not part of VC-7-04 (open question 7; backlog VC-X-28). **Specified in §58E (VC-X-28, not implemented):** an acknowledgement per PropertyReference, year and change, matched by the change's fingerprint, makes the flag informative; a new or changed change is open again.
+- **Other inputs of the attribution** (a reconciliation confirmed or removed, a Loan's schedule changed by a new or voided period) also move items silently. They are not flagged in VC-7-04 (open question 8). **Specified in §58E (VC-X-28, not implemented):** a reconciliation confirmed or released and a Loan terms period added or voided, by the same rule (before and after the AuditRecord, recorded after 31 December of `year`).
 
 ### Flags and the review section
 
@@ -5438,7 +5438,7 @@ A correction of a `RentalContractReference`'s `rentDueDays` moves the tax year o
 |---|---|
 | `DEPRECIATION_NOT_AVAILABLE`, `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `LOAN_INTEREST_NOT_ATTRIBUTED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` | open |
 | `NEEDS_REVIEW`, `UNCLASSIFIED`, `CLASSIFICATION_ON_CORRECTED_SPLIT`, `PREDECESSOR_CLASSIFIED`, `REFUND_YEAR_UNKNOWN`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE` | open |
-| `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` (§58D, VC-X-29, decided 2026-10-31, third set; implemented), `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (§58D, a proposal; implemented as specified) | open (the first until its confirmation is recorded, a follow-up with VC-X-28) |
+| `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` (§58D, VC-X-29, decided 2026-10-31, third set; implemented), `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (§58D, a proposal; implemented as specified) | open (the first until its confirmation is recorded: §58E, VC-X-28, specified, not implemented) |
 | `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` | open while the item's treatment is not `CAPITALIZED`; then informative |
 | `ATTRIBUTED_BY_10_DAY_RULE`, `DUE_DATE_ASSUMED`, `ECONOMIC_PERIOD_ASSUMED`, `NO_ECONOMIC_PERIOD`, `WITHDRAWAL_DATE_ASSUMED`, `WEG_FINANCIAL_YEAR_NOT_CALENDAR` | open while the item's `origin` is `DEFAULT`; informative once a classification in `USER_CONFIRMED` or `ADVISOR_CONFIRMED` stands for it (the person saw the attribution) |
 | `VAT_NOT_SEPARATED`, `RULE_SUPERSEDED`, `WEG_SPENDING_POSSIBLY_TWICE`, `USES_EXCEED_PAID`, `DISTRIBUTION_ENDED`, `OWNERSHIP_PARTLY_ENDED`, `DISTRIBUTION_FOLDED_PER_OWNER`, `SHARE_DATE_OUTSIDE_TAX_YEAR` | informative |
@@ -5568,8 +5568,8 @@ All nine proposals were accepted; with these conditions, now written into the se
 4. **A deposit without a PropertyReference:** `NO_RECONCILED_RENT` in every view of the Realm, `SEVERAL_PROPERTY_REFERENCES` in each candidate's, never summed, with `UNATTRIBUTED_ITEMS`. Once a classification may name a `propertyReferenceId` (§58A, later), it leaves the other views.
 5. **Maintenance paid from the Hausgeld:** not in VC-7-04; the view shows the check's `NOT_FINAL`. Follow-up: backlog **VC-X-27**, with A2 as its VERIFY point.
 6. **§ 82b per owner on the tenure:** a share change without a sale folds nothing; the seller of a share deducts their rest in the year of the sale; the buyer has no part. §58B now uses the same tenure. **Still a VERIFY point (checklist A5)** for the tax advisor; the spec does not present it as settled.
-7. **`ATTRIBUTION_INPUT_CHANGED` without a reset** in Phase 7. `details` carries `auditRecordId` and `amendedAt`, and only an amendment recorded after 31 December of the year flags it. An acknowledgement per year comes before Phase 8 (backlog **VC-X-28**).
-8. **Other silent inputs** (a reconciliation confirmed or removed, a Loan terms period added or voided): a follow-up, together with the acknowledgement, in **VC-X-28**, since both read the AuditRecords the same way.
+7. **`ATTRIBUTION_INPUT_CHANGED` without a reset** in Phase 7. `details` carries `auditRecordId` and `amendedAt`, and only an amendment recorded after 31 December of the year flags it. An acknowledgement per year comes before Phase 8 (backlog **VC-X-28**; specified in §58E).
+8. **Other silent inputs** (a reconciliation confirmed or removed, a Loan terms period added or voided): a follow-up, together with the acknowledgement, in **VC-X-28**, since both read the AuditRecords the same way (specified in §58E).
 9. **The cap of 5,000 items, unpaged:** `TAX_YEAR_TOO_LARGE` names the count and the paged list in `details`.
 
 The proposals as written before the decisions:
@@ -5750,7 +5750,7 @@ depreciation: {
 1. the AfA: `DEPRECIATION_NOT_AVAILABLE`, `DEPRECIATION_INCOMPLETE` and every gap reason above, `NO_ASSET`;
 2. the recording (§60; open there, `RECORDED_VERSION_NOT_REPRODUCIBLE` a **proposal**, §60 open question 7, not decided; open question 6 below): `DEPRECIATION_SCHEDULE_NOT_RECORDED`, `DEPRECIATION_CHANGED_SINCE_RECORDED`, `RECORDED_VERSION_NOT_REPRODUCIBLE`, for **any** asset with a component active in the year;
 3. the AfA's open flags: `USEFUL_LIFE_NOT_SHORTER`, `USEFUL_LIFE_START_TO_VERIFY`, `DISPOSAL_YEAR_TO_VERIFY`, `HISTORICAL_RULE_TO_VERIFY`, `SHARE_REDUCTION_SPLIT_TO_VERIFY`, `OWNER_WITHOUT_ACQUISITION` (as its gap), `SUBSEQUENT_COST_START_TO_VERIFY`, `SUBSEQUENT_COST_END_TO_VERIFY`, `SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY`, `CAPITALIZED_YEAR_DIFFERS`, `CAPITALIZED_ITEM_NOT_OWNED`, `REFUND_EXCEEDS_CAPITALIZED`, `LATER_ITEM_TO_VERIFY`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`. Recording a version clears none of them (§60, proposal, §60 open question 1);
-4. Phase 7's year flags: `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `LOAN_INTEREST_NOT_ATTRIBUTED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` (no acknowledgement exists before VC-X-28, and no attribution of an allocated Loan's interest before VC-X-29: a year they touch is not final, as decided for #173). With §58D (VC-X-29), `LOAN_INTEREST_NOT_ATTRIBUTED` stands only for interest without a usable allocation set on its booking date, §58D's `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` (decided 2026-10-31, third set) is an open item flag on interest attributed by a multi-entry `PURCHASE_PRICE` set until its confirmation is recorded, and §58D's `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (a proposal) is an open item flag;
+4. Phase 7's year flags: `ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, `OWNERSHIP_INCOMPLETE`, `UNATTRIBUTED_ITEMS`, `LOAN_INTEREST_NOT_ATTRIBUTED`, `ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL` (no acknowledgement exists before VC-X-28, specified in §58E, and no attribution of an allocated Loan's interest before VC-X-29: a year they touch is not final, as decided for #173). With §58D (VC-X-29), `LOAN_INTEREST_NOT_ATTRIBUTED` stands only for interest without a usable allocation set on its booking date, §58D's `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` (decided 2026-10-31, third set) is an open item flag on interest attributed by a multi-entry `PURCHASE_PRICE` set until its confirmation is recorded, and §58D's `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (a proposal) is an open item flag;
 5. Phase 7's item flags while open by §58C's table: `NEEDS_REVIEW`, `UNCLASSIFIED`, `CLASSIFICATION_ON_CORRECTED_SPLIT`, `PREDECESSOR_CLASSIFIED`, `REFUND_YEAR_UNKNOWN`, `ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE`; `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` while the item is not `CAPITALIZED`; `ATTRIBUTED_BY_10_DAY_RULE`, `DUE_DATE_ASSUMED`, `ECONOMIC_PERIOD_ASSUMED`, `NO_ECONOMIC_PERIOD`, `WITHDRAWAL_DATE_ASSUMED`, `WEG_FINANCIAL_YEAR_NOT_CALENDAR` while the item's `origin` is `DEFAULT`.
 
 Everything else is informative and does not block. **The view never sets `final` from anything but this rule**: there is no "mark as final" command, and nothing is stored (P7-D8). The owner level is final on the owner's flags; the property level only when every owner's and `NOT_OWNED`'s are clear too, since the property's review counts every item and flag.
@@ -6179,7 +6179,7 @@ Confirmed `OUTFLOW` debits with a `LOAN_INTEREST` split carrying L's `loanId` (p
   - `RULE_SUPERSEDED`: informative.
 
   Decision 7: no flag is added or removed because the item came through a Loan, except the two below, which say something about the Loan's allocation itself.
-- **New item flag `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`** (**open**; decided 2026-10-31, third set, open question 1): on an attributed interest item whose covering set has `basis = PURCHASE_PRICE` and more than one entry, at both levels, in whichever place the item sits. `details: { loanId, allocationSetId }`. It says that the price-based key's economic use and tax attribution are not yet confirmed. It is named like the other review flags (`…_TO_VERIFY`, as `DISPOSAL_YEAR_TO_VERIFY`) and it is not raised for a `MANUAL` set or a one-entry `PURCHASE_PRICE` set. **Only a recorded confirmation clears it:** showing the key, applying it, or the item's classification (which confirms the split's tax meaning for all its properties, not the Loan's key) does not count. DE has no mechanism for such a confirmation yet: §58C's only one, a classification in `USER_CONFIRMED` or `ADVISOR_CONFIRMED` that makes a date flag informative, confirms a split, not an allocation set, and the acknowledgements of VC-X-28 are not implemented. So in VC-X-29 the flag simply **stays open**. A traceable confirmation (stored, audited, per Loan and set) is a follow-up, noted with VC-X-28 in the backlog; VC-X-29 does not invent one.
+- **New item flag `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`** (**open**; decided 2026-10-31, third set, open question 1): on an attributed interest item whose covering set has `basis = PURCHASE_PRICE` and more than one entry, at both levels, in whichever place the item sits. `details: { loanId, allocationSetId }`. It says that the price-based key's economic use and tax attribution are not yet confirmed. It is named like the other review flags (`…_TO_VERIFY`, as `DISPOSAL_YEAR_TO_VERIFY`) and it is not raised for a `MANUAL` set or a one-entry `PURCHASE_PRICE` set. **Only a recorded confirmation clears it:** showing the key, applying it, or the item's classification (which confirms the split's tax meaning for all its properties, not the Loan's key) does not count. DE has no mechanism for such a confirmation yet: §58C's only one, a classification in `USER_CONFIRMED` or `ADVISOR_CONFIRMED` that makes a date flag informative, confirms a split, not an allocation set, and the acknowledgements of VC-X-28 are not implemented. So in VC-X-29 the flag simply **stays open**. A traceable confirmation (stored, audited, per Loan and set) is a follow-up, noted with VC-X-28 in the backlog; VC-X-29 does not invent one. **Specified in §58E (VC-X-28, not implemented):** a confirmation of the set as a whole, stored and audited, makes the flag informative on the items that set attributes; display, application and classification still do not count.
 - **New item flag `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS`** (**open**, proposal, open question 4): on an attributed interest item whose treatment is `CAPITALIZED`, for example Bauzeitzinsen classified as Herstellungskosten. §58C places it in `capitalized` with P's part, but §59B's capitalised sources read the splits of the PropertyReference only (`capitalizedSources`: `s.property_reference_id = P`), so no AfA basis would take it. The flag keeps that year from looking complete. `details: { loanId, allocationSetId }`.
 - **The review table of §58C** gains the row `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`, `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` at level open (added there). `LOAN_INTEREST_NOT_ATTRIBUTED` stays in the first row.
 - **Counts:** attributed items and not attributed entries are items of the view: they count in `review.reviewStates`, in the item flags' counts, in `ruleVersions` (`DE_CATEGORY_DEFAULTS`, `DE_CASH_TIMING` as their meanings name them) and against the cap of 5,000 (§58C "Limits": the response carries them). Today's `allocatedLoanInterest` counts in none of these.
@@ -6190,7 +6190,7 @@ Confirmed `OUTFLOW` debits with a `LOAN_INTEREST` split carrying L's `loanId` (p
 - **The rule stays §58C's** (VC-8-05: "true only when `review.open` is empty"). What VC-X-29 changes is which interest holds a year open:
   - a year whose interest via a Loan is **all attributed** is no longer held by `LOAN_INTEREST_NOT_ATTRIBUTED`. Its interest items hold it only through their own open flags, exactly as interest booked on the PropertyReference does;
   - a year with **any** not attributed interest split stays not final, at both levels, whatever else is clear (decision 5);
-  - a year with an interest item attributed by a multi-entry `PURCHASE_PRICE` set stays not final through `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` until its confirmation is recorded (decided 2026-10-31, third set; until the follow-up with VC-X-28 exists, it stays not final);
+  - a year with an interest item attributed by a multi-entry `PURCHASE_PRICE` set stays not final through `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` until its confirmation is recorded (decided 2026-10-31, third set; until the confirmation specified in §58E (VC-X-28) is implemented, it stays not final);
   - a year with an attributed `CAPITALIZED` interest item stays not final through `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` (proposal).
 - **An attribution never confirms an item** (decision 7). A default interest item is `SUGGESTED`, which is not open by itself (§58C), the same as interest booked on the PropertyReference. The allocation adds no confirmation and requires none beyond the existing ones.
 - VC-8-05's list of what blocks `final` (item 4, Phase 7's year flags) reads `LOAN_INTEREST_NOT_ATTRIBUTED` in this narrowed sense. ACC7's debit with a `loanId` is allocated `MANUAL` `1/1` from 2026-03-15, so it becomes attributed (below). ACC8's step "interest via a Loan keeps the year from being final" needs a debit without a set on its booking date.
@@ -6319,7 +6319,7 @@ No route, parameter, status code or order of checks changes. The response of §5
 
 1. **`PURCHASE_PRICE` sets against decision 2 and ADR-038.** ADR-038 defaults the allocation from the financed purchase amounts and applies it "uniformly to principal, interest, and remaining debt". Decision 2 excludes a derivation from purchase prices. **Proposal:** the tax view does not apply a `PURCHASE_PRICE` set with more than one entry (reason `ALLOCATION_BY_PURCHASE_PRICE`). The user records the actual use as a `MANUAL` set, possibly with the same fractions; since §41.3 appends only after the last set, that means voiding from the last set back, or a new set from a later date. Alternatives: (a) apply any `VALID` set, so the user's choice of a price-based set counts as the statement of use; (b) apply it, with an open item flag asking for confirmation. The owner should confirm. If (a) or (b) is chosen, the conflict with ADR-038 disappears. The proposal as written does not change ADR-038 (the set still serves Financing), but it reads less than ADR-038's "uniformly". **Decided by the owner on 2026-10-31 (third set): alternative (b).** Rejecting multi-entry `PURCHASE_PRICE` sets across the board contradicts the existing uniform distribution and causes needless correction work, so the proposal is withdrawn. Every complete set valid on the booking date is applied, `PURCHASE_PRICE` included, with the same key for principal, interest and remaining debt. A `PURCHASE_PRICE` set with more than one property raises the open item flag `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` (economic use and tax attribution to be confirmed), which keeps the year from being final until the confirmation is recorded traceably; showing or applying the key is no confirmation. Missing or invalid allocations stay not attributed, without estimated per-property amounts (`NO_LOAN_ALLOCATION`, `ALLOCATION_SUM_NOT_ONE`; `ALLOCATION_BY_PURCHASE_PRICE` withdrawn). No existing mechanism records such a confirmation, so the flag stays open for now; the confirmation is a follow-up noted with VC-X-28 in the backlog. **ADR-038 stays as it is**: no superseding ADR and no tax-specific distribution key.
 2. **Interest of a Loan with no `VALID` set naming any PropertyReference** (never allocated, or all its sets voided) is in no view, as today: the candidate selection needs a set to name the property. **Proposal:** keep it so in VC-X-29. Alternative: list it in every view of the Realm, as §58C does for a deposit with `NO_RECONCILED_RENT`. That never hides it, but a Loan unrelated to letting would then hold every year of every property open, with no way to dismiss it before VC-X-28.
-3. **Backdated sets and voids** re-attribute interest already booked (above, "How the code's reality shapes"). **Proposal:** add them to VC-X-28's silent inputs (beside a Loan terms period added or voided, §58C open question 8). Each set's `created_at` and `voided_at` give "recorded after 31 December of the year" without an AuditRecord. Alternatives: forbid a `validFrom` before the set's recording in §41.3 (a Financing change that would also forbid legitimate late first allocations), or flag now.
+3. **Backdated sets and voids** re-attribute interest already booked (above, "How the code's reality shapes"). **Proposal:** add them to VC-X-28's silent inputs (beside a Loan terms period added or voided, §58C open question 8). Each set's `created_at` and `voided_at` give "recorded after 31 December of the year" without an AuditRecord. Alternatives: forbid a `validFrom` before the set's recording in §41.3 (a Financing change that would also forbid legitimate late first allocations), or flag now. Taken up as §58E open question 4.
 4. **Capitalised interest via a Loan** (Bauzeitzinsen as Herstellungskosten, `CAPITALIZED`): §58C places it in `capitalized` with P's part, but §59B does not read it. **Proposal:** the open item flag `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` now, and a follow-up row (§59B's `capitalizedSources` reads attributed Loan interest with P's part). Alternative: no flag, accepting that the AfA basis misses it silently, which decision 5 argues against.
 5. **§55's per-year list** keeps listing only the PropertyReference's own splits. Should it show the attributed Loan interest too, with P's part? **Proposal:** no in VC-X-29. The list is the classification worklist of the PropertyReference's cash, and a Loan's split is classified once for all its properties, through `GET /transaction-splits/{id}/tax-meaning` and §56.
 6. **The tie rule between properties:** §41.6's `propertyReferenceId` (proposal: the view's parts equal Financing's per-split parts) or §58C's larger share first. Within one set the two differ only on exact ties of the remainder.
@@ -6340,6 +6340,276 @@ No route, parameter, status code or order of checks changes. The response of §5
   - **The plans:** the candidate-split query uses `transaction_split_loan_idx` with real statistics (16,000 splits without a Loan). The allocation tables of a test are tiny, so the planner scans them; with `enable_seqscan` off, the batched set read uses `loan_allocation_set_loan_idx`, and the candidates' entries are read by `loan_allocation_property_reference_idx` or, from the set side, by the unique `(set_id, property_reference_id)` of 0026, whichever the planner prices lower; the test accepts either.
 - **ACC7 (`phase-7-acceptance.e2e.test.ts`):** its debit of 2027-07-20 is attributed by its `MANUAL` `1/1` set from 2026-03-15: `LOAN_INTEREST` of 2027 is 2,449.48 + 450.00 = **2,899.48**, Werbungskosten 19,835.48 + 450.00 = **20,285.48**, the result −6,551.47 − 450.00 = **−7,001.47**. The 450.00 splits 3/5 and 2/5: 27,000 and 18,000 cents exactly, so A **270.00** and B **180.00**: A's `LOAN_INTEREST` 1,469.68 + 270.00 = 1,739.68, Werbungskosten 12,171.28, result −4,200.87; B's 979.80 + 180.00 = 1,159.80, 8,114.20, −2,800.60 (A + B = 7,001.47). A second Loan (first set `MANUAL` `1/1` from 2027-10-01) with a debit of 120.00 on 2027-09-20 keeps `LOAN_INTEREST_NOT_ATTRIBUTED` with exactly that split (`interestTotal` 120.00) at both levels, and is the one entry of `notAttributed`; its figures are unchanged by it. The comparison with §55's list leaves out the two Loan splits. The response types and figure helpers moved to `phase-7-acceptance.test-support.ts` (the file-size limit).
 - **Mutations run** (each applied alone, the §58D tests, `tax-year-view.test.ts` and ACC7 run, the code restored), all red: the set chosen by the tax year's 31 December, by today, or as the latest `VALID` set; a `VOID` set used; the interest distributed as one total per set (red in the domain test's "rounding" and the repository test's two properties of one set); ties between properties by the larger share (the domain test's "rounding" and the example); the owners' parts from split × allocation × ownership in one step; the owners taken on the tax year's first or last day; a missing set replaced by the next set, the previous set or an equal split; a multi-entry `PURCHASE_PRICE` set left not attributed, or applied without its flag; the flag raised on a `MANUAL` or a one-entry set, made informative, or made confirmable by a `USER_CONFIRMED` classification; `LOAN_INTEREST_NOT_ATTRIBUTED` raised for all the Loans' interest (#171's scope), not raised, or made informative; `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` dropped; not attributed interest counted in `UNATTRIBUTED_ITEMS`; Loan items not counted toward the cap; the sets read in their own transaction (the repository test's "one snapshot"). **The Realm filter dropped from the set read** turns only the repository test's "the plans" red, which asserts the filter on the statement: 0026's composite keys keep another Realm's set from naming the Loan, so no data can tell the difference (an equivalent mutant by behaviour).
+
+---
+
+# 58E. Acknowledgements in the Tax-Year View (VC-X-28, specified)
+
+**Status:** specified, not implemented (VC-X-28; open questions for review below). **Migration 0053** (the next free number after 0052). It amends §58C (`ATTRIBUTION_INPUT_CHANGED`, `ATTRIBUTION_HISTORY_INCONSISTENT`, the review table, the snapshot, "no cash mutated") and §58D (`LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`, `Item.loanAllocation`). Placement, signs, the per-owner arithmetic, § 82b, the attribution of Loan interest, VC-8-05's AfA and the rule for `final` are unchanged.
+
+**Why a section of its own, after §58D:** VC-X-28 is a backlog item of its own, as VC-X-29 is (§58D). §58C and §58D keep their statements and point here where they change.
+
+Backlog VC-X-28: §58C decisions 7 and 8 (review on #168) and §58D open question 1 (decided 2026-10-31, third set). Three things, all about a person's statement that DE stores and audits and the view then reads:
+
+1. **Acknowledging an attribution change:** `ATTRIBUTION_INPUT_CHANGED` is derived from the history and stays open for as long as the history exists (§58C "It stays"), so a corrected year can never be final. A person acknowledges each change per PropertyReference and year; the acknowledgement covers exactly what the person saw (a fingerprint), so anything the change moves later re-opens the flag.
+2. **Widening the flag** to the other inputs that move an item's tax year silently: a reconciliation confirmed or released, a Loan terms period added or voided (§58C decision 8), read from their AuditRecords as the `rentDueDays` amendments are.
+3. **Confirming a multi-entry `PURCHASE_PRICE` set** for the tax view (§58D decision 2 as refined, open question 1): a stored, audited confirmation that clears `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` for the interest that set attributes. Displaying or applying the key is no confirmation (owner's decision); missing or invalid allocations stay not attributed.
+
+DE still writes no cash, no split, no classification and no allocation (ADR-006, P7-D8). The view stays a read that stores nothing; it reads the statements stored here in its snapshot. The commands write only 0053's tables and AuditRecords.
+
+### As the code stands (main, before VC-X-28)
+
+- **`ATTRIBUTION_INPUT_CHANGED`:** `attributionInputOf` (`infrastructure/postgres/tax-year-reads.ts`) reads, in the view's snapshot, the counting `RENT_BASE` and `RENT_OPERATING_COST_ADVANCE` splits of the PropertyReference booked in either window at an edge of `year` (`widestWindowDays` of the registry) with exactly one `CONFIRMED` reconciliation term, their classifications' `taxYear`, the Realm's RentalContractReferences of those Tenants, and those references' `CREATED` and `AMENDED` AuditRecords (`audit_record` has no Realm column: the references are selected in the Realm first, then their records by `audit_record_entity_idx`). The pure `attributionChanges` (`domains/taxation/attribution-changes.ts`) rebuilds the lists before and after each amendment, computes each candidate's year under both with `DE_CASH_TIMING`, and keeps an amendment when the years differ, one of them is `year` and its `occurred_at` (Europe/Berlin) lies after 31 December of `year`. `buildTaxYearView` raises one year flag with the array of `{ rentalContractReferenceId, auditRecordId, amendedAt, changedEntries, items }`; `deriveItem` (`tax-year-items.ts`) puts a flag of the same code on an item now in `year`. Both are open by their code alone (`OPEN_YEAR_FLAGS`, `OPEN_ITEM_FLAGS` in `tax-year-review.ts`). Nothing can clear them.
+- **`LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`:** `deriveLoanItem` (`tax-year-loan-interest.ts`) adds it to an attributed interest item when the covering set has `basis = PURCHASE_PRICE` and more than one entry, with `details: { loanId, allocationSetId }`; open by its code (`OPEN_ITEM_FLAGS`). No table records a confirmation, and no classification clears it (§58D, tested).
+
+### Routes
+
+```text
+POST /api/v1/property-references/{id}/tax-years/{year}/acknowledgements                                (VC-X-28, §58E)
+GET  /api/v1/property-references/{id}/tax-years/{year}/acknowledgements[?status=]                      (VC-X-28, §58E)
+POST /api/v1/property-references/{id}/tax-years/{year}/acknowledgements/{acknowledgementId}/withdraw   (VC-X-28, §58E; open question 2)
+POST /api/v1/loans/{loanId}/allocations/{allocationSetId}/tax-confirmations                            (VC-X-28, §58E)
+GET  /api/v1/loans/{loanId}/allocations/{allocationSetId}/tax-confirmations                            (VC-X-28, §58E)
+POST /api/v1/loans/{loanId}/allocations/{allocationSetId}/tax-confirmations/{confirmationId}/withdraw  (VC-X-28, §58E; open question 2)
+```
+
+- **Domain owner:** Taxation, for all six. A confirmation is a tax statement about a Financing record: it lives in Taxation's table and references the set, and Financing never reads it (the forbidden edge Financing → Taxation of §58D stays). **Authorization:** the caller's Realm, as every DE route; any user of the Realm may acknowledge and confirm (as §57: there is no advisor role in the MVP, the actor is recorded). Unknown, foreign or malformed ids are answered as §30.1 (`404` / `400`).
+- **`year`** as §58C (`400 INVALID_FORMAT`, `OUT_OF_RANGE`). No `ownerPartyId`: an acknowledgement is per PropertyReference and covers both levels, since the year flag is shown unfiltered at the owner level (§58C "As implemented"; open question 3).
+
+### Part 1: the changes, widened (§58C decision 8)
+
+**One rule for every kind.** A *change* is one AuditRecord of an input of the attribution. For each candidate item, the item's tax year is computed twice, with the input as it stood just **before** and just **after** that record, everything else as read now (§58C). The year `year` is flagged when the two years differ, one of them is `year`, and the record's `occurred_at` lies after 31 December of `year` (Europe/Berlin; review on #168). The state before and after is rebuilt from the entity's AuditRecords in `(occurred_at, id)` order, as the `rentDueDays` lists are; a history that does not end in the current rows makes that entity `ATTRIBUTION_HISTORY_INCONSISTENT` and its history unused (open, as today).
+
+| `kind` | AuditRecords read | Candidate items (all counting, booked in either window of `year`'s edges, §58A) | The input before / after |
+|---|---|---|---|
+| `RENT_DUE_DAYS_AMENDED` (today's) | `RentalContractReference` `AMENDED` with `changedEntries` (and `CREATED`) | rent splits with exactly one `CONFIRMED` term now (as today) | the reference's `rentDueDays` |
+| `RECONCILIATION_CONFIRMED`, `RECONCILIATION_RELEASED` | `RentPaymentReconciliation` `CONFIRMED`, `RELEASED` of every reconciliation of the candidates' Transactions | `RENT_BASE`, `RENT_OPERATING_COST_ADVANCE` splits of the PropertyReference whose Transaction has at least one reconciliation that is or was `CONFIRMED` | the Transaction's set of `CONFIRMED` Tenant and term pairs (one pair: the term's month and the reference's current due day; none or several: the booking year, `NO_ECONOMIC_PERIOD`, §58A) |
+| `LOAN_TERMS_ADDED`, `LOAN_TERMS_VOIDED` | `LoanTerms` `CREATED`, `VOIDED` of every Loan with a candidate split | `LOAN_INTEREST` splits with a `loanId` of §58D's candidate Loans that concern this PropertyReference: the set covering the booking date names it, or the split is not attributed and the PropertyReference is among `candidates` | the Loan's `VALID` periods, hence its schedule (§41.4) and the nearest entry's due date (§58A; no period: the booking year, `NO_SCHEDULE`) |
+
+- **A classification's `taxYear` override** wins under both states, so it moves nothing and raises nothing (as today).
+- **Each change is judged alone** against everything else as it is now. Two changes that cancel out (a reconciliation released and the same term matched again) are each flagged when each moved the year. Over-flagging only keeps a year open until acknowledged; it never hides a move.
+- **A reconciliation confirmed late in the normal course** (a rent paid on 29 December, matched on 5 January) is a change too: it moves the rent from the booking year (`NO_ECONOMIC_PERIOD`) to the year after. **Proposal:** flag it (open question 5).
+- **A terms period** changes the due dates of every later entry; a split whose nearest entry keeps its due date is not moved.
+- **What stays as it is:** the windows, the 31-December rule, `ATTRIBUTION_HISTORY_INCONSISTENT` (its `details` gain `{ entityType, entityId }`; for a reference `rentalContractReferenceId` stays). A superseded classification is not a silent mover: its history is readable (§55, §58C open question 8).
+- **Backdated allocation sets and voids** (§58D open question 3) move a Loan split's **property part**, not its year. **Not in this table;** whether VC-X-28 takes them is open question 4.
+
+**The flag, additively.** `ATTRIBUTION_INPUT_CHANGED.details` stays an array with one entry per change. Every entry keeps `auditRecordId`, `amendedAt` (the record's `occurred_at`, for every kind, so the key does not change) and `items: [{ sourceId, yearBefore, yearAfter }]`, and gains:
+
+- `kind` (the table above), `entityType`, `entityId`;
+- the kind's own keys: `rentalContractReferenceId`, `changedEntries` (rent, as today); `reconciliationId`, `transactionId`, `mreTenantId`, `mreRentTerm` (reconciliation); `loanId`, `termsId`, `validFrom` (terms);
+- `changeFingerprint` (below), and `acknowledgement`: `{ acknowledgementId, acknowledgedAt, acknowledgedBy }` of the `ACTIVE` acknowledgement that matches it, or `null`.
+
+The item flag of the same code (on an item now in `year`) carries the same keys per change that moved it. Entries are ordered by `amendedAt`, then `auditRecordId`.
+
+### Part 2: acknowledging a change (§58C decision 7)
+
+**What is acknowledged:** one change, for one PropertyReference and one year, **as the person saw it**: the **change fingerprint** is the SHA-256 (hex) of the canonical JSON (§60's `canonicalJson`: keys sorted, ids lower-case) of `{ propertyReferenceId, year, auditRecordId, kind, items }`, with `items` sorted by `sourceId`. It is in the flag's entry, so the client takes it from the view it showed.
+
+- **A change matches an acknowledgement** when an `ACTIVE` acknowledgement of the same PropertyReference, year and `auditRecordId` has the same fingerprint. So:
+  - a **new** change (a further amendment, another reconciliation released, another terms period) has another `auditRecordId` and is not acknowledged;
+  - an acknowledged change that now **moves something else** (a split corrected into a new one, a further rent split matched to the term, a classification's `taxYear` override removed) has another fingerprint and is open again;
+  - the acknowledgement stays stored and readable either way. Nothing is overwritten.
+- **The fingerprint covers ids and years, not amounts.** A correction of a split is a new split id (§35), so the fingerprint changes; a classification change that moves no year does not concern this flag.
+
+#### `POST …/tax-years/{year}/acknowledgements`
+
+`201` with the acknowledgement, `ETag: "<version>"`, `Location: …/acknowledgements/{acknowledgementId}`. `Idempotency-Key` (§15; scope `tax-year.acknowledgement.create`, fingerprint the PropertyReference id, `year` and the normalized body).
+
+```json
+{
+  "auditRecordId": "6f1c2a9e-0000-4000-8000-000000000301",
+  "expectedFingerprint": "9b2e6c1f0d8a4e7b3c5a2f1e0d9c8b7a6f5e4d3c2b1a09f8e7d6c5b4a3928170",
+  "reason": "Erklärung 2027 war noch nicht abgegeben (synthetisch)"
+}
+```
+
+- **Body** (strict; unknown keys `400`): `auditRecordId` (UUID, required), `expectedFingerprint` (64 lower-case hex, required, `INVALID_FORMAT`), `reason` (required, trimmed, 1–500): what the person did about it (the return not yet filed, amended, or not affected).
+- **Order of checks:**
+  1. `400`, all field errors at once;
+  2. the PropertyReference unknown or of another Realm → `404`;
+  3. **the year's changes, derived in the command's own snapshot** (Part 1, for this PropertyReference and `year`; the rest of the view is not derived, so the cap does not apply): `auditRecordId` is not among them → `409 CONFLICT` with `reason = "CHANGE_NOT_FLAGGED"` and `details: { auditRecordId, year }`. An AuditRecord of another Realm or of an unrelated entity answers the same: it is never among the derived changes;
+  4. the change's fingerprint ≠ `expectedFingerprint` → **`412 ATTRIBUTION_CHANGE_DIFFERS`** with `details: { auditRecordId, expectedFingerprint, currentFingerprint }`. Nothing is written; the person reads the view again (as §60's `SCHEDULE_CHANGED`);
+  5. **the no-op:** an `ACTIVE` acknowledgement with the same PropertyReference, year, `auditRecordId` and fingerprint exists → `200` with it, nothing written, whatever `reason` says;
+  6. `201`: the acknowledgement (`status = ACTIVE`, `version = 1`) with its items (the change's `items` as derived), AuditRecord `ACKNOWLEDGED`.
+- **No `If-Match`:** an acknowledgement is created, not changed; the fingerprint is the precondition.
+- **One change per request.** A year with three changes takes three requests (open question 3).
+
+#### `POST …/acknowledgements/{acknowledgementId}/withdraw` (open question 2)
+
+- Body `{ "reason": "..." }` (1–500, trimmed). `200` with the acknowledgement (`status = WITHDRAWN`, `withdrawnAt`, `withdrawnBy`, `withdrawReason`, `version` + 1); AuditRecord `WITHDRAWN`. The change is open again in the view.
+- **Order of checks:** `400` → PropertyReference, or the acknowledgement of this PropertyReference and year, unknown or foreign → `404` (`details.acknowledgementId`) → already `WITHDRAWN`: `200` no-op keeping the first reason, whatever the version → `If-Match` (§16.1) → `412`.
+- A withdrawn acknowledgement is history. Acknowledging the same change again creates a new one.
+
+#### `GET …/acknowledgements[?status=]`
+
+`{ items }`, newest first (`acknowledgedAt` descending, then id), `ACTIVE` and `WITHDRAWN` (`?status=` a comma-separated list). Stored data only, no derivation; unpaged (a few changes per year); one `REPEATABLE READ READ ONLY` snapshot. Unknown parameters `400`.
+
+**Response** (one acknowledgement):
+
+```text
+{
+  acknowledgementId, propertyReferenceId, year, status: "ACTIVE" | "WITHDRAWN",
+  change: { auditRecordId, kind, entityType, entityId, recordedAt, fingerprint, items: [{ sourceId, yearBefore, yearAfter }] },
+  reason, acknowledgedAt, acknowledgedBy, withdrawnAt, withdrawnBy, withdrawReason, version
+}
+```
+
+Whether it still matches a flagged change is the view's to show (the entry's `acknowledgement`), not this read's.
+
+### Part 3: confirming a multi-entry `PURCHASE_PRICE` set (§58D, decided 2026-10-31, third set)
+
+**What is confirmed:** one allocation set **as a whole**: that its price-based key reflects the Loan's economic use and the tax attribution of its interest to the set's PropertyReferences, for every booking date the set covers (open question 7). A set never changes (§41.3: `loan_allocation_set_frozen`, rows never updated), so its id is its fingerprint; no hash is needed.
+
+- **The flag is cleared** on an item exactly when the set covering its booking date has an `ACTIVE` confirmation. It **re-opens**, or stays open, when:
+  - the confirmation is withdrawn;
+  - a split's booking date is covered by **another** multi-entry `PURCHASE_PRICE` set (a set appended from a later `validFrom`, or an earlier set extended by the void of the last one, §41.3): that set needs its own confirmation;
+  - the confirmed set is voided: it covers nothing (§58D), so the confirmation clears nothing any more and stays as history.
+- **Unchanged (owner's decision):** showing, applying or exporting the key is no confirmation; the split's classification (`USER_CONFIRMED`, `ADVISOR_CONFIRMED`) confirms the split, not the key, and still does not clear the flag; interest without a usable set stays not attributed (`NO_LOAN_ALLOCATION`, `ALLOCATION_SUM_NOT_ONE`), and nothing here estimates or attributes it. A `MANUAL` set and a one-entry set need no confirmation and cannot take one.
+- **The figures do not depend on it:** the parts are those of §58D with or without a confirmation.
+- **VERIFY (checklist A1) stays:** a confirmation is the user's statement of use, recorded with its actor and reason (optionally naming the advisor). It does not verify A1 for DE, as §58D open question 8 says.
+
+#### `POST /api/v1/loans/{loanId}/allocations/{allocationSetId}/tax-confirmations`
+
+`201` with the confirmation, `ETag`, `Location`. `Idempotency-Key` (scope `loan.allocation.tax-confirmation.create`, fingerprint the set id and the normalized body).
+
+- **Body** (strict): `reason` (required, trimmed, 1–500: the basis of the statement, e.g. "Darlehen finanziert beide Käufe im Verhältnis der Kaufpreise (synthetisch)"), `advisorPartyId` (UUID, optional; as §57's advisor-confirm).
+- **Order of checks:**
+  1. `400`;
+  2. the Loan unknown or foreign → `404` (`LoanNotFoundError`); the set unknown, foreign or of another Loan → `404` (`LoanAllocationSetNotFoundError`, `details.allocationSetId`);
+  3. `advisorPartyId` names no Party of the Realm → `404` (`details.advisorPartyId`);
+  4. **nothing to confirm** → `409 CONFLICT` with `reason = "NOTHING_TO_CONFIRM"` and `details: { allocationSetId, cause }`, `cause` one of `LOAN_VOID` (its sets count nowhere, §41.1), `SET_VOID`, `NOT_PURCHASE_PRICE`, `SINGLE_ENTRY`. A `CLOSED` Loan's set can be confirmed: its interest up to the closing stays in the views;
+  5. **the no-op:** an `ACTIVE` confirmation of the set exists → `200` with it, nothing written, whatever the body says (to name an advisor afterwards, withdraw and confirm again);
+  6. `201`: `status = ACTIVE`, `version = 1`; AuditRecord `CONFIRMED`.
+- Steps 4 and 5 are repeated under the lock (below), so a void committed in between answers `SET_VOID`.
+
+#### `POST …/tax-confirmations/{confirmationId}/withdraw` and `GET …/tax-confirmations`
+
+- **Withdraw** (open question 2): as the acknowledgement's: `{ reason }`, `404` → already `WITHDRAWN` `200` no-op → `If-Match` `412` → `200`, `version` + 1, AuditRecord `WITHDRAWN`. Allowed on a `VOID` set's confirmation too (it changes nothing in the view, only the record).
+- **List:** `{ items }`, newest first, both statuses, unpaged, one snapshot.
+- **Response:** `{ confirmationId, loanId, allocationSetId, status, set: { validFrom, basis, allocations: [{ propertyReferenceId, share, acquisitionId }] }, reason, advisorPartyId, confirmedAt, confirmedBy, withdrawnAt, withdrawnBy, withdrawReason, version }`; `set` is read from the set, not stored again.
+
+### In the view (additive)
+
+- **The snapshot** (§58C "One snapshot") gains the `ACTIVE` acknowledgements of the PropertyReference and `year` and the `ACTIVE` confirmations of the sets the view's Loan items name, and the AuditRecords and rows of Part 1 (reconciliations of the candidate Transactions, terms of the candidate Loans).
+- **`ATTRIBUTION_INPUT_CHANGED`** keeps its code and is raised exactly as Part 1 says, acknowledged or not, so the change stays visible. **Its level** (review table, §58C): **open** while at least one entry has `acknowledgement: null`; **informative** once every entry is acknowledged. The item flag the same way, over the changes that moved the item. A code may then appear in `review.open` and `review.info` in one view (§58C "As implemented").
+- **`LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`** keeps its code; `details` gain `confirmation: { confirmationId, confirmedAt, confirmedBy, advisorPartyId } | null`. **Open** while `confirmation` is `null`, **informative** after. `Item.loanAllocation` gains `taxConfirmation` (the same object, or `null`; `null` on every non-`PURCHASE_PRICE` or one-entry set).
+- **The rest of the review table, the cap, the figures and `owners`** are unchanged. Whether to keep the code with a level by state, or to switch to new informative codes, is open question 6.
+
+### The effect on `final`, ACC7 and ACC8
+
+- **The rule stays §58C's** (VC-8-05: `final` only when `review.open` is empty). VC-X-28 makes two flags clearable that could not be cleared before:
+  - a year with `ATTRIBUTION_INPUT_CHANGED` can become final once each of its changes is acknowledged with its current fingerprint, and stops being final when a change is new, moves something else, or its acknowledgement is withdrawn;
+  - a year with interest attributed by a multi-entry `PURCHASE_PRICE` set can become final once each such set is confirmed;
+  - the widened kinds hold years open that were final before (a year with a late reconciliation or a terms period after its end). This is the intended correction of §58C decision 8, and it can turn a `final: true` of today into `false` after deployment.
+- **`ATTRIBUTION_HISTORY_INCONSISTENT`** stays open and cannot be acknowledged: its history is not usable, so there is no change to acknowledge.
+- **ACC7 and ACC8 expect no change:** neither records a change of a silent input after a year's end, and neither has a multi-entry `PURCHASE_PRICE` set (ACC7's Loans are `MANUAL` `1/1`; ACC8's Loan likewise), so their figures, flags and `final` stay as they are. The implementation runs both unchanged; **a flag appearing there is a finding to report and explain, not to suppress** (e.g. an ACC7 reconciliation confirmed after a year's end under the test clock). No acceptance step is added; the e2e test below shows the cycle (open question 8 asks whether ACC8 should).
+
+### Concurrency and locks
+
+- **Acknowledgements: one `REPEATABLE READ` read-write transaction**, as §60: the derivation of step 3 reads every input in one snapshot. Lock order: (1) claim the key; (2) write the **PropertyReference** row (the no-op of every PropertyReference writer, §59); (3) derive and check; (4) insert the acknowledgement and its items, the AuditRecord, record the key. Withdraw: (2), then the acknowledgement `FOR UPDATE`.
+  - **No input is locked.** The writers of `rentDueDays`, reconciliations and terms take none of these locks and block none of them. A change committed after the snapshot is either a new `auditRecordId` (not acknowledged) or changes the fingerprint (no longer matching): the next read of the view shows it open. Nothing is acknowledged that the person did not see.
+  - **Two acknowledgements of one change** meet on the PropertyReference row; the later fails to serialise (`40001`). The use case retries the whole transaction up to three times with a fresh snapshot (it then ends in the no-op), then `503 CONCURRENT_UPDATE` with `Retry-After: 1` (`ConcurrentUpdateError`, §60). The partial unique index (below) is the guarantee for any other writer.
+- **Confirmations: one READ COMMITTED transaction.** Lock order: (1) claim the key; (2) write the **Loan** row (P3-D8's no-op, as `loan_allocation_set_append` and `_frozen` do), so a confirmation serialises with every set append and void of the Loan; (3) read the set and its rows, repeat steps 4–5; (4) insert, AuditRecord, key. Withdraw: (2), then the confirmation `FOR UPDATE`. A void of the set that commits first is seen (`SET_VOID`); one that waits sees the confirmation and voids anyway (allowed: the confirmation then covers nothing).
+- **The view** takes no lock (§58D "Concurrency"): an acknowledgement or confirmation committed while it runs is wholly seen or not at all.
+
+### In the database (migration 0053)
+
+All tables carry `mre_realm_id`; ids are UUIDs; texts trimmed with 0045's text check.
+
+- **`tax_year_acknowledgement`:** `id`, `mre_realm_id`, `property_reference_id` (composite foreign key `(property_reference_id, mre_realm_id)` to `property_reference`), `tax_year` (`integer`, CHECK 2000–2100), `audit_record_id` (`uuid`, no foreign key: `audit_record` has no Realm column and its retention is VC-X-24's), `change_kind` (CHECK the five kinds), `change_entity_type`, `change_entity_id`, `change_recorded_at` (`timestamptz`), `change_fingerprint` (CHECK 64 lower-case hex), `reason` (1–500), `acknowledged_at`, `acknowledged_by`, `status` (CHECK `ACTIVE`, `WITHDRAWN`), `withdrawn_at`, `withdrawn_by`, `withdraw_reason` (set together exactly on `WITHDRAWN`, CHECK), `version`, `created_txid` (`bigint NOT NULL DEFAULT txid_current()`, as 0052); `UNIQUE (id, mre_realm_id)`.
+- **`tax_year_acknowledgement_item`:** `acknowledgement_id`, `mre_realm_id` (composite foreign key to the acknowledgement), `source_id` (`uuid`; the split, as a value), `year_before`, `year_after` (CHECK 2000–2100, different); key `(acknowledgement_id, source_id)`. Rows, not a JSON blob (AGENTS.md §28).
+- **`loan_allocation_tax_confirmation`:** `id`, `mre_realm_id`, `allocation_set_id` (composite foreign key `(allocation_set_id, mre_realm_id)` to `loan_allocation_set`'s `UNIQUE (id, mre_realm_id)`; the Loan is the set's), `reason`, `advisor_party_id` (composite foreign key to `party (id, mre_realm_id)`, nullable), `confirmed_at`, `confirmed_by`, the same status and withdrawal columns, `version`; `UNIQUE (id, mre_realm_id)`.
+- **Indexes:** `tax_year_acknowledgement_active` **unique** on `(property_reference_id, tax_year, audit_record_id, change_fingerprint) WHERE status = 'ACTIVE'`; `tax_year_acknowledgement_year_idx` on `(property_reference_id, tax_year, acknowledged_at DESC)` (the view and the list); `loan_allocation_tax_confirmation_active` **unique** on `(allocation_set_id) WHERE status = 'ACTIVE'`; `loan_allocation_tax_confirmation_set_idx` on `(allocation_set_id, confirmed_at DESC)`.
+- **Guards** (triggers, as 0045's and 0052's):
+  - `tax_year_acknowledgement_insert`: writes the PropertyReference row first (no-op); only `ACTIVE`, `version` 1, no withdrawal fields; `created_txid` = `txid_current()`;
+  - `tax_year_acknowledgement_frozen`: the only change is `ACTIVE` → `WITHDRAWN` with the three fields and `version` + 1; nothing else, ever; **no delete**;
+  - `tax_year_acknowledgement_item_append_only`: an item is inserted only in its acknowledgement's transaction (`created_txid`); no update, no delete;
+  - `loan_allocation_tax_confirmation_insert`: writes the Loan row first (no-op), then requires the set `VALID`, `basis = PURCHASE_PRICE` and more than one `loan_allocation` row (the deferred sum trigger of 0026 has committed them); only `ACTIVE`, `version` 1;
+  - `loan_allocation_tax_confirmation_frozen`: as the acknowledgement's.
+- **Not in the database:** whether a change is flagged and its fingerprint (a derivation over several domains, checked by the command in its snapshot and re-checked by every read); the Realm of `audit_record_id` (the derivation selects only the Realm's entities).
+- **No column** on `loan_allocation_set`, `loan_allocation`, `rent_payment_reconciliation`, `loan_terms`, `rental_contract_reference`, `tax_classification` or any ledger table.
+- **`down`** drops the three tables and their functions; with any row present it **refuses** (a person's statement is never dropped silently, as 0051 and 0052).
+
+### AuditRecords
+
+- Entity `TaxYearAcknowledgement`: `ACKNOWLEDGED` `{ propertyReferenceId, year, auditRecordId, kind, entityType, entityId, changeFingerprint, items, reason }`, version `null` → 1; `WITHDRAWN` `{ reason }`, 1 → 2.
+- Entity `LoanAllocationTaxConfirmation`: `CONFIRMED` `{ loanId, allocationSetId, basis, validFrom, allocations: [{ propertyReferenceId, share, acquisitionId }], reason, advisorPartyId }`, `null` → 1; `WITHDRAWN` `{ reason }`, 1 → 2.
+- Each carries the actor (§17). No-ops write none. The set, the Loan, the PropertyReference and the changed entity get no AuditRecord (their no-op writes change no value). These AuditRecords are not inputs of Part 1.
+
+### Error answers (`api/error-answers.ts`)
+
+| Error | Answer | `details` |
+|---|---|---|
+| `TaxYearAcknowledgementNotFoundError` | `404 NOT_FOUND`, "Acknowledgement not found." | `{ acknowledgementId }` |
+| `AttributionChangeNotFlaggedError` | `409 CONFLICT`, "The year shows no such attribution change." | `{ reason: "CHANGE_NOT_FLAGGED", auditRecordId, year }` |
+| `AttributionChangeDiffersError` | `412 ATTRIBUTION_CHANGE_DIFFERS`, "The change moves other items than when it was read." | `{ auditRecordId, expectedFingerprint, currentFingerprint }` |
+| `LoanAllocationTaxConfirmationNotFoundError` | `404 NOT_FOUND`, "Confirmation not found." | `{ confirmationId }` |
+| `NothingToConfirmError` | `409 CONFLICT`, "This allocation set needs no tax confirmation." | `{ reason: "NOTHING_TO_CONFIRM", allocationSetId, cause }` |
+
+Reused: `PropertyReferenceNotFoundError`, `LoanNotFoundError`, `LoanAllocationSetNotFoundError`, `PartyNotFoundError` (advisor), `IdempotencyKeyConflictError` (`409`), `ConcurrentUpdateError` (`503`). Field errors with the existing codes; flags are data, never errors.
+
+### Performance
+
+- **Part 1:** the candidates are bounded by the windows (about 20 days at each edge). One query for the reconciliations of the candidate Transactions (0030's `transaction_id` key), one for the terms of the candidate Loans (`loan_terms_loan_idx`), and one AuditRecord query per entity type by `audit_record_entity_idx` (`entity_type`, `entity_id IN …`). The schedule is derived per terms state of a Loan: a handful of periods, so a handful of derivations.
+- **Acknowledgements and confirmations:** by the two `…_year_idx` / `…_active` indexes. A repository test reads the plans of the AuditRecord query and the acknowledgement read inside the view's snapshot.
+- **The command** derives Part 1 only, not the view.
+
+### The code that changes (pointers)
+
+- **`domains/taxation/attribution-changes.ts`:** `AttributionInput` gains the reconciliation and terms histories; `attributionChanges` judges every kind by the one rule above and returns entries with `kind`, the kind's keys and `changeFingerprint` (through the `Fingerprinter` port); a pure `matchAcknowledgements`. The candidates and timing reuse `attributeTaxYear` and `rentTiming` (rent), and the Loan's schedule derivation that `meaningsOf` uses (terms).
+- **`Fingerprinter` and `canonicalJson`** move from `domains/depreciation` to `shared/` (Depreciation re-exports them), since Taxation may not import Depreciation (`architecture.test.ts`).
+- **`domains/taxation/tax-year-review.ts`:** `flagIsOpen` decides `ATTRIBUTION_INPUT_CHANGED` and `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` by their `details` (every entry acknowledged; `confirmation` set) instead of the code alone. `tax-year-loan-interest.ts`: `deriveLoanItem` adds `confirmation` to the flag's `details` and `taxConfirmation` to `loanAllocation`.
+- **`infrastructure/postgres/tax-year-reads.ts`:** `attributionInputOf` widened, plus the acknowledgements and confirmations in the snapshot; new repositories for the two tables; `application/` use cases with the orders of checks; `api/` routes and DTOs; migration `0053_tax_year_acknowledgements`.
+
+### Tests the implementation must have
+
+- **Domain (pure):**
+  - each kind moving a rent or interest split into and out of `year`, flagging each year whose 31 December the record postdates: both years when recorded after the later year's end, only the earlier year when recorded during the later year; recorded on 31 December (no flag) and on 1 January (flag); a `taxYear` override (no flag);
+  - reconciliations: none → one (`NO_ECONOMIC_PERIOD` to the term's year), one → two (`SEVERAL_TERMS`, the booking year), released, released and matched again (two entries); terms: a period added with another payment day moving the nearest due date across the year; voided; a period after the window (no flag);
+  - an inconsistent history of each entity (`ATTRIBUTION_HISTORY_INCONSISTENT` with `entityType`, `entityId`, history unused);
+  - the fingerprint: stable over key order and item order; different for another item, another year, another `auditRecordId`; equal at both levels;
+  - the levels: open with one unacknowledged entry, informative with all acknowledged; a withdrawn acknowledgement or another fingerprint open again; the item flag likewise; the price flag open without and informative with a confirmation, open under another set; `final` true exactly when nothing else is open;
+  - counter-checks: a `USER_CONFIRMED` classification clears neither flag; a confirmation of set S leaves set S2's items open.
+- **Repository (PostgreSQL):** the order of checks of both commands, each answer; the no-ops; idempotency (replay, other payload `409`); withdraw and its no-op; the view reading the stored statements in its snapshot (one committed between two statements is not seen); concurrency (two acknowledgements of one change: RR `40001`, retried to the no-op; a confirmation against a set void and an append: RC sees it or is seen); **schema past the repository**, each with a counter-check: an insert as `WITHDRAWN`, a changed field, a second `ACTIVE` row, a delete, an item inserted after its acknowledgement's transaction, a confirmation of a `MANUAL`, one-entry or `VOID` set; Realm isolation (another Realm's PropertyReference, set, Party and AuditRecord ids `404` or `CHANGE_NOT_FLAGGED`, and its acknowledgements never read); "no cash mutated" extended by `rent_payment_reconciliation` and 0053's tables (rows and versions unchanged by views); the plans; 0053 `up`, `down`, and `down` refusing with a row.
+- **API:** every `400`; the DTOs; the error mapping; `ETag`, `Location`.
+- **End to end** (`tax-year-acknowledgements.e2e.test.ts`, synthetic values only, a settable clock): a Tenant with `rentDueDays` day 3; the January 2028 rent of 800.00 paid on 2027-12-29 and matched to its January term on 2028-01-05: only 2027 flagged (`RECONCILIATION_CONFIRMED`, yearBefore 2027, yearAfter 2028; recorded after 31 December 2027, not after 31 December 2028), 2027 not final, 2028 unaffected by it; an acknowledgement in 2028 refused (`409 CHANGE_NOT_FLAGGED`), in 2027 accepted: 2027's flag informative. The reconciliation released on 2029-02-01 (the rent moves back from 2028 to 2027, recorded after both years' ends): a new change, both 2027 and 2028 flagged and not final; acknowledged in 2028 only: 2028's flag informative, 2027's still open; acknowledged in 2027 too: both informative. A Loan with monthly payments due on the last day, an interest debit on 2028-01-03 attributed to 2027 by the 10-day rule, then, on 2028-03-01, its period voided and a corrected one appended with payments due on the 20th: the nearest entry is due 2027-12-20, outside the window, so the debit takes its booking year 2028 (the void alone moves it, since without a period the booking year applies: `LOAN_TERMS_VOIDED` flags 2027 only, recorded during 2028; the append, judged alone, keeps 2028 and raises nothing), acknowledged in 2027; an acknowledgement in 2028 refused (`409 CHANGE_NOT_FLAGGED`). A Loan with a `PURCHASE_PRICE` set over P1 and P2 (prices 300,000.00 and 200,000.00, `3/5` and `2/5`): its items flagged open in both views; confirmed: informative in both, figures unchanged; withdrawn: open; a later `PURCHASE_PRICE` set: its items open, the earlier ones still confirmed. **Realm isolation** and **no cash mutated** around the whole scenario.
+
+### Counter-checks and mutations
+
+**Counter-checks:** no change hidden (every kind's move flags each year whose 31 December the record postdates, until acknowledged); no acknowledgement without the person's fingerprint; no confirmation by display, application or classification; no figure changed by an acknowledgement or a confirmation; nothing written by a view.
+
+**Mutations** that must turn the tests red (each applied alone):
+- the 31-December rule dropped, or applied to the booking date instead of the record's `occurred_at`;
+- an acknowledgement matched by `auditRecordId` alone (the fingerprint ignored), or by PropertyReference and `auditRecordId` across years;
+- a `WITHDRAWN` acknowledgement or confirmation counted;
+- the reconciliation history rebuilt from the current rows only (the release before the year's end unnoticed);
+- the terms state taken as the current periods for both sides (no move found);
+- `ATTRIBUTION_INPUT_CHANGED` no longer raised once acknowledged (instead of informative), or still open when every entry is acknowledged;
+- the price flag cleared by a confirmation of another set of the Loan, or by a `USER_CONFIRMED` classification;
+- the Loan row not written by the confirmation (the void race), or the PropertyReference row not written by the acknowledgement (the duplicate race), each with its concurrency test;
+- the Realm filter dropped from the reconciliation or terms read.
+
+### Invariant suite (with the implementation)
+
+§44's table gains, with their tests: **no silent move of a year** (every kind of Part 1 flags each year whose 31 December the record postdates, both years when recorded after the later year's end, inconsistent histories flagged); **an acknowledgement covers what was seen** (fingerprint match; a new or changed change open again; withdrawn not counted); **only a recorded confirmation clears the price key** (the set as a whole, per set; display, application and classification never clear it); **the statements never move a figure**; the schema guards of 0053. The row "`ATTRIBUTION_INPUT_CHANGED`" and the row "No silent price key" are rewritten accordingly.
+
+### Not in VC-X-28 (pointers)
+
+- Backdated allocation sets and voids (§58D open question 3): open question 4.
+- Further silent inputs: a WEG economic plan added or voided (the Hausgeld's due day, §58A), a Loan closed (§41.7: schedule entries after the closing omitted), a deposit's PropertyReference moving with a reconciliation (§58A; a move between views, not years): open question 8.
+- An advisor role: as §57, not in the MVP.
+- Acknowledging `ATTRIBUTION_HISTORY_INCONSISTENT`, or any other open flag: not proposed.
+
+### Open questions for review
+
+1. **One table per statement, or one generic table.** **Proposal:** two tables (`tax_year_acknowledgement`, `loan_allocation_tax_confirmation`): their subjects (a change of a year of a PropertyReference, an allocation set), keys, foreign keys and re-opening rules differ, and each guard stays simple. **Alternative:** one `tax_review_statement` with `subject_type` (`ATTRIBUTION_CHANGE`, `ALLOCATION_SET`) and nullable subject columns, so a later statement (e.g. of open question 8) needs no new table; its foreign keys and uniqueness then depend on the type (CHECKs and partial indexes per type).
+2. **Can a statement be withdrawn?** **Proposal:** yes, with a reason (`ACTIVE` → `WITHDRAWN`, audited), so a mistaken acknowledgement or confirmation does not hide a review need for good; withdrawing only re-opens a flag. **Alternative:** final once stored; a mistake stays, and the only way to re-open is a new change (acknowledgements) or a new set (confirmations), which for a past period means voiding sets back (§41.3).
+3. **Granularity of an acknowledgement.** **Proposal:** per PropertyReference, year and change, one per request, covering both levels (the year flag is the property's, shown unfiltered to owners). **Alternatives:** (a) per owner as well (each co-owner states it for their own return; the owner level then needs its own matching); (b) per PropertyReference and year for every change shown at once (one request, but a later change of the same year is still new); (c) a list of changes in one request, atomically.
+4. **Backdated allocation sets and voids** (§58D open question 3). They move a split's property part (and so figures between views), not its year. **Proposal:** take them into VC-X-28 as two more kinds, `LOAN_ALLOCATION_SET_ADDED`, `LOAN_ALLOCATION_SET_VOIDED` (from `LoanAllocationSet` `CREATED`, `VOIDED`), flagged in the year of the split in the views of the PropertyReferences of both sets, the entry's items carrying `partBefore` and `partAfter` (Money, `null` where not attributed to it) with `yearBefore = yearAfter`, and acknowledged the same way. **Alternative:** a backlog row of its own, the flag unchanged for now (§58D's statement that it moves figures silently then stays true).
+5. **A reconciliation confirmed after the year's end in the normal course** (Part 1). **Proposal:** flag it like any change: it moved the year of a rent after the year ended, and DE does not know whether the return was filed; one acknowledgement per year clears it. The 31-December rule already narrows it: a reconciliation made in January flags only the year before, never the year it is made in (review of #218). **Alternative:** do not flag a change whose "before" state left the item with an open attribution flag of its own (`NO_ECONOMIC_PERIOD`, `DUE_DATE_ASSUMED` while its origin is `DEFAULT`), since that year could not have been final through this item. Less noise, but it rests on the classification as it is now, not as it was.
+6. **Keep the codes with a level by state, or new codes.** **Proposal:** keep `ATTRIBUTION_INPUT_CHANGED` and `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`, informative once acknowledged or confirmed, with the statement in `details`, as `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` already changes level by state (§58C). A client filtering by code sees both states. **Alternative:** new informative codes (`ATTRIBUTION_INPUT_CHANGED_ACKNOWLEDGED`, `LOAN_ALLOCATION_BY_PURCHASE_PRICE_CONFIRMED`) replacing the open one, so a code has one level.
+7. **Scope of a confirmation.** **Proposal:** per set as a whole, for every booking date it covers: a set is the Loan's recorded key from a date, and a changed use is a new set (§41.3), which then needs its own confirmation. **Alternatives:** (a) per set and tax year, so a long-running set is re-confirmed each year (more work, but a change of use not recorded as a new set would be asked about yearly); (b) per set and PropertyReference.
+8. **Further silent inputs and the acceptance tests.** **Proposal:** VC-X-28 takes only the kinds the backlog names (and those of question 4 if decided); a WEG economic plan added or voided, a Loan closed and a deposit's PropertyReference become one new backlog row; ACC7 and ACC8 stay unchanged and VC-X-28 has its own e2e test. **Alternatives:** take the WEG plan into VC-X-28 now (the same rule, `WegEconomicPlan` AuditRecords); add a step to ACC8 that shows a year leaving and re-entering `final` through an acknowledgement.
 
 ---
 

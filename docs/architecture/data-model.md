@@ -1428,6 +1428,9 @@ The allocation does not create new Loans.
 - `allocationShare` is an exact reduced fraction (`"n/d"`), not a percent; a set sums to exactly `1/1`, enforced at
   commit. `allocationBasis`: `MANUAL`, or `PURCHASE_PRICE` with the Acquisition per property whose price derives the
   fraction exactly (ADR-038's default). `allocatedPrincipalReference` is dropped: allocated amounts are derived.
+- **Tax confirmation (VC-X-28, api-design §58E; specified, not implemented):** a multi-entry `PURCHASE_PRICE` set
+  can be confirmed for the tax view by a `LoanAllocationTaxConfirmation` (§36A), Taxation's record that references the
+  set; the set itself never changes, and Financing never reads the confirmation.
 
 ---
 
@@ -2006,6 +2009,38 @@ Represent the tax interpretation of an existing economic item.
 **VC-7-03 (P7-D5, P7-D6, api-design §58B, implemented: migration 0047):** two more sources, `WEG_RESERVE_WITHDRAWAL` and `WEG_ASSESSMENT_USE`, each named by its row (statement, assessment) and a `sourcePosition`, with the PropertyReference of the membership. Default `NEEDS_REVIEW`, lines `WEG_SPENDING` or `NOT_RELEVANT`. Supported now: `netAmount` (≤ gross, for the 15 % threshold only), `annuallyRecurring`, `DISTRIBUTED_82B` with `distributionYears` (2–5) and `mostlyResidentialConfirmed`, and `anschaffungsnaheAcquisitionId` for a capitalisation that follows the anschaffungsnahe check. A second rule reference, `treatmentRule`, names `DE_82B_DISTRIBUTION@1` or `DE_ANSCHAFFUNGSNAHE@1`. The § 82b parts and the check per Acquisition are derived, never stored.
 
 **VC-7-04 (P7-D7, P7-D8, api-design §58C, implemented; migration 0048, an index only):** the tax-year view per PropertyReference and per owner is derived on every read and never stored; it adds no field to `TaxClassification`. `ownerAllocationBasis` is not stored: the owner level takes each item × the owner's Ownership share valid on the item's date (§12.5; AGENTS.md §12), by largest remainder per item.
+
+**VC-X-28 (api-design §58E; specified, not implemented; migration 0053 planned):** a person's statements that the tax-year view reads, never a figure: `TaxYearAcknowledgement` and `LoanAllocationTaxConfirmation` (§36A).
+
+---
+
+# 36A. TaxYearAcknowledgement and LoanAllocationTaxConfirmation (planned)
+
+**Domain:** Taxation  
+**Stability:** Evolving (specified in api-design §58E, VC-X-28; open questions there, e.g. one table or two)  
+**Aggregate Role:** Entities of their own; never changed, only withdrawn
+
+## Purpose
+
+Record, traceably, that a person has seen and dealt with an open review flag of the tax-year view that no classification can clear:
+- a **TaxYearAcknowledgement** acknowledges one attribution change (one AuditRecord of a `rentDueDays` amendment, a reconciliation confirmed or released, a Loan terms period added or voided) for one PropertyReference and tax year, as it was shown (its fingerprint). It makes `ATTRIBUTION_INPUT_CHANGED` informative for that change; a new change, or the same change moving other items, is open again;
+- a **LoanAllocationTaxConfirmation** confirms one multi-entry `PURCHASE_PRICE` LoanAllocation set as a whole for the tax attribution of its interest (§23; api-design §58D, decided 2026-10-31, third set). It makes `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` informative on the items that set attributes. Showing or applying the key is no confirmation.
+
+---
+
+## Fields
+
+- **TaxYearAcknowledgement:** `id`, `mreRealmId`, `propertyReferenceId`, `taxYear`, `auditRecordId` (the change), `changeKind`, `changeEntityType`, `changeEntityId`, `changeRecordedAt`, `changeFingerprint`, the moved items as rows (`sourceId`, `yearBefore`, `yearAfter`), `reason`, `acknowledgedAt`, `acknowledgedBy`, `status` (`ACTIVE` → `WITHDRAWN`), `withdrawnAt`, `withdrawnBy`, `withdrawReason`, `version`.
+- **LoanAllocationTaxConfirmation:** `id`, `mreRealmId`, `allocationSetId` (the Loan is the set's), `reason`, `advisorPartyId` (optional), `confirmedAt`, `confirmedBy`, `status` (`ACTIVE` → `WITHDRAWN`), `withdrawnAt`, `withdrawnBy`, `withdrawReason`, `version`.
+
+---
+
+## Invariants
+
+- Append-only: no field changes; the only step is `ACTIVE` → `WITHDRAWN` (if withdrawal is decided, api-design §58E open question 2); never deleted.
+- At most one `ACTIVE` acknowledgement per PropertyReference, year, change and fingerprint; at most one `ACTIVE` confirmation per set.
+- A confirmation names a `VALID` set with `basis = PURCHASE_PRICE` and more than one entry, of the same Realm.
+- Neither creates cash, changes a classification, an allocation or any figure (ADR-006); the view derives the flag's level from them on read.
 
 ---
 
