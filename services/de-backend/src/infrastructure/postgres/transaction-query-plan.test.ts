@@ -17,7 +17,10 @@ const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 const REALM = '64b0c0ffee0000000000000a';
 const REALMS = 50;
 const ROWS_PER_REALM = 1000;
-const PAGE_SIZE = 200;
+// Small against the Realm, so the wanted plan is clearly the cheapest. Page 2 of 200 read 400 of the Realm's 1000
+// rows, and that plan cost only about 2 % less than a bitmap scan of all 1000 rows plus a sort. Which of the two the
+// planner chose then depended on the sampled statistics, and it flipped under load. At 50 the margin is about 55 %.
+const PAGE_SIZE = 50;
 
 interface PlanNode {
   readonly 'Node Type': string;
