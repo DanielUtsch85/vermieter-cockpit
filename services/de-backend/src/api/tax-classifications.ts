@@ -81,6 +81,8 @@ const createBody = z
     distributionYears: integerIn(2, 5).nullish(),
     mostlyResidentialConfirmed: z.boolean().nullish(),
     anschaffungsnaheAcquisitionId: uuid.nullish(),
+    // §59E: Bauzeitzinsen, a split's only.
+    constructionPeriodInterestId: uuid.nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -110,6 +112,15 @@ const createBody = z
       issue(ctx, 'anschaffungsnaheAcquisitionId', 'NOT_ALLOWED_WITH_TREATMENT');
     }
     if (!treatmentFits(category, body.treatment)) issue(ctx, 'treatment', 'TAX_CATEGORY_TREATMENT_MISMATCH');
+    // §59E check 5 (its treatment part) and a split only; never together with an anschaffungsnahe link (one treatmentRule).
+    if (
+      given(body.constructionPeriodInterestId) &&
+      (body.sourceType !== 'TRANSACTION_SPLIT' ||
+        (body.treatment !== 'CAPITALIZED' && body.treatment !== 'DEDUCTIBLE') ||
+        given(body.anschaffungsnaheAcquisitionId))
+    ) {
+      issue(ctx, 'constructionPeriodInterestId', 'NOT_ALLOWED');
+    }
   });
 
 const emptyBody = z.object({}).strict().optional();
@@ -187,6 +198,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
           distributionYears: body.distributionYears ?? undefined,
           mostlyResidentialConfirmed: body.mostlyResidentialConfirmed ?? undefined,
           anschaffungsnaheAcquisitionId: body.anschaffungsnaheAcquisitionId ?? undefined,
+          constructionPeriodInterestId: body.constructionPeriodInterestId ?? undefined,
         }),
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
@@ -293,6 +305,7 @@ function classificationDto(c: TaxClassification) {
     distributionYears: c.distributionYears,
     mostlyResidentialConfirmed: c.mostlyResidentialConfirmed,
     anschaffungsnaheAcquisitionId: c.anschaffungsnaheAcquisitionId,
+    constructionPeriodInterestId: c.constructionPeriodInterestId,
     supersedes: c.supersedes,
     supersededBy: c.supersededBy,
     supersededAt: c.supersededAt?.toISOString() ?? null,

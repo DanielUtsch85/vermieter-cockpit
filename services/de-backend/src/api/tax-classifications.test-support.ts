@@ -28,6 +28,7 @@ export const classification: TaxClassification = {
   distributionYears: null,
   mostlyResidentialConfirmed: null,
   anschaffungsnaheAcquisitionId: null,
+  constructionPeriodInterestId: null,
   advisorPartyId: null,
   notes: 'Austausch Thermostatventile',
   sourceReferences: ['Rechnung 2026-117'],

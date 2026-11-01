@@ -106,6 +106,12 @@ export interface VersionItemInputs {
   readonly itemDateSource: string;
   readonly itemTaxYear: number;
   readonly anschaffungsnaheAcquisitionId: string | null;
+  /**
+   * §59E (migration 0055): the Loan of a Loan interest source (P's covering set and share; the basis is P's part) and
+   * the record its classification names. Absent or `null` on every other item: its canonical JSON stays as it was.
+   */
+  readonly loan?: { readonly loanId: string; readonly allocationSetId: string; readonly share: string } | null;
+  readonly constructionPeriodInterestId?: string | null;
 }
 
 export interface VersionComponent {

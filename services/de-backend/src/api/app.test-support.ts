@@ -12,6 +12,7 @@ export const unusedCommands: AppCommands = {
   ownerAllocation: { get: unused },
   landBuildingAllocations: { create: unused, list: unused },
   costClassifications: { create: unused, list: unused },
+  constructionPeriodInterest: { create: unused, get: unused, list: unused, amend: unused, confirm: unused, void: unused },
   acquisitionCosts: { createCost: unused, voidCost: unused, listCosts: unused, linkPayment: unused, unlinkPayment: unused, listPayments: unused },
   loans: { create: unused, get: unused, list: unused, amend: unused, void: unused, close: unused },
   securityDeposits: { create: unused, get: unused, list: unused, amend: unused, void: unused, close: unused, reopen: unused },

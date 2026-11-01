@@ -50,6 +50,7 @@ export const COLUMNS = [
   'distribution_years',
   'mostly_residential_confirmed',
   'anschaffungsnahe_acquisition_id',
+  'construction_period_interest_id',
   'supersedes_id',
   'superseded_by',
   'superseded_at',
@@ -90,6 +91,7 @@ interface ClassificationRow {
   distribution_years: number | null;
   mostly_residential_confirmed: boolean | null;
   anschaffungsnahe_acquisition_id: string | null;
+  construction_period_interest_id: string | null;
   supersedes_id: string | null;
   superseded_by: string | null;
   superseded_at: Date | null;
@@ -177,6 +179,7 @@ export function toDomain(row: ClassificationRow): TaxClassification {
     distributionYears: row.distribution_years,
     mostlyResidentialConfirmed: row.mostly_residential_confirmed,
     anschaffungsnaheAcquisitionId: row.anschaffungsnahe_acquisition_id,
+    constructionPeriodInterestId: row.construction_period_interest_id,
     treatmentRule:
       row.treatment_rule_code === null || row.treatment_rule_version === null
         ? null
@@ -210,7 +213,8 @@ type LaterColumns =
   | 'mostly_residential_confirmed'
   | 'anschaffungsnahe_acquisition_id'
   | 'treatment_rule_code'
-  | 'treatment_rule_version';
+  | 'treatment_rule_version'
+  | 'construction_period_interest_id';
 
 /** The created row as JSON for the idempotency store. Snapshots of VC-7-01/-02 lack the later fields (read as null). */
 interface ClassificationSnapshot {
@@ -254,6 +258,8 @@ export function toSnapshot(c: TaxClassification): ClassificationSnapshot {
       distribution_years: c.distributionYears,
       mostly_residential_confirmed: c.mostlyResidentialConfirmed,
       anschaffungsnahe_acquisition_id: c.anschaffungsnaheAcquisitionId,
+      // §59E: only when set, so a snapshot of an earlier classification keeps its shape.
+      ...(c.constructionPeriodInterestId === null ? {} : { construction_period_interest_id: c.constructionPeriodInterestId }),
       supersedes_id: c.supersedes,
       superseded_by: c.supersededBy,
       created_at: c.createdAt.toISOString(),
@@ -287,6 +293,7 @@ export function fromSnapshot(result: unknown): TaxClassification {
     anschaffungsnahe_acquisition_id: row.anschaffungsnahe_acquisition_id ?? null,
     treatment_rule_code: row.treatment_rule_code ?? null,
     treatment_rule_version: row.treatment_rule_version ?? null,
+    construction_period_interest_id: row.construction_period_interest_id ?? null,
     created_at: new Date(row.created_at),
     superseded_at: null,
   });

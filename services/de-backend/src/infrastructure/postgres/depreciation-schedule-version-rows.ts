@@ -138,7 +138,7 @@ const COMPONENT_COLUMNS = [
   'shorter_life_review_state', 'source_type', 'source_id', 'source_position', 'classification_id', 'classification_review_state', 'tax_category',
   'item_date', 'item_date_source', 'item_tax_year', 'anschaffungsnahe_acquisition_id', 'method_consideration', 'method',
   'method_special_depreciation', 'method_subsidies_received', 'method_new_building_by_conversion', 'method_other_special_case', 'method_review_state',
-  'cost_classification_ids',
+  'cost_classification_ids', 'loan_id', 'allocation_set_id', 'share_numerator', 'share_denominator', 'construction_period_interest_id',
 ]; // prettier-ignore
 
 function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
@@ -161,6 +161,10 @@ function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
     v(m?.reviewState ?? null, 'text'),
     // §59D (migration 0054): the classifications that decided a counted or excluded cost.
     v(q === null ? null : q.costClassificationIds, 'uuid[]'),
+    // §59E (migration 0055): the Loan of a Loan interest source and its record.
+    v(i?.loan?.loanId ?? null, 'uuid'), v(i?.loan?.allocationSetId ?? null, 'uuid'),
+    v(i?.loan?.share.split('/')[0] ?? null, 'bigint'), v(i?.loan?.share.split('/')[1] ?? null, 'bigint'),
+    v(i?.loan === undefined || i.loan === null ? null : (i.constructionPeriodInterestId ?? null), 'uuid'),
   ]; // prettier-ignore
 }
 
@@ -206,7 +210,8 @@ export async function readVersions(trx: Trx, headers: readonly Row[], full: bool
   const components = full
     ? await of(sql`SELECT *, basis_amount::text AS basis, purchase_price::text AS price, counted_costs_total::text AS counted, excluded_costs_total::text AS excluded,
         total_allocable_amount::text AS total, building_amount::text AS building, to_char(start_date, 'YYYY-MM-DD') AS start_day,
-        to_char(start_month, 'YYYY-MM') AS start_ym, to_char(item_date, 'YYYY-MM-DD') AS item_day
+        to_char(start_month, 'YYYY-MM') AS start_ym, to_char(item_date, 'YYYY-MM-DD') AS item_day,
+        share_numerator::text AS share_n, share_denominator::text AS share_d
         FROM depreciation_schedule_version_component WHERE ${where} ORDER BY position`)
     : [];
   const parts = full
@@ -350,6 +355,12 @@ function componentOf(c: Row, parts: readonly Row[], fractions: readonly Row[]): 
           itemDateSource: text(c['item_date_source']),
           itemTaxYear: Number(c['item_tax_year']),
           anschaffungsnaheAcquisitionId: (c['anschaffungsnahe_acquisition_id'] as string | null) ?? null,
+          ...(c['loan_id'] === null || c['loan_id'] === undefined
+            ? {}
+            : {
+                loan: { loanId: text(c['loan_id']), allocationSetId: text(c['allocation_set_id']), share: `${text(c['share_n'])}/${text(c['share_d'])}` },
+                constructionPeriodInterestId: (c['construction_period_interest_id'] as string | null) ?? null,
+              }),
         },
     parts: parts
       .filter((p) => p['component_id'] === componentId)

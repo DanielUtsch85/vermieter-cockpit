@@ -25,6 +25,7 @@ import {
   cancelAcquisition,
   confirmAcquisition,
   createCostClassification,
+  constructionPeriodInterestCommands,
   createLandBuildingAllocation,
   listCostClassifications,
   listLandBuildingAllocations,
@@ -157,6 +158,7 @@ import {
   PostgresOwnershipRepository,
   PostgresAcquisitionCostRepository,
   PostgresAcquisitionCostClassificationRepository,
+  PostgresConstructionPeriodInterestRepository,
   PostgresLandBuildingAllocationRepository,
   PostgresLoanRepository,
   PostgresRentReconciliationRepository,
@@ -296,6 +298,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         confirm: confirmAcquisition({ repository: acquisitions }),
       },
       ownerAllocation: { get: getOwnerAllocation({ source: new PostgresOwnerAllocationSource(db) }) },
+      constructionPeriodInterest: constructionPeriodInterestCommands(new PostgresConstructionPeriodInterestRepository(db)),
       costClassifications: {
         create: createCostClassification({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
         list: listCostClassifications({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),

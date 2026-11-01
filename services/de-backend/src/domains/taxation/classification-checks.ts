@@ -5,6 +5,7 @@ import { ANSCHAFFUNGSNAHE, type AnschaffungsnaheParameters } from './rules/de-an
 import { CATEGORY_DEFAULTS, type CategoryDefaultsParameters } from './rules/de-category-defaults.js';
 import { DISTRIBUTION_82B } from './rules/de-82b-distribution.js';
 import { yearOf } from './cash-timing.js';
+import { constructionPeriodCheck, type ConstructionPeriodRecordFacts, type ConstructionPeriodRefusal } from './construction-period-checks.js';
 import type { AcquisitionFacts, NewTaxClassification } from './tax-classification.js';
 import { categoryDefaultsOn, splitCounts, type SplitFacts } from './tax-meaning.js';
 import type { WegNotCounted } from './weg-sources.js';
@@ -78,13 +79,21 @@ export type CreateRefusal =
   | { readonly kind: 'WITHDRAWAL_TAX_YEAR_OUT_OF_RANGE'; readonly taxYear: number; readonly allowedYears: readonly number[] }
   | { readonly kind: 'REFUND_YEAR_OUT_OF_RANGE'; readonly refundOfYear: number; readonly taxYear: number }
   | { readonly kind: 'CLASSIFICATION_EXISTS'; readonly currentClassificationId: string }
-  | { readonly kind: 'NOT_CURRENT_CLASSIFICATION'; readonly currentClassificationId: string | null };
+  | { readonly kind: 'NOT_CURRENT_CLASSIFICATION'; readonly currentClassificationId: string | null }
+  /** §59E: Bauzeitzinsen. */
+  | ConstructionPeriodRefusal;
 
 /** The fields of an election or a capitalisation following the check (§58B), as a create carries them. */
 export type TreatmentRequest = Pick<
   NewTaxClassification,
-  'taxCategory' | 'treatment' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId'
+  'taxCategory' | 'treatment' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId' | 'constructionPeriodInterestId'
 >;
+
+/** §59E: what the create read of the split's Loan and the record it names (`undefined`: none named; `null`: not of the Realm). */
+export interface InterestContext {
+  readonly loanId: string | null;
+  readonly record: ConstructionPeriodRecordFacts | null | undefined;
+}
 
 /** What the checks after the treatment read of a source (§58B). */
 export interface TreatmentSource {
@@ -162,6 +171,7 @@ export function planClassification(
   registry: RuleRegistry,
   derivedTaxYear: number = yearOf(facts.bookingDate),
   acquisition?: AcquisitionFacts | null,
+  interest: InterestContext = { loanId: null, record: undefined },
 ): { readonly kind: 'CLASSIFY'; readonly rule: RuleRef; readonly treatmentRule: RuleRef | null } | CreateRefusal {
   if (!splitCounts(facts)) return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: facts.transactionStatus, correctionRole: facts.correctionRole };
   const rule = categoryDefaultsOn(registry, facts.bookingDate);
@@ -178,6 +188,20 @@ export function planClassification(
   if (spending !== undefined) return spending;
   const refusal = treatmentRefusal(rule, { code: facts.financialCategoryCode, categoryType: facts.categoryType }, request.treatment);
   if (refusal !== undefined) return { kind: 'TREATMENT_NOT_ALLOWED', ...refusal };
+  // §59E: Bauzeitzinsen, after TREATMENT_NOT_ALLOWED.
+  const forbidden = rule.parameters.forbiddenTreatmentsByCode[facts.financialCategoryCode] ?? [];
+  const construction = constructionPeriodCheck(
+    { ...facts, loanId: interest.loanId },
+    {
+      taxCategory: request.taxCategory ?? 'UNCLASSIFIED',
+      treatment: request.treatment,
+      constructionPeriodInterestId: request.constructionPeriodInterestId ?? null,
+    },
+    interest.record,
+    registry,
+    rule.parameters.treatments.filter((t) => !forbidden.includes(t)),
+  );
+  if ('kind' in construction) return construction;
   const fields = treatmentFieldsCheck(
     source,
     { taxCategory: request.taxCategory ?? 'UNCLASSIFIED', ...request },
@@ -197,7 +221,8 @@ export function planClassification(
     supersedesCheck(currentId, request.supersedes) ?? {
       kind: 'CLASSIFY',
       rule: { ruleCode: rule.ruleCode, version: rule.version },
-      treatmentRule: fields.treatmentRule,
+      // A record and an anschaffungsnahe link never come together (the API refuses both): one second reference.
+      treatmentRule: construction.treatmentRule ?? fields.treatmentRule,
     }
   );
 }

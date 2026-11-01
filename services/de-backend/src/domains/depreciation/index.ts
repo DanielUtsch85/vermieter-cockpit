@@ -126,7 +126,7 @@ export type {
 export { AFA_MOVABLE_LINEAR, DE_AFA_MOVABLE_LINEAR_V1 } from './rules/de-afa-movable-linear.js';
 export type { MovableLinearParameters } from './rules/de-afa-movable-linear.js';
 export { ITEM_SOURCE_TYPES, NOT_OWNED_PART, componentIdOf, isCapitalized, sameItem } from './capitalized-item.js';
-export type { CapitalizedItem, CapitalizedItemPart, ItemRef, ItemSourceType } from './capitalized-item.js';
+export type { CapitalizedItem, CapitalizedItemLoan, CapitalizedItemPart, ItemRef, ItemSourceType } from './capitalized-item.js';
 export type { ItemComponent, ItemComponentRate, ItemOwner, ItemSourceView } from './schedule-items.js';
 export { DEPRECIATION_RULE_VERSIONS } from './rules/versions.js';
 export { INFORMATIVE_CODES, RANGE_MAX_YEAR, RANGE_MIN_YEAR, SCHEDULE_CALCULATION_VERSION, deriveSchedule, isOwnerOf } from './schedule.js';

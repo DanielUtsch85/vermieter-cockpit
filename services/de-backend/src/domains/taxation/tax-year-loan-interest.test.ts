@@ -444,7 +444,8 @@ describe('§58D: placement, owners and review (decision 7)', () => {
     expect(v.capitalized).toMatchObject({ total: eur('60.00'), items: [{ sourceId: capitalized.item.sourceId, lineAmount: eur('60.00') }] });
     expect(v.capitalized.items[0]?.flags).toContainEqual({
       code: 'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS',
-      details: { loanId: L, allocationSetId: expect.any(String) },
+      // §59E: read without a construction-period record (as every classification stored before 0055): MISSING.
+      details: { loanId: L, allocationSetId: expect.any(String), reason: 'CONSTRUCTION_PERIOD_INTEREST_MISSING' },
     });
     expect(v.review.open).toEqual(
       expect.arrayContaining([

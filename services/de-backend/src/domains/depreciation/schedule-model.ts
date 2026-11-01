@@ -282,6 +282,9 @@ export interface ItemSourceView extends ItemRef {
   readonly dateSource: string | null;
   readonly taxYear: number | null;
   readonly anschaffungsnaheAcquisitionId: string | null;
+  /** §59E, additively: the Loan of a Loan interest source with P's part (`null` otherwise), and the record named. */
+  readonly loan: { readonly loanId: string; readonly allocationSetId: string; readonly share: string; readonly propertyPart: Money } | null;
+  readonly constructionPeriodInterestId: string | null;
 }
 
 export interface ItemComponentRate {

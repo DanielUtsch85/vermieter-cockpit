@@ -8,7 +8,7 @@ Implemented routes only: a route in `docs/architecture/api-design.md` that is no
 Contracts, payloads and error codes are in `api-design.md`; the business routes need `Authorization: Bearer <MRE token>` and
 `organizationid: <mreRealmId>` (`mre-integration.md` §47.2).
 
-Routes: 158.
+Routes: 164.
 
 | Method | Path |
 |---|---|
@@ -29,6 +29,12 @@ Routes: 158.
 | GET | `/api/v1/acquisitions/:acquisitionId/payments` |
 | POST | `/api/v1/acquisitions/:acquisitionId/payments` |
 | POST | `/api/v1/acquisitions/:acquisitionId/payments/:paymentId/unlink` |
+| GET | `/api/v1/construction-period-interest` |
+| POST | `/api/v1/construction-period-interest` |
+| GET | `/api/v1/construction-period-interest/:recordId` |
+| POST | `/api/v1/construction-period-interest/:recordId/amend` |
+| POST | `/api/v1/construction-period-interest/:recordId/confirm` |
+| POST | `/api/v1/construction-period-interest/:recordId/void` |
 | POST | `/api/v1/depreciation-assets` |
 | GET | `/api/v1/depreciation-assets/:assetId` |
 | POST | `/api/v1/depreciation-assets/:assetId/amend` |
@@ -192,6 +198,15 @@ Routes: 158.
 - GET `/api/v1/acquisitions/:acquisitionId/payments`
 - POST `/api/v1/acquisitions/:acquisitionId/payments`
 - POST `/api/v1/acquisitions/:acquisitionId/payments/:paymentId/unlink`
+
+### `construction-period-interest`
+
+- GET `/api/v1/construction-period-interest`
+- POST `/api/v1/construction-period-interest`
+- GET `/api/v1/construction-period-interest/:recordId`
+- POST `/api/v1/construction-period-interest/:recordId/amend`
+- POST `/api/v1/construction-period-interest/:recordId/confirm`
+- POST `/api/v1/construction-period-interest/:recordId/void`
 
 ### `depreciation-assets`
 

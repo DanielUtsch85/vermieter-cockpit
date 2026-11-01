@@ -369,6 +369,45 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
     expect(await probe(tables, item('NULL'))).toBe('accepted');
   });
 
+  it('§59E (0055): a recorded component’s Loan columns all or none, P’s share 0 < n ≤ d, and only on an item component (its CHECK)', async () => {
+    const mine = await versionOf();
+    const ownClassification = await classification(REALM, mine.pr);
+    const item = (loan: string) => (client: pg.PoolClient) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, source_type, source_id, classification_id, classification_review_state, tax_category,
+           item_date, item_date_source, item_tax_year, loan_id, allocation_set_id, share_numerator, share_denominator, construction_period_interest_id)
+         VALUES ($1, $2, $3, 'ITEM:x', 'CAPITALIZED_ITEM', 9, 1, '2027-03-15', 'BOOKING_DATE', 'MONTH_OF_DATE', '2027-03-01', 'BAND', 'TRANSACTION_SPLIT',
+           gen_random_uuid(), $4, 'USER_CONFIRMED', 'LOAN_INTEREST', '2027-03-15', 'BOOKING_DATE', 2027, ${loan})`,
+        [mine.version.versionId, REALM, mine.pr, ownClassification],
+      );
+    const purchase = (loan: string) => (client: pg.PoolClient) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total, excluded_cost_ids,
+           excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, ${METHOD_COLUMNS}, cost_classification_ids,
+           loan_id, allocation_set_id, share_numerator, share_denominator, construction_period_interest_id)
+         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', 'BAND', $4, 1, '{}', 0, '{}', 0, $5,
+           'CONFIRMED', 1, 1, ${METHOD_VALUES}, '{}', ${loan})`,
+        [mine.version.versionId, REALM, mine.pr, mine.w, mine.allocation],
+      );
+    const tables = ['depreciation_schedule_version_component'];
+    const refused = '23514 depreciation_schedule_version_component_loan';
+    const all = (n: number, d: number, record = 'gen_random_uuid()') => `gen_random_uuid(), gen_random_uuid(), ${n}, ${d}, ${record}`;
+    expect(await probe(tables, item(`gen_random_uuid(), NULL, 3, 5, gen_random_uuid()`))).toBe(refused);
+    expect(await probe(tables, item(`gen_random_uuid(), gen_random_uuid(), NULL, 5, NULL`))).toBe(refused);
+    expect(await probe(tables, item(all(6, 5)))).toBe(refused);
+    expect(await probe(tables, item(all(0, 5)))).toBe(refused);
+    expect(await probe(tables, purchase(all(3, 5, 'NULL')))).toBe(refused);
+    expect(await probe(tables, purchase(`NULL, NULL, NULL, NULL, gen_random_uuid()`))).toBe(refused);
+    // Counter-checks: a Loan item with all its columns (the record too, or without it); an item and a purchase without them.
+    expect(await probe(tables, item(all(3, 5)))).toBe('accepted');
+    expect(await probe(tables, item(all(5, 5, 'NULL')))).toBe('accepted');
+    expect(await probe(tables, item(`NULL, NULL, NULL, NULL, NULL`))).toBe('accepted');
+    expect(await probe(tables, item(`NULL, NULL, NULL, NULL, gen_random_uuid()`))).toBe('accepted');
+    expect(await probe(tables, purchase(`NULL, NULL, NULL, NULL, NULL`))).toBe('accepted');
+  });
+
   it(
     'up and down under MIGRATION_ADVISORY_LOCK: down refused with a version present, else drops the eight tables and their functions',
     { timeout: 30_000 },

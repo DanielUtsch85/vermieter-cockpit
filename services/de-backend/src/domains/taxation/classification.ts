@@ -35,6 +35,7 @@ export type {
   DepositNotCounted,
   DepositNotCountedReason,
   DistributionNotAllowedReason,
+  InterestContext,
   TreatmentRequest,
   TreatmentSource,
   WegSourceNotCounted,

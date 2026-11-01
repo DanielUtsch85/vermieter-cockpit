@@ -242,6 +242,10 @@ function itemComponent(w: ItemWork, position: number, horizon: number, pools: Ma
             itemDateSource: item.dateSource,
             itemTaxYear: item.taxYear,
             anschaffungsnaheAcquisitionId: item.anschaffungsnaheAcquisitionId,
+            // §59E: only on a Loan interest source, so every other item's inputs keep their shape.
+            ...(item.loan === undefined || item.loan === null
+              ? {}
+              : { loan: { ...item.loan }, constructionPeriodInterestId: item.constructionPeriodInterestId ?? null }),
           },
     parts,
   };

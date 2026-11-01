@@ -12,6 +12,7 @@ import {
   createAcquisition,
   createAcquisitionCost,
   createCostClassification,
+  constructionPeriodInterestCommands,
   listAcquisitionCosts,
   listCostClassifications,
   createFinancialAccount,
@@ -36,6 +37,7 @@ import {
 import { depreciationCommands } from './depreciation-commands.test-support.js';
 import {
   PostgresAcquisitionCostClassificationRepository,
+  PostgresConstructionPeriodInterestRepository,
   PostgresAcquisitionCostRepository,
   PostgresAcquisitionRepository,
   PostgresFinancialAccountRepository,
@@ -152,6 +154,7 @@ export function useAcc8(name: `${string}_e2e`) {
             createCost: createAcquisitionCost({ repository: new PostgresAcquisitionCostRepository(db) }),
             listCosts: listAcquisitionCosts({ repository: new PostgresAcquisitionCostRepository(db) }),
           },
+          constructionPeriodInterest: constructionPeriodInterestCommands(new PostgresConstructionPeriodInterestRepository(db)),
           costClassifications: {
             create: createCostClassification({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
             list: listCostClassifications({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),

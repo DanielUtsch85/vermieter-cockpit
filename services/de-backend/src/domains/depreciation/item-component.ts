@@ -186,6 +186,8 @@ export function itemComponentOf(
       dateSource: item?.dateSource ?? null,
       taxYear: item?.taxYear ?? null,
       anschaffungsnaheAcquisitionId: item?.anschaffungsnaheAcquisitionId ?? null,
+      loan: item?.loan === undefined || item.loan === null ? null : { ...item.loan, propertyPart: item.lineAmount },
+      constructionPeriodInterestId: item?.constructionPeriodInterestId ?? null,
     },
     status: w.computable ? 'COMPUTABLE' : 'NOT_COMPUTABLE',
     reasons: w.reasons,

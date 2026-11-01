@@ -579,7 +579,8 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         await withMigrationLock(async () => {
-          // 0047 (VC-7-03) builds on 0046: it goes first.
+          // 0055 (VC-X-36) adds guards to tax_classification and 0047 (VC-7-03) builds on 0046: they go first.
+          await (await import('./migrations/0055_construction_period_interest.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0047_tax_weg_spending.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0046_tax_year_and_income.js')).down(createDatabase(downPool) as never);
         });

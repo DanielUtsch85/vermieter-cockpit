@@ -27,6 +27,13 @@ import type { BusinessDate, Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { AcquisitionCancelledError } from './acquisition-costs.js';
+import {
+  ConstructionPeriodInterestDeductibleError,
+  ConstructionPeriodInterestMismatchError,
+  ConstructionPeriodInterestNotAllowedError,
+  ConstructionPeriodInterestNotFoundError,
+  ConstructionPeriodInterestVoidError,
+} from './construction-period-interest.js';
 import { AcquisitionNotFoundError } from './ownerships.js';
 import { PartyNotFoundError } from './parties.js';
 import { PropertyReferenceNotFoundError } from './refresh-property-reference.js';
@@ -297,7 +304,9 @@ export function createTaxClassification(deps: Deps): CreateTaxClassification {
       case 'NO_APPLICABLE_RULE':
         throw new NoApplicableTaxRuleError(outcome.ruleCode, outcome.date);
       case 'TREATMENT_NOT_ALLOWED':
-        throw new TreatmentNotAllowedError(outcome.categoryType, outcome.allowed, outcome.taxCategories, outcome.sourceType, outcome.reason);
+        throw 'taxCategories' in outcome
+          ? new TreatmentNotAllowedError(outcome.categoryType, outcome.allowed, outcome.taxCategories, outcome.sourceType, outcome.reason)
+          : new TreatmentNotAllowedError(outcome.categoryType, outcome.allowed, undefined, undefined, outcome.reason);
       case 'DISTRIBUTION_NOT_ALLOWED':
         throw new DistributionNotAllowedError(outcome.reason);
       case 'NET_AMOUNT_EXCEEDS_GROSS':
@@ -316,6 +325,22 @@ export function createTaxClassification(deps: Deps): CreateTaxClassification {
         throw new ClassificationExistsError(outcome.currentClassificationId);
       case 'NOT_CURRENT_CLASSIFICATION':
         throw new NotCurrentClassificationError(outcome.currentClassificationId);
+      // §59E: Bauzeitzinsen.
+      case 'CONSTRUCTION_PERIOD_INTEREST_NOT_FOUND':
+        throw new ConstructionPeriodInterestNotFoundError(outcome.constructionPeriodInterestId);
+      case 'CONSTRUCTION_PERIOD_INTEREST_VOID':
+        throw new ConstructionPeriodInterestVoidError(outcome.constructionPeriodInterestId);
+      case 'CONSTRUCTION_PERIOD_INTEREST_MISMATCH':
+        throw new ConstructionPeriodInterestMismatchError({
+          loanId: outcome.loanId,
+          propertyReferenceId: outcome.propertyReferenceId,
+          recordLoanId: outcome.recordLoanId,
+          recordPropertyReferenceIds: outcome.recordPropertyReferenceIds,
+        });
+      case 'CONSTRUCTION_PERIOD_INTEREST_DEDUCTIBLE':
+        throw new ConstructionPeriodInterestDeductibleError(outcome.constructionPeriodInterestId);
+      case 'CONSTRUCTION_PERIOD_INTEREST_NOT_ALLOWED':
+        throw new ConstructionPeriodInterestNotAllowedError(outcome.reason);
     }
   };
 }

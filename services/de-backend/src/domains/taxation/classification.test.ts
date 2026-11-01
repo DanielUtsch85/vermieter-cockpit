@@ -89,6 +89,7 @@ const classification = (overrides: Partial<TaxClassification> = {}): TaxClassifi
   distributionYears: null,
   mostlyResidentialConfirmed: null,
   anschaffungsnaheAcquisitionId: null,
+  constructionPeriodInterestId: null,
   advisorPartyId: null,
   notes: null,
   sourceReferences: [],

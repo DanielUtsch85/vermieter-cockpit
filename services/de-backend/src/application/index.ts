@@ -236,6 +236,31 @@ export {
 export type { CreateCostClassification, ListCostClassifications } from './acquisition-cost-classifications.js';
 export { CLASSIFICATION_PURPOSES, CLASSIFICATION_REVIEW_STATES, MAX_CLASSIFICATION_PARTS } from '../domains/acquisition/index.js';
 export type { AcquisitionCostClassification } from '../domains/acquisition/index.js';
+export {
+  ConstructionPeriodInterestDeductibleError,
+  ConstructionPeriodInterestMismatchError,
+  ConstructionPeriodInterestNotAllowedError,
+  ConstructionPeriodInterestNotFoundError,
+  ConstructionPeriodInterestVoidError,
+  amendConstructionPeriodInterest,
+  confirmConstructionPeriodInterest,
+  constructionPeriodInterestCommands,
+  createConstructionPeriodInterest,
+  getConstructionPeriodInterest,
+  listConstructionPeriodInterest,
+  recordFingerprint,
+  voidConstructionPeriodInterest,
+} from './construction-period-interest.js';
+export type {
+  AmendConstructionPeriodInterest,
+  ConfirmConstructionPeriodInterest,
+  CreateConstructionPeriodInterest,
+  GetConstructionPeriodInterest,
+  ListConstructionPeriodInterest,
+  VoidConstructionPeriodInterest,
+} from './construction-period-interest.js';
+export { CONSTRUCTION_PERIOD_REVIEW_STATES, MAX_CONSTRUCTION_PERIOD_PROPERTIES, MAX_FUNDS_SHARE_DENOMINATOR } from '../domains/taxation/index.js';
+export type { ConstructionPeriodInterest, NamingClassification } from '../domains/taxation/index.js';
 export { CurrentAllocationChangedError, createLandBuildingAllocation, listLandBuildingAllocations } from './land-building-allocations.js';
 export type { CreateLandBuildingAllocation, ListLandBuildingAllocations } from './land-building-allocations.js';
 export { ALLOCATION_METHODS, ALLOCATION_REVIEW_STATES, shareOf } from '../domains/acquisition/index.js';

@@ -14,6 +14,8 @@ import {
   type LoanInterestCase,
   type LoanInterestSplit,
 } from './tax-year-loan-interest.js';
+import type { InterestFacts } from './construction-period-interest.js';
+import { withInterestFlags, withLoanInterestFlags } from './tax-year-interest.js';
 import { reviewOf, ruleVersionsOf } from './tax-year-review.js';
 import type { TaxYearAcquisition, TaxYearTotals, TaxYearView, ViewFlag } from './tax-year-response.js';
 import { afaComponentCount, afaOf, afaParticipants, componentOfItem, type TaxYearDepreciation } from './tax-year-depreciation.js';
@@ -99,6 +101,11 @@ export interface TaxYearRead {
   readonly loanAllocationSets: ReadonlyMap<string, readonly LoanAllocationSetView[]>;
   /** VC-8-05: every `ACTIVE` asset's live schedule of `year` and its `CURRENT` recorded version, from the same snapshot. */
   readonly depreciation: TaxYearDepreciation;
+  /**
+   * §59E: the conditions' facts of each interest split listed or attributed whose current classification is
+   * `CAPITALIZED` or names a construction-period record, by split id, from the same snapshot.
+   */
+  readonly interest?: ReadonlyMap<string, InterestFacts>;
 }
 
 export type TaxYearOutcome =
@@ -117,13 +124,19 @@ export function buildTaxYearView(
   const { year, ownerPartyId, today, registry } = options;
   const currency = 'EUR';
   const attribution = attributionChanges(read.attribution, year, registry);
-  const listed = read.sources.map((s) => deriveItem(s.item, year, read.ownerships, attribution.changes)).filter((d): d is Derived => d !== undefined);
+  const interest = read.interest ?? new Map<string, InterestFacts>();
+  const listed = read.sources
+    .map((s) => deriveItem(s.item, year, read.ownerships, attribution.changes))
+    .filter((d): d is Derived => d !== undefined)
+    .map((d) => withInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId));
   // §58D: the interest of the allocated Loans, by the set on each split's booking date.
   const loanCases = loanInterestOf(read.propertyReferenceId, read.allocatedLoanInterest, read.loanAllocationSets);
   const attributedLoans = loanCases
     .filter((c): c is Extract<LoanInterestCase, { kind: 'ATTRIBUTED' }> => c.kind === 'ATTRIBUTED')
     .map((c) => deriveLoanItem(c, year, read.ownerships, attribution.changes))
-    .filter((d): d is Derived => d !== undefined);
+    .filter((d): d is Derived => d !== undefined)
+    // §59E: the flag dropped only with the component on P's building whose basis equals P's part, at every participant.
+    .map((d) => withLoanInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId, read.depreciation));
   const unattributedLoans = loanCases.filter((c): c is Extract<LoanInterestCase, { kind: 'NOT_ATTRIBUTED' }> => c.kind === 'NOT_ATTRIBUTED');
   const derived = inListOrder(listed, attributedLoans);
 

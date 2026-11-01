@@ -26,6 +26,7 @@ import {
   cancelAcquisition,
   confirmAcquisition,
   createCostClassification,
+  constructionPeriodInterestCommands,
   createLandBuildingAllocation,
   listCostClassifications,
   listLandBuildingAllocations,
@@ -158,6 +159,7 @@ import {
   PostgresOwnershipRepository,
   PostgresAcquisitionCostRepository,
   PostgresAcquisitionCostClassificationRepository,
+  PostgresConstructionPeriodInterestRepository,
   PostgresLandBuildingAllocationRepository,
   PostgresLoanRepository,
   PostgresRentReconciliationRepository,
@@ -329,6 +331,7 @@ export function usePhase2App(name: `${string}_e2e`) {
         confirm: confirmAcquisition({ repository: acquisitions }),
       },
       ownerAllocation: { get: getOwnerAllocation({ source: new PostgresOwnerAllocationSource(db) }) },
+      constructionPeriodInterest: constructionPeriodInterestCommands(new PostgresConstructionPeriodInterestRepository(db)),
       costClassifications: {
         create: createCostClassification({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
         list: listCostClassifications({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),

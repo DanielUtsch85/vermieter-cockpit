@@ -10,12 +10,12 @@ import { TAX_RULES } from './index.js';
 describe('load order: Depreciation first', () => {
   // Two building versions since VC-8-02 (§59A "The rule versions"): @1 for 2006–2022, today's @2; the movable rule since
   // VC-8-03 (§59B).
-  it('TAX_RULES holds DE_AFA_BUILDING_LINEAR@1 and @2, DE_AFA_MOVABLE_LINEAR@1 and seven codes', () => {
+  it('TAX_RULES holds DE_AFA_BUILDING_LINEAR@1 and @2, DE_AFA_MOVABLE_LINEAR@1 and eight codes', () => {
     expect(DEPRECIATION_RULE_VERSIONS).toHaveLength(3);
     expect(TAX_RULES.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 })).toBeDefined();
     expect(TAX_RULES.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 })).toBeDefined();
     expect(TAX_RULES.find({ ruleCode: 'DE_AFA_MOVABLE_LINEAR', version: 1 })).toBeDefined();
-    expect(TAX_RULES.codes()).toHaveLength(7);
+    expect(TAX_RULES.codes()).toHaveLength(8);
   });
 
   it('after vi.resetModules(): depreciation/index.js, then tax-rules/index.js, imported dynamically', async () => {
@@ -27,6 +27,6 @@ describe('load order: Depreciation first', () => {
     expect(fresh.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 1 })).toBeDefined();
     expect(fresh.find({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2 })).toBeDefined();
     expect(fresh.find({ ruleCode: 'DE_AFA_MOVABLE_LINEAR', version: 1 })).toBeDefined();
-    expect(fresh.codes()).toHaveLength(7);
+    expect(fresh.codes()).toHaveLength(8);
   });
 });

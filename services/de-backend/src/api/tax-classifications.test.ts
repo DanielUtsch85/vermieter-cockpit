@@ -96,6 +96,7 @@ describe('POST /tax-classifications (§56)', () => {
       distributionYears: null,
       mostlyResidentialConfirmed: null,
       anschaffungsnaheAcquisitionId: null,
+      constructionPeriodInterestId: null,
       supersedes: OTHER,
       supersededBy: null,
       supersededAt: null,

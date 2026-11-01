@@ -182,6 +182,14 @@ export async function taxYearDepreciationIn(trx: Trx, request: TaxYearDepreciati
           c.kind === 'CAPITALIZED_ITEM' ? { sourceType: c.source.sourceType, sourceId: c.source.sourceId, sourcePosition: c.source.sourcePosition } : null,
         computable: c.status === 'COMPUTABLE',
         reasons: c.reasons.map(carried),
+        basis: c.basis.amount,
+        partBases:
+          c.kind === 'CAPITALIZED_ITEM'
+            ? [
+                ...c.owners.map((o) => ({ participant: o.ownerPartyId, amount: o.basis })),
+                ...(c.notOwned === null ? [] : [{ participant: NOT_OWNED_PART, amount: c.notOwned.basis }]),
+              ]
+            : [],
       })),
       yearFlags: [...schedule.flags, ...(scheduleYear?.flags ?? []).filter((f) => f.code === 'OWNER_WITHOUT_ACQUISITION')].map(carried),
       recording: {
