@@ -21,6 +21,7 @@ import type { TaxYearAcquisition, TaxYearTotals, TaxYearView, ViewFlag } from '.
 import { afaComponentCount, afaOf, afaParticipants, componentOfItem, type TaxYearDepreciation } from './tax-year-depreciation.js';
 import { sectionsOf, withAfa, withoutItems } from './tax-year-sections.js';
 import { NOT_OWNED, type ViewOwnership } from './tax-year-shares.js';
+import { PROPOSED_BY_10_DAY_RULE, type ProposedSplit } from './ten-day-proposal.js';
 
 /**
  * The tax-year view (api-design.md §58C, phase-7-plan P7-D7, P7-D8): §55's per-year list, with the interest of the
@@ -106,6 +107,11 @@ export interface TaxYearRead {
    * `CAPITALIZED` or names a construction-period record, by split id, from the same snapshot.
    */
   readonly interest?: ReadonlyMap<string, InterestFacts>;
+  /**
+   * §58F: the PropertyReference's counting splits of another year whose 10-day proposal names `year`
+   * (`proposedSplits`, from the same derivation as the list's). Shown as the year flag, never summed.
+   */
+  readonly proposedSplits?: readonly ProposedSplit[];
 }
 
 export type TaxYearOutcome =
@@ -196,6 +202,9 @@ export function buildTaxYearView(
   if (notAttributedDeposits.length > 0) flags.push({ code: 'UNATTRIBUTED_ITEMS', details: { count: notAttributedDeposits.length } });
   // Interest of an allocated Loan without a usable set on its booking date (§58D): flagged at both levels, never summed.
   if (unattributedLoans.length > 0) flags.push({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', details: notAttributedInterestDetails(unattributedLoans, currency) });
+  // §58F: the proposal is visible in both years it may belong to; here as the year flag, its amounts not summed.
+  const proposed = read.proposedSplits ?? [];
+  if (proposed.length > 0) flags.push({ code: PROPOSED_BY_10_DAY_RULE, details: { count: proposed.length, items: proposed } });
   const acquisitions: TaxYearAcquisition[] = read.checks
     .filter((c) => c.acquisitionStatus !== 'CANCELLED' && c.window !== null && c.window.from <= `${year}-12-31` && c.window.until >= `${year}-01-01`)
     .map((c) => {

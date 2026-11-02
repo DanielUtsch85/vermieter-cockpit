@@ -225,12 +225,12 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (VC-7-02) end to
       await A('POST', '/rent-reconciliations', { transactionId: rent.transactionId, mreTenantId: TENANT, mreRentTerm: JANUARY, matchedAmount: eur('900.00') }),
       201,
     );
-    // Without a reference: January's year, the due date assumed.
+    // Without a reference (§58F): the year paid, January's year only proposed; the due date assumed.
     const assumed = await meaningOf(rent.splitId);
-    expect([assumed.taxYear, codes(assumed)]).toEqual([2027, ['DUE_DATE_ASSUMED', 'ATTRIBUTED_BY_10_DAY_RULE']]);
-    expect((await yearOf(2027)).map((m) => m.splitId)).toEqual([rent.splitId]);
-    expect((await yearOf(2026)).map((m) => m.splitId)).toEqual([]);
-    // With rentDueDays day 3: the same year, without the flag.
+    expect([assumed.taxYear, codes(assumed)]).toEqual([2026, ['DUE_DATE_ASSUMED', 'PROPOSED_BY_10_DAY_RULE']]);
+    expect((await yearOf(2026)).map((m) => m.splitId)).toEqual([rent.splitId]);
+    expect((await yearOf(2027)).map((m) => m.splitId)).toEqual([]);
+    // With rentDueDays day 3: recorded, so January's year.
     const created = await A(
       'POST',
       '/rental-contract-references',

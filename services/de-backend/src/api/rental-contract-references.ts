@@ -1,8 +1,10 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  MAX_EVIDENCE_REFERENCE,
   MAX_RENT_DUE_DAYS,
   MRE_EXTERNAL_ID,
+  dueDaysEvidenceRecommended,
   rentDueDaysError,
   type AmendRentalContractReference,
   type CreateRentalContractReference,
@@ -18,7 +20,9 @@ import { dayOfMonth, fieldErrors, readIdempotencyKey, readIfMatch, sendValidatio
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 
 /** The due day over time (§58A): `validFrom` unique and ascending, each day 1–31, at most 20 entries. */
-const rentDueDays = z.array(z.object({ validFrom: businessDate, day: dayOfMonth }).strict()).superRefine((days, ctx) => {
+/** §58F (0057): the optional evidence of an entry, trimmed, 1–500 characters; `null` is the same as omitted. */
+const evidenceReference = z.string().trim().min(1).max(MAX_EVIDENCE_REFERENCE).nullish();
+const rentDueDays = z.array(z.object({ validFrom: businessDate, day: dayOfMonth, evidenceReference }).strict()).superRefine((days, ctx) => {
   // Refinements run even after an entry failed to parse: only check a list that parsed.
   if (days.some((d) => typeof d.validFrom !== 'string' || typeof d.day !== 'number')) return;
   if (days.length > MAX_RENT_DUE_DAYS) {
@@ -26,7 +30,7 @@ const rentDueDays = z.array(z.object({ validFrom: businessDate, day: dayOfMonth 
     return;
   }
   // A day out of range is answered at its entry already (`dayOfMonth`); here only the order.
-  const error = rentDueDaysError(days as RentDueDay[]);
+  const error = rentDueDaysError(entriesOf(days));
   if (error?.code === 'NOT_ASCENDING') ctx.addIssue({ code: 'custom', path: [error.index, 'validFrom'], params: { code: error.code } });
 });
 const sourceReferences = z.array(z.string().trim().min(1).max(500)).max(10);
@@ -75,7 +79,7 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
         principal: principalOf(res),
         authorizationHeader: req.headers.authorization ?? '',
         mreTenantId: body.mreTenantId,
-        rentDueDays: body.rentDueDays ?? [],
+        rentDueDays: entriesOf(body.rentDueDays ?? []),
         notes: body.notes ?? null,
         sourceReferences: body.sourceReferences ?? [],
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
@@ -124,7 +128,7 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
       .amend({
         principal: principalOf(res),
         rentalContractReferenceId,
-        ...(body.rentDueDays === undefined ? {} : { rentDueDays: body.rentDueDays }),
+        ...(body.rentDueDays === undefined ? {} : { rentDueDays: entriesOf(body.rentDueDays) }),
         ...(body.notes === undefined ? {} : { notes: body.notes }),
         ...(body.sourceReferences === undefined ? {} : { sourceReferences: body.sourceReferences }),
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
@@ -134,6 +138,15 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
   });
 
   return router;
+}
+
+/** The parsed entries as the domain holds them: an evidence of `null` is omitted. */
+function entriesOf(days: readonly { validFrom: string; day: number; evidenceReference?: string | null | undefined }[]): RentDueDay[] {
+  return days.map((d) => ({
+    validFrom: d.validFrom as RentDueDay['validFrom'],
+    day: d.day,
+    ...(d.evidenceReference === null || d.evidenceReference === undefined ? {} : { evidenceReference: d.evidenceReference }),
+  }));
 }
 
 /** A single reference with its version as `ETag` for the next `If-Match` (api-design.md §16.1). */
@@ -147,9 +160,11 @@ function referenceDto(r: RentalContractReference) {
     rentalContractReferenceId: r.id,
     mreRealmId: r.mreRealmId,
     mreTenantId: r.mreTenantId,
-    rentDueDays: r.rentDueDays.map((e) => ({ validFrom: e.validFrom, day: e.day })),
+    rentDueDays: r.rentDueDays.map((e) => ({ validFrom: e.validFrom, day: e.day, evidenceReference: e.evidenceReference ?? null })),
     notes: r.notes,
     sourceReferences: r.sourceReferences,
+    // §58F: the due days decide a tax year; an evidenceReference on each entry is recommended, never required.
+    evidenceRecommended: dueDaysEvidenceRecommended(r),
     createdAt: r.createdAt.toISOString(),
     createdBy: r.createdBy,
     version: r.version,

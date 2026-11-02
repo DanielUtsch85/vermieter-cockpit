@@ -48,15 +48,22 @@ describe('the window (§58A: 22 December to 10 January, both inclusive)', () => 
 });
 
 describe('rent (§58A): the term of the reconciliation, the due day of the RentalContractReference', () => {
-  it('a January rent paid on 29 December: without a reference January’s year with DUE_DATE_ASSUMED; day 3 the same without; day 15 December’s', () => {
+  it('a January rent paid on 29 December: without a reference the year paid, proposed for January’s (§58F); day 3 January’s; day 15 December’s', () => {
     const rent = at('2026-12-29', 'RENT_BASE');
     const assumed = attributeTaxYear(rent, rentTiming('2027010100', null), null, TAX_RULES);
-    expect(assumed.taxYear).toBe(2027);
+    expect(assumed.taxYear).toBe(2026);
+    expect(assumed.attribution).toEqual({ rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: 2026, proposedYear: 2027, overridden: false });
     expect(assumed.flags).toEqual([
       { code: 'DUE_DATE_ASSUMED', details: { dueDate: '2027-01-01', economicPeriod: { from: '2027-01-01', to: '2027-01-31' } } },
       {
-        code: 'ATTRIBUTED_BY_10_DAY_RULE',
-        details: { bookingDate: '2026-12-29', dueDate: '2027-01-01', economicPeriod: { from: '2027-01-01', to: '2027-01-31' }, dueDateSource: 'PERIOD_START' },
+        code: 'PROPOSED_BY_10_DAY_RULE',
+        details: {
+          bookingDate: '2026-12-29',
+          dueDate: '2027-01-01',
+          economicPeriod: { from: '2027-01-01', to: '2027-01-31' },
+          dueDateSource: 'PERIOD_START',
+          proposedYear: 2027,
+        },
       },
     ]);
     const third = attributeTaxYear(rent, rentTiming('2027010100', due([['2025-01-01', 3]])), null, TAX_RULES);

@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { BusinessDate } from '../../shared/index.js';
 import {
   changedEntries,
+  changedEvidence,
   dueDayOn,
+  dueDaysEvidenceRecommended,
+  dueEntryOn,
   planReferenceAmend,
   referenceFingerprint,
   rentDueDaysError,
@@ -74,6 +77,7 @@ describe('amend (§58A)', () => {
     expect(planReferenceAmend(current, { rentDueDays: current.rentDueDays, notes: null, sourceReferences: [] })).toEqual({
       changedFields: [],
       changedEntries: [],
+      changedEvidence: [],
     });
     const next = due([
       ['2025-01-01', 5],
@@ -95,5 +99,36 @@ describe('amend (§58A)', () => {
     const a = referenceFingerprint(reference());
     expect(a).toBe(referenceFingerprint(reference({ id: 'other' as RentalContractReferenceId, version: 4 })));
     expect(a).not.toBe(referenceFingerprint({ ...reference(), rentDueDays: [] }));
+  });
+});
+
+describe('the evidence of a due day (§58F, VC-X-39)', () => {
+  const named = (evidenceReference: string): RentDueDay[] => [{ validFrom: day('2025-01-01'), day: 3, evidenceReference }];
+
+  it('optional, trimmed, 1–500 characters; dueEntryOn carries it', () => {
+    expect(rentDueDaysError(named('Mietvertrag § 4 (synthetisch)'))).toBeUndefined();
+    expect(rentDueDaysError(named('x'.repeat(500)))).toBeUndefined();
+    for (const bad of ['', ' x', 'x ', 'x'.repeat(501)]) expect(rentDueDaysError(named(bad)), JSON.stringify(bad)).toEqual({ index: 0, code: 'OUT_OF_RANGE' });
+    expect(dueEntryOn(named('Mietvertrag'), day('2027-01-01'))).toEqual(named('Mietvertrag')[0]);
+    expect(dueEntryOn(named('Mietvertrag'), day('2024-01-01'))).toBeUndefined();
+  });
+
+  it('recommended while an entry names none; an empty list recommends nothing', () => {
+    expect(dueDaysEvidenceRecommended({ rentDueDays: [] })).toBe(false);
+    expect(dueDaysEvidenceRecommended({ rentDueDays: named('Mietvertrag') })).toBe(false);
+    expect(dueDaysEvidenceRecommended({ rentDueDays: [...named('Mietvertrag'), { validFrom: day('2028-01-01'), day: 15 }] })).toBe(true);
+  });
+
+  it('an evidence-only amend changes rentDueDays without a changed entry (no attribution input); the fingerprint sees it', () => {
+    const current = reference({ rentDueDays: due([['2025-01-01', 3]]) });
+    const plan = planReferenceAmend(current, { rentDueDays: named('Mietvertrag'), notes: null, sourceReferences: [] });
+    expect(plan).toEqual({ changedFields: ['rentDueDays'], changedEntries: [], changedEvidence: [{ validFrom: '2025-01-01', from: null, to: 'Mietvertrag' }] });
+    expect(changedEvidence(named('A'), named('B'))).toEqual([{ validFrom: '2025-01-01', from: 'A', to: 'B' }]);
+    expect(planReferenceAmend(reference({ rentDueDays: named('A') }), { rentDueDays: named('A'), notes: null, sourceReferences: [] }).changedFields).toEqual(
+      [],
+    );
+    const fingerprint = (rentDueDays: RentDueDay[]) =>
+      referenceFingerprint({ mreRealmId: 'realm', mreTenantId: 't', rentDueDays, notes: null, sourceReferences: [] });
+    expect(fingerprint(named('A'))).not.toBe(fingerprint(due([['2025-01-01', 3]])));
   });
 });

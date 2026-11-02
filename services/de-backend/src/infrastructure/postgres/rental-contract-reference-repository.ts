@@ -142,7 +142,12 @@ export class PostgresRentalContractReferenceRepository implements RentalContract
         await writeAudit(trx, { type: ENTITY_TYPE, id }, 'AMENDED', actor, {
           previousVersion: current.version,
           newVersion: amended.version,
-          metadata: { changedFields: plan.changedFields, ...(plan.changedEntries.length === 0 ? {} : { changedEntries: plan.changedEntries }) },
+          metadata: {
+            changedFields: plan.changedFields,
+            ...(plan.changedEntries.length === 0 ? {} : { changedEntries: plan.changedEntries }),
+            // §58F: an evidence change is history, not an attribution input (no changedEntries for it alone).
+            ...(plan.changedEvidence.length === 0 ? {} : { changedEvidence: plan.changedEvidence }),
+          },
         });
         return { kind: 'AMENDED', reference: amended, changed: true };
       });
