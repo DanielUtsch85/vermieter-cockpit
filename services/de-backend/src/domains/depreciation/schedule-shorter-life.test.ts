@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import type { ShorterUsefulLife } from './asset.js';
-import { DE_AFA_BUILDING_LINEAR_V2 } from './rules/de-afa-building-linear.js';
+import { DE_AFA_BUILDING_LINEAR_V1, DE_AFA_BUILDING_LINEAR_V2 } from './rules/de-afa-building-linear.js';
 import type { ScheduleAcquisition, ScheduleInput } from './schedule.js';
 import { A, B, C, W, acquisition, asset, capitalized, day, eur, life, ownership } from './schedule.test-support.js';
 import { amount, codes, component, derive, ownerIn, registry as REGISTRY, withParameters, yearOf } from './schedule-purchase.test-support.js';
@@ -220,6 +221,46 @@ describe('the purchase under Part 1 (§59G "Example", the Part 1 column)', () =>
       rows(example([])).map(([y, a, b]) => [y, a, b, 'PROVISIONAL']),
     );
     expect(c.flags).toEqual([{ code: 'USEFUL_LIFE_NOT_SHORTER', details: { usefulLifeYears: 50, shorterThanYears: 50 } }]);
+  });
+
+  it('a late evidence whose threshold cannot be read (no band in the Stichtag year) is never taken as not shorter', () => {
+    // Review of #238: the cautious branch of `shorterLifeCaseOf` (`shorterThanYears === null`). A test registry whose
+    // version from 2027 has no band for 1965: the threshold of the Stichtag's year cannot be read, so the years from it
+    // stay not computed (never the band with USEFUL_LIFE_NOT_SHORTER).
+    const v2 = { ...DE_AFA_BUILDING_LINEAR_V2, effectiveTo: '2027-01-01' as BusinessDate };
+    const v3 = {
+      ...DE_AFA_BUILDING_LINEAR_V2,
+      version: 3,
+      effectiveFrom: '2027-01-01' as BusinessDate,
+      parameters: { ...DE_AFA_BUILDING_LINEAR_V2.parameters, bands: DE_AFA_BUILDING_LINEAR_V2.parameters.bands.filter((b) => b.band !== 'B') },
+    };
+    const noBand = new RuleRegistry([DE_AFA_BUILDING_LINEAR_V1, v2, v3]);
+    const c = component(derive(example([gutachten('2027-05-20', RELEASED)]), noBand));
+    // The years from 2027 are blocked anyway (NO_APPLICABLE_RULE); the case itself stays a shorter life from its year.
+    expect([c.status, codes(c.reasons)]).toEqual(['NOT_COMPUTABLE', ['NO_APPLICABLE_RULE']]);
+    expect(c.flags).toEqual([
+      {
+        code: 'SHORTER_USEFUL_LIFE',
+        details: {
+          usefulLifeYears: 33,
+          evidenceDate: '2027-06-15',
+          valuationDate: '2027-05-20',
+          method: 'FROM_EVIDENCE_YEAR',
+          fromYear: 2027,
+          lastMonth: '2059-12',
+        },
+      },
+    ]);
+    // The pure case, with the threshold unreadable: shorter, and no threshold invented.
+    const pure = shorterLifeCaseOf({
+      entry: gutachten('2027-05-20', RELEASED),
+      contractDate: day('2024-02-10'),
+      sourceReferences: [],
+      firstYear: 2024,
+      parameters: DE_AFA_BUILDING_LINEAR_V2.parameters.shorterUsefulLife,
+      thresholdOf: (year) => (year >= 2027 ? null : 50),
+    });
+    expect(pure).toMatchObject({ kind: 'FROM_EVIDENCE_YEAR', fromYear: 2027, shorter: true, shorterThanYears: null });
   });
 
   it('a Stichtag before the contract year, and an entry without a Stichtag (stored before 0056): not computable in every year', () => {
