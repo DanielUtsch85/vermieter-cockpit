@@ -72,13 +72,13 @@ export function recordInMemory(input: ScheduleInput, registry: RuleRegistry, thr
   const probe = planRecord(
     read,
     { throughYear, reason: 'x', expectedInputFingerprint: '', acceptChangedYears: [] },
-    { registry, fingerprinter: identity, today, recordedBy: 'u' },
+    { registry, fingerprinter: identity, today, recordedBy: 'u', releasedStage: 3 },
   );
   if (probe.kind !== 'REFUSED' || probe.refusal.kind !== 'SCHEDULE_CHANGED') throw new Error(`unexpected ${probe.kind}`);
   const decision = planRecord(
     read,
     { throughYear, reason: 'x', expectedInputFingerprint: probe.refusal.currentInputFingerprint, acceptChangedYears: [] },
-    { registry, fingerprinter: identity, today, recordedBy: 'u' },
+    { registry, fingerprinter: identity, today, recordedBy: 'u', releasedStage: 3 },
   );
   if (decision.kind !== 'RECORD') throw new Error(`unexpected ${decision.kind}`);
   return {

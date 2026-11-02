@@ -97,7 +97,8 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
         isReady: async () => true,
         verifyPrincipal: mrePrincipalVerifier(client),
         ...commandsWith({
-          depreciationAssets: depreciationCommands(db, { recordingEnabled, now }),
+          // ACC8's repair, use and Einbauküche are stage 2 (VC-X-45, §60A): released here, test-only.
+          depreciationAssets: depreciationCommands(db, { recordingEnabled, releasedStage: 2, now }),
           taxation: { taxYear: getTaxYearView({ repository: classifications, now }) },
           loans: { create: createLoan({ repository: new PostgresLoanRepository(db) }) },
           loanTerms: { create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }) },

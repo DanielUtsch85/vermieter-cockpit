@@ -144,6 +144,7 @@ export type {
   DepreciationScheduleSource,
   Flag,
   OwnerYear,
+  PurchaseCheckFacts,
   ScheduleAcquisition,
   ScheduleAllocation,
   ScheduleComponent,
@@ -191,3 +192,10 @@ export type { LiveSchedule, RecordingState, Reproduction, YearComparison } from 
 export { planRecord, recordFingerprint } from './version-record.js';
 export { RECORDING_FLAGS, changedDetails, withRecording } from './version-schedule.js';
 export type { RecordedSchedule, RecordedScheduleYear } from './version-schedule.js';
+// Release stages of recording (VC-X-45): data in a registry of its own, never in `TAX_RULES`.
+export { DE_RECORDING_STAGES_V1, RECORDING_STAGES, RECORDING_STAGES_RULE, RECORDING_STAGE_RULES, STAGE_CRITERIA } from './rules/de-recording-stages.js';
+export type { RecordingStage, RecordingStagesParameters, StageCriterion } from './rules/de-recording-stages.js';
+export { aboveReleased, stageDetails, stageRuleOn, stageRulesOf, yearStages } from './recording-stage.js';
+export type { ComponentStage, StageRule, YearStage } from './recording-stage.js';
+export { STAGE_NOT_RELEASED, stagesOf, withStages } from './stage-schedule.js';
+export type { StagedSchedule, StagedScheduleYear } from './stage-schedule.js';

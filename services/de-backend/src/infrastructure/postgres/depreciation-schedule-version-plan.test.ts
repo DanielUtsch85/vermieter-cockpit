@@ -151,7 +151,8 @@ describe.skipIf(databaseUrl === undefined)('the plans of the CURRENT version loo
         assetId,
         mreRealmId: REALM,
         actor,
-        decide: (read) => planRecord(read, request, { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: TODAY, recordedBy: actor.actorId }),
+        decide: (read) =>
+          planRecord(read, request, { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: TODAY, recordedBy: actor.actorId, releasedStage: 3 }),
       });
       expect(outcome.kind).toBe('RECORDED');
     }

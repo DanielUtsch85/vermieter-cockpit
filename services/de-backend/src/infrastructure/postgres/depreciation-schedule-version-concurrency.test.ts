@@ -48,7 +48,8 @@ describe.skipIf(databaseUrl === undefined)('recorded schedule versions under con
       assetId,
       mreRealmId: REALM,
       actor,
-      decide: (read) => planRecord(read, request, { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: TODAY, recordedBy: actor.actorId }),
+      decide: (read) =>
+        planRecord(read, request, { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: TODAY, recordedBy: actor.actorId, releasedStage: 3 }),
     });
   const request = async (assetId: string, throughYear: number, extra: Partial<RecordRequest> = {}): Promise<RecordRequest> => ({
     throughYear,

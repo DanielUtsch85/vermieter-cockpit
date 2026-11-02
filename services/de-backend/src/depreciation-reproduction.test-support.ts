@@ -37,7 +37,8 @@ import type { Database } from './infrastructure/postgres/schema.js';
  * refusal and that nothing was stored. Synthetic data only. Test support only.
  */
 export function reproductionFromDatabase(db: Kysely<Database>, now: () => Date) {
-  const commands = depreciationCommands(db, { recordingEnabled: true, now });
+  // Every stage released (test-only, VC-X-45): the reproduction is checked on every scenario, the stage gate elsewhere.
+  const commands = depreciationCommands(db, { recordingEnabled: true, releasedStage: 3, now });
   const capitalizedSources = new PostgresTaxClassificationRepository(db).capitalizedSources;
   const versions = new PostgresScheduleVersionRepository(db, capitalizedSources, now);
   const source = new PostgresDepreciationScheduleSource(db, capitalizedSources, now);
@@ -73,7 +74,7 @@ export function reproductionFromDatabase(db: Kysely<Database>, now: () => Date) 
     const planned = planRecord(
       { schedule: { ...found.schedule, currentVersion: null }, current: null },
       { throughYear, reason: reason(throughYear), expectedInputFingerprint: stored.inputFingerprint, acceptChangedYears: [] },
-      { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: businessDayOf(now()), recordedBy: principal.email },
+      { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: businessDayOf(now()), recordedBy: principal.email, releasedStage: 3 },
     );
     if (planned.kind !== 'RECORD') throw new Error(`${label}: planned ${planned.kind}`);
     expectStoredAsPlanned(stored, planned.version, label);

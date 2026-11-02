@@ -136,6 +136,8 @@ const acc8: ScheduleRead = {
   capitalizedItems: [],
   links: [],
   ownerPartyFound: null,
+  // VC-X-45 (A1): the purchase's anschaffungsnahe check is conclusive, so the purchase is stage 1.
+  purchaseChecks: [{ acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false }],
 };
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
@@ -169,7 +171,9 @@ const real = (read: ScheduleRead | undefined, now = new Date('2026-10-30T10:00:0
   return {
     calls,
     commands: {
-      depreciationAssets: { schedule: getDepreciationSchedule({ source, now: () => now, recordingEnabled: false, fingerprinter: FAKE_FINGERPRINTER }) },
+      depreciationAssets: {
+        schedule: getDepreciationSchedule({ source, now: () => now, recordingEnabled: false, releasedStage: 1, fingerprinter: FAKE_FINGERPRINTER }),
+      },
     } satisfies CommandOverrides,
   };
 };
@@ -245,6 +249,8 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
     expect(res.headers.get('etag') ?? 'W/').toMatch(/^W\//);
     expect(calls).toEqual([[ASSET, REALM, null]]);
     const body = (await res.json()) as Record<string, unknown>;
+    // VC-X-45: one purchase, nothing else: stage 1, no DEPRECIATION_STAGE_NOT_RELEASED.
+    const purchaseStage = { stage: 1, components: [{ componentId: `ACQUISITION:${W}`, stage: 1, criteria: ['PURCHASE'] }] };
     const owners = (a: string, b: string, residualA: string, residualB: string, months: number) => [
       {
         ownerPartyId: A,
@@ -396,6 +402,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
           flags: [unpaid, notRecorded],
           inputFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
           recording: 'NOT_RECORDED',
+          stage: purchaseStage,
         },
         {
           year: 2027,
@@ -412,6 +419,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
           flags: [unpaid, notRecorded],
           inputFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
           recording: 'NOT_RECORDED',
+          stage: purchaseStage,
         },
       ],
       // §60: nothing recorded, so each year with AfA carries the open DEPRECIATION_SCHEDULE_NOT_RECORDED.
@@ -428,6 +436,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
       ],
       recordedVersion: null,
       recordingEnabled: false,
+      recordingStage: { released: 1, rules: 'DE_RECORDING_STAGES@1' },
     });
   });
 
@@ -472,5 +481,62 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
     const base = await start(real(late).commands);
     expect(((await (await get(base, path)).json()) as { range: object }).range).toEqual({ from: 2090, to: 2100, truncated: true });
     expect(((await (await get(base, `${path}?to=2100`)).json()) as { range: object }).range).toEqual({ from: 2090, to: 2100, truncated: false });
+  });
+});
+
+describe('GET /depreciation-assets/{assetId}/schedule: the release stage (VC-X-45, §60A)', () => {
+  it('the owner level reads the asset’s stage: a shorter-life purchase of another owner raises A’s years too', async () => {
+    const X = '6f1c2a9e-0000-4000-8000-000000000003';
+    const [first] = acc8.acquisitions as [ScheduleRead['acquisitions'][number]];
+    const [ownA, ownB] = acc8.ownerships as [ScheduleRead['ownerships'][number], ScheduleRead['ownerships'][number]];
+    const read: ScheduleRead = {
+      ...acc8,
+      asset: {
+        ...asset,
+        shorterUsefulLives: [
+          {
+            acquisitionId: X,
+            usefulLifeYears: 30,
+            evidence: { source: 'Gutachten (synthetisch)', date: day('2026-06-15'), valuationDate: day('2026-06-15'), documentReference: null },
+            reviewState: 'UNREVIEWED',
+            advisorPartyId: null,
+            releaseNote: null,
+          },
+        ],
+      },
+      acquisitions: [
+        first,
+        {
+          ...first,
+          id: X,
+          contractDate: day('2026-11-15'),
+          economicTransferDate: day('2027-01-01'),
+          sellerPartyIds: [B],
+          acquiredShare: { numerator: 2, denominator: 5 },
+        },
+      ],
+      ownerships: [
+        ownA,
+        { ...ownB, validUntil: day('2026-12-31') },
+        { ...ownB, id: '6f1c2a9e-0000-4000-8000-000000000043', partyId: D, validFrom: day('2027-01-01'), acquisitionId: X },
+      ],
+      purchaseChecks: [
+        { acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false },
+        { acquisitionId: X, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false },
+      ],
+    };
+    const base = await start(real(read).commands);
+    const body = (await (await get(base, `${path}?from=2026&to=2027&ownerPartyId=${A}`)).json()) as {
+      components: { componentId: string }[];
+      years: { year: number; stage: { stage: number } | null; flags: { code: string }[] }[];
+      recordingStage: unknown;
+    };
+    // A's level shows only W, yet 2027 is the asset's stage 3 (X's shorter-life entry, unconfirmed) and flagged.
+    expect(body.components.map((c) => c.componentId)).toEqual([`ACQUISITION:${W}`]);
+    expect(body.years.map((y) => [y.year, y.stage?.stage, y.flags.some((f) => f.code === 'DEPRECIATION_STAGE_NOT_RELEASED')])).toEqual([
+      [2026, 1, false],
+      [2027, 3, true],
+    ]);
+    expect(body.recordingStage).toEqual({ released: 1, rules: 'DE_RECORDING_STAGES@1' });
   });
 });

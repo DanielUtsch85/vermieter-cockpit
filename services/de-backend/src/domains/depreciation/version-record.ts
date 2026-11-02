@@ -6,11 +6,14 @@ import { activeIn, compareYear, liveSchedule, type LiveSchedule } from './versio
 import { inputFingerprint, outputFingerprint, truncateInputs } from './version-fingerprint.js';
 import { firstYearOfComponent } from './version-inputs.js';
 import type { NewScheduleVersion, RecordDecision, RecordRead, RecordRequest, VersionFlag } from './version-model.js';
+import { aboveReleased, stageDetails, stageRuleOn, stageRulesOf, yearStages } from './recording-stage.js';
+import type { RecordingStage } from './rules/de-recording-stages.js';
 
 /**
  * The record command's decision (api-design.md §60 "Order of checks", steps 3–9), taken in the command's own snapshot:
- * the asset `ACTIVE`, every year of the run with a figure, something to record, coverage never shrinking, the
- * precondition, the no-op, and the recorded years it would change named exactly. Pure: the repository executes it.
+ * the asset `ACTIVE`, every year of the run with a figure, every year of the run within the released stage (VC-X-45),
+ * something to record, coverage never shrinking, the precondition, the no-op, and the recorded years it would change
+ * named exactly. Pure: the repository executes it.
  */
 
 const ASSET_REASONS = ['ASSET_NOT_CONFIRMED', 'COMPLETION_YEAR_MISSING', 'NO_CAPITALIZED_ITEMS'];
@@ -28,7 +31,16 @@ export function recordFingerprint(request: RecordRequest): string {
 export function planRecord(
   read: RecordRead,
   request: RecordRequest,
-  context: { readonly registry: RuleRegistry; readonly fingerprinter: Fingerprinter; readonly today: BusinessDate; readonly recordedBy: string },
+  context: {
+    readonly registry: RuleRegistry;
+    readonly fingerprinter: Fingerprinter;
+    readonly today: BusinessDate;
+    readonly recordedBy: string;
+    /** VC-X-45: the installation's released stage (`DEPRECIATION_RECORDING_STAGE`); no default. */
+    readonly releasedStage: RecordingStage;
+    /** The registry of `DE_RECORDING_STAGES` (default `RECORDING_STAGE_RULES`); never `TAX_RULES`. */
+    readonly stageRegistry?: RuleRegistry;
+  },
 ): RecordDecision {
   const { schedule: snapshot, current } = read;
   const { asset } = snapshot;
@@ -61,6 +73,15 @@ export function planRecord(
       }),
     }));
     return { kind: 'REFUSED', refusal: { kind: 'SCHEDULE_NOT_COMPLETE', details: { reasons, years, components: unstarted } } };
+  }
+  // 5 of §60A. The stage, in the same snapshot: every year of the run within the released stage, judged from all its
+  // components (computable or not, and the items the building excludes); one year above it refuses the whole run. After
+  // step 4, so a missing fact or an unsupported method stays blocking whatever stage is released.
+  const rule = stageRuleOn(context.today, context.stageRegistry);
+  const stages = yearStages(live.schedule, snapshot, run, rule);
+  const above = aboveReleased(stages, context.releasedStage);
+  if (above.length > 0) {
+    return { kind: 'REFUSED', refusal: { kind: 'STAGE_NOT_RELEASED', details: { releasedStage: context.releasedStage, years: above.map(stageDetails) } } };
   }
   // 5. Something to record.
   if (!run.some((year) => activeIn(live, year))) {
@@ -109,6 +130,7 @@ export function planRecord(
     kind: 'RECORD',
     version: newVersion(live, request, fromYear, context),
     changedYears: changed.map((c) => ({ year: c.year, recorded: c.recorded ?? 0n, derived: c.derived })),
+    stages: { releasedStage: context.releasedStage, stageRules: stageRulesOf(rule), years: stages.map((y) => ({ year: y.year, stage: y.stage })) },
   };
 }
 

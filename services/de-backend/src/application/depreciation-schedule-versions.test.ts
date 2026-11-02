@@ -54,7 +54,7 @@ function stub(outcomes: RecordOutcome[] = []) {
 describe('the recording switch in the use case (§60 "The recording switch")', () => {
   it('off: RecordingNotEnabledError, and the repository records no call at all (no transaction, no key claim, no read)', async () => {
     const { calls, repository } = stub();
-    const record = recordScheduleVersion({ repository, recordingEnabled: false, fingerprinter, now });
+    const record = recordScheduleVersion({ repository, recordingEnabled: false, releasedStage: 1, fingerprinter, now });
     await expect(record(request)).rejects.toBeInstanceOf(RecordingNotEnabledError);
     await expect(record({ ...request, assetId: 'not-even-a-uuid', idempotencyKey: 'x' })).rejects.toBeInstanceOf(RecordingNotEnabledError);
     expect(calls).toEqual([]);
@@ -62,7 +62,7 @@ describe('the recording switch in the use case (§60 "The recording switch")', (
 
   it('counter-check: on, the same request reaches the repository (the stub’s unknown asset answers 404)', async () => {
     const { calls, repository } = stub();
-    const record = recordScheduleVersion({ repository, recordingEnabled: true, fingerprinter, now });
+    const record = recordScheduleVersion({ repository, recordingEnabled: true, releasedStage: 1, fingerprinter, now });
     await expect(record(request)).rejects.toMatchObject({ name: 'DepreciationAssetNotFoundError' });
     expect(calls).toEqual(['record']);
   });
@@ -70,9 +70,9 @@ describe('the recording switch in the use case (§60 "The recording switch")', (
   it('a throughYear after today’s year is a 400 before the switch, off and on alike', async () => {
     for (const recordingEnabled of [false, true]) {
       const { calls, repository } = stub();
-      await expect(recordScheduleVersion({ repository, recordingEnabled, fingerprinter, now })({ ...request, throughYear: 2027 })).rejects.toEqual(
-        new ThroughYearInFutureError(2026),
-      );
+      await expect(
+        recordScheduleVersion({ repository, recordingEnabled, releasedStage: 1, fingerprinter, now })({ ...request, throughYear: 2027 }),
+      ).rejects.toEqual(new ThroughYearInFutureError(2026));
       expect(calls).toEqual([]);
     }
   });
@@ -90,13 +90,15 @@ describe('the recording switch in the use case (§60 "The recording switch")', (
 describe('serialisation failures (§60 "Concurrency")', () => {
   it('three in a row give up: ConcurrentUpdateError (503 CONCURRENT_UPDATE), each attempt a fresh transaction', async () => {
     const { calls, repository } = stub([{ kind: 'SERIALIZATION_FAILURE' }, { kind: 'SERIALIZATION_FAILURE' }, { kind: 'SERIALIZATION_FAILURE' }]);
-    await expect(recordScheduleVersion({ repository, recordingEnabled: true, fingerprinter, now })(request)).rejects.toBeInstanceOf(ConcurrentUpdateError);
+    await expect(recordScheduleVersion({ repository, recordingEnabled: true, releasedStage: 1, fingerprinter, now })(request)).rejects.toBeInstanceOf(
+      ConcurrentUpdateError,
+    );
     expect(calls).toEqual(['record', 'record', 'record']);
   });
 
   it('counter-check: a failure followed by an answer retries once and answers it', async () => {
     const { calls, repository } = stub([{ kind: 'SERIALIZATION_FAILURE' }, { kind: 'NOT_FOUND' }]);
-    await expect(recordScheduleVersion({ repository, recordingEnabled: true, fingerprinter, now })(request)).rejects.toMatchObject({
+    await expect(recordScheduleVersion({ repository, recordingEnabled: true, releasedStage: 1, fingerprinter, now })(request)).rejects.toMatchObject({
       name: 'DepreciationAssetNotFoundError',
     });
     expect(calls).toEqual(['record', 'record']);

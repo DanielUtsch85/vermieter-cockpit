@@ -13,6 +13,7 @@ import type { AuditActor, RuleRef } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
 import { UUID } from './depreciation-asset-rows.js';
+import { purchaseChecksIn } from './depreciation-purchase-checks.js';
 import { readScheduleIn } from './depreciation-schedule-source.js';
 import { findVersion, listVersions, lockCurrentVersion, readVersionById, storedRuleVersionHashes } from './depreciation-schedule-version-reads.js';
 import { insertVersion } from './depreciation-schedule-version-rows.js';
@@ -84,9 +85,11 @@ export class PostgresScheduleVersionRepository implements ScheduleVersionReposit
           if (locked.rows.length === 0) throw new Rejected({ kind: 'NOT_FOUND' });
           // 4. The CURRENT version FOR UPDATE; 5. the derivation's inputs in this snapshot, and the decision.
           const current = await lockCurrentVersion(trx, assetId);
-          const schedule = await readScheduleIn(trx, this.capitalizedSources, businessDayOf(this.now()), assetId, mreRealmId, null, this.afterAssetRead);
+          const today = businessDayOf(this.now());
+          const schedule = await readScheduleIn(trx, this.capitalizedSources, today, assetId, mreRealmId, null, this.afterAssetRead);
           if (schedule === undefined) throw new Rejected({ kind: 'NOT_FOUND' });
-          const read: RecordRead = { schedule, current };
+          // VC-X-45: the purchases' checks for the release stage, in this snapshot.
+          const read: RecordRead = { schedule: { ...schedule, purchaseChecks: await purchaseChecksIn(trx, schedule, mreRealmId, today) }, current };
           const decision = decide(read);
           // 6. Supersede, insert, audit, record the key.
           const outcome = await this.execute(trx, mreRealmId, actor, current, decision);
@@ -149,6 +152,10 @@ export class PostgresScheduleVersionRepository implements ScheduleVersionReposit
         acceptedChangedYears: decision.changedYears.map((c) => c.year),
         years: v.years.map((y) => ({ year: y.year, amount: { amount: centsText(y.amount), currency: v.inputs.currency } })),
         openFlags: [...new Set(v.flags.filter((f) => f.level === 'OPEN').map((f) => f.code))].sort(),
+        // VC-X-45 (§60A "Recorded versions"): the released stage and each year's stage, in the AuditRecord only.
+        ...(decision.stages === undefined
+          ? {}
+          : { releasedStage: decision.stages.releasedStage, stageRules: decision.stages.stageRules, stageYears: decision.stages.years }),
       },
     });
     if (current !== null) {
