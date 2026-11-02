@@ -126,6 +126,11 @@ export interface CheckEntry {
   readonly suggestedTreatment: 'CAPITALIZED' | null;
   /** Why an `excluded` source is left out; `null` in the other lists. */
   readonly reason: ExcludedReason | null;
+  /**
+   * §59F (the owner's decision 239-8, 2026-11-02): on an `unclassified` entry only, whether its date lies beyond the
+   * search range (within the outer bound); absent in the other lists.
+   */
+  readonly beyondSearchRange?: boolean;
   readonly flags: readonly CheckEntryFlag[];
 }
 
@@ -272,13 +277,16 @@ export function checkAnschaffungsnahe(
   const outside: CheckSource[] = [];
   const performedOut: CheckSource[] = [];
   const recurring: CheckSource[] = [];
-  const unclassified: CheckSource[] = [];
+  const unclassified: { readonly s: CheckSource; readonly beyond: boolean }[] = [];
   for (const s of window === null ? [] : input.sources) {
     const w = window as Range;
     const overlaps = s.performance !== null && !performedOutside(s.performance, w);
     const undatedNear = s.performance === null && within(searchRange, s.date);
     if (s.taxCategory === 'UNCLASSIFIED') {
-      if (within(searchRange, s.date)) unclassified.push(s);
+      // §59F (the owner's decision 239-8, 2026-11-02): beyond the search range but within the outer bound it is listed
+      // too, marked, and keeps the check open (`UNCLASSIFIED_SOURCES`); it never makes the check NOT_COMPUTABLE.
+      if (within(searchRange, s.date)) unclassified.push({ s, beyond: false });
+      else if (within(outerBound, s.date)) unclassified.push({ s, beyond: true });
     } else if (erhaltung(s) && s.annuallyRecurring) {
       if (overlaps || undatedNear) recurring.push(s);
     } else if (!summedSource(s)) {
@@ -458,7 +466,7 @@ export function checkAnschaffungsnahe(
       ...recurring.map((s) => entry(s, 'OTHER', null, 'ANNUALLY_RECURRING')),
       ...performedOut.map((s) => entry(s, 'OTHER', null, 'PERFORMED_OUTSIDE_WINDOW')),
     ],
-    unclassified: unclassified.map((s) => entry(s, 'OTHER', null)),
+    unclassified: unclassified.map((u) => ({ ...entry(u.s, 'OTHER', null), beyondSearchRange: u.beyond })),
     undetermined: undetermined.map((x) => entry(x.s, 'UNDETERMINED', x)),
     outsideSearchRange: outside.map((s) => entry(s, 'OUTSIDE', null)),
     affectedYears:

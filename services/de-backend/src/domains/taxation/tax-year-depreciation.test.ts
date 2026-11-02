@@ -571,6 +571,14 @@ describe('VC-8-05: capitalized.component, the review, final, ruleVersions and th
     ]) {
       expect(clean([flag(code, 'INFORMATIVE')]).review, code).toMatchObject({ final: true, open: [], info: [{ code, count: 1 }] });
     }
+    // §59F (decision 239-7): CAPITALIZED_YEAR_DIFFERS at the level the schedule carries (by its dateSource): informative
+    // alone leaves the recorded year final; open keeps it from final.
+    expect(clean([flag('CAPITALIZED_YEAR_DIFFERS', 'INFORMATIVE')]).review).toMatchObject({
+      final: true,
+      open: [],
+      info: [{ code: 'CAPITALIZED_YEAR_DIFFERS', count: 1 }],
+    });
+    expect(clean([flag('CAPITALIZED_YEAR_DIFFERS', 'OPEN')]).review).toMatchObject({ final: false, open: [{ code: 'CAPITALIZED_YEAR_DIFFERS', count: 1 }] });
     const gwg = clean([], UNCHANGED, [flag('GWG_THRESHOLD_MAY_APPLY', 'INFORMATIVE')]);
     expect([gwg.review.final, gwg.flags]).toEqual([true, [{ code: 'GWG_THRESHOLD_MAY_APPLY', details: { assetId: BUILDING } }]]);
     // Phase 7's year flags and §58D's: each alone keeps an otherwise recorded year from being final.

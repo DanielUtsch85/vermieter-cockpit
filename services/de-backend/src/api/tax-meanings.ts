@@ -286,7 +286,8 @@ function checkDto(c: AnschaffungsnaheCheck) {
     percentOfBasisUpper: c.percentOfBasisUpper,
     sources: c.sources.map(entryDto),
     excluded: c.excluded.map(entryDto),
-    unclassified: c.unclassified.map(entryDto),
+    // §59F (decision 239-8): each unclassified entry says whether it lies beyond the search range.
+    unclassified: c.unclassified.map((e) => ({ ...entryDto(e), beyondSearchRange: e.beyondSearchRange === true })),
     undetermined: c.undetermined.map(entryDto),
     outsideSearchRange: c.outsideSearchRange.map(entryDto),
     affectedYears: c.affectedYears,
