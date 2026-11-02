@@ -51,6 +51,12 @@ export const COLUMNS = [
   'mostly_residential_confirmed',
   'anschaffungsnahe_acquisition_id',
   'construction_period_interest_id',
+  // §59F (0058): the period of performance and its points, in one read (the points as JSON, by position).
+  sql<string | null>`to_char(performed_from, 'YYYY-MM-DD')`.as('performed_from'),
+  sql<string | null>`to_char(performed_until, 'YYYY-MM-DD')`.as('performed_until'),
+  'performance_progress_estimated',
+  sql<PointRow[] | null>`(SELECT json_agg(json_build_object('through', to_char(p.through, 'YYYY-MM-DD'), 'amount', p.amount::text) ORDER BY p.position)
+    FROM tax_classification_performance_progress p WHERE p.classification_id = tax_classification.id)`.as('performance_progress'),
   'supersedes_id',
   'superseded_by',
   'superseded_at',
@@ -58,6 +64,11 @@ export const COLUMNS = [
   'created_by',
   'version',
 ] as const;
+
+interface PointRow {
+  readonly through: string;
+  readonly amount: string;
+}
 
 interface ClassificationRow {
   id: string;
@@ -92,6 +103,10 @@ interface ClassificationRow {
   mostly_residential_confirmed: boolean | null;
   anschaffungsnahe_acquisition_id: string | null;
   construction_period_interest_id: string | null;
+  performed_from: string | null;
+  performed_until: string | null;
+  performance_progress_estimated: boolean | null;
+  performance_progress: PointRow[] | null;
   supersedes_id: string | null;
   superseded_by: string | null;
   superseded_at: Date | null;
@@ -180,6 +195,15 @@ export function toDomain(row: ClassificationRow): TaxClassification {
     mostlyResidentialConfirmed: row.mostly_residential_confirmed,
     anschaffungsnaheAcquisitionId: row.anschaffungsnahe_acquisition_id,
     constructionPeriodInterestId: row.construction_period_interest_id,
+    performance:
+      row.performed_from === null || row.performed_until === null
+        ? null
+        : {
+            from: row.performed_from as BusinessDate,
+            until: row.performed_until as BusinessDate,
+            progress: (row.performance_progress ?? []).map((p) => ({ through: p.through as BusinessDate, amount: fromNumericAmount(p.amount, 'EUR') })),
+            progressEstimated: row.performance_progress_estimated,
+          },
     treatmentRule:
       row.treatment_rule_code === null || row.treatment_rule_version === null
         ? null
@@ -214,7 +238,11 @@ type LaterColumns =
   | 'anschaffungsnahe_acquisition_id'
   | 'treatment_rule_code'
   | 'treatment_rule_version'
-  | 'construction_period_interest_id';
+  | 'construction_period_interest_id'
+  | 'performed_from'
+  | 'performed_until'
+  | 'performance_progress_estimated'
+  | 'performance_progress';
 
 /** The created row as JSON for the idempotency store. Snapshots of VC-7-01/-02 lack the later fields (read as null). */
 interface ClassificationSnapshot {
@@ -260,6 +288,15 @@ export function toSnapshot(c: TaxClassification): ClassificationSnapshot {
       anschaffungsnahe_acquisition_id: c.anschaffungsnaheAcquisitionId,
       // §59E: only when set, so a snapshot of an earlier classification keeps its shape.
       ...(c.constructionPeriodInterestId === null ? {} : { construction_period_interest_id: c.constructionPeriodInterestId }),
+      // §59F: only when set, so a snapshot of an earlier classification keeps its shape.
+      ...(c.performance === null
+        ? {}
+        : {
+            performed_from: c.performance.from,
+            performed_until: c.performance.until,
+            performance_progress_estimated: c.performance.progressEstimated,
+            performance_progress: c.performance.progress.map((p) => ({ through: p.through, amount: p.amount.amount })),
+          }),
       supersedes_id: c.supersedes,
       superseded_by: c.supersededBy,
       created_at: c.createdAt.toISOString(),
@@ -294,6 +331,10 @@ export function fromSnapshot(result: unknown): TaxClassification {
     treatment_rule_code: row.treatment_rule_code ?? null,
     treatment_rule_version: row.treatment_rule_version ?? null,
     construction_period_interest_id: row.construction_period_interest_id ?? null,
+    performed_from: row.performed_from ?? null,
+    performed_until: row.performed_until ?? null,
+    performance_progress_estimated: row.performance_progress_estimated ?? null,
+    performance_progress: row.performance_progress ?? null,
     created_at: new Date(row.created_at),
     superseded_at: null,
   });

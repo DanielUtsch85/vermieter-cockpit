@@ -56,6 +56,8 @@ export interface CapitalizedSource {
   /** §59E: the Loan of a Loan interest source (`null` for a split of the PropertyReference), and the record it names. */
   readonly loan: CapitalizedSourceLoan | null;
   readonly constructionPeriodInterestId: string | null;
+  /** §59F (VC-X-38): the period of the work, which decides a building item's start; `null` without one. */
+  readonly performance: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
   /** §58C's per-item parts: the participants on the date (`NOT_OWNED` for the rest), by largest remainder. */
   readonly parts: readonly {
     readonly participant: string;
@@ -156,6 +158,7 @@ export function capitalizedSourcesOf(
                 propertyPart: moneyOfCents(loan.propertyCents, meaning.amount.currency),
               },
         constructionPeriodInterestId: interest?.constructionPeriodInterestId ?? null,
+        performance: meaning.performance === null ? null : { from: meaning.performance.from, until: meaning.performance.until },
         parts: participants.map((p) => ({
           participant: p.key,
           ownershipIds: p.ownershipIds,

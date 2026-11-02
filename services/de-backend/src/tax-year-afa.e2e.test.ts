@@ -33,6 +33,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { performedOnSourceDate } from './infrastructure/postgres/performance.test-support.js';
 import { standardMethodBody } from './infrastructure/postgres/depreciation-method.test-support.js';
 
 /**
@@ -42,8 +43,8 @@ import { standardMethodBody } from './infrastructure/postgres/depreciation-metho
  * recorded: the shipped default, the view identical with the recording switch off and on); Example 4's
  * `BEFORE_DEPRECIATION` (an unreviewed allocation); Example 2 (2027, version 1 recorded before the repair, the repair
  * and the Sonderumlage use capitalised on the check, the Einbauküche a separate asset); Example 4's `PARTIAL_DEPRECIATION`
- * (a superseding unconfirmed allocation); Example 3 (2026 final after recording, 2027 and 2028 not final by
- * `SUBSEQUENT_COST_START_TO_VERIFY` alone); interest via a Loan keeping 2026 open; no cash mutated; Realm isolation.
+ * (a superseding unconfirmed allocation); Example 3 (2026, 2027 and 2028 final after recording: §59F withdrew
+ * `SUBSEQUENT_COST_START_TO_VERIFY`); interest via a Loan keeping 2026 open; no cash mutated; Realm isolation.
  */
 const databaseUrl = process.env['DE_TEST_DATABASE_URL'];
 
@@ -311,7 +312,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
   }
   async function classify(request: Partial<NewTaxClassification> & { sourceId: string }, realm = REALM_A): Promise<string> {
     const outcome = await classifications.createClassification(
-      {
+      await performedOnSourceDate(pool, {
         mreRealmId: realm,
         sourceType: 'TRANSACTION_SPLIT',
         taxCategory: 'MAINTENANCE',
@@ -321,7 +322,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
         notes: null,
         sourceReferences: [],
         ...request,
-      },
+      }),
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(JSON.stringify(outcome));
@@ -610,16 +611,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
       ]),
     ).toEqual([
       [`ACQUISITION:${w}`, 'ACQUISITION', '254400.00', '2026-07', 'TRANSFER_DATE', 12, '5088.00', []],
-      [
-        `TRANSACTION_SPLIT:${repair}`,
-        'CAPITALIZED_ITEM',
-        '35700.00',
-        '2027-01',
-        'START_OF_YEAR',
-        12,
-        '714.00',
-        ['ANSCHAFFUNGSNAHE_CAPITALIZED', 'SUBSEQUENT_COST_START_TO_VERIFY'],
-      ],
+      [`TRANSACTION_SPLIT:${repair}`, 'CAPITALIZED_ITEM', '35700.00', '2027-01', 'START_OF_YEAR', 12, '714.00', ['ANSCHAFFUNGSNAHE_CAPITALIZED']],
     ]);
     expect(
       line(e2, 'AFA_SEPARATE_ASSETS').items.map((i: Json) => [
@@ -690,7 +682,6 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
       { code: 'DEPRECIATION_CHANGED_SINCE_RECORDED', count: 1 },
       { code: 'DEPRECIATION_SCHEDULE_NOT_RECORDED', count: 1 },
       { code: 'ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL', count: 1 },
-      { code: 'SUBSEQUENT_COST_START_TO_VERIFY', count: 1 },
     ]);
     expect(e2.review.info).toEqual(
       expect.arrayContaining([
@@ -737,7 +728,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
     expect(total(await view(pr, 2027), 'AFA_BUILDING')).toBe('5802.00');
 
     // Example 3: after the window, version 2 of the building through 2028 (naming the changed years) and the kitchen's
-    // version 1. 2026 is final for the first time; 2027 and 2028 stay open by SUBSEQUENT_COST_START_TO_VERIFY alone.
+    // version 1. 2026 is final for the first time, and 2027 and 2028 too (§59F: the start rule confirmed, performances stated).
     at('2029-10-15');
     const v2 = await recordVersion(building, 2028, [2026, 2027]);
     await recordVersion(kitchen.assetId, 2028);
@@ -765,8 +756,8 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
       const later = await view(pr, year);
       expect([later.depreciation.assets.map((x: Json) => x.recording.state), later.review.open, later.review.final], String(year)).toEqual([
         ['UNCHANGED', 'UNCHANGED'],
-        [{ code: 'SUBSEQUENT_COST_START_TO_VERIFY', count: year === 2027 ? 1 : 2 }],
-        false,
+        [],
+        true,
       ]);
     }
 

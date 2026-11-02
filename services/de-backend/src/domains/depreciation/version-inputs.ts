@@ -223,7 +223,7 @@ function itemComponent(w: ItemWork, position: number, horizon: number, pools: Ma
     basis: item === null ? 0n : centsOf(item.lineAmount),
     start: {
       date: w.startDate,
-      dateSource: w.separate ? 'ACQUIRED_ON' : 'ITEM_DATE',
+      dateSource: w.startDateSource,
       method: w.method,
       month: w.startMonth === null ? null : monthLabel(w.startMonth),
     },
@@ -244,6 +244,11 @@ function itemComponent(w: ItemWork, position: number, horizon: number, pools: Ma
             itemDateSource: item.dateSource,
             itemTaxYear: item.taxYear,
             anschaffungsnaheAcquisitionId: item.anschaffungsnaheAcquisitionId,
+            // §59F (migration 0058): the period of the work that decided the start, only where it did, so every other
+            // item's inputs keep their shape.
+            ...(w.startDateSource === 'PERFORMANCE_UNTIL' && item.performance !== undefined && item.performance !== null
+              ? { performedFrom: item.performance.from, performedUntil: item.performance.until }
+              : {}),
             // §59E: only on a Loan interest source, so every other item's inputs keep their shape.
             ...(item.loan === undefined || item.loan === null
               ? {}

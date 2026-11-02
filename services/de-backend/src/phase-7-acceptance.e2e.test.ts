@@ -509,10 +509,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
       [second.classificationId, null],
     ]);
     // The § 82b election: 3,570.00 over three years (1,190.00 each), the building mostly residential.
-    await json(
-      await split(elected, 'MAINTENANCE', 'DISTRIBUTED_82B', { distributionYears: 3, mostlyResidentialConfirmed: true, netAmount: eur('3000.00') }),
-      201,
-    );
+    const election = { distributionYears: 3, mostlyResidentialConfirmed: true, netAmount: eur('3000.00') };
+    const electedFirst = await json<{ classificationId: string }>(await split(elected, 'MAINTENANCE', 'DISTRIBUTED_82B', election), 201);
     // The refund of 2026; the reserve withdrawal (1,200.00 = 12,000.00 × 100/1000) as Erhaltungsaufwand when spent.
     await json(await split(refund, 'INSURANCE', 'DEDUCTIBLE', { refundOfYear: 2026 }), 201);
     const withdrawal = await json<{ amount: Money; date: string; taxYear: number; origin: string; reviewState: string }>(
@@ -520,29 +518,63 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
       200,
     );
     expect(withdrawal).toMatchObject({ amount: eur('1200.00'), date: '2027-07-01', taxYear: 2027, origin: 'DEFAULT', reviewState: 'NEEDS_REVIEW' });
-    await json(
-      await classify({ sourceType: 'WEG_RESERVE_WITHDRAWAL', sourceId: statementId, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' }),
-      201,
-    );
+    const withdrawalSource = {
+      sourceType: 'WEG_RESERVE_WITHDRAWAL',
+      sourceId: statementId,
+      sourcePosition: 1,
+      taxCategory: 'WEG_SPENDING',
+      treatment: 'DEDUCTIBLE',
+    };
+    const withdrawalFirst = await json<{ classificationId: string }>(await classify(withdrawalSource), 201);
 
     // The anschaffungsnahe check: basis (100,000.00 + 5,000.00) × 84,000.00 / 105,000.00 = 84,000.00, threshold 12,600.00.
-    // 8,400.00 + 3,000.00 (net) + 1,200.00 (gross) = 12,600.00: exactly 15 % is not above.
+    // 8,400.00 + 3,000.00 (net) + 1,200.00 (gross) = 12,600.00: exactly 15 % is not above. §59F (VC-X-38): the sources
+    // state no performance yet, so they are undetermined: the sum's lower bound is 0.00, its upper bound 12,600.00, and
+    // exactly 15 % by the upper bound is still not above (never decided on a booking date).
     const check = async () => json<Check>(await A('GET', `/acquisitions/${acquisition}/anschaffungsnahe-herstellungskosten`), 200);
     const exactly = await check();
     expect(exactly).toMatchObject({
       status: 'NOT_ABOVE_THRESHOLD',
       basis: { basisAmount: eur('84000.00') },
       threshold: eur('12600.00'),
-      sum: eur('12600.00'),
-      attributableAmount: eur('12600.00'),
+      sum: eur('0.00'),
+      sumUpper: eur('12600.00'),
+      attributableAmount: eur('0.00'),
       affectedYears: [],
     });
+    expect(exactly.undetermined).toHaveLength(3);
     expect(exactly.unclassified.map((s) => s.sourceType)).toEqual(['WEG_ASSESSMENT_USE']);
     // The Sonderumlage use within the three years, classified: 14,600.00, above.
+    const useSource = { sourceType: 'WEG_ASSESSMENT_USE', sourceId: assessment, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' };
+    const useFirst = await json<{ classificationId: string }>(await classify(useSource), 201);
+    // §59F: undated, 14,600.00 lies only in the upper bound: not computable, never above on a guess.
+    expect(await check()).toMatchObject({
+      status: 'NOT_COMPUTABLE',
+      notComputableReason: 'PERFORMANCE_IN_WINDOW_UNKNOWN',
+      sum: eur('0.00'),
+      sumUpper: eur('14600.00'),
+    });
+    // The four sources superseded with their performance, each in the month of its date (§59F's proposal for ACC7).
+    const performed = (from: string, until: string) => ({ performance: { from, until } });
     await json(
-      await classify({ sourceType: 'WEG_ASSESSMENT_USE', sourceId: assessment, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' }),
+      await split(repair, 'MAINTENANCE', 'DEDUCTIBLE', {
+        netAmount: eur('8400.00'),
+        supersedes: second.classificationId,
+        sourceReferences: ['Rechnung 2027-05'],
+        ...performed('2027-05-02', '2027-05-12'),
+      }),
       201,
     );
+    await json(
+      await split(elected, 'MAINTENANCE', 'DISTRIBUTED_82B', {
+        ...election,
+        supersedes: electedFirst.classificationId,
+        ...performed('2027-08-01', '2027-08-20'),
+      }),
+      201,
+    );
+    await json(await classify({ ...withdrawalSource, supersedes: withdrawalFirst.classificationId, ...performed('2027-07-01', '2027-07-01') }), 201);
+    await json(await classify({ ...useSource, supersedes: useFirst.classificationId, ...performed('2027-10-01', '2027-10-15') }), 201);
     const above = await check();
     expect(above).toMatchObject({ status: 'ABOVE_THRESHOLD', sum: eur('14600.00'), percentOfBasis: '17.38', affectedYears: [2027], final: false });
     expect(above.sources.map((s) => [s.sourceId, s.amountUsed.amount, s.suggestedTreatment])).toEqual([

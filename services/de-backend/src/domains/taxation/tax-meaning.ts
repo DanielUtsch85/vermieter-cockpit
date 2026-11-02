@@ -4,6 +4,7 @@ import type { CheckEntryFlag } from './anschaffungsnahe.js';
 import { CATEGORY_DEFAULTS, type CategoryDefault, type CategoryDefaultsParameters } from './rules/de-category-defaults.js';
 import { attributeTaxYear, refundOf, type RefundFlag, type RefundInfo, type TaxYearAttribution, type TaxYearFlag, type TimingInput } from './cash-timing.js';
 import type { Distribution, DistributionFlag } from './distribution-82b.js';
+import type { Performance } from './performance.js';
 import type { TaxClassification } from './tax-classification.js';
 import type { Origin, ReviewState, TaxCategory, Treatment } from './vocabulary.js';
 
@@ -84,6 +85,8 @@ export interface TaxMeaning extends SplitFacts {
   readonly refund: RefundInfo | null;
   /** VC-7-03 (§58B): the classification's net amount, its second rule reference, the § 82b parts and the check's suggestion. */
   readonly netAmount: Money | null;
+  /** §59F (VC-X-38): the classification's period of performance; `null` without one (and for a default). */
+  readonly performance: Performance | null;
   readonly treatmentRule: RuleRef | null;
   readonly distribution: Distribution | null;
   readonly suggestion: TreatmentSuggestion | null;
@@ -168,6 +171,7 @@ function meaningOf(
       rule: classification.rule,
       treatmentRule: classification.treatmentRule,
       netAmount: classification.netAmount,
+      performance: classification.performance,
       classificationId: classification.id,
       flags,
     };
@@ -189,6 +193,7 @@ function meaningOf(
     rule: rule === undefined ? null : { ruleCode: rule.ruleCode, version: rule.version },
     treatmentRule: null,
     netAmount: null,
+    performance: null,
     classificationId: null,
     flags,
   };

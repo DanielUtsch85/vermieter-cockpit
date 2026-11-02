@@ -16,6 +16,7 @@ import { readTaxYear } from './tax-year-reads.js';
 import { levelOf, taxYearDepreciationIn } from './tax-year-depreciation.js';
 import { rowsSnapshot } from './tax-year-view.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
+import { performedOnSourceDate } from './performance.test-support.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
 
 /**
@@ -82,7 +83,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
   }
   async function capitalize(splitId: string): Promise<void> {
     const outcome = await tax().createClassification(
-      {
+      await performedOnSourceDate(ctx.pool, {
         mreRealmId: REALM,
         sourceType: 'TRANSACTION_SPLIT',
         sourceId: splitId,
@@ -92,7 +93,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
         supersedes: null,
         notes: null,
         sourceReferences: [],
-      },
+      }),
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(JSON.stringify(outcome));
@@ -128,7 +129,10 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
       'HISTORICAL_RULE_TO_VERIFY',
       'SHARE_REDUCTION_SPLIT_TO_VERIFY',
       'OWNER_WITHOUT_ACQUISITION',
-      'SUBSEQUENT_COST_START_TO_VERIFY',
+      // §59F (VC-X-38): SUBSEQUENT_COST_START_TO_VERIFY withdrawn; the open reading and the missing performance added.
+      'SUBSEQUENT_COST_OWNER_START_TO_VERIFY',
+      'PERFORMANCE_DATE_MISSING',
+      'PERFORMANCE_SPANS_YEAR_END',
       'SUBSEQUENT_COST_END_TO_VERIFY',
       'SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED',
       'REMAINING_USEFUL_LIFE_ENDED',
@@ -148,7 +152,6 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
       'ANSCHAFFUNGSNAHE_CAPITALIZED',
       'CAPITALIZED_REFUND',
       'GWG_THRESHOLD_MAY_APPLY',
-      'DATE_IS_BOOKING_DATE',
       'WITHDRAWAL_DATE_ASSUMED',
     ];
     expect(open.filter((code) => levelOf(code) !== 'OPEN')).toEqual([]);

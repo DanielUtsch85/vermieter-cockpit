@@ -62,7 +62,7 @@ export async function anschaffungsnaheCheck(
 
 /**
  * What the effects of §58B read around a PropertyReference: its WEG sources, Ownerships, and the anschaffungsnahe
- * checks of its Acquisitions with the counting splits and WEG sources of their windows (and the strip after them).
+ * checks of its Acquisitions with the counting splits and WEG sources dated within their outer bounds (§59F).
  */
 export async function effectsOf(
   trx: Transaction<Database>,
@@ -140,6 +140,7 @@ function splitCheckSource(meaning: TaxMeaning, classification: TaxClassification
     sourceId: meaning.splitId,
     sourcePosition: null,
     date: meaning.bookingDate,
+    dateSource: 'BOOKING',
     taxYear: meaning.taxYear,
     taxCategory: meaning.taxCategory,
     treatment: meaning.treatment,
@@ -151,6 +152,7 @@ function splitCheckSource(meaning: TaxMeaning, classification: TaxClassification
     netAmount: meaning.netAmount,
     annuallyRecurring: classification?.annuallyRecurring ?? false,
     anschaffungsnaheAcquisitionId: classification?.anschaffungsnaheAcquisitionId ?? null,
+    performance: meaning.performance,
     sourceFlags: [],
   };
 }

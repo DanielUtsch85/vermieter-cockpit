@@ -96,6 +96,8 @@ export interface ItemWork {
   readonly componentId: string;
   readonly separate: boolean;
   readonly startDate: BusinessDate | null;
+  /** §59F: the completion of the work (a building's item), the item's date (interest) or `acquiredOn` (a separate asset). */
+  readonly startDateSource: 'PERFORMANCE_UNTIL' | 'ITEM_DATE' | 'ACQUIRED_ON';
   readonly startMonth: number | null;
   readonly method: ItemComponent['start']['method'];
   readonly reasons: Flag[];

@@ -258,7 +258,14 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     // The repair: 18,000.00 gross in May 2026, 15,126.05 net: alone below the threshold of 29,700.00.
     const repair = await booked(pr, '18000.00', 'MAINTENANCE', '2026-05-14');
     await json(
-      await classify({ sourceType: 'TRANSACTION_SPLIT', sourceId: repair, taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', netAmount: eur('15126.05') }),
+      await classify({
+        sourceType: 'TRANSACTION_SPLIT',
+        sourceId: repair,
+        taxCategory: 'MAINTENANCE',
+        treatment: 'DEDUCTIBLE',
+        netAmount: eur('15126.05'),
+        performance: { from: '2026-05-14', until: '2026-05-14' },
+      }),
       201,
     );
     const alone = await check();
@@ -286,7 +293,14 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       A('PUT', `/weg-special-assessments/${assessment}/uses`, { uses: [{ position: 1, date, description: 'Fassade', unitShare: eur('14800.00') }] });
     await json(await setUse('2027-06-10'), 200);
     const use = await json<{ classificationId: string }>(
-      await classify({ sourceType: 'WEG_ASSESSMENT_USE', sourceId: assessment, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' }),
+      await classify({
+        sourceType: 'WEG_ASSESSMENT_USE',
+        sourceId: assessment,
+        sourcePosition: 1,
+        taxCategory: 'WEG_SPENDING',
+        treatment: 'DEDUCTIBLE',
+        performance: { from: '2027-06-10', until: '2027-06-10' },
+      }),
       201,
     );
     const above = await check();
@@ -315,14 +329,15 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         treatment: 'CAPITALIZED',
         anschaffungsnaheAcquisitionId: acquisition,
         supersedes: use.classificationId,
+        performance: { from: '2027-06-10', until: '2027-06-10' },
       }),
       201,
     );
     expect(capitalised.treatmentRule).toEqual({ ruleCode: 'DE_ANSCHAFFUNGSNAHE', version: 1 });
     expect(await check()).toMatchObject({ status: 'ABOVE_THRESHOLD', sum: eur('29926.05') });
 
-    // Counter-check: the same use dated 16.03.2029, outside the window: not above. It lies in the 90-day strip after
-    // the window's end, so it is listed, never summed, and the result stays NOT_FINAL.
+    // Counter-check: the same use dated and performed 16.03.2029, outside the window: not above. It is listed as
+    // PERFORMED_OUTSIDE_WINDOW, never summed (§59F: the strip after the window and its flag are withdrawn).
     await json(await setUse('2029-03-16'), 200);
     const history = await json<{ items: { classificationId: string; supersededBy: string | null }[] }>(
       await A('GET', `/tax-classifications?sourceType=WEG_ASSESSMENT_USE&sourceId=${assessment}&sourcePosition=1`),
@@ -337,13 +352,14 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
         taxCategory: 'WEG_SPENDING',
         treatment: 'DEDUCTIBLE',
         supersedes: current,
+        performance: { from: '2029-03-16', until: '2029-03-16' },
       }),
       201,
     );
     const outside = await check();
     expect(outside).toMatchObject({ status: 'NOT_ABOVE_THRESHOLD', sum: eur('15126.05') });
-    expect(outside.excluded).toEqual([expect.objectContaining({ sourceType: 'WEG_ASSESSMENT_USE', reason: 'AFTER_WINDOW_NEAR_EDGE' })]);
-    expect((outside.flags.find((f) => f.code === 'NOT_FINAL')?.details as { reasons: string[] }).reasons).toContain('DATES_NEAR_WINDOW_EDGE');
+    expect(outside.excluded).toEqual([expect.objectContaining({ sourceType: 'WEG_ASSESSMENT_USE', reason: 'PERFORMED_OUTSIDE_WINDOW' })]);
+    expect((outside.flags.find((f) => f.code === 'NOT_FINAL')?.details as { reasons: string[] }).reasons).toEqual(['WINDOW_OPEN']);
 
     // Realm isolation on the check and on create with the Acquisition.
     expect((await B('GET', `/acquisitions/${acquisition}/anschaffungsnahe-herstellungskosten`)).status).toBe(404);

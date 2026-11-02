@@ -228,12 +228,13 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       expect(await splitRow(repair, { net_amount: '500.00' })).toMatch(/^[0-9a-f-]{36}$/);
     });
 
-    it('the anschaffungsnahe guard: confirmed, the source’s PropertyReference, inside the three years (literally)', async () => {
+    it('the anschaffungsnahe guard (replaced by 0058): confirmed, the source’s PropertyReference, performed inside the three years (literally)', async () => {
       const pr = await propertyReference();
       const acq = await acquisition(pr);
       const draftPr = await propertyReference();
       const draft = await acquisition(draftPr, { confirm: false });
-      const row = async (date: string, acquisitionId: string, on = pr) => {
+      // §59F: the performance is judged, never the booking date (`performed` defaults to the booking date).
+      const row = async (date: string, acquisitionId: string, on = pr, performed: string | null = date) => {
         const { splitIds } = await booked([split('100.00', 'MAINTENANCE', on)], date);
         return insert({
           source_type: 'TRANSACTION_SPLIT',
@@ -244,26 +245,19 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
           anschaffungsnahe_acquisition_id: acquisitionId,
           treatment_rule_code: 'DE_ANSCHAFFUNGSNAHE',
           treatment_rule_version: 1,
+          ...(performed === null ? {} : { performed_from: performed, performed_until: performed }),
         });
       };
       expect(await row('2029-03-16', acq)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
       expect(await row('2026-03-14', acq)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
       expect(await row('2027-01-01', draft, draftPr)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
       expect(await row('2029-03-15', acq)).toMatch(/^[0-9a-f-]{36}$/);
+      // Booked after the window, performed in it: accepted; booked in it without a performance: refused.
+      expect(await row('2029-07-10', acq, pr, '2028-12-20')).toMatch(/^[0-9a-f-]{36}$/);
+      expect(await row('2027-01-01', acq, pr, null)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
+      expect(await row('2027-01-01', acq, pr, '2029-03-16')).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
       const otherPr = await propertyReference();
-      const { splitIds } = await booked([split('100.00', 'MAINTENANCE', otherPr)], '2027-01-01');
-      expect(
-        await insert({
-          source_type: 'TRANSACTION_SPLIT',
-          transaction_split_id: splitIds[0],
-          tax_category: 'MAINTENANCE',
-          treatment: 'CAPITALIZED',
-          rule_code: 'DE_CATEGORY_DEFAULTS',
-          anschaffungsnahe_acquisition_id: acq,
-          treatment_rule_code: 'DE_ANSCHAFFUNGSNAHE',
-          treatment_rule_version: 1,
-        }),
-      ).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
+      expect(await row('2027-01-01', acq, otherPr)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
     });
 
     it('the VC-X-26 indexes serve the first page of both name-ordered lists (the plan)', async () => {
@@ -382,6 +376,8 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
           );
           expect(created.kind).toBe('CREATED');
           // 0055 (VC-X-36) adds a column and guards to tax_classification: its own down first (it keeps classifications).
+          // 0058 (VC-X-38) adds columns, a table and guards to tax_classification.
+          await withMigrationLock(async () => (await import('./migrations/0058_classification_performance.js')).down(createDatabase(downPool) as never));
           await withMigrationLock(async () => (await import('./migrations/0055_construction_period_interest.js')).down(createDatabase(downPool) as never));
           let refused = '';
           await withMigrationLock(async () => {

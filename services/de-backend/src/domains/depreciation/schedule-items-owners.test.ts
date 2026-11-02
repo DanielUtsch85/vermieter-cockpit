@@ -252,21 +252,23 @@ describe('reasons and carried flags (§59B "Reasons and flags")', () => {
     expect(item(derive(acc8({ from: 2027, to: 2027, capitalizedItems: [repair()] }), accepting)).status).toBe('NOT_COMPUTABLE');
   });
 
-  it('CAPITALIZED_YEAR_DIFFERS for a taxYear override; DATE_IS_BOOKING_DATE, WITHDRAWAL_DATE_ASSUMED and ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE carried', () => {
+  it('CAPITALIZED_YEAR_DIFFERS for a taxYear override, against the start of the performance; WITHDRAWAL_DATE_ASSUMED and ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE carried', () => {
     const flags = [
       { code: 'WITHDRAWAL_DATE_ASSUMED', details: { date: '2028-02-15' } },
       { code: 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE', details: { acquisitionId: W } },
       { code: 'RULE_SUPERSEDED', details: {} },
     ];
     const c = item(derive(acc8({ from: 2028, to: 2028, capitalizedItems: [use({ taxYear: 2027, flags })] })));
-    expect(codes(c.flags)).toEqual([
-      'ANSCHAFFUNGSNAHE_CAPITALIZED',
-      'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE',
-      'CAPITALIZED_YEAR_DIFFERS',
-      'SUBSEQUENT_COST_START_TO_VERIFY',
-      'WITHDRAWAL_DATE_ASSUMED',
-    ]);
-    expect(c.flags.find((f) => f.code === 'CAPITALIZED_YEAR_DIFFERS')?.details).toEqual({ date: '2028-02-15', taxYear: 2027 });
+    expect(codes(c.flags)).toEqual(['ANSCHAFFUNGSNAHE_CAPITALIZED', 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE', 'CAPITALIZED_YEAR_DIFFERS', 'WITHDRAWAL_DATE_ASSUMED']);
+    expect(c.flags.find((f) => f.code === 'CAPITALIZED_YEAR_DIFFERS')?.details).toEqual({
+      date: '2028-02-15',
+      taxYear: 2027,
+      startDate: '2028-02-15',
+      dateSource: 'PERFORMANCE_UNTIL',
+    });
+    // §59F: DATE_IS_BOOKING_DATE is withdrawn, never carried.
+    const booking = item(derive(acc8({ from: 2028, to: 2028, capitalizedItems: [use({ flags: [{ code: 'DATE_IS_BOOKING_DATE', details: {} }] })] })));
+    expect(codes(booking.flags)).not.toContain('DATE_IS_BOOKING_DATE');
   });
 
   it('REFUND_EXCEEDS_CAPITALIZED for a refund after a sale (B capitalised nothing on the refund’s date)', () => {

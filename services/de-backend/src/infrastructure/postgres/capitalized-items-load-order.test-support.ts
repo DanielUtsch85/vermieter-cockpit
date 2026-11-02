@@ -22,6 +22,7 @@ export function assertLoaded(
     taxYear: 2028,
     lineAmount: Money.of('9000.00', 'EUR'),
     netAmount: null,
+    performance: null,
     classificationId: '0000eeee-0000-4000-8000-000000000082',
     reviewState: 'USER_CONFIRMED',
     taxCategory: 'WEG_SPENDING',

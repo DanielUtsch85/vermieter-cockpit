@@ -193,6 +193,7 @@ function itemWork(c: VersionComponent, ctx: ItemContext, separate: boolean, pool
     componentId: c.componentId,
     separate,
     startDate: c.start.date,
+    startDateSource: c.start.dateSource as ItemWork['startDateSource'],
     startMonth: c.start.month === null ? null : monthOf(`${c.start.month}-01` as BusinessDate),
     method: c.start.method as ItemWork['method'],
     reasons: [],

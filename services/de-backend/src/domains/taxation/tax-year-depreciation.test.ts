@@ -79,6 +79,7 @@ function cash(amount: string, taxCategory: TaxCategory, treatment: Treatment, bo
     },
     refund: null,
     netAmount: null,
+    performance: null,
     treatmentRule: null,
     distribution: null,
     suggestion: null,
@@ -128,7 +129,7 @@ const acc8of2027 = (purchaseReasons: ReturnType<typeof flag>[] = []) =>
       component(`TRANSACTION_SPLIT:${REPAIR.sourceId}`, [part(A, '428.40'), part(B, '285.60')], {
         kind: 'CAPITALIZED_ITEM',
         source: REPAIR,
-        flags: [flag('SUBSEQUENT_COST_START_TO_VERIFY'), flag('ANSCHAFFUNGSNAHE_CAPITALIZED', 'INFORMATIVE')],
+        flags: [flag('SUBSEQUENT_COST_OWNER_START_TO_VERIFY'), flag('ANSCHAFFUNGSNAHE_CAPITALIZED', 'INFORMATIVE')],
       }),
     ]),
     asset(
@@ -548,7 +549,7 @@ describe('VC-8-05: capitalized.component, the review, final, ruleVersions and th
       'DISPOSAL_YEAR_TO_VERIFY',
       'HISTORICAL_RULE_TO_VERIFY',
       'SHARE_REDUCTION_SPLIT_TO_VERIFY',
-      'SUBSEQUENT_COST_START_TO_VERIFY',
+      'SUBSEQUENT_COST_OWNER_START_TO_VERIFY',
       'SUBSEQUENT_COST_END_TO_VERIFY',
       'SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED',
       'REMAINING_USEFUL_LIFE_ENDED',
@@ -566,7 +567,6 @@ describe('VC-8-05: capitalized.component, the review, final, ruleVersions and th
       'OWNER_SHARE_CHANGED',
       'ANSCHAFFUNGSNAHE_CAPITALIZED',
       'CAPITALIZED_REFUND',
-      'DATE_IS_BOOKING_DATE',
       'WITHDRAWAL_DATE_ASSUMED',
     ]) {
       expect(clean([flag(code, 'INFORMATIVE')]).review, code).toMatchObject({ final: true, open: [], info: [{ code, count: 1 }] });
@@ -632,7 +632,7 @@ describe('VC-8-05: capitalized.component, the review, final, ruleVersions and th
     expect(v.review.open).toEqual([
       { code: 'DEPRECIATION_CHANGED_SINCE_RECORDED', count: 1 },
       { code: 'DEPRECIATION_SCHEDULE_NOT_RECORDED', count: 1 },
-      { code: 'SUBSEQUENT_COST_START_TO_VERIFY', count: 1 },
+      { code: 'SUBSEQUENT_COST_OWNER_START_TO_VERIFY', count: 1 },
     ]);
     expect(v.review.info).toEqual([{ code: 'ANSCHAFFUNGSNAHE_CAPITALIZED', count: 1 }]);
     expect(v.depreciation.assets.map((a) => [a.assetId, a.status, amount(a.amount), a.itemCount, a.recording?.state])).toEqual([

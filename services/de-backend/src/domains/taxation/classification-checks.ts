@@ -6,6 +6,8 @@ import { CATEGORY_DEFAULTS, type CategoryDefaultsParameters } from './rules/de-c
 import { DISTRIBUTION_82B } from './rules/de-82b-distribution.js';
 import { yearOf } from './cash-timing.js';
 import { constructionPeriodCheck, type ConstructionPeriodRecordFacts, type ConstructionPeriodRefusal } from './construction-period-checks.js';
+import { interestPolicyOn, isInterestSplit } from './construction-period-interest.js';
+import { performanceCheck, performedOutside, type PerformanceRefusal } from './performance.js';
 import type { AcquisitionFacts, NewTaxClassification } from './tax-classification.js';
 import { categoryDefaultsOn, splitCounts, type SplitFacts } from './tax-meaning.js';
 import type { WegNotCounted } from './weg-sources.js';
@@ -50,7 +52,13 @@ export type WegSourceNotCounted = {
 } & WegNotCounted;
 
 export type DistributionNotAllowedReason = 'NOT_MOSTLY_RESIDENTIAL' | 'NOT_AN_OUTFLOW';
-export type AnschaffungsnaheNotApplicableReason = 'OTHER_PROPERTY_REFERENCE' | 'ACQUISITION_NOT_CONFIRMED' | 'OUTSIDE_WINDOW' | 'NO_APPLICABLE_RULE';
+export type AnschaffungsnaheNotApplicableReason =
+  | 'OTHER_PROPERTY_REFERENCE'
+  | 'ACQUISITION_NOT_CONFIRMED'
+  | 'OUTSIDE_WINDOW'
+  | 'NO_APPLICABLE_RULE'
+  /** §59F: no `performance` (`MISSING`), or one straddling the window (`STRADDLES_WINDOW`). */
+  | 'PERFORMANCE_REQUIRED';
 
 export type CreateRefusal =
   | { readonly kind: 'SOURCE_NOT_COUNTED'; readonly transactionStatus: TransactionStatus; readonly correctionRole: string | null }
@@ -73,7 +81,12 @@ export type CreateRefusal =
   | { readonly kind: 'DISTRIBUTION_NOT_ALLOWED'; readonly reason: DistributionNotAllowedReason }
   | { readonly kind: 'NET_AMOUNT_EXCEEDS_GROSS'; readonly netAmount: Money; readonly grossAmount: Money }
   | { readonly kind: 'ACQUISITION_NOT_FOUND'; readonly acquisitionId: string }
-  | { readonly kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE'; readonly reason: AnschaffungsnaheNotApplicableReason; readonly acquisitionId: string }
+  | {
+      readonly kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE';
+      readonly reason: AnschaffungsnaheNotApplicableReason;
+      readonly acquisitionId: string;
+      readonly cause?: 'MISSING' | 'STRADDLES_WINDOW';
+    }
   | { readonly kind: 'TAX_YEAR_OUT_OF_RANGE'; readonly taxYear: number; readonly bookingYear: number }
   /** An undated withdrawal's `taxYear` outside the years its statement's period touches (§58B). */
   | { readonly kind: 'WITHDRAWAL_TAX_YEAR_OUT_OF_RANGE'; readonly taxYear: number; readonly allowedYears: readonly number[] }
@@ -81,13 +94,15 @@ export type CreateRefusal =
   | { readonly kind: 'CLASSIFICATION_EXISTS'; readonly currentClassificationId: string }
   | { readonly kind: 'NOT_CURRENT_CLASSIFICATION'; readonly currentClassificationId: string | null }
   /** §59E: Bauzeitzinsen. */
-  | ConstructionPeriodRefusal;
+  | ConstructionPeriodRefusal
+  /** §59F: the period of performance. */
+  | PerformanceRefusal;
 
 /** The fields of an election or a capitalisation following the check (§58B), as a create carries them. */
 export type TreatmentRequest = Pick<
   NewTaxClassification,
-  'taxCategory' | 'treatment' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId' | 'constructionPeriodInterestId'
->;
+  'taxCategory' | 'treatment' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId' | 'constructionPeriodInterestId' | 'performance'
+> & { readonly sourceReferences?: readonly string[] };
 
 /** §59E: what the create read of the split's Loan and the record it names (`undefined`: none named; `null`: not of the Realm). */
 export interface InterestContext {
@@ -102,6 +117,8 @@ export interface TreatmentSource {
   /** The split's amount, the withdrawal's or use's unit share. */
   readonly grossAmount: Money;
   readonly propertyReferenceId: string | null;
+  /** §59F: a split that is interest by §59E's list takes no `performance`; absent means not interest. */
+  readonly interest?: boolean;
 }
 
 /**
@@ -138,16 +155,35 @@ export function treatmentFieldsCheck(
   const net = request.netAmount ?? null;
   // Equal is allowed: no VAT (a craftsman under § 19 UStG).
   if (net !== null && net.compare(source.grossAmount) > 0) return { kind: 'NET_AMOUNT_EXCEEDS_GROSS', netAmount: net, grossAmount: source.grossAmount };
+  // §59F: the performance's checks that need the source, after the net amount and before the Acquisition.
+  const performance = request.performance ?? null;
+  if (performance !== null) {
+    const refusal = performanceCheck(
+      { date: source.date, grossAmount: source.grossAmount, interest: source.interest ?? false },
+      { performance, netAmount: net, sourceReferences: request.sourceReferences ?? [] },
+      registry,
+    );
+    if (refusal !== undefined) return refusal;
+  }
   const acquisitionId = request.anschaffungsnaheAcquisitionId ?? null;
   if (acquisitionId === null) return { treatmentRule: distributionRule };
   if (acquisition === null || acquisition === undefined) return { kind: 'ACQUISITION_NOT_FOUND', acquisitionId };
-  const notApplicable = (reason: AnschaffungsnaheNotApplicableReason): CreateRefusal => ({ kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', reason, acquisitionId });
+  const notApplicable = (reason: AnschaffungsnaheNotApplicableReason, cause?: 'MISSING' | 'STRADDLES_WINDOW'): CreateRefusal => ({
+    kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE',
+    reason,
+    acquisitionId,
+    ...(cause === undefined ? {} : { cause }),
+  });
   if (acquisition.propertyReferenceId !== source.propertyReferenceId) return notApplicable('OTHER_PROPERTY_REFERENCE');
   if (acquisition.status !== 'CONFIRMED') return notApplicable('ACQUISITION_NOT_CONFIRMED');
   const rule = registry.select(ANSCHAFFUNGSNAHE, acquisition.transferDate);
   if (rule === undefined) return notApplicable('NO_APPLICABLE_RULE');
   const window = anschaffungsnaheWindow(acquisition.transferDate, (rule.parameters as AnschaffungsnaheParameters).windowYears);
-  if (source.date < window.from || source.date > window.until) return notApplicable('OUTSIDE_WINDOW');
+  // §59F (the owner's decision of 2026-11-02, open question 12): judged by the performance, never by the source's date;
+  // only work performed wholly in the window is capitalised on the check (a straddling source needs an evidenced split).
+  if (performance === null) return notApplicable('PERFORMANCE_REQUIRED', 'MISSING');
+  if (performedOutside(performance, window)) return notApplicable('OUTSIDE_WINDOW');
+  if (performance.from < window.from || performance.until > window.until) return notApplicable('PERFORMANCE_REQUIRED', 'STRADDLES_WINDOW');
   return { treatmentRule: { ruleCode: rule.ruleCode, version: rule.version } };
 }
 
@@ -181,6 +217,11 @@ export function planClassification(
     direction: facts.direction,
     grossAmount: facts.amount,
     propertyReferenceId: facts.propertyReferenceId,
+    // §59F: interest by §59E's list (its financial category or its line) takes no performance.
+    interest: isInterestSplit(
+      { loanId: interest.loanId, financialCategoryCode: facts.financialCategoryCode, taxCategory: request.taxCategory ?? null },
+      interestPolicyOn(registry, facts.bookingDate).policy,
+    ),
   };
   const distribution = distributionRuleCheck(source, request.treatment, registry);
   if (distribution !== undefined && 'kind' in distribution) return distribution;

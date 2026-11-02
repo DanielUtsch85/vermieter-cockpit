@@ -189,7 +189,7 @@ describe('an item part under a purchase with a method reason (§59C "Items of su
     expect(c.status).toBe('COMPUTABLE');
     for (const year of [2027, 2028]) {
       const y = c.years.find((x) => x.year === year);
-      expect([amount(owner(y, A)?.amount), owner(y, A)?.calculationStatus]).toEqual(['144.00', 'PROVISIONAL']);
+      expect([amount(owner(y, A)?.amount), owner(y, A)?.calculationStatus]).toEqual(['144.00', 'CALCULATED']);
       expect(owner(y, B)).toMatchObject({
         amount: null,
         calculationStatus: 'NOT_CALCULABLE',

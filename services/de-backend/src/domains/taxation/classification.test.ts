@@ -85,6 +85,7 @@ const classification = (overrides: Partial<TaxClassification> = {}): TaxClassifi
   reserveWithdrawal: null,
   assessmentUse: null,
   netAmount: null,
+  performance: null,
   annuallyRecurring: false,
   distributionYears: null,
   mostlyResidentialConfirmed: null,

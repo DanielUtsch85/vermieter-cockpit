@@ -201,6 +201,7 @@ const classification = (reviewState: Exclude<ReviewState, 'SUGGESTED'>, taxYear:
   reserveWithdrawal: null,
   assessmentUse: null,
   netAmount: null,
+  performance: null,
   annuallyRecurring: false,
   distributionYears: null,
   mostlyResidentialConfirmed: null,

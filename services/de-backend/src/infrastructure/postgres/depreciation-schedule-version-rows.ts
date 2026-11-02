@@ -139,7 +139,7 @@ const COMPONENT_COLUMNS = [
   'item_date', 'item_date_source', 'item_tax_year', 'anschaffungsnahe_acquisition_id', 'method_consideration', 'method',
   'method_special_depreciation', 'method_subsidies_received', 'method_new_building_by_conversion', 'method_other_special_case', 'method_review_state',
   'cost_classification_ids', 'loan_id', 'allocation_set_id', 'share_numerator', 'share_denominator', 'construction_period_interest_id',
-  'shorter_life_valuation_date',
+  'shorter_life_valuation_date', 'item_performed_from', 'item_performed_until',
 ]; // prettier-ignore
 
 function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
@@ -168,6 +168,8 @@ function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
     v(i?.loan === undefined || i.loan === null ? null : (i.constructionPeriodInterestId ?? null), 'uuid'),
     // §59G (migration 0056): the valuation date of the shorter life used.
     v(q?.shorterLifeValuationDate ?? null, 'date'),
+    // §59F (migration 0058): the period of the work whose completion is the item's start.
+    v(i?.performedFrom ?? null, 'date'), v(i?.performedUntil ?? null, 'date'),
   ]; // prettier-ignore
 }
 
@@ -215,6 +217,7 @@ export async function readVersions(trx: Trx, headers: readonly Row[], full: bool
         total_allocable_amount::text AS total, building_amount::text AS building, to_char(start_date, 'YYYY-MM-DD') AS start_day,
         to_char(start_month, 'YYYY-MM') AS start_ym, to_char(item_date, 'YYYY-MM-DD') AS item_day,
         to_char(shorter_life_valuation_date, 'YYYY-MM-DD') AS shorter_life_valuation_day,
+        to_char(item_performed_from, 'YYYY-MM-DD') AS item_performed_from_day, to_char(item_performed_until, 'YYYY-MM-DD') AS item_performed_until_day,
         share_numerator::text AS share_n, share_denominator::text AS share_d
         FROM depreciation_schedule_version_component WHERE ${where} ORDER BY position`)
     : [];
@@ -360,6 +363,9 @@ function componentOf(c: Row, parts: readonly Row[], fractions: readonly Row[]): 
           itemDateSource: text(c['item_date_source']),
           itemTaxYear: Number(c['item_tax_year']),
           anschaffungsnaheAcquisitionId: (c['anschaffungsnahe_acquisition_id'] as string | null) ?? null,
+          ...(c['item_performed_until_day'] === null || c['item_performed_until_day'] === undefined
+            ? {}
+            : { performedFrom: day(c['item_performed_from_day']) as BusinessDate, performedUntil: day(c['item_performed_until_day']) as BusinessDate }),
           ...(c['loan_id'] === null || c['loan_id'] === undefined
             ? {}
             : {

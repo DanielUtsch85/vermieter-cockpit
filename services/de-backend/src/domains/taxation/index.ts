@@ -33,7 +33,7 @@ export type { WegSpendingParameters } from './rules/de-weg-spending.js';
 export { DE_82B_DISTRIBUTION_V1, DISTRIBUTION_82B } from './rules/de-82b-distribution.js';
 export type { Distribution82bParameters } from './rules/de-82b-distribution.js';
 export { ANSCHAFFUNGSNAHE, DE_ANSCHAFFUNGSNAHE_V1 } from './rules/de-anschaffungsnahe.js';
-export type { AnschaffungsnaheParameters } from './rules/de-anschaffungsnahe.js';
+export type { AnschaffungsnaheParameters, PerformanceParameters } from './rules/de-anschaffungsnahe.js';
 export type { CashTimingParameters } from './rules/de-cash-timing.js';
 export {
   DUE_DATE_SOURCES,
@@ -102,13 +102,15 @@ export type { DepositFacts, DepositTaxMeaning, DepositTaxMeaningFlag } from './d
 export { distribute, distributionRuleOn, partOf } from './distribution-82b.js';
 export type { Distribution, DistributionFlag, DistributionOwnership, DistributionPart } from './distribution-82b.js';
 export {
-  BOOKING_DATE_EDGE_DAYS,
   NOT_COMPUTABLE_REASONS,
   anschaffungsnaheRuleOn,
   anschaffungsnaheWindow,
   checkAnschaffungsnahe,
   checkFlagsOf,
+  searchRangesOf,
 } from './anschaffungsnahe.js';
+export { partInWindow, performanceCheck, performanceJson, performanceParametersOn, performedOutside } from './performance.js';
+export type { Performance, PerformancePoint, PerformanceRefusal } from './performance.js';
 export type {
   AnschaffungsnaheCheck,
   CheckAcquisition,

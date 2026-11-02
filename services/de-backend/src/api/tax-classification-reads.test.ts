@@ -96,6 +96,7 @@ describe('reads (§55)', () => {
       direction: 'OUTFLOW',
       amount: { amount: '120.00', currency: 'EUR' },
       netAmount: null,
+      performance: null,
       financialCategoryCode: 'MAINTENANCE',
       propertyReferenceId: PR,
       counts: true,

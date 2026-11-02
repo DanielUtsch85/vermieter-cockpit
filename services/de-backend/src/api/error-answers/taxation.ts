@@ -1,4 +1,8 @@
 import {
+  PerformanceEvidenceRequiredError,
+  PerformanceNotAllowedError,
+  PerformanceOutOfRangeError,
+  PerformanceProgressExceedsAmountError,
   AdvisorConfirmedError,
   ClassificationExistsError,
   ClassificationSupersededError,
@@ -147,7 +151,20 @@ export const TAXATION_ANSWERS = [
     answer(422, 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', "The Acquisition's anschaffungsnahe check does not hold this source.", {
       reason: error.reason,
       acquisitionId: error.acquisitionId,
+      ...(error.performanceCause === undefined ? {} : { cause: error.performanceCause }),
     }),
+  ),
+  // The period of performance (api-design §59F, VC-X-38).
+  on(PerformanceNotAllowedError, () => validation([{ field: 'performance', code: 'NOT_ALLOWED' }])),
+  on(PerformanceProgressExceedsAmountError, (error) =>
+    answer(422, 'PERFORMANCE_PROGRESS_EXCEEDS_AMOUNT', 'A point of performance must lie below the amount used.', {
+      amountUsed: error.amountUsed.toJSON(),
+      amount: error.amount.toJSON(),
+    }),
+  ),
+  on(PerformanceEvidenceRequiredError, () => answer(422, 'PERFORMANCE_EVIDENCE_REQUIRED', 'Points of performance need a source reference as evidence.', {})),
+  on(PerformanceOutOfRangeError, (error) =>
+    answer(422, 'PERFORMANCE_OUT_OF_RANGE', "The performance lies outside the plausible years around the source's date.", { ...error.details }),
   ),
   on(WithdrawalTaxYearOutOfRangeError, (error) =>
     answer(422, 'TAX_YEAR_OUT_OF_RANGE', "taxYear must be a calendar year the statement's period touches.", {

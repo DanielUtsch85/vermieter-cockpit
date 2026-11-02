@@ -716,6 +716,21 @@ export interface TaxClassificationTable {
   treatment_rule_version: Generated<number | null>;
   /** VC-X-36 (0055, §59E): the construction-period record of an interest split (Bauzeitzinsen). */
   construction_period_interest_id: Generated<string | null>;
+  /** VC-X-38 (0058, §59F): the period of performance (`YYYY-MM-DD` via `to_char` on read) and whether its points are estimated. */
+  performed_from: Generated<string | null>;
+  performed_until: Generated<string | null>;
+  performance_progress_estimated: Generated<boolean | null>;
+  /** 0058: the inserting transaction (set by default), so the points are inserted only by it. */
+  created_txid: Generated<string | null>;
+}
+
+/** §59F (VC-X-38, migration 0058): the evidenced cumulative shares of a classification's period of performance. */
+export interface TaxClassificationPerformanceProgressTable {
+  classification_id: string;
+  position: number;
+  through: string;
+  amount: string;
+  created_txid: Generated<string>;
 }
 
 /** §59E (VC-X-36, migration 0055): the facts of the interest of one financing of one Herstellung measure. */
@@ -882,6 +897,7 @@ export interface Database {
   financial_category: FinancialCategoryTable;
   transaction_split: TransactionSplitTable;
   tax_classification: TaxClassificationTable;
+  tax_classification_performance_progress: TaxClassificationPerformanceProgressTable;
   construction_period_interest: ConstructionPeriodInterestTable;
   construction_period_interest_property: ConstructionPeriodInterestPropertyTable;
   rental_contract_reference: RentalContractReferenceTable;

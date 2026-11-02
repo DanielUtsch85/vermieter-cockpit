@@ -657,6 +657,12 @@ export {
   listTaxRules,
   reviewTaxClassification,
 } from './tax-classifications.js';
+export {
+  PerformanceEvidenceRequiredError,
+  PerformanceNotAllowedError,
+  PerformanceOutOfRangeError,
+  PerformanceProgressExceedsAmountError,
+} from './tax-classification-performance-errors.js';
 export type {
   CreateTaxClassification,
   CreateTaxClassificationInput,
@@ -685,9 +691,11 @@ export {
   isErhaltungLine,
   TREATMENTS,
   treatmentFits,
+  performanceJson,
 } from '../domains/taxation/index.js';
 export type {
   AnschaffungsnaheCheck,
+  Performance,
   CheckEntry,
   Distribution,
   DepositTaxMeaning,

@@ -7,6 +7,7 @@ import {
   TREATMENTS,
   WEG_SOURCE_TYPES,
   isErhaltungLine,
+  performanceJson,
   treatmentFits,
   type CreateTaxClassification,
   type GetAnschaffungsnaheCheck,
@@ -23,9 +24,9 @@ import {
   type ReviewTaxClassification,
   type TaxClassification,
 } from '../application/index.js';
-import { Money, MoneyError } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
+import { performanceBody, performanceFieldIssue, positiveEur } from './tax-classification-performance.js';
 import { ref, uuid } from './tax-classification-dto.js';
 import { taxMeaningRoutes } from './tax-meanings.js';
 import { taxYearRoutes } from './tax-years.js';
@@ -39,28 +40,7 @@ const taxYear = integerIn(2000, 2100);
 const position = integerIn(1, 1000);
 
 /** `netAmount` (§58B): Money in EUR, > 0, at most two decimals (`INVALID_FORMAT`). */
-const netAmount = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
-  try {
-    const parsed = Money.of(value.amount, value.currency);
-    if (parsed.currency !== 'EUR') {
-      ctx.addIssue({ code: 'custom', path: ['currency'], params: { code: 'CURRENCY_MISMATCH' } });
-      return z.NEVER;
-    }
-    if (!parsed.isPositive()) {
-      ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NOT_POSITIVE' } });
-      return z.NEVER;
-    }
-    return parsed;
-  } catch (error) {
-    if (!(error instanceof MoneyError)) throw error;
-    ctx.addIssue({
-      code: 'custom',
-      path: error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'],
-      params: { code: error.code === 'UNSUPPORTED_CURRENCY' ? 'UNSUPPORTED_CURRENCY' : 'INVALID_FORMAT' },
-    });
-    return z.NEVER;
-  }
-});
+const netAmount = positiveEur;
 
 const createBody = z
   .object({
@@ -83,6 +63,8 @@ const createBody = z
     anschaffungsnaheAcquisitionId: uuid.nullish(),
     // §59E: Bauzeitzinsen, a split's only.
     constructionPeriodInterestId: uuid.nullish(),
+    // §59F: the period of performance.
+    performance: performanceBody.nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -112,6 +94,10 @@ const createBody = z
       issue(ctx, 'anschaffungsnaheAcquisitionId', 'NOT_ALLOWED_WITH_TREATMENT');
     }
     if (!treatmentFits(category, body.treatment)) issue(ctx, 'treatment', 'TAX_CATEGORY_TREATMENT_MISMATCH');
+    if (given(body.performance)) {
+      const performanceIssue = performanceFieldIssue(body);
+      if (performanceIssue !== null) issue(ctx, 'performance', performanceIssue);
+    }
     // §59E check 5 (its treatment part) and a split only; never together with an anschaffungsnahe link (one treatmentRule).
     if (
       given(body.constructionPeriodInterestId) &&
@@ -199,6 +185,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
           mostlyResidentialConfirmed: body.mostlyResidentialConfirmed ?? undefined,
           anschaffungsnaheAcquisitionId: body.anschaffungsnaheAcquisitionId ?? undefined,
           constructionPeriodInterestId: body.constructionPeriodInterestId ?? undefined,
+          performance: body.performance ?? undefined,
         }),
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
@@ -306,6 +293,7 @@ function classificationDto(c: TaxClassification) {
     mostlyResidentialConfirmed: c.mostlyResidentialConfirmed,
     anschaffungsnaheAcquisitionId: c.anschaffungsnaheAcquisitionId,
     constructionPeriodInterestId: c.constructionPeriodInterestId,
+    performance: c.performance === null ? null : performanceJson(c.performance),
     supersedes: c.supersedes,
     supersededBy: c.supersededBy,
     supersededAt: c.supersededAt?.toISOString() ?? null,

@@ -117,6 +117,9 @@ export interface VersionItemInputs {
    */
   readonly loan?: { readonly loanId: string; readonly allocationSetId: string; readonly share: string } | null;
   readonly constructionPeriodInterestId?: string | null;
+  /** §59F (migration 0058): the period of the work whose completion is the start; absent where the start is the item's date. */
+  readonly performedFrom?: BusinessDate;
+  readonly performedUntil?: BusinessDate;
 }
 
 export interface VersionComponent {

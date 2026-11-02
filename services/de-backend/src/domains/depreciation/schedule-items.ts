@@ -1,6 +1,6 @@
 import { centsOf, moneyOfCents, type BusinessDate, type RuleVersion } from '../../shared/index.js';
 import { NOT_OWNED_PART, componentIdOf, type CapitalizedItem, type ItemRef } from './capitalized-item.js';
-import { byText, monthLabel, monthOf, yearOfDate } from './exact.js';
+import { byText, monthLabel, monthOf, yearOfDate, yearOfMonth } from './exact.js';
 import { buildingRuleOn, isRateVerified, movableRuleOn } from './rate.js';
 import { AFA_BUILDING_LINEAR, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { AFA_MOVABLE_LINEAR, type MovableLinearParameters } from './rules/de-afa-movable-linear.js';
@@ -50,18 +50,19 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
       continue;
     }
     const date = item.date;
-    const year = yearOfDate(date);
     // The parameters: of the version of the item's (resp. the acquisition's) first year, else the latest (§59A item 5).
-    let startMonth: number;
+    let startMonth: number | null;
     let method: ItemComponent['start']['method'];
     let reviewStates: readonly string[];
     let disposal: BuildingLinearParameters['end']['disposal'] | undefined;
     let selected: ItemWork['selected'] = 'PER_ITEM_SERIES';
     let notBeforeOwnerStart = true;
-    let startDate: BusinessDate = date;
+    let startDate: BusinessDate | null = date;
+    let startDateSource: ItemWork['startDateSource'] = 'ITEM_DATE';
     if (separate) {
       const acquiredOn = asset.acquiredOn as BusinessDate;
       startDate = acquiredOn;
+      startDateSource = 'ACQUIRED_ON';
       const rule = movableRuleOn(registry, yearOfDate(acquiredOn)) ?? movableVersions[movableVersions.length - 1];
       startMonth = monthOf(acquiredOn) + ((rule?.parameters.firstYear.startMonthCounts ?? true) ? 0 : 1);
       method = 'MONTH_OF_ACQUISITION';
@@ -71,17 +72,38 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
       if (supportedFrom === null || acquiredOn < supportedFrom) reasons.push({ code: 'NO_APPLICABLE_RULE', details: { acquiredOn, supportedFrom } });
       if (yearOfDate(date) > yearOfDate(acquiredOn)) flags.push({ code: 'LATER_ITEM_TO_VERIFY', details: { date, acquiredOn } });
     } else {
-      const rule = buildingRuleOn(registry, year) ?? buildingVersions[buildingVersions.length - 1];
+      // §59F (VC-X-38): the start is the completion of the work (`performance.until`), never the booking date; interest
+      // (`exemptTaxCategories`) keeps its booking date. Without a performance, or with one across a year end, the item is
+      // not computed in any year (the owner's decisions of 2026-11-02, §59F open questions 9 and 10).
+      const latest = buildingVersions[buildingVersions.length - 1];
+      const start0 = (buildingRuleOn(registry, yearOfDate(item.performance?.until ?? date)) ?? latest)?.parameters.subsequentCostStart;
+      const exempt = start0 === undefined || start0.exemptTaxCategories.includes(item.taxCategory);
+      const performance = item.performance ?? null;
+      if (!exempt && start0.performanceRequired && performance === null) {
+        reasons.push({ code: 'PERFORMANCE_DATE_MISSING', details: { date, dateSource: item.dateSource, classificationId: item.classificationId } });
+        startDate = null;
+      } else if (!exempt && performance !== null && yearOfDate(performance.from) !== yearOfDate(performance.until)) {
+        reasons.push({
+          code: 'PERFORMANCE_SPANS_YEAR_END',
+          details: { from: performance.from, until: performance.until, classificationId: item.classificationId },
+        });
+        startDate = null;
+      } else if (!exempt && performance !== null) {
+        startDate = performance.until;
+        startDateSource = 'PERFORMANCE_UNTIL';
+      }
+      const year = yearOfDate(startDate ?? date);
+      const rule = buildingRuleOn(registry, year) ?? latest;
       const start = rule?.parameters.subsequentCostStart;
       method = start?.method ?? 'START_OF_YEAR';
-      notBeforeOwnerStart = start?.notBeforeOwnerStart ?? true;
-      startMonth = method === 'START_OF_YEAR' ? year * 12 : monthOf(date);
+      notBeforeOwnerStart = start?.notBeforeOwnerStart.value ?? true;
+      startMonth = startDate === null ? null : method === 'START_OF_YEAR' ? year * 12 : monthOf(startDate);
       reviewStates = rule?.parameters.basis.capitalizedItemReviewStates ?? [];
       disposal = rule?.parameters.end.disposal;
       selected = rule?.parameters.subsequentCostEnd.method ?? 'POOLED_BASIS';
       // §59A as decided 2026-10-31: no version before 2006, so an item starting before it is not computed in any year.
       const supportedFrom = buildingVersions[0]?.effectiveFrom ?? null;
-      if (supportedFrom === null || startMonth < monthOf(supportedFrom)) {
+      if (startMonth !== null && (supportedFrom === null || startMonth < monthOf(supportedFrom))) {
         reasons.push({ code: 'NO_APPLICABLE_RULE', details: { firstMonth: monthLabel(startMonth), supportedFrom } });
       }
       if (item.anschaffungsnaheAcquisitionId !== null)
@@ -100,14 +122,28 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
     }
     // The order of §59B's table: ITEM_CLASSIFICATION_NEEDS_REVIEW, LINKED_ITEM_NOT_CAPITALIZED, then NO_APPLICABLE_RULE.
     reasons.sort((a, b) => order(a.code) - order(b.code));
-    if (item.taxYear !== year) flags.push({ code: 'CAPITALIZED_YEAR_DIFFERS', details: { date, taxYear: item.taxYear } });
+    // §59F: the tax year against the start's year (the performance's on the building; else the item's date, as before);
+    // open in every case (VC-X-38 as implemented: the level is per code, never informative by its details).
+    const startYear = startDateSource === 'PERFORMANCE_UNTIL' && startDate !== null ? yearOfDate(startDate) : yearOfDate(date);
+    if (startDate !== null && item.taxYear !== startYear) {
+      flags.push({ code: 'CAPITALIZED_YEAR_DIFFERS', details: { date, taxYear: item.taxYear, startDate, dateSource: startDateSource } });
+    }
     for (const f of item.flags) if (CARRIED_FLAGS.includes(f.code)) flags.push({ code: f.code, details: f.details });
     if (item.lineAmount.isNegative()) flags.push({ code: 'CAPITALIZED_REFUND', details: {} });
 
+    // Without a start the parts still name the owners (on the share date); their months are never read (not computable).
+    const partStart = startMonth ?? yearOfDate(date) * 12;
     const parts: ItemPart[] = item.parts.map((part) => {
       const basisCents = centsOf(part.amount);
-      return partOf(ctx, { date, separate, startMonth, notBeforeOwnerStart, disposal, part: { ...part, basisCents } });
+      return partOf(ctx, { date, separate, startMonth: partStart, notBeforeOwnerStart, disposal, part: { ...part, basisCents } });
     });
+    // §59F (open question 11): `notBeforeOwnerStart` is this spec's reading, not confirmed: flagged where it moves a start.
+    if (!separate && startMonth !== null && notBeforeOwnerStart) {
+      const owners = [...new Set(parts.filter((p) => p.tenureFrom !== null && monthOf(p.tenureFrom) > startMonth).map((p) => p.tenureFrom as BusinessDate))];
+      for (const ownerStart of owners.sort(byText)) {
+        flags.push({ code: 'SUBSEQUENT_COST_OWNER_START_TO_VERIFY', details: { startYear: yearOfMonth(startMonth), ownerStart } });
+      }
+    }
     const notOwned = parts.find((p) => p.participant === NOT_OWNED_PART);
     if (notOwned !== undefined && notOwned.basisCents !== 0n) {
       flags.push({
@@ -123,6 +159,7 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
       componentId,
       separate,
       startDate,
+      startDateSource,
       startMonth,
       method,
       reasons,
@@ -144,18 +181,8 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
   // The months: every pool of the building (one per tenure, heirs' and NOT_OWNED's of their own), both readings.
   walkPools(ctx, works);
 
-  // SUBSEQUENT_COST_START_TO_VERIFY on a building's item while the start rule is unverified (§59B "The start").
-  for (const w of works) {
-    if (w.separate || w.item === null || w.startMonth === null || !w.computable) continue;
-    const rule = buildingRuleOn(registry, yearOfDate(w.item.date)) ?? buildingVersions[buildingVersions.length - 1];
-    const start = rule?.parameters.subsequentCostStart;
-    if (start === undefined || start.verified) continue;
-    const firstMonths = w.parts.map((p) => p.firstMonth);
-    const details = { date: w.item.date, method: start.method, firstMonth: monthLabel(Math.min(w.startMonth, ...firstMonths)), legalBasis: start.legalBasis };
-    // A component flag (review on #186): the start moves the residual value of every later year, so every year of the
-    // component is PROVISIONAL, as §59A's open component flags (as implemented, item 10).
-    w.flags.push({ code: 'SUBSEQUENT_COST_START_TO_VERIFY', details });
-  }
+  // §59F (VC-X-38): SUBSEQUENT_COST_START_TO_VERIFY is withdrawn; the confirmed rule (`verified`) and the open reading
+  // (`notBeforeOwnerStart`, SUBSEQUENT_COST_OWNER_START_TO_VERIFY above) are kept apart.
 
   // REFUND_EXCEEDS_CAPITALIZED: an owner's item bases up to a refund's date sum to less than zero (§59B "A refund").
   for (const w of works) {
@@ -177,11 +204,18 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
 }
 
 /** The order of the item reasons in §59B's table. */
-const REASON_ORDER = ['ITEM_CLASSIFICATION_NEEDS_REVIEW', 'LINKED_ITEM_NOT_CAPITALIZED', 'USEFUL_LIFE_NOT_CONFIRMED', 'NO_APPLICABLE_RULE'];
+const REASON_ORDER = [
+  'ITEM_CLASSIFICATION_NEEDS_REVIEW',
+  'LINKED_ITEM_NOT_CAPITALIZED',
+  'PERFORMANCE_DATE_MISSING',
+  'PERFORMANCE_SPANS_YEAR_END',
+  'USEFUL_LIFE_NOT_CONFIRMED',
+  'NO_APPLICABLE_RULE',
+];
 const order = (code: string) => (REASON_ORDER.includes(code) ? REASON_ORDER.indexOf(code) : REASON_ORDER.length);
 
 /** The item's own flags carried onto its component (§59B "The date", §58C). */
-const CARRIED_FLAGS = ['DATE_IS_BOOKING_DATE', 'WITHDRAWAL_DATE_ASSUMED', 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE'];
+const CARRIED_FLAGS = ['WITHDRAWAL_DATE_ASSUMED', 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE'];
 
 function emptyWork(ref: ItemRef, componentId: string, separate: boolean, reasons: Flag[]): ItemWork {
   return {
@@ -190,6 +224,7 @@ function emptyWork(ref: ItemRef, componentId: string, separate: boolean, reasons
     componentId,
     separate,
     startDate: null,
+    startDateSource: separate ? 'ACQUIRED_ON' : 'ITEM_DATE',
     startMonth: null,
     method: separate ? 'MONTH_OF_ACQUISITION' : 'START_OF_YEAR',
     reasons,

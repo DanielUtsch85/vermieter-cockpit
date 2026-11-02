@@ -1,4 +1,5 @@
 import type { BusinessDate, Money, RuleRef } from '../../shared/index.js';
+import type { Performance } from './performance.js';
 import type { CreateReviewState, SourceType, StoredReviewState, TaxCategory, Treatment } from './vocabulary.js';
 
 /**
@@ -45,6 +46,8 @@ export interface TaxClassification {
   readonly anschaffungsnaheAcquisitionId: string | null;
   /** §59E: the construction-period record (Bauzeitzinsen) of an interest split classified `CAPITALIZED` or `DEDUCTIBLE`. */
   readonly constructionPeriodInterestId: string | null;
+  /** §59F (VC-X-38): when the work was carried out; `null` when not stated (every classification before 0058). */
+  readonly performance: Performance | null;
   /**
    * The second rule reference: `DE_82B_DISTRIBUTION` for an election, `DE_ANSCHAFFUNGSNAHE` for such a capitalisation,
    * `DE_CONSTRUCTION_PERIOD_INTEREST` for a classification naming a construction-period record (§59E).
@@ -81,6 +84,8 @@ export interface NewTaxClassification {
   readonly anschaffungsnaheAcquisitionId?: string | null;
   /** §59E: splits only; omitted means `null`. */
   readonly constructionPeriodInterestId?: string | null;
+  /** §59F: omitted means `null`. */
+  readonly performance?: Performance | null;
 }
 
 /** The Acquisition a capitalisation following the check names, as a create reads it (without a lock, §58B). */
@@ -106,6 +111,9 @@ export function classificationFingerprint(c: NewTaxClassification): string {
   const later = JSON.stringify(fields) === JSON.stringify([null, null, false, null, null, null]) ? [] : [{ vc703: fields }];
   // §59E's record only when given, so a key stored before VC-X-36 still replays.
   const record = (c.constructionPeriodInterestId ?? null) === null ? [] : [{ vcx36: c.constructionPeriodInterestId }];
+  // §59F's performance only when given, so a key stored before VC-X-38 still replays.
+  const p = c.performance ?? null;
+  const performance = p === null ? [] : [{ vcx38: [p.from, p.until, p.progress.map((x) => [x.through, x.amount.amount]), p.progressEstimated] }];
   // VC-7-01's fingerprint unchanged without the years, so a key stored before VC-7-02 still replays.
   return JSON.stringify([
     c.sourceType,
@@ -119,5 +127,6 @@ export function classificationFingerprint(c: NewTaxClassification): string {
     ...years,
     ...later,
     ...record,
+    ...performance,
   ]);
 }

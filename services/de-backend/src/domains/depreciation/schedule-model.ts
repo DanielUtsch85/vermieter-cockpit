@@ -299,6 +299,8 @@ export interface ItemSourceView extends ItemRef {
   /** §59E, additively: the Loan of a Loan interest source with P's part (`null` otherwise), and the record named. */
   readonly loan: { readonly loanId: string; readonly allocationSetId: string; readonly share: string; readonly propertyPart: Money } | null;
   readonly constructionPeriodInterestId: string | null;
+  /** §59F (VC-X-38): the period of the work as its classification states it; `null` without one. */
+  readonly performance: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
 }
 
 export interface ItemComponentRate {
@@ -336,7 +338,7 @@ export interface ItemComponent {
   readonly basis: { readonly amount: Money | null; readonly netAmount: Money | null; readonly amountUsed: 'GROSS_LINE_AMOUNT' };
   readonly start: {
     readonly date: BusinessDate | null;
-    readonly dateSource: 'ITEM_DATE' | 'ACQUIRED_ON';
+    readonly dateSource: 'PERFORMANCE_UNTIL' | 'ITEM_DATE' | 'ACQUIRED_ON';
     readonly method: 'START_OF_YEAR' | 'MONTH_OF_DATE' | 'MONTH_OF_ACQUISITION';
     readonly month: string | null;
     readonly firstYearMonths: number | null;

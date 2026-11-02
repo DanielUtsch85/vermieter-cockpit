@@ -2,6 +2,7 @@ import { sql, type Transaction } from 'kysely';
 import {
   anschaffungsnaheRuleOn,
   anschaffungsnaheWindow,
+  searchRangesOf,
   checkAnschaffungsnahe,
   checkFlagsOf,
   deriveWegTaxMeaning,
@@ -11,7 +12,6 @@ import {
   wegSourceKey,
   withTreatmentEffects,
   withdrawalFacts,
-  BOOKING_DATE_EDGE_DAYS,
   type AnschaffungsnaheCheck,
   type Distribution,
   type OtherWegSource,
@@ -23,7 +23,7 @@ import {
   type WegTaxMeaning,
 } from '../../domains/taxation/index.js';
 import { continuousOwners, type OwnershipPeriod } from '../../domains/ownership/index.js';
-import { addDays, type BusinessDate, type Money } from '../../shared/index.js';
+import { type BusinessDate, type Money } from '../../shared/index.js';
 import { currentClassificationByCost } from './acquisition-cost-classification-repository.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
@@ -269,8 +269,10 @@ export async function acquisitionsOf(
 }
 
 /**
- * The dates the checks of these Acquisitions read sources for: each window and the 90-day strip after it (the
- * owner's request on VC-7-03); `undefined` without an applicable rule.
+ * The dates the checks of these Acquisitions read sources for (§59F): each window's outer bound, `plausibleYearsFromSourceDate`
+ * before and after it. A source with a performance in the window has its own date within it (the plausibility check
+ * on create), and an undated one beyond it is never listed; nothing relevant is dropped by its booking date.
+ * `undefined` without an applicable rule.
  */
 export function checkRange(
   inputs: readonly AcquisitionInput[],
@@ -280,9 +282,11 @@ export function checkRange(
   for (const { acquisition } of inputs) {
     const rule = anschaffungsnaheRuleOn(registry, acquisition.transferDate);
     if (rule === undefined) continue;
-    const window = anschaffungsnaheWindow(acquisition.transferDate, rule.parameters.windowYears);
-    const to = addDays(window.until, BOOKING_DATE_EDGE_DAYS);
-    range = range === undefined ? { from: window.from, to } : { from: window.from < range.from ? window.from : range.from, to: to > range.to ? to : range.to };
+    const { outerBound } = searchRangesOf(anschaffungsnaheWindow(acquisition.transferDate, rule.parameters.windowYears), rule.parameters);
+    range =
+      range === undefined
+        ? { from: outerBound.from, to: outerBound.until }
+        : { from: outerBound.from < range.from ? outerBound.from : range.from, to: outerBound.until > range.to ? outerBound.until : range.to };
   }
   return range;
 }
@@ -294,6 +298,7 @@ export function wegCheckSource(meaning: WegTaxMeaning, classification: TaxClassi
     sourceId: meaning.sourceId,
     sourcePosition: meaning.sourcePosition,
     date: meaning.date,
+    dateSource: meaning.dateSource,
     taxYear: meaning.taxYear,
     taxCategory: meaning.taxCategory,
     treatment: meaning.treatment,
@@ -305,6 +310,7 @@ export function wegCheckSource(meaning: WegTaxMeaning, classification: TaxClassi
     netAmount: meaning.netAmount,
     annuallyRecurring: classification?.annuallyRecurring ?? false,
     anschaffungsnaheAcquisitionId: classification?.anschaffungsnaheAcquisitionId ?? null,
+    performance: meaning.performance,
     sourceFlags: meaning.flags.filter((f) => f.code === 'WITHDRAWAL_DATE_ASSUMED'),
   };
 }

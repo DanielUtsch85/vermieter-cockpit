@@ -4,6 +4,7 @@ import type { WegTaxMeaning } from '../../domains/taxation/index.js';
 import type { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import { actor, AT, codes, databaseUrl, day, eur, OTHER_REALM, REALM, today, UNKNOWN, useTaxWegDatabase } from './tax-weg.test-support.js';
 import type { PostgresWegSpecialAssessmentRepository } from './weg-special-assessment-repository.js';
+import { sourceDateOf } from './performance.test-support.js';
 
 /**
  * VC-7-03 persistence (api-design.md §58B, migration 0047): classifications of reserve withdrawals and Sonderumlage uses
@@ -23,6 +24,11 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
   beforeAll(() => {
     ({ pool, classifications, assessments } = ctx);
   });
+  /** §59F: a use performed on its own date (the fixture's default). */
+  const performedOn = async (assessmentId: string, position: number) => {
+    const date = await sourceDateOf(pool, { sourceType: 'WEG_ASSESSMENT_USE', sourceId: assessmentId, sourcePosition: position });
+    return date === null ? null : { from: date, until: date, progress: [], progressEstimated: null };
+  };
 
   describe('a reserve withdrawal (§58B)', () => {
     it('its meaning: unit share, own date or the period end assumed; NOT_A_WITHDRAWAL; 404 for no line or another Realm', async () => {
@@ -258,7 +264,12 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       if (first.kind !== 'CREATED') throw new Error(first.kind);
       expect(await rows()).toEqual(before);
       const capitalised = await classifications.createClassification(
-        request('WEG_ASSESSMENT_USE', a, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acquired, supersedes: first.classification.id }),
+        request('WEG_ASSESSMENT_USE', a, 1, {
+          treatment: 'CAPITALIZED',
+          anschaffungsnaheAcquisitionId: acquired,
+          supersedes: first.classification.id,
+          performance: await performedOn(a, 1),
+        }),
         actor,
       );
       if (capitalised.kind !== 'CREATED') throw new Error(capitalised.kind);
@@ -347,12 +358,13 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
           notes: null,
           sourceReferences: [],
           netAmount: eur('15126.05'),
+          performance: { from: day('2026-05-14'), until: day('2026-05-14'), progress: [], progressEstimated: null },
         },
         actor,
       );
       expect(repair.kind).toBe('CREATED');
       const a = await assessment(membershipId, [{ position: 1, date: '2027-06-10', unitShare: '14800.00' }]);
-      await classifications.createClassification(request('WEG_ASSESSMENT_USE', a, 1), actor);
+      await classifications.createClassification(request('WEG_ASSESSMENT_USE', a, 1, { performance: await performedOn(a, 1) }), actor);
       const check = await classifications.anschaffungsnaheCheck(acq, REALM, today);
       // No acquisition costs here: basis 240,000 × 198,000 / 264,000 = 180,000.00, threshold 27,000.00.
       expect(check).toMatchObject({ status: 'ABOVE_THRESHOLD', threshold: '27000.00', sum: eur('29926.05'), affectedYears: [2026, 2027], final: false });
@@ -366,7 +378,11 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       const outside = await assessment(membershipId, [{ position: 1, date: '2029-03-16', unitShare: '100.00' }]);
       expect(
         await classifications.createClassification(
-          request('WEG_ASSESSMENT_USE', outside, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq }),
+          request('WEG_ASSESSMENT_USE', outside, 1, {
+            treatment: 'CAPITALIZED',
+            anschaffungsnaheAcquisitionId: acq,
+            performance: await performedOn(outside, 1),
+          }),
           actor,
         ),
       ).toEqual({ kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', reason: 'OUTSIDE_WINDOW', acquisitionId: acq });
@@ -374,7 +390,11 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       const foreignUse = await assessment(other.membershipId, [{ position: 1, date: '2027-01-01', unitShare: '100.00' }]);
       expect(
         await classifications.createClassification(
-          request('WEG_ASSESSMENT_USE', foreignUse, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq }),
+          request('WEG_ASSESSMENT_USE', foreignUse, 1, {
+            treatment: 'CAPITALIZED',
+            anschaffungsnaheAcquisitionId: acq,
+            performance: await performedOn(foreignUse, 1),
+          }),
           actor,
         ),
       ).toMatchObject({ reason: 'OTHER_PROPERTY_REFERENCE' });

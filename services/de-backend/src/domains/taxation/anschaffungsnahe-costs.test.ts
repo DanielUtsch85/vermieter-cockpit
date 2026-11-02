@@ -40,6 +40,7 @@ const source = (net: string): CheckSource => ({
   sourceId: 's-1',
   sourcePosition: null,
   date: day('2027-05-14'),
+  dateSource: 'BOOKING',
   taxYear: 2027,
   taxCategory: 'MAINTENANCE',
   treatment: 'DEDUCTIBLE',
@@ -51,6 +52,8 @@ const source = (net: string): CheckSource => ({
   netAmount: eur(net),
   annuallyRecurring: false,
   anschaffungsnaheAcquisitionId: null,
+  // §59F: performed on its date, so the bounds are exact.
+  performance: { from: day('2027-05-14'), until: day('2027-05-14'), progress: [], progressEstimated: null },
   sourceFlags: [],
 });
 const check = (net: string, costs: readonly BasisCost[] = [transferTax, other()], registry: RuleRegistry = TAX_RULES, alloc = allocation) =>

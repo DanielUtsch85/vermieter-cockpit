@@ -48,6 +48,7 @@ function capitalizedSplit(propertyReferenceId: string): TaxMeaning {
     attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: 2027, proposedYear: 2027, overridden: false },
     refund: null,
     netAmount: null,
+    performance: null,
     treatmentRule: null,
     distribution: null,
     suggestion: null,

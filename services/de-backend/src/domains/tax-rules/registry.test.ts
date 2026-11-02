@@ -250,11 +250,16 @@ describe('TAX_RULES (§58, §59)', () => {
         capitalizedItemReviewStates: ['USER_CONFIRMED', 'ADVISOR_CONFIRMED'],
         capitalizedItemAmount: 'GROSS_LINE_AMOUNT',
       });
+      // §59F (VC-X-38): the year follows the performance; the confirmed rule apart from the open reading.
       expect(parameters.subsequentCostStart).toEqual({
         method: 'START_OF_YEAR',
-        notBeforeOwnerStart: true,
-        verified: false,
-        legalBasis: 'R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)',
+        date: 'PERFORMANCE_UNTIL',
+        performanceRequired: true,
+        spansYearEnd: 'NOT_COMPUTABLE',
+        exemptTaxCategories: ['LOAN_INTEREST', 'FINANCING_COSTS'],
+        verified: true,
+        legalBasis: 'R 7.4 Abs. 9 S. 3 EStR; Prüfbericht 2026-11-01, Frage 5 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+        notBeforeOwnerStart: { value: true, verified: false, source: 'api-design §59F (reading of this spec, not confirmed)' },
       });
       expect(parameters.subsequentCostRate).toMatchObject({ rate: 'OWNER_PURCHASE_RATE' });
       expect(parameters.subsequentCostEnd).toEqual({
@@ -265,6 +270,9 @@ describe('TAX_RULES (§58, §59)', () => {
       });
     }
     expect(DE_AFA_BUILDING_LINEAR_V2.source).toContain('depreciation.md §6 v0.2; verification-checklist B11; phase-8-plan P8-D6');
+    // Identical in both versions (§59F "The rules, in place").
+    const of = (version: number) => (TAX_RULES.find({ ruleCode: AFA_BUILDING_LINEAR, version }) as { parameters: BuildingLinearParameters }).parameters;
+    expect(of(1).subsequentCostStart).toEqual(of(2).subsequentCostStart);
   });
 
   it('DE_AFA_MOVABLE_LINEAR version 1 (§59B): its fields and parameters; end, rounding and basis.amount equal the building rule’s', () => {

@@ -21,7 +21,7 @@ import {
   random,
   registry,
   repair,
-  startVerified,
+  startUnverified,
   use,
   withParameters,
   yearOf,
@@ -43,7 +43,7 @@ describe('ACC8: the repair and the use capitalised (§59B "Response")', () => {
       kind: 'CAPITALIZED_ITEM',
       status: 'COMPUTABLE',
       reasons: [],
-      start: { date: '2027-03-10', dateSource: 'ITEM_DATE', method: 'START_OF_YEAR', month: '2027-01', firstYearMonths: 12 },
+      start: { date: '2027-03-10', dateSource: 'PERFORMANCE_UNTIL', method: 'START_OF_YEAR', month: '2027-01', firstYearMonths: 12 },
       rate: { kind: 'BAND', band: 'B', ratePercent: '2', rate: '1/50', usefulLifeYears: null },
       end: { lastYear: 2076, lastMonth: '2076-07' },
       notOwned: null,
@@ -75,30 +75,22 @@ describe('ACC8: the repair and the use capitalised (§59B "Response")', () => {
     expect(item(s).basis).toEqual({ amount: eur('35700.00'), netAmount: eur('30000.00'), amountUsed: 'GROSS_LINE_AMOUNT' });
   });
 
-  it('SUBSEQUENT_COST_START_TO_VERIFY: an open flag of the component, every year PROVISIONAL (review on #186); gone with verified', () => {
+  it('SUBSEQUENT_COST_START_TO_VERIFY withdrawn (§59F, Prüfbericht Frage 5 confirmed): no such flag, every year CALCULATED', () => {
     for (const c of items(s)) {
-      expect(c.flags).toContainEqual({
-        code: 'SUBSEQUENT_COST_START_TO_VERIFY',
-        details: {
-          date: c.source.date,
-          method: 'START_OF_YEAR',
-          firstMonth: c.start.month,
-          legalBasis: 'R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)',
-        },
-      });
-      for (const y of c.years) expect(y.calculationStatus).toBe('PROVISIONAL');
+      expect(codes(c.flags)).not.toContain('SUBSEQUENT_COST_START_TO_VERIFY');
+      for (const y of c.years) expect(y.calculationStatus).toBe('CALCULATED');
     }
-    expect(s.review.open).toContainEqual({ code: 'SUBSEQUENT_COST_START_TO_VERIFY', count: 2 });
+    expect(s.review.open.map((o) => o.code)).not.toContain('SUBSEQUENT_COST_START_TO_VERIFY');
     expect(s.review.info).toContainEqual({ code: 'ANSCHAFFUNGSNAHE_CAPITALIZED', count: 2 });
-    const verified = derive(acc8({ from: 2027, to: 2028, capitalizedItems: [repair({ anschaffungsnaheAcquisitionId: null })] }), startVerified);
-    expect(codes(item(verified).flags)).toEqual([]);
-    expect(item(verified).years.map((y) => y.calculationStatus)).toEqual(['CALCULATED', 'CALCULATED']);
+    // Counter-check: the unverified rule (a test registry) no longer raises it either; the flag is gone from the code.
+    const unverified = derive(acc8({ from: 2027, to: 2028, capitalizedItems: [repair({ anschaffungsnaheAcquisitionId: null })] }), startUnverified);
+    expect(codes(item(unverified).flags)).toEqual([]);
   });
 
   it('ANSCHAFFUNGSNAHE_CAPITALIZED (informative) with the Acquisition; the extension of 2030 without it: 240.00 a year', () => {
     expect(item(s).flags).toContainEqual({ code: 'ANSCHAFFUNGSNAHE_CAPITALIZED', details: { acquisitionId: W } });
     const ext = derive(acc8({ from: 2030, to: 2031, capitalizedItems: [capitalized(EXTENSION, '2030-09-15', '12000.00')] }));
-    expect(codes(item(ext).flags)).toEqual(['SUBSEQUENT_COST_START_TO_VERIFY']);
+    expect(codes(item(ext).flags)).toEqual([]);
     expect(item(ext).years.map((y) => [y.year, amount(y.amount), ...ownerAmounts(y)])).toEqual([
       [2030, '240.00', '144.00', '96.00'],
       [2031, '240.00', '144.00', '96.00'],
@@ -164,7 +156,7 @@ describe('the end: one pooled basis per tenure (§59B "The end", decided 2026-10
         `WEG_ASSESSMENT_USE:${USE}:1/2077/${A}`,
         `WEG_ASSESSMENT_USE:${USE}:1/2077/${B}`,
       ]);
-      expect(items(s).every((c) => c.years.filter((y) => y.year === 2075).every((y) => y.calculationStatus === 'PROVISIONAL'))).toBe(true);
+      expect(items(s).every((c) => c.years.filter((y) => y.year === 2075).every((y) => y.calculationStatus === 'CALCULATED'))).toBe(true);
     }
     // Under POOLED_BASIS 2077 is listed with the use's amount 0.00 and its per-item amount in alternativeAmount.
     const u2077 = yearOf(item(full(), 1), 2077);
@@ -243,7 +235,7 @@ describe('the end: one pooled basis per tenure (§59B "The end", decided 2026-10
     });
     const s = derive(input);
     const e = item(s);
-    expect(owner(yearOf(e, 2030), B)).toMatchObject({ months: 6, amount: eur('40.00'), calculationStatus: 'PROVISIONAL' });
+    expect(owner(yearOf(e, 2030), B)).toMatchObject({ months: 6, amount: eur('40.00'), calculationStatus: 'CALCULATED' });
     // The disposal year confirmed (Prüfbericht 01.11.2026, Frage 4): no DISPOSAL_YEAR_TO_VERIFY; back with the rule unverified.
     expect(codes(owner(yearOf(e, 2030), B)?.flags ?? [])).not.toContain('DISPOSAL_YEAR_TO_VERIFY');
     const disposalOpen = withParameters((p) => ({ ...p, end: { ...p.end, disposal: { ...p.end.disposal, verified: false } } }));
@@ -313,7 +305,7 @@ describe('the end: one pooled basis per tenure (§59B "The end", decided 2026-10
         .map((c) => c.end),
     ).toEqual(items(base).map((c) => c.end));
     const refund = items(withRefund)[2] as ItemComponent;
-    expect(codes(refund.flags)).toEqual(['CAPITALIZED_REFUND', 'SUBSEQUENT_COST_START_TO_VERIFY']);
+    expect(codes(refund.flags)).toEqual(['CAPITALIZED_REFUND']);
     expect(refund.years.every((y) => cents(y.amount) <= 0n)).toBe(true);
     expect(refund.years.reduce((sum, y) => sum + cents(y.amount), 0n)).toBe(-100000n);
     expect(amount(yearOf(refund, 2031).amount)).toBe('-20.00');

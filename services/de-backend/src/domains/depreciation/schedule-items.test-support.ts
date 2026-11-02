@@ -20,7 +20,7 @@ export const withParameters = (change: (p: BuildingLinearParameters) => Building
   ]);
 export const monthOfDate = withParameters((p) => ({ ...p, subsequentCostStart: { ...p.subsequentCostStart, method: 'MONTH_OF_DATE' } }));
 export const perItem = withParameters((p) => ({ ...p, subsequentCostEnd: { ...p.subsequentCostEnd, method: 'PER_ITEM_SERIES' } }));
-export const startVerified = withParameters((p) => ({ ...p, subsequentCostStart: { ...p.subsequentCostStart, verified: true } }));
+export const startUnverified = withParameters((p) => ({ ...p, subsequentCostStart: { ...p.subsequentCostStart, verified: false } }));
 
 export const REPAIR = '0000eeee-0000-4000-8000-000000000071';
 export const USE = '0000eeee-0000-4000-8000-000000000091';

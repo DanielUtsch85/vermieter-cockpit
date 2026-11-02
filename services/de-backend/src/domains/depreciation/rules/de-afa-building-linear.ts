@@ -85,14 +85,25 @@ export interface BuildingLinearParameters {
   readonly methodStatus: MethodStatusParameters;
   /**
    * §59B (P8-D6, B11): from when a later capitalised cost counts. `START_OF_YEAR` (R 7.4 Abs. 9 S. 3 EStR, decided
-   * provisionally 2026-10-31) or `MONTH_OF_DATE`; never before the owner's start. Open (`SUBSEQUENT_COST_START_TO_VERIFY`)
-   * while `verified` is false.
+   * provisionally 2026-10-31, confirmed by Prüfbericht 2026-11-01, Frage 5) or `MONTH_OF_DATE`. `SUBSEQUENT_COST_START_TO_VERIFY`
+   * is withdrawn with §59F (VC-X-38).
    */
   readonly subsequentCostStart: {
     readonly method: SubsequentCostStartMethod;
-    readonly notBeforeOwnerStart: boolean;
+    /**
+     * §59F (VC-X-38): the start date is the completion of the work (`performance.until`), never the booking date; an
+     * item without it is not computed (`PERFORMANCE_DATE_MISSING`), one whose work spans a year end neither
+     * (`PERFORMANCE_SPANS_YEAR_END`). Interest (`exemptTaxCategories`) keeps its booking date.
+     */
+    readonly date: 'PERFORMANCE_UNTIL';
+    readonly performanceRequired: boolean;
+    readonly spansYearEnd: 'NOT_COMPUTABLE';
+    readonly exemptTaxCategories: readonly string[];
+    /** The confirmed rule (start of the year in which the costs arise; Prüfbericht Frage 5). */
     readonly verified: boolean;
     readonly legalBasis: string;
+    /** This spec's reading, not confirmed: kept apart (`SUBSEQUENT_COST_OWNER_START_TO_VERIFY` where it moves a start). */
+    readonly notBeforeOwnerStart: { readonly value: boolean; readonly verified: boolean; readonly source: string };
   };
   /**
    * §59B (B11): a later cost runs at the owner's purchase rate. §59G Part 1 (VC-X-41): in a pool with a purchase whose
@@ -226,11 +237,17 @@ const COMMON = {
     source: 'Prüfbericht 2026-11-01, Frage 2 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
   },
   // §59B (VC-8-03), added to both versions additively: neither is frozen before VC-8-04.
+  // §59F (VC-X-38), in place before the first productive enablement (§60 open question 11): the year follows the
+  // performance (Prüfbericht 2026-11-01, Frage 5); the confirmed rule documented apart from the open reading.
   subsequentCostStart: {
     method: 'START_OF_YEAR',
-    notBeforeOwnerStart: true,
-    verified: false,
-    legalBasis: 'R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)',
+    date: 'PERFORMANCE_UNTIL',
+    performanceRequired: true,
+    spansYearEnd: 'NOT_COMPUTABLE',
+    exemptTaxCategories: ['LOAN_INTEREST', 'FINANCING_COSTS'],
+    verified: true,
+    legalBasis: 'R 7.4 Abs. 9 S. 3 EStR; Prüfbericht 2026-11-01, Frage 5 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+    notBeforeOwnerStart: { value: true, verified: false, source: 'api-design §59F (reading of this spec, not confirmed)' },
   },
   // §59G Part 1 (VC-X-41): `shorterLifeVerified` withdrawn with SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY.
   subsequentCostRate: {
