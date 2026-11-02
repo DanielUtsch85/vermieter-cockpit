@@ -100,6 +100,11 @@ export interface PurchaseCheckFacts {
   readonly status: 'NOT_COMPUTABLE' | 'ABOVE_THRESHOLD' | 'NOT_ABOVE_THRESHOLD';
   /** The check's open flag `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED`. */
   readonly wegHausgeldMaintenanceNotCounted: boolean;
+  /**
+   * 236-4: the check's summed sources (its `sources`, §58B, §59F), each with its tax year and its current treatment
+   * (`CAPITALIZED` once its proposal is followed).
+   */
+  readonly summedSources: readonly { readonly taxYear: number; readonly treatment: string | null }[];
 }
 
 /** The schedule's inputs in one `REPEATABLE READ READ ONLY` transaction (P8-D14); undefined for an unknown or foreign asset. */

@@ -385,4 +385,14 @@ describe('the history (§58C ATTRIBUTION_INPUT_CHANGED, under the amended rule):
     const back = input(due(15, '2027-01-01'), [], '2029-02-01T10:00:00Z');
     expect([items(back, 2027), items(back, 2028)]).toEqual([[], []]);
   });
+
+  it('an amend of the evidence alone moves no year: not in the attribution history of either year (decision 237-4)', () => {
+    // Its AuditRecord names changedEvidence and no changedEntries; as an amendment it has no changed entry.
+    const evidenceOnly = input(due(1, '2027-01-01'), due(1, '2027-01-01'), '2029-02-01T10:00:00Z');
+    const amended = {
+      ...evidenceOnly,
+      references: evidenceOnly.references.map((r) => ({ ...r, amendments: r.amendments.map((a) => ({ ...a, changedEntries: [] })) })),
+    };
+    for (const year of [2027, 2028]) expect(attributionChanges(amended, year, TAX_RULES), String(year)).toEqual({ changes: [], inconsistent: [] });
+  });
 });

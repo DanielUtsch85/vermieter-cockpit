@@ -1,6 +1,5 @@
 import { ruleKey, type BusinessDate, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { byText, yearOfDate } from './exact.js';
-import { componentIdOf } from './capitalized-item.js';
 import {
   RECORDING_STAGES_RULE,
   RECORDING_STAGE_RULES,
@@ -9,22 +8,23 @@ import {
   type RecordingStagesParameters,
   type StageCriterion,
 } from './rules/de-recording-stages.js';
-import type { DepreciationSchedule, ItemComponent, ScheduleComponent, ScheduleRead } from './schedule-model.js';
+import type { DepreciationSchedule, ItemComponent, PurchaseCheckFacts, ScheduleComponent, ScheduleRead } from './schedule-model.js';
 
 /**
- * The release stage of each component and year (VC-X-45, api-design.md §60A): a component's stage is the highest stage
- * of its criteria under `DE_RECORDING_STAGES`, a year's the highest stage of **every** component active in it,
- * computable or not, with a figure or not, and of every item the building excludes (never dropped; decided 2026-11-02).
- * Facts decide, never review states: an unconfirmed shorter-life entry is stage 3. Pure; it reads the derived schedule
- * and the snapshot's facts, and changes no figure, reason or status.
+ * The release stage of each component and year (VC-X-45, api-design.md §60A): a component's stage in a year is the
+ * highest stage of its criteria applying in that year under `DE_RECORDING_STAGES`, a year's the highest stage of
+ * **every** component active in it, computable or not, with a figure or not (decided 2026-11-02). An item the building
+ * excludes because an `ACTIVE` separate asset holds it is not the building's: it carries its stage on that asset only
+ * (Entscheidung des Projektinhabers, 2026-11-02, 236-1). Facts decide, never review states: an unconfirmed shorter-life
+ * entry is stage 3. Pure; it reads the derived schedule and the snapshot's facts, and changes no figure, reason or status.
  */
 
 export interface ComponentStage {
   readonly componentId: string;
-  /** `EXCLUDED_ITEM`: an item the building excludes because an `ACTIVE` separate asset holds it (§59B). */
-  readonly kind: 'ACQUISITION' | 'CAPITALIZED_ITEM' | 'EXCLUDED_ITEM';
+  readonly kind: 'ACQUISITION' | 'CAPITALIZED_ITEM';
+  /** In the year it is reported for. */
   readonly stage: RecordingStage;
-  /** In §60A's order. */
+  /** The criteria applying in that year, in §60A's order. */
   readonly criteria: readonly StageCriterion[];
 }
 
@@ -56,8 +56,16 @@ function stageOf(criteria: readonly StageCriterion[], rule: StageRule | null): R
 const ordered = (criteria: Iterable<StageCriterion>): StageCriterion[] =>
   [...new Set(criteria)].sort((a, b) => STAGE_CRITERIA.indexOf(a) - STAGE_CRITERIA.indexOf(b));
 
-/** The criteria of a purchase component (§59A, §59C, §59G; A1; the decisions of 2026-11-02). */
-function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchaseIds: readonly string[]): StageCriterion[] {
+/** A criterion and the first year it applies in; `null`: every year the component counts in. */
+interface Dated {
+  readonly code: StageCriterion;
+  readonly from: number | null;
+}
+
+const always = (codes: readonly StageCriterion[]): Dated[] => codes.map((code) => ({ code, from: null }));
+
+/** The criteria of a purchase component (§59A, §59C, §59G; A1; the decisions of 2026-11-02, 236-2 and 236-4). */
+function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchaseIds: readonly string[]): Dated[] {
   const criteria: StageCriterion[] = ['PURCHASE'];
   // A shorter-life entry on the purchase, in any review state („auch unbestätigt“).
   if (read.asset.shorterUsefulLives.some((e) => e.acquisitionId === c.acquisitionId)) criteria.push('SHORTER_USEFUL_LIFE_ENTRY');
@@ -65,15 +73,34 @@ function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchaseIds:
   // snapshot does not give is not known to be conclusive: open as well.
   const check = read.purchaseChecks?.find((x) => x.acquisitionId === c.acquisitionId);
   if (check === undefined || check.status === 'NOT_COMPUTABLE' || check.wegHausgeldMaintenanceNotCounted) criteria.push('ANSCHAFFUNGSNAHE_CHECK_OPEN');
-  // An owner with more than one purchase component of the building and a share reduction: every purchase of that owner.
+  const dated = always(criteria);
+  // 236-4: above the threshold with a proposal not yet followed is open too (like A1's Hausgeld flag), from the year of
+  // the first summed source on; the mapping is unchanged (one more fact meeting the same criterion).
+  const proposal = check === undefined ? null : openProposalFrom(check);
+  if (proposal !== null) dated.push({ code: 'ANSCHAFFUNGSNAHE_CHECK_OPEN', from: proposal });
+  // 236-2: an owner with more than one purchase component of the building and a share reduction: every purchase of
+  // that owner, from the year of the owner's first reduction on (before it each purchase counts for itself, 236-3).
   const buyers = new Set([...read.ownerships.filter((o) => o.acquisitionId === c.acquisitionId).map((o) => o.partyId), ...c.owners.map((o) => o.ownerPartyId)]);
+  const from: number[] = [];
   for (const party of buyers) {
     const own = read.ownerships.filter((o) => o.partyId === party);
     const bought = new Set(own.flatMap((o) => (o.acquisitionId !== null && purchaseIds.includes(o.acquisitionId) ? [o.acquisitionId] : [])));
-    const reduced = read.acquisitions.some((a) => a.sellerPartyIds.includes(party)) || shareReduced(own);
-    if (bought.size > 1 && reduced) criteria.push('SEVERAL_PURCHASES_PARTIAL_SALE');
+    const first = firstReduction(party, own, read);
+    if (bought.size > 1 && first !== null) from.push(first);
   }
-  return criteria;
+  if (from.length > 0) dated.push({ code: 'SEVERAL_PURCHASES_PARTIAL_SALE', from: Math.min(...from) });
+  return dated;
+}
+
+/**
+ * 236-4: the first year of a check `ABOVE_THRESHOLD` while one of its summed sources is not `CAPITALIZED` (its proposal
+ * not followed: `DEDUCTIBLE`, or `DISTRIBUTED_82B`, the cautious reading); `null` otherwise. The year is the earliest tax
+ * year of the summed sources (the earliest of the check's `affectedYears`, §58B, or earlier where a source straddling
+ * the window, which is never suggested as a whole, comes first).
+ */
+function openProposalFrom(check: PurchaseCheckFacts): number | null {
+  if (check.status !== 'ABOVE_THRESHOLD' || check.summedSources.every((s) => s.treatment === 'CAPITALIZED')) return null;
+  return Math.min(...check.summedSources.map((s) => s.taxYear));
 }
 
 const nextDay = (date: BusinessDate): BusinessDate => {
@@ -82,8 +109,11 @@ const nextDay = (date: BusinessDate): BusinessDate => {
   return d.toISOString().slice(0, 10) as BusinessDate;
 };
 
-/** Whether a Party's share ever falls: on the day after one of its rows ends it holds less than on that day. */
-function shareReduced(rows: readonly ScheduleRead['ownerships'][number][]): boolean {
+/**
+ * The year of a Party's first share reduction, `null` without one: a sale by it (`sellerPartyIds`; the transfer's year,
+ * else its contract's, which no transfer precedes), or the day after one of its rows ends, on which it holds less.
+ */
+function firstReduction(party: string, rows: readonly ScheduleRead['ownerships'][number][], read: ScheduleRead): number | null {
   const held = (date: BusinessDate) =>
     rows
       .filter((o) => o.validFrom <= date && (o.validUntil === null || date <= o.validUntil))
@@ -91,12 +121,16 @@ function shareReduced(rows: readonly ScheduleRead['ownerships'][number][]): bool
         n: 0n,
         d: 1n,
       });
-  return rows.some((o) => {
-    if (o.validUntil === null) return false;
-    const before = held(o.validUntil);
-    const after = held(nextDay(o.validUntil));
-    return after.n * before.d < before.n * after.d;
-  });
+  const years = [
+    ...read.acquisitions.filter((a) => a.sellerPartyIds.includes(party)).map((a) => yearOfDate(a.economicTransferDate ?? a.contractDate)),
+    ...rows.flatMap((o) => {
+      if (o.validUntil === null) return [];
+      const before = held(o.validUntil);
+      const after = held(nextDay(o.validUntil));
+      return after.n * before.d < before.n * after.d ? [yearOfDate(nextDay(o.validUntil))] : [];
+    }),
+  ];
+  return years.length === 0 ? null : Math.min(...years);
 }
 
 /** The criteria every item has from its source (§58B, §59E): an anschaffungsnahe capitalisation, Loan interest. */
@@ -133,35 +167,30 @@ function itemCriteria(c: ItemComponent, read: ScheduleRead, laterAddition: boole
 }
 
 interface Counted {
-  readonly stage: ComponentStage;
+  readonly componentId: string;
+  readonly kind: ComponentStage['kind'];
+  readonly criteria: readonly Dated[];
   /** The years the component counts in; `null` for every year (its start is unknown). */
   readonly years: ReadonlySet<number> | null;
 }
 
-/** Every component of the property-level schedule, and every excluded item, with its stage and its years. */
-function counted(schedule: DepreciationSchedule, read: ScheduleRead, rule: StageRule | null): Counted[] {
+/** Every component of the property-level schedule with its criteria and its years; no item the building excludes (236-1). */
+function counted(schedule: DepreciationSchedule, read: ScheduleRead): Counted[] {
   const purchaseIds = schedule.components.flatMap((c) => (c.kind === 'ACQUISITION' ? [c.acquisitionId] : []));
   const laterAddition =
     read.asset.assetType === 'SEPARATE_ASSET' && schedule.components.some((c) => c.kind === 'CAPITALIZED_ITEM' && isLater(c, read.asset.acquiredOn));
-  const list: Counted[] = schedule.components.map((c) => {
-    const criteria = ordered(c.kind === 'ACQUISITION' ? purchaseCriteria(c, read, purchaseIds) : itemCriteria(c, read, laterAddition));
+  return schedule.components.map((c) => {
+    const criteria = c.kind === 'ACQUISITION' ? purchaseCriteria(c, read, purchaseIds) : always(itemCriteria(c, read, laterAddition));
     // A component without a start (`TRANSFER_DATE_MISSING`, or an item without a usable start) counts in every year.
     const unknownStart = c.kind === 'ACQUISITION' ? c.start === null : c.start.month === null;
-    return {
-      stage: { componentId: c.componentId, kind: c.kind, stage: stageOf(criteria, rule), criteria },
-      years: unknownStart ? null : new Set(c.years.map((y) => y.year)),
-    };
+    return { componentId: c.componentId, kind: c.kind, criteria, years: unknownStart ? null : new Set(c.years.map((y) => y.year)) };
   });
-  // The items a building excludes (an ACTIVE separate asset holds them): not dropped; a movable asset's item, counted in
-  // the building's years from its date on (unknown: every year).
-  for (const excluded of schedule.excludedItems ?? []) {
-    const item = read.capitalizedItems.find((i) => componentIdOf(i) === excluded.componentId);
-    const criteria = ordered(['MOVABLE_ASSET', ...(item === undefined ? [] : sourceCriteria(item))]);
-    const from = item === undefined ? null : yearOfDate(item.date);
-    const years = from === null ? null : new Set(schedule.years.map((y) => y.year).filter((y) => y >= from));
-    list.push({ stage: { componentId: excluded.componentId, kind: 'EXCLUDED_ITEM', stage: stageOf(criteria, rule), criteria }, years });
-  }
-  return list;
+}
+
+/** A counted component's stage in `year`: the criteria applying in it. */
+function stageIn(c: Counted, year: number, rule: StageRule | null): ComponentStage {
+  const criteria = ordered(c.criteria.flatMap((x) => (x.from === null || year >= x.from ? [x.code] : [])));
+  return { componentId: c.componentId, kind: c.kind, stage: stageOf(criteria, rule), criteria };
 }
 
 /**
@@ -169,11 +198,11 @@ function counted(schedule: DepreciationSchedule, read: ScheduleRead, rule: Stage
  * highest stage of the components counted in it; stage 1 and no component for a year without one.
  */
 export function yearStages(schedule: DepreciationSchedule, read: ScheduleRead, years: readonly number[], rule: StageRule | null): YearStage[] {
-  const all = counted(schedule, read, rule);
+  const all = counted(schedule, read);
   return years.map((year) => {
     const components = all
       .filter((c) => c.years === null || c.years.has(year))
-      .map((c) => c.stage)
+      .map((c) => stageIn(c, year, rule))
       .sort((a, b) => byText(a.componentId, b.componentId));
     return { year, stage: maxStage(components.map((c) => c.stage)), components };
   });
