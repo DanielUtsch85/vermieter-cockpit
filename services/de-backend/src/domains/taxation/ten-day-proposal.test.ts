@@ -1,3 +1,4 @@
+import { testFingerprinter as fingerprinter } from './fingerprinter.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, type BusinessDate, type RuleVersion } from '../../shared/index.js';
 import type { RentDueDay } from '../rental-contract-reference/index.js';
@@ -28,6 +29,7 @@ const codes = (flags: readonly { code: string }[]) => flags.map((f) => f.code);
 const due = (d: number, validFrom = '2026-01-01'): RentDueDay[] => [{ validFrom: day(validFrom), day: d }];
 const JANUARY = '2027010100';
 const DECEMBER = '2026120100';
+const CTX = { propertyReferenceId: '0000aaaa-0000-4000-8000-000000000001', fingerprinter };
 
 /** A test registry whose copy of `DE_CASH_TIMING@1` lists other recorded sources (the parameter is read, never a constant). */
 function withRecordedSources(recordedSources: readonly string[]): RuleRegistry {
@@ -292,7 +294,7 @@ describe('both years (§58F, owner decision 2026-11-02): visible in each, counte
     proposedSplits: proposedSplits(items, year),
   });
   const viewOf = (year: number, items: readonly Item[]): TaxYearView => {
-    const outcome = buildTaxYearView(readOf(year, items), { year, ownerPartyId: null, today, registry: TAX_RULES });
+    const outcome = buildTaxYearView(readOf(year, items), { year, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter });
     if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
     return outcome.view;
   };
@@ -370,7 +372,7 @@ describe('the history (§58C ATTRIBUTION_INPUT_CHANGED, under the amended rule):
       },
     ],
   });
-  const items = (i: AttributionInput, year: number) => attributionChanges(i, year, TAX_RULES).changes.flatMap((c) => c.items);
+  const items = (i: AttributionInput, year: number) => attributionChanges(i, year, TAX_RULES, CTX).changes.flatMap((c) => c.items);
 
   it('from no due day to day 1, recorded after both years: flagged in both, 2027 → 2028 (the old rule moved nothing)', () => {
     const late = input([], due(1, '2027-01-01'), '2029-02-01T10:00:00Z');
@@ -393,6 +395,6 @@ describe('the history (§58C ATTRIBUTION_INPUT_CHANGED, under the amended rule):
       ...evidenceOnly,
       references: evidenceOnly.references.map((r) => ({ ...r, amendments: r.amendments.map((a) => ({ ...a, changedEntries: [] })) })),
     };
-    for (const year of [2027, 2028]) expect(attributionChanges(amended, year, TAX_RULES), String(year)).toEqual({ changes: [], inconsistent: [] });
+    for (const year of [2027, 2028]) expect(attributionChanges(amended, year, TAX_RULES, CTX), String(year)).toEqual({ changes: [], inconsistent: [] });
   });
 });

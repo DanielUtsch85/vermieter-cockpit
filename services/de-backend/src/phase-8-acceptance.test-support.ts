@@ -1,3 +1,4 @@
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import pg from 'pg';
@@ -20,6 +21,9 @@ import {
   createLoan,
   createLoanAllocation,
   createLoanTerms,
+  voidLoanTerms,
+  acknowledgeAttributionChange,
+  withdrawAcknowledgement,
   createManualTransaction,
   createMembership,
   createOwnership,
@@ -45,6 +49,7 @@ import {
   PostgresLoanAllocationRepository,
   PostgresLoanRepository,
   PostgresLoanTermsRepository,
+  PostgresTaxStatementRepository,
   PostgresOwnershipRepository,
   PostgresPartyRepository,
   PostgresPropertyReferenceRepository,
@@ -172,12 +177,20 @@ export function useAcc8(name: `${string}_e2e`) {
             confirm: confirmTransaction({ repository: transactions }),
           },
           loans: { create: createLoan({ repository: new PostgresLoanRepository(db) }) },
-          loanTerms: { create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }) },
+          loanTerms: {
+            create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
+            void: voidLoanTerms({ repository: new PostgresLoanTermsRepository(db) }),
+          },
           loanAllocations: { create: createLoanAllocation({ repository: new PostgresLoanAllocationRepository(db) }) },
           taxation: {
             create: createTaxClassification({ repository: classifications, now }),
             anschaffungsnahe: getAnschaffungsnaheCheck({ repository: classifications, now }),
-            taxYear: getTaxYearView({ repository: classifications, now }),
+            taxYear: getTaxYearView({ repository: classifications, now, fingerprinter: sha256Fingerprinter }),
+          },
+          // VC-X-28 (§58E): the statements, for the e2e test of a year leaving and reaching `final` again (ACC8 itself uses none).
+          taxStatements: {
+            acknowledge: acknowledgeAttributionChange({ repository: new PostgresTaxStatementRepository(db), fingerprinter: sha256Fingerprinter }),
+            withdrawAcknowledgement: withdrawAcknowledgement({ repository: new PostgresTaxStatementRepository(db) }),
           },
           // Stage 2 (VC-X-45, §60A), stated here, test-only: ACC8 records the building's own capitalised items and the
           // separate asset (MOVABLE_ASSET); the kitchen no longer raises the building (236-1), but stage 1 does not suffice.

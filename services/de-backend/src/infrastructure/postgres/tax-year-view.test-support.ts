@@ -16,6 +16,11 @@ export const VIEW_TABLES = [
   'land_building_allocation',
   'ownership',
   'rental_contract_reference',
+  // §58E: the reconciliations the widened flag reads, and the statements of migration 0060.
+  'rent_payment_reconciliation',
+  'tax_year_acknowledgement',
+  'tax_year_acknowledgement_item',
+  'loan_allocation_tax_confirmation',
   // LOAN_INTEREST_NOT_ATTRIBUTED (review on #171): the Loans, their schedules' terms and their allocation sets.
   'loan',
   'loan_terms',

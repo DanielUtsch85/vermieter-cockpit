@@ -1,3 +1,4 @@
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import pg from 'pg';
@@ -82,7 +83,7 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
         loanTerms: { create: createLoanTerms({ repository: new PostgresLoanTermsRepository(db) }) },
         loanAllocations: { create: createLoanAllocation({ repository: new PostgresLoanAllocationRepository(db) }) },
         loanDebt: { payments: getLoanPayments({ repository: new PostgresLoanDebtRepository(db) }) },
-        taxation: { taxYear: getTaxYearView({ repository: new PostgresTaxClassificationRepository(db) }) },
+        taxation: { taxYear: getTaxYearView({ repository: new PostgresTaxClassificationRepository(db), fingerprinter: sha256Fingerprinter }) },
       }),
     });
     server = app.listen(0, '127.0.0.1');

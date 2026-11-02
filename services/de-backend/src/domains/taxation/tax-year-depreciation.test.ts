@@ -1,3 +1,4 @@
+import { testFingerprinter as fingerprinter } from './fingerprinter.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
 import { yearOf } from './cash-timing.js';
@@ -101,7 +102,7 @@ const readOf = (depreciation: TaxYearDepreciation, items: readonly TaxListItem[]
   depreciation,
 });
 function viewOf(read: TaxYearRead, ownerPartyId: string | null = null): TaxYearView {
-  const outcome = buildTaxYearView(read, { year: read.depreciation.year, ownerPartyId, today, registry: TAX_RULES });
+  const outcome = buildTaxYearView(read, { year: read.depreciation.year, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
   if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
   return outcome.view;
 }
@@ -667,7 +668,8 @@ describe('VC-8-05: capitalized.component, the review, final, ruleVersions and th
         ]),
       ]);
     const cashItems = [cash('1.00', 'RENT', 'INCOME')];
-    const run = (dep: TaxYearDepreciation) => buildTaxYearView(readOf(dep, cashItems), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES });
+    const run = (dep: TaxYearDepreciation) =>
+      buildTaxYearView(readOf(dep, cashItems), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter });
     expect(run(many(TAX_YEAR_ITEM_LIMIT - 1)).kind).toBe('VIEW');
     expect(run(many(TAX_YEAR_ITEM_LIMIT))).toEqual({ kind: 'TAX_YEAR_TOO_LARGE', itemCount: 5001, limit: 5000 });
     // A gap with a component counts too.

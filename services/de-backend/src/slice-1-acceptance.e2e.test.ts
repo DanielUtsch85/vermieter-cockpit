@@ -1,3 +1,5 @@
+import { unusedCommands } from './api/app.test-support.js';
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import pg from 'pg';
@@ -371,6 +373,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         replaceUses: replaceAssessmentUses({ repository: new PostgresWegSpecialAssessmentRepository(db) }),
         void: voidSpecialAssessment({ repository: new PostgresWegSpecialAssessmentRepository(db) }),
       },
+      taxStatements: unusedCommands.taxStatements,
       taxation: {
         create: createTaxClassification({ repository: new PostgresTaxClassificationRepository(db) }),
         get: getTaxClassification({ repository: new PostgresTaxClassificationRepository(db) }),
@@ -382,7 +385,7 @@ describe.skipIf(databaseUrl === undefined)('Slice 1 acceptance (definition of do
         useTaxMeaning: getUseTaxMeaning({ repository: new PostgresTaxClassificationRepository(db) }),
         anschaffungsnahe: getAnschaffungsnaheCheck({ repository: new PostgresTaxClassificationRepository(db) }),
         taxMeanings: listTaxMeanings({ repository: new PostgresTaxClassificationRepository(db) }),
-        taxYear: getTaxYearView({ repository: new PostgresTaxClassificationRepository(db) }),
+        taxYear: getTaxYearView({ repository: new PostgresTaxClassificationRepository(db), fingerprinter: sha256Fingerprinter }),
         listRules: listTaxRules(),
         getRule: getTaxRule(),
       },

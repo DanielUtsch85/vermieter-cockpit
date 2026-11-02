@@ -1,3 +1,4 @@
+import { testFingerprinter as fingerprinter } from './fingerprinter.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, centsOf, type BusinessDate } from '../../shared/index.js';
 import { withValidUntil, type LoanAllocationSet } from '../financing/index.js';
@@ -150,7 +151,7 @@ function readOf(
   };
 }
 function viewOf(read: TaxYearRead, ownerPartyId: string | null = null): TaxYearView {
-  const outcome = buildTaxYearView(read, { year: 2026, ownerPartyId, today, registry: TAX_RULES });
+  const outcome = buildTaxYearView(read, { year: 2026, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
   if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
   return outcome.view;
 }

@@ -1,3 +1,4 @@
+import { sha256Fingerprinter as fingerprinter } from '../hashing/index.js';
 import { Kysely, PostgresDialect, sql, type CompiledQuery } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -263,7 +264,7 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
   const view = async (pr: string, year: number, ownerPartyId: string | null = null) => {
     const r = await read(pr, year, ownerPartyId);
     if (r === undefined) throw new Error('no PropertyReference');
-    return buildTaxYearView(r, { year, ownerPartyId, today, registry: TAX_RULES });
+    return buildTaxYearView(r, { year, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
   };
   const list = async (pr: string, year: number) => (await classifications.listTaxMeanings(pr, REALM, year, {}, { page: 1, pageSize: 200 }, today))?.items ?? [];
 
@@ -460,7 +461,7 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
       await classify(repair, { treatment: 'CAPITALIZED' });
       await holder.query('ROLLBACK');
       const r = await reading;
-      const before = viewOf(buildTaxYearView(r as NonNullable<typeof r>, { year: 2027, ownerPartyId: null, today, registry: TAX_RULES }));
+      const before = viewOf(buildTaxYearView(r as NonNullable<typeof r>, { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter }));
       expect(before.werbungskosten.lines.find((l) => l.taxCategory === 'MAINTENANCE')?.items.map((i) => [i.sourceId, i.origin])).toEqual([[repair, 'DEFAULT']]);
       expect(viewOf(await view(pr, 2027)).capitalized.items.map((i) => i.sourceId)).toEqual([repair]);
     } finally {

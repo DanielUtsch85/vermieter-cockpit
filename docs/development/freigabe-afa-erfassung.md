@@ -18,7 +18,9 @@ The question numbers are those of the tax review of 2026-11-01 (`docs/germany/pr
 
 ## Stage 1 (Standard)
 
-Prepared (VC-X-45, PR #236), not released. Its release is the first productive enablement of recording, by §60 "Turning it on"; the decision of 2026-11-02 sets no further checklist for it.
+Prepared (VC-X-45, PR #236), not released. Its release is the first productive enablement of recording, by §60 "Turning it on"; decision 236-5 of 2026-11-02 sets no further checklist for it. One prerequisite follows from the rule freeze (State on 2026-11-02):
+
+- [ ] **VC-X-41 Part 2 implemented** (the residual value over the remaining useful life, api-design §59G). **Decided by the owner on 2026-11-02** (Entscheidung des Projektinhabers, 2026-11-02): „Teil 2 muss deshalb vor der ersten Freischaltung landen, sonst kostet er eine Regelversion. Das ist mit dem Backlog-Status „vor Freischaltung“ vereinbar und sollte in `freigabe-afa-erfassung.md` als Voraussetzung von Stufe 1 stehen, nicht erst von Stufe 3.“ The reason is the rule freeze, not the case: Part 2 changes `shorterUsefulLife.fromEvidenceYear` and `subsequentCostRate.shorterLife` of `DE_AFA_BUILDING_LINEAR@1` and `@2`, which freeze at the first enablement of recording (§60 open question 11); after it, any change would be an `@3` with a new hash although stage 1 never records the case. A purchase with a shorter-life entry stays stage 3 (§60A). State: specified and decided (§59G, the owner's decisions of 2026-11-02 on its open questions 2, 4, 5, 8 and 11), not implemented (backlog VC-X-41 Part 2).
 
 ## Stage 2 (Erweitert): checklist
 
@@ -34,7 +36,9 @@ Each point is one condition of decision 236-5. State on 2026-11-02:
 ## Stage 3 (Spezial): checklist
 
 - [ ] **Stage 2's checklist met** (a released stage 3 also records every stage-2 year, §60A "The highest applicable stage wins", so stage 2's conditions are needed too). **Decided by the owner on 2026-11-02, third round** (Entscheidung des Projektinhabers, 2026-11-02): „Stufe 3 setzt die Kriterien von Stufe 2 voraus, ja.“ This was the protocol's reading, asked on the PR that added this file (#241).
-- [ ] **VC-X-41 implemented in both parts** (api-design §59G). State: Part 1 implemented (PR #238, migration 0056); Part 2 blocked by four open points (§59G "Still open").
+- [ ] **VC-X-41 implemented in both parts** (api-design §59G). State: Part 1 implemented (PR #238, migration 0056); Part 2's four blocking points decided by the owner on 2026-11-02 (§59G "Still open"), not implemented, and a prerequisite of stage 1 already (above).
+- [ ] **Written confirmation of §59G's open questions 2 and 11** (the switch from January of the evidence year; the residual value when the declared AfA differs from the computed), noted under `docs/germany/` as in "How a stage is released" 3 (`docs/germany/beratungsfragen.md` §4). **Decided by the owner on 2026-11-02** (Entscheidung des Projektinhabers, 2026-11-02): „Was für Stufe 3 schriftlich vom Berater bleibt: die Umstellung ab Januar (Frage 2) und die Restwertregel bei abweichend erklärter AfA (Frage 11). Fragen 4 und 8 sind durch Gesetz beziehungsweise Frage 9 des Berichts gedeckt.“ The confirmation is part of the release of stage 3, not a prerequisite of Part 2's implementation. State: not asked yet.
+
 - [ ] **Written answers to questions 8, 9, 11 and 12** (shorter useful life; later costs with a shorter useful life; partial sale after several purchases; Einbauküche and its later additions), noted under `docs/germany/`. State: oral only (2026-11-01); the calculation of a later addition to a movable asset (question 12) is not answered by the report.
 - [ ] **A sample case (Musterfall) with its expected result (Soll-Ergebnis) green**, as the report recommends under G: the case and its expected figures stated before the test is run, the test green on the code to be released, both named in the decision entry. State: the report's sample case of question 11 (100,000 / 160,000, sale of 50 % → 130,000) exists as a schedule-level test (`pruefbericht-2026-11-01.md`, "Nach Bestätigung auflösbare VERIFY-Punkte"); which sample case covers stage 3 is named in the decision entry.
 

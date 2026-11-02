@@ -1,9 +1,10 @@
 import { centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
 import { distribute, setOn, sumsToOne, type LoanAllocationSetView } from '../financing/index.js';
-import type { AttributionChange } from './attribution-changes.js';
+import type { MarkedChange } from './attribution-changes.js';
 import type { TaxListItem, TaxMeaning } from './classification.js';
 import { deriveItem, itemAt, type Derived } from './tax-year-items.js';
 import type { TaxYearItem, TaxYearLoanAllocation, ViewFlag } from './tax-year-response.js';
+import { confirmationMark, type LoanAllocationTaxConfirmation } from './tax-statements.js';
 import type { ViewOwnership } from './tax-year-shares.js';
 
 /**
@@ -62,6 +63,7 @@ const allocationOf = (loanId: string, set: LoanAllocationSetView | null): TaxYea
   basis: set?.basis ?? null,
   share: null,
   propertyPart: null,
+  taxConfirmation: null,
 });
 
 /**
@@ -115,14 +117,20 @@ export function deriveLoanItem(
   c: Extract<LoanInterestCase, { kind: 'ATTRIBUTED' }>,
   year: number,
   ownerships: readonly ViewOwnership[],
-  changed: readonly AttributionChange[],
+  changed: readonly MarkedChange[],
+  confirmations: ReadonlyMap<string, LoanAllocationTaxConfirmation> = new Map(),
 ): Derived | undefined {
   const derived = deriveItem(c.split.item, year, ownerships, changed, c.propertyCents);
   if (derived === undefined) return undefined;
-  const details = { loanId: c.split.loanId, allocationSetId: c.set.id };
   const flags: ViewFlag[] = [...derived.flags];
-  if (c.set.basis === 'PURCHASE_PRICE' && c.set.allocations.length > 1) flags.push({ code: LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, details });
-  return { ...derived, flags, loanAllocation: c.allocation };
+  let allocation = c.allocation;
+  if (c.set.basis === 'PURCHASE_PRICE' && c.set.allocations.length > 1) {
+    // §58E Part 3: the set's ACTIVE confirmation, or null; the flag is informative with one, open without.
+    const confirmation = confirmationMark(confirmations.get(c.set.id));
+    flags.push({ code: LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, details: { loanId: c.split.loanId, allocationSetId: c.set.id, confirmation } });
+    allocation = { ...allocation, taxConfirmation: confirmation };
+  }
+  return { ...derived, flags, loanAllocation: allocation };
 }
 
 /**

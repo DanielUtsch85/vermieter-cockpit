@@ -59,6 +59,8 @@ const loanAllocationDto = (a: TaxYearItem['loanAllocation']) =>
         basis: a.basis,
         share: a.share,
         propertyPart: a.propertyPart?.toJSON() ?? null,
+        // §58E: the set's ACTIVE tax confirmation (a multi-entry PURCHASE_PRICE set only), else null.
+        taxConfirmation: a.taxConfirmation ?? null,
       };
 
 function taxYearItemDto(i: TaxYearItem) {

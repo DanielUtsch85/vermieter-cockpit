@@ -1,6 +1,5 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { withValidUntil, type LoanAllocationSetView } from '../../domains/financing/index.js';
-import type { ChangedEntry, RentDueDay } from '../../domains/rental-contract-reference/index.js';
 import {
   NO_DEPRECIATION,
   depositNotCounted,
@@ -8,8 +7,6 @@ import {
   partOf,
   proposedSplits,
   wegSourceKey,
-  widestWindowDays,
-  type AttributionInput,
   type DepositTaxMeaning,
   type ProposedSplit,
   type RuleRegistry,
@@ -22,12 +19,14 @@ import {
 } from '../../domains/taxation/index.js';
 import { Money, type BusinessDate } from '../../shared/index.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
+import { attributionInputOf } from './attribution-reads.js';
 import { capitalizedLoanInterestOf, refOf } from './capitalized-loan-interest.js';
 import { interestFactsIn } from './construction-period-reads.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
 import { taxYearDepreciationIn } from './tax-year-depreciation.js';
 import type { Database } from './schema.js';
-import { UUID, currentOf, currentOfDeposits } from './tax-classification-rows.js';
+import { UUID, currentOfDeposits } from './tax-classification-rows.js';
+import { statementsOfYear } from './tax-statement-rows.js';
 import { COUNTED, factsQuery, meaningsOf, yearWindow, overriddenTo, countingSplits, toRead, depositFactsOf } from './tax-source-facts.js';
 import { type Effects, effectsOf, splitWithEffects, wegWithEffects } from './tax-treatment-effects.js';
 
@@ -53,7 +52,8 @@ export function taxYearSnapshot<T>(db: Kysely<Database>, work: (trx: Transaction
  * The inputs of the tax-year view (§58C), in one `REPEATABLE READ READ ONLY` snapshot: the PropertyReference, the
  * owner's Party, §55's items of `year` (the very derivation of the list) with the earlier § 82b sources beside them,
  * the Realm's deposit closings of `year` without a PropertyReference, the Ownerships with their shares, the
- * anschaffungsnahe checks, the RentalContractReferences with their AuditRecords for `ATTRIBUTION_INPUT_CHANGED`, and
+ * anschaffungsnahe checks, the inputs of `ATTRIBUTION_INPUT_CHANGED` with their AuditRecords (§58E), the `ACTIVE`
+ * acknowledgements and tax confirmations (§58E), and
  * (VC-8-05) the AfA: every `ACTIVE` asset's schedule and `CURRENT` recorded version through the adapter
  * `tax-year-depreciation.ts`, after the view's own reads and in the same transaction, so `capitalized` and the AfA
  * come from one state (P8-D14). No MRE call; nothing is written (the transaction is `READ ONLY`). `afterOwnReads` is a
@@ -120,6 +120,14 @@ export async function readTaxYear(
       ...entries.flatMap((e) => (e.item.sourceType === 'TRANSACTION_SPLIT' ? [refOf(e.item, null)] : [])),
       ...loans.allocatedLoanInterest.map((l) => refOf(l.item as TaxMeaning, l.loanId)),
     ]);
+    // §58E: the ACTIVE statements the view reads, in this snapshot.
+    const statements = await statementsOfYear(
+      trx,
+      mreRealmId,
+      propertyReferenceId,
+      year,
+      [...loans.loanAllocationSets.values()].flat().map((s) => s.id),
+    );
     if (afterOwnReads !== undefined) await afterOwnReads();
     const depreciation = await taxYearDepreciationIn(trx, {
       mreRealmId,
@@ -148,6 +156,7 @@ export async function readTaxYear(
       depreciation,
       interest,
       proposedSplits: proposed,
+      ...statements,
     };
   });
 }
@@ -368,111 +377,4 @@ async function closedDepositsOf(
     facts.map((f) => f.securityDepositId),
   );
   return facts.map((f) => deriveDepositTaxMeaning(f, current.get(f.securityDepositId) ?? null, registry, today));
-}
-
-/** The rent splits whose year `rentDueDays` decides (§58A's table): base rent and advances. */
-const ATTRIBUTED_RENT_CODES = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE'];
-
-/**
- * What `ATTRIBUTION_INPUT_CHANGED` reads (§58C): the counting rent splits of the PropertyReference booked in either
- * window at an edge of `year` with one `CONFIRMED` reconciliation term, their classifications' `taxYear`, the Realm's
- * RentalContractReferences of their Tenants and those references' `CREATED` and `AMENDED` AuditRecords (by
- * `audit_record_entity_idx`). The references are read in the Realm, so another Realm's AuditRecord is never read.
- */
-async function attributionInputOf(
-  trx: Transaction<Database>,
-  mreRealmId: string,
-  propertyReferenceId: string,
-  year: number,
-  registry: RuleRegistry,
-): Promise<AttributionInput> {
-  const days = widestWindowDays(registry);
-  if (days === 0) return { references: [], candidates: [] };
-  const windows = [year - 1, year].map((y) => ({ from: `${y}-12-${String(32 - days).padStart(2, '0')}`, to: `${y + 1}-01-${String(days).padStart(2, '0')}` }));
-  const rows = await countingSplits(factsQuery(trx, mreRealmId).where('s.property_reference_id', '=', propertyReferenceId))
-    .where('c.code', 'in', ATTRIBUTED_RENT_CODES)
-    .where((eb) => eb.or(windows.map((w) => eb.and([eb('t.booking_date', '>=', w.from), eb('t.booking_date', '<=', w.to)]))))
-    .orderBy('t.booking_date')
-    .orderBy('t.id')
-    .orderBy('s.position')
-    .execute();
-  if (rows.length === 0) return { references: [], candidates: [] };
-  const reconciliations = await trx
-    .selectFrom('rent_payment_reconciliation')
-    .select(['transaction_id', 'mre_tenant_id', 'mre_rent_term'])
-    .where('transaction_id', 'in', [...new Set(rows.map((r) => r.transaction_id))])
-    .where('mre_realm_id', '=', mreRealmId)
-    .where('status', '=', 'CONFIRMED')
-    .execute();
-  const overrides = await currentOf(
-    trx,
-    rows.map((r) => r.id),
-  );
-  const candidates: AttributionInput['candidates'][number][] = rows.flatMap((r) => {
-    const terms = new Map(
-      reconciliations.filter((c) => c.transaction_id === r.transaction_id).map((c) => [`${c.mre_tenant_id}/${c.mre_rent_term}`, c] as const),
-    );
-    // Without one term the rent has no economic period under any list (§58A): rentDueDays decides nothing.
-    const [only] = terms.values();
-    if (only === undefined || terms.size > 1) return [];
-    return [
-      {
-        sourceId: r.id,
-        bookingDate: r.booking_date as BusinessDate,
-        financialCategoryCode: r.code,
-        mreTenantId: only.mre_tenant_id,
-        mreRentTerm: only.mre_rent_term,
-        taxYearOverride: overrides.get(r.id)?.taxYear ?? null,
-      },
-    ];
-  });
-  const tenants = [...new Set(candidates.map((c) => c.mreTenantId))];
-  if (tenants.length === 0) return { references: [], candidates: [] };
-  const references = await trx
-    .selectFrom('rental_contract_reference')
-    .select(['id', 'mre_tenant_id', 'rent_due_days'])
-    .where('mre_realm_id', '=', mreRealmId)
-    .where('mre_tenant_id', 'in', tenants)
-    .orderBy('id')
-    .execute();
-  const records =
-    references.length === 0
-      ? []
-      : await trx
-          .selectFrom('audit_record')
-          .select(['id', 'entity_id', 'action', 'new_version', 'occurred_at', 'metadata'])
-          .where('entity_type', '=', 'RentalContractReference')
-          .where(
-            'entity_id',
-            'in',
-            references.map((r) => r.id),
-          )
-          .where('action', 'in', ['CREATED', 'AMENDED'])
-          .orderBy('new_version')
-          .orderBy('id')
-          .execute();
-  return {
-    candidates,
-    references: references.map((r) => {
-      const own = records.filter((a) => a.entity_id === r.id);
-      const created = own.find((a) => a.action === 'CREATED');
-      const createdDays = (created?.metadata as { rentDueDays?: RentDueDay[] } | null)?.rentDueDays;
-      return {
-        rentalContractReferenceId: r.id,
-        mreTenantId: r.mre_tenant_id,
-        rentDueDays: r.rent_due_days as RentDueDay[],
-        created: createdDays ?? null,
-        amendments: own
-          .filter((a) => a.action === 'AMENDED')
-          .map((a) => ({
-            auditRecordId: a.id,
-            newVersion: a.new_version ?? 0,
-            amendedAt: a.occurred_at,
-            changedEntries: (a.metadata as { changedEntries?: ChangedEntry[] } | null)?.changedEntries ?? [],
-          }))
-          // An amendment of notes or sourceReferences alone has no changedEntries (§58C).
-          .filter((a) => a.changedEntries.length > 0),
-      };
-    }),
-  };
 }

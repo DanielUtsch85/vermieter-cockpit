@@ -1,3 +1,4 @@
+import { sha256Fingerprinter as fingerprinter } from '../hashing/index.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { buildTaxYearView, type TaxYearItem, type TaxYearOutcome, type TaxYearView } from '../../domains/taxation/index.js';
@@ -63,7 +64,7 @@ describe.skipIf(databaseUrl === undefined)('the 10-day proposal at the owner lev
   const outcome = async (pr: string, year: number, ownerPartyId: string | null = null, realm = REALM): Promise<TaxYearOutcome> => {
     const read = await ctx.classifications.readTaxYear(pr, realm, year, ownerPartyId, today);
     if (read === undefined) throw new Error('no PropertyReference');
-    return buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES });
+    return buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
   };
   const view = async (pr: string, year: number, ownerPartyId: string | null = null): Promise<TaxYearView> => {
     const o = await outcome(pr, year, ownerPartyId);

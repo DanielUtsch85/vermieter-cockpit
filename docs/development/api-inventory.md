@@ -8,7 +8,7 @@ Implemented routes only: a route in `docs/architecture/api-design.md` that is no
 Contracts, payloads and error codes are in `api-design.md`; the business routes need `Authorization: Bearer <MRE token>` and
 `organizationid: <mreRealmId>` (`mre-integration.md` §47.2).
 
-Routes: 164.
+Routes: 170.
 
 | Method | Path |
 |---|---|
@@ -60,6 +60,9 @@ Routes: 164.
 | GET | `/api/v1/loans/:loanId` |
 | GET | `/api/v1/loans/:loanId/allocations` |
 | POST | `/api/v1/loans/:loanId/allocations` |
+| GET | `/api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations` |
+| POST | `/api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations` |
+| POST | `/api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations/:confirmationId/withdraw` |
 | POST | `/api/v1/loans/:loanId/allocations/:allocationSetId/void` |
 | POST | `/api/v1/loans/:loanId/amend` |
 | GET | `/api/v1/loans/:loanId/balance-statements` |
@@ -96,6 +99,9 @@ Routes: 164.
 | POST | `/api/v1/property-references/:propertyReferenceId/refresh` |
 | GET | `/api/v1/property-references/:propertyReferenceId/tax-meanings` |
 | GET | `/api/v1/property-references/:propertyReferenceId/tax-years/:year` |
+| GET | `/api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements` |
+| POST | `/api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements` |
+| POST | `/api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements/:acknowledgementId/withdraw` |
 | GET | `/api/v1/property-references/:propertyReferenceId/transactions` |
 | GET | `/api/v1/property-references/:propertyReferenceId/weg-memberships` |
 | POST | `/api/v1/property-references/link` |
@@ -252,6 +258,9 @@ Routes: 164.
 - GET `/api/v1/loans/:loanId`
 - GET `/api/v1/loans/:loanId/allocations`
 - POST `/api/v1/loans/:loanId/allocations`
+- GET `/api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations`
+- POST `/api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations`
+- POST `/api/v1/loans/:loanId/allocations/:allocationSetId/tax-confirmations/:confirmationId/withdraw`
 - POST `/api/v1/loans/:loanId/allocations/:allocationSetId/void`
 - POST `/api/v1/loans/:loanId/amend`
 - GET `/api/v1/loans/:loanId/balance-statements`
@@ -297,6 +306,9 @@ Routes: 164.
 - POST `/api/v1/property-references/:propertyReferenceId/refresh`
 - GET `/api/v1/property-references/:propertyReferenceId/tax-meanings`
 - GET `/api/v1/property-references/:propertyReferenceId/tax-years/:year`
+- GET `/api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements`
+- POST `/api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements`
+- POST `/api/v1/property-references/:propertyReferenceId/tax-years/:year/acknowledgements/:acknowledgementId/withdraw`
 - GET `/api/v1/property-references/:propertyReferenceId/transactions`
 - GET `/api/v1/property-references/:propertyReferenceId/weg-memberships`
 - POST `/api/v1/property-references/link`

@@ -1,3 +1,4 @@
+import { testFingerprinter as fingerprinter } from './fingerprinter.test-support.js';
 import { PHASE_7_DEPRECIATION } from './tax-year-depreciation.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, centsOf, type BusinessDate } from '../../shared/index.js';
@@ -146,7 +147,7 @@ function readOf(
   };
 }
 function viewOf(read: TaxYearRead, year = 2027, ownerPartyId: string | null = null): TaxYearView {
-  const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES });
+  const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
   if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
   return outcome.view;
 }
@@ -225,6 +226,7 @@ describe('§58D: the synthetic example', () => {
         basis: null,
         share: null,
         propertyPart: null,
+        taxConfirmation: null,
       });
       expect(flag(v, 'LOAN_INTEREST_NOT_ATTRIBUTED')).toEqual({ loanIds: [L], interestTotal: eur('451.20').toJSON(), splitIds: [before.item.sourceId] });
       expect(v.review.open).toContainEqual({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 });
@@ -239,6 +241,7 @@ describe('§58D: the synthetic example', () => {
       basis: 'MANUAL',
       share: '1/2',
       propertyPart: eur('225.00'),
+      taxConfirmation: null,
     });
     expect(line(v1).items[2]).toMatchObject({ date: '2028-01-03', taxYear: 2027, reviewState: 'SUGGESTED', origin: 'DEFAULT', amount: eur('448.00') });
     expect(v1.review.open).toContainEqual({ code: 'ATTRIBUTED_BY_10_DAY_RULE', count: 1 });
@@ -273,7 +276,7 @@ describe('§58D: the synthetic example', () => {
         const [first, second] = line(v).items;
         expect(first?.loanAllocation?.propertyPart?.amount).toBe(part);
         expect(first?.flags.filter((f) => f.code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY')).toEqual([
-          { code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId: L, allocationSetId: S1.id } },
+          { code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId: L, allocationSetId: S1.id, confirmation: null } },
         ]);
         // July's set is MANUAL: no flag there.
         expect(codes(second?.flags ?? [])).not.toContain('LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY');
@@ -391,7 +394,11 @@ describe('§58D: PURCHASE_PRICE sets (decided 2026-10-31, third set)', () => {
       const items = [...line(v).items, ...v.notInView.items];
       expect(items).toHaveLength(3);
       for (const item of items) {
-        expect(item.flags.find((f) => f.code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY')?.details).toEqual({ loanId: L, allocationSetId: priced.id });
+        expect(item.flags.find((f) => f.code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY')?.details).toEqual({
+          loanId: L,
+          allocationSetId: priced.id,
+          confirmation: null,
+        });
         expect(flagIsOpen('LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', item)).toBe(true);
       }
       expect(v.notInView.items[0]).toMatchObject({ lineAmount: null, loanAllocation: { basis: 'PURCHASE_PRICE', share: '123457/200000' } });
@@ -487,7 +494,13 @@ describe('§58D: placement, owners and review (decision 7)', () => {
     const moved = interest('100.00', '2028-01-05', { taxYear: 2027 });
     const owner2028 = [own(B, '1/1', '2028-01-01')];
     const sets2028 = setsOf({ [L]: [set({ validFrom: '2027-01-01', shares: [[P1, '1/1']] })] });
-    const b = buildTaxYearView(readOf(P1, [moved], sets2028, { ownerships: owner2028 }), { year: 2027, ownerPartyId: B, today, registry: TAX_RULES });
+    const b = buildTaxYearView(readOf(P1, [moved], sets2028, { ownerships: owner2028 }), {
+      year: 2027,
+      ownerPartyId: B,
+      today,
+      registry: TAX_RULES,
+      fingerprinter,
+    });
     expect(b.kind).toBe('VIEW');
     if (b.kind === 'VIEW') {
       expect(line(b.view).items.map((i) => i.lineAmount?.amount)).toEqual(['100.00']);
@@ -505,15 +518,16 @@ describe('§58D: placement, owners and review (decision 7)', () => {
       // 'gap' is a Loan without a set: its splits are not attributed, and count.
       return readOf(P1, [...many(TAX_YEAR_ITEM_LIMIT - 1, L), ...many(n, 'gap')], sets);
     };
-    expect(buildTaxYearView(mixed(1), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES }).kind).toBe('VIEW');
-    expect(buildTaxYearView(mixed(2), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES })).toEqual({
+    expect(buildTaxYearView(mixed(1), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter }).kind).toBe('VIEW');
+    expect(buildTaxYearView(mixed(2), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter })).toEqual({
       kind: 'TAX_YEAR_TOO_LARGE',
       itemCount: 5001,
       limit: 5000,
     });
-    expect(buildTaxYearView(readOf(P1, many(TAX_YEAR_ITEM_LIMIT + 1, L), elsewhere), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES }).kind).toBe(
-      'VIEW',
-    );
+    expect(
+      buildTaxYearView(readOf(P1, many(TAX_YEAR_ITEM_LIMIT + 1, L), elsewhere), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter })
+        .kind,
+    ).toBe('VIEW');
   });
 
   it('the attributed items are merged into the list’s items by date, Transaction and position', () => {

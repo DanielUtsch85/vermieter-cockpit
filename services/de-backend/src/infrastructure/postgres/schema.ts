@@ -875,6 +875,53 @@ export interface DepreciationAssetItemTable {
   created_by: string;
 }
 
+/** 0060 (VC-X-28, api-design.md §58E): the acknowledgement of one attribution change of a PropertyReference and year. */
+export interface TaxYearAcknowledgementTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  property_reference_id: string;
+  tax_year: number;
+  audit_record_id: string;
+  change_kind: string;
+  change_entity_type: string;
+  change_entity_id: string;
+  change_recorded_at: Date;
+  change_fingerprint: string;
+  reason: string;
+  acknowledged_at: Generated<Date>;
+  acknowledged_by: string;
+  status: string;
+  withdrawn_at: Date | null;
+  withdrawn_by: string | null;
+  withdraw_reason: string | null;
+  version: Generated<number>;
+  created_txid: Generated<string>;
+}
+
+export interface TaxYearAcknowledgementItemTable {
+  acknowledgement_id: string;
+  mre_realm_id: string;
+  source_id: string;
+  year_before: number;
+  year_after: number;
+}
+
+/** 0060: the tax confirmation of a multi-entry `PURCHASE_PRICE` allocation set as a whole. */
+export interface LoanAllocationTaxConfirmationTable {
+  id: Generated<string>;
+  mre_realm_id: string;
+  allocation_set_id: string;
+  reason: string;
+  advisor_party_id: string | null;
+  confirmed_at: Generated<Date>;
+  confirmed_by: string;
+  status: string;
+  withdrawn_at: Date | null;
+  withdrawn_by: string | null;
+  withdraw_reason: string | null;
+  version: Generated<number>;
+}
+
 export interface Database {
   property_reference: PropertyReferenceTable;
   audit_record: AuditRecordTable;
@@ -917,4 +964,7 @@ export interface Database {
   depreciation_asset_useful_life: DepreciationAssetUsefulLifeTable;
   depreciation_asset_purchase_method: DepreciationAssetPurchaseMethodTable;
   depreciation_asset_item: DepreciationAssetItemTable;
+  tax_year_acknowledgement: TaxYearAcknowledgementTable;
+  tax_year_acknowledgement_item: TaxYearAcknowledgementItemTable;
+  loan_allocation_tax_confirmation: LoanAllocationTaxConfirmationTable;
 }
