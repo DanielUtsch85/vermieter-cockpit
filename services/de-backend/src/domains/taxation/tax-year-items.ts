@@ -1,6 +1,6 @@
 import { centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
 import type { Direction } from '../ledger/index.js';
-import type { AttributionChange } from './attribution-changes.js';
+import { changeKeys, type MarkedChange } from './attribution-changes.js';
 import type { RefundInfo } from './cash-timing.js';
 import type { TaxListItem } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
@@ -71,7 +71,7 @@ export function deriveItem(
   source: TaxListItem,
   year: number,
   ownerships: readonly ViewOwnership[],
-  changed: readonly AttributionChange[],
+  changed: readonly MarkedChange[],
   propertyCents: bigint | null = null,
 ): Derived | undefined {
   const date = dateOf(source);
@@ -121,16 +121,11 @@ export function deriveItem(
     if (!sameOwnerships(ownerships, date, nearest))
       flags.push({ code: 'SHARE_DATE_OUTSIDE_TAX_YEAR', details: { shareDate: date, nearestDayOfYear: nearest } });
   }
+  // §58E: per change that moved the item, the change's keys, its fingerprint and acknowledgement, and its two years.
   const moved = changed.flatMap((c) =>
     c.items
       .filter((i) => i.sourceId === source.sourceId && source.sourceType === 'TRANSACTION_SPLIT')
-      .map((i) => ({
-        rentalContractReferenceId: c.rentalContractReferenceId,
-        auditRecordId: c.auditRecordId,
-        amendedAt: c.amendedAt.toISOString(),
-        yearBefore: i.yearBefore,
-        yearAfter: i.yearAfter,
-      })),
+      .map((i) => ({ ...changeKeys(c), yearBefore: i.yearBefore, yearAfter: i.yearAfter })),
   );
   if (moved.length > 0 && source.taxYear === year) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: moved });
   if (source.reviewState === 'NEEDS_REVIEW') flags.push({ code: 'NEEDS_REVIEW', details: {} });

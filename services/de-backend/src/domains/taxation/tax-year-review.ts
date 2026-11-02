@@ -26,9 +26,7 @@ const OPEN_ITEM_FLAGS = new Set([
   'PREDECESSOR_CLASSIFIED',
   'REFUND_YEAR_UNKNOWN',
   'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE',
-  'ATTRIBUTION_INPUT_CHANGED',
-  // §58D: about the Loan's allocation itself; no classification of the split clears them.
-  'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY',
+  // §58D: about the Loan's allocation itself; no classification of the split clears it.
   'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS',
   // §59E: Bauzeitzinsen. CONSTRUCTION_PERIOD_TREATMENT_MIXED is informative once the record is ADVISOR_CONFIRMED.
   'INTEREST_CAPITALIZED_CONDITIONS_MISSING',
@@ -38,7 +36,6 @@ const OPEN_ITEM_FLAGS = new Set([
 /** Every flag of the year is open (§58C's review table). */
 const OPEN_YEAR_FLAGS = new Set([
   'DEPRECIATION_NOT_AVAILABLE',
-  'ATTRIBUTION_INPUT_CHANGED',
   'ATTRIBUTION_HISTORY_INCONSISTENT',
   'OWNERSHIP_INCOMPLETE',
   'UNATTRIBUTED_ITEMS',
@@ -47,6 +44,20 @@ const OPEN_YEAR_FLAGS = new Set([
   // VC-8-05: the AfA's year flags (the status's and §60's recording flags, one per asset); GWG_THRESHOLD_MAY_APPLY is informative.
   ...OPEN_AFA_YEAR_FLAGS,
 ]);
+
+/**
+ * §58E (codes kept, the level by state; decided 2026-11-01, question 6): `ATTRIBUTION_INPUT_CHANGED` is open while one
+ * of its entries has no matching acknowledgement, informative once every entry has one. Its details are the year flag's
+ * entries or the item flag's (one per change that moved the item); both carry `acknowledgement`.
+ */
+export function attributionChangeIsOpen(details: unknown): boolean {
+  return !Array.isArray(details) || details.length === 0 || details.some((e) => (e as { acknowledgement?: unknown } | null)?.acknowledgement == null);
+}
+
+/** §58E Part 3: `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` is open while its set has no `ACTIVE` confirmation. */
+export function priceKeyIsOpen(details: unknown): boolean {
+  return (details as { confirmation?: unknown } | undefined)?.confirmation == null;
+}
 
 /**
  * Whether an item's flag needs a person (§58C's review table): `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` while the item is
@@ -63,6 +74,8 @@ export function flagIsOpen(
   if (code === PROPOSED_BY_10_DAY_RULE) return proposalIsOpen({ ...item, attribution: item.attribution });
   if (code === 'CONSTRUCTION_PERIOD_TREATMENT_MIXED')
     return (details as { recordReviewState?: unknown } | undefined)?.recordReviewState !== 'ADVISOR_CONFIRMED';
+  if (code === 'ATTRIBUTION_INPUT_CHANGED') return attributionChangeIsOpen(details);
+  if (code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY') return priceKeyIsOpen(details);
   if (OPEN_YEAR_FLAGS.has(code) || OPEN_ITEM_FLAGS.has(code)) return true;
   if (code === 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN') return item.treatment !== 'CAPITALIZED';
   if (CONFIRMABLE.has(code)) return !(item.origin === 'CLASSIFICATION' && (item.reviewState === 'USER_CONFIRMED' || item.reviewState === 'ADVISOR_CONFIRMED'));
@@ -82,7 +95,13 @@ export function reviewOf(
   const info = new Map<string, number>();
   const bump = (map: Map<string, number>, code: string) => map.set(code, (map.get(code) ?? 0) + 1);
   // §58F: the year flag of the 10-day proposal is open while one of its splits is (informative once each is decided).
-  const yearFlagOpen = (f: ViewFlag) => (f.code === PROPOSED_BY_10_DAY_RULE ? yearProposalIsOpen(f.details) : OPEN_YEAR_FLAGS.has(f.code));
+  // §58E: ATTRIBUTION_INPUT_CHANGED is informative once every change is acknowledged.
+  const yearFlagOpen = (f: ViewFlag) =>
+    f.code === PROPOSED_BY_10_DAY_RULE
+      ? yearProposalIsOpen(f.details)
+      : f.code === 'ATTRIBUTION_INPUT_CHANGED'
+        ? attributionChangeIsOpen(f.details)
+        : OPEN_YEAR_FLAGS.has(f.code);
   for (const f of yearFlags) bump(yearFlagOpen(f) ? open : info, f.code);
   const itemCodes = new Map<string, { open: number; info: number }>();
   for (const item of items) {

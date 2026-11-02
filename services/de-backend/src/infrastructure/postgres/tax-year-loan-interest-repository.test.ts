@@ -1,3 +1,4 @@
+import { sha256Fingerprinter as fingerprinter } from '../hashing/index.js';
 import { Kysely, PostgresDialect, type CompiledQuery } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -243,7 +244,7 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
   const view = async (pr: string, year: number, ownerPartyId: string | null = null) => {
     const r = await read(pr, year, ownerPartyId);
     if (r === undefined) throw new Error('no PropertyReference');
-    return viewOf(buildTaxYearView(r, { year, ownerPartyId, today, registry: TAX_RULES }));
+    return viewOf(buildTaxYearView(r, { year, ownerPartyId, today, registry: TAX_RULES, fingerprinter }));
   };
 
   it('the three cases over #171’s selection: the counting interest of the year is an item where a set covers its day; not counting splits reach nothing', async () => {
@@ -340,7 +341,10 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
     for (const v of [v1, v2]) {
       for (const item of items(v, pricedLoan.loanId)) {
         expect(item.flags).toEqual([
-          { code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId: pricedLoan.loanId, allocationSetId: pricedLoan.setId } },
+          {
+            code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY',
+            details: { loanId: pricedLoan.loanId, allocationSetId: pricedLoan.setId, confirmation: null },
+          },
         ]);
       }
       for (const item of items(v, manualLoan.loanId)) expect(item.flags).toEqual([]);
@@ -392,7 +396,7 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
       expect((await allocations.void(voidedLoan.loanId, half.id, REALM, 'falsch erfasst', new Date('2026-10-30T10:00:00Z'), actor)).kind).toBe('VOIDED');
       await holder.query('ROLLBACK');
       const r = await reading;
-      const seen = viewOf(buildTaxYearView(r as NonNullable<typeof r>, { year: 2027, ownerPartyId: null, today, registry: TAX_RULES }));
+      const seen = viewOf(buildTaxYearView(r as NonNullable<typeof r>, { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter }));
       expect(interestLine(seen).items.map((i) => i.lineAmount?.amount)).toEqual(['100.00', '50.00']);
       expect(interestLine(await view(pr, 2027)).items.map((i) => i.lineAmount?.amount)).toEqual(['50.00', '100.00']);
     } finally {

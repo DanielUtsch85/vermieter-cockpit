@@ -841,3 +841,27 @@ export type {
   PurchaseMethodAmendment,
   PurchaseMethodStatus,
 } from '../domains/depreciation/index.js';
+// VC-X-28 (api-design.md §58E): acknowledgements and tax confirmations in the tax-year view.
+export {
+  AttributionChangeDiffersError,
+  AttributionChangeNotFlaggedError,
+  LoanAllocationTaxConfirmationNotFoundError,
+  NothingToConfirmError,
+  TaxYearAcknowledgementNotFoundError,
+  acknowledgeAttributionChange,
+  confirmAllocationSet,
+  listAcknowledgements,
+  listConfirmations,
+  withdrawAcknowledgement,
+  withdrawConfirmation,
+} from './tax-statements.js';
+export type {
+  AcknowledgeAttributionChange,
+  ConfirmAllocationSet,
+  ListAcknowledgements,
+  ListConfirmations,
+  WithdrawAcknowledgement,
+  WithdrawConfirmation,
+} from './tax-statements.js';
+export { TAX_STATEMENT_STATUSES } from '../domains/taxation/index.js';
+export type { LoanAllocationTaxConfirmation, TaxStatementStatus, TaxStatementRepository, TaxYearAcknowledgement } from '../domains/taxation/index.js';

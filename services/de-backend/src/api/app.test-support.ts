@@ -57,6 +57,14 @@ export const unusedCommands: AppCommands = {
     listRules: unused,
     getRule: unused,
   },
+  taxStatements: {
+    acknowledge: unused,
+    listAcknowledgements: unused,
+    withdrawAcknowledgement: unused,
+    confirm: unused,
+    listConfirmations: unused,
+    withdrawConfirmation: unused,
+  },
   rentalContractReferences: { create: unused, get: unused, list: unused, amend: unused },
   depreciationAssets: {
     create: unused,

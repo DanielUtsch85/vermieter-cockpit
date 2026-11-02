@@ -1,3 +1,4 @@
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import type { Express } from 'express';
@@ -217,7 +218,7 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
           create: createTaxClassification({ repository: classifications }),
           anschaffungsnahe: getAnschaffungsnaheCheck({ repository: classifications }),
           taxMeanings: listTaxMeanings({ repository: classifications }),
-          taxYear: getTaxYearView({ repository: classifications }),
+          taxYear: getTaxYearView({ repository: classifications, fingerprinter: sha256Fingerprinter }),
         },
       }),
     });
@@ -416,8 +417,14 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
     // The same correction recorded after both years (a filed return may be affected): both views flagged.
     await pool.query(`UPDATE audit_record SET occurred_at = '2029-01-15T10:00:00Z' WHERE id = $1`, [auditRecordId]);
     const flagged = await view(pr, 2027);
+    // §58E: the entry's kind, entity, fingerprint (one per year) and acknowledgement (none yet), additively.
     const expected = [
       {
+        kind: 'RENT_DUE_DAYS_AMENDED',
+        entityType: 'RentalContractReference',
+        entityId: reference.rentalContractReferenceId,
+        changeFingerprint: expect.stringMatching(/^[0-9a-f]{64}$/),
+        acknowledgement: null,
         rentalContractReferenceId: reference.rentalContractReferenceId,
         auditRecordId,
         amendedAt: '2029-01-15T10:00:00.000Z',

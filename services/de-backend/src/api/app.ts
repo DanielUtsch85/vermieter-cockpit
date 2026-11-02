@@ -17,6 +17,7 @@ import { loanTermsRoutes, type LoanTermsCommands } from './loan-terms.js';
 import { loanRoutes, type LoanCommands } from './loans.js';
 import { securityDepositRoutes, type SecurityDepositCommands } from './security-deposits.js';
 import { taxationRoutes, type TaxationCommands } from './tax-classifications.js';
+import { taxStatementRoutes, type TaxStatementCommands } from './tax-statements.js';
 import { ownerAllocationRoutes, type OwnerAllocationCommands } from './owner-allocation.js';
 import { ownershipRoutes, type OwnershipCommands } from './ownerships.js';
 import { partyRoutes, type PartyCommands } from './parties.js';
@@ -67,6 +68,8 @@ export interface AppCommands {
   readonly wegSpecialAssessments: WegSpecialAssessmentCommands;
   /** Tax rules, tax meanings and TaxClassification (VC-7-01, VC-7-02). */
   readonly taxation: TaxationCommands;
+  /** VC-X-28 (§58E): acknowledgements and tax confirmations of the tax-year view. */
+  readonly taxStatements: TaxStatementCommands;
   /** The construction-period records of Bauzeitzinsen (VC-X-36, §59E). */
   readonly constructionPeriodInterest: ConstructionPeriodInterestCommands;
   /** The minimal RentalContractReference with the rent's due day over time (VC-7-02). */
@@ -140,6 +143,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(wegAnnualStatementRoutes(deps.wegAnnualStatements));
   api.use(wegSpecialAssessmentRoutes(deps.wegSpecialAssessments));
   api.use(taxationRoutes(deps.taxation));
+  api.use(taxStatementRoutes(deps.taxStatements));
   api.use(constructionPeriodInterestRoutes(deps.constructionPeriodInterest));
   api.use(rentalContractReferenceRoutes(deps.rentalContractReferences));
   api.use(depreciationAssetRoutes(deps.depreciationAssets));

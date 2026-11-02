@@ -1,3 +1,4 @@
+import { testFingerprinter as fingerprinter } from './fingerprinter.test-support.js';
 import { PHASE_7_DEPRECIATION } from './tax-year-depreciation.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
@@ -125,7 +126,7 @@ function viewOf(
       loanAllocationSets: new Map(),
       depreciation: PHASE_7_DEPRECIATION,
     },
-    { year, ownerPartyId, today: day('2026-10-30'), registry },
+    { year, ownerPartyId, today: day('2026-10-30'), registry, fingerprinter },
   );
   if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
   return outcome.view;

@@ -1,8 +1,9 @@
+import { testFingerprinter as fingerprinter } from './fingerprinter.test-support.js';
 import { PHASE_7_DEPRECIATION } from './tax-year-depreciation.test-support.js';
 import { describe, expect, it } from 'vitest';
 import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import type { Direction } from '../ledger/index.js';
-import { amendmentLists, attributionChanges, listBefore, type AttributionInput, type ReferenceHistory } from './attribution-changes.js';
+import { amendmentLists, attributionChanges, changeFingerprint, listBefore, type AttributionInput, type ReferenceHistory } from './attribution-changes.js';
 import { refundOf, yearOf } from './cash-timing.js';
 import type { TaxListItem, TaxMeaning } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
@@ -39,6 +40,7 @@ const day = (value: string) => value as BusinessDate;
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const today = day('2026-10-30');
 const PR = '0000aaaa-0000-4000-8000-000000000001';
+const CTX = { propertyReferenceId: PR, fingerprinter };
 const DEFAULTS = { ruleCode: 'DE_CATEGORY_DEFAULTS', version: 1 };
 const CASH = { ruleCode: 'DE_CASH_TIMING', version: 1 };
 const D82B = { ruleCode: 'DE_82B_DISTRIBUTION', version: 1 };
@@ -129,7 +131,7 @@ const readOf = (items: readonly TaxListItem[], ownerships: readonly ViewOwnershi
 });
 
 function viewOf(read: TaxYearRead, year = 2027, ownerPartyId: string | null = null): TaxYearView {
-  const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES });
+  const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
   if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
   return outcome.view;
 }
@@ -464,7 +466,7 @@ describe('per owner (§58C, P7-D7)', () => {
     // A holds no Ownership in 2028 but takes part in an item of it: A may open the view; C may not.
     expect(amounts(lineOf(viewOf(read, 2028, A), 'RENT').items)).toEqual(['375.01']);
     expect(lineOf(viewOf(read, 2028, D), 'RENT').items).toEqual([]);
-    expect(buildTaxYearView(read, { year: 2028, ownerPartyId: C, today, registry: TAX_RULES })).toEqual({ kind: 'NOT_AN_OWNER_IN_YEAR' });
+    expect(buildTaxYearView(read, { year: 2028, ownerPartyId: C, today, registry: TAX_RULES, fingerprinter })).toEqual({ kind: 'NOT_AN_OWNER_IN_YEAR' });
     // Without the change, the owners of 2027-12-29 are those of 2028-01-01: no flag.
     const unchanged = readOf([rent], [own(A, '1/2', '2026-01-01'), own(B, '1/2', '2026-01-01')]);
     expect(codes(lineOf(viewOf(unchanged, 2028), 'RENT').items[0]?.flags ?? [])).not.toContain('SHARE_DATE_OUTSIDE_TAX_YEAR');
@@ -478,7 +480,7 @@ describe('§ 82b per owner (§58C)', () => {
     const item = repair(owners);
     return [2027, 2028, 2029, 2030].map((year) => {
       const read = { ...readOf([], owners), sources: [{ item, listed: ((item as TaxMeaning).distribution?.parts ?? []).some((p) => p.year === year) }] };
-      const outcome = buildTaxYearView(read, { year, ownerPartyId: party, today, registry: TAX_RULES });
+      const outcome = buildTaxYearView(read, { year, ownerPartyId: party, today, registry: TAX_RULES, fingerprinter });
       if (outcome.kind !== 'VIEW') return outcome.kind;
       const found = lineOf(outcome.view, 'MAINTENANCE').items[0];
       return found === undefined ? null : { amount: found.lineAmount?.amount, flags: codes(found.flags).filter((c) => c.startsWith('DISTRIBUTION')) };
@@ -609,20 +611,31 @@ describe('ATTRIBUTION_INPUT_CHANGED (§58C)', () => {
   });
 
   it('an amendment from day 3 to 15 moves the January rent out of 2028 and into 2027: both years flagged', () => {
-    const into = attributionChanges(input(reference()), 2027, TAX_RULES);
-    const out = attributionChanges(input(reference()), 2028, TAX_RULES);
-    const expected = [
+    const into = attributionChanges(input(reference()), 2027, TAX_RULES, CTX);
+    const out = attributionChanges(input(reference()), 2028, TAX_RULES, CTX);
+    const expected = (year: number) => [
       {
-        rentalContractReferenceId: REF,
+        kind: 'RENT_DUE_DAYS_AMENDED',
+        entityType: 'RentalContractReference',
+        entityId: REF,
+        keys: { rentalContractReferenceId: REF, changedEntries: [{ validFrom: '2026-01-01', from: 3, to: 15 }] },
         auditRecordId: 'audit-2',
         amendedAt: new Date('2029-02-01T10:00:00Z'),
-        changedEntries: [{ validFrom: '2026-01-01', from: 3, to: 15 }],
         items: [{ sourceId: rentId, yearBefore: 2028, yearAfter: 2027 }],
+        changeFingerprint: changeFingerprint(fingerprinter, {
+          propertyReferenceId: PR,
+          year,
+          auditRecordId: 'audit-2',
+          kind: 'RENT_DUE_DAYS_AMENDED',
+          items: [{ sourceId: rentId, yearBefore: 2028, yearAfter: 2027 }],
+        }),
       },
     ];
-    expect(into).toEqual({ changes: expected, inconsistent: [] });
-    expect(out).toEqual({ changes: expected, inconsistent: [] });
-    expect(attributionChanges(input(reference()), 2026, TAX_RULES).changes).toEqual([]);
+    expect(into).toEqual({ changes: expected(2027), inconsistent: [] });
+    expect(out).toEqual({ changes: expected(2028), inconsistent: [] });
+    // The fingerprint names the year: the same change has another one in each view.
+    expect(into.changes[0]?.changeFingerprint).not.toBe(out.changes[0]?.changeFingerprint);
+    expect(attributionChanges(input(reference()), 2026, TAX_RULES, CTX).changes).toEqual([]);
     // In the view: the year flag, and the item now in 2027 carries it too; the 2028 view names it in the details only.
     const rent = split({ amount: '900.00', taxCategory: 'RENT', treatment: 'INCOME', bookingDate: '2027-12-29', sourceId: rentId });
     const v2027 = viewOf(readOf([rent], [], { attribution: input(reference()) }), 2027);
@@ -630,11 +643,16 @@ describe('ATTRIBUTION_INPUT_CHANGED (§58C)', () => {
     expect(codes(lineOf(v2027, 'RENT').items[0]?.flags ?? [])).toContain('ATTRIBUTION_INPUT_CHANGED');
     expect(v2027.flags.find((f) => f.code === 'ATTRIBUTION_INPUT_CHANGED')?.details).toEqual([
       {
+        kind: 'RENT_DUE_DAYS_AMENDED',
+        entityType: 'RentalContractReference',
+        entityId: REF,
         rentalContractReferenceId: REF,
         auditRecordId: 'audit-2',
         amendedAt: '2029-02-01T10:00:00.000Z',
         changedEntries: [{ validFrom: '2026-01-01', from: 3, to: 15 }],
         items: [{ sourceId: rentId, yearBefore: 2028, yearAfter: 2027 }],
+        changeFingerprint: expected(2027)[0]?.changeFingerprint,
+        acknowledgement: null,
       },
     ]);
     const v2028 = viewOf(readOf([], [], { attribution: input(reference()) }), 2028);
@@ -657,32 +675,37 @@ describe('ATTRIBUTION_INPUT_CHANGED (§58C)', () => {
         },
       ],
     });
-    expect(attributionChanges(input(later), 2028, TAX_RULES)).toEqual({ changes: [], inconsistent: [] });
-    expect(attributionChanges(input(reference(), 2028), 2028, TAX_RULES).changes).toEqual([]);
-    expect(attributionChanges(input(reference(), 2028), 2027, TAX_RULES).changes).toEqual([]);
+    expect(attributionChanges(input(later), 2028, TAX_RULES, CTX)).toEqual({ changes: [], inconsistent: [] });
+    expect(attributionChanges(input(reference(), 2028), 2028, TAX_RULES, CTX).changes).toEqual([]);
+    expect(attributionChanges(input(reference(), 2028), 2027, TAX_RULES, CTX).changes).toEqual([]);
   });
 
   it('recorded on 31 December of the year: no flag for it; on 1 January of the next (Europe/Berlin): flagged', () => {
     const at = (iso: string) =>
       reference({ amendments: [{ ...(reference().amendments[0] as ReferenceHistory['amendments'][number]), amendedAt: new Date(iso) }] });
     // 31 December 2028, 13:00 in Berlin: 2028 was still running.
-    expect(attributionChanges(input(at('2028-12-31T12:00:00Z')), 2028, TAX_RULES).changes).toEqual([]);
+    expect(attributionChanges(input(at('2028-12-31T12:00:00Z')), 2028, TAX_RULES, CTX).changes).toEqual([]);
     // …but after 2027: the 2027 view is flagged.
-    expect(attributionChanges(input(at('2028-12-31T12:00:00Z')), 2027, TAX_RULES).changes).toHaveLength(1);
+    expect(attributionChanges(input(at('2028-12-31T12:00:00Z')), 2027, TAX_RULES, CTX).changes).toHaveLength(1);
     // 23:30 UTC on 31 December is 00:30 on 1 January 2029 in Berlin.
-    expect(attributionChanges(input(at('2028-12-31T23:30:00Z')), 2028, TAX_RULES).changes).toHaveLength(1);
+    expect(attributionChanges(input(at('2028-12-31T23:30:00Z')), 2028, TAX_RULES, CTX).changes).toHaveLength(1);
     // Recorded in 2026, while both years still lay ahead: nothing.
-    expect(attributionChanges(input(at('2026-10-30T10:00:00Z')), 2027, TAX_RULES).changes).toEqual([]);
+    expect(attributionChanges(input(at('2026-10-30T10:00:00Z')), 2027, TAX_RULES, CTX).changes).toEqual([]);
   });
 
   it('an inconsistent history: ATTRIBUTION_HISTORY_INCONSISTENT, and that reference’s history is not used', () => {
     const broken = reference({ created: [{ validFrom: day('2026-01-01'), day: 5 }] });
-    expect(attributionChanges(input(broken), 2028, TAX_RULES)).toEqual({ changes: [], inconsistent: [REF] });
+    expect(attributionChanges(input(broken), 2028, TAX_RULES, CTX)).toEqual({
+      changes: [],
+      inconsistent: [{ entityType: 'RentalContractReference', entityId: REF }],
+    });
     const v = viewOf(readOf([], [], { attribution: input(broken) }), 2028);
     expect(v.flags.filter((f) => f.code === 'ATTRIBUTION_HISTORY_INCONSISTENT')).toEqual([
-      { code: 'ATTRIBUTION_HISTORY_INCONSISTENT', details: { rentalContractReferenceId: REF } },
+      { code: 'ATTRIBUTION_HISTORY_INCONSISTENT', details: { entityType: 'RentalContractReference', entityId: REF, rentalContractReferenceId: REF } },
     ]);
-    expect(attributionChanges(input(reference({ created: null })), 2028, TAX_RULES).inconsistent).toEqual([REF]);
+    expect(attributionChanges(input(reference({ created: null })), 2028, TAX_RULES, CTX).inconsistent).toEqual([
+      { entityType: 'RentalContractReference', entityId: REF },
+    ]);
   });
 });
 
@@ -737,8 +760,8 @@ describe('not attributed, the cap, the review and final (§58C)', () => {
       readOf([...notRelevant, ...Array.from({ length: extra }, () => split({ amount: '1.00', taxCategory: 'RENT', treatment: 'INCOME' }))], [], {
         unattributedDeposits: [deposit([]), deposit([])],
       });
-    expect(buildTaxYearView(at(0), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES }).kind).toBe('VIEW');
-    expect(buildTaxYearView(at(1), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES })).toEqual({
+    expect(buildTaxYearView(at(0), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter }).kind).toBe('VIEW');
+    expect(buildTaxYearView(at(1), { year: 2027, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter })).toEqual({
       kind: 'TAX_YEAR_TOO_LARGE',
       itemCount: 5001,
       limit: 5000,

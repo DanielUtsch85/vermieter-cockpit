@@ -127,7 +127,11 @@ async function start(read: (pr: string, owner: string | null) => TaxYearRead | u
   const repository = {
     readTaxYear: async (pr: string, _realm: string, _year: number, owner: string | null) => read(pr, owner),
   } as unknown as TaxClassificationRepository;
-  const taxYear = getTaxYearView({ repository, now: () => new Date('2026-10-30T10:00:00Z') });
+  const taxYear = getTaxYearView({
+    repository,
+    now: () => new Date('2026-10-30T10:00:00Z'),
+    fingerprinter: { sha256Hex: (text) => text.length.toString(16).padStart(64, '0') },
+  });
   server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...commandsWith({ taxation: { taxYear } }) }).listen(0, '127.0.0.1');
   await new Promise<void>((resolve) => server?.once('listening', () => resolve()));
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -370,8 +374,9 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       basis: 'PURCHASE_PRICE',
       share: '3/5',
       propertyPart: { amount: '60.01', currency: 'EUR' },
+      taxConfirmation: null,
     });
-    expect(item.flags).toEqual([{ code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId, allocationSetId: setId } }]);
+    expect(item.flags).toEqual([{ code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId, allocationSetId: setId, confirmation: null } }]);
     expect(v.notAttributed.items).toEqual([
       expect.objectContaining({
         sourceType: 'TRANSACTION_SPLIT',
@@ -381,7 +386,16 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
         reason: 'NO_LOAN_ALLOCATION',
         candidates: [PR, otherPr].sort(),
         href: `/api/v1/loans/${loanId}/allocations?asOf=2027-01-15`,
-        loanAllocation: { loanId, allocationSetId: null, validFrom: null, validUntil: null, basis: null, share: null, propertyPart: null },
+        loanAllocation: {
+          loanId,
+          allocationSetId: null,
+          validFrom: null,
+          validUntil: null,
+          basis: null,
+          share: null,
+          propertyPart: null,
+          taxConfirmation: null,
+        },
       }),
     ]);
     expect(v.flags.find((f) => f.code === 'LOAN_INTEREST_NOT_ATTRIBUTED')?.details).toEqual({

@@ -155,6 +155,12 @@ import {
   listTaxClassificationHistory,
   listTaxMeanings,
   getTaxYearView,
+  acknowledgeAttributionChange,
+  confirmAllocationSet,
+  listAcknowledgements,
+  listConfirmations,
+  withdrawAcknowledgement,
+  withdrawConfirmation,
   listTaxRules,
   reviewTaxClassification,
 } from './application/index.js';
@@ -174,6 +180,7 @@ import {
   PostgresWegEconomicPlanRepository,
   PostgresWegSpecialAssessmentRepository,
   PostgresTaxClassificationRepository,
+  PostgresTaxStatementRepository,
   PostgresDepreciationAssetRepository,
   PostgresDepreciationScheduleSource,
   PostgresScheduleVersionRepository,
@@ -238,6 +245,7 @@ const wegPlans = new PostgresWegEconomicPlanRepository(db);
 const wegStatements = new PostgresWegAnnualStatementRepository(db);
 const wegAssessments = new PostgresWegSpecialAssessmentRepository(db);
 const taxClassifications = new PostgresTaxClassificationRepository(db);
+const taxStatements = new PostgresTaxStatementRepository(db);
 const rentalContractReferences = new PostgresRentalContractReferenceRepository(db);
 // §59B: Depreciation reads the capitalised items through the tax repository's reader, in infrastructure/ (P8-D11).
 const depreciationAssets = new PostgresDepreciationAssetRepository(db, { capitalizedSources: taxClassifications.capitalizedSources });
@@ -373,9 +381,17 @@ const app = createApp({
     useTaxMeaning: getUseTaxMeaning({ repository: taxClassifications }),
     anschaffungsnahe: getAnschaffungsnaheCheck({ repository: taxClassifications }),
     taxMeanings: listTaxMeanings({ repository: taxClassifications }),
-    taxYear: getTaxYearView({ repository: taxClassifications }),
+    taxYear: getTaxYearView({ repository: taxClassifications, fingerprinter: sha256Fingerprinter }),
     listRules: listTaxRules(),
     getRule: getTaxRule(),
+  },
+  taxStatements: {
+    acknowledge: acknowledgeAttributionChange({ repository: taxStatements, fingerprinter: sha256Fingerprinter }),
+    listAcknowledgements: listAcknowledgements({ repository: taxStatements }),
+    withdrawAcknowledgement: withdrawAcknowledgement({ repository: taxStatements }),
+    confirm: confirmAllocationSet({ repository: taxStatements }),
+    listConfirmations: listConfirmations({ repository: taxStatements }),
+    withdrawConfirmation: withdrawConfirmation({ repository: taxStatements }),
   },
   rentalContractReferences: {
     create: createRentalContractReference({ repository: rentalContractReferences, lookupMreTenant: mreTenantLookup(mreClient) }),
