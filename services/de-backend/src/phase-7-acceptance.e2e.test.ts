@@ -254,7 +254,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
   const errorOf = async (res: Response, status: number) => (await json<{ error: { code: string; details?: Record<string, unknown> } }>(res, status)).error;
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
 
-  it('the Phase-7 exit, claim by claim', async () => {
+  // §58F's step lengthens the run: a timeout as ACC8's, so a loaded database does not fail it.
+  it('the Phase-7 exit, claim by claim', { timeout: 120_000 }, async () => {
     // The unit, its owners from the Acquisition (3/5 and 2/5), the WEG membership (MEA 100/1000).
     const flat = (
       await json<{ propertyReferenceId: string }>(await A('POST', '/property-references/link', { mreRealmId: REALM_A, mrePropertyId: PROPERTY }), 201)
