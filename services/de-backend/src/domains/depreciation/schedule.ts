@@ -24,7 +24,7 @@ import {
   type ScheduleStatus,
   type ScheduleYear,
 } from './schedule-model.js';
-import { INFORMATIVE_CODES, isOpen, mergeFlags, reviewOf, ruleVersionsOf, sortFlags } from './schedule-review.js';
+import { flagIsOpen, isOpen, mergeFlags, reviewOf, ruleVersionsOf, sortFlags } from './schedule-review.js';
 
 /**
  * The depreciation schedule of the purchase (api-design.md §59A, backlog VC-8-02; P8-D2, P8-D3, P8-D5, P8-D8, P8-D9;
@@ -64,7 +64,7 @@ export type {
   YearRule,
 } from './schedule-model.js';
 export { RANGE_MAX_YEAR, RANGE_MIN_YEAR } from './schedule-model.js';
-export { INFORMATIVE_CODES } from './schedule-review.js';
+export { INFORMATIVE_CODES, flagIsOpen } from './schedule-review.js';
 export type { Part, Work } from './purchase-work.js';
 
 /**
@@ -185,7 +185,7 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     ...shown.map((w) => componentOf(w, partsShown(w), { from, to }, assetReasons)),
     ...itemWorks
       .filter((w) => input.ownerPartyId === null || w.parts.some((p) => p.participant === input.ownerPartyId))
-      .map((w) => itemComponentOf(w, itemContext, { from, to }, input.ownerPartyId, INFORMATIVE_CODES)),
+      .map((w) => itemComponentOf(w, itemContext, { from, to }, input.ownerPartyId)),
   ];
 
   // The schedule's years: components summed, never distributed (P8-D8, F4b).
@@ -198,7 +198,8 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     const sum = (values: readonly (Money | null)[]) =>
       values.some((v) => v === null) ? null : moneyOfCents(values.reduce((s, v) => s + centsOf(v as Money), 0n));
     const ownerIds = [...new Set(active.flatMap(({ y }) => y.owners.map((o) => o.ownerPartyId)))].sort(byText);
-    const flags: Flag[] = mergeFlags(active.flatMap(({ c, y }) => [...c.flags, ...y.flags].map((f) => ({ componentId: c.componentId, flag: f }))));
+    const raised = active.flatMap(({ c, y }) => [...c.flags, ...y.flags].map((f) => ({ componentId: c.componentId, flag: f })));
+    const flags: Flag[] = mergeFlags(raised);
     for (const partyId of input.ownerPartyId === null ? parties : [input.ownerPartyId]) {
       const gap = uncoveredIn(coverage.get(partyId) ?? [], year);
       if (gap !== undefined) flags.push({ code: 'OWNER_WITHOUT_ACQUISITION', details: { ownerPartyId: partyId, ...gap } });
@@ -217,7 +218,10 @@ export function deriveSchedule(input: ScheduleInput, registry: RuleRegistry): De
     const notCalculable = assetReasons.length > 0 || calculable.length < active.length;
     const calculationStatus: CalculationStatus = notCalculable
       ? 'NOT_CALCULABLE'
-      : active.some(({ y }) => y.calculationStatus === 'PROVISIONAL') || flags.some((f) => isOpen(f.code))
+      : active.some(({ y }) => y.calculationStatus === 'PROVISIONAL') ||
+          // §59F (239-7): judged on the flags as raised, before the merge replaces their details.
+          raised.some((r) => flagIsOpen(r.flag)) ||
+          flags.some((f) => f.code === 'OWNER_WITHOUT_ACQUISITION' && isOpen(f.code))
         ? 'PROVISIONAL'
         : 'CALCULATED';
     years.push({

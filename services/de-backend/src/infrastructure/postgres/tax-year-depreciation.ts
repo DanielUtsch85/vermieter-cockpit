@@ -5,6 +5,7 @@ import {
   NOT_OWNED_PART,
   RECORDING_FLAGS,
   deriveSchedule,
+  flagIsOpen,
   isCapitalized,
   withRecording,
   type ComponentYear,
@@ -40,8 +41,12 @@ import type { Database } from './schema.js';
 
 type Trx = Transaction<Database>;
 
-/** The level of a Depreciation code as the schedule raises it (§59A "A year's flags"); Taxation never re-decides it. */
-export const levelOf = (code: string): DepreciationFlag['level'] => (INFORMATIVE_CODES.includes(code) ? 'INFORMATIVE' : 'OPEN');
+/**
+ * The level of a Depreciation flag as the schedule raises it (§59A "A year's flags"); Taxation never re-decides it. By
+ * code, except where the schedule decides it by the flag's details (§59F, 239-7: `CAPITALIZED_YEAR_DIFFERS`).
+ */
+export const levelOf = (code: string, details?: Readonly<Record<string, unknown>>): DepreciationFlag['level'] =>
+  (details === undefined ? INFORMATIVE_CODES.includes(code) : !flagIsOpen({ code, details })) ? 'INFORMATIVE' : 'OPEN';
 
 const ownersOf = (details: Readonly<Record<string, unknown>>): string[] => {
   const ids = details['ownerPartyIds'];
@@ -50,7 +55,12 @@ const ownersOf = (details: Readonly<Record<string, unknown>>): string[] => {
   return typeof id === 'string' ? [id] : [];
 };
 
-export const carried = (f: Flag): DepreciationFlag => ({ code: f.code, level: levelOf(f.code), details: f.details, ownerPartyIds: ownersOf(f.details) });
+export const carried = (f: Flag): DepreciationFlag => ({
+  code: f.code,
+  level: levelOf(f.code, f.details),
+  details: f.details,
+  ownerPartyIds: ownersOf(f.details),
+});
 
 /** The parts of a component in `year`: its owners' and, on an item, `NOT_OWNED`'s. */
 function partsOf(c: ScheduleComponent | ItemComponent, y: ComponentYear): TaxYearDepreciationPart[] {

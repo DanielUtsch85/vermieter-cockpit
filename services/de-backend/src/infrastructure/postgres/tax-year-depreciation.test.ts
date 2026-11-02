@@ -156,6 +156,14 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
     ];
     expect(open.filter((code) => levelOf(code) !== 'OPEN')).toEqual([]);
     expect(informative.filter((code) => levelOf(code) !== 'INFORMATIVE')).toEqual([]);
+    // §59F (the owner's decision 239-7, 2026-11-02): a level by state, carried as the schedule raises it.
+    expect([
+      levelOf('CAPITALIZED_YEAR_DIFFERS', { dateSource: 'PERFORMANCE_UNTIL' }),
+      levelOf('CAPITALIZED_YEAR_DIFFERS', { dateSource: 'ITEM_DATE' }),
+      levelOf('CAPITALIZED_YEAR_DIFFERS', {}),
+      levelOf('HISTORICAL_RULE_TO_VERIFY', { dateSource: 'PERFORMANCE_UNTIL' }),
+      levelOf('OWNER_SHARE_CHANGED', {}),
+    ]).toEqual(['INFORMATIVE', 'OPEN', 'OPEN', 'OPEN', 'INFORMATIVE']);
   });
 
   it('the view’s AfA equals the schedule’s components of the year at both levels; nothing recorded (the shipped default): NOT_RECORDED, final false', async () => {

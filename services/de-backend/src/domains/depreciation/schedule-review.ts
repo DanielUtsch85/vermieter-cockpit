@@ -20,6 +20,18 @@ export const INFORMATIVE_CODES: readonly string[] = [
 ];
 export const isOpen = (code: string) => !INFORMATIVE_CODES.includes(code);
 
+/**
+ * §59F (the owner's decision 239-7, 2026-11-02): a level by state, as §58C's `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` and
+ * §59E's `CONSTRUCTION_PERIOD_TREATMENT_MIXED`. `CAPITALIZED_YEAR_DIFFERS` is informative where the item's start comes
+ * from its performance (`dateSource` `PERFORMANCE_UNTIL`), open otherwise. Every other code keeps its level by code.
+ */
+const LEVEL_BY_DETAILS: Readonly<Record<string, (details: Readonly<Record<string, unknown>>) => boolean>> = {
+  CAPITALIZED_YEAR_DIFFERS: (details) => details['dateSource'] !== 'PERFORMANCE_UNTIL',
+};
+
+/** Whether a flag as raised (its details intact) is open; a merged flag (details replaced) is judged by its sources. */
+export const flagIsOpen = (flag: Flag): boolean => LEVEL_BY_DETAILS[flag.code]?.(flag.details) ?? isOpen(flag.code);
+
 export const sortFlags = (flags: readonly Flag[]) => [...flags].sort((a, b) => byText(a.code, b.code));
 
 /** Each code once, the components named (§59A "A year's flags"). */
@@ -43,21 +55,22 @@ export function reviewOf(
   components: readonly (ScheduleComponent | ItemComponent)[],
   years: readonly ScheduleYear[],
 ) {
-  const counts = new Map<string, number>();
-  const count = (code: string, n = 1) => counts.set(code, (counts.get(code) ?? 0) + n);
-  for (const r of [...assetReasons, ...scheduleFlags]) count(r.code);
+  // Each code once per carrier, counted where any of its flags there is open, else as informative (§59F, 239-7).
+  const counts = { open: new Map<string, number>(), info: new Map<string, number>() };
+  const count = (flags: readonly Flag[]) => {
+    for (const code of new Set(flags.map((f) => f.code))) {
+      const map = flags.some((f) => f.code === code && flagIsOpen(f)) ? counts.open : counts.info;
+      map.set(code, (map.get(code) ?? 0) + 1);
+    }
+  };
+  for (const r of [...assetReasons, ...scheduleFlags]) count([r]);
   for (const c of components) {
-    for (const code of new Set([...c.reasons, ...c.flags].map((f) => f.code))) count(code);
-    for (const y of c.years)
-      for (const o of y.owners) for (const code of new Set([...(c.status === 'COMPUTABLE' ? o.reasons : []), ...o.flags].map((f) => f.code))) count(code);
+    count([...c.reasons, ...c.flags]);
+    for (const y of c.years) for (const o of y.owners) count([...(c.status === 'COMPUTABLE' ? o.reasons : []), ...o.flags]);
   }
-  for (const y of years) for (const f of y.flags) if (f.code === 'OWNER_WITHOUT_ACQUISITION') count(f.code);
-  const list = (open: boolean) =>
-    [...counts.entries()]
-      .filter(([code]) => isOpen(code) === open)
-      .sort(([a], [b]) => byText(a, b))
-      .map(([code, n]) => ({ code, count: n }));
-  return { open: list(true), info: list(false) };
+  for (const y of years) for (const f of y.flags) if (f.code === 'OWNER_WITHOUT_ACQUISITION') count([f]);
+  const list = (map: Map<string, number>) => [...map.entries()].sort(([a], [b]) => byText(a, b)).map(([code, n]) => ({ code, count: n }));
+  return { open: list(counts.open), info: list(counts.info) };
 }
 
 export function ruleVersionsOf(components: readonly (ScheduleComponent | ItemComponent)[], registry: RuleRegistry, today: BusinessDate) {

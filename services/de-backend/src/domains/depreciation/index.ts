@@ -133,7 +133,7 @@ export { ITEM_SOURCE_TYPES, NOT_OWNED_PART, componentIdOf, isCapitalized, sameIt
 export type { CapitalizedItem, CapitalizedItemLoan, CapitalizedItemPart, ItemRef, ItemSourceType } from './capitalized-item.js';
 export type { ItemComponent, ItemComponentRate, ItemOwner, ItemSourceView } from './schedule-items.js';
 export { DEPRECIATION_RULE_VERSIONS } from './rules/versions.js';
-export { INFORMATIVE_CODES, RANGE_MAX_YEAR, RANGE_MIN_YEAR, SCHEDULE_CALCULATION_VERSION, deriveSchedule, isOwnerOf } from './schedule.js';
+export { INFORMATIVE_CODES, RANGE_MAX_YEAR, flagIsOpen, RANGE_MIN_YEAR, SCHEDULE_CALCULATION_VERSION, deriveSchedule, isOwnerOf } from './schedule.js';
 export type {
   AssetLink,
   CalculationStatus,
