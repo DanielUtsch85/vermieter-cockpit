@@ -262,6 +262,13 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     expect((await schedule(building, 'from=2027&to=2027')).excludedItems).toEqual([
       { componentId: `TRANSACTION_SPLIT:${kitchenSplit}`, separateAssetId: kitchen },
     ]);
+    // 236-1 (Entscheidung des Projektinhabers, 2026-11-02): the kitchen carries its stage on its own asset, never the building's.
+    const buildingStage = (await schedule(building, 'from=2027&to=2027')).years[0].stage;
+    expect(buildingStage.components.map((c: Json) => c.componentId)).not.toContain(`TRANSACTION_SPLIT:${kitchenSplit}`);
+    expect(kitchenSchedule.years[0].stage).toEqual({
+      stage: 2,
+      components: [{ componentId: `TRANSACTION_SPLIT:${kitchenSplit}`, stage: 2, criteria: ['MOVABLE_ASSET'] }],
+    });
     // A capitalised item booked on 2027-12-30 counts by its date (P8-D6): from January 2027 (START_OF_YEAR, provisional),
     // 1,234.56 split 740.74 / 493.82 (largest remainder), 2 % rounded cumulatively per part: 14.81 + 9.88 = 24.69.
     at('2028-01-10');
