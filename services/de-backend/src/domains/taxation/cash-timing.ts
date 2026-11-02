@@ -1,6 +1,6 @@
 import { addDays, addMonths, type BusinessDate, type RuleRef, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import type { Direction } from '../ledger/index.js';
-import { dueDayOn, type RentDueDay } from '../rental-contract-reference/index.js';
+import { dueEntryOn, type RentDueDay } from '../rental-contract-reference/index.js';
 import { CASH_TIMING, type CashTimingParameters } from './rules/de-cash-timing.js';
 import { isExpenseLine, isIncomeLine, type TaxCategory } from './vocabulary.js';
 
@@ -59,6 +59,8 @@ export type TimingInput =
       readonly dueDateSource: DueDateSource;
       /** Hausgeld: a debit names no month, so the period is only the nearest month's guess (review on #159). */
       readonly periodGuessed: boolean;
+      /** §58F: a recorded rent due day's `evidenceReference`, or `null`; absent for the other sources. */
+      readonly dueDateEvidence?: string | null;
     };
 
 /**
@@ -69,21 +71,21 @@ export function rentTiming(term: string, rentDueDays: readonly RentDueDay[] | nu
   const year = Number(term.slice(0, 4));
   const month = Number(term.slice(4, 6));
   const termStart = dayIn(year, month, Number(term.slice(6, 8)));
-  const day = rentDueDays === null ? undefined : dueDayOn(rentDueDays, termStart);
-  // DUE_DATE_ASSUMED is decided here. Without a recorded due day the term's first day serves as the due date (P7-D3).
-  // Rationale (§ 556b Abs. 1 BGB): unless the lease says otherwise, rent is due in advance, at the latest by the
-  // 3rd working day of the period. For a January term that is at the latest 5 or 6 January, inside the window of
-  // 10 January, as the 1st is; for a December term both lie before 22 December. So the assumption gives the
-  // statutory outcome of the 10-day rule; it is still flagged, since a lease may agree another day (e.g. the 15th).
-  return day === undefined
+  const entry = rentDueDays === null ? undefined : dueEntryOn(rentDueDays, termStart);
+  // DUE_DATE_ASSUMED is decided here. Without a recorded due day the term's first day serves as the due date (P7-D3),
+  // but only as a proposal: §58F (VC-X-39, Prüfbericht 2026-11-01, Frage 18) moves no year on an assumed due date, so
+  // `attributeTaxYear` keeps the booking year and flags PROPOSED_BY_10_DAY_RULE. A December term's first day lies
+  // before 22 December, so a December rent paid late without a due day is never moved back, nor proposed.
+  return entry === undefined
     ? { kind: 'PERIOD', economicPeriod: monthPeriod(year, month), economicYear: year, dueDate: termStart, dueDateSource: 'PERIOD_START', periodGuessed: false }
     : {
         kind: 'PERIOD',
         economicPeriod: monthPeriod(year, month),
         economicYear: year,
-        dueDate: dayIn(year, month, day),
+        dueDate: dayIn(year, month, entry.day),
         dueDateSource: 'RENTAL_CONTRACT_REFERENCE',
         periodGuessed: false,
+        dueDateEvidence: entry.evidenceReference ?? null,
       };
 }
 
@@ -184,9 +186,22 @@ export type TaxYearFlag =
         readonly dueDate: BusinessDate;
         readonly economicPeriod: EconomicPeriod;
         readonly dueDateSource: DueDateSource;
+        /** §58F: the due day's `evidenceReference`, or `null` (none named, or a source without one). */
+        readonly dueDateEvidence: string | null;
       };
     }
   | { readonly code: 'DUE_DATE_ASSUMED'; readonly details: { readonly dueDate: BusinessDate; readonly economicPeriod: EconomicPeriod } }
+  | {
+      /** §58F: the rule would move the split if its assumed due date were the real one; the booking year stays. */
+      readonly code: 'PROPOSED_BY_10_DAY_RULE';
+      readonly details: {
+        readonly bookingDate: BusinessDate;
+        readonly dueDate: BusinessDate;
+        readonly economicPeriod: EconomicPeriod;
+        readonly dueDateSource: DueDateSource;
+        readonly proposedYear: number;
+      };
+    }
   | { readonly code: 'NO_ECONOMIC_PERIOD'; readonly details: { readonly reason: NoPeriodReason } }
   | {
       readonly code: 'ECONOMIC_PERIOD_ASSUMED';
@@ -210,8 +225,10 @@ export interface TaxYearAttribution {
 /**
  * The tax year of a split (§58A): the booking year, unless (1) the booking date and (2) the due date lie in the same
  * window and (3) the economic year differs from the booking year; then the economic year, flagged
- * `ATTRIBUTED_BY_10_DAY_RULE`. Hausgeld is never moved on a guess: it keeps its booking year, flagged
- * `ECONOMIC_PERIOD_ASSUMED` with the guessed year as `proposedYear`. A classification's `taxYear` wins over both.
+ * `ATTRIBUTED_BY_10_DAY_RULE`, but (4, §58F) only when the due date is recorded (`dueDate.recordedSources`). Hausgeld is
+ * never moved on a guess: it keeps its booking year, flagged `ECONOMIC_PERIOD_ASSUMED` with the guessed year as
+ * `proposedYear`. A rent without a recorded due date keeps it too, flagged `PROPOSED_BY_10_DAY_RULE` (§58F). A
+ * classification's `taxYear` wins over all of them.
  * The flags of the source (`DUE_DATE_ASSUMED`, `NO_ECONOMIC_PERIOD`) are raised only where the rule could apply.
  */
 export function attributeTaxYear(
@@ -240,11 +257,29 @@ export function attributeTaxYear(
             code: 'ECONOMIC_PERIOD_ASSUMED',
             details: { bookingDate: split.bookingDate, dueDate: timing.dueDate, economicPeriod: timing.economicPeriod, proposedYear },
           });
-        } else {
+        } else if (rule.parameters.dueDate.recordedSources.includes(timing.dueDateSource)) {
           moves = true;
           flags.push({
             code: 'ATTRIBUTED_BY_10_DAY_RULE',
-            details: { bookingDate: split.bookingDate, dueDate: timing.dueDate, economicPeriod: timing.economicPeriod, dueDateSource: timing.dueDateSource },
+            details: {
+              bookingDate: split.bookingDate,
+              dueDate: timing.dueDate,
+              economicPeriod: timing.economicPeriod,
+              dueDateSource: timing.dueDateSource,
+              dueDateEvidence: timing.dueDateEvidence ?? null,
+            },
+          });
+        } else {
+          // §58F: no move without a recorded due date; the other year is only proposed, until a person decides.
+          flags.push({
+            code: 'PROPOSED_BY_10_DAY_RULE',
+            details: {
+              bookingDate: split.bookingDate,
+              dueDate: timing.dueDate,
+              economicPeriod: timing.economicPeriod,
+              dueDateSource: timing.dueDateSource,
+              proposedYear,
+            },
           });
         }
       }

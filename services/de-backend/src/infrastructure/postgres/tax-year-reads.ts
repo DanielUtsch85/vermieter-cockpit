@@ -6,10 +6,12 @@ import {
   depositNotCounted,
   deriveDepositTaxMeaning,
   partOf,
+  proposedSplits,
   wegSourceKey,
   widestWindowDays,
   type AttributionInput,
   type DepositTaxMeaning,
+  type ProposedSplit,
   type RuleRegistry,
   type SourceType,
   type TaxListItem,
@@ -95,7 +97,7 @@ export async function readTaxYear(
         : undefined;
       if (party === undefined) return empty;
     }
-    const { entries, effects, deposits } = await yearItems(trx, registry, mreRealmId, propertyReferenceId, year, today);
+    const { entries, effects, deposits, proposed } = await yearItems(trx, registry, mreRealmId, propertyReferenceId, year, today);
     const ownerships = await trx
       .selectFrom('ownership')
       .select([
@@ -145,6 +147,7 @@ export async function readTaxYear(
       ...loans,
       depreciation,
       interest,
+      proposedSplits: proposed,
     };
   });
 }
@@ -276,6 +279,8 @@ export async function yearItems(
   readonly entries: { readonly item: TaxListItem; readonly listed: boolean }[];
   readonly effects: Effects;
   readonly deposits: DepositTaxMeaning[];
+  /** §58F: the splits read here, counted in another year, whose 10-day proposal names `year`. */
+  readonly proposed: ProposedSplit[];
 }> {
   // §58A: every split that can count in `year`: booked in it or in the windows around it, or overridden to it.
   const { from, to } = yearWindow(registry, year);
@@ -329,7 +334,8 @@ export async function yearItems(
       return a.index - b.index;
     })
     .map((x) => x.entry);
-  return { entries: sorted, effects, deposits };
+  // §58F: a split booked in a window around `year` and counted in the other year is read here already.
+  return { entries: sorted, effects, deposits, proposed: proposedSplits(splits, year) };
 }
 
 /** The deposit closings of the Realm closed in `year` that count by the deposit (§58A), with their meanings. */

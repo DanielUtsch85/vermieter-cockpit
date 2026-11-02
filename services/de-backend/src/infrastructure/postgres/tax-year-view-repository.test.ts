@@ -323,18 +323,35 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
     expect(seen.get(`TRANSACTION_SPLIT/${ids.elected}/`)).toEqual([2026, 2027, 2028]);
     const v2027 = viewOf(await view(ids.pr, 2027));
     const line = (c: string) => [...v2027.einnahmen.lines, ...v2027.werbungskosten.lines].find((l) => l.taxCategory === c);
-    expect(line('RENT')?.items.map((i) => i.sourceId)).toEqual([ids.januaryRent, ids.rent]);
+    // §58F: the January rent paid on 2026-12-29 has no recorded due date, so it counts in 2026; 2027 names it in the
+    // year flag with its amount, unsummed, and is not final through it (the snapshot's own read of the window).
+    expect(line('RENT')?.items.map((i) => i.sourceId)).toEqual([ids.rent]);
+    expect(v2027.flags.find((f) => f.code === 'PROPOSED_BY_10_DAY_RULE')?.details).toEqual({
+      count: 1,
+      items: [
+        { sourceId: ids.januaryRent, bookingDate: '2026-12-29', bookingYear: 2026, proposedYear: 2027, amount: eur('900.00'), countedInYear: 2026, open: true },
+      ],
+    });
+    expect([v2027.review.final, v2027.review.open.find((o) => o.code === 'PROPOSED_BY_10_DAY_RULE')?.count]).toEqual([false, 1]);
+    const v2026 = viewOf(await view(ids.pr, 2026));
+    const rent2026 = [...v2026.einnahmen.lines].find((l) => l.taxCategory === 'RENT');
+    expect(rent2026?.items.map((i) => [i.sourceId, i.flags.map((f) => f.code)])).toEqual([
+      [ids.decemberRent, []],
+      [ids.januaryRent, ['DUE_DATE_ASSUMED', 'PROPOSED_BY_10_DAY_RULE']],
+    ]);
+    expect(v2026.flags.map((f) => f.code)).not.toContain('PROPOSED_BY_10_DAY_RULE');
+    expect(rent2026?.total).toEqual(eur('1800.00'));
     expect(line('REFUNDS_OF_EARLIER_YEARS')?.items.map((i) => [i.sourceId, i.lineAmount?.amount])).toEqual([[ids.refund, '40.00']]);
     expect(line('MAINTENANCE')?.subtotals).toEqual({ immediate: eur('0.00'), distributed82b: eur('3000.00') });
     expect(v2027.capitalized.items.map((i) => i.sourceId)).toEqual([ids.capitalised]);
     expect(v2027.notInView.items.map((i) => i.sourceId)).toEqual([ids.principal]);
     expect(v2027.unclassified.items.map((i) => i.sourceId)).toEqual([ids.other]);
-    expect([v2027.einnahmen.total.amount, v2027.werbungskosten.total.amount, v2027.result.amount.amount]).toEqual(['1840.00', '3000.00', '-1160.00']);
-    expect(v2027.owners?.map((o) => [o.ownerPartyId, o.result.amount.amount])).toEqual([[ids.anna, '-1160.00']]);
+    expect([v2027.einnahmen.total.amount, v2027.werbungskosten.total.amount, v2027.result.amount.amount]).toEqual(['940.00', '3000.00', '-2060.00']);
+    expect(v2027.owners?.map((o) => [o.ownerPartyId, o.result.amount.amount])).toEqual([[ids.anna, '-2060.00']]);
     expect(v2027.ruleVersions.map((r) => `${r.ruleCode}@${r.version}:${r.itemCount}`)).toEqual([
       'DE_82B_DISTRIBUTION@1:1',
-      'DE_CASH_TIMING@1:7',
-      'DE_CATEGORY_DEFAULTS@1:7',
+      'DE_CASH_TIMING@1:6',
+      'DE_CATEGORY_DEFAULTS@1:6',
     ]);
   });
 

@@ -26,7 +26,7 @@ const reference: RentalContractReference = {
   mreRealmId: REALM,
   mreTenantId: TENANT,
   rentDueDays: [
-    { validFrom: '2025-01-01' as BusinessDate, day: 3 },
+    { validFrom: '2025-01-01' as BusinessDate, day: 3, evidenceReference: 'Mietvertrag § 4 Abs. 1' },
     { validFrom: '2028-01-01' as BusinessDate, day: 15 },
   ],
   notes: 'Mietvertrag § 4',
@@ -63,11 +63,13 @@ const dto = {
   mreRealmId: REALM,
   mreTenantId: TENANT,
   rentDueDays: [
-    { validFrom: '2025-01-01', day: 3 },
-    { validFrom: '2028-01-01', day: 15 },
+    { validFrom: '2025-01-01', day: 3, evidenceReference: 'Mietvertrag § 4 Abs. 1' },
+    { validFrom: '2028-01-01', day: 15, evidenceReference: null },
   ],
   notes: 'Mietvertrag § 4',
   sourceReferences: ['Mietvertrag 2025'],
+  // §58F: the second entry names no evidence.
+  evidenceRecommended: true,
   createdAt: '2026-10-30T10:00:00.000Z',
   createdBy: 'anna@example.com',
   version: 2,
@@ -90,7 +92,15 @@ describe('POST /rental-contract-references (§58A)', () => {
     expect(res.headers.get('etag')).toBe('"2"');
     expect(res.headers.get('location')).toBe(`/api/v1/rental-contract-references/${REF}`);
     expect(await res.json()).toEqual(dto);
-    expect(seen[0]).toMatchObject({ ...body, authorizationHeader: 'Bearer a.b.c', idempotencyKey: 'k1', principal: { mreRealmId: REALM } });
+    // An evidence of null is the same as none: the domain entry carries no key.
+    expect(seen[0]).toMatchObject({
+      ...body,
+      rentDueDays: reference.rentDueDays,
+      authorizationHeader: 'Bearer a.b.c',
+      idempotencyKey: 'k1',
+      principal: { mreRealmId: REALM },
+    });
+    expect(seen[0]?.rentDueDays[1]).not.toHaveProperty('evidenceReference');
     expect((await post(base, '/rental-contract-references', { mreTenantId: TENANT })).status).toBe(201);
     expect(seen[1]).toMatchObject({ rentDueDays: [], notes: null, sourceReferences: [] });
     const replayed = await post(base, '/rental-contract-references', body, { 'idempotency-key': 'again' });
@@ -133,6 +143,36 @@ describe('POST /rental-contract-references (§58A)', () => {
       { field: 'sourceReferences', code: 'INVALID_FORMAT' },
     ]);
     expect(await fields(await send({ mreTenantId: TENANT, mreLeaseDefinitionId: 'x' }))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+  });
+
+  it('the evidence of an entry (§58F): optional, trimmed, 1–500 characters; null as none; on create and amend', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      rentalContractReferences: {
+        create: async (input) => (seen.push(input.rentDueDays), { reference, replayed: false }),
+        amend: async (input) => (seen.push(input.rentDueDays), { reference, changed: true }),
+      },
+    });
+    const create = (evidenceReference: unknown) =>
+      post(base, '/rental-contract-references', { mreTenantId: TENANT, rentDueDays: [{ validFrom: '2025-01-01', day: 3, evidenceReference }] });
+    const amend = (evidenceReference: unknown) =>
+      post(base, `/rental-contract-references/${REF}/amend`, { rentDueDays: [{ validFrom: '2025-01-01', day: 3, evidenceReference }] });
+    for (const send of [create, amend]) {
+      for (const bad of ['', '   ', 'x'.repeat(501), 42]) {
+        expect(await fields(await send(bad)), JSON.stringify(bad)).toEqual([{ field: 'rentDueDays.0.evidenceReference', code: expect.any(String) }]);
+      }
+      expect((await send('  Mietvertrag § 4  ')).status).toBeLessThan(300);
+      expect((await send('x'.repeat(500))).status).toBeLessThan(300);
+      expect((await send(null)).status).toBeLessThan(300);
+    }
+    expect(seen).toEqual([
+      [{ validFrom: '2025-01-01', day: 3, evidenceReference: 'Mietvertrag § 4' }],
+      [{ validFrom: '2025-01-01', day: 3, evidenceReference: 'x'.repeat(500) }],
+      [{ validFrom: '2025-01-01', day: 3 }],
+      [{ validFrom: '2025-01-01', day: 3, evidenceReference: 'Mietvertrag § 4' }],
+      [{ validFrom: '2025-01-01', day: 3, evidenceReference: 'x'.repeat(500) }],
+      [{ validFrom: '2025-01-01', day: 3 }],
+    ]);
   });
 
   it('the error mapping of a create', async () => {

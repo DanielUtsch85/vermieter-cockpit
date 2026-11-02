@@ -4,6 +4,7 @@ import type { TaxYearItem, TaxYearReview, TaxYearRuleVersion, ViewFlag } from '.
 import type { Origin, ReviewState, Treatment } from './vocabulary.js';
 import { REVIEW_STATES } from './vocabulary.js';
 import { OPEN_AFA_YEAR_FLAGS } from './tax-year-depreciation.js';
+import { PROPOSED_BY_10_DAY_RULE, proposalIsOpen, yearProposalIsOpen } from './ten-day-proposal.js';
 
 /**
  * The review of the tax-year view (api-design.md §58C "Review"): which flags are open, whether the year is final, and
@@ -49,14 +50,17 @@ const OPEN_YEAR_FLAGS = new Set([
 
 /**
  * Whether an item's flag needs a person (§58C's review table): `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` while the item is
- * not `CAPITALIZED`; an attribution flag while no confirmed classification stands for the item; every flag the table
+ * not `CAPITALIZED`; an attribution flag while no confirmed classification stands for the item; `PROPOSED_BY_10_DAY_RULE`
+ * while no confirmed classification sets `taxYear` (§58F); every flag the table
  * does not name as open is informative.
  */
 export function flagIsOpen(
   code: string,
-  item: { readonly treatment: Treatment | null; readonly origin: Origin; readonly reviewState: ReviewState },
+  item: { readonly treatment: Treatment | null; readonly origin: Origin; readonly reviewState: ReviewState; readonly attribution?: unknown },
   details?: unknown,
 ): boolean {
+  // §58F: only a confirmed taxYear decides the proposal; a confirmation without one does not (never in CONFIRMABLE).
+  if (code === PROPOSED_BY_10_DAY_RULE) return proposalIsOpen({ ...item, attribution: item.attribution });
   if (code === 'CONSTRUCTION_PERIOD_TREATMENT_MIXED')
     return (details as { recordReviewState?: unknown } | undefined)?.recordReviewState !== 'ADVISOR_CONFIRMED';
   if (OPEN_YEAR_FLAGS.has(code) || OPEN_ITEM_FLAGS.has(code)) return true;
@@ -77,7 +81,9 @@ export function reviewOf(
   const open = new Map<string, number>();
   const info = new Map<string, number>();
   const bump = (map: Map<string, number>, code: string) => map.set(code, (map.get(code) ?? 0) + 1);
-  for (const f of yearFlags) bump(OPEN_YEAR_FLAGS.has(f.code) ? open : info, f.code);
+  // §58F: the year flag of the 10-day proposal is open while one of its splits is (informative once each is decided).
+  const yearFlagOpen = (f: ViewFlag) => (f.code === PROPOSED_BY_10_DAY_RULE ? yearProposalIsOpen(f.details) : OPEN_YEAR_FLAGS.has(f.code));
+  for (const f of yearFlags) bump(yearFlagOpen(f) ? open : info, f.code);
   const itemCodes = new Map<string, { open: number; info: number }>();
   for (const item of items) {
     for (const code of new Set(item.flags.map((f) => f.code))) {

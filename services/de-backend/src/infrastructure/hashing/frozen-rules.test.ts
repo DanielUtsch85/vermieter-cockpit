@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DE_AFA_BUILDING_LINEAR_V2, ruleVersionHash } from '../../domains/depreciation/index.js';
+import { DE_CASH_TIMING_V1 } from '../../domains/taxation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import { sha256Fingerprinter } from './sha256-fingerprinter.js';
@@ -46,6 +47,13 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // durch den Steuerberater, laut Projektinhaber am 2026-11-01): a classification's `treatmentRule`, so pinned from its
   // first commit on; a change is `@2` (§59E "Frozen rules"). The AfA rules and DE_CATEGORY_DEFAULTS@1 are unchanged.
   ['DE_CONSTRUCTION_PERIOD_INTEREST', 1, '554fb1d188d9e4660e4628f4b35c9ed855f91cc312627e630e400af917b9809b'],
+  // A Phase-7 rule, pinned from §58F on (VC-X-39): changed in place by the parameter `dueDate.recordedSources` and a
+  // change note in its `source` (Prüfbericht 2026-11-01, Frage 18, mündlich bestätigt durch den Steuerberater, laut
+  // Projektinhaber am 2026-11-01; owner decisions 2026-11-01 and 2026-11-02: no 10-day shift without a recorded due
+  // date, parameter and hash updated explicitly, no backfill). Before (never pinned): b7fa5cf1…87f8. Its freeze point is
+  // the documented go-live of the first productive installation: until then a change updates this literal explicitly,
+  // in the same commit; after it, a change is `@2`.
+  ['DE_CASH_TIMING', 1, 'dab6ce4e53383d47c0505dee9988316075c9c25cc2bb28abfb2ff75b292241cf'],
 ];
 
 describe('the frozen rule versions (§60)', () => {
@@ -70,6 +78,21 @@ describe('the frozen rule versions (§60)', () => {
     // §59D: the cost classification policy is a covered parameter too.
     const basis = { ...v.parameters.basis, costClassification: { ...v.parameters.basis.costClassification, requiredFor: ['OTHER'] } };
     expect(hash({ ...v, parameters: { ...v.parameters, basis } })).not.toBe(hash(v));
+    expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
+  });
+
+  it('counter-checks on a copy of the cash rule (§58F): recordedSources with PERIOD_START changes the hash; effectiveTo does not', () => {
+    const v = DE_CASH_TIMING_V1;
+    const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
+    const dueDate = { ...v.parameters.dueDate, recordedSources: [...v.parameters.dueDate.recordedSources, 'PERIOD_START'] };
+    expect(hash({ ...v, parameters: { ...v.parameters, dueDate } })).not.toBe(hash(v));
+    // The rule as it was before VC-X-39 (no dueDate, the source without the change note): the hash never pinned.
+    const before = {
+      ...v,
+      parameters: { windowDays: v.parameters.windowDays, recurringCategories: v.parameters.recurringCategories } as typeof v.parameters,
+      source: 'docs/germany/taxation.md §3 (v0.2); phase-7-plan P7-D3 (review on #156); api-design §58A (review on #159); verification-checklist A4',
+    };
+    expect(hash(before)).toBe('b7fa5cf1648fb12179487933fd305f895983853021362877ff6c4c38a74487f8');
     expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
   });
 });

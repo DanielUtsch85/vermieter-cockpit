@@ -12,9 +12,15 @@ export type RentalContractReferenceId = string & { readonly __brand: 'RentalCont
 export interface RentDueDay {
   readonly validFrom: BusinessDate;
   readonly day: number;
+  /**
+   * §58F (VC-X-39, migration 0057; owner decision 2026-11-02): the document the day is taken from, e.g. the lease's
+   * clause. Optional and recommended: an entry without one moves the year all the same. Trimmed, 1–500 characters.
+   */
+  readonly evidenceReference?: string;
 }
 
 export const MAX_RENT_DUE_DAYS = 20;
+export const MAX_EVIDENCE_REFERENCE = 500;
 
 export interface RentalContractReferenceFields {
   readonly rentDueDays: readonly RentDueDay[];
@@ -35,13 +41,17 @@ export interface RentalContractReference extends NewRentalContractReference {
 }
 
 /**
- * Why a list of due days is not valid, or undefined: `validFrom` unique and strictly ascending, each day 1–31, at
- * most 20 entries (the database checks the same, `rental_contract_reference_due_days_valid`).
+ * Why a list of due days is not valid, or undefined: `validFrom` unique and strictly ascending, each day 1–31, an
+ * `evidenceReference` trimmed and 1–500 characters, at most 20 entries (the database checks the same,
+ * `rental_contract_reference_due_days_valid`, 0057).
  */
 export function rentDueDaysError(days: readonly RentDueDay[]): { readonly index: number; readonly code: 'NOT_ASCENDING' | 'OUT_OF_RANGE' } | undefined {
   if (days.length > MAX_RENT_DUE_DAYS) return { index: MAX_RENT_DUE_DAYS, code: 'OUT_OF_RANGE' };
   for (const [index, entry] of days.entries()) {
     if (!Number.isInteger(entry.day) || entry.day < 1 || entry.day > 31) return { index, code: 'OUT_OF_RANGE' };
+    const evidence = entry.evidenceReference;
+    if (evidence !== undefined && (evidence.trim() !== evidence || evidence.length < 1 || evidence.length > MAX_EVIDENCE_REFERENCE))
+      return { index, code: 'OUT_OF_RANGE' };
     const previous = days[index - 1];
     if (previous !== undefined && entry.validFrom <= previous.validFrom) return { index, code: 'NOT_ASCENDING' };
   }
@@ -53,9 +63,37 @@ export function rentDueDaysError(days: readonly RentDueDay[]): { readonly index:
  * before the first entry or for an empty list (`DUE_DATE_ASSUMED`, §58A).
  */
 export function dueDayOn(days: readonly RentDueDay[], termStart: BusinessDate): number | undefined {
-  let found: number | undefined;
-  for (const entry of days) if (entry.validFrom <= termStart) found = entry.day;
+  return dueEntryOn(days, termStart)?.day;
+}
+
+/** The entry of `dueDayOn`, with its evidence (§58F). */
+export function dueEntryOn(days: readonly RentDueDay[], termStart: BusinessDate): RentDueDay | undefined {
+  let found: RentDueDay | undefined;
+  for (const entry of days) if (entry.validFrom <= termStart) found = entry;
   return found;
+}
+
+/**
+ * §58F (VC-X-39; owner decision 2026-11-02): a recorded due day suffices to apply the 10-day rule, but its evidence
+ * (an entry's `evidenceReference`, e.g. the lease's clause) is recommended: true while an entry has none.
+ */
+export const dueDaysEvidenceRecommended = (fields: Pick<RentalContractReferenceFields, 'rentDueDays'>): boolean =>
+  fields.rentDueDays.some((e) => e.evidenceReference === undefined);
+
+/** One entry whose evidence differs between two lists, by `validFrom` (the AuditRecord's `details.changedEvidence`, §58F). */
+export interface ChangedEvidence {
+  readonly validFrom: BusinessDate;
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+/** The entries present in both lists whose `evidenceReference` an amend changes, in `validFrom` order. */
+export function changedEvidence(before: readonly RentDueDay[], after: readonly RentDueDay[]): ChangedEvidence[] {
+  const old = new Map(before.map((e) => [e.validFrom, e.evidenceReference ?? null]));
+  return after
+    .filter((e) => old.has(e.validFrom) && old.get(e.validFrom) !== (e.evidenceReference ?? null))
+    .map((e) => ({ validFrom: e.validFrom, from: old.get(e.validFrom) ?? null, to: e.evidenceReference ?? null }))
+    .sort((a, b) => (a.validFrom < b.validFrom ? -1 : 1));
 }
 
 /** One entry whose day differs between two lists, by `validFrom`: added (`from` null), removed (`to` null) or changed. */
@@ -80,21 +118,29 @@ export type AmendableReferenceField = keyof RentalContractReferenceFields;
 /** What an amend changes; nothing is a `200` no-op. */
 export interface ReferenceAmendPlan {
   readonly changedFields: readonly AmendableReferenceField[];
+  /** The days changed: the attribution input (§58C). An evidence-only change has none. */
   readonly changedEntries: readonly ChangedEntry[];
+  readonly changedEvidence: readonly ChangedEvidence[];
 }
 
 export function planReferenceAmend(current: RentalContractReference, changes: RentalContractReferenceFields): ReferenceAmendPlan {
   const entries = changedEntries(current.rentDueDays, changes.rentDueDays);
+  const evidence = changedEvidence(current.rentDueDays, changes.rentDueDays);
   const changedFields: AmendableReferenceField[] = [];
-  if (entries.length > 0) changedFields.push('rentDueDays');
+  if (entries.length > 0 || evidence.length > 0) changedFields.push('rentDueDays');
   if (changes.notes !== current.notes) changedFields.push('notes');
   if (JSON.stringify(changes.sourceReferences) !== JSON.stringify(current.sourceReferences)) changedFields.push('sourceReferences');
-  return { changedFields, changedEntries: entries };
+  return { changedFields, changedEntries: entries, changedEvidence: evidence };
 }
 
 /** Identity of a create for `Idempotency-Key` replays. */
 export function referenceFingerprint(reference: NewRentalContractReference): string {
-  return JSON.stringify([reference.mreTenantId, reference.rentDueDays.map((e) => [e.validFrom, e.day]), reference.notes, reference.sourceReferences]);
+  return JSON.stringify([
+    reference.mreTenantId,
+    reference.rentDueDays.map((e) => [e.validFrom, e.day, e.evidenceReference ?? null]),
+    reference.notes,
+    reference.sourceReferences,
+  ]);
 }
 
 export type CreateReferenceOutcome =

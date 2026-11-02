@@ -51,6 +51,8 @@ export {
   yearOf,
 } from './cash-timing.js';
 export type { DueDateSource, EconomicPeriod, NoPeriodReason, RefundFlag, RefundInfo, TaxYearAttribution, TaxYearFlag, TimingInput } from './cash-timing.js';
+export { PROPOSED_BY_10_DAY_RULE, proposalIsOpen, proposedSplits, yearProposalIsOpen } from './ten-day-proposal.js';
+export type { ProposalCandidate, ProposedSplit } from './ten-day-proposal.js';
 export {
   categoryDefaultsOn,
   classificationFingerprint,

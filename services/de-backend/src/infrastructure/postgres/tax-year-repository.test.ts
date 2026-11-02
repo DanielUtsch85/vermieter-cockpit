@@ -60,7 +60,7 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
   });
 
   describe('the tax year of rent (§58A)', () => {
-    it('a January rent paid on 29 December: January’s year (assumed, then by day 3); day 15 moves it back; the list across the year-end', async () => {
+    it('a January rent paid on 29 December: the year paid while assumed (§58F), January’s by day 3; day 15 moves it back; the list across the year-end', async () => {
       const pr = await propertyReference();
       const tenant = nextTenant();
       const january = await rent(pr, tenant, '2026-12-29', '2027010100');
@@ -68,8 +68,11 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
       // A rent of 2 January for December, paid late: December's year, by the reference below.
       const late = await rent(pr, tenant, '2027-01-02', '2026120100');
       const before = await meaning(january);
-      expect(before).toMatchObject({ taxYear: 2027, attribution: { bookingYear: 2026, proposedYear: 2027, overridden: false } });
-      expect(codes(before?.flags)).toEqual(['DUE_DATE_ASSUMED', 'ATTRIBUTED_BY_10_DAY_RULE']);
+      // §58F: no move on an assumed due date; the year paid, with the proposal of January's year.
+      expect(before).toMatchObject({ taxYear: 2026, attribution: { bookingYear: 2026, proposedYear: 2027, overridden: false } });
+      expect(codes(before?.flags)).toEqual(['DUE_DATE_ASSUMED', 'PROPOSED_BY_10_DAY_RULE']);
+      expect(splitsOf(await list(pr, 2026)).map((m) => m.splitId)).toEqual([december, january]);
+      expect(splitsOf(await list(pr, 2027)).map((m) => m.splitId)).toEqual([late]);
       // Without a reference the December term's first day (1 December) lies outside the window: the late one stays in 2027.
       expect((await meaning(late))?.taxYear).toBe(2027);
       const ref = await reference(tenant, due([['2025-01-01', 3]]));
@@ -241,6 +244,7 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
             dueDate: '2026-12-30',
             economicPeriod: { from: '2026-12-01', to: '2026-12-30' },
             dueDateSource: 'LOAN_SCHEDULE',
+            dueDateEvidence: null,
           },
         },
       ]);

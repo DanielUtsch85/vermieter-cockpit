@@ -725,7 +725,7 @@ export type {
   GetRentalContractReference,
   ListRentalContractReferences,
 } from './rental-contract-references.js';
-export { MAX_RENT_DUE_DAYS, rentDueDaysError } from '../domains/rental-contract-reference/index.js';
+export { MAX_EVIDENCE_REFERENCE, MAX_RENT_DUE_DAYS, dueDaysEvidenceRecommended, rentDueDaysError } from '../domains/rental-contract-reference/index.js';
 export type { ChangedEntry, RentDueDay, RentalContractReference } from '../domains/rental-contract-reference/index.js';
 export {
   AcquisitionNotOfPropertyError,

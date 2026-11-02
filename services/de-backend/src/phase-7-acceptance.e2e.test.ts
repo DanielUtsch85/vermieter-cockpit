@@ -73,6 +73,7 @@ import {
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
+import { tenDayProposalStep } from './phase-7-acceptance-ten-day.test-support.js';
 import { cents, codes, figures, lineOf, placed, type Check, type Money, type Totals, type View } from './phase-7-acceptance.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
@@ -96,6 +97,10 @@ const REALM_B = '64b0c0ffee000000000000a8';
 const PROPERTY = '6512f0c2a1b2c3d4e5f6a701';
 const TENANT = '6512f0c2a1b2c3d4e5f6a7a1';
 const DECEMBER = '2027120100';
+/** §58F: a flat and a Tenant of their own, no recorded due date, the January 2028 rent paid on 2027-12-29. */
+const PROPERTY_2 = '6512f0c2a1b2c3d4e5f6a702';
+const TENANT_2 = '6512f0c2a1b2c3d4e5f6a7a2';
+const JANUARY = '2028010100';
 
 /** The Phase-7 routes (api-design §55–§58C) under `/api/v1`, as `METHOD /path/:param`; §49.5's plan route stays Phase 6's. */
 const PHASE_7 =
@@ -145,9 +150,15 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
         name: 'A',
         members: member,
         applications: [],
-        properties: [{ _id: PROPERTY, name: 'Wohnung Beispielweg 7', surface: 64 }],
-        tenants: [{ _id: TENANT, name: 'Mieterin Muster', guaranty: 2700 }],
-        rents: { [TENANT]: [Number(DECEMBER)] },
+        properties: [
+          { _id: PROPERTY, name: 'Wohnung Beispielweg 7', surface: 64 },
+          { _id: PROPERTY_2, name: 'Wohnung Beispielweg 9', surface: 48 },
+        ],
+        tenants: [
+          { _id: TENANT, name: 'Mieterin Muster', guaranty: 2700 },
+          { _id: TENANT_2, name: 'Mieter Beispiel', guaranty: 0 },
+        ],
+        rents: { [TENANT]: [Number(DECEMBER)], [TENANT_2]: [Number(JANUARY)] },
       },
       { _id: REALM_B, name: 'B', members: member, applications: [], properties: [], tenants: [] },
     ]);
@@ -243,7 +254,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
   const errorOf = async (res: Response, status: number) => (await json<{ error: { code: string; details?: Record<string, unknown> } }>(res, status)).error;
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
 
-  it('the Phase-7 exit, claim by claim', async () => {
+  // §58F's step lengthens the run: a timeout as ACC8's, so a loaded database does not fail it.
+  it('the Phase-7 exit, claim by claim', { timeout: 120_000 }, async () => {
     // The unit, its owners from the Acquisition (3/5 and 2/5), the WEG membership (MEA 100/1000).
     const flat = (
       await json<{ propertyReferenceId: string }>(await A('POST', '/property-references/link', { mreRealmId: REALM_A, mrePropertyId: PROPERTY }), 201)
@@ -755,6 +767,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
       'DE_CATEGORY_DEFAULTS@1',
       'DE_WEG_SPENDING@1',
     ]);
+
+    // §58F (VC-X-39): a rent without a due date, its proposal in both years, and its explicit resolution.
+    await tenDayProposalStep({ pool, realm: REALM_A, mrePropertyId: PROPERTY_2, tenant: TENANT_2, term: JANUARY, A, json, booked, reconciles, traceable });
 
     // Realm isolation: every Phase-7 route, called by Realm B with Realm A's ids, answers as its row expects; nothing
     // of Realm A changes and no AuditRecord is written.

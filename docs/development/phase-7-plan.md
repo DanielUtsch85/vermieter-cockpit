@@ -86,8 +86,8 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
   - **Loan interest:** the due date of the matching schedule entry (Phase 3).
   - **Rent:** a recorded due day of the month, from the lease. It is a new optional field on the `RentalContractReference`, since DE reads no due day from MRE today (mre-integration.md documents none). The spec of VC-7-02 checks MRE's source for one first.
   - **Hausgeld:** a recorded due day of the month, as the Vorschussbeschluss sets it. It is a new optional field on the `WegEconomicPlan` (P6-D4).
-- **No recorded due day:** the start of the period serves as the due date, flagged `DUE_DATE_ASSUMED`. The assumption is never silent.
-- **Proposal, not decision:** where the exception applies, the view attributes the amount to its economic year, flags `ATTRIBUTED_BY_10_DAY_RULE` (and `DUE_DATE_ASSUMED` where it applies), and names the rule version. The user can override it per split through the classification (`taxYear`), and the flag then shows the override.
+- **No recorded due day:** the start of the period serves only as an assumed due date, flagged `DUE_DATE_ASSUMED`; the assumption is never silent. **Amended by VC-X-39 (api-design §58F, PR #237):** an assumed due date **never moves the year**. Only a due date from a source listed in `DE_CASH_TIMING@1`'s `dueDate.recordedSources` (a recorded `rentDueDays` entry, the plan's due day, the loan schedule; never `PERIOD_START`) moves it. Without one the amount stays in the year paid, and the other year is only proposed as `PROPOSED_BY_10_DAY_RULE` with `proposedYear` (tax review 2026-11-01, question 18, „ohne nachgewiesene Fälligkeit keine automatische Verschiebung“; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01; owner decisions of 2026-11-02). The proposal shows on the item in the year it counts in and as a year flag of the same code in the other year, counted once; neither year is `final` while it is open. It is closed only by a confirmed `taxYear` (`USER_CONFIRMED`/`ADVISOR_CONFIRMED`) or a recorded due day, never by a general confirmation of the classification. A December rent paid in January without a due day is never moved back.
+- **Proposal, not decision:** where the exception applies with a recorded due date, the view attributes the amount to its economic year, flags `ATTRIBUTED_BY_10_DAY_RULE`, and names the rule version (without a recorded due date: the bullet above). The user can override it per split through the classification (`taxYear`), and the flag then shows the override.
 - **Otherwise** the booking year applies.
 - **Tax year ≠ WEG financial year ≠ reporting period** (domain-model §47). Where a WEG's financial year is not the calendar year, P7-D5 flags it.
 - Docs: data-model §36 (`taxYear`), api-design §55.
@@ -148,7 +148,7 @@ This plan fixes those points **before** the items are specified, as `phase-6-pla
 - **Flags** for what needs a person:
   - unclassified (`OTHER_*`);
   - `NEEDS_REVIEW`;
-  - `ATTRIBUTED_BY_10_DAY_RULE`, `DUE_DATE_ASSUMED`;
+  - `ATTRIBUTED_BY_10_DAY_RULE`, `DUE_DATE_ASSUMED`, `PROPOSED_BY_10_DAY_RULE` (VC-X-39, §58F);
   - `CLASSIFICATION_ON_CORRECTED_SPLIT`;
   - `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN`, and the check's `NOT_FINAL`;
   - `VAT_NOT_SEPARATED`;
