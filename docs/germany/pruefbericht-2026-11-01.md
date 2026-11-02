@@ -90,6 +90,8 @@
 
 Der heutige Umfang reicht also bis in Stufe 3. Der Bericht empfiehlt, zuerst nur Stufe 1 freizugeben, und als Produktprinzip: ein nicht unterstützter Fall wird nie still mit der Standardformel gerechnet. Ein einziger Schalter (`DEPRECIATION_RECORDING_ENABLED`) gibt heute alles frei, und offene VERIFY-Hinweise verhindern das Erfassen nicht (§60, `POST …/schedule-versions` Schritt 4 prüft nur Berechenbarkeit) → VC-X-45.
 
+**Nachtrag (entschieden durch den Projektinhaber am 02.11.2026; decided by the owner on 2026-11-02):** VC-X-45 ist in `api-design.md` §60A festgelegt. Zunächst wird ausschließlich Stufe 1 vorbereitet, ohne produktive Freischaltung. Ein Erwerb mit Eintrag zur kürzeren Nutzungsdauer ist Stufe 3, auch unbestätigt; ein Jahr mit Darlehenszins-Komponente ist mindestens Stufe 2; die höchste einschlägige Stufe gilt, und alle angeforderten Jahre und Komponenten werden geprüft. Fehlende Fakten und nicht unterstützte Verfahren blockieren unabhängig von der Stufe; Bestätigungen nach §58E ersetzen weder Nachweise noch Berechnungen.
+
 ---
 
 ## Nach Bestätigung auflösbare VERIFY-Punkte
