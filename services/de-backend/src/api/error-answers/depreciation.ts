@@ -17,6 +17,7 @@ import {
   ScheduleVersionRefusedError,
   ThroughYearInFutureError,
   StageNotReleasedError,
+  ValuationDateAfterEvidenceDateError,
   centsText,
 } from '../../application/index.js';
 import { answer, on, validation } from './answer.js';
@@ -41,6 +42,15 @@ export const DEPRECIATION_ANSWERS = [
     answer(409, 'CONFLICT', 'A user cannot lower an advisor confirmation; amend the review state to NEEDS_REVIEW first.', {
       reason: 'ADVISOR_CONFIRMED',
       assetId: error.assetId,
+    }),
+  ),
+  // §59G (VC-X-41; Entscheidung des Projektinhabers, 2026-11-02, 238-5): a structural error of the body, not a tax judgement.
+  on(ValuationDateAfterEvidenceDateError, (error) =>
+    answer(422, 'VALUATION_DATE_AFTER_EVIDENCE_DATE', "A shorter useful life's valuationDate must not lie after its evidence's date.", {
+      index: error.index,
+      acquisitionId: error.acquisitionId,
+      valuationDate: error.valuationDate,
+      evidenceDate: error.evidenceDate,
     }),
   ),
   // The schedule of the purchase (api-design §59A, VC-8-02).

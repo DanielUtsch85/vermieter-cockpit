@@ -5,7 +5,7 @@ import type { ScheduleAcquisition, ScheduleInput } from './schedule.js';
 import { A, B, C, W, acquisition, asset, capitalized, day, eur, life, ownership } from './schedule.test-support.js';
 import { amount, codes, component, derive, ownerIn, registry as REGISTRY, withParameters, yearOf } from './schedule-purchase.test-support.js';
 import { EXTENSION, item, owner } from './schedule-items.test-support.js';
-import { shorterLifeCaseOf } from './shorter-life.js';
+import { releaseMissing, shorterLifeCaseOf } from './shorter-life.js';
 import { inputFingerprint } from './version-fingerprint.js';
 import { identity, live } from './version.test-support.js';
 
@@ -64,7 +64,6 @@ describe('the case of an entry, on its Stichtag (§59G Part 1, pure)', () => {
     shorterLifeCaseOf({
       entry: gutachten(valuationDate, entry),
       contractDate: day(contractDate),
-      sourceReferences: [],
       firstYear,
       parameters,
       thresholdOf: () => 50,
@@ -82,6 +81,24 @@ describe('the case of an entry, on its Stichtag (§59G Part 1, pure)', () => {
     expect(judge('2025-01-01', undefined, undefined, { reviewState: 'CONFIRMED', releaseNote: null })).toMatchObject({
       releaseMissing: ['ADVISOR_CONFIRMED', 'RELEASE_NOTE'],
     });
+  });
+
+  it('238-3: the evidence of a late release is the entry’s own documentReference alone; without it EVIDENCE is missing', () => {
+    const late = (documentReference: string | null) =>
+      releaseMissing(
+        gutachten('2025-01-01', { ...RELEASED, evidence: { ...gutachten('2025-01-01').evidence, documentReference } }),
+        parameters.lateEvidenceRelease,
+      );
+    expect(parameters.lateEvidenceRelease.evidence).toBe('ENTRY_DOCUMENT_REFERENCE');
+    // Counter-check: the same entry with its own reference is released.
+    expect(late('Gutachten Nr. 0000-SYN')).toEqual([]);
+    expect(late(null)).toEqual(['EVIDENCE']);
+    expect(
+      releaseMissing(gutachten('2025-01-01', { ...RELEASED, evidence: { ...gutachten('2025-01-01').evidence, documentReference: null } }), {
+        ...parameters.lateEvidenceRelease,
+        evidence: 'NOT_REQUIRED',
+      }),
+    ).toEqual([]);
   });
 
   it('before the contract year (31 December of YC − 1): USEFUL_LIFE_EVIDENCE_BEFORE_PURCHASE; no Stichtag: USEFUL_LIFE_VALUATION_DATE_MISSING', () => {
@@ -103,7 +120,6 @@ describe('the case of an entry, on its Stichtag (§59G Part 1, pure)', () => {
       shorterLifeCaseOf({
         entry: gutachten(valuationDate, { evidence: { ...gutachten(null).evidence, date: day('2024-05-01'), valuationDate: day(valuationDate) } }),
         contractDate: day('2024-02-10'),
-        sourceReferences: [],
         firstYear: 2024,
         parameters,
         thresholdOf: () => 50,
@@ -180,13 +196,14 @@ describe('the purchase under Part 1 (§59G "Example", the Part 1 column)', () =>
       ['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null],
       ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['ADVISOR_CONFIRMED', 'EVIDENCE', 'RELEASE_NOTE']],
     ]);
-    // An evidence named in the asset's sourceReferences counts for the release (§59G "Who releases a late evidence").
+    // 238-3 (Entscheidung des Projektinhabers, 2026-11-02): only the entry's own documentReference is the evidence; the
+    // asset's sourceReferences do not count, so EVIDENCE stays missing with them.
     const named = derive({ ...example([entry]), asset: asset({ buildingCompletionYear: 1965, shorterUsefulLives: [entry], sourceReferences: ['Gutachten'] }) });
-    expect(ownerIn(yearOf(component(named), 2027), A)?.reasons[1]?.details['missing']).toEqual(['ADVISOR_CONFIRMED', 'RELEASE_NOTE']);
+    expect(ownerIn(yearOf(component(named), 2027), A)?.reasons[1]?.details['missing']).toEqual(['ADVISOR_CONFIRMED', 'EVIDENCE', 'RELEASE_NOTE']);
     // The release is the rule's parameter, never a constant: a test registry that asks for a user's CONFIRMED only.
     const userRelease = withParameters((p) => ({
       ...p,
-      shorterUsefulLife: { ...p.shorterUsefulLife, lateEvidenceRelease: { reviewState: 'CONFIRMED', evidence: false, releaseNote: false } },
+      shorterUsefulLife: { ...p.shorterUsefulLife, lateEvidenceRelease: { reviewState: 'CONFIRMED', evidence: 'NOT_REQUIRED', releaseNote: false } },
     }));
     expect(codes(ownerIn(yearOf(component(derive(example([entry]), userRelease)), 2027), A)?.reasons ?? [])).toEqual([
       'SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED',

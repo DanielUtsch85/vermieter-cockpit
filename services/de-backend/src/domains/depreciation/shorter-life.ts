@@ -15,7 +15,7 @@ import type { Flag } from './schedule-model.js';
  * - its year after the first year (`FROM_EVIDENCE_YEAR`): the band's rate before its year and, when `n` is below the
  *   band's threshold, not computed from its year (`SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED`, Part 1), with
  *   `SHORTER_USEFUL_LIFE_RELEASE_MISSING` beside it while the rule's `lateEvidenceRelease` is not met (by the owner:
- *   `ADVISOR_CONFIRMED`, its evidence and a release note). Judged on `n` alone (§59G open question 4 is still open):
+ *   `ADVISOR_CONFIRMED`, the entry's own `documentReference` and a release note). Judged on `n` alone (§59G open question 4 is still open):
  *   below the threshold it is not computed from its year under either reading, and not below it, it is not shorter
  *   under either reading.
  *
@@ -45,16 +45,13 @@ export type ShorterLifeCase =
 
 /**
  * What the release of a late evidence lacks for the rule's `lateEvidenceRelease`, in this order; `[]` when released. The
- * evidence is named by the entry's `documentReference` or the asset's `sourceReferences` (§59G).
+ * evidence is the entry's own `evidence.documentReference` alone (`ENTRY_DOCUMENT_REFERENCE`): the asset's
+ * `sourceReferences` name no dated evidence and do not count (§59G; Entscheidung des Projektinhabers, 2026-11-02, 238-3).
  */
-export function releaseMissing(
-  entry: ShorterUsefulLife,
-  release: ShorterUsefulLifeParameters['lateEvidenceRelease'],
-  sourceReferences: readonly string[],
-): string[] {
+export function releaseMissing(entry: ShorterUsefulLife, release: ShorterUsefulLifeParameters['lateEvidenceRelease']): string[] {
   const missing: string[] = [];
   if (entry.reviewState !== release.reviewState) missing.push(release.reviewState);
-  if (release.evidence && entry.evidence.documentReference === null && sourceReferences.length === 0) missing.push('EVIDENCE');
+  if (release.evidence === 'ENTRY_DOCUMENT_REFERENCE' && entry.evidence.documentReference === null) missing.push('EVIDENCE');
   if (release.releaseNote && entry.releaseNote === null) missing.push('RELEASE_NOTE');
   return missing;
 }
@@ -62,8 +59,6 @@ export function releaseMissing(
 export function shorterLifeCaseOf(c: {
   readonly entry: ShorterUsefulLife | undefined;
   readonly contractDate: BusinessDate;
-  /** The asset's `sourceReferences` (an evidence named there counts for the release). */
-  readonly sourceReferences: readonly string[];
   /** The year of the component's first month; `null` without a start. */
   readonly firstYear: number | null;
   /** Of the version of the component's first year, else the latest; `undefined` without any version. */
@@ -100,7 +95,7 @@ export function shorterLifeCaseOf(c: {
     // A threshold that cannot be read is never taken as "not shorter": the years from the evidence stay not computed.
     shorter: shorterThanYears === null || entry.usefulLifeYears < shorterThanYears,
     shorterThanYears,
-    releaseMissing: releaseMissing(entry, parameters.lateEvidenceRelease, c.sourceReferences),
+    releaseMissing: releaseMissing(entry, parameters.lateEvidenceRelease),
   };
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DE_AFA_BUILDING_LINEAR_V2, ruleVersionHash } from '../../domains/depreciation/index.js';
+import { DE_AFA_BUILDING_LINEAR_V1, DE_AFA_BUILDING_LINEAR_V2, ruleVersionHash } from '../../domains/depreciation/index.js';
 import { DE_ANSCHAFFUNGSNAHE_V1, DE_CASH_TIMING_V1 } from '../../domains/taxation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import type { BusinessDate } from '../../shared/index.js';
@@ -39,8 +39,12 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // the work (`date`, `performanceRequired`, `spansYearEnd`, `exemptTaxCategories`), `verified` true for the confirmed
   // rule and `notBeforeOwnerStart` as an open reading of its own. Recording is still disabled.
   // Before: @1 b9e8bfd9…d21f, @2 efe5ba03…cf9e.
-  ['DE_AFA_BUILDING_LINEAR', 1, '4e3c7f46f55783d5846f66fcb37096d91416d6da5362d28734d4166c3488678c'],
-  ['DE_AFA_BUILDING_LINEAR', 2, 'bbe0feccf97fdbf76c0125cc33cb0c371202c9f2f5f2f27d5d11bb8033942d84'],
+  // Again for @1 and @2 for §59G (VC-X-41; Entscheidung des Projektinhabers, 2026-11-02, 238-3): only the entry's own
+  // `evidence.documentReference` counts as the late evidence, so `shorterUsefulLife.lateEvidenceRelease.evidence` is
+  // `ENTRY_DOCUMENT_REFERENCE` (was `true`, which also took the asset's `sourceReferences`). Recording is still disabled.
+  // Before: @1 4e3c7f46…678c, @2 bbe0fecc…2d84 (the counter-check below recomputes both).
+  ['DE_AFA_BUILDING_LINEAR', 1, 'e7cc8abb4b2fdcf033f050137e6c2647ddf15786ec2c5d6ad854b61867875fce'],
+  ['DE_AFA_BUILDING_LINEAR', 2, 'b7cd96ab674b84f672887fcff7dc8db1be2ceebacfdbe4a8c830c75ce07f33d8'],
   ['DE_AFA_MOVABLE_LINEAR', 1, '85d929633060b63636187e42a65e5856bdc58c65f86bd1ae22284a8278b1f06a'],
   // A Phase-7 rule, pinned from §59D on (VC-X-42; §59D open question 3, decided by the owner on 2026-11-01): changed in
   // place by the parameter `costClassification` (Prüfbericht 2026-11-01, Fragen 10 und 24, mündlich bestätigt durch den
@@ -92,6 +96,27 @@ describe('the frozen rule versions (§60)', () => {
     const spans = { ...v.parameters.subsequentCostStart, exemptTaxCategories: ['LOAN_INTEREST'] };
     expect(hash({ ...v, parameters: { ...v.parameters, subsequentCostStart: spans } })).not.toBe(hash(v));
     expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
+  });
+
+  it('counter-check of 238-3 (§59G): the building rules with the late release as before (evidence true) had the former pinned hashes', () => {
+    const before = (rule: typeof DE_AFA_BUILDING_LINEAR_V2) => {
+      const shorterUsefulLife = rule.parameters.shorterUsefulLife;
+      const lateEvidenceRelease = { ...shorterUsefulLife.lateEvidenceRelease, evidence: true };
+      return ruleVersionHash(
+        { ...rule, parameters: { ...rule.parameters, shorterUsefulLife: { ...shorterUsefulLife, lateEvidenceRelease } } } as unknown as typeof rule,
+        sha256Fingerprinter,
+      );
+    };
+    expect(before(DE_AFA_BUILDING_LINEAR_V1)).toBe('4e3c7f46f55783d5846f66fcb37096d91416d6da5362d28734d4166c3488678c');
+    expect(before(DE_AFA_BUILDING_LINEAR_V2)).toBe('bbe0feccf97fdbf76c0125cc33cb0c371202c9f2f5f2f27d5d11bb8033942d84');
+    const v = DE_AFA_BUILDING_LINEAR_V2;
+    const notRequired = {
+      ...v.parameters.shorterUsefulLife,
+      lateEvidenceRelease: { ...v.parameters.shorterUsefulLife.lateEvidenceRelease, evidence: 'NOT_REQUIRED' as const },
+    };
+    expect(ruleVersionHash({ ...v, parameters: { ...v.parameters, shorterUsefulLife: notRequired } }, sha256Fingerprinter)).not.toBe(
+      ruleVersionHash(v, sha256Fingerprinter),
+    );
   });
 
   it('counter-checks on a copy of the cash rule (§58F): recordedSources with PERIOD_START changes the hash; effectiveTo does not', () => {

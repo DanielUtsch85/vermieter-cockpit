@@ -36,10 +36,16 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
     await api.confirm(w);
     return { pr, a, b, w, building: await api.building(pr, [w]) };
   }
+  /** The document dated 2026-08-10, or on the Stichtag when that is later (238-5: never a Stichtag after the document's date). */
   const entry = (w: string, valuationDate: string, extra: Record<string, unknown> = {}) => ({
     acquisitionId: w,
     usefulLifeYears: 30,
-    evidence: { source: 'Gutachten zur Restnutzungsdauer (synthetisch)', date: '2026-08-10', valuationDate, documentReference: null },
+    evidence: {
+      source: 'Gutachten zur Restnutzungsdauer (synthetisch)',
+      date: valuationDate > '2026-08-10' ? valuationDate : '2026-08-10',
+      valuationDate,
+      documentReference: null,
+    },
     reviewState: 'CONFIRMED',
     ...extra,
   });
@@ -118,7 +124,7 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
           releaseNote: 'Restwertmethode freigegeben, Steuerberatung, 2029-02-01 (synthetisch)',
           evidence: {
             source: 'Gutachten zur Restnutzungsdauer (synthetisch)',
-            date: '2026-08-10',
+            date: '2028-03-01',
             valuationDate: '2028-03-01',
             documentReference: 'Gutachten Nr. 0000-SYN',
           },
@@ -170,6 +176,9 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
         [{ code: 'USEFUL_LIFE_VALUATION_DATE_MISSING', details: { acquisitionId: w, evidenceDate: '2026-08-10' } }],
       ]);
       expect(s.years.map((y: Json) => y.amount)).toEqual([null, null]);
+      // 238-5 does not judge a legacy entry: an amend that does not restate the list passes, the entry still without its Stichtag.
+      const noted = await post(`/depreciation-assets/${building}/amend`, { notes: 'Altbestand (synthetisch)' }, 200);
+      expect(noted.shorterUsefulLives[0].evidence).toMatchObject({ date: '2026-08-10', valuationDate: null });
       // Restating the entry with its Stichtag is a change (its state reset unless named): here named, so it computes again.
       await amend(building, entry(w, '2026-06-15'));
       expect((await schedule(building, 'from=2026&to=2026')).years[0].amount.amount).toBe('4240.00');
@@ -189,4 +198,108 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
     expect(res.status).toBe(400);
     expect(JSON.stringify(await res.json())).toContain('shorterUsefulLives.0.evidence.valuationDate');
   });
+
+  it(
+    'decisions 238-3, 238-4, 238-5: an unreleased late evidence accepted on the evidence date, one day later refused 422 on create and amend, nothing written, another Realm 404 first',
+    { timeout: 120_000 },
+    async () => {
+      const { pr, w, building } = await acc8(3);
+      at('2029-02-15');
+      const NOTE = 'Restwertmethode freigegeben, Steuerberatung, 2029-02-01 (synthetisch)';
+      const late = (valuationDate: string, date: string, extra: Record<string, unknown> = {}) =>
+        entry(w, valuationDate, { reviewState: 'UNREVIEWED', ...extra, evidence: { ...entry(w, valuationDate).evidence, date } });
+      const createBody = (e: Record<string, unknown>) => ({
+        propertyReferenceId: pr,
+        buildingCompletionYear: 1995,
+        reviewState: 'CONFIRMED',
+        sourceReferences: ['Gutachten zur Restnutzungsdauer (synthetisch)'],
+        shorterUsefulLives: [e],
+      });
+      const audits = async () => (await api.ctx.pool.query(`SELECT count(*)::int AS n FROM audit_record`)).rows[0].n as number;
+      const assets = async () => (await api.ctx.pool.query(`SELECT id, version FROM depreciation_asset ORDER BY id`)).rows;
+      const lives = async () => (await api.ctx.pool.query(`SELECT * FROM depreciation_asset_useful_life ORDER BY asset_id`)).rows;
+      const keys = async () => (await api.ctx.pool.query(`SELECT count(*)::int AS n FROM idempotency_key`)).rows[0].n as number;
+      const before = await moneyRows();
+
+      // 238-5 on create: a Stichtag one day after the document's date is a structural 422, judged once the PropertyReference
+      // is found and before the other checks (it has an ACTIVE building, which would be 409); nothing written, the key not kept.
+      const [audits0, assets0, lives0, keys0] = [await audits(), await assets(), await lives(), await keys()];
+      const refused = await call('POST', '/depreciation-assets', createBody(late('2028-03-02', '2028-03-01')), {
+        headers: { 'idempotency-key': 'x41b-refused-create' },
+      });
+      expect([refused.status, ((await refused.json()) as Json).error]).toEqual([
+        422,
+        {
+          code: 'VALUATION_DATE_AFTER_EVIDENCE_DATE',
+          message: "A shorter useful life's valuationDate must not lie after its evidence's date.",
+          details: { index: 0, acquisitionId: w, valuationDate: '2028-03-02', evidenceDate: '2028-03-01' },
+        },
+      ]);
+      expect([await audits(), await assets(), await lives(), await keys()]).toEqual([audits0, assets0, lives0, keys0]);
+
+      // Equal dates are allowed; 238-4: a late evidence, unconfirmed and not released, is accepted on create; 238-1: its
+      // release note is accepted before any confirmation.
+      await post(`/depreciation-assets/${building}/void`, { reason: 'Neu erfasst (synthetisch)' }, 200);
+      const created = await post('/depreciation-assets', createBody(late('2028-03-01', '2028-03-01', { releaseNote: NOTE })));
+      expect(created.shorterUsefulLives[0]).toMatchObject({
+        reviewState: 'UNREVIEWED',
+        releaseNote: NOTE,
+        evidence: { date: '2028-03-01', valuationDate: '2028-03-01' },
+      });
+      const assetId = created.assetId as string;
+      await api.methods(assetId, [w]);
+      // 238-4 on amend: CONFIRMED, without its own documentReference and without a release note, accepted (200).
+      await amend(assetId, late('2028-03-01', '2028-03-01', { reviewState: 'CONFIRMED' }));
+      // 238-3: the asset's sourceReferences name a Gutachten, yet EVIDENCE stays missing: only the entry's own reference counts.
+      const s = await schedule(assetId, 'from=2026&to=2028');
+      const reasons2028 = s.components[0].years.find((y: Json) => y.year === 2028).owners[0].reasons;
+      expect(reasons2028.map((r: Json) => [r.code, r.details.missing ?? null])).toEqual([
+        ['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null],
+        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['ADVISOR_CONFIRMED', 'EVIDENCE', 'RELEASE_NOTE']],
+      ]);
+      const band = owners(s).slice(0, 2);
+
+      // 238-5 on amend: moving the Stichtag one day after the document, or the document one day before it, is 422;
+      // the asset, its entry, its version, the history and the schedule stay as they were.
+      const current = await get(`/depreciation-assets/${assetId}`);
+      const [audits1, assets1, lives1] = [await audits(), await assets(), await lives()];
+      for (const moved of [late('2028-03-02', '2028-03-01', { reviewState: 'CONFIRMED' }), late('2028-03-01', '2028-02-29', { reviewState: 'CONFIRMED' })]) {
+        const res = await call(
+          'POST',
+          `/depreciation-assets/${assetId}/amend`,
+          { shorterUsefulLives: [moved] },
+          { headers: { 'if-match': `"${current.version}"` } },
+        );
+        expect([res.status, ((await res.json()) as Json).error.code]).toEqual([422, 'VALUATION_DATE_AFTER_EVIDENCE_DATE']);
+      }
+      expect([await audits(), await assets(), await lives()]).toEqual([audits1, assets1, lives1]);
+      expect(owners(await schedule(assetId, 'from=2026&to=2028')).slice(0, 2)).toEqual(band);
+      // Counter-check: the same amend on the evidence date passes (a no-op here, the entry being unchanged).
+      expect((await amend(assetId, late('2028-03-01', '2028-03-01', { reviewState: 'CONFIRMED' }))).version).toBe(current.version);
+
+      // Realm isolation: another Realm gets 404 first, for a valid body and for the refused one alike; nothing written.
+      for (const body of [late('2028-03-01', '2028-03-01'), late('2028-03-02', '2028-03-01')]) {
+        expect((await call('POST', `/depreciation-assets/${assetId}/amend`, { shorterUsefulLives: [body] }, { realm: REALM_B })).status).toBe(404);
+      }
+      expect([await audits(), await assets(), await lives()]).toEqual([audits1, assets1, lives1]);
+      // 238-3 with an advisor: ADVISOR_CONFIRMED and a release note, the asset's sourceReferences but no own reference:
+      // EVIDENCE alone missing; with its own documentReference: released (Part 1 still computes nothing from 2028).
+      const advisor = await api.party('Steuerberatung S');
+      const byAdvisor = { reviewState: 'ADVISOR_CONFIRMED', advisorPartyId: advisor, releaseNote: NOTE };
+      await amend(assetId, late('2028-03-01', '2028-03-01', byAdvisor));
+      const missing2028 = async () =>
+        (await schedule(assetId, 'from=2028&to=2028')).components[0].years[0].owners[0].reasons.map((r: Json) => [r.code, r.details.missing ?? null]);
+      expect(await missing2028()).toEqual([
+        ['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null],
+        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['EVIDENCE']],
+      ]);
+      const own = late('2028-03-01', '2028-03-01', byAdvisor);
+      await amend(assetId, { ...own, evidence: { ...own.evidence, documentReference: 'Gutachten Nr. 0000-SYN' } });
+      expect(await missing2028()).toEqual([['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null]]);
+      // The band years are the same in every step: no amount moved by any decision.
+      expect(owners(await schedule(assetId, 'from=2026&to=2028')).slice(0, 2)).toEqual(band);
+      // No cash, split, classification, purchase or Ownership row changed by any of it.
+      expect(await moneyRows()).toBe(before);
+    },
+  );
 });

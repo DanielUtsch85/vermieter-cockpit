@@ -148,8 +148,16 @@ export interface ShorterUsefulLifeParameters {
   readonly fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR';
   readonly evidenceBeforeContractYear: 'NOT_COMPUTABLE';
   readonly fromEvidenceYear: 'NOT_COMPUTABLE';
-  /** What a late evidence needs to be released (the owner's decision of 2026-11-02, §59G open question 10). */
-  readonly lateEvidenceRelease: { readonly reviewState: string; readonly evidence: boolean; readonly releaseNote: boolean };
+  /**
+   * What a late evidence needs to be released (the owner's decision of 2026-11-02, §59G open question 10). `evidence`
+   * names what counts as the evidence: the entry's own `evidence.documentReference` only, never the asset's
+   * `sourceReferences` (Entscheidung des Projektinhabers, 2026-11-02, 238-3); `NOT_REQUIRED` asks for none.
+   */
+  readonly lateEvidenceRelease: {
+    readonly reviewState: string;
+    readonly evidence: 'ENTRY_DOCUMENT_REFERENCE' | 'NOT_REQUIRED';
+    readonly releaseNote: boolean;
+  };
   readonly source: string;
 }
 
@@ -185,7 +193,7 @@ const COMMON = {
     fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR',
     evidenceBeforeContractYear: 'NOT_COMPUTABLE',
     fromEvidenceYear: 'NOT_COMPUTABLE',
-    lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: true, releaseNote: true },
+    lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: 'ENTRY_DOCUMENT_REFERENCE', releaseNote: true },
     source: SHORTER_LIFE_SOURCE,
   },
   basis: {

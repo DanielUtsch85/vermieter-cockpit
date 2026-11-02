@@ -2,6 +2,7 @@ import type { Kysely, Transaction } from 'kysely';
 import {
   addedItems,
   advisorsOf,
+  valuationDateAfterEvidence,
   amendFieldsNotAllowed,
   entryAcquisitionRefusal,
   planAssetAmend,
@@ -70,6 +71,9 @@ export async function create(
         if (!(await touchPropertyReference(trx, asset.propertyReferenceId, asset.mreRealmId))) {
           throw new Rejected({ kind: 'PROPERTY_REFERENCE_NOT_FOUND' });
         }
+        // §59G 238-5: a Stichtag after its evidence's date, once the PropertyReference is found; the key's claim rolls back.
+        const late = valuationDateAfterEvidence(asset.shorterUsefulLives);
+        if (late !== undefined) throw new Rejected(late);
         const party = await missingParty(trx, advisorsOf(asset), asset.mreRealmId);
         if (party !== undefined) throw new Rejected({ kind: 'PARTY_NOT_FOUND', partyId: party });
         // §59C: the method entries' Acquisitions in the same step as the shorter lives', shorter lives first.
@@ -149,6 +153,9 @@ export async function amend(
         if (before.status !== 'ACTIVE') return { kind: 'ASSET_NOT_ACTIVE', status: before.status };
         const notAllowed = amendFieldsNotAllowed(before.assetType, amendment);
         if (notAllowed.length > 0) return { kind: 'FIELDS_NOT_ALLOWED', fields: notAllowed };
+        // §59G 238-5: every entry of the list named, once the asset is found in the Realm (a foreign one stays 404).
+        const late = valuationDateAfterEvidence(amendment.shorterUsefulLives ?? []);
+        if (late !== undefined) return late;
         // Only new or changed entries are checked again: an unchanged one of a later-cancelled DRAFT does not block.
         const beforePlan = planAssetAmend(before, amendment);
         const written = [...writtenEntries(beforePlan), ...writtenPurchaseMethods(beforePlan)];

@@ -21,6 +21,7 @@ import {
   type ItemRefusal,
   type NewDepreciationAsset,
   type PurchaseMethodStatus,
+  type ValuationDateRefusal,
 } from '../domains/depreciation/index.js';
 import { businessDayOf } from '../domains/ledger/index.js';
 import { TAX_RULES } from '../domains/tax-rules/index.js';
@@ -83,6 +84,24 @@ export class AssetAdvisorConfirmedError extends Error {
 
   constructor(readonly assetId: string) {
     super(`Depreciation asset ${assetId} is ADVISOR_CONFIRMED`);
+  }
+}
+
+/**
+ * A shorter life's Stichtag after its evidence's own date (→ 422 VALUATION_DATE_AFTER_EVIDENCE_DATE; §59G, Entscheidung
+ * des Projektinhabers, 2026-11-02, 238-5): a structural error of the body, judged on create and amend once the
+ * PropertyReference or the asset is found in the Realm (a foreign one stays `404`), before anything is written.
+ */
+export class ValuationDateAfterEvidenceDateError extends Error {
+  override readonly name = 'ValuationDateAfterEvidenceDateError';
+
+  constructor(
+    readonly index: number,
+    readonly acquisitionId: string,
+    readonly valuationDate: string,
+    readonly evidenceDate: string,
+  ) {
+    super(`The Stichtag ${valuationDate} of the shorter useful life of Acquisition ${acquisitionId} lies after its evidence's date ${evidenceDate}`);
   }
 }
 
@@ -207,10 +226,11 @@ type Deps = { readonly repository: DepreciationAssetRepository; readonly registr
 const statusesOf = (deps: Deps, asset: DepreciationAsset) => purchaseMethodStatuses(asset, deps.registry ?? TAX_RULES);
 type ReadDeps = Deps & Clock & { readonly registry?: RuleRegistry };
 
-/** The refusals create and amend share (§59, order 3–4; §59B, order 4–5). */
+/** The refusals create and amend share (§59, order 3–4; §59B, order 4–5; §59G 238-5). */
 function refuseEntry(
   outcome:
     | ItemRefusal
+    | ValuationDateRefusal
     | {
         readonly kind: 'PARTY_NOT_FOUND' | 'ACQUISITION_NOT_FOUND' | 'ACQUISITION_NOT_OF_PROPERTY' | 'ACQUISITION_CANCELLED';
         readonly partyId?: string;
@@ -219,6 +239,9 @@ function refuseEntry(
       },
 ): never {
   if (ITEM_REFUSALS.includes(outcome.kind)) return refuseItem(outcome as ItemRefusal);
+  if (outcome.kind === 'VALUATION_DATE_AFTER_EVIDENCE_DATE') {
+    throw new ValuationDateAfterEvidenceDateError(outcome.index, outcome.acquisitionId, outcome.valuationDate, outcome.evidenceDate);
+  }
   const entry = outcome as { kind: string; partyId?: string; acquisitionId?: string; propertyReferenceId?: string };
   switch (entry.kind) {
     case 'PARTY_NOT_FOUND':

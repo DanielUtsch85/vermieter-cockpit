@@ -178,6 +178,36 @@ export function advisorsOf(facts: Pick<DepreciationAssetFacts, 'advisorPartyId' 
   return [...new Set(named)];
 }
 
+/**
+ * §59G (Entscheidung des Projektinhabers, 2026-11-02, 238-5): an evidence cannot attest a Stichtag after its own date.
+ * The first entry, in the order named (`index`), whose `valuationDate` lies after its `evidence.date`, else `undefined`;
+ * equal dates are allowed, and an entry without a Stichtag (stored before 0056) is not judged. A structural fact of the
+ * body (`422 VALUATION_DATE_AFTER_EVIDENCE_DATE`), never a tax judgement.
+ */
+export function valuationDateAfterEvidence(
+  entries: readonly { readonly acquisitionId: string; readonly evidence: ShorterLifeEvidence }[],
+): ValuationDateRefusal | undefined {
+  const index = entries.findIndex((e) => e.evidence.valuationDate !== null && e.evidence.valuationDate > e.evidence.date);
+  const entry = entries[index];
+  if (entry === undefined || entry.evidence.valuationDate === null) return undefined;
+  return {
+    kind: 'VALUATION_DATE_AFTER_EVIDENCE_DATE',
+    index,
+    acquisitionId: entry.acquisitionId,
+    valuationDate: entry.evidence.valuationDate,
+    evidenceDate: entry.evidence.date,
+  };
+}
+
+/** §59G 238-5: the refusal of create and amend, after the asset or PropertyReference is found (Realm isolation first). */
+export interface ValuationDateRefusal {
+  readonly kind: 'VALUATION_DATE_AFTER_EVIDENCE_DATE';
+  readonly index: number;
+  readonly acquisitionId: string;
+  readonly valuationDate: BusinessDate;
+  readonly evidenceDate: BusinessDate;
+}
+
 /** An entry as an amend names it: its review state and advisor are optional (an unchanged entry keeps its own). */
 export interface UsefulLifeAmendment {
   readonly acquisitionId: string;
@@ -415,6 +445,7 @@ export type CreateAssetRefusal =
   | { readonly kind: 'ACQUISITION_NOT_FOUND'; readonly acquisitionId: string }
   | { readonly kind: 'ACQUISITION_NOT_OF_PROPERTY'; readonly acquisitionId: string; readonly propertyReferenceId: string }
   | { readonly kind: 'ACQUISITION_CANCELLED'; readonly acquisitionId: string }
+  | ValuationDateRefusal
   | ItemRefusal;
 
 /** Steps 4–5 of a separate asset's create and amend (§59B), each check over all items, in this order. */

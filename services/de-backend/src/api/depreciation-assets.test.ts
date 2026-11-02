@@ -13,6 +13,7 @@ import {
   IdempotencyKeyConflictError,
   PartyNotFoundError,
   PropertyReferenceNotFoundError,
+  ValuationDateAfterEvidenceDateError,
   VersionConflictError,
   type AssetRate,
   type CreateDepreciationAssetInput,
@@ -548,6 +549,18 @@ describe('the error answers (§59)', () => {
       message: 'The Acquisition belongs to another PropertyReference.',
       details: { acquisitionId: ACQ, propertyReferenceId: PR },
     });
+    // §59G 238-5: a Stichtag after the evidence's own date, a structural 422 on create and amend.
+    for (const [path, body] of [
+      ['/depreciation-assets', { propertyReferenceId: PR }],
+      [`/depreciation-assets/${ASSET}/amend`, { notes: 'x' }],
+    ] as const) {
+      expect(await answer(new ValuationDateAfterEvidenceDateError(0, ACQ, '2026-06-16', '2026-06-15'), path, body)).toEqual({
+        status: 422,
+        code: 'VALUATION_DATE_AFTER_EVIDENCE_DATE',
+        message: "A shorter useful life's valuationDate must not lie after its evidence's date.",
+        details: { index: 0, acquisitionId: ACQ, valuationDate: '2026-06-16', evidenceDate: '2026-06-15' },
+      });
+    }
     expect(await answer(new PropertyReferenceNotFoundError(PR))).toMatchObject({ status: 404, details: { propertyReferenceId: PR } });
     expect(await answer(new PartyNotFoundError(ADVISOR))).toMatchObject({ status: 404, details: { partyId: ADVISOR } });
     expect(await answer(new AcquisitionNotFoundError(ACQ))).toMatchObject({ status: 404, details: { acquisitionId: ACQ } });

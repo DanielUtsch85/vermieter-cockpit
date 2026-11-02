@@ -9,6 +9,7 @@ import {
   itemLinkRefusal,
   planAssetAmend,
   planAssetConfirm,
+  valuationDateAfterEvidence,
   writtenEntries,
   type DepreciationAsset,
   type DepreciationAssetId,
@@ -209,6 +210,31 @@ describe('entryAcquisitionRefusal (§59, order 4)', () => {
       acquisitionId: ACQ_1,
     });
     expect(entryAcquisitionRefusal(entries, found(draft(ACQ_1), draft(ACQ_2), draft(ACQ_3, PR, 'CONFIRMED')), PR)).toBeUndefined();
+  });
+});
+
+describe('valuationDateAfterEvidence (§59G, 238-5)', () => {
+  const at = (acquisitionId: string, date: string, valuationDate: string | null) =>
+    entry(acquisitionId, { evidence: { ...evidence, date: day(date), valuationDate: valuationDate === null ? null : day(valuationDate) } });
+
+  it('equal dates and an earlier Stichtag pass; one day later is the entry; across a month and a year end too', () => {
+    expect(valuationDateAfterEvidence([at(ACQ_1, '2026-06-15', '2026-06-15'), at(ACQ_2, '2026-06-15', '2026-06-14')])).toBeUndefined();
+    expect(valuationDateAfterEvidence([at(ACQ_1, '2026-06-15', '2026-06-16')])?.acquisitionId).toBe(ACQ_1);
+    expect(valuationDateAfterEvidence([at(ACQ_1, '2026-06-30', '2026-07-01')])?.acquisitionId).toBe(ACQ_1);
+    expect(valuationDateAfterEvidence([at(ACQ_1, '2026-12-31', '2027-01-01')])?.acquisitionId).toBe(ACQ_1);
+  });
+
+  it('the first entry in the order named; an entry without a Stichtag (stored before 0056) is not judged', () => {
+    const list = [at(ACQ_3, '2026-06-15', null), at(ACQ_2, '2026-06-15', '2026-06-20'), at(ACQ_1, '2026-06-15', '2026-06-16')];
+    expect(valuationDateAfterEvidence(list)).toEqual({
+      kind: 'VALUATION_DATE_AFTER_EVIDENCE_DATE',
+      index: 1,
+      acquisitionId: ACQ_2,
+      valuationDate: '2026-06-20',
+      evidenceDate: '2026-06-15',
+    });
+    expect(valuationDateAfterEvidence([at(ACQ_1, '2026-06-15', null)])).toBeUndefined();
+    expect(valuationDateAfterEvidence([])).toBeUndefined();
   });
 });
 

@@ -228,7 +228,7 @@ describe('TAX_RULES (§58, §59)', () => {
         fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR',
         evidenceBeforeContractYear: 'NOT_COMPUTABLE',
         fromEvidenceYear: 'NOT_COMPUTABLE',
-        lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: true, releaseNote: true },
+        lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: 'ENTRY_DOCUMENT_REFERENCE', releaseNote: true },
         source: expect.stringContaining('Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)'),
       });
       expect(subsequentCostRate).toEqual({
