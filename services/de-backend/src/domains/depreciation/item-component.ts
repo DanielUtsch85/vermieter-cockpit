@@ -6,6 +6,7 @@ import { AFA_BUILDING_LINEAR } from './rules/de-afa-building-linear.js';
 import type { ComponentYear, Flag, ItemComponent, ItemComponentRate, OwnerYear } from './schedule-model.js';
 import { roundCents, type ItemContext, type ItemPart, type ItemWork, type PartRate, type Reading } from './item-part.js';
 import { lastYearOf } from './item-pools.js';
+import { flagIsOpen } from './schedule-review.js';
 
 /**
  * A capitalised item's component of the response (api-design.md §59B "The component"): its rate, its end, its owners
@@ -15,8 +16,6 @@ import { lastYearOf } from './item-pools.js';
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The component of the response
-
-const isOpenCode = (informative: readonly string[]) => (code: string) => !informative.includes(code);
 
 /** The exact cumulative AfA of a part in cents to the end of `year`. */
 function cumulativeCents(reading: Reading, year: number): Frac {
@@ -30,12 +29,11 @@ export function itemComponentOf(
   ctx: ItemContext,
   range: { readonly from: number; readonly to: number },
   ownerPartyId: string | null,
-  informative: readonly string[],
 ): ItemComponent {
-  const isOpen = isOpenCode(informative);
   const currency = w.item?.lineAmount.currency ?? 'EUR';
   const reasonsOfComponent = [...ctx.assetReasons, ...w.reasons];
-  const componentOpen = w.flags.some((f) => isOpen(f.code));
+  // §59F (239-7): the level by state where a code has one (`CAPITALIZED_YEAR_DIFFERS`), else by code.
+  const componentOpen = w.flags.some(flagIsOpen);
   const readingOf = (p: ItemPart) => (p.stopFrom !== null ? p.perItem : w.selected === 'POOLED_BASIS' ? p.pooled : p.perItem);
   const alternativeOf = (p: ItemPart) => (w.selected === 'POOLED_BASIS' ? p.perItem : p.pooled);
   const lastYear = w.computable ? lastYearOf(w) : null;
@@ -87,7 +85,7 @@ export function itemComponentOf(
           : moneyOfCents(roundCents(cumulativeCents(alternative, year)) - roundCents(cumulativeCents(alternative, year - 1)), currency).toJSON();
       flags.push({ code: 'SUBSEQUENT_COST_END_TO_VERIFY', details: { ...p.endToVerify.details, alternativeAmount } });
     }
-    const open = componentOpen || flags.some((f) => isOpen(f.code));
+    const open = componentOpen || flags.some(flagIsOpen);
     return {
       ownerPartyId: p.participant,
       months: counted?.months ?? 0,

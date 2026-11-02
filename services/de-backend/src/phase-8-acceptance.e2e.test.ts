@@ -442,6 +442,33 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // rule confirmed by Prüfbericht 2026-11-01, Frage 5, and every item states its performance).
     at('2029-10-15');
     expect((await api.check(w)).final).toBe(true);
+    // §59F (the owner's decision 239-6, 2026-11-02): before 2027 and 2028 become final in the test wiring, the shipped
+    // default (recording off) refuses the same record through 2028 before any data access; nothing is written (no
+    // version, no AuditRecord, no Idempotency-Key), and its views of 2027 and 2028 are the test wiring's, not final.
+    const counts = async () =>
+      (
+        await api.ctx.pool.query(
+          `SELECT (SELECT count(*) FROM depreciation_schedule_version)::int AS versions, (SELECT count(*) FROM audit_record)::int AS audits,
+                  (SELECT count(*) FROM idempotency_key)::int AS keys`,
+        )
+      ).rows[0];
+    const countsBefore = await counts();
+    const refusedOff = await call('POST', `/depreciation-assets/${building}/schedule-versions`, await api.recordBody(building, 2028, [2027]), {
+      base: 'off',
+      headers: { 'idempotency-key': 'acc8-off-2028' },
+    });
+    expect([refusedOff.status, ((await refusedOff.json()) as Json).error.details.reason]).toEqual([409, 'RECORDING_NOT_ENABLED']);
+    expect(await counts()).toEqual(countsBefore);
+    for (const year of [2027, 2028]) {
+      const off = await view(pr, year, undefined, 'off');
+      expect(off).toEqual(await view(pr, year));
+      expect([year, off.review.final, off.review.open.map((o: Json) => o.code)]).toEqual([
+        year,
+        false,
+        // 2027: the building's version 2 changed by the repair, the kitchen not recorded; 2028: neither recorded.
+        year === 2027 ? ['DEPRECIATION_CHANGED_SINCE_RECORDED', 'DEPRECIATION_SCHEDULE_NOT_RECORDED'] : ['DEPRECIATION_SCHEDULE_NOT_RECORDED'],
+      ]);
+    }
     const refusedChange = await call('POST', `/depreciation-assets/${building}/schedule-versions`, await api.recordBody(building, 2028), {
       headers: { 'idempotency-key': 'acc8-unnamed' },
     });
@@ -470,6 +497,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     for (const year of [2027, 2028]) {
       const later = await view(pr, year);
       expect([year, recordingOf(later), later.review.open, later.review.final]).toEqual([year, ['UNCHANGED', 'UNCHANGED'], [], true]);
+      // The shipped default reads the recorded versions (the outcome follows from the versions, never from the switch).
+      expect(await view(pr, year, undefined, 'off')).toEqual(later);
     }
     // Reproducible from its stored inputs alone, read back through the shipped default: the schedule's figures to the cent.
     const read = await get(`/depreciation-assets/${building}/schedule-versions/${v3.versionId}`, { base: 'off' });

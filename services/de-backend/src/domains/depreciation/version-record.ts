@@ -1,7 +1,7 @@
 import type { BusinessDate, RuleRegistry } from '../../shared/index.js';
 import { isConfirmed } from './asset.js';
 import { canonicalJson, type Fingerprinter } from './fingerprint.js';
-import { isOpen } from './schedule-review.js';
+import { flagIsOpen, isOpen } from './schedule-review.js';
 import { activeIn, compareYear, liveSchedule, type LiveSchedule } from './version-compare.js';
 import { inputFingerprint, outputFingerprint, truncateInputs } from './version-fingerprint.js';
 import { firstYearOfComponent } from './version-inputs.js';
@@ -159,11 +159,18 @@ function newVersion(
   // The flags that stood, the code and its level only (the details are re-derived on read).
   const flags = new Map<string, VersionFlag>();
   const note = (f: VersionFlag) => flags.set(canonicalJson(f), f);
-  for (const f of live.schedule.flags) note({ year: null, componentId: null, partKey: null, code: f.code, level: isOpen(f.code) ? 'OPEN' : 'INFORMATIVE' });
+  const levelOf = (open: boolean) => (open ? 'OPEN' : 'INFORMATIVE');
+  // §59F (239-7): a merged year flag takes its level from the component's flags as raised (a level by state).
+  const raisedOpen = (code: string, componentId: string | null, year: number) => {
+    const c = live.schedule.components.find((x) => x.componentId === componentId);
+    const raised = c === undefined ? [] : [...c.flags, ...(c.years.find((y) => y.year === year)?.flags ?? [])].filter((f) => f.code === code);
+    return raised.length === 0 ? isOpen(code) : raised.some(flagIsOpen);
+  };
+  for (const f of live.schedule.flags) note({ year: null, componentId: null, partKey: null, code: f.code, level: levelOf(flagIsOpen(f)) });
   for (const y of live.schedule.years.filter((x) => x.year >= fromYear && x.year <= throughYear)) {
     for (const f of y.flags) {
       const ids = (f.details['componentIds'] as readonly string[] | undefined) ?? [null];
-      for (const componentId of ids) note({ year: y.year, componentId, partKey: null, code: f.code, level: isOpen(f.code) ? 'OPEN' : 'INFORMATIVE' });
+      for (const componentId of ids) note({ year: y.year, componentId, partKey: null, code: f.code, level: levelOf(raisedOpen(f.code, componentId, y.year)) });
     }
   }
   const asset = live.schedule.asset;

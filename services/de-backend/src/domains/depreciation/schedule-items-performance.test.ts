@@ -181,3 +181,64 @@ describe('the stored inputs and the fingerprint (§59F "Recorded versions and th
     expect(fp(at('2027-02-28'), 2027)).not.toBe(fp(begun, 2027));
   });
 });
+
+describe('CAPITALIZED_YEAR_DIFFERS, a level by state (§59F, the owner’s decision 239-7 of 2026-11-02)', () => {
+  // Booked 2028-02-01 in tax year 2028, performed 2027-01-10 to 2027-02-28: the start comes from the performance.
+  const performed = () => repair({ date: day('2028-02-01'), taxYear: 2028, performance: period('2027-01-10', '2027-02-28') });
+  // Interest keeps its booking date (ITEM_DATE); a tax year of 2028 for a booking of 2027-03-10 differs from it.
+  const interest = () => repair({ taxCategory: 'LOAN_INTEREST', anschaffungsnaheAcquisitionId: null, performance: null, taxYear: 2028 });
+  const flagOf = (c: ReturnType<typeof item>) => c.flags.find((f) => f.code === 'CAPITALIZED_YEAR_DIFFERS');
+  const reviewCodes = (s: ReturnType<typeof schedule>): [string[], string[]] => [s.review.open.map((o) => o.code), s.review.info.map((o) => o.code)];
+  const record = (input: ScheduleInput) =>
+    planRecord(
+      { schedule: readOf(input), current: null },
+      {
+        throughYear: 2028,
+        reason: 'synthetisch',
+        expectedInputFingerprint: inputFingerprint(live(input, registry, 2028).inputs, 2028, identity),
+        acceptChangedYears: [],
+      },
+      { registry, fingerprinter: identity, today: day('2029-03-01'), recordedBy: 'anna@example.com', releasedStage: 3 },
+    );
+  const levels = (input: ScheduleInput) => {
+    const decision = record(input);
+    if (decision.kind !== 'RECORD') throw new Error(`not recorded: ${decision.kind}`);
+    return [...new Set(decision.version.flags.filter((f) => f.code === 'CAPITALIZED_YEAR_DIFFERS').map((f) => f.level))];
+  };
+
+  it('informative where dateSource is PERFORMANCE_UNTIL: in the review, the component years and the recorded flags; the figures unchanged', () => {
+    const s = schedule([performed()], 2027, 2028);
+    expect(flagOf(item(s))?.details).toMatchObject({ dateSource: 'PERFORMANCE_UNTIL', taxYear: 2028, startDate: '2027-02-28' });
+    const [open, info] = reviewCodes(s);
+    expect([open.includes('CAPITALIZED_YEAR_DIFFERS'), info.includes('CAPITALIZED_YEAR_DIFFERS')]).toEqual([false, true]);
+    // Counter-check by figures and statuses: the same item without the differing year (no flag) gives the same years.
+    const same = schedule([repair({ date: day('2028-02-01'), taxYear: 2027, performance: period('2027-01-10', '2027-02-28') })], 2027, 2028);
+    expect(codes(item(same).flags)).not.toContain('CAPITALIZED_YEAR_DIFFERS');
+    const shape = (x: ReturnType<typeof schedule>) => x.years.map((y) => [y.year, amount(y.amount), y.calculationStatus]);
+    expect(shape(s)).toEqual(shape(same));
+    expect(item(s).years.map((y) => [y.year, amount(y.amount), y.calculationStatus])).toEqual(
+      item(same).years.map((y) => [y.year, amount(y.amount), y.calculationStatus]),
+    );
+    expect(item(s).years.map((y) => amount(y.amount))).toEqual(['714.00', '714.00']);
+    expect(levels(acc8({ from: 2026, to: 2028, capitalizedItems: [performed()] }))).toEqual(['INFORMATIVE']);
+    // At the owner level too (A 3/5): informative, the owner's figures unchanged.
+    const atOwner = derive({ ...acc8({ from: 2027, to: 2028, capitalizedItems: [performed()] }), ownerPartyId: A });
+    expect(reviewCodes(atOwner).map((l) => l.includes('CAPITALIZED_YEAR_DIFFERS'))).toEqual([false, true]);
+    expect(item(atOwner).years.map((y) => amount(y.amount))).toEqual(['428.40', '428.40']);
+  });
+
+  it('open otherwise: an item starting on its own date (ITEM_DATE) keeps the flag open, the years provisional and the recorded level OPEN', () => {
+    const s = schedule([interest()], 2027, 2028);
+    expect(flagOf(item(s))?.details).toMatchObject({ dateSource: 'ITEM_DATE', taxYear: 2028, startDate: '2027-03-10' });
+    const [open, info] = reviewCodes(s);
+    expect([open.includes('CAPITALIZED_YEAR_DIFFERS'), info.includes('CAPITALIZED_YEAR_DIFFERS')]).toEqual([true, false]);
+    expect(item(s).years.map((y) => y.calculationStatus)).toEqual(['PROVISIONAL', 'PROVISIONAL']);
+    expect(s.years.map((y) => y.calculationStatus)).toEqual(['PROVISIONAL', 'PROVISIONAL']);
+    expect(levels(acc8({ from: 2026, to: 2028, capitalizedItems: [interest()] }))).toEqual(['OPEN']);
+    const atOwner = derive({ ...acc8({ from: 2027, to: 2028, capitalizedItems: [interest()] }), ownerPartyId: B });
+    expect(reviewCodes(atOwner).map((l) => l.includes('CAPITALIZED_YEAR_DIFFERS'))).toEqual([true, false]);
+    // Both at once: each counted at its own level, the code once open and once informative.
+    const both = schedule([performed(), { ...interest(), sourceId: '0000eeee-0000-4000-8000-000000000079' }], 2027, 2028);
+    expect([both.review.open, both.review.info].map((l) => l.find((o) => o.code === 'CAPITALIZED_YEAR_DIFFERS')?.count)).toEqual([1, 1]);
+  });
+});

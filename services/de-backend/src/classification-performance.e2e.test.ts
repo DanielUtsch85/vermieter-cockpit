@@ -146,6 +146,17 @@ describe.skipIf(databaseUrl === undefined)('the period of performance end to end
         ['226.10', '226.10'],
       ]);
       expect(item.flags.find((f: Json) => f.code === 'CAPITALIZED_YEAR_DIFFERS').details).toMatchObject({ startDate: '2028-12-20', taxYear: 2029 });
+      // The owner's decision 239-7 (2026-11-02): the start comes from the performance, so the flag is informative, in the
+      // schedule's review and in the tax-year view of 2029 (carried at its level); counter-check: listed, never dropped.
+      const listed = (l: Json[]) => l.map((o: Json) => o.code);
+      expect([listed(s.review.open).includes('CAPITALIZED_YEAR_DIFFERS'), listed(s.review.info).includes('CAPITALIZED_YEAR_DIFFERS')]).toEqual([false, true]);
+      for (const level of [undefined, owner]) {
+        const v2029 = await api.view(pr, 2029, level);
+        expect([listed(v2029.review.open).includes('CAPITALIZED_YEAR_DIFFERS'), listed(v2029.review.info).includes('CAPITALIZED_YEAR_DIFFERS')]).toEqual([
+          false,
+          true,
+        ]);
+      }
 
       // History: each create a TAX_CLASSIFIED AuditRecord with the performance; the superseded one recorded.
       const audits = await api.ctx.pool.query(
@@ -182,6 +193,65 @@ describe.skipIf(databaseUrl === undefined)('the period of performance end to end
       );
       expect(foreign.status).toBe(404);
       expect(await history(s5 as string)).toHaveLength(1);
+    },
+  );
+
+  it(
+    'decision 239-8 over HTTP: an unclassified split beyond the search range keeps the check NOT_FINAL, marked; the sums and the view unchanged; Realm isolation',
+    { timeout: 120_000 },
+    async () => {
+      at('2026-03-01');
+      const pr = await api.link(PROPERTIES[1] as string);
+      const owner = await api.party('Eigentümer B (synthetisch)');
+      const { acquisitionId: w } = await api.purchase({
+        pr,
+        buyers: [owner],
+        share: '1/1',
+        price: '240000.00',
+        contract: '2026-02-01',
+        transfer: '2026-03-15',
+        costs: [['REAL_ESTATE_TRANSFER_TAX', '24000.00']],
+        allocation: { total: '264000.00', land: '66000.00', building: '198000.00' },
+      });
+      await api.own(pr, owner, '1/1', '2026-03-15', w);
+      await api.confirm(w);
+      const account = await api.account();
+      at('2031-06-01');
+      const [s1] = await booked(account, 'OUTFLOW', '2027-05-20', [{ amount: eur('12000.00'), financialCategoryCode: 'MAINTENANCE', propertyReferenceId: pr }]);
+      await classify({
+        sourceId: s1,
+        taxCategory: 'MAINTENANCE',
+        treatment: 'DEDUCTIBLE',
+        netAmount: eur('12000.00'),
+        performance: { from: '2027-04-01', until: '2027-04-30' },
+      });
+      const before = await api.check(w);
+      const view2027 = await api.view(pr, 2027);
+      expect([before.status, before.final, before.unclassified]).toEqual(['NOT_ABOVE_THRESHOLD', true, []]);
+      // Unclassified (OTHER_EXPENSE), 2031-01-10: beyond the search range (to 2030-03-15), within the outer bound (to 2032-03-15).
+      const [u] = await booked(account, 'OUTFLOW', '2031-01-10', [{ amount: eur('800.00'), financialCategoryCode: 'OTHER_EXPENSE', propertyReferenceId: pr }]);
+      const after = await api.check(w);
+      expect([after.status, after.notComputableReason, after.final, after.flags.find((f: Json) => f.code === 'NOT_FINAL').details.reasons]).toEqual([
+        'NOT_ABOVE_THRESHOLD',
+        null,
+        false,
+        ['UNCLASSIFIED_SOURCES'],
+      ]);
+      expect(after.unclassified.map((e: Json) => [e.sourceId, e.date, e.taxCategory, e.beyondSearchRange])).toEqual([[u, '2031-01-10', 'UNCLASSIFIED', true]]);
+      // Every other list carries no marker; the sums unchanged.
+      expect(['sources', 'excluded', 'undetermined', 'outsideSearchRange'].flatMap((l) => after[l]).some((e: Json) => 'beyondSearchRange' in e)).toBe(false);
+      expect([after.sum, after.sumUpper, after.percentOfBasis, after.threshold]).toEqual([
+        before.sum,
+        before.sumUpper,
+        before.percentOfBasis,
+        before.threshold,
+      ]);
+      // The tax-year view: its money unchanged; the check named not final with the reason.
+      const again2027 = await api.view(pr, 2027);
+      expect([again2027.einnahmen, again2027.werbungskosten, again2027.result]).toEqual([view2027.einnahmen, view2027.werbungskosten, view2027.result]);
+      expect(again2027.acquisitions.map((x: Json) => [x.acquisitionId, x.final, x.notFinalReasons])).toEqual([[w, false, ['UNCLASSIFIED_SOURCES']]]);
+      // Realm isolation: Realm B reads no check of Realm A.
+      expect((await call('GET', `/acquisitions/${w}/anschaffungsnahe-herstellungskosten`, undefined, { realm: REALM_B })).status).toBe(404);
     },
   );
 });

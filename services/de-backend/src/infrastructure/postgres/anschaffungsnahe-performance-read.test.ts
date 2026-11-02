@@ -75,6 +75,62 @@ describe.skipIf(databaseUrl === undefined)('the anschaffungsnahe check reads by 
     expect(meaning?.performance).toBeNull();
   });
 
+  it('decision 239-8: unclassified splits at the search-range edge, one day beyond and at the outer bound listed and marked; beyond it not read; NOT_FINAL, never NOT_COMPUTABLE', async () => {
+    const pr = await propertyReference();
+    const acq = await acquisition(pr);
+    const dated = await classify(pr, '2027-05-20', '12000.00', on('2027-04-01', '2027-04-30'));
+    const unclassified = async (date: string) => (await booked([split('700.00', 'OTHER_EXPENSE', pr)], date)).splitIds[0] as string;
+    const edge = await unclassified('2030-03-15');
+    const beyond = await unclassified('2030-03-16');
+    const before = await unclassified('2025-12-14');
+    const outer = await unclassified('2032-03-15');
+    await unclassified('2032-03-16');
+    await unclassified('2023-03-14');
+    const audits = async () => Number((await ctx.pool.query(`SELECT count(*) AS n FROM audit_record`)).rows[0].n);
+    const auditsBefore = await audits();
+    const check = await ctx.classifications.anschaffungsnaheCheck(acq, REALM, today);
+    expect(check?.unclassified.map((e) => [e.sourceId, e.date, e.beyondSearchRange])).toEqual([
+      [before, '2025-12-14', true],
+      [edge, '2030-03-15', false],
+      [beyond, '2030-03-16', true],
+      [outer, '2032-03-15', true],
+    ]);
+    expect(check).toMatchObject({ status: 'NOT_ABOVE_THRESHOLD', notComputableReason: null, sum: eur('12000.00'), sumUpper: eur('12000.00'), final: false });
+    expect(check?.sources.map((e) => e.sourceId)).toEqual([dated]);
+    expect(check?.flags.find((f) => f.code === 'NOT_FINAL')?.details).toEqual({ reasons: ['UNCLASSIFIED_SOURCES'] });
+    // The read writes no history; another Realm reads nothing.
+    expect(await audits()).toBe(auditsBefore);
+    expect(await ctx.classifications.anschaffungsnaheCheck(acq, OTHER_REALM, today)).toBeUndefined();
+    // History: classified (undated, MAINTENANCE) the source one day beyond leaves `unclassified` for `outsideSearchRange`,
+    // and the check becomes NOT_COMPUTABLE (reserved for the classified sources); one TAX_CLASSIFIED AuditRecord.
+    const created = await ctx.classifications.createClassification(
+      {
+        mreRealmId: REALM,
+        sourceType: 'TRANSACTION_SPLIT',
+        sourceId: beyond,
+        taxCategory: 'MAINTENANCE',
+        treatment: 'DEDUCTIBLE',
+        reviewState: 'USER_CONFIRMED',
+        supersedes: null,
+        notes: null,
+        sourceReferences: [],
+        netAmount: eur('700.00'),
+      },
+      actor,
+    );
+    if (created.kind !== 'CREATED') throw new Error(created.kind);
+    const after = await ctx.classifications.anschaffungsnaheCheck(acq, REALM, today);
+    expect([after?.status, after?.notComputableReason, after?.outsideSearchRange.map((e) => e.sourceId), after?.unclassified.map((e) => e.sourceId)]).toEqual([
+      'NOT_COMPUTABLE',
+      'SOURCES_OUTSIDE_SEARCH_RANGE',
+      [beyond],
+      [before, edge, outer],
+    ]);
+    expect([after?.sum, after?.sumUpper]).toEqual([eur('12000.00'), eur('12000.00')]);
+    const classified = await ctx.pool.query(`SELECT action FROM audit_record WHERE entity_id = $1`, [created.classification.id]);
+    expect(classified.rows.map((r) => r.action)).toEqual(['TAX_CLASSIFIED']);
+  });
+
   it('Realm isolation: another Realm reads no check and no meaning; the classification with its points reads back as stored', async () => {
     const pr = await propertyReference();
     const acq = await acquisition(pr);
