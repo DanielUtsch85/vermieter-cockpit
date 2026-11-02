@@ -1,4 +1,4 @@
-import { ruleKey, type BusinessDate, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
+import { addDays, ruleKey, type BusinessDate, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { byText, yearOfDate } from './exact.js';
 import {
   RECORDING_STAGES_RULE,
@@ -64,8 +64,8 @@ interface Dated {
 
 const always = (codes: readonly StageCriterion[]): Dated[] => codes.map((code) => ({ code, from: null }));
 
-/** The criteria of a purchase component (§59A, §59C, §59G; A1; the decisions of 2026-11-02, 236-2 and 236-4). */
-function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchaseIds: readonly string[]): Dated[] {
+/** The criteria of a purchase component (§59A, §59C, §59G; A1; the decisions of 2026-11-02, 236-2 and 236-4, and 3 of the third round). */
+function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchases: readonly ScheduleComponent[]): Dated[] {
   const criteria: StageCriterion[] = ['PURCHASE'];
   // A shorter-life entry on the purchase, in any review state („auch unbestätigt“).
   if (read.asset.shorterUsefulLives.some((e) => e.acquisitionId === c.acquisitionId)) criteria.push('SHORTER_USEFUL_LIFE_ENTRY');
@@ -78,15 +78,14 @@ function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchaseIds:
   // the first summed source on; the mapping is unchanged (one more fact meeting the same criterion).
   const proposal = check === undefined ? null : openProposalFrom(check);
   if (proposal !== null) dated.push({ code: 'ANSCHAFFUNGSNAHE_CHECK_OPEN', from: proposal });
-  // 236-2: an owner with more than one purchase component of the building and a share reduction: every purchase of
-  // that owner, from the year of the owner's first reduction on (before it each purchase counts for itself, 236-3).
+  // 236-2 with decision 3 (third round): every purchase of an owner from the year of the owner's first share reduction
+  // at which more than one of its purchases is active on; a reduction while it holds one purchase starts nothing, a later
+  // purchase is a new layer (before it each purchase counts for itself, 236-3).
   const buyers = new Set([...read.ownerships.filter((o) => o.acquisitionId === c.acquisitionId).map((o) => o.partyId), ...c.owners.map((o) => o.ownerPartyId)]);
   const from: number[] = [];
   for (const party of buyers) {
-    const own = read.ownerships.filter((o) => o.partyId === party);
-    const bought = new Set(own.flatMap((o) => (o.acquisitionId !== null && purchaseIds.includes(o.acquisitionId) ? [o.acquisitionId] : [])));
-    const first = firstReduction(party, own, read);
-    if (bought.size > 1 && first !== null) from.push(first);
+    const first = firstLayeredReduction(party, read, purchases);
+    if (first !== null) from.push(first);
   }
   if (from.length > 0) dated.push({ code: 'SEVERAL_PURCHASES_PARTIAL_SALE', from: Math.min(...from) });
   return dated;
@@ -94,26 +93,45 @@ function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchaseIds:
 
 /**
  * 236-4: the first year of a check `ABOVE_THRESHOLD` while one of its summed sources is not `CAPITALIZED` (its proposal
- * not followed: `DEDUCTIBLE`, or `DISTRIBUTED_82B`, the cautious reading); `null` otherwise. The year is the earliest tax
- * year of the summed sources (the earliest of the check's `affectedYears`, §58B, or earlier where a source straddling
- * the window, which is never suggested as a whole, comes first).
+ * not followed: `DEDUCTIBLE`, or `DISTRIBUTED_82B`, counted like it: Entscheidung des Projektinhabers, 2026-11-02,
+ * decision 2 of the third round); `null` otherwise, and without a summed source (explicitly, not `Math.min()`). The year
+ * is the earliest tax year of the summed sources (the earliest of the check's `affectedYears`, §58B, or earlier where a
+ * source straddling the window, which is never suggested as a whole, comes first).
  */
 function openProposalFrom(check: PurchaseCheckFacts): number | null {
-  if (check.status !== 'ABOVE_THRESHOLD' || check.summedSources.every((s) => s.treatment === 'CAPITALIZED')) return null;
+  if (check.status !== 'ABOVE_THRESHOLD' || check.summedSources.length === 0) return null;
+  if (check.summedSources.every((s) => s.treatment === 'CAPITALIZED')) return null;
   return Math.min(...check.summedSources.map((s) => s.taxYear));
 }
 
-const nextDay = (date: BusinessDate): BusinessDate => {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10) as BusinessDate;
-};
+/**
+ * The number of the Party's purchases active at a reduction on `day` (decision 3; the reading of api-design.md §60A
+ * "VC-X-45 follow-up 2"): the building's purchase components with an owner part of the Party that bought a share
+ * (`acquiredShare` above 0, §28.1A) which has begun on that day (its start, the economic transfer `tenure.from`, on or
+ * before it) and is not wholly sold before it (its `tenure.lastDay`, if any, not before the day before: a part this very
+ * reduction ends still counts). A part whose start or last day the schedule does not know counts as active (the cautious
+ * reading; a not-computable component has no `lastDay`).
+ */
+function activePurchases(party: string, day: BusinessDate, purchases: readonly ScheduleComponent[]): number {
+  const dayBefore = addDays(day, -1);
+  return purchases.filter((p) =>
+    p.owners.some(
+      (o) =>
+        o.ownerPartyId === party &&
+        BigInt(o.acquiredShare.split('/')[0] as string) > 0n &&
+        (o.tenure.from === null || o.tenure.from <= day) &&
+        (o.tenure.lastDay === null || dayBefore <= o.tenure.lastDay),
+    ),
+  ).length;
+}
 
 /**
- * The year of a Party's first share reduction, `null` without one: a sale by it (`sellerPartyIds`; the transfer's year,
- * else its contract's, which no transfer precedes), or the day after one of its rows ends, on which it holds less.
+ * The year of a Party's first share reduction at which more than one of its purchases is active, `null` without one. A
+ * reduction is a sale by it (`sellerPartyIds`; on the transfer date, else on the contract date, which no transfer
+ * precedes), or the day after one of its rows ends, on which it holds less.
  */
-function firstReduction(party: string, rows: readonly ScheduleRead['ownerships'][number][], read: ScheduleRead): number | null {
+function firstLayeredReduction(party: string, read: ScheduleRead, purchases: readonly ScheduleComponent[]): number | null {
+  const rows = read.ownerships.filter((o) => o.partyId === party);
   const held = (date: BusinessDate) =>
     rows
       .filter((o) => o.validFrom <= date && (o.validUntil === null || date <= o.validUntil))
@@ -121,15 +139,16 @@ function firstReduction(party: string, rows: readonly ScheduleRead['ownerships']
         n: 0n,
         d: 1n,
       });
-  const years = [
-    ...read.acquisitions.filter((a) => a.sellerPartyIds.includes(party)).map((a) => yearOfDate(a.economicTransferDate ?? a.contractDate)),
+  const days = [
+    ...read.acquisitions.filter((a) => a.sellerPartyIds.includes(party)).map((a) => a.economicTransferDate ?? a.contractDate),
     ...rows.flatMap((o) => {
       if (o.validUntil === null) return [];
       const before = held(o.validUntil);
-      const after = held(nextDay(o.validUntil));
-      return after.n * before.d < before.n * after.d ? [yearOfDate(nextDay(o.validUntil))] : [];
+      const after = held(addDays(o.validUntil, 1));
+      return after.n * before.d < before.n * after.d ? [addDays(o.validUntil, 1)] : [];
     }),
   ];
+  const years = days.filter((d) => activePurchases(party, d, purchases) > 1).map(yearOfDate);
   return years.length === 0 ? null : Math.min(...years);
 }
 
@@ -176,11 +195,11 @@ interface Counted {
 
 /** Every component of the property-level schedule with its criteria and its years; no item the building excludes (236-1). */
 function counted(schedule: DepreciationSchedule, read: ScheduleRead): Counted[] {
-  const purchaseIds = schedule.components.flatMap((c) => (c.kind === 'ACQUISITION' ? [c.acquisitionId] : []));
+  const purchases = schedule.components.filter((c): c is ScheduleComponent => c.kind === 'ACQUISITION');
   const laterAddition =
     read.asset.assetType === 'SEPARATE_ASSET' && schedule.components.some((c) => c.kind === 'CAPITALIZED_ITEM' && isLater(c, read.asset.acquiredOn));
   return schedule.components.map((c) => {
-    const criteria = c.kind === 'ACQUISITION' ? purchaseCriteria(c, read, purchaseIds) : always(itemCriteria(c, read, laterAddition));
+    const criteria = c.kind === 'ACQUISITION' ? purchaseCriteria(c, read, purchases) : always(itemCriteria(c, read, laterAddition));
     // A component without a start (`TRANSFER_DATE_MISSING`, or an item without a usable start) counts in every year.
     const unknownStart = c.kind === 'ACQUISITION' ? c.start === null : c.start.month === null;
     return { componentId: c.componentId, kind: c.kind, criteria, years: unknownStart ? null : new Set(c.years.map((y) => y.year)) };
