@@ -124,7 +124,8 @@ function purchaseComponent(
   pools: Map<Part, string>,
 ): VersionComponent {
   const a = w.acquisition;
-  const shorter = w.entry !== undefined && [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE');
+  // §59G Part 1: a shorter life is used only from the start (`rateEntry`); a later evidence is recorded as BAND years.
+  const shorter = w.rateEntry !== undefined && [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE');
   const rateKind: PartRateKind = shorter ? 'SHORTER_USEFUL_LIFE' : 'BAND';
   const usefulLifeYears = shorter ? (entries.find((e) => e.acquisitionId === a.id)?.usefulLifeYears ?? null) : null;
   // The costs as the basis treated them under the rule of the start (§59A, P8-D2 (1); §59D): the ids with an amount in
@@ -174,6 +175,7 @@ function purchaseComponent(
             totalAllocableAmount: centsOf(a.allocation.totalAllocableAmount),
             buildingAmount: centsOf(a.allocation.buildingAmount),
             shorterLifeReviewState: shorter ? (w.entry?.reviewState ?? null) : null,
+            ...(shorter ? { shorterLifeValuationDate: w.entry?.evidence.valuationDate ?? null } : {}),
           },
     method:
       w.method === null

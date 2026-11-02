@@ -4,7 +4,7 @@ import type { DepreciationAsset } from './asset.js';
 import type { PurchaseMethod } from './purchase-method.js';
 import { DE_AFA_BUILDING_LINEAR_V1, DE_AFA_BUILDING_LINEAR_V2 } from './rules/de-afa-building-linear.js';
 import type { ScheduleInput } from './schedule.js';
-import { A, B, W, X, acc8, acquisition, asset, capitalized, day, ownership, standard } from './schedule.test-support.js';
+import { A, B, W, X, acc8, acquisition, asset, capitalized, day, life, ownership, standard } from './schedule.test-support.js';
 import { amount, codes, component, derive, ownerIn, sole, yearOf } from './schedule-purchase.test-support.js';
 import { EXTENSION, item, owner } from './schedule-items.test-support.js';
 import { inputFingerprint } from './version-fingerprint.js';
@@ -133,7 +133,7 @@ describe('no confirmed STANDARD entry, no figure (§59C)', () => {
       derive(
         acc8({
           asset: asset({
-            shorterUsefulLives: [{ acquisitionId: W, usefulLifeYears: 30, evidence: standard().evidence, reviewState: 'CONFIRMED', advisorPartyId: null }],
+            shorterUsefulLives: [life({ evidence: { ...standard().evidence, valuationDate: day('2026-06-15') } })],
           }),
         }),
       ),

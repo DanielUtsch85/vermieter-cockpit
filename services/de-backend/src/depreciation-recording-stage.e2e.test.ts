@@ -82,9 +82,15 @@ describe.skipIf(databaseUrl === undefined)('release stages for recording (VC-X-4
     {
       acquisitionId,
       usefulLifeYears: 30,
-      evidence: { source: 'Gutachten zur Restnutzungsdauer (synthetisch)', date: '2026-06-15' as BusinessDate, documentReference: null },
+      evidence: {
+        source: 'Gutachten zur Restnutzungsdauer (synthetisch)',
+        date: '2026-06-15' as BusinessDate,
+        valuationDate: '2026-06-15' as BusinessDate,
+        documentReference: null,
+      },
       reviewState,
       advisorPartyId: null,
+      releaseNote: null,
     },
   ];
   const stageThree = (componentId: string) => ({ componentId, kind: 'ACQUISITION', stage: 3, criteria: ['PURCHASE', 'SHORTER_USEFUL_LIFE_ENTRY'] });

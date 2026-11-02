@@ -29,7 +29,12 @@ const ACQ_1 = '0000cccc-0000-4000-8000-000000000001';
 const ACQ_2 = '0000cccc-0000-4000-8000-000000000002';
 const ACQ_3 = '0000cccc-0000-4000-8000-000000000003';
 const ADVISOR = '0000ffff-0000-4000-8000-000000000001';
-const evidence = { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: 'Gutachten Nr. 0000-SYN' };
+const evidence = {
+  source: 'Gutachten zur Restnutzungsdauer',
+  date: day('2026-06-15'),
+  documentReference: 'Gutachten Nr. 0000-SYN',
+  valuationDate: day('2026-06-15'),
+};
 
 const entry = (acquisitionId: string, overrides: Partial<ShorterUsefulLife> = {}): ShorterUsefulLife => ({
   acquisitionId,
@@ -37,6 +42,7 @@ const entry = (acquisitionId: string, overrides: Partial<ShorterUsefulLife> = {}
   evidence,
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
+  releaseNote: null,
   ...overrides,
 });
 const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset => ({

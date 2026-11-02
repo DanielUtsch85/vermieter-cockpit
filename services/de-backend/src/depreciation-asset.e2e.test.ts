@@ -41,7 +41,7 @@ const REALM_B = '64b0c0ffee000000000000b8';
 const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const;
 const eur = (amount: string) => Money.of(amount, 'EUR');
 const day = (value: string) => value as BusinessDate;
-const evidence = { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15', documentReference: 'Gutachten Nr. 0000-SYN' };
+const evidence = { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15', valuationDate: '2026-06-15', documentReference: 'Gutachten Nr. 0000-SYN' };
 let counter = 0;
 
 /** The fields this file reads of an answer: an asset, a list, an error or a rule. */

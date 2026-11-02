@@ -1,8 +1,28 @@
 import { addDays, divideHalfUp, type BusinessDate, type RuleRegistry } from '../../shared/index.js';
 import { isConfirmed, type DepreciationAsset } from './asset.js';
 import { NOT_OWNED_PART, type CapitalizedItem, type ItemRef } from './capitalized-item.js';
-import { ONE, ZERO, add, byText, cmp, div, firstDay, frac, lastDayOf, maxDate, minF, monthOf, ofShare, rateOfYear, yearOfDate, type Frac } from './exact.js';
+import {
+  ONE,
+  ZERO,
+  add,
+  byText,
+  cmp,
+  div,
+  firstDay,
+  frac,
+  lastDayOf,
+  maxDate,
+  minF,
+  monthLabel,
+  monthOf,
+  ofShare,
+  rateOfYear,
+  yearOfDate,
+  yearOfMonth,
+  type Frac,
+} from './exact.js';
 import { isMethodReason } from './purchase-method.js';
+import { isShorterLifeBlockingReason } from './shorter-life.js';
 import { buildingRuleOn, movableRuleOn } from './rate.js';
 import type { BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import type { Flag, ItemComponent, ScheduleAcquisition, ScheduleOwnership } from './schedule-model.js';
@@ -247,6 +267,7 @@ export function partOf(
     partReasons.push({ code: 'TRANSFER_DATE_MISSING', details: { acquisitionId: opening.acquisition.id, contractDate: opening.acquisition.contractDate } });
   }
   let rate: PartRate | null;
+  let stopFrom: ItemPart['stopFrom'] = null;
   let poolKey: string;
   let purchases: { w: Work; p: Part }[] = [];
   if (separate) {
@@ -279,15 +300,33 @@ export function partOf(
       } else if (partReasons.some((r) => r.code === 'USEFUL_LIFE_NOT_CONFIRMED')) {
         rate = null;
       } else {
-        const atDate = rateOfYear(registry, yearOfDate(date), asset.buildingCompletionYear, entry);
-        rate =
-          entry !== undefined && atDate?.kind === 'SHORTER_USEFUL_LIFE'
-            ? {
-                kind: 'SHORTER_USEFUL_LIFE',
-                usefulLifeYears: entry.usefulLifeYears,
-                annualOf: (y) => (buildingRuleOn(registry, y) === undefined ? undefined : frac(1n, BigInt(entry.usefulLifeYears))),
-              }
-            : bandRate(registry, asset);
+        // §59G Part 1: a purchase of the pool whose shorter life is not judged computable (no valuation date, before the
+        // purchase, a later evidence not released) stops the part in every year, as an unconfirmed entry does.
+        const blocked = [governing, ...purchases.filter((x) => x !== governing)]
+          .map(({ w }) => w.reasons.find((r) => isShorterLifeBlockingReason(r.code)))
+          .find((r) => r !== undefined);
+        const guard = blocked === undefined ? shorterLifeGuard([governing, ...purchases.filter((x) => x !== governing)], firstMonth) : null;
+        if (blocked !== undefined) {
+          partReasons.push({ code: blocked.code, details: { acquisitionId: blocked.details['acquisitionId'] } });
+          rate = null;
+        } else if (guard !== null && guard.fromYear === null) {
+          partReasons.push(guard.reason);
+          rate = null;
+        } else {
+          // The rate reads the purchase's `rateEntry` (§59G): the entry only when it applies from the start. Under Part 1
+          // such a pool never gets here (the guard above), so a later cost never runs at `1/n`.
+          const atDate = rateOfYear(registry, yearOfDate(date), asset.buildingCompletionYear, governing.w.rateEntry);
+          const years = governing.w.rateEntry?.usefulLifeYears;
+          rate =
+            years !== undefined && atDate?.kind === 'SHORTER_USEFUL_LIFE'
+              ? {
+                  kind: 'SHORTER_USEFUL_LIFE',
+                  usefulLifeYears: years,
+                  annualOf: (y) => (buildingRuleOn(registry, y) === undefined ? undefined : frac(1n, BigInt(years))),
+                }
+              : bandRate(registry, asset);
+          if (guard !== null && guard.fromYear !== null) stopFrom = { year: guard.fromYear, reason: guard.reason };
+        }
       }
     }
   }
@@ -306,13 +345,37 @@ export function partOf(
     fractionAt,
     rate,
     partReasons,
-    stopFrom: null,
+    stopFrom,
     poolKey,
     purchases,
     pooled: empty(),
     perItem: empty(),
     endToVerify: null,
   };
+}
+
+/**
+ * §59G Part 1 (`subsequentCostRate.shorterLife: NOT_COMPUTABLE`): a later cost in a pool with a purchase whose shorter
+ * life applies is not computed: in every year for an evidence from the start (`fromYear: null`), from the evidence's
+ * year for a later one (a part starting in or after it: every year). A part starting after the evidenced remaining life
+ * has ended (`afterRemainingLife`) needs a new evidence: `REMAINING_USEFUL_LIFE_ENDED`. `null` when no purchase applies one.
+ */
+function shorterLifeGuard(pool: readonly { readonly w: Work }[], firstMonth: number): { readonly fromYear: number | null; readonly reason: Flag } | null {
+  for (const { w } of pool) {
+    const c = w.shorterLife;
+    const appliesFromStart = c.kind === 'FROM_START' && [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE');
+    const appliesLater = c.kind === 'FROM_EVIDENCE_YEAR' && c.shorter;
+    if (!appliesFromStart && !appliesLater) continue;
+    const lastMonth = c.kind === 'FROM_EVIDENCE_YEAR' ? c.lastMonth : w.lastMonth;
+    const acquisitionId = w.acquisition.id;
+    if (lastMonth !== null && firstMonth > lastMonth) {
+      return { fromYear: null, reason: { code: 'REMAINING_USEFUL_LIFE_ENDED', details: { acquisitionId, lastMonth: monthLabel(lastMonth) } } };
+    }
+    const reason = { code: 'SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED', details: { acquisitionId, usefulLifeYears: c.entry.usefulLifeYears } };
+    if (c.kind === 'FROM_START' || yearOfMonth(firstMonth) >= c.fromYear) return { fromYear: null, reason };
+    return { fromYear: c.fromYear, reason };
+  }
+  return null;
 }
 
 export function bandRate(registry: RuleRegistry, asset: DepreciationAsset): PartRate {

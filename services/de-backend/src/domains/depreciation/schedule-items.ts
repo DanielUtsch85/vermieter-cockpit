@@ -115,16 +115,8 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
         details: { notOwnedBasis: moneyOfCents(notOwned.basisCents, item.lineAmount.currency).toJSON(), date },
       });
     }
-    const shorter = parts.filter((p) => p.rate?.kind === 'SHORTER_USEFUL_LIFE');
-    if (!separate && shorter.length > 0) {
-      const rule = buildingRuleOn(registry, year) ?? buildingVersions[buildingVersions.length - 1];
-      if (rule !== undefined && !rule.parameters.subsequentCostRate.shorterLifeVerified) {
-        flags.push({
-          code: 'SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY',
-          details: { ownerPartyIds: shorter.map((p) => p.participant), usefulLifeYears: shorter[0]?.rate?.usefulLifeYears ?? null },
-        });
-      }
-    }
+    // §59G Part 1 (VC-X-41): SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY is withdrawn; a later cost in a shorter-life pool is
+    // not computed (`SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`, `REMAINING_USEFUL_LIFE_ENDED`; `item-part.ts`).
     const work: ItemWork = {
       item,
       ref,

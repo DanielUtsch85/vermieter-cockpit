@@ -1,7 +1,7 @@
 import type { BusinessDate, RuleRegistry, RuleVersion } from '../../shared/index.js';
-import type { DepreciationAsset, ShorterUsefulLife } from './asset.js';
+import type { DepreciationAsset } from './asset.js';
 import { NOT_OWNED_PART } from './capitalized-item.js';
-import { ZERO, byText, frac, monthOf, yearOfDate, type Frac } from './exact.js';
+import { ZERO, byText, frac, monthOf, yearOfDate, type Frac, type RateEntry } from './exact.js';
 import { bandRate, usefulLifeRate, type ItemContext, type ItemPart, type ItemWork, type PartRate, type Reading } from './item-part.js';
 import { walkPools } from './item-pools.js';
 import { buildingRuleOn } from './rate.js';
@@ -73,9 +73,14 @@ export function rebuildWorks(inputs: VersionInputs, registry: RuleRegistry): { r
 function purchaseWork(c: VersionComponent, registry: RuleRegistry, completionYear: number | null, supportedYear: number): Work {
   const start = c.start.date as BusinessDate;
   const firstMonth = monthOf(`${c.start.month as string}-01` as BusinessDate);
-  const entry =
+  // §59G Part 1: a stored shorter life applies from the start (a later evidence is never recorded as one), so the rate
+  // reads its years and review state; its valuation date is a stored input of the fingerprint. No type cast.
+  const entry: RateEntry | undefined =
     c.rate.kind === 'SHORTER_USEFUL_LIFE' && c.rate.usefulLifeYears !== null
-      ? ({ acquisitionId: c.acquisition?.acquisitionId ?? '', usefulLifeYears: c.rate.usefulLifeYears, reviewState: 'CONFIRMED' } as ShorterUsefulLife)
+      ? {
+          usefulLifeYears: c.rate.usefulLifeYears,
+          reviewState: c.acquisition?.shorterLifeReviewState === 'ADVISOR_CONFIRMED' ? 'ADVISOR_CONFIRMED' : 'CONFIRMED',
+        }
       : undefined;
   const nominal =
     completionYear === null
@@ -114,7 +119,10 @@ function purchaseWork(c: VersionComponent, registry: RuleRegistry, completionYea
     cost: {} as Work['cost'],
     reasons: [],
     flags: [],
-    entry,
+    entry: undefined,
+    rateEntry: entry,
+    shorterLife: { kind: 'NOT_JUDGED' },
+    shorterLifeFrom: null,
     // A recorded component is computable, so its method entry was a confirmed STANDARD one (§59C); the arithmetic does not read it.
     method: null,
     parts,
