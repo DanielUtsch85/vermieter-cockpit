@@ -271,6 +271,28 @@ describe('decision 3: SEVERAL_PURCHASES_PARTIAL_SALE only from a reduction at wh
     expect(several(input)).toEqual(years.map((year) => [year, 1, []]));
   });
 
+  it('a purchase this very reduction ends still counts as active: W and X wholly sold (a) or ended without a follow-up row (b), from 2026', () => {
+    // A holds W (2020) and X (2024); on 2026-07-01 A holds nothing: (a) a sale of the whole share to C, (b) the last row
+    // of A ending on 2026-06-30 without a follow-up row. W and X end with this reduction (their lastDay is the day before).
+    const rows = (sold: boolean) => [
+      ownership(A, '1/1', '2020-07-01', '2022-06-30', W),
+      ownership(A, '3/5', '2022-07-01', '2024-06-30', null),
+      ownership(B, '2/5', '2022-07-01', '2024-06-30', Y),
+      ownership(A, '1/1', '2024-07-01', '2026-06-30', X),
+      ...(sold ? [ownership(C, '1/1', '2026-07-01', null, Z)] : []),
+    ];
+    const wholeSale = acc8({ acquisitions: [w, y, x, { ...z, acquiredShare: { numerator: 1, denominator: 1 } }], ownerships: rows(true) });
+    const ended = acc8({ acquisitions: [w, y, x], ownerships: rows(false) });
+    for (const input of [wholeSale, ended]) {
+      const stages = stagesOf(input, [2025, 2026], checks);
+      expect(stages.map((s) => s.components.find((c) => c.componentId === P)?.criteria)).toEqual([
+        ['PURCHASE'],
+        ['PURCHASE', 'SEVERAL_PURCHASES_PARTIAL_SALE'],
+      ]);
+      expect(stages[1]?.components.find((c) => c.componentId === `ACQUISITION:${X}`)?.criteria).toEqual(['PURCHASE', 'SEVERAL_PURCHASES_PARTIAL_SALE']);
+    }
+  });
+
   it('a part that bought nothing (the share of its buyer not increased, §28.1A; a DRAFT) is no layer of its own', () => {
     const draft = { ...x, status: 'DRAFT' as const, sellerPartyIds: [D] };
     const input = acc8({
