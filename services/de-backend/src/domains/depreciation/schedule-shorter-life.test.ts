@@ -272,7 +272,6 @@ describe('the purchase under Part 1 (§59G "Example", the Part 1 column)', () =>
     const pure = shorterLifeCaseOf({
       entry: gutachten('2027-05-20', RELEASED),
       contractDate: day('2024-02-10'),
-      sourceReferences: [],
       firstYear: 2024,
       parameters: DE_AFA_BUILDING_LINEAR_V2.parameters.shorterUsefulLife,
       thresholdOf: (year) => (year >= 2027 ? null : 50),
