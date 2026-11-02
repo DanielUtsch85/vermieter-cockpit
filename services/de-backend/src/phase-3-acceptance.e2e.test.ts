@@ -1,3 +1,5 @@
+import { unusedCommands } from './api/app.test-support.js';
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import pg from 'pg';
@@ -219,7 +221,8 @@ const PROPERTY_1 = '6512f0c2a1b2c3d4e5f63901';
 const PROPERTY_2 = '6512f0c2a1b2c3d4e5f63902';
 
 /** The Phase-3 routes (api-design §41) under `/api/v1`, as `METHOD /path/:param`. */
-const PHASE_3 = /^[A-Z]+ \/loans\b|^[A-Z]+ \/property-references\/:propertyReferenceId\/loans$/;
+// §58E's tax confirmations under /loans are Taxation's (VC-X-28), with their own Realm isolation test (tax-year-acknowledgements.e2e).
+const PHASE_3 = /^[A-Z]+ \/loans\b(?!.*\/tax-confirmations)|^[A-Z]+ \/property-references\/:propertyReferenceId\/loans$/;
 
 /**
  * Every route the app serves, from Express' router stack, relative to its mount point. This reads Express 4
@@ -389,6 +392,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         replaceUses: replaceAssessmentUses({ repository: new PostgresWegSpecialAssessmentRepository(db) }),
         void: voidSpecialAssessment({ repository: new PostgresWegSpecialAssessmentRepository(db) }),
       },
+      taxStatements: unusedCommands.taxStatements,
       taxation: {
         create: createTaxClassification({ repository: new PostgresTaxClassificationRepository(db) }),
         get: getTaxClassification({ repository: new PostgresTaxClassificationRepository(db) }),
@@ -400,7 +404,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         useTaxMeaning: getUseTaxMeaning({ repository: new PostgresTaxClassificationRepository(db) }),
         anschaffungsnahe: getAnschaffungsnaheCheck({ repository: new PostgresTaxClassificationRepository(db) }),
         taxMeanings: listTaxMeanings({ repository: new PostgresTaxClassificationRepository(db) }),
-        taxYear: getTaxYearView({ repository: new PostgresTaxClassificationRepository(db) }),
+        taxYear: getTaxYearView({ repository: new PostgresTaxClassificationRepository(db), fingerprinter: sha256Fingerprinter }),
         listRules: listTaxRules(),
         getRule: getTaxRule(),
       },

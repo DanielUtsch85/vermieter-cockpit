@@ -1,3 +1,4 @@
+import { sha256Fingerprinter as fingerprinter } from '../hashing/index.js';
 import { Kysely, PostgresDialect, type CompiledQuery } from 'kysely';
 import { describe, expect, it } from 'vitest';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
@@ -23,7 +24,7 @@ describe.skipIf(databaseUrl === undefined)('construction-period records and capi
   const viewOf = async (pr: string, year: number, ownerPartyId: string | null = null): Promise<TaxYearView> => {
     const read = await ctx.classifications.readTaxYear(pr, REALM, year, ownerPartyId, today);
     if (read === undefined) throw new Error('no PropertyReference');
-    const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES });
+    const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
     if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
     return outcome.view;
   };
@@ -361,7 +362,7 @@ describe.skipIf(databaseUrl === undefined)('construction-period records and capi
     });
     if (read === undefined) throw new Error('no read');
     expect(read.interest?.get(split as string)?.record?.reviewState).toBe('UNREVIEWED');
-    const outcome = buildTaxYearView(read, { year: 2028, ownerPartyId: null, today, registry: TAX_RULES });
+    const outcome = buildTaxYearView(read, { year: 2028, ownerPartyId: null, today, registry: TAX_RULES, fingerprinter });
     if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
     expect(outcome.view.capitalized.items[0]?.flags.find((f) => f.code === 'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS')?.details).toMatchObject({
       reason: 'RECORD_NOT_CONFIRMED',

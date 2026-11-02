@@ -138,15 +138,43 @@ export {
 } from './weg-sources.js';
 export type { DateSource, MeaFraction, OtherWegSource, WegNotCounted, WegSourceFacts, WegSourceFlag, WegTaxMeaning, WegTaxMeaningFlag } from './weg-sources.js';
 export { distributionOf, withTreatmentEffects } from './treatment-effects.js';
-export { amendmentLists, attributionChanges, listBefore } from './attribution-changes.js';
+export { CHANGE_KINDS, amendmentLists, attributionChanges, changeEntry, changeFingerprint, listBefore } from './attribution-changes.js';
 export type {
   AttributionCandidate,
   AttributionChange,
   AttributionChanges,
   AttributionInput,
+  ChangeEntityType,
+  ChangeItem,
+  ChangeKind,
+  InconsistentHistory,
+  MarkedChange,
   ReferenceAmendment,
   ReferenceHistory,
 } from './attribution-changes.js';
+export type {
+  HistoryRecord,
+  LoanInterestCandidate,
+  LoanTermsHistory,
+  ReconciliationCandidate,
+  ReconciliationHistory,
+  ReconciliationInput,
+  TermsHistory,
+} from './attribution-history.js';
+export { TAX_STATEMENT_STATUSES, confirmationMark, matchAcknowledgement, nothingToConfirm, planAcknowledgement } from './tax-statements.js';
+export type {
+  AcknowledgeDecision,
+  AcknowledgeOutcome,
+  AcknowledgementMark,
+  ConfirmOutcome,
+  ConfirmationMark,
+  LoanAllocationTaxConfirmation,
+  NothingToConfirmCause,
+  TaxStatementStatus,
+  TaxStatementRepository,
+  TaxYearAcknowledgement,
+  WithdrawOutcome,
+} from './tax-statements.js';
 export { capitalizedItemsOf, capitalizedSourcesOf } from './capitalized-items.js';
 export type { CapitalizedSource, CapitalizedSourceInput, CapitalizedSourceLoan, NotASource } from './capitalized-items.js';
 export { CONSTRUCTION_PERIOD_INTEREST, DE_CONSTRUCTION_PERIOD_INTEREST_V1 } from './rules/de-construction-period-interest.js';

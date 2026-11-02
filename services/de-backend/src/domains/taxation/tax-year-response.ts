@@ -6,6 +6,7 @@ import type { RefundInfo } from './cash-timing.js';
 import type { TreatmentSuggestion } from './tax-meaning.js';
 import type { Distribution } from './distribution-82b.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
+import type { ConfirmationMark } from './tax-statements.js';
 
 /** The tax-year view as it answers (api-design.md §58C "Response"): its items, lines, sections, totals and review. */
 
@@ -154,6 +155,8 @@ export interface TaxYearLoanAllocation {
   readonly basis: AllocationBasis | null;
   readonly share: string | null;
   readonly propertyPart: Money | null;
+  /** §58E: the set's `ACTIVE` tax confirmation; `null` without one and on every `MANUAL` or one-entry set. */
+  readonly taxConfirmation: ConfirmationMark | null;
 }
 
 export interface TaxYearLine {

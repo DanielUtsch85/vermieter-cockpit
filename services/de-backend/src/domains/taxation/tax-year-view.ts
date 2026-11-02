@@ -1,7 +1,7 @@
-import { moneyOfCents, type BusinessDate, type RuleRegistry } from '../../shared/index.js';
+import { moneyOfCents, type BusinessDate, type Fingerprinter, type RuleRegistry } from '../../shared/index.js';
 import type { LoanAllocationSetView } from '../financing/index.js';
 import type { AnschaffungsnaheCheck, NotFinalReason } from './anschaffungsnahe.js';
-import { attributionChanges, type AttributionInput } from './attribution-changes.js';
+import { attributionChanges, changeEntry, type AttributionInput, type MarkedChange } from './attribution-changes.js';
 import type { TaxListItem } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
 import { deriveItem, notAttributedItem, type Derived } from './tax-year-items.js';
@@ -22,6 +22,7 @@ import { afaComponentCount, afaOf, afaParticipants, componentOfItem, type TaxYea
 import { sectionsOf, withAfa, withoutItems } from './tax-year-sections.js';
 import { NOT_OWNED, type ViewOwnership } from './tax-year-shares.js';
 import { PROPOSED_BY_10_DAY_RULE, type ProposedSplit } from './ten-day-proposal.js';
+import { matchAcknowledgement, type LoanAllocationTaxConfirmation, type TaxYearAcknowledgement } from './tax-statements.js';
 
 /**
  * The tax-year view (api-design.md §58C, phase-7-plan P7-D7, P7-D8): §55's per-year list, with the interest of the
@@ -112,6 +113,10 @@ export interface TaxYearRead {
    * (`proposedSplits`, from the same derivation as the list's). Shown as the year flag, never summed.
    */
   readonly proposedSplits?: readonly ProposedSplit[];
+  /** §58E: the `ACTIVE` acknowledgements of the PropertyReference and `year`, from the same snapshot. */
+  readonly acknowledgements?: readonly TaxYearAcknowledgement[];
+  /** §58E: the `ACTIVE` tax confirmations of the sets of `loanAllocationSets`, by set id, from the same snapshot. */
+  readonly taxConfirmations?: ReadonlyMap<string, LoanAllocationTaxConfirmation>;
 }
 
 export type TaxYearOutcome =
@@ -125,11 +130,24 @@ export type TaxYearOutcome =
  */
 export function buildTaxYearView(
   read: TaxYearRead,
-  options: { readonly year: number; readonly ownerPartyId: string | null; readonly today: BusinessDate; readonly registry: RuleRegistry },
+  options: {
+    readonly year: number;
+    readonly ownerPartyId: string | null;
+    readonly today: BusinessDate;
+    readonly registry: RuleRegistry;
+    /** §58E: the change fingerprints (SHA-256 in production). */
+    readonly fingerprinter: Fingerprinter;
+  },
 ): TaxYearOutcome {
   const { year, ownerPartyId, today, registry } = options;
   const currency = 'EUR';
-  const attribution = attributionChanges(read.attribution, year, registry);
+  const derivedChanges = attributionChanges(read.attribution, year, registry, {
+    propertyReferenceId: read.propertyReferenceId,
+    fingerprinter: options.fingerprinter,
+  });
+  // §58E: each change with the ACTIVE acknowledgement that matches it (same auditRecordId and fingerprint), or null.
+  const marked: MarkedChange[] = derivedChanges.changes.map((c) => ({ ...c, acknowledgement: matchAcknowledgement(c, read.acknowledgements ?? []) }));
+  const attribution = { changes: marked, inconsistent: derivedChanges.inconsistent };
   const interest = read.interest ?? new Map<string, InterestFacts>();
   const listed = read.sources
     .map((s) => deriveItem(s.item, year, read.ownerships, attribution.changes))
@@ -139,7 +157,7 @@ export function buildTaxYearView(
   const loanCases = loanInterestOf(read.propertyReferenceId, read.allocatedLoanInterest, read.loanAllocationSets);
   const attributedLoans = loanCases
     .filter((c): c is Extract<LoanInterestCase, { kind: 'ATTRIBUTED' }> => c.kind === 'ATTRIBUTED')
-    .map((c) => deriveLoanItem(c, year, read.ownerships, attribution.changes))
+    .map((c) => deriveLoanItem(c, year, read.ownerships, attribution.changes, read.taxConfirmations))
     .filter((d): d is Derived => d !== undefined)
     // §59E: the flag dropped only with the component on P's building whose basis equals P's part, at every participant.
     .map((d) => withLoanInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId, read.depreciation));
@@ -169,19 +187,18 @@ export function buildTaxYearView(
 
   // The flags of the year.
   const flags: ViewFlag[] = [...afa.yearFlags];
-  if (attribution.changes.length > 0) {
+  if (attribution.changes.length > 0) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: attribution.changes.map(changeEntry) });
+  // §58E: the entity of an unusable history; a reference keeps `rentalContractReferenceId`.
+  for (const e of attribution.inconsistent) {
     flags.push({
-      code: 'ATTRIBUTION_INPUT_CHANGED',
-      details: attribution.changes.map((c) => ({
-        rentalContractReferenceId: c.rentalContractReferenceId,
-        auditRecordId: c.auditRecordId,
-        amendedAt: c.amendedAt.toISOString(),
-        changedEntries: c.changedEntries,
-        items: c.items,
-      })),
+      code: 'ATTRIBUTION_HISTORY_INCONSISTENT',
+      details: {
+        entityType: e.entityType,
+        entityId: e.entityId,
+        ...(e.entityType === 'RentalContractReference' ? { rentalContractReferenceId: e.entityId } : {}),
+      },
     });
   }
-  for (const id of attribution.inconsistent) flags.push({ code: 'ATTRIBUTION_HISTORY_INCONSISTENT', details: { rentalContractReferenceId: id } });
   const incomplete = derived.filter((d) => d.parts.has(NOT_OWNED));
   if (incomplete.length > 0) {
     const notOwnedResult = incomplete.reduce((s, d) => {

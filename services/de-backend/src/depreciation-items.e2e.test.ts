@@ -124,7 +124,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
             fingerprinter: sha256Fingerprinter,
           }),
         },
-        taxation: { taxYear: getTaxYearView({ repository: classifications, now }), listRules: listTaxRules({ now }) },
+        taxation: { taxYear: getTaxYearView({ repository: classifications, now, fingerprinter: sha256Fingerprinter }), listRules: listTaxRules({ now }) },
       }),
     });
     server = app.listen(0, '127.0.0.1');

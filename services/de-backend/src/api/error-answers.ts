@@ -11,6 +11,7 @@ import { RENT_RECONCILIATION_ANSWERS } from './error-answers/rent-reconciliation
 import { RENTAL_CONTRACT_REFERENCE_ANSWERS } from './error-answers/rental-contract-reference.js';
 import { SECURITY_DEPOSIT_ANSWERS } from './error-answers/security-deposit.js';
 import { TAXATION_ANSWERS } from './error-answers/taxation.js';
+import { TAX_STATEMENT_ANSWERS } from './error-answers/tax-statements.js';
 import { WEG_ANSWERS } from './error-answers/weg.js';
 
 export { access, type ErrorAnswer } from './error-answers/answer.js';
@@ -39,6 +40,7 @@ const TABLE = [
   ...SECURITY_DEPOSIT_ANSWERS,
   ...WEG_ANSWERS,
   ...TAXATION_ANSWERS,
+  ...TAX_STATEMENT_ANSWERS,
   ...DEPRECIATION_ANSWERS,
 ];
 

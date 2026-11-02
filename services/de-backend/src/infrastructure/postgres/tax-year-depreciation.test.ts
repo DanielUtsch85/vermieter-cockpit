@@ -1,3 +1,4 @@
+import { sha256Fingerprinter as fingerprinter } from '../hashing/index.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -48,7 +49,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
   async function view(pr: string, year: number, ownerPartyId: string | null = null, today = TODAY): Promise<TaxYearView> {
     const read = await tax().readTaxYear(pr, REALM, year, ownerPartyId, today);
     if (read === undefined) throw new Error('no read');
-    const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES });
+    const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry: TAX_RULES, fingerprinter });
     if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
     return outcome.view;
   }
@@ -258,7 +259,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
       expect((await record(assetId, { throughYear: 2027 })).kind).toBe('RECORDED');
     });
     if (read === undefined) throw new Error('no read');
-    const outcome = buildTaxYearView(read, { year: 2027, ownerPartyId: null, today: TODAY, registry: TAX_RULES });
+    const outcome = buildTaxYearView(read, { year: 2027, ownerPartyId: null, today: TODAY, registry: TAX_RULES, fingerprinter });
     if (outcome.kind !== 'VIEW') throw new Error(outcome.kind);
     const v = outcome.view;
     expect([v.capitalized.items, afa(v, 'AFA_BUILDING')?.items.map((i) => i.kind), v.depreciation.assets[0]?.recording?.state]).toEqual([
@@ -297,7 +298,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
     const run = async () => {
       const read = await tax().readTaxYear(pr, REALM, 2027, null, TODAY);
       if (read === undefined) throw new Error('no read');
-      return buildTaxYearView(read, { year: 2027, ownerPartyId: null, today: TODAY, registry: TAX_RULES });
+      return buildTaxYearView(read, { year: 2027, ownerPartyId: null, today: TODAY, registry: TAX_RULES, fingerprinter });
     };
     await bulk(4999);
     const at5000 = await run();

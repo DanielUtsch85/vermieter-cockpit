@@ -29,7 +29,7 @@ import {
   type TaxYearView,
   type Treatment,
 } from '../domains/taxation/index.js';
-import type { BusinessDate, Money } from '../shared/index.js';
+import type { BusinessDate, Fingerprinter, Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
 import { AcquisitionCancelledError } from './acquisition-costs.js';
@@ -551,14 +551,15 @@ export type GetTaxYearView = (input: {
  * The tax-year view (api-design.md §58C) in its order of checks: the PropertyReference (404), the owner's Party (404),
  * `NOT_AN_OWNER_IN_YEAR` (422), the cap (409), then the view; derived from one snapshot, never stored.
  */
-export function getTaxYearView(deps: Deps & { readonly registry?: RuleRegistry }): GetTaxYearView {
+/** §58E: `fingerprinter` gives each attribution change its fingerprint (`sha256Fingerprinter` in production). */
+export function getTaxYearView(deps: Deps & { readonly registry?: RuleRegistry; readonly fingerprinter: Fingerprinter }): GetTaxYearView {
   const registry = deps.registry ?? TAX_RULES;
   return async ({ principal, propertyReferenceId, year, ownerPartyId }) => {
     const today = todayOf(deps);
     const read = await deps.repository.readTaxYear(propertyReferenceId, principal.mreRealmId, year, ownerPartyId, today);
     if (read === undefined) throw new PropertyReferenceNotFoundError(propertyReferenceId);
     if (ownerPartyId !== null && read.ownerPartyFound !== true) throw new OwnerPartyNotFoundError(ownerPartyId);
-    const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry });
+    const outcome = buildTaxYearView(read, { year, ownerPartyId, today, registry, fingerprinter: deps.fingerprinter });
     switch (outcome.kind) {
       case 'VIEW':
         return outcome.view;

@@ -1,3 +1,4 @@
+import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import pg from 'pg';
@@ -216,7 +217,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
           useTaxMeaning: getUseTaxMeaning({ repository: classifications }),
           anschaffungsnahe: getAnschaffungsnaheCheck({ repository: classifications }),
           taxMeanings: listTaxMeanings({ repository: classifications }),
-          taxYear: getTaxYearView({ repository: classifications }),
+          taxYear: getTaxYearView({ repository: classifications, fingerprinter: sha256Fingerprinter }),
           listRules: listTaxRules(),
           getRule: getTaxRule(),
         },

@@ -1,13 +1,20 @@
-import type { BusinessDate, RuleRegistry } from '../../shared/index.js';
-import { businessDayOf } from '../ledger/index.js';
+import { canonicalJson, type BusinessDate, type Fingerprinter, type RuleRegistry } from '../../shared/index.js';
 import type { ChangedEntry, RentDueDay } from '../rental-contract-reference/index.js';
+import { reconciliationChanges, termsChanges, type LoanTermsHistory, type ReconciliationInput } from './attribution-history.js';
+import { movedItems, recordedAfter, type ChangeItem, type ChangeKind, type InconsistentHistory, type RawChange } from './attribution-rule.js';
 import { attributeTaxYear, rentTiming } from './cash-timing.js';
 
+export { CHANGE_KINDS, movedItems, recordedAfter } from './attribution-rule.js';
+export type { ChangeEntityType, ChangeItem, ChangeKind, InconsistentHistory, RawChange } from './attribution-rule.js';
+
 /**
- * `ATTRIBUTION_INPUT_CHANGED` (api-design.md §58C, §58A): a correction of a RentalContractReference's `rentDueDays`
- * moves the tax year of rent derived on read, and nothing per split records it. The lists before and after each
- * amendment are rebuilt from the reference's AuditRecords; a candidate rent split's year is computed under both, with
- * everything else as read now. Derived, never stored; no acknowledgement (VC-X-28).
+ * `ATTRIBUTION_INPUT_CHANGED` (api-design.md §58C, §58E Part 1): an input of the attribution recorded after a year's end
+ * moves the tax year of an item derived on read, and nothing per split records it. A *change* is one AuditRecord of such
+ * an input; each candidate's year is computed with the input as it stood just before and just after the record,
+ * everything else as read now, and the year is flagged when the two differ, one of them is the year and the record was
+ * made after its 31 December (Europe/Berlin). The kinds: a RentalContractReference's `rentDueDays` created or amended
+ * (here), a reconciliation confirmed or released and a Loan terms period added or voided (`attribution-history.ts`).
+ * Derived, never stored; a change is acknowledged by its fingerprint (§58E Part 2).
  */
 
 /** One `AMENDED` AuditRecord of a reference with `changedEntries`. */
@@ -27,6 +34,8 @@ export interface ReferenceHistory {
   readonly rentDueDays: readonly RentDueDay[];
   /** The `CREATED` record's list; `null` without one. */
   readonly created: readonly RentDueDay[] | null;
+  /** The `CREATED` record itself (§58E, decided 2026-11-02: a change of its own); absent or `null` without one. */
+  readonly createdRecord?: { readonly auditRecordId: string; readonly createdAt: Date } | null;
   readonly amendments: readonly ReferenceAmendment[];
 }
 
@@ -46,21 +55,22 @@ export interface AttributionCandidate {
 export interface AttributionInput {
   readonly references: readonly ReferenceHistory[];
   readonly candidates: readonly AttributionCandidate[];
+  /** §58E: the reconciliations of the candidate Transactions with their AuditRecords; absent: none. */
+  readonly reconciliations?: ReconciliationInput;
+  /** §58E: the candidate Loans with their terms and AuditRecords; absent: none. */
+  readonly loans?: readonly LoanTermsHistory[];
 }
 
-export interface AttributionChange {
-  readonly rentalContractReferenceId: string;
-  readonly auditRecordId: string;
-  readonly amendedAt: Date;
-  readonly changedEntries: readonly ChangedEntry[];
-  readonly items: readonly { readonly sourceId: string; readonly yearBefore: number; readonly yearAfter: number }[];
+export interface AttributionChange extends RawChange {
+  /** SHA-256 of the canonical `{ propertyReferenceId, year, auditRecordId, kind, items }` (§58E Part 2). */
+  readonly changeFingerprint: string;
 }
 
 export interface AttributionChanges {
-  /** `ATTRIBUTION_INPUT_CHANGED`'s details, by reference id, then the amendment's version. */
+  /** `ATTRIBUTION_INPUT_CHANGED`'s entries, by `amendedAt`, then `auditRecordId`. */
   readonly changes: readonly AttributionChange[];
-  /** The references whose history does not reach their `CREATED` list (`ATTRIBUTION_HISTORY_INCONSISTENT`). */
-  readonly inconsistent: readonly string[];
+  /** The entities whose history does not end in their current row (`ATTRIBUTION_HISTORY_INCONSISTENT`). */
+  readonly inconsistent: readonly InconsistentHistory[];
 }
 
 const normalized = (days: readonly RentDueDay[]) =>
@@ -100,38 +110,132 @@ export function amendmentLists(
 }
 
 /**
- * The amendments that moved a candidate into or out of `year` (§58C): its tax year by `DE_CASH_TIMING` with B and with
- * A differs, one of them is `year`, and the amendment was recorded after 31 December of `year` (Europe/Berlin).
+ * The `rentDueDays` kinds (§58E Part 1): each amendment with `changedEntries` (an evidence-only amend has none and is no
+ * change, decided 2026-11-02, 237-4), and the `CREATED` record against no reference at all (decided 2026-11-02).
  */
-export function attributionChanges(input: AttributionInput, year: number, registry: RuleRegistry): AttributionChanges {
-  const changes: AttributionChange[] = [];
-  const inconsistent: string[] = [];
-  const yearEnd = `${String(year).padStart(4, '0')}-12-31`;
+function rentDueDayChanges(input: AttributionInput, year: number, registry: RuleRegistry): { changes: RawChange[]; inconsistent: InconsistentHistory[] } {
+  const changes: RawChange[] = [];
+  const inconsistent: InconsistentHistory[] = [];
   for (const reference of [...input.references].sort((a, b) => (a.rentalContractReferenceId < b.rentalContractReferenceId ? -1 : 1))) {
     const lists = amendmentLists(reference);
     if (lists === undefined) {
-      inconsistent.push(reference.rentalContractReferenceId);
+      inconsistent.push({ entityType: 'RentalContractReference', entityId: reference.rentalContractReferenceId });
       continue;
     }
     const candidates = input.candidates.filter((c) => c.mreTenantId === reference.mreTenantId);
-    for (const { amendment, before, after } of [...lists].reverse()) {
-      // An amendment recorded while `year` was still running cannot have changed a filed return of it (review on #168).
-      if (businessDayOf(amendment.amendedAt) <= yearEnd) continue;
-      const items = candidates.flatMap((c) => {
-        const yearUnder = (days: readonly RentDueDay[]) => attributeTaxYear(c, rentTiming(c.mreRentTerm, days), c.taxYearOverride, registry).taxYear;
-        const [yearBefore, yearAfter] = [yearUnder(before), yearUnder(after)];
-        return yearBefore !== yearAfter && (yearBefore === year || yearAfter === year) ? [{ sourceId: c.sourceId, yearBefore, yearAfter }] : [];
+    const judge = (
+      kind: ChangeKind,
+      auditRecordId: string,
+      at: Date,
+      changedEntries: readonly ChangedEntry[],
+      before: readonly RentDueDay[] | null,
+      after: readonly RentDueDay[],
+    ) => {
+      if (!recordedAfter(at, year)) return;
+      const items = movedItems(
+        candidates,
+        year,
+        (c, side) => attributeTaxYear(c, rentTiming(c.mreRentTerm, side === 'BEFORE' ? before : after), c.taxYearOverride, registry).taxYear,
+      );
+      if (items.length === 0) return;
+      const id = reference.rentalContractReferenceId;
+      changes.push({
+        kind,
+        entityType: 'RentalContractReference',
+        entityId: id,
+        auditRecordId,
+        amendedAt: at,
+        keys: { rentalContractReferenceId: id, changedEntries },
+        items,
       });
-      if (items.length > 0) {
-        changes.push({
-          rentalContractReferenceId: reference.rentalContractReferenceId,
-          auditRecordId: amendment.auditRecordId,
-          amendedAt: amendment.amendedAt,
-          changedEntries: amendment.changedEntries,
-          items,
-        });
-      }
+    };
+    const record = reference.createdRecord ?? null;
+    if (record !== null) {
+      const created = reference.created ?? [];
+      // Before the reference there is no due day for any term (§58F: the booking year, PROPOSED_BY_10_DAY_RULE).
+      const entries = created.map((e) => ({ validFrom: e.validFrom, from: null, to: e.day }));
+      judge('RENT_DUE_DAYS_CREATED', record.auditRecordId, record.createdAt, entries, null, created);
+    }
+    for (const { amendment, before, after } of [...lists].reverse()) {
+      judge('RENT_DUE_DAYS_AMENDED', amendment.auditRecordId, amendment.amendedAt, amendment.changedEntries, before, after);
     }
   }
   return { changes, inconsistent };
 }
+
+/** The change fingerprint (§58E Part 2): SHA-256 of the canonical JSON, the items by `sourceId`; ids as stored (lower-case). */
+export function changeFingerprint(
+  fingerprinter: Fingerprinter,
+  change: {
+    readonly propertyReferenceId: string;
+    readonly year: number;
+    readonly auditRecordId: string;
+    readonly kind: ChangeKind;
+    readonly items: readonly ChangeItem[];
+  },
+): string {
+  const items = [...change.items]
+    .map((i) => ({ sourceId: i.sourceId.toLowerCase(), yearBefore: i.yearBefore, yearAfter: i.yearAfter }))
+    .sort((a, b) => (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0));
+  return fingerprinter.sha256Hex(
+    canonicalJson({
+      propertyReferenceId: change.propertyReferenceId.toLowerCase(),
+      year: change.year,
+      auditRecordId: change.auditRecordId.toLowerCase(),
+      kind: change.kind,
+      items,
+    }),
+  );
+}
+
+/**
+ * Every change of `year` (§58E Part 1), each judged alone by the one rule, with its fingerprint; and the entities whose
+ * history is unusable. Entries by `amendedAt`, then `auditRecordId`.
+ */
+export function attributionChanges(
+  input: AttributionInput,
+  year: number,
+  registry: RuleRegistry,
+  context: { readonly propertyReferenceId: string; readonly fingerprinter: Fingerprinter },
+): AttributionChanges {
+  const rent = rentDueDayChanges(input, year, registry);
+  const reconciliations =
+    input.reconciliations === undefined ? { changes: [], inconsistent: [] } : reconciliationChanges(input.reconciliations, year, registry);
+  const terms = termsChanges(input.loans ?? [], year, registry, context.propertyReferenceId);
+  const raw = [...rent.changes, ...reconciliations.changes, ...terms.changes].sort((a, b) =>
+    a.amendedAt.getTime() !== b.amendedAt.getTime() ? a.amendedAt.getTime() - b.amendedAt.getTime() : a.auditRecordId < b.auditRecordId ? -1 : 1,
+  );
+  return {
+    changes: raw.map((c) => ({
+      ...c,
+      changeFingerprint: changeFingerprint(context.fingerprinter, {
+        propertyReferenceId: context.propertyReferenceId,
+        year,
+        auditRecordId: c.auditRecordId,
+        kind: c.kind,
+        items: c.items,
+      }),
+    })),
+    inconsistent: [...rent.inconsistent, ...reconciliations.inconsistent, ...terms.inconsistent],
+  };
+}
+
+/** A change with the `ACTIVE` acknowledgement that matches it (§58E Part 2), or `null`. */
+export type MarkedChange = AttributionChange & { readonly acknowledgement: unknown };
+
+/** A change's keys in a flag (§58E "The flag, additively"): the kind, the entity, the kind's keys, the record, the fingerprint, the acknowledgement. */
+export function changeKeys(change: MarkedChange) {
+  return {
+    kind: change.kind,
+    entityType: change.entityType,
+    entityId: change.entityId,
+    ...change.keys,
+    auditRecordId: change.auditRecordId,
+    amendedAt: change.amendedAt.toISOString(),
+    changeFingerprint: change.changeFingerprint,
+    acknowledgement: change.acknowledgement,
+  };
+}
+
+/** A change as an entry of the year flag `ATTRIBUTION_INPUT_CHANGED`: its keys and the items it moves. */
+export const changeEntry = (change: MarkedChange) => ({ ...changeKeys(change), items: change.items });

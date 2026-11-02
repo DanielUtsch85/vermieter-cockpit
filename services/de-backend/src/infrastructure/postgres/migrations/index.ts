@@ -58,6 +58,7 @@ import * as m0056 from './0056_shorter_life_valuation_date.js';
 import * as m0057 from './0057_rent_due_day_evidence.js';
 import * as m0058 from './0058_classification_performance.js';
 import * as m0059 from './0059_shorter_life_valuation_not_after_evidence.js';
+import * as m0060 from './0060_tax_year_acknowledgements.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -125,4 +126,5 @@ export const migrations: Record<string, Migration> = {
   '0057_rent_due_day_evidence': m0057,
   '0058_classification_performance': m0058,
   '0059_shorter_life_valuation_not_after_evidence': m0059,
+  '0060_tax_year_acknowledgements': m0060,
 };
