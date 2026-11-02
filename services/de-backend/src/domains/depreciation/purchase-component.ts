@@ -71,6 +71,19 @@ export function componentOf(
         flags: [],
       };
     }
+    // §59G Part 1: from a later evidence's year on, nothing (never 0.00); the earlier years stand.
+    if (w.shorterLifeFrom !== null && year >= w.shorterLifeFrom.year) {
+      return {
+        ownerPartyId: p.ownerPartyId,
+        months: null,
+        fraction: null,
+        amount: null,
+        residualValue: null,
+        calculationStatus: 'NOT_CALCULABLE',
+        reasons: w.shorterLifeFrom.reasons,
+        flags: [],
+      };
+    }
     const b = p.basisCents;
     const rounded = (c: Frac) => divideHalfUp(b * c.n, c.d);
     const now = cumulativeOf(p, year);
@@ -119,7 +132,10 @@ export function componentOf(
     const notCalculable = owners.some((o) => o.calculationStatus === 'NOT_CALCULABLE') || !w.computable;
     const sumOf = (values: readonly bigint[]) => moneyOfCents(values.reduce((s, v) => s + v, 0n));
     // The component's cumulative and residual value are over every part, also a part already sold (its residual stays).
-    const known = w.computable && parts.every((p) => p.basisCents !== null && (p.missingFrom === null || p.missingFrom.year > year));
+    const known =
+      w.computable &&
+      (w.shorterLifeFrom === null || w.shorterLifeFrom.year > year) &&
+      parts.every((p) => p.basisCents !== null && (p.missingFrom === null || p.missingFrom.year > year));
     const cumulativeCents = known ? parts.map((p) => divideHalfUp((p.basisCents as bigint) * cumulativeOf(p, year).n, cumulativeOf(p, year).d)) : null;
     years.push({
       year,
@@ -187,7 +203,8 @@ export function componentOf(
             firstYearMonths: yearOfMonth(w.firstMonth) === yearOfDate(w.start) ? 12 - (w.firstMonth % 12) : 0,
           },
     rate,
-    end: lastYear === null || lastMonth === null ? null : { lastYear, lastMonth: monthLabel(lastMonth) },
+    // §59G Part 1: the end of a component not computed from a later evidence's year is not known.
+    end: lastYear === null || lastMonth === null || w.shorterLifeFrom !== null ? null : { lastYear, lastMonth: monthLabel(lastMonth) },
     owners: parts.map((p) => ({
       ownerPartyId: p.ownerPartyId,
       ownershipId: p.ownershipId,

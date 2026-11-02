@@ -24,12 +24,14 @@ import {
   yearOfDate,
   yearOfMonth,
   type Frac,
+  type RateEntry,
   type YearRate,
 } from './exact.js';
 import { methodReasonOf, methodStatusOf, type MethodStatus, type PurchaseMethod } from './purchase-method.js';
-import { buildingRuleOn } from './rate.js';
+import { bandOf, buildingRuleOn } from './rate.js';
 import type { BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { RANGE_MAX_YEAR, type Flag, type ScheduleAcquisition, type ScheduleOwnership } from './schedule-model.js';
+import { shorterLifeCaseOf, shorterLifeFlag, type ShorterLifeCase } from './shorter-life.js';
 
 /**
  * A purchase component of the schedule under derivation (api-design.md §59A): its start and first year (never the
@@ -81,6 +83,15 @@ export interface Work {
   readonly reasons: Flag[];
   readonly flags: Flag[];
   readonly entry: ShorterUsefulLife | undefined;
+  /**
+   * §59G Part 1: the entry as every rate of the component reads it (`rateOfYear` here, in the item parts and in the
+   * pools): the entry when it applies from the start, else `undefined` (the band's rate).
+   */
+  readonly rateEntry: RateEntry | undefined;
+  /** §59G: from when the entry applies, judged on its valuation date. */
+  readonly shorterLife: ShorterLifeCase;
+  /** §59G Part 1: every owner's year from this year on is not computed (a later evidence; the residual value is Part 2's). */
+  readonly shorterLifeFrom: { readonly year: number; readonly reasons: readonly Flag[] } | null;
   /** §59C: the purchase's method entry with its derived status (the rule of the start, else the latest); `null` without one. */
   readonly method: { readonly entry: PurchaseMethod; readonly methodStatus: MethodStatus | null; readonly causes: readonly string[] | null } | null;
   readonly parts: Part[];
@@ -165,10 +176,25 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
   if (entry !== undefined && !isConfirmed(entry.reviewState)) {
     reasons.push({ code: 'USEFUL_LIFE_NOT_CONFIRMED', details: { usefulLifeYears: entry.usefulLifeYears, reviewState: entry.reviewState } });
   }
+  const completionYear = asset.buildingCompletionYear;
+  // §59G Part 1: the case of the entry, on its valuation date; read from the version of the first year, else the latest.
+  const shorterLife = shorterLifeCaseOf({
+    entry,
+    contractDate: a.contractDate,
+    sourceReferences: asset.sourceReferences,
+    firstYear: firstMonth === null ? null : yearOfMonth(firstMonth),
+    parameters: firstYearRule?.shorterUsefulLife,
+    thresholdOf: (year) => {
+      const rule = buildingRuleOn(registry, year) ?? latest;
+      const band = rule === undefined || completionYear === null ? undefined : bandOf(rule.parameters, completionYear);
+      return band?.shorterUsefulLife.shorterThanYears ?? null;
+    },
+  });
+  if (shorterLife.kind === 'BLOCKED') reasons.push(shorterLife.reason);
+  const rateEntry = shorterLife.kind === 'FROM_START' ? shorterLife.entry : undefined;
   if (start === null) reasons.push({ code: 'TRANSFER_DATE_MISSING', details: { contractDate: a.contractDate } });
   const historical = supportedFrom === null || (start !== null && start < supportedFrom) || a.contractDate < supportedFrom;
   if (historical) reasons.push({ code: 'HISTORICAL_RULE_NOT_SUPPORTED', details: { contractDate: a.contractDate, startDate: start, supportedFrom } });
-  const completionYear = asset.buildingCompletionYear;
   // §59C (VC-X-37): no confirmed STANDARD method entry, no figure; evaluated for every listed component, a DRAFT and one
   // without a start included. The rule's `methodStatus` of the start year, else the latest. `newBuildingInCompletionYear`
   // is the case of the withdrawn DEPRECIATION_METHOD_UNKNOWN (it needs the start year).
@@ -184,7 +210,7 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
   const supportedYear = supportedFrom === null ? RANGE_MAX_YEAR + 1 : yearOfDate(supportedFrom);
   const { monthly, rates, yearsWithoutRule, lastMonth } =
     completionYear !== null && firstMonth !== null && startYear !== null
-      ? nominalMonths(registry, { firstMonth, startYear, completionYear, entry, supportedYear })
+      ? nominalMonths(registry, { firstMonth, startYear, completionYear, entry: rateEntry, supportedYear })
       : { monthly: new Map<number, Frac>(), rates: new Map<number, YearRate>(), yearsWithoutRule: [] as number[], lastMonth: null };
   if (yearsWithoutRule.length > 0 && !historical) reasons.push({ code: 'NO_APPLICABLE_RULE', details: { yearsWithoutRule } });
 
@@ -199,11 +225,31 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
       },
     });
   }
-  if (rateList.some((r) => r.kind === 'SHORTER_USEFUL_LIFE') && entry !== undefined) {
-    flags.push({ code: 'SHORTER_USEFUL_LIFE', details: { usefulLifeYears: entry.usefulLifeYears } });
-    // §59A: applied from the start; evidence dated after the first year is open (open question 4).
-    if (startYear !== null && entry.evidence.date > `${startYear}-12-31`)
-      flags.push({ code: 'USEFUL_LIFE_START_TO_VERIFY', details: { evidenceDate: entry.evidence.date, firstYear: startYear } });
+  if (rateList.some((r) => r.kind === 'SHORTER_USEFUL_LIFE') && shorterLife.kind === 'FROM_START') flags.push(shorterLifeFlag(shorterLife, lastMonth));
+  // §59G Part 1: a later evidence: the band's rate before its year; from its year nothing is computed while the rule
+  // says NOT_COMPUTABLE (`fromEvidenceYear`), the residual value over the remaining life being Part 2's.
+  let shorterLifeFrom: Work['shorterLifeFrom'] = null;
+  if (shorterLife.kind === 'FROM_EVIDENCE_YEAR' && !shorterLife.shorter) {
+    flags.push({
+      code: 'USEFUL_LIFE_NOT_SHORTER',
+      details: { usefulLifeYears: shorterLife.entry.usefulLifeYears, shorterThanYears: shorterLife.shorterThanYears },
+    });
+  } else if (shorterLife.kind === 'FROM_EVIDENCE_YEAR') {
+    flags.push(shorterLifeFlag(shorterLife, shorterLife.lastMonth));
+    const { entry: e, firstYear, fromYear } = shorterLife;
+    shorterLifeFrom = {
+      year: fromYear,
+      reasons: [
+        {
+          code: 'SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED',
+          details: { acquisitionId: a.id, evidenceDate: e.evidence.date, valuationDate: e.evidence.valuationDate, firstYear, fromYear },
+        },
+        // The owner's decision of 2026-11-02 (§59G open question 10): shown already, so the release can be completed.
+        ...(shorterLife.releaseMissing.length === 0
+          ? []
+          : [{ code: 'SHORTER_USEFUL_LIFE_RELEASE_MISSING', details: { acquisitionId: a.id, missing: [...shorterLife.releaseMissing] } }]),
+      ],
+    };
   }
   const unpaid = a.costs.filter((c) => c.paymentStatus !== 'PAID').map((c) => c.id);
   if (unpaid.length > 0) flags.push({ code: 'ACQUISITION_COST_UNPAID', details: { costIds: [...unpaid].sort(byText) } });
@@ -247,6 +293,9 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
     reasons,
     flags,
     entry,
+    rateEntry,
+    shorterLife,
+    shorterLifeFrom,
     method: methodEntry === undefined ? null : { entry: methodEntry, methodStatus: methodView?.methodStatus ?? null, causes: methodView?.causes ?? null },
     parts,
     computable: assetReasons.length === 0 && reasons.length === 0 && lastMonth !== null && parts.length > 0 && parts.every((p) => p.basisCents !== null),
@@ -267,7 +316,7 @@ export function nominalMonths(
     readonly firstMonth: number;
     readonly startYear: number;
     readonly completionYear: number;
-    readonly entry: ShorterUsefulLife | undefined;
+    readonly entry: RateEntry | undefined;
     readonly supportedYear: number;
   },
 ): { monthly: Map<number, Frac>; rates: Map<number, YearRate>; yearsWithoutRule: number[]; lastMonth: number | null } {

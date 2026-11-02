@@ -79,6 +79,11 @@ export interface VersionAcquisitionInputs {
   readonly buildingAmount: bigint;
   /** The shorter useful life's review state when one is used (its years are the component's `usefulLifeYears`). */
   readonly shorterLifeReviewState: string | null;
+  /**
+   * §59G (migration 0056): the entry's valuation date (Bewertungsstichtag) when a shorter life is used, so the stored
+   * inputs re-derive its case and the fingerprint sees a moved date. Absent or `null` on every other component.
+   */
+  readonly shorterLifeValuationDate?: BusinessDate | null;
 }
 
 /**

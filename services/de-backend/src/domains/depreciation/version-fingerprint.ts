@@ -56,6 +56,11 @@ export function countedComponent(c: VersionComponent): Record<string, unknown> {
             allocationId: c.acquisition.allocationId,
             totalAllocableAmount: centsText(c.acquisition.totalAllocableAmount),
             buildingAmount: centsText(c.acquisition.buildingAmount),
+            // §59G: the valuation date of a shorter life used, from the component's first year (no key on any other
+            // component, so no other fingerprint changes).
+            ...(c.acquisition.shorterLifeValuationDate === undefined || c.acquisition.shorterLifeValuationDate === null
+              ? {}
+              : { shorterLifeValuationDate: c.acquisition.shorterLifeValuationDate }),
           },
     // §59C: the method entry gates the whole component, so its facts and review state count from its first year.
     method: c.method,

@@ -804,6 +804,13 @@ export interface DepreciationAssetUsefulLifeTable {
   evidence_document_reference: string | null;
   review_state: string;
   advisor_party_id: string | null;
+  /**
+   * VC-X-41 (0056, api-design §59G): the Bewertungsstichtag, apart from the document's `evidence_date`; `NULL` only on a
+   * row from before 0056 that no write has touched since ("not stated", never read as the document date).
+   */
+  valuation_date: string | null;
+  /** VC-X-41 (0056): the release note (Freigabevermerk), 1–500. */
+  release_note: string | null;
 }
 
 /** VC-X-37 (0053, api-design §59C): the method entry of a purchase, one per Acquisition of a building asset. */

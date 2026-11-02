@@ -52,12 +52,9 @@ export const scenarios = (): Record<string, ScheduleInput> => ({
     asset: asset({ shorterUsefulLives: [life()] }),
     acquisitions: [acquisition({ acquiredShare: { numerator: 3, denominator: 5 } })],
     ownerships: [ownership(A, '3/5', '2026-07-01', null, W), ownership(C, '1/5', '2027-01-01', null, null)],
-    capitalizedItems: [
-      capitalized(EXTENSION, '2028-05-05', '10000.00', [
-        [A, '3/5'],
-        [C, '1/5'],
-      ]),
-    ],
+    // §59G Part 1 (VC-X-41): a later cost in A's 1/n pool is not computed (SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED), so
+    // the item is the heir's and NOT_OWNED's only; A's purchase still runs at 1/30 from the start.
+    capitalizedItems: [capitalized(EXTENSION, '2028-05-05', '10000.00', [[C, '1/5']])],
   },
   'a refund after the repair': acc8({
     capitalizedItems: [repair({ anschaffungsnaheAcquisitionId: null }), capitalized(REPAIR.replace('71', '73'), '2028-04-01', '-1200.00')],

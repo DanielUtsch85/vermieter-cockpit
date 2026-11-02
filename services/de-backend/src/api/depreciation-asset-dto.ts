@@ -12,6 +12,7 @@ import {
   MAX_ASSET_ITEMS,
   MAX_ASSET_SOURCE_REFERENCES,
   MAX_PURCHASE_METHODS,
+  MAX_RELEASE_NOTE_LENGTH,
   MAX_SHORTER_USEFUL_LIVES,
   PURCHASE_METHODS,
   SPECIAL_DEPRECIATIONS,
@@ -57,13 +58,32 @@ const evidence = z
     if (value.documentId !== undefined) issue(ctx, ['documentId'], 'NOT_SUPPORTED');
   });
 
+/**
+ * §59G (VC-X-41, the owner's decision of 2026-11-02): a shorter life's evidence states the document's `date` and, apart
+ * from it, the `valuationDate` (Bewertungsstichtag) as of which it states the remaining useful life (required).
+ */
+const shorterLifeEvidence = z
+  .object({
+    source: z.string().trim().min(1).max(500),
+    date: businessDate,
+    valuationDate: businessDate,
+    documentReference: optionalText(500).nullish(),
+    documentId: z.unknown().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.documentId !== undefined) issue(ctx, ['documentId'], 'NOT_SUPPORTED');
+  });
+
 const entry = z
   .object({
     acquisitionId: uuid,
     usefulLifeYears: integerIn(1, 99),
-    evidence,
+    evidence: shorterLifeEvidence,
     reviewState: reviewStateOf(ASSET_REVIEW_STATES).optional(),
     advisorPartyId: uuid.nullish(),
+    // §59G: the release note (Freigabevermerk), 1–500, trimmed; empty is absent.
+    releaseNote: optionalText(MAX_RELEASE_NOTE_LENGTH).nullish(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -282,9 +302,15 @@ export const entriesOf = (list: readonly z.infer<typeof entry>[] | null | undefi
     (e): UsefulLifeAmendment => ({
       acquisitionId: e.acquisitionId,
       usefulLifeYears: e.usefulLifeYears,
-      evidence: { source: e.evidence.source, date: e.evidence.date, documentReference: e.evidence.documentReference ?? null },
+      evidence: {
+        source: e.evidence.source,
+        date: e.evidence.date,
+        documentReference: e.evidence.documentReference ?? null,
+        valuationDate: e.evidence.valuationDate,
+      },
       ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
       ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
+      releaseNote: e.releaseNote ?? null,
     }),
   );
 

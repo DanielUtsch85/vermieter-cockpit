@@ -213,7 +213,34 @@ describe('TAX_RULES (§58, §59)', () => {
       ['C', { shorterThanYears: 40, legalBasis: '§ 7 Abs. 4 S. 2 EStG' }],
     ]);
     // 100 / 3 is not 33, and 100 / 2.5 is 40 only by coincidence: the statute names the years.
-    expect(parameters.shorterUsefulLife).toEqual({ legalBasis: '§ 7 Abs. 4 S. 2 EStG', rate: 'RECIPROCAL_OF_YEARS' });
+    expect(parameters.shorterUsefulLife).toMatchObject({ legalBasis: '§ 7 Abs. 4 S. 2 EStG', rate: 'RECIPROCAL_OF_YEARS' });
+  });
+
+  it('DE_AFA_BUILDING_LINEAR: §59G Part 1 (VC-X-41) in both versions, identically: the Stichtag apart, nothing computed from a late one', () => {
+    const of = (version: number) => (TAX_RULES.find({ ruleCode: AFA_BUILDING_LINEAR, version }) as { parameters: BuildingLinearParameters }).parameters;
+    for (const version of [1, 2]) {
+      const { shorterUsefulLife, subsequentCostRate } = of(version);
+      expect(shorterUsefulLife).toEqual({
+        legalBasis: '§ 7 Abs. 4 S. 2 EStG',
+        rate: 'RECIPROCAL_OF_YEARS',
+        evidenceDate: 'DOCUMENT_DATE',
+        valuationDate: { required: true, missing: 'NOT_COMPUTABLE' },
+        fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR',
+        evidenceBeforeContractYear: 'NOT_COMPUTABLE',
+        fromEvidenceYear: 'NOT_COMPUTABLE',
+        lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: true, releaseNote: true },
+        source: expect.stringContaining('Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)'),
+      });
+      expect(subsequentCostRate).toEqual({
+        rate: 'OWNER_PURCHASE_RATE',
+        shorterLife: 'NOT_COMPUTABLE',
+        afterRemainingLife: 'NOT_COMPUTABLE',
+        legalBasis: expect.stringContaining('R 7.4 Abs. 9 S. 2 EStR; Prüfbericht 2026-11-01, Frage 9'),
+      });
+      expect(subsequentCostRate).not.toHaveProperty('shorterLifeVerified');
+    }
+    expect(of(1).shorterUsefulLife).toEqual(of(2).shorterUsefulLife);
+    expect(of(1).subsequentCostRate).toEqual(of(2).subsequentCostRate);
   });
 
   it('DE_AFA_BUILDING_LINEAR: the parameters of §59B in both versions, read from the registry', () => {
@@ -229,7 +256,7 @@ describe('TAX_RULES (§58, §59)', () => {
         verified: false,
         legalBasis: 'R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)',
       });
-      expect(parameters.subsequentCostRate).toEqual({ rate: 'OWNER_PURCHASE_RATE', shorterLifeVerified: false });
+      expect(parameters.subsequentCostRate).toMatchObject({ rate: 'OWNER_PURCHASE_RATE' });
       expect(parameters.subsequentCostEnd).toEqual({
         method: 'POOLED_BASIS',
         remainingUsefulLife: { allowed: true, computed: false },

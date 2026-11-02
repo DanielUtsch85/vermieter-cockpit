@@ -23,7 +23,12 @@ export const actor = { actorType: 'USER', actorId: 'anna@example.com' } as const
 export const day = (value: string) => value as BusinessDate;
 export const eur = (amount: string) => Money.of(amount, 'EUR');
 export const registry = new RuleRegistry(DEPRECIATION_RULE_VERSIONS);
-export const evidence = { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: 'Gutachten Nr. 0000-SYN' };
+export const evidence = {
+  source: 'Gutachten zur Restnutzungsdauer',
+  date: day('2026-06-15'),
+  documentReference: 'Gutachten Nr. 0000-SYN',
+  valuationDate: day('2026-06-15'),
+};
 
 export type Queryable = Pick<pg.PoolClient, 'query'>;
 
@@ -149,6 +154,7 @@ export function useDepreciationAssetDatabase(name: `${string}_test`) {
     evidence,
     reviewState: 'UNREVIEWED',
     advisorPartyId: null,
+    releaseNote: null,
     ...overrides,
   });
   const building = (pr: string, overrides: Partial<NewDepreciationAsset> = {}): NewDepreciationAsset => ({
@@ -208,6 +214,7 @@ export function useDepreciationAssetDatabase(name: `${string}_test`) {
       useful_life_years: 30,
       evidence_source: 'Gutachten',
       evidence_date: '2026-06-15',
+      valuation_date: '2026-06-15',
       review_state: 'UNREVIEWED',
       ...values,
     };

@@ -18,10 +18,10 @@ function nominalLastMonth(ctx: ItemContext, w: Work): number | null {
   const versions = ctx.registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
   const earliest = versions[0];
   const fallback =
-    earliest === undefined ? undefined : rateOfYear(ctx.registry, yearOfDate(earliest.effectiveFrom), ctx.asset.buildingCompletionYear, w.entry)?.annual;
+    earliest === undefined ? undefined : rateOfYear(ctx.registry, yearOfDate(earliest.effectiveFrom), ctx.asset.buildingCompletionYear, w.rateEntry)?.annual;
   let done = ZERO;
   for (let m = w.firstMonth; m <= w.firstMonth + 1200; m++) {
-    const annual = rateOfYear(ctx.registry, yearOfMonth(m), ctx.asset.buildingCompletionYear, w.entry)?.annual ?? fallback;
+    const annual = rateOfYear(ctx.registry, yearOfMonth(m), ctx.asset.buildingCompletionYear, w.rateEntry)?.annual ?? fallback;
     if (annual === undefined) return null;
     done = add(done, minF(twelfth(annual), sub(ONE, done)));
     if (cmp(done, ONE) >= 0) return m;
@@ -101,7 +101,8 @@ export function walkPools(ctx: ItemContext, works: readonly ItemWork[]): void {
         // computed and flagged from then on (§59B "NO_APPLICABLE_RULE").
         if (w.selected === 'POOLED_BASIS') {
           p.pooled = p.perItem;
-          p.stopFrom = { year: stop.year, reason: stop.reason };
+          // An earlier stop (§59G Part 1, a later evidence's year) stays.
+          if (p.stopFrom === null || stop.year < p.stopFrom.year) p.stopFrom = { year: stop.year, reason: stop.reason };
         } else if (p.perItem.lastMonth !== null && p.perItem.lastMonth >= stop.month) {
           p.endToVerify = {
             from: Math.max(stop.year, yearOfMonth(p.firstMonth)),
@@ -140,9 +141,14 @@ export function walkPools(ctx: ItemContext, works: readonly ItemWork[]): void {
   for (const w of works) {
     if (!w.computable) continue;
     for (const p of w.parts) {
-      if (p.rate === null || p.stopFrom !== null) continue;
+      if (p.rate === null) continue;
       const exhausted = p.perItem.exhaustedMonth;
-      for (let y = yearOfMonth(p.firstMonth); y <= yearOfMonth(p.firstMonth) + 100 && (exhausted === null || y <= yearOfMonth(exhausted)); y++) {
+      const until = p.stopFrom === null ? Number.MAX_SAFE_INTEGER : p.stopFrom.year - 1;
+      for (
+        let y = yearOfMonth(p.firstMonth);
+        y <= Math.min(until, yearOfMonth(p.firstMonth) + 100) && (exhausted === null || y <= yearOfMonth(exhausted));
+        y++
+      ) {
         if (p.rate.annualOf(y) === undefined) {
           p.stopFrom = { year: y, reason: { code: 'NO_APPLICABLE_RULE', details: { yearsWithoutRule: [y] } } };
           break;
@@ -188,7 +194,8 @@ function walk(
         if (w.firstMonth === null || m < w.firstMonth || p.fractionAt === null || p.basisCents === null) continue;
         const f = p.fractionAt(m);
         const q = w.monthly.get(m) ?? ZERO;
-        const annual = rateOfYear(ctx.registry, year, ctx.asset.buildingCompletionYear, w.entry)?.annual ?? ZERO;
+        // §59G Part 1: the purchase's `rateEntry`, never its stored entry (a later evidence is not applied retroactively).
+        const annual = rateOfYear(ctx.registry, year, ctx.asset.buildingCompletionYear, w.rateEntry)?.annual ?? ZERO;
         const weight = mul(f, cents(p.basisCents));
         allowance = add(allowance, mul(weight, twelfth(annual)));
         ownSum = add(ownSum, mul(weight, q));

@@ -54,9 +54,15 @@ const asset: DepreciationAsset = {
     {
       acquisitionId: ACQ,
       usefulLifeYears: 30,
-      evidence: { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15' as BusinessDate, documentReference: 'Gutachten Nr. 0000-SYN' },
+      evidence: {
+        source: 'Gutachten zur Restnutzungsdauer',
+        date: '2026-06-15' as BusinessDate,
+        documentReference: 'Gutachten Nr. 0000-SYN',
+        valuationDate: '2026-06-15' as BusinessDate,
+      },
       reviewState: 'NEEDS_REVIEW',
       advisorPartyId: null,
+      releaseNote: null,
     },
   ],
   purchaseMethods: [
@@ -114,9 +120,10 @@ const dto = {
     {
       acquisitionId: ACQ,
       usefulLifeYears: 30,
-      evidence: { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15', documentReference: 'Gutachten Nr. 0000-SYN' },
+      evidence: { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15', valuationDate: '2026-06-15', documentReference: 'Gutachten Nr. 0000-SYN' },
       reviewState: 'NEEDS_REVIEW',
       advisorPartyId: null,
+      releaseNote: null,
     },
   ],
   // §59C: the entry with its derived status and causes.
@@ -181,7 +188,7 @@ const fields = async (res: Response) => {
   expect(res.status).toBe(400);
   return ((await res.json()) as { error: { details: { fields: { field: string; code: string }[] } } }).error.details.fields;
 };
-const evidence = { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15' };
+const evidence = { source: 'Gutachten zur Restnutzungsdauer', date: '2026-06-15', valuationDate: '2026-06-15' };
 const entry = (overrides: Record<string, unknown> = {}) => ({ acquisitionId: ACQ, usefulLifeYears: 30, evidence, ...overrides });
 
 describe('POST /depreciation-assets (§59)', () => {
@@ -275,8 +282,18 @@ describe('POST /depreciation-assets (§59)', () => {
     expect(await fields(await lives([entry({ usefulLifeYears: 0 })]))).toEqual([{ field: 'shorterUsefulLives.0.usefulLifeYears', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await lives([entry({ usefulLifeYears: 100 })]))).toEqual([{ field: 'shorterUsefulLives.0.usefulLifeYears', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await lives([entry({ usefulLifeYears: 30.5 })]))).toEqual([{ field: 'shorterUsefulLives.0.usefulLifeYears', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await lives([entry({ evidence: { date: '2026-06-15' } })]))).toEqual([
+    expect(await fields(await lives([entry({ evidence: { date: '2026-06-15', valuationDate: '2026-06-15' } })]))).toEqual([
       { field: 'shorterUsefulLives.0.evidence.source', code: 'REQUIRED' },
+    ]);
+    // §59G (VC-X-41): the Stichtag is required apart from the document's date, never taken from it; the release note 1–500.
+    expect(await fields(await lives([entry({ evidence: { source: 'Gutachten', date: '2026-06-15' } })]))).toEqual([
+      { field: 'shorterUsefulLives.0.evidence.valuationDate', code: 'REQUIRED' },
+    ]);
+    expect(await fields(await lives([entry({ evidence: { ...evidence, valuationDate: '2026-13-01' } })]))).toEqual([
+      { field: 'shorterUsefulLives.0.evidence.valuationDate', code: 'INVALID_FORMAT' },
+    ]);
+    expect(await fields(await lives([entry({ releaseNote: 'x'.repeat(501) })]))).toEqual([
+      { field: 'shorterUsefulLives.0.releaseNote', code: 'INVALID_FORMAT' },
     ]);
     expect(await fields(await lives([entry({ evidence: { ...evidence, date: '2026-02-30' } })]))).toEqual([
       { field: 'shorterUsefulLives.0.evidence.date', code: 'INVALID_FORMAT' },
@@ -348,7 +365,7 @@ describe('amend, confirm, void (§59)', () => {
       buildingCompletionYear: 1994,
       sourceReferences: [],
       notes: null,
-      shorterUsefulLives: [{ acquisitionId: ACQ, usefulLifeYears: 30, evidence: { ...evidence, documentReference: null } }],
+      shorterUsefulLives: [{ acquisitionId: ACQ, usefulLifeYears: 30, evidence: { ...evidence, documentReference: null }, releaseNote: null }],
       expectedVersions: [2],
     });
     await post(base, `/depreciation-assets/${ASSET}/amend`, { reviewState: 'NEEDS_REVIEW', shorterUsefulLives: null });

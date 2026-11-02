@@ -76,6 +76,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
           ...e,
           reviewState: e.reviewState ?? 'UNREVIEWED',
           advisorPartyId: e.advisorPartyId ?? null,
+          releaseNote: e.releaseNote ?? null,
         })),
         // §59C: likewise for a method entry.
         purchaseMethods: purchaseMethodsOf(body.purchaseMethods).map((e) => ({
@@ -235,9 +236,16 @@ function assetDto(a: DepreciationAsset, rate: AssetRate | null, methods: readonl
     shorterUsefulLives: a.shorterUsefulLives.map((e) => ({
       acquisitionId: e.acquisitionId,
       usefulLifeYears: e.usefulLifeYears,
-      evidence: { source: e.evidence.source, date: e.evidence.date, documentReference: e.evidence.documentReference },
+      evidence: {
+        source: e.evidence.source,
+        date: e.evidence.date,
+        // §59G: the Bewertungsstichtag apart from the document's date; `null` on an entry from before 0056.
+        valuationDate: e.evidence.valuationDate,
+        documentReference: e.evidence.documentReference,
+      },
       reviewState: e.reviewState,
       advisorPartyId: e.advisorPartyId,
+      releaseNote: e.releaseNote,
     })),
     // §59C: each entry with its derived status and causes (`[]` on a separate asset).
     purchaseMethods: a.purchaseMethods.map((e) => {

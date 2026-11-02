@@ -20,8 +20,8 @@ export interface BuildingRateBand {
 /** The parameters of the linear building AfA (api-design.md §59, P8-D4; §59A, P8-D2, P8-D5, P8-D8, P8-D9). */
 export interface BuildingLinearParameters {
   readonly bands: readonly BuildingRateBand[];
-  /** The claimed rate is `1/usefulLifeYears`, and only below the band's `shorterThanYears`. */
-  readonly shorterUsefulLife: { readonly legalBasis: string; readonly rate: 'RECIPROCAL_OF_YEARS' };
+  /** The claimed rate is `1/usefulLifeYears`, and only below the band's `shorterThanYears`; from when: §59G. */
+  readonly shorterUsefulLife: ShorterUsefulLifeParameters;
   /**
    * Whether the version may give a figure without the open flag `HISTORICAL_RULE_TO_VERIFY` (§59A, decided 2026-10-31),
    * split by what a confirmation covers: `rates` the bands (their `ratePercent` by the completion year), and
@@ -94,8 +94,17 @@ export interface BuildingLinearParameters {
     readonly verified: boolean;
     readonly legalBasis: string;
   };
-  /** §59B (B11): a later cost runs at the owner's purchase rate; a shorter life is open while `shorterLifeVerified` is false. */
-  readonly subsequentCostRate: { readonly rate: 'OWNER_PURCHASE_RATE'; readonly shorterLifeVerified: boolean };
+  /**
+   * §59B (B11): a later cost runs at the owner's purchase rate. §59G Part 1 (VC-X-41): in a pool with a purchase whose
+   * shorter useful life applies, a later cost is not computed (`SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`), and one
+   * that starts after the evidenced useful life has ended needs a new evidence (`REMAINING_USEFUL_LIFE_ENDED`).
+   */
+  readonly subsequentCostRate: {
+    readonly rate: 'OWNER_PURCHASE_RATE';
+    readonly shorterLife: 'NOT_COMPUTABLE';
+    readonly afterRemainingLife: 'NOT_COMPUTABLE';
+    readonly legalBasis: string;
+  };
   /**
    * §59B (R 7.4 Abs. 9 S. 1–2 EStR, decided provisionally 2026-10-31): one pooled basis per ownership tenure
    * (`POOLED_BASIS`) or each item part its own series (`PER_ITEM_SERIES`); both are computed, and the years in which
@@ -107,6 +116,30 @@ export interface BuildingLinearParameters {
     readonly verified: boolean;
     readonly legalBasis: string;
   };
+}
+
+/**
+ * §59G Part 1 (VC-X-41; Prüfbericht 2026-11-01, Frage 8; the owner's decisions of 2026-11-02): from when a confirmed
+ * shorter useful life applies. The date judged is the entry's Stichtag (`evidence.valuationDate`), stored apart from
+ * the document's date; without it (an entry from before 0056) the component is not computed. A Stichtag in the first
+ * year, or between the contract year and the first year, applies from the start; one before the contract year is not
+ * the buyer's (not computed); a later one (after the first year) is computed at the band's rate before its year and
+ * not computed from it, until the residual value over the remaining useful life is supported (Part 2); its release
+ * (`lateEvidenceRelease`) is shown missing beside it.
+ */
+export interface ShorterUsefulLifeParameters {
+  readonly legalBasis: string;
+  readonly rate: 'RECIPROCAL_OF_YEARS';
+  /** `evidence.date` is the document's date, never read as the Stichtag. */
+  readonly evidenceDate: 'DOCUMENT_DATE';
+  /** `evidence.valuationDate` (the Stichtag) is required on every entry written; an entry without it is not computed. */
+  readonly valuationDate: { readonly required: boolean; readonly missing: 'NOT_COMPUTABLE' };
+  readonly fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR';
+  readonly evidenceBeforeContractYear: 'NOT_COMPUTABLE';
+  readonly fromEvidenceYear: 'NOT_COMPUTABLE';
+  /** What a late evidence needs to be released (the owner's decision of 2026-11-02, §59G open question 10). */
+  readonly lateEvidenceRelease: { readonly reviewState: string; readonly evidence: boolean; readonly releaseNote: boolean };
+  readonly source: string;
 }
 
 export const SUBSEQUENT_COST_START_METHODS = ['START_OF_YEAR', 'MONTH_OF_DATE'] as const;
@@ -127,8 +160,23 @@ const LEGAL_BASIS = '§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG';
 const CONFIRMED = 'Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01';
 
 /** The parameters both versions share (§59A); only the bands and `verified` differ. */
+/** §59G Part 1 (VC-X-41): Prüfbericht Frage 8 and the owner's decisions of 2026-11-02. */
+const SHORTER_LIFE_SOURCE =
+  'Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidungen des Projektinhabers vom 2026-11-02 (api-design §59G Teil 1)';
+
 const COMMON = {
-  shorterUsefulLife: { legalBasis: SHORTER, rate: 'RECIPROCAL_OF_YEARS' },
+  // §59G Part 1 (VC-X-41), taken into both versions in place before the first productive enablement (§60 open question 11).
+  shorterUsefulLife: {
+    legalBasis: SHORTER,
+    rate: 'RECIPROCAL_OF_YEARS',
+    evidenceDate: 'DOCUMENT_DATE',
+    valuationDate: { required: true, missing: 'NOT_COMPUTABLE' },
+    fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR',
+    evidenceBeforeContractYear: 'NOT_COMPUTABLE',
+    fromEvidenceYear: 'NOT_COMPUTABLE',
+    lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: true, releaseNote: true },
+    source: SHORTER_LIFE_SOURCE,
+  },
   basis: {
     excludedCostCategories: ['FINANCING_RELATED'],
     allocationReviewStates: ['CONFIRMED', 'ADVISOR_CONFIRMED'],
@@ -184,7 +232,14 @@ const COMMON = {
     verified: false,
     legalBasis: 'R 7.4 Abs. 9 S. 3 EStR (reviewer input on #173; VERIFY)',
   },
-  subsequentCostRate: { rate: 'OWNER_PURCHASE_RATE', shorterLifeVerified: false },
+  // §59G Part 1 (VC-X-41): `shorterLifeVerified` withdrawn with SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY.
+  subsequentCostRate: {
+    rate: 'OWNER_PURCHASE_RATE',
+    shorterLife: 'NOT_COMPUTABLE',
+    afterRemainingLife: 'NOT_COMPUTABLE',
+    legalBasis:
+      'R 7.4 Abs. 9 S. 2 EStR; Prüfbericht 2026-11-01, Frage 9 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidung des Projektinhabers vom 2026-11-02',
+  },
   subsequentCostEnd: {
     method: 'POOLED_BASIS',
     remainingUsefulLife: { allowed: true, computed: false },

@@ -408,6 +408,39 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
     expect(await probe(tables, purchase(`NULL, NULL, NULL, NULL, NULL`))).toBe('accepted');
   });
 
+  it('§59G (0056): a recorded component’s Stichtag exactly on a purchase with a shorter useful life (its CHECK)', async () => {
+    const mine = await versionOf();
+    const ownClassification = await classification(REALM, mine.pr);
+    const purchase = (rateKind: string, years: string, stichtag: string) => (client: pg.PoolClient) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, useful_life_years, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total,
+           excluded_cost_ids, excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, shorter_life_review_state,
+           ${METHOD_COLUMNS}, cost_classification_ids, shorter_life_valuation_date)
+         VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', '${rateKind}', ${years}, $4,
+           1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${rateKind === 'SHORTER_USEFUL_LIFE' ? `'CONFIRMED'` : 'NULL'}, ${METHOD_VALUES}, '{}', ${stichtag})`,
+        [mine.version.versionId, REALM, mine.pr, mine.w, mine.allocation],
+      );
+    const item = (stichtag: string) => (client: pg.PoolClient) =>
+      client.query(
+        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+           start_date_source, start_method, start_month, rate_kind, source_type, source_id, classification_id, classification_review_state, tax_category,
+           item_date, item_date_source, item_tax_year, shorter_life_valuation_date)
+         VALUES ($1, $2, $3, 'ITEM:x', 'CAPITALIZED_ITEM', 9, 1, '2027-03-15', 'BOOKING_DATE', 'MONTH_OF_DATE', '2027-03-01', 'BAND', 'TRANSACTION_SPLIT',
+           gen_random_uuid(), $4, 'USER_CONFIRMED', 'MAINTENANCE', '2027-03-15', 'BOOKING_DATE', 2027, ${stichtag})`,
+        [mine.version.versionId, REALM, mine.pr, ownClassification],
+      );
+    const tables = ['depreciation_schedule_version_component'];
+    const refused = '23514 depreciation_schedule_version_component_shorter_life';
+    expect(await probe(tables, purchase('SHORTER_USEFUL_LIFE', '30', 'NULL'))).toBe(refused);
+    expect(await probe(tables, purchase('BAND', 'NULL', `'2026-06-15'`))).toBe(refused);
+    expect(await probe(tables, item(`'2026-06-15'`))).toBe(refused);
+    // Counter-checks: a shorter-life purchase with its Stichtag; a band purchase and an item without one.
+    expect(await probe(tables, purchase('SHORTER_USEFUL_LIFE', '30', `'2026-06-15'`))).toBe('accepted');
+    expect(await probe(tables, purchase('BAND', 'NULL', 'NULL'))).toBe('accepted');
+    expect(await probe(tables, item('NULL'))).toBe('accepted');
+  });
+
   it(
     'up and down under MIGRATION_ADVISORY_LOCK: down refused with a version present, else drops the eight tables and their functions',
     { timeout: 30_000 },

@@ -128,7 +128,7 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
   it('a shorter useful life under @1 is CALCULATED: Frage 8 covers the thresholds of @1 (owner 2026-11-01); with them unverified the flag is back', () => {
     const input = sole(
       { contractDate: day('2020-03-01'), economicTransferDate: day('2020-04-01') },
-      { shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-04-01') } })] },
+      { shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-04-01'), valuationDate: day('2020-04-01') } })] },
       { from: 2022, to: 2023 },
     );
     const statuses = (registry?: RuleRegistry) =>
@@ -185,7 +185,7 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
     ).toContainEqual({ code: 'DEPRECIATION_METHOD_NOT_CONFIRMED', count: 1 });
   });
 
-  it('a shorter life: applied (SHORTER_USEFUL_LIFE), not confirmed (not computable), not shorter (band rate, open), evidence after the first year (USEFUL_LIFE_START_TO_VERIFY)', () => {
+  it('a shorter life: applied (SHORTER_USEFUL_LIFE), not confirmed (not computable), not shorter (band rate, open); the later evidence: schedule-shorter-life.test.ts', () => {
     const run = (entry: Parameters<typeof life>[0]) =>
       component(derive(sole({ economicTransferDate: day('2026-01-01') }, { shorterUsefulLives: [life(entry)] }, { from: 2026, to: 2026 })));
     const applied = run({});
@@ -203,12 +203,15 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
       '5088.00',
       'PROVISIONAL',
     ]);
-    const later = run({ evidence: { source: 'Gutachten', date: day('2027-02-01'), documentReference: null } });
-    expect(later.flags).toEqual([
-      { code: 'SHORTER_USEFUL_LIFE', details: { usefulLifeYears: 30 } },
-      { code: 'USEFUL_LIFE_START_TO_VERIFY', details: { evidenceDate: '2027-02-01', firstYear: 2026 } },
-    ]);
-    expect(amount(yearOf(later, 2026).amount)).toBe('8480.00');
+    // §59G Part 1 (VC-X-41): USEFUL_LIFE_START_TO_VERIFY is withdrawn; a valuation date after the first year is never
+    // applied from the start (the cases in schedule-shorter-life.test.ts).
+    const later = run({
+      evidence: { ...life().evidence, valuationDate: day('2027-02-01') },
+      reviewState: 'ADVISOR_CONFIRMED',
+      releaseNote: 'Freigabe (synthetisch)',
+    });
+    expect(codes(later.flags)).not.toContain('USEFUL_LIFE_START_TO_VERIFY');
+    expect(amount(yearOf(later, 2026).amount)).toBe('5088.00');
   });
 
   it('ACQUISITION_COST_UNPAID is informative and changes nothing', () => {

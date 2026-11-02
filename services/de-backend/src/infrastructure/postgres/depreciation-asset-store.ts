@@ -204,8 +204,10 @@ export async function amend(
                 evidence_source: to.evidence.source,
                 evidence_date: to.evidence.date,
                 evidence_document_reference: to.evidence.documentReference,
+                valuation_date: to.evidence.valuationDate,
                 review_state: to.reviewState,
                 advisor_party_id: to.advisorPartyId,
+                release_note: to.releaseNote,
               })
               .where('asset_id', '=', id)
               .where('acquisition_id', '=', entry.acquisitionId)
@@ -424,8 +426,10 @@ async function insertEntry(
       evidence_source: entry.evidence.source,
       evidence_date: entry.evidence.date,
       evidence_document_reference: entry.evidence.documentReference,
+      valuation_date: entry.evidence.valuationDate,
       review_state: entry.reviewState,
       advisor_party_id: entry.advisorPartyId,
+      release_note: entry.releaseNote,
     })
     .execute();
 }
