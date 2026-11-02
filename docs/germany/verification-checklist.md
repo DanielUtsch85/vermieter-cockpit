@@ -32,6 +32,8 @@
 - **C1, E1:** BFH IX R 19/24 ist eine veröffentlichte Entscheidung und trägt die Aussage unmittelbar.
 - **E6:** § 551 Abs. 3 BGB trägt die getrennte Anlage und die Zurechnung der Erträge zum Mieter. Der Satz zur Kapitalertragsteuer ist ein Implementierungshinweis („nicht hardcodieren“), keine Rechtsaussage.
 - **A7:** bleibt `Recherche`. Die Zeile nennt keine Fundstelle; für Bremen und Thüringen nennt die Quellenliste Berichte bzw. das Finanzministerium, nicht den Gesetzestext, und für die übrigen Länder keine Quelle. `Primärquelle` erst, wenn je Land das Landesgesetz zum Steuersatz zitiert ist.
+- **B7, Schwelle bei spätem Nachweis:** `Primärquelle` — § 7 Abs. 4 S. 2 EStG (Gesetzestext, Fundstelle unten). Das Gesetz vergleicht die tatsächliche Nutzungsdauer des Gebäudes, und die läuft für den Käufer ab Erwerb; bei einem Nachweis nach dem ersten Jahr ist daher `(YE − Y1) + n` mit der Grenze zu vergleichen, nicht `n` allein (47 Restjahre drei Jahre nach dem Kauf sind 50 Jahre und damit nicht kürzer). Vom Projektinhaber so entschieden (Entscheidung des Projektinhabers, 2026-11-02; `api-design.md` §59G, offene Frage 4). Die Spalte „Bestätigt durch“ der Zeile B7 bleibt `Fachperson, 01.11.2026` für die übrigen Aussagen der Zeile.
+
 
 ---
 
