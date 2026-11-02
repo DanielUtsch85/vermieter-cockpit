@@ -43,8 +43,14 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // `evidence.documentReference` counts as the late evidence, so `shorterUsefulLife.lateEvidenceRelease.evidence` is
   // `ENTRY_DOCUMENT_REFERENCE` (was `true`, which also took the asset's `sourceReferences`). Recording is still disabled.
   // Before: @1 4e3c7f46…678c, @2 bbe0fecc…2d84 (the counter-check below recomputes both).
-  ['DE_AFA_BUILDING_LINEAR', 1, 'e7cc8abb4b2fdcf033f050137e6c2647ddf15786ec2c5d6ad854b61867875fce'],
-  ['DE_AFA_BUILDING_LINEAR', 2, 'b7cd96ab674b84f672887fcff7dc8db1be2ceebacfdbe4a8c830c75ce07f33d8'],
+  // Again for @1 and @2 for §59G Part 2 (VC-X-41 Part 2; Prüfbericht 2026-11-01, Fragen 8 und 9, mündlich bestätigt durch
+  // den Steuerberater, laut Projektinhaber am 2026-11-01; Entscheidung des Projektinhabers, 2026-11-02, questions 2, 3, 4,
+  // 8 and 11, landing before the first enablement): `fromEvidenceYear` RESIDUAL_OVER_REMAINING_LIFE, `residualValue`,
+  // `evidenceYearCounts` FROM_JANUARY, `thresholdYears` FROM_FIRST_YEAR, `lateEvidenceRelease.declaredAfa`,
+  // `declaredAfaDiffers`, the source; `subsequentCostRate.shorterLife` REMAINING_USEFUL_LIFE and `partsBeforeSwitch`.
+  // Recording is still disabled. Before: @1 e7cc8abb…5fce, @2 b7cd96ab…33d8 (the counter-check below recomputes both).
+  ['DE_AFA_BUILDING_LINEAR', 1, 'faf89a3f6c7f887429c55513b15c0e63424d006d75d767267d69328bcc7f5d87'],
+  ['DE_AFA_BUILDING_LINEAR', 2, 'cae4d35f4c1927c41ade1b9019f5cf90cd153a98dd1978fcd54e3166a57736f8'],
   ['DE_AFA_MOVABLE_LINEAR', 1, '85d929633060b63636187e42a65e5856bdc58c65f86bd1ae22284a8278b1f06a'],
   // A Phase-7 rule, pinned from §59D on (VC-X-42; §59D open question 3, decided by the owner on 2026-11-01): changed in
   // place by the parameter `costClassification` (Prüfbericht 2026-11-01, Fragen 10 und 24, mündlich bestätigt durch den
@@ -98,8 +104,50 @@ describe('the frozen rule versions (§60)', () => {
     expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
   });
 
+  /** §59G: the building rule as Part 1 (#238, #244) left it: Part 2's parameters taken out, the values and source back. */
+  const part1Of = (rule: typeof DE_AFA_BUILDING_LINEAR_V2) => {
+    const { residualValue, evidenceYearCounts, thresholdYears, declaredAfaDiffers, ...shorter } = rule.parameters.shorterUsefulLife;
+    void [residualValue, evidenceYearCounts, thresholdYears, declaredAfaDiffers];
+    const { declaredAfa, ...release } = shorter.lateEvidenceRelease;
+    void declaredAfa;
+    const { partsBeforeSwitch, ...costRate } = rule.parameters.subsequentCostRate;
+    void partsBeforeSwitch;
+    return {
+      ...rule,
+      parameters: {
+        ...rule.parameters,
+        shorterUsefulLife: {
+          ...shorter,
+          fromEvidenceYear: 'NOT_COMPUTABLE',
+          lateEvidenceRelease: release,
+          source:
+            'Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidungen des Projektinhabers vom 2026-11-02 (api-design §59G Teil 1)',
+        },
+        subsequentCostRate: { ...costRate, shorterLife: 'NOT_COMPUTABLE' },
+      },
+    } as unknown as typeof rule;
+  };
+
+  it('counter-check of VC-X-41 Part 2 (§59G): the building rules with Part 1’s values had the former pinned hashes, and each Part 2 value moves the hash', () => {
+    expect(ruleVersionHash(part1Of(DE_AFA_BUILDING_LINEAR_V1), sha256Fingerprinter)).toBe('e7cc8abb4b2fdcf033f050137e6c2647ddf15786ec2c5d6ad854b61867875fce');
+    expect(ruleVersionHash(part1Of(DE_AFA_BUILDING_LINEAR_V2), sha256Fingerprinter)).toBe('b7cd96ab674b84f672887fcff7dc8db1be2ceebacfdbe4a8c830c75ce07f33d8');
+    const v = DE_AFA_BUILDING_LINEAR_V2;
+    const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
+    const shorter = v.parameters.shorterUsefulLife;
+    for (const changed of [
+      { ...shorter, fromEvidenceYear: 'NOT_COMPUTABLE' as const },
+      { ...shorter, evidenceYearCounts: 'FROM_VALUATION_MONTH' as const },
+      { ...shorter, lateEvidenceRelease: { ...shorter.lateEvidenceRelease, declaredAfa: 'NOT_REQUIRED' as const } },
+    ]) {
+      expect(hash({ ...v, parameters: { ...v.parameters, shorterUsefulLife: changed } })).not.toBe(hash(v));
+    }
+    const costRate = { ...v.parameters.subsequentCostRate, shorterLife: 'NOT_COMPUTABLE' as const };
+    expect(hash({ ...v, parameters: { ...v.parameters, subsequentCostRate: costRate } })).not.toBe(hash(v));
+  });
+
   it('counter-check of 238-3 (§59G): the building rules with the late release as before (evidence true) had the former pinned hashes', () => {
-    const before = (rule: typeof DE_AFA_BUILDING_LINEAR_V2) => {
+    const before = (current: typeof DE_AFA_BUILDING_LINEAR_V2) => {
+      const rule = part1Of(current);
       const shorterUsefulLife = rule.parameters.shorterUsefulLife;
       const lateEvidenceRelease = { ...shorterUsefulLife.lateEvidenceRelease, evidence: true };
       return ruleVersionHash(

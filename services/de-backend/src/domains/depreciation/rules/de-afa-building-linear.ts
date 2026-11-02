@@ -106,13 +106,17 @@ export interface BuildingLinearParameters {
     readonly notBeforeOwnerStart: { readonly value: boolean; readonly verified: boolean; readonly source: string };
   };
   /**
-   * §59B (B11): a later cost runs at the owner's purchase rate. §59G Part 1 (VC-X-41): in a pool with a purchase whose
-   * shorter useful life applies, a later cost is not computed (`SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`), and one
-   * that starts after the evidenced useful life has ended needs a new evidence (`REMAINING_USEFUL_LIFE_ENDED`).
+   * §59B (B11): a later cost runs at the owner's purchase rate. §59G (VC-X-41): in a pool whose governing purchase has
+   * an applying shorter useful life, a later cost spreads what is left of it to the purchase's last month
+   * (`REMAINING_USEFUL_LIFE`, Part 2; `NOT_COMPUTABLE` is Part 1's `SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`); a part
+   * begun before the switch runs at the band's rate until it, then its rest with the purchase to the last month
+   * (`partsBeforeSwitch`, open question 8, Entscheidung des Projektinhabers, 2026-11-02); one that starts after the
+   * evidenced useful life has ended needs a new evidence (`REMAINING_USEFUL_LIFE_ENDED`).
    */
   readonly subsequentCostRate: {
     readonly rate: 'OWNER_PURCHASE_RATE';
-    readonly shorterLife: 'NOT_COMPUTABLE';
+    readonly shorterLife: 'REMAINING_USEFUL_LIFE' | 'NOT_COMPUTABLE';
+    readonly partsBeforeSwitch: 'RESIDUAL_TO_LAST_MONTH';
     readonly afterRemainingLife: 'NOT_COMPUTABLE';
     readonly legalBasis: string;
   };
@@ -130,13 +134,13 @@ export interface BuildingLinearParameters {
 }
 
 /**
- * §59G Part 1 (VC-X-41; Prüfbericht 2026-11-01, Frage 8; the owner's decisions of 2026-11-02): from when a confirmed
- * shorter useful life applies. The date judged is the entry's Stichtag (`evidence.valuationDate`), stored apart from
- * the document's date; without it (an entry from before 0056) the component is not computed. A Stichtag in the first
- * year, or between the contract year and the first year, applies from the start; one before the contract year is not
- * the buyer's (not computed); a later one (after the first year) is computed at the band's rate before its year and
- * not computed from it, until the residual value over the remaining useful life is supported (Part 2); its release
- * (`lateEvidenceRelease`) is shown missing beside it.
+ * §59G (VC-X-41; Prüfbericht 2026-11-01, Frage 8; the owner's decisions of 2026-11-02): from when a confirmed shorter
+ * useful life applies. The date judged is the entry's Stichtag (`evidence.valuationDate`), stored apart from the
+ * document's date; without it (an entry from before 0056) the component is not computed. A Stichtag in the first year,
+ * or between the contract year and the first year, applies from the start; one before the contract year is not the
+ * buyer's (not computed); a later one (after the first year) is computed at the band's rate before its year and, from
+ * the switch month, spreads the carried-forward residual value over the remaining useful life (Part 2), once released
+ * (`lateEvidenceRelease`) and the declared AfA matches the computed one (`declaredAfaDiffers`).
  */
 export interface ShorterUsefulLifeParameters {
   readonly legalBasis: string;
@@ -147,17 +151,42 @@ export interface ShorterUsefulLifeParameters {
   readonly valuationDate: { readonly required: boolean; readonly missing: 'NOT_COMPUTABLE' };
   readonly fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR';
   readonly evidenceBeforeContractYear: 'NOT_COMPUTABLE';
-  readonly fromEvidenceYear: 'NOT_COMPUTABLE';
+  /**
+   * A Stichtag after the first year: Part 2 spreads the residual value over the remaining useful life
+   * (`RESIDUAL_OVER_REMAINING_LIFE`); `NOT_COMPUTABLE` is Part 1's guard (the years from the Stichtag's year not computed).
+   */
+  readonly fromEvidenceYear: 'RESIDUAL_OVER_REMAINING_LIFE' | 'NOT_COMPUTABLE';
+  /**
+   * The residual value spread from the switch: the owner's basis less the AfA so far rounded as shown (§59G open question 3,
+   * decided 2026-11-02: „nachvollziehbar fortgeschriebener Restwert“, no retroactive change by a new rounding).
+   */
+  readonly residualValue: 'CARRIED_FORWARD_ROUNDED';
+  /**
+   * The switch month (§59G open question 2; Entscheidung des Projektinhabers, 2026-11-02): January of the Stichtag's year,
+   * whole years through December of `YE + n − 1` (`FROM_JANUARY`); `FROM_VALUATION_MONTH` (the Stichtag's month, `12·n`
+   * months) is the alternative, kept testable.
+   */
+  readonly evidenceYearCounts: 'FROM_JANUARY' | 'FROM_VALUATION_MONTH';
+  /**
+   * The threshold for a late evidence (§59G open question 4; Entscheidung des Projektinhabers, 2026-11-02): the useful life
+   * from the component's first year, `(YE − Y1) + n`, below the band's `shorterThanYears` (§ 7 Abs. 4 S. 2 EStG).
+   */
+  readonly thresholdYears: 'FROM_FIRST_YEAR';
   /**
    * What a late evidence needs to be released (the owner's decision of 2026-11-02, §59G open question 10). `evidence`
    * names what counts as the evidence: the entry's own `evidence.documentReference` only, never the asset's
    * `sourceReferences` (Entscheidung des Projektinhabers, 2026-11-02, 238-3); `NOT_REQUIRED` asks for none.
+   * `declaredAfa` (Entscheidung des Projektinhabers, 2026-11-02, open question 11): each owner's cumulative AfA declared
+   * per the tax assessments through `YE − 1`, with its evidence reference (`PER_OWNER_THROUGH_YEAR_BEFORE`).
    */
   readonly lateEvidenceRelease: {
     readonly reviewState: string;
     readonly evidence: 'ENTRY_DOCUMENT_REFERENCE' | 'NOT_REQUIRED';
     readonly releaseNote: boolean;
+    readonly declaredAfa: 'PER_OWNER_THROUGH_YEAR_BEFORE' | 'NOT_REQUIRED';
   };
+  /** A declared AfA other than the computed one: the owner's years from the Stichtag's year not computed (`DECLARED_AFA_DIFFERS`). */
+  readonly declaredAfaDiffers: 'NOT_COMPUTABLE';
   readonly source: string;
 }
 
@@ -179,12 +208,13 @@ const LEGAL_BASIS = '§ 7 Abs. 4 S. 1 Nr. 2 und S. 2 EStG';
 const CONFIRMED = 'Prüfbericht 01.11.2026, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01';
 
 /** The parameters both versions share (§59A); only the bands and `verified` differ. */
-/** §59G Part 1 (VC-X-41): Prüfbericht Frage 8 and the owner's decisions of 2026-11-02. */
+/** §59G (VC-X-41): Prüfbericht Frage 8 and the owner's decisions of 2026-11-02 (Part 1 and Part 2). */
 const SHORTER_LIFE_SOURCE =
-  'Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidungen des Projektinhabers vom 2026-11-02 (api-design §59G Teil 1)';
+  'Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidungen des Projektinhabers vom 2026-11-02 (api-design §59G Teil 1 und Teil 2: Fragen 2, 3, 4, 5, 8, 11)';
 
 const COMMON = {
-  // §59G Part 1 (VC-X-41), taken into both versions in place before the first productive enablement (§60 open question 11).
+  // §59G Parts 1 and 2 (VC-X-41), taken into both versions in place before the first productive enablement (§60 open
+  // question 11; Entscheidung des Projektinhabers, 2026-11-02: Part 2 lands before the first enablement).
   shorterUsefulLife: {
     legalBasis: SHORTER,
     rate: 'RECIPROCAL_OF_YEARS',
@@ -192,8 +222,17 @@ const COMMON = {
     valuationDate: { required: true, missing: 'NOT_COMPUTABLE' },
     fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR',
     evidenceBeforeContractYear: 'NOT_COMPUTABLE',
-    fromEvidenceYear: 'NOT_COMPUTABLE',
-    lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: 'ENTRY_DOCUMENT_REFERENCE', releaseNote: true },
+    fromEvidenceYear: 'RESIDUAL_OVER_REMAINING_LIFE',
+    residualValue: 'CARRIED_FORWARD_ROUNDED',
+    evidenceYearCounts: 'FROM_JANUARY',
+    thresholdYears: 'FROM_FIRST_YEAR',
+    lateEvidenceRelease: {
+      reviewState: 'ADVISOR_CONFIRMED',
+      evidence: 'ENTRY_DOCUMENT_REFERENCE',
+      releaseNote: true,
+      declaredAfa: 'PER_OWNER_THROUGH_YEAR_BEFORE',
+    },
+    declaredAfaDiffers: 'NOT_COMPUTABLE',
     source: SHORTER_LIFE_SOURCE,
   },
   basis: {
@@ -257,10 +296,12 @@ const COMMON = {
     legalBasis: 'R 7.4 Abs. 9 S. 3 EStR; Prüfbericht 2026-11-01, Frage 5 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
     notBeforeOwnerStart: { value: true, verified: false, source: 'api-design §59F (reading of this spec, not confirmed)' },
   },
-  // §59G Part 1 (VC-X-41): `shorterLifeVerified` withdrawn with SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY.
+  // §59G (VC-X-41): `shorterLifeVerified` withdrawn with SUBSEQUENT_COST_SHORTER_LIFE_TO_VERIFY (Part 1); the remaining
+  // useful life for later costs (Part 2, Prüfbericht Frage 9; Entscheidung des Projektinhabers, 2026-11-02, Frage 8).
   subsequentCostRate: {
     rate: 'OWNER_PURCHASE_RATE',
-    shorterLife: 'NOT_COMPUTABLE',
+    shorterLife: 'REMAINING_USEFUL_LIFE',
+    partsBeforeSwitch: 'RESIDUAL_TO_LAST_MONTH',
     afterRemainingLife: 'NOT_COMPUTABLE',
     legalBasis:
       'R 7.4 Abs. 9 S. 2 EStR; Prüfbericht 2026-11-01, Frage 9 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidung des Projektinhabers vom 2026-11-02',

@@ -44,6 +44,7 @@ const entry = (acquisitionId: string, overrides: Partial<ShorterUsefulLife> = {}
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
   releaseNote: null,
+  declaredAfa: [],
   ...overrides,
 });
 const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset => ({

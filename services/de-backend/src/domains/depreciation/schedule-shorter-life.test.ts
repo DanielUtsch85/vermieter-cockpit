@@ -4,7 +4,17 @@ import type { ShorterUsefulLife } from './asset.js';
 import { DE_AFA_BUILDING_LINEAR_V1, DE_AFA_BUILDING_LINEAR_V2 } from './rules/de-afa-building-linear.js';
 import type { ScheduleAcquisition, ScheduleInput } from './schedule.js';
 import { A, B, C, W, acquisition, asset, capitalized, day, eur, life, ownership } from './schedule.test-support.js';
-import { amount, codes, component, derive, ownerIn, registry as REGISTRY, withParameters, yearOf } from './schedule-purchase.test-support.js';
+import {
+  amount,
+  codes,
+  component,
+  derive as deriveWith,
+  ownerIn,
+  part1Registry,
+  registry as REGISTRY,
+  withParameters,
+  yearOf,
+} from './schedule-purchase.test-support.js';
 import { EXTENSION, item, owner } from './schedule-items.test-support.js';
 import { releaseMissing, shorterLifeCaseOf } from './shorter-life.js';
 import { inputFingerprint } from './version-fingerprint.js';
@@ -14,7 +24,9 @@ import { identity, live } from './version.test-support.js';
  * §59G Part 1 (VC-X-41, "the guard"; Prüfbericht 2026-11-01, Fragen 8 und 9; the owner's decisions of 2026-11-02): a
  * shorter useful life applies from its Stichtag (`evidence.valuationDate`), never from the document's date, and never
  * retroactively: a Stichtag after the first year keeps the band's rate before its year and nothing from it; later costs
- * in such a pool are not computed. §59G's example (synthetic): A 3/5, B 2/5, basis 240,000.00, transfer 2024-04-01,
+ * in such a pool are not computed. Part 2 (VC-X-41 Part 2) changed the rule's values; Part 1's guard stays the other value
+ * of `fromEvidenceYear` and `subsequentCostRate.shorterLife`, so this file runs it with that test registry
+ * (`part1Registry`); Part 2 is `schedule-residual*.test.ts`. §59G's example (synthetic): A 3/5, B 2/5, basis 240,000.00, transfer 2024-04-01,
  * contract 2024-02-10, completed 1965 (band B of @2, 2 %, shorter below 50 years), n = 33.
  */
 
@@ -56,7 +68,8 @@ const example = (entries: readonly ShorterUsefulLife[], extra: Partial<ScheduleI
   ownerPartyId: null,
   ...extra,
 });
-const rows = (input: ScheduleInput, reg = REGISTRY) =>
+const derive = (input: ScheduleInput, reg = part1Registry) => deriveWith(input, reg);
+const rows = (input: ScheduleInput, reg = part1Registry) =>
   component(derive(input, reg)).years.map((y) => [y.year, amount(ownerIn(y, A)?.amount), amount(ownerIn(y, B)?.amount), y.calculationStatus]);
 
 describe('the case of an entry, on its Stichtag (§59G Part 1, pure)', () => {
@@ -204,7 +217,11 @@ describe('the purchase under Part 1 (§59G "Example", the Part 1 column)', () =>
     // The release is the rule's parameter, never a constant: a test registry that asks for a user's CONFIRMED only.
     const userRelease = withParameters((p) => ({
       ...p,
-      shorterUsefulLife: { ...p.shorterUsefulLife, lateEvidenceRelease: { reviewState: 'CONFIRMED', evidence: 'NOT_REQUIRED', releaseNote: false } },
+      shorterUsefulLife: {
+        ...p.shorterUsefulLife,
+        fromEvidenceYear: 'NOT_COMPUTABLE',
+        lateEvidenceRelease: { reviewState: 'CONFIRMED', evidence: 'NOT_REQUIRED', releaseNote: false, declaredAfa: 'NOT_REQUIRED' },
+      },
     }));
     expect(codes(ownerIn(yearOf(component(derive(example([entry]), userRelease)), 2027), A)?.reasons ?? [])).toEqual([
       'SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED',
@@ -237,7 +254,8 @@ describe('the purchase under Part 1 (§59G "Example", the Part 1 column)', () =>
     expect(rows(example([gutachten('2027-05-20', { ...RELEASED, usefulLifeYears: 50 })]))).toEqual(
       rows(example([])).map(([y, a, b]) => [y, a, b, 'PROVISIONAL']),
     );
-    expect(c.flags).toEqual([{ code: 'USEFUL_LIFE_NOT_SHORTER', details: { usefulLifeYears: 50, shorterThanYears: 50 } }]);
+    // §59G open question 4 (Entscheidung des Projektinhabers, 2026-11-02): judged from the first year, (2027 − 2024) + 50.
+    expect(c.flags).toEqual([{ code: 'USEFUL_LIFE_NOT_SHORTER', details: { usefulLifeYears: 50, shorterThanYears: 50, yearsFromFirstYear: 53 } }]);
   });
 
   it('a late evidence whose threshold cannot be read (no band in the Stichtag year) is never taken as not shorter', () => {
@@ -378,12 +396,13 @@ describe('later costs on such a purchase (§59G Part 1 "Later costs")', () => {
 
 describe('the recorded inputs and the fingerprint (§60, §59G)', () => {
   it('a FROM_START component stores its Stichtag; a moved Stichtag changes the fingerprint from the first year; a band component has none', () => {
-    const inputs = (entries: readonly ShorterUsefulLife[]) => live(example(entries), REGISTRY, 2040).inputs;
+    const inputs = (entries: readonly ShorterUsefulLife[], reg = REGISTRY) => live(example(entries), reg, 2040).inputs;
     const stored = inputs([gutachten('2024-11-30')]).components[0]?.acquisition;
     expect(stored?.shorterLifeValuationDate).toBe('2024-11-30');
     expect(inputs([]).components[0]?.acquisition).not.toHaveProperty('shorterLifeValuationDate');
-    // A late evidence is recorded as BAND years (it is not used as a shorter life): no Stichtag stored.
-    expect(inputs([gutachten('2027-05-20', RELEASED)]).components[0]?.acquisition).not.toHaveProperty('shorterLifeValuationDate');
+    // Under Part 1's guard a late evidence is recorded as BAND years (it is not used as a shorter life): no Stichtag
+    // stored. Under Part 2 it is (schedule-residual-version.test.ts).
+    expect(inputs([gutachten('2027-05-20', RELEASED)], part1Registry).components[0]?.acquisition).not.toHaveProperty('shorterLifeValuationDate');
     const a = inputs([gutachten('2024-11-30')]);
     const b = inputs([gutachten('2024-06-01')]);
     expect(inputFingerprint(a, 2024, identity)).not.toBe(inputFingerprint(b, 2024, identity));

@@ -330,7 +330,15 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
             buildingAmount: { amount: '254400.00', currency: 'EUR' },
           },
           start: { date: '2026-07-01', dateSource: 'ECONOMIC_TRANSFER_DATE', month: '2026-07', firstYearMonths: 6 },
-          rate: { kind: 'BAND', band: 'B', ratePercent: '2', rate: '1/50', usefulLifeYears: null, legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG' },
+          rate: {
+            kind: 'BAND',
+            band: 'B',
+            ratePercent: '2',
+            rate: '1/50',
+            usefulLifeYears: null,
+            legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
+            shorterUsefulLife: null,
+          },
           end: { lastYear: 2076, lastMonth: '2076-06' },
           owners: [
             {
@@ -358,6 +366,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
             {
               year: 2026,
               rule,
+              rate: { kind: 'BAND', annualFraction: '1/50' },
               months: 6,
               amount: { amount: '2544.00', currency: 'EUR' },
               cumulative: { amount: '2544.00', currency: 'EUR' },
@@ -371,6 +380,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: 200 (§59A)', () => {
             {
               year: 2027,
               rule,
+              rate: { kind: 'BAND', annualFraction: '1/50' },
               months: 12,
               amount: { amount: '5088.00', currency: 'EUR' },
               cumulative: { amount: '7632.00', currency: 'EUR' },
@@ -501,6 +511,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: the release stage (VC-X-4
             reviewState: 'UNREVIEWED',
             advisorPartyId: null,
             releaseNote: null,
+            declaredAfa: [],
           },
         ],
       },

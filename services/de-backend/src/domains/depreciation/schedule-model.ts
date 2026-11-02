@@ -146,6 +146,18 @@ export interface ComponentRate {
   readonly rate: string;
   readonly usefulLifeYears: number | null;
   readonly legalBasis: string;
+  /**
+   * §59G Part 2: the confirmed shorter life the component applies (`method` `FROM_START` or `FROM_EVIDENCE_YEAR`, its
+   * `fromYear` and last month `lastMonth`; `valuationDate` decides them, `evidenceDate` is the document's), `null` without.
+   */
+  readonly shorterUsefulLife: {
+    readonly usefulLifeYears: number;
+    readonly valuationDate: BusinessDate | null;
+    readonly evidenceDate: BusinessDate;
+    readonly method: 'FROM_START' | 'FROM_EVIDENCE_YEAR';
+    readonly fromYear: number;
+    readonly lastMonth: string | null;
+  } | null;
 }
 
 export interface ComponentOwner {
@@ -186,6 +198,11 @@ export interface YearRule {
 export interface ComponentYear {
   readonly year: number;
   readonly rule: YearRule | null;
+  /**
+   * §59G (purchase components only): the year's rate, `BAND` before a late evidence's switch and `SHORTER_USEFUL_LIFE`
+   * from it (or from the start), with the exact share of the basis per full year (`"1/50"`, `"63/2200"`).
+   */
+  readonly rate?: { readonly kind: 'BAND' | 'SHORTER_USEFUL_LIFE'; readonly annualFraction: string } | null;
   readonly months: number | null;
   readonly amount: Money | null;
   readonly cumulative: Money | null;

@@ -139,7 +139,7 @@ const COMPONENT_COLUMNS = [
   'item_date', 'item_date_source', 'item_tax_year', 'anschaffungsnahe_acquisition_id', 'method_consideration', 'method',
   'method_special_depreciation', 'method_subsidies_received', 'method_new_building_by_conversion', 'method_other_special_case', 'method_review_state',
   'cost_classification_ids', 'loan_id', 'allocation_set_id', 'share_numerator', 'share_denominator', 'construction_period_interest_id',
-  'shorter_life_valuation_date', 'item_performed_from', 'item_performed_until',
+  'shorter_life_valuation_date', 'item_performed_from', 'item_performed_until', 'shorter_life_declared_afa',
 ]; // prettier-ignore
 
 function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
@@ -170,6 +170,8 @@ function componentValues(c: VersionComponent): RawBuilder<unknown>[] {
     v(q?.shorterLifeValuationDate ?? null, 'date'),
     // §59F (migration 0058): the period of the work whose completion is the item's start.
     v(i?.performedFrom ?? null, 'date'), v(i?.performedUntil ?? null, 'date'),
+    // §59G Part 2 (migration 0061): the declared AfA of a late evidence whose residual value is spread (cents as text).
+    v(q?.shorterLifeDeclaredAfa === undefined ? null : JSON.stringify(q.shorterLifeDeclaredAfa.map((r) => ({ ...r, amount: centsText(r.amount) }))), 'jsonb'),
   ]; // prettier-ignore
 }
 
@@ -336,6 +338,15 @@ function componentOf(c: Row, parts: readonly Row[], fractions: readonly Row[]): 
           buildingAmount: cents(text(c['building'])),
           shorterLifeReviewState: (c['shorter_life_review_state'] as string | null) ?? null,
           ...(c['shorter_life_valuation_day'] === null ? {} : { shorterLifeValuationDate: day(c['shorter_life_valuation_day']) as BusinessDate }),
+          ...(c['shorter_life_declared_afa'] === null || c['shorter_life_declared_afa'] === undefined
+            ? {}
+            : {
+                shorterLifeDeclaredAfa: (c['shorter_life_declared_afa'] as { partyId: string; throughYear: number; amount: string }[]).map((r) => ({
+                  partyId: r.partyId,
+                  throughYear: r.throughYear,
+                  amount: cents(r.amount),
+                })),
+              }),
         }
       : null,
     method:

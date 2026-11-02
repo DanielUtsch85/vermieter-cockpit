@@ -51,6 +51,7 @@ export const life = (overrides: Partial<ShorterUsefulLife> = {}): ShorterUsefulL
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
   releaseNote: null,
+  declaredAfa: [],
   ...overrides,
 });
 
