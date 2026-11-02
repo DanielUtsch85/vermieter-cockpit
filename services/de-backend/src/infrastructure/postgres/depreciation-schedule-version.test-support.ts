@@ -4,6 +4,7 @@ import {
   inputFingerprint,
   liveSchedule,
   planRecord,
+  type DepreciationAssetFacts,
   type NewScheduleVersion,
   type RecordOutcome,
   type RecordRequest,
@@ -112,7 +113,11 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
   }
 
   /** ACC8's purchase in `realm`, with its building asset (confirmed unless told otherwise). */
-  async function acc8(realm = REALM, reviewState: 'CONFIRMED' | 'UNREVIEWED' = 'CONFIRMED') {
+  async function acc8(
+    realm = REALM,
+    reviewState: 'CONFIRMED' | 'UNREVIEWED' = 'CONFIRMED',
+    options: { readonly shorterUsefulLives?: (acquisitionId: string) => DepreciationAssetFacts['shorterUsefulLives'] } = {},
+  ) {
     const db = createDatabase(ctx.pool);
     const mrePropertyId = (0x6512f0c2a1b2c3d4e5fa0000n + BigInt(++counter)).toString(16).padStart(24, '0');
     const pr = (
@@ -201,7 +206,7 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
         sourceReferences: [],
         reviewState,
         advisorPartyId: null,
-        shorterUsefulLives: [],
+        shorterUsefulLives: options.shorterUsefulLives?.(w) ?? [],
         purchaseMethods: [standardMethod(w)],
         notes: null,
       },
@@ -259,7 +264,8 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
       mreRealmId: realm,
       actor,
       ...(options.key === undefined ? {} : { idempotency: { key: options.key, fingerprint: JSON.stringify(full) } }),
-      decide: (read) => planRecord(read, full, { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: TODAY, recordedBy: actor.actorId }),
+      decide: (read) =>
+        planRecord(read, full, { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: TODAY, recordedBy: actor.actorId, releasedStage: 3 }),
     });
   }
 

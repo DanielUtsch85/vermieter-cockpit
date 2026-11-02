@@ -45,3 +45,18 @@ export class CurrencyMismatchError extends Error {
     super(message);
   }
 }
+
+/**
+ * VC-X-45 (api-design.md §60A): a year of the record's run is above the installation's released stage; the whole run is
+ * refused and nothing is written (→ 409 CONFLICT, `reason = "STAGE_NOT_RELEASED"`).
+ */
+export class StageNotReleasedError extends Error {
+  override readonly name = 'StageNotReleasedError';
+
+  constructor(
+    readonly assetId: string,
+    readonly details: Readonly<Record<string, unknown>>,
+  ) {
+    super('The schedule contains years of a release stage that is not released in this installation.');
+  }
+}

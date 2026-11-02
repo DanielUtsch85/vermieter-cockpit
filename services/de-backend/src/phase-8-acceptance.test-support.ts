@@ -179,7 +179,8 @@ export function useAcc8(name: `${string}_e2e`) {
             anschaffungsnahe: getAnschaffungsnaheCheck({ repository: classifications, now }),
             taxYear: getTaxYearView({ repository: classifications, now }),
           },
-          depreciationAssets: depreciationCommands(db, { recordingEnabled, now }),
+          // ACC8 records capitalised items and holds a separate asset: stage 2 (VC-X-45, §60A), stated here, test-only.
+          depreciationAssets: depreciationCommands(db, { recordingEnabled, releasedStage: 2, now }),
         }),
       });
       const server = app.listen(0, '127.0.0.1');
