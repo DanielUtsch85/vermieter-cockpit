@@ -3,7 +3,8 @@ import { sql, type Kysely } from 'kysely';
 /**
  * VC-X-39: the evidence of a recorded due day (api-design.md §58F "The rule"; owner decision 2026-11-02, „`rentDueDays`
  * genügt technisch als Nutzerangabe; Belegreferenz ermöglichen und empfehlen.“). Number 0057 as planned: 0056 is
- * VC-X-41 Part 1's, implemented in parallel.
+ * VC-X-41 Part 1's (PR #238), so this one merges after #238 (VC-X-41 Part 1, 0056); Kysely refuses a name sorting
+ * before an applied one.
  *
  * - `rental_contract_reference_due_days_valid` (0046) takes an optional third key of an entry, `evidenceReference`: a
  *   JSON string, trimmed, 1–500 characters. Every other check of 0046 is unchanged, so every stored list stays valid.
