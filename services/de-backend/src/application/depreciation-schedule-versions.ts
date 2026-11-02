@@ -6,6 +6,7 @@ import {
   reproduce,
   changedDetails,
   type Fingerprinter,
+  type RecordingStage,
   type RecordRefusal,
   type RecordRequest,
   type Reproduction,
@@ -18,7 +19,7 @@ import { TAX_RULES } from '../domains/tax-rules/index.js';
 import type { RuleRegistry } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { DepreciationAssetNotActiveError, DepreciationAssetNotFoundError } from './depreciation-assets.js';
-import { ConcurrentUpdateError, IdempotencyKeyConflictError } from './errors.js';
+import { ConcurrentUpdateError, IdempotencyKeyConflictError, StageNotReleasedError } from './errors.js';
 
 /**
  * Recorded depreciation schedule versions (api-design.md §60, backlog VC-8-04; P8-D10): the record command and the
@@ -59,7 +60,7 @@ export class ScheduleVersionRefusedError extends Error {
 
   constructor(
     readonly assetId: string,
-    readonly refusal: Exclude<RecordRefusal, { kind: 'ASSET_NOT_ACTIVE' }>,
+    readonly refusal: Exclude<RecordRefusal, { kind: 'ASSET_NOT_ACTIVE' } | { kind: 'STAGE_NOT_RELEASED' }>,
   ) {
     super(refusal.kind);
   }
@@ -72,8 +73,12 @@ export interface RecordScheduleVersionDeps extends Clock {
   readonly repository: ScheduleVersionRepository;
   /** The installation's switch, read once at startup (`config.ts`); no default: whoever builds the use case states it. */
   readonly recordingEnabled: boolean;
+  /** VC-X-45: the released stage (`DEPRECIATION_RECORDING_STAGE`), read once at startup; no default either. */
+  readonly releasedStage: RecordingStage;
   readonly fingerprinter: Fingerprinter;
   readonly registry?: RuleRegistry;
+  /** The registry of `DE_RECORDING_STAGES` (default `RECORDING_STAGE_RULES`); a test may pass another. */
+  readonly stageRegistry?: RuleRegistry;
   /** Attempts of the whole transaction on a serialisation failure (§60: a retry up to three times). */
   readonly attempts?: number;
 }
@@ -100,7 +105,15 @@ export function recordScheduleVersion(deps: RecordScheduleVersionDeps): RecordSc
         mreRealmId: principal.mreRealmId,
         actor: { actorType: 'USER', actorId: recordedBy },
         ...(idempotencyKey === undefined ? {} : { idempotency: { key: idempotencyKey, fingerprint: recordFingerprint(normalized) } }),
-        decide: (read) => planRecord(read, normalized, { registry, fingerprinter: deps.fingerprinter, today, recordedBy }),
+        decide: (read) =>
+          planRecord(read, normalized, {
+            registry,
+            fingerprinter: deps.fingerprinter,
+            today,
+            recordedBy,
+            releasedStage: deps.releasedStage,
+            ...(deps.stageRegistry === undefined ? {} : { stageRegistry: deps.stageRegistry }),
+          }),
       });
       switch (outcome.kind) {
         case 'RECORDED':
@@ -113,6 +126,7 @@ export function recordScheduleVersion(deps: RecordScheduleVersionDeps): RecordSc
           throw new IdempotencyKeyConflictError('Idempotency-Key was already used with a different payload');
         case 'REFUSED':
           if (outcome.refusal.kind === 'ASSET_NOT_ACTIVE') throw new DepreciationAssetNotActiveError(assetId, 'VOID');
+          if (outcome.refusal.kind === 'STAGE_NOT_RELEASED') throw new StageNotReleasedError(assetId, outcome.refusal.details);
           throw new ScheduleVersionRefusedError(assetId, outcome.refusal);
         case 'SERIALIZATION_FAILURE':
           if (attempt >= attempts) throw new ConcurrentUpdateError('The data kept changing concurrently; nothing was written');

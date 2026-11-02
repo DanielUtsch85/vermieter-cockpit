@@ -20,7 +20,8 @@ const today = day('2028-03-01');
 const owners = acc8().ownerships;
 const base = acc8({ ownerships: owners });
 const withRepair = acc8({ ownerships: owners, capitalizedItems: [repair()] });
-const context = { registry, fingerprinter: identity, today, recordedBy: 'anna@example.com' };
+// Every stage released: the stage gate (VC-X-45) is `version-record-stage.test.ts`'s.
+const context = { registry, fingerprinter: identity, today, recordedBy: 'anna@example.com', releasedStage: 3 as const };
 const fingerprintOf = (input: ScheduleInput, year: number) => inputFingerprint(live(input, registry, year, today).inputs, year, identity);
 const request = (input: ScheduleInput, throughYear: number, extra: Partial<RecordRequest> = {}): RecordRequest => ({
   throughYear,

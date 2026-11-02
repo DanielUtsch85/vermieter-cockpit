@@ -16,6 +16,15 @@ const configSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((value) => value === 'true'),
+  /**
+   * The released stage of recording (VC-X-45; api-design.md §60 "As implemented (VC-X-45, stage 1)"): exactly `1`, `2`
+   * or `3`, unset is `1`; any other value fails the start like the main switch. It only limits what the main switch
+   * allows: while `DEPRECIATION_RECORDING_ENABLED` is off it has no effect and is only reported by the schedule read (A6).
+   */
+  DEPRECIATION_RECORDING_STAGE: z
+    .enum(['1', '2', '3'])
+    .default('1')
+    .transform((value) => Number(value) as 1 | 2 | 3),
 });
 
 export type Config = z.infer<typeof configSchema>;

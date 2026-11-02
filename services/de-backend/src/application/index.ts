@@ -17,7 +17,7 @@ export { getPropertyReference, listPropertyReferences } from './property-referen
 export type { GetPropertyReference, ListPropertyReferences } from './property-reference-queries.js';
 export { PropertyReferenceNotFoundError, refreshPropertyReference } from './refresh-property-reference.js';
 export type { RefreshPropertyReference, RefreshPropertyReferenceDeps, RefreshPropertyReferenceInput } from './refresh-property-reference.js';
-export { ConcurrentUpdateError, IdempotencyKeyConflictError, MreUnavailableError, VersionConflictError } from './errors.js';
+export { ConcurrentUpdateError, IdempotencyKeyConflictError, MreUnavailableError, StageNotReleasedError, VersionConflictError } from './errors.js';
 export {
   FinancialAccountNotFoundError,
   closeFinancialAccount,
@@ -812,10 +812,13 @@ export type {
   ItemComponent,
   RecordedSchedule,
   RecordedScheduleYear,
+  RecordingStage,
   Reproduction,
   ScheduleVersion,
   ScheduleVersionRepository,
   ScheduleVersionStatus,
+  StagedSchedule,
+  StagedScheduleYear,
   VersionComponent,
   VersionEntry,
   ItemRef,

@@ -393,11 +393,13 @@ const app = createApp({
     schedule: getDepreciationSchedule({
       source: new PostgresDepreciationScheduleSource(db, taxClassifications.capitalizedSources),
       recordingEnabled: config.DEPRECIATION_RECORDING_ENABLED,
+      releasedStage: config.DEPRECIATION_RECORDING_STAGE,
       fingerprinter: sha256Fingerprinter,
     }),
     recordVersion: recordScheduleVersion({
       repository: scheduleVersions,
       recordingEnabled: config.DEPRECIATION_RECORDING_ENABLED,
+      releasedStage: config.DEPRECIATION_RECORDING_STAGE,
       fingerprinter: sha256Fingerprinter,
     }),
     listVersions: listScheduleVersions({ repository: scheduleVersions }),
@@ -499,7 +501,9 @@ try {
 
 const server = app.listen(config.PORT, () => {
   console.log(`de-backend listening on port ${config.PORT}`);
-  console.log(`depreciation schedule recording: ${config.DEPRECIATION_RECORDING_ENABLED ? 'enabled' : 'disabled'}`);
+  console.log(
+    `depreciation schedule recording: ${config.DEPRECIATION_RECORDING_ENABLED ? 'enabled' : 'disabled'}, released stage ${config.DEPRECIATION_RECORDING_STAGE}`,
+  );
 });
 
 function shutdown(signal: string): void {

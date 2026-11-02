@@ -16,6 +16,7 @@ import {
   ScheduleVersionNotFoundError,
   ScheduleVersionRefusedError,
   ThroughYearInFutureError,
+  StageNotReleasedError,
   centsText,
 } from '../../application/index.js';
 import { answer, on, validation } from './answer.js';
@@ -102,6 +103,8 @@ export const DEPRECIATION_ANSWERS = [
   ),
   on(ScheduleVersionNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Schedule version not found.', { versionId: error.versionId })),
   on(ScheduleVersionRefusedError, (error) => refusalAnswer(error)),
+  // VC-X-45 (§60A): the whole run refused, every year above the released stage named.
+  on(StageNotReleasedError, (error) => answer(409, 'CONFLICT', error.message, { reason: 'STAGE_NOT_RELEASED', assetId: error.assetId, ...error.details })),
 ];
 
 /** The refusals of the record command's steps 4–9 (§60 "Error answers"); amounts as Money, never a `bigint`. */

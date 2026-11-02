@@ -221,11 +221,19 @@ export type RecordDecision =
       readonly version: NewScheduleVersion;
       /** The `SUPERSEDED` AuditRecord's `changedYears` and the `RECORDED` one's `acceptedChangedYears`. */
       readonly changedYears: readonly { readonly year: number; readonly recorded: bigint; readonly derived: bigint | null }[];
+      /** VC-X-45 (§60A "Recorded versions"): the `RECORDED` AuditRecord's stage metadata; never stored on the version. */
+      readonly stages?: {
+        readonly releasedStage: number;
+        readonly stageRules: string | null;
+        readonly years: readonly { readonly year: number; readonly stage: number }[];
+      };
     };
 
 export type RecordRefusal =
   | { readonly kind: 'ASSET_NOT_ACTIVE'; readonly status: string }
   | { readonly kind: 'SCHEDULE_NOT_COMPLETE'; readonly details: Readonly<Record<string, unknown>> }
+  /** VC-X-45: a year of the run above the installation's released stage; the whole run is refused. */
+  | { readonly kind: 'STAGE_NOT_RELEASED'; readonly details: Readonly<Record<string, unknown>> }
   | { readonly kind: 'NOTHING_TO_RECORD'; readonly throughYear: number; readonly firstYear: number | null }
   | { readonly kind: 'THROUGH_YEAR_BEFORE_CURRENT'; readonly currentVersionId: string; readonly currentThroughYear: number }
   | { readonly kind: 'SCHEDULE_CHANGED'; readonly throughYear: number; readonly expectedInputFingerprint: string; readonly currentInputFingerprint: string }

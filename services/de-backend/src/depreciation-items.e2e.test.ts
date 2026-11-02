@@ -119,6 +119,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
             source: new PostgresDepreciationScheduleSource(db, classifications.capitalizedSources, now),
             now,
             recordingEnabled: false,
+            releasedStage: 1,
             fingerprinter: sha256Fingerprinter,
           }),
         },

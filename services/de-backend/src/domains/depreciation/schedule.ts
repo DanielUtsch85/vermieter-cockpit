@@ -51,6 +51,7 @@ export type {
   DepreciationScheduleSource,
   Flag,
   OwnerYear,
+  PurchaseCheckFacts,
   ScheduleAcquisition,
   ScheduleAllocation,
   ScheduleComponent,
