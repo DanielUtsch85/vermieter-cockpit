@@ -181,7 +181,7 @@ describe.skipIf(databaseUrl === undefined)('migration 0058: the period of perfor
       `performance_progress_estimated = true`,
       `created_txid = 1`,
     ]) {
-      expect(await run(`UPDATE tax_classification SET ${set} WHERE id = $1`, [id]), set).toBe('23000');
+      expect(await run(`UPDATE tax_classification SET ${set}, version = version + 1 WHERE id = $1`, [id]), set).toBe('23000');
     }
     const { columns, values } = columnsOf({ transaction_split_id: (await splitOf()).splitId, created_txid: 1 });
     expect(await run(insertSql(columns), values)).toBe('23000');

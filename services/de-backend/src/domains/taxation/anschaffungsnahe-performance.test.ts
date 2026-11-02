@@ -170,7 +170,7 @@ describe('the example of §59F (synthetic), literally', () => {
     expect(check([S1])).toMatchObject({ status: 'NOT_ABOVE_THRESHOLD', final: true });
   });
 
-  it('today (booking date) would be 13,200.00 NOT_ABOVE: the late-paid S2 and the advance S4 now count, the booking date never decides', () => {
+  it('all five undated: each is undetermined in the search range, the lower bound 0.00, never dated by its booking date', () => {
     const undated = [S4, S1, S5, S3, S2].map((s) => ({ ...s, performance: null }));
     const c = check(undated);
     // Undated, every one lies in the search range (S2 117 days after the window, S4 13 days before it): all undetermined.

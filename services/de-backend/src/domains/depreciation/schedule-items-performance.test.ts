@@ -135,6 +135,13 @@ describe('what the performance does not change (§59F "What stays", "Not affecte
     const a = item(derive({ ...sale, capitalizedItems: [repair({ performance: period('2027-01-02', '2027-01-03') })] }));
     const b = item(derive({ ...sale, capitalizedItems: [repair({ performance: period('2027-06-01', '2027-06-03') })] }));
     expect(a.owners.map((o) => [o.ownerPartyId, o.share, o.basis.amount])).toEqual(b.owners.map((o) => [o.ownerPartyId, o.share, o.basis.amount]));
+    // Performed before the owners' tenure (an order of the seller, paid after the transfer): the tenure is judged on the
+    // share date, so the owners start with their tenure (2026-07), never on the day the work was completed.
+    const early = item(schedule([repair({ date: day('2026-09-20'), taxYear: 2026, performance: period('2026-05-01', '2026-05-10') })]));
+    expect(early.owners.map((o) => [o.ownerPartyId, o.firstMonth, o.tenure.from])).toEqual([
+      [A, '2026-07', '2026-07-01'],
+      [B, '2026-07', '2026-07-01'],
+    ]);
     const interest = item(schedule([repair({ taxCategory: 'LOAN_INTEREST', anschaffungsnaheAcquisitionId: null, performance: null })]));
     expect([interest.status, interest.start.dateSource, interest.start.date]).toEqual(['COMPUTABLE', 'ITEM_DATE', '2027-03-10']);
     expect(codes(interest.reasons)).not.toContain('PERFORMANCE_DATE_MISSING');
@@ -169,5 +176,8 @@ describe('the stored inputs and the fingerprint (§59F "Recorded versions and th
     });
     expect(fp(at('2027-02-28'), 2027)).not.toBe(fp(in2028, 2027));
     expect(fp(at('2027-02-28'), 2026)).toBe(fp(in2028, 2026));
+    // The period itself is an input: another beginning with the same completion changes the fingerprint too.
+    const begun = acc8({ ownerships, capitalizedItems: [repair({ date: day('2028-03-10'), taxYear: 2028, performance: period('2027-02-01', '2027-02-28') })] });
+    expect(fp(at('2027-02-28'), 2027)).not.toBe(fp(begun, 2027));
   });
 });
