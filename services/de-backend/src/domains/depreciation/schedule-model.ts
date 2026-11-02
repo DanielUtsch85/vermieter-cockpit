@@ -86,6 +86,20 @@ export interface ScheduleRead {
   readonly ownerPartyFound: boolean | null;
   /** §60: the asset's `CURRENT` recorded version, read in the same snapshot; `null` without one. */
   readonly currentVersion?: ScheduleVersion | null;
+  /**
+   * VC-X-45 (A1): the anschaffungsnahe check of each Acquisition of the PropertyReference, as far as the release stage
+   * reads it, in the same snapshot; absent where the read does not give them (a purchase is then at least stage 2).
+   * Never an input of a figure or a fingerprint.
+   */
+  readonly purchaseChecks?: readonly PurchaseCheckFacts[];
+}
+
+/** What the release stage reads of a purchase's anschaffungsnahe check (§58B; VC-X-45, A1). */
+export interface PurchaseCheckFacts {
+  readonly acquisitionId: string;
+  readonly status: 'NOT_COMPUTABLE' | 'ABOVE_THRESHOLD' | 'NOT_ABOVE_THRESHOLD';
+  /** The check's open flag `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED`. */
+  readonly wegHausgeldMaintenanceNotCounted: boolean;
 }
 
 /** The schedule's inputs in one `REPEATABLE READ READ ONLY` transaction (P8-D14); undefined for an unknown or foreign asset. */

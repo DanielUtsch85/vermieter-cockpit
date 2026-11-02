@@ -128,6 +128,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
             source: new PostgresDepreciationScheduleSource(db, new PostgresTaxClassificationRepository(db).capitalizedSources, now),
             now,
             recordingEnabled: false,
+            releasedStage: 1,
             fingerprinter: sha256Fingerprinter,
           }),
         },

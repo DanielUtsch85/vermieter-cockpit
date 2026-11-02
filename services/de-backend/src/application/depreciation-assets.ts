@@ -5,6 +5,7 @@ import {
   isOwnerOf,
   purchaseMethodStatuses,
   withRecording,
+  withStages,
   type AssetAmendment,
   type AssetRate,
   type AssetRead,
@@ -14,7 +15,8 @@ import {
   type DepreciationAssetRepository,
   type DepreciationScheduleSource,
   type Fingerprinter,
-  type RecordedSchedule,
+  type RecordingStage,
+  type StagedSchedule,
   type ItemRef,
   type ItemRefusal,
   type NewDepreciationAsset,
@@ -402,7 +404,7 @@ export type GetDepreciationSchedule = (input: {
   readonly from?: number;
   readonly to?: number;
   readonly ownerPartyId: string | null;
-}) => Promise<RecordedSchedule>;
+}) => Promise<StagedSchedule>;
 
 /**
  * The schedule of the purchase (api-design.md §59A, backlog VC-8-02) and of the capitalised items or a separate asset
@@ -418,6 +420,9 @@ export function getDepreciationSchedule(
     readonly registry?: RuleRegistry;
     /** The installation's recording switch, reported as `recordingEnabled`; no default (§60). */
     readonly recordingEnabled: boolean;
+    /** VC-X-45: the released stage, reported as `recordingStage.released` and compared with each year's stage; no default. */
+    readonly releasedStage: RecordingStage;
+    readonly stageRegistry?: RuleRegistry;
     readonly fingerprinter: Fingerprinter;
   } & Clock,
 ): GetDepreciationSchedule {
@@ -428,26 +433,28 @@ export function getDepreciationSchedule(
     if (ownerPartyId !== null && read.ownerPartyFound !== true) throw new OwnerPartyNotFoundError(ownerPartyId);
     if (ownerPartyId !== null && !isOwnerOf(read.ownerships, ownerPartyId)) throw new NotAnOwnerError(ownerPartyId, read.asset.propertyReferenceId);
     const today = businessDayOf(nowOf(deps));
-    const schedule = deriveSchedule(
-      {
-        asset: read.asset,
-        acquisitions: read.acquisitions,
-        ownerships: read.ownerships,
-        capitalizedItems: read.capitalizedItems,
-        links: read.links,
-        today,
-        from,
-        to,
-        ownerPartyId,
-      },
-      registry,
-    );
-    return withRecording(schedule, read, {
+    const base = {
+      asset: read.asset,
+      acquisitions: read.acquisitions,
+      ownerships: read.ownerships,
+      capitalizedItems: read.capitalizedItems,
+      links: read.links,
+    };
+    const schedule = deriveSchedule({ ...base, today, from, to, ownerPartyId }, registry);
+    const recorded = withRecording(schedule, read, {
       registry,
       fingerprinter: deps.fingerprinter,
       today,
       current: read.currentVersion ?? null,
       recordingEnabled: deps.recordingEnabled,
+    });
+    // VC-X-45: the stage is the asset's, from the property level (as the version is), over the years shown.
+    const property =
+      ownerPartyId === null ? schedule : deriveSchedule({ ...base, today, from: schedule.range.from, to: schedule.range.to, ownerPartyId: null }, registry);
+    return withStages(recorded, property, read, {
+      releasedStage: deps.releasedStage,
+      today,
+      ...(deps.stageRegistry === undefined ? {} : { stageRegistry: deps.stageRegistry }),
     });
   };
 }

@@ -180,7 +180,7 @@ describe.skipIf(databaseUrl === undefined)('random schedules round trip through 
         ownerPartyFound: null,
         currentVersion: null,
       };
-      const context = { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: RANDOM_TODAY, recordedBy: actor.actorId };
+      const context = { registry: TAX_RULES, fingerprinter: sha256Fingerprinter, today: RANDOM_TODAY, recordedBy: actor.actorId, releasedStage: 3 as const };
       const expectedInputFingerprint = inputFingerprint(
         liveSchedule(read, TAX_RULES, sha256Fingerprinter, RANDOM_TODAY, throughYear).inputs,
         throughYear,

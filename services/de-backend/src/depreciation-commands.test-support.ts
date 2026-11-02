@@ -11,6 +11,7 @@ import {
   listScheduleVersions,
   recordScheduleVersion,
   voidDepreciationAsset,
+  type RecordingStage,
 } from './application/index.js';
 import { sha256Fingerprinter } from './infrastructure/hashing/index.js';
 import {
@@ -24,13 +25,15 @@ import type { Database } from './infrastructure/postgres/schema.js';
 /**
  * The DepreciationAsset commands wired as `main.ts` wires them (api-design.md §59–§60), for the end-to-end tests. The
  * recording switch is stated by the test (§60 "Tests while it is off, and with it on": no environment variable is set
- * in a test); off by default, as the shipped installation. Test support only.
+ * in a test); off by default, as the shipped installation. The released stage (VC-X-45) likewise: stage 1 by default,
+ * as the shipped installation; a test recording a stage-2 or stage-3 asset states it. Test support only.
  */
 export function depreciationCommands(
   db: Kysely<Database>,
-  options: { readonly recordingEnabled?: boolean; readonly now?: () => Date } = {},
+  options: { readonly recordingEnabled?: boolean; readonly releasedStage?: RecordingStage; readonly now?: () => Date } = {},
 ): DepreciationAssetCommandsWithVersions {
   const recordingEnabled = options.recordingEnabled ?? false;
+  const releasedStage = options.releasedStage ?? 1;
   const clock = options.now === undefined ? {} : { now: options.now };
   const capitalizedSources = new PostgresTaxClassificationRepository(db).capitalizedSources;
   const assets = new PostgresDepreciationAssetRepository(db, { capitalizedSources, ...clock });
@@ -45,10 +48,11 @@ export function depreciationCommands(
     schedule: getDepreciationSchedule({
       source: new PostgresDepreciationScheduleSource(db, capitalizedSources, options.now),
       recordingEnabled,
+      releasedStage,
       fingerprinter: sha256Fingerprinter,
       ...clock,
     }),
-    recordVersion: recordScheduleVersion({ repository: versions, recordingEnabled, fingerprinter: sha256Fingerprinter, ...clock }),
+    recordVersion: recordScheduleVersion({ repository: versions, recordingEnabled, releasedStage, fingerprinter: sha256Fingerprinter, ...clock }),
     listVersions: listScheduleVersions({ repository: versions }),
     getVersion: getScheduleVersion({ repository: versions, fingerprinter: sha256Fingerprinter, ...clock }),
   };

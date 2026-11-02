@@ -1,5 +1,5 @@
 import express, { type Router } from 'express';
-import type { ComponentYear, Flag, ItemComponent, OwnerYear, RecordedSchedule, RecordedScheduleYear, ScheduleComponent } from '../application/index.js';
+import type { ComponentYear, Flag, ItemComponent, OwnerYear, ScheduleComponent, StagedSchedule, StagedScheduleYear } from '../application/index.js';
 import type { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { scheduleQuery } from './depreciation-asset-dto.js';
@@ -45,7 +45,7 @@ const money = (m: Money | null) => (m === null ? null : m.toJSON());
 const flagDto = (f: Flag) => ({ code: f.code, details: f.details });
 
 /** §59A's response: Money as §86, fractions as `"n/d"`, months as `YYYY-MM`, flags as `{ code, details }`. */
-function scheduleDto(s: RecordedSchedule) {
+function scheduleDto(s: StagedSchedule) {
   const ownerYear = (o: OwnerYear) => ({
     ownerPartyId: o.ownerPartyId,
     months: o.months,
@@ -120,7 +120,7 @@ function scheduleDto(s: RecordedSchedule) {
     years: c.years.map(componentYear),
     flags: c.flags.map(flagDto),
   });
-  const year = (y: RecordedScheduleYear) => ({
+  const year = (y: StagedScheduleYear) => ({
     year: y.year,
     status: y.status,
     calculationStatus: y.calculationStatus,
@@ -133,6 +133,8 @@ function scheduleDto(s: RecordedSchedule) {
     // §60: the asset's input fingerprint (the record command's precondition) and the year's recording state.
     inputFingerprint: y.inputFingerprint,
     recording: y.recording,
+    // VC-X-45: the year's release stage (the highest of its components'); above the released stage it is flagged (`null` without a component).
+    stage: y.stage,
   });
   return {
     assetId: s.assetId,
@@ -154,5 +156,7 @@ function scheduleDto(s: RecordedSchedule) {
     recordedVersion: s.recordedVersion === null ? null : { ...s.recordedVersion, recordedAt: s.recordedVersion.recordedAt.toISOString() },
     // Only the installation's switch (§60, decided 2026-10-31, third set, open question 10); no figure depends on it.
     recordingEnabled: s.recordingEnabled,
+    // VC-X-45: the installation's released stage, reported whatever the switch says (A6); no figure depends on it.
+    recordingStage: s.recordingStage,
   };
 }

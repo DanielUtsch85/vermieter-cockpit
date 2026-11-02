@@ -14,6 +14,7 @@ import { currentClassificationByCost } from './acquisition-cost-classification-r
 import { COUNTING } from './acquisition-cost-repository.js';
 import { capitalizedItemsIn, type CapitalizedSourcesReader } from './capitalized-items.js';
 import { depreciationSnapshot, readAsset } from './depreciation-asset-repository.js';
+import { purchaseChecksIn } from './depreciation-purchase-checks.js';
 import { currentVersionOf } from './depreciation-schedule-version-reads.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
@@ -40,9 +41,11 @@ export class PostgresDepreciationScheduleSource implements DepreciationScheduleS
   read(assetId: string, mreRealmId: string, ownerPartyId: string | null): Promise<ScheduleRead | undefined> {
     if (!UUID.test(assetId)) return Promise.resolve(undefined);
     return depreciationSnapshot(this.db, async (trx) => {
-      const read = await readScheduleIn(trx, this.capitalizedSources, businessDayOf(this.now()), assetId, mreRealmId, ownerPartyId);
-      // §60: the asset's CURRENT recorded version, in the same snapshot.
-      return read === undefined ? undefined : { ...read, currentVersion: await currentVersionOf(trx, assetId) };
+      const today = businessDayOf(this.now());
+      const read = await readScheduleIn(trx, this.capitalizedSources, today, assetId, mreRealmId, ownerPartyId);
+      if (read === undefined) return undefined;
+      // §60: the asset's CURRENT recorded version; VC-X-45: the purchases' checks for the stage; both in the same snapshot.
+      return { ...read, currentVersion: await currentVersionOf(trx, assetId), purchaseChecks: await purchaseChecksIn(trx, read, mreRealmId, today) };
     });
   }
 }

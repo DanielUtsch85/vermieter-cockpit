@@ -59,7 +59,7 @@ function commands(recordingEnabled: boolean) {
     calls,
     overrides: {
       depreciationAssets: {
-        recordVersion: recordScheduleVersion({ repository, recordingEnabled, fingerprinter, now }),
+        recordVersion: recordScheduleVersion({ repository, recordingEnabled, releasedStage: 1, fingerprinter, now }),
         listVersions: listScheduleVersions({ repository }),
         getVersion: getScheduleVersion({ repository, fingerprinter, now }),
       },
