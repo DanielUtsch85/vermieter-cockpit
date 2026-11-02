@@ -115,13 +115,14 @@ describe.skipIf(databaseUrl === undefined)('capitalised Loan interest in the AfA
     }
     expect(componentOf(await schedule(building1, 'from=2026&to=2026'), i0 as string)).toBeUndefined();
     // R confirmed: the source enters P1's building with P1's part (60.00 of 100.00); the flag is gone, and 2026 is held
-    // open only by the component's own flags: SUBSEQUENT_COST_START_TO_VERIFY and the recorded year changed.
+    // open only by the component's own flags: SUBSEQUENT_COST_OWNER_START_TO_VERIFY (§59F: the interest keeps its booking
+    // date, and the owner's later start moves it, an open reading) and the recorded year changed.
     const cashBefore = await api.cashRows();
     await cpi(`${R}/confirm`, { reviewState: 'CONFIRMED' }, 1);
     expect(await api.cashRows()).toEqual(cashBefore);
     const confirmed2026 = await view(p1, 2026);
     expect(notInBasis(confirmed2026, i0 as string)).toBeUndefined();
-    expect(confirmed2026.review.open.map((o: Json) => o.code).sort()).toEqual(['DEPRECIATION_CHANGED_SINCE_RECORDED', 'SUBSEQUENT_COST_START_TO_VERIFY']);
+    expect(confirmed2026.review.open.map((o: Json) => o.code).sort()).toEqual(['DEPRECIATION_CHANGED_SINCE_RECORDED', 'SUBSEQUENT_COST_OWNER_START_TO_VERIFY']);
     const c0 = componentOf(await schedule(building1, 'from=2026&to=2026'), i0 as string);
     expect([c0.basis.amount, c0.start.method, c0.source.loan, c0.source.constructionPeriodInterestId]).toEqual([
       eur('60.00'),
@@ -163,7 +164,8 @@ describe.skipIf(databaseUrl === undefined)('capitalised Loan interest in the AfA
         [part2, []],
       ]);
       expect(codes(v.review.open)).not.toContain('LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS');
-      expect(codes(v.review.open)).toContain('SUBSEQUENT_COST_START_TO_VERIFY');
+      // §59F: SUBSEQUENT_COST_START_TO_VERIFY is withdrawn (Prüfbericht Frage 5 confirmed the rule).
+      expect(codes(v.review.open)).not.toContain('SUBSEQUENT_COST_START_TO_VERIFY');
     }
 
     // The variant: R naming P1 only. The amend resets the review (RECORD_NOT_CONFIRMED everywhere); confirmed again, P1's

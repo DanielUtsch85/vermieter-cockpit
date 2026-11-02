@@ -47,7 +47,10 @@ export type View = {
 export type Check = {
   status: string;
   threshold: Money;
+  notComputableReason: string | null;
   sum: Money;
+  /** §59F: the upper bound with the undetermined sources. */
+  sumUpper: Money;
   attributableAmount: Money;
   percentOfBasis: string;
   basis: { basisAmount: Money };
@@ -56,6 +59,7 @@ export type Check = {
   flags: Flag[];
   sources: { sourceType: string; sourceId: string; amountUsed: Money; suggestedTreatment: string | null }[];
   unclassified: { sourceType: string }[];
+  undetermined: { sourceType: string; sourceId: string }[];
 };
 
 /** Cents of a Money JSON, exact. */

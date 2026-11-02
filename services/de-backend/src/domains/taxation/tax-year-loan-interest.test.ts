@@ -83,6 +83,7 @@ function interest(amount: string, bookingDate: string, o: InterestOptions = {}):
     attribution: { rule: CASH, bookingYear: yearOf(date), proposedYear: taxYear, overridden: false },
     refund: refundOf(direction, taxCategory, taxYear, null, null).refund,
     netAmount: null,
+    performance: null,
     treatmentRule: null,
     distribution: null,
     suggestion: null,

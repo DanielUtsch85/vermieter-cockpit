@@ -65,6 +65,7 @@ function meaning(
     attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: Number(bookingDate.slice(0, 4)), proposedYear: taxYear, overridden: false },
     refund: null,
     netAmount: null,
+    performance: null,
     treatmentRule: null,
     distribution: null,
     suggestion: null,
@@ -438,7 +439,7 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       amount: eur(amount),
       rule,
       parts,
-      flags: kind === 'ACQUISITION' ? [] : [flag('SUBSEQUENT_COST_START_TO_VERIFY', 'OPEN')],
+      flags: kind === 'ACQUISITION' ? [] : [flag('SUBSEQUENT_COST_OWNER_START_TO_VERIFY', 'OPEN')],
     });
     const components = [
       component(`ACQUISITION:${acquisition}`, 'ACQUISITION', '2544.00', [part(A, '1272.00', '1/2'), part(B, '1272.00', '1/2')]),
@@ -548,7 +549,7 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       [SELLER, expect.any(Array), 'AFTER_DEPRECIATION'],
     ]);
     expect((v['flags'] as Json[]).map((f) => f['code'])).toEqual(['DEPRECIATION_SCHEDULE_NOT_RECORDED', 'UNATTRIBUTED_ITEMS']);
-    expect(v['review'].open).toEqual(expect.arrayContaining([{ code: 'SUBSEQUENT_COST_START_TO_VERIFY', count: 1 }]));
+    expect(v['review'].open).toEqual(expect.arrayContaining([{ code: 'SUBSEQUENT_COST_OWNER_START_TO_VERIFY', count: 1 }]));
     const a = (await (await get(base, `/property-references/${PR}/tax-years/2027?ownerPartyId=${A}`)).json()) as Json;
     const own = (a['werbungskosten'].lines as Json[]).at(-2)?.['items'][1];
     expect([own.amount, own.share, own.href]).toEqual([

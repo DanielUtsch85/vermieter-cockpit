@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DE_AFA_BUILDING_LINEAR_V2, ruleVersionHash } from '../../domains/depreciation/index.js';
-import { DE_CASH_TIMING_V1 } from '../../domains/taxation/index.js';
+import { DE_ANSCHAFFUNGSNAHE_V1, DE_CASH_TIMING_V1 } from '../../domains/taxation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import { sha256Fingerprinter } from './sha256-fingerprinter.js';
@@ -34,15 +34,23 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // Steuerberater, laut Projektinhaber am 2026-11-01; the owner's decisions of 2026-11-02): `shorterUsefulLife` gains the
   // Stichtag, the cases and the late evidence's release, `subsequentCostRate` drops `shorterLifeVerified` for
   // `shorterLife`/`afterRemainingLife` NOT_COMPUTABLE. Recording is still disabled. Before: @1 260758f8…4bda, @2 4b2b9c28…8c3a.
-  ['DE_AFA_BUILDING_LINEAR', 1, 'b9e8bfd962062ec0c01b79f342e1bb3e46b105dd049bab6323a3abb693dbd21f'],
-  ['DE_AFA_BUILDING_LINEAR', 2, 'efe5ba03ec2b842654d042f59953f0a26a265a4249a0a01e96eadef96100cf9e'],
+  // Again for @1 and @2 for §59F (VC-X-38; Prüfbericht 2026-11-01, Frage 5, mündlich bestätigt durch den Steuerberater,
+  // laut Projektinhaber am 2026-11-01; the owner's decisions of 2026-11-02): `subsequentCostStart` takes the completion of
+  // the work (`date`, `performanceRequired`, `spansYearEnd`, `exemptTaxCategories`), `verified` true for the confirmed
+  // rule and `notBeforeOwnerStart` as an open reading of its own. Recording is still disabled.
+  // Before: @1 b9e8bfd9…d21f, @2 efe5ba03…cf9e.
+  ['DE_AFA_BUILDING_LINEAR', 1, '4e3c7f46f55783d5846f66fcb37096d91416d6da5362d28734d4166c3488678c'],
+  ['DE_AFA_BUILDING_LINEAR', 2, 'bbe0feccf97fdbf76c0125cc33cb0c371202c9f2f5f2f27d5d11bb8033942d84'],
   ['DE_AFA_MOVABLE_LINEAR', 1, '85d929633060b63636187e42a65e5856bdc58c65f86bd1ae22284a8278b1f06a'],
   // A Phase-7 rule, pinned from §59D on (VC-X-42; §59D open question 3, decided by the owner on 2026-11-01): changed in
   // place by the parameter `costClassification` (Prüfbericht 2026-11-01, Fragen 10 und 24, mündlich bestätigt durch den
   // Steuerberater, laut Projektinhaber am 2026-11-01), with a change note in its `source`. Its freeze point is the
   // documented go-live of the first productive installation (the owner's version decision of 2026-11-01), not the
   // enablement of recording: until then a change updates this literal explicitly, in the same commit.
-  ['DE_ANSCHAFFUNGSNAHE', 1, 'e8e55a5894d1eed98cd53e772c539d06a4c7ca1e7ca1c93200e2dd81fdc7c3ff'],
+  // Again for §59F (VC-X-38; Prüfbericht 2026-11-01, Fragen 14 und 16, mündlich bestätigt durch den Steuerberater, laut
+  // Projektinhaber am 2026-11-01; the owner's decisions of 2026-11-01 and 2026-11-02): the parameter `performance` and the
+  // change note in its `source`. Before: e8e55a58…c3ff.
+  ['DE_ANSCHAFFUNGSNAHE', 1, '6f14e4ac6a9639f1cabb134036519af8f64bbd73ae430c0b1e7f44cfc5111c57'],
   // New with §59E (VC-X-36, decided by the owner on 2026-11-01; Prüfbericht 2026-11-01, Frage 23, mündlich bestätigt
   // durch den Steuerberater, laut Projektinhaber am 2026-11-01): a classification's `treatmentRule`, so pinned from its
   // first commit on; a change is `@2` (§59E "Frozen rules"). The AfA rules and DE_CATEGORY_DEFAULTS@1 are unchanged.
@@ -78,6 +86,11 @@ describe('the frozen rule versions (§60)', () => {
     // §59D: the cost classification policy is a covered parameter too.
     const basis = { ...v.parameters.basis, costClassification: { ...v.parameters.basis.costClassification, requiredFor: ['OTHER'] } };
     expect(hash({ ...v, parameters: { ...v.parameters, basis } })).not.toBe(hash(v));
+    // §59F: the start's performance rule and its open reading are covered parameters too.
+    const start = { ...v.parameters.subsequentCostStart, notBeforeOwnerStart: { ...v.parameters.subsequentCostStart.notBeforeOwnerStart, verified: true } };
+    expect(hash({ ...v, parameters: { ...v.parameters, subsequentCostStart: start } })).not.toBe(hash(v));
+    const spans = { ...v.parameters.subsequentCostStart, exemptTaxCategories: ['LOAN_INTEREST'] };
+    expect(hash({ ...v, parameters: { ...v.parameters, subsequentCostStart: spans } })).not.toBe(hash(v));
     expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
   });
 
@@ -94,5 +107,26 @@ describe('the frozen rule versions (§60)', () => {
     };
     expect(hash(before)).toBe('b7fa5cf1648fb12179487933fd305f895983853021362877ff6c4c38a74487f8');
     expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
+  });
+
+  it('counter-checks on a copy of the check rule (§59F): the search range days and the outer bound change the hash; the version before VC-X-38 had the pinned e8e55a58…c3ff', () => {
+    const v = DE_ANSCHAFFUNGSNAHE_V1;
+    const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
+    for (const performance of [
+      { ...v.parameters.performance, undatedReadAfterWindowDays: 366 },
+      { ...v.parameters.performance, plausibleYearsFromSourceDate: 4 },
+    ]) {
+      expect(hash({ ...v, parameters: { ...v.parameters, performance } })).not.toBe(hash(v));
+    }
+    const { performance: _withdrawn, ...withoutPerformance } = v.parameters;
+    const before = {
+      ...v,
+      parameters: withoutPerformance as typeof v.parameters,
+      source: v.source.replace(
+        '; VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F',
+        '',
+      ),
+    };
+    expect(hash(before)).toBe('e8e55a5894d1eed98cd53e772c539d06a4c7ca1e7ca1c93200e2dd81fdc7c3ff');
   });
 });

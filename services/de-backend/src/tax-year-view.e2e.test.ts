@@ -658,7 +658,14 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
       201,
     );
     const repair = (await booked('OUTFLOW', '2026-05-14', [on(pr, '18000.00', 'MAINTENANCE')])).splitIds[0] as string;
-    await classify({ sourceType: 'TRANSACTION_SPLIT', sourceId: repair, taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', netAmount: eur('15126.05') });
+    await classify({
+      sourceType: 'TRANSACTION_SPLIT',
+      sourceId: repair,
+      taxCategory: 'MAINTENANCE',
+      treatment: 'DEDUCTIBLE',
+      netAmount: eur('15126.05'),
+      performance: { from: '2026-05-14', until: '2026-05-14' },
+    });
     const assessment = (
       await json<{ assessmentId: string }>(
         await A('POST', `/weg-memberships/${membershipId}/special-assessments`, {
@@ -677,7 +684,14 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
       }),
       200,
     );
-    await classify({ sourceType: 'WEG_ASSESSMENT_USE', sourceId: assessment, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' });
+    await classify({
+      sourceType: 'WEG_ASSESSMENT_USE',
+      sourceId: assessment,
+      sourcePosition: 1,
+      taxCategory: 'WEG_SPENDING',
+      treatment: 'DEDUCTIBLE',
+      performance: { from: '2027-06-10', until: '2027-06-10' },
+    });
     const v2027 = await view(pr, 2027);
     const use = lineOf(v2027, 'WEG_SPENDING').items[0] as Item;
     expect([use.sourceId, use.treatment, use.lineAmount]).toEqual([assessment, 'DEDUCTIBLE', eur('14800.00')]);

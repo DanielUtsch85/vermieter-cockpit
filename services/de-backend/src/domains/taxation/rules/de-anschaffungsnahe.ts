@@ -18,6 +18,27 @@ export interface AnschaffungsnaheParameters {
    * equal to `DE_AFA_BUILDING_LINEAR`'s `basis.costClassification` (a registry test), so both compute one basis.
    */
   readonly costClassification: CostClassificationParameters;
+  /**
+   * §59F (VC-X-38): the check measures the period of performance on a classification, never the booking date. Undated
+   * sources whose own date lies in the search range (`undatedReadBeforeWindowDays` before the window to
+   * `undatedReadAfterWindowDays` after it) enter the upper bound only; undated ones beyond it, but within
+   * `plausibleYearsFromSourceDate` of the window, are listed (`outsideSearchRange`) and keep the check from being decided
+   * by the upper bound. A performance lies within `plausibleYearsFromSourceDate` of its source's date.
+   */
+  readonly performance: PerformanceParameters;
+}
+
+export interface PerformanceParameters {
+  readonly dateMeasured: 'PERFORMANCE';
+  readonly undatedReadBeforeWindowDays: number;
+  readonly undatedReadAfterWindowDays: number;
+  readonly outsideSearchRange: 'LISTED_NOT_DECIDED';
+  readonly plausibleYearsFromSourceDate: number;
+  readonly progressEvidenceRequired: boolean;
+  readonly estimatedProgress: 'NOT_EVIDENCED';
+  readonly straddlingSource: 'SHARE_SHOWN_SPLIT_REQUIRED';
+  readonly legalBasis: string;
+  readonly source: string;
 }
 
 export const ANSCHAFFUNGSNAHE = 'DE_ANSCHAFFUNGSNAHE';
@@ -31,6 +52,9 @@ export const ANSCHAFFUNGSNAHE = 'DE_ANSCHAFFUNGSNAHE';
  * Changed in place on 2026-11-01 (§59D open question 3, decided by the owner: the Phase-7 rules are corrected in the
  * same version until the documented go-live of the first productive installation): the parameter `costClassification`
  * (tax review of 2026-11-01, questions 10 and 24). Its hash is pinned in `frozen-rules.test.ts` from then on.
+ *
+ * Changed in place again for §59F (VC-X-38; the owner's decisions of 2026-11-01 and 2026-11-02): the parameter
+ * `performance` (tax review of 2026-11-01, questions 14 and 16). The pinned hash is updated explicitly.
  */
 export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
   ruleCode: ANSCHAFFUNGSNAHE,
@@ -52,7 +76,19 @@ export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
       legalBasis: '§ 255 Abs. 1 HGB i. V. m. § 9b Abs. 1 EStG; Finanzierungskosten keine Anschaffungskosten',
       source: 'Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
     },
+    performance: {
+      dateMeasured: 'PERFORMANCE',
+      undatedReadBeforeWindowDays: 90,
+      undatedReadAfterWindowDays: 365,
+      outsideSearchRange: 'LISTED_NOT_DECIDED',
+      plausibleYearsFromSourceDate: 3,
+      progressEvidenceRequired: true,
+      estimatedProgress: 'NOT_EVIDENCED',
+      straddlingSource: 'SHARE_SHOWN_SPLIT_REQUIRED',
+      legalBasis: '§ 6 Abs. 1 Nr. 1a EStG; BMF 20.10.2017, Rn. 1 ff. (Durchführung der Maßnahme)',
+      source: 'Prüfbericht 2026-11-01, Fragen 14 und 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+    },
   },
   source:
-    'docs/germany/taxation.md §6; phase-7-plan P7-D6; api-design §58B (review on #167); verification-checklist A2, A6; changed in place 2026-11-01 by api-design §59D (VC-X-42): costClassification, Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+    'docs/germany/taxation.md §6; phase-7-plan P7-D6; api-design §58B (review on #167); verification-checklist A2, A6; changed in place 2026-11-01 by api-design §59D (VC-X-42): costClassification, Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F',
 };

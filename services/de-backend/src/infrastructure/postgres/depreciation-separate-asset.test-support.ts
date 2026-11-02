@@ -31,6 +31,7 @@ import { PostgresTransactionSplitRepository } from './transaction-split-reposito
 import { PostgresWegAnnualStatementRepository } from './weg-annual-statement-repository.js';
 import { PostgresWegRepository } from './weg-repository.js';
 import { PostgresWegSpecialAssessmentRepository } from './weg-special-assessment-repository.js';
+import { performedOnSourceDate } from './performance.test-support.js';
 import { standardMethod } from './depreciation-method.test-support.js';
 
 /**
@@ -216,7 +217,7 @@ export function useSeparateAssetDatabase(name: `${string}_test`) {
   }
   async function classify(sourceId: string, overrides: Partial<NewTaxClassification> = {}, realm = REALM): Promise<string> {
     const outcome = await ctx.classifications.createClassification(
-      {
+      await performedOnSourceDate(ctx.pool, {
         mreRealmId: realm,
         sourceType: 'TRANSACTION_SPLIT',
         sourceId,
@@ -227,7 +228,7 @@ export function useSeparateAssetDatabase(name: `${string}_test`) {
         notes: null,
         sourceReferences: [],
         ...overrides,
-      },
+      }),
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(JSON.stringify(outcome));

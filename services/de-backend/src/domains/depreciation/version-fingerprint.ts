@@ -77,6 +77,8 @@ export function countedComponent(c: VersionComponent): Record<string, unknown> {
             itemDateSource: c.item.itemDateSource,
             itemTaxYear: c.item.itemTaxYear,
             anschaffungsnaheAcquisitionId: c.item.anschaffungsnaheAcquisitionId,
+            // §59F: the period of the work, only where it decided the start (no key on any other item).
+            ...(c.item.performedUntil === undefined ? {} : { performedFrom: c.item.performedFrom, performedUntil: c.item.performedUntil }),
             // §59E: the Loan keys for a Loan component only (no key, not null, on every other one), so no existing
             // fingerprint changes and a backdated set changing P's share is seen.
             ...(c.item.loan === undefined || c.item.loan === null

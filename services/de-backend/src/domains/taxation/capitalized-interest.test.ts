@@ -56,6 +56,7 @@ function interest(
     attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: yearOf(date), proposedYear: yearOf(date), overridden: false },
     refund: null,
     netAmount: null,
+    performance: null,
     treatmentRule: null,
     distribution: null,
     suggestion: null,

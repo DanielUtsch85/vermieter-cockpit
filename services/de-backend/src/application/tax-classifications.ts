@@ -1,4 +1,10 @@
 import { businessDayOf } from '../domains/ledger/index.js';
+import {
+  PerformanceEvidenceRequiredError,
+  PerformanceNotAllowedError,
+  PerformanceOutOfRangeError,
+  PerformanceProgressExceedsAmountError,
+} from './tax-classification-performance-errors.js';
 import { TAX_RULES } from '../domains/tax-rules/index.js';
 import {
   buildTaxYearView,
@@ -156,6 +162,8 @@ export class AnschaffungsnaheNotApplicableError extends Error {
   constructor(
     readonly reason: string,
     readonly acquisitionId: string,
+    /** §59F: `MISSING` or `STRADDLES_WINDOW` with `PERFORMANCE_REQUIRED`. */
+    readonly performanceCause?: string,
   ) {
     super(`The anschaffungsnahe check of Acquisition ${acquisitionId} does not apply: ${reason}`);
   }
@@ -314,7 +322,7 @@ export function createTaxClassification(deps: Deps): CreateTaxClassification {
       case 'ACQUISITION_NOT_FOUND':
         throw new AcquisitionNotFoundError(outcome.acquisitionId);
       case 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE':
-        throw new AnschaffungsnaheNotApplicableError(outcome.reason, outcome.acquisitionId);
+        throw new AnschaffungsnaheNotApplicableError(outcome.reason, outcome.acquisitionId, outcome.cause);
       case 'TAX_YEAR_OUT_OF_RANGE':
         throw new TaxYearOutOfRangeError(outcome.taxYear, outcome.bookingYear);
       case 'WITHDRAWAL_TAX_YEAR_OUT_OF_RANGE':
@@ -341,6 +349,15 @@ export function createTaxClassification(deps: Deps): CreateTaxClassification {
         throw new ConstructionPeriodInterestDeductibleError(outcome.constructionPeriodInterestId);
       case 'CONSTRUCTION_PERIOD_INTEREST_NOT_ALLOWED':
         throw new ConstructionPeriodInterestNotAllowedError(outcome.reason);
+      // §59F: the period of performance.
+      case 'PERFORMANCE_NOT_ALLOWED':
+        throw new PerformanceNotAllowedError();
+      case 'PERFORMANCE_PROGRESS_EXCEEDS_AMOUNT':
+        throw new PerformanceProgressExceedsAmountError(outcome.amountUsed, outcome.amount);
+      case 'PERFORMANCE_EVIDENCE_REQUIRED':
+        throw new PerformanceEvidenceRequiredError();
+      case 'PERFORMANCE_OUT_OF_RANGE':
+        throw new PerformanceOutOfRangeError(outcome);
     }
   };
 }

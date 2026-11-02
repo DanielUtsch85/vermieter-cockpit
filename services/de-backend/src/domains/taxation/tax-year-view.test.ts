@@ -100,6 +100,7 @@ function split(o: SplitOptions): TaxListItem {
     attribution: { rule: CASH, bookingYear: yearOf(bookingDate), proposedYear: taxYear, overridden: false },
     refund: refundOf(direction, o.taxCategory, taxYear, null, o.refundOfYear ?? null).refund,
     netAmount: null,
+    performance: null,
     treatmentRule: distribution === null ? null : D82B,
     distribution,
     suggestion: null,

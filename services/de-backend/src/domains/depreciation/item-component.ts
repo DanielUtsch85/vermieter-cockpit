@@ -188,13 +188,15 @@ export function itemComponentOf(
       anschaffungsnaheAcquisitionId: item?.anschaffungsnaheAcquisitionId ?? null,
       loan: item?.loan === undefined || item.loan === null ? null : { ...item.loan, propertyPart: item.lineAmount },
       constructionPeriodInterestId: item?.constructionPeriodInterestId ?? null,
+      // §59F: the period of the work as stored (from, until); `null` without one.
+      performance: item?.performance ?? null,
     },
     status: w.computable ? 'COMPUTABLE' : 'NOT_COMPUTABLE',
     reasons: w.reasons,
     basis: { amount: item?.lineAmount ?? null, netAmount: item?.netAmount ?? null, amountUsed: 'GROSS_LINE_AMOUNT' },
     start: {
       date: w.startDate,
-      dateSource: w.separate ? 'ACQUIRED_ON' : 'ITEM_DATE',
+      dateSource: w.startDateSource,
       method: w.method,
       month: w.startMonth === null ? null : monthLabel(w.startMonth),
       firstYearMonths: w.startMonth === null ? null : 12 - (w.startMonth % 12),

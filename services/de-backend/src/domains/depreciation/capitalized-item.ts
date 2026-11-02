@@ -45,6 +45,11 @@ export interface CapitalizedItem extends ItemRef {
    */
   readonly loan?: CapitalizedItemLoan | null;
   readonly constructionPeriodInterestId?: string | null;
+  /**
+   * §59F (VC-X-38): the period of the work its classification states (absent or `null` without one). On the building it
+   * decides the start (`performance.until`); the share date `date` still decides the owners.
+   */
+  readonly performance?: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
   readonly counts: boolean;
   readonly treatment: string | null;
   /** §58C's parts, summing to `lineAmount`; empty for a linked item that is no longer capitalised. */

@@ -219,7 +219,14 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // 2027: the repair (35,700.00 gross, 30,000.00 net) DEDUCTIBLE: the check's sum 30,000.00 of a threshold of 38,160.00.
     at('2027-03-15');
     const [repair] = await booked(account, 'OUTFLOW', '2027-03-10', [on('35700.00', 'MAINTENANCE')]);
-    const repairDeductible = await classify({ sourceId: repair, taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE', netAmount: eur('30000.00') });
+    // §59F (VC-X-38): every summed source and every building item states its performance, here in the month of its date.
+    const repairDeductible = await classify({
+      sourceId: repair,
+      taxCategory: 'MAINTENANCE',
+      treatment: 'DEDUCTIBLE',
+      netAmount: eur('30000.00'),
+      performance: { from: '2027-03-01', until: '2027-03-10' },
+    });
     // The Einbauküche (6,000.00 on 2027-04-28) capitalised and recorded as a separate asset over 10 years (P8-D7, B8): its
     // own rule from the month of acquisition, 9/12 × 600.00 = 450.00 in 2027 (A 270.00, B 180.00), and not in the building.
     at('2027-05-05');
@@ -259,7 +266,23 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // 1,234.56 split 740.74 / 493.82 (largest remainder), 2 % rounded cumulatively per part: 14.81 + 9.88 = 24.69.
     at('2028-01-10');
     const [odd] = await booked(account, 'OUTFLOW', '2027-12-30', [on('1234.56', 'MAINTENANCE')]);
-    await classify({ sourceId: odd, taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED' });
+    // §59F: without its performance the item is not computed in any year (never by its booking year): 2027 PARTIAL.
+    const oddUndated = await classify({ sourceId: odd, taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED' });
+    const undated = await schedule(building, 'from=2027&to=2027');
+    const oddComponent = undated.components.find((c: Json) => c.componentId === `TRANSACTION_SPLIT:${odd}`);
+    expect([undated.years[0].status, oddComponent.status, codes(oddComponent.reasons), oddComponent.years[0].amount]).toEqual([
+      'PARTIAL',
+      'NOT_COMPUTABLE',
+      ['PERFORMANCE_DATE_MISSING'],
+      null,
+    ]);
+    await classify({
+      sourceId: odd,
+      taxCategory: 'MAINTENANCE',
+      treatment: 'CAPITALIZED',
+      supersedes: oddUndated,
+      performance: { from: '2027-12-01', until: '2027-12-30' },
+    });
     const notAbove = await api.check(w);
     expect([notAbove.status, notAbove.threshold.amount, notAbove.sum.amount, notAbove.sources.map((s: Json) => s.sourceId)]).toEqual([
       'NOT_ABOVE_THRESHOLD',
@@ -291,7 +314,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
       }),
     );
     const useSource = { sourceType: 'WEG_ASSESSMENT_USE', sourceId: assessment, sourcePosition: 1, taxCategory: 'WEG_SPENDING' };
-    const useDeductible = await classify({ ...useSource, treatment: 'DEDUCTIBLE', netAmount: eur('9000.00') });
+    const usePerformed = { from: '2028-02-01', until: '2028-02-15' };
+    const useDeductible = await classify({ ...useSource, treatment: 'DEDUCTIBLE', netAmount: eur('9000.00'), performance: usePerformed });
     const above = await api.check(w);
     expect([above.status, above.sum.amount, above.affectedYears, above.sources.map((s: Json) => [s.sourceId, s.suggestedTreatment])]).toEqual([
       'ABOVE_THRESHOLD',
@@ -327,8 +351,16 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
       netAmount: eur('30000.00'),
       anschaffungsnaheAcquisitionId: w,
       supersedes: repairDeductible,
+      performance: { from: '2027-03-01', until: '2027-03-10' },
     });
-    await classify({ ...useSource, treatment: 'CAPITALIZED', netAmount: eur('9000.00'), anschaffungsnaheAcquisitionId: w, supersedes: useDeductible });
+    await classify({
+      ...useSource,
+      treatment: 'CAPITALIZED',
+      netAmount: eur('9000.00'),
+      anschaffungsnaheAcquisitionId: w,
+      supersedes: useDeductible,
+      performance: usePerformed,
+    });
     const capitalised = await phase8(() => schedule(building, 'from=2027&to=2028'));
     // Components of one start month are ordered by their id (§59A "Order"): compared by id.
     const byComponent = (sched: Json) =>
@@ -399,7 +431,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     expect(recordingOf(await view(pr, 2026))).toEqual(['UNCHANGED']);
 
     // After the window (2029-07-01) and its 90-day strip: version 3 through 2028, naming the changed 2027. 2026 is final
-    // for the first time; 2027 and 2028 stay open by SUBSEQUENT_COST_START_TO_VERIFY alone (the VERIFY proposal).
+    // for the first time, and so are 2027 and 2028 (§59F, VC-X-38: SUBSEQUENT_COST_START_TO_VERIFY is withdrawn, the start
+    // rule confirmed by Prüfbericht 2026-11-01, Frage 5, and every item states its performance).
     at('2029-10-15');
     expect((await api.check(w)).final).toBe(true);
     const refusedChange = await call('POST', `/depreciation-assets/${building}/schedule-versions`, await api.recordBody(building, 2028), {
@@ -427,17 +460,9 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
       ['UNCHANGED'],
     ]);
     for (const owner of [a, b]) expect((await view(pr, 2026, owner)).review.final).toBe(true);
-    for (const [year, count] of [
-      [2027, 2],
-      [2028, 3],
-    ] as const) {
+    for (const year of [2027, 2028]) {
       const later = await view(pr, year);
-      expect([year, recordingOf(later), later.review.open, later.review.final]).toEqual([
-        year,
-        ['UNCHANGED', 'UNCHANGED'],
-        [{ code: 'SUBSEQUENT_COST_START_TO_VERIFY', count }],
-        false,
-      ]);
+      expect([year, recordingOf(later), later.review.open, later.review.final]).toEqual([year, ['UNCHANGED', 'UNCHANGED'], [], true]);
     }
     // Reproducible from its stored inputs alone, read back through the shipped default: the schedule's figures to the cent.
     const read = await get(`/depreciation-assets/${building}/schedule-versions/${v3.versionId}`, { base: 'off' });
@@ -463,7 +488,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // rate (B11), A 144.00 and B 96.00. 2030: 5,088.00 + 714.00 + 180.00 + 240.00 + 24.70 = 6,246.70; 2031: … + 24.68.
     at('2030-10-01');
     const [extension] = await booked(account, 'OUTFLOW', '2030-09-15', [on('12000.00', 'MAINTENANCE')]);
-    await classify({ sourceId: extension, taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED' });
+    await classify({ sourceId: extension, taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED', performance: { from: '2030-09-01', until: '2030-09-15' } });
     at('2032-01-15');
     const late = await phase8(() => schedule(building, 'from=2029&to=2031'));
     expect(byComponent(late)[`TRANSACTION_SPLIT:${extension}`]).toEqual([
@@ -656,7 +681,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     const [split] = await booked(account, 'OUTFLOW', '2026-11-20', [
       { amount: eur('6000.00'), financialCategoryCode: 'MAINTENANCE', propertyReferenceId: unit.pr },
     ]);
-    await classify({ sourceId: split, taxCategory: 'OTHER_EXPENSE', treatment: 'CAPITALIZED' });
+    await classify({ sourceId: split, taxCategory: 'OTHER_EXPENSE', treatment: 'CAPITALIZED', performance: { from: '2026-11-20', until: '2026-11-20' } });
     at('2027-02-15');
     const version = await record(unit.building, 2026);
     const ids: Record<string, string> = { assetId: unit.building, propertyReferenceId: unit.pr, versionId: version.versionId };

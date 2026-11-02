@@ -66,6 +66,7 @@ function split(o: { propertyReferenceId?: string | null; treatment?: 'CAPITALIZE
     attribution: { rule: { ruleCode: 'DE_CASH_TIMING', version: 1 }, bookingYear: 2026, proposedYear: 2026, overridden: false },
     refund: null,
     netAmount: null,
+    performance: null,
     treatmentRule: { ruleCode: 'DE_CONSTRUCTION_PERIOD_INTEREST', version: 1 },
     distribution: null,
     suggestion: null,

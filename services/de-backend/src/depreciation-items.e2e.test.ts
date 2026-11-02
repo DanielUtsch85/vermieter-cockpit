@@ -40,6 +40,7 @@ import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre
 import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
 import { reproductionFromDatabase } from './depreciation-reproduction.test-support.js';
+import { performedOnSourceDate } from './infrastructure/postgres/performance.test-support.js';
 import { standardMethodBody } from './infrastructure/postgres/depreciation-method.test-support.js';
 
 /**
@@ -303,7 +304,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
   }
   async function classify(request: Partial<NewTaxClassification> & { sourceId: string }): Promise<string> {
     const outcome = await classifications.createClassification(
-      {
+      await performedOnSourceDate(pool, {
         mreRealmId: REALM_A,
         sourceType: 'TRANSACTION_SPLIT',
         taxCategory: 'MAINTENANCE',
@@ -313,7 +314,7 @@ describe.skipIf(databaseUrl === undefined)('capitalised items and a separate ass
         notes: null,
         sourceReferences: [],
         ...request,
-      },
+      }),
       actor,
     );
     if (outcome.kind !== 'CREATED') throw new Error(JSON.stringify(outcome));

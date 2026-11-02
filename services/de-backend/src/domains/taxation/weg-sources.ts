@@ -12,6 +12,7 @@ import {
   type TreatmentSuggestion,
 } from './classification.js';
 import type { CheckEntryFlag } from './anschaffungsnahe.js';
+import type { Performance } from './performance.js';
 import type { Distribution, DistributionFlag } from './distribution-82b.js';
 import { WEG_SPENDING, type WegSpendingParameters } from './rules/de-weg-spending.js';
 import type { Origin, ReviewState, TaxCategory, Treatment, WegSourceType } from './vocabulary.js';
@@ -103,6 +104,8 @@ export interface WegTaxMeaning {
   readonly description: string;
   readonly amount: Money;
   readonly netAmount: Money | null;
+  /** §59F (VC-X-38): the classification's period of performance; `null` without one. */
+  readonly performance: Performance | null;
   readonly counts: boolean;
   readonly notCountedReason: WegNotCounted['reason'] | null;
   readonly taxYear: number;
@@ -301,6 +304,7 @@ export function deriveWegTaxMeaning(
     return {
       ...base,
       netAmount: classification.netAmount,
+      performance: classification.performance,
       taxCategory: classification.taxCategory,
       treatment: classification.treatment,
       reviewState: classification.reviewState,
@@ -316,6 +320,7 @@ export function deriveWegTaxMeaning(
   return {
     ...base,
     netAmount: null,
+    performance: null,
     ...meaning,
     origin: 'DEFAULT',
     rule: rule === undefined ? null : { ruleCode: rule.ruleCode, version: rule.version },
@@ -338,7 +343,8 @@ export function planWegClassification(
   request: Pick<
     NewTaxClassification,
     'taxCategory' | 'treatment' | 'supersedes' | 'taxYear' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId'
-  >,
+  > &
+    Partial<Pick<NewTaxClassification, 'performance' | 'sourceReferences'>>,
   registry: RuleRegistry,
   acquisition?: AcquisitionFacts | null,
 ):

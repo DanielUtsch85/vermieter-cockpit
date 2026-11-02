@@ -7,6 +7,7 @@ import {
   planClassification,
   planDepositClassification,
   planReview,
+  performanceJson,
   planWegClassification,
   wegNotCounted,
   type ConstructionPeriodRecordFacts,
@@ -102,6 +103,7 @@ export async function createClassification(
             .execute();
         }
         const type = classification.sourceType;
+        const performance = classification.performance ?? null;
         const position = type === 'WEG_RESERVE_WITHDRAWAL' || type === 'WEG_ASSESSMENT_USE' ? (classification.sourcePosition ?? null) : null;
         await trx
           .insertInto('tax_classification')
@@ -138,10 +140,20 @@ export async function createClassification(
             mostly_residential_confirmed: classification.mostlyResidentialConfirmed ?? null,
             anschaffungsnahe_acquisition_id: classification.anschaffungsnaheAcquisitionId ?? null,
             construction_period_interest_id: type === 'TRANSACTION_SPLIT' ? (classification.constructionPeriodInterestId ?? null) : null,
+            performed_from: performance?.from ?? null,
+            performed_until: performance?.until ?? null,
+            performance_progress_estimated: performance === null || performance.progress.length === 0 ? null : performance.progressEstimated,
             supersedes_id: current?.id ?? null,
             created_by: actor.actorId,
           })
           .execute();
+        // §59F: the points, in the classification's own transaction (0058's append-only guard).
+        if (performance !== null && performance.progress.length > 0) {
+          await trx
+            .insertInto('tax_classification_performance_progress')
+            .values(performance.progress.map((p, i) => ({ classification_id: id, position: i + 1, through: p.through, amount: toNumericAmount(p.amount) })))
+            .execute();
+        }
         const created = await readOne(trx, id);
         await writeAudit(trx, { type: ENTITY_TYPE, id }, 'TAX_CLASSIFIED', actor, {
           newVersion: created.version,
@@ -165,6 +177,7 @@ export async function createClassification(
             ...(created.mostlyResidentialConfirmed === null ? {} : { mostlyResidentialConfirmed: created.mostlyResidentialConfirmed }),
             ...(created.anschaffungsnaheAcquisitionId === null ? {} : { anschaffungsnaheAcquisitionId: created.anschaffungsnaheAcquisitionId }),
             ...(created.constructionPeriodInterestId === null ? {} : { constructionPeriodInterestId: created.constructionPeriodInterestId }),
+            ...(created.performance === null ? {} : { performance: performanceJson(created.performance) }),
             ...(created.treatmentRule === null ? {} : { treatmentRule: created.treatmentRule }),
             ...(current === undefined ? {} : { supersedes: current.id }),
           },

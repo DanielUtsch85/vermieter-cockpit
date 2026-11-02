@@ -212,6 +212,8 @@ export const capitalized = (
       amount: moneyOfCents(sign * (p.floor + (extra.get(p.party) ?? 0n))),
     })),
     flags: [],
+    // §59F (VC-X-38): performed on the item's date, so the start stays where it was; a test overrides it.
+    performance: { from: overrides.date ?? day(date), until: overrides.date ?? day(date) },
     ...overrides,
   };
 };

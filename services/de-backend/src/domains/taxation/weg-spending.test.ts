@@ -68,6 +68,7 @@ const classification = (overrides: Partial<TaxClassification> = {}): TaxClassifi
   reserveWithdrawal: null,
   assessmentUse: { date: day('2027-06-10'), unitShare: eur('14800.00') },
   netAmount: null,
+  performance: null,
   annuallyRecurring: false,
   distributionYears: null,
   mostlyResidentialConfirmed: null,
@@ -315,16 +316,20 @@ describe('the fields of §58B (treatmentFieldsCheck)', () => {
     expect(treatmentFieldsCheck(source, { ...request, netAmount: eur('18000.00') }, null, undefined, TAX_RULES)).toEqual({ treatmentRule: null });
   });
 
-  it('anschaffungsnaheAcquisitionId: 404, OTHER_PROPERTY_REFERENCE, ACQUISITION_NOT_CONFIRMED, OUTSIDE_WINDOW; else DE_ANSCHAFFUNGSNAHE@1', () => {
+  it('anschaffungsnaheAcquisitionId: 404, OTHER_PROPERTY_REFERENCE, ACQUISITION_NOT_CONFIRMED, OUTSIDE_WINDOW by the performance; else DE_ANSCHAFFUNGSNAHE@1', () => {
+    const on = (from: string, until = from) => ({ from: day(from), until: day(until), progress: [], progressEstimated: null });
     const capitalise = { taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: 'acq-1' } as const;
-    const check = (a: typeof acquisition | null, s = source) => treatmentFieldsCheck(s, capitalise, null, a, TAX_RULES);
+    const check = (a: typeof acquisition | null, performance = on('2026-05-14'), s = source) =>
+      treatmentFieldsCheck(s, { ...capitalise, performance }, null, a, TAX_RULES);
     expect(check(null)).toEqual({ kind: 'ACQUISITION_NOT_FOUND', acquisitionId: 'acq-1' });
     expect(check({ ...acquisition, propertyReferenceId: 'pr-2' })).toMatchObject({ reason: 'OTHER_PROPERTY_REFERENCE' });
     expect(check({ ...acquisition, status: 'DRAFT' })).toMatchObject({ reason: 'ACQUISITION_NOT_CONFIRMED' });
-    expect(check(acquisition, { ...source, date: day('2026-03-14') })).toMatchObject({ reason: 'OUTSIDE_WINDOW' });
-    expect(check(acquisition, { ...source, date: day('2029-03-16') })).toMatchObject({ reason: 'OUTSIDE_WINDOW' });
-    expect(check(acquisition, { ...source, date: day('2029-03-15') })).toEqual({ treatmentRule: { ruleCode: 'DE_ANSCHAFFUNGSNAHE', version: 1 } });
-    expect(check({ ...acquisition, transferDate: day('2003-06-01') }, { ...source, date: day('2003-07-01') })).toMatchObject({ reason: 'NO_APPLICABLE_RULE' });
+    expect(check(acquisition, on('2026-03-14'))).toMatchObject({ reason: 'OUTSIDE_WINDOW' });
+    expect(check(acquisition, on('2029-03-16'))).toMatchObject({ reason: 'OUTSIDE_WINDOW' });
+    expect(check(acquisition, on('2029-03-15'))).toEqual({ treatmentRule: { ruleCode: 'DE_ANSCHAFFUNGSNAHE', version: 1 } });
+    expect(check({ ...acquisition, transferDate: day('2003-06-01') }, on('2003-07-01'), { ...source, date: day('2003-07-01') })).toMatchObject({
+      reason: 'NO_APPLICABLE_RULE',
+    });
   });
 });
 
@@ -431,10 +436,13 @@ describe('the anschaffungsnahe check (§58B)', () => {
     { id: 'cost-2', category: 'FINANCING_RELATED', amount: eur('1500.00'), classification: null },
   ];
   const allocation = { id: 'al-1', reviewState: 'CONFIRMED', totalAllocableAmount: eur('264000.00'), buildingAmount: eur('198000.00') };
+  /** §59F: dated by its performance on its own date unless overridden, so the bounds are exact (the fixtures gain it). */
   const source = (overrides: Partial<CheckSource> = {}): CheckSource => ({
     sourceType: 'TRANSACTION_SPLIT',
     sourceId: 's-1',
     sourcePosition: null,
+    dateSource: 'BOOKING',
+    performance: { from: overrides.date ?? day('2027-05-14'), until: overrides.date ?? day('2027-05-14'), progress: [], progressEstimated: null },
     date: day('2027-05-14'),
     taxYear: 2027,
     taxCategory: 'MAINTENANCE',
@@ -519,44 +527,17 @@ describe('the anschaffungsnahe check (§58B)', () => {
     expect(summed('2031-03-01', leap)).toBe(0);
   });
 
-  it('DATE_IS_BOOKING_DATE on day 89 and 90 inside each edge, not on day 91, with DATES_NEAR_WINDOW_EDGE', () => {
-    const edge = (date: string) => check([source({ date: day(date) })]);
-    for (const [date, side] of [
-      ['2026-06-12', 'START'], // day 89
-      ['2026-06-13', 'START'], // day 90
-      ['2028-12-16', 'END'], // 89 days before 15.03.2029
-      ['2028-12-15', 'END'], // 90 days before
-    ] as const) {
-      const result = edge(date);
-      expect(result.sources[0]?.flags, date).toContainEqual({ code: 'DATE_IS_BOOKING_DATE', details: { edge: side, date } });
-      expect((result.flags[0]?.details as { reasons: string[] }).reasons, date).toContain('DATES_NEAR_WINDOW_EDGE');
-    }
-    for (const date of ['2026-06-14', '2028-12-14']) {
-      expect(codes(edge(date).sources[0]?.flags ?? []), date).not.toContain('DATE_IS_BOOKING_DATE');
-      expect((edge(date).flags[0]?.details as { reasons: string[] }).reasons, date).not.toContain('DATES_NEAR_WINDOW_EDGE');
-    }
-  });
-
-  it('the strip after the window (owner on VC-7-03): 60 days after its end excluded AFTER_WINDOW_NEAR_EDGE, NOT_FINAL; day 90 in, day 91 out; never summed', () => {
+  it('§59F: the edge flags and the strip after the window are withdrawn; a source performed after the window is PERFORMED_OUTSIDE_WINDOW, never summed', () => {
     const base = source({ sourceId: 'in', date: day('2027-05-14'), grossAmount: eur('1000.00'), netAmount: eur('1000.00') });
-    const after = (date: string, overrides: Partial<CheckSource> = {}) =>
-      check([base, source({ sourceId: 'after', date: day(date), grossAmount: eur('50000.00'), ...overrides })]);
-    const sixty = after('2029-05-14');
-    expect(sixty.sum).toEqual(eur('1000.00'));
-    expect(sixty.sources.map((s) => s.sourceId)).toEqual(['in']);
-    expect(sixty.excluded.map((e) => [e.sourceId, e.reason])).toEqual([['after', 'AFTER_WINDOW_NEAR_EDGE']]);
-    expect(sixty.excluded[0]?.flags).toContainEqual({ code: 'DATE_IS_BOOKING_DATE', details: { edge: 'END', date: '2029-05-14' } });
-    expect(sixty).toMatchObject({ final: false, status: 'NOT_ABOVE_THRESHOLD' });
-    expect(sixty.flags[0]).toMatchObject({ code: 'NOT_FINAL', details: { reasons: ['DATES_NEAR_WINDOW_EDGE'] } });
-    // Day 90 after 15.03.2029 is 13.06.2029; day 91 is 14.06.2029.
-    expect(after('2029-06-13').excluded.map((e) => e.sourceId)).toEqual(['after']);
-    expect(after('2029-06-14').excluded).toEqual([]);
-    expect(after('2029-06-14')).toMatchObject({ final: true });
-    // The same filter as the summed sources, plus the unclassified ones: other lines are not read.
-    expect(after('2029-05-14', { taxCategory: 'INSURANCE' }).excluded).toEqual([]);
-    expect(after('2029-05-14', { taxCategory: 'UNCLASSIFIED', treatment: null }).excluded.map((e) => e.reason)).toEqual(['AFTER_WINDOW_NEAR_EDGE']);
-    // Before the window's start nothing extra is read.
-    expect(after('2026-03-14').excluded).toEqual([]);
+    for (const date of ['2026-06-12', '2028-12-15', '2029-03-15']) {
+      const result = check([source({ date: day(date), netAmount: eur('1.00') })]);
+      expect(codes(result.sources[0]?.flags ?? []), date).not.toContain('DATE_IS_BOOKING_DATE');
+      expect(result, date).toMatchObject({ final: true });
+    }
+    const after = check([base, source({ sourceId: 'after', date: day('2029-05-14'), grossAmount: eur('50000.00') })]);
+    expect(after.sum).toEqual(eur('1000.00'));
+    expect(after.excluded.map((e) => [e.sourceId, e.reason])).toEqual([['after', 'PERFORMED_OUTSIDE_WINDOW']]);
+    expect(after).toMatchObject({ final: true, status: 'NOT_ABOVE_THRESHOLD' });
   });
 
   it('a partial acquisition: the sum × acquiredShare, flagged; above compared on the exact fraction', () => {
