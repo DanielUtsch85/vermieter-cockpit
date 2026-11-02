@@ -13,6 +13,9 @@ import { cents, twelfth, type ItemContext, type ItemPart, type ItemWork, type Re
 
 /** The last month of a purchase if every year ran at the rate of its band (or `1/n`): `nominalLastMonth` of §59B. */
 function nominalLastMonth(ctx: ItemContext, w: Work): number | null {
+  // The rate reads the purchase's `rateEntry` (§59G Part 1). Review of #238: under Part 1 it is equivalent to `w.entry`
+  // here: this is only read for a purchase that is not computable, whose items already stop with its reason. VC-X-41
+  // Part 2 (residual value) must keep `rateEntry` (or the rate Part 2 derives from it) and pin this read with a test.
   // Without a start (TRANSFER_DATE_MISSING) there are no nominal months, never from the contract date.
   if (w.firstMonth === null) return null;
   const versions = ctx.registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
@@ -195,6 +198,10 @@ function walk(
         const f = p.fractionAt(m);
         const q = w.monthly.get(m) ?? ZERO;
         // §59G Part 1: the purchase's `rateEntry`, never its stored entry (a later evidence is not applied retroactively).
+        // Review of #238: under Part 1 `rateEntry` and `w.entry` are equivalent here (mutation M6 survives): FROM_START
+        // pools never reach the pooled walk (their parts carry part reasons), and FROM_EVIDENCE_YEAR parts carry a
+        // `stopFrom`, so the per-item reading is shown. VC-X-41 Part 2 (residual value) makes them differ: it must keep
+        // `rateEntry` (or the rate Part 2 derives from it) and pin this read with a test.
         const annual = rateOfYear(ctx.registry, year, ctx.asset.buildingCompletionYear, w.rateEntry)?.annual ?? ZERO;
         const weight = mul(f, cents(p.basisCents));
         allowance = add(allowance, mul(weight, twelfth(annual)));
