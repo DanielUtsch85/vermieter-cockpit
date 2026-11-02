@@ -179,7 +179,8 @@ export function useAcc8(name: `${string}_e2e`) {
             anschaffungsnahe: getAnschaffungsnaheCheck({ repository: classifications, now }),
             taxYear: getTaxYearView({ repository: classifications, now }),
           },
-          // ACC8 records capitalised items and holds a separate asset: stage 2 (VC-X-45, §60A), stated here, test-only.
+          // Stage 2 (VC-X-45, §60A), stated here, test-only: ACC8 records the building's own capitalised items and the
+          // separate asset (MOVABLE_ASSET); the kitchen no longer raises the building (236-1), but stage 1 does not suffice.
           depreciationAssets: depreciationCommands(db, { recordingEnabled, releasedStage: 2, now }),
         }),
       });

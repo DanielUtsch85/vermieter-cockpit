@@ -98,7 +98,8 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
         isReady: async () => true,
         verifyPrincipal: mrePrincipalVerifier(client),
         ...commandsWith({
-          // ACC8's repair, use and Einbauküche are stage 2 (VC-X-45, §60A): released here, test-only.
+          // ACC8's repair (an open proposal above the threshold, 236-4, then capitalised), use and Einbauküche are stage 2
+          // (VC-X-45, §60A): released here, test-only. The Einbauküche raises only its own asset (236-1).
           depreciationAssets: depreciationCommands(db, { recordingEnabled, releasedStage: 2, now }),
           taxation: { taxYear: getTaxYearView({ repository: classifications, now }) },
           loans: { create: createLoan({ repository: new PostgresLoanRepository(db) }) },

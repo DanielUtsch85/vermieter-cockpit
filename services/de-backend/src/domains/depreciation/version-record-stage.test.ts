@@ -21,7 +21,7 @@ import { identity, live, readOf, recordInMemory } from './version.test-support.j
  */
 const registry = new RuleRegistry(DEPRECIATION_RULE_VERSIONS);
 const today = day('2028-03-01');
-const checks: readonly PurchaseCheckFacts[] = [{ acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false }];
+const checks: readonly PurchaseCheckFacts[] = [{ acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] }];
 const readWith = (input: ScheduleInput): ScheduleRead => ({ ...readOf(input), purchaseChecks: checks });
 const base = acc8();
 const withRepair = acc8({ capitalizedItems: [repair({ anschaffungsnaheAcquisitionId: null })] });

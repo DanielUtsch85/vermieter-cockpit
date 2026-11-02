@@ -13,11 +13,12 @@ import { readOf } from './version.test-support.js';
 /**
  * The release stage of a component and a year (VC-X-45, api-design.md §60A "The stage of a component and of a year"),
  * on ACC8 and its variants (synthetic): each criterion alone, combinations (the highest wins), A1, not-computable
- * components and components without a start still counted, the mapping read from the registry.
+ * components and components without a start still counted, the mapping read from the registry. The decisions 236-1 to
+ * 236-4 are in `recording-stage-decisions.test.ts`.
  */
 const registry = new RuleRegistry(DEPRECIATION_RULE_VERSIONS);
 const rule = DE_RECORDING_STAGES_V1 as StageRule;
-const conclusive: PurchaseCheckFacts = { acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false };
+const conclusive: PurchaseCheckFacts = { acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] };
 const readWith = (input: ScheduleInput, checks: readonly PurchaseCheckFacts[] = [conclusive, { ...conclusive, acquisitionId: X }]): ScheduleRead => ({
   ...readOf(input),
   purchaseChecks: checks,
@@ -37,7 +38,7 @@ const loanInterest = (id: string, date: string) =>
   });
 
 describe('DE_RECORDING_STAGES@1 (§60A, A3)', () => {
-  it('lists every criterion once, each with a stage of 1, 2 or 3, in the order of §60A', () => {
+  it('lists every criterion once, each with a stage of 1, 2 or 3, in the order of §60A (unchanged by 236-1 to 236-4)', () => {
     const { criteria } = DE_RECORDING_STAGES_V1.parameters;
     expect(criteria.map((c) => c.code)).toEqual([...STAGE_CRITERIA]);
     expect(criteria.map((c) => [c.code, c.stage])).toEqual([
@@ -130,7 +131,7 @@ describe('the stage of a component and of a year (§60A)', () => {
     expect(yearStages(deriveSchedule(acc8(), registry), readOf(acc8()), [2026], rule)[0]?.stage).toBe(2);
   });
 
-  it('several purchases of one owner with a share reduction are 3 in every active year of that owner’s purchases; without a reduction 1', () => {
+  it('several purchases of one owner with a share reduction are 3 from the year of the first reduction on (236-2); without a reduction 1 (236-3)', () => {
     // A buys 3/5 (W, 2026) and B’s 2/5 (X, 2030): two purchases, no reduction.
     const second = acquisition({ id: X, contractDate: day('2030-05-01'), economicTransferDate: day('2030-07-01'), sellerPartyIds: [B] });
     const twice = acc8({
@@ -149,7 +150,7 @@ describe('the stage of a component and of a year (§60A)', () => {
       ],
     });
     expect(stagesOf(rowChange, [2026, 2031]).map((y) => y.stage)).toEqual([1, 1]);
-    // A later sells 1/5 to C (a share reduction): both of A’s purchases are 3 from their first year on.
+    // A later sells 1/5 to C (a share reduction in 2033): both of A’s purchases are 3 from 2033 on, 1 before (236-2).
     const third = acquisition({
       id: '0000cccc-0000-4000-8000-000000000003',
       contractDate: day('2033-05-01'),
@@ -170,9 +171,15 @@ describe('the stage of a component and of a year (§60A)', () => {
         ownership(C, '1/5', '2033-07-01', null, third.id),
       ],
     });
-    const stages = stagesOf(sold, [2026, 2031]);
-    expect(stages.map((y) => y.stage)).toEqual([3, 3]);
-    expect(stages[0]?.components.find((c) => c.componentId === P)?.criteria).toEqual(['PURCHASE', 'SEVERAL_PURCHASES_PARTIAL_SALE']);
+    const stages = stagesOf(sold, [2026, 2031, 2032, 2033, 2034]);
+    expect(stages.map((y) => y.stage)).toEqual([1, 1, 1, 3, 3]);
+    expect(stages[2]?.components.find((c) => c.componentId === P)?.criteria).toEqual(['PURCHASE']);
+    expect(stages[3]?.components.map((c) => [c.componentId, c.criteria])).toEqual([
+      [P, ['PURCHASE', 'SEVERAL_PURCHASES_PARTIAL_SALE']],
+      [`ACQUISITION:${X}`, ['PURCHASE', 'SEVERAL_PURCHASES_PARTIAL_SALE']],
+      // C’s one purchase is not raised by A’s reduction (its check is not in the snapshot: open).
+      [`ACQUISITION:${third.id}`, ['PURCHASE', 'ANSCHAFFUNGSNAHE_CHECK_OPEN']],
+    ]);
   });
 
   it('a not-computable component still raises its years; a purchase without a start raises every year of the run', () => {
@@ -214,7 +221,7 @@ describe('the stage of a component and of a year (§60A)', () => {
     ]);
   });
 
-  it('an item the building excludes (an ACTIVE separate asset holds it) is not dropped: MOVABLE_ASSET from its year on', () => {
+  it('an item the building excludes (an ACTIVE separate asset holds it) raises nothing on the building (236-1)', () => {
     const item = capitalized(EXTENSION, '2027-04-20', '12000.00');
     const input = acc8({ capitalizedItems: [item], links: [{ ...item, assetId: '0000dddd-0000-4000-8000-000000000002' }] });
     const stages = stagesOf(input, [2026, 2027]);
@@ -223,7 +230,7 @@ describe('the stage of a component and of a year (§60A)', () => {
     ]);
     expect(stages.map((y) => [y.year, y.stage, y.components.map((c) => c.kind)])).toEqual([
       [2026, 1, ['ACQUISITION']],
-      [2027, 2, ['ACQUISITION', 'EXCLUDED_ITEM']],
+      [2027, 1, ['ACQUISITION']],
     ]);
   });
 

@@ -137,7 +137,7 @@ const acc8: ScheduleRead = {
   links: [],
   ownerPartyFound: null,
   // VC-X-45 (A1): the purchase's anschaffungsnahe check is conclusive, so the purchase is stage 1.
-  purchaseChecks: [{ acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false }],
+  purchaseChecks: [{ acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] }],
 };
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
@@ -521,8 +521,8 @@ describe('GET /depreciation-assets/{assetId}/schedule: the release stage (VC-X-4
         { ...ownB, id: '6f1c2a9e-0000-4000-8000-000000000043', partyId: D, validFrom: day('2027-01-01'), acquisitionId: X },
       ],
       purchaseChecks: [
-        { acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false },
-        { acquisitionId: X, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false },
+        { acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] },
+        { acquisitionId: X, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] },
       ],
     };
     const base = await start(real(read).commands);

@@ -99,7 +99,7 @@ describe.skipIf(databaseUrl === undefined)('release stages for recording (VC-X-4
     const s = await acc8();
     // The snapshot's A1 facts, from Taxation's check (`effectsOf`) in the same transaction.
     expect((await ctx.source.read(s.assetId, REALM, null))?.purchaseChecks).toEqual([
-      { acquisitionId: s.w, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false },
+      { acquisitionId: s.w, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] },
     ]);
     const read = await schedule(base(true, 1), s.assetId);
     expect(read.body['recordingStage']).toEqual({ released: 1, rules: 'DE_RECORDING_STAGES@1' });
