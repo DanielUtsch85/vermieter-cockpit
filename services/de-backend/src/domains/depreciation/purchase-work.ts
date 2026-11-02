@@ -181,7 +181,6 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
   const shorterLife = shorterLifeCaseOf({
     entry,
     contractDate: a.contractDate,
-    sourceReferences: asset.sourceReferences,
     firstYear: firstMonth === null ? null : yearOfMonth(firstMonth),
     parameters: firstYearRule?.shorterUsefulLife,
     thresholdOf: (year) => {

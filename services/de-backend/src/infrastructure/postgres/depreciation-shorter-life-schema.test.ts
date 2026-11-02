@@ -34,7 +34,7 @@ describe.skipIf(databaseUrl === undefined)('migration 0056: the Stichtag and the
     await insertLife({ asset_id: assetId, property_reference_id: pr, acquisition_id: acquisitionId });
     const update = (set: string) => codeOf(ctx.pool.query(`UPDATE depreciation_asset_useful_life SET ${set} WHERE asset_id = $1`, [assetId]));
     expect(await update('valuation_date = NULL')).toBe('23000');
-    expect(await update(`valuation_date = '2027-05-20'`)).toBe('accepted');
+    expect(await update(`valuation_date = '2026-05-20'`)).toBe('accepted');
     expect(await update(`useful_life_years = 31`)).toBe('accepted');
   });
 
@@ -121,6 +121,122 @@ describe.skipIf(databaseUrl === undefined)('migration 0056: the Stichtag and the
           [schema],
         );
         expect(columns.rows.map((r) => r.column_name)).toEqual(['release_note', 'shorter_life_valuation_date', 'valuation_date']);
+      } finally {
+        await pool.end();
+      }
+    },
+  );
+});
+
+/**
+ * Migration 0059 (§59G, Entscheidung des Projektinhabers, 2026-11-02, 238-5) past the repository: a Stichtag never lies
+ * after its evidence's date (equal is allowed, `NULL` is not judged); `up` refused while a row already states one after
+ * it, `down` drops the constraint. Synthetic.
+ */
+describe.skipIf(databaseUrl === undefined)('migration 0059: the Stichtag not after the evidence date (§59G, 238-5)', () => {
+  const { ctx, propertyReference, acquisition, insertAsset, insertLife } = useDepreciationAssetDatabase('shorter_life_not_after_test');
+  const fixture = async () => {
+    const pr = await propertyReference();
+    const acquisitionId = await acquisition(pr);
+    const assetId = (await insertAsset({ property_reference_id: pr })).rows[0].id as string;
+    return { pr, acquisitionId, assetId };
+  };
+
+  it('an insert with a Stichtag one day after the evidence date is refused (23514); counter-check: the same day and the day before are accepted', async () => {
+    const life = async (valuationDate: string) => {
+      const { pr, acquisitionId, assetId } = await fixture();
+      return codeOf(
+        insertLife({ asset_id: assetId, property_reference_id: pr, acquisition_id: acquisitionId, evidence_date: '2026-06-15', valuation_date: valuationDate }),
+      );
+    };
+    expect(await life('2026-06-16')).toBe('23514');
+    expect(await life('2026-06-15')).toBe('accepted');
+    expect(await life('2026-06-14')).toBe('accepted');
+  });
+
+  it('an update moving the Stichtag after the evidence date, or the evidence date before it, is refused (23514); counter-check: a move to the same day is accepted', async () => {
+    const { pr, acquisitionId, assetId } = await fixture();
+    await insertLife({
+      asset_id: assetId,
+      property_reference_id: pr,
+      acquisition_id: acquisitionId,
+      evidence_date: '2026-06-15',
+      valuation_date: '2026-05-01',
+    });
+    const update = (set: string) => codeOf(ctx.pool.query(`UPDATE depreciation_asset_useful_life SET ${set} WHERE asset_id = $1`, [assetId]));
+    expect(await update(`valuation_date = '2026-06-16'`)).toBe('23514');
+    expect(await update(`evidence_date = '2026-04-30'`)).toBe('23514');
+    expect(await update(`valuation_date = '2026-06-15'`)).toBe('accepted');
+    expect(await update(`evidence_date = '2026-06-15', valuation_date = '2026-06-15'`)).toBe('accepted');
+  });
+
+  it(
+    'a row without a Stichtag (stored before 0056) is not judged; up refused while a row states one after its date; down drops the constraint',
+    { timeout: 60_000 },
+    async () => {
+      const schema = testSchemaName('shorter_life_not_after_down_test');
+      const admin = new pg.Client({ connectionString: databaseUrl });
+      await admin.connect();
+      await admin.query(`CREATE SCHEMA "${schema}"`);
+      await admin.end();
+      const pool = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}`, max: 2 });
+      const migration = migrations['0059_shorter_life_valuation_not_after_evidence'] as {
+        up: (db: never) => Promise<void>;
+        down: (db: never) => Promise<void>;
+      };
+      const run = (step: 'up' | 'down') => withMigrationLock(() => migration[step](createDatabase(pool) as never));
+      const upFailure = async () => {
+        let error: unknown;
+        await withMigrationLock(async () => {
+          error = await migration.up(createDatabase(pool) as never).then(
+            () => undefined,
+            (e: unknown) => e,
+          );
+        });
+        const e = error as { code?: string; message?: string } | undefined;
+        return [e?.code, e?.message?.includes('needs it amended first') ?? false];
+      };
+      const constraint = async () =>
+        (
+          await pool.query(
+            `SELECT count(*)::int AS n FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace
+            WHERE nspname = $1 AND conname = 'depreciation_asset_useful_life_valuation_not_after_evidence'`,
+            [schema],
+          )
+        ).rows[0].n as number;
+      try {
+        await migrateToLatest(pool, { migrationTableSchema: schema });
+        expect(await constraint()).toBe(1);
+        await run('down');
+        expect(await constraint()).toBe(0);
+        const { rows } = await pool.query(
+          `WITH pr AS (INSERT INTO property_reference (mre_realm_id, mre_property_id, external_reference_state, created_by)
+                      VALUES ($1, 'aaaaaaaaaaaaaaaaaaaa0059', 'ACTIVE', 'x') RETURNING id),
+              acq AS (INSERT INTO acquisition (mre_realm_id, property_reference_id, status, purchase_price, currency, acquired_share_numerator,
+                        acquired_share_denominator, contract_date, created_by)
+                      SELECT $1, id, 'DRAFT', 1000, 'EUR', 1, 1, '2024-02-10', 'x' FROM pr RETURNING id, property_reference_id),
+              asset AS (INSERT INTO depreciation_asset (mre_realm_id, property_reference_id, asset_type, status, depreciation_method, review_state,
+                        building_completion_year, created_by)
+                      SELECT $1, property_reference_id, 'BUILDING', 'ACTIVE', 'LINEAR_7_4', 'CONFIRMED', 1965, 'x' FROM acq RETURNING id, property_reference_id)
+         INSERT INTO depreciation_asset_useful_life (asset_id, mre_realm_id, property_reference_id, acquisition_id, useful_life_years, evidence_source,
+           evidence_date, valuation_date, evidence_document_reference, review_state)
+         SELECT asset.id, $1, asset.property_reference_id, acq.id, 33, 'Gutachten (synthetisch)', '2024-06-01', '2024-06-02', NULL, 'CONFIRMED' FROM asset, acq
+         RETURNING asset_id`,
+          [REALM],
+        );
+        const assetId = rows[0].asset_id as string;
+        // A Stichtag after its date, written while the constraint was down: up refuses, the row unchanged, no constraint.
+        expect(await upFailure()).toEqual(['23514', true]);
+        expect(await constraint()).toBe(0);
+        const stored = await pool.query(`SELECT to_char(valuation_date, 'YYYY-MM-DD') AS v FROM depreciation_asset_useful_life WHERE asset_id = $1`, [assetId]);
+        expect(stored.rows).toEqual([{ v: '2024-06-02' }]);
+        // Counter-check: amended to the same day, up passes; a row without a Stichtag (as stored before 0056) is not judged.
+        await pool.query(`UPDATE depreciation_asset_useful_life SET valuation_date = '2024-06-01' WHERE asset_id = $1`, [assetId]);
+        await run('up');
+        expect(await constraint()).toBe(1);
+        await pool.query(`ALTER TABLE depreciation_asset_useful_life DISABLE TRIGGER depreciation_asset_useful_life_valuation_date`);
+        expect(await codeOf(pool.query(`UPDATE depreciation_asset_useful_life SET valuation_date = NULL WHERE asset_id = $1`, [assetId]))).toBe('accepted');
+        await pool.query(`ALTER TABLE depreciation_asset_useful_life ENABLE TRIGGER depreciation_asset_useful_life_valuation_date`);
       } finally {
         await pool.end();
       }

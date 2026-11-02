@@ -749,6 +749,7 @@ export {
   ItemNotCapitalizedError,
   ItemNotOfPropertyError,
   NotAnOwnerError,
+  ValuationDateAfterEvidenceDateError,
   amendDepreciationAsset,
   confirmDepreciationAsset,
   createDepreciationAsset,

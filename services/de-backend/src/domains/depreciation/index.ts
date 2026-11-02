@@ -25,6 +25,8 @@ export {
   USEFUL_LIFE_MIN_YEARS,
   addedItems,
   advisorsOf,
+  valuationDateAfterEvidence,
+  type ValuationDateRefusal,
   amendFieldsNotAllowed,
   assetFingerprint,
   entryAcquisitionRefusal,
