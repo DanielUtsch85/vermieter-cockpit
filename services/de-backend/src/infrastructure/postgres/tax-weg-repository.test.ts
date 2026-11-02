@@ -378,7 +378,11 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       const outside = await assessment(membershipId, [{ position: 1, date: '2029-03-16', unitShare: '100.00' }]);
       expect(
         await classifications.createClassification(
-          request('WEG_ASSESSMENT_USE', outside, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq, performance: await performedOn(outside, 1) }),
+          request('WEG_ASSESSMENT_USE', outside, 1, {
+            treatment: 'CAPITALIZED',
+            anschaffungsnaheAcquisitionId: acq,
+            performance: await performedOn(outside, 1),
+          }),
           actor,
         ),
       ).toEqual({ kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', reason: 'OUTSIDE_WINDOW', acquisitionId: acq });
@@ -386,7 +390,11 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
       const foreignUse = await assessment(other.membershipId, [{ position: 1, date: '2027-01-01', unitShare: '100.00' }]);
       expect(
         await classifications.createClassification(
-          request('WEG_ASSESSMENT_USE', foreignUse, 1, { treatment: 'CAPITALIZED', anschaffungsnaheAcquisitionId: acq, performance: await performedOn(foreignUse, 1) }),
+          request('WEG_ASSESSMENT_USE', foreignUse, 1, {
+            treatment: 'CAPITALIZED',
+            anschaffungsnaheAcquisitionId: acq,
+            performance: await performedOn(foreignUse, 1),
+          }),
           actor,
         ),
       ).toMatchObject({ reason: 'OTHER_PROPERTY_REFERENCE' });

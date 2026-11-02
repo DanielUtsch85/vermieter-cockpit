@@ -101,13 +101,7 @@ export type CreateRefusal =
 /** The fields of an election or a capitalisation following the check (§58B), as a create carries them. */
 export type TreatmentRequest = Pick<
   NewTaxClassification,
-  | 'taxCategory'
-  | 'treatment'
-  | 'netAmount'
-  | 'mostlyResidentialConfirmed'
-  | 'anschaffungsnaheAcquisitionId'
-  | 'constructionPeriodInterestId'
-  | 'performance'
+  'taxCategory' | 'treatment' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId' | 'constructionPeriodInterestId' | 'performance'
 > & { readonly sourceReferences?: readonly string[] };
 
 /** §59E: what the create read of the split's Loan and the record it names (`undefined`: none named; `null`: not of the Realm). */

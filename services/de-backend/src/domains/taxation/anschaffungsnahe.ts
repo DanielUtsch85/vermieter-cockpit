@@ -333,13 +333,17 @@ export function checkAnschaffungsnahe(
   // final only with complete sources); in between the check is not computable. Never decided on a guess.
   const costOpen = cost.reason === 'ACQUISITION_COST_UNCLASSIFIED';
   const datesOpen = sumCents !== sumUpperCents;
-  const basisLeavesOpen = (sum: bigint) => aboveOf(sum, upperCents) && !aboveOf(sum, basisCents);
+  const basisLeavesOpen = (sum: bigint) => aboveOf(sum, basisCents) && !aboveOf(sum, upperCents);
   let notComputableReason: NotComputableReason | null;
   if (rule === undefined) notComputableReason = 'NO_APPLICABLE_RULE';
   else if (cost.reason !== null && !costOpen) notComputableReason = cost.reason;
   else if (aboveOf(sumCents, upperCents)) notComputableReason = null;
   else if (!aboveOf(sumUpperCents, basisCents)) notComputableReason = outside.length > 0 ? 'SOURCES_OUTSIDE_SEARCH_RANGE' : null;
-  else notComputableReason = costOpen && (!datesOpen || basisLeavesOpen(sumCents) || basisLeavesOpen(sumUpperCents)) ? 'ACQUISITION_COST_UNCLASSIFIED' : 'PERFORMANCE_IN_WINDOW_UNKNOWN';
+  else
+    notComputableReason =
+      costOpen && (!datesOpen || basisLeavesOpen(sumCents) || basisLeavesOpen(sumUpperCents))
+        ? 'ACQUISITION_COST_UNCLASSIFIED'
+        : 'PERFORMANCE_IN_WINDOW_UNKNOWN';
   const above = notComputableReason === null && aboveOf(sumCents, upperCents);
   const status: CheckStatus = notComputableReason !== null ? 'NOT_COMPUTABLE' : above ? 'ABOVE_THRESHOLD' : 'NOT_ABOVE_THRESHOLD';
 
@@ -365,7 +369,12 @@ export function checkAnschaffungsnahe(
   const w = window ?? { from: acquisition.transferDate, until: acquisition.transferDate };
   const whollyIn = (s: CheckSource) => s.performance !== null && s.performance.from >= w.from && s.performance.until <= w.until;
 
-  const entry = (s: CheckSource, list: 'SUMMED' | 'UNDETERMINED' | 'OUTSIDE' | 'OTHER', bounds: Placed | null, reason: ExcludedReason | null = null): CheckEntry => {
+  const entry = (
+    s: CheckSource,
+    list: 'SUMMED' | 'UNDETERMINED' | 'OUTSIDE' | 'OTHER',
+    bounds: Placed | null,
+    reason: ExcludedReason | null = null,
+  ): CheckEntry => {
     const flags: CheckEntryFlag[] = [...s.sourceFlags];
     const counted = list === 'SUMMED' || list === 'UNDETERMINED';
     const inWindow = bounds === null ? null : { lower: moneyOfCents(bounds.lower), upper: moneyOfCents(bounds.upper) };
@@ -383,7 +392,10 @@ export function checkAnschaffungsnahe(
       const details = { acquisitionId: acquisition.id, final, rule: ruleRef };
       flags.push({
         code: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN',
-        details: straddles && inWindow !== null ? { ...details, inWindow: { lower: inWindow.lower.toJSON(), upper: inWindow.upper.toJSON() }, splitRequired: true } : details,
+        details:
+          straddles && inWindow !== null
+            ? { ...details, inWindow: { lower: inWindow.lower.toJSON(), upper: inWindow.upper.toJSON() }, splitRequired: true }
+            : details,
       });
     }
     if (counted && status === 'NOT_ABOVE_THRESHOLD' && s.treatment === 'CAPITALIZED' && s.anschaffungsnaheAcquisitionId === acquisition.id) {
@@ -450,7 +462,11 @@ export function checkAnschaffungsnahe(
     undetermined: undetermined.map((x) => entry(x.s, 'UNDETERMINED', x)),
     outsideSearchRange: outside.map((s) => entry(s, 'OUTSIDE', null)),
     affectedYears:
-      status === 'ABOVE_THRESHOLD' ? [...new Set(sources.filter((e) => e.suggestedTreatment !== null).map((e) => e.taxYear))].sort((a, b) => a - b) : computable ? [] : null,
+      status === 'ABOVE_THRESHOLD'
+        ? [...new Set(sources.filter((e) => e.suggestedTreatment !== null).map((e) => e.taxYear))].sort((a, b) => a - b)
+        : computable
+          ? []
+          : null,
     final,
     flags,
   };

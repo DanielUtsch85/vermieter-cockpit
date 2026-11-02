@@ -611,16 +611,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
       ]),
     ).toEqual([
       [`ACQUISITION:${w}`, 'ACQUISITION', '254400.00', '2026-07', 'TRANSFER_DATE', 12, '5088.00', []],
-      [
-        `TRANSACTION_SPLIT:${repair}`,
-        'CAPITALIZED_ITEM',
-        '35700.00',
-        '2027-01',
-        'START_OF_YEAR',
-        12,
-        '714.00',
-        ['ANSCHAFFUNGSNAHE_CAPITALIZED'],
-      ],
+      [`TRANSACTION_SPLIT:${repair}`, 'CAPITALIZED_ITEM', '35700.00', '2027-01', 'START_OF_YEAR', 12, '714.00', ['ANSCHAFFUNGSNAHE_CAPITALIZED']],
     ]);
     expect(
       line(e2, 'AFA_SEPARATE_ASSETS').items.map((i: Json) => [

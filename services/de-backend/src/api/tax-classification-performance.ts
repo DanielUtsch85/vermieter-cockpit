@@ -43,21 +43,27 @@ export const performanceBody = z
   })
   .strict()
   .superRefine((body, ctx) => {
+    // A field that failed its own parse holds no value here (zod's NEVER): only parsed values are compared.
+    const date = (value: unknown): string | null => (typeof value === 'string' ? value : null);
+    const money = (value: unknown): Money | null => (value instanceof Money ? value : null);
     const progress = body.progress ?? [];
-    if (body.from !== undefined && body.until !== undefined && body.until < body.from) issue(ctx, ['until'], 'OUT_OF_RANGE');
+    const from = date(body.from);
+    const until = date(body.until);
+    if (from !== null && until !== null && until < from) issue(ctx, ['until'], 'OUT_OF_RANGE');
     if (progress.length > 5) issue(ctx, ['progress'], 'OUT_OF_RANGE');
     const seen = new Set<string>();
     progress.forEach((point, i) => {
-      if (point.through === undefined) return;
-      if (seen.has(point.through)) issue(ctx, ['progress', i, 'through'], 'DUPLICATE');
-      seen.add(point.through);
-      if ((body.from !== undefined && point.through < body.from) || (body.until !== undefined && point.through >= body.until)) {
-        issue(ctx, ['progress', i, 'through'], 'OUT_OF_RANGE');
-      }
+      const through = date(point.through);
       const before = progress[i - 1];
-      if (before?.through !== undefined && point.through < before.through) issue(ctx, ['progress', i, 'through'], 'OUT_OF_RANGE');
-      if (before?.amount !== undefined && point.amount !== undefined && point.amount.compare(before.amount) <= 0) {
-        issue(ctx, ['progress', i, 'amount'], 'OUT_OF_RANGE');
+      const amount = money(point.amount);
+      const beforeAmount = money(before?.amount);
+      if (amount !== null && beforeAmount !== null && amount.compare(beforeAmount) <= 0) issue(ctx, ['progress', i, 'amount'], 'OUT_OF_RANGE');
+      if (through === null) return;
+      if (seen.has(through)) issue(ctx, ['progress', i, 'through'], 'DUPLICATE');
+      seen.add(through);
+      const beforeThrough = date(before?.through);
+      if ((from !== null && through < from) || (until !== null && through >= until) || (beforeThrough !== null && through < beforeThrough)) {
+        issue(ctx, ['progress', i, 'through'], 'OUT_OF_RANGE');
       }
     });
     if (progress.length === 0 && body.progressEstimated !== undefined) issue(ctx, ['progressEstimated'], 'NOT_ALLOWED');
@@ -73,7 +79,11 @@ export const performanceBody = z
   );
 
 /** The lines that take a performance (§59F "Allowed on"): never with `NOT_RELEVANT`, on a deposit or on an interest line. */
-export function performanceFieldIssue(body: { readonly sourceType?: string; readonly taxCategory?: string; readonly treatment?: string | null }): string | null {
+export function performanceFieldIssue(body: {
+  readonly sourceType?: string;
+  readonly taxCategory?: string;
+  readonly treatment?: string | null;
+}): string | null {
   if (body.taxCategory === 'LOAN_INTEREST' || body.taxCategory === 'FINANCING_COSTS') return 'NOT_ALLOWED';
   const erhaltung = body.taxCategory === 'MAINTENANCE' || body.taxCategory === 'WEG_SPENDING';
   if (body.sourceType === 'DEPOSIT_CLOSING' || body.treatment === 'NOT_RELEVANT' || !(erhaltung || body.treatment === 'CAPITALIZED')) {

@@ -113,10 +113,7 @@ export function classificationFingerprint(c: NewTaxClassification): string {
   const record = (c.constructionPeriodInterestId ?? null) === null ? [] : [{ vcx36: c.constructionPeriodInterestId }];
   // §59F's performance only when given, so a key stored before VC-X-38 still replays.
   const p = c.performance ?? null;
-  const performance =
-    p === null
-      ? []
-      : [{ vcx38: [p.from, p.until, p.progress.map((x) => [x.through, x.amount.amount]), p.progressEstimated] }];
+  const performance = p === null ? [] : [{ vcx38: [p.from, p.until, p.progress.map((x) => [x.through, x.amount.amount]), p.progressEstimated] }];
   // VC-7-01's fingerprint unchanged without the years, so a key stored before VC-7-02 still replays.
   return JSON.stringify([
     c.sourceType,

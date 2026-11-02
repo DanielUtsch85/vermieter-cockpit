@@ -162,9 +162,7 @@ export const TAXATION_ANSWERS = [
       amount: error.amount.toJSON(),
     }),
   ),
-  on(PerformanceEvidenceRequiredError, () =>
-    answer(422, 'PERFORMANCE_EVIDENCE_REQUIRED', 'Points of performance need a source reference as evidence.', {}),
-  ),
+  on(PerformanceEvidenceRequiredError, () => answer(422, 'PERFORMANCE_EVIDENCE_REQUIRED', 'Points of performance need a source reference as evidence.', {})),
   on(PerformanceOutOfRangeError, (error) =>
     answer(422, 'PERFORMANCE_OUT_OF_RANGE', "The performance lies outside the plausible years around the source's date.", { ...error.details }),
   ),

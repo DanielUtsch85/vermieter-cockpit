@@ -259,12 +259,7 @@ describe('reasons and carried flags (§59B "Reasons and flags")', () => {
       { code: 'RULE_SUPERSEDED', details: {} },
     ];
     const c = item(derive(acc8({ from: 2028, to: 2028, capitalizedItems: [use({ taxYear: 2027, flags })] })));
-    expect(codes(c.flags)).toEqual([
-      'ANSCHAFFUNGSNAHE_CAPITALIZED',
-      'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE',
-      'CAPITALIZED_YEAR_DIFFERS',
-      'WITHDRAWAL_DATE_ASSUMED',
-    ]);
+    expect(codes(c.flags)).toEqual(['ANSCHAFFUNGSNAHE_CAPITALIZED', 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE', 'CAPITALIZED_YEAR_DIFFERS', 'WITHDRAWAL_DATE_ASSUMED']);
     expect(c.flags.find((f) => f.code === 'CAPITALIZED_YEAR_DIFFERS')?.details).toEqual({
       date: '2028-02-15',
       taxYear: 2027,

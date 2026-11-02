@@ -518,7 +518,13 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
       200,
     );
     expect(withdrawal).toMatchObject({ amount: eur('1200.00'), date: '2027-07-01', taxYear: 2027, origin: 'DEFAULT', reviewState: 'NEEDS_REVIEW' });
-    const withdrawalSource = { sourceType: 'WEG_RESERVE_WITHDRAWAL', sourceId: statementId, sourcePosition: 1, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' };
+    const withdrawalSource = {
+      sourceType: 'WEG_RESERVE_WITHDRAWAL',
+      sourceId: statementId,
+      sourcePosition: 1,
+      taxCategory: 'WEG_SPENDING',
+      treatment: 'DEDUCTIBLE',
+    };
     const withdrawalFirst = await json<{ classificationId: string }>(await classify(withdrawalSource), 201);
 
     // The anschaffungsnahe check: basis (100,000.00 + 5,000.00) × 84,000.00 / 105,000.00 = 84,000.00, threshold 12,600.00.
@@ -560,7 +566,11 @@ describe.skipIf(databaseUrl === undefined)('Phase 7 acceptance (roadmap exit)', 
       201,
     );
     await json(
-      await split(elected, 'MAINTENANCE', 'DISTRIBUTED_82B', { ...election, supersedes: electedFirst.classificationId, ...performed('2027-08-01', '2027-08-20') }),
+      await split(elected, 'MAINTENANCE', 'DISTRIBUTED_82B', {
+        ...election,
+        supersedes: electedFirst.classificationId,
+        ...performed('2027-08-01', '2027-08-20'),
+      }),
       201,
     );
     await json(await classify({ ...withdrawalSource, supersedes: withdrawalFirst.classificationId, ...performed('2027-07-01', '2027-07-01') }), 201);

@@ -83,7 +83,10 @@ export function deriveItemWorks(ctx: ItemContext, items: readonly { readonly ref
         reasons.push({ code: 'PERFORMANCE_DATE_MISSING', details: { date, dateSource: item.dateSource, classificationId: item.classificationId } });
         startDate = null;
       } else if (!exempt && performance !== null && yearOfDate(performance.from) !== yearOfDate(performance.until)) {
-        reasons.push({ code: 'PERFORMANCE_SPANS_YEAR_END', details: { from: performance.from, until: performance.until, classificationId: item.classificationId } });
+        reasons.push({
+          code: 'PERFORMANCE_SPANS_YEAR_END',
+          details: { from: performance.from, until: performance.until, classificationId: item.classificationId },
+        });
         startDate = null;
       } else if (!exempt && performance !== null) {
         startDate = performance.until;
