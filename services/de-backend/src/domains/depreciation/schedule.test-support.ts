@@ -46,9 +46,11 @@ export const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationA
 export const life = (overrides: Partial<ShorterUsefulLife> = {}): ShorterUsefulLife => ({
   acquisitionId: W,
   usefulLifeYears: 30,
-  evidence: { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: null },
+  // §59G: the Bewertungsstichtag apart from the document's date (both in the fixtures' first year 2026).
+  evidence: { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: null, valuationDate: day('2026-06-15') },
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
+  releaseNote: null,
   ...overrides,
 });
 

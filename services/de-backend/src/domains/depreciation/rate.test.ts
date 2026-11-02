@@ -23,9 +23,10 @@ const ACQ_2 = '0000cccc-0000-4000-8000-000000000002';
 const entry = (overrides: Partial<ShorterUsefulLife> = {}): ShorterUsefulLife => ({
   acquisitionId: ACQ_1,
   usefulLifeYears: 30,
-  evidence: { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: null },
+  evidence: { source: 'Gutachten zur Restnutzungsdauer', date: day('2026-06-15'), documentReference: null, valuationDate: day('2026-06-15') },
   reviewState: 'CONFIRMED',
   advisorPartyId: null,
+  releaseNote: null,
   ...overrides,
 });
 const asset = (overrides: Partial<DepreciationAsset> = {}): DepreciationAsset => ({
@@ -264,7 +265,7 @@ describe('the rate block (§59)', () => {
   });
 
   it('the year of evidence computes nothing in VC-8-01 (VC-8-02 decides): a later evidence date applies all the same', () => {
-    const later = entry({ evidence: { source: 'Gutachten', date: day('2099-01-01'), documentReference: null } });
+    const later = entry({ evidence: { source: 'Gutachten', date: day('2099-01-01'), documentReference: null, valuationDate: day('2099-01-01') } });
     expect(deriveRate(read({ shorterUsefulLives: [later] }), 2026, registry).shorterUsefulLives[0]?.applies).toBe(true);
   });
 });

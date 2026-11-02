@@ -11,7 +11,7 @@ import type {
 } from '../../domains/depreciation/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 
-/** The DepreciationAsset rows (migrations 0049, 0051, 0053): the columns read, their mapping, the stored fields and the snapshot. */
+/** The DepreciationAsset rows (migrations 0049, 0051, 0053, 0056): the columns read, their mapping, the stored fields and the snapshot. */
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const ASSET_COLUMNS = [
@@ -67,6 +67,9 @@ export interface EntryRow {
   evidence_document_reference: string | null;
   review_state: string;
   advisor_party_id: string | null;
+  /** §59G (0056): `NULL` on an entry from before 0056 ("not stated"). */
+  valuation_date: string | null;
+  release_note: string | null;
 }
 
 /** §59C (0053): a purchase's method entry. */
@@ -125,9 +128,15 @@ export function toDomain(row: AssetRow, entries: readonly EntryRow[], items: rea
     shorterUsefulLives: entries.map((e) => ({
       acquisitionId: e.acquisition_id,
       usefulLifeYears: e.useful_life_years,
-      evidence: { source: e.evidence_source, date: e.evidence_date as BusinessDate, documentReference: e.evidence_document_reference },
+      evidence: {
+        source: e.evidence_source,
+        date: e.evidence_date as BusinessDate,
+        documentReference: e.evidence_document_reference,
+        valuationDate: e.valuation_date as BusinessDate | null,
+      },
       reviewState: e.review_state as AssetReviewState,
       advisorPartyId: e.advisor_party_id,
+      releaseNote: e.release_note,
     })),
     purchaseMethods: methods.map(methodOf),
     notes: row.notes,

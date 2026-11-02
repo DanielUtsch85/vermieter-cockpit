@@ -497,9 +497,10 @@ describe('GET /depreciation-assets/{assetId}/schedule: the release stage (VC-X-4
           {
             acquisitionId: X,
             usefulLifeYears: 30,
-            evidence: { source: 'Gutachten (synthetisch)', date: day('2026-06-15'), documentReference: null },
+            evidence: { source: 'Gutachten (synthetisch)', date: day('2026-06-15'), valuationDate: day('2026-06-15'), documentReference: null },
             reviewState: 'UNREVIEWED',
             advisorPartyId: null,
+            releaseNote: null,
           },
         ],
       },

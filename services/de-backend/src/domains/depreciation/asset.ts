@@ -61,14 +61,31 @@ export interface UsefulLifeEvidence {
   readonly documentReference: string | null;
 }
 
+/**
+ * The evidence of a shorter useful life (§59G, owner's decision of 2026-11-02): `date` is the document's date and
+ * `valuationDate` the Bewertungsstichtag, the day as of which the evidence states the remaining useful life. They are
+ * stored apart; `null` means "not stated" (an entry from before migration 0056), never the document date.
+ */
+export interface ShorterLifeEvidence extends UsefulLifeEvidence {
+  readonly valuationDate: BusinessDate | null;
+}
+
 /** A shorter actual useful life (§ 7 Abs. 4 S. 2 EStG) evidenced for one Acquisition of the PropertyReference (P8-D4). */
 export interface ShorterUsefulLife {
   readonly acquisitionId: string;
   readonly usefulLifeYears: number;
-  readonly evidence: UsefulLifeEvidence;
+  readonly evidence: ShorterLifeEvidence;
   readonly reviewState: AssetReviewState;
   readonly advisorPartyId: string | null;
+  /**
+   * §59G: the release note (Freigabevermerk: which method was released, by which role and when). A fact of the entry:
+   * a changed note resets the review state as a changed evidence does, so no release is carried under an old one.
+   */
+  readonly releaseNote: string | null;
 }
+
+/** §59G: 1–500 characters. */
+export const MAX_RELEASE_NOTE_LENGTH = 500;
 
 export interface DepreciationAssetFacts {
   /** `BUILDING` only; `null` on a separate asset. */
@@ -143,8 +160,10 @@ export function assetFingerprint(asset: NewDepreciationAsset): string {
       e.evidence.source,
       e.evidence.date,
       e.evidence.documentReference,
+      e.evidence.valuationDate,
       e.reviewState,
       e.advisorPartyId,
+      e.releaseNote,
     ]),
     asset.notes,
     sortedEntries(asset.purchaseMethods).map(purchaseMethodFingerprint),
@@ -163,9 +182,11 @@ export function advisorsOf(facts: Pick<DepreciationAssetFacts, 'advisorPartyId' 
 export interface UsefulLifeAmendment {
   readonly acquisitionId: string;
   readonly usefulLifeYears: number;
-  readonly evidence: UsefulLifeEvidence;
+  readonly evidence: ShorterLifeEvidence;
   readonly reviewState?: AssetReviewState;
   readonly advisorPartyId?: string | null;
+  /** §59G: the whole entry is named, so an omitted note is none. */
+  readonly releaseNote?: string | null;
 }
 
 /** The fields an amend names; an omitted one keeps its value. */
@@ -228,13 +249,28 @@ export interface AssetAmendPlan {
 
 const sameEvidence = (a: UsefulLifeEvidence, b: UsefulLifeEvidence) =>
   a.source === b.source && a.date === b.date && a.documentReference === b.documentReference;
+/** §59G: the valuation date is a fact of its own; setting it on an entry from before 0056 is a change, never a reading. */
+const sameShorterEvidence = (a: ShorterLifeEvidence, b: ShorterLifeEvidence) => sameEvidence(a, b) && a.valuationDate === b.valuationDate;
 const sameEntry = (a: ShorterUsefulLife, b: ShorterUsefulLife) =>
-  a.usefulLifeYears === b.usefulLifeYears && sameEvidence(a.evidence, b.evidence) && a.reviewState === b.reviewState && a.advisorPartyId === b.advisorPartyId;
+  a.usefulLifeYears === b.usefulLifeYears &&
+  sameShorterEvidence(a.evidence, b.evidence) &&
+  a.reviewState === b.reviewState &&
+  a.advisorPartyId === b.advisorPartyId &&
+  a.releaseNote === b.releaseNote;
 
-/** The entry an amend leaves: a changed fact takes the state the body gives (default `UNREVIEWED`); an unchanged one keeps its own. */
+/**
+ * The entry an amend leaves: a changed fact takes the state the body gives (default `UNREVIEWED`); an unchanged one
+ * keeps its own. §59G: the Stichtag and the release note are facts too (setting the Stichtag on an entry stored before
+ * 0056 is a change, never a reading of its document date).
+ */
 function nextEntry(current: ShorterUsefulLife | undefined, named: UsefulLifeAmendment): ShorterUsefulLife {
-  const factsChanged = current === undefined || current.usefulLifeYears !== named.usefulLifeYears || !sameEvidence(current.evidence, named.evidence);
-  const facts = { acquisitionId: named.acquisitionId, usefulLifeYears: named.usefulLifeYears, evidence: named.evidence };
+  const releaseNote = named.releaseNote ?? null;
+  const factsChanged =
+    current === undefined ||
+    current.usefulLifeYears !== named.usefulLifeYears ||
+    !sameShorterEvidence(current.evidence, named.evidence) ||
+    current.releaseNote !== releaseNote;
+  const facts = { acquisitionId: named.acquisitionId, usefulLifeYears: named.usefulLifeYears, evidence: named.evidence, releaseNote };
   if (factsChanged || named.reviewState !== undefined) {
     return { ...facts, reviewState: named.reviewState ?? 'UNREVIEWED', advisorPartyId: named.advisorPartyId ?? null };
   }

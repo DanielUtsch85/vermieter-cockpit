@@ -30,8 +30,12 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): the new parameter
   // `basis.costClassification` in both versions, and Frage 24 in both sources. Recording is still disabled.
   // Before: @1 0f63d02c…bb64, @2 4ff946eb…54c6.
-  ['DE_AFA_BUILDING_LINEAR', 1, '260758f8b1bd16d85179b3e08faae6893b8060dbf66ce10fff9d7c7760c84bda'],
-  ['DE_AFA_BUILDING_LINEAR', 2, '4b2b9c28909fe8c518e8f06ea29bfcf0363738c11abed63c385bff808bb38c3a'],
+  // Again for @1 and @2 for §59G Part 1 (VC-X-41; Prüfbericht 2026-11-01, Fragen 8 und 9, mündlich bestätigt durch den
+  // Steuerberater, laut Projektinhaber am 2026-11-01; the owner's decisions of 2026-11-02): `shorterUsefulLife` gains the
+  // Stichtag, the cases and the late evidence's release, `subsequentCostRate` drops `shorterLifeVerified` for
+  // `shorterLife`/`afterRemainingLife` NOT_COMPUTABLE. Recording is still disabled. Before: @1 260758f8…4bda, @2 4b2b9c28…8c3a.
+  ['DE_AFA_BUILDING_LINEAR', 1, 'b9e8bfd962062ec0c01b79f342e1bb3e46b105dd049bab6323a3abb693dbd21f'],
+  ['DE_AFA_BUILDING_LINEAR', 2, 'efe5ba03ec2b842654d042f59953f0a26a265a4249a0a01e96eadef96100cf9e'],
   ['DE_AFA_MOVABLE_LINEAR', 1, '85d929633060b63636187e42a65e5856bdc58c65f86bd1ae22284a8278b1f06a'],
   // A Phase-7 rule, pinned from §59D on (VC-X-42; §59D open question 3, decided by the owner on 2026-11-01): changed in
   // place by the parameter `costClassification` (Prüfbericht 2026-11-01, Fragen 10 und 24, mündlich bestätigt durch den

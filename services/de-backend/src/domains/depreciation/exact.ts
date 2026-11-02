@@ -63,8 +63,15 @@ export interface YearRate {
   readonly notShorter: boolean;
 }
 
-/** The rate of `year` for a component (§59A "The asset, the rate and the rule"); undefined without a rule or a band. */
-export function rateOfYear(registry: RuleRegistry, year: number, completionYear: number | null, entry: ShorterUsefulLife | undefined): YearRate | undefined {
+/** What the rate of a year reads of a shorter-life entry; §59G: only an entry that applies from the start reaches it. */
+export type RateEntry = Pick<ShorterUsefulLife, 'usefulLifeYears' | 'reviewState'>;
+
+/**
+ * The rate of `year` for a component (§59A "The asset, the rate and the rule"); undefined without a rule or a band.
+ * §59G Part 1: every caller passes the component's `rateEntry` (the entry only when it applies from the start), never
+ * the stored entry itself, so a later evidence is never applied retroactively.
+ */
+export function rateOfYear(registry: RuleRegistry, year: number, completionYear: number | null, entry: RateEntry | undefined): YearRate | undefined {
   const rule = buildingRuleOn(registry, year);
   if (rule === undefined || completionYear === null) return undefined;
   const band = bandOf(rule.parameters, completionYear);
