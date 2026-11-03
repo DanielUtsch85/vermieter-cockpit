@@ -311,6 +311,7 @@ export function wegCheckSource(meaning: WegTaxMeaning, classification: TaxClassi
     annuallyRecurring: classification?.annuallyRecurring ?? false,
     anschaffungsnaheAcquisitionId: classification?.anschaffungsnaheAcquisitionId ?? null,
     performance: meaning.performance,
+    treatmentParts: meaning.treatmentParts ?? null,
     sourceFlags: meaning.flags.filter((f) => f.code === 'WITHDRAWAL_DATE_ASSUMED'),
   };
 }

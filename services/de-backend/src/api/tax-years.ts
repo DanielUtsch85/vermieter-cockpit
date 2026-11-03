@@ -111,6 +111,10 @@ function taxYearItemDto(i: TaxYearItem) {
     flags: flagsDto(i.flags),
     // §58D: the Loan's set on the booking date and the property's part, on an item from a Loan's interest split only.
     loanAllocation: loanAllocationDto(i.loanAllocation),
+    // §59F, VC-X-38 Part 2: the part of a partially treated source the item stands for (`lineAmount` its amount).
+    ...(i.treatmentPart === undefined
+      ? {}
+      : { treatmentPart: { position: i.treatmentPart.position, treatment: i.treatmentPart.treatment, amount: i.treatmentPart.amount.toJSON() } }),
     // "nicht zugeordnet" (§58C, §58D): the reason, the candidates and the source's own tax meaning or the Loan's allocations.
     ...(i.notAttributed === null ? {} : { reason: i.notAttributed.reason, candidates: i.notAttributed.candidates, href: i.notAttributed.href }),
   };

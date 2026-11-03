@@ -33,7 +33,7 @@ export type { WegSpendingParameters } from './rules/de-weg-spending.js';
 export { DE_82B_DISTRIBUTION_V1, DISTRIBUTION_82B } from './rules/de-82b-distribution.js';
 export type { Distribution82bParameters } from './rules/de-82b-distribution.js';
 export { ANSCHAFFUNGSNAHE, DE_ANSCHAFFUNGSNAHE_V1 } from './rules/de-anschaffungsnahe.js';
-export type { AnschaffungsnaheParameters, PerformanceParameters } from './rules/de-anschaffungsnahe.js';
+export type { AnschaffungsnaheParameters, PartialTreatmentParameters, PerformanceParameters } from './rules/de-anschaffungsnahe.js';
 export type { CashTimingParameters } from './rules/de-cash-timing.js';
 export {
   DUE_DATE_SOURCES,
@@ -111,6 +111,8 @@ export {
 } from './anschaffungsnahe.js';
 export { partInWindow, performanceCheck, performanceJson, performanceParametersOn, performedOutside } from './performance.js';
 export type { Performance, PerformancePoint, PerformanceRefusal } from './performance.js';
+export { partAmountOf, partialTreatmentParts, treatmentPartsJson } from './treatment-parts.js';
+export type { PartialTreatmentRefusal, TreatmentPart } from './treatment-parts.js';
 export type {
   AnschaffungsnaheCheck,
   CheckAcquisition,

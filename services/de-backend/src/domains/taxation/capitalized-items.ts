@@ -3,6 +3,7 @@ import type { LoanAllocationSetView } from '../financing/index.js';
 import type { TaxMeaning } from './classification.js';
 import { STRICT_INTEREST_POLICY, interestReasonOf, type InterestFacts, type InterestReason } from './construction-period-interest.js';
 import { participantsOn, placementOf, shareOut, signedCents, type ViewOwnership } from './tax-year-view.js';
+import { partAmountOf } from './treatment-parts.js';
 import type { ReviewState, TaxCategory, Treatment } from './vocabulary.js';
 import type { WegTaxMeaning } from './weg-sources.js';
 
@@ -124,7 +125,9 @@ export function capitalizedSourcesOf(
       }
     }
     const date = split ? meaning.bookingDate : meaning.date;
-    const amount = loan === null ? meaning.amount : moneyOfCents(loan.propertyCents, meaning.amount.currency);
+    // §59F (VC-X-38 Part 2): a partially treated source enters with its part in the window only (the rest is deductible).
+    const amount =
+      loan === null ? (partAmountOf(meaning.treatmentParts, 'CAPITALIZED') ?? meaning.amount) : moneyOfCents(loan.propertyCents, meaning.amount.currency);
     const lineCents = signedCents({ amount, direction: split ? meaning.direction : null, taxCategory: meaning.taxCategory }, placement);
     const participants = participantsOn(ownerships, date);
     const parts = shareOut(lineCents, participants);

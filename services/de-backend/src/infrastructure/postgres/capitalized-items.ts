@@ -1,6 +1,6 @@
 import { sql, type Transaction } from 'kysely';
 import { componentIdOf, type CapitalizedItem, type ItemRef } from '../../domains/depreciation/index.js';
-import { capitalizedItemsOf, type CapitalizedSource, type CapitalizedSourceInput, type ViewOwnership } from '../../domains/taxation/index.js';
+import { capitalizedItemsOf, partAmountOf, type CapitalizedSource, type CapitalizedSourceInput, type ViewOwnership } from '../../domains/taxation/index.js';
 import { moneyOfCents, centsOf, type BusinessDate } from '../../shared/index.js';
 import type { Database } from './schema.js';
 
@@ -55,7 +55,8 @@ export function toCapitalizedItem(source: CapitalizedSource, propertyReferenceId
 function linkedOnly(input: CapitalizedSourceInput, propertyReferenceId: string): CapitalizedItem {
   const m = input.meaning;
   const split = m.sourceType === 'TRANSACTION_SPLIT';
-  const cents = centsOf(m.amount);
+  // §59F (VC-X-38 Part 2): a partially treated source with its part in the window only, as Taxation places it.
+  const cents = centsOf(partAmountOf(m.treatmentParts, 'CAPITALIZED') ?? m.amount);
   return {
     sourceType: m.sourceType,
     sourceId: m.sourceId,

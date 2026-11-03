@@ -37,7 +37,29 @@ export interface PerformanceParameters {
   readonly progressEvidenceRequired: boolean;
   readonly estimatedProgress: 'NOT_EVIDENCED';
   readonly straddlingSource: 'SHARE_SHOWN_SPLIT_REQUIRED';
+  /**
+   * §59F (VC-X-38 Part 2; Entscheidung des Projektinhabers, 2026-11-02, 239-2): the evidenced split of a source straddling
+   * the window, recorded on one classification: the part performed in the window `CAPITALIZED` on the check, the rest
+   * `DEDUCTIBLE`, the amounts from the evidenced points only (exact, never estimated, never by calendar days). The gross
+   * part in the window is the gross amount × the part of the amount used / the amount used, half-up to the cent; the rest
+   * is the gross amount less it, so the parts sum to the source's amount. No cash correction. Without this parameter a
+   * partial treatment is refused (`PERFORMANCE_REQUIRED`, `STRADDLES_WINDOW`), as before. Only across the window's end
+   * (`straddledEdge`): a source begun before the transfer date is refused (`PERFORMANCE_REQUIRED`, `STRADDLES_START`)
+   * until the owner and the advisor decide whether work before the transfer is deductible for the buyer at all.
+   */
+  readonly partialTreatment?: PartialTreatmentParameters;
   readonly legalBasis: string;
+  readonly source: string;
+}
+
+export interface PartialTreatmentParameters {
+  /** 239-2 and question 14 („bis Fristende“) cover the window's end only; the start is open (beratungsfragen.md §4). */
+  readonly straddledEdge: 'END';
+  readonly windowPart: 'CAPITALIZED';
+  readonly rest: 'DEDUCTIBLE';
+  readonly amountsFrom: 'EVIDENCED_POINTS';
+  readonly grossWindowPart: 'PRO_RATA_HALF_UP';
+  readonly cashCorrection: false;
   readonly source: string;
 }
 
@@ -55,6 +77,10 @@ export const ANSCHAFFUNGSNAHE = 'DE_ANSCHAFFUNGSNAHE';
  *
  * Changed in place again for §59F (VC-X-38; the owner's decisions of 2026-11-01 and 2026-11-02): the parameter
  * `performance` (tax review of 2026-11-01, questions 14 and 16). The pinned hash is updated explicitly.
+ *
+ * Changed in place again for VC-X-38 Part 2 (Entscheidung des Projektinhabers, 2026-11-02, 239-2): the parameter
+ * `performance.partialTreatment`, across the window's end only (`straddledEdge`, the owner's review of #252). The pinned
+ * hash is updated explicitly.
  */
 export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
   ruleCode: ANSCHAFFUNGSNAHE,
@@ -85,10 +111,20 @@ export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
       progressEvidenceRequired: true,
       estimatedProgress: 'NOT_EVIDENCED',
       straddlingSource: 'SHARE_SHOWN_SPLIT_REQUIRED',
+      partialTreatment: {
+        straddledEdge: 'END',
+        windowPart: 'CAPITALIZED',
+        rest: 'DEDUCTIBLE',
+        amountsFrom: 'EVIDENCED_POINTS',
+        grossWindowPart: 'PRO_RATA_HALF_UP',
+        cashCorrection: false,
+        source:
+          'Entscheidung des Projektinhabers, 2026-11-02 (239-2); Prüfbericht 2026-11-01, Frage 14: die bis Fristende erbrachten Leistungen (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
+      },
       legalBasis: '§ 6 Abs. 1 Nr. 1a EStG; BMF 20.10.2017, Rn. 1 ff. (Durchführung der Maßnahme)',
       source: 'Prüfbericht 2026-11-01, Fragen 14 und 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
     },
   },
   source:
-    'docs/germany/taxation.md §6; phase-7-plan P7-D6; api-design §58B (review on #167); verification-checklist A2, A6; changed in place 2026-11-01 by api-design §59D (VC-X-42): costClassification, Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F',
+    'docs/germany/taxation.md §6; phase-7-plan P7-D6; api-design §58B (review on #167); verification-checklist A2, A6; changed in place 2026-11-01 by api-design §59D (VC-X-42): costClassification, Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F; VC-X-38 Part 2 in place: performance.partialTreatment, Entscheidung des Projektinhabers 2026-11-02 (239-2), api-design §59F',
 };

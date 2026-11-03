@@ -162,8 +162,9 @@ export class AnschaffungsnaheNotApplicableError extends Error {
   constructor(
     readonly reason: string,
     readonly acquisitionId: string,
-    /** §59F: `MISSING` or `STRADDLES_WINDOW` with `PERFORMANCE_REQUIRED`. */
+    /** §59F: `MISSING`, `STRADDLES_WINDOW`, `SPLIT_NOT_EVIDENCED` (with `PERFORMANCE_REQUIRED`) or `NOT_STRADDLING`. */
     readonly performanceCause?: string,
+    readonly inWindow?: { readonly lower: Money; readonly upper: Money },
   ) {
     super(`The anschaffungsnahe check of Acquisition ${acquisitionId} does not apply: ${reason}`);
   }
@@ -322,7 +323,7 @@ export function createTaxClassification(deps: Deps): CreateTaxClassification {
       case 'ACQUISITION_NOT_FOUND':
         throw new AcquisitionNotFoundError(outcome.acquisitionId);
       case 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE':
-        throw new AnschaffungsnaheNotApplicableError(outcome.reason, outcome.acquisitionId, outcome.cause);
+        throw new AnschaffungsnaheNotApplicableError(outcome.reason, outcome.acquisitionId, outcome.cause, outcome.inWindow);
       case 'TAX_YEAR_OUT_OF_RANGE':
         throw new TaxYearOutOfRangeError(outcome.taxYear, outcome.bookingYear);
       case 'WITHDRAWAL_TAX_YEAR_OUT_OF_RANGE':

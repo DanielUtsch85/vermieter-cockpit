@@ -153,6 +153,7 @@ function splitCheckSource(meaning: TaxMeaning, classification: TaxClassification
     annuallyRecurring: classification?.annuallyRecurring ?? false,
     anschaffungsnaheAcquisitionId: classification?.anschaffungsnaheAcquisitionId ?? null,
     performance: meaning.performance,
+    treatmentParts: meaning.treatmentParts ?? null,
     sourceFlags: [],
   };
 }

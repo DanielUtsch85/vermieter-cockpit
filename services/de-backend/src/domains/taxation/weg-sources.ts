@@ -13,6 +13,7 @@ import {
 } from './classification.js';
 import type { CheckEntryFlag } from './anschaffungsnahe.js';
 import type { Performance } from './performance.js';
+import type { TreatmentPart } from './treatment-parts.js';
 import type { Distribution, DistributionFlag } from './distribution-82b.js';
 import { WEG_SPENDING, type WegSpendingParameters } from './rules/de-weg-spending.js';
 import type { Origin, ReviewState, TaxCategory, Treatment, WegSourceType } from './vocabulary.js';
@@ -106,6 +107,8 @@ export interface WegTaxMeaning {
   readonly netAmount: Money | null;
   /** §59F (VC-X-38): the classification's period of performance; `null` without one. */
   readonly performance: Performance | null;
+  /** §59F (VC-X-38 Part 2): the classification's partial treatment; absent or `null` without one. */
+  readonly treatmentParts?: readonly TreatmentPart[] | null;
   readonly counts: boolean;
   readonly notCountedReason: WegNotCounted['reason'] | null;
   readonly taxYear: number;
@@ -305,6 +308,7 @@ export function deriveWegTaxMeaning(
       ...base,
       netAmount: classification.netAmount,
       performance: classification.performance,
+      treatmentParts: classification.treatmentParts ?? null,
       taxCategory: classification.taxCategory,
       treatment: classification.treatment,
       reviewState: classification.reviewState,
@@ -344,7 +348,7 @@ export function planWegClassification(
     NewTaxClassification,
     'taxCategory' | 'treatment' | 'supersedes' | 'taxYear' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId'
   > &
-    Partial<Pick<NewTaxClassification, 'performance' | 'sourceReferences'>>,
+    Partial<Pick<NewTaxClassification, 'performance' | 'sourceReferences' | 'partialTreatment'>>,
   registry: RuleRegistry,
   acquisition?: AcquisitionFacts | null,
 ):
@@ -352,6 +356,7 @@ export function planWegClassification(
       readonly kind: 'CLASSIFY';
       readonly rule: RuleRef;
       readonly treatmentRule: RuleRef | null;
+      readonly treatmentParts?: readonly TreatmentPart[];
       readonly reserveWithdrawal: { readonly unitShare: Money } | null;
       readonly assessmentUse: { readonly date: BusinessDate; readonly unitShare: Money } | null;
     }
@@ -386,6 +391,7 @@ export function planWegClassification(
       kind: 'CLASSIFY',
       rule: { ruleCode: rule.ruleCode, version: rule.version },
       treatmentRule: fields.treatmentRule,
+      ...(fields.treatmentParts === undefined ? {} : { treatmentParts: fields.treatmentParts }),
       reserveWithdrawal: facts.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? { unitShare: facts.amount } : null,
       assessmentUse: facts.sourceType === 'WEG_ASSESSMENT_USE' ? { date: facts.date, unitShare: facts.amount } : null,
     }

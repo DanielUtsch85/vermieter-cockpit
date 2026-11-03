@@ -152,6 +152,8 @@ export const TAXATION_ANSWERS = [
       reason: error.reason,
       acquisitionId: error.acquisitionId,
       ...(error.performanceCause === undefined ? {} : { cause: error.performanceCause }),
+      // VC-X-38 Part 2: the evidenced bounds of the part in the window that leave a partial treatment open.
+      ...(error.inWindow === undefined ? {} : { inWindow: { lower: error.inWindow.lower.toJSON(), upper: error.inWindow.upper.toJSON() } }),
     }),
   ),
   // The period of performance (api-design §59F, VC-X-38).

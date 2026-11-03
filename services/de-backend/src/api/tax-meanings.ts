@@ -6,6 +6,7 @@ import {
   SOURCE_TYPES,
   TAX_CATEGORIES,
   performanceJson,
+  treatmentPartsJson,
   type AnschaffungsnaheCheck,
   type CheckEntry,
   type DepositTaxMeaning,
@@ -13,6 +14,7 @@ import {
   type TaxListItem,
   type TaxMeaning,
   type TaxRuleView,
+  type TreatmentPart,
   type WegTaxMeaning,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
@@ -144,6 +146,10 @@ const itemDto = (item: TaxListItem) => ({
   yearAmount: item.yearAmount.toJSON(),
 });
 
+/** §59F, VC-X-38 Part 2: `treatmentParts` only on a partial treatment, so every other meaning keeps its shape. */
+const partsDto = (parts: readonly TreatmentPart[] | null | undefined) =>
+  parts === null || parts === undefined ? {} : { treatmentParts: treatmentPartsJson(parts) };
+
 function meaningDto(m: TaxMeaning) {
   return {
     sourceType: m.sourceType,
@@ -156,6 +162,7 @@ function meaningDto(m: TaxMeaning) {
     amount: m.amount.toJSON(),
     netAmount: m.netAmount?.toJSON() ?? null,
     performance: m.performance === null ? null : performanceJson(m.performance),
+    ...partsDto(m.treatmentParts),
     financialCategoryCode: m.financialCategoryCode,
     propertyReferenceId: m.propertyReferenceId,
     counts: m.counts,
@@ -196,6 +203,7 @@ function wegMeaningDto(m: WegTaxMeaning) {
     amount: m.amount.toJSON(),
     netAmount: m.netAmount?.toJSON() ?? null,
     performance: m.performance === null ? null : performanceJson(m.performance),
+    ...partsDto(m.treatmentParts),
     counts: m.counts,
     notCountedReason: m.notCountedReason,
     taxYear: m.taxYear,
