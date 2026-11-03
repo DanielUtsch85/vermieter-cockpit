@@ -1,6 +1,7 @@
 import { centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
 import type { Direction } from '../ledger/index.js';
 import { changeKeys, type MarkedChange } from './attribution-changes.js';
+import { isDepositYearKind } from './attribution-rule.js';
 import type { RefundInfo } from './cash-timing.js';
 import type { TaxListItem } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
@@ -127,10 +128,11 @@ export function deriveItem(
     if (!sameOwnerships(ownerships, date, nearest))
       flags.push({ code: 'SHARE_DATE_OUTSIDE_TAX_YEAR', details: { shareDate: date, nearestDayOfYear: nearest } });
   }
-  // §58E: per change that moved the item, the change's keys, its fingerprint and acknowledgement, and its two years.
+  // §58E: per change that moved the item, the change's keys, its fingerprint and acknowledgement, and its two years;
+  // §58I Part 1: a deposit kind's items are deposit closings, every other kind's splits (the kind tells, Frage 3).
   const moved = changed.flatMap((c) =>
     c.items
-      .filter((i) => i.sourceId === source.sourceId && source.sourceType === 'TRANSACTION_SPLIT')
+      .filter((i) => i.sourceId === source.sourceId && source.sourceType === (isDepositYearKind(c.kind) ? 'DEPOSIT_CLOSING' : 'TRANSACTION_SPLIT'))
       .map((i) => ({ ...changeKeys(c), yearBefore: i.yearBefore, yearAfter: i.yearAfter })),
   );
   if (moved.length > 0 && source.taxYear === year) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: moved });

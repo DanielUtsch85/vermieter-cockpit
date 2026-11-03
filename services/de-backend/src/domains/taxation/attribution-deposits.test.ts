@@ -227,6 +227,10 @@ describe('one record as two changes (§58G Frage 4: CHANGE_AMBIGUOUS arises here
       'LOAN_ALLOCATION_SET_VOIDED',
       'DEPOSIT_RECONCILIATION_CONFIRMED',
       'DEPOSIT_RECONCILIATION_RELEASED',
+      // §58I Part 2 (VC-X-50): the split corrections.
+      'TRANSACTION_CORRECTED',
+      'TRANSACTION_REVERSED',
     ]);
+    expect(PART_CHANGE_KINDS.some((k) => k.startsWith('WEG_'))).toBe(false);
   });
 });

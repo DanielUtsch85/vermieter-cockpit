@@ -166,6 +166,11 @@ export type {
 export { closingChanges } from './attribution-history.js';
 export { depositPartOn, depositSteps } from './attribution-deposits.js';
 export type { DepositPartHistory, DepositReconciliationHistory, DepositStep } from './attribution-deposits.js';
+export { DEPOSIT_YEAR_KINDS, isDepositYearKind } from './attribution-rule.js';
+export { closingYear, depositClosingChanges, replayClosing } from './attribution-reopen.js';
+export type { ClosingStep, DepositClosingHistory, DepositClosingRecord, DepositClosingState } from './attribution-reopen.js';
+export { correctionRecordOf, correctionSteps, splitPartOn } from './attribution-corrections.js';
+export type { CorrectionHistory, CorrectionRecord, CorrectionSplit, CorrectionStep } from './attribution-corrections.js';
 export {
   PART_CHANGE_KINDS,
   PART_STATES,
@@ -271,6 +276,7 @@ export {
   WERBUNGSKOSTEN_LINES,
   buildTaxYearView,
   flagIsOpen,
+  notCountedIsOpen,
   foldPerOwner,
   loanInterestOf,
   participantsOn,

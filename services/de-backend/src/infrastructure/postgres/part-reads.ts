@@ -1,7 +1,15 @@
 import type { Transaction } from 'kysely';
-import { depositNotCounted, type DepositPartHistory, type PartChangeInput, type TaxMeaning, type TaxYearRead } from '../../domains/taxation/index.js';
+import {
+  depositNotCounted,
+  type DepositPartHistory,
+  type PartChangeInput,
+  type RuleRegistry,
+  type TaxMeaning,
+  type TaxYearRead,
+} from '../../domains/taxation/index.js';
 import type { BusinessDate } from '../../shared/index.js';
-import { history, recordsOf } from './attribution-reads.js';
+import { history, recordsOf } from './audit-history-reads.js';
+import { correctionHistoriesOf } from './mover-reads.js';
 import type { Database } from './schema.js';
 import { DEPOSIT_RENT_CODES, depositFactsOf } from './tax-source-facts.js';
 
@@ -11,13 +19,15 @@ import { DEPOSIT_RENT_CODES, depositFactsOf } from './tax-source-facts.js';
  * `LOAN_INTEREST` splits whose tax year is `year`, every set of the Loan): the sets' `CREATED`/`VOIDED` AuditRecords by
  * `audit_record_entity_idx`, after the sets were selected in the Realm (`audit_record` has no Realm column), so another
  * Realm's record is never read. Used by the view and by the acknowledgement command (its own snapshot). §58H Part 2: the
- * candidate deposits of the Realm and `year` with their Tenants' reconciliations (`depositPartsOf`).
+ * candidate deposits of the Realm and `year` with their Tenants' reconciliations (`depositPartsOf`). §58I Part 2 (VC-X-50):
+ * the corrected Transactions with a split that can count in `year` for P (`correctionHistoriesOf`).
  */
 export async function partChangeInputOf(
   trx: Transaction<Database>,
   wide: Pick<TaxYearRead, 'allocatedLoanInterest' | 'loanAllocationSets'>,
   mreRealmId: string,
   year: number,
+  movers: { readonly propertyReferenceId: string; readonly registry: RuleRegistry; readonly today: BusinessDate },
 ): Promise<PartChangeInput> {
   const loanIds = [...new Set(wide.allocatedLoanInterest.map((i) => i.loanId))].sort();
   const sets = loanIds.flatMap((loanId) => wide.loanAllocationSets.get(loanId) ?? []);
@@ -29,6 +39,7 @@ export async function partChangeInputOf(
   );
   return {
     deposits: await depositPartsOf(trx, mreRealmId, year),
+    corrections: await correctionHistoriesOf(trx, movers.registry, mreRealmId, movers.propertyReferenceId, year, movers.today),
     loans: loanIds.map((loanId) => ({
       loanId,
       candidates: wide.allocatedLoanInterest

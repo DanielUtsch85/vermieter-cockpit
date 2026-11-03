@@ -1,5 +1,7 @@
-import { canonicalJson, centsOf, moneyOfCents, type BusinessDate, type Fingerprinter, type Money, type MoneyJson } from '../../shared/index.js';
-import { distribute, setOn, sumsToOne, withValidUntil, type LoanAllocationSet } from '../financing/index.js';
+import { canonicalJson, type BusinessDate, type Fingerprinter, type Money, type MoneyJson } from '../../shared/index.js';
+import type { LoanAllocationSet } from '../financing/index.js';
+import { partMoved, partOn, type PartState } from './attribution-part-rule.js';
+import { correctionSteps, type CorrectionHistory } from './attribution-corrections.js';
 import { depositSteps, type DepositPartHistory } from './attribution-deposits.js';
 import { replay, walk, type HistoryRecord } from './attribution-history.js';
 import { recordedAfter } from './attribution-rule.js';
@@ -16,6 +18,8 @@ import { recordedAfter } from './attribution-rule.js';
  * its fingerprint with §58E's routes (Frage 2). §58H Part 2 (VC-X-49) adds the deposit's PropertyReference moving with a
  * reconciliation confirmed or released (`attribution-deposits.ts`; Entscheidung des Projektinhabers, 2026-11-03, §58H
  * Frage 2): the kinds `DEPOSIT_RECONCILIATION_CONFIRMED`, `DEPOSIT_RECONCILIATION_RELEASED`, items `DEPOSIT_CLOSING`.
+ * §58I Part 2 (VC-X-50) adds the split correction (`attribution-corrections.ts`; Entscheidung des Projektinhabers,
+ * 2026-11-03, §58I Fragen 5 und 6): the kinds `TRANSACTION_CORRECTED`, `TRANSACTION_REVERSED`, items `TRANSACTION_SPLIT`.
  */
 
 export const PROPERTY_PART_CHANGED = 'PROPERTY_PART_CHANGED';
@@ -24,17 +28,20 @@ export const PART_CHANGE_KINDS = [
   'LOAN_ALLOCATION_SET_VOIDED',
   'DEPOSIT_RECONCILIATION_CONFIRMED',
   'DEPOSIT_RECONCILIATION_RELEASED',
+  'TRANSACTION_CORRECTED',
+  'TRANSACTION_REVERSED',
 ] as const;
 export type PartChangeKind = (typeof PART_CHANGE_KINDS)[number];
-export type PartChangeEntityType = 'LoanAllocationSet' | 'RentPaymentReconciliation';
-export const PART_STATES = ['ATTRIBUTED', 'NOT_ATTRIBUTED', 'NONE'] as const;
-export type PartState = (typeof PART_STATES)[number];
+export type PartChangeEntityType = 'LoanAllocationSet' | 'RentPaymentReconciliation' | 'Transaction';
+
+export { PART_STATES, partMoved, partOn } from './attribution-part-rule.js';
+export type { Part, PartState } from './attribution-part-rule.js';
 
 export const isPartKind = (kind: string): kind is PartChangeKind => (PART_CHANGE_KINDS as readonly string[]).includes(kind);
 
 /** One item a part change moved (§58G "The flag"): P's state and part on both sides; a part exactly on `ATTRIBUTED`. */
 export interface PartItem {
-  /** A Loan's interest split (§58G) or a deposit closing (§58H). */
+  /** A Loan's interest split (§58G) or any split a correction moved (§58I), or a deposit closing (§58H). */
   readonly sourceType: 'TRANSACTION_SPLIT' | 'DEPOSIT_CLOSING';
   readonly sourceId: string;
   readonly taxYear: number;
@@ -69,6 +76,8 @@ export interface PartChangeInput {
   readonly loans: readonly LoanSetsHistory[];
   /** §58H Part 2: the counting deposit closings of the Realm in `year` with their Tenants' reconciliations; absent: none. */
   readonly deposits?: readonly DepositPartHistory[];
+  /** §58I Part 2: the Realm's corrected Transactions with a split (original or replacement) that can count in `year` for P. */
+  readonly corrections?: readonly CorrectionHistory[];
 }
 
 export interface PartChange {
@@ -77,7 +86,7 @@ export interface PartChange {
   readonly entityId: string;
   readonly auditRecordId: string;
   readonly amendedAt: Date;
-  /** The kind's own keys: the set's (§58G), or the reconciliation's and the deposits' (§58H Part 2). */
+  /** The kind's own keys: the set's (§58G), the reconciliation's and the deposits' (§58H Part 2), or the correction's (§58I). */
   readonly keys:
     | { readonly loanId: string; readonly allocationSetId: string; readonly validFrom: BusinessDate }
     | {
@@ -86,6 +95,12 @@ export interface PartChange {
         readonly mreTenantId: string;
         readonly mreRentTerm: string;
         readonly securityDepositIds: readonly string[];
+      }
+    | {
+        readonly transactionId: string;
+        readonly reversalTransactionId: string | null;
+        readonly replacementTransactionId: string | null;
+        readonly reason: string | null;
       };
   readonly items: readonly PartItem[];
   /** SHA-256 of the canonical `{ propertyReferenceId, year, auditRecordId, kind, items }`, parts as exact cents (§58G). */
@@ -96,36 +111,6 @@ export interface PartChanges {
   readonly changes: readonly PartChange[];
   /** The sets whose records do not end in their current status (`ATTRIBUTION_HISTORY_INCONSISTENT`). */
   readonly inconsistent: readonly { readonly entityType: PartChangeEntityType; readonly entityId: string }[];
-}
-
-export interface Part {
-  readonly state: PartState;
-  readonly part: Money | null;
-}
-
-/**
- * P's part of a split under the Loan's `VALID` sets of one side (§58G's table, §58D's three cases): the set covering the
- * booking date (`validUntil` derived over these sets), usable when its shares sum to `1/1`, P's part by `distribute`
- * over the whole set; without a usable set `NOT_ATTRIBUTED` while a set of the side names P; else `NONE`.
- */
-export function partOn(propertyReferenceId: string, valid: readonly LoanAllocationSet[], candidate: PartCandidate): Part {
-  const sets = withValidUntil(valid.map((s) => ({ ...s, status: 'VALID' as const })));
-  const set = setOn(sets, candidate.bookingDate);
-  if (set !== null && sumsToOne(set.allocations.map((a) => a.share))) {
-    const index = set.allocations.findIndex((a) => a.propertyReferenceId === propertyReferenceId);
-    if (index < 0) return { state: 'NONE', part: null };
-    const cents = distribute(centsOf(candidate.amount), set.allocations)[index] as bigint;
-    return { state: 'ATTRIBUTED', part: moneyOfCents(cents, candidate.amount.currency) };
-  }
-  return sets.some((s) => s.allocations.some((a) => a.propertyReferenceId === propertyReferenceId))
-    ? { state: 'NOT_ATTRIBUTED', part: null }
-    : { state: 'NONE', part: null };
-}
-
-/** Whether P's part moved: the states differ (not between `NOT_ATTRIBUTED` and `NONE`), or both attributed with other amounts. */
-export function partMoved(before: Part, after: Part): boolean {
-  if (before.state !== after.state) return before.state === 'ATTRIBUTED' || after.state === 'ATTRIBUTED';
-  return before.state === 'ATTRIBUTED' && centsOf(before.part as Money) !== centsOf(after.part as Money);
 }
 
 const byIdentity = (a: PartItem, b: PartItem) =>
@@ -260,6 +245,46 @@ export function partChanges(
     });
   }
   inconsistent.push(...deposits.inconsistent);
+  // §58I Part 2: one change per correction that changed P's sums of `year`.
+  const corrections = correctionSteps(input?.corrections, year, pr);
+  for (const step of corrections.steps) {
+    const items = step.splits
+      .map(
+        (d): PartItem => ({
+          sourceType: 'TRANSACTION_SPLIT',
+          sourceId: d.sourceId,
+          taxYear: year,
+          stateBefore: d.before.state,
+          partBefore: d.before.part,
+          stateAfter: d.after.state,
+          partAfter: d.after.part,
+        }),
+      )
+      .sort(byIdentity);
+    const h = step.history;
+    changes.push({
+      kind: step.kind,
+      entityType: 'Transaction',
+      entityId: h.transactionId,
+      auditRecordId: step.record.auditRecordId,
+      amendedAt: step.record.occurredAt,
+      keys: {
+        transactionId: h.transactionId,
+        reversalTransactionId: step.record.reversalTransactionId,
+        replacementTransactionId: step.kind === 'TRANSACTION_CORRECTED' ? step.record.replacementTransactionId : null,
+        reason: step.record.reason,
+      },
+      items,
+      changeFingerprint: partChangeFingerprint(context.fingerprinter, {
+        propertyReferenceId: pr,
+        year,
+        auditRecordId: step.record.auditRecordId,
+        kind: step.kind,
+        items,
+      }),
+    });
+  }
+  inconsistent.push(...corrections.inconsistent);
   changes.sort((a, b) =>
     a.amendedAt.getTime() !== b.amendedAt.getTime() ? a.amendedAt.getTime() - b.amendedAt.getTime() : a.auditRecordId < b.auditRecordId ? -1 : 1,
   );

@@ -32,7 +32,8 @@ import { acknowledgementsOf, confirmationsOf } from './tax-statement-rows.js';
  * year's changes derived in this snapshot (Part 1, not the view) and the use case's decision, then the rows, the
  * AuditRecord and the key; a serialisation failure (`40001`) is answered as such and the use case retries. A
  * confirmation is one `READ COMMITTED` transaction: the key, the Loan row (P3-D8's no-op), then the set and its rows read
- * under it. No input is locked; nothing outside the tables of 0060 and 0063 (§58G, the part items) and the AuditRecords is written.
+ * under it. No input is locked; nothing outside the tables of 0060 and 0063 (§58G, the part items; 0064 and 0065 widen
+ * their CHECKs) and the AuditRecords is written.
  */
 
 const ACKNOWLEDGEMENT = 'TaxYearAcknowledgement';
@@ -102,7 +103,7 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
           // 3. The year's changes of both flags in this snapshot (§58E Part 1, §58G), and the decision (steps 3–5).
           const attribution = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, this.registry);
           const wide = await allocatedLoanInterest(trx, this.registry, mreRealmId, propertyReferenceId, year, today, true);
-          const parts = await partChangeInputOf(trx, wide, mreRealmId, year);
+          const parts = await partChangeInputOf(trx, wide, mreRealmId, year, { propertyReferenceId, registry: this.registry, today });
           const active = await acknowledgementsOf(trx, mreRealmId, propertyReferenceId, year, ['ACTIVE']);
           const decision = decide({ attribution, parts }, active);
           if (this.afterDerivation !== undefined) await this.afterDerivation();

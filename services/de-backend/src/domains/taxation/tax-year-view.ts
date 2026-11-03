@@ -67,7 +67,7 @@ export type {
   TaxYearDepreciationComponent,
   TaxYearDepreciationPart,
 } from './tax-year-depreciation.js';
-export { flagIsOpen, reviewOf, ruleVersionsOf } from './tax-year-review.js';
+export { flagIsOpen, notCountedIsOpen, reviewOf, ruleVersionsOf } from './tax-year-review.js';
 export { LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS, loanInterestOf } from './tax-year-loan-interest.js';
 export type { LoanInterestCase, LoanInterestSplit, NotAttributedReason } from './tax-year-loan-interest.js';
 
@@ -158,8 +158,12 @@ export function buildTaxYearView(
   const listed = read.sources
     .flatMap((s) => deriveItems(s.item, year, read.ownerships, attribution.changes))
     .map((d) => withInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId))
-    // §58H Part 2: the item flag on a deposit in P's view that a part change moved.
-    .map((d) => (d.source.sourceType === 'DEPOSIT_CLOSING' ? { ...d, flags: [...d.flags, ...partItemFlags(d.source.sourceId, parts)] } : d));
+    // §58H Part 2: the item flag on a deposit in P's view that a part change moved; §58I Part 2: on a split a correction moved.
+    .map((d) =>
+      d.source.sourceType === 'DEPOSIT_CLOSING' || d.source.sourceType === 'TRANSACTION_SPLIT'
+        ? { ...d, flags: [...d.flags, ...partItemFlags(d.source.sourceId, parts)] }
+        : d,
+    );
   // §58D: the interest of the allocated Loans, by the set on each split's booking date.
   const loanCases = loanInterestOf(read.propertyReferenceId, read.allocatedLoanInterest, read.loanAllocationSets);
   const attributedLoans = loanCases
@@ -208,7 +212,7 @@ export function buildTaxYearView(
   if (attribution.changes.length > 0) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: attribution.changes.map(changeEntry) });
   if (parts.length > 0) flags.push({ code: PROPERTY_PART_CHANGED, details: parts.map(partChangeEntry) });
   // §58E: the entity of an unusable history; a reference keeps `rentalContractReferenceId`. §58G adds the sets, §58H the
-  // Loan; a reconciliation read by both flags is named once.
+  // Loan, §58I the deposit and the Transaction; a reconciliation read by both flags is named once.
   const named = new Set<string>();
   for (const e of [...attribution.inconsistent, ...derivedParts.inconsistent]) {
     if (named.has(`${e.entityType}/${e.entityId}`)) continue;

@@ -913,8 +913,9 @@ export interface TaxYearAcknowledgementItemTable {
   acknowledgement_id: string;
   mre_realm_id: string;
   source_id: string;
-  year_before: number;
-  year_after: number;
+  /** 0065 (VC-X-50, §58I): `null` in no year, under a deposit kind only (the shape guard). */
+  year_before: number | null;
+  year_after: number | null;
 }
 
 /** 0063 (VC-X-48, §58G): an item of a part change, P's state and part (numeric as text, EUR) before and after. */
