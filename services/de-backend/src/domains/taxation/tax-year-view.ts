@@ -87,7 +87,10 @@ export interface TaxYearRead {
    * (`listed: false`): the per-owner fold may still give them one.
    */
   readonly sources: readonly { readonly item: TaxListItem; readonly listed: boolean }[];
-  /** The counting deposit closings of the Realm closed in `year` without a PropertyReference (§58A). */
+  /**
+   * The deposit closings of the Realm closed in `year` without a PropertyReference that count by the deposit (§58A),
+   * their classification fitting or not (§58J: `counts: false` here is only `NOT_COUNTED` with `CLOSING_CHANGED`).
+   */
   readonly unattributedDeposits: readonly DepositTaxMeaning[];
   readonly ownerships: readonly ViewOwnership[];
   /** The anschaffungsnahe checks of the PropertyReference's Acquisitions, from the same derivation as the list's. */
@@ -178,9 +181,9 @@ export function buildTaxYearView(
   const derived = inListOrder(listed, attributedLoans);
 
   // The deposits not attributed (§58C): NO_RECONCILED_RENT in every view, SEVERAL_PROPERTY_REFERENCES in each candidate's.
-  const unattributed = read.unattributedDeposits.filter(
-    (d) => d.counts && (d.propertyCandidates.length === 0 || d.propertyCandidates.includes(read.propertyReferenceId)),
-  );
+  // §58J (VC-X-51): also one whose classification names an earlier closing (counts: false, NOT_COUNTED CLOSING_CHANGED,
+  // open); the read passes only closings that count by the deposit, so no other non-counting deposit reaches this list.
+  const unattributed = read.unattributedDeposits.filter((d) => d.propertyCandidates.length === 0 || d.propertyCandidates.includes(read.propertyReferenceId));
 
   if (ownerPartyId !== null) {
     const owns = read.ownerships.some(
