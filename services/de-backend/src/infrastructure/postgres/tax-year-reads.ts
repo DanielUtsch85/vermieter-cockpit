@@ -118,7 +118,7 @@ export async function readTaxYear(
     // §58G: one read of the Loans any of whose sets names P; the view's figures take §58D's Loans out of it.
     const wide = await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today, true);
     const loans = ofValidSets(wide, propertyReferenceId);
-    const parts = await partChangeInputOf(trx, wide, mreRealmId, year);
+    const parts = await partChangeInputOf(trx, wide, mreRealmId, year, { propertyReferenceId, registry, today });
     // §59E: the conditions' facts of the listed and the attributed interest splits, in this snapshot.
     const interest = await interestFactsIn(trx, registry, mreRealmId, [
       ...entries.flatMap((e) => (e.item.sourceType === 'TRANSACTION_SPLIT' ? [refOf(e.item, null)] : [])),

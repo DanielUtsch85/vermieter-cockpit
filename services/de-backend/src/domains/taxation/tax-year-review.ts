@@ -60,6 +60,16 @@ export function priceKeyIsOpen(details: unknown): boolean {
 }
 
 /**
+ * §58I open question 4 (Entscheidung des Projektinhabers, 2026-11-03): `NOT_COUNTED` is open where a classification no
+ * longer fits its source, a deposit closed anew (`CLOSING_CHANGED`) or a WEG use changed (`USE_CHANGED`), so the year is
+ * not final until the source is classified anew; every other reason (a source that does not count) stays informative.
+ */
+export function notCountedIsOpen(details: unknown): boolean {
+  const d = details as { reason?: unknown; notCountedReason?: unknown } | null | undefined;
+  return d?.reason === 'CLOSING_CHANGED' || d?.notCountedReason === 'USE_CHANGED';
+}
+
+/**
  * Whether an item's flag needs a person (§58C's review table): `ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN` while the item is
  * not `CAPITALIZED`; an attribution flag while no confirmed classification stands for the item; `PROPOSED_BY_10_DAY_RULE`
  * while no confirmed classification sets `taxYear` (§58F); every flag the table
@@ -77,6 +87,7 @@ export function flagIsOpen(
   // §58G: PROPERTY_PART_CHANGED takes the same rule (open while an entry is not acknowledged; then informative).
   if (code === 'ATTRIBUTION_INPUT_CHANGED' || code === 'PROPERTY_PART_CHANGED') return attributionChangeIsOpen(details);
   if (code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY') return priceKeyIsOpen(details);
+  if (code === 'NOT_COUNTED') return notCountedIsOpen(details);
   if (OPEN_YEAR_FLAGS.has(code) || OPEN_ITEM_FLAGS.has(code)) return true;
   if (code === 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN') return item.treatment !== 'CAPITALIZED';
   if (CONFIRMABLE.has(code)) return !(item.origin === 'CLASSIFICATION' && (item.reviewState === 'USER_CONFIRMED' || item.reviewState === 'ADVISOR_CONFIRMED'));

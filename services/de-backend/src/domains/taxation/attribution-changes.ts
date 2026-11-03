@@ -1,6 +1,7 @@
 import { canonicalJson, type BusinessDate, type Fingerprinter, type RuleRegistry } from '../../shared/index.js';
 import type { ChangedEntry, RentDueDay } from '../rental-contract-reference/index.js';
 import { closingChanges, reconciliationChanges, termsChanges, type LoanTermsHistory, type ReconciliationInput } from './attribution-history.js';
+import { depositClosingChanges, type DepositClosingHistory } from './attribution-reopen.js';
 import { movedItems, recordedAfter, type ChangeItem, type ChangeKind, type InconsistentHistory, type RawChange } from './attribution-rule.js';
 import { attributeTaxYear, rentTiming } from './cash-timing.js';
 
@@ -14,7 +15,7 @@ export type { ChangeEntityType, ChangeItem, ChangeKind, InconsistentHistory, Raw
  * everything else as read now, and the year is flagged when the two differ, one of them is the year and the record was
  * made after its 31 December (Europe/Berlin). The kinds: a RentalContractReference's `rentDueDays` created or amended
  * (here), a reconciliation confirmed or released, a Loan terms period added or voided and a Loan closed (§58H Part 1)
- * (`attribution-history.ts`).
+ * (`attribution-history.ts`), a deposit reopened or closed (§58I Part 1, `attribution-reopen.ts`).
  * Derived, never stored; a change is acknowledged by its fingerprint (§58E Part 2).
  */
 
@@ -60,6 +61,8 @@ export interface AttributionInput {
   readonly reconciliations?: ReconciliationInput;
   /** §58E: the candidate Loans with their terms and AuditRecords; absent: none. */
   readonly loans?: readonly LoanTermsHistory[];
+  /** §58I Part 1: the deposits attributed to P now with a `CLOSED` record, with their records; absent: none. */
+  readonly deposits?: readonly DepositClosingHistory[];
 }
 
 export interface AttributionChange extends RawChange {
@@ -205,7 +208,9 @@ export function attributionChanges(
   const terms = termsChanges(input.loans ?? [], year, registry, context.propertyReferenceId);
   // §58H Part 1: a Loan closed after the year's end.
   const closings = closingChanges(input.loans ?? [], year, registry, context.propertyReferenceId);
-  const raw = [...rent.changes, ...reconciliations.changes, ...terms.changes, ...closings.changes].sort((a, b) =>
+  // §58I Part 1: a deposit reopened or closed after the year's end.
+  const deposits = depositClosingChanges(input.deposits ?? [], year);
+  const raw = [...rent.changes, ...reconciliations.changes, ...terms.changes, ...closings.changes, ...deposits.changes].sort((a, b) =>
     a.amendedAt.getTime() !== b.amendedAt.getTime() ? a.amendedAt.getTime() - b.amendedAt.getTime() : a.auditRecordId < b.auditRecordId ? -1 : 1,
   );
   return {
@@ -219,7 +224,7 @@ export function attributionChanges(
         items: c.items,
       }),
     })),
-    inconsistent: [...rent.inconsistent, ...reconciliations.inconsistent, ...terms.inconsistent, ...closings.inconsistent],
+    inconsistent: [...rent.inconsistent, ...reconciliations.inconsistent, ...terms.inconsistent, ...closings.inconsistent, ...deposits.inconsistent],
   };
 }
 

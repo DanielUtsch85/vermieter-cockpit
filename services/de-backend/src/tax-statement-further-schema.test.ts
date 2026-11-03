@@ -165,7 +165,10 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0064 past the reposito
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         const migration = migrations['0064_tax_year_further_inputs'] as { up: (db: never) => Promise<void>; down: (db: never) => Promise<void> };
+        // 0065 (VC-X-50) builds on 0064: rolled back first, as the Migrator would, and applied again below.
+        const movers = migrations['0065_tax_year_deposit_and_correction_movers'] as typeof migration;
         const db = () => createDatabase(downPool) as never;
+        await withMigrationLock(() => movers.down(db()));
         const pr = (
           await downPool.query(
             `INSERT INTO property_reference (mre_realm_id, mre_property_id, external_reference_state, created_by) VALUES ($1, '6512f0c2a1b2c3d4e5f6e49f', 'ACTIVE', 'x') RETURNING id`,
@@ -243,6 +246,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0064 past the reposito
           restored.release();
         }
         await withMigrationLock(() => migration.up(db()));
+        await withMigrationLock(() => movers.up(db()));
         expect(await downPool.query(ackRow(pr, CLOSED)).then(() => 'accepted', classify)).toBe('accepted');
       } finally {
         await downPool.end();

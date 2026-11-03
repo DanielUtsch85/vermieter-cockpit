@@ -393,3 +393,78 @@ describe('the kinds of §58H (VC-X-49): LOAN_CLOSED in the year shape, the depos
     ]);
   });
 });
+
+describe('the kinds of §58I (VC-X-50): the deposit kinds in the year shape with a null year, the correction kinds in the part shape', () => {
+  const reopened: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: {
+      ...acknowledgement.change,
+      kind: 'DEPOSIT_REOPENED',
+      entityType: 'SecurityDeposit',
+      items: [{ sourceId: CONF, yearBefore: 2027, yearAfter: null }],
+    },
+  };
+  const closed: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: {
+      ...acknowledgement.change,
+      kind: 'DEPOSIT_CLOSED',
+      entityType: 'SecurityDeposit',
+      items: [{ sourceId: CONF, yearBefore: null, yearAfter: 2027 }],
+    },
+  };
+  const corrected: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: {
+      ...acknowledgement.change,
+      kind: 'TRANSACTION_CORRECTED',
+      entityType: 'Transaction',
+      items: [
+        {
+          sourceType: 'TRANSACTION_SPLIT',
+          sourceId: CONF,
+          taxYear: 2027,
+          stateBefore: 'ATTRIBUTED',
+          partBefore: Money.of('950.00', 'EUR'),
+          stateAfter: 'NONE',
+          partAfter: null,
+        },
+      ],
+    },
+  };
+
+  it('each new kind passed on; a code of its own for corrections 400 INVALID_FORMAT (no such kind, §58I Frage 5)', async () => {
+    const base = await start();
+    for (const kind of ['DEPOSIT_REOPENED', 'DEPOSIT_CLOSED', 'TRANSACTION_CORRECTED', 'TRANSACTION_REVERSED']) {
+      expect((await send(base, 'POST', ACKS, { ...body, kind })).status).toBe(201);
+      expect(seen.at(-1)).toMatchObject({ kind });
+    }
+    expect(await fields(await send(base, 'POST', ACKS, { ...body, kind: 'LEDGER_CORRECTED_AFTER_YEAR_END' }))).toEqual([
+      { field: 'kind', code: 'INVALID_FORMAT' },
+    ]);
+  });
+
+  it('the DTO: a deposit kind with a null year on either side, a correction kind with TRANSACTION_SPLIT part items', async () => {
+    const base = await start2({ listAcknowledgements: async () => [reopened, closed, corrected] });
+    const list = (await (await send(base, 'GET', ACKS)).json()) as { items: { change: { kind: string; entityType: string; items: unknown[] } }[] };
+    expect(list.items.map((i) => [i.change.kind, i.change.entityType, i.change.items])).toEqual([
+      ['DEPOSIT_REOPENED', 'SecurityDeposit', [{ sourceId: CONF, yearBefore: 2027, yearAfter: null }]],
+      ['DEPOSIT_CLOSED', 'SecurityDeposit', [{ sourceId: CONF, yearBefore: null, yearAfter: 2027 }]],
+      [
+        'TRANSACTION_CORRECTED',
+        'Transaction',
+        [
+          {
+            sourceType: 'TRANSACTION_SPLIT',
+            sourceId: CONF,
+            taxYear: 2027,
+            stateBefore: 'ATTRIBUTED',
+            partBefore: { amount: '950.00', currency: 'EUR' },
+            stateAfter: 'NONE',
+            partAfter: null,
+          },
+        ],
+      ],
+    ]);
+  });
+});

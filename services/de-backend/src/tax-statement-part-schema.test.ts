@@ -190,7 +190,10 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
         const migration = migrations['0063_tax_year_part_acknowledgements'] as { up: (db: never) => Promise<void>; down: (db: never) => Promise<void> };
         // 0064 (VC-X-49) widens 0063's CHECKs and guard: rolled back first, as the Migrator would, and applied again below.
         const further = migrations['0064_tax_year_further_inputs'] as typeof migration;
+        // 0065 (VC-X-50) builds on 0064: its own down first.
+        const movers = migrations['0065_tax_year_deposit_and_correction_movers'] as typeof migration;
         const db = () => createDatabase(downPool) as never;
+        await withMigrationLock(() => movers.down(db()));
         await withMigrationLock(() => further.down(db()));
         const table = async () =>
           Number(
@@ -246,6 +249,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
         expect(restored).toBe('check');
         await withMigrationLock(() => migration.up(db()));
         await withMigrationLock(() => further.up(db()));
+        await withMigrationLock(() => movers.up(db()));
         expect(await table()).toBe(1);
         expect(await downPool.query(ackRow(pr)).then(() => 'accepted', classify)).toBe('accepted');
       } finally {

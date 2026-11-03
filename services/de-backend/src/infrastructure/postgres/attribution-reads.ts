@@ -1,10 +1,12 @@
 import type { Transaction } from 'kysely';
 import { withValidUntil } from '../../domains/financing/index.js';
 import type { ChangedEntry, RentDueDay } from '../../domains/rental-contract-reference/index.js';
-import { widestWindowDays, type AttributionInput, type HistoryRecord, type LoanTermsHistory, type RuleRegistry } from '../../domains/taxation/index.js';
+import { widestWindowDays, type AttributionInput, type LoanTermsHistory, type RuleRegistry } from '../../domains/taxation/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
 import { readLoanIn } from './loan-repository.js';
+import { history, recordsOf } from './audit-history-reads.js';
+import { depositClosingHistoriesOf } from './mover-reads.js';
 import { periodsOf } from './loan-terms-repository.js';
 import type { Database } from './schema.js';
 import { currentOf } from './tax-classification-rows.js';
@@ -15,6 +17,7 @@ import { countingSplits, factsQuery } from './tax-source-facts.js';
  * candidates booked in either window at an edge of `year` and the histories of their inputs. Every entity is selected
  * in the Realm first, then its AuditRecords by `audit_record_entity_idx` (`audit_record` has no Realm column), so
  * another Realm's AuditRecord is never read. Used by the view and by the acknowledgement command (its own snapshot).
+ * §58I Part 1 (VC-X-50): the deposits attributed to P with a `CLOSED` record and their records (`mover-reads.ts`).
  */
 
 /** The rent splits whose year `rentDueDays` and the reconciliation decide (§58A's table): base rent and advances. */
@@ -22,23 +25,21 @@ const ATTRIBUTED_RENT_CODES = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE'];
 
 const NONE: AttributionInput = { references: [], candidates: [] };
 
-export async function recordsOf(trx: Transaction<Database>, entityType: string, ids: readonly string[], actions: readonly string[]) {
-  if (ids.length === 0) return [];
-  return trx
-    .selectFrom('audit_record')
-    .select(['id', 'entity_id', 'action', 'new_version', 'occurred_at', 'metadata'])
-    .where('entity_type', '=', entityType)
-    .where('entity_id', 'in', [...ids])
-    .where('action', 'in', [...actions])
-    .orderBy('occurred_at')
-    .orderBy('id')
-    .execute();
-}
-
-export const history = (records: Awaited<ReturnType<typeof recordsOf>>, id: string): HistoryRecord[] =>
-  records.filter((r) => r.entity_id === id).map((r) => ({ auditRecordId: r.id, action: r.action, occurredAt: r.occurred_at }));
+export { history, recordsOf } from './audit-history-reads.js';
 
 export async function attributionInputOf(
+  trx: Transaction<Database>,
+  mreRealmId: string,
+  propertyReferenceId: string,
+  year: number,
+  registry: RuleRegistry,
+): Promise<AttributionInput> {
+  const deposits = await depositClosingHistoriesOf(trx, mreRealmId, propertyReferenceId);
+  return { ...(await windowInputOf(trx, mreRealmId, propertyReferenceId, year, registry)), deposits };
+}
+
+/** The candidates booked in a window at an edge of `year` and their inputs' histories (§58E Part 1). */
+async function windowInputOf(
   trx: Transaction<Database>,
   mreRealmId: string,
   propertyReferenceId: string,
