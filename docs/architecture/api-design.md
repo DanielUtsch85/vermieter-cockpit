@@ -6481,7 +6481,7 @@ Whether it still matches a flagged change is the view's to show (the entry's `ac
 - **Order of checks:**
   1. `400`;
   2. the Loan unknown or foreign → `404` (`LoanNotFoundError`); the set unknown, foreign or of another Loan → `404` (`LoanAllocationSetNotFoundError`, `details.allocationSetId`);
-  3. `advisorPartyId` names no Party of the Realm → `404` (`details.advisorPartyId`);
+  3. `advisorPartyId` names no Party of the Realm → `404` (`PartyNotFoundError`, `details.partyId`);
   4. **nothing to confirm** → `409 CONFLICT` with `reason = "NOTHING_TO_CONFIRM"` and `details: { allocationSetId, cause }`, `cause` one of `LOAN_VOID` (its sets count nowhere, §41.1), `SET_VOID`, `NOT_PURCHASE_PRICE`, `SINGLE_ENTRY`. A `CLOSED` Loan's set can be confirmed: its interest up to the closing stays in the views;
   5. **the no-op:** an `ACTIVE` confirmation of the set exists → `200` with it, nothing written, whatever the body says (to name an advisor afterwards, withdraw and confirm again);
   6. `201`: `status = ACTIVE`, `version = 1`; AuditRecord `CONFIRMED`.
@@ -6555,7 +6555,7 @@ All tables carry `mre_realm_id`; ids are UUIDs; texts trimmed with 0045's text c
 | `LoanAllocationTaxConfirmationNotFoundError` | `404 NOT_FOUND`, "Confirmation not found." | `{ confirmationId }` |
 | `NothingToConfirmError` | `409 CONFLICT`, "This allocation set needs no tax confirmation." | `{ reason: "NOTHING_TO_CONFIRM", allocationSetId, cause }` |
 
-Reused: `PropertyReferenceNotFoundError`, `LoanNotFoundError`, `LoanAllocationSetNotFoundError`, `PartyNotFoundError` (advisor), `IdempotencyKeyConflictError` (`409`), `ConcurrentUpdateError` (`503`). Field errors with the existing codes; flags are data, never errors.
+Reused: `PropertyReferenceNotFoundError`, `LoanNotFoundError`, `LoanAllocationSetNotFoundError`, `PartyNotFoundError` (advisor, `details: { partyId }`, see "As implemented" 5), `IdempotencyKeyConflictError` (`409`), `ConcurrentUpdateError` (`503`). Field errors with the existing codes; flags are data, never errors.
 
 ### Performance
 
@@ -6623,6 +6623,7 @@ Implemented as specified, with the owner's decisions of 2026-11-01 (questions 1�
 6. **ACC7 and ACC8 unchanged** (question 8): both run unchanged and green; neither shows a flag of the widened kinds. The step "a year leaves and reaches `final` again" is in `tax-year-acknowledgements-final.e2e.test.ts` on ACC8's test wiring (the record command with the switch on, test-only), not in ACC8; ACC8's support only gained the two commands it wires.
 7. **Tests:** `attribution-history.test.ts`, `tax-statements.test.ts` (pure), `tax-statement-repository.test.ts` (orders of checks, idempotency, withdrawals, one snapshot, both concurrency cases, Realm isolation past the composite keys, the schema guards with counter-checks, `up`/`down`), `api/tax-statements.test.ts`, `tax-year-acknowledgements.e2e.test.ts` (the scenario of "Tests the implementation must have") and `tax-year-acknowledgements-final.e2e.test.ts`; invariant-suite §44 rows.
 8. **What a statement does not replace** (question 10): an acknowledgement or confirmation clears only its own flag; another open flag keeps the year not `final` (tested), no stage of §60A reads them.
+9. **Release note** (#249, owner question 1): VC-X-28's widened kinds of `ATTRIBUTION_INPUT_CHANGED` (`RENT_DUE_DAYS_AMENDED`, `RENT_DUE_DAYS_CREATED`, `RECONCILIATION_CONFIRMED`, `RECONCILIATION_RELEASED`, `LOAN_TERMS_ADDED`, `LOAN_TERMS_VOIDED`) can reopen tax years previously shown as `final` on existing data, where such a change was recorded after the year's end; acknowledging each change with its current fingerprint makes such a year `final` again, unless another flag stays open (item 8).
 
 ### Open questions for review
 
@@ -7516,7 +7517,7 @@ GET  /api/v1/tax-rules, /api/v1/tax-rules/{ruleCode}                          (V
   3. `VOID` → `409 ASSET_NOT_ACTIVE`;
   4. `buildingCompletionYear` is `null` → `409 CONFLICT` with `reason = "COMPLETION_YEAR_MISSING"`;
   5. `CONFIRMED` on an `ADVISOR_CONFIRMED` asset → `409 CONFLICT` with `reason = "ADVISOR_CONFIRMED"`. A user does not lower an advisor's confirmation; amending the state to `NEEDS_REVIEW` first is the explicit way;
-  6. the advisor Party: unknown or foreign → `404`;
+  6. the advisor Party: unknown or foreign → `404` (`details.partyId`);
   7. the same state with the same advisor → `200` no-op, whatever `If-Match` says;
   8. `If-Match` → `412`.
 - **Success:** `200` (`version` + 1). AuditRecord `CONFIRMED`, with `from`, `to`, the advisor, the note and the actor.
@@ -7650,7 +7651,7 @@ New domain errors, in the central table:
 | `DeclaredAfaNotApplicableError` (§59G Part 2, VC-X-41 Part 2; Entscheidung des Projektinhabers, 2026-11-02, open question 11) | `422 DECLARED_AFA_NOT_APPLICABLE`, "A declared AfA belongs only to a shorter useful life whose valuationDate lies after its Acquisition's contract year." | `{ index, acquisitionId, valuationDate, contractDate }` |
 
 Existing answers reused as they are:
-- `PropertyReferenceNotFoundError`, `PartyNotFoundError` and `AcquisitionNotFoundError` (`404`);
+- `PropertyReferenceNotFoundError`, `PartyNotFoundError` and `AcquisitionNotFoundError` (`404`). `PartyNotFoundError` answers `404 NOT_FOUND`, "Party not found.", with `details: { partyId }`, the id of the Party not found (an advisor, as §57's advisor-confirm, or a declared AfA's owner, §59G "As implemented (VC-X-41 Part 2)" 9), never `advisorPartyId`;
 - `AcquisitionCancelledError` (`409 CONFLICT`, `reason = "ACQUISITION_CANCELLED"`);
 - `VersionConflictError` (`412 VERSION_CONFLICT`, `expectedVersions`, `currentVersion`);
 - `IdempotencyKeyConflictError` (`409 CONFLICT`).
