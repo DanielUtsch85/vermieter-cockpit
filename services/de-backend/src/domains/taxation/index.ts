@@ -163,6 +163,9 @@ export type {
   ReconciliationInput,
   TermsHistory,
 } from './attribution-history.js';
+export { closingChanges } from './attribution-history.js';
+export { depositPartOn, depositSteps } from './attribution-deposits.js';
+export type { DepositPartHistory, DepositReconciliationHistory, DepositStep } from './attribution-deposits.js';
 export {
   PART_CHANGE_KINDS,
   PART_STATES,
@@ -180,6 +183,7 @@ export type {
   AllocationSetHistory,
   LoanSetsHistory,
   MarkedPartChange,
+  Part,
   PartCandidate,
   PartChange,
   PartChangeEntityType,

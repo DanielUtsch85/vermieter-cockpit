@@ -163,7 +163,8 @@ export async function attributionInputOf(
 
 /**
  * The candidate Loans of §58D (a `VALID` set names the PropertyReference) with a counting `LOAN_INTEREST` split booked
- * in a window, each with its periods (`VALID` and `VOID`, in the Realm), their `CREATED`/`VOIDED` records and its sets.
+ * in a window, each with its periods (`VALID` and `VOID`, in the Realm), their `CREATED`/`VOIDED` records, its sets and
+ * (§58H Part 1) its `CLOSED` record.
  */
 async function loanTermsHistories(
   trx: Transaction<Database>,
@@ -209,10 +210,13 @@ async function loanTermsHistories(
       periods.map((t) => t.id),
       ['CREATED', 'VOIDED'],
     );
+    // §58H Part 1: the Loan's CLOSED record (the Loan read in the Realm above, so its records are its own).
+    const closing = await recordsOf(trx, 'Loan', [loanId], ['CLOSED']);
     found.push({
       loanId,
       loan,
       terms: periods.map((t) => ({ period: t, validNow: t.status === 'VALID', records: history(records, t.id) })),
+      closing: history(closing, loanId),
       candidates: rows
         .filter((r) => r.loan_id === loanId)
         .map((r) => ({

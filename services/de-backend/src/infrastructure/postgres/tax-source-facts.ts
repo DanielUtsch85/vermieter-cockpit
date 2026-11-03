@@ -34,7 +34,8 @@ import { UUID, currentOf } from './tax-classification-rows.js';
  */
 
 export const COUNTED = ['CONFIRMED', 'RECONCILED'];
-const RENT_CODES = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE', 'RENT_OPERATING_COST_SETTLEMENT'];
+/** The rent splits whose PropertyReference a deposit takes (§58A): the one source of `depositFactsOf` and §58H's `depositPartsOf`. */
+export const DEPOSIT_RENT_CODES: readonly string[] = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE', 'RENT_OPERATING_COST_SETTLEMENT'];
 
 interface FactsRow {
   id: string;
@@ -290,7 +291,7 @@ export async function depositFactsOf(trx: Transaction<Database>, mreRealmId: str
           .where('r.mre_realm_id', '=', mreRealmId)
           .where('r.mre_tenant_id', 'in', tenants)
           .where('r.status', '=', 'CONFIRMED')
-          .where('c.code', 'in', RENT_CODES)
+          .where('c.code', 'in', [...DEPOSIT_RENT_CODES])
           .where('s.property_reference_id', 'is not', null)
           .execute();
   const byId = new Map(rows.map((r) => [r.id, r]));

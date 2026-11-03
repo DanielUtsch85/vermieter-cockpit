@@ -157,7 +157,9 @@ export function buildTaxYearView(
   const interest = read.interest ?? new Map<string, InterestFacts>();
   const listed = read.sources
     .flatMap((s) => deriveItems(s.item, year, read.ownerships, attribution.changes))
-    .map((d) => withInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId));
+    .map((d) => withInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId))
+    // §58H Part 2: the item flag on a deposit in P's view that a part change moved.
+    .map((d) => (d.source.sourceType === 'DEPOSIT_CLOSING' ? { ...d, flags: [...d.flags, ...partItemFlags(d.source.sourceId, parts)] } : d));
   // §58D: the interest of the allocated Loans, by the set on each split's booking date.
   const loanCases = loanInterestOf(read.propertyReferenceId, read.allocatedLoanInterest, read.loanAllocationSets);
   const attributedLoans = loanCases
@@ -189,7 +191,10 @@ export function buildTaxYearView(
   // VC-8-05: the AfA of the level, from the schedule's parts (never re-split), its lines in the Werbungskosten.
   const afa = afaOf(read.depreciation, currency, participant);
   const sections = withAfa(sectionsOf(derived, year, currency, participant), afa, currency);
-  const notAttributedDeposits = unattributed.map(notAttributedItem);
+  const notAttributedDeposits = unattributed.map((d) => {
+    const item = notAttributedItem(d);
+    return { ...item, flags: [...item.flags, ...partItemFlags(item.sourceId, parts)] };
+  });
   const notAttributed = [
     ...notAttributedDeposits,
     ...unattributedLoans.map((c) => {
@@ -202,8 +207,12 @@ export function buildTaxYearView(
   const flags: ViewFlag[] = [...afa.yearFlags];
   if (attribution.changes.length > 0) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: attribution.changes.map(changeEntry) });
   if (parts.length > 0) flags.push({ code: PROPERTY_PART_CHANGED, details: parts.map(partChangeEntry) });
-  // §58E: the entity of an unusable history; a reference keeps `rentalContractReferenceId`. §58G adds the sets.
+  // §58E: the entity of an unusable history; a reference keeps `rentalContractReferenceId`. §58G adds the sets, §58H the
+  // Loan; a reconciliation read by both flags is named once.
+  const named = new Set<string>();
   for (const e of [...attribution.inconsistent, ...derivedParts.inconsistent]) {
+    if (named.has(`${e.entityType}/${e.entityId}`)) continue;
+    named.add(`${e.entityType}/${e.entityId}`);
     flags.push({
       code: 'ATTRIBUTION_HISTORY_INCONSISTENT',
       details: {

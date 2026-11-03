@@ -97,7 +97,8 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
       ['NONE to NONE', { state_before: `'NONE'`, part_before: 'NULL', state_after: `'NONE'`, part_after: 'NULL' }],
       ['a negative part', { part_after: '-1.00' }],
       ['three decimals', { part_after: '225.001' }],
-      ['another source type', { source_type: `'DEPOSIT_CLOSING'` }],
+      // DEPOSIT_CLOSING (0064, §58H) under a set kind is the shape guard's: tax-statement-further-schema.test.ts.
+      ['another source type', { source_type: `'WEG_RESERVE_WITHDRAWAL'` }],
       ['a year outside', { tax_year: '1999' }],
       ['an unknown state', { state_after: `'PARTLY'` }],
     ];
@@ -187,7 +188,10 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
       try {
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         const migration = migrations['0063_tax_year_part_acknowledgements'] as { up: (db: never) => Promise<void>; down: (db: never) => Promise<void> };
+        // 0064 (VC-X-49) widens 0063's CHECKs and guard: rolled back first, as the Migrator would, and applied again below.
+        const further = migrations['0064_tax_year_further_inputs'] as typeof migration;
         const db = () => createDatabase(downPool) as never;
+        await withMigrationLock(() => further.down(db()));
         const table = async () =>
           Number(
             (
@@ -241,6 +245,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
         const restored = await downPool.query(ackRow(pr)).then(() => 'accepted', classify);
         expect(restored).toBe('check');
         await withMigrationLock(() => migration.up(db()));
+        await withMigrationLock(() => further.up(db()));
         expect(await table()).toBe(1);
         expect(await downPool.query(ackRow(pr)).then(() => 'accepted', classify)).toBe('accepted');
       } finally {
