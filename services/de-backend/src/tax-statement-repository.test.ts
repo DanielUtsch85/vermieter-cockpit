@@ -574,6 +574,9 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           await downPool.query(`DELETE FROM tax_year_acknowledgement`);
           // 0063 (VC-X-48) depends on these tables: rolled back first, as the Migrator would, and applied again below.
           const parts = migrations['0063_tax_year_part_acknowledgements'] as typeof migration;
+          // 0064 (VC-X-49) builds on 0063: its own down first.
+          const further = migrations['0064_tax_year_further_inputs'] as typeof migration;
+          await withMigrationLock(() => further.down(createDatabase(downPool) as never));
           await withMigrationLock(() => parts.down(createDatabase(downPool) as never));
           await withMigrationLock(() => migration.down(createDatabase(downPool) as never));
           expect(await tables()).toBe(0);
@@ -584,6 +587,7 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           expect(functions.rows).toEqual([]);
           await withMigrationLock(() => migration.up(createDatabase(downPool) as never));
           await withMigrationLock(() => parts.up(createDatabase(downPool) as never));
+          await withMigrationLock(() => further.up(createDatabase(downPool) as never));
           expect(await tables()).toBe(3);
         } finally {
           await downPool.end();

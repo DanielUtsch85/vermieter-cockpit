@@ -310,7 +310,7 @@ describe('the part shape and the optional kind (§58G, VC-X-48)', () => {
     const fail = (error: Error) => async () => Promise.reject(error);
     const cases: [Error, number, unknown][] = [
       [
-        new AttributionChangeAmbiguousError(AUDIT, 2027, ['DEPOSIT_RECONCILIATION_CONFIRMED' as never, 'RECONCILIATION_CONFIRMED']),
+        new AttributionChangeAmbiguousError(AUDIT, 2027, ['DEPOSIT_RECONCILIATION_CONFIRMED', 'RECONCILIATION_CONFIRMED']),
         409,
         { reason: 'CHANGE_AMBIGUOUS', auditRecordId: AUDIT, year: 2027, kinds: ['DEPOSIT_RECONCILIATION_CONFIRMED', 'RECONCILIATION_CONFIRMED'] },
       ],
@@ -333,5 +333,63 @@ describe('the part shape and the optional kind (§58G, VC-X-48)', () => {
       if (error instanceof AttributionChangeAmbiguousError)
         expect(answer.error.message).toBe('The record is more than one change of this year; name its kind.');
     }
+  });
+});
+
+describe('the kinds of §58H (VC-X-49): LOAN_CLOSED in the year shape, the deposit kinds in the part shape', () => {
+  const closed: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: { ...acknowledgement.change, kind: 'LOAN_CLOSED', entityType: 'Loan', items: [{ sourceId: CONF, yearBefore: 2027, yearAfter: 2028 }] },
+  };
+  const deposit: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: {
+      ...acknowledgement.change,
+      kind: 'DEPOSIT_RECONCILIATION_RELEASED',
+      entityType: 'RentPaymentReconciliation',
+      items: [
+        {
+          sourceType: 'DEPOSIT_CLOSING',
+          sourceId: CONF,
+          taxYear: 2027,
+          stateBefore: 'NOT_ATTRIBUTED',
+          partBefore: null,
+          stateAfter: 'ATTRIBUTED',
+          partAfter: Money.of('300.00', 'EUR'),
+        },
+      ],
+    },
+  };
+
+  it('each new kind passed on; a WEG plan kind 400 INVALID_FORMAT (no such kind, §58H Frage 1)', async () => {
+    const base = await start();
+    for (const kind of ['LOAN_CLOSED', 'DEPOSIT_RECONCILIATION_CONFIRMED', 'DEPOSIT_RECONCILIATION_RELEASED']) {
+      expect((await send(base, 'POST', ACKS, { ...body, kind })).status).toBe(201);
+      expect(seen.at(-1)).toMatchObject({ kind });
+    }
+    expect(await fields(await send(base, 'POST', ACKS, { ...body, kind: 'WEG_ECONOMIC_PLAN_ADDED' }))).toEqual([{ field: 'kind', code: 'INVALID_FORMAT' }]);
+  });
+
+  it('the DTO: LOAN_CLOSED with year items, a deposit kind with DEPOSIT_CLOSING part items', async () => {
+    const base = await start2({ listAcknowledgements: async () => [closed, deposit] });
+    const list = (await (await send(base, 'GET', ACKS)).json()) as { items: { change: { kind: string; entityType: string; items: unknown[] } }[] };
+    expect(list.items.map((i) => [i.change.kind, i.change.entityType, i.change.items])).toEqual([
+      ['LOAN_CLOSED', 'Loan', [{ sourceId: CONF, yearBefore: 2027, yearAfter: 2028 }]],
+      [
+        'DEPOSIT_RECONCILIATION_RELEASED',
+        'RentPaymentReconciliation',
+        [
+          {
+            sourceType: 'DEPOSIT_CLOSING',
+            sourceId: CONF,
+            taxYear: 2027,
+            stateBefore: 'NOT_ATTRIBUTED',
+            partBefore: null,
+            stateAfter: 'ATTRIBUTED',
+            partAfter: { amount: '300.00', currency: 'EUR' },
+          },
+        ],
+      ],
+    ]);
   });
 });

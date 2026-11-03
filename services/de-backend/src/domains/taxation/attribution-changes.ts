@@ -1,6 +1,6 @@
 import { canonicalJson, type BusinessDate, type Fingerprinter, type RuleRegistry } from '../../shared/index.js';
 import type { ChangedEntry, RentDueDay } from '../rental-contract-reference/index.js';
-import { reconciliationChanges, termsChanges, type LoanTermsHistory, type ReconciliationInput } from './attribution-history.js';
+import { closingChanges, reconciliationChanges, termsChanges, type LoanTermsHistory, type ReconciliationInput } from './attribution-history.js';
 import { movedItems, recordedAfter, type ChangeItem, type ChangeKind, type InconsistentHistory, type RawChange } from './attribution-rule.js';
 import { attributeTaxYear, rentTiming } from './cash-timing.js';
 
@@ -13,7 +13,8 @@ export type { ChangeEntityType, ChangeItem, ChangeKind, InconsistentHistory, Raw
  * an input; each candidate's year is computed with the input as it stood just before and just after the record,
  * everything else as read now, and the year is flagged when the two differ, one of them is the year and the record was
  * made after its 31 December (Europe/Berlin). The kinds: a RentalContractReference's `rentDueDays` created or amended
- * (here), a reconciliation confirmed or released and a Loan terms period added or voided (`attribution-history.ts`).
+ * (here), a reconciliation confirmed or released, a Loan terms period added or voided and a Loan closed (§58H Part 1)
+ * (`attribution-history.ts`).
  * Derived, never stored; a change is acknowledged by its fingerprint (§58E Part 2).
  */
 
@@ -202,7 +203,9 @@ export function attributionChanges(
   const reconciliations =
     input.reconciliations === undefined ? { changes: [], inconsistent: [] } : reconciliationChanges(input.reconciliations, year, registry);
   const terms = termsChanges(input.loans ?? [], year, registry, context.propertyReferenceId);
-  const raw = [...rent.changes, ...reconciliations.changes, ...terms.changes].sort((a, b) =>
+  // §58H Part 1: a Loan closed after the year's end.
+  const closings = closingChanges(input.loans ?? [], year, registry, context.propertyReferenceId);
+  const raw = [...rent.changes, ...reconciliations.changes, ...terms.changes, ...closings.changes].sort((a, b) =>
     a.amendedAt.getTime() !== b.amendedAt.getTime() ? a.amendedAt.getTime() - b.amendedAt.getTime() : a.auditRecordId < b.auditRecordId ? -1 : 1,
   );
   return {
@@ -216,7 +219,7 @@ export function attributionChanges(
         items: c.items,
       }),
     })),
-    inconsistent: [...rent.inconsistent, ...reconciliations.inconsistent, ...terms.inconsistent],
+    inconsistent: [...rent.inconsistent, ...reconciliations.inconsistent, ...terms.inconsistent, ...closings.inconsistent],
   };
 }
 

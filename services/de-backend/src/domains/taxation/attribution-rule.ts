@@ -1,6 +1,6 @@
 import { businessDayOf } from '../ledger/index.js';
 
-/** The kinds of `ATTRIBUTION_INPUT_CHANGED` and the one rule that judges them (api-design.md §58E Part 1). */
+/** The kinds of `ATTRIBUTION_INPUT_CHANGED` and the one rule that judges them (api-design.md §58E Part 1; §58H Part 1: `LOAN_CLOSED`). */
 
 export const CHANGE_KINDS = [
   'RENT_DUE_DAYS_AMENDED',
@@ -9,9 +9,10 @@ export const CHANGE_KINDS = [
   'RECONCILIATION_RELEASED',
   'LOAN_TERMS_ADDED',
   'LOAN_TERMS_VOIDED',
+  'LOAN_CLOSED',
 ] as const;
 export type ChangeKind = (typeof CHANGE_KINDS)[number];
-export type ChangeEntityType = 'RentalContractReference' | 'RentPaymentReconciliation' | 'LoanTerms';
+export type ChangeEntityType = 'RentalContractReference' | 'RentPaymentReconciliation' | 'LoanTerms' | 'Loan';
 
 export interface ChangeItem {
   readonly sourceId: string;

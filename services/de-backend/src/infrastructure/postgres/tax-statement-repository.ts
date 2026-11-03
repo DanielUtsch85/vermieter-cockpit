@@ -102,7 +102,7 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
           // 3. The year's changes of both flags in this snapshot (§58E Part 1, §58G), and the decision (steps 3–5).
           const attribution = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, this.registry);
           const wide = await allocatedLoanInterest(trx, this.registry, mreRealmId, propertyReferenceId, year, today, true);
-          const parts = await partChangeInputOf(trx, wide);
+          const parts = await partChangeInputOf(trx, wide, mreRealmId, year);
           const active = await acknowledgementsOf(trx, mreRealmId, propertyReferenceId, year, ['ACTIVE']);
           const decision = decide({ attribution, parts }, active);
           if (this.afterDerivation !== undefined) await this.afterDerivation();
