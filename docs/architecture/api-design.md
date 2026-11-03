@@ -7412,6 +7412,214 @@ On the tables of 0060 and §58G's migration:
 
 ---
 
+# 58I. The Deposit's Other Movers: Reopen and New Closing, and Split Corrections (VC-X-50, spec)
+
+**Status:** specified, **not implemented**; open questions for the owner (1–7 under "Open questions (owner)" at the end of this section). Backlog VC-X-50, created by the owner's decision on §58H open question 3 („wie vorgeschlagen. Wiedereröffnung mit neuem Abschluss und Split-Korrekturen als neue Backlog-Zeile, jetzt anlegen, nicht in VC-X-49.“; Entscheidung des Projektinhabers, 2026-11-03). **Migration: the next free number at implementation** (0063 is VC-X-48's; VC-X-49 (§58H) takes the next one, and VC-X-50 the one after it under open question 7's proposal; Kysely's Migrator refuses a migration whose name sorts before one already applied, so the number is fixed only by the merge order). Productive AfA recording stays disabled; nothing here touches it. It amends §58E (Part 1's kinds; the year item may name no year; the acknowledgement table's CHECKs) and §58G (the part kinds), additively, and builds on VC-X-49 (§58H), whose text it does not change. Placement, signs, the per-owner arithmetic, the attribution of Loan interest (§58D), § 82b, VC-8-05's AfA, the 31-December rule and the rule for `final` are unchanged. **ACC7 and ACC8 stay unchanged; VC-X-50 has its own e2e test** (open question 7's proposal, as decided for VC-X-48 and VC-X-49).
+
+**Why a section of its own, after §58H:** VC-X-50 is a backlog item of its own; §58H names both movers under "Not a change here" and points to it.
+
+The two movers, read against the code (paths below are relative to `services/de-backend/src/`):
+
+| Input | What it moves | Fits | Proposal |
+|---|---|---|---|
+| (a) A deposit **reopened** and **closed anew** (§47.4) | the deposit's **year**: its tax year is its closing date's (§58A), and between a reopen and the next closing it is in no year | §58E Part 1 (the year shape), with a side that names no year (open question 1) | kinds `DEPOSIT_REOPENED`, `DEPOSIT_CLOSED` of `ATTRIBUTION_INPUT_CHANGED` |
+| (b) A **split correction** (§35) moving a split to another PropertyReference | every split of the corrected Transaction between views: the original's splits stop counting, the replacement's start | §58G's part shape | kinds `TRANSACTION_CORRECTED`, `TRANSACTION_REVERSED` of `PROPERTY_PART_CHANGED` (open questions 5 and 6) |
+| (b) for the **deposit** of the moved rent's Tenant | the deposit's view | already §58H's kinds: a reconciled rent split is released before it can be corrected, and matched again after | nothing new; a test pins it |
+
+### As the code stands (main 15a695d, after VC-X-48)
+
+**The deposit's closing and reopen.**
+
+- **Close** (`infrastructure/postgres/security-deposit-closing.ts:21-72`) writes `CLOSED` on the entity `SecurityDeposit` (`security-deposit-rows.ts:23`) with `metadata` `{ closingDate, reason, closingNote, heldAtClosing }` (`security-deposit-closing.ts:65-69`, `closingJson` at `:141-146`). `planClose` (`domains/security-deposit/deposit.ts:180-202`) refuses a deposit that is not `ACTIVE` (`:191`, `409 DEPOSIT_NOT_ACTIVE`), so a closed deposit takes another closing **only through a reopen**; it refuses cash booked after `closingDate` (`:192-195`). Repeating the same closing is `UNCHANGED`, no record (`:182-190`).
+- **Reopen** (`security-deposit-closing.ts:74-122`; `planReopen`, `deposit.ts:211-215`) sets `ACTIVE` and clears `closing_date`, `closing_reason`, `closing_note`, `held_at_closing` (`security-deposit-closing.ts:100-112`), and writes `REOPENED` with `metadata.cleared` = the closing it cleared (`:114-119`). The deposit's other records are `CREATED`, `AMENDED`, `VOIDED` (`security-deposit-store.ts:117`, `:241`, `:292`).
+- **The retained amount** is computed from the **stored** `held_at_closing` (`retainedAmountOf`, `deposit.ts:218-221`; read in `tax-source-facts.ts:298-306`), never from the cash as now; no split may name a `CLOSED` deposit except a reversal (`domains/ledger/transaction-split.ts:182-185`). So a closed deposit's year and amount change only by a reopen and a new closing.
+- **In the view:** `closedDepositsOf` (`infrastructure/postgres/tax-year-reads.ts:371-401`) reads the Realm's deposits with `status = 'CLOSED'` and `closing_date` in `year` (`:380-387`) that count by the deposit (`depositNotCounted(f, null)`, `:395`); `yearItems` lists one in P's view when its PropertyReference is P (`:349`); `buildTaxYearView` lists a `null` one not attributed (`domains/taxation/tax-year-view.ts:175-177`). A reopened deposit is in no year's view; reclosed, it is in its new closing date's year.
+- **The old classification** stores the closing it classified; another date or amount makes it not count (`depositNotCounted`, `domains/taxation/deposit-closing.ts:70-84`, `CLOSING_CHANGED` at `:79-82`). The meaning then keeps the classification's `reviewState` and `treatment` (`:117-135`), the view places the item `UNCLASSIFIED` (`tax-year-items.ts:85`) with the meaning's flag `NOT_COUNTED` (`:202`), and adds `NEEDS_REVIEW`/`UNCLASSIFIED` only from the review state and treatment (`:137-138`). **`NOT_COUNTED` is informative in the review** (it is in none of `CONFIRMABLE`, `OPEN_ITEM_FLAGS`, `OPEN_YEAR_FLAGS`, `tax-year-review.ts:14-46`; `flagIsOpen`, `:68-83`). So the new year shows the deposit open (`NEEDS_REVIEW`, `UNCLASSIFIED`) only when it had no classification; with a confirmed classification of the old closing it is listed in `unclassified`, never summed, and **nothing holds the year open** (open question 4). §58C "As implemented" says "needing review with their `NOT_COUNTED` flag"; the review table does not name the flag.
+- **No code reads** the `CLOSED` or `REOPENED` records for tax.
+
+**The split correction.**
+
+- **A confirmed Transaction's splits are frozen**: `PUT …/splits` works only while `IMPORTED`, `UNREVIEWED`, `CLASSIFIED` (`SPLITTABLE_STATUSES`, `domains/ledger/transaction-split.ts:44`; `planSplits`, `:58-61`; `SPLITS_REPLACED`, `infrastructure/postgres/transaction-split-repository.ts:167`), and those Transactions never count for tax (`COUNTED = ['CONFIRMED', 'RECONCILED']`, `tax-source-facts.ts:36`; `countingSplits`, `:132-133`). A counting split moves to another PropertyReference only by a **correction**.
+- **The correction** (`infrastructure/postgres/correction-repository.ts`) writes a reversal and, for `correct`, a replacement with new splits (new split ids), sets the original `CORRECTED` (`:138-162`) and writes **one** AuditRecord `CORRECTED` (or `REVERSED` without a replacement) on the original `Transaction` (`:175-184`), with `reversalTransactionId`, `replacementTransactionId` and `changes` (`:399-422`: `splits.from`/`splits.to` with each split's `propertyReferenceId`). The original and the reversal stop counting; the replacement counts.
+- **A rent split with a `CONFIRMED` reconciliation cannot be corrected:** `planCorrection` answers `TRANSACTION_RENT_RECONCILED` (`domains/ledger/correct-transaction.ts:125-126`; the reconciliations read under the original's lock, `correction-repository.ts:105-120`). A reconciliation is made only on a counting, non-reversal Transaction (`domains/rent-reconciliation/reconciliation.ts:115`). So the sequence is always: release (`RentPaymentReconciliation` `RELEASED`), correct (`Transaction` `CORRECTED`), match the replacement (`CONFIRMED`).
+- **The view reads a split by its own PropertyReference** (`tax-year-reads.ts:317`), not the Transaction's. A replacement whose original's split was classified and which has none of its own carries `CLASSIFICATION_ON_CORRECTED_SPLIT`, open (`tax-year-review.ts:25`) — in the view it **reaches**. The view it **leaves** loses the split's figure with no flag.
+
+**What VC-X-28, VC-X-48 and VC-X-49 already give.**
+
+- `ATTRIBUTION_INPUT_CHANGED`'s kinds and year item (`domains/taxation/attribution-rule.ts:5-20`): `yearBefore`, `yearAfter` are numbers; `movedItems` (`:44-53`) compares them; `recordedAfter` is the 31-December rule (`:41`). The item flag is put only on a `TRANSACTION_SPLIT` (`tax-year-items.ts:131-136`).
+- `replay` (`attribution-history.ts:81-91`) replays an on/off history; `walk` (`:96-117`) the records of a group of entities. A deposit's history has a value (the closing), not only on/off.
+- `PROPERTY_PART_CHANGED` (`attribution-parts.ts:18-23`; `partOn`, `:91-104`; `partMoved`, `:106-109`, a step between `NOT_ATTRIBUTED` and `NONE` not flagged, §58G open question 3, decided).
+- The tables: 0060's `tax_year_acknowledgement` (`change_kind`, `change_entity_type`, `_kind_entity`, `migrations/0060_tax_year_acknowledgements.ts:35-54`) and `tax_year_acknowledgement_item` (`year_before`, `year_after` `NOT NULL`, `_moved` `year_before <> year_after`, `:68-75`); 0063's widened CHECKs (`0063_tax_year_part_acknowledgements.ts:33`), `tax_year_acknowledgement_part_item` (`source_type` `TRANSACTION_SPLIT`, `:52`) and the shape guard (`:90-105`). VC-X-49 (§58H) adds `LOAN_CLOSED`, the two deposit reconciliation kinds and `DEPOSIT_CLOSING` part items.
+
+### Routes
+
+**No new route.** §58E's acknowledgement routes serve the new kinds, with §58G's optional `kind`. `docs/development/api-inventory.md` is unchanged.
+
+### Part 1: a deposit reopened and closed anew (`ATTRIBUTION_INPUT_CHANGED`)
+
+| `kind` | AuditRecords read | Candidate items | The input before / after |
+|---|---|---|---|
+| `DEPOSIT_REOPENED` | `SecurityDeposit` `REOPENED` | the deposits of the Realm **attributed to P now** (their PropertyReference derived as §58A does, as now, is P) with at least one `CLOSED` record | the deposit's closing, replayed from its records in `(occurred_at, id)` order; its year on a side is the year of `closingDate` when closed with `retainedAmountOf` > 0, else **none** (`null`) |
+| `DEPOSIT_CLOSED` | `SecurityDeposit` `CLOSED` | as above | as above |
+
+- **One rule** (§58E Part 1): flagged in P's view of `year` when the two years differ (`null` counts as a value: `2027` and `null` differ), one of them is `year`, and the record lies after 31 December of `year` (`recordedAfter`). Each record is judged alone (open question 1).
+- **The closing per side** comes from the records: `CLOSED` sets it from `metadata` (`closingDate`, `reason`, `heldAtClosing`; the retained amount by `retainedAmountOf`), `REOPENED` clears it, `CREATED` starts without one, `VOIDED` keeps none, `AMENDED` leaves it (only `ACTIVE` fields and `notes` change, §47.1).
+- **The history:** consistent when the replay ends in the deposit's status and closing now (`closing_date`, `closing_reason`, `held_at_closing`), and each `REOPENED`'s `metadata.cleared` equals the closing it follows. Otherwise `ATTRIBUTION_HISTORY_INCONSISTENT` with `{ entityType: "SecurityDeposit", entityId }`, its records unused, its year as now (open, as today).
+- **Only deposits attributed to P are candidates.** A deposit listed not attributed (`NO_RECONCILED_RENT` in every view, `SEVERAL_PROPERTY_REFERENCES` in each candidate's) is never summed, so its year moving moves no figure of any view; while it is in a year, `UNATTRIBUTED_ITEMS` holds that year open. This follows §58G open question 3 (decided: `NOT_ATTRIBUTED` ↔ `NONE` is no part change).
+- **The entry's keys:** `securityDepositId`, `mreTenantId`, `closingDate` (the record's: the new one for `DEPOSIT_CLOSED`, the cleared one for `DEPOSIT_REOPENED`), `reason`. `items: [{ sourceId, yearBefore, yearAfter }]`, with `sourceId` the deposit's id and a year `null` for "in no year" (open questions 1 and 3).
+- **The item flag** of the same code goes on the deposit item now in `year` (attributed); `deriveItem`'s filter on `TRANSACTION_SPLIT` (`tax-year-items.ts:133`) is widened by the kind (a deposit kind's item is a `DEPOSIT_CLOSING`).
+- **What it covers:**
+  - a reopen after the year's end of a deposit closed in it (the year loses the item: `yearBefore` = `year`, `yearAfter` = `null`);
+  - a closing after the year's end with a date in it, the first closing included (`null` → `year`; open question 2);
+  - a reopen and a new closing in the same year with another amount: both records move the year to `null` and back, so both are flagged, although the year is the same at the end (the figure moved);
+  - a reopen and a new closing with the same date and amount (a reopen by mistake): both flagged, the old classification counts again (`deposit-closing.ts:79-82`); two acknowledgements (open question 1).
+- **Not a change:** a closing or reopen recorded before 31 December of the years it touches; a deposit with `RETURNED` or nothing retained on both sides (`null` to `null`); an amend (`notes`); a correction of the cash after the closing (`HELD_CHANGED_AFTER_CLOSING`, §47.4: the stored `held_at_closing` decides, `tax-source-facts.ts:298-306`); a deposit's PropertyReference moving (§58H's part kinds).
+- **The classification is untouched:** a new closing still needs a new classification (§58A). Whether the new year holds a deposit with a confirmed classification of the old closing open is open question 4; this section does not need it to flag the old year.
+
+### Part 2: a split correction (`PROPERTY_PART_CHANGED`)
+
+| `kind` | AuditRecords read | Candidate items | The input before / after |
+|---|---|---|---|
+| `TRANSACTION_CORRECTED` | `Transaction` `CORRECTED` | the splits of the corrected Transaction and of its replacement that P's view attributes or lists on either side (the split's PropertyReference is P; a `LOAN_INTEREST` split by §58D's sets) and whose tax year is `year` (§58A, derived now, as if counting) | before: the original's splits count, the replacement does not exist; after: the replacement's splits count, the original's do not |
+| `TRANSACTION_REVERSED` | `Transaction` `REVERSED` | the original's splits, as above | before: the original's splits count; after: none |
+
+- **P's part of a split** (§58G's states): `ATTRIBUTED` with `part` = its amount when its PropertyReference is P (a `LOAN_INTEREST` split: P's part by §58D, `partOn`), `NOT_ATTRIBUTED` where P's view lists it not attributed (§58D's `candidates`), `NONE` otherwise or when it does not count on that side. An original's split goes `ATTRIBUTED` → `NONE`, a replacement's `NONE` → `ATTRIBUTED`.
+- **The rule (open question 6's proposal):** flagged in P's view of `year` when the record lies after 31 December of `year` and, for some financial category and direction, the sum of P's parts of the splits with tax year `year` differs between the two sides. The items are then every candidate split whose state or part moved (`partMoved`). So a correction that only fixes a description or the Transaction's own `propertyReferenceId` (the view reads the split's, `tax-year-reads.ts:317`) raises nothing, and one that moves a split from P1 to P2 raises the flag in both views.
+- **A booking date corrected across the year's edge** is covered by the same sums: the original's split leaves `year`, the replacement's counts in another year. It is a part change in the year it leaves (and in the year it reaches, if that year has ended too), not a year kind: the item is a new split, so §58E's "the same item, another year" does not hold.
+- **The entry's keys:** `transactionId` (the original), `reversalTransactionId`, `replacementTransactionId` (`null` for `TRANSACTION_REVERSED`), `reason` (the correction's). `items: [{ sourceType: "TRANSACTION_SPLIT", sourceId, taxYear, stateBefore, partBefore, stateAfter, partAfter }]` (§58G's shape, unchanged).
+- **A chain:** a replacement corrected again is its own record; each step is judged alone (the original of the step against its replacement).
+- **The history:** a Transaction has at most one `CORRECTED` or `REVERSED` record (`CORRECTED` is final, `ALREADY_CORRECTED`, `correct-transaction.ts:106-114`). It is consistent when the status now is `CORRECTED` with exactly one such record and the record's `reversalTransactionId`/`replacementTransactionId` equal the Transaction's links; otherwise `ATTRIBUTION_HISTORY_INCONSISTENT` with `{ entityType: "Transaction", entityId }`, the record unused.
+- **The deposit of the moved rent's Tenant** needs no kind here. The reconciliation is released before the correction and the replacement matched after it (above), and §58H's `DEPOSIT_RECONCILIATION_RELEASED`/`_CONFIRMED` judge exactly those records (the PropertyReference of the released reconciliation's split read from the original, whose splits stay stored). A test pins that a correction moving a Tenant's only reconciled rent from P1 to P2 flags the deposit in P1 (release) and P2 (match) by §58H and raises no deposit item under the correction's kind.
+- **The rent's year** is §58E's: release and match are `RECONCILIATION_RELEASED`/`_CONFIRMED`, flagged only when they move the year (a split in a window at the year's edge).
+- **The classification is untouched:** the replacement's split keeps P7-D2's `CLASSIFICATION_ON_CORRECTED_SPLIT` (open) where its original was classified. The fingerprint and the sums read the ledger (financial category, direction, amount), not the classification.
+- **Not a change:** a correction recorded before 31 December of the years it touches; `SPLITS_REPLACED` (never on a counting Transaction); a reconciliation's records (§58E, §58H).
+
+### In the view (additive)
+
+- **`ATTRIBUTION_INPUT_CHANGED`** gains the kinds `DEPOSIT_REOPENED`, `DEPOSIT_CLOSED` (year shape; a year may be `null`) and the item flag on a deposit item now in `year`.
+- **`PROPERTY_PART_CHANGED`** gains the kinds `TRANSACTION_CORRECTED`, `TRANSACTION_REVERSED` (part shape) and the item flag on a split item now in P's view of `year` (attributed, or in `notAttributed`).
+- **Levels by state, fingerprints, acknowledgements and withdrawals** exactly as §58E and §58G.
+- **The snapshot** (§58C "One snapshot") gains the Realm's deposits with a `CLOSED` record and their `SecurityDeposit` records, and the Realm's `CORRECTED` Transactions with a split (of the original or of the replacement) that can count in `year` for P, with their records.
+- **`ATTRIBUTION_HISTORY_INCONSISTENT`** gains the entity types `SecurityDeposit` and `Transaction`.
+
+### The fingerprint
+
+As §58E Part 2 for the year kinds (`{ propertyReferenceId, year, auditRecordId, kind, items }`, items sorted by `sourceId`; a `null` year is `null` in the canonical JSON) and as §58G for the part kinds (the parts as exact cents). **No change to an existing kind's fingerprint:** the year item gains no key (open question 3), so no acknowledgement stored today re-opens.
+
+### Acknowledging a change (§58E Part 2, §58G, reused)
+
+`POST …/tax-years/{year}/acknowledgements` with §58G's body; `kind` one of the new kinds too.
+
+```json
+{
+  "auditRecordId": "6f1c2a9e-0000-4000-8000-000000000501",
+  "kind": "DEPOSIT_REOPENED",
+  "expectedFingerprint": "5d2b8f0e4a6c1e3b7d9f0a2c4e6b8d1f3a5c7e9b0d2f4a6c8e1b3d5f7a9c0e2b",
+  "reason": "Erklärung 2027 noch nicht abgegeben; Kaution nach Teilverzicht neu abgerechnet (synthetisch)"
+}
+```
+
+- **Order of checks:** §58G's, unchanged; step 3 derives the new kinds too. `CHANGE_AMBIGUOUS` does not arise from the new kinds' own records (a `SecurityDeposit` record is only a year change, a `Transaction` record only a part change); it stays possible for §58H's reconciliation record.
+- **Idempotency, `If-Match`, one change per request, withdraw:** unchanged. The `ACKNOWLEDGED` AuditRecord carries the items in their shape (a `null` year as `null`).
+
+### In the database (migration: the next free number at implementation)
+
+On the tables of 0060, 0063 and VC-X-49's migration:
+
+- **`tax_year_acknowledgement`:** `change_kind`'s CHECK gains `DEPOSIT_REOPENED`, `DEPOSIT_CLOSED`, `TRANSACTION_CORRECTED`, `TRANSACTION_REVERSED`; `change_entity_type`'s gains `SecurityDeposit`, `Transaction`; `tax_year_acknowledgement_kind_entity` binds `SecurityDeposit` to the two deposit kinds and `Transaction` to the two correction kinds (dropped and re-added under their names, as 0063).
+- **`tax_year_acknowledgement_item`:** `year_before` and `year_after` become nullable (the range CHECKs stay for a value); `_moved` becomes `year_before IS DISTINCT FROM year_after`; a new CHECK `tax_year_acknowledgement_item_some_year`: `num_nonnulls(year_before, year_after) >= 1`.
+- **The shape guard** (`tax_year_acknowledgement_item_shape`, 0063): the deposit kinds take year items only, the correction kinds part items only; **a `null` year only under a deposit kind** (read from the acknowledgement's `change_kind`); refused otherwise.
+- **`tax_year_acknowledgement_part_item`:** unchanged (`TRANSACTION_SPLIT` is there; `DEPOSIT_CLOSING` comes with VC-X-49).
+- **`down`** restores the CHECKs and `NOT NULL`; with an acknowledgement of a new kind or a year item with a `null` year present it **refuses** (a person's statement is never dropped silently, as 0060).
+- **No column** on `security_deposit`, `ledger_transaction`, `transaction_split`, `rent_payment_reconciliation` or `tax_classification`.
+
+### Error answers
+
+None new. `CHANGE_NOT_FLAGGED`, `CHANGE_AMBIGUOUS`, `ATTRIBUTION_CHANGE_DIFFERS` as §58E and §58G.
+
+### Examples (synthetic)
+
+**(a) A deposit reopened and closed anew in another year.** P1 owned by A `"1/1"`. Tenant T's rent is booked on P1 and reconciled during 2027, so T's deposit D is attributed to P1. D held 900.00; 600.00 is repaid on 2027-12-15, and D is closed on **2027-12-20** `RETAINED`, `heldAtClosing` 300.00, retained **300.00**, classified `RETAINED_DEPOSIT_DAMAGES` / `INCOME` (`USER_CONFIRMED`). P1's 2027 view has the line `RETAINED_DEPOSIT_DAMAGES` 300.00.
+
+- **On 2028-02-12** D is reopened (part of the claim is waived). D is `ACTIVE`, in no year: P1's 2027 income falls by 300.00, and D is in no list of 2027.
+- **On 2028-02-14** a repayment of 50.00 booked on 2028-01-10 is linked to D, and D is closed again with `closingDate` **2028-01-10**, `RETAINED`, `heldAtClosing` 250.00: retained **250.00**, tax year **2028**.
+- **P1's 2027:** `ATTRIBUTION_INPUT_CHANGED`, open, one entry `DEPOSIT_REOPENED` with `items: [{ sourceId: D, yearBefore: 2027, yearAfter: null }]`. The `CLOSED` record (`null` → 2028) touches neither side's 2027 and is not an entry of 2027.
+- **P1's 2028:** the `CLOSED` record was made during 2028: not flagged. D is in P1's 2028 view, `counts: false`, in `unclassified` with `NOT_COUNTED` (`CLOSING_CHANGED`; the classification is of 2027-12-20 and 300.00), its review state `USER_CONFIRMED`: today nothing holds 2028 open through D (open question 4). A new classification superseding the old one puts 250.00 in 2028's line.
+- **Acknowledged** in 2027 (`kind` `DEPOSIT_REOPENED`, the entry's fingerprint): informative, 2027 final again if nothing else is open. Acknowledging the `CLOSED` record in 2027 answers `409 CHANGE_NOT_FLAGGED`.
+- **Variant, a reopen by mistake:** closed again on 2028-02-14 with 2027-12-20 and 300.00 (no further cash). A second entry in 2027, `DEPOSIT_CLOSED` with `items: [{ sourceId: D, yearBefore: null, yearAfter: 2027 }]`; the old classification counts again (same closing), 300.00 is back in P1's 2027 line. Two acknowledgements; under open question 1's alternative, none.
+- **Variant, the same year and another amount:** the 50.00 repayment booked on 2027-12-18, D closed again on 2028-02-14 with 2027-12-20 and 250.00. Both records are entries of 2027 (2027 → `null`, `null` → 2027); D's old classification no longer counts, D is in 2027's `unclassified`, 2027's income is 300.00 lower until D is classified anew.
+
+**(b) A rent split corrected to another PropertyReference.** P1 owned by A `"1/1"`, P2 owned by B `"1/1"`. Tenant U rents a flat in P2. An inflow X of 950.00, booked on **2027-11-03**, has one split S1 `RENT_BASE` 950.00 on **P1** (a booking error), reconciled (`CONFIRMED` on 2027-11-05) to U's term 2027-11. S1 is classified `RENT` / `INCOME` (`USER_CONFIRMED`). P1's 2027 `RENT` line includes the 950.00.
+
+- **On 2028-03-02** the reconciliation is released, X is corrected (replacement Y, booked 2027-11-03, one split S2 `RENT_BASE` 950.00 on **P2**), and Y is matched to U's term 2027-11. Release and match move no year (a booking in November; §58E raises nothing).
+- **P1's 2027:** the `RENT` line falls by 950.00; `PROPERTY_PART_CHANGED`, open, one entry `TRANSACTION_CORRECTED` (`transactionId` X, `replacementTransactionId` Y) with `items: [{ sourceType: "TRANSACTION_SPLIT", sourceId: S1, taxYear: 2027, stateBefore: "ATTRIBUTED", partBefore: "950.00", stateAfter: "NONE", partAfter: null }]`.
+- **P2's 2027:** the `RENT` line grows by 950.00; one entry `TRANSACTION_CORRECTED` with `items: [{ sourceType: "TRANSACTION_SPLIT", sourceId: S2, taxYear: 2027, stateBefore: "NONE", partBefore: null, stateAfter: "ATTRIBUTED", partAfter: "950.00" }]`, the item flag on S2; S2 also carries `CLASSIFICATION_ON_CORRECTED_SPLIT` (open) until classified.
+- **With a deposit:** had U a deposit E closed on 2027-09-30 with 200.00 retained, and S1 been U's only reconciled rent, the release makes E `NO_RECONCILED_RENT` (P1: `ATTRIBUTED` 200.00 → `NOT_ATTRIBUTED`, §58H's `DEPOSIT_RECONCILIATION_RELEASED`, flagged), and the match attributes it to P2 (P2: `NOT_ATTRIBUTED` → `ATTRIBUTED` 200.00, `DEPOSIT_RECONCILIATION_CONFIRMED`, flagged; P1 `NOT_ATTRIBUTED` → `NONE`, not). The correction's entry has no deposit item.
+- **Variant, an amount only:** X corrected to 905.00 on P1. Under open question 6's proposal P1's 2027 is flagged (the `RENT_BASE` inflow sum 950.00 → 905.00; items S1 and S2); under its alternative, not. A description-only correction raises nothing under both.
+
+### The effect on `final`, ACC7 and ACC8
+
+- **The rule stays §58C's.** A year with a reopen, a late closing or a correction after its end that changed it is not final until each change is acknowledged; this can turn a `final: true` of today into `false` after deployment (the intended correction; a release note as VC-X-28's and VC-X-48's).
+- **What an acknowledgement does not replace** (§58E, decided 2026-11-02): it classifies no deposit and no replacement split, changes no figure and no stage of §60A.
+- **ACC7 and ACC8 unchanged** (open question 7's proposal): neither reopens a deposit or corrects a Transaction after the end of a year it would change (as the tests' clock runs). Both run unchanged; **a flag appearing there is a finding to report and explain, not to suppress.**
+
+### Performance
+
+- **Deposits:** the Realm's deposits with a `CLOSED` record that are attributed to P (a handful; the attribution as `depositFactsOf` reads it, `tax-source-facts.ts:262-320`) and their `SecurityDeposit` records by `audit_record_entity_idx`, after the deposits were selected in the Realm.
+- **Corrections:** the Realm's `CORRECTED` Transactions with a split on P (or of a candidate Loan) booked in `year`, its windows or overridden to it, and their replacements' splits; one AuditRecord each by `audit_record_entity_idx`. A plan test reads them inside the view's snapshot.
+
+### The code that changes (pointers)
+
+- **`domains/taxation/attribution-rule.ts`:** the kinds `DEPOSIT_REOPENED`, `DEPOSIT_CLOSED`, entity type `SecurityDeposit`; `ChangeItem`'s years `number | null` for the deposit kinds; `movedItems` compares with `null` as a value.
+- **`domains/taxation/attribution-history.ts`:** `depositClosingChanges` (a replay with the closing as the state, not `replay`'s on/off).
+- **`domains/taxation/attribution-parts.ts`:** `correctionPartChanges` (the per-category, per-direction sums and the items), the part kinds gain `TRANSACTION_CORRECTED`, `TRANSACTION_REVERSED`, entity type `Transaction`.
+- **`domains/taxation/tax-year-items.ts`:** the item flag of `ATTRIBUTION_INPUT_CHANGED` on a deposit item (`:131-136`).
+- **`infrastructure/postgres/attribution-reads.ts`, `part-reads.ts`:** the deposits and their records, the corrections and their records, in the view's snapshot, every entity selected in the Realm first; the command (`tax-statement-repository.ts`) the same in its own.
+- **Migration** `<n>_tax_year_deposit_and_correction_movers` (above).
+- **No change:** `security-deposit-closing.ts`, `correction-repository.ts`, `deposit-closing.ts`, `rent-reconciliation-repository.ts`, `api-inventory.md`.
+
+### Tests the implementation needs
+
+- **Domain (pure):** example (a) with its numbers (2027 flagged by the reopen only, 2028 not; the record on 31 December and on 1 January); both variants (two entries; the same year with another amount); a first closing recorded after the year's end (open question 2); `RETURNED` on both sides (nothing); a deposit not attributed (no candidate); an inconsistent history (`ATTRIBUTION_HISTORY_INCONSISTENT` with `SecurityDeposit`: a `CLOSED` deposit without a record, a `REOPENED` whose `cleared` differs); example (b) (P1 and P2 flagged, items and parts); a reversal; a chain of two corrections; a description-only and a Transaction-`propertyReferenceId`-only correction (nothing); a booking date corrected across the year's edge (the year left flagged, the year reached flagged only if ended); a `LOAN_INTEREST` split corrected (P's part by §58D); a `taxYear` override; the fingerprints (a `null` year; existing kinds' fingerprints byte for byte unchanged); levels and `final`.
+- **Repository (PostgreSQL):** the order of checks with the new kinds; idempotency; withdraw; one snapshot; **schema past the repository**, each with a counter-check: a deposit kind with another entity type or with a part item, a correction kind with a year item, a `null` year under a non-deposit kind, both years `null`, equal years; Realm isolation (another Realm's deposits, Transactions and records never read; their ids `CHANGE_NOT_FLAGGED`); "no cash mutated" around every view; the plans; `up`, `down`, `down` refusing with a row of a new kind or a `null` year.
+- **The deposit under a correction:** example (b)'s variant with E: §58H's two kinds flag P1 and P2, the correction's entry has no deposit item.
+- **API:** the DTO of both shapes for the new kinds, a `null` year in the year shape.
+- **End to end** (`tax-year-deposit-movers.e2e.test.ts`, its own; synthetic values only, a settable clock): examples (a) and (b) through the HTTP API (D reopened and closed again, 2027 acknowledged, the `CLOSED` record refused in 2027 with `CHANGE_NOT_FLAGGED`; X corrected from P1 to P2, both views acknowledged), **Realm isolation** and **no cash mutated** around them. ACC7 and ACC8 unchanged.
+
+### Counter-checks and mutations
+
+**Counter-checks:** no deposit leaving or reaching a closed year without the flag; no split leaving or reaching a closed year's view by a correction without the flag; no flag where the sums did not change; no figure changed by an acknowledgement; nothing written by a view.
+
+**Mutations** that must turn the tests red (each applied alone, restored byte for byte):
+
+- the reopen's side taken as the closing before it (no `null`), or the `REOPENED` records ignored;
+- the 31-December rule dropped for the deposit kinds or the correction kinds;
+- `null` compared as equal to every year (or `movedItems` left on `!==` of numbers only, the reopen missed);
+- the deposit's closing taken as now for both sides;
+- the deposit candidates widened to deposits not attributed (every view of the Realm flagged for a `NO_RECONCILED_RENT` deposit);
+- the correction's "after" side keeping the original's splits (nothing flagged), or the sums taken per Transaction instead of per financial category and direction (a category or direction change missed);
+- the correction's items without the replacement's splits (P2 not flagged);
+- the shape guard's `null` check dropped (a `null` year accepted under `RECONCILIATION_CONFIRMED`);
+- the Realm filter dropped from the deposit or the correction reads.
+
+### Invariant suite (with the implementation)
+
+§44's row **no silent move of a year** gains the deposit's reopen and closing; §58G's row **no silent move of a part** gains the correction.
+
+### Open questions (owner)
+
+1. **A reopen and the next closing: each alone, or as a pair.** **Proposal:** each record alone (§58E's rule, "each change is judged alone"), with "in no year" as a year `null` between them: a reopen after the year's end flags the year it leaves at once, even if the deposit is never closed again; a reopen by mistake and the same closing again are two entries (over-flagging only keeps a year open until acknowledged; §58E open question 5's reasoning, decided). **Alternative:** a pair: once closed again, the reopen and the next closing are one change keyed by the `CLOSED` record (the year before the reopen against the year after the closing, so the same closing again raises nothing and the year item never names `null` then); a reopen not followed by a closing stays a change with `yearAfter: null` until it is. Less noise, but an acknowledged reopen disappears when the deposit is closed again, and a same-year closing with another amount raises nothing.
+2. **A first closing recorded after the year's end.** **Proposal:** flag it (`null` → `year`): DE does not know whether the return was filed without the retained amount, as for a reconciliation confirmed late in the normal course (§58E open question 5, decided). **Alternative:** a `CLOSED` record that is the deposit's first is not a change (only a closing after a reopen moves a year); less noise for the common case of a tenancy ending in December and settled in January.
+3. **The year item names no source type.** **Proposal:** none: the kind tells (a deposit kind's items are deposits, every other year kind's are splits), so the year shape, its table and every stored acknowledgement's fingerprint stay as they are. **Alternative:** `sourceType` in every year item (`TRANSACTION_SPLIT`, `DEPOSIT_CLOSING`) and a `source_type` column in `tax_year_acknowledgement_item`, as the part shape has; clearer for a client, but the fingerprint of every year kind changes, so every stored acknowledgement re-opens once.
+4. **The new year with a confirmed classification of the old closing.** Today `NOT_COUNTED` (`CLOSING_CHANGED`) is informative (`tax-year-review.ts:14-46`, `:68-83`), so a deposit closed anew with another date or amount and an old `USER_CONFIRMED` classification is listed in `unclassified`, never summed, and holds nothing open. **Proposal:** make `NOT_COUNTED` with `CLOSING_CHANGED` (and §58C's `USE_CHANGED`, the same case for a use) an open item flag in §58C's review table, so the new year cannot be final until the deposit is classified anew; a schema-free change of `tax-year-review.ts` in this item. **Alternative:** leave it informative and only correct §58C's "As implemented" wording ("needing review"); the year's figures do not include the deposit either way, and the person sees it in `unclassified`.
+5. **The flag for a correction.** **Proposal:** §58G's `PROPERTY_PART_CHANGED` with the kinds `TRANSACTION_CORRECTED`, `TRANSACTION_REVERSED`: a correction moves figures between views (and out of a view), which is what the part shape records. **Alternative:** a code of its own, `LEDGER_CORRECTED_AFTER_YEAR_END`, with the part shape: a correction is a ledger act with its own reason and AuditRecord, not an attribution input, and a client could tell it apart by code.
+6. **Which corrections are flagged.** **Proposal:** every correction or reversal recorded after the year's end that changes, for some financial category and direction, P's sum of the splits with tax year `year` (a split moved to another PropertyReference, the backlog's case, and equally an amount, category, direction or booking date across the year's edge; a description-only correction raises nothing). **Alternative:** only a correction that moves a split to another PropertyReference (the sets of PropertyReferences of the original's and the replacement's splits differ); the other corrections keep changing a closed year silently, to be taken by a later row.
+7. **Order, migration and tests.** **Proposal:** after VC-X-49 (it widens the same CHECKs, and the deposit side of (b) relies on §58H's kinds), as a whole, with one migration; its own e2e test `tax-year-deposit-movers.e2e.test.ts`; ACC7 and ACC8 unchanged (as decided for VC-X-48 and VC-X-49). **Alternative:** Part 1 (the deposit's year) first, on its own (it needs only 0060's tables and 0063's shape guard), Part 2 after VC-X-49.
+
+**Still open (owner):** 1–7.
+
+---
+
 # 59. Depreciation Asset API (VC-8-01, implemented: migration 0049)
 
 **Status:** implemented (VC-8-01, migration 0049). The deviations and interpretations are listed under "As implemented (VC-8-01)" below.
