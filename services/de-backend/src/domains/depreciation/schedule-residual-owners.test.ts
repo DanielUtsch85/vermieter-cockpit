@@ -154,6 +154,45 @@ describe('the residual value itself (§59G open question 3)', () => {
     ).toEqual(['DECLARED_AFA_DIFFERS']);
   });
 
+  it('the declared AfA is compared with the amount shown, rounded half-up: 100,000.10 consumes 5,500.0055 by 2026, shown 5,500.01; the truncated 5,500.00 differs', () => {
+    const sole = (declaredAmount: string) =>
+      example([gutachten('2027-05-20', { declaredAfa: [declared(A, declaredAmount)] })], {
+        acquisitions: [
+          purchase({
+            purchasePrice: eur('100000.10'),
+            allocation: {
+              id: '0000bbbb-0000-4000-8000-000000000044',
+              method: 'PURCHASE_CONTRACT',
+              reviewState: 'CONFIRMED',
+              totalAllocableAmount: eur('100000.10'),
+              buildingAmount: eur('100000.10'),
+            },
+          }),
+        ],
+        ownerships: [ownership(A, '1/1', '2024-04-01', null, W)],
+      });
+    // The rounded amount shown (half-up, 5,500.0055 → 5,500.01) is released, and the spread starts from the same amount:
+    // the residual value shown at the end of 2026 is 94,500.09, and every year from 2027 spreads exactly that.
+    const released = component(derive(sole('5500.01')));
+    const y2026 = ownerIn(yearOf(released, 2026), A);
+    expect([y2026?.residualValue?.amount, sumOf(released.years.slice(0, 3).map((y) => ownerIn(y, A)?.amount?.amount))]).toEqual(['94500.09', '5500.01']);
+    expect(ownerIn(yearOf(released, 2027), A)?.reasons).toEqual([]);
+    const spread = spreadYears(10_000_010n, 550_001n, 396, 2027);
+    expect(released.years.slice(3).map((y) => [y.year, ownerIn(y, A)?.amount?.amount])).toEqual([...spread.entries()]);
+    // The truncated 5,500.00 is not the amount shown: DECLARED_AFA_DIFFERS, with the shown 5,500.01 as the computed AfA.
+    expect(ownerIn(yearOf(component(derive(sole('5500.00'))), 2027), A)?.reasons).toEqual([
+      {
+        code: 'DECLARED_AFA_DIFFERS',
+        details: {
+          acquisitionId: W,
+          throughYear: 2026,
+          declaredAfa: { amount: '5500.00', currency: 'EUR' },
+          computedAfa: { amount: '5500.01', currency: 'EUR' },
+        },
+      },
+    ]);
+  });
+
   it('HISTORICAL_RULE_TO_VERIFY: absent with both thresholds confirmed, present from the switch with a test registry setting them open', () => {
     const open = withParameters((p) => ({ ...p, verified: { ...p.verified, shorterUsefulLifeThresholds: false } }));
     const confirmed = component(derive(example([gutachten('2027-05-20')])));
