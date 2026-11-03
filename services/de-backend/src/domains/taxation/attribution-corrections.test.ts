@@ -208,7 +208,12 @@ describe('a split correction (§58I Part 2)', () => {
     const twice = { ...EXAMPLE, records: [...EXAMPLE.records, { ...(EXAMPLE.records[0] as CorrectionHistory['records'][number]), auditRecordId: 'a-2' }] };
     const notCorrected = { ...EXAMPLE, status: 'CONFIRMED' };
     const reversedWithReplacement = { ...EXAMPLE, records: [{ ...(EXAMPLE.records[0] as CorrectionHistory['records'][number]), action: 'REVERSED' }] };
-    for (const h of [noRecord, otherLink, twice, notCorrected, reversedWithReplacement]) {
+    // The record's reversal must be the Transaction's reversal link: another one, none on the record, none on either side.
+    const record = EXAMPLE.records[0] as CorrectionHistory['records'][number];
+    const otherReversal = { ...EXAMPLE, records: [{ ...record, reversalTransactionId: R2 }] };
+    const recordWithoutReversal = { ...EXAMPLE, records: [{ ...record, reversalTransactionId: null }] };
+    const noReversalAtAll = { ...EXAMPLE, reversalTransactionId: null, records: [{ ...record, reversalTransactionId: null }] };
+    for (const h of [noRecord, otherLink, twice, notCorrected, reversedWithReplacement, otherReversal, recordWithoutReversal, noReversalAtAll]) {
       expect(correctionRecordOf(h)).toBeUndefined();
       expect(of(P1, 2027, [h])).toEqual({ changes: [], inconsistent: [{ entityType: 'Transaction', entityId: X }] });
     }
