@@ -64,8 +64,13 @@ export interface LoanInterestCandidate {
 
 export interface LoanTermsHistory {
   readonly loanId: string;
-  readonly loan: Pick<Loan, 'principalOriginal' | 'maturityDate' | 'status' | 'closingDate'>;
+  readonly loan: Pick<Loan, 'principalOriginal' | 'maturityDate' | 'status' | 'closingDate'> & { readonly closingReason?: Loan['closingReason'] };
   readonly terms: readonly TermsHistory[];
+  /**
+   * §58H Part 1: the Loan's `CLOSED` AuditRecords (at most one, §41.7: `CLOSED` is final). Absent: the closing is not
+   * judged (a caller that did not read the records); the reads always give it.
+   */
+  readonly closing?: readonly HistoryRecord[];
   readonly candidates: readonly LoanInterestCandidate[];
   /** Every set of the Loan with `validUntil` (§41.3), to decide which candidates concern the PropertyReference. */
   readonly sets: readonly LoanAllocationSetView[];
@@ -227,6 +232,62 @@ export function termsChanges(
         items,
       });
     }
+  }
+  return { changes, inconsistent };
+}
+
+/** The payment dates of the Loan's schedule over its `VALID` terms as now (§41.4), cut at `closingDate` when closed (§41.7). */
+function paymentDates(loan: LoanTermsHistory['loan'], terms: readonly TermsHistory[]): BusinessDate[] {
+  const periods = terms
+    .filter((t) => t.validNow)
+    .map((t) => t.period)
+    .sort((a, b) => (a.validFrom < b.validFrom ? -1 : 1));
+  return loanSchedule(loan, periods).entries.map((e) => e.paymentDate);
+}
+
+/**
+ * `LOAN_CLOSED` (§58H Part 1), per Loan: the Loan's one `CLOSED` record judged alone by §58E's rule, the schedule over
+ * its `VALID` terms as now without the closing (before) and with it (after): the entries after `closingDate` omitted can
+ * change a split's nearest entry and so its year. A history is consistent when the Loan is `CLOSED` now exactly with one
+ * such record; otherwise `ATTRIBUTION_HISTORY_INCONSISTENT` with `Loan`, the record unused. Terms changes keep reading
+ * the closing as now (`termsChanges`).
+ */
+export function closingChanges(
+  loans: readonly LoanTermsHistory[],
+  year: number,
+  registry: RuleRegistry,
+  propertyReferenceId: string,
+): { changes: RawChange[]; inconsistent: InconsistentHistory[] } {
+  const changes: RawChange[] = [];
+  const inconsistent: InconsistentHistory[] = [];
+  for (const loan of [...loans].sort((a, b) => (a.loanId < b.loanId ? -1 : 1))) {
+    if (loan.closing === undefined) continue;
+    // `CLOSED` is final (§41.7): nothing turns it off, so a second record or one on a Loan not closed does not fit.
+    const records = replay(loan.closing, 'CLOSED', 'CLOSED_UNDONE', loan.loan.status === 'CLOSED');
+    if (records === undefined) {
+      inconsistent.push({ entityType: 'Loan', entityId: loan.loanId });
+      continue;
+    }
+    const [record] = records;
+    if (record === undefined || !recordedAfter(record.occurredAt, year)) continue;
+    const candidates = loan.candidates.filter((c) => concerns(propertyReferenceId, loan.sets, c.bookingDate));
+    const before = paymentDates({ ...loan.loan, status: 'ACTIVE', closingDate: null }, loan.terms);
+    const after = paymentDates(loan.loan, loan.terms);
+    const items = movedItems(
+      candidates,
+      year,
+      (c, side) => attributeTaxYear(c, interestTiming(c.bookingDate, side === 'BEFORE' ? before : after), c.taxYearOverride, registry).taxYear,
+    );
+    if (items.length === 0) continue;
+    changes.push({
+      kind: 'LOAN_CLOSED' satisfies ChangeKind,
+      entityType: 'Loan',
+      entityId: loan.loanId,
+      auditRecordId: record.auditRecordId,
+      amendedAt: record.occurredAt,
+      keys: { loanId: loan.loanId, closingDate: loan.loan.closingDate, closingReason: loan.loan.closingReason ?? null },
+      items,
+    });
   }
   return { changes, inconsistent };
 }

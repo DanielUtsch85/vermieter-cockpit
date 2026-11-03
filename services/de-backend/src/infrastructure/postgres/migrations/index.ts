@@ -62,6 +62,7 @@ import * as m0060 from './0060_tax_year_acknowledgements.js';
 import * as m0061 from './0061_shorter_life_declared_afa.js';
 import * as m0062 from './0062_classification_partial_treatment.js';
 import * as m0063 from './0063_tax_year_part_acknowledgements.js';
+import * as m0064 from './0064_tax_year_further_inputs.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -133,4 +134,5 @@ export const migrations: Record<string, Migration> = {
   '0061_shorter_life_declared_afa': m0061,
   '0062_classification_partial_treatment': m0062,
   '0063_tax_year_part_acknowledgements': m0063,
+  '0064_tax_year_further_inputs': m0064,
 };

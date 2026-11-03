@@ -1,5 +1,6 @@
 import { canonicalJson, centsOf, moneyOfCents, type BusinessDate, type Fingerprinter, type Money, type MoneyJson } from '../../shared/index.js';
 import { distribute, setOn, sumsToOne, withValidUntil, type LoanAllocationSet } from '../financing/index.js';
+import { depositSteps, type DepositPartHistory } from './attribution-deposits.js';
 import { replay, walk, type HistoryRecord } from './attribution-history.js';
 import { recordedAfter } from './attribution-rule.js';
 
@@ -12,13 +13,20 @@ import { recordedAfter } from './attribution-rule.js';
  * differs and the record lies after 31 December of `year` (§58E's 31-December rule). A step between `NOT_ATTRIBUTED` and
  * `NONE` moves no figure of P and is no change; every other step is (Entscheidung des Projektinhabers, 2026-11-03,
  * Frage 3). One code for every input that moves a part between views (Frage 1). Derived, never stored; acknowledged by
- * its fingerprint with §58E's routes (Frage 2).
+ * its fingerprint with §58E's routes (Frage 2). §58H Part 2 (VC-X-49) adds the deposit's PropertyReference moving with a
+ * reconciliation confirmed or released (`attribution-deposits.ts`; Entscheidung des Projektinhabers, 2026-11-03, §58H
+ * Frage 2): the kinds `DEPOSIT_RECONCILIATION_CONFIRMED`, `DEPOSIT_RECONCILIATION_RELEASED`, items `DEPOSIT_CLOSING`.
  */
 
 export const PROPERTY_PART_CHANGED = 'PROPERTY_PART_CHANGED';
-export const PART_CHANGE_KINDS = ['LOAN_ALLOCATION_SET_ADDED', 'LOAN_ALLOCATION_SET_VOIDED'] as const;
+export const PART_CHANGE_KINDS = [
+  'LOAN_ALLOCATION_SET_ADDED',
+  'LOAN_ALLOCATION_SET_VOIDED',
+  'DEPOSIT_RECONCILIATION_CONFIRMED',
+  'DEPOSIT_RECONCILIATION_RELEASED',
+] as const;
 export type PartChangeKind = (typeof PART_CHANGE_KINDS)[number];
-export type PartChangeEntityType = 'LoanAllocationSet';
+export type PartChangeEntityType = 'LoanAllocationSet' | 'RentPaymentReconciliation';
 export const PART_STATES = ['ATTRIBUTED', 'NOT_ATTRIBUTED', 'NONE'] as const;
 export type PartState = (typeof PART_STATES)[number];
 
@@ -26,7 +34,8 @@ export const isPartKind = (kind: string): kind is PartChangeKind => (PART_CHANGE
 
 /** One item a part change moved (§58G "The flag"): P's state and part on both sides; a part exactly on `ATTRIBUTED`. */
 export interface PartItem {
-  readonly sourceType: 'TRANSACTION_SPLIT';
+  /** A Loan's interest split (§58G) or a deposit closing (§58H). */
+  readonly sourceType: 'TRANSACTION_SPLIT' | 'DEPOSIT_CLOSING';
   readonly sourceId: string;
   readonly taxYear: number;
   readonly stateBefore: PartState;
@@ -58,6 +67,8 @@ export interface LoanSetsHistory {
 
 export interface PartChangeInput {
   readonly loans: readonly LoanSetsHistory[];
+  /** §58H Part 2: the counting deposit closings of the Realm in `year` with their Tenants' reconciliations; absent: none. */
+  readonly deposits?: readonly DepositPartHistory[];
 }
 
 export interface PartChange {
@@ -66,7 +77,16 @@ export interface PartChange {
   readonly entityId: string;
   readonly auditRecordId: string;
   readonly amendedAt: Date;
-  readonly keys: { readonly loanId: string; readonly allocationSetId: string; readonly validFrom: BusinessDate };
+  /** The kind's own keys: the set's (§58G), or the reconciliation's and the deposits' (§58H Part 2). */
+  readonly keys:
+    | { readonly loanId: string; readonly allocationSetId: string; readonly validFrom: BusinessDate }
+    | {
+        readonly reconciliationId: string;
+        readonly transactionId: string;
+        readonly mreTenantId: string;
+        readonly mreRentTerm: string;
+        readonly securityDepositIds: readonly string[];
+      };
   readonly items: readonly PartItem[];
   /** SHA-256 of the canonical `{ propertyReferenceId, year, auditRecordId, kind, items }`, parts as exact cents (§58G). */
   readonly changeFingerprint: string;
@@ -78,7 +98,7 @@ export interface PartChanges {
   readonly inconsistent: readonly { readonly entityType: PartChangeEntityType; readonly entityId: string }[];
 }
 
-interface Part {
+export interface Part {
   readonly state: PartState;
   readonly part: Money | null;
 }
@@ -197,6 +217,49 @@ export function partChanges(
       });
     }
   }
+  // §58H Part 2: the deposits' PropertyReference, one change per record of a Tenant's reconciliations.
+  const deposits = depositSteps(input?.deposits, year, pr);
+  for (const step of deposits.steps) {
+    const items = step.deposits
+      .filter((d) => partMoved(d.before, d.after))
+      .map(
+        (d): PartItem => ({
+          sourceType: 'DEPOSIT_CLOSING',
+          sourceId: d.securityDepositId,
+          taxYear: year,
+          stateBefore: d.before.state,
+          partBefore: d.before.part,
+          stateAfter: d.after.state,
+          partAfter: d.after.part,
+        }),
+      )
+      .sort(byIdentity);
+    if (items.length === 0) continue;
+    const r = step.reconciliation;
+    changes.push({
+      kind: step.kind,
+      entityType: 'RentPaymentReconciliation',
+      entityId: r.reconciliationId,
+      auditRecordId: step.record.auditRecordId,
+      amendedAt: step.record.occurredAt,
+      keys: {
+        reconciliationId: r.reconciliationId,
+        transactionId: r.transactionId,
+        mreTenantId: step.mreTenantId,
+        mreRentTerm: r.mreRentTerm,
+        securityDepositIds: items.map((i) => i.sourceId),
+      },
+      items,
+      changeFingerprint: partChangeFingerprint(context.fingerprinter, {
+        propertyReferenceId: pr,
+        year,
+        auditRecordId: step.record.auditRecordId,
+        kind: step.kind,
+        items,
+      }),
+    });
+  }
+  inconsistent.push(...deposits.inconsistent);
   changes.sort((a, b) =>
     a.amendedAt.getTime() !== b.amendedAt.getTime() ? a.amendedAt.getTime() - b.amendedAt.getTime() : a.auditRecordId < b.auditRecordId ? -1 : 1,
   );
