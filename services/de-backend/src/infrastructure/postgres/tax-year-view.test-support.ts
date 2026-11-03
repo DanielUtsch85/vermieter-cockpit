@@ -20,6 +20,8 @@ export const VIEW_TABLES = [
   'rent_payment_reconciliation',
   'tax_year_acknowledgement',
   'tax_year_acknowledgement_item',
+  // §58G (VC-X-48): the part items of migration 0063.
+  'tax_year_acknowledgement_part_item',
   'loan_allocation_tax_confirmation',
   // LOAN_INTEREST_NOT_ATTRIBUTED (review on #171): the Loans, their schedules' terms and their allocation sets.
   'loan',

@@ -572,6 +572,9 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           expect(await tables()).toBe(3);
           await downPool.query(`ALTER TABLE tax_year_acknowledgement DISABLE TRIGGER USER`);
           await downPool.query(`DELETE FROM tax_year_acknowledgement`);
+          // 0063 (VC-X-48) depends on these tables: rolled back first, as the Migrator would, and applied again below.
+          const parts = migrations['0063_tax_year_part_acknowledgements'] as typeof migration;
+          await withMigrationLock(() => parts.down(createDatabase(downPool) as never));
           await withMigrationLock(() => migration.down(createDatabase(downPool) as never));
           expect(await tables()).toBe(0);
           const functions = await downPool.query(
@@ -580,6 +583,7 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           );
           expect(functions.rows).toEqual([]);
           await withMigrationLock(() => migration.up(createDatabase(downPool) as never));
+          await withMigrationLock(() => parts.up(createDatabase(downPool) as never));
           expect(await tables()).toBe(3);
         } finally {
           await downPool.end();

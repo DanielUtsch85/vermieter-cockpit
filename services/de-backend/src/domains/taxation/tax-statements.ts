@@ -2,6 +2,7 @@ import type { AuditActor, BusinessDate } from '../../shared/index.js';
 import type { AllocationBasis, LoanAllocationSetView, LoanStatus } from '../financing/index.js';
 import type { AttributionChange, AttributionInput } from './attribution-changes.js';
 import type { ChangeEntityType, ChangeItem, ChangeKind } from './attribution-rule.js';
+import type { PartChange, PartChangeEntityType, PartChangeInput, PartChangeKind, PartItem } from './attribution-parts.js';
 
 /**
  * A person's statements the tax-year view reads (api-design.md §58E Parts 2 and 3, VC-X-28): the acknowledgement of
@@ -20,6 +21,10 @@ export interface StatementWithdrawal {
   readonly withdrawReason: string | null;
 }
 
+/** A change of either flag (§58G): `ATTRIBUTION_INPUT_CHANGED`'s year shape or `PROPERTY_PART_CHANGED`'s part shape. */
+export type AcknowledgedKind = ChangeKind | PartChangeKind;
+export type AnyChange = AttributionChange | PartChange;
+
 export interface TaxYearAcknowledgement extends StatementWithdrawal {
   readonly acknowledgementId: string;
   readonly propertyReferenceId: string;
@@ -27,12 +32,13 @@ export interface TaxYearAcknowledgement extends StatementWithdrawal {
   readonly status: TaxStatementStatus;
   readonly change: {
     readonly auditRecordId: string;
-    readonly kind: ChangeKind;
-    readonly entityType: ChangeEntityType;
+    readonly kind: AcknowledgedKind;
+    readonly entityType: ChangeEntityType | PartChangeEntityType;
     readonly entityId: string;
     readonly recordedAt: Date;
     readonly fingerprint: string;
-    readonly items: readonly ChangeItem[];
+    /** The year shape for a kind of §58E Part 1, the part shape for a kind of §58G (`change.kind` tells which). */
+    readonly items: readonly (ChangeItem | PartItem)[];
   };
   readonly reason: string;
   readonly acknowledgedAt: Date;
@@ -78,7 +84,7 @@ export interface ConfirmationMark {
  * only those), the same `auditRecordId` and the same fingerprint; a withdrawn one never counts.
  */
 export function matchAcknowledgement(
-  change: Pick<AttributionChange, 'auditRecordId' | 'changeFingerprint'>,
+  change: Pick<AnyChange, 'auditRecordId' | 'changeFingerprint'>,
   acknowledgements: readonly TaxYearAcknowledgement[],
 ): AcknowledgementMark | null {
   const found = acknowledgements.find(
@@ -115,21 +121,26 @@ export function nothingToConfirm(loanStatus: LoanStatus, set: Pick<LoanAllocatio
 
 export type AcknowledgeDecision =
   | { readonly kind: 'NOT_FLAGGED' }
+  | { readonly kind: 'AMBIGUOUS'; readonly kinds: readonly AcknowledgedKind[] }
   | { readonly kind: 'DIFFERS'; readonly currentFingerprint: string }
   | { readonly kind: 'NOOP'; readonly acknowledgement: TaxYearAcknowledgement }
-  | { readonly kind: 'CREATE'; readonly change: AttributionChange };
+  | { readonly kind: 'CREATE'; readonly change: AnyChange };
 
 /**
- * Steps 3–5 of the acknowledgement's order of checks (§58E Part 2): the change among the year's changes derived in the
- * command's snapshot, its fingerprint the one the person saw, then the no-op over the `ACTIVE` acknowledgements.
+ * Steps 3–5 of the acknowledgement's order of checks (§58E Part 2, step 3 widened by §58G): the change among both flags'
+ * changes of the year derived in the command's snapshot, taken by `auditRecordId` and, when given, `kind`; a record that
+ * is more than one change without `kind` is `AMBIGUOUS` (Entscheidung des Projektinhabers, 2026-11-03, Frage 4); then its
+ * fingerprint the one the person saw, then the no-op over the `ACTIVE` acknowledgements.
  */
 export function planAcknowledgement(
-  changes: readonly AttributionChange[],
-  request: { readonly auditRecordId: string; readonly expectedFingerprint: string },
+  changes: readonly AnyChange[],
+  request: { readonly auditRecordId: string; readonly expectedFingerprint: string; readonly kind?: AcknowledgedKind },
   active: readonly TaxYearAcknowledgement[],
 ): AcknowledgeDecision {
-  const change = changes.find((c) => c.auditRecordId === request.auditRecordId);
+  const found = changes.filter((c) => c.auditRecordId === request.auditRecordId && (request.kind === undefined || c.kind === request.kind));
+  const [change] = found;
   if (change === undefined) return { kind: 'NOT_FLAGGED' };
+  if (found.length > 1) return { kind: 'AMBIGUOUS', kinds: [...new Set(found.map((c) => c.kind))].sort() };
   if (change.changeFingerprint !== request.expectedFingerprint) return { kind: 'DIFFERS', currentFingerprint: change.changeFingerprint };
   const same = active.find(
     (a) => a.status === 'ACTIVE' && a.change.auditRecordId === change.auditRecordId && a.change.fingerprint === change.changeFingerprint,
@@ -141,6 +152,7 @@ export type AcknowledgeOutcome =
   | { readonly kind: 'CREATED' | 'UNCHANGED'; readonly acknowledgement: TaxYearAcknowledgement; readonly replayed: boolean }
   | { readonly kind: 'NOT_FOUND' }
   | { readonly kind: 'NOT_FLAGGED' }
+  | { readonly kind: 'AMBIGUOUS'; readonly kinds: readonly AcknowledgedKind[] }
   | { readonly kind: 'DIFFERS'; readonly currentFingerprint: string }
   | { readonly kind: 'IDEMPOTENCY_CONFLICT' }
   | { readonly kind: 'SERIALIZATION_FAILURE' };
@@ -166,9 +178,14 @@ export interface TaxStatementRepository {
     readonly mreRealmId: string;
     readonly actor: AuditActor;
     readonly reason: string;
+    /** The business day the meanings are derived on (only `RULE_SUPERSEDED` depends on it, never a tax year). */
+    readonly today: BusinessDate;
     readonly idempotency?: { readonly key: string; readonly fingerprint: string };
-    /** Steps 3–5, on the inputs read in the command's snapshot. */
-    readonly decide: (input: AttributionInput, active: readonly TaxYearAcknowledgement[]) => AcknowledgeDecision;
+    /** Steps 3–5, on the inputs of both flags read in the command's snapshot (§58E Part 1, §58G). */
+    readonly decide: (
+      inputs: { readonly attribution: AttributionInput; readonly parts: PartChangeInput },
+      active: readonly TaxYearAcknowledgement[],
+    ) => AcknowledgeDecision;
   }): Promise<AcknowledgeOutcome>;
   withdrawAcknowledgement(input: {
     readonly propertyReferenceId: string;

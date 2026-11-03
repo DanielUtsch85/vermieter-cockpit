@@ -2,6 +2,7 @@ import { moneyOfCents, type BusinessDate, type Fingerprinter, type RuleRegistry 
 import type { LoanAllocationSetView } from '../financing/index.js';
 import type { AnschaffungsnaheCheck, NotFinalReason } from './anschaffungsnahe.js';
 import { attributionChanges, changeEntry, type AttributionInput, type MarkedChange } from './attribution-changes.js';
+import { PROPERTY_PART_CHANGED, partChangeEntry, partChanges, partItemFlags, type MarkedPartChange, type PartChangeInput } from './attribution-parts.js';
 import type { TaxListItem } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
 import { deriveItems, notAttributedItem, type Derived } from './tax-year-items.js';
@@ -92,6 +93,8 @@ export interface TaxYearRead {
   /** The anschaffungsnahe checks of the PropertyReference's Acquisitions, from the same derivation as the list's. */
   readonly checks: readonly AnschaffungsnaheCheck[];
   readonly attribution: AttributionInput;
+  /** §58G: the Loans any of whose sets names the PropertyReference, their interest splits of `year` and sets' records. */
+  readonly parts?: PartChangeInput;
   /**
    * The counting `LOAN_INTEREST` splits of `year` (§58A's tax year, as the list derives it; the split's own meaning, no
    * treatment effects of the PropertyReference) of the Loans with a `VALID` LoanAllocation set naming this
@@ -148,6 +151,9 @@ export function buildTaxYearView(
   // §58E: each change with the ACTIVE acknowledgement that matches it (same auditRecordId and fingerprint), or null.
   const marked: MarkedChange[] = derivedChanges.changes.map((c) => ({ ...c, acknowledgement: matchAcknowledgement(c, read.acknowledgements ?? []) }));
   const attribution = { changes: marked, inconsistent: derivedChanges.inconsistent };
+  // §58G: the part changes of the allocation sets, marked the same way.
+  const derivedParts = partChanges(read.parts, year, { propertyReferenceId: read.propertyReferenceId, fingerprinter: options.fingerprinter });
+  const parts: MarkedPartChange[] = derivedParts.changes.map((c) => ({ ...c, acknowledgement: matchAcknowledgement(c, read.acknowledgements ?? []) }));
   const interest = read.interest ?? new Map<string, InterestFacts>();
   const listed = read.sources
     .flatMap((s) => deriveItems(s.item, year, read.ownerships, attribution.changes))
@@ -159,7 +165,9 @@ export function buildTaxYearView(
     .map((c) => deriveLoanItem(c, year, read.ownerships, attribution.changes, read.taxConfirmations))
     .filter((d): d is Derived => d !== undefined)
     // §59E: the flag dropped only with the component on P's building whose basis equals P's part, at every participant.
-    .map((d) => withLoanInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId, read.depreciation));
+    .map((d) => withLoanInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId, read.depreciation))
+    // §58G: the item flag on an attributed item a part change moved.
+    .map((d) => ({ ...d, flags: [...d.flags, ...partItemFlags(d.source.sourceId, parts)] }));
   const unattributedLoans = loanCases.filter((c): c is Extract<LoanInterestCase, { kind: 'NOT_ATTRIBUTED' }> => c.kind === 'NOT_ATTRIBUTED');
   const derived = inListOrder(listed, attributedLoans);
 
@@ -182,13 +190,20 @@ export function buildTaxYearView(
   const afa = afaOf(read.depreciation, currency, participant);
   const sections = withAfa(sectionsOf(derived, year, currency, participant), afa, currency);
   const notAttributedDeposits = unattributed.map(notAttributedItem);
-  const notAttributed = [...notAttributedDeposits, ...unattributedLoans.map((c) => notAttributedLoanItem(c, year))];
+  const notAttributed = [
+    ...notAttributedDeposits,
+    ...unattributedLoans.map((c) => {
+      const item = notAttributedLoanItem(c, year);
+      return { ...item, flags: [...item.flags, ...partItemFlags(item.sourceId, parts)] };
+    }),
+  ];
 
   // The flags of the year.
   const flags: ViewFlag[] = [...afa.yearFlags];
   if (attribution.changes.length > 0) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: attribution.changes.map(changeEntry) });
-  // §58E: the entity of an unusable history; a reference keeps `rentalContractReferenceId`.
-  for (const e of attribution.inconsistent) {
+  if (parts.length > 0) flags.push({ code: PROPERTY_PART_CHANGED, details: parts.map(partChangeEntry) });
+  // §58E: the entity of an unusable history; a reference keeps `rentalContractReferenceId`. §58G adds the sets.
+  for (const e of [...attribution.inconsistent, ...derivedParts.inconsistent]) {
     flags.push({
       code: 'ATTRIBUTION_HISTORY_INCONSISTENT',
       details: {

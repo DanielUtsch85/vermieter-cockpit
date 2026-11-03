@@ -1,7 +1,10 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import {
+  isPartKind,
   nothingToConfirm,
+  type ChangeItem,
+  type PartItem,
   type AcknowledgeOutcome,
   type ConfirmOutcome,
   type LoanAllocationTaxConfirmation,
@@ -14,6 +17,8 @@ import {
 import type { LoanStatus } from '../../domains/financing/index.js';
 import { checkVersion } from '../../shared/index.js';
 import { attributionInputOf } from './attribution-reads.js';
+import { partChangeInputOf } from './part-reads.js';
+import { allocatedLoanInterest } from './tax-year-reads.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
@@ -27,7 +32,7 @@ import { acknowledgementsOf, confirmationsOf } from './tax-statement-rows.js';
  * year's changes derived in this snapshot (Part 1, not the view) and the use case's decision, then the rows, the
  * AuditRecord and the key; a serialisation failure (`40001`) is answered as such and the use case retries. A
  * confirmation is one `READ COMMITTED` transaction: the key, the Loan row (P3-D8's no-op), then the set and its rows read
- * under it. No input is locked; nothing outside 0060's tables and the AuditRecords is written.
+ * under it. No input is locked; nothing outside the tables of 0060 and 0063 (§58G, the part items) and the AuditRecords is written.
  */
 
 const ACKNOWLEDGEMENT = 'TaxYearAcknowledgement';
@@ -70,7 +75,7 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
   ) {}
 
   async acknowledge(input: Parameters<TaxStatementRepository['acknowledge']>[0]): Promise<AcknowledgeOutcome> {
-    const { propertyReferenceId, year, mreRealmId, actor, reason, idempotency, decide } = input;
+    const { propertyReferenceId, year, mreRealmId, actor, reason, today, idempotency, decide } = input;
     if (!UUID.test(propertyReferenceId)) return { kind: 'NOT_FOUND' };
     try {
       return await this.db
@@ -94,12 +99,14 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
             trx,
           );
           if (Number(written.numAffectedRows ?? 0n) === 0) throw new Rejected<AcknowledgeOutcome>({ kind: 'NOT_FOUND' });
-          // 3. The year's changes in this snapshot, and the decision (steps 3–5).
-          const inputs = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, this.registry);
+          // 3. The year's changes of both flags in this snapshot (§58E Part 1, §58G), and the decision (steps 3–5).
+          const attribution = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, this.registry);
+          const wide = await allocatedLoanInterest(trx, this.registry, mreRealmId, propertyReferenceId, year, today, true);
+          const parts = await partChangeInputOf(trx, wide);
           const active = await acknowledgementsOf(trx, mreRealmId, propertyReferenceId, year, ['ACTIVE']);
-          const decision = decide(inputs, active);
+          const decision = decide({ attribution, parts }, active);
           if (this.afterDerivation !== undefined) await this.afterDerivation();
-          if (decision.kind === 'NOT_FLAGGED' || decision.kind === 'DIFFERS') throw new Rejected<AcknowledgeOutcome>(decision);
+          if (decision.kind === 'NOT_FLAGGED' || decision.kind === 'AMBIGUOUS' || decision.kind === 'DIFFERS') throw new Rejected<AcknowledgeOutcome>(decision);
           const record = async (kind: StatementSnapshot['kind'], acknowledgement: TaxYearAcknowledgement) => {
             if (idempotency !== undefined) {
               const snapshot: StatementSnapshot = {
@@ -135,18 +142,38 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
             })
             .returning('id')
             .executeTakeFirstOrThrow();
-          await trx
-            .insertInto('tax_year_acknowledgement_item')
-            .values(
-              c.items.map((i) => ({
-                acknowledgement_id: inserted.id,
-                mre_realm_id: mreRealmId,
-                source_id: i.sourceId,
-                year_before: i.yearBefore,
-                year_after: i.yearAfter,
-              })),
-            )
-            .execute();
+          // §58G: a part kind's items in the part shape (0063), a year kind's in 0060's table; the shape guard checks it.
+          if (isPartKind(c.kind)) {
+            await trx
+              .insertInto('tax_year_acknowledgement_part_item')
+              .values(
+                (c.items as readonly PartItem[]).map((i) => ({
+                  acknowledgement_id: inserted.id,
+                  mre_realm_id: mreRealmId,
+                  source_type: i.sourceType,
+                  source_id: i.sourceId,
+                  tax_year: i.taxYear,
+                  state_before: i.stateBefore,
+                  part_before: i.partBefore?.amount ?? null,
+                  state_after: i.stateAfter,
+                  part_after: i.partAfter?.amount ?? null,
+                })),
+              )
+              .execute();
+          } else {
+            await trx
+              .insertInto('tax_year_acknowledgement_item')
+              .values(
+                (c.items as readonly ChangeItem[]).map((i) => ({
+                  acknowledgement_id: inserted.id,
+                  mre_realm_id: mreRealmId,
+                  source_id: i.sourceId,
+                  year_before: i.yearBefore,
+                  year_after: i.yearAfter,
+                })),
+              )
+              .execute();
+          }
           const [created] = await acknowledgementsOf(trx, mreRealmId, propertyReferenceId, year, null, [inserted.id]);
           if (created === undefined) throw new Error(`TaxYearAcknowledgement ${inserted.id} vanished`);
           await writeAudit(trx, { type: ACKNOWLEDGEMENT, id: inserted.id }, 'ACKNOWLEDGED', actor, {
@@ -159,7 +186,9 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
               entityType: c.entityType,
               entityId: c.entityId,
               changeFingerprint: c.changeFingerprint,
-              items: created.change.items,
+              items: created.change.items.map((i) =>
+                'stateBefore' in i ? { ...i, partBefore: i.partBefore?.toJSON() ?? null, partAfter: i.partAfter?.toJSON() ?? null } : i,
+              ),
               reason,
             },
           });

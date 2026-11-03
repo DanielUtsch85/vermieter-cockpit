@@ -848,6 +848,7 @@ export type {
 } from '../domains/depreciation/index.js';
 // VC-X-28 (api-design.md §58E): acknowledgements and tax confirmations in the tax-year view.
 export {
+  AttributionChangeAmbiguousError,
   AttributionChangeDiffersError,
   AttributionChangeNotFlaggedError,
   LoanAllocationTaxConfirmationNotFoundError,
@@ -868,5 +869,12 @@ export type {
   WithdrawAcknowledgement,
   WithdrawConfirmation,
 } from './tax-statements.js';
-export { TAX_STATEMENT_STATUSES } from '../domains/taxation/index.js';
-export type { LoanAllocationTaxConfirmation, TaxStatementStatus, TaxStatementRepository, TaxYearAcknowledgement } from '../domains/taxation/index.js';
+export { CHANGE_KINDS, PART_CHANGE_KINDS, TAX_STATEMENT_STATUSES } from '../domains/taxation/index.js';
+export type {
+  AcknowledgedKind,
+  LoanAllocationTaxConfirmation,
+  PartItem,
+  TaxStatementStatus,
+  TaxStatementRepository,
+  TaxYearAcknowledgement,
+} from '../domains/taxation/index.js';

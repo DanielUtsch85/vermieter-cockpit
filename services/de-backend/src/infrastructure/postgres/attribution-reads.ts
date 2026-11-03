@@ -22,7 +22,7 @@ const ATTRIBUTED_RENT_CODES = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE'];
 
 const NONE: AttributionInput = { references: [], candidates: [] };
 
-async function recordsOf(trx: Transaction<Database>, entityType: string, ids: readonly string[], actions: readonly string[]) {
+export async function recordsOf(trx: Transaction<Database>, entityType: string, ids: readonly string[], actions: readonly string[]) {
   if (ids.length === 0) return [];
   return trx
     .selectFrom('audit_record')
@@ -35,7 +35,7 @@ async function recordsOf(trx: Transaction<Database>, entityType: string, ids: re
     .execute();
 }
 
-const history = (records: Awaited<ReturnType<typeof recordsOf>>, id: string): HistoryRecord[] =>
+export const history = (records: Awaited<ReturnType<typeof recordsOf>>, id: string): HistoryRecord[] =>
   records.filter((r) => r.entity_id === id).map((r) => ({ auditRecordId: r.id, action: r.action, occurredAt: r.occurred_at }));
 
 export async function attributionInputOf(
