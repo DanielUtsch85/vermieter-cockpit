@@ -6481,7 +6481,7 @@ Whether it still matches a flagged change is the view's to show (the entry's `ac
 - **Order of checks:**
   1. `400`;
   2. the Loan unknown or foreign → `404` (`LoanNotFoundError`); the set unknown, foreign or of another Loan → `404` (`LoanAllocationSetNotFoundError`, `details.allocationSetId`);
-  3. `advisorPartyId` names no Party of the Realm → `404` (`details.advisorPartyId`);
+  3. `advisorPartyId` names no Party of the Realm → `404` (`PartyNotFoundError`, `details.partyId`);
   4. **nothing to confirm** → `409 CONFLICT` with `reason = "NOTHING_TO_CONFIRM"` and `details: { allocationSetId, cause }`, `cause` one of `LOAN_VOID` (its sets count nowhere, §41.1), `SET_VOID`, `NOT_PURCHASE_PRICE`, `SINGLE_ENTRY`. A `CLOSED` Loan's set can be confirmed: its interest up to the closing stays in the views;
   5. **the no-op:** an `ACTIVE` confirmation of the set exists → `200` with it, nothing written, whatever the body says (to name an advisor afterwards, withdraw and confirm again);
   6. `201`: `status = ACTIVE`, `version = 1`; AuditRecord `CONFIRMED`.
@@ -7651,7 +7651,7 @@ New domain errors, in the central table:
 | `DeclaredAfaNotApplicableError` (§59G Part 2, VC-X-41 Part 2; Entscheidung des Projektinhabers, 2026-11-02, open question 11) | `422 DECLARED_AFA_NOT_APPLICABLE`, "A declared AfA belongs only to a shorter useful life whose valuationDate lies after its Acquisition's contract year." | `{ index, acquisitionId, valuationDate, contractDate }` |
 
 Existing answers reused as they are:
-- `PropertyReferenceNotFoundError`, `PartyNotFoundError` and `AcquisitionNotFoundError` (`404`). `PartyNotFoundError` answers `404 NOT_FOUND`, "Party not found.", with `details: { partyId }`, the id of the advisor Party not found (as §57's advisor-confirm), never `advisorPartyId`;
+- `PropertyReferenceNotFoundError`, `PartyNotFoundError` and `AcquisitionNotFoundError` (`404`). `PartyNotFoundError` answers `404 NOT_FOUND`, "Party not found.", with `details: { partyId }`, the id of the Party not found (an advisor, as §57's advisor-confirm, or a declared AfA's owner, §59G "As implemented (VC-X-41 Part 2)" 9), never `advisorPartyId`;
 - `AcquisitionCancelledError` (`409 CONFLICT`, `reason = "ACQUISITION_CANCELLED"`);
 - `VersionConflictError` (`412 VERSION_CONFLICT`, `expectedVersions`, `currentVersion`);
 - `IdempotencyKeyConflictError` (`409 CONFLICT`).
