@@ -722,6 +722,17 @@ export interface TaxClassificationTable {
   performance_progress_estimated: Generated<boolean | null>;
   /** 0058: the inserting transaction (set by default), so the points are inserted only by it. */
   created_txid: Generated<string | null>;
+  /** VC-X-38 Part 2 (0062, §59F): the parts in `tax_classification_treatment_part` (window part CAPITALIZED, rest DEDUCTIBLE). */
+  partial_treatment: Generated<boolean>;
+}
+
+/** §59F (VC-X-38 Part 2, migration 0062): the two parts of a partial treatment, summing to the source's amount. */
+export interface TaxClassificationTreatmentPartTable {
+  classification_id: string;
+  position: number;
+  treatment: string;
+  amount: string;
+  created_txid: Generated<string>;
 }
 
 /** §59F (VC-X-38, migration 0058): the evidenced cumulative shares of a classification's period of performance. */
@@ -945,6 +956,7 @@ export interface Database {
   transaction_split: TransactionSplitTable;
   tax_classification: TaxClassificationTable;
   tax_classification_performance_progress: TaxClassificationPerformanceProgressTable;
+  tax_classification_treatment_part: TaxClassificationTreatmentPartTable;
   construction_period_interest: ConstructionPeriodInterestTable;
   construction_period_interest_property: ConstructionPeriodInterestPropertyTable;
   rental_contract_reference: RentalContractReferenceTable;

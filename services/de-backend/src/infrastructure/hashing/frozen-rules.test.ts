@@ -54,7 +54,11 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // Again for §59F (VC-X-38; Prüfbericht 2026-11-01, Fragen 14 und 16, mündlich bestätigt durch den Steuerberater, laut
   // Projektinhaber am 2026-11-01; the owner's decisions of 2026-11-01 and 2026-11-02): the parameter `performance` and the
   // change note in its `source`. Before: e8e55a58…c3ff.
-  ['DE_ANSCHAFFUNGSNAHE', 1, '6f14e4ac6a9639f1cabb134036519af8f64bbd73ae430c0b1e7f44cfc5111c57'],
+  // Again for VC-X-38 Part 2 (§59F; Entscheidung des Projektinhabers, 2026-11-02, 239-2): the parameter
+  // `performance.partialTreatment` (the window part CAPITALIZED, the rest DEDUCTIBLE, the amounts from the evidenced
+  // points) and the change note in its `source`. Recording is still disabled. Before: 6f14e4ac…1c57 (the counter-check
+  // below recomputes it).
+  ['DE_ANSCHAFFUNGSNAHE', 1, 'dadb1895baf30b42ea3dd5029e04a1888fc7dc96c1d7cab155efc397d7ad6587'],
   // New with §59E (VC-X-36, decided by the owner on 2026-11-01; Prüfbericht 2026-11-01, Frage 23, mündlich bestätigt
   // durch den Steuerberater, laut Projektinhaber am 2026-11-01): a classification's `treatmentRule`, so pinned from its
   // first commit on; a change is `@2` (§59E "Frozen rules"). The AfA rules and DE_CATEGORY_DEFAULTS@1 are unchanged.
@@ -67,6 +71,9 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // in the same commit; after it, a change is `@2`.
   ['DE_CASH_TIMING', 1, 'dab6ce4e53383d47c0505dee9988316075c9c25cc2bb28abfb2ff75b292241cf'],
 ];
+
+/** The change note VC-X-38 Part 2 added to `DE_ANSCHAFFUNGSNAHE@1`'s `source`. */
+const PART_2_NOTE = '; VC-X-38 Part 2 in place: performance.partialTreatment, Entscheidung des Projektinhabers 2026-11-02 (239-2), api-design §59F';
 
 describe('the frozen rule versions (§60)', () => {
   it.each(PINNED)('%s@%i keeps its pinned hash', (ruleCode, version, hash) => {
@@ -148,10 +155,27 @@ describe('the frozen rule versions (§60)', () => {
       ...v,
       parameters: withoutPerformance as typeof v.parameters,
       source: v.source.replace(
-        '; VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F',
+        '; VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F' +
+          PART_2_NOTE,
         '',
       ),
     };
     expect(hash(before)).toBe('e8e55a5894d1eed98cd53e772c539d06a4c7ca1e7ca1c93200e2dd81fdc7c3ff');
+  });
+
+  it('counter-checks on a copy of the check rule (VC-X-38 Part 2): the partial treatment changes the hash; the version before it had the pinned 6f14e4ac…1c57', () => {
+    const v = DE_ANSCHAFFUNGSNAHE_V1;
+    const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
+    const partial = v.parameters.performance.partialTreatment;
+    expect(partial).toBeDefined();
+    const withPartial = (p: object | undefined) => ({
+      ...v,
+      parameters: { ...v.parameters, performance: { ...v.parameters.performance, partialTreatment: p } },
+    });
+    expect(hash(withPartial({ ...partial, grossWindowPart: 'PRO_RATA_HALF_EVEN' }) as typeof v)).not.toBe(hash(v));
+    const { partialTreatment: _withdrawn, ...performanceBefore } = v.parameters.performance;
+    const before = { ...v, parameters: { ...v.parameters, performance: performanceBefore }, source: v.source.replace(PART_2_NOTE, '') };
+    expect(before.source).not.toBe(v.source);
+    expect(hash(before)).toBe('6f14e4ac6a9639f1cabb134036519af8f64bbd73ae430c0b1e7f44cfc5111c57');
   });
 });

@@ -6,6 +6,7 @@ import { attributeTaxYear, refundOf, type RefundFlag, type RefundInfo, type TaxY
 import type { Distribution, DistributionFlag } from './distribution-82b.js';
 import type { Performance } from './performance.js';
 import type { TaxClassification } from './tax-classification.js';
+import type { TreatmentPart } from './treatment-parts.js';
 import type { Origin, ReviewState, TaxCategory, Treatment } from './vocabulary.js';
 
 /**
@@ -87,6 +88,8 @@ export interface TaxMeaning extends SplitFacts {
   readonly netAmount: Money | null;
   /** §59F (VC-X-38): the classification's period of performance; `null` without one (and for a default). */
   readonly performance: Performance | null;
+  /** §59F (VC-X-38 Part 2): the classification's partial treatment; absent or `null` without one (and for a default). */
+  readonly treatmentParts?: readonly TreatmentPart[] | null;
   readonly treatmentRule: RuleRef | null;
   readonly distribution: Distribution | null;
   readonly suggestion: TreatmentSuggestion | null;
@@ -172,6 +175,7 @@ function meaningOf(
       treatmentRule: classification.treatmentRule,
       netAmount: classification.netAmount,
       performance: classification.performance,
+      treatmentParts: classification.treatmentParts ?? null,
       classificationId: classification.id,
       flags,
     };

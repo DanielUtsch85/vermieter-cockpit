@@ -692,6 +692,7 @@ export {
   TREATMENTS,
   treatmentFits,
   performanceJson,
+  treatmentPartsJson,
 } from '../domains/taxation/index.js';
 export type {
   AnschaffungsnaheCheck,
@@ -705,6 +706,7 @@ export type {
   TaxClassificationRepository,
   TaxListItem,
   TaxMeaning,
+  TreatmentPart,
   TaxMeaningFlag,
   TaxCategory,
   AfaItem,

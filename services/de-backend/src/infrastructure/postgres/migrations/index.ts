@@ -59,6 +59,7 @@ import * as m0057 from './0057_rent_due_day_evidence.js';
 import * as m0058 from './0058_classification_performance.js';
 import * as m0059 from './0059_shorter_life_valuation_not_after_evidence.js';
 import * as m0060 from './0060_tax_year_acknowledgements.js';
+import * as m0062 from './0062_classification_partial_treatment.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -127,4 +128,6 @@ export const migrations: Record<string, Migration> = {
   '0058_classification_performance': m0058,
   '0059_shorter_life_valuation_not_after_evidence': m0059,
   '0060_tax_year_acknowledgements': m0060,
+  // 0061 is #251's (VC-X-41 Part 2): merge this after it (Kysely refuses a name sorting before an applied one).
+  '0062_classification_partial_treatment': m0062,
 };

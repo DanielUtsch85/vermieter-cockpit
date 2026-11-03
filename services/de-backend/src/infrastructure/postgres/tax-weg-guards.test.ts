@@ -377,6 +377,8 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
           expect(created.kind).toBe('CREATED');
           // 0055 (VC-X-36) adds a column and guards to tax_classification: its own down first (it keeps classifications).
           // 0058 (VC-X-38) adds columns, a table and guards to tax_classification.
+          // 0062 (VC-X-38 Part 2) adds a column, a table and guards to tax_classification: its own down first.
+          await withMigrationLock(async () => (await import('./migrations/0062_classification_partial_treatment.js')).down(createDatabase(downPool) as never));
           await withMigrationLock(async () => (await import('./migrations/0058_classification_performance.js')).down(createDatabase(downPool) as never));
           await withMigrationLock(async () => (await import('./migrations/0055_construction_period_interest.js')).down(createDatabase(downPool) as never));
           let refused = '';

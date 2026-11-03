@@ -15,6 +15,7 @@ import {
 import { NO_RULE_COST_CLASSIFICATION, buildingAcquisitionCost, type BasisCost, type UnclassifiedCost } from '../acquisition/index.js';
 import { partInWindow, performedOutside, type Performance } from './performance.js';
 import { ANSCHAFFUNGSNAHE, type AnschaffungsnaheParameters } from './rules/de-anschaffungsnahe.js';
+import type { TreatmentPart } from './treatment-parts.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
 
 /**
@@ -48,6 +49,8 @@ export interface CheckSource {
   readonly anschaffungsnaheAcquisitionId: string | null;
   /** §59F (VC-X-38): the current classification's period of performance; `null` without one. */
   readonly performance: Performance | null;
+  /** VC-X-38 Part 2: the current classification's partial treatment (on its anschaffungsnahe link); absent or `null` without. */
+  readonly treatmentParts?: readonly TreatmentPart[] | null;
   /** The source's own flags carried into the check (an assumed withdrawal date). */
   readonly sourceFlags: readonly { readonly code: string; readonly details: object }[];
 }
@@ -397,12 +400,14 @@ export function checkAnschaffungsnahe(
     if (s.performance?.progressEstimated === true) flags.push({ code: 'PERFORMANCE_PROGRESS_ESTIMATED', details: {} });
     if (list === 'SUMMED' && status === 'ABOVE_THRESHOLD' && ruleRef !== null) {
       // §59F (the owner's decision of 2026-11-02, open question 8): a straddling source is never suggested as a whole.
+      // VC-X-38 Part 2 (239-2): a partial treatment on this check is the evidenced split, so none is required any more.
       const details = { acquisitionId: acquisition.id, final, rule: ruleRef };
+      const split = (s.treatmentParts ?? null) !== null && s.treatment === 'CAPITALIZED' && s.anschaffungsnaheAcquisitionId === acquisition.id;
       flags.push({
         code: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN',
         details:
           straddles && inWindow !== null
-            ? { ...details, inWindow: { lower: inWindow.lower.toJSON(), upper: inWindow.upper.toJSON() }, splitRequired: true }
+            ? { ...details, inWindow: { lower: inWindow.lower.toJSON(), upper: inWindow.upper.toJSON() }, splitRequired: !split }
             : details,
       });
     }

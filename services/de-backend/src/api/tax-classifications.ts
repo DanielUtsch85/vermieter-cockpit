@@ -9,6 +9,7 @@ import {
   isErhaltungLine,
   performanceJson,
   treatmentFits,
+  treatmentPartsJson,
   type CreateTaxClassification,
   type GetAnschaffungsnaheCheck,
   type GetDepositTaxMeaning,
@@ -65,6 +66,8 @@ const createBody = z
     constructionPeriodInterestId: uuid.nullish(),
     // §59F: the period of performance.
     performance: performanceBody.nullish(),
+    // §59F, VC-X-38 Part 2: the partial treatment of a source straddling the window (its parts derived by DE).
+    partialTreatment: z.boolean().optional(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -97,6 +100,14 @@ const createBody = z
     if (given(body.performance)) {
       const performanceIssue = performanceFieldIssue(body);
       if (performanceIssue !== null) issue(ctx, 'performance', performanceIssue);
+    }
+    // VC-X-38 Part 2: only as a capitalisation on the check, with the performance its parts are derived from.
+    if (body.partialTreatment === true) {
+      if (!(body.treatment === 'CAPITALIZED' && erhaltung && given(body.anschaffungsnaheAcquisitionId))) {
+        issue(ctx, 'partialTreatment', 'NOT_ALLOWED_WITH_TREATMENT');
+      } else if (!given(body.performance)) {
+        issue(ctx, 'performance', 'REQUIRED');
+      }
     }
     // §59E check 5 (its treatment part) and a split only; never together with an anschaffungsnahe link (one treatmentRule).
     if (
@@ -186,6 +197,8 @@ export function taxationRoutes(commands: TaxationCommands): Router {
           anschaffungsnaheAcquisitionId: body.anschaffungsnaheAcquisitionId ?? undefined,
           constructionPeriodInterestId: body.constructionPeriodInterestId ?? undefined,
           performance: body.performance ?? undefined,
+          // Only when asked for, so a body without it keeps its request (and fingerprint).
+          partialTreatment: body.partialTreatment === true ? true : undefined,
         }),
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
@@ -294,6 +307,8 @@ function classificationDto(c: TaxClassification) {
     anschaffungsnaheAcquisitionId: c.anschaffungsnaheAcquisitionId,
     constructionPeriodInterestId: c.constructionPeriodInterestId,
     performance: c.performance === null ? null : performanceJson(c.performance),
+    // VC-X-38 Part 2: present only on a partial treatment (the window part CAPITALIZED, the rest DEDUCTIBLE).
+    ...((c.treatmentParts ?? null) === null ? {} : { treatmentParts: treatmentPartsJson(c.treatmentParts ?? []) }),
     supersedes: c.supersedes,
     supersededBy: c.supersededBy,
     supersededAt: c.supersededAt?.toISOString() ?? null,

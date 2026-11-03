@@ -1,5 +1,6 @@
 import type { BusinessDate, Money, RuleRef } from '../../shared/index.js';
 import type { Performance } from './performance.js';
+import type { TreatmentPart } from './treatment-parts.js';
 import type { CreateReviewState, SourceType, StoredReviewState, TaxCategory, Treatment } from './vocabulary.js';
 
 /**
@@ -49,6 +50,12 @@ export interface TaxClassification {
   /** §59F (VC-X-38): when the work was carried out; `null` when not stated (every classification before 0058). */
   readonly performance: Performance | null;
   /**
+   * §59F (VC-X-38 Part 2, 239-2): the partial treatment of a source straddling the window, derived from the evidenced
+   * points at the create: the part in the window `CAPITALIZED`, the rest `DEDUCTIBLE`, summing to the source's amount.
+   * `null` (or absent) for every other classification; `treatment` is then `CAPITALIZED` with the anschaffungsnahe link.
+   */
+  readonly treatmentParts?: readonly TreatmentPart[] | null;
+  /**
    * The second rule reference: `DE_82B_DISTRIBUTION` for an election, `DE_ANSCHAFFUNGSNAHE` for such a capitalisation,
    * `DE_CONSTRUCTION_PERIOD_INTEREST` for a classification naming a construction-period record (§59E).
    */
@@ -86,6 +93,8 @@ export interface NewTaxClassification {
   readonly constructionPeriodInterestId?: string | null;
   /** §59F: omitted means `null`. */
   readonly performance?: Performance | null;
+  /** §59F (VC-X-38 Part 2): the partial treatment asked for; DE derives its parts from the evidenced points. */
+  readonly partialTreatment?: boolean;
 }
 
 /** The Acquisition a capitalisation following the check names, as a create reads it (without a lock, §58B). */
@@ -114,6 +123,8 @@ export function classificationFingerprint(c: NewTaxClassification): string {
   // §59F's performance only when given, so a key stored before VC-X-38 still replays.
   const p = c.performance ?? null;
   const performance = p === null ? [] : [{ vcx38: [p.from, p.until, p.progress.map((x) => [x.through, x.amount.amount]), p.progressEstimated] }];
+  // VC-X-38 Part 2's partial treatment only when asked for, so a key stored before still replays.
+  const partial = c.partialTreatment === true ? [{ vcx38p2: true }] : [];
   // VC-7-01's fingerprint unchanged without the years, so a key stored before VC-7-02 still replays.
   return JSON.stringify([
     c.sourceType,
@@ -128,5 +139,6 @@ export function classificationFingerprint(c: NewTaxClassification): string {
     ...later,
     ...record,
     ...performance,
+    ...partial,
   ]);
 }

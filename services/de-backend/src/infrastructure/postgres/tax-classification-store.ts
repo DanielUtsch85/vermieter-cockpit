@@ -21,7 +21,9 @@ import {
   type SourceType,
   type SplitFacts,
   type TaxClassification,
+  type TreatmentPart,
   type WegSourceFacts,
+  treatmentPartsJson,
 } from '../../domains/taxation/index.js';
 import { checkVersion, type AuditActor, type BusinessDate, type Money } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
@@ -41,6 +43,8 @@ interface Target {
   readonly current: { readonly id: string; readonly version: number } | undefined;
   readonly rule: RuleRef;
   readonly treatmentRule: RuleRef | null;
+  /** §59F, VC-X-38 Part 2: the parts of a partial treatment, derived from the evidenced points. */
+  readonly treatmentParts?: readonly TreatmentPart[];
   readonly depositClosing: { readonly closingDate: BusinessDate; readonly retainedAmount: Money } | undefined;
   readonly reserveWithdrawal: { readonly unitShare: Money } | null;
   readonly assessmentUse: { readonly date: BusinessDate; readonly unitShare: Money } | null;
@@ -143,6 +147,7 @@ export async function createClassification(
             performed_from: performance?.from ?? null,
             performed_until: performance?.until ?? null,
             performance_progress_estimated: performance === null || performance.progress.length === 0 ? null : performance.progressEstimated,
+            partial_treatment: target.treatmentParts !== undefined,
             supersedes_id: current?.id ?? null,
             created_by: actor.actorId,
           })
@@ -152,6 +157,15 @@ export async function createClassification(
           await trx
             .insertInto('tax_classification_performance_progress')
             .values(performance.progress.map((p, i) => ({ classification_id: id, position: i + 1, through: p.through, amount: toNumericAmount(p.amount) })))
+            .execute();
+        }
+        // VC-X-38 Part 2: the parts, in the classification's own transaction (0062's append-only guard).
+        if (target.treatmentParts !== undefined) {
+          await trx
+            .insertInto('tax_classification_treatment_part')
+            .values(
+              target.treatmentParts.map((p) => ({ classification_id: id, position: p.position, treatment: p.treatment, amount: toNumericAmount(p.amount) })),
+            )
             .execute();
         }
         const created = await readOne(trx, id);
@@ -178,6 +192,7 @@ export async function createClassification(
             ...(created.anschaffungsnaheAcquisitionId === null ? {} : { anschaffungsnaheAcquisitionId: created.anschaffungsnaheAcquisitionId }),
             ...(created.constructionPeriodInterestId === null ? {} : { constructionPeriodInterestId: created.constructionPeriodInterestId }),
             ...(created.performance === null ? {} : { performance: performanceJson(created.performance) }),
+            ...((created.treatmentParts ?? null) === null ? {} : { treatmentParts: treatmentPartsJson(created.treatmentParts ?? []) }),
             ...(created.treatmentRule === null ? {} : { treatmentRule: created.treatmentRule }),
             ...(current === undefined ? {} : { supersedes: current.id }),
           },
@@ -228,7 +243,15 @@ async function planSplit(trx: Transaction<Database>, registry: RuleRegistry, cla
   const record = await constructionPeriodRecordOf(trx, realm, classification.constructionPeriodInterestId ?? null);
   const plan = planClassification(read.facts, current?.id ?? null, classification, registry, derived, acquisition, { loanId: read.loanId, record });
   if (plan.kind !== 'CLASSIFY') throw new Rejected(plan);
-  return { current, rule: plan.rule, treatmentRule: plan.treatmentRule, depositClosing: undefined, reserveWithdrawal: null, assessmentUse: null };
+  return {
+    current,
+    rule: plan.rule,
+    treatmentRule: plan.treatmentRule,
+    ...(plan.treatmentParts === undefined ? {} : { treatmentParts: plan.treatmentParts }),
+    depositClosing: undefined,
+    reserveWithdrawal: null,
+    assessmentUse: null,
+  };
 }
 
 /** The record a classification names (`undefined`: none; `null`: not of the Realm), its row written first as a no-op. */
@@ -363,6 +386,7 @@ async function planWeg(
     current,
     rule: plan.rule,
     treatmentRule: plan.treatmentRule,
+    ...(plan.treatmentParts === undefined ? {} : { treatmentParts: plan.treatmentParts }),
     depositClosing: undefined,
     reserveWithdrawal: plan.reserveWithdrawal,
     assessmentUse: plan.assessmentUse,

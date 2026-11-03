@@ -162,6 +162,28 @@ describe('performance on create (§59F "API")', () => {
         422,
         { code: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', details: { reason: 'PERFORMANCE_REQUIRED', acquisitionId: ACQ, cause: 'STRADDLES_WINDOW' } },
       ],
+      // VC-X-38 Part 2: a partial treatment the evidenced points do not determine, with their bounds.
+      [
+        new AnschaffungsnaheNotApplicableError('PERFORMANCE_REQUIRED', ACQ, 'SPLIT_NOT_EVIDENCED', {
+          lower: Money.of('5000.00', 'EUR'),
+          upper: Money.of('6500.00', 'EUR'),
+        }),
+        422,
+        {
+          code: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE',
+          details: {
+            reason: 'PERFORMANCE_REQUIRED',
+            acquisitionId: ACQ,
+            cause: 'SPLIT_NOT_EVIDENCED',
+            inWindow: { lower: { amount: '5000.00', currency: 'EUR' }, upper: { amount: '6500.00', currency: 'EUR' } },
+          },
+        },
+      ],
+      [
+        new AnschaffungsnaheNotApplicableError('PARTIAL_TREATMENT_NOT_APPLICABLE', ACQ, 'NOT_STRADDLING'),
+        422,
+        { code: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', details: { reason: 'PARTIAL_TREATMENT_NOT_APPLICABLE', acquisitionId: ACQ, cause: 'NOT_STRADDLING' } },
+      ],
     ];
     for (const [error, status, expected] of cases) {
       const base = await start({ taxation: { create: async () => Promise.reject(error) } });

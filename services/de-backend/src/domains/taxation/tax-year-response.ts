@@ -7,6 +7,7 @@ import type { TreatmentSuggestion } from './tax-meaning.js';
 import type { Distribution } from './distribution-82b.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
 import type { ConfirmationMark } from './tax-statements.js';
+import type { TreatmentPart } from './treatment-parts.js';
 
 /** The tax-year view as it answers (api-design.md §58C "Response"): its items, lines, sections, totals and review. */
 
@@ -48,6 +49,8 @@ export interface TaxYearItem {
   readonly notAttributed: { readonly reason: string; readonly candidates: readonly string[]; readonly href: string } | null;
   /** An item from a Loan's interest split only (§58D): the set covering its booking date and this property's part. */
   readonly loanAllocation: TaxYearLoanAllocation | null;
+  /** §59F (VC-X-38 Part 2): the part of a partially treated source the item stands for (`lineAmount` is its amount); absent otherwise. */
+  readonly treatmentPart?: TreatmentPart;
   /** An item of `capitalized` only (VC-8-05): the AfA component it became, or `NO_ASSET`; `null` when no asset lists it. */
   readonly component?: CapitalizedComponent | null;
 }

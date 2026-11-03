@@ -513,6 +513,8 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
         // (VC-X-36) adds a column and guards to tax_classification.
         await withMigrationLock(async () => {
           // 0058 (VC-X-38) adds columns, a table and guards to tax_classification.
+          // 0062 (VC-X-38 Part 2) adds a column, a table and guards to tax_classification: its own down first.
+          await (await import('./migrations/0062_classification_partial_treatment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0058_classification_performance.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0055_construction_period_interest.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0052_depreciation_schedule_version.js')).down(createDatabase(downPool) as never);

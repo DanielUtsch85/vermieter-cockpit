@@ -7,6 +7,7 @@ import type { DepositTaxMeaning } from './deposit-closing.js';
 import { partOf, type Distribution } from './distribution-82b.js';
 import { placementOf, signedCents, type Placement } from './tax-year-placement.js';
 import type { TaxYearItem, TaxYearLoanAllocation, ViewFlag } from './tax-year-response.js';
+import type { TreatmentPart } from './treatment-parts.js';
 import {
   covers,
   foldPerOwner,
@@ -38,6 +39,8 @@ export interface Derived {
   readonly flags: readonly ViewFlag[];
   /** An interest item of a Loan only (§58D): the set behind the property's part. */
   readonly loanAllocation: TaxYearLoanAllocation | null;
+  /** §59F (VC-X-38 Part 2): the part of a partially treated source this item stands for; absent otherwise. */
+  readonly treatmentPart?: TreatmentPart;
 }
 
 const dateOf = (m: TaxListItem): BusinessDate =>
@@ -73,10 +76,13 @@ export function deriveItem(
   ownerships: readonly ViewOwnership[],
   changed: readonly MarkedChange[],
   propertyCents: bigint | null = null,
+  part: TreatmentPart | null = null,
 ): Derived | undefined {
   const date = dateOf(source);
-  const amount = propertyCents === null ? source.amount : moneyOfCents(propertyCents, source.amount.currency);
-  const placement: Placement = source.counts ? placementOf({ ...source, refund: refundOfItem(source) }) : { place: 'UNCLASSIFIED' };
+  const amount = part !== null ? part.amount : propertyCents === null ? source.amount : moneyOfCents(propertyCents, source.amount.currency);
+  // §59F (VC-X-38 Part 2): a part is placed by its own treatment (the window part in `capitalized`, the rest on its line).
+  const treatment = part === null ? source.treatment : part.treatment;
+  const placement: Placement = source.counts ? placementOf({ ...source, treatment, refund: refundOfItem(source) }) : { place: 'UNCLASSIFIED' };
   const flags: ViewFlag[] = [];
   const distribution = distributionOfItem(source);
   let participants: readonly Participant[];
@@ -130,7 +136,21 @@ export function deriveItem(
   if (moved.length > 0 && source.taxYear === year) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: moved });
   if (source.reviewState === 'NEEDS_REVIEW') flags.push({ code: 'NEEDS_REVIEW', details: {} });
   if (source.treatment === null) flags.push({ code: 'UNCLASSIFIED', details: {} });
-  return { source, placement, date, participants, lineCents, parts, folded, flags, loanAllocation: null };
+  return { source, placement, date, participants, lineCents, parts, folded, flags, loanAllocation: null, ...(part === null ? {} : { treatmentPart: part }) };
+}
+
+/**
+ * The items of a source (§58C): one, or for a counting source with a partial treatment (§59F, VC-X-38 Part 2; 239-2) one
+ * per part, each placed by its own treatment and shared out to the owners on its own (largest remainder per part), so the
+ * parts' line amounts sum to the source's amount. No cash correction: the source, its date and its tax year are unchanged.
+ */
+export function deriveItems(source: TaxListItem, year: number, ownerships: readonly ViewOwnership[], changed: readonly MarkedChange[]): Derived[] {
+  const parts = source.sourceType === 'DEPOSIT_CLOSING' ? null : (source.treatmentParts ?? null);
+  const one = (part: TreatmentPart | null) => {
+    const d = deriveItem(source, year, ownerships, changed, null, part);
+    return d === undefined ? [] : [d];
+  };
+  return parts === null || parts.length === 0 || !source.counts ? one(null) : parts.flatMap(one);
 }
 
 const formatFraction = (f: Fraction) => `${f.numerator}/${f.denominator}`;
@@ -182,6 +202,7 @@ export function itemAt(d: Derived, year: number, currency: string, participant: 
     flags: [...(m.flags as readonly ViewFlag[]), ...d.flags],
     notAttributed: null,
     loanAllocation: d.loanAllocation,
+    ...(d.treatmentPart === undefined ? {} : { treatmentPart: d.treatmentPart }),
   };
 }
 

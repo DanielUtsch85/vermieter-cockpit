@@ -4,7 +4,7 @@ import type { AnschaffungsnaheCheck, NotFinalReason } from './anschaffungsnahe.j
 import { attributionChanges, changeEntry, type AttributionInput, type MarkedChange } from './attribution-changes.js';
 import type { TaxListItem } from './classification.js';
 import type { DepositTaxMeaning } from './deposit-closing.js';
-import { deriveItem, notAttributedItem, type Derived } from './tax-year-items.js';
+import { deriveItems, notAttributedItem, type Derived } from './tax-year-items.js';
 import {
   deriveLoanItem,
   inListOrder,
@@ -150,8 +150,7 @@ export function buildTaxYearView(
   const attribution = { changes: marked, inconsistent: derivedChanges.inconsistent };
   const interest = read.interest ?? new Map<string, InterestFacts>();
   const listed = read.sources
-    .map((s) => deriveItem(s.item, year, read.ownerships, attribution.changes))
-    .filter((d): d is Derived => d !== undefined)
+    .flatMap((s) => deriveItems(s.item, year, read.ownerships, attribution.changes))
     .map((d) => withInterestFlags(d, interest.get(d.source.sourceId), read.propertyReferenceId));
   // §58D: the interest of the allocated Loans, by the set on each split's booking date.
   const loanCases = loanInterestOf(read.propertyReferenceId, read.allocatedLoanInterest, read.loanAllocationSets);

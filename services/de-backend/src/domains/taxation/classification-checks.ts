@@ -9,6 +9,7 @@ import { constructionPeriodCheck, type ConstructionPeriodRecordFacts, type Const
 import { interestPolicyOn, isInterestSplit } from './construction-period-interest.js';
 import { performanceCheck, performedOutside, type PerformanceRefusal } from './performance.js';
 import type { AcquisitionFacts, NewTaxClassification } from './tax-classification.js';
+import { partialTreatmentParts, type TreatmentPart } from './treatment-parts.js';
 import { categoryDefaultsOn, splitCounts, type SplitFacts } from './tax-meaning.js';
 import type { WegNotCounted } from './weg-sources.js';
 import type { SourceType, TaxCategory, Treatment } from './vocabulary.js';
@@ -57,8 +58,16 @@ export type AnschaffungsnaheNotApplicableReason =
   | 'ACQUISITION_NOT_CONFIRMED'
   | 'OUTSIDE_WINDOW'
   | 'NO_APPLICABLE_RULE'
-  /** §59F: no `performance` (`MISSING`), or one straddling the window (`STRADDLES_WINDOW`). */
-  | 'PERFORMANCE_REQUIRED';
+  /**
+   * §59F: no `performance` (`MISSING`), one straddling the window without a partial treatment (`STRADDLES_WINDOW`), or
+   * (VC-X-38 Part 2) a partial treatment whose evidenced points leave the part in the window open (`SPLIT_NOT_EVIDENCED`).
+   */
+  | 'PERFORMANCE_REQUIRED'
+  /** VC-X-38 Part 2: a partial treatment of a source performed wholly in the window (`NOT_STRADDLING`). */
+  | 'PARTIAL_TREATMENT_NOT_APPLICABLE';
+
+/** §59F, VC-X-38 Part 2: the `cause` of `PERFORMANCE_REQUIRED` and `PARTIAL_TREATMENT_NOT_APPLICABLE`. */
+export type AnschaffungsnaheCause = 'MISSING' | 'STRADDLES_WINDOW' | 'SPLIT_NOT_EVIDENCED' | 'NOT_STRADDLING';
 
 export type CreateRefusal =
   | { readonly kind: 'SOURCE_NOT_COUNTED'; readonly transactionStatus: TransactionStatus; readonly correctionRole: string | null }
@@ -85,7 +94,9 @@ export type CreateRefusal =
       readonly kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE';
       readonly reason: AnschaffungsnaheNotApplicableReason;
       readonly acquisitionId: string;
-      readonly cause?: 'MISSING' | 'STRADDLES_WINDOW';
+      readonly cause?: AnschaffungsnaheCause;
+      /** `SPLIT_NOT_EVIDENCED`: the part in the window as the evidenced points bound it (amount used). */
+      readonly inWindow?: { readonly lower: Money; readonly upper: Money };
     }
   | { readonly kind: 'TAX_YEAR_OUT_OF_RANGE'; readonly taxYear: number; readonly bookingYear: number }
   /** An undated withdrawal's `taxYear` outside the years its statement's period touches (§58B). */
@@ -101,7 +112,14 @@ export type CreateRefusal =
 /** The fields of an election or a capitalisation following the check (§58B), as a create carries them. */
 export type TreatmentRequest = Pick<
   NewTaxClassification,
-  'taxCategory' | 'treatment' | 'netAmount' | 'mostlyResidentialConfirmed' | 'anschaffungsnaheAcquisitionId' | 'constructionPeriodInterestId' | 'performance'
+  | 'taxCategory'
+  | 'treatment'
+  | 'netAmount'
+  | 'mostlyResidentialConfirmed'
+  | 'anschaffungsnaheAcquisitionId'
+  | 'constructionPeriodInterestId'
+  | 'performance'
+  | 'partialTreatment'
 > & { readonly sourceReferences?: readonly string[] };
 
 /** §59E: what the create read of the split's Loan and the record it names (`undefined`: none named; `null`: not of the Realm). */
@@ -147,7 +165,7 @@ export function treatmentFieldsCheck(
   distributionRule: RuleRef | null,
   acquisition: AcquisitionFacts | null | undefined,
   registry: RuleRegistry,
-): { readonly treatmentRule: RuleRef | null } | CreateRefusal {
+): { readonly treatmentRule: RuleRef | null; readonly treatmentParts?: readonly TreatmentPart[] } | CreateRefusal {
   if (request.treatment === 'DISTRIBUTED_82B') {
     if (request.mostlyResidentialConfirmed !== true) return { kind: 'DISTRIBUTION_NOT_ALLOWED', reason: 'NOT_MOSTLY_RESIDENTIAL' };
     if (source.direction !== 'OUTFLOW') return { kind: 'DISTRIBUTION_NOT_ALLOWED', reason: 'NOT_AN_OUTFLOW' };
@@ -168,11 +186,16 @@ export function treatmentFieldsCheck(
   const acquisitionId = request.anschaffungsnaheAcquisitionId ?? null;
   if (acquisitionId === null) return { treatmentRule: distributionRule };
   if (acquisition === null || acquisition === undefined) return { kind: 'ACQUISITION_NOT_FOUND', acquisitionId };
-  const notApplicable = (reason: AnschaffungsnaheNotApplicableReason, cause?: 'MISSING' | 'STRADDLES_WINDOW'): CreateRefusal => ({
+  const notApplicable = (
+    reason: AnschaffungsnaheNotApplicableReason,
+    cause?: AnschaffungsnaheCause,
+    inWindow?: { readonly lower: Money; readonly upper: Money },
+  ): CreateRefusal => ({
     kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE',
     reason,
     acquisitionId,
     ...(cause === undefined ? {} : { cause }),
+    ...(inWindow === undefined ? {} : { inWindow }),
   });
   if (acquisition.propertyReferenceId !== source.propertyReferenceId) return notApplicable('OTHER_PROPERTY_REFERENCE');
   if (acquisition.status !== 'CONFIRMED') return notApplicable('ACQUISITION_NOT_CONFIRMED');
@@ -183,8 +206,23 @@ export function treatmentFieldsCheck(
   // only work performed wholly in the window is capitalised on the check (a straddling source needs an evidenced split).
   if (performance === null) return notApplicable('PERFORMANCE_REQUIRED', 'MISSING');
   if (performedOutside(performance, window)) return notApplicable('OUTSIDE_WINDOW');
-  if (performance.from < window.from || performance.until > window.until) return notApplicable('PERFORMANCE_REQUIRED', 'STRADDLES_WINDOW');
-  return { treatmentRule: { ruleCode: rule.ruleCode, version: rule.version } };
+  const treatmentRule = { ruleCode: rule.ruleCode, version: rule.version };
+  const partial = (rule.parameters as AnschaffungsnaheParameters).performance.partialTreatment;
+  // VC-X-38 Part 2 (Entscheidung des Projektinhabers, 2026-11-02, 239-2): a straddling source only by a partial treatment
+  // whose parts the evidenced points determine exactly; never the whole source, never an estimate.
+  const straddles = performance.from < window.from || performance.until > window.until;
+  if (request.partialTreatment === true) {
+    if (!straddles) return notApplicable('PARTIAL_TREATMENT_NOT_APPLICABLE', 'NOT_STRADDLING');
+    // A rule without the parameter keeps the refusal of VC-X-38.
+    if (partial === undefined) return notApplicable('PERFORMANCE_REQUIRED', 'STRADDLES_WINDOW');
+    const parts = partialTreatmentParts(performance, source.grossAmount, net ?? source.grossAmount, window);
+    if ('parts' in parts) return { treatmentRule, treatmentParts: parts.parts };
+    return parts.cause === 'NOT_STRADDLING'
+      ? notApplicable('PARTIAL_TREATMENT_NOT_APPLICABLE', 'NOT_STRADDLING')
+      : notApplicable('PERFORMANCE_REQUIRED', 'SPLIT_NOT_EVIDENCED', { lower: parts.lower, upper: parts.upper });
+  }
+  if (straddles) return notApplicable('PERFORMANCE_REQUIRED', 'STRADDLES_WINDOW');
+  return { treatmentRule };
 }
 
 /** `WEG_SPENDING` is the line of the WEG sources only (§58B): on a split or a deposit it is `TREATMENT_NOT_ALLOWED`. */
@@ -208,7 +246,9 @@ export function planClassification(
   derivedTaxYear: number = yearOf(facts.bookingDate),
   acquisition?: AcquisitionFacts | null,
   interest: InterestContext = { loanId: null, record: undefined },
-): { readonly kind: 'CLASSIFY'; readonly rule: RuleRef; readonly treatmentRule: RuleRef | null } | CreateRefusal {
+):
+  | { readonly kind: 'CLASSIFY'; readonly rule: RuleRef; readonly treatmentRule: RuleRef | null; readonly treatmentParts?: readonly TreatmentPart[] }
+  | CreateRefusal {
   if (!splitCounts(facts)) return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: facts.transactionStatus, correctionRole: facts.correctionRole };
   const rule = categoryDefaultsOn(registry, facts.bookingDate);
   if (rule === undefined) return { kind: 'NO_APPLICABLE_RULE', ruleCode: CATEGORY_DEFAULTS, date: facts.bookingDate };
@@ -264,6 +304,7 @@ export function planClassification(
       rule: { ruleCode: rule.ruleCode, version: rule.version },
       // A record and an anschaffungsnahe link never come together (the API refuses both): one second reference.
       treatmentRule: construction.treatmentRule ?? fields.treatmentRule,
+      ...(fields.treatmentParts === undefined ? {} : { treatmentParts: fields.treatmentParts }),
     }
   );
 }
