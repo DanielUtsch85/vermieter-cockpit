@@ -7670,6 +7670,120 @@ Implemented as specified, with the owner's decisions of 2026-11-03 (questions 1�
 
 ---
 
+# 58J. An Unattributed Deposit Closed Anew Since Its Classification (VC-X-51, spec)
+
+**Status:** specified, not implemented; **open questions 1–4 for the owner** (below). Backlog VC-X-51, created from the owner's review of #259 (VC-X-50) on 2026-11-03. **Migration: none** (a read-side change of the view; no table, CHECK or guard changes). Productive AfA recording stays disabled; nothing here touches it. It amends §58C "Not attributed" (which deposits it lists) and the claim of §58I Part 1 that `UNATTRIBUTED_ITEMS` holds the year of a deposit not attributed open; it builds on §58I open question 4 (decided 2026-11-03: `NOT_COUNTED` with `CLOSING_CHANGED` or `USE_CHANGED` is an open item flag), whose decision it does not change. Placement, signs, sums, the per-owner arithmetic, §58E's and §58G's flags and acknowledgements, the fingerprints, the 31-December rule and the rule for `final` are unchanged. **ACC7 and ACC8 stay unchanged; VC-X-51 has its own tests** (open question 4).
+
+**The source** (the owner's review of #259, 2026-11-03, on the PR's question 1; verbatim):
+
+> **Nicht zugeordnete Kaution mit `CLOSING_CHANGED`:** Hier sehe ich eine echte Lücke.
+> - `tax-year-view.ts` nimmt in `notAttributed` nur `d.counts`.
+> - Eine neu abgeschlossene, nicht zugeordnete Kaution mit alter Klassifikation steht deshalb in keiner Liste. Frage 4 hält ihr Jahr nicht offen, `UNATTRIBUTED_ITEMS` ebenfalls nicht.
+> - Ich würde sie wie die zugeordnete behandeln: in `notAttributed`, mit offenem `NOT_COUNTED`.
+> - Das ist aber eine Erweiterung über die Spec hinaus. Ich würde dafür eine eigene Backlog-Zeile anlegen, statt sie in diesen PR zu ziehen. Nicht blockierend.
+
+**Why a section of its own, after §58I:** VC-X-51 is a backlog item of its own (the review above: „eine eigene Backlog-Zeile … statt sie in diesen PR zu ziehen“). §58C and §58I keep their text until the implementation corrects it (below, "The text that changes").
+
+### As the code stands (main f4434b6, after VC-X-50, #259; paths relative to `services/de-backend/src/`)
+
+- **The read** passes every deposit of the Realm closed in `year` that counts **by the deposit** (`CLOSED`, a retained amount > 0): `closedDepositsOf` (`infrastructure/postgres/tax-year-reads.ts:372-401`) selects the Realm's deposits (`:382`) with `status = 'CLOSED'` (`:383`) and `closing_date` in `year` (`:384-385`), keeps those with `depositNotCounted(f, null) === null` (`:395`, so `NOT_CLOSED` and `NOTHING_RETAINED` never reach the view), and derives each meaning **with its current classification** (`:396-400`). The view's read takes those without a PropertyReference as `unattributedDeposits` (`tax-year-reads.ts:149`).
+- **The classification's closing:** with a classification of another closing date or amount the meaning has `counts: false` and `NOT_COUNTED` with `reason: 'CLOSING_CHANGED'` (`domains/taxation/deposit-closing.ts:79-82`, `:96-103`, `counts` at `:113`), and keeps the classification's `reviewState` and `treatment` (`:125-134`). So in `unattributedDeposits` a `counts: false` can only be `CLOSING_CHANGED`. `USE_CHANGED` is a WEG use's reason (`domains/taxation/weg-sources.ts:248-256`); a WEG source is read per PropertyReference (`tax-year-reads.ts:339`) and never reaches `notAttributed`, so for this section only `CLOSING_CHANGED` matters.
+- **The view's filter:** `buildTaxYearView` lists a deposit not attributed only when `d.counts` (`domains/taxation/tax-year-view.ts:181-183`):
+
+  ```ts
+  const unattributed = read.unattributedDeposits.filter(
+    (d) => d.counts && (d.propertyCandidates.length === 0 || d.propertyCandidates.includes(read.propertyReferenceId)),
+  );
+  ```
+
+  The listed ones become `notAttributedDeposits` (`:198-201`, with §58H's part item flags), go into `notAttributed` (`:202-208`), into the cap (`:191`), into `UNATTRIBUTED_ITEMS` (`:246`, `details.count` = their number) and into the review's items (`placed`, `:300-307`; `reviewOf`, `:328`).
+- **The attributed case** has no such filter: a deposit with P's PropertyReference is an entry of P's list whatever `counts` says (`tax-year-reads.ts:349`), and the view places it in `unclassified` with its `NOT_COUNTED` (§58C "As implemented", decisions and deviations; §58I open question 4). `NOT_COUNTED` with `CLOSING_CHANGED` is open there (`notCountedIsOpen`, `domains/taxation/tax-year-review.ts:67-70`; `flagIsOpen`, `:90`).
+- **The gap:** a deposit **not attributed** (`NO_RECONCILED_RENT` or `SEVERAL_PROPERTY_REFERENCES`) closed anew since its confirmed classification is in **no list of any view** of its year: not in `notAttributed` (the filter), not in `unclassified` (it is no entry of any PropertyReference's list, `tax-year-reads.ts:349`). So neither §58I's decision 4 (its `NOT_COUNTED` is on no item) nor `UNATTRIBUTED_ITEMS` (not counted in `:246`) holds the year open, and the year can be `final` with a retained amount nobody looked at. §58I Part 1's sentence "while it is in a year, `UNATTRIBUTED_ITEMS` holds that year open" (§58I, "Only deposits attributed to P are candidates") does not hold for this deposit.
+- **The same deposit without any classification** counts (`depositNotCounted(facts, null)`, `deposit-closing.ts:96`, `counts` at `:113`) and **is** listed, with `NEEDS_REVIEW` and `UNCLASSIFIED` (`domains/taxation/tax-year-items.ts:237-241`) and `UNATTRIBUTED_ITEMS`. A stale classification hides what no classification shows.
+- **The item builder is ready:** `notAttributedItem` (`tax-year-items.ts:211-245`) copies the meaning's flags (`:238`, so `NOT_COUNTED` with its `reason` comes along), adds `NEEDS_REVIEW`/`UNCLASSIFIED` from the review state and treatment (`:239-240`), sets `lineAmount: null` and `share: null` (`:224`, `:236`) and the reason, candidates and `href` (`:242`).
+- **§58H's part changes already see the deposit:** `depositPartsOf` (`infrastructure/postgres/part-reads.ts:59-75`) filters by the deposit only (`:75`), so a reconciliation record after the year's end that moves such a deposit `ATTRIBUTED` → `NOT_ATTRIBUTED` (`depositPartOn`, `domains/taxation/attribution-deposits.ts:54-57`) raises `PROPERTY_PART_CHANGED` in the year flag today, while its item flag (`partItemFlags`, `domains/taxation/attribution-parts.ts:325-337`) finds no item to go on.
+- **No test pins the gap:** no test of the view passes a `counts: false` deposit in `unattributedDeposits` (the cases at `domains/taxation/tax-year-view.test.ts:743`, `:761` all count).
+
+### The rule
+
+**A deposit closing of `year` without a PropertyReference that counts by the deposit is listed in `notAttributed`, whether or not its classification still fits its closing.** In code: the filter at `tax-year-view.ts:181-183` drops `d.counts &&` (open question 3), and nothing else changes:
+
+- **Where it is listed** is §58C's rule, unchanged (open question 1): `SEVERAL_PROPERTY_REFERENCES` in the view of each candidate, `NO_RECONCILED_RENT` in the view of every PropertyReference of the Realm; at the owner level the same way, with `share` `null`. These are exactly the views that list it with no classification at all, and that list it again once it is classified anew; a stale classification only stops hiding it.
+- **The item:** `notAttributedItem`'s, unchanged: `lineAmount` `null`, `counts`-independent; its flags `NO_PROPERTY_REFERENCE` (with `reason`, `candidates`), **`NOT_COUNTED` with `reason: 'CLOSING_CHANGED'` (open, §58I decision 4)**, and `NEEDS_REVIEW`/`UNCLASSIFIED` only from the stale classification's review state and treatment, as for the attributed case. Its `taxCategory`, `treatment`, `reviewState`, `origin` and `classificationId` are the stale classification's (shown, never summed).
+- **`UNATTRIBUTED_ITEMS`** counts it (open question 2): `details.count` is the number of entries of `notAttributed` that are deposits (`tax-year-view.ts:246`), unchanged as code.
+- **Never summed:** a deposit in `notAttributed` is in no line, no section and no owner's figure (§58C); `lineAmount` stays `null`. **No figure of any view moves.**
+- **The cap** (`tax-year-view.ts:191`) counts it, as every entry of `notAttributed` (§58C "As implemented": the count includes "the deposits not attributed").
+- **`NOT_AN_OWNER_IN_YEAR`** is unchanged: it reads `derived` only (`tax-year-view.ts:189`), never `notAttributed`.
+- **§58H's item flag** now lands on it: `notAttributedDeposits` adds `partItemFlags` to every listed deposit (`tax-year-view.ts:198-201`), so the case above (year flag without an item) gets its item.
+- **Not a change here:** a deposit reopened and not closed again (`ACTIVE`, in no year; `closedDepositsOf` reads `CLOSED` only, `tax-year-reads.ts:383`); a deposit `RETURNED` or with nothing retained (filtered by the read, `:395`); the year a not-attributed deposit **leaves** by a reopen (no figure moved, §58I Part 1 "Only deposits attributed to P are candidates", decided; that year was not final through it, since `UNATTRIBUTED_ITEMS` held it open while the deposit was in it); §55's per-property list and the deposit's `tax-meaning` read (unchanged; the meaning already says `counts: false` with `CLOSING_CHANGED`, `infrastructure/postgres/tax-year-deposit.test.ts:128-133`).
+- **Why "listing" is not "flagging every view":** VC-X-49 names an inconsistent reconciliation only where the Tenant's deposit concerns P (§58H "As implemented" 4; `attribution-deposits.ts:80-89`) and §58G open question 3 keeps `NOT_ATTRIBUTED` ↔ `NONE` silent, so a deposit not attributed raises no **change** flag in every view of the Realm. §58J adds no change flag and no history read: it lists a deposit in the views §58C already lists it in when it has no classification. A `NO_RECONCILED_RENT` deposit holds every view of the Realm open today too, as long as it has no classification or a fitting one; §58J only removes the exception for a stale one.
+
+### Example (synthetic)
+
+P1 owned by A `"1/1"`, P2 owned by B `"1/1"`, P3 owned by C `"1/1"`, one Realm. Tenant T's rent is booked and reconciled on P1 and on P2 (a booking error never corrected), so T's deposit D is `SEVERAL_PROPERTY_REFERENCES` with `candidates` [P1, P2]. D held 900.00; 600.00 is repaid on 2027-12-15, D is closed on **2027-12-20** `RETAINED`, `heldAtClosing` 300.00, retained **300.00**, classified `RETAINED_DEPOSIT_DAMAGES` / `INCOME` (`USER_CONFIRMED`).
+
+- **2027, before anything else:** D is in `notAttributed` of P1's and P2's 2027 views (not P3's), never summed; `UNATTRIBUTED_ITEMS` `{ count: 1 }` holds both years open.
+- **On 2028-02-12** D is reopened; **on 2028-02-14** a repayment of 50.00 booked on 2028-01-10 is linked and D is closed again with `closingDate` **2028-01-10**, `heldAtClosing` 250.00: retained **250.00**, tax year **2028**. The classification still names 2027-12-20 and 300.00.
+- **2027 after the reopen:** D is in no list of 2027 (`ACTIVE`, then closed in 2028). No flag of §58I Part 1 (not attributed, decided). P1's and P2's 2027 lose `UNATTRIBUTED_ITEMS` through D; no figure moved (D was never summed).
+- **2028, today (main f4434b6):** D has `counts: false` (`CLOSING_CHANGED`), so the filter drops it: **D is in no list of P1's, P2's or P3's 2028 view**, no `NOT_COUNTED` and no `UNATTRIBUTED_ITEMS` through D; with nothing else open, P1's and P2's 2028 are `final: true`.
+- **2028 under §58J:** D is in `notAttributed` of P1's and P2's 2028 views (not P3's) with `amount` 250.00, `lineAmount` `null`, `taxCategory` `RETAINED_DEPOSIT_DAMAGES`, `reviewState` `USER_CONFIRMED`, `classificationId` the old one, flags `NO_PROPERTY_REFERENCE` (`SEVERAL_PROPERTY_REFERENCES`, [P1, P2]) and `NOT_COUNTED` (`depositStatus` `CLOSED`, `retainedAmount` 250.00, `reason` `CLOSING_CHANGED`), both views with `UNATTRIBUTED_ITEMS` `{ count: 1 }`. `review.open` names `NOT_COUNTED` 1 and `UNATTRIBUTED_ITEMS` 1; **2028 is not final** in both. Every figure of both views (lines, sections, result, owners) is the same as today.
+- **Classified anew** (superseding the old one, 2028-01-10 and 250.00, `USER_CONFIRMED`): `counts: true`; D stays in both `notAttributed` lists, `NOT_COUNTED` goes, `UNATTRIBUTED_ITEMS` stays (the deposit still has no PropertyReference, §58C); figures unchanged.
+- **Variant, `NO_RECONCILED_RENT`:** had T no reconciled rent, D would be listed in P1's, P2's and P3's 2028 views (every view of the Realm, §58C open question 4), as it is today with no classification at all.
+- **Variant, the same closing again** (a reopen by mistake, closed again with 2027-12-20 and 300.00): the classification fits again, `counts: true`, D is listed as today; nothing of §58J applies.
+
+### The effect on `final`, ACC7 and ACC8
+
+- **The rule for `final` stays §58C's.** A year with such a deposit is no longer final: `NOT_COUNTED` (`CLOSING_CHANGED`) is open until it is classified anew, and `UNATTRIBUTED_ITEMS` stays open as for every deposit not attributed. This can turn a `final: true` of today into `false` after deployment on existing data where a deposit not attributed was closed anew after its classification (the intended correction; a release note as VC-X-50's "As implemented" 11).
+- **No acknowledgement** clears it: neither flag is a change flag of §58E; the person classifies the deposit anew (`NOT_COUNTED`) and links it to one PropertyReference (`UNATTRIBUTED_ITEMS`, §58A's later option).
+- **ACC7 and ACC8 unchanged** (open question 4's proposal): neither has a deposit not attributed closed anew after its classification. Both run unchanged; **a new `NOT_COUNTED` or `UNATTRIBUTED_ITEMS` there is a finding to report and explain, not to suppress.**
+
+### Routes, database, errors
+
+- **No route changes;** `docs/development/api-inventory.md` is unchanged. The item DTO is §58C's for an entry of `notAttributed` (`reason`, `candidates`, `href`), unchanged.
+- **No migration:** nothing is stored; the view is derived on every read (§58C). No CHECK, guard or column changes.
+- **No new error answer.**
+
+### The code that changes (pointers)
+
+- **`domains/taxation/tax-year-view.ts:181-183`:** the filter without `d.counts` (open question 3), and the comment at `:180` naming the stale case.
+- **No change:** `tax-year-reads.ts` (it already passes the deposit), `deposit-closing.ts`, `tax-year-items.ts`, `tax-year-review.ts`, `attribution-*.ts`, the migrations, `api-inventory.md`.
+
+### Tests the implementation needs
+
+- **Domain (pure), in a new file** `domains/taxation/tax-year-unattributed-stale.test.ts` (`tax-year-view.test.ts` has 863 lines of the 900 allowed): the example's 2028 at the property level for P1, P2 and P3 (listed in P1 and P2 with `NOT_COUNTED` `CLOSING_CHANGED` open, `UNATTRIBUTED_ITEMS` `{ count: 1 }`, `final: false`; not in P3) and at the owner level (`share` `null`, the owner's figures unchanged); the `NO_RECONCILED_RENT` variant (every view); classified anew (`NOT_COUNTED` gone, `UNATTRIBUTED_ITEMS` stays); **unchanged money sums**: every line, section, `result`, `owners` and `notOwned` equal to the view without D (the deposit only in `notAttributed`); the cap counting D (a read at the limit with D answers `TAX_YEAR_TOO_LARGE`, without D a view); `NOT_AN_OWNER_IN_YEAR` unchanged with D; a §58H part change of D after the year's end with its item flag on D's `notAttributed` entry; counter-check: an attributed deposit with `CLOSING_CHANGED` stays in `unclassified`, not in `notAttributed`.
+- **Repository (PostgreSQL),** in `infrastructure/postgres/tax-year-deposit.test.ts` (344 lines) or a new file: D of the example through the real read (`closedDepositsOf` passes it, the view lists it in P1's and P2's 2028, not P3's); D reopened and not closed again (in no view); a deposit closed with nothing retained (in no view, the read's filter); **Realm isolation**: another Realm's deposit not attributed and closed anew is in none of this Realm's views; **history**: the reopen, the closing and the classification leave their AuditRecords as today (`REOPENED`, `CLOSED`, the classification's `CREATED`/`SUPERSEDED`), and reading the view writes no AuditRecord; "no cash mutated" around every view.
+- **End to end:** a case in a new `tax-year-unattributed-deposit.e2e.test.ts` (or in `tax-year-deposit-movers.e2e.test.ts`, 408 lines; open question 4): the example through the HTTP API, 2028 not final in P1 and P2 until D is classified anew, P3 unaffected. ACC7 and ACC8 unchanged.
+
+### Counter-checks and mutations
+
+**Counter-checks:** no deposit of `year` that counts by the deposit in no list of any view; no figure changed by listing it; no view outside §58C's set (P3 above) lists it; nothing written by a view.
+
+**Mutations** that must turn the tests red (each applied alone, restored byte for byte):
+
+- `d.counts &&` restored in the filter (`tax-year-view.ts:182`; D in no view);
+- the candidate condition dropped (D listed in P3's view);
+- `UNATTRIBUTED_ITEMS` counting only the deposits with `counts` (under open question 2's proposal);
+- `notCountedIsOpen` returning `false` for `CLOSING_CHANGED` (2028 final again; §58I's mutation, now also caught here);
+- `lineAmount` of the entry taken as `amount` or D summed into `RETAINED_DEPOSIT_DAMAGES` (the money sums change);
+- the Realm filter dropped from `closedDepositsOf` (`tax-year-reads.ts:382`; another Realm's D listed).
+
+### The text that changes with the implementation
+
+- **§58C "Not attributed":** "What" becomes "a deposit closing of `year` whose PropertyReference is `null` and that counts by the deposit (`CLOSED`, a retained amount > 0), its classification fitting or not (`NOT_COUNTED` with `CLOSING_CHANGED`, open)"; §58C "As implemented"'s deviation on "a list item that does not count" names `notAttributed` beside `unclassified`.
+- **§58I Part 1, "Only deposits attributed to P are candidates":** "while it is in a year, `UNATTRIBUTED_ITEMS` holds that year open" gains "(since VC-X-51 also with a classification of an earlier closing)".
+- **The invariant suite** (`docs/development/invariant-suite.md:866`, the row **"Nicht zugeordnet"**): "a retained deposit without one PropertyReference listed" gains "also with a classification of an earlier closing (`NOT_COUNTED`, `CLOSING_CHANGED`, open)".
+
+### Open questions (owner)
+
+1. **Which views list it.** **Proposal:** §58C's rule, unchanged: each candidate's view for `SEVERAL_PROPERTY_REFERENCES`, every view of the Realm for `NO_RECONCILED_RENT`, exactly as with no classification and after a new one; no new rule, and the stale classification no longer decides where it appears. **Alternative:** narrow a `NO_RECONCILED_RENT` deposit to the views that concern it (the PropertyReferences of its Tenant's released reconciliations' rent splits, as VC-X-49 names an inconsistency only where the deposit concerns P), every view only when there are none; less noise in a large Realm, but a new rule that differs from the unclassified and the newly classified deposit's, and needs a read of the released reconciliations in the view.
+2. **`UNATTRIBUTED_ITEMS` counts it.** **Proposal:** yes; it is an entry of `notAttributed` like any other, and the flag's count stays "the deposits in `notAttributed`" (`tax-year-view.ts:246`, no code change). **Alternative:** count only the deposits with `counts: true` and let the open `NOT_COUNTED` alone hold the year open; then `UNATTRIBUTED_ITEMS` appears only after the new classification, which reads as a new finding although the deposit did not change.
+3. **How the filter is written.** **Proposal:** drop `d.counts &&` (the read passes only closings that count by the deposit, `tax-year-reads.ts:395`, so a `counts: false` there can only be `CLOSING_CHANGED`), and pin that in a repository test (a reopened and a nothing-retained deposit never reach `unattributedDeposits`). **Alternative:** keep a guard in the view, `d.counts || notCountedIsOpen(…)` on the meaning's `NOT_COUNTED` details, so that a future read passing other non-counting deposits does not list them silently; one more condition to keep in step with §58I decision 4.
+4. **Order and tests.** **Proposal:** a small PR of its own after VC-X-50 (now on main), no migration; the pure tests in a new file, the PostgreSQL case beside `tax-year-deposit.test.ts`, its own e2e file `tax-year-unattributed-deposit.e2e.test.ts`; ACC7 and ACC8 unchanged. **Alternative:** the e2e case added to `tax-year-deposit-movers.e2e.test.ts` (VC-X-50's, 408 lines), which already builds a deposit closed anew; one file fewer, but it mixes VC-X-50's change flags with a listing rule.
+
+**Still open (owner):** questions 1–4.
+
+---
+
 # 59. Depreciation Asset API (VC-8-01, implemented: migration 0049)
 
 **Status:** implemented (VC-8-01, migration 0049). The deviations and interpretations are listed under "As implemented (VC-8-01)" below.
