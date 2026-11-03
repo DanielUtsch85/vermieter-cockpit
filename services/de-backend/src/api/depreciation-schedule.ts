@@ -59,6 +59,8 @@ function scheduleDto(s: StagedSchedule) {
   const componentYear = (y: ComponentYear) => ({
     year: y.year,
     rule: y.rule,
+    // §59G (purchase components only): the year's rate kind and exact annual fraction.
+    ...(y.rate === undefined ? {} : { rate: y.rate }),
     months: y.months,
     amount: money(y.amount),
     cumulative: money(y.cumulative),

@@ -826,6 +826,18 @@ export interface DepreciationAssetUsefulLifeTable {
   valuation_date: string | null;
   /** VC-X-41 (0056): the release note (Freigabevermerk), 1–500. */
   release_note: string | null;
+  /**
+   * VC-X-41 Part 2 (0061, api-design §59G): per owner, the declared AfA `{ partyId, throughYear, amount, evidenceReference }`
+   * (`amount` a decimal string); `[]` for none.
+   */
+  declared_afa: ColumnType<DeclaredAfaRow[], string | undefined, string>;
+}
+
+export interface DeclaredAfaRow {
+  partyId: string;
+  throughYear: number;
+  amount: string;
+  evidenceReference: string;
 }
 
 /** VC-X-37 (0053, api-design §59C): the method entry of a purchase, one per Acquisition of a building asset. */

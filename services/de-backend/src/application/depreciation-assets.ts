@@ -22,6 +22,7 @@ import {
   type NewDepreciationAsset,
   type PurchaseMethodStatus,
   type ValuationDateRefusal,
+  type DeclaredAfaRefusal,
 } from '../domains/depreciation/index.js';
 import { businessDayOf } from '../domains/ledger/index.js';
 import { TAX_RULES } from '../domains/tax-rules/index.js';
@@ -102,6 +103,24 @@ export class ValuationDateAfterEvidenceDateError extends Error {
     readonly evidenceDate: string,
   ) {
     super(`The Stichtag ${valuationDate} of the shorter useful life of Acquisition ${acquisitionId} lies after its evidence's date ${evidenceDate}`);
+  }
+}
+
+/**
+ * A declared AfA on an entry whose Stichtag lies in or before its Acquisition's contract year (→ 422
+ * DECLARED_AFA_NOT_APPLICABLE; §59G Part 2, Entscheidung des Projektinhabers, 2026-11-02, open question 11): such an entry
+ * applies from the start (or not at all), so its declared AfA could never be read.
+ */
+export class DeclaredAfaNotApplicableError extends Error {
+  override readonly name = 'DeclaredAfaNotApplicableError';
+
+  constructor(
+    readonly index: number,
+    readonly acquisitionId: string,
+    readonly valuationDate: string | null,
+    readonly contractDate: string,
+  ) {
+    super(`The shorter useful life of Acquisition ${acquisitionId} (Stichtag ${valuationDate ?? 'none'}, contract ${contractDate}) takes no declared AfA`);
   }
 }
 
@@ -231,6 +250,7 @@ function refuseEntry(
   outcome:
     | ItemRefusal
     | ValuationDateRefusal
+    | DeclaredAfaRefusal
     | {
         readonly kind: 'PARTY_NOT_FOUND' | 'ACQUISITION_NOT_FOUND' | 'ACQUISITION_NOT_OF_PROPERTY' | 'ACQUISITION_CANCELLED';
         readonly partyId?: string;
@@ -241,6 +261,9 @@ function refuseEntry(
   if (ITEM_REFUSALS.includes(outcome.kind)) return refuseItem(outcome as ItemRefusal);
   if (outcome.kind === 'VALUATION_DATE_AFTER_EVIDENCE_DATE') {
     throw new ValuationDateAfterEvidenceDateError(outcome.index, outcome.acquisitionId, outcome.valuationDate, outcome.evidenceDate);
+  }
+  if (outcome.kind === 'DECLARED_AFA_NOT_APPLICABLE') {
+    throw new DeclaredAfaNotApplicableError(outcome.index, outcome.acquisitionId, outcome.valuationDate, outcome.contractDate);
   }
   const entry = outcome as { kind: string; partyId?: string; acquisitionId?: string; propertyReferenceId?: string };
   switch (entry.kind) {

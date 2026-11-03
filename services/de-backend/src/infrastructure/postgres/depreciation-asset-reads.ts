@@ -85,6 +85,8 @@ async function withEntries(trx: Transaction<Database>, rows: readonly AssetRow[]
       // §59G (0056): the valuation date apart from the document's date, and the release note.
       sql<string | null>`to_char(valuation_date, 'YYYY-MM-DD')`.as('valuation_date'),
       'release_note',
+      // §59G Part 2 (0061): the declared AfA per owner.
+      'declared_afa',
     ])
     .where(
       'asset_id',

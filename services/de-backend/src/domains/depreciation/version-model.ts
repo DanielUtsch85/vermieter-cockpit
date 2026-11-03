@@ -84,6 +84,12 @@ export interface VersionAcquisitionInputs {
    * inputs re-derive its case and the fingerprint sees a moved date. Absent or `null` on every other component.
    */
   readonly shorterLifeValuationDate?: BusinessDate | null;
+  /**
+   * §59G Part 2 (open question 11, migration 0061): the owners' declared AfA through `YE − 1` (in cents) of a late
+   * evidence whose residual value is spread, in `partyId` order. Absent on every other component; it counts in the
+   * fingerprint from `YE` only (a changed declared AfA changes the years from `YE`, none before).
+   */
+  readonly shorterLifeDeclaredAfa?: readonly { readonly partyId: string; readonly throughYear: number; readonly amount: bigint }[];
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   lastDayOf,
   maxDate,
   minF,
+  sub,
   monthLabel,
   monthOf,
   ofShare,
@@ -24,7 +25,7 @@ import {
 import { isMethodReason } from './purchase-method.js';
 import { isShorterLifeBlockingReason } from './shorter-life.js';
 import { buildingRuleOn, movableRuleOn } from './rate.js';
-import type { BuildingLinearParameters } from './rules/de-afa-building-linear.js';
+import { AFA_BUILDING_LINEAR, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import type { Flag, ItemComponent, ScheduleAcquisition, ScheduleOwnership } from './schedule-model.js';
 import type { Part, Work } from './purchase-work.js';
 
@@ -51,6 +52,11 @@ export interface PartRate {
   readonly usefulLifeYears: number | null;
   /** The annual rate of `year`, undefined without a rule version for it. */
   readonly annualOf: (year: number) => Frac | undefined;
+  /**
+   * §59G Part 2: the step of month `m` given the part's consumed fraction `used` (`1/(L − m + 1)` of what is left from
+   * the switch, the band before it), so every part of the pool ends in `L`; undefined for a rate of whole years.
+   */
+  readonly stepOf?: (m: number, used: Frac) => Frac;
 }
 
 export interface Reading {
@@ -307,16 +313,26 @@ export function partOf(
         const blocked = [governing, ...purchases.filter((x) => x !== governing)]
           .map(({ w }) => w.reasons.find((r) => isShorterLifeBlockingReason(r.code)))
           .find((r) => r !== undefined);
-        const guard = blocked === undefined ? shorterLifeGuard([governing, ...purchases.filter((x) => x !== governing)], firstMonth) : null;
+        const versions = registry.versions(AFA_BUILDING_LINEAR) as readonly { readonly parameters: BuildingLinearParameters }[];
+        const shorterLifeRule = (buildingRuleOn(registry, yearOfDate(date)) ?? versions[versions.length - 1])?.parameters.subsequentCostRate.shorterLife;
+        const pool = [governing, ...purchases.filter((x) => x !== governing)];
+        const guard = blocked === undefined ? shorterLifeGuard(pool, firstMonth, shorterLifeRule ?? 'NOT_COMPUTABLE') : null;
         if (blocked !== undefined) {
           partReasons.push({ code: blocked.code, details: { acquisitionId: blocked.details['acquisitionId'] } });
           rate = null;
+        } else if (guard !== null && 'spread' in guard) {
+          // §59G Part 2 (`REMAINING_USEFUL_LIFE`): what is left of the part runs with the purchase to its last month `L`;
+          // an owner of the purchase not computed from `YE` (release, declared AfA) stops the part from then too.
+          const { w: pw, switchMonth, lastMonth, usefulLifeYears } = guard.spread;
+          rate = spreadRate(registry, asset, { switchMonth, lastMonth, usefulLifeYears, firstMonth });
+          const own = purchases.find(({ w, p }) => w === pw && p.ownerPartyId === part.participant)?.p.residualStop;
+          if (own !== null && own !== undefined && own.reasons[0] !== undefined) stopFrom = { year: own.year, reason: own.reasons[0] };
         } else if (guard !== null && guard.fromYear === null) {
           partReasons.push(guard.reason);
           rate = null;
         } else {
-          // The rate reads the purchase's `rateEntry` (§59G): the entry only when it applies from the start. Under Part 1
-          // such a pool never gets here (the guard above), so a later cost never runs at `1/n`.
+          // The rate reads the purchase's `rateEntry` (§59G): the entry only when it applies from the start. A pool whose
+          // purchase applies a shorter life never gets here (the guard above), so a later cost never runs at `1/n`.
           const atDate = rateOfYear(registry, yearOfDate(date), asset.buildingCompletionYear, governing.w.rateEntry);
           const years = governing.w.rateEntry?.usefulLifeYears;
           rate =
@@ -356,14 +372,22 @@ export function partOf(
   };
 }
 
+type Guard =
+  | { readonly fromYear: number | null; readonly reason: Flag }
+  | { readonly spread: { readonly w: Work; readonly switchMonth: number; readonly lastMonth: number; readonly usefulLifeYears: number } };
+
 /**
- * §59G Part 1 (`subsequentCostRate.shorterLife: NOT_COMPUTABLE`): a later cost in a pool with a purchase whose shorter
- * life applies is not computed: in every year for an evidence from the start (`fromYear: null`), from the evidence's
- * year for a later one (a part starting in or after it: every year). A part starting after the evidenced remaining life
- * has ended (`afterRemainingLife`) needs a new evidence: `REMAINING_USEFUL_LIFE_ENDED`. `null` when no purchase applies one.
+ * §59G: a later cost in a pool with a purchase whose shorter life applies. One that starts after the evidenced remaining
+ * life has ended (`afterRemainingLife`) needs a new evidence: `REMAINING_USEFUL_LIFE_ENDED`. Otherwise, under Part 2
+ * (`subsequentCostRate.shorterLife: REMAINING_USEFUL_LIFE`), it runs with the governing purchase to `L` (`spread`):
+ * from the first month for `FROM_START`, from the switch for `FROM_EVIDENCE_YEAR` (the band's rate before it, open
+ * question 8). **Still not supported** (`SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED`): such a purchase in the pool that
+ * is not the governing one (two rates in one pool), a governing purchase that is not computable, and every case under
+ * Part 1's `NOT_COMPUTABLE` (in every year for an evidence from the start, `fromYear: null`; from the evidence's year
+ * for a later one). `null` when no purchase applies one.
  */
-function shorterLifeGuard(pool: readonly { readonly w: Work }[], firstMonth: number): { readonly fromYear: number | null; readonly reason: Flag } | null {
-  for (const { w } of pool) {
+function shorterLifeGuard(pool: readonly { readonly w: Work }[], firstMonth: number, rule: 'REMAINING_USEFUL_LIFE' | 'NOT_COMPUTABLE'): Guard | null {
+  for (const [index, { w }] of pool.entries()) {
     const c = w.shorterLife;
     const appliesFromStart = c.kind === 'FROM_START' && [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE');
     const appliesLater = c.kind === 'FROM_EVIDENCE_YEAR' && c.shorter;
@@ -374,10 +398,44 @@ function shorterLifeGuard(pool: readonly { readonly w: Work }[], firstMonth: num
       return { fromYear: null, reason: { code: 'REMAINING_USEFUL_LIFE_ENDED', details: { acquisitionId, lastMonth: monthLabel(lastMonth) } } };
     }
     const reason = { code: 'SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED', details: { acquisitionId, usefulLifeYears: c.entry.usefulLifeYears } };
+    const governing = index === 0;
+    if (rule === 'REMAINING_USEFUL_LIFE' && governing && w.computable && lastMonth !== null && (c.kind === 'FROM_START' || w.residual !== null)) {
+      const switchMonth = c.kind === 'FROM_EVIDENCE_YEAR' ? c.switchMonth : (w.firstMonth as number);
+      return { spread: { w, switchMonth, lastMonth, usefulLifeYears: c.entry.usefulLifeYears } };
+    }
     if (c.kind === 'FROM_START' || yearOfMonth(firstMonth) >= c.fromYear) return { fromYear: null, reason };
     return { fromYear: c.fromYear, reason };
   }
   return null;
+}
+
+/**
+ * §59G Part 2: a later cost's rate in a shorter-life pool. Before the switch `S` the band's rate (a part begun before a
+ * late evidence's switch, open question 8); from `S` (or its own first month, if later) each month takes `1/(L − m + 1)`
+ * of what is left, so the part ends in `L` to the cent and the pool needs no overflow. `annualOf` is the band before
+ * `S`'s year and `12/(L − first + 1)` from it (display and the rule's presence only; the walk reads `stepOf`).
+ */
+export function spreadRate(
+  registry: RuleRegistry,
+  asset: DepreciationAsset,
+  c: { readonly switchMonth: number; readonly lastMonth: number; readonly usefulLifeYears: number; readonly firstMonth: number },
+): PartRate {
+  const band = bandRate(registry, asset);
+  const from = Math.max(c.switchMonth, c.firstMonth);
+  return {
+    kind: 'SHORTER_USEFUL_LIFE',
+    usefulLifeYears: c.usefulLifeYears,
+    annualOf: (y) => {
+      const annual = band.annualOf(y);
+      if (annual === undefined || y < yearOfMonth(from)) return annual;
+      return frac(12n, BigInt(c.lastMonth - from + 1));
+    },
+    stepOf: (m, used) => {
+      if (m < c.switchMonth) return minF(twelfth(band.annualOf(yearOfMonth(m)) ?? ZERO), sub(ONE, used));
+      if (m > c.lastMonth) return ZERO;
+      return div(sub(ONE, used), frac(BigInt(c.lastMonth - m + 1), 1n));
+    },
+  };
 }
 
 export function bandRate(registry: RuleRegistry, asset: DepreciationAsset): PartRate {

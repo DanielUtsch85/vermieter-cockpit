@@ -1,7 +1,9 @@
-import type { Kysely, Transaction } from 'kysely';
+import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   addedItems,
   advisorsOf,
+  declaredAfaRefusal,
+  declaredPartiesOf,
   valuationDateAfterEvidence,
   amendFieldsNotAllowed,
   entryAcquisitionRefusal,
@@ -21,10 +23,10 @@ import {
   type ShorterUsefulLife,
   type VoidAssetOutcome,
 } from '../../domains/depreciation/index.js';
-import { checkVersion, type AuditActor } from '../../shared/index.js';
+import { checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
-import { UUID, fromSnapshot, isUniqueViolation, storedFields, toSnapshot } from './depreciation-asset-rows.js';
+import { UUID, declaredAfaJson, fromSnapshot, isUniqueViolation, storedFields, toSnapshot } from './depreciation-asset-rows.js';
 import { readAsset } from './depreciation-asset-reads.js';
 import * as separateAssets from './depreciation-separate-assets.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
@@ -74,12 +76,13 @@ export async function create(
         // §59G 238-5: a Stichtag after its evidence's date, once the PropertyReference is found; the key's claim rolls back.
         const late = valuationDateAfterEvidence(asset.shorterUsefulLives);
         if (late !== undefined) throw new Rejected(late);
-        const party = await missingParty(trx, advisorsOf(asset), asset.mreRealmId);
+        // §59G Part 2: the owners a declared AfA names are checked as the advisors are, after them.
+        const party = await missingParty(trx, [...new Set([...advisorsOf(asset), ...declaredPartiesOf(asset.shorterUsefulLives)])], asset.mreRealmId);
         if (party !== undefined) throw new Rejected({ kind: 'PARTY_NOT_FOUND', partyId: party });
         // §59C: the method entries' Acquisitions in the same step as the shorter lives', shorter lives first.
         const named = [...asset.shorterUsefulLives, ...asset.purchaseMethods];
         const acquisitions = await entryAcquisitions(trx, named, asset.mreRealmId);
-        const refusal = entryAcquisitionRefusal(named, acquisitions, asset.propertyReferenceId);
+        const refusal = entryAcquisitionRefusal(named, acquisitions, asset.propertyReferenceId) ?? declaredAfaRefusal(asset.shorterUsefulLives, acquisitions);
         if (refusal !== undefined) throw new Rejected(refusal);
         const itemRefusal = await separateAssets.itemRefusal(trx, capitalizedSources, now, asset.items, asset.mreRealmId, asset.propertyReferenceId, null);
         if (itemRefusal !== undefined) throw new Rejected(itemRefusal);
@@ -159,9 +162,14 @@ export async function amend(
         // Only new or changed entries are checked again: an unchanged one of a later-cancelled DRAFT does not block.
         const beforePlan = planAssetAmend(before, amendment);
         const written = [...writtenEntries(beforePlan), ...writtenPurchaseMethods(beforePlan)];
-        const party = await missingParty(trx, [...new Set(written.flatMap((e) => (e.advisorPartyId === null ? [] : [e.advisorPartyId])))], mreRealmId);
+        const party = await missingParty(
+          trx,
+          [...new Set([...written.flatMap((e) => (e.advisorPartyId === null ? [] : [e.advisorPartyId])), ...declaredPartiesOf(writtenEntries(beforePlan))])],
+          mreRealmId,
+        );
         if (party !== undefined) return { kind: 'PARTY_NOT_FOUND', partyId: party };
-        const refusal = entryAcquisitionRefusal(written, await entryAcquisitions(trx, written, mreRealmId), before.propertyReferenceId);
+        const found = await entryAcquisitions(trx, written, mreRealmId);
+        const refusal = entryAcquisitionRefusal(written, found, before.propertyReferenceId) ?? declaredAfaRefusal(amendment.shorterUsefulLives ?? [], found);
         if (refusal !== undefined) return refusal as AmendAssetOutcome;
         // Only items new to the list are checked (§59B): an unchanged link of a since-reclassified item does not block.
         const itemRefusal = await separateAssets.itemRefusal(
@@ -215,6 +223,7 @@ export async function amend(
                 review_state: to.reviewState,
                 advisor_party_id: to.advisorPartyId,
                 release_note: to.releaseNote,
+                declared_afa: declaredAfaJson(to.declaredAfa),
               })
               .where('asset_id', '=', id)
               .where('acquisition_id', '=', entry.acquisitionId)
@@ -396,13 +405,15 @@ async function entryAcquisitions(
   if (ids.length === 0) return new Map();
   const rows = await trx
     .selectFrom('acquisition')
-    .select(['id', 'property_reference_id', 'status'])
+    .select(['id', 'property_reference_id', 'status', sql<string>`to_char(contract_date, 'YYYY-MM-DD')`.as('contract_date')])
     .where('id', 'in', ids)
     .where('mre_realm_id', '=', mreRealmId)
     .orderBy('id')
     .forShare()
     .execute();
-  return new Map(rows.map((r) => [r.id, { id: r.id, propertyReferenceId: r.property_reference_id, status: r.status }]));
+  return new Map(
+    rows.map((r) => [r.id, { id: r.id, propertyReferenceId: r.property_reference_id, status: r.status, contractDate: r.contract_date as BusinessDate }]),
+  );
 }
 
 async function activeBuilding(db: Kysely<Database> | Transaction<Database>, propertyReferenceId: string): Promise<string | undefined> {
@@ -437,6 +448,7 @@ async function insertEntry(
       review_state: entry.reviewState,
       advisor_party_id: entry.advisorPartyId,
       release_note: entry.releaseNote,
+      declared_afa: declaredAfaJson(entry.declaredAfa),
     })
     .execute();
 }

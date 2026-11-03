@@ -2,11 +2,12 @@ import type { BusinessDate, RuleRegistry, RuleVersion } from '../../shared/index
 import type { DepreciationAsset } from './asset.js';
 import { NOT_OWNED_PART } from './capitalized-item.js';
 import { ZERO, byText, frac, monthOf, yearOfDate, type Frac, type RateEntry } from './exact.js';
-import { bandRate, usefulLifeRate, type ItemContext, type ItemPart, type ItemWork, type PartRate, type Reading } from './item-part.js';
+import { bandRate, spreadRate, usefulLifeRate, type ItemContext, type ItemPart, type ItemWork, type PartRate, type Reading } from './item-part.js';
 import { walkPools } from './item-pools.js';
 import { buildingRuleOn } from './rate.js';
 import { accumulateMonths } from './purchase-tenure.js';
-import { nominalMonths, type Part, type Work } from './purchase-work.js';
+import { nominalMonths, type Part, type ResidualPlan, type Work } from './purchase-work.js';
+import { heldAtSwitch } from './residual-value.js';
 import { AFA_BUILDING_LINEAR, type BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import { RANGE_MAX_YEAR } from './schedule-model.js';
 import { entriesOf } from './version-inputs.js';
@@ -73,19 +74,29 @@ export function rebuildWorks(inputs: VersionInputs, registry: RuleRegistry): { r
 function purchaseWork(c: VersionComponent, registry: RuleRegistry, completionYear: number | null, supportedYear: number): Work {
   const start = c.start.date as BusinessDate;
   const firstMonth = monthOf(`${c.start.month as string}-01` as BusinessDate);
-  // §59G Part 1: a stored shorter life applies from the start (a later evidence is never recorded as one), so the rate
-  // reads its years and review state; its valuation date is a stored input of the fingerprint. No type cast.
+  // §59G: a stored shorter life applies from the start, or (Part 2) from its Stichtag's switch when that lies after the
+  // first year: the stored valuation date re-derives the case, `S` and `L` under the registry's `evidenceYearCounts`.
+  // A recorded component is computable, so its late evidence was released and its declared AfA matched. No type cast.
+  const years = c.rate.kind === 'SHORTER_USEFUL_LIFE' ? c.rate.usefulLifeYears : null;
+  const valuationDate = c.acquisition?.shorterLifeValuationDate ?? null;
+  const firstYear = Math.floor(firstMonth / 12);
+  const versions = registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
+  const counts = (buildingRuleOn(registry, firstYear) ?? versions[versions.length - 1])?.parameters.shorterUsefulLife.evidenceYearCounts;
+  const residual: ResidualPlan | null =
+    years !== null && valuationDate !== null && yearOfDate(valuationDate) > firstYear
+      ? (() => {
+          const switchMonth = counts === 'FROM_VALUATION_MONTH' ? monthOf(valuationDate) : yearOfDate(valuationDate) * 12;
+          return { switchMonth, lastMonth: switchMonth + 12 * years - 1, fromYear: yearOfDate(valuationDate), usefulLifeYears: years };
+        })()
+      : null;
   const entry: RateEntry | undefined =
-    c.rate.kind === 'SHORTER_USEFUL_LIFE' && c.rate.usefulLifeYears !== null
-      ? {
-          usefulLifeYears: c.rate.usefulLifeYears,
-          reviewState: c.acquisition?.shorterLifeReviewState === 'ADVISOR_CONFIRMED' ? 'ADVISOR_CONFIRMED' : 'CONFIRMED',
-        }
+    years !== null && residual === null
+      ? { usefulLifeYears: years, reviewState: c.acquisition?.shorterLifeReviewState === 'ADVISOR_CONFIRMED' ? 'ADVISOR_CONFIRMED' : 'CONFIRMED' }
       : undefined;
   const nominal =
     completionYear === null
       ? { monthly: new Map<number, Frac>(), rates: new Map(), yearsWithoutRule: [], lastMonth: null }
-      : nominalMonths(registry, { firstMonth, startYear: yearOfDate(start), completionYear, entry, supportedYear });
+      : nominalMonths(registry, { firstMonth, startYear: yearOfDate(start), completionYear, entry, supportedYear, residual });
   const parts: Part[] = c.parts.map((stored) => {
     const fractionAt = fractionAtOf(stored.fractions);
     const part: Part = {
@@ -105,8 +116,13 @@ function purchaseWork(c: VersionComponent, registry: RuleRegistry, completionYea
       years: new Map(),
       disposals: new Map(),
       fractionAt,
+      residualStop: null,
     };
-    if (fractionAt !== null) accumulateMonths({ firstMonth, lastMonth: nominal.lastMonth, monthly: nominal.monthly }, part, fractionAt);
+    const spread =
+      residual !== null && fractionAt !== null && heldAtSwitch(fractionAt, residual.switchMonth) === 'FULL'
+        ? { switchMonth: residual.switchMonth, basisCents: stored.basis }
+        : undefined;
+    if (fractionAt !== null) accumulateMonths({ firstMonth, lastMonth: nominal.lastMonth, monthly: nominal.monthly }, part, fractionAt, spread);
     return part;
   });
   return {
@@ -123,6 +139,7 @@ function purchaseWork(c: VersionComponent, registry: RuleRegistry, completionYea
     rateEntry: entry,
     shorterLife: { kind: 'NOT_JUDGED' },
     shorterLifeFrom: null,
+    residual,
     // A recorded component is computable, so its method entry was a confirmed STANDARD one (§59C); the arithmetic does not read it.
     method: null,
     parts,
@@ -143,12 +160,24 @@ function itemWork(c: VersionComponent, ctx: ItemContext, separate: boolean, pool
       case 'USEFUL_LIFE':
         return usefulLifeRate(registry, asset);
       case 'SHORTER_USEFUL_LIFE': {
-        const years = BigInt(p.usefulLifeYears ?? 0);
-        return {
-          kind: 'SHORTER_USEFUL_LIFE',
-          usefulLifeYears: p.usefulLifeYears,
-          annualOf: (y) => (buildingRuleOn(registry, y) === undefined || years < 1n ? undefined : frac(1n, years)),
-        };
+        // §59G Part 2: with its pool's shorter-life purchase to that purchase's last month `L` (from its switch, or from
+        // its first month for an evidence from the start), as the derivation's `spreadRate`.
+        const pool = p.poolKey === null ? [] : (pools.get(p.poolKey) ?? []);
+        const governing = pool.map(({ w }) => w).find((w) => [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE'));
+        if (governing === undefined || governing.lastMonth === null || governing.firstMonth === null) {
+          const years = BigInt(p.usefulLifeYears ?? 0);
+          return {
+            kind: 'SHORTER_USEFUL_LIFE',
+            usefulLifeYears: p.usefulLifeYears,
+            annualOf: (y) => (buildingRuleOn(registry, y) === undefined || years < 1n ? undefined : frac(1n, years)),
+          };
+        }
+        return spreadRate(registry, asset, {
+          switchMonth: governing.residual?.switchMonth ?? governing.firstMonth,
+          lastMonth: governing.lastMonth,
+          usefulLifeYears: p.usefulLifeYears ?? 0,
+          firstMonth: monthOf(`${p.firstMonth}-01` as BusinessDate),
+        });
       }
       case 'BAND':
         return bandRate(registry, asset);

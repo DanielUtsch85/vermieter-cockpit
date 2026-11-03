@@ -1,4 +1,16 @@
 import type { AuditActor, BusinessDate, RuleRef, VersionConflict } from '../../shared/index.js';
+import { declaredAfaKey, sortedDeclaredAfa, type DeclaredAfa, type DeclaredAfaRefusal, type ValuationDateRefusal } from './shorter-life-entry.js';
+export {
+  MAX_DECLARED_AFA,
+  MAX_DECLARED_AFA_REFERENCE_LENGTH,
+  declaredAfaRefusal,
+  declaredPartiesOf,
+  sortedDeclaredAfa,
+  valuationDateAfterEvidence,
+  type DeclaredAfa,
+  type DeclaredAfaRefusal,
+  type ValuationDateRefusal,
+} from './shorter-life-entry.js';
 import { componentIdOf, sameItem, type ItemRef } from './capitalized-item.js';
 import {
   changedPurchaseMethods,
@@ -82,6 +94,8 @@ export interface ShorterUsefulLife {
    * a changed note resets the review state as a changed evidence does, so no release is carried under an old one.
    */
   readonly releaseNote: string | null;
+  /** §59G Part 2: each owner's declared AfA through `YE − 1` (`declared-afa.ts`), `[]` for none; a fact of the entry. */
+  readonly declaredAfa: readonly DeclaredAfa[];
 }
 
 /** §59G: 1–500 characters. */
@@ -164,6 +178,7 @@ export function assetFingerprint(asset: NewDepreciationAsset): string {
       e.reviewState,
       e.advisorPartyId,
       e.releaseNote,
+      declaredAfaKey(e.declaredAfa),
     ]),
     asset.notes,
     sortedEntries(asset.purchaseMethods).map(purchaseMethodFingerprint),
@@ -178,36 +193,6 @@ export function advisorsOf(facts: Pick<DepreciationAssetFacts, 'advisorPartyId' 
   return [...new Set(named)];
 }
 
-/**
- * §59G (Entscheidung des Projektinhabers, 2026-11-02, 238-5): an evidence cannot attest a Stichtag after its own date.
- * The first entry, in the order named (`index`), whose `valuationDate` lies after its `evidence.date`, else `undefined`;
- * equal dates are allowed, and an entry without a Stichtag (stored before 0056) is not judged. A structural fact of the
- * body (`422 VALUATION_DATE_AFTER_EVIDENCE_DATE`), never a tax judgement.
- */
-export function valuationDateAfterEvidence(
-  entries: readonly { readonly acquisitionId: string; readonly evidence: ShorterLifeEvidence }[],
-): ValuationDateRefusal | undefined {
-  const index = entries.findIndex((e) => e.evidence.valuationDate !== null && e.evidence.valuationDate > e.evidence.date);
-  const entry = entries[index];
-  if (entry === undefined || entry.evidence.valuationDate === null) return undefined;
-  return {
-    kind: 'VALUATION_DATE_AFTER_EVIDENCE_DATE',
-    index,
-    acquisitionId: entry.acquisitionId,
-    valuationDate: entry.evidence.valuationDate,
-    evidenceDate: entry.evidence.date,
-  };
-}
-
-/** §59G 238-5: the refusal of create and amend, after the asset or PropertyReference is found (Realm isolation first). */
-export interface ValuationDateRefusal {
-  readonly kind: 'VALUATION_DATE_AFTER_EVIDENCE_DATE';
-  readonly index: number;
-  readonly acquisitionId: string;
-  readonly valuationDate: BusinessDate;
-  readonly evidenceDate: BusinessDate;
-}
-
 /** An entry as an amend names it: its review state and advisor are optional (an unchanged entry keeps its own). */
 export interface UsefulLifeAmendment {
   readonly acquisitionId: string;
@@ -217,6 +202,8 @@ export interface UsefulLifeAmendment {
   readonly advisorPartyId?: string | null;
   /** §59G: the whole entry is named, so an omitted note is none. */
   readonly releaseNote?: string | null;
+  /** §59G Part 2: the whole entry is named, so an omitted declared AfA is none. */
+  readonly declaredAfa?: readonly DeclaredAfa[];
 }
 
 /** The fields an amend names; an omitted one keeps its value. */
@@ -286,7 +273,8 @@ const sameEntry = (a: ShorterUsefulLife, b: ShorterUsefulLife) =>
   sameShorterEvidence(a.evidence, b.evidence) &&
   a.reviewState === b.reviewState &&
   a.advisorPartyId === b.advisorPartyId &&
-  a.releaseNote === b.releaseNote;
+  a.releaseNote === b.releaseNote &&
+  declaredAfaKey(a.declaredAfa) === declaredAfaKey(b.declaredAfa);
 
 /**
  * The entry an amend leaves: a changed fact takes the state the body gives (default `UNREVIEWED`); an unchanged one
@@ -295,12 +283,14 @@ const sameEntry = (a: ShorterUsefulLife, b: ShorterUsefulLife) =>
  */
 function nextEntry(current: ShorterUsefulLife | undefined, named: UsefulLifeAmendment): ShorterUsefulLife {
   const releaseNote = named.releaseNote ?? null;
+  const declaredAfa = sortedDeclaredAfa(named.declaredAfa ?? []);
   const factsChanged =
     current === undefined ||
     current.usefulLifeYears !== named.usefulLifeYears ||
     !sameShorterEvidence(current.evidence, named.evidence) ||
-    current.releaseNote !== releaseNote;
-  const facts = { acquisitionId: named.acquisitionId, usefulLifeYears: named.usefulLifeYears, evidence: named.evidence, releaseNote };
+    current.releaseNote !== releaseNote ||
+    declaredAfaKey(current.declaredAfa) !== declaredAfaKey(declaredAfa);
+  const facts = { acquisitionId: named.acquisitionId, usefulLifeYears: named.usefulLifeYears, evidence: named.evidence, releaseNote, declaredAfa };
   if (factsChanged || named.reviewState !== undefined) {
     return { ...facts, reviewState: named.reviewState ?? 'UNREVIEWED', advisorPartyId: named.advisorPartyId ?? null };
   }
@@ -446,6 +436,7 @@ export type CreateAssetRefusal =
   | { readonly kind: 'ACQUISITION_NOT_OF_PROPERTY'; readonly acquisitionId: string; readonly propertyReferenceId: string }
   | { readonly kind: 'ACQUISITION_CANCELLED'; readonly acquisitionId: string }
   | ValuationDateRefusal
+  | DeclaredAfaRefusal
   | ItemRefusal;
 
 /** Steps 4–5 of a separate asset's create and amend (§59B), each check over all items, in this order. */
@@ -515,6 +506,8 @@ export interface EntryAcquisition {
   readonly id: string;
   readonly propertyReferenceId: string;
   readonly status: string;
+  /** §59G Part 2: whether a declared AfA can be read (`declaredAfaRefusal`). */
+  readonly contractDate?: BusinessDate;
 }
 
 /**

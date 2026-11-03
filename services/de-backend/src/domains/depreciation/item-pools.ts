@@ -13,9 +13,10 @@ import { cents, twelfth, type ItemContext, type ItemPart, type ItemWork, type Re
 
 /** The last month of a purchase if every year ran at the rate of its band (or `1/n`): `nominalLastMonth` of §59B. */
 function nominalLastMonth(ctx: ItemContext, w: Work): number | null {
-  // The rate reads the purchase's `rateEntry` (§59G Part 1). Review of #238: under Part 1 it is equivalent to `w.entry`
-  // here: this is only read for a purchase that is not computable, whose items already stop with its reason. VC-X-41
-  // Part 2 (residual value) must keep `rateEntry` (or the rate Part 2 derives from it) and pin this read with a test.
+  // The rate reads the purchase's `rateEntry` (§59G), never `w.entry`: the entry only when it applies from the start.
+  // VC-X-41 Part 2 keeps it (review of #238 and #240), and it differs from `w.entry` here for a late evidence that is not
+  // shorter from the first year (`n` 48, `YE` three years after `Y1`: `1/48` with `w.entry`, the band with `rateEntry`);
+  // pinned by `schedule-residual-items.test.ts` ("the nominal last month of a not computable purchase").
   // Without a start (TRANSFER_DATE_MISSING) there are no nominal months, never from the contract date.
   if (w.firstMonth === null) return null;
   const versions = ctx.registry.versions(AFA_BUILDING_LINEAR) as readonly RuleVersion<BuildingLinearParameters>[];
@@ -54,8 +55,10 @@ export function walkPools(ctx: ItemContext, works: readonly ItemWork[]): void {
   for (const members of pools.values()) {
     // Each part's own series (PER_ITEM_SERIES), and the pooled reading.
     for (const { w, p } of members) p.perItem = walk([{ p, refund: p.basisCents < 0n, componentId: w.componentId }], [], false).get(p) as Reading;
-    // A separate asset is never pooled (§59B): its items share one start and one rate, so each is its own series.
-    if (members.every(({ w }) => w.separate)) {
+    // A separate asset is never pooled (§59B): its items share one start and one rate, so each is its own series. §59G
+    // Part 2: a shorter-life pool neither (every part ends in the purchase's `L`, so there is no overflow, and
+    // POOLED_BASIS and PER_ITEM_SERIES give the same figures, without SUBSEQUENT_COST_END_TO_VERIFY).
+    if (members.every(({ w, p }) => w.separate || p.rate?.stepOf !== undefined)) {
       for (const { p } of members) p.pooled = p.perItem;
       continue;
     }
@@ -197,11 +200,10 @@ function walk(
         if (w.firstMonth === null || m < w.firstMonth || p.fractionAt === null || p.basisCents === null) continue;
         const f = p.fractionAt(m);
         const q = w.monthly.get(m) ?? ZERO;
-        // §59G Part 1: the purchase's `rateEntry`, never its stored entry (a later evidence is not applied retroactively).
-        // Review of #238: under Part 1 `rateEntry` and `w.entry` are equivalent here (mutation M6 survives): FROM_START
-        // pools never reach the pooled walk (their parts carry part reasons), and FROM_EVIDENCE_YEAR parts carry a
-        // `stopFrom`, so the per-item reading is shown. VC-X-41 Part 2 (residual value) makes them differ: it must keep
-        // `rateEntry` (or the rate Part 2 derives from it) and pin this read with a test.
+        // §59G: the purchase's `rateEntry`, never its stored entry (a later evidence is not applied retroactively). Review
+        // of #238 (M6) and #240: under Part 2 they differ here for a late evidence that is not shorter from the first year
+        // (`n` 48, `YE` three years after `Y1`): its pool runs at the band with the overflow, and `w.entry` would give
+        // `1/48`. Pinned by `schedule-residual-items.test.ts` ("the pooled walk of a late evidence not shorter").
         const annual = rateOfYear(ctx.registry, year, ctx.asset.buildingCompletionYear, w.rateEntry)?.annual ?? ZERO;
         const weight = mul(f, cents(p.basisCents));
         allowance = add(allowance, mul(weight, twelfth(annual)));
@@ -217,7 +219,8 @@ function walk(
       if (m < p.firstMonth || m > lastMonthOf(p)) continue;
       const annual = p.rate?.annualOf(year);
       if (annual === undefined) continue;
-      const step = minF(twelfth(annual), sub(ONE, used.get(p) as Frac));
+      const stepOf = p.rate?.stepOf;
+      const step = stepOf !== undefined ? stepOf(m, used.get(p) as Frac) : minF(twelfth(annual), sub(ONE, used.get(p) as Frac));
       own.set(p, cmp(step, ZERO) > 0 ? step : ZERO);
       if (!pooled || refund) continue;
       const weight = mul(p.fractionAt(m), cents(p.basisCents));

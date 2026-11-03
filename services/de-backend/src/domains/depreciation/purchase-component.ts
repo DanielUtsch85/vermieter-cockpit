@@ -1,6 +1,6 @@
-import { centsOf, divideHalfUp, moneyOfCents, type Money } from '../../shared/index.js';
+import { ExactDecimal, RoundingMode, centsOf, divideHalfUp, moneyOfCents, type Money } from '../../shared/index.js';
 import { ZERO, cmp, monthLabel, monthOf, show, yearOfDate, yearOfMonth, type Frac } from './exact.js';
-import { isRateVerified, reciprocalPercent } from './rate.js';
+import { isRateVerified } from './rate.js';
 import type { ComponentRate, ComponentYear, Flag, OwnerYear, ScheduleComponent, YearRule } from './schedule-model.js';
 import { isOpen, mergeOwnerFlags, sortFlags } from './schedule-review.js';
 import type { Part, Work } from './purchase-work.js';
@@ -28,6 +28,9 @@ export function componentOf(
       : null;
   const rateYear = Math.max(w.firstYear, Math.min(range.to, lastYear ?? range.to));
   const yr = w.rates.get(rateYear) ?? [...w.rates.entries()].filter(([y]) => y <= rateYear).pop()?.[1];
+  // §59G Part 2: the shorter life's facts (`rate.shorterUsefulLife`), from its `SHORTER_USEFUL_LIFE` flag; `null` without one.
+  const shorterFlag = w.flags.find((f) => f.code === 'SHORTER_USEFUL_LIFE');
+  const shorterUsefulLife = shorterFlag === undefined ? null : (shorterFlag.details as ComponentRate['shorterUsefulLife']);
   const rate: ComponentRate | null =
     yr === undefined
       ? null
@@ -35,12 +38,22 @@ export function componentOf(
         ? {
             kind: 'SHORTER_USEFUL_LIFE',
             band: yr.band.band,
-            ratePercent: reciprocalPercent(w.entry.usefulLifeYears),
+            // The effective rate of the year (`1/n` from the start; the spread's `12·q` from a late evidence), for display.
+            ratePercent: percentOf(yr.annual),
             rate: show(yr.annual),
             usefulLifeYears: w.entry.usefulLifeYears,
             legalBasis: yr.band.shorterUsefulLife.legalBasis,
+            shorterUsefulLife,
           }
-        : { kind: 'BAND', band: yr.band.band, ratePercent: yr.band.ratePercent, rate: show(yr.annual), usefulLifeYears: null, legalBasis: yr.band.legalBasis };
+        : {
+            kind: 'BAND',
+            band: yr.band.band,
+            ratePercent: yr.band.ratePercent,
+            rate: show(yr.annual),
+            usefulLifeYears: null,
+            legalBasis: yr.band.legalBasis,
+            shorterUsefulLife,
+          };
   const componentOpen = w.flags.some((f) => isOpen(f.code));
   const reasonsOfComponent = [...assetReasons, ...w.reasons];
 
@@ -71,8 +84,10 @@ export function componentOf(
         flags: [],
       };
     }
-    // §59G Part 1: from a later evidence's year on, nothing (never 0.00); the earlier years stand.
-    if (w.shorterLifeFrom !== null && year >= w.shorterLifeFrom.year) {
+    // §59G: from a later evidence's year on, nothing (never 0.00) for the whole component under Part 1's guard, or for
+    // this owner under Part 2 (the release, the declared AfA); the earlier years stand.
+    const stop = w.shorterLifeFrom ?? p.residualStop;
+    if (stop !== null && year >= stop.year) {
       return {
         ownerPartyId: p.ownerPartyId,
         months: null,
@@ -80,7 +95,7 @@ export function componentOf(
         amount: null,
         residualValue: null,
         calculationStatus: 'NOT_CALCULABLE',
-        reasons: w.shorterLifeFrom.reasons,
+        reasons: stop.reasons,
         flags: [],
       };
     }
@@ -135,11 +150,15 @@ export function componentOf(
     const known =
       w.computable &&
       (w.shorterLifeFrom === null || w.shorterLifeFrom.year > year) &&
-      parts.every((p) => p.basisCents !== null && (p.missingFrom === null || p.missingFrom.year > year));
+      parts.every(
+        (p) => p.basisCents !== null && (p.missingFrom === null || p.missingFrom.year > year) && (p.residualStop === null || p.residualStop.year > year),
+      );
     const cumulativeCents = known ? parts.map((p) => divideHalfUp((p.basisCents as bigint) * cumulativeOf(p, year).n, cumulativeOf(p, year).d)) : null;
     years.push({
       year,
       rule,
+      // §59G: the year's rate (`BAND` before the switch, `SHORTER_USEFUL_LIFE` from it) and its exact annual fraction.
+      rate: yr === undefined ? null : { kind: yr.kind, annualFraction: show(yr.annual) },
       months: w.computable ? countMonths(w, year) : null,
       amount: notCalculable ? null : sumOf(owners.map((o) => centsOf(o.amount as Money))),
       cumulative: notCalculable || cumulativeCents === null ? null : sumOf(cumulativeCents),
@@ -203,8 +222,12 @@ export function componentOf(
             firstYearMonths: yearOfMonth(w.firstMonth) === yearOfDate(w.start) ? 12 - (w.firstMonth % 12) : 0,
           },
     rate,
-    // §59G Part 1: the end of a component not computed from a later evidence's year is not known.
-    end: lastYear === null || lastMonth === null || w.shorterLifeFrom !== null ? null : { lastYear, lastMonth: monthLabel(lastMonth) },
+    // §59G: the end of a component not computed from a later evidence's year (Part 1's guard, or an owner stopped under
+    // Part 2) is not known.
+    end:
+      lastYear === null || lastMonth === null || w.shorterLifeFrom !== null || parts.some((p) => p.residualStop !== null)
+        ? null
+        : { lastYear, lastMonth: monthLabel(lastMonth) },
     owners: parts.map((p) => ({
       ownerPartyId: p.ownerPartyId,
       ownershipId: p.ownershipId,
@@ -231,4 +254,11 @@ function countMonths(w: Work, year: number): number {
   let months = 0;
   for (const m of w.monthly.keys()) if (yearOfMonth(m) === year && cmp(w.monthly.get(m) as Frac, ZERO) > 0) months++;
   return months;
+}
+
+/** An exact annual fraction as a percentage, half-even to four places (`1/33` → `3.0303`); for display only. */
+function percentOf(annual: Frac): string {
+  return ExactDecimal.of(String(annual.n * 100n))
+    .dividedBy(ExactDecimal.of(String(annual.d)), 4, RoundingMode.HALF_EVEN)
+    .toFixed(4);
 }

@@ -124,8 +124,15 @@ function purchaseComponent(
   pools: Map<Part, string>,
 ): VersionComponent {
   const a = w.acquisition;
-  // §59G Part 1: a shorter life is used only from the start (`rateEntry`); a later evidence is recorded as BAND years.
-  const shorter = w.rateEntry !== undefined && [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE');
+  // §59G: a shorter life is used from the start (`rateEntry`) or, under Part 2, from a late evidence's switch (`residual`):
+  // the component's rate is then SHORTER_USEFUL_LIFE, and its Stichtag (with the declared AfA) re-derives the switch.
+  const shorter = (w.rateEntry !== undefined || w.residual !== null) && [...w.rates.values()].some((r) => r.kind === 'SHORTER_USEFUL_LIFE');
+  const declared =
+    shorter && w.residual !== null && w.entry !== undefined
+      ? w.entry.declaredAfa
+          .filter((r) => r.throughYear === (w.residual as { fromYear: number }).fromYear - 1)
+          .map((r) => ({ partyId: r.partyId, throughYear: r.throughYear, amount: centsOf(r.amount) }))
+      : undefined;
   const rateKind: PartRateKind = shorter ? 'SHORTER_USEFUL_LIFE' : 'BAND';
   const usefulLifeYears = shorter ? (entries.find((e) => e.acquisitionId === a.id)?.usefulLifeYears ?? null) : null;
   // The costs as the basis treated them under the rule of the start (§59A, P8-D2 (1); §59D): the ids with an amount in
@@ -176,6 +183,7 @@ function purchaseComponent(
             buildingAmount: centsOf(a.allocation.buildingAmount),
             shorterLifeReviewState: shorter ? (w.entry?.reviewState ?? null) : null,
             ...(shorter ? { shorterLifeValuationDate: w.entry?.evidence.valuationDate ?? null } : {}),
+            ...(declared === undefined ? {} : { shorterLifeDeclaredAfa: declared }),
           },
     method:
       w.method === null

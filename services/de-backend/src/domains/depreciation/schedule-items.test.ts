@@ -18,6 +18,7 @@ import {
   owner,
   ownerAmounts,
   perItem,
+  part1,
   random,
   registry,
   repair,
@@ -317,8 +318,12 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
   const ext = (overrides: Partial<ScheduleInput> = {}) =>
     acc8({ from: 2027, to: 2028, capitalizedItems: [capitalized(EXTENSION, '2027-05-02', '12000.00')], ...overrides });
 
-  it('a confirmed shorter life of the owner’s purchase from the start: the item parts are not computed (§59G Part 1, SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED), never 1/30', () => {
-    const s = derive(ext({ asset: asset({ shorterUsefulLives: [life()] }) }));
+  it('a confirmed shorter life of the owner’s purchase from the start: under Part 1 the item parts are not computed (SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED), under Part 2 they run to the purchase’s last month, never 1/30', () => {
+    // §59G Part 2 (the rule): 2027-01 to the purchase's L 2056-06, 354 months, so 12/354 = 2/59 a year, never 1/30.
+    const part2 = item(derive(ext({ asset: asset({ shorterUsefulLives: [life()] }) })));
+    expect(part2.owners.map((o) => o.rate)).toEqual(['2/59', '2/59']);
+    expect(part2.end).toEqual({ lastYear: 2056, lastMonth: '2056-06' });
+    const s = derive(ext({ asset: asset({ shorterUsefulLives: [life()] }) }), part1);
     const c = item(s);
     expect(c.owners.map((o) => o.rate)).toEqual([null, null]);
     expect(owner(yearOf(c, 2027), A)).toMatchObject({
@@ -346,7 +351,7 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
   });
 
   it('an heir’s part and the NOT_OWNED part run at the band’s rate, pools of their own beside a 1/n purchase pool (whose own part is not computed, §59G Part 1)', () => {
-    const s = derive({
+    const input = (): ScheduleInput => ({
       asset: asset({ shorterUsefulLives: [life()] }),
       acquisitions: [acquisition({ acquiredShare: { numerator: 3, denominator: 5 } })],
       ownerships: [ownership(A, '3/5', '2026-07-01', null, W), ownership(C, '1/5', '2027-01-01', null, null)],
@@ -361,7 +366,22 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
       to: 2028,
       ownerPartyId: null,
     });
+    const s = derive(input(), part1);
     const c = item(s);
+    // §59G Part 2 (the rule): A's part runs from 2028-01 to the purchase's L 2056-06 (342 months, 2/57); C and NOT_OWNED
+    // keep the band, unaffected.
+    const part2 = item(derive(input()));
+    expect(part2.owners.map((o) => [o.ownerPartyId, o.rate])).toEqual([
+      [A, '2/57'],
+      [C, '1/50'],
+    ]);
+    const y2 = yearOf(part2, 2028);
+    expect([amount(owner(y2, A)?.amount), amount(owner(y2, C)?.amount), amount(y2.notOwned), amount(y2.amount)]).toEqual([
+      '210.53',
+      '40.00',
+      '40.00',
+      '290.53',
+    ]);
     // §59G Part 1: A's part, in the 1/n pool, is not computed; C's (an heir's pool) and NOT_OWNED keep the band.
     expect(c.owners.map((o) => [o.ownerPartyId, o.basis.amount, o.rate])).toEqual([
       [A, '6000.00', null],
@@ -406,6 +426,11 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
   });
 
   it('an item on a purchase with a shorter useful life under @1 is not computed under either verification of the thresholds (§59G Part 1); the purchase carries no HISTORICAL_RULE_TO_VERIFY', () => {
+    const part1Thresholds = withParameters((p) => ({
+      ...p,
+      subsequentCostRate: { ...p.subsequentCostRate, shorterLife: 'NOT_COMPUTABLE' },
+      verified: p.bands.length === 2 ? { ...p.verified, shorterUsefulLifeThresholds: false } : p.verified,
+    }));
     const input: ScheduleInput = {
       asset: asset({ shorterUsefulLives: [life({ evidence: { ...life().evidence, date: day('2020-01-01'), valuationDate: day('2020-01-01') } })] }),
       acquisitions: [acquisition({ contractDate: day('2019-11-01'), economicTransferDate: day('2020-01-01') })],
@@ -417,10 +442,13 @@ describe('the rate (B11; §59B "The rate and the end")', () => {
       ownerPartyId: null,
     };
     const thresholdsOpen = withParameters((p) => (p.bands.length === 2 ? { ...p, verified: { ...p.verified, shorterUsefulLifeThresholds: false } } : p));
-    for (const reg of [registry, thresholdsOpen]) {
+    for (const reg of [part1, part1Thresholds]) {
       const s = derive(input, reg);
       expect(codes(owner(yearOf(item(s), 2022), A)?.reasons ?? [])).toEqual(['SUBSEQUENT_COST_SHORTER_LIFE_NOT_SUPPORTED']);
     }
+    // §59G Part 2 (the rule): computed; HISTORICAL_RULE_TO_VERIFY on the item's @1 year only while @1's thresholds are open.
+    expect(codes(owner(yearOf(item(derive(input)), 2022), A)?.flags ?? [])).toEqual([]);
+    expect(codes(owner(yearOf(item(derive(input, thresholdsOpen)), 2022), A)?.flags ?? [])).toEqual(['HISTORICAL_RULE_TO_VERIFY']);
     const purchase = derive(input).components[0];
     expect(codes(purchase?.years[0]?.owners[0]?.flags ?? [])).not.toContain('HISTORICAL_RULE_TO_VERIFY');
     expect(codes(derive(input, thresholdsOpen).components[0]?.years[0]?.owners[0]?.flags ?? [])).toContain('HISTORICAL_RULE_TO_VERIFY');

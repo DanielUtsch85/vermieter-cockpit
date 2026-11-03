@@ -2,6 +2,7 @@ import { sql } from 'kysely';
 import type {
   AssetReviewState,
   AssetStatus,
+  DeclaredAfa,
   DepreciationAsset,
   DepreciationAssetId,
   DepreciationMethod,
@@ -9,9 +10,11 @@ import type {
   PurchaseMethod,
   SupportedAssetType,
 } from '../../domains/depreciation/index.js';
-import type { BusinessDate } from '../../shared/index.js';
+import { sortedDeclaredAfa } from '../../domains/depreciation/index.js';
+import { Money, type BusinessDate } from '../../shared/index.js';
+import type { DeclaredAfaRow } from './schema.js';
 
-/** The DepreciationAsset rows (migrations 0049, 0051, 0053, 0056): the columns read, their mapping, the stored fields and the snapshot. */
+/** The DepreciationAsset rows (migrations 0049, 0051, 0053, 0056, 0061): the columns read, their mapping, the stored fields and the snapshot. */
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const ASSET_COLUMNS = [
@@ -70,7 +73,21 @@ export interface EntryRow {
   /** §59G (0056): `NULL` on an entry from before 0056 ("not stated"). */
   valuation_date: string | null;
   release_note: string | null;
+  /** §59G Part 2 (0061): per owner, `[]` for none. */
+  declared_afa: DeclaredAfaRow[];
 }
+
+/** §59G Part 2: a declared AfA as the domain holds it (the amount in EUR, as the guard of 0061 checked it). */
+export const declaredAfaOf = (rows: readonly DeclaredAfaRow[]): DeclaredAfa[] =>
+  sortedDeclaredAfa(
+    rows.map((r) => ({ partyId: r.partyId, throughYear: r.throughYear, amount: Money.of(r.amount, 'EUR'), evidenceReference: r.evidenceReference })),
+  );
+
+/** §59G Part 2: the column's JSON (`amount` a decimal string, in `partyId` order). */
+export const declaredAfaJson = (rows: readonly DeclaredAfa[]): string =>
+  JSON.stringify(
+    sortedDeclaredAfa(rows).map((r) => ({ partyId: r.partyId, throughYear: r.throughYear, amount: r.amount.amount, evidenceReference: r.evidenceReference })),
+  );
 
 /** §59C (0053): a purchase's method entry. */
 export interface MethodRow {
@@ -137,6 +154,7 @@ export function toDomain(row: AssetRow, entries: readonly EntryRow[], items: rea
       reviewState: e.review_state as AssetReviewState,
       advisorPartyId: e.advisor_party_id,
       releaseNote: e.release_note,
+      declaredAfa: declaredAfaOf(e.declared_afa),
     })),
     purchaseMethods: methods.map(methodOf),
     notes: row.notes,
@@ -187,5 +205,17 @@ export function toSnapshot(asset: DepreciationAsset): AssetSnapshot {
 /** Written by toSnapshot in the same codebase, so its shape is trusted. */
 export function fromSnapshot(result: unknown): DepreciationAsset {
   const snapshot = result as AssetSnapshot;
-  return { ...snapshot, voidedAt: snapshot.voidedAt === null ? null : new Date(snapshot.voidedAt), createdAt: new Date(snapshot.createdAt) };
+  return {
+    ...snapshot,
+    // §59G Part 2: the declared amounts come back as `{ amount, currency }` and are Money again.
+    shorterUsefulLives: snapshot.shorterUsefulLives.map((e) => ({
+      ...e,
+      declaredAfa: (e.declaredAfa ?? []).map((r) => {
+        const m = r.amount as unknown as { amount: string; currency: string };
+        return { ...r, amount: Money.of(m.amount, m.currency) };
+      }),
+    })),
+    voidedAt: snapshot.voidedAt === null ? null : new Date(snapshot.voidedAt),
+    createdAt: new Date(snapshot.createdAt),
+  };
 }

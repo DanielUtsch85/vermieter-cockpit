@@ -91,6 +91,7 @@ describe.skipIf(databaseUrl === undefined)('release stages for recording (VC-X-4
       reviewState,
       advisorPartyId: null,
       releaseNote: null,
+      declaredAfa: [],
     },
   ];
   const stageThree = (componentId: string) => ({ componentId, kind: 'ACQUISITION', stage: 3, criteria: ['PURCHASE', 'SHORTER_USEFUL_LIFE_ENTRY'] });

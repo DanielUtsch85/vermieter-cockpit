@@ -24,6 +24,7 @@ describe("ACC8's purchase (§59A, the example)", () => {
       rate: '1/50',
       usefulLifeYears: null,
       legalBasis: '§ 7 Abs. 4 S. 1 Nr. 2 Buchst. b EStG',
+      shorterUsefulLife: null,
     });
     expect(c.end).toEqual({ lastYear: 2076, lastMonth: '2076-06' });
     expect(c.owners.map((o) => [o.ownerPartyId, o.share, o.acquiredShare, o.weight, amount(o.basis)])).toEqual([

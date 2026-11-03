@@ -13,6 +13,8 @@ import {
   MAX_ASSET_SOURCE_REFERENCES,
   MAX_PURCHASE_METHODS,
   MAX_RELEASE_NOTE_LENGTH,
+  MAX_DECLARED_AFA,
+  MAX_DECLARED_AFA_REFERENCE_LENGTH,
   MAX_SHORTER_USEFUL_LIVES,
   PURCHASE_METHODS,
   SPECIAL_DEPRECIATIONS,
@@ -23,7 +25,7 @@ import {
   type UsefulLifeAmendment,
 } from '../application/index.js';
 import { businessDate, optionalText } from './acquisitions.js';
-import { RESOURCE_ID, integerIn } from './validation.js';
+import { RESOURCE_ID, integerIn, money } from './validation.js';
 
 /** The DepreciationAsset API's request schemas and their mapping to the commands, shared by its route files (api-design.md §59–§59B). */
 
@@ -75,6 +77,34 @@ const shorterLifeEvidence = z
     if (value.documentId !== undefined) issue(ctx, ['documentId'], 'NOT_SUPPORTED');
   });
 
+/**
+ * §59G Part 2 (Entscheidung des Projektinhabers, 2026-11-02, open question 11): an owner's cumulative AfA declared per the
+ * tax assessments through `throughYear` (`YE − 1`), with its evidence reference. The amount is EUR and never negative
+ * (`NEGATIVE_AMOUNT`, another currency `NOT_ALLOWED`); the reference 1–500, trimmed (`REQUIRED` when empty).
+ */
+const declaredAfaRow = z
+  .object({
+    partyId: uuid,
+    throughYear: integerIn(2000, 2100),
+    amount: money,
+    evidenceReference: z.string().trim().min(1).max(MAX_DECLARED_AFA_REFERENCE_LENGTH),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.amount !== undefined && value.amount.currency !== 'EUR') issue(ctx, ['amount', 'currency'], 'NOT_ALLOWED');
+  });
+
+/** Each owner once (`DUPLICATE`), at most 20 (`OUT_OF_RANGE`). */
+const declaredAfaList = z.array(declaredAfaRow).superRefine((list, ctx) => {
+  if (list.length > MAX_DECLARED_AFA) issue(ctx, [], 'OUT_OF_RANGE');
+  const seen = new Set<unknown>();
+  list.forEach((r, index) => {
+    if (typeof r?.partyId !== 'string') return;
+    if (seen.has(r.partyId)) issue(ctx, [index, 'partyId'], 'DUPLICATE');
+    seen.add(r.partyId);
+  });
+});
+
 const entry = z
   .object({
     acquisitionId: uuid,
@@ -84,6 +114,8 @@ const entry = z
     advisorPartyId: uuid.nullish(),
     // §59G: the release note (Freigabevermerk), 1–500, trimmed; empty is absent.
     releaseNote: optionalText(MAX_RELEASE_NOTE_LENGTH).nullish(),
+    // §59G Part 2: the declared AfA per owner; omitted or null is none (the whole entry is named).
+    declaredAfa: declaredAfaList.nullish(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -311,6 +343,12 @@ export const entriesOf = (list: readonly z.infer<typeof entry>[] | null | undefi
       ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
       ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
       releaseNote: e.releaseNote ?? null,
+      declaredAfa: (e.declaredAfa ?? []).map((r) => ({
+        partyId: r.partyId,
+        throughYear: r.throughYear,
+        amount: r.amount,
+        evidenceReference: r.evidenceReference,
+      })),
     }),
   );
 

@@ -116,7 +116,7 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
   async function acc8(
     realm = REALM,
     reviewState: 'CONFIRMED' | 'UNREVIEWED' = 'CONFIRMED',
-    options: { readonly shorterUsefulLives?: (acquisitionId: string) => DepreciationAssetFacts['shorterUsefulLives'] } = {},
+    options: { readonly shorterUsefulLives?: (acquisitionId: string, owners: readonly [string, string]) => DepreciationAssetFacts['shorterUsefulLives'] } = {},
   ) {
     const db = createDatabase(ctx.pool);
     const mrePropertyId = (0x6512f0c2a1b2c3d4e5fa0000n + BigInt(++counter)).toString(16).padStart(24, '0');
@@ -206,7 +206,7 @@ export function useScheduleVersionDatabase(name: `${string}_test`) {
         sourceReferences: [],
         reviewState,
         advisorPartyId: null,
-        shorterUsefulLives: options.shorterUsefulLives?.(w) ?? [],
+        shorterUsefulLives: options.shorterUsefulLives?.(w, [a, b]) ?? [],
         purchaseMethods: [standardMethod(w)],
         notes: null,
       },

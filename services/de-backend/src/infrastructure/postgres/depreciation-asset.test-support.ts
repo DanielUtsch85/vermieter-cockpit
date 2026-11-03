@@ -155,6 +155,7 @@ export function useDepreciationAssetDatabase(name: `${string}_test`) {
     reviewState: 'UNREVIEWED',
     advisorPartyId: null,
     releaseNote: null,
+    declaredAfa: [],
     ...overrides,
   });
   const building = (pr: string, overrides: Partial<NewDepreciationAsset> = {}): NewDepreciationAsset => ({

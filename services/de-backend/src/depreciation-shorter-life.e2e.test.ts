@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { PROPERTIES, REALM_B, codes, databaseUrl, totalOf, useAcc8, type Json } from './phase-8-acceptance.test-support.js';
+import { PROPERTIES, REALM_B, databaseUrl, totalOf, useAcc8, type Json } from './phase-8-acceptance.test-support.js';
 
 /**
- * VC-X-41 Part 1 end to end (api-design.md §59G "Tests the implementation must have", "End to end"), through the HTTP
+ * VC-X-41 Parts 1 and 2 end to end (api-design.md §59G "Tests the implementation must have", "End to end"), through the HTTP
  * API wired as in main.ts, on ACC8's purchase (synthetic: 254,400.00, transfer 2026-07-01, A 3/5, B 2/5): a Stichtag in
  * the first year (1/30 from the start), moved after the first year (the band before its year, nothing from it, the
  * release missing), released (`ADVISOR_CONFIRMED`, evidence, release note), an entry without a Stichtag as stored before
  * 0056 (not computable, never its document date); the history of each amend; no cash, split or classification
  * changed; another Realm neither reads nor writes the entry.
  */
-describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Stichtag (VC-X-41 Part 1) end to end', () => {
+describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Stichtag (VC-X-41 Parts 1 and 2) end to end', () => {
   const api = useAcc8('shorter_life_e2e');
   const { at, post, get, call, schedule, view } = api;
 
@@ -72,7 +72,7 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
     'a Stichtag in the first year, moved after it (band before, nothing from it), released; history kept; no money mutated',
     { timeout: 120_000 },
     async () => {
-      const { pr, a, w, building } = await acc8(0);
+      const { pr, a, b, w, building } = await acc8(0);
       at('2029-02-15');
       const band = owners(await schedule(building, 'from=2026&to=2029'));
       const bandView2027 = totalOf(await view(pr, 2027), 'AFA_BUILDING');
@@ -92,7 +92,7 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
       expect([shorterFlag?.details.method, shorterFlag?.details.lastMonth]).toEqual(['FROM_START', '2056-06']);
 
       // The Stichtag moved after the first year (only CONFIRMED): the band's years exactly as without an entry, nothing
-      // from 2028 (never 0.00), the release shown missing beside the Part 1 reason.
+      // from 2028 (never 0.00) while the release is missing (§59G Part 2: with the declared AfA per owner).
       await amend(building, entry(w, '2028-03-01'));
       const s2 = await schedule(building, 'from=2026&to=2029');
       expect(owners(s2).slice(0, 2)).toEqual(band.slice(0, 2));
@@ -102,8 +102,7 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
       ]);
       const reasons2028 = s2.components[0].years.find((y: Json) => y.year === 2028).owners[0].reasons;
       expect(reasons2028.map((r: Json) => [r.code, r.details.missing ?? null])).toEqual([
-        ['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null],
-        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['ADVISOR_CONFIRMED', 'EVIDENCE', 'RELEASE_NOTE']],
+        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['ADVISOR_CONFIRMED', 'EVIDENCE', 'RELEASE_NOTE', 'DECLARED_AFA']],
       ]);
       // The tax-year view: 2027 unchanged against the band (the schedule is unaffected there), 2028 not available.
       expect(totalOf(await view(pr, 2027), 'AFA_BUILDING')).toBe(bandView2027);
@@ -111,13 +110,12 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
       const v2028 = await view(pr, 2028);
       expect([v2028.depreciation.status, v2028.depreciation.gaps.map((g: Json) => [g.code, g.details.reasons])]).toEqual([
         'DEPRECIATION_NOT_AVAILABLE',
-        [['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', ['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', 'SHORTER_USEFUL_LIFE_RELEASE_MISSING']]],
+        [['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['SHORTER_USEFUL_LIFE_RELEASE_MISSING']]],
       ]);
 
-      // Released by the advisor with evidence and a release note: the release is no longer missing; Part 1 still computes nothing from 2028.
+      // Released by the advisor with evidence and a release note: only the declared AfA per owner is still missing.
       const advisor = await api.party('Steuerberatung S');
-      const released = await amend(
-        building,
+      const releasedEntry = (extra: Record<string, unknown> = {}) =>
         entry(w, '2028-03-01', {
           reviewState: 'ADVISOR_CONFIRMED',
           advisorPartyId: advisor,
@@ -128,17 +126,58 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
             valuationDate: '2028-03-01',
             documentReference: 'Gutachten Nr. 0000-SYN',
           },
-        }),
-      );
+          ...extra,
+        });
+      const released = await amend(building, releasedEntry());
       expect(released.shorterUsefulLives[0]).toMatchObject({ reviewState: 'ADVISOR_CONFIRMED', releaseNote: expect.stringContaining('Restwertmethode') });
       const s3 = await schedule(building, 'from=2028&to=2028');
-      expect(codes(s3.components[0].years[0].owners[0].reasons)).toEqual(['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED']);
-      expect(s3.review.open.map((r: Json) => r.code)).not.toContain('SHORTER_USEFUL_LIFE_RELEASE_MISSING');
+      expect(s3.components[0].years[0].owners[0].reasons.map((r: Json) => [r.code, r.details.missing])).toEqual([
+        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['DECLARED_AFA']],
+      ]);
+
+      // §59G Part 2: each owner's declared AfA through 2027 recorded and matching (A 1,526.40 + 3,052.80, B 1,017.60 +
+      // 2,035.20): from 2028-01 each owner's carried-forward residual value over 30 years (A 148,060.80 / 30, B 98,707.20 / 30).
+      const declared = (amountA: string) => [
+        { partyId: a, throughYear: 2027, amount: { amount: amountA, currency: 'EUR' }, evidenceReference: 'Steuerbescheide 2026–2027 (synthetisch)' },
+        { partyId: b, throughYear: 2027, amount: { amount: '3052.80', currency: 'EUR' }, evidenceReference: 'Steuerbescheide 2026–2027 (synthetisch)' },
+      ];
+      const withDeclared = await amend(building, releasedEntry({ declaredAfa: declared('4579.20') }));
+      expect(withDeclared.shorterUsefulLives[0].declaredAfa.map((r: Json) => [r.partyId, r.throughYear, r.amount.amount])).toEqual(
+        [
+          [a, 2027, '4579.20'],
+          [b, 2027, '3052.80'],
+        ].sort((x, y) => String(x[0]).localeCompare(String(y[0]))),
+      );
+      const s4 = await schedule(building, 'from=2026&to=2029');
+      expect(owners(s4).slice(0, 2)).toEqual(band.slice(0, 2));
+      const amountsOf = (s: Json, year: number) =>
+        s.components[0].years.find((y: Json) => y.year === year).owners.map((o: Json) => [o.ownerPartyId, o.amount?.amount ?? null]);
+      expect(Object.fromEntries(amountsOf(s4, 2028))).toEqual({ [a]: '4935.36', [b]: '3290.24' });
+      expect(s4.components[0].rate.shorterUsefulLife).toMatchObject({ method: 'FROM_EVIDENCE_YEAR', fromYear: 2028, lastMonth: '2057-12' });
+      expect(s4.components[0].years.find((y: Json) => y.year === 2028).rate).toEqual({ kind: 'SHORTER_USEFUL_LIFE', annualFraction: '97/3000' });
+      expect(totalOf(await view(pr, 2028), 'AFA_BUILDING')).toBe('8225.60');
+      // One cent off for A: A's years from 2028 not computable (DECLARED_AFA_DIFFERS, both amounts), B's computed.
+      await amend(building, releasedEntry({ declaredAfa: declared('4579.21') }));
+      const s5 = await schedule(building, 'from=2028&to=2028');
+      const ownerA = s5.components[0].years[0].owners.find((o: Json) => o.ownerPartyId === a);
+      expect(ownerA.reasons).toEqual([
+        {
+          code: 'DECLARED_AFA_DIFFERS',
+          details: {
+            acquisitionId: w,
+            throughYear: 2027,
+            declaredAfa: { amount: '4579.21', currency: 'EUR' },
+            computedAfa: { amount: '4579.20', currency: 'EUR' },
+          },
+        },
+      ]);
+      expect(Object.fromEntries(amountsOf(s5, 2028))).toEqual({ [a]: null, [b]: '3290.24' });
+      expect(s5.years[0].amount).toBeNull();
 
       // History: one AuditRecord per amend, each with the entry's old and new values; nothing overwritten.
       const records = (await api.ctx.pool.query(`SELECT action, metadata FROM audit_record WHERE entity_id = $1 ORDER BY occurred_at, id`, [building]))
         .rows as { action: string; metadata: Json }[];
-      expect(records.map((r) => r.action)).toEqual(['CREATED', 'AMENDED', 'AMENDED', 'AMENDED']);
+      expect(records.map((r) => r.action)).toEqual(['CREATED', 'AMENDED', 'AMENDED', 'AMENDED', 'AMENDED', 'AMENDED']);
       expect(
         records
           .slice(1)
@@ -147,11 +186,19 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
         [null, '2026-06-15'],
         ['2026-06-15', '2028-03-01'],
         ['2028-03-01', '2028-03-01'],
+        ['2028-03-01', '2028-03-01'],
+        ['2028-03-01', '2028-03-01'],
       ]);
       expect(records[3]?.metadata.changedEntries[0]).toMatchObject({
         from: { reviewState: 'CONFIRMED', releaseNote: null },
         to: { reviewState: 'ADVISOR_CONFIRMED', releaseNote: expect.stringContaining('Restwertmethode') },
       });
+      // §59G Part 2: the declared AfA in the history, from none to A's 4,579.20 and then to 4,579.21.
+      expect(records.slice(4).map((r) => r.metadata.changedEntries[0].to.declaredAfa.find((x: Json) => x.partyId === a).amount.amount)).toEqual([
+        '4579.20',
+        '4579.21',
+      ]);
+      expect(records[4]?.metadata.changedEntries[0].from.declaredAfa).toEqual([]);
       // No cash, split, classification, purchase or Ownership row changed by any of it.
       expect(await moneyRows()).toBe(before);
     },
@@ -184,6 +231,55 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
       expect((await schedule(building, 'from=2026&to=2026')).years[0].amount.amount).toBe('4240.00');
     },
   );
+
+  it('§59G Part 2: the declared AfA at the boundary: 400 per field, 422 DECLARED_AFA_NOT_APPLICABLE, another Realm’s owner 404, nothing written', async () => {
+    const { a, w, building } = await acc8(4);
+    at('2029-02-15');
+    const row = (extra: Record<string, unknown> = {}) => ({
+      partyId: a,
+      throughYear: 2027,
+      amount: { amount: '4579.20', currency: 'EUR' },
+      evidenceReference: 'Steuerbescheide 2026–2027 (synthetisch)',
+      ...extra,
+    });
+    const send = (declaredAfa: unknown, valuationDate = '2028-03-01', options = {}) =>
+      call('POST', `/depreciation-assets/${building}/amend`, { shorterUsefulLives: [entry(w, valuationDate, { declaredAfa })] }, options);
+    const lives = async () => JSON.stringify((await api.ctx.pool.query(`SELECT * FROM depreciation_asset_useful_life ORDER BY asset_id`)).rows);
+    const audits = async () => (await api.ctx.pool.query(`SELECT count(*)::int AS n FROM audit_record`)).rows[0].n as number;
+    const foreign = await call('POST', '/parties', { partyType: 'PERSON', displayName: 'Fremde Partei' }, { realm: REALM_B });
+    const foreignId = ((await foreign.json()) as Json).partyId as string;
+    const [lives0, audits0] = [await lives(), await audits()];
+    for (const [body, field, code] of [
+      [[row({ amount: { amount: '-0.01', currency: 'EUR' } })], 'shorterUsefulLives.0.declaredAfa.0.amount.amount', 'NEGATIVE_AMOUNT'],
+      [[row({ evidenceReference: ' ' })], 'shorterUsefulLives.0.declaredAfa.0.evidenceReference', null],
+      [[row({ throughYear: 1999 })], 'shorterUsefulLives.0.declaredAfa.0.throughYear', 'OUT_OF_RANGE'],
+      [[row(), row()], 'shorterUsefulLives.0.declaredAfa.1.partyId', 'DUPLICATE'],
+      [[{ ...row(), note: 'x' }], 'shorterUsefulLives.0.declaredAfa.0', null],
+    ] as const) {
+      const res = await send(body);
+      const text = JSON.stringify(await res.json());
+      expect([res.status, text.includes(field), code === null || text.includes(code)]).toEqual([400, true, true]);
+    }
+    // A Stichtag in the contract year (2026): the entry applies from the start, so no declared AfA belongs to it.
+    const refused = await send([row()], '2026-06-15');
+    expect([refused.status, ((await refused.json()) as Json).error]).toEqual([
+      422,
+      {
+        code: 'DECLARED_AFA_NOT_APPLICABLE',
+        message: "A declared AfA belongs only to a shorter useful life whose valuationDate lies after its Acquisition's contract year.",
+        details: { index: 0, acquisitionId: w, valuationDate: '2026-06-15', contractDate: '2026-05-20' },
+      },
+    ]);
+    // An owner of another Realm is not found; the asset itself from another Realm is 404 too.
+    const notFound = await send([row({ partyId: foreignId })]);
+    expect([notFound.status, ((await notFound.json()) as Json).error.details]).toEqual([404, { partyId: foreignId }]);
+    expect((await send([row()], '2028-03-01', { realm: REALM_B })).status).toBe(404);
+    expect([await lives(), await audits()]).toEqual([lives0, audits0]);
+    // Counter-check: the valid body is accepted and read back.
+    const ok = await send([row()]);
+    expect(ok.status).toBe(200);
+    expect(((await ok.json()) as Json).shorterUsefulLives[0].declaredAfa).toEqual([row()]);
+  });
 
   it('Realm isolation: another Realm can neither read nor amend the entry; a body without a Stichtag is 400 REQUIRED', async () => {
     const { w, building } = await acc8(2);
@@ -254,8 +350,7 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
       const s = await schedule(assetId, 'from=2026&to=2028');
       const reasons2028 = s.components[0].years.find((y: Json) => y.year === 2028).owners[0].reasons;
       expect(reasons2028.map((r: Json) => [r.code, r.details.missing ?? null])).toEqual([
-        ['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null],
-        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['ADVISOR_CONFIRMED', 'EVIDENCE', 'RELEASE_NOTE']],
+        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['ADVISOR_CONFIRMED', 'EVIDENCE', 'RELEASE_NOTE', 'DECLARED_AFA']],
       ]);
       const band = owners(s).slice(0, 2);
 
@@ -283,19 +378,16 @@ describe.skipIf(databaseUrl === undefined)('the shorter useful life from its Sti
       }
       expect([await audits(), await assets(), await lives()]).toEqual([audits1, assets1, lives1]);
       // 238-3 with an advisor: ADVISOR_CONFIRMED and a release note, the asset's sourceReferences but no own reference:
-      // EVIDENCE alone missing; with its own documentReference: released (Part 1 still computes nothing from 2028).
+      // EVIDENCE missing beside the declared AfA; with its own documentReference only the declared AfA (Part 2).
       const advisor = await api.party('Steuerberatung S');
       const byAdvisor = { reviewState: 'ADVISOR_CONFIRMED', advisorPartyId: advisor, releaseNote: NOTE };
       await amend(assetId, late('2028-03-01', '2028-03-01', byAdvisor));
       const missing2028 = async () =>
         (await schedule(assetId, 'from=2028&to=2028')).components[0].years[0].owners[0].reasons.map((r: Json) => [r.code, r.details.missing ?? null]);
-      expect(await missing2028()).toEqual([
-        ['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null],
-        ['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['EVIDENCE']],
-      ]);
+      expect(await missing2028()).toEqual([['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['EVIDENCE', 'DECLARED_AFA']]]);
       const own = late('2028-03-01', '2028-03-01', byAdvisor);
       await amend(assetId, { ...own, evidence: { ...own.evidence, documentReference: 'Gutachten Nr. 0000-SYN' } });
-      expect(await missing2028()).toEqual([['SHORTER_USEFUL_LIFE_RESIDUAL_NOT_SUPPORTED', null]]);
+      expect(await missing2028()).toEqual([['SHORTER_USEFUL_LIFE_RELEASE_MISSING', ['DECLARED_AFA']]]);
       // The band years are the same in every step: no amount moved by any decision.
       expect(owners(await schedule(assetId, 'from=2026&to=2028')).slice(0, 2)).toEqual(band);
       // No cash, split, classification, purchase or Ownership row changed by any of it.
