@@ -276,10 +276,10 @@ describe.skipIf(databaseUrl === undefined)('further silent inputs of the tax yea
     });
     // P2 lists D not attributed, never flagged; the 80.00 is mid-year, so no year flag anywhere.
     const p2 = await view(P2, 2027);
-    expect([p2.notAttributed.items.map((i) => [i.sourceId, i.flags.some((f) => f.code === 'PROPERTY_PART_CHANGED')]), p2.flags.map((f) => f.code)]).toEqual([
-      [[D, false]],
-      expect.not.arrayContaining(['PROPERTY_PART_CHANGED', 'ATTRIBUTION_INPUT_CHANGED']),
-    ]);
+    expect(p2.notAttributed.items.map((i) => [i.sourceId, i.flags.some((f) => f.code === 'PROPERTY_PART_CHANGED')])).toEqual([[D, false]]);
+    // Each code alone (a not.arrayContaining of several codes would pass with one of them present).
+    const p2Codes = p2.flags.map((f) => f.code);
+    for (const code of ['PROPERTY_PART_CHANGED', 'ATTRIBUTION_INPUT_CHANGED']) expect(p2Codes).not.toContain(code);
     expect(p1.flags.map((f) => f.code)).not.toContain('ATTRIBUTION_INPUT_CHANGED');
     // Released on 2028-02-20: D is P1's again.
     const released = await ctx.reconciliations.release(second.reconciliationId, REALM, 'Zahlung eines anderen Mieters (synthetisch)', new Date(), actor);
