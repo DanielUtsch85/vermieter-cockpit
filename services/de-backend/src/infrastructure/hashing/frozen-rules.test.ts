@@ -64,7 +64,10 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // `performance.partialTreatment` (the window part CAPITALIZED, the rest DEDUCTIBLE, the amounts from the evidenced
   // points) and the change note in its `source`. Recording is still disabled. Before: 6f14e4ac…1c57 (the counter-check
   // below recomputes it).
-  ['DE_ANSCHAFFUNGSNAHE', 1, 'dadb1895baf30b42ea3dd5029e04a1888fc7dc96c1d7cab155efc397d7ad6587'],
+  // Again in the same PR (the owner's review of #252): `performance.partialTreatment.straddledEdge` "END", the partial
+  // treatment across the window's end only; a source begun before the transfer date stays refused (`STRADDLES_START`)
+  // until the owner and the advisor decide. Before: dadb1895…6587 (the counter-check below recomputes it).
+  ['DE_ANSCHAFFUNGSNAHE', 1, 'd4e797c45dc1c24b7c2d389bdfaccd9a73756ec7e0b65c7413639fba712a9f45'],
   // New with §59E (VC-X-36, decided by the owner on 2026-11-01; Prüfbericht 2026-11-01, Frage 23, mündlich bestätigt
   // durch den Steuerberater, laut Projektinhaber am 2026-11-01): a classification's `treatmentRule`, so pinned from its
   // first commit on; a change is `@2` (§59E "Frozen rules"). The AfA rules and DE_CATEGORY_DEFAULTS@1 are unchanged.
@@ -225,5 +228,17 @@ describe('the frozen rule versions (§60)', () => {
     const before = { ...v, parameters: { ...v.parameters, performance: performanceBefore }, source: v.source.replace(PART_2_NOTE, '') };
     expect(before.source).not.toBe(v.source);
     expect(hash(before)).toBe('6f14e4ac6a9639f1cabb134036519af8f64bbd73ae430c0b1e7f44cfc5111c57');
+  });
+
+  it('counter-checks on a copy of the check rule (review of #252): the straddled edge changes the hash; without it the pinned dadb1895…6587', () => {
+    const v = DE_ANSCHAFFUNGSNAHE_V1;
+    const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
+    const partial = v.parameters.performance.partialTreatment;
+    expect(partial?.straddledEdge).toBe('END');
+    const withPartial = (p: object) =>
+      ({ ...v, parameters: { ...v.parameters, performance: { ...v.parameters.performance, partialTreatment: p } } }) as typeof v;
+    expect(hash(withPartial({ ...partial, straddledEdge: 'BOTH' }))).not.toBe(hash(v));
+    const { straddledEdge: _withdrawn, ...partialBefore } = partial ?? {};
+    expect(hash(withPartial(partialBefore))).toBe('dadb1895baf30b42ea3dd5029e04a1888fc7dc96c1d7cab155efc397d7ad6587');
   });
 });

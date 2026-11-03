@@ -5,17 +5,18 @@ import { PROPERTIES, REALM_B, databaseUrl, eur, expectOwnersAddUp, lineOf, useAc
  * VC-X-38 Part 2 end to end over HTTP (api-design.md §59F "As implemented (VC-X-38 Part 2)"; Entscheidung des
  * Projektinhabers, 2026-11-02, 239-2; Prüfbericht 2026-11-01, Frage 14, mündlich bestätigt durch den Steuerberater,
  * laut Projektinhaber am 2026-11-01): §59F's example (transfer 2026-03-15, basis 198,000.00, a building of 1995, 2 %),
- * owned by A 1/3 and B 2/3. S3 straddles the window's end (point 2029-03-15: 5,600.00 of 8,400.00), S6 its start (point
- * 2026-03-14: 1,000.00 of 4,000.00). Each takes the partial treatment: the window part CAPITALIZED, the rest DEDUCTIBLE.
- * The check's sums, the cash and the owners' shares stay; the AfA of the window part starts by §59F's rule; history,
- * re-classification and Realm isolation. Synthetic data only.
+ * owned by A 1/3 and B 2/3. S3 straddles the window's end (point 2029-03-15: 5,600.00 of 8,400.00) and takes the partial
+ * treatment: the window part CAPITALIZED, the rest DEDUCTIBLE. S6 straddles its start (point 2026-03-14: 1,000.00 of
+ * 4,000.00): refused (`STRADDLES_START`, the owner's review of #252: work before the transfer is not decided), nothing
+ * written, S6 stays DEDUCTIBLE. The check's sums, the cash and the owners' shares stay; the AfA of the window part starts
+ * by §59F's rule; history, re-classification and Realm isolation. Synthetic data only.
  */
 describe.skipIf(databaseUrl === undefined)('the partial treatment of a straddling source end to end (VC-X-38 Part 2)', () => {
   const api = useAcc8('classification_partial_e2e');
   const { at, call, json, classify, booked, schedule } = api;
 
   it(
-    'S3 and S6 partially treated: the check unchanged, the view split per part and owner, the AfA of 5,600.00 from 2029; refusals, history, cash, Realm',
+    'S3 partially treated, S6 (across the start) refused: the check unchanged, the view split per part and owner, the AfA of 5,600.00 from 2029; refusals, history, cash, Realm',
     { timeout: 180_000 },
     async () => {
       at('2026-03-01');
@@ -53,7 +54,7 @@ describe.skipIf(databaseUrl === undefined)('the partial treatment of a straddlin
       await deductible(s2 as string, '9500.00', { from: '2028-11-02', until: '2028-12-20' });
       let s3Current = await deductible(s3 as string, '8400.00', S3, evidence);
       await deductible(s4 as string, '3000.00', { from: '2026-04-10', until: '2026-04-20' });
-      let s6Current = await deductible(s6 as string, '4000.00', S6, evidence);
+      const s6Current = await deductible(s6 as string, '4000.00', S6, evidence);
 
       // The check before: every part exact, 33,100.00 (12,000 + 9,500 + 5,600 + 3,000 + 3,000), final; S3 and S6 split required.
       const before = await api.check(w);
@@ -128,16 +129,32 @@ describe.skipIf(databaseUrl === undefined)('the partial treatment of a straddlin
       // Realm isolation: Realm B cannot classify Realm A's split.
       expect((await capitalise(s3 as string, s3Current, { performance: S3, partialTreatment: true }, REALM_B)).status).toBe(404);
 
-      // Accepted: S3 5,600.00 / 2,800.00 (the point on W), S6 3,000.00 / 1,000.00 (the point on the day before the transfer).
+      // S6 across the transfer date, even with its point on the day before it: refused, nothing written.
+      const rowsOf = async () =>
+        (
+          await api.ctx.pool.query(
+            `SELECT (SELECT count(*)::int FROM tax_classification) AS classifications,
+                    (SELECT count(*)::int FROM tax_classification_treatment_part) AS parts,
+                    (SELECT count(*)::int FROM audit_record) AS audits`,
+          )
+        ).rows[0];
+      const rowsBefore = await rowsOf();
+      expect(
+        (await json(await capitalise(s6 as string, s6Current, { netAmount: eur('4000.00'), performance: S6, partialTreatment: true }), 422)).error.details,
+      ).toEqual({
+        reason: 'PERFORMANCE_REQUIRED',
+        acquisitionId: w,
+        cause: 'STRADDLES_START',
+      });
+      expect(await rowsOf()).toEqual(rowsBefore);
+
+      // Accepted: S3 5,600.00 / 2,800.00 (the point on W).
       const s3Partial = await json(await capitalise(s3 as string, s3Current, { performance: S3, partialTreatment: true }), 201);
       expect(s3Partial.treatmentParts).toEqual([
         { position: 1, treatment: 'CAPITALIZED', amount: eur('5600.00') },
         { position: 2, treatment: 'DEDUCTIBLE', amount: eur('2800.00') },
       ]);
-      const s6Partial = await json(await capitalise(s6 as string, s6Current, { netAmount: eur('4000.00'), performance: S6, partialTreatment: true }), 201);
-      expect(s6Partial.treatmentParts.map((p: Json) => p.amount.amount)).toEqual(['3000.00', '1000.00']);
       s3Current = s3Partial.classificationId;
-      s6Current = s6Partial.classificationId;
       // As stored (the acceptance wiring serves the commands this test calls, not the classification read).
       const stored = await api.ctx.pool.query(
         `SELECT position, treatment, amount::text FROM tax_classification_treatment_part WHERE classification_id = $1 ORDER BY position`,
@@ -148,7 +165,7 @@ describe.skipIf(databaseUrl === undefined)('the partial treatment of a straddlin
         { position: 2, treatment: 'DEDUCTIBLE', amount: '2800.00' },
       ]);
 
-      // The check after: the same sums (exactly the window parts count), the split done.
+      // The check after: the same sums (exactly the window parts count), S3's split done, S6's still required.
       const after = await api.check(w);
       expect([after.status, after.sum, after.sumUpper, after.percentOfBasis, after.final]).toEqual([
         before.status,
@@ -157,7 +174,7 @@ describe.skipIf(databaseUrl === undefined)('the partial treatment of a straddlin
         before.percentOfBasis,
         before.final,
       ]);
-      expect([splitRequired(after, s3 as string), splitRequired(after, s6 as string)]).toEqual([false, false]);
+      expect([splitRequired(after, s3 as string), splitRequired(after, s6 as string)]).toEqual([false, true]);
 
       // The view of 2029: the window part in capitalized, the rest on MAINTENANCE; per owner, each part shared on its own.
       const v2029 = await api.view(pr, 2029);
@@ -180,15 +197,16 @@ describe.skipIf(databaseUrl === undefined)('the partial treatment of a straddlin
       expect([countOf(view2029Before.review.open), countOf(view2029Before.review.info)]).toEqual([2, 0]);
       expect([countOf(v2029.review.open), countOf(v2029.review.info)]).toEqual([1, 2]);
       const v2026 = await api.view(pr, 2026);
-      expect([lineOf(v2026, 'MAINTENANCE').total.amount, v2026.capitalized.total.amount]).toEqual(['4000.00', '3000.00']);
-      // S6's parts per owner (S4, booked before the transfer, is NOT_OWNED in 2026, so the owners alone do not add up there).
+      // S6 refused: whole on MAINTENANCE (S4 3,000.00 + S6 4,000.00), nothing capitalised in 2026.
+      expect([lineOf(v2026, 'MAINTENANCE').total.amount, v2026.capitalized.total.amount]).toEqual(['7000.00', '0.00']);
+      // S6 per owner, whole (S4, booked before the transfer, is NOT_OWNED in 2026, so the owners alone do not add up there).
       const [a2026, b2026] = [await api.view(pr, 2026, a), await api.view(pr, 2026, b)];
       expect([
         a2026.capitalized.total.amount,
         b2026.capitalized.total.amount,
         lineOf(a2026, 'MAINTENANCE').total.amount,
         lineOf(b2026, 'MAINTENANCE').total.amount,
-      ]).toEqual(['1000.00', '2000.00', '333.33', '666.67']);
+      ]).toEqual(['0.00', '0.00', '1333.33', '2666.67']);
 
       // The AfA of S3's window part: basis 5,600.00, start PERFORMANCE_UNTIL 2029-04-15 → 2029-01, 112.00 in 2029.
       const s = await schedule(building, 'from=2029&to=2029');

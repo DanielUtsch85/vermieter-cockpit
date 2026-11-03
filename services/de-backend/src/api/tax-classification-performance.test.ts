@@ -184,6 +184,12 @@ describe('performance on create (§59F "API")', () => {
         422,
         { code: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', details: { reason: 'PARTIAL_TREATMENT_NOT_APPLICABLE', acquisitionId: ACQ, cause: 'NOT_STRADDLING' } },
       ],
+      // A partial treatment of a source begun before the transfer date (the start, or both edges): no bounds.
+      [
+        new AnschaffungsnaheNotApplicableError('PERFORMANCE_REQUIRED', ACQ, 'STRADDLES_START'),
+        422,
+        { code: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', details: { reason: 'PERFORMANCE_REQUIRED', acquisitionId: ACQ, cause: 'STRADDLES_START' } },
+      ],
     ];
     for (const [error, status, expected] of cases) {
       const base = await start({ taxation: { create: async () => Promise.reject(error) } });

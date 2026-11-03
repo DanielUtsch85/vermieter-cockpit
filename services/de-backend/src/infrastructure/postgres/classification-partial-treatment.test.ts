@@ -12,7 +12,9 @@ import { actor, databaseUrl, day, eur, OTHER_REALM, reasonOf, REALM, useTaxWegDa
  * Projektinhabers, 2026-11-02, 239-2): the partial treatment of a straddling source through the repository (its parts
  * derived from the evidenced points, stored with the classification, recorded in the AuditRecords, superseded and
  * re-classified; no cash row changed; Realm isolation), and each guard past the repository with its counter-check.
- * Acquisition: transfer 2026-03-15, window to 2029-03-15. Synthetic data only.
+ * Only across the window's end: a source begun before the transfer date (the start, or both edges) is refused
+ * (`STRADDLES_START`), nothing written (the owner's review of #252). Acquisition: transfer 2026-03-15, window to
+ * 2029-03-15. Synthetic data only.
  */
 describe.skipIf(databaseUrl === undefined)('migration 0062: the partial treatment of a straddling source (§59F, 239-2)', () => {
   const { ctx, split, booked, propertyReference, acquisition, member, statement } = useTaxWegDatabase('classification_partial_treatment_test');
@@ -23,10 +25,10 @@ describe.skipIf(databaseUrl === undefined)('migration 0062: the partial treatmen
     progress: [{ through: day('2029-03-15'), amount: eur('5600.00') }],
     progressEstimated: false,
   };
-  const setup = async () => {
+  const setup = async (bookingDate = '2029-04-30') => {
     const pr = await propertyReference();
     const acq = await acquisition(pr);
-    const { splitIds } = await booked([split('8400.00', 'MAINTENANCE', pr)], '2029-04-30');
+    const { splitIds } = await booked([split('8400.00', 'MAINTENANCE', pr)], bookingDate);
     return { pr, acq, splitId: splitIds[0] as string };
   };
   const request = (splitId: string, acq: string, overrides: Partial<NewTaxClassification> = {}): NewTaxClassification => ({
@@ -114,33 +116,91 @@ describe.skipIf(databaseUrl === undefined)('migration 0062: the partial treatmen
       expect((await ctx.classifications.listHistory('TRANSACTION_SPLIT', splitId, REALM)) ?? []).toEqual([]);
     });
 
-    it('a WEG withdrawal across the transfer date: the parts of its unit share (1,000.00), no cash to correct', async () => {
+    /** The rows a refusal must leave as they were: classifications, their parts and the AuditRecords. */
+    const written = async () =>
+      (
+        await ctx.pool.query(
+          `SELECT (SELECT count(*)::int FROM tax_classification) AS classifications,
+                  (SELECT count(*)::int FROM tax_classification_treatment_part) AS parts,
+                  (SELECT count(*)::int FROM audit_record) AS audits`,
+        )
+      ).rows[0];
+
+    it('a split across the transfer date or across both edges: refused STRADDLES_START with points on each edge; nothing written', async () => {
+      // Booked 2027-12-31, so both periods lie within the plausible years around the source's date.
+      const { acq, splitId } = await setup('2027-12-31');
+      const cashBefore = await cashOf(splitId);
+      const before = await written();
+      const start = {
+        from: day('2026-03-01'),
+        until: day('2026-04-30'),
+        progress: [{ through: day('2026-03-14'), amount: eur('2000.00') }],
+        progressEstimated: false,
+      };
+      const both = {
+        from: day('2026-03-01'),
+        until: day('2029-04-15'),
+        progress: [
+          { through: day('2026-03-14'), amount: eur('1000.00') },
+          { through: day('2029-03-15'), amount: eur('7000.00') },
+        ],
+        progressEstimated: false,
+      };
+      for (const performance of [start, both]) {
+        expect(await ctx.classifications.createClassification(request(splitId, acq, { performance }), actor)).toEqual({
+          kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE',
+          reason: 'PERFORMANCE_REQUIRED',
+          acquisitionId: acq,
+          cause: 'STRADDLES_START',
+        });
+      }
+      expect(await written()).toEqual(before);
+      expect((await ctx.classifications.listHistory('TRANSACTION_SPLIT', splitId, REALM)) ?? []).toEqual([]);
+      expect(await cashOf(splitId)).toEqual(cashBefore);
+      // Counter-check: the same split across the end alone is written (a classification, its two parts, an AuditRecord).
+      expect((await ctx.classifications.createClassification(request(splitId, acq), actor)).kind).toBe('CREATED');
+      const after = await written();
+      expect([after.classifications - before.classifications, after.parts - before.parts, after.audits > before.audits]).toEqual([1, 2, true]);
+    });
+
+    it('a WEG withdrawal across the transfer date: refused STRADDLES_START, nothing written; counter-check: across the end the parts of its unit share', async () => {
       const { pr, membershipId } = await member();
       const acq = await acquisition(pr);
       const statementId = await statement(membershipId);
-      const created = await ctx.classifications.createClassification(
-        {
-          mreRealmId: REALM,
-          sourceType: 'WEG_RESERVE_WITHDRAWAL',
-          sourceId: statementId,
-          sourcePosition: 1,
-          taxCategory: 'WEG_SPENDING',
-          treatment: 'CAPITALIZED',
-          reviewState: 'USER_CONFIRMED',
-          supersedes: null,
-          notes: null,
-          sourceReferences: ['Abrechnung des Verwalters (synthetisch)'],
-          anschaffungsnaheAcquisitionId: acq,
-          performance: {
-            from: day('2026-03-01'),
-            until: day('2026-04-30'),
-            progress: [{ through: day('2026-03-14'), amount: eur('400.00') }],
-            progressEstimated: false,
+      const before = await written();
+      const withdrawal = (performance: Performance) =>
+        ctx.classifications.createClassification(
+          {
+            mreRealmId: REALM,
+            sourceType: 'WEG_RESERVE_WITHDRAWAL',
+            sourceId: statementId,
+            sourcePosition: 1,
+            taxCategory: 'WEG_SPENDING',
+            treatment: 'CAPITALIZED',
+            reviewState: 'USER_CONFIRMED',
+            supersedes: null,
+            notes: null,
+            sourceReferences: ['Abrechnung des Verwalters (synthetisch)'],
+            anschaffungsnaheAcquisitionId: acq,
+            performance,
+            partialTreatment: true,
           },
-          partialTreatment: true,
-        },
-        actor,
-      );
+          actor,
+        );
+      const refused = await withdrawal({
+        from: day('2026-03-01'),
+        until: day('2026-04-30'),
+        progress: [{ through: day('2026-03-14'), amount: eur('400.00') }],
+        progressEstimated: false,
+      });
+      expect(refused).toMatchObject({ kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE', reason: 'PERFORMANCE_REQUIRED', cause: 'STRADDLES_START' });
+      expect(await written()).toEqual(before);
+      const created = await withdrawal({
+        from: day('2029-02-01'),
+        until: day('2029-04-15'),
+        progress: [{ through: day('2029-03-15'), amount: eur('600.00') }],
+        progressEstimated: false,
+      });
       if (created.kind !== 'CREATED') throw new Error(JSON.stringify(created));
       expect((created.classification.treatmentParts ?? []).map((p) => [p.treatment, p.amount.amount])).toEqual([
         ['CAPITALIZED', '600.00'],
@@ -272,15 +332,21 @@ describe.skipIf(databaseUrl === undefined)('migration 0062: the partial treatmen
       expect(await classify(await fresh(), PARTS)).toMatch(UUID);
     });
 
-    it('the link of a partial treatment: the work overlapping the window and straddling it; counter-check: a straddling one accepted only as partial', async () => {
+    it('the link of a partial treatment: the work straddling the window end only; counter-check: an end straddle accepted only as partial', async () => {
       const at = async (from: string, until: string, partial: boolean) =>
         classify({ ...(await fresh()), performed_from: from, performed_until: until, partial_treatment: partial }, partial ? PARTS : []);
       expect(await at('2028-11-02', '2028-12-20', true)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
       expect(await at('2029-03-16', '2029-04-15', true)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
       expect(await at('2025-12-01', '2026-03-14', true)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
       expect(await at('2029-02-01', '2029-04-15', false)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
+      // Begun before the transfer date: across the start, and across both edges, refused past the repository too.
+      expect(await at('2026-03-01', '2026-04-30', true)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
+      expect(await at('2026-03-14', '2026-04-30', true)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
+      expect(await at('2026-03-01', '2029-04-15', true)).toBe('(ANSCHAFFUNGSNAHE_NOT_APPLICABLE)');
+      // Counter-checks: across the end, also begun on the transfer day or on the window's last day; whole inside, not partial.
       expect(await at('2029-02-01', '2029-04-15', true)).toMatch(UUID);
-      expect(await at('2026-03-01', '2026-04-30', true)).toMatch(UUID);
+      expect(await at('2026-03-15', '2029-04-15', true)).toMatch(UUID);
+      expect(await at('2029-03-15', '2029-04-15', true)).toMatch(UUID);
       expect(await at('2028-11-02', '2028-12-20', false)).toMatch(UUID);
     });
 

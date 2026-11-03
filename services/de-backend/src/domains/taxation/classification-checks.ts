@@ -60,14 +60,15 @@ export type AnschaffungsnaheNotApplicableReason =
   | 'NO_APPLICABLE_RULE'
   /**
    * §59F: no `performance` (`MISSING`), one straddling the window without a partial treatment (`STRADDLES_WINDOW`), or
-   * (VC-X-38 Part 2) a partial treatment whose evidenced points leave the part in the window open (`SPLIT_NOT_EVIDENCED`).
+   * (VC-X-38 Part 2) a partial treatment whose evidenced points leave the part in the window open (`SPLIT_NOT_EVIDENCED`)
+   * or of a source begun before the transfer date (`STRADDLES_START`: the start or both edges, pending the owner/advisor).
    */
   | 'PERFORMANCE_REQUIRED'
   /** VC-X-38 Part 2: a partial treatment of a source performed wholly in the window (`NOT_STRADDLING`). */
   | 'PARTIAL_TREATMENT_NOT_APPLICABLE';
 
 /** §59F, VC-X-38 Part 2: the `cause` of `PERFORMANCE_REQUIRED` and `PARTIAL_TREATMENT_NOT_APPLICABLE`. */
-export type AnschaffungsnaheCause = 'MISSING' | 'STRADDLES_WINDOW' | 'SPLIT_NOT_EVIDENCED' | 'NOT_STRADDLING';
+export type AnschaffungsnaheCause = 'MISSING' | 'STRADDLES_WINDOW' | 'STRADDLES_START' | 'SPLIT_NOT_EVIDENCED' | 'NOT_STRADDLING';
 
 export type CreateRefusal =
   | { readonly kind: 'SOURCE_NOT_COUNTED'; readonly transactionStatus: TransactionStatus; readonly correctionRole: string | null }
@@ -208,8 +209,9 @@ export function treatmentFieldsCheck(
   if (performedOutside(performance, window)) return notApplicable('OUTSIDE_WINDOW');
   const treatmentRule = { ruleCode: rule.ruleCode, version: rule.version };
   const partial = (rule.parameters as AnschaffungsnaheParameters).performance.partialTreatment;
-  // VC-X-38 Part 2 (Entscheidung des Projektinhabers, 2026-11-02, 239-2): a straddling source only by a partial treatment
-  // whose parts the evidenced points determine exactly; never the whole source, never an estimate.
+  // VC-X-38 Part 2 (Entscheidung des Projektinhabers, 2026-11-02, 239-2): a source straddling the window's end only by a
+  // partial treatment whose parts the evidenced points determine exactly; never the whole source, never an estimate. A
+  // source begun before the transfer date stays refused (`STRADDLES_START`; the start is not decided, beratungsfragen §4).
   const straddles = performance.from < window.from || performance.until > window.until;
   if (request.partialTreatment === true) {
     if (!straddles) return notApplicable('PARTIAL_TREATMENT_NOT_APPLICABLE', 'NOT_STRADDLING');
@@ -217,9 +219,9 @@ export function treatmentFieldsCheck(
     if (partial === undefined) return notApplicable('PERFORMANCE_REQUIRED', 'STRADDLES_WINDOW');
     const parts = partialTreatmentParts(performance, source.grossAmount, net ?? source.grossAmount, window);
     if ('parts' in parts) return { treatmentRule, treatmentParts: parts.parts };
-    return parts.cause === 'NOT_STRADDLING'
-      ? notApplicable('PARTIAL_TREATMENT_NOT_APPLICABLE', 'NOT_STRADDLING')
-      : notApplicable('PERFORMANCE_REQUIRED', 'SPLIT_NOT_EVIDENCED', { lower: parts.lower, upper: parts.upper });
+    if (parts.cause === 'NOT_STRADDLING') return notApplicable('PARTIAL_TREATMENT_NOT_APPLICABLE', 'NOT_STRADDLING');
+    if (parts.cause === 'STRADDLES_START') return notApplicable('PERFORMANCE_REQUIRED', 'STRADDLES_START');
+    return notApplicable('PERFORMANCE_REQUIRED', 'SPLIT_NOT_EVIDENCED', { lower: parts.lower, upper: parts.upper });
   }
   if (straddles) return notApplicable('PERFORMANCE_REQUIRED', 'STRADDLES_WINDOW');
   return { treatmentRule };

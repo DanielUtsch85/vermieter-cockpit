@@ -1,7 +1,7 @@
 import { sql, type Kysely } from 'kysely';
 
 /**
- * VC-X-38 Part 2: the partial treatment of a source straddling the anschaffungsnahe window (api-design.md §59F "As
+ * VC-X-38 Part 2: the partial treatment of a source straddling the anschaffungsnahe window's end (api-design.md §59F "As
  * implemented (VC-X-38 Part 2)"; Entscheidung des Projektinhabers, 2026-11-02, 239-2): one classification, two parts,
  * as the parts of §59D (0054): the part performed in the window `CAPITALIZED` on the check, the rest `DEDUCTIBLE`, the
  * amounts from the evidenced points (derived by the repository; the database checks their shape and their sum).
@@ -17,9 +17,10 @@ import { sql, type Kysely } from 'kysely';
  *   by the classification's own transaction (`created_txid`, 0058), never changed or deleted. A deferred trigger checks
  *   at commit that a partial treatment has exactly both parts summing to the source's amount (the split's amount, the
  *   withdrawal's or use's unit share as classified), and that any other classification has none. No cash row changes.
- * - 0058's `tax_classification_anschaffungsnahe` is replaced: a partial treatment needs a performance that overlaps the
- *   window and straddles it (begun before the transfer date or completed after the window's end); every other link
- *   keeps 0058's rule (the work performed wholly in the window).
+ * - 0058's `tax_classification_anschaffungsnahe` is replaced: a partial treatment needs a performance that straddles
+ *   the window's end only (begun on or after the transfer date and no later than the window's end, completed after it);
+ *   one begun before the transfer date (the start, or both edges) is refused, pending the owner's and the advisor's
+ *   decision. Every other link keeps 0058's rule (the work performed wholly in the window).
  * - `down` refuses while a partial treatment exists; else it restores 0058's two functions and drops what this added.
  */
 export async function up(db: Kysely<unknown>): Promise<void> {
@@ -131,12 +132,12 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       END IF;
       window_until := acq.transfer_date + interval '3 years';
       -- DE_ANSCHAFFUNGSNAHE@1 (§58B, §59F): the work performed wholly within the transfer date and three years later; a
-      -- partial treatment (VC-X-38 Part 2) only for work overlapping that window and straddling it.
+      -- partial treatment (VC-X-38 Part 2) only for work straddling the window's end: begun within it, completed after it.
       IF acq.status <> 'CONFIRMED' OR acq.property_reference_id IS DISTINCT FROM source_reference
          OR NEW.performed_from IS NULL OR NEW.performed_until IS NULL
          OR (NOT NEW.partial_treatment AND (NEW.performed_from < acq.transfer_date OR NEW.performed_until > window_until))
-         OR (NEW.partial_treatment AND (NEW.performed_until < acq.transfer_date OR NEW.performed_from > window_until
-                                        OR (NEW.performed_from >= acq.transfer_date AND NEW.performed_until <= window_until))) THEN
+         OR (NEW.partial_treatment AND (NEW.performed_from < acq.transfer_date OR NEW.performed_from > window_until
+                                        OR NEW.performed_until <= window_until)) THEN
         RAISE EXCEPTION 'TaxClassification: Acquisition % is % and does not hold the work performed % to % (partial: %) (ANSCHAFFUNGSNAHE_NOT_APPLICABLE)',
           acq.id, acq.status, NEW.performed_from, NEW.performed_until, NEW.partial_treatment
           USING ERRCODE = 'integrity_constraint_violation';

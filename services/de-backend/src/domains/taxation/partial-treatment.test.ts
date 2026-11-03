@@ -22,9 +22,10 @@ import { partialTreatmentParts, type TreatmentPart } from './treatment-parts.js'
 
 /**
  * VC-X-38 Part 2 (api-design.md §59F "As implemented (VC-X-38 Part 2)"; Entscheidung des Projektinhabers, 2026-11-02,
- * 239-2): a source straddling the anschaffungsnahe window takes a partial treatment on one classification, the part
- * performed in the window CAPITALIZED, the rest DEDUCTIBLE, the amounts from the evidenced points only. §59F's example
- * (synthetic): transfer 2026-03-15, window 2026-03-15–2029-03-15, basis 198,000.00; S3 performed 2029-02-01–2029-04-15
+ * 239-2): a source straddling the anschaffungsnahe window's end takes a partial treatment on one classification, the
+ * part performed in the window CAPITALIZED, the rest DEDUCTIBLE, the amounts from the evidenced points only. A source
+ * begun before the transfer date (the start, or both edges) stays refused (STRADDLES_START; the owner's review of
+ * #252). §59F's example (synthetic): transfer 2026-03-15, window 2026-03-15–2029-03-15, basis 198,000.00; S3 performed 2029-02-01–2029-04-15
  * with the evidenced point 2029-03-15: 5,600.00 of 8,400.00. No cash correction. Synthetic data only.
  */
 const TAX_RULES = new RuleRegistry(TAXATION_RULE_VERSIONS);
@@ -57,40 +58,38 @@ describe('the parts from the evidenced points (partialTreatmentParts)', () => {
     ]);
   });
 
-  it('across the window start with a point on S - 1: the part from the transfer day on CAPITALIZED, the part before it DEDUCTIBLE', () => {
-    const result = parts(performed('2026-02-01', '2026-04-30', [['2026-03-14', '2000.00']]));
-    expect('parts' in result && amounts(result.parts)).toEqual([
-      [1, 'CAPITALIZED', '6400.00'],
-      [2, 'DEDUCTIBLE', '2000.00'],
+  it('across the window start, even with a point on S - 1: STRADDLES_START, no parts (work before the transfer is not decided)', () => {
+    expect(parts(performed('2026-02-01', '2026-04-30', [['2026-03-14', '2000.00']]))).toEqual({ cause: 'STRADDLES_START' });
+    expect(parts(performed('2026-02-01', '2026-04-30', [['2026-03-15', '2000.00']]))).toEqual({ cause: 'STRADDLES_START' });
+    expect(parts(performed('2026-02-01', '2026-04-30'))).toEqual({ cause: 'STRADDLES_START' });
+    // The edge itself: begun on the day before the transfer is across the start; begun on the transfer day is inside.
+    expect(parts(performed('2026-03-14', '2026-04-30', [['2026-03-14', '100.00']]))).toEqual({ cause: 'STRADDLES_START' });
+    expect(parts(performed('2026-03-15', '2026-04-30'))).toEqual({ cause: 'NOT_STRADDLING' });
+  });
+
+  it('across both edges, even with points on S - 1 and W: STRADDLES_START, no parts; counter-check: the end alone with W exact', () => {
+    expect(
+      parts(
+        performed('2026-02-01', '2029-04-15', [
+          ['2026-03-14', '1000.00'],
+          ['2029-03-15', '9000.00'],
+        ]),
+        '10000.00',
+      ),
+    ).toEqual({ cause: 'STRADDLES_START' });
+    const end = parts(performed('2026-03-15', '2029-04-15', [['2029-03-15', '9000.00']]), '10000.00');
+    expect('parts' in end && amounts(end.parts)).toEqual([
+      [1, 'CAPITALIZED', '9000.00'],
+      [2, 'DEDUCTIBLE', '1000.00'],
     ]);
   });
 
-  it('across both edges with points on S - 1 and W: the middle CAPITALIZED, both ends DEDUCTIBLE together', () => {
-    const result = parts(
-      performed('2026-02-01', '2029-04-15', [
-        ['2026-03-14', '1000.00'],
-        ['2029-03-15', '9000.00'],
-      ]),
-      '10000.00',
-    );
-    expect('parts' in result && amounts(result.parts)).toEqual([
-      [1, 'CAPITALIZED', '8000.00'],
-      [2, 'DEDUCTIBLE', '2000.00'],
-    ]);
-  });
-
-  it('points exactly at the edge decide: a point on S (not S - 1) or on W + 1 leaves the part open; on S - 1 and on W it is exact', () => {
-    expect(parts(performed('2026-02-01', '2026-04-30', [['2026-03-15', '2000.00']]))).toEqual({
-      cause: 'SPLIT_NOT_EVIDENCED',
-      lower: eur('6400.00'),
-      upper: eur('8400.00'),
-    });
+  it('points exactly at the edge decide: a point on W + 1 leaves the part open; on W it is exact', () => {
     expect(parts(performed('2029-02-01', '2029-04-15', [['2029-03-16', '5600.00']]))).toEqual({
       cause: 'SPLIT_NOT_EVIDENCED',
       lower: eur('0.00'),
       upper: eur('5600.00'),
     });
-    expect('parts' in parts(performed('2026-02-01', '2026-04-30', [['2026-03-14', '2000.00']]))).toBe(true);
     expect('parts' in parts(S3_PERFORMANCE)).toBe(true);
   });
 
@@ -150,9 +149,9 @@ const facts = (overrides: Partial<SplitFacts> = {}): SplitFacts => ({
 });
 const acquisitionFacts = { id: 'acq-1', propertyReferenceId: 'pr-1', status: 'CONFIRMED', transferDate: day('2026-03-15') };
 type Request = Parameters<typeof planClassification>[2];
-const capitalise = (request: Partial<Request>, registry = TAX_RULES) =>
+const capitalise = (request: Partial<Request>, registry = TAX_RULES, split: Partial<SplitFacts> = {}) =>
   planClassification(
-    facts(),
+    facts(split),
     null,
     {
       taxCategory: 'MAINTENANCE',
@@ -202,6 +201,36 @@ describe('a capitalisation on the check with a partial treatment (§59F, 239-2)'
       inWindow: { lower: eur('0.00'), upper: eur('8400.00') },
     });
     expect(capitalise({ partialTreatment: true, performance: null })).toMatchObject({ reason: 'PERFORMANCE_REQUIRED', cause: 'MISSING' });
+  });
+
+  it('a source begun before the transfer date (the start, or both edges) is refused STRADDLES_START with points on each edge; whole still STRADDLES_WINDOW', () => {
+    const start = performed('2026-02-01', '2026-04-30', [['2026-03-14', '2000.00']]);
+    const both = performed('2026-02-01', '2029-04-15', [
+      ['2026-03-14', '1000.00'],
+      ['2029-03-15', '7000.00'],
+    ]);
+    // Booked 2027-12-31, so both periods lie within the plausible years around the source's date.
+    const booked = { bookingDate: day('2027-12-31') };
+    for (const performance of [start, both]) {
+      expect(capitalise({ partialTreatment: true, performance }, TAX_RULES, booked)).toEqual({
+        kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE',
+        reason: 'PERFORMANCE_REQUIRED',
+        acquisitionId: 'acq-1',
+        cause: 'STRADDLES_START',
+      });
+      expect(capitalise({ performance }, TAX_RULES, booked)).toMatchObject({ reason: 'PERFORMANCE_REQUIRED', cause: 'STRADDLES_WINDOW' });
+    }
+    // Counter-check: the end alone, begun on the transfer day or later, is accepted with its parts.
+    expect(capitalise({ partialTreatment: true }, TAX_RULES, booked)).toMatchObject({ kind: 'CLASSIFY' });
+    expect(
+      capitalise({ partialTreatment: true, performance: performed('2026-03-15', '2029-04-15', [['2029-03-15', '7000.00']]) }, TAX_RULES, booked),
+    ).toMatchObject({
+      kind: 'CLASSIFY',
+      treatmentParts: [
+        { position: 1, treatment: 'CAPITALIZED', amount: eur('7000.00') },
+        { position: 2, treatment: 'DEDUCTIBLE', amount: eur('1400.00') },
+      ],
+    });
   });
 
   it('the order: OUTSIDE_WINDOW before the partial treatment; wholly inside NOT_STRADDLING; counter-check: wholly inside without it accepted whole', () => {
@@ -263,6 +292,13 @@ describe('a capitalisation on the check with a partial treatment (§59F, 239-2)'
         { position: 2, treatment: 'DEDUCTIBLE', amount: eur('2800.00') },
       ],
       reserveWithdrawal: { unitShare: eur('8400.00') },
+    });
+    // Across the transfer date: refused as a split is (STRADDLES_START), no parts.
+    const start = { ...request, performance: performed('2026-03-01', '2026-04-30', [['2026-03-14', '400.00']]) };
+    expect(planWegClassification({ ...withdrawal, date: day('2026-12-31') }, null, start, TAX_RULES, acquisitionFacts)).toMatchObject({
+      kind: 'ANSCHAFFUNGSNAHE_NOT_APPLICABLE',
+      reason: 'PERFORMANCE_REQUIRED',
+      cause: 'STRADDLES_START',
     });
   });
 

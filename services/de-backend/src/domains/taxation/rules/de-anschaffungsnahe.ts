@@ -43,7 +43,9 @@ export interface PerformanceParameters {
    * `DEDUCTIBLE`, the amounts from the evidenced points only (exact, never estimated, never by calendar days). The gross
    * part in the window is the gross amount × the part of the amount used / the amount used, half-up to the cent; the rest
    * is the gross amount less it, so the parts sum to the source's amount. No cash correction. Without this parameter a
-   * partial treatment is refused (`PERFORMANCE_REQUIRED`, `STRADDLES_WINDOW`), as before.
+   * partial treatment is refused (`PERFORMANCE_REQUIRED`, `STRADDLES_WINDOW`), as before. Only across the window's end
+   * (`straddledEdge`): a source begun before the transfer date is refused (`PERFORMANCE_REQUIRED`, `STRADDLES_START`)
+   * until the owner and the advisor decide whether work before the transfer is deductible for the buyer at all.
    */
   readonly partialTreatment?: PartialTreatmentParameters;
   readonly legalBasis: string;
@@ -51,6 +53,8 @@ export interface PerformanceParameters {
 }
 
 export interface PartialTreatmentParameters {
+  /** 239-2 and question 14 („bis Fristende“) cover the window's end only; the start is open (beratungsfragen.md §4). */
+  readonly straddledEdge: 'END';
   readonly windowPart: 'CAPITALIZED';
   readonly rest: 'DEDUCTIBLE';
   readonly amountsFrom: 'EVIDENCED_POINTS';
@@ -75,7 +79,8 @@ export const ANSCHAFFUNGSNAHE = 'DE_ANSCHAFFUNGSNAHE';
  * `performance` (tax review of 2026-11-01, questions 14 and 16). The pinned hash is updated explicitly.
  *
  * Changed in place again for VC-X-38 Part 2 (Entscheidung des Projektinhabers, 2026-11-02, 239-2): the parameter
- * `performance.partialTreatment`. The pinned hash is updated explicitly.
+ * `performance.partialTreatment`, across the window's end only (`straddledEdge`, the owner's review of #252). The pinned
+ * hash is updated explicitly.
  */
 export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
   ruleCode: ANSCHAFFUNGSNAHE,
@@ -107,6 +112,7 @@ export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
       estimatedProgress: 'NOT_EVIDENCED',
       straddlingSource: 'SHARE_SHOWN_SPLIT_REQUIRED',
       partialTreatment: {
+        straddledEdge: 'END',
         windowPart: 'CAPITALIZED',
         rest: 'DEDUCTIBLE',
         amountsFrom: 'EVIDENCED_POINTS',
