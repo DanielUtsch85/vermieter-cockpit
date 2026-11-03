@@ -6321,7 +6321,7 @@ No route, parameter, status code or order of checks changes. The response of §5
 
 1. **`PURCHASE_PRICE` sets against decision 2 and ADR-038.** ADR-038 defaults the allocation from the financed purchase amounts and applies it "uniformly to principal, interest, and remaining debt". Decision 2 excludes a derivation from purchase prices. **Proposal:** the tax view does not apply a `PURCHASE_PRICE` set with more than one entry (reason `ALLOCATION_BY_PURCHASE_PRICE`). The user records the actual use as a `MANUAL` set, possibly with the same fractions; since §41.3 appends only after the last set, that means voiding from the last set back, or a new set from a later date. Alternatives: (a) apply any `VALID` set, so the user's choice of a price-based set counts as the statement of use; (b) apply it, with an open item flag asking for confirmation. The owner should confirm. If (a) or (b) is chosen, the conflict with ADR-038 disappears. The proposal as written does not change ADR-038 (the set still serves Financing), but it reads less than ADR-038's "uniformly". **Decided by the owner on 2026-10-31 (third set): alternative (b).** Rejecting multi-entry `PURCHASE_PRICE` sets across the board contradicts the existing uniform distribution and causes needless correction work, so the proposal is withdrawn. Every complete set valid on the booking date is applied, `PURCHASE_PRICE` included, with the same key for principal, interest and remaining debt. A `PURCHASE_PRICE` set with more than one property raises the open item flag `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` (economic use and tax attribution to be confirmed), which keeps the year from being final until the confirmation is recorded traceably; showing or applying the key is no confirmation. Missing or invalid allocations stay not attributed, without estimated per-property amounts (`NO_LOAN_ALLOCATION`, `ALLOCATION_SUM_NOT_ONE`; `ALLOCATION_BY_PURCHASE_PRICE` withdrawn). No existing mechanism records such a confirmation, so the flag stays open for now; the confirmation is a follow-up noted with VC-X-28 in the backlog. **ADR-038 stays as it is**: no superseding ADR and no tax-specific distribution key.
 2. **Interest of a Loan with no `VALID` set naming any PropertyReference** (never allocated, or all its sets voided) is in no view, as today: the candidate selection needs a set to name the property. **Proposal:** keep it so in VC-X-29. Alternative: list it in every view of the Realm, as §58C does for a deposit with `NO_RECONCILED_RENT`. That never hides it, but a Loan unrelated to letting would then hold every year of every property open, with no way to dismiss it before VC-X-28.
-3. **Backdated sets and voids** re-attribute interest already booked (above, "How the code's reality shapes"). **Proposal:** add them to VC-X-28's silent inputs (beside a Loan terms period added or voided, §58C open question 8). Each set's `created_at` and `voided_at` give "recorded after 31 December of the year" without an AuditRecord. Alternatives: forbid a `validFrom` before the set's recording in §41.3 (a Financing change that would also forbid legitimate late first allocations), or flag now. Taken up as §58E open question 4. **Decided otherwise: VC-X-48 (§58E question 4, 2026-11-01).**
+3. **Backdated sets and voids** re-attribute interest already booked (above, "How the code's reality shapes"). **Proposal:** add them to VC-X-28's silent inputs (beside a Loan terms period added or voided, §58C open question 8). Each set's `created_at` and `voided_at` give "recorded after 31 December of the year" without an AuditRecord. Alternatives: forbid a `validFrom` before the set's recording in §41.3 (a Financing change that would also forbid legitimate late first allocations), or flag now. Taken up as §58E open question 4. **Decided otherwise: VC-X-48 (§58E question 4, 2026-11-01); specified in §58G (not implemented, open questions for the owner there).**
 4. **Capitalised interest via a Loan** (Bauzeitzinsen as Herstellungskosten, `CAPITALIZED`): §58C places it in `capitalized` with P's part, but §59B does not read it. **Proposal:** the open item flag `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` now, and a follow-up row (§59B's `capitalizedSources` reads attributed Loan interest with P's part). Alternative: no flag, accepting that the AfA basis misses it silently, which decision 5 argues against. **Decided by the owner on 2026-11-01 (fourth set): the flag stays**, at level **open**, so a year with such an item is never `final`. User text (for the UI's translation of the code): „Aktivierte Darlehenszinsen sind noch nicht in der AfA-Bemessungsgrundlage berücksichtigt.“ It is dropped only when these interest amounts provably enter the AfA basis correctly and exactly once (the follow-up, backlog **VC-X-36**), or when their classification is corrected so they are no longer `CAPITALIZED`. Removing the flag alone would hide an existing gap in the calculation. **Implemented by VC-X-36 (§59E, migration 0055):** the flag stays open and the year never final until the component on P's building with P's part exists (the check of `withLoanInterestFlags`, `domains/taxation/tax-year-interest.ts`), or the classification is corrected; confirming the classification, confirming the Loan's set, displaying the item or a record alone never drop it.
 5. **§55's per-year list** keeps listing only the PropertyReference's own splits. Should it show the attributed Loan interest too, with P's part? **Proposal:** no in VC-X-29. The list is the classification worklist of the PropertyReference's cash, and a Loan's split is classified once for all its properties, through `GET /transaction-splits/{id}/tax-meaning` and §56.
 6. **The tie rule between properties:** §41.6's `propertyReferenceId` (proposal: the view's parts equal Financing's per-split parts) or §58C's larger share first. Within one set the two differ only on exact ties of the remainder.
@@ -6606,8 +6606,8 @@ Reused: `PropertyReferenceNotFoundError`, `LoanNotFoundError`, `LoanAllocationSe
 
 ### Not in VC-X-28 (pointers)
 
-- Backdated allocation sets and voids (§58D open question 3): open question 4.
-- Further silent inputs: a WEG economic plan added or voided (the Hausgeld's due day, §58A), a Loan closed (§41.7: schedule entries after the closing omitted), a deposit's PropertyReference moving with a reconciliation (§58A; a move between views, not years): open question 8.
+- Backdated allocation sets and voids (§58D open question 3): open question 4; **specified in §58G (VC-X-48)**: a flag of its own, `PROPERTY_PART_CHANGED`, acknowledged through this section's routes (not implemented).
+- Further silent inputs: a WEG economic plan added or voided (the Hausgeld's due day, §58A), a Loan closed (§41.7: schedule entries after the closing omitted), a deposit's PropertyReference moving with a reconciliation (§58A; a move between views, not years): open question 8; **specified in §58H (VC-X-49)**: a Loan closed as the kind `LOAN_CLOSED` of Part 1, the deposit under §58G's part flag, the WEG plan as moving nothing (not implemented).
 - An advisor role: as §57, not in the MVP.
 - Acknowledging `ATTRIBUTION_HISTORY_INCONSISTENT`, or any other open flag: not proposed.
 
@@ -6647,7 +6647,7 @@ Implemented as specified, with the owner's decisions of 2026-11-01 (questions 1�
 7. „Bestätigung pro Set als Ganzes. Ein geänderter Verwendungszweck ist ein neues Set, das seine eigene Bestätigung braucht. Jährliche Wiederholung wäre Arbeit ohne neue Information.“ (the proposal)
 8. „Nur die benannten Arten; WEG-Plan, Darlehensschließung und Kautionsobjekt als neue Backlog-Zeile; eigener E2E-Test; ACC7 und ACC8 unverändert. Der Schritt „Jahr verlässt und erreicht `final` wieder“ gehört in den E2E-Test von VC-X-28, nicht in ACC8, damit der Phasen-Exit stabil bleibt.“ (the proposal; backlog VC-X-49)
 
-**Still open (owner):** none. Open questions 1–8 are decided (2026-11-01, above), 9 and 10 on 2026-11-02. **Follow-up backlog rows the decisions create:** VC-X-48 (backdated allocation sets and voids, question 4) and VC-X-49 (a WEG economic plan added or voided, a Loan closed, a deposit's PropertyReference, question 8). Where the body above still names the kinds of question 4 as part of VC-X-28, the decision takes them out; VC-X-28's implementation follows the decisions.
+**Still open (owner):** none. Open questions 1–8 are decided (2026-11-01, above), 9 and 10 on 2026-11-02. **Follow-up backlog rows the decisions create:** VC-X-48 (backdated allocation sets and voids, question 4) and VC-X-49 (a WEG economic plan added or voided, a Loan closed, a deposit's PropertyReference, question 8), **specified in §58G and §58H** (not implemented; their open questions are the owner's). Where the body above still names the kinds of question 4 as part of VC-X-28, the decision takes them out; VC-X-28's implementation follows the decisions.
 
 ---
 
@@ -6992,6 +6992,390 @@ Decision 4 (Entscheidung des Projektinhabers, 2026-11-02) confirms "As implement
 - **The item flag, with the owner's share:** in an owner's view the item that carries `PROPOSED_BY_10_DAY_RULE` also carries that owner's part as `share.amount`, as every item of the owner's view does (§58C's per-item parts on the item's share date). The reading taken here: the share is the item's `share`, not a new key of the flag's `details`, which stay exactly the specified keys ("As implemented" 6). Where the test finds the item without its `share.amount`, the follow-up adds it.
 
 **Tests the follow-up must have** (extending `tax-year-ten-day-owner.test.ts`, the fixture of "As implemented" 13: Anna 3/4 throughout, Ben 1/4 until 2026-12-27, Clara 1/4 from 2026-12-28): in 2026 each owner's item with `PROPOSED_BY_10_DAY_RULE` carries `share.amount` equal to that owner's part of the split (Anna 3/4 of each, Ben 1/4 of the early one, Clara 1/4 of the late one), and the owners' `share.amount`s of a split sum to its amount; in 2027 the year flag's `items[].amount` is the split's whole amount at the property and at Anna and Clara, equal `details` at every level; the property's and each owner's money sums unchanged; no AuditRecord written by the reads; another Realm's owner view `404`. **Mutations** (each alone): the year flag's `amount` replaced by the owner's part at the owner level; the item's `share.amount` replaced by the split's whole amount; the item flag copied to an owner without a part (237-1's mutation, kept).
+
+---
+
+# 58G. Backdated Allocation Sets in the Tax-Year View (VC-X-48, spec)
+
+**Status:** specified, **not implemented**; open questions 1–6 for the owner ("Open questions (owner)" at the end of this section). Backlog VC-X-48, created by the owner's decision on §58E open question 4 („Rückdatierte Allocation-Sets: eigene Backlog-Zeile, nicht in VC-X-28. Sie verschieben den Anteil, nicht das Jahr, und brächten eine zweite Form in den Flag-Eintrag. VC-X-28 bleibt „was das Jahr verschiebt“.“; Entscheidung des Projektinhabers, 2026-11-01). **Migration: the next free number at implementation** (0060 is VC-X-28's, 0061 VC-X-41 Part 2's; 0062 if nothing else is merged first; Kysely's Migrator refuses a migration whose name sorts before one already applied, so the number is fixed only by the merge order). Productive AfA recording stays disabled; nothing here touches it. It amends §58D (open question 3, "How the code's reality shapes", decision 1) and §58E (the acknowledgement's routes, tables and item shape, additively). `ATTRIBUTION_INPUT_CHANGED`, its kinds and its item shape are **unchanged**: VC-X-28 stays "what moves the year". Placement, signs, the per-owner arithmetic, the attribution of Loan interest (§58D decisions 1–7), § 82b, VC-8-05's AfA and the rule for `final` are unchanged.
+
+**Why a section of its own, after §58F:** VC-X-48 is a backlog item of its own (the owner's decision above). §58D and §58E keep their statements and point here.
+
+**What it is about.** §41.3 lets a Loan's allocation set be appended with a `validFrom` in the past (it only has to lie after the last `VALID` set's) and lets the last set be voided, which extends the previous one, or leaves the Loan unallocated from the voided set's `validFrom` when there is none. Both corrections re-attribute interest already booked in the period they cover (§58D "How the code's reality shapes", decision 1: the set **as now recorded** on the booking date). They move a split's **property part** between the views of the PropertyReferences of the two sets, never its tax year (§58D decision 4: the year follows §58A, whatever the allocation). Today this happens silently: a year that was `final` and possibly filed shows other Loan interest figures afterwards, with no flag. VC-X-48 makes such a change visible as a flag of its own shape, `partBefore`/`partAfter` with the year unchanged, and lets a person acknowledge it with §58E's mechanism.
+
+DE still writes no cash, no split, no classification and no allocation (ADR-006, P7-D8). The view stays a read that stores nothing. The acknowledgement command writes only its migration's tables and AuditRecords.
+
+### As the code stands (main, after VC-X-28)
+
+- **The sets in the view:** `allocatedLoanInterest` (`infrastructure/postgres/tax-year-reads.ts`) reads the candidate Loans (a `VALID` set names the PropertyReference), their counting `LOAN_INTEREST` splits of `year` and, by `setsOfLoans`, every set of those Loans (`VALID` and `VOID`) with `validUntil` over the `VALID` ones. `loanInterestOf` (`domains/taxation/tax-year-loan-interest.ts`) takes the set covering each booking date (`setOn`) as recorded now and distributes the split by `distribute`. Nothing reads the sets' AuditRecords.
+- **The AuditRecords exist:** `loan-allocation-repository.ts` writes `CREATED` (basis, `validFrom`, every entry) and `VOIDED` (the reason) on the entity `LoanAllocationSet`, in the transaction that writes the set.
+- **VC-X-28's history** (`attribution-history.ts`, `attribution-reads.ts`) replays `LoanTerms`, `RentPaymentReconciliation` and `RentalContractReference` records only, and its candidates are the splits in the windows at `year`'s edges, since only there can a year move. `ChangeItem` is `{ sourceId, yearBefore, yearAfter }`; migration 0060's `tax_year_acknowledgement_item` has `CHECK (year_before <> year_after)` and `change_kind` / `change_entity_type` CHECKs listing exactly VC-X-28's six kinds and three entity types (`tax_year_acknowledgement_kind_entity` binds them).
+- **The flag of the price key** (`LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY`, §58E Part 3) is per set and is not a change flag: a backdated multi-entry `PURCHASE_PRICE` set raises it on its items (open until confirmed), a backdated `MANUAL` set raises nothing.
+
+### Routes
+
+**No new route.** The acknowledgement routes of §58E serve both flags:
+
+```text
+POST /api/v1/property-references/{id}/tax-years/{year}/acknowledgements                                (§58E; VC-X-48: the part kinds, the optional `kind`)
+GET  /api/v1/property-references/{id}/tax-years/{year}/acknowledgements[?status=]                      (§58E; VC-X-48: `change.items` of the part shape)
+POST /api/v1/property-references/{id}/tax-years/{year}/acknowledgements/{acknowledgementId}/withdraw   (§58E, unchanged)
+```
+
+`GET /api/v1/property-references/{id}/tax-years/{year}` (§58C) gains the year and item flag `PROPERTY_PART_CHANGED` (below), additively. Whether a part change takes these routes and the existing table, or its own, is open question 2.
+
+### The model: a part change
+
+**One rule, the year rule's sibling.** A *part change* is one AuditRecord of an input of the attribution to PropertyReferences. For each candidate item, P's **part** of it is computed twice, with the input as it stood just **before** and just **after** that record, everything else as read now (§58E Part 1, "each change is judged alone"). The year `year` of P is flagged when
+
+1. the item's tax year (§58A, derived now; it is the same on both sides) is `year`;
+2. P's part differs between the two sides (below: the state or the amount);
+3. the record's `occurred_at` lies after 31 December of `year` (Europe/Berlin; §58E's 31-December rule, `recordedAfter`).
+
+**P's part of an item** is one of three states, with an amount:
+
+| State | When (§58D's three cases, seen from P) | `part` |
+|---|---|---|
+| `ATTRIBUTED` | a usable set covers the booking date and has an entry for P | P's part by `distribute` (non-negative Money, as `loanAllocation.propertyPart`) |
+| `NOT_ATTRIBUTED` | no usable set covers the booking date, and P is among the `VALID` sets' PropertyReferences of that side (`candidates`) | `null` (listed in `notAttributed`, never summed) |
+| `NONE` | a usable set covers the booking date without an entry for P, or no `VALID` set of that side names P | `null` (nothing in P's view) |
+
+- **"Differs"** means: the states differ, or both are `ATTRIBUTED` and the amounts differ. **Proposal:** a step between `NOT_ATTRIBUTED` and `NONE` is not a part change (no figure of P moves; the not attributed side held the year open with `LOAN_INTEREST_NOT_ATTRIBUTED` anyway), and a step between `NOT_ATTRIBUTED` and `ATTRIBUTED` is one (open question 3).
+- **A set with the same share for P** can still change P's part by a cent (`distribute`'s remainder goes over the whole set). That is a part change: the figure moved.
+- **The owners' parts** follow P's part (§58D step 4); they are not compared separately. The flag is the property's, shown unfiltered at the owner level, as `ATTRIBUTION_INPUT_CHANGED` is (§58E open question 3, decided).
+
+**The kinds** (open question 1 for the code's name):
+
+| `kind` | AuditRecords read | Candidate items | The input before / after |
+|---|---|---|---|
+| `LOAN_ALLOCATION_SET_ADDED` | `LoanAllocationSet` `CREATED` | the counting `LOAN_INTEREST` splits with a `loanId` of a Loan **any** of whose sets (`VALID` or `VOID`) names P, whose tax year is `year` (the whole year and the windows, as §58D's selection; not only the windows, since a part can move anywhere in the year) | the Loan's `VALID` sets, with `validUntil` derived over them (§41.3), replayed from the sets' records in `(occurred_at, id)` order |
+| `LOAN_ALLOCATION_SET_VOIDED` | `LoanAllocationSet` `VOIDED` | as above | as above |
+
+- **Why `VOID` sets count for the candidates:** after a void, P may no longer be named by any `VALID` set, so §58D's selection would not read the Loan, while the void is exactly what took the interest out of P's view.
+- **The history** is §58E's: a set's records replayed from "not there" (`CREATED` on, `VOIDED` off); a history that does not end in the set's current status makes the set `ATTRIBUTION_HISTORY_INCONSISTENT` with `{ entityType: "LoanAllocationSet", entityId }`, its records unused and its current status held (open, as today). The sets of one Loan are walked together (as the terms of one Loan are), so "before" and "after" are the Loan's `VALID` sets just around the record.
+- **What the record time is:** the AuditRecord's `occurred_at`, as for every §58E kind, so the change has an `auditRecordId` to acknowledge (§58D open question 3 had named the set's `created_at` and `voided_at`; they are written in the same transaction and agree with it).
+- **Not a part change:** a set appended with a `validFrom` after every booked split (it covers no booked interest); a set appended or voided before 31 December of the item's year (the 31-December rule); a `taxYear` override (it moves the year, not the part, and no set changes it); a Loan voided (§41.1: only without splits). A Loan's closing changes no set (§41.7: the last set stays open-ended) and is §58H's.
+- **Confirmation and acknowledgement are independent.** A backdated multi-entry `PURCHASE_PRICE` set carries `LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY` on its items (§58E Part 3) **and** raises a part change. Confirming the set clears only the price flag; acknowledging the part change clears only the part flag (§58E, decided 2026-11-02: a statement clears exactly its own flag).
+
+### The flag `PROPERTY_PART_CHANGED`
+
+A **new code**, not a new form of `ATTRIBUTION_INPUT_CHANGED` (the owner's decision: a second form in the flag's entry is what VC-X-28 does not take). Year flag, plus an item flag of the same code on an item now in P's view of `year` (attributed, or listed in `notAttributed`) that a change moved. Its `details` mirror `ATTRIBUTION_INPUT_CHANGED`'s array, one entry per change, ordered by `amendedAt`, then `auditRecordId`:
+
+```text
+{
+  kind, entityType, entityId, auditRecordId, amendedAt,
+  loanId, allocationSetId, validFrom,                     // the kind's own keys (the set's)
+  items: [{ sourceType: "TRANSACTION_SPLIT", sourceId, taxYear,
+            stateBefore, partBefore, stateAfter, partAfter }],
+  changeFingerprint,
+  acknowledgement: { acknowledgementId, acknowledgedAt, acknowledgedBy } | null
+}
+```
+
+- **`items` are sorted by `sourceType`, then `sourceId`.** `taxYear` is the item's (always `year`; it is there so the entry reads alone). `partBefore`/`partAfter` are Money or `null` as the table above.
+- **The level by state** (§58E open question 6, decided: the code kept, the level by state): **open** while at least one entry has `acknowledgement: null`; **informative** once every entry is acknowledged. The item flag the same way over the changes that moved the item. Clients filter by level, not by code.
+- **The figures do not depend on it:** the view's parts are those of the sets as now recorded (§58D decision 1, unchanged). The flag only says that they differ from what they were before a record made after the year's end.
+- **`ATTRIBUTION_HISTORY_INCONSISTENT`** stays the one inconsistency flag; it gains the entity type `LoanAllocationSet`. It cannot be acknowledged (§58E).
+- **The review table of §58C** gains `PROPERTY_PART_CHANGED` with the rule "open while an entry is not acknowledged; then informative".
+
+### The fingerprint
+
+As §58E Part 2: SHA-256 (hex) of the canonical JSON (`shared/canonical-json.ts`) of `{ propertyReferenceId, year, auditRecordId, kind, items }`, `items` sorted as above. **It covers the parts as well as the ids**, unlike `ATTRIBUTION_INPUT_CHANGED`'s (ids and years): the part is what moved, so what is acknowledged is exactly what the person saw. For one split and one set history the parts cannot change without a new id or a new record, so in practice the fingerprint changes when an item joins or leaves the year (a `taxYear` override set or removed, a split corrected into a new one), and the change is then open again. Money as `centsText` (exact cents, no float).
+
+### Acknowledging a part change (§58E Part 2, reused)
+
+`POST …/tax-years/{year}/acknowledgements` with §58E's body, gaining **`kind`** (optional; one of the kinds of §58E Part 1, of this section and of §58H; open question 4):
+
+```json
+{
+  "auditRecordId": "6f1c2a9e-0000-4000-8000-000000000481",
+  "kind": "LOAN_ALLOCATION_SET_ADDED",
+  "expectedFingerprint": "3c0e9a7b5d1f2e4c6a8b0d9f7e5c3a1b2d4f6e8a0c9b7d5f3e1a2c4b6d8f0e9a",
+  "reason": "Erklärung 2027 noch nicht abgegeben; Aufteilung ab Juli 50/50 nachgetragen (synthetisch)"
+}
+```
+
+**Order of checks** (§58E's, with step 3 widened; nothing else changes):
+
+1. `400`, all field errors at once (`kind` an unknown value: `INVALID_FORMAT`);
+2. the PropertyReference unknown or of another Realm → `404`;
+3. **the year's changes of both flags, derived in the command's own snapshot** (§58E Part 1 and this section, for this PropertyReference and `year`), taken with `auditRecordId` and, when given, `kind`:
+   - none → `409 CONFLICT` with `reason = "CHANGE_NOT_FLAGGED"` (`details: { auditRecordId, year }`, plus `kind` when given);
+   - more than one and no `kind` → `409 CONFLICT` with `reason = "CHANGE_AMBIGUOUS"` and `details: { auditRecordId, year, kinds }` (one AuditRecord can be two changes: §58H's reconciliation moving a rent's year and a deposit's PropertyReference);
+4. the change's fingerprint ≠ `expectedFingerprint` → `412 ATTRIBUTION_CHANGE_DIFFERS` (§58E; the message "moves other items than when it was read" fits a part change too);
+5. the no-op: an `ACTIVE` acknowledgement with the same PropertyReference, year, `auditRecordId` and fingerprint → `200` with it;
+6. `201`: the acknowledgement with its items in the part shape, AuditRecord `ACKNOWLEDGED` (`items` in the part shape).
+
+- **Idempotency, `If-Match`, one change per request, withdraw** (with a reason, audited; §58E open question 2, decided): unchanged. A withdrawn acknowledgement re-opens the part change.
+- **The response** (`GET` and the commands): `change.items` is `[{ sourceType, sourceId, taxYear, stateBefore, partBefore, stateAfter, partAfter }]` for a part kind and `[{ sourceId, yearBefore, yearAfter }]` for a year kind; `change.kind` tells which. A client that read only the year shape must accept the part shape.
+- **Locks and concurrency:** §58E's (one `REPEATABLE READ` read-write transaction; the PropertyReference row written first; no input locked). A set appended or voided after the snapshot is a new `auditRecordId` (not acknowledged) or changes the fingerprint: the next read shows it open.
+
+### In the database (migration: the next free number at implementation)
+
+**Proposal** (open question 2): the acknowledgement stays one row of `tax_year_acknowledgement` (its subject, key and re-opening rule are a year change's: PropertyReference, year, AuditRecord, fingerprint; §58E open question 1's reason for two tables does not divide them), and the part items get a table of their own, since `tax_year_acknowledgement_item` holds years and refuses equal ones.
+
+- **`tax_year_acknowledgement`:** `change_kind`'s CHECK gains `LOAN_ALLOCATION_SET_ADDED`, `LOAN_ALLOCATION_SET_VOIDED`; `change_entity_type`'s gains `LoanAllocationSet`; `tax_year_acknowledgement_kind_entity` gains `(change_entity_type = 'LoanAllocationSet') = (change_kind IN ('LOAN_ALLOCATION_SET_ADDED', 'LOAN_ALLOCATION_SET_VOIDED'))`. The `ACTIVE` unique index, the frozen guard (`tax_statement_frozen`), the insert guard and `down`'s refusal are unchanged.
+- **`tax_year_acknowledgement_part_item`** (new): `acknowledgement_id`, `mre_realm_id` (composite foreign key to the acknowledgement), `source_type` (CHECK `TRANSACTION_SPLIT`; §58H adds `DEPOSIT_CLOSING`), `source_id` (`uuid`, as a value), `tax_year` (CHECK 2000–2100), `state_before`, `state_after` (CHECK `ATTRIBUTED`, `NOT_ATTRIBUTED`, `NONE`), `part_before`, `part_after` (`numeric`, scale ≤ 2, ≥ 0); key `(acknowledgement_id, source_type, source_id)`. CHECKs: a part is set exactly on `ATTRIBUTED` (`(state_x = 'ATTRIBUTED') = (part_x IS NOT NULL)`, both sides); **the part moved**: `(state_before, part_before) IS DISTINCT FROM (state_after, part_after)`; the step `NOT_ATTRIBUTED` ↔ `NONE` refused (open question 3's proposal; dropped if decided otherwise).
+- **Guards** (triggers, as 0060's):
+  - `tax_year_acknowledgement_part_item_append_only`: inserted only in its acknowledgement's transaction (`created_txid`), never updated or deleted (as `tax_year_acknowledgement_item_append_only`);
+  - **the shape matches the kind** (both item tables, one function): a part item only under a part kind, a year item only under a year kind (`change_kind` read from the acknowledgement); refused otherwise.
+- **`down`:** drops the new table and restores the CHECKs; with an acknowledgement of a new kind or a part item present it **refuses** (a person's statement is never dropped silently, as 0060).
+- **Not in the database:** whether a change is flagged, its parts and its fingerprint (derived over Financing and Taxation, checked by the command and re-checked by every read).
+- **No column** on `loan_allocation_set`, `loan_allocation`, `loan` or any ledger table.
+
+### AuditRecords
+
+`TaxYearAcknowledgement` `ACKNOWLEDGED` as §58E, with `items` in the part shape for a part kind; `WITHDRAWN` unchanged. No AuditRecord on the set, the Loan or the PropertyReference. These records are not inputs of any kind.
+
+### Error answers (`api/error-answers.ts`)
+
+| Error | Answer | `details` |
+|---|---|---|
+| `AttributionChangeAmbiguousError` (new) | `409 CONFLICT`, "The record is more than one change of this year; name its kind." | `{ reason: "CHANGE_AMBIGUOUS", auditRecordId, year, kinds }` |
+
+Reused: `AttributionChangeNotFlaggedError` (`details` gain `kind` when given), `AttributionChangeDiffersError`, `TaxYearAcknowledgementNotFoundError`, `PropertyReferenceNotFoundError`, `IdempotencyKeyConflictError`, `ConcurrentUpdateError`.
+
+### Example (synthetic)
+
+§58D's setup: P1 < P2; P1 owned by A and B `"1/2"` each, P2 by C; Loan L, `debtFrom` 2027-01-01, monthly payments due on the last day of each month. One set at first: **S1** `MANUAL` from 2027-02-01 (P1 `"3/5"`, P2 `"2/5"`), recorded on 2027-02-01. Confirmed interest debits with L's `loanId`:
+
+| Debit | Booking date | Interest | Tax year (§58A) |
+|---|---|---|---|
+| d1 | 2027-03-31 | 450.01 | 2027 |
+| d2 | 2027-07-30 | 449.99 | 2027 |
+| d3 | 2028-01-03 | 448.00 | 2027 (10-day rule: due 2027-12-31) |
+| d4 | 2028-06-30 | 446.00 | 2028 |
+
+**Step 1, a backdated set.** On **2028-03-01** **S2** `MANUAL` from 2027-07-01 (P1 `"1/2"`, P2 `"1/2"`) is appended (allowed: after S1's `validFrom`). It covers d2, d3 and d4.
+
+| Debit | Under S1 (before): P1 / P2 | Under S2 (after): P1 / P2 |
+|---|---|---|
+| d1 | 270.01 / 180.00 | unchanged (S1) |
+| d2 | 269.99 / 180.00 (44,999 × 3/5 = 26,999.4, × 2/5 = 17,999.6: the cent to P2) | 225.00 / 224.99 (the tie by `propertyReferenceId`) |
+| d3 | 268.80 / 179.20 | 224.00 / 224.00 |
+| d4 | 267.60 / 178.40 | 223.00 / 223.00 |
+
+- **2027** (recorded after 31 December 2027): P1's `LOAN_INTEREST` line moves from 808.80 to **719.01**, P2's from 539.20 to **628.99** (both sum to 1,348.00, the three debits). Both views carry `PROPERTY_PART_CHANGED`, open, with one entry `LOAN_ALLOCATION_SET_ADDED` (S2): P1's items d2 `ATTRIBUTED` 269.99 → `ATTRIBUTED` 225.00 and d3 268.80 → 224.00; P2's d2 180.00 → 224.99 and d3 179.20 → 224.00. d1 is in neither entry. Each of d2 and d3 carries the item flag. 2027 is not `final` in either view.
+- **2028:** the record is not after 31 December 2028: no flag for d4 in 2028.
+- **No year moved:** d3 stays in 2027 under both sides; `ATTRIBUTION_INPUT_CHANGED` is not raised by S2.
+- **Acknowledged in P1's 2027** (`kind` `LOAN_ALLOCATION_SET_ADDED`, the entry's fingerprint): P1's flag informative; P2's 2027 still open (one acknowledgement per PropertyReference, year and change; §58E open question 3, decided).
+
+**Step 2, the set voided.** On **2029-02-01** S2 is voided; S1 covers everything again. A new change `LOAN_ALLOCATION_SET_VOIDED`, recorded after both years' ends:
+
+- **2027:** both views gain a second entry (P1: d2 225.00 → 269.99, d3 224.00 → 268.80; P2 the reverse), open. The `ADDED` entry stays (each change judged alone, §58E) and keeps P1's acknowledgement, since its fingerprint is unchanged. P1's line is 808.80 again.
+- **2028:** d4 223.00 → 267.60 (P1) and 223.00 → 178.40 (P2): both 2028 views flagged, open.
+- **Over-flagging only keeps a year open until acknowledged; it never hides a move** (§58E).
+
+**Variant, a first set backdated.** Were S1 itself appended only on 2028-03-01, d1–d3 would go from `NOT_ATTRIBUTED` (listed in both 2027 views, `LOAN_INTEREST_NOT_ATTRIBUTED` open) to `ATTRIBUTED`: under the proposal of open question 3 both 2027 views carry a part change for them; under its alternative none.
+
+### The effect on `final`, ACC7 and ACC8
+
+- **The rule stays §58C's** (`final` only when `review.open` is empty). A year with a part change after its end is not final until each change is acknowledged with its current fingerprint; it stops being final when a change is new, moves another part, or its acknowledgement is withdrawn. This can turn a `final: true` of today into `false` after deployment: the intended correction.
+- **What an acknowledgement does not replace** (§58E, decided 2026-11-02): it clears only its own flag; it confirms no set (the price flag stays open until its own confirmation), supplies no allocation (`LOAN_INTEREST_NOT_ATTRIBUTED` stays), changes no figure and no stage of §60A, and is no evidence for a VERIFY point (checklist A1).
+- **§59E:** a part change of an attributed `CAPITALIZED` interest item makes its component's basis differ from P's part; `LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS` then shows `BASIS_MISMATCH` (§59E, unchanged). Acknowledging the part change does not drop it.
+- **ACC7 and ACC8 expect no change:** their Loans' sets are `MANUAL` `1/1` and recorded before the end of the years they cover (as the tests' clock runs), so no set record lies after 31 December of a year whose part it moves. Both run unchanged; **a flag appearing there is a finding to report and explain, not to suppress.** No acceptance step is added (open question 6).
+
+### Performance
+
+- **Candidates:** the view already reads the candidate Loans' interest splits of `year` and all their sets (`setsOfLoans`); the selection of Loans widens from "a `VALID` set names P" to "any set names P" (`loan_allocation_property_reference_idx`, 0026). One AuditRecord query for the sets' records by `audit_record_entity_idx` (`entity_type = 'LoanAllocationSet'`, `entity_id IN …`), after the sets are selected in the Realm.
+- **The derivation:** per record, `distribute` over two sets for the Loan's splits of `year` (about 12 a year per Loan, at most 50 entries per set). A handful of records per Loan.
+- **The command** derives both flags' changes for the PropertyReference and year, not the view. A repository test reads the plan of the set-record query inside the view's snapshot.
+
+### The code that changes (pointers)
+
+- **`domains/taxation/`:** a pure `partChanges` (new file, e.g. `attribution-parts.ts`) replays the sets' records per Loan with `walk`/`replay` of `attribution-history.ts`, computes P's part per side with `loanInterestOf`'s case logic (`setOn`, `sumsToOne`, `distribute`), and returns entries with the part items and `changeFingerprint`; `attribution-rule.ts` gains the part kinds (or a sibling `PART_CHANGE_KINDS`, keeping `CHANGE_KINDS` the year kinds) and the entity type `LoanAllocationSet`; `tax-statements.ts` matches acknowledgements to both flags; `tax-year-review.ts`'s `flagIsOpen` decides `PROPERTY_PART_CHANGED` by its `details`, as `ATTRIBUTION_INPUT_CHANGED`.
+- **`infrastructure/postgres/`:** `attribution-reads.ts` reads the sets' records and the widened Loan selection in the view's snapshot; `tax-statement-repository.ts` writes and reads the part items; migration `<n>_tax_year_part_acknowledgements`.
+- **`application/tax-statements.ts`, `api/tax-statements.ts`:** the optional `kind`, `CHANGE_AMBIGUOUS`, the part shape in the DTO. `docs/development/api-inventory.md` is unchanged (no route changes); `yarn api:inventory:check` stays green.
+- **`architecture.test.ts`:** no new edge (Taxation → Financing exists; Financing never reads Taxation).
+
+### Tests the implementation needs
+
+- **Domain (pure):** the example literally (both steps, both views, both years, the 31-December rule for d4); each state step (`ATTRIBUTED` ↔ `ATTRIBUTED` with another amount, `ATTRIBUTED` ↔ `NONE`, `ATTRIBUTED` ↔ `NOT_ATTRIBUTED`, `NOT_ATTRIBUTED` ↔ `NONE` not flagged under the proposal); the same share for P with a one-cent move (flagged) and an identical part (not flagged); a set appended after every booked split (nothing); recorded on 31 December (nothing) and on 1 January (flagged); a 10-day-rule item whose booking date lies in the next year (the set by the booking date, the flag in the tax year); a `taxYear` override on a moved split (flagged in the overridden year); a Loan whose only set naming P was voided (still a candidate); an inconsistent set history (`ATTRIBUTION_HISTORY_INCONSISTENT` with `LoanAllocationSet`, history unused); the fingerprint stable over key and item order, different for another part, another state, another year, another `auditRecordId`; the levels (open with one unacknowledged entry, informative with all, open again after a withdraw or another fingerprint); the price flag and the part flag independent (each statement clears only its own); `final` true exactly when nothing else is open; owners' parts unchanged in their derivation (owners plus `NOT_OWNED` equal P's part, both sides).
+- **Repository (PostgreSQL):** the order of checks with the new steps (`CHANGE_AMBIGUOUS`, `kind` narrowing, `CHANGE_NOT_FLAGGED` for a set record of a year it does not touch); idempotency; withdraw; one snapshot (a set appended between two statements of the view is not seen); **schema past the repository**, each with a counter-check: a part item with `NOT_ATTRIBUTED` and a part, `ATTRIBUTED` without one, an unmoved item, a `NOT_ATTRIBUTED` ↔ `NONE` item, a part item under a year kind and a year item under a part kind, a part item inserted after its acknowledgement's transaction, an update and a delete, a negative part, a part kind with another entity type; Realm isolation (another Realm's set records never read, its acknowledgements never seen, its Loan's ids `CHANGE_NOT_FLAGGED`); "no cash mutated" extended by the new table (rows and versions unchanged by views); the plans; the migration's `up`, `down`, and `down` refusing with a part item or a new kind present.
+- **API:** every `400` (`kind`), the part DTO, `CHANGE_AMBIGUOUS`'s mapping.
+- **End to end** (`tax-year-part-changes.e2e.test.ts`, synthetic values only, a settable clock): the example through the HTTP API (L, S1, the four debits, S2 appended on 2028-03-01, both views of 2027 and 2028 at both levels, the acknowledgement in P1, P2 still open, S2 voided on 2029-02-01, the second entries, 2028 flagged); **Realm isolation** and **no cash mutated** around it. ACC7 and ACC8 unchanged.
+
+### Counter-checks and mutations
+
+**Counter-checks:** no part moved after a year's end without the flag, in every view whose part moved; no year flag of `ATTRIBUTION_INPUT_CHANGED` raised by a set; no figure changed by an acknowledgement; no confirmation of a set by an acknowledgement, nor the reverse; nothing written by a view.
+
+**Mutations** that must turn the tests red (each applied alone, restored byte for byte):
+
+- the 31-December rule dropped, or applied to the booking date or to the set's `validFrom` instead of the record's `occurred_at`;
+- the part compared as P's share instead of P's part (the one-cent case missed);
+- the candidates restricted to Loans with a `VALID` set naming P (the void out of P's view missed);
+- the candidates restricted to the windows (d2 missed);
+- the sets taken as now for both sides (no change found);
+- `NOT_ATTRIBUTED` ↔ `NONE` flagged, or `NOT_ATTRIBUTED` → `ATTRIBUTED` not flagged (under the decided variant of open question 3);
+- an acknowledgement matched without the amounts in the fingerprint, or by `auditRecordId` alone across kinds (the `CHANGE_AMBIGUOUS` case);
+- `PROPERTY_PART_CHANGED` no longer raised once acknowledged (instead of informative), or still open when every entry is acknowledged;
+- a part kind accepted into `tax_year_acknowledgement_item` (the shape guard dropped), each with its schema test;
+- the Realm filter dropped from the set-record read.
+
+### Invariant suite (with the implementation)
+
+§44's table gains **no silent move of a part** (every set appended or voided after a year's end that moves P's part of an item of that year flags P's view of it, at both levels, until acknowledged; the parts always those of the sets as now recorded); the row "an acknowledgement covers what was seen" covers the part shape; the migration's guards.
+
+### Open questions (owner)
+
+1. **The flag's code.** **Proposal:** `PROPERTY_PART_CHANGED`, one code for every input that moves a part between views without moving the year (here the sets; §58H proposes the deposit's PropertyReference under it). **Alternative:** `LOAN_ALLOCATION_CHANGED`, a Loan-only code, so each source has its own code (§58H's deposit would then need a third code).
+2. **Where the acknowledgement lives.** **Proposal:** the same routes and the same `tax_year_acknowledgement` row, with a second item table for the part shape and a guard that the item shape matches the kind: the subject (PropertyReference, year, AuditRecord), the key, the fingerprint and the re-opening rule are a year change's, which is what §58E open question 1 (decided: two tables) divided by. **Alternative:** a table and routes of their own (`…/tax-years/{year}/part-acknowledgements`): no `kind` in the body and no shape guard, but a second set of routes, use cases and withdrawals doing the same thing.
+3. **Steps from and to "not attributed".** **Proposal:** flag every step that changes P's part as summed in P's view, so `NOT_ATTRIBUTED` → `ATTRIBUTED` (a first set backdated) and `ATTRIBUTED` → `NOT_ATTRIBUTED` (the only set voided) are flagged, and `NOT_ATTRIBUTED` ↔ `NONE` is not (no figure of P moves). This follows §58E open question 5 (decided: flagged although the "before" state held the year open, since DE does not know whether the return was filed). **Alternative:** do not flag a step whose "before" side was `NOT_ATTRIBUTED` (that year could not have been `final` through this item); less noise, but it rests on the year's state as derived now.
+4. **Two changes of one AuditRecord.** **Proposal:** the body gains an optional `kind`; without it, a record that is more than one change of the year answers `409 CHANGE_AMBIGUOUS` naming the kinds, so the client sends the one it showed. **Alternative:** no `kind`: the command takes the change whose fingerprint equals `expectedFingerprint` among those of the record (the fingerprints differ, since `kind` is in them); a mismatch then answers `412` with every current fingerprint. Simpler for the client, but the `412` loses its one `currentFingerprint`. (Within this section a set record is only ever one change; the case arises with §58H's deposit kinds.)
+5. **One implementation with VC-X-49, or two.** **Proposal:** VC-X-48 first, with its own migration (the part flag, the part item table, the `kind`), then VC-X-49 widening the kinds with its own migration. **Alternative:** one implementation and one migration for both.
+6. **The acceptance tests.** **Proposal:** as the owner decided for VC-X-28 and VC-X-49 (§58E open question 8): VC-X-48's own e2e test, ACC7 and ACC8 unchanged, so the phase exit stays stable. **Alternative:** a step in ACC8 showing a backdated set holding a year open.
+
+---
+
+# 58H. Further Silent Inputs of the Tax Year (VC-X-49, spec)
+
+**Status:** specified, **not implemented**; open questions 1–4 for the owner ("Open questions (owner)" at the end of this section). Backlog VC-X-49, created by the owner's decision on §58E open question 8 („Nur die benannten Arten; WEG-Plan, Darlehensschließung und Kautionsobjekt als neue Backlog-Zeile; eigener E2E-Test; ACC7 und ACC8 unverändert.“; Entscheidung des Projektinhabers, 2026-11-01). **Migration: the next free number at implementation** (after VC-X-48's, if that is merged first, §58G open question 5; Kysely's Migrator refuses a migration whose name sorts before one already applied, so the number is fixed only by the merge order). Productive AfA recording stays disabled; nothing here touches it. It amends §58E (Part 1's kinds; the acknowledgement table's CHECKs) and §58G (the part kinds), additively. Placement, signs, the per-owner arithmetic, § 82b, VC-8-05's AfA and the rule for `final` are unchanged. **ACC7 and ACC8 stay unchanged; VC-X-49 has its own e2e test** (decided, above).
+
+**Why a section of its own, after §58G:** VC-X-49 is a backlog item of its own; one of its three inputs takes §58G's flag.
+
+The three inputs §58E named under "Not in VC-X-28" and what each turns out to move, read against the code:
+
+| Input | What it moves | Fits | Proposal |
+|---|---|---|---|
+| A **Loan closed** (§41.7) | the **year** of a Loan's interest split: the schedule's entries after `closingDate` are omitted, so the nearest entry (§58A) of a split booked on or before the closing can change | §58E Part 1 as it is (the year shape) | a kind `LOAN_CLOSED` of `ATTRIBUTION_INPUT_CHANGED` |
+| A **deposit's PropertyReference** (§58A) moving with a reconciliation | the **view** a retained deposit counts in, not its year (its year is its closing date's) | §58G's part shape, not §58E's | kinds `DEPOSIT_RECONCILIATION_CONFIRMED`, `DEPOSIT_RECONCILIATION_RELEASED` of `PROPERTY_PART_CHANGED` (open question 2) |
+| A **WEG economic plan** added or voided (§49.5) | **neither year nor part**: Hausgeld is never moved on a guess (§58A, review on #159); the plan changes only `attribution.proposedYear` and the date flags of a Hausgeld item | neither shape: there is nothing to acknowledge | no kind; a test pins that nothing moves (open question 1) |
+
+### As the code stands (main, after VC-X-28)
+
+- **Loan closing:** `loan-repository.ts` writes `CLOSED` on the entity `Loan` (with the values and `settledAmount`). The schedule (`loanSchedule`, `domains/financing/`) omits the entries after `closingDate`; the view's timing (`interestTiming`, `domains/taxation/cash-timing.ts`) takes the nearest of the remaining entries. VC-X-28's `termsChanges` (`attribution-history.ts`) passes the Loan's **current** `closingDate` to both sides of a terms change ("everything else as now"); no code reads the `CLOSED` record.
+- **The deposit's PropertyReference:** `tax-source-facts.ts` derives it now from every `CONFIRMED` reconciliation of the deposit's Tenant (the PropertyReferences of the reconciled rent splits; `propertyCandidates`), whatever their dates: one PropertyReference, or `null` with `NO_PROPERTY_REFERENCE` (`NO_RECONCILED_RENT`, `SEVERAL_PROPERTY_REFERENCES`). `buildTaxYearView` lists a `null` deposit as not attributed, in every view of the Realm (`NO_RECONCILED_RENT`) or in each candidate's (`SEVERAL_PROPERTY_REFERENCES`), with `UNATTRIBUTED_ITEMS` (open). VC-X-28 reads the reconciliations' `CONFIRMED`/`RELEASED` records only for the rent splits in the windows at `year`'s edges, and only for their year.
+- **The WEG plan:** `hausgeldTiming` (`cash-timing.ts`) guesses the month nearest to the booking date by the plan's `advanceDueDay` (day 1 assumed without it); `attributeTaxYear` never moves Hausgeld (`periodGuessed`): it keeps its booking year, with `ECONOMIC_PERIOD_ASSUMED` and `proposedYear` where the guess points elsewhere, `DUE_DATE_ASSUMED` without `advanceDueDay`, `NO_ECONOMIC_PERIOD` (`NO_ECONOMIC_PLAN`) without a plan. These flags are open while the item's `origin` is `DEFAULT` and informative once a confirmed classification stands for it (§58C's table). `weg-economic-plan-repository.ts` writes `CREATED`/`VOIDED` on `WegEconomicPlan` and `ECONOMIC_PLAN_ADDED` on `WegMembership`.
+
+### Routes
+
+**No new route.** The acknowledgement routes of §58E serve the new kinds, with §58G's optional `kind` (§58G open question 4): a reconciliation's record can be a year change of a rent split (`RECONCILIATION_CONFIRMED`, §58E) **and** a part change of a deposit (`DEPOSIT_RECONCILIATION_CONFIRMED`) in one year of one PropertyReference.
+
+### Part 1: a Loan closed (`ATTRIBUTION_INPUT_CHANGED`)
+
+| `kind` | AuditRecords read | Candidate items | The input before / after |
+|---|---|---|---|
+| `LOAN_CLOSED` | `Loan` `CLOSED` | as `LOAN_TERMS_ADDED` (§58E Part 1): the `LOAN_INTEREST` splits with a `loanId` of the candidate Loans that concern P, booked in either window of `year` | the Loan's schedule over its `VALID` terms as now, without (`closingDate` `null`) and with the closing |
+
+- **One rule** (§58E Part 1): flagged when the two years differ, one of them is `year`, and the record lies after 31 December of `year`. The entry's keys: `loanId`, `closingDate`, `closingReason`. `items: [{ sourceId, yearBefore, yearAfter }]`, the year shape unchanged.
+- **The history:** a Loan has at most one `CLOSED` record (`CLOSED` is final, §41.7). The Loan's history is consistent when its status now is `CLOSED` exactly with one such record; otherwise `ATTRIBUTION_HISTORY_INCONSISTENT` with `{ entityType: "Loan", entityId }`, the record unused (open, as today).
+- **Only the backward move can happen in practice:** the closing omits entries **after** `closingDate`, and every counting split of the Loan lies on or before it (§41.7, `SPLITS_AFTER_CLOSING`). A split loses its nearest entry only when that entry was due after the closing; then an earlier entry, possibly outside the window, decides.
+- **Not a change:** a closing whose omitted entries were nobody's nearest entry; a `REFINANCED` successor (its own terms decide its splits); the Loan's sets (unchanged by a closing, §41.7).
+- **Terms changes keep reading the closing as now** (§58E, "everything else as now"); the closing is judged alone against the terms as now.
+
+### Part 2: a deposit's PropertyReference (`PROPERTY_PART_CHANGED`)
+
+| `kind` | AuditRecords read | Candidate items | The input before / after |
+|---|---|---|---|
+| `DEPOSIT_RECONCILIATION_CONFIRMED`, `DEPOSIT_RECONCILIATION_RELEASED` | `RentPaymentReconciliation` `CONFIRMED`, `RELEASED` of every reconciliation, at any date, of the Tenant of a candidate deposit | the counting deposit closings of the Realm (`CLOSED`, `retainedAmount` > 0) closed in `year`: their tax year is `year` (§58A) | the Tenant's set of `CONFIRMED` reconciliations, replayed from their records in `(occurred_at, id)` order as §58E's reconciliation kinds; the deposit's PropertyReference derived from it as §58A does (the reconciled rent splits' PropertyReferences as now) |
+
+- **P's part of a deposit** (§58G's states): `ATTRIBUTED` with `part` = `retainedAmount` when the deposit's PropertyReference is P; `NOT_ATTRIBUTED` when it is `null` and P is among the views that list it (each candidate's for `SEVERAL_PROPERTY_REFERENCES`, every PropertyReference of the Realm for `NO_RECONCILED_RENT`); `NONE` otherwise. The part is the deposit's amount attributed to P whatever its placement (an unclassified deposit has it too), as `loanAllocation.propertyPart` is for interest.
+- **The one rule of §58G:** flagged in P's view of `year` when P's part differs and the record lies after 31 December of `year`. Under §58G open question 3's proposal a step between `NOT_ATTRIBUTED` and `NONE` is not flagged. This matters most here: a deposit with `NO_RECONCILED_RENT` is listed in every view of the Realm, and its first reconciliation would otherwise flag every one of them.
+- **The entry's keys:** `reconciliationId`, `transactionId`, `mreTenantId`, `mreRentTerm` (as §58E's reconciliation kinds), plus `securityDepositId`. `items: [{ sourceType: "DEPOSIT_CLOSING", sourceId, taxYear, stateBefore, partBefore, stateAfter, partAfter }]`.
+- **Two flags from one record:** the record that confirms a Tenant's rent split in a window may move that rent's year (`RECONCILIATION_CONFIRMED`, §58E) and the Tenant's deposit (`DEPOSIT_RECONCILIATION_CONFIRMED`) in the same year. They are two changes with two fingerprints and two acknowledgements; the body's `kind` tells them apart (§58G open question 4).
+- **The history:** §58E's per reconciliation (`CONFIRMED` on, `RELEASED` off, ending in the status now); an inconsistent one is already `ATTRIBUTION_HISTORY_INCONSISTENT` (`RentPaymentReconciliation`), its records unused here too.
+- **Not a change here** (open question 3): a reopen and a new closing (it moves the deposit's **year**, not its view; the old classification stops counting, `CLOSING_CHANGED`, §58A); a split correction that moves a Tenant's rent split to another PropertyReference (a ledger correction, recorded on the Transaction); an amend of the deposit (`mreTenantId` is fixed, §47.1).
+- **The classification is untouched:** it belongs to the deposit, not to a PropertyReference (§58A); it moves with the deposit between views.
+
+### Part 3: a WEG economic plan (no kind)
+
+- **Why nothing moves:** the plan is the due-date source of a Hausgeld split (`advanceDueDay`), but a Hausgeld split always keeps its booking year (or its classification's `taxYear`), whatever the guess (§58A; §58F "period guessed": unchanged). A plan added or voided changes, for an item booked in a window:
+  - `attribution.proposedYear` and with it whether `ECONOMIC_PERIOD_ASSUMED` is raised;
+  - `DUE_DATE_ASSUMED` (a plan without `advanceDueDay`) and `NO_ECONOMIC_PERIOD` (`NO_ECONOMIC_PLAN`, no plan).
+- **None of this moves a figure or a year.** On an item with `origin` `DEFAULT` the flags are open, so a newly raised one is visible and holds the year open; on a confirmed item they are informative, and the person's year decision (the booking year, or the classification's `taxYear`) stands.
+- **So §58E's mechanism does not fit:** there is no year change and no part change to acknowledge. **Proposal:** no kind; the e2e test pins that a plan added and voided after a year's end leaves that year's figures, flags of both shapes and `final` unchanged. If a later `DE_CASH_TIMING` version moves Hausgeld on a recorded due day (as §58F does for rent), the plan's records become a kind of `ATTRIBUTION_INPUT_CHANGED` with that version (open question 1).
+
+### In the view (additive)
+
+- **`ATTRIBUTION_INPUT_CHANGED`** gains the kind `LOAN_CLOSED` (year shape); **`PROPERTY_PART_CHANGED`** (§58G) gains the kinds `DEPOSIT_RECONCILIATION_CONFIRMED`, `DEPOSIT_RECONCILIATION_RELEASED` (part shape) and the item flag on a deposit item now in P's view. Levels by state, fingerprints, acknowledgements and withdrawals exactly as §58E and §58G.
+- **The snapshot** (§58C "One snapshot") gains the candidate Loans' `CLOSED` records and the candidate deposits' Tenants' reconciliations with their records (all dates).
+- **`ATTRIBUTION_HISTORY_INCONSISTENT`** gains the entity type `Loan`.
+
+### In the database (migration: the next free number at implementation)
+
+On the tables of 0060 and §58G's migration:
+
+- **`tax_year_acknowledgement`:** `change_kind`'s CHECK gains `LOAN_CLOSED`, `DEPOSIT_RECONCILIATION_CONFIRMED`, `DEPOSIT_RECONCILIATION_RELEASED`; `change_entity_type`'s gains `Loan`; `tax_year_acknowledgement_kind_entity` binds `Loan` to `LOAN_CLOSED` and `RentPaymentReconciliation` to its four kinds.
+- **`tax_year_acknowledgement_part_item`:** `source_type`'s CHECK gains `DEPOSIT_CLOSING`.
+- **The shape guard** (§58G): `LOAN_CLOSED` takes year items only, the two deposit kinds part items only.
+- **`down`** restores the CHECKs; with an acknowledgement of a new kind or a `DEPOSIT_CLOSING` part item present it **refuses**.
+- **No column** on `loan`, `security_deposit`, `rent_payment_reconciliation`, `weg_economic_plan` or any ledger table.
+
+### Order of checks of an acknowledgement
+
+§58G's, unchanged; step 3 derives the new kinds too. `CHANGE_AMBIGUOUS` arises for a reconciliation record that is a change of both flags.
+
+### Examples (synthetic)
+
+**A Loan closed.** P3 owned by D `"1/1"`. Loan M, allocated `MANUAL` `"1/1"` to P3 from 2026-01-01, with monthly payments due on the **6th**. Its last interest debit, 61.20, is booked on **2028-01-03**, with the rest of the principal (repaid in full).
+
+- **Before the closing:** the nearest entry is due 2028-01-06 (3 days; 2027-12-06 is 28 days away). Its interest period, 2027-12-07 to 2028-01-06, has 25 days in 2027 and 6 in 2028, so its economic year is 2027; booking date and due date lie in the window: the debit counts in **2027** (`ATTRIBUTED_BY_10_DAY_RULE`).
+- **On 2028-02-15** M is closed `REPAID` with `closingDate` 2028-01-03. The entry of 2028-01-06 is omitted; the nearest entry is now 2027-12-06, outside the window: the debit counts in **2028**, its booking year.
+- **2027:** `ATTRIBUTION_INPUT_CHANGED`, open, with one entry `LOAN_CLOSED` (`items: [{ sourceId: the split, yearBefore: 2027, yearAfter: 2028 }]`); P3's 2027 `LOAN_INTEREST` line is 61.20 lower than before the closing. **2028** is not flagged: the closing was recorded during 2028. Recorded on 2029-01-10 instead, it would flag both years.
+- **Acknowledged** in 2027 (`kind` `LOAN_CLOSED`, the entry's fingerprint): informative; an acknowledgement in 2028 answers `409 CHANGE_NOT_FLAGGED`.
+
+**A deposit's PropertyReference.** Tenant T's rent is booked on P1 and reconciled (`CONFIRMED`) during 2027. T's deposit D is closed on 2027-06-30 with 300.00 retained, classified `RETAINED_DEPOSIT_RENT` / `INCOME` (`USER_CONFIRMED`): P1's 2027 view has the line `RETAINED_DEPOSIT_RENT` 300.00.
+
+- **On 2028-02-10** a payment of 80.00 booked on P2 on 2027-05-03 is matched to one of T's 2027 terms (`CONFIRMED`). D's PropertyReference becomes `null` (`SEVERAL_PROPERTY_REFERENCES`, [P1, P2]): D is listed not attributed in both 2027 views, never summed, with `UNATTRIBUTED_ITEMS`. P1's 2027 income falls by 300.00.
+- **P1's 2027:** `PROPERTY_PART_CHANGED`, open, one entry `DEPOSIT_RECONCILIATION_CONFIRMED` with `items: [{ sourceType: "DEPOSIT_CLOSING", sourceId: D, taxYear: 2027, stateBefore: "ATTRIBUTED", partBefore: "300.00", stateAfter: "NOT_ATTRIBUTED", partAfter: null }]`. **P2's 2027:** `NONE` → `NOT_ATTRIBUTED`, not a part change (no figure of P2 moved; `UNATTRIBUTED_ITEMS` shows D). The 80.00 is booked mid-year, so no year moves and `ATTRIBUTION_INPUT_CHANGED` is not raised.
+- **On 2028-02-20** the match is released (the payment was another Tenant's): D is P1's again, 300.00 back in P1's line, `UNATTRIBUTED_ITEMS` gone. A second entry `DEPOSIT_RECONCILIATION_RELEASED` (`NOT_ATTRIBUTED` → `ATTRIBUTED` 300.00), flagged under §58G open question 3's proposal. P1's 2027 stays not `final` until both entries are acknowledged.
+
+**A WEG economic plan.** P4 is a unit of a WEG; its plan E1 for 2027 from 2027-01-01 has `advanceDueDay` 1 and Hausgeld 250.00. A Hausgeld debit of 250.00 on P4 is booked on 2027-12-30: the nearest due date is 2028-01-01, so it keeps 2027 with `ECONOMIC_PERIOD_ASSUMED` (`proposedYear` 2028); classified `USER_CONFIRMED` without `taxYear`, the flag is informative.
+
+- **On 2028-02-01** E1 is voided and E2 from 2027-01-01 with `advanceDueDay` 28 is added: the nearest due date is 2027-12-28, and the proposal disappears. **On 2028-02-02** E2 is voided too: `NO_ECONOMIC_PERIOD` (`NO_ECONOMIC_PLAN`), informative (the classification is confirmed).
+- **2027 throughout:** the item in 2027, 250.00 in its line, neither `ATTRIBUTION_INPUT_CHANGED` nor `PROPERTY_PART_CHANGED`, `review.open` and `final` as before E1 was voided.
+
+### The effect on `final`, ACC7 and ACC8
+
+- **The rule stays §58C's.** A year with a Loan closing or a deposit move after its end that changed it is not final until each change is acknowledged; this can turn a `final: true` of today into `false` after deployment (the intended correction). A WEG plan never does.
+- **What an acknowledgement does not replace** (§58E, decided 2026-11-02): it attributes no deposit (`UNATTRIBUTED_ITEMS` stays while D is `null`), classifies nothing, changes no figure and no stage of §60A.
+- **ACC7 and ACC8 unchanged** (decided): neither records a Loan closing, nor a reconciliation of a deposit's Tenant, after the end of a year it would change (as the tests' clock runs). Both run unchanged; **a flag appearing there is a finding to report and explain, not to suppress.**
+
+### Performance
+
+- **Loan closing:** the candidate Loans and their window splits are VC-X-28's; one more AuditRecord query (`entity_type = 'Loan'`, `action = 'CLOSED'`) by `audit_record_entity_idx`, and one schedule derivation more per closed Loan.
+- **Deposits:** the counting deposit closings of the Realm in `year` (a handful; the view reads them already for the not attributed ones), their Tenants' reconciliations (0030's `rent_payment_reconciliation_term_idx` on Realm, Tenant and term; about twelve a year per Tenant) and their records by `audit_record_entity_idx`. A repository test reads the plans inside the view's snapshot.
+
+### The code that changes (pointers)
+
+- **`domains/taxation/attribution-history.ts`:** `closingChanges` beside `termsChanges` (the schedule with and without `closingDate`); `attribution-rule.ts`: `LOAN_CLOSED`, entity type `Loan`.
+- **§58G's part module:** `depositPartChanges` (the Tenant's reconciliations replayed with `walk`, the PropertyReference per side as `tax-source-facts.ts` derives it, P's state and part); the part kinds gain the two deposit kinds.
+- **`infrastructure/postgres/attribution-reads.ts`:** the `CLOSED` records of the candidate Loans; the candidate deposits, their Tenants' reconciliations and records, in the view's snapshot, every entity selected in the Realm first.
+- **Migration** `<n>_tax_year_further_inputs` (the CHECKs above).
+- **No change:** `cash-timing.ts` (Hausgeld stays unmoved), `weg-economic-plan-repository.ts`, `deposit-closing.ts`, `api-inventory.md` (no route changes).
+
+### Tests the implementation needs
+
+- **Domain (pure):** `LOAN_CLOSED` in the example, recorded during and after the later year (one year, both years), on 31 December (nothing) and 1 January; a closing whose omitted entries were nobody's nearest (nothing); a `taxYear` override (nothing); a `CLOSED` Loan without a record and a record on an `ACTIVE` Loan (`ATTRIBUTION_HISTORY_INCONSISTENT` with `Loan`); the deposit example (both records, P1 flagged, P2 not); `NO_RECONCILED_RENT` → P1 (only P1 flagged, none of the Realm's other views); a deposit closed in another year (nothing in `year`); a deposit with 0 retained (no candidate); one record as two changes (`RECONCILIATION_CONFIRMED` and `DEPOSIT_RECONCILIATION_CONFIRMED`, two fingerprints); the WEG example (no change of any kind, figures and `final` unchanged); levels and fingerprints as §58E and §58G.
+- **Repository (PostgreSQL):** the order of checks with the new kinds, `CHANGE_AMBIGUOUS` for the double record and both acknowledged with `kind`; idempotency; withdraw; one snapshot; **schema past the repository**, each with a counter-check: `LOAN_CLOSED` with another entity type or with a part item, a deposit kind with a year item, a `DEPOSIT_CLOSING` part item under a Loan kind; Realm isolation (another Realm's Loan, deposit and reconciliation records never read; its ids `CHANGE_NOT_FLAGGED`); "no cash mutated" around every view; the plans; `up`, `down`, `down` refusing with a row of a new kind.
+- **API:** the DTO of both shapes for the new kinds.
+- **End to end** (`tax-year-further-inputs.e2e.test.ts`, its own; synthetic values only, a settable clock): the three examples through the HTTP API (M closed on 2028-02-15, 2027 flagged and acknowledged, 2028 refused with `CHANGE_NOT_FLAGGED`; D moved and back, P1's two entries acknowledged, P2 never flagged; E1 voided, E2 added and voided, nothing raised), **Realm isolation** and **no cash mutated** around them. ACC7 and ACC8 unchanged (decided).
+
+### Counter-checks and mutations
+
+**Counter-checks:** no year moved by a closing without the flag; no deposit moved between views without the flag in the view it left or reached with a figure; no flag in a view whose part did not change; nothing raised by a WEG plan; no figure changed by an acknowledgement; nothing written by a view.
+
+**Mutations** that must turn the tests red (each applied alone, restored byte for byte):
+
+- the closing ignored for the "after" side (the schedule as before), or applied to both sides;
+- the 31-December rule dropped for `LOAN_CLOSED` or for the deposit kinds;
+- the Tenant's reconciliations restricted to the windows or to `year` (D's move in the example missed);
+- the deposit's PropertyReference taken as now for both sides;
+- `NOT_ATTRIBUTED` ↔ `NONE` flagged (every view of the Realm flagged for a `NO_RECONCILED_RENT` deposit);
+- the double record matched by `auditRecordId` alone (one acknowledgement clearing both flags);
+- a WEG plan record made a change (a flag raised in the WEG example);
+- the Realm filter dropped from the closing or the deposit reads.
+
+### Invariant suite (with the implementation)
+
+§44's row **no silent move of a year** gains the Loan closing; §58G's row **no silent move of a part** gains the deposit's PropertyReference; a row **a WEG plan moves nothing in a closed year** (while `DE_CASH_TIMING@1` never moves Hausgeld).
+
+### Open questions (owner)
+
+1. **The WEG economic plan.** **Proposal:** no kind, since under `DE_CASH_TIMING@1` a plan added or voided moves neither a year nor a part (Hausgeld keeps its booking year); its effects (the proposal and the date flags) are visible at the open level on unconfirmed items and change nothing on confirmed ones. A test pins it; a later rule version that moves Hausgeld brings the kind with it. **Alternatives:** (a) a kind `WEG_ECONOMIC_PLAN_ADDED`, `WEG_ECONOMIC_PLAN_VOIDED` of `ATTRIBUTION_INPUT_CHANGED` judged by the year rule now (it raises nothing today, but is ready); (b) a new flag that re-opens a confirmed Hausgeld item whose `proposedYear` changed after the year's end, so the person sees that the guess they confirmed against has changed.
+2. **The deposit's flag.** **Proposal:** §58G's `PROPERTY_PART_CHANGED`, since the deposit moves between views exactly as interest does under a backdated set (depends on §58G open question 1). **Alternative:** a code of its own, `DEPOSIT_PROPERTY_CHANGED`, with the same part shape.
+3. **The deposit's other movers.** **Proposal:** not in VC-X-49, which takes the deposit's PropertyReference by reconciliation as named; a new backlog row for (a) a reopen and a new closing with another date or amount, which moves the deposit's **year** (the old year loses the item silently; the new year shows it `NEEDS_REVIEW`, open) and would be a year kind (`DEPOSIT_REOPENED`, `DEPOSIT_CLOSED`) of `ATTRIBUTION_INPUT_CHANGED`, and (b) a split correction moving a rent split to another PropertyReference, which moves every item of the split, not only a deposit. **Alternative:** take (a) into VC-X-49 now.
+4. **The order with VC-X-48.** **Proposal:** after VC-X-48 (its part flag and table are needed by Part 2; §58G open question 5), with its own migration; Part 1 (`LOAN_CLOSED`) alone would not need VC-X-48. **Alternative:** Part 1 first, on its own, and Part 2 after VC-X-48.
 
 ---
 
