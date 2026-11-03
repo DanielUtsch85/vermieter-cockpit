@@ -320,6 +320,35 @@ describe.skipIf(databaseUrl === undefined)('further silent inputs of the tax yea
     expect(after['tax_classification']).toEqual(untouched['tax_classification']);
   });
 
+  it('a reconciled Transaction with a rent split on P1 and a non-rent split on P2: D stays P1 s, P2 has no entry; its release after the year flags P1', async () => {
+    const [P1, P2] = [await propertyReference(), await propertyReference()];
+    const T = nextTenant();
+    // Only the rent split's PropertyReference counts for the deposit (§58A, DEPOSIT_RENT_CODES), never OTHER_INCOME's.
+    const { tx } = await booked([split('900.00', 'RENT_BASE', { propertyReferenceId: P1 }), split('50.00', 'OTHER_INCOME', { propertyReferenceId: P2 })], {
+      direction: 'INFLOW',
+      bookingDate: '2027-03-01',
+    });
+    const created = await ctx.reconciliations.create(
+      { mreRealmId: REALM, transactionId: tx, mreTenantId: T, mreRentTerm: '2027030100', matchedAmount: eur('900.00'), notes: null },
+      actor,
+    );
+    if (created.kind !== 'CREATED') throw new Error(created.kind);
+    await at(await recordOf(created.reconciliation.id, 'CONFIRMED'), '2027-03-05T10:00:00Z');
+    const D = await retained(T);
+    const c = await ctx.classifications.createClassification(depositRequest(D), actor);
+    if (c.kind !== 'CREATED') throw new Error(c.kind);
+    expect([await lineOf(P1, 2027, 'RETAINED_DEPOSIT_RENT'), (await view(P2, 2027)).notAttributed.items.map((i) => i.sourceId)]).toEqual(['400.00', []]);
+    expect([await entries(P1, 2027, 'PROPERTY_PART_CHANGED'), await entries(P2, 2027, 'PROPERTY_PART_CHANGED')]).toEqual([[], []]);
+    // Released on 2028-02-20: D has no reconciled rent; P1 ATTRIBUTED 400.00 to NOT_ATTRIBUTED, P2 NONE to NOT_ATTRIBUTED (no entry).
+    expect((await ctx.reconciliations.release(created.reconciliation.id, REALM, 'Falsch zugeordnet (synthetisch)', new Date(), actor)).kind).toBe('RELEASED');
+    const release = await recordOf(created.reconciliation.id, 'RELEASED');
+    await at(release, '2028-02-20T10:00:00Z');
+    expect((await entries(P1, 2027, 'PROPERTY_PART_CHANGED')).map((e) => [e.kind, e.auditRecordId, e.items])).toEqual([
+      ['DEPOSIT_RECONCILIATION_RELEASED', release, [depositItem(D, 'ATTRIBUTED', '400.00', 'NOT_ATTRIBUTED', null)]],
+    ]);
+    expect(await entries(P2, 2027, 'PROPERTY_PART_CHANGED')).toEqual([]);
+  });
+
   it('CHANGE_AMBIGUOUS on real data: the first match of a Tenant (a January rent paid on 2027-12-30) moves its year and its deposit; each acknowledged by its kind', async () => {
     const P = await propertyReference();
     const T = nextTenant();

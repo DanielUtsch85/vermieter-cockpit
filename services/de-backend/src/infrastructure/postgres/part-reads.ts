@@ -3,10 +3,7 @@ import { depositNotCounted, type DepositPartHistory, type PartChangeInput, type 
 import type { BusinessDate } from '../../shared/index.js';
 import { history, recordsOf } from './attribution-reads.js';
 import type { Database } from './schema.js';
-import { depositFactsOf } from './tax-source-facts.js';
-
-/** The rent splits whose PropertyReference a deposit takes (§58A, as `depositFactsOf` derives it). */
-const RENT_CODES = ['RENT_BASE', 'RENT_OPERATING_COST_ADVANCE', 'RENT_OPERATING_COST_SETTLEMENT'];
+import { DEPOSIT_RENT_CODES, depositFactsOf } from './tax-source-facts.js';
 
 /**
  * What `PROPERTY_PART_CHANGED` reads (api-design.md §58G), in the caller's snapshot, from §58G's wider Loan read
@@ -95,7 +92,7 @@ export async function depositPartsOf(trx: Transaction<Database>, mreRealmId: str
           .distinct()
           .where('s.mre_realm_id', '=', mreRealmId)
           .where('s.transaction_id', 'in', [...new Set(reconciliations.map((r) => r.transaction_id))])
-          .where('c.code', 'in', RENT_CODES)
+          .where('c.code', 'in', [...DEPOSIT_RENT_CODES])
           .where('s.property_reference_id', 'is not', null)
           .execute();
   const records = await recordsOf(
