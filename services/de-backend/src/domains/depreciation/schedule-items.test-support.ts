@@ -20,6 +20,12 @@ export const withParameters = (change: (p: BuildingLinearParameters) => Building
   ]);
 export const monthOfDate = withParameters((p) => ({ ...p, subsequentCostStart: { ...p.subsequentCostStart, method: 'MONTH_OF_DATE' } }));
 export const perItem = withParameters((p) => ({ ...p, subsequentCostEnd: { ...p.subsequentCostEnd, method: 'PER_ITEM_SERIES' } }));
+/** §59G: Part 1's guard (`fromEvidenceYear`, `subsequentCostRate.shorterLife` at `NOT_COMPUTABLE`), the rule's other values. */
+export const part1 = withParameters((p) => ({
+  ...p,
+  shorterUsefulLife: { ...p.shorterUsefulLife, fromEvidenceYear: 'NOT_COMPUTABLE' },
+  subsequentCostRate: { ...p.subsequentCostRate, shorterLife: 'NOT_COMPUTABLE' },
+}));
 export const startUnverified = withParameters((p) => ({ ...p, subsequentCostStart: { ...p.subsequentCostStart, verified: false } }));
 
 export const REPAIR = '0000eeee-0000-4000-8000-000000000071';

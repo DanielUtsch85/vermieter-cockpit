@@ -77,6 +77,7 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
           reviewState: e.reviewState ?? 'UNREVIEWED',
           advisorPartyId: e.advisorPartyId ?? null,
           releaseNote: e.releaseNote ?? null,
+          declaredAfa: e.declaredAfa ?? [],
         })),
         // §59C: likewise for a method entry.
         purchaseMethods: purchaseMethodsOf(body.purchaseMethods).map((e) => ({
@@ -246,6 +247,13 @@ function assetDto(a: DepreciationAsset, rate: AssetRate | null, methods: readonl
       reviewState: e.reviewState,
       advisorPartyId: e.advisorPartyId,
       releaseNote: e.releaseNote,
+      // §59G Part 2: the declared AfA per owner, in `partyId` order (`[]` for none).
+      declaredAfa: e.declaredAfa.map((r) => ({
+        partyId: r.partyId,
+        throughYear: r.throughYear,
+        amount: r.amount,
+        evidenceReference: r.evidenceReference,
+      })),
     })),
     // §59C: each entry with its derived status and causes (`[]` on a separate asset).
     purchaseMethods: a.purchaseMethods.map((e) => {

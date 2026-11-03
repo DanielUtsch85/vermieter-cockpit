@@ -25,10 +25,17 @@ export function truncateInputs(inputs: VersionInputs, year: number): VersionInpu
     const first = firstYearOfComponent(c);
     return first === null || first <= year;
   };
+  // §59G Part 2: the declared AfA reaches the years from `YE` only (it is stated through `YE − 1`).
+  const acquisition = (c: VersionComponent): VersionComponent['acquisition'] => {
+    const a = c.acquisition;
+    if (a === null || a.shorterLifeDeclaredAfa === undefined) return a;
+    const { shorterLifeDeclaredAfa, ...rest } = a;
+    return shorterLifeDeclaredAfa.every((r) => r.throughYear + 1 <= year) ? a : { ...rest, shorterLifeDeclaredAfa: [] };
+  };
   return {
     ...inputs,
     rules: inputs.rules.filter((r) => r.firstYear <= year).map((r) => ({ ...r, lastYear: Math.min(r.lastYear, year) })),
-    components: inputs.components.filter(started).map((c) => ({ ...c, parts: c.parts.map(part) })),
+    components: inputs.components.filter(started).map((c) => ({ ...c, acquisition: acquisition(c), parts: c.parts.map(part) })),
   };
 }
 
@@ -61,6 +68,10 @@ export function countedComponent(c: VersionComponent): Record<string, unknown> {
             ...(c.acquisition.shorterLifeValuationDate === undefined || c.acquisition.shorterLifeValuationDate === null
               ? {}
               : { shorterLifeValuationDate: c.acquisition.shorterLifeValuationDate }),
+            // §59G Part 2: the declared AfA of a late evidence, from `YE` (truncated before it); no key elsewhere.
+            ...(c.acquisition.shorterLifeDeclaredAfa === undefined
+              ? {}
+              : { shorterLifeDeclaredAfa: c.acquisition.shorterLifeDeclaredAfa.map((r) => ({ ...r, amount: centsText(r.amount) })) }),
           },
     // §59C: the method entry gates the whole component, so its facts and review state count from its first year.
     method: c.method,

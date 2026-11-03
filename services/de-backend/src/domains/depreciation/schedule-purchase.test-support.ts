@@ -30,6 +30,15 @@ export const withParameters = (change: (p: BuildingLinearParameters) => Building
     { ...DE_AFA_BUILDING_LINEAR_V1, parameters: change(DE_AFA_BUILDING_LINEAR_V1.parameters) },
     { ...DE_AFA_BUILDING_LINEAR_V2, parameters: change(DE_AFA_BUILDING_LINEAR_V2.parameters) },
   ]);
+/**
+ * §59G: Part 1's guard as a test registry (`fromEvidenceYear` and `subsequentCostRate.shorterLife` at `NOT_COMPUTABLE`),
+ * the other value of each parameter Part 2 changed; the rule itself carries Part 2's values.
+ */
+export const part1Registry = withParameters((p) => ({
+  ...p,
+  shorterUsefulLife: { ...p.shorterUsefulLife, fromEvidenceYear: 'NOT_COMPUTABLE' },
+  subsequentCostRate: { ...p.subsequentCostRate, shorterLife: 'NOT_COMPUTABLE' },
+}));
 /** A sole owner A of `acq` (1/1) from its transfer date. */
 export const sole = (acq: Partial<ScheduleAcquisition>, assetFacts: Partial<DepreciationAsset> = {}, extra: Partial<ScheduleInput> = {}): ScheduleInput => {
   const a = acquisition(acq);

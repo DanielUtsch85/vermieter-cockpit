@@ -18,6 +18,7 @@ import {
   ThroughYearInFutureError,
   StageNotReleasedError,
   ValuationDateAfterEvidenceDateError,
+  DeclaredAfaNotApplicableError,
   centsText,
 } from '../../application/index.js';
 import { answer, on, validation } from './answer.js';
@@ -52,6 +53,20 @@ export const DEPRECIATION_ANSWERS = [
       valuationDate: error.valuationDate,
       evidenceDate: error.evidenceDate,
     }),
+  ),
+  // §59G Part 2 (VC-X-41; Entscheidung des Projektinhabers, 2026-11-02, open question 11): a declared AfA no case reads.
+  on(DeclaredAfaNotApplicableError, (error) =>
+    answer(
+      422,
+      'DECLARED_AFA_NOT_APPLICABLE',
+      "A declared AfA belongs only to a shorter useful life whose valuationDate lies after its Acquisition's contract year.",
+      {
+        index: error.index,
+        acquisitionId: error.acquisitionId,
+        valuationDate: error.valuationDate,
+        contractDate: error.contractDate,
+      },
+    ),
   ),
   // The schedule of the purchase (api-design §59A, VC-8-02).
   on(NotAnOwnerError, (error) =>

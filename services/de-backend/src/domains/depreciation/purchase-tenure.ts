@@ -1,9 +1,10 @@
-import { addDays, type BusinessDate, type RuleVersion } from '../../shared/index.js';
+import { addDays, divideHalfUp, type BusinessDate, type RuleVersion } from '../../shared/index.js';
 import { continuousOwners } from '../ownership/index.js';
-import { ONE, ZERO, add, byText, cmp, div, firstDay, lastDayOf, maxDate, mul, show, yearOfDate, yearOfMonth, type Frac } from './exact.js';
+import { ONE, ZERO, add, byText, cmp, div, firstDay, frac, lastDayOf, maxDate, mul, show, yearOfDate, yearOfMonth, type Frac } from './exact.js';
 import type { BuildingLinearParameters } from './rules/de-afa-building-linear.js';
 import type { ScheduleAcquisition, ScheduleInput, ScheduleOwnership } from './schedule-model.js';
 import { heldOn, type Part, type Work } from './purchase-work.js';
+import { heldAtSwitch, residualStopOf } from './residual-value.js';
 
 /**
  * The owners' tenure in the purchase components (api-design.md §59A, §28.1A; P8-D8, P8-D9): the still-held fraction
@@ -117,7 +118,14 @@ export function walkOwnerMonths(
       };
       const fractionAt = (m: number) => (endMonthCounts ? fractionOn(maxDate(firstDay(m), start)) : fractionOn(lastDayOf(m)));
       p.fractionAt = fractionAt;
-      accumulateMonths(w, p, fractionAt);
+      // §59G Part 2: a part held in full at the switch spreads its carried-forward residual value; the owner is then
+      // judged (release, declared AfA), and a part not released keeps its years before `YE` only.
+      const spread =
+        w.residual !== null && p.basisCents !== null && heldAtSwitch(fractionAt, w.residual.switchMonth) === 'FULL'
+          ? { switchMonth: w.residual.switchMonth, basisCents: p.basisCents }
+          : undefined;
+      accumulateMonths(w, p, fractionAt, spread);
+      p.residualStop = residualStopOf(w, p, parameters);
       const legalBasis = disposal?.legalBasis ?? null;
       const noteDisposal = (lastDay: BusinessDate) => {
         const year = yearOfDate(lastDay);
@@ -143,13 +151,35 @@ export function uncoveredIn(steps: readonly { date: BusinessDate; held: Frac; co
  * cumulative share of the basis per year, from the component's nominal months and the part's still-held fraction.
  * Shared by the derivation and the recomputation of a recorded version (§60).
  */
-export function accumulateMonths(w: Pick<Work, 'firstMonth' | 'lastMonth' | 'monthly'>, p: Pick<Part, 'years'>, fractionAt: (m: number) => Frac): void {
+export function accumulateMonths(
+  w: Pick<Work, 'firstMonth' | 'lastMonth' | 'monthly'>,
+  p: Pick<Part, 'years'>,
+  fractionAt: (m: number) => Frac,
+  /**
+   * §59G Part 2 (open question 3, decided 2026-11-02): from `S` the owner's carried-forward residual value
+   * `R_i = b_i − round(b_i · C_i(S − 1))` (the Restbuchwert shown, no retroactive change by a new rounding) is spread
+   * evenly over the months through the component's last month `L`, each weighted by the still-held fraction.
+   */
+  spread?: { readonly switchMonth: number; readonly basisCents: bigint },
+): void {
   if (w.firstMonth === null || w.lastMonth === null) return;
   let cumulative = ZERO;
+  let step: Frac | null = null;
   for (let m = w.firstMonth; m <= w.lastMonth; m++) {
-    const q = w.monthly.get(m) ?? ZERO;
     const f = fractionAt(m);
-    cumulative = add(cumulative, mul(f, q));
+    if (spread !== undefined && m >= spread.switchMonth) {
+      if (step === null) {
+        const b = spread.basisCents;
+        const shown = b === 0n ? 0n : divideHalfUp(b * cumulative.n, cumulative.d);
+        // The spread starts from the rounded amount shown, as a fraction of the basis, so every later year rounds to
+        // `shown + R_i · G / (12·n)` exactly; the years before keep their own exact cumulative.
+        cumulative = b === 0n ? cumulative : frac(shown, b);
+        step = b === 0n ? ZERO : frac(b - shown, b * BigInt(w.lastMonth - spread.switchMonth + 1));
+      }
+      cumulative = add(cumulative, mul(f, step));
+    } else {
+      cumulative = add(cumulative, mul(f, w.monthly.get(m) ?? ZERO));
+    }
     const year = yearOfMonth(m);
     const seen = p.years.get(year) ?? { months: 0, fraction: ZERO, cumulative: ZERO };
     p.years.set(year, cmp(f, ZERO) > 0 ? { months: seen.months + 1, fraction: f, cumulative } : { ...seen, cumulative });

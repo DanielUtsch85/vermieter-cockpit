@@ -216,7 +216,7 @@ describe('TAX_RULES (§58, §59)', () => {
     expect(parameters.shorterUsefulLife).toMatchObject({ legalBasis: '§ 7 Abs. 4 S. 2 EStG', rate: 'RECIPROCAL_OF_YEARS' });
   });
 
-  it('DE_AFA_BUILDING_LINEAR: §59G Part 1 (VC-X-41) in both versions, identically: the Stichtag apart, nothing computed from a late one', () => {
+  it('DE_AFA_BUILDING_LINEAR: §59G Parts 1 and 2 (VC-X-41) in both versions, identically: the Stichtag apart, a late one spread from January on the residual value', () => {
     const of = (version: number) => (TAX_RULES.find({ ruleCode: AFA_BUILDING_LINEAR, version }) as { parameters: BuildingLinearParameters }).parameters;
     for (const version of [1, 2]) {
       const { shorterUsefulLife, subsequentCostRate } = of(version);
@@ -227,13 +227,24 @@ describe('TAX_RULES (§58, §59)', () => {
         valuationDate: { required: true, missing: 'NOT_COMPUTABLE' },
         fromStart: 'STICHTAG_NOT_AFTER_FIRST_YEAR',
         evidenceBeforeContractYear: 'NOT_COMPUTABLE',
-        fromEvidenceYear: 'NOT_COMPUTABLE',
-        lateEvidenceRelease: { reviewState: 'ADVISOR_CONFIRMED', evidence: 'ENTRY_DOCUMENT_REFERENCE', releaseNote: true },
+        // Part 2 (Entscheidung des Projektinhabers, 2026-11-02, questions 2, 3, 4, 11).
+        fromEvidenceYear: 'RESIDUAL_OVER_REMAINING_LIFE',
+        residualValue: 'CARRIED_FORWARD_ROUNDED',
+        evidenceYearCounts: 'FROM_JANUARY',
+        thresholdYears: 'FROM_FIRST_YEAR',
+        lateEvidenceRelease: {
+          reviewState: 'ADVISOR_CONFIRMED',
+          evidence: 'ENTRY_DOCUMENT_REFERENCE',
+          releaseNote: true,
+          declaredAfa: 'PER_OWNER_THROUGH_YEAR_BEFORE',
+        },
+        declaredAfaDiffers: 'NOT_COMPUTABLE',
         source: expect.stringContaining('Prüfbericht 2026-11-01, Frage 8 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)'),
       });
       expect(subsequentCostRate).toEqual({
         rate: 'OWNER_PURCHASE_RATE',
-        shorterLife: 'NOT_COMPUTABLE',
+        shorterLife: 'REMAINING_USEFUL_LIFE',
+        partsBeforeSwitch: 'RESIDUAL_TO_LAST_MONTH',
         afterRemainingLife: 'NOT_COMPUTABLE',
         legalBasis: expect.stringContaining('R 7.4 Abs. 9 S. 2 EStR; Prüfbericht 2026-11-01, Frage 9'),
       });

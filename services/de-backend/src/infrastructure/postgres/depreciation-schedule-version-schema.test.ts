@@ -408,19 +408,21 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
     expect(await probe(tables, purchase(`NULL, NULL, NULL, NULL, NULL`))).toBe('accepted');
   });
 
-  it('§59G (0056): a recorded component’s Stichtag exactly on a purchase with a shorter useful life (its CHECK)', async () => {
+  it('§59G (0056, 0061): a recorded component’s Stichtag exactly on a purchase with a shorter useful life, its declared AfA only beside it (their CHECKs)', async () => {
     const mine = await versionOf();
     const ownClassification = await classification(REALM, mine.pr);
-    const purchase = (rateKind: string, years: string, stichtag: string) => (client: pg.PoolClient) =>
-      client.query(
-        `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
+    const purchase =
+      (rateKind: string, years: string, stichtag: string, declared = 'NULL') =>
+      (client: pg.PoolClient) =>
+        client.query(
+          `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
            start_date_source, start_method, start_month, rate_kind, useful_life_years, acquisition_id, purchase_price, counted_cost_ids, counted_costs_total,
            excluded_cost_ids, excluded_costs_total, allocation_id, allocation_review_state, total_allocable_amount, building_amount, shorter_life_review_state,
-           ${METHOD_COLUMNS}, cost_classification_ids, shorter_life_valuation_date)
+           ${METHOD_COLUMNS}, cost_classification_ids, shorter_life_valuation_date, shorter_life_declared_afa)
          VALUES ($1, $2, $3, 'ACQUISITION:x', 'ACQUISITION', 9, 1, '2026-07-01', 'ECONOMIC_TRANSFER_DATE', 'TRANSFER_DATE', '2026-07-01', '${rateKind}', ${years}, $4,
-           1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${rateKind === 'SHORTER_USEFUL_LIFE' ? `'CONFIRMED'` : 'NULL'}, ${METHOD_VALUES}, '{}', ${stichtag})`,
-        [mine.version.versionId, REALM, mine.pr, mine.w, mine.allocation],
-      );
+           1, '{}', 0, '{}', 0, $5, 'CONFIRMED', 1, 1, ${rateKind === 'SHORTER_USEFUL_LIFE' ? `'CONFIRMED'` : 'NULL'}, ${METHOD_VALUES}, '{}', ${stichtag}, ${declared})`,
+          [mine.version.versionId, REALM, mine.pr, mine.w, mine.allocation],
+        );
     const item = (stichtag: string) => (client: pg.PoolClient) =>
       client.query(
         `INSERT INTO depreciation_schedule_version_component (version_id, mre_realm_id, property_reference_id, component_id, kind, position, basis_amount, start_date,
@@ -439,6 +441,13 @@ describe.skipIf(databaseUrl === undefined)('migration 0052 past the repository (
     expect(await probe(tables, purchase('SHORTER_USEFUL_LIFE', '30', `'2026-06-15'`))).toBe('accepted');
     expect(await probe(tables, purchase('BAND', 'NULL', 'NULL'))).toBe('accepted');
     expect(await probe(tables, item('NULL'))).toBe('accepted');
+    // §59G Part 2 (migration 0061): the declared AfA only beside a Stichtag, and as an array.
+    const declared = `'[{"partyId":"x","throughYear":2026,"amount":"1.00"}]'::jsonb`;
+    expect(await probe(tables, purchase('BAND', 'NULL', 'NULL', declared))).toBe('23514 depreciation_schedule_version_component_declared_afa');
+    expect(await probe(tables, purchase('SHORTER_USEFUL_LIFE', '30', `'2027-05-20'`, `'{}'::jsonb`))).toBe(
+      '23514 depreciation_schedule_version_component_declared_afa',
+    );
+    expect(await probe(tables, purchase('SHORTER_USEFUL_LIFE', '30', `'2027-05-20'`, declared))).toBe('accepted');
   });
 
   it(

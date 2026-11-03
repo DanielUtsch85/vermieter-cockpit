@@ -17,6 +17,7 @@ import {
   frac,
   minF,
   monthOf,
+  mul,
   ofShare,
   rateOfYear,
   show,
@@ -63,6 +64,20 @@ export interface Part {
   disposals: Map<number, Record<string, unknown>>;
   /** The still-held fraction of a month (§59A, `endMonthCounts`), set once the part's months are walked. */
   fractionAt: ((m: number) => Frac) | null;
+  /**
+   * §59G Part 2: the owner's years from the evidence's year are not computed, with the owner's reasons (the release or
+   * the declared AfA missing, the declared AfA differing, a share reduced before the switch); `null` otherwise.
+   */
+  residualStop: { readonly year: number; readonly reasons: readonly Flag[] } | null;
+}
+
+/** §59G Part 2: a late evidence whose residual value is spread from the switch month `S` through the last month `L`. */
+export interface ResidualPlan {
+  readonly switchMonth: number;
+  readonly lastMonth: number;
+  /** `YE`, the year of the Stichtag. */
+  readonly fromYear: number;
+  readonly usefulLifeYears: number;
 }
 
 /** A purchase component under derivation (internal; read by `schedule-items.ts`). */
@@ -90,8 +105,13 @@ export interface Work {
   readonly rateEntry: RateEntry | undefined;
   /** §59G: from when the entry applies, judged on its valuation date. */
   readonly shorterLife: ShorterLifeCase;
-  /** §59G Part 1: every owner's year from this year on is not computed (a later evidence; the residual value is Part 2's). */
+  /**
+   * §59G Part 1's guard (the rule's `fromEvidenceYear: NOT_COMPUTABLE`): every owner's year from this year on is not
+   * computed. `null` under Part 2, whose owners stop one by one (`Part.residualStop`).
+   */
   readonly shorterLifeFrom: { readonly year: number; readonly reasons: readonly Flag[] } | null;
+  /** §59G Part 2: the switch of a late evidence that is shorter, under `RESIDUAL_OVER_REMAINING_LIFE`; `null` otherwise. */
+  readonly residual: ResidualPlan | null;
   /** §59C: the purchase's method entry with its derived status (the rule of the start, else the latest); `null` without one. */
   readonly method: { readonly entry: PurchaseMethod; readonly methodStatus: MethodStatus | null; readonly causes: readonly string[] | null } | null;
   readonly parts: Part[];
@@ -167,6 +187,7 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
         years: new Map(),
         disposals: new Map(),
         fractionAt: null,
+        residualStop: null,
       };
     });
 
@@ -191,6 +212,16 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
   });
   if (shorterLife.kind === 'BLOCKED') reasons.push(shorterLife.reason);
   const rateEntry = shorterLife.kind === 'FROM_START' ? shorterLife.entry : undefined;
+  // §59G Part 2: a late evidence that is shorter switches to the residual value at `S` (the rule's `fromEvidenceYear`).
+  const residual: ResidualPlan | null =
+    shorterLife.kind === 'FROM_EVIDENCE_YEAR' && shorterLife.shorter && shorterLife.fromEvidenceYear === 'RESIDUAL_OVER_REMAINING_LIFE'
+      ? {
+          switchMonth: shorterLife.switchMonth,
+          lastMonth: shorterLife.lastMonth,
+          fromYear: shorterLife.fromYear,
+          usefulLifeYears: shorterLife.entry.usefulLifeYears,
+        }
+      : null;
   if (start === null) reasons.push({ code: 'TRANSFER_DATE_MISSING', details: { contractDate: a.contractDate } });
   const historical = supportedFrom === null || (start !== null && start < supportedFrom) || a.contractDate < supportedFrom;
   if (historical) reasons.push({ code: 'HISTORICAL_RULE_NOT_SUPPORTED', details: { contractDate: a.contractDate, startDate: start, supportedFrom } });
@@ -209,7 +240,7 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
   const supportedYear = supportedFrom === null ? RANGE_MAX_YEAR + 1 : yearOfDate(supportedFrom);
   const { monthly, rates, yearsWithoutRule, lastMonth } =
     completionYear !== null && firstMonth !== null && startYear !== null
-      ? nominalMonths(registry, { firstMonth, startYear, completionYear, entry: rateEntry, supportedYear })
+      ? nominalMonths(registry, { firstMonth, startYear, completionYear, entry: rateEntry, supportedYear, residual })
       : { monthly: new Map<number, Frac>(), rates: new Map<number, YearRate>(), yearsWithoutRule: [] as number[], lastMonth: null };
   if (yearsWithoutRule.length > 0 && !historical) reasons.push({ code: 'NO_APPLICABLE_RULE', details: { yearsWithoutRule } });
 
@@ -221,18 +252,27 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
       details: {
         usefulLifeYears: entry.usefulLifeYears,
         shorterThanYears: rateList.find((r) => r.notShorter)?.band.shorterUsefulLife.shorterThanYears ?? null,
+        // §59G: from the start, the useful life from the first year is `n` itself.
+        yearsFromFirstYear: entry.usefulLifeYears,
       },
     });
   }
   if (rateList.some((r) => r.kind === 'SHORTER_USEFUL_LIFE') && shorterLife.kind === 'FROM_START') flags.push(shorterLifeFlag(shorterLife, lastMonth));
-  // §59G Part 1: a later evidence: the band's rate before its year; from its year nothing is computed while the rule
-  // says NOT_COMPUTABLE (`fromEvidenceYear`), the residual value over the remaining life being Part 2's.
+  // §59G: a later evidence: the band's rate before its year. Under Part 2 (`RESIDUAL_OVER_REMAINING_LIFE`) the residual
+  // value from `S` (`residual`, the owners judged one by one in `residual-value.ts`); under Part 1's NOT_COMPUTABLE
+  // nothing from its year. Not shorter from the first year (open question 4): the band in every year, no release check.
   let shorterLifeFrom: Work['shorterLifeFrom'] = null;
   if (shorterLife.kind === 'FROM_EVIDENCE_YEAR' && !shorterLife.shorter) {
     flags.push({
       code: 'USEFUL_LIFE_NOT_SHORTER',
-      details: { usefulLifeYears: shorterLife.entry.usefulLifeYears, shorterThanYears: shorterLife.shorterThanYears },
+      details: {
+        usefulLifeYears: shorterLife.entry.usefulLifeYears,
+        shorterThanYears: shorterLife.shorterThanYears,
+        yearsFromFirstYear: shorterLife.yearsFromFirstYear,
+      },
     });
+  } else if (shorterLife.kind === 'FROM_EVIDENCE_YEAR' && residual !== null) {
+    flags.push(shorterLifeFlag(shorterLife, shorterLife.lastMonth));
   } else if (shorterLife.kind === 'FROM_EVIDENCE_YEAR') {
     flags.push(shorterLifeFlag(shorterLife, shorterLife.lastMonth));
     const { entry: e, firstYear, fromYear } = shorterLife;
@@ -295,6 +335,7 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
     rateEntry,
     shorterLife,
     shorterLifeFrom,
+    residual,
     method: methodEntry === undefined ? null : { entry: methodEntry, methodStatus: methodView?.methodStatus ?? null, causes: methodView?.causes ?? null },
     parts,
     computable: assetReasons.length === 0 && reasons.length === 0 && lastMonth !== null && parts.length > 0 && parts.every((p) => p.basisCents !== null),
@@ -317,6 +358,8 @@ export function nominalMonths(
     readonly completionYear: number;
     readonly entry: RateEntry | undefined;
     readonly supportedYear: number;
+    /** §59G Part 2: from `S` the rest `1 − U` in equal steps through `L`, at the year's rule and band. */
+    readonly residual?: { readonly switchMonth: number; readonly lastMonth: number } | null | undefined;
   },
 ): { monthly: Map<number, Frac>; rates: Map<number, YearRate>; yearsWithoutRule: number[]; lastMonth: number | null } {
   const monthly = new Map<number, Frac>();
@@ -325,17 +368,28 @@ export function nominalMonths(
   let lastMonth: number | null = null;
   let done = ZERO;
   // At most 99 years (1/99 is the smallest rate), so a century bounds the walk, past 2100 too (`range.truncated`).
+  const residual = c.residual ?? null;
+  let spread: Frac | null = null;
   for (let m = c.firstMonth; cmp(done, ONE) < 0 && yearOfMonth(m) <= c.startYear + 100; m++) {
     const year = yearOfMonth(m);
+    if (residual !== null && m > residual.lastMonth) break;
+    const switched = residual !== null && m >= residual.switchMonth;
+    if (switched && spread === null) {
+      // §59G Part 2: `U` is the consumed fraction at `S − 1`; each month from `S` takes `(1 − U) / (L − S + 1)`, and a
+      // year `12·` that (`annualFraction`, e.g. 63/2200 in §59G's example).
+      spread = div(sub(ONE, done), frac(BigInt(residual.lastMonth - residual.switchMonth + 1), 1n));
+      rates.delete(year);
+    }
     let rate = rates.get(year);
     if (rate === undefined && !rates.has(year)) {
-      const found = rateOfYear(registry, year, c.completionYear, c.entry);
+      const band = rateOfYear(registry, year, c.completionYear, switched ? undefined : c.entry);
+      const found = band !== undefined && spread !== null ? { ...band, kind: 'SHORTER_USEFUL_LIFE' as const, annual: mul(spread, frac(12n, 1n)) } : band;
       if (found !== undefined) rates.set(year, found);
       rate = found;
       if (found === undefined && year >= c.supportedYear && !yearsWithoutRule.includes(year)) yearsWithoutRule.push(year);
     }
     if (rate === undefined) continue;
-    const q = minF(div(rate.annual, frac(12n, 1n)), sub(ONE, done));
+    const q = spread !== null ? minF(spread, sub(ONE, done)) : minF(div(rate.annual, frac(12n, 1n)), sub(ONE, done));
     monthly.set(m, q);
     done = add(done, q);
     lastMonth = m;

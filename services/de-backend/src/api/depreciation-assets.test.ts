@@ -64,6 +64,7 @@ const asset: DepreciationAsset = {
       reviewState: 'NEEDS_REVIEW',
       advisorPartyId: null,
       releaseNote: null,
+      declaredAfa: [],
     },
   ],
   purchaseMethods: [
@@ -125,6 +126,7 @@ const dto = {
       reviewState: 'NEEDS_REVIEW',
       advisorPartyId: null,
       releaseNote: null,
+      declaredAfa: [],
     },
   ],
   // §59C: the entry with its derived status and causes.
@@ -366,7 +368,7 @@ describe('amend, confirm, void (§59)', () => {
       buildingCompletionYear: 1994,
       sourceReferences: [],
       notes: null,
-      shorterUsefulLives: [{ acquisitionId: ACQ, usefulLifeYears: 30, evidence: { ...evidence, documentReference: null }, releaseNote: null }],
+      shorterUsefulLives: [{ acquisitionId: ACQ, usefulLifeYears: 30, evidence: { ...evidence, documentReference: null }, releaseNote: null, declaredAfa: [] }],
       expectedVersions: [2],
     });
     await post(base, `/depreciation-assets/${ASSET}/amend`, { reviewState: 'NEEDS_REVIEW', shorterUsefulLives: null });

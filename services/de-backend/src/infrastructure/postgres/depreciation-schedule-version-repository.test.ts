@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { computeVersionEntries, deriveSchedule, reproduce, type ScheduleVersion } from '../../domains/depreciation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
-import { RuleRegistry, type BusinessDate } from '../../shared/index.js';
+import { Money, RuleRegistry, type BusinessDate } from '../../shared/index.js';
 import { sha256Fingerprinter } from '../hashing/index.js';
 import { createDatabase } from './database.js';
 import { checkStoredRuleReferences } from './tax-rule-check.js';
@@ -55,6 +55,48 @@ describe.skipIf(databaseUrl === undefined)('recorded schedule versions (§60, mi
         }),
       },
     ]);
+  });
+
+  it('§59G Part 2: a late evidence recorded through 2027 stores its Stichtag and the declared AfA (0061); read back it recomputes to its own entries', async () => {
+    const lateEvidence = {
+      source: 'Gutachten (synthetisch)',
+      date: '2027-03-01' as BusinessDate,
+      valuationDate: '2027-03-01' as BusinessDate,
+      documentReference: 'Gutachten Nr. 0000-SYN',
+    };
+    const { assetId, a, b } = await acc8(REALM, 'CONFIRMED', {
+      shorterUsefulLives: (w, [ownerA, ownerB]) => [
+        {
+          acquisitionId: w,
+          usefulLifeYears: 30,
+          evidence: lateEvidence,
+          reviewState: 'ADVISOR_CONFIRMED',
+          advisorPartyId: null,
+          releaseNote: 'Restwertmethode freigegeben (synthetisch)',
+          declaredAfa: [
+            { partyId: ownerA, throughYear: 2026, amount: Money.of('1526.40', 'EUR'), evidenceReference: 'Steuerbescheid 2026 (synthetisch)' },
+            { partyId: ownerB, throughYear: 2026, amount: Money.of('1017.60', 'EUR'), evidenceReference: 'Steuerbescheid 2026 (synthetisch)' },
+          ],
+        },
+      ],
+    });
+    const version = recorded(await record(assetId, { throughYear: 2027 }));
+    const component = version.inputs.components.find((c) => c.kind === 'ACQUISITION');
+    expect(component?.rate).toEqual({ kind: 'SHORTER_USEFUL_LIFE', usefulLifeYears: 30 });
+    expect(component?.acquisition?.shorterLifeValuationDate).toBe('2027-03-01');
+    expect(component?.acquisition?.shorterLifeDeclaredAfa).toEqual(
+      [
+        { partyId: a, throughYear: 2026, amount: 152640n },
+        { partyId: b, throughYear: 2026, amount: 101760n },
+      ].sort((x, y) => (x.partyId < y.partyId ? -1 : 1)),
+    );
+    // 2027 from the residual value: A (152,640.00 − 1,526.40) / 30 = 5,037.12, B 3,358.08.
+    expect(version.years.map((y) => [y.year, y.amount])).toEqual([
+      [2026, 254400n],
+      [2027, 839520n],
+    ]);
+    expect(reproduce(version, TAX_RULES, sha256Fingerprinter)).toEqual({ reproducible: true, causes: [], years: [] });
+    expect(computeVersionEntries(version.inputs, TAX_RULES, 2026, 2027)).toEqual(version.entries);
   });
 
   it('the no-op writes nothing; an allocation superseded with the same amounts must be named, then supersedes version 1 in one transaction', async () => {
