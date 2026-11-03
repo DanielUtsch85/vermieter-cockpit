@@ -1,4 +1,5 @@
 import {
+  AttributionChangeAmbiguousError,
   AttributionChangeDiffersError,
   AttributionChangeNotFlaggedError,
   LoanAllocationTaxConfirmationNotFoundError,
@@ -7,7 +8,7 @@ import {
 } from '../../application/index.js';
 import { answer, on } from './answer.js';
 
-/** The answers to the errors of §58E's statements (VC-X-28; part of the central table, `../error-answers.ts`). */
+/** The answers to the errors of §58E's statements (VC-X-28, VC-X-48; part of the central table, `../error-answers.ts`). */
 export const TAX_STATEMENT_ANSWERS = [
   on(TaxYearAcknowledgementNotFoundError, (error) => answer(404, 'NOT_FOUND', 'Acknowledgement not found.', { acknowledgementId: error.acknowledgementId })),
   on(AttributionChangeNotFlaggedError, (error) =>
@@ -15,6 +16,16 @@ export const TAX_STATEMENT_ANSWERS = [
       reason: 'CHANGE_NOT_FLAGGED',
       auditRecordId: error.auditRecordId,
       year: error.year,
+      // §58G: the kind named when the request gave one.
+      ...(error.kind === undefined ? {} : { kind: error.kind }),
+    }),
+  ),
+  on(AttributionChangeAmbiguousError, (error) =>
+    answer(409, 'CONFLICT', 'The record is more than one change of this year; name its kind.', {
+      reason: 'CHANGE_AMBIGUOUS',
+      auditRecordId: error.auditRecordId,
+      year: error.year,
+      kinds: error.kinds,
     }),
   ),
   on(AttributionChangeDiffersError, (error) =>

@@ -917,6 +917,19 @@ export interface TaxYearAcknowledgementItemTable {
   year_after: number;
 }
 
+/** 0063 (VC-X-48, §58G): an item of a part change, P's state and part (numeric as text, EUR) before and after. */
+export interface TaxYearAcknowledgementPartItemTable {
+  acknowledgement_id: string;
+  mre_realm_id: string;
+  source_type: string;
+  source_id: string;
+  tax_year: number;
+  state_before: string;
+  part_before: string | null;
+  state_after: string;
+  part_after: string | null;
+}
+
 /** 0060: the tax confirmation of a multi-entry `PURCHASE_PRICE` allocation set as a whole. */
 export interface LoanAllocationTaxConfirmationTable {
   id: Generated<string>;
@@ -978,5 +991,6 @@ export interface Database {
   depreciation_asset_item: DepreciationAssetItemTable;
   tax_year_acknowledgement: TaxYearAcknowledgementTable;
   tax_year_acknowledgement_item: TaxYearAcknowledgementItemTable;
+  tax_year_acknowledgement_part_item: TaxYearAcknowledgementPartItemTable;
   loan_allocation_tax_confirmation: LoanAllocationTaxConfirmationTable;
 }

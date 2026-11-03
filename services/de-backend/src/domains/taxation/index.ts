@@ -163,10 +163,38 @@ export type {
   ReconciliationInput,
   TermsHistory,
 } from './attribution-history.js';
+export {
+  PART_CHANGE_KINDS,
+  PART_STATES,
+  PROPERTY_PART_CHANGED,
+  isPartKind,
+  partChangeEntry,
+  partChangeFingerprint,
+  partChanges,
+  partItemFlags,
+  partItemJson,
+  partMoved,
+  partOn,
+} from './attribution-parts.js';
+export type {
+  AllocationSetHistory,
+  LoanSetsHistory,
+  MarkedPartChange,
+  PartCandidate,
+  PartChange,
+  PartChangeEntityType,
+  PartChangeInput,
+  PartChangeKind,
+  PartChanges,
+  PartItem,
+  PartState,
+} from './attribution-parts.js';
 export { TAX_STATEMENT_STATUSES, confirmationMark, matchAcknowledgement, nothingToConfirm, planAcknowledgement } from './tax-statements.js';
 export type {
   AcknowledgeDecision,
   AcknowledgeOutcome,
+  AcknowledgedKind,
+  AnyChange,
   AcknowledgementMark,
   ConfirmOutcome,
   ConfirmationMark,

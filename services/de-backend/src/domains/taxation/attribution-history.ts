@@ -78,7 +78,7 @@ const byRecord = (a: HistoryRecord, b: HistoryRecord) =>
  * Replays one entity's records from "not there": `on` turns it on, `off` off, anything else does not fit. `undefined`
  * when a step does not fit or the end is not its state now.
  */
-function replay(records: readonly HistoryRecord[], on: string, off: string, now: boolean): readonly HistoryRecord[] | undefined {
+export function replay(records: readonly HistoryRecord[], on: string, off: string, now: boolean): readonly HistoryRecord[] | undefined {
   let state = false;
   const sorted = [...records].sort(byRecord);
   for (const r of sorted) {
@@ -93,7 +93,7 @@ function replay(records: readonly HistoryRecord[], on: string, off: string, now:
  * Walks the merged records of a group of entities in `(occurred_at, id)` order; for each record, the set of entities on
  * just before and just after it. The inconsistent entities keep their state now throughout.
  */
-function walk<E>(
+export function walk<E>(
   entities: readonly E[],
   idOf: (e: E) => string,
   history: (e: E) => readonly HistoryRecord[] | undefined,

@@ -74,7 +74,8 @@ export function flagIsOpen(
   if (code === PROPOSED_BY_10_DAY_RULE) return proposalIsOpen({ ...item, attribution: item.attribution });
   if (code === 'CONSTRUCTION_PERIOD_TREATMENT_MIXED')
     return (details as { recordReviewState?: unknown } | undefined)?.recordReviewState !== 'ADVISOR_CONFIRMED';
-  if (code === 'ATTRIBUTION_INPUT_CHANGED') return attributionChangeIsOpen(details);
+  // §58G: PROPERTY_PART_CHANGED takes the same rule (open while an entry is not acknowledged; then informative).
+  if (code === 'ATTRIBUTION_INPUT_CHANGED' || code === 'PROPERTY_PART_CHANGED') return attributionChangeIsOpen(details);
   if (code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY') return priceKeyIsOpen(details);
   if (OPEN_YEAR_FLAGS.has(code) || OPEN_ITEM_FLAGS.has(code)) return true;
   if (code === 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN') return item.treatment !== 'CAPITALIZED';
@@ -99,7 +100,7 @@ export function reviewOf(
   const yearFlagOpen = (f: ViewFlag) =>
     f.code === PROPOSED_BY_10_DAY_RULE
       ? yearProposalIsOpen(f.details)
-      : f.code === 'ATTRIBUTION_INPUT_CHANGED'
+      : f.code === 'ATTRIBUTION_INPUT_CHANGED' || f.code === 'PROPERTY_PART_CHANGED'
         ? attributionChangeIsOpen(f.details)
         : OPEN_YEAR_FLAGS.has(f.code);
   for (const f of yearFlags) bump(yearFlagOpen(f) ? open : info, f.code);

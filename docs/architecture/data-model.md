@@ -2045,6 +2045,7 @@ Record, traceably, that a person has seen and dealt with an open review flag of 
 ## Fields
 
 - **TaxYearAcknowledgement:** `id`, `mreRealmId`, `propertyReferenceId`, `taxYear`, `auditRecordId` (the change), `changeKind`, `changeEntityType`, `changeEntityId`, `changeRecordedAt`, `changeFingerprint`, the moved items as rows (`sourceId`, `yearBefore`, `yearAfter`), `reason`, `acknowledgedAt`, `acknowledgedBy`, `status` (`ACTIVE` → `WITHDRAWN`), `withdrawnAt`, `withdrawnBy`, `withdrawReason`, `version`.
+- **VC-X-48 (api-design §58G, implemented: migration 0063):** a TaxYearAcknowledgement can also acknowledge a *part change* (`changeKind` `LOAN_ALLOCATION_SET_ADDED` or `LOAN_ALLOCATION_SET_VOIDED`, `changeEntityType` `LoanAllocationSet`): its items are rows of `tax_year_acknowledgement_part_item` (`sourceType`, `sourceId`, `taxYear`, `stateBefore`, `partBefore`, `stateAfter`, `partAfter`; a part exactly on `ATTRIBUTED`, EUR), never of the year items' table; a guard keeps each item in its kind's shape. It makes `PROPERTY_PART_CHANGED` informative for that change.
 - **LoanAllocationTaxConfirmation:** `id`, `mreRealmId`, `allocationSetId` (the Loan is the set's), `reason`, `advisorPartyId` (optional), `confirmedAt`, `confirmedBy`, `status` (`ACTIVE` → `WITHDRAWN`), `withdrawnAt`, `withdrawnBy`, `withdrawReason`, `version`.
 
 ---

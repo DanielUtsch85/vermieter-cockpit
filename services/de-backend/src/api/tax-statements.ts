@@ -1,8 +1,11 @@
 import express, { type Request, type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  CHANGE_KINDS,
   FINGERPRINT,
+  PART_CHANGE_KINDS,
   TAX_STATEMENT_STATUSES,
+  type PartItem,
   type AcknowledgeAttributionChange,
   type ConfirmAllocationSet,
   type ListAcknowledgements,
@@ -34,7 +37,9 @@ export interface TaxStatementCommands {
 const reason = z.string().trim().min(1).max(500);
 const uuid = z.string().regex(RESOURCE_ID);
 
-const acknowledgeBody = z.object({ auditRecordId: uuid, expectedFingerprint: z.string().regex(FINGERPRINT), reason }).strict();
+// §58G: `kind` optional, one of both flags' kinds (Entscheidung des Projektinhabers, 2026-11-03, Frage 4).
+const kind = z.enum([...CHANGE_KINDS, ...PART_CHANGE_KINDS]);
+const acknowledgeBody = z.object({ auditRecordId: uuid, kind: kind.optional(), expectedFingerprint: z.string().regex(FINGERPRINT), reason }).strict();
 const confirmBody = z.object({ reason, advisorPartyId: uuid.nullish() }).strict();
 const withdrawBody = z.object({ reason }).strict();
 const listQuery = z
@@ -91,6 +96,7 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
         propertyReferenceId,
         year: path.year,
         auditRecordId: parsed.data.auditRecordId.toLowerCase(),
+        ...(parsed.data.kind === undefined ? {} : { kind: parsed.data.kind }),
         expectedFingerprint: parsed.data.expectedFingerprint,
         reason: parsed.data.reason,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
@@ -211,6 +217,16 @@ function sendStatement(res: Response, version: number, body: unknown): void {
 
 const iso = (d: Date | null) => (d === null ? null : d.toISOString());
 
+const partItemDto = (i: PartItem) => ({
+  sourceType: i.sourceType,
+  sourceId: i.sourceId,
+  taxYear: i.taxYear,
+  stateBefore: i.stateBefore,
+  partBefore: i.partBefore?.toJSON() ?? null,
+  stateAfter: i.stateAfter,
+  partAfter: i.partAfter?.toJSON() ?? null,
+});
+
 /** §58E's response of one acknowledgement. */
 export function acknowledgementDto(a: TaxYearAcknowledgement) {
   return {
@@ -225,7 +241,8 @@ export function acknowledgementDto(a: TaxYearAcknowledgement) {
       entityId: a.change.entityId,
       recordedAt: a.change.recordedAt.toISOString(),
       fingerprint: a.change.fingerprint,
-      items: a.change.items.map((i) => ({ sourceId: i.sourceId, yearBefore: i.yearBefore, yearAfter: i.yearAfter })),
+      // §58G: the part shape for a part kind, the year shape otherwise; `kind` tells which.
+      items: a.change.items.map((i) => ('stateBefore' in i ? partItemDto(i) : { sourceId: i.sourceId, yearBefore: i.yearBefore, yearAfter: i.yearAfter })),
     },
     reason: a.reason,
     acknowledgedAt: a.acknowledgedAt.toISOString(),

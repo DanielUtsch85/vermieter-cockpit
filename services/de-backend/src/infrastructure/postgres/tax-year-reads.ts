@@ -20,6 +20,7 @@ import {
 import { Money, type BusinessDate } from '../../shared/index.js';
 import type { CapitalizedSourcesReader } from './capitalized-items.js';
 import { attributionInputOf } from './attribution-reads.js';
+import { partChangeInputOf } from './part-reads.js';
 import { capitalizedLoanInterestOf, refOf } from './capitalized-loan-interest.js';
 import { interestFactsIn } from './construction-period-reads.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
@@ -114,7 +115,10 @@ export async function readTaxYear(
       .orderBy('id')
       .execute();
     const attribution = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, registry);
-    const loans = await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today);
+    // §58G: one read of the Loans any of whose sets names P; the view's figures take §58D's Loans out of it.
+    const wide = await allocatedLoanInterest(trx, registry, mreRealmId, propertyReferenceId, year, today, true);
+    const loans = ofValidSets(wide, propertyReferenceId);
+    const parts = await partChangeInputOf(trx, wide);
     // §59E: the conditions' facts of the listed and the attributed interest splits, in this snapshot.
     const interest = await interestFactsIn(trx, registry, mreRealmId, [
       ...entries.flatMap((e) => (e.item.sourceType === 'TRANSACTION_SPLIT' ? [refOf(e.item, null)] : [])),
@@ -152,6 +156,7 @@ export async function readTaxYear(
       })),
       checks: effects.checks,
       attribution,
+      parts,
       ...loans,
       depreciation,
       interest,
@@ -231,15 +236,18 @@ export async function capitalizedSources(
  * which set applies is decided per split by `loanInterestOf`), selected as `yearItems` selects (the windows around
  * `year`, or overridden to it) and kept when §58A's derivation, the list's, puts them in `year`; each as a list item
  * with its own meaning (no treatment effects of the PropertyReference). And every set, `VALID` and `VOID`, of their
- * Loans with `validUntil`, in the same snapshot.
+ * Loans with `validUntil`, in the same snapshot. §58G (`anySet`): the Loans any of whose sets, `VALID` or `VOID`, names
+ * the PropertyReference, the candidates of a part change (a void may have taken P out of every `VALID` set);
+ * `ofValidSets` narrows that read to §58D's.
  */
-async function allocatedLoanInterest(
+export async function allocatedLoanInterest(
   trx: Transaction<Database>,
   registry: RuleRegistry,
   mreRealmId: string,
   propertyReferenceId: string,
   year: number,
   today: BusinessDate,
+  anySet = false,
 ): Promise<Pick<TaxYearRead, 'allocatedLoanInterest' | 'loanAllocationSets'>> {
   const { from, to } = yearWindow(registry, year);
   const rows = await countingSplits(factsQuery(trx, mreRealmId))
@@ -253,7 +261,7 @@ async function allocatedLoanInterest(
           .innerJoin('loan_allocation as la', 'la.set_id', 'las.id')
           .select('las.loan_id')
           .where('las.mre_realm_id', '=', mreRealmId)
-          .where('las.status', '=', 'VALID')
+          .where('las.status', 'in', anySet ? ['VALID', 'VOID'] : ['VALID'])
           .where('la.property_reference_id', '=', propertyReferenceId),
       ),
     )
@@ -270,6 +278,19 @@ async function allocatedLoanInterest(
   const sets = await setsOfLoans(trx, mreRealmId, [...new Set(interest.map((i) => i.loanId))]);
   const loanAllocationSets = new Map<string, readonly LoanAllocationSetView[]>([...sets].map(([loanId, own]) => [loanId, withValidUntil(own)]));
   return { allocatedLoanInterest: interest, loanAllocationSets };
+}
+
+/** §58D's read out of §58G's wider one: only the Loans with a `VALID` set naming the PropertyReference. */
+export function ofValidSets(
+  wide: Pick<TaxYearRead, 'allocatedLoanInterest' | 'loanAllocationSets'>,
+  propertyReferenceId: string,
+): Pick<TaxYearRead, 'allocatedLoanInterest' | 'loanAllocationSets'> {
+  const named = (loanId: string) =>
+    (wide.loanAllocationSets.get(loanId) ?? []).some((s) => s.status === 'VALID' && s.allocations.some((a) => a.propertyReferenceId === propertyReferenceId));
+  return {
+    allocatedLoanInterest: wide.allocatedLoanInterest.filter((i) => named(i.loanId)),
+    loanAllocationSets: new Map([...wide.loanAllocationSets].filter(([loanId]) => named(loanId))),
+  };
 }
 
 /**

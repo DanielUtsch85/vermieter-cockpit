@@ -1,10 +1,21 @@
 import type { Transaction } from 'kysely';
-import type { ChangeEntityType, ChangeKind, LoanAllocationTaxConfirmation, TaxStatementStatus, TaxYearAcknowledgement } from '../../domains/taxation/index.js';
+import type {
+  AcknowledgedKind,
+  ChangeEntityType,
+  LoanAllocationTaxConfirmation,
+  PartChangeEntityType,
+  PartItem,
+  PartState,
+  TaxStatementStatus,
+  TaxYearAcknowledgement,
+} from '../../domains/taxation/index.js';
+import { Money } from '../../shared/index.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
 import type { Database } from './schema.js';
 
 /**
- * The rows of migration 0060 (api-design.md §58E) as Taxation reads them: the acknowledgements with their items, the
+ * The rows of migrations 0060 and 0063 (api-design.md §58E, §58G) as Taxation reads them: the acknowledgements with their
+ * items of either shape (a part item's amounts in EUR, the view's currency), the
  * confirmations with their set (read from the set, never stored again), in the caller's transaction.
  */
 
@@ -75,6 +86,32 @@ export async function acknowledgementsOf(
     .orderBy('acknowledgement_id')
     .orderBy('source_id')
     .execute();
+  const partItems = await trx
+    .selectFrom('tax_year_acknowledgement_part_item')
+    .select(['acknowledgement_id', 'source_type', 'source_id', 'tax_year', 'state_before', 'part_before', 'state_after', 'part_after'])
+    .where(
+      'acknowledgement_id',
+      'in',
+      rows.map((r) => r.id),
+    )
+    .where('mre_realm_id', '=', mreRealmId)
+    .orderBy('acknowledgement_id')
+    .orderBy('source_type')
+    .orderBy('source_id')
+    .execute();
+  const money = (value: string | null) => (value === null ? null : Money.of(value, 'EUR'));
+  const partsOf = (id: string): PartItem[] =>
+    partItems
+      .filter((i) => i.acknowledgement_id === id)
+      .map((i) => ({
+        sourceType: i.source_type as PartItem['sourceType'],
+        sourceId: i.source_id,
+        taxYear: i.tax_year,
+        stateBefore: i.state_before as PartState,
+        partBefore: money(i.part_before),
+        stateAfter: i.state_after as PartState,
+        partAfter: money(i.part_after),
+      }));
   return rows.map((r) => ({
     acknowledgementId: r.id,
     propertyReferenceId: r.property_reference_id,
@@ -82,12 +119,15 @@ export async function acknowledgementsOf(
     status: r.status as TaxStatementStatus,
     change: {
       auditRecordId: r.audit_record_id,
-      kind: r.change_kind as ChangeKind,
-      entityType: r.change_entity_type as ChangeEntityType,
+      kind: r.change_kind as AcknowledgedKind,
+      entityType: r.change_entity_type as ChangeEntityType | PartChangeEntityType,
       entityId: r.change_entity_id,
       recordedAt: r.change_recorded_at,
       fingerprint: r.change_fingerprint,
-      items: items.filter((i) => i.acknowledgement_id === r.id).map((i) => ({ sourceId: i.source_id, yearBefore: i.year_before, yearAfter: i.year_after })),
+      items: [
+        ...items.filter((i) => i.acknowledgement_id === r.id).map((i) => ({ sourceId: i.source_id, yearBefore: i.year_before, yearAfter: i.year_after })),
+        ...partsOf(r.id),
+      ],
     },
     reason: r.reason,
     acknowledgedAt: r.acknowledged_at,

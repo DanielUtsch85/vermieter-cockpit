@@ -1,13 +1,16 @@
 import { TAX_RULES } from '../domains/tax-rules/index.js';
 import {
   attributionChanges,
+  partChanges,
   planAcknowledgement,
+  type AcknowledgedKind,
   type LoanAllocationTaxConfirmation,
   type NothingToConfirmCause,
   type TaxStatementStatus,
   type TaxStatementRepository,
   type TaxYearAcknowledgement,
 } from '../domains/taxation/index.js';
+import { businessDayOf } from '../domains/ledger/index.js';
 import type { Fingerprinter, RuleRegistry } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { ConcurrentUpdateError, IdempotencyKeyConflictError, VersionConflictError } from './errors.js';
@@ -32,15 +35,29 @@ export class TaxYearAcknowledgementNotFoundError extends Error {
   }
 }
 
-/** The year shows no such change (→ 409 CONFLICT, `CHANGE_NOT_FLAGGED`). */
+/** The year shows no such change (→ 409 CONFLICT, `CHANGE_NOT_FLAGGED`; §58G: `kind` named when given). */
 export class AttributionChangeNotFlaggedError extends Error {
   override readonly name = 'AttributionChangeNotFlaggedError';
 
   constructor(
     readonly auditRecordId: string,
     readonly year: number,
+    readonly kind?: AcknowledgedKind,
   ) {
     super(`The year ${year} shows no attribution change ${auditRecordId}`);
+  }
+}
+
+/** The record is more than one change of the year and no `kind` was named (→ 409 CONFLICT, `CHANGE_AMBIGUOUS`, §58G). */
+export class AttributionChangeAmbiguousError extends Error {
+  override readonly name = 'AttributionChangeAmbiguousError';
+
+  constructor(
+    readonly auditRecordId: string,
+    readonly year: number,
+    readonly kinds: readonly AcknowledgedKind[],
+  ) {
+    super(`The record ${auditRecordId} is more than one change of ${year}`);
   }
 }
 
@@ -91,6 +108,8 @@ export type AcknowledgeAttributionChange = (input: {
   readonly propertyReferenceId: string;
   readonly year: number;
   readonly auditRecordId: string;
+  /** §58G: which of the record's changes (optional; needed only when the record is more than one change of the year). */
+  readonly kind?: AcknowledgedKind;
   readonly expectedFingerprint: string;
   readonly reason: string;
   readonly idempotencyKey?: string;
@@ -98,17 +117,24 @@ export type AcknowledgeAttributionChange = (input: {
 
 /**
  * `POST …/tax-years/{year}/acknowledgements` in §58E's order of checks after the `400`s: the PropertyReference, the change
- * among the year's changes derived in the command's own snapshot (`CHANGE_NOT_FLAGGED`), its fingerprint
+ * among both flags' changes of the year (§58E Part 1 and §58G) derived in the command's own snapshot, by `auditRecordId`
+ * and the optional `kind` (`CHANGE_NOT_FLAGGED`, `CHANGE_AMBIGUOUS`), its fingerprint
  * (`ATTRIBUTION_CHANGE_DIFFERS`), the no-op, then `201`. A serialisation failure retries the whole transaction up to three
  * times with a fresh snapshot (it then ends in the no-op), then `503 CONCURRENT_UPDATE`.
  */
 export function acknowledgeAttributionChange(
-  deps: Deps & { readonly fingerprinter: Fingerprinter; readonly registry?: RuleRegistry; readonly attempts?: number },
+  deps: Deps & {
+    readonly fingerprinter: Fingerprinter;
+    readonly registry?: RuleRegistry;
+    readonly attempts?: number;
+    readonly now?: () => Date;
+  },
 ): AcknowledgeAttributionChange {
   const registry = deps.registry ?? TAX_RULES;
   const attempts = deps.attempts ?? 3;
-  return async ({ principal, propertyReferenceId, year, auditRecordId, expectedFingerprint, reason, idempotencyKey }) => {
-    const request = { auditRecordId: auditRecordId.toLowerCase(), expectedFingerprint };
+  return async ({ principal, propertyReferenceId, year, auditRecordId, kind, expectedFingerprint, reason, idempotencyKey }) => {
+    const request = { auditRecordId: auditRecordId.toLowerCase(), expectedFingerprint, ...(kind === undefined ? {} : { kind }) };
+    const context = { propertyReferenceId, fingerprinter: deps.fingerprinter };
     for (let attempt = 1; ; attempt++) {
       const outcome = await deps.repository.acknowledge({
         propertyReferenceId,
@@ -116,16 +142,29 @@ export function acknowledgeAttributionChange(
         mreRealmId: principal.mreRealmId,
         actor: actorOf(principal),
         reason,
+        today: businessDayOf((deps.now ?? (() => new Date()))()),
         ...(idempotencyKey === undefined
           ? {}
           : {
               idempotency: {
                 key: idempotencyKey,
-                fingerprint: requestFingerprint([propertyReferenceId, year, request.auditRecordId, expectedFingerprint, reason]),
+                // §58G: the kind is part of the payload; without it the fingerprint is VC-X-28's.
+                fingerprint: requestFingerprint([
+                  propertyReferenceId,
+                  year,
+                  request.auditRecordId,
+                  expectedFingerprint,
+                  reason,
+                  ...(kind === undefined ? [] : [kind]),
+                ]),
               },
             }),
-        decide: (input, active) =>
-          planAcknowledgement(attributionChanges(input, year, registry, { propertyReferenceId, fingerprinter: deps.fingerprinter }).changes, request, active),
+        decide: ({ attribution, parts }, active) =>
+          planAcknowledgement(
+            [...attributionChanges(attribution, year, registry, context).changes, ...partChanges(parts, year, context).changes],
+            request,
+            active,
+          ),
       });
       switch (outcome.kind) {
         case 'CREATED':
@@ -135,7 +174,9 @@ export function acknowledgeAttributionChange(
         case 'NOT_FOUND':
           throw new PropertyReferenceNotFoundError(propertyReferenceId);
         case 'NOT_FLAGGED':
-          throw new AttributionChangeNotFlaggedError(request.auditRecordId, year);
+          throw new AttributionChangeNotFlaggedError(request.auditRecordId, year, kind);
+        case 'AMBIGUOUS':
+          throw new AttributionChangeAmbiguousError(request.auditRecordId, year, outcome.kinds);
         case 'DIFFERS':
           throw new AttributionChangeDiffersError(request.auditRecordId, expectedFingerprint, outcome.currentFingerprint);
         case 'IDEMPOTENCY_CONFLICT':

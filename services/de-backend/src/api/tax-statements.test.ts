@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  AttributionChangeAmbiguousError,
   AttributionChangeDiffersError,
   AttributionChangeNotFlaggedError,
   ConcurrentUpdateError,
@@ -12,7 +13,7 @@ import {
   type PrincipalVerifier,
   type TaxYearAcknowledgement,
 } from '../application/index.js';
-import type { BusinessDate } from '../shared/index.js';
+import { Money, type BusinessDate } from '../shared/index.js';
 import { createApp } from './app.js';
 import { commandsWith } from './app.test-support.js';
 import type { TaxStatementCommands } from './tax-statements.js';
@@ -232,5 +233,105 @@ describe('POST, GET and withdraw of tax confirmations (§58E Part 3)', () => {
     const missing = await start2({ withdrawConfirmation: async () => Promise.reject(new LoanAllocationTaxConfirmationNotFoundError(CONF)) });
     const gone = await send(missing, 'POST', `${CONFS}/${CONF}/withdraw`, { reason: 'x' });
     expect([gone.status, ((await gone.json()) as { error: { details: unknown } }).error.details]).toEqual([404, { confirmationId: CONF }]);
+  });
+});
+
+describe('the part shape and the optional kind (§58G, VC-X-48)', () => {
+  const part: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: {
+      ...acknowledgement.change,
+      kind: 'LOAN_ALLOCATION_SET_ADDED',
+      entityType: 'LoanAllocationSet',
+      items: [
+        {
+          sourceType: 'TRANSACTION_SPLIT',
+          sourceId: CONF,
+          taxYear: 2027,
+          stateBefore: 'ATTRIBUTED',
+          partBefore: Money.of('269.99', 'EUR'),
+          stateAfter: 'NONE',
+          partAfter: null,
+        },
+      ],
+    },
+  };
+
+  it('kind: an unknown value 400 INVALID_FORMAT with the other field errors; each kind of both flags passed on; absent when not sent', async () => {
+    const base = await start();
+    expect(await fields(await send(base, 'POST', ACKS, { ...body, kind: 'LOAN_ALLOCATION_CHANGED', reason: '' }))).toEqual([
+      { field: 'kind', code: 'INVALID_FORMAT' },
+      { field: 'reason', code: 'INVALID_FORMAT' },
+    ]);
+    expect(await fields(await send(base, 'POST', ACKS, { ...body, kind: 'loan_allocation_set_added' }))).toEqual([{ field: 'kind', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send(base, 'POST', ACKS, { ...body, kind: null }))).toEqual([{ field: 'kind', code: 'INVALID_FORMAT' }]);
+    expect(seen).toEqual([]);
+    for (const kind of ['LOAN_ALLOCATION_SET_ADDED', 'LOAN_ALLOCATION_SET_VOIDED', 'RECONCILIATION_CONFIRMED', 'LOAN_TERMS_VOIDED']) {
+      expect((await send(base, 'POST', ACKS, { ...body, kind })).status).toBe(201);
+      expect(seen.at(-1)).toMatchObject({ kind });
+    }
+    await send(base, 'POST', ACKS, body);
+    expect(Object.keys(seen.at(-1) as object)).not.toContain('kind');
+  });
+
+  it('the part DTO: change.items in the part shape with Money or null; the year shape unchanged beside it', async () => {
+    const base = await start2({
+      acknowledge: async () => ({ acknowledgement: part, created: true, replayed: false }),
+      listAcknowledgements: async () => [part, acknowledgement],
+    });
+    const created = (await (await send(base, 'POST', ACKS, { ...body, kind: 'LOAN_ALLOCATION_SET_ADDED' })).json()) as { change: unknown };
+    expect(created.change).toEqual({
+      auditRecordId: AUDIT,
+      kind: 'LOAN_ALLOCATION_SET_ADDED',
+      entityType: 'LoanAllocationSet',
+      entityId: SET,
+      recordedAt: '2028-01-05T10:00:00.000Z',
+      fingerprint: FP,
+      items: [
+        {
+          sourceType: 'TRANSACTION_SPLIT',
+          sourceId: CONF,
+          taxYear: 2027,
+          stateBefore: 'ATTRIBUTED',
+          partBefore: { amount: '269.99', currency: 'EUR' },
+          stateAfter: 'NONE',
+          partAfter: null,
+        },
+      ],
+    });
+    const list = (await (await send(base, 'GET', ACKS)).json()) as { items: { change: { items: unknown[] } }[] };
+    expect(list.items.map((i) => i.change.items[0])).toEqual([
+      expect.objectContaining({ stateBefore: 'ATTRIBUTED', partAfter: null }),
+      { sourceId: CONF, yearBefore: 2027, yearAfter: 2028 },
+    ]);
+  });
+
+  it('the error mapping: 409 CHANGE_AMBIGUOUS naming the kinds; CHANGE_NOT_FLAGGED names the kind when given; the 412 keeps its one currentFingerprint', async () => {
+    const fail = (error: Error) => async () => Promise.reject(error);
+    const cases: [Error, number, unknown][] = [
+      [
+        new AttributionChangeAmbiguousError(AUDIT, 2027, ['DEPOSIT_RECONCILIATION_CONFIRMED' as never, 'RECONCILIATION_CONFIRMED']),
+        409,
+        { reason: 'CHANGE_AMBIGUOUS', auditRecordId: AUDIT, year: 2027, kinds: ['DEPOSIT_RECONCILIATION_CONFIRMED', 'RECONCILIATION_CONFIRMED'] },
+      ],
+      [
+        new AttributionChangeNotFlaggedError(AUDIT, 2027, 'LOAN_ALLOCATION_SET_VOIDED'),
+        409,
+        { reason: 'CHANGE_NOT_FLAGGED', auditRecordId: AUDIT, year: 2027, kind: 'LOAN_ALLOCATION_SET_VOIDED' },
+      ],
+      [
+        new AttributionChangeDiffersError(AUDIT, FP, 'c'.repeat(64)),
+        412,
+        { auditRecordId: AUDIT, expectedFingerprint: FP, currentFingerprint: 'c'.repeat(64) },
+      ],
+    ];
+    for (const [error, status, details] of cases) {
+      const base = await start2({ acknowledge: fail(error) });
+      const res = await send(base, 'POST', ACKS, body);
+      const answer = (await res.json()) as { error: { code: string; message: string; details?: unknown } };
+      expect([res.status, answer.error.details]).toEqual([status, details]);
+      if (error instanceof AttributionChangeAmbiguousError)
+        expect(answer.error.message).toBe('The record is more than one change of this year; name its kind.');
+    }
   });
 });
