@@ -63,12 +63,15 @@ export function recordTransferDateFingerprint(acquisitionId: string, input: Reco
 /**
  * The flag of §58N (open question 5, decided 2026-11-04, a deviation from the proposal): raised when `ownershipStart` ≠
  * `economicTransferDate`, `OPEN` when a seller of the same Acquisition in the same Realm has an AfA component (between
- * contract and transfer nobody gets AfA: a wrong figure in DE), `INFORMATIVE` otherwise (an external seller).
+ * contract and transfer nobody gets AfA: a wrong figure in DE), `INFORMATIVE` otherwise (an external seller). Never on a
+ * `CANCELLED` Acquisition.
  */
 export function ownershipStartFlag(
-  acquisition: { readonly id: string } & Pick<Acquisition, 'contractDate' | 'economicTransferDate' | 'economicTransferRecordedAt'>,
+  acquisition: { readonly id: string } & Pick<Acquisition, 'status' | 'contractDate' | 'economicTransferDate' | 'economicTransferRecordedAt'>,
   sellerHasAfaComponent: boolean,
 ): AcquisitionFlag | null {
+  // A cancelled purchase has no Ownerships and no AfA: nothing to name (review of #268).
+  if (acquisition.status === 'CANCELLED') return null;
   const start = ownershipStart(acquisition);
   const date = acquisition.economicTransferDate;
   if (date === null || date === start) return null;

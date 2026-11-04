@@ -109,6 +109,7 @@ const flagsOf = (row: AcquisitionRow, sellerHasAfaComponent: boolean) => {
   const flag = ownershipStartFlag(
     {
       id: row.id,
+      status: row.status as AcquisitionStatus,
       contractDate: row.contract_date as BusinessDate,
       economicTransferDate: row.economic_transfer_date as BusinessDate | null,
       economicTransferRecordedAt: row.economic_transfer_recorded_at,

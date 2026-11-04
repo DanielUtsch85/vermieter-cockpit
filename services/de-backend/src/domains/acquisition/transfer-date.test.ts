@@ -92,7 +92,7 @@ describe('ownershipStart and the flag (§58N option (b), Frage 5)', () => {
     expect(ownershipStart({ ...legacy, economicTransferDate: day('2025-05-01'), economicTransferRecordedAt: AT })).toBe('2025-03-01');
   });
 
-  it('the flag only when the dates differ: OPEN with a seller holding an AfA component, INFORMATIVE without', () => {
+  it('the flag only when the dates differ and not cancelled: OPEN with a seller holding an AfA component, INFORMATIVE without', () => {
     const recorded = { ...legacy, economicTransferDate: day('2025-05-01'), economicTransferRecordedAt: AT };
     const details = { acquisitionId: 'a1', ownershipStart: '2025-03-01', economicTransferDate: '2025-05-01' };
     expect(ownershipStartFlag(recorded, true)).toEqual({ code: 'OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER', level: 'OPEN', details });
@@ -101,5 +101,10 @@ describe('ownershipStart and the flag (§58N option (b), Frage 5)', () => {
     expect(ownershipStartFlag({ ...recorded, economicTransferDate: day('2025-03-01') }, true)).toBeNull();
     expect(ownershipStartFlag({ ...recorded, economicTransferRecordedAt: null }, true)).toBeNull();
     expect(ownershipStartFlag(legacy, true)).toBeNull();
+    // A DRAFT dated, then cancelled: no flag at either level.
+    const cancelled = { ...recorded, status: 'CANCELLED' as const, confirmedAt: null };
+    expect([ownershipStartFlag(cancelled, true), ownershipStartFlag(cancelled, false)]).toEqual([null, null]);
+    // Counter-check: the same as DRAFT carries it.
+    expect(ownershipStartFlag({ ...cancelled, status: 'DRAFT' }, true)?.level).toBe('OPEN');
   });
 });

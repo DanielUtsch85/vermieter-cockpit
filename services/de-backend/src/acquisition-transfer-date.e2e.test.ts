@@ -271,7 +271,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
   );
 
   it(
-    'the DRAFT path: dated then confirmed; the transfer on the contract date without a flag; a date after today; CANCELLED 409; the key replayed',
+    'the DRAFT path: dated then confirmed; the transfer on the contract date without a flag; a date after today; CANCELLED 409; the key replayed; dated then cancelled without a flag',
     { timeout: 120_000 },
     async () => {
       at('2026-11-04');
@@ -326,6 +326,33 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
         (await json(await record(gone, { economicTransferDate: '2026-03-01', sourceReferences: EVIDENCE }, { 'if-match': '"1"' }), 409)).error.details.reason,
       ).toBe('ACQUISITION_CANCELLED');
       expect(await count(`SELECT count(*) AS n FROM audit_record WHERE entity_id = $1 AND action = 'ECONOMIC_TRANSFER_DATE_RECORDED'`, [gone])).toBe(0);
+      // Dated, then cancelled (review of #268): the year flag and the Acquisition's flag go with it, nothing to acknowledge.
+      const pr4 = await api.link(PROPERTIES[5] as string);
+      const { acquisitionId: dropped } = await api.purchase({
+        pr: pr4,
+        buyers: [a],
+        share: '1/1',
+        price: '200000.00',
+        contract: '2026-03-01',
+        transfer: null,
+        allocation: ALLOCATION,
+      });
+      expect((await json(await record(dropped, { economicTransferDate: '2026-05-01', sourceReferences: EVIDENCE }))).flags.map((f: Json) => f.code)).toEqual([
+        KIND,
+      ]);
+      // Counter-check: not cancelled, the DRAFT carries the year flag in 2026.
+      const [entry] = flag(await api.view(pr4, 2026)).details;
+      expect(entry).toMatchObject({ acquisitionId: dropped, ownershipStart: '2026-03-01', economicTransferDate: '2026-05-01' });
+      await post(`/acquisitions/${dropped}/cancel`, { reason: 'geplatzt (synthetisch)' }, 200);
+      expect(flag(await api.view(pr4, 2026))).toBeUndefined();
+      expect((await json(await call('GET', `/acquisitions/${dropped}`))).flags).toEqual([]);
+      const notFlagged = await call('POST', `/property-references/${pr4}/tax-years/2026/acknowledgements`, {
+        auditRecordId: entry.auditRecordId,
+        kind: KIND,
+        expectedFingerprint: entry.changeFingerprint,
+        reason: 'storniert (synthetisch)',
+      });
+      expect((await json(notFlagged, 409)).error.details.reason).toBe('CHANGE_NOT_FLAGGED');
       expect(await count(`SELECT count(*) AS n FROM audit_record WHERE entity_id = $1 AND action = 'ECONOMIC_TRANSFER_DATE_RECORDED'`, [d])).toBe(1);
     },
   );
