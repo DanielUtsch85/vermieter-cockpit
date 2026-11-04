@@ -26,6 +26,7 @@ import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
 import { reproductionFromDatabase } from './depreciation-reproduction.test-support.js';
 import { standardMethod } from './infrastructure/postgres/depreciation-method.test-support.js';
+import { confirmAsBeforeVcX34 } from './infrastructure/postgres/legacy-acquisition.test-support.js';
 
 /**
  * VC-8-02 end to end (api-design.md §59A), wired as in main.ts, with ACC8's purchase (synthetic): the response example
@@ -425,7 +426,9 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       actor,
     );
     if (changed.kind !== 'CHANGED') throw new Error(changed.kind);
-    await confirm(x);
+    // §58K (VC-X-34, K4): an undated Acquisition is no longer confirmed by the API; this one is legacy data.
+    if (economic) await confirm(x);
+    else await confirmAsBeforeVcX34(pool, x);
     await addMethod(s.assetId, x);
     return { ...s, c, x };
   }

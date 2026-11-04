@@ -114,6 +114,8 @@ export interface BuyerIncrease {
 
 /** A failed requirement of §28.1, in the order they are reported. */
 export type ConfirmationViolation =
+  /** §58K (VC-X-34, K4): without `economicTransferDate` the record is incomplete, and is not confirmed. */
+  | { readonly code: 'TRANSFER_DATE_MISSING'; readonly contractDate: BusinessDate }
   | { readonly code: 'BUYER_INACTIVE'; readonly partyId: string }
   | { readonly code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE'; readonly ownershipId: string; readonly validFrom: BusinessDate; readonly transferDate: BusinessDate }
   | { readonly code: 'OWNER_NOT_A_BUYER'; readonly ownershipId: string; readonly ownerPartyId: string }
@@ -198,7 +200,7 @@ export function buyerIncreases(
 }
 
 /**
- * Status first (a no-op before a cancelled one), then requirements 1–6 of §28.1, all of them reported. The version is
+ * Status first (a no-op before a cancelled one), then requirement 0 (§58K: `economicTransferDate` set) and 1–6 of §28.1, all of them reported. The version is
  * checked by the caller between `ACQUISITION_CANCELLED` and the requirements.
  */
 export function planConfirm(current: Acquisition, input: ConfirmationInput, at: Date): ConfirmPlan {
@@ -206,6 +208,8 @@ export function planConfirm(current: Acquisition, input: ConfirmationInput, at: 
   if (current.status === 'CANCELLED') return { kind: 'ACQUISITION_CANCELLED' };
   const d = transferDate(current);
   const violations: ConfirmationViolation[] = [];
+  // §58K (VC-X-34, Entscheidung des Projektinhabers, 2026-11-04, K4): first, before requirements 1–6, all reported.
+  if (current.economicTransferDate === null) violations.push({ code: 'TRANSFER_DATE_MISSING', contractDate: current.contractDate });
   for (const partyId of [...current.buyerPartyIds].sort()) {
     if (input.buyerStatuses.get(partyId) !== 'ACTIVE') violations.push({ code: 'BUYER_INACTIVE', partyId });
   }

@@ -327,6 +327,7 @@ const acquisition: CheckAcquisition = {
   propertyReferenceId: 'pr-1',
   status: 'CONFIRMED',
   transferDate: day('2026-03-15'),
+  contractDate: day('2026-03-15'),
   acquiredShare: { numerator: 1, denominator: 1 },
   purchasePrice: eur('240000.00'),
 };
