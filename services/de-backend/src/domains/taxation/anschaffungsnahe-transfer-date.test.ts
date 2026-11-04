@@ -247,4 +247,22 @@ describe('the tax-year view lists the check from the contract year on (§58K, bu
     expect(viewOf([{ ...q, acquisitionStatus: 'CANCELLED' }], 2027).acquisitions).toEqual([]);
     expect(viewOf([q, q2], 2030).acquisitions.map((a) => a.acquisitionId)).toEqual(['acq-q']);
   });
+
+  it('a dated check of NO_APPLICABLE_RULE (transfer before DE_ANSCHAFFUNGSNAHE@1) stays out of every year and opens no year', () => {
+    // As implemented 3: only a check without a transfer date is listed from the contract year on; one of NO_APPLICABLE_RULE
+    // also has no window but a transfer date, and stays out as before VC-X-34.
+    const old = { ...check({ ...Q, id: 'acq-old', contractDate: day('2003-06-01'), transferDate: day('2003-06-01') }), propertyReferenceId: PR };
+    expect([old.status, old.notComputableReason, old.window, old.transferDate]).toEqual(['NOT_COMPUTABLE', 'NO_APPLICABLE_RULE', null, '2003-06-01']);
+    for (const year of [2003, 2004, 2010, 2026, 2100]) {
+      const v = viewOf([old], year);
+      expect(v.acquisitions).toEqual([]);
+      expect(notFinal(v)).toBeUndefined();
+      expect(v.review.open.some((o) => o.code === 'ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL')).toBe(false);
+    }
+    // Counter-check: next to the undated Q (contract 2026) only Q is listed and named, and only from 2026 on.
+    const both = viewOf([old, q], 2010);
+    expect([both.acquisitions, notFinal(both)]).toEqual([[], undefined]);
+    const later = viewOf([old, q], 2026);
+    expect([later.acquisitions.map((a) => a.acquisitionId), notFinal(later)]).toEqual([['acq-q'], { acquisitionIds: ['acq-q'] }]);
+  });
 });
