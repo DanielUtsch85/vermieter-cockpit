@@ -58,6 +58,8 @@ export type AnschaffungsnaheNotApplicableReason =
   | 'ACQUISITION_NOT_CONFIRMED'
   | 'OUTSIDE_WINDOW'
   | 'NO_APPLICABLE_RULE'
+  /** §58K (VC-X-34): the Acquisition has no `economicTransferDate`, so the check has no window. */
+  | 'TRANSFER_DATE_MISSING'
   /**
    * §59F: no `performance` (`MISSING`), one straddling the window without a partial treatment (`STRADDLES_WINDOW`), or
    * (VC-X-38 Part 2) a partial treatment whose evidenced points leave the part in the window open (`SPLIT_NOT_EVIDENCED`)
@@ -200,9 +202,12 @@ export function treatmentFieldsCheck(
   });
   if (acquisition.propertyReferenceId !== source.propertyReferenceId) return notApplicable('OTHER_PROPERTY_REFERENCE');
   if (acquisition.status !== 'CONFIRMED') return notApplicable('ACQUISITION_NOT_CONFIRMED');
-  const rule = registry.select(ANSCHAFFUNGSNAHE, acquisition.transferDate);
+  // §58K (VC-X-34): never a window from the contract date.
+  const transfer = acquisition.transferDate;
+  if (transfer === null) return notApplicable('TRANSFER_DATE_MISSING');
+  const rule = registry.select(ANSCHAFFUNGSNAHE, transfer);
   if (rule === undefined) return notApplicable('NO_APPLICABLE_RULE');
-  const window = anschaffungsnaheWindow(acquisition.transferDate, (rule.parameters as AnschaffungsnaheParameters).windowYears);
+  const window = anschaffungsnaheWindow(transfer, (rule.parameters as AnschaffungsnaheParameters).windowYears);
   // §59F (the owner's decision of 2026-11-02, open question 12): judged by the performance, never by the source's date;
   // only work performed wholly in the window is capitalised on the check (a straddling source needs an evidenced split).
   if (performance === null) return notApplicable('PERFORMANCE_REQUIRED', 'MISSING');

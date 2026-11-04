@@ -9,6 +9,7 @@ import { PostgresAcquisitionRepository } from './acquisition-repository.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { PostgresLandBuildingAllocationRepository } from './land-building-allocation-repository.js';
+import { confirmAsBeforeVcX34 } from './legacy-acquisition.test-support.js';
 import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
 import { PostgresPartyRepository } from './party-repository.js';
 import type { Database } from './schema.js';
@@ -293,10 +294,10 @@ export function useTaxWegDatabase(name: `${string}_test`) {
     const { rows } = await pool.query(`SELECT id FROM transaction_split WHERE transaction_id = $1 ORDER BY position`, [created.transaction.id]);
     return { tx: created.transaction.id, splitIds: rows.map((r) => r.id as string) };
   }
-  async function party(name: string) {
+  async function party(name: string, realm = REALM) {
     const p = await parties.create(
       {
-        mreRealmId: REALM,
+        mreRealmId: realm,
         partyType: 'PERSON',
         displayName: name,
         firstName: null,
@@ -311,18 +312,25 @@ export function useTaxWegDatabase(name: `${string}_test`) {
     if (p.kind !== 'CREATED') throw new Error(p.kind);
     return p.party.id;
   }
-  /** A confirmed Acquisition of `pr` (transfer 15.03.2026, price 240,000.00) with its Ownership and a confirmed allocation (198,000 of 264,000). */
-  async function acquisition(pr: string, options: { transfer?: string; confirm?: boolean } = {}) {
-    const transfer = options.transfer ?? '2026-03-15';
-    const buyer = await party('Anna');
+  /**
+   * A confirmed Acquisition of `pr` (transfer 15.03.2026, price 240,000.00) with its Ownership and a confirmed allocation
+   * (198,000 of 264,000). §58K (VC-X-34): `transfer: null` is legacy data, an Acquisition without `economicTransferDate`
+   * confirmed before VC-X-34 (past the repository), its Ownership from `contract` (default 01.02.2026).
+   */
+  async function acquisition(pr: string, options: { transfer?: string | null; contract?: string; confirm?: boolean; realm?: string } = {}) {
+    const undated = options.transfer === null;
+    const transfer = options.transfer ?? options.contract ?? '2026-03-15';
+    const contract = options.contract ?? (undated ? '2026-02-01' : transfer);
+    const realm = options.realm ?? REALM;
+    const buyer = await party('Anna', realm);
     const created = await acquisitions.create(
       {
-        mreRealmId: REALM,
+        mreRealmId: realm,
         propertyReferenceId: pr,
         purchasePrice: eur('240000.00'),
         acquiredShare: { numerator: 1, denominator: 1 },
-        contractDate: day(transfer),
-        economicTransferDate: day(transfer),
+        contractDate: day(contract),
+        economicTransferDate: undated ? null : day(transfer),
         landRegistryTransferDate: null,
         buyerPartyIds: [buyer],
         sellerPartyIds: [],
@@ -336,14 +344,17 @@ export function useTaxWegDatabase(name: `${string}_test`) {
     await pool.query(
       `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
        VALUES ($1, $2, $3, 1, 1, $4, 'VALID', $5, 'x')`,
-      [REALM, pr, buyer, transfer, id],
+      [realm, pr, buyer, undated ? contract : transfer, id],
     );
     if (options.confirm !== false) {
-      const confirmed = await acquisitions.confirm(id, REALM, AT, actor);
-      if (confirmed.kind !== 'CONFIRMED') throw new Error(JSON.stringify(confirmed));
+      if (undated) await confirmAsBeforeVcX34(pool, id);
+      else {
+        const confirmed = await acquisitions.confirm(id, realm, AT, actor);
+        if (confirmed.kind !== 'CONFIRMED') throw new Error(JSON.stringify(confirmed));
+      }
       const allocated = await allocations.create(
         {
-          mreRealmId: REALM,
+          mreRealmId: realm,
           acquisitionId: id,
           totalAllocableAmount: eur('264000.00'),
           landAmount: eur('66000.00'),

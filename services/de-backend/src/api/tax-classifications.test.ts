@@ -568,6 +568,7 @@ describe('VC-7-03 (§58B)', () => {
       propertyReferenceId: PR,
       acquisitionStatus: 'CONFIRMED',
       transferDate: '2026-03-15' as BusinessDate,
+      contractDate: '2026-03-01' as BusinessDate,
       window: { from: '2026-03-15' as BusinessDate, until: '2029-03-15' as BusinessDate },
       searchRange: { from: '2025-12-15' as BusinessDate, until: '2030-03-15' as BusinessDate },
       outerBound: { from: '2023-03-15' as BusinessDate, until: '2032-03-15' as BusinessDate },

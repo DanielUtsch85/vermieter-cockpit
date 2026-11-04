@@ -102,7 +102,8 @@ export interface AcquisitionFacts {
   readonly id: string;
   readonly propertyReferenceId: string;
   readonly status: string;
-  readonly transferDate: BusinessDate;
+  /** §58K (VC-X-34): `economicTransferDate`, never the contract date; `null` without it. */
+  readonly transferDate: BusinessDate | null;
 }
 
 /** Identity of a create for `Idempotency-Key` replays. */

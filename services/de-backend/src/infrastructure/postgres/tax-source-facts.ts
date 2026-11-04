@@ -139,13 +139,14 @@ export async function acquisitionFactsOf(trx: Transaction<Database>, mreRealmId:
   if (!UUID.test(id)) return null;
   const row = await trx
     .selectFrom('acquisition')
-    .select(['id', 'property_reference_id', 'status', sql<string>`to_char(coalesce(economic_transfer_date, contract_date), 'YYYY-MM-DD')`.as('transfer_date')])
+    // §58K (VC-X-34): `economicTransferDate` alone; without it the capitalisation is refused (TRANSFER_DATE_MISSING).
+    .select(['id', 'property_reference_id', 'status', sql<string | null>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('transfer_date')])
     .where('id', '=', id)
     .where('mre_realm_id', '=', mreRealmId)
     .executeTakeFirst();
   return row === undefined
     ? null
-    : { id: row.id, propertyReferenceId: row.property_reference_id, status: row.status, transferDate: row.transfer_date as BusinessDate };
+    : { id: row.id, propertyReferenceId: row.property_reference_id, status: row.status, transferDate: row.transfer_date as BusinessDate | null };
 }
 
 export function toRead(row: FactsRow): SplitRead {

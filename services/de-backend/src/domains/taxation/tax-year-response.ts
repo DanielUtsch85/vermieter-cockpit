@@ -199,8 +199,9 @@ export interface TaxYearTotals {
 
 export interface TaxYearAcquisition {
   readonly acquisitionId: string;
-  readonly transferDate: BusinessDate;
-  readonly window: { readonly from: BusinessDate; readonly until: BusinessDate };
+  /** §58K (VC-X-34): `null` without `economicTransferDate` (then `window` is `null` and the check `NOT_COMPUTABLE`). */
+  readonly transferDate: BusinessDate | null;
+  readonly window: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
   readonly status: CheckStatus;
   readonly final: boolean;
   readonly notFinalReasons: readonly NotFinalReason[];

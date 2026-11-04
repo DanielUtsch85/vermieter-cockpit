@@ -59,7 +59,13 @@ export interface CheckAcquisition {
   readonly id: string;
   readonly propertyReferenceId: string;
   readonly status: string;
-  readonly transferDate: BusinessDate;
+  /**
+   * §58K (VC-X-34): the transfer of economic ownership, `economicTransferDate`; `null` without it. Never the contract
+   * date: without it the check is `NOT_COMPUTABLE`, `TRANSFER_DATE_MISSING`.
+   */
+  readonly transferDate: BusinessDate | null;
+  /** §58K: shown in the `TRANSFER_DATE_MISSING` flag, and the first year a check without a window is listed in. */
+  readonly contractDate: BusinessDate;
   readonly acquiredShare: { readonly numerator: number; readonly denominator: number };
   readonly purchasePrice: Money;
 }
@@ -72,6 +78,8 @@ export interface CheckAllocation {
 }
 
 export const NOT_COMPUTABLE_REASONS = [
+  // §58K (VC-X-34): no `economicTransferDate`, so no window and no rule version; first, before NO_APPLICABLE_RULE.
+  'TRANSFER_DATE_MISSING',
   'NO_APPLICABLE_RULE',
   'ACQUISITION_NOT_CONFIRMED',
   'NO_ALLOCATION',
@@ -87,6 +95,8 @@ export const NOT_COMPUTABLE_REASONS = [
 export type NotComputableReason = (typeof NOT_COMPUTABLE_REASONS)[number];
 export type CheckStatus = 'NOT_COMPUTABLE' | 'ABOVE_THRESHOLD' | 'NOT_ABOVE_THRESHOLD';
 export type NotFinalReason =
+  /** §58K (VC-X-34): no `economicTransferDate`; nothing but the date clears it. */
+  | 'TRANSFER_DATE_MISSING'
   | 'GROSS_AMOUNTS'
   | 'UNCLASSIFIED_SOURCES'
   | 'WINDOW_OPEN'
@@ -143,7 +153,9 @@ export type ExcludedReason = 'ANNUALLY_RECURRING' | 'PERFORMED_OUTSIDE_WINDOW';
 export type CheckFlag =
   | { readonly code: 'NOT_FINAL'; readonly details: { readonly reasons: readonly NotFinalReason[]; readonly note?: string } }
   | { readonly code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED'; readonly details: { readonly statementIds: readonly string[] } }
-  | { readonly code: 'PARTIAL_ACQUISITION'; readonly details: { readonly acquiredShare: string } };
+  | { readonly code: 'PARTIAL_ACQUISITION'; readonly details: { readonly acquiredShare: string } }
+  /** §58K (VC-X-34): open; the same code and details as §59A's component reason. */
+  | { readonly code: 'TRANSFER_DATE_MISSING'; readonly details: { readonly contractDate: BusinessDate } };
 
 export interface CheckBasis {
   readonly allocationId: string;
@@ -166,7 +178,10 @@ export interface AnschaffungsnaheCheck {
   readonly acquisitionId: string;
   readonly propertyReferenceId: string;
   readonly acquisitionStatus: string;
-  readonly transferDate: BusinessDate;
+  /** §58K: `economicTransferDate`, else `null` (the check then has no window). */
+  readonly transferDate: BusinessDate | null;
+  /** §58K: the view lists a check without a window in every year from this date's year on; not in the check's DTO. */
+  readonly contractDate: BusinessDate;
   readonly window: Range | null;
   /** §59F: where undated sources are summed in the upper bound, and how far undated ones are listed at all. */
   readonly searchRange: Range | null;
@@ -254,12 +269,14 @@ export function checkAnschaffungsnahe(
   registry: RuleRegistry,
 ): AnschaffungsnaheCheck {
   const { acquisition } = input;
-  const rule = anschaffungsnaheRuleOn(registry, acquisition.transferDate);
+  // §58K (VC-X-34): no rule, window or source from the contract date; without the transfer date the check reads nothing.
+  const transfer = acquisition.transferDate;
+  const rule = transfer === null ? undefined : anschaffungsnaheRuleOn(registry, transfer);
   const share = acquisition.acquiredShare;
   const n = BigInt(share.numerator);
   const d = BigInt(share.denominator);
   const p = rule?.parameters;
-  const window = p === undefined ? null : anschaffungsnaheWindow(acquisition.transferDate, p.windowYears);
+  const window = p === undefined || transfer === null ? null : anschaffungsnaheWindow(transfer, p.windowYears);
   const ranges = window === null || p === undefined ? null : searchRangesOf(window, p);
   const searchRange = ranges?.searchRange ?? null;
   const outerBound = ranges?.outerBound ?? null;
@@ -346,7 +363,8 @@ export function checkAnschaffungsnahe(
   const datesOpen = sumCents !== sumUpperCents;
   const basisLeavesOpen = (sum: bigint) => aboveOf(sum, basisCents) && !aboveOf(sum, upperCents);
   let notComputableReason: NotComputableReason | null;
-  if (rule === undefined) notComputableReason = 'NO_APPLICABLE_RULE';
+  if (transfer === null) notComputableReason = 'TRANSFER_DATE_MISSING';
+  else if (rule === undefined) notComputableReason = 'NO_APPLICABLE_RULE';
   else if (cost.reason !== null && !costOpen) notComputableReason = cost.reason;
   else if (aboveOf(sumCents, upperCents)) notComputableReason = null;
   else if (!aboveOf(sumUpperCents, basisCents)) notComputableReason = outside.length > 0 ? 'SOURCES_OUTSIDE_SEARCH_RANGE' : null;
@@ -365,7 +383,7 @@ export function checkAnschaffungsnahe(
           .filter((s) => s.periodFrom <= window.until && s.periodUntil >= window.from)
           .map((s) => s.id)
           .sort();
-  const reasons: NotFinalReason[] = [];
+  const reasons: NotFinalReason[] = transfer === null ? ['TRANSFER_DATE_MISSING'] : [];
   if (placed.some((x) => x.s.netAmount === null)) reasons.push('GROSS_AMOUNTS');
   if (unclassified.length > 0) reasons.push('UNCLASSIFIED_SOURCES');
   if (window !== null && input.today <= window.until) reasons.push('WINDOW_OPEN');
@@ -377,7 +395,7 @@ export function checkAnschaffungsnahe(
   if (cost.unclassifiedCosts.length > 0) reasons.push('ACQUISITION_COSTS_UNCLASSIFIED');
   const final = reasons.length === 0;
   const ruleRef = rule === undefined ? null : { ruleCode: rule.ruleCode, version: rule.version };
-  const w = window ?? { from: acquisition.transferDate, until: acquisition.transferDate };
+  const w = window ?? { from: acquisition.contractDate, until: acquisition.contractDate };
   const whollyIn = (s: CheckSource) => s.performance !== null && s.performance.from >= w.from && s.performance.until <= w.until;
 
   const entry = (
@@ -439,6 +457,7 @@ export function checkAnschaffungsnahe(
   const flags: CheckFlag[] = [];
   if (!final) flags.push({ code: 'NOT_FINAL', details: reasons.includes('GROSS_AMOUNTS') ? { reasons, note: NOTE_GROSS } : { reasons } });
   if (statementIds.length > 0) flags.push({ code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED', details: { statementIds } });
+  if (transfer === null) flags.push({ code: 'TRANSFER_DATE_MISSING', details: { contractDate: acquisition.contractDate } });
   if (n < d) flags.push({ code: 'PARTIAL_ACQUISITION', details: { acquiredShare: `${share.numerator}/${share.denominator}` } });
   const computable = status !== 'NOT_COMPUTABLE';
   const percentOf = (sum: bigint) => (computable && basisCents > 0n ? decimalOf(divideHalfEven(sum * n * 10_000n, d * basisCents), 2) : null);
@@ -447,7 +466,8 @@ export function checkAnschaffungsnahe(
     acquisitionId: acquisition.id,
     propertyReferenceId: acquisition.propertyReferenceId,
     acquisitionStatus: acquisition.status,
-    transferDate: acquisition.transferDate,
+    transferDate: transfer,
+    contractDate: acquisition.contractDate,
     window,
     searchRange,
     outerBound,

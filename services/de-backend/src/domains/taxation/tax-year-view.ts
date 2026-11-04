@@ -252,14 +252,20 @@ export function buildTaxYearView(
   // §58F: the proposal is visible in both years it may belong to; here as the year flag, its amounts not summed.
   const proposed = read.proposedSplits ?? [];
   if (proposed.length > 0) flags.push({ code: PROPOSED_BY_10_DAY_RULE, details: { count: proposed.length, items: proposed } });
+  // §58K (VC-X-34): a check without a transfer date has no window; it can lie anywhere from the contract date on, so it is
+  // listed in every year from the contract's year on (never before: 0020's `acquisition_transfer_dates`).
+  const checkInYear = (c: (typeof read.checks)[number]) =>
+    c.window === null
+      ? c.transferDate === null && Number(c.contractDate.slice(0, 4)) <= year
+      : c.window.from <= `${year}-12-31` && c.window.until >= `${year}-01-01`;
   const acquisitions: TaxYearAcquisition[] = read.checks
-    .filter((c) => c.acquisitionStatus !== 'CANCELLED' && c.window !== null && c.window.from <= `${year}-12-31` && c.window.until >= `${year}-01-01`)
+    .filter((c) => c.acquisitionStatus !== 'CANCELLED' && checkInYear(c))
     .map((c) => {
       const notFinal = c.flags.find((f) => f.code === 'NOT_FINAL');
       return {
         acquisitionId: c.acquisitionId,
         transferDate: c.transferDate,
-        window: c.window as { from: BusinessDate; until: BusinessDate },
+        window: c.window,
         status: c.status,
         final: c.final,
         notFinalReasons: notFinal === undefined ? [] : (notFinal.details as { reasons: readonly NotFinalReason[] }).reasons,

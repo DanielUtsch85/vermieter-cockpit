@@ -674,7 +674,7 @@ Represent the economic acquisition lifecycle of the real-world Property identifi
 - `notes`
 - `sourceReferences`
 
-The **transfer date** is `economicTransferDate`, or `contractDate` while that is unset (P2-D6).
+The **transfer date** is `economicTransferDate`, or `contractDate` while that is unset (P2-D6). **VC-X-34 (api-design §58K, implemented: migration 0066):** confirmation requires `economicTransferDate` (§28.1 requirement 0, `TRANSFER_DATE_MISSING`; a transfer on the contract date is entered as such); the anschaffungsnahe check's window starts at `economicTransferDate` only, never at `contractDate` (without it the check is `NOT_COMPUTABLE`, `TRANSFER_DATE_MISSING`). An Acquisition confirmed before VC-X-34 without the date keeps it unset until VC-X-52 records it.
 
 ---
 
@@ -695,7 +695,7 @@ An Acquisition may have:
 
 ## 13.5 Lifecycle (P2-D6)
 
-- `DRAFT` → `CONFIRMED` (final in Phase 2; requirements of P2-D8, api-design §28.1; its Ownerships can then be closed but no longer voided)
+- `DRAFT` → `CONFIRMED` (final in Phase 2; requirements of P2-D8, api-design §28.1, and since VC-X-34 `economicTransferDate` set; its Ownerships can then be closed but no longer voided)
 - `DRAFT` → `CANCELLED` (final)
 
 The legal milestones (contract, economic transfer, land registry) are the dates of §13.3, not states.

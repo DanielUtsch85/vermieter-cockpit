@@ -138,6 +138,27 @@ describe('planConfirm (§28.1)', () => {
     });
   });
 
+  it('§58K (K4): without economicTransferDate refused TRANSFER_DATE_MISSING first, the others still reported; equal to the contract date confirms', () => {
+    const undated = { ...draft, economicTransferDate: null, contractDate: day('2026-08-01') };
+    const mine = [own('o1', 'b1', 1, 4), own('o2', 'b2', 1, 4)];
+    const input = { buyerStatuses: active, own: mine, onTransferDate: [...mine, own('o3', 'k', 1, 2, '2020-01-01')], beforeTransferDate: [] };
+    expect(planConfirm(undated, input, at)).toEqual({
+      kind: 'CONFIRMATION_BLOCKED',
+      violations: [{ code: 'TRANSFER_DATE_MISSING', contractDate: '2026-08-01' }],
+    });
+    expect(planConfirm(undated, { ...input, buyerStatuses: new Map([['b1', 'ACTIVE']]) }, at)).toEqual({
+      kind: 'CONFIRMATION_BLOCKED',
+      violations: [
+        { code: 'TRANSFER_DATE_MISSING', contractDate: '2026-08-01' },
+        { code: 'BUYER_INACTIVE', partyId: 'b2' },
+      ],
+    });
+    // Counter-checks: the transfer on the contract date confirms; the status still answers first.
+    expect(planConfirm({ ...undated, economicTransferDate: day('2026-08-01') }, input, at)).toMatchObject({ kind: 'CONFIRM' });
+    expect(planConfirm({ ...undated, status: 'CONFIRMED' }, input, at)).toEqual({ kind: 'UNCHANGED' });
+    expect(planConfirm({ ...undated, status: 'CANCELLED' }, input, at)).toEqual({ kind: 'ACQUISITION_CANCELLED' });
+  });
+
   it('sums exactly and reduced, beyond what a double holds', () => {
     expect(
       sumOf([

@@ -213,7 +213,9 @@ export async function acquisitionsOf(
       'currency',
       'acquired_share_numerator',
       'acquired_share_denominator',
-      sql<string>`to_char(coalesce(economic_transfer_date, contract_date), 'YYYY-MM-DD')`.as('transfer_date'),
+      // §58K (VC-X-34): the two dates apart; the check's window never starts at the contract date.
+      sql<string | null>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('transfer_date'),
+      sql<string>`to_char(contract_date, 'YYYY-MM-DD')`.as('contract_date'),
     ])
     .where('mre_realm_id', '=', mreRealmId);
   query =
@@ -244,7 +246,8 @@ export async function acquisitionsOf(
         id: r.id,
         propertyReferenceId: r.property_reference_id,
         status: r.status,
-        transferDate: r.transfer_date as BusinessDate,
+        transferDate: r.transfer_date as BusinessDate | null,
+        contractDate: r.contract_date as BusinessDate,
         acquiredShare: { numerator: r.acquired_share_numerator, denominator: r.acquired_share_denominator },
         purchasePrice: fromNumericAmount(r.purchase_price, r.currency),
       },
@@ -272,7 +275,7 @@ export async function acquisitionsOf(
  * The dates the checks of these Acquisitions read sources for (§59F): each window's outer bound, `plausibleYearsFromSourceDate`
  * before and after it. A source with a performance in the window has its own date within it (the plausibility check
  * on create), and an undated one beyond it is never listed; nothing relevant is dropped by its booking date.
- * `undefined` without an applicable rule.
+ * `undefined` without an applicable rule; an Acquisition without `economicTransferDate` reads none (§58K).
  */
 export function checkRange(
   inputs: readonly AcquisitionInput[],
@@ -280,9 +283,11 @@ export function checkRange(
 ): { readonly from: BusinessDate; readonly to: BusinessDate } | undefined {
   let range: { from: BusinessDate; to: BusinessDate } | undefined;
   for (const { acquisition } of inputs) {
-    const rule = anschaffungsnaheRuleOn(registry, acquisition.transferDate);
+    const transfer = acquisition.transferDate;
+    if (transfer === null) continue;
+    const rule = anschaffungsnaheRuleOn(registry, transfer);
     if (rule === undefined) continue;
-    const { outerBound } = searchRangesOf(anschaffungsnaheWindow(acquisition.transferDate, rule.parameters.windowYears), rule.parameters);
+    const { outerBound } = searchRangesOf(anschaffungsnaheWindow(transfer, rule.parameters.windowYears), rule.parameters);
     range =
       range === undefined
         ? { from: outerBound.from, to: outerBound.until }

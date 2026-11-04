@@ -589,7 +589,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
 
   describe('concurrency (READ COMMITTED through the repository: the waiter sees the holder’s commit)', () => {
     it('a confirm waits for a payment link in flight on the Acquisition row, then confirms (payments stay allowed, §28.1)', async () => {
-      const a = await acquisition();
+      // §58K (VC-X-34, K4): confirmed only with the transfer of economic ownership (here the contract date).
+      const a = await acquisition(REALM, { economicTransferDate: day('2026-06-15') });
       await pool.query(
         `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
          SELECT a.mre_realm_id, a.property_reference_id, ap.party_id, 1, 1, a.contract_date, 'VALID', a.id, 'x'

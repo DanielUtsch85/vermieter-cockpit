@@ -257,7 +257,8 @@ export function useAcc8(name: `${string}_e2e`) {
       share: string;
       price: string;
       contract: string;
-      transfer: string;
+      /** `null`: no `economicTransferDate` (§58K: then `confirm` refuses it; legacy data is confirmed past the repository). */
+      transfer: string | null;
       costs?: readonly (readonly [string, string])[];
       allocation: { total: string; land: string; building: string; reviewState?: 'CONFIRMED' | 'UNREVIEWED' };
       classify?: boolean;
