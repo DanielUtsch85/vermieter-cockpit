@@ -715,7 +715,6 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
           await migrateToLatest(legacyPool, { migrations: before0050, migrationTableSchema: legacySchema });
           const db = createDatabase(legacyPool);
           const legacyParties = new PostgresPartyRepository(db);
-          const legacyAcquisitions = new PostgresAcquisitionRepository(db);
           const person = async (name: string) => {
             const p = await legacyParties.create(
               {
@@ -748,26 +747,22 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
             );
           await add(a, [1, 2], W_D, BEFORE, null);
           await add(b, [1, 2], W_D, BEFORE, null);
-          const newX = async (n: number, d: number) => {
-            const x = await legacyAcquisitions.create(
-              {
-                mreRealmId: REALM,
-                propertyReferenceId: pr,
-                purchasePrice: Money.of('200000.00', 'EUR'),
-                acquiredShare: { numerator: n, denominator: d },
-                contractDate: day('2026-06-15'),
-                economicTransferDate: day(D),
-                landRegistryTransferDate: null,
-                buyerPartyIds: [a],
-                sellerPartyIds: [b],
-                sourceReferences: [],
-                notes: null,
-              },
-              actor,
+          // Raw, as the repository reads the columns of the latest schema (0067), not of 0049's.
+          const rawDraft = async (propertyReferenceId: string, n: number, d: number) => {
+            const inserted = await legacyPool.query(
+              `INSERT INTO acquisition (mre_realm_id, property_reference_id, status, purchase_price, currency, acquired_share_numerator,
+                 acquired_share_denominator, contract_date, economic_transfer_date, created_by)
+               VALUES ($1, $2, 'DRAFT', 200000.00, 'EUR', $3, $4, '2026-06-15', $5, 'x') RETURNING id`,
+              [REALM, propertyReferenceId, n, d, D],
             );
-            if (x.kind !== 'CREATED') throw new Error(x.kind);
-            return x.acquisition.id;
+            const id = inserted.rows[0].id as string;
+            await legacyPool.query(
+              `INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'BUYER', 1), ($1, $2, $4, 'SELLER', 1)`,
+              [id, REALM, a, b],
+            );
+            return id;
           };
+          const newX = (n: number, d: number) => rawDraft(pr, n, d);
           // The 1/1 workaround: A's 1/2 → 1/1 confirmed as a purchase of 1/1, accepted by 0022's full-share rule (raw:
           // the repository's domain check is already §28.1A's).
           const workaround = await newX(1, 1);
@@ -785,24 +780,7 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
              VALUES ($1, $2, $3, $4, $5, $6, $7, 'VALID', $8, 'x')`,
               [REALM, pr2, owner, share[0], share[1], from, until, acquisitionId],
             );
-          const truthful = await legacyAcquisitions.create(
-            {
-              mreRealmId: REALM,
-              propertyReferenceId: pr2,
-              purchasePrice: Money.of('200000.00', 'EUR'),
-              acquiredShare: { numerator: 1, denominator: 2 },
-              contractDate: day('2026-06-15'),
-              economicTransferDate: day(D),
-              landRegistryTransferDate: null,
-              buyerPartyIds: [a],
-              sellerPartyIds: [b],
-              sourceReferences: [],
-              notes: null,
-            },
-            actor,
-          );
-          if (truthful.kind !== 'CREATED') throw new Error(truthful.kind);
-          const t = truthful.acquisition.id;
+          const t = await rawDraft(pr2, 1, 2);
           await add2(a, [1, 2], W_D, BEFORE, null);
           await add2(b, [1, 2], W_D, BEFORE, null);
           await add2(a, [1, 1], D, null, t);

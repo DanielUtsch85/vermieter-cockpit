@@ -294,6 +294,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresAcquisitionCostRepository', 
            FROM acquisition a JOIN acquisition_party ap ON ap.acquisition_id = a.id AND ap.role = 'BUYER' WHERE a.id = $1`,
         [a],
       );
+      // §58N (0067): the transition needs the transfer date; recorded first (the Ownership began on the contract date).
+      await pool.query(
+        `UPDATE acquisition SET economic_transfer_date = contract_date, economic_transfer_recorded_at = now(), economic_transfer_source_references = ARRAY['x'], version = version + 1 WHERE id = $1`,
+        [a],
+      );
       await pool.query(`UPDATE acquisition SET status = 'CONFIRMED', confirmed_at = now(), version = version + 1 WHERE id = $1`, [a]);
       expect(await costs.createCost(newCost(a, '1500.00', { category: 'LAND_REGISTRY' }), actor)).toMatchObject({ kind: 'CREATED' });
     });

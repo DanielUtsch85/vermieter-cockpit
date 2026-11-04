@@ -370,6 +370,8 @@ describe.skipIf(databaseUrl === undefined)('Phase 2 acceptance (roadmap exit)', 
       'GET /acquisitions/:acquisitionId': { expect: 404 },
       'POST /acquisitions/:acquisitionId/cancel': { expect: 404, body: { reason: 'x' } },
       'POST /acquisitions/:acquisitionId/confirm': { expect: 404, body: {} },
+      // §58N (VC-X-52): the transfer of economic ownership recorded later.
+      'POST /acquisitions/:acquisitionId/economic-transfer-date': { expect: 404, body: { economicTransferDate: '2031-01-01', sourceReferences: ['x'] } },
       'GET /property-references/:propertyReferenceId/acquisitions': { expect: 404 },
       'GET /acquisitions/:acquisitionId/owner-allocation': { expect: 404 },
       'POST /acquisitions/:acquisitionId/land-building-allocation': {

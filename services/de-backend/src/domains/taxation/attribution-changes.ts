@@ -174,7 +174,8 @@ export function changeFingerprint(
     readonly propertyReferenceId: string;
     readonly year: number;
     readonly auditRecordId: string;
-    readonly kind: ChangeKind;
+    /** A kind of §58E Part 1, or §58N's `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER` (no items). */
+    readonly kind: ChangeKind | 'OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER';
     readonly items: readonly ChangeItem[];
   },
 ): string {

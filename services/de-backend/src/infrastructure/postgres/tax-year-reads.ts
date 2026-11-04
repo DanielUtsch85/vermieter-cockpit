@@ -1,3 +1,4 @@
+import { ownershipStartFactsOf } from './ownership-start-reads.js';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { withValidUntil, type LoanAllocationSetView } from '../../domains/financing/index.js';
 import {
@@ -132,6 +133,8 @@ export async function readTaxYear(
       year,
       [...loans.loanAllocationSets.values()].flat().map((s) => s.id),
     );
+    // §58N: the Acquisitions dated later than their Ownerships began, in this snapshot.
+    const ownershipStarts = await ownershipStartFactsOf(trx, mreRealmId, propertyReferenceId);
     if (afterOwnReads !== undefined) await afterOwnReads();
     const depreciation = await taxYearDepreciationIn(trx, {
       mreRealmId,
@@ -162,6 +165,7 @@ export async function readTaxYear(
       interest,
       proposedSplits: proposed,
       ...statements,
+      ownershipStarts,
     };
   });
 }

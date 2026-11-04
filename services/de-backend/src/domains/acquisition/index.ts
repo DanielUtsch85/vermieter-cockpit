@@ -2,12 +2,15 @@
  * Acquisition domain: the purchase of a share of a PropertyReference (data-model.md §13, api-design.md §27.1).
  * See docs/development/coding-guidelines.md §3.
  */
-export { ACQUISITION_STATUSES, buyerIncreases, createFingerprint, planCancel, planConfirm, structureViolations, sumOf, transferDate } from './acquisition.js';
+export { ACQUISITION_STATUSES, buyerIncreases, createFingerprint, ownershipStart, planCancel, planConfirm, structureViolations, sumOf } from './acquisition.js';
+export { OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER, ownershipStartFlag, planRecordTransferDate, recordTransferDateFingerprint } from './transfer-date.js';
+export type { RecordTransferDateInput, RecordTransferDateOutcome, RecordTransferDatePlan } from './transfer-date.js';
 export type {
   AcquiredShare,
   Acquisition,
   AcquisitionData,
   AcquisitionFilter,
+  AcquisitionFlag,
   AcquisitionId,
   AcquisitionPage,
   AcquisitionRepository,
@@ -23,6 +26,7 @@ export type {
   ExactFraction,
   CreateAcquisitionOutcome,
   NewAcquisition,
+  OwnershipStartFacts,
 } from './acquisition.js';
 export {
   COST_CATEGORIES,

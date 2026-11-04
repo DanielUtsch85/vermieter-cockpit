@@ -199,6 +199,8 @@ export type {
   PartState,
 } from './attribution-parts.js';
 export { TAX_STATEMENT_STATUSES, confirmationMark, matchAcknowledgement, nothingToConfirm, planAcknowledgement } from './tax-statements.js';
+export { OWNERSHIP_START_FLAG, ownershipStartChanges, ownershipStartEntry, ownershipStartIsOpen } from './ownership-start-changes.js';
+export type { OwnershipStartChange, OwnershipStartFact, OwnershipStartKind } from './ownership-start-changes.js';
 export type {
   AcknowledgeDecision,
   AcknowledgeOutcome,

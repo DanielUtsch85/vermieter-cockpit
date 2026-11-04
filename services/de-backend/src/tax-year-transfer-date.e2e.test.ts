@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { confirmAsBeforeVcX34 } from './infrastructure/postgres/legacy-acquisition.test-support.js';
 import { PROPERTIES, REALM_B, databaseUrl, eur, useAcc8, type Json } from './phase-8-acceptance.test-support.js';
 
 /**
@@ -26,6 +25,20 @@ describe.skipIf(databaseUrl === undefined)('the anschaffungsnahe check without e
       allocation: { total: '300000.00', land: '60000.00', building: '240000.00' },
     });
     await api.own(pr, owner, '1/1', transfer ?? '2026-02-01', acquisitionId);
+    return { pr, owner, acquisitionId };
+  };
+  /** Legacy data (§58N open question 7): confirmed before VC-X-34 without the date, inserted as CONFIRMED. */
+  const legacyPurchase = async (index: number) => {
+    const pr = await api.link(PROPERTIES[index] as string);
+    const owner = await api.party(`Eigentümerin ${index} (synthetisch)`);
+    const { acquisitionId } = await api.legacy({
+      pr,
+      buyers: [{ partyId: owner, share: '1/1' }],
+      share: '1/1',
+      price: '300000.00',
+      contract: '2026-02-01',
+      allocation: { total: '300000.00', land: '60000.00', building: '240000.00' },
+    });
     return { pr, owner, acquisitionId };
   };
   const repairOf = async (pr: string) => {
@@ -68,19 +81,21 @@ describe.skipIf(databaseUrl === undefined)('the anschaffungsnahe check without e
     { timeout: 120_000 },
     async () => {
       at('2026-03-01');
-      const { pr: p, acquisitionId: q } = await purchase(0, null);
-      // K4: the record without the transfer date is incomplete and is not confirmed; nothing written.
+      // K4: the record without the transfer date is incomplete and is not confirmed; nothing written (a DRAFT of its own).
+      const { acquisitionId: undatedDraft } = await purchase(4, null);
       const acquisitionRow = async (id: string) => (await api.ctx.pool.query(`SELECT to_jsonb(a) AS row FROM acquisition a WHERE id = $1`, [id])).rows;
-      const draftRow = await acquisitionRow(q);
-      const refused = await json(await call('POST', `/acquisitions/${q}/confirm`, {}), 422);
+      const draftRow = await acquisitionRow(undatedDraft);
+      const refused = await json(await call('POST', `/acquisitions/${undatedDraft}/confirm`, {}), 422);
       expect(refused.error).toMatchObject({
         code: 'CONFIRMATION_BLOCKED',
         details: { violations: [{ code: 'TRANSFER_DATE_MISSING', contractDate: '2026-02-01' }] },
       });
-      expect(await acquisitionRow(q)).toEqual(draftRow);
-      expect(await count(`SELECT count(*) AS n FROM audit_record WHERE entity_type = 'Acquisition' AND entity_id = $1 AND action = 'CONFIRMED'`, [q])).toBe(0);
-      // Legacy data: confirmed before VC-X-34.
-      await confirmAsBeforeVcX34(api.ctx.pool, q);
+      expect(await acquisitionRow(undatedDraft)).toEqual(draftRow);
+      expect(
+        await count(`SELECT count(*) AS n FROM audit_record WHERE entity_type = 'Acquisition' AND entity_id = $1 AND action = 'CONFIRMED'`, [undatedDraft]),
+      ).toBe(0);
+      // Legacy data: confirmed before VC-X-34; since 0067 (§58N) inserted as CONFIRMED, never through the transition.
+      const { pr: p, acquisitionId: q } = await legacyPurchase(0);
       const { pr: p2, acquisitionId: q2 } = await purchase(1, '2026-03-15');
       await api.confirm(q2);
       at('2026-10-30');
@@ -214,8 +229,7 @@ describe.skipIf(databaseUrl === undefined)('the anschaffungsnahe check without e
         null,
       ]);
       // Status first (§28.1's order): a legacy Acquisition already confirmed answers 200 unchanged, whatever its date.
-      const { acquisitionId: legacy } = await purchase(3, null);
-      await confirmAsBeforeVcX34(api.ctx.pool, legacy);
+      const { acquisitionId: legacy } = await legacyPurchase(3);
       const replay = await call('POST', `/acquisitions/${legacy}/confirm`, {});
       expect([replay.status, replay.headers.get('idempotent-replayed')]).toEqual([200, 'true']);
     },

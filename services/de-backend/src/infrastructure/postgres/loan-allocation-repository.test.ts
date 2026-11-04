@@ -127,8 +127,8 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanAllocationRepository', (
     realm = REALM,
   ): Promise<string> {
     const { rows } = await pool.query(
-      `INSERT INTO acquisition (mre_realm_id, property_reference_id, status, purchase_price, currency, acquired_share_numerator, acquired_share_denominator, contract_date, created_by)
-       VALUES ($1, $2, 'DRAFT', $3, 'EUR', 1, 1, '2026-06-15', 'x') RETURNING id`,
+      `INSERT INTO acquisition (mre_realm_id, property_reference_id, status, purchase_price, currency, acquired_share_numerator, acquired_share_denominator, contract_date, economic_transfer_date, created_by)
+       VALUES ($1, $2, 'DRAFT', $3, 'EUR', 1, 1, '2026-06-15', '2026-06-15', 'x') RETURNING id`,
       [realm, propertyReferenceId, price],
     );
     const id = rows[0].id as string;

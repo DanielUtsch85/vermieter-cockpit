@@ -122,6 +122,9 @@ export interface AcquisitionTable {
   /** `date` columns: written as `YYYY-MM-DD`, read through `to_char`. */
   contract_date: string;
   economic_transfer_date: string | null;
+  /** 0067 (§58N): set with the date by `POST …/economic-transfer-date`, `NULL` otherwise. */
+  economic_transfer_recorded_at: Date | null;
+  economic_transfer_source_references: string[] | null;
   land_registry_transfer_date: string | null;
   source_references: Generated<string[]>;
   notes: string | null;

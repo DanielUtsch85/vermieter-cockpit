@@ -1,3 +1,4 @@
+import { ownershipStart } from '../acquisition/index.js';
 import { addDays, ruleKey, type BusinessDate, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
 import { byText, yearOfDate } from './exact.js';
 import {
@@ -140,7 +141,7 @@ function firstLayeredReduction(party: string, read: ScheduleRead, purchases: rea
         d: 1n,
       });
   const days = [
-    ...read.acquisitions.filter((a) => a.sellerPartyIds.includes(party)).map((a) => a.economicTransferDate ?? a.contractDate),
+    ...read.acquisitions.filter((a) => a.sellerPartyIds.includes(party)).map((a) => ownershipStart(a)),
     ...rows.flatMap((o) => {
       if (o.validUntil === null) return [];
       const before = held(o.validUntil);

@@ -17,6 +17,7 @@ import {
 import type { LoanStatus } from '../../domains/financing/index.js';
 import { checkVersion } from '../../shared/index.js';
 import { attributionInputOf } from './attribution-reads.js';
+import { ownershipStartFactsOf } from './ownership-start-reads.js';
 import { partChangeInputOf } from './part-reads.js';
 import { allocatedLoanInterest } from './tax-year-reads.js';
 import { writeAudit } from './audit.js';
@@ -104,8 +105,10 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
           const attribution = await attributionInputOf(trx, mreRealmId, propertyReferenceId, year, this.registry);
           const wide = await allocatedLoanInterest(trx, this.registry, mreRealmId, propertyReferenceId, year, today, true);
           const parts = await partChangeInputOf(trx, wide, mreRealmId, year, { propertyReferenceId, registry: this.registry, today });
+          // §58N: the Acquisitions dated later than their Ownerships began.
+          const ownershipStarts = await ownershipStartFactsOf(trx, mreRealmId, propertyReferenceId);
           const active = await acknowledgementsOf(trx, mreRealmId, propertyReferenceId, year, ['ACTIVE']);
-          const decision = decide({ attribution, parts }, active);
+          const decision = decide({ attribution, parts, ownershipStarts }, active);
           if (this.afterDerivation !== undefined) await this.afterDerivation();
           if (decision.kind === 'NOT_FLAGGED' || decision.kind === 'AMBIGUOUS' || decision.kind === 'DIFFERS') throw new Rejected<AcknowledgeOutcome>(decision);
           const record = async (kind: StatementSnapshot['kind'], acknowledgement: TaxYearAcknowledgement) => {
@@ -144,7 +147,8 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
             .returning('id')
             .executeTakeFirstOrThrow();
           // §58G: a part kind's items in the part shape (0063), a year kind's in 0060's table; the shape guard checks it.
-          if (isPartKind(c.kind)) {
+          // §58N: OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER moves no item (0067's shape guard refuses any).
+          if (c.items.length > 0 && isPartKind(c.kind)) {
             await trx
               .insertInto('tax_year_acknowledgement_part_item')
               .values(
@@ -161,7 +165,7 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
                 })),
               )
               .execute();
-          } else {
+          } else if (c.items.length > 0) {
             await trx
               .insertInto('tax_year_acknowledgement_item')
               .values(

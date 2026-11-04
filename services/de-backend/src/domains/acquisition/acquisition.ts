@@ -1,3 +1,4 @@
+import type { RecordTransferDateInput, RecordTransferDateOutcome } from './transfer-date.js';
 import { addDays, type AuditActor, type BusinessDate, type Money, type VersionConflict } from '../../shared/index.js';
 
 /**
@@ -40,6 +41,19 @@ export interface Acquisition extends AcquisitionData {
   readonly confirmedAt: Date | null;
   readonly createdAt: Date;
   readonly version: number;
+  /** §58N (VC-X-52, 0067): when `POST …/economic-transfer-date` recorded `economicTransferDate`; `null` otherwise. */
+  readonly economicTransferRecordedAt: Date | null;
+  /** §58N open question 2 (decided 2026-11-04): the evidence of the recorded date, set with it; `null` otherwise. */
+  readonly economicTransferSourceReferences: readonly string[] | null;
+  /** §58N: `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER` when the dates differ (derived on read, never stored). */
+  readonly flags: readonly AcquisitionFlag[];
+}
+
+/** A flag on the Acquisition's read (§58N, additive). */
+export interface AcquisitionFlag {
+  readonly code: 'OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER';
+  readonly level: 'OPEN' | 'INFORMATIVE';
+  readonly details: { readonly acquisitionId: string; readonly ownershipStart: BusinessDate; readonly economicTransferDate: BusinessDate };
 }
 
 /** A validated, normalized Acquisition about to be created. */
@@ -47,8 +61,22 @@ export interface NewAcquisition extends AcquisitionData {
   readonly mreRealmId: string;
 }
 
-/** The transfer date: `economicTransferDate`, or `contractDate` while that is unset (P2-D6). */
-export function transferDate(acquisition: Pick<AcquisitionData, 'contractDate' | 'economicTransferDate'>): BusinessDate {
+/** What `ownershipStart` reads: the dates and whether `economicTransferDate` was recorded later (§58N). */
+export interface OwnershipStartFacts {
+  readonly contractDate: BusinessDate;
+  readonly economicTransferDate: BusinessDate | null;
+  /** Set when `POST …/economic-transfer-date` recorded the date (0067); absent or `null` otherwise. */
+  readonly economicTransferRecordedAt?: Date | null;
+}
+
+/**
+ * The day the buyers' Ownerships begin (§27.1's `transferDate`; §58N open question 1, decided 2026-11-04, option (b)):
+ * `contractDate` for an Acquisition whose `economicTransferDate` was recorded later (its Ownerships began on the contract
+ * date and stay), else `economicTransferDate ?? contractDate` (P2-D6), as before VC-X-52. The anschaffungsnahe check
+ * (§58K) and the AfA's start (§59A) read `economicTransferDate` itself.
+ */
+export function ownershipStart(acquisition: OwnershipStartFacts): BusinessDate {
+  if (acquisition.economicTransferRecordedAt != null) return acquisition.contractDate;
   return acquisition.economicTransferDate ?? acquisition.contractDate;
 }
 
@@ -186,7 +214,7 @@ export function buyerIncreases(
   onTransferDate: readonly ConfirmationOwnership[],
   beforeTransferDate: readonly ConfirmationOwnership[],
 ): BuyerIncrease[] {
-  const d = transferDate(current);
+  const d = ownershipStart(current);
   const dayBefore = addDays(d, -1);
   const holders = new Set(own.map((o) => o.ownerPartyId));
   return [...current.buyerPartyIds]
@@ -206,7 +234,7 @@ export function buyerIncreases(
 export function planConfirm(current: Acquisition, input: ConfirmationInput, at: Date): ConfirmPlan {
   if (current.status === 'CONFIRMED') return { kind: 'UNCHANGED' };
   if (current.status === 'CANCELLED') return { kind: 'ACQUISITION_CANCELLED' };
-  const d = transferDate(current);
+  const d = ownershipStart(current);
   const violations: ConfirmationViolation[] = [];
   // §58K (VC-X-34, Entscheidung des Projektinhabers, 2026-11-04, K4): first, before requirements 1–6, all reported.
   if (current.economicTransferDate === null) violations.push({ code: 'TRANSFER_DATE_MISSING', contractDate: current.contractDate });
@@ -232,7 +260,7 @@ export function structureViolations(
   onTransferDate: readonly ConfirmationOwnership[],
   beforeTransferDate: readonly ConfirmationOwnership[],
 ): ConfirmationViolation[] {
-  const d = transferDate(current);
+  const d = ownershipStart(current);
   const buyers = new Set(current.buyerPartyIds);
   const byId = [...own].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
   const violations: ConfirmationViolation[] = [];
@@ -319,4 +347,18 @@ export interface AcquisitionRepository {
    * `planConfirm` (§28.1, §28.1A).
    */
   confirm(id: string, mreRealmId: string, at: Date, actor: AuditActor, expectedVersions?: readonly number[]): Promise<ConfirmAcquisitionOutcome>;
+  /**
+   * §58N: in one READ COMMITTED transaction, claims the key, writes the PropertyReference (no-op), locks the Acquisition
+   * `FOR UPDATE`, applies `planRecordTransferDate`, writes the date with its time and evidence and one AuditRecord
+   * `ECONOMIC_TRANSFER_DATE_RECORDED`.
+   */
+  recordEconomicTransferDate(input: {
+    readonly id: string;
+    readonly mreRealmId: string;
+    readonly record: RecordTransferDateInput;
+    readonly at: Date;
+    readonly actor: AuditActor;
+    readonly expectedVersions?: readonly number[];
+    readonly idempotency?: { readonly key: string; readonly fingerprint: string };
+  }): Promise<RecordTransferDateOutcome>;
 }

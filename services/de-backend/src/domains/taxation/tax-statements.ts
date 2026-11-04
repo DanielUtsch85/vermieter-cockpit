@@ -3,6 +3,7 @@ import type { AllocationBasis, LoanAllocationSetView, LoanStatus } from '../fina
 import type { AttributionChange, AttributionInput } from './attribution-changes.js';
 import type { ChangeEntityType, ChangeItem, ChangeKind } from './attribution-rule.js';
 import type { PartChange, PartChangeEntityType, PartChangeInput, PartChangeKind, PartItem } from './attribution-parts.js';
+import type { OwnershipStartChange, OwnershipStartFact, OwnershipStartKind } from './ownership-start-changes.js';
 
 /**
  * A person's statements the tax-year view reads (api-design.md §58E Parts 2 and 3, VC-X-28): the acknowledgement of
@@ -21,9 +22,12 @@ export interface StatementWithdrawal {
   readonly withdrawReason: string | null;
 }
 
-/** A change of either flag (§58G): `ATTRIBUTION_INPUT_CHANGED`'s year shape or `PROPERTY_PART_CHANGED`'s part shape. */
-export type AcknowledgedKind = ChangeKind | PartChangeKind;
-export type AnyChange = AttributionChange | PartChange;
+/**
+ * A change of either flag (§58G): `ATTRIBUTION_INPUT_CHANGED`'s year shape or `PROPERTY_PART_CHANGED`'s part shape; or
+ * §58N's `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER`, which has no items.
+ */
+export type AcknowledgedKind = ChangeKind | PartChangeKind | OwnershipStartKind;
+export type AnyChange = AttributionChange | PartChange | OwnershipStartChange;
 
 export interface TaxYearAcknowledgement extends StatementWithdrawal {
   readonly acknowledgementId: string;
@@ -33,7 +37,7 @@ export interface TaxYearAcknowledgement extends StatementWithdrawal {
   readonly change: {
     readonly auditRecordId: string;
     readonly kind: AcknowledgedKind;
-    readonly entityType: ChangeEntityType | PartChangeEntityType;
+    readonly entityType: ChangeEntityType | PartChangeEntityType | 'Acquisition';
     readonly entityId: string;
     readonly recordedAt: Date;
     readonly fingerprint: string;
@@ -183,7 +187,7 @@ export interface TaxStatementRepository {
     readonly idempotency?: { readonly key: string; readonly fingerprint: string };
     /** Steps 3–5, on the inputs of both flags read in the command's snapshot (§58E Part 1, §58G). */
     readonly decide: (
-      inputs: { readonly attribution: AttributionInput; readonly parts: PartChangeInput },
+      inputs: { readonly attribution: AttributionInput; readonly parts: PartChangeInput; readonly ownershipStarts?: readonly OwnershipStartFact[] },
       active: readonly TaxYearAcknowledgement[],
     ) => AcknowledgeDecision;
   }): Promise<AcknowledgeOutcome>;

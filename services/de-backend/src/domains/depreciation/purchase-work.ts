@@ -290,6 +290,15 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
       ],
     };
   }
+  // §58N (Entscheidung des Projektinhabers, 2026-11-04, Fragen 1 und 5): the Ownerships began before the recorded
+  // transfer; nobody gets AfA between the two. `OPEN` when a seller holds a part of another purchase component.
+  if (start !== null && ownedFrom < start) {
+    const sellerHasAfaComponent = a.sellerPartyIds.some((s) => rowsOf(s).some((r) => r.acquisitionId !== null && r.acquisitionId !== a.id));
+    flags.push({
+      code: 'OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER',
+      details: { acquisitionId: a.id, ownershipStart: ownedFrom, economicTransferDate: start, level: sellerHasAfaComponent ? 'OPEN' : 'INFORMATIVE' },
+    });
+  }
   const unpaid = a.costs.filter((c) => c.paymentStatus !== 'PAID').map((c) => c.id);
   if (unpaid.length > 0) flags.push({ code: 'ACQUISITION_COST_UNPAID', details: { costIds: [...unpaid].sort(byText) } });
 

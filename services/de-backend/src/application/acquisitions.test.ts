@@ -40,6 +40,7 @@ const repository = (overrides: Partial<AcquisitionRepository>): AcquisitionRepos
   list: async () => ({ items: [], page: 1, pageSize: 50, total: 0 }),
   cancel: () => Promise.reject(new Error('unused')),
   confirm: () => Promise.reject(new Error('unused')),
+  recordEconomicTransferDate: () => Promise.reject(new Error('unused')),
   ...overrides,
 });
 

@@ -53,7 +53,12 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
             .set((eb) => ({ version: eb.ref('version') }))
             .where('id', '=', allocation.acquisitionId)
             .where('mre_realm_id', '=', allocation.mreRealmId)
-            .returning(['status', sql<string>`to_char(coalesce(economic_transfer_date, contract_date), 'YYYY-MM-DD')`.as('transfer_date')])
+            .returning([
+              'status', // §58N (b): the day the Ownerships begin (`ownershipStart`), the contract date for a date recorded later.
+              sql<string>`to_char(CASE WHEN economic_transfer_recorded_at IS NOT NULL THEN contract_date ELSE coalesce(economic_transfer_date, contract_date) END, 'YYYY-MM-DD')`.as(
+                'transfer_date',
+              ),
+            ])
             .executeTakeFirst();
           if (acquisition === undefined) throw new Rejected({ kind: 'ACQUISITION_NOT_FOUND' });
           const advisor = allocation.advisorPartyId;

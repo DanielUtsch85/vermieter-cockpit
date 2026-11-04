@@ -3,6 +3,7 @@ import { z } from 'zod';
 import {
   CHANGE_KINDS,
   FINGERPRINT,
+  OWNERSHIP_START_FLAG,
   PART_CHANGE_KINDS,
   TAX_STATEMENT_STATUSES,
   type PartItem,
@@ -38,7 +39,8 @@ const reason = z.string().trim().min(1).max(500);
 const uuid = z.string().regex(RESOURCE_ID);
 
 // §58G: `kind` optional, one of both flags' kinds (Entscheidung des Projektinhabers, 2026-11-03, Frage 4).
-const kind = z.enum([...CHANGE_KINDS, ...PART_CHANGE_KINDS]);
+// §58N: and OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER (Entscheidung des Projektinhabers, 2026-11-04, Frage 5).
+const kind = z.enum([...CHANGE_KINDS, ...PART_CHANGE_KINDS, OWNERSHIP_START_FLAG]);
 const acknowledgeBody = z.object({ auditRecordId: uuid, kind: kind.optional(), expectedFingerprint: z.string().regex(FINGERPRINT), reason }).strict();
 const confirmBody = z.object({ reason, advisorPartyId: uuid.nullish() }).strict();
 const withdrawBody = z.object({ reason }).strict();

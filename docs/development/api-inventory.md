@@ -8,7 +8,7 @@ Implemented routes only: a route in `docs/architecture/api-design.md` that is no
 Contracts, payloads and error codes are in `api-design.md`; the business routes need `Authorization: Bearer <MRE token>` and
 `organizationid: <mreRealmId>` (`mre-integration.md` §47.2).
 
-Routes: 170.
+Routes: 171.
 
 | Method | Path |
 |---|---|
@@ -23,6 +23,7 @@ Routes: 170.
 | GET | `/api/v1/acquisitions/:acquisitionId/costs/:costId/classifications` |
 | POST | `/api/v1/acquisitions/:acquisitionId/costs/:costId/classifications` |
 | POST | `/api/v1/acquisitions/:acquisitionId/costs/:costId/void` |
+| POST | `/api/v1/acquisitions/:acquisitionId/economic-transfer-date` |
 | POST | `/api/v1/acquisitions/:acquisitionId/land-building-allocation` |
 | GET | `/api/v1/acquisitions/:acquisitionId/land-building-allocations` |
 | GET | `/api/v1/acquisitions/:acquisitionId/owner-allocation` |
@@ -198,6 +199,7 @@ Routes: 170.
 - GET `/api/v1/acquisitions/:acquisitionId/costs/:costId/classifications`
 - POST `/api/v1/acquisitions/:acquisitionId/costs/:costId/classifications`
 - POST `/api/v1/acquisitions/:acquisitionId/costs/:costId/void`
+- POST `/api/v1/acquisitions/:acquisitionId/economic-transfer-date`
 - POST `/api/v1/acquisitions/:acquisitionId/land-building-allocation`
 - GET `/api/v1/acquisitions/:acquisitionId/land-building-allocations`
 - GET `/api/v1/acquisitions/:acquisitionId/owner-allocation`

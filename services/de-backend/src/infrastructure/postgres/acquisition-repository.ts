@@ -1,11 +1,10 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
+  ownershipStart,
   planCancel,
   planConfirm,
-  transferDate,
   type Acquisition,
   type AcquisitionFilter,
-  type AcquisitionId,
   type AcquisitionPage,
   type AcquisitionRepository,
   type AcquisitionStatus,
@@ -14,59 +13,19 @@ import {
   type ConfirmationOwnership,
   type CreateAcquisitionOutcome,
   type NewAcquisition,
+  type RecordTransferDateOutcome,
 } from '../../domains/acquisition/index.js';
 import { addDays, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
+import { COLUMNS, fromSnapshot, readOne, toSnapshot, withParties } from './acquisition-rows.js';
+import { recordEconomicTransferDateIn } from './acquisition-transfer-date.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
-import { fromNumericAmount, toNumericAmount } from './money-column.js';
+import { toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_TYPE = 'Acquisition';
 const CREATE_SCOPE = 'acquisition.create';
-
-/** Every column, the dates as `YYYY-MM-DD` text and the price as text (exact). */
-const COLUMNS = [
-  'id',
-  'mre_realm_id',
-  'property_reference_id',
-  'status',
-  sql<string>`purchase_price::text`.as('purchase_price'),
-  'currency',
-  'acquired_share_numerator',
-  'acquired_share_denominator',
-  sql<string>`to_char(contract_date, 'YYYY-MM-DD')`.as('contract_date'),
-  sql<string | null>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('economic_transfer_date'),
-  sql<string | null>`to_char(land_registry_transfer_date, 'YYYY-MM-DD')`.as('land_registry_transfer_date'),
-  'source_references',
-  'notes',
-  'cancelled_at',
-  'cancellation_reason',
-  'confirmed_at',
-  'created_at',
-  'version',
-] as const;
-
-interface AcquisitionRow {
-  id: string;
-  mre_realm_id: string;
-  property_reference_id: string;
-  status: string;
-  purchase_price: string;
-  currency: string;
-  acquired_share_numerator: number;
-  acquired_share_denominator: number;
-  contract_date: string;
-  economic_transfer_date: string | null;
-  land_registry_transfer_date: string | null;
-  source_references: string[];
-  notes: string | null;
-  cancelled_at: Date | null;
-  cancellation_reason: string | null;
-  confirmed_at: Date | null;
-  created_at: Date;
-  version: number;
-}
 
 /** Thrown inside the transaction to roll back the key claim and every write together. */
 class Rejected extends Error {
@@ -306,7 +265,7 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
         if (row === undefined) return { kind: 'NOT_FOUND' };
         const [current] = await withParties(trx, [row]);
         if (current === undefined) return { kind: 'NOT_FOUND' };
-        const d = transferDate(current);
+        const d = ownershipStart(current);
         const ownerships = (query: (q: ReturnType<typeof ownershipQuery>) => ReturnType<typeof ownershipQuery>) => query(ownershipQuery(trx)).execute();
         const own = await ownerships((q) => q.where('acquisition_id', '=', id));
         const covering = (day: BusinessDate) =>
@@ -349,6 +308,10 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
         return { kind: 'CONFIRMED', acquisition: confirmed, changed: true, ownershipIds };
       });
   }
+
+  recordEconomicTransferDate(input: Parameters<AcquisitionRepository['recordEconomicTransferDate']>[0]): Promise<RecordTransferDateOutcome> {
+    return recordEconomicTransferDateIn(this.db, input);
+  }
 }
 
 /** `VALID` Ownerships with the columns the confirmation reads; the dates as `YYYY-MM-DD` text. */
@@ -388,76 +351,4 @@ export async function readAcquisitionIn(trx: Transaction<Database>, id: string, 
   if (!UUID.test(id)) return undefined;
   const row = await trx.selectFrom('acquisition').select(COLUMNS).where('id', '=', id).where('mre_realm_id', '=', mreRealmId).executeTakeFirst();
   return row === undefined ? undefined : (await withParties(trx, [row]))[0];
-}
-
-async function readOne(trx: Transaction<Database>, id: string): Promise<Acquisition> {
-  const row = await trx.selectFrom('acquisition').select(COLUMNS).where('id', '=', id).executeTakeFirstOrThrow();
-  return (await withParties(trx, [row]))[0] as Acquisition;
-}
-
-/** The rows as Acquisitions, with their buyers and sellers in the order given. */
-async function withParties(trx: Transaction<Database>, rows: readonly AcquisitionRow[]): Promise<Acquisition[]> {
-  if (rows.length === 0) return [];
-  const parties = await trx
-    .selectFrom('acquisition_party')
-    .select(['acquisition_id', 'party_id', 'role'])
-    .where(
-      'acquisition_id',
-      'in',
-      rows.map((r) => r.id),
-    )
-    .orderBy('position')
-    .execute();
-  const of = (id: string, role: 'BUYER' | 'SELLER') => parties.filter((p) => p.acquisition_id === id && p.role === role).map((p) => p.party_id);
-  return rows.map((row) => ({
-    id: row.id as AcquisitionId,
-    mreRealmId: row.mre_realm_id,
-    propertyReferenceId: row.property_reference_id,
-    status: row.status as AcquisitionStatus,
-    purchasePrice: fromNumericAmount(row.purchase_price, row.currency),
-    acquiredShare: { numerator: row.acquired_share_numerator, denominator: row.acquired_share_denominator },
-    contractDate: row.contract_date as BusinessDate,
-    economicTransferDate: row.economic_transfer_date as BusinessDate | null,
-    landRegistryTransferDate: row.land_registry_transfer_date as BusinessDate | null,
-    buyerPartyIds: of(row.id, 'BUYER'),
-    sellerPartyIds: of(row.id, 'SELLER'),
-    sourceReferences: row.source_references,
-    notes: row.notes,
-    cancelledAt: row.cancelled_at,
-    cancellationReason: row.cancellation_reason,
-    confirmedAt: row.confirmed_at,
-    createdAt: row.created_at,
-    version: row.version,
-  }));
-}
-
-/** The created Acquisition as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
-interface AcquisitionSnapshot extends Omit<Acquisition, 'purchasePrice' | 'createdAt' | 'cancelledAt' | 'confirmedAt'> {
-  readonly purchasePrice: { readonly amount: string; readonly currency: string };
-  readonly createdAt: string;
-  readonly cancelledAt: string | null;
-  readonly confirmedAt: string | null;
-}
-
-function toSnapshot(a: Acquisition): AcquisitionSnapshot {
-  return {
-    ...a,
-    purchasePrice: { amount: a.purchasePrice.amount, currency: a.purchasePrice.currency },
-    createdAt: a.createdAt.toISOString(),
-    cancelledAt: a.cancelledAt?.toISOString() ?? null,
-    confirmedAt: a.confirmedAt?.toISOString() ?? null,
-  };
-}
-
-/** Written by toSnapshot in the same codebase, so its shape is trusted. */
-function fromSnapshot(result: unknown): Acquisition {
-  const s = result as AcquisitionSnapshot;
-  return {
-    ...s,
-    id: s.id,
-    purchasePrice: fromNumericAmount(s.purchasePrice.amount, s.purchasePrice.currency),
-    createdAt: new Date(s.createdAt),
-    cancelledAt: s.cancelledAt === null ? null : new Date(s.cancelledAt),
-    confirmedAt: s.confirmedAt === null ? null : new Date(s.confirmedAt),
-  };
 }
