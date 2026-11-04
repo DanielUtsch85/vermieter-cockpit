@@ -17,6 +17,8 @@ export const INFORMATIVE_CODES: readonly string[] = [
   'CAPITALIZED_REFUND',
   'WITHDRAWAL_DATE_ASSUMED',
   'GWG_THRESHOLD_MAY_APPLY',
+  // §58N: the buyers' figures are right; the decided level (`details.level`) is held, and closed, in the tax-year view.
+  'OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER',
 ];
 export const isOpen = (code: string) => !INFORMATIVE_CODES.includes(code);
 

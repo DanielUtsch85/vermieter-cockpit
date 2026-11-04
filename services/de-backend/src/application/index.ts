@@ -190,17 +190,21 @@ export {
   getAcquisition,
   listAcquisitions,
   listPropertyAcquisitions,
+  recordEconomicTransferDate,
+  TransferDateAlreadySetError,
+  TransferDateBeforeContractDateError,
 } from './acquisitions.js';
 export type {
   CancelAcquisition,
   ConfirmAcquisition,
+  RecordEconomicTransferDate,
   CreateAcquisition,
   CreateAcquisitionInput,
   GetAcquisition,
   ListAcquisitions,
   ListPropertyAcquisitions,
 } from './acquisitions.js';
-export { ACQUISITION_STATUSES, transferDate } from '../domains/acquisition/index.js';
+export { ACQUISITION_STATUSES, ownershipStart } from '../domains/acquisition/index.js';
 export type { Acquisition, AcquisitionFilter, AcquisitionPage, AcquisitionStatus, ConfirmationViolation } from '../domains/acquisition/index.js';
 export {
   AcquisitionCancelledError,
@@ -869,7 +873,7 @@ export type {
   WithdrawAcknowledgement,
   WithdrawConfirmation,
 } from './tax-statements.js';
-export { CHANGE_KINDS, PART_CHANGE_KINDS, TAX_STATEMENT_STATUSES } from '../domains/taxation/index.js';
+export { CHANGE_KINDS, OWNERSHIP_START_FLAG, PART_CHANGE_KINDS, TAX_STATEMENT_STATUSES } from '../domains/taxation/index.js';
 export type {
   AcknowledgedKind,
   LoanAllocationTaxConfirmation,

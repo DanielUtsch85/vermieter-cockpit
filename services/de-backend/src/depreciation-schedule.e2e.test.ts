@@ -26,7 +26,7 @@ import { Money, type BusinessDate } from './shared/index.js';
 import { mrePrincipalVerifier } from './wiring.js';
 import { reproductionFromDatabase } from './depreciation-reproduction.test-support.js';
 import { standardMethod } from './infrastructure/postgres/depreciation-method.test-support.js';
-import { confirmAsBeforeVcX34 } from './infrastructure/postgres/legacy-acquisition.test-support.js';
+import { insertConfirmedAsBeforeVcX34 } from './infrastructure/postgres/legacy-acquisition.test-support.js';
 
 /**
  * VC-8-02 end to end (api-design.md §59A), wired as in main.ts, with ACC8's purchase (synthetic): the response example
@@ -218,7 +218,11 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       actor,
     );
     if (created.kind !== 'CREATED') throw new Error(created.kind);
-    const id = created.acquisition.id;
+    return costsAndAllocation(created.acquisition.id, p);
+  }
+  /** The ACC8 costs and an allocation of Acquisition `id` (a DRAFT, or legacy data inserted as CONFIRMED). */
+  async function costsAndAllocation(id: string, p: Purchase): Promise<string> {
+    const realm = p.realm ?? REALM_A;
     for (const [category, amount] of [
       ['REAL_ESTATE_TRANSFER_TAX', '15000.00'],
       ['NOTARY', '3000.00'],
@@ -404,7 +408,7 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
   async function sale(economic: boolean) {
     const s = await acc8();
     const c = await party('Käuferin C');
-    const x = await purchase({
+    const p: Purchase = {
       pr: s.pr,
       buyers: [c],
       sellers: [s.b],
@@ -412,23 +416,42 @@ describe.skipIf(databaseUrl === undefined)('the schedule of the purchase (VC-8-0
       contract: '2029-07-01',
       transfer: economic ? '2029-07-01' : null,
       price: '110000.00',
-    });
-    const changed = await ownerships.change(
-      {
-        mreRealmId: REALM_A,
-        propertyReferenceId: s.pr,
-        effectiveDate: day('2029-07-01'),
-        reason: 'Verkauf',
-        close: [s.rows[1] as string],
-        create: [{ ownerPartyId: c, share: { numerator: 2, denominator: 5 }, sourceReferences: [], notes: null }],
-        acquisitionId: x,
-      },
-      actor,
-    );
-    if (changed.kind !== 'CHANGED') throw new Error(changed.kind);
-    // §58K (VC-X-34, K4): an undated Acquisition is no longer confirmed by the API; this one is legacy data.
-    if (economic) await confirm(x);
-    else await confirmAsBeforeVcX34(pool, x);
+    };
+    // §58K (VC-X-34, K4) and §58N (0067): an undated Acquisition is no longer confirmed, not even past the repository;
+    // this one is legacy data, inserted as CONFIRMED with B's row closed on 2029-06-30 and C's row from 2029-07-01.
+    const x = economic
+      ? await purchase(p)
+      : await costsAndAllocation(
+          (
+            await insertConfirmedAsBeforeVcX34(pool, {
+              mreRealmId: REALM_A,
+              propertyReferenceId: s.pr,
+              contractDate: '2029-07-01',
+              purchasePrice: '110000.00',
+              acquiredShare: [2, 5],
+              buyers: [{ partyId: c, share: [2, 5] }],
+              sellerPartyIds: [s.b],
+              close: [s.rows[1] as string],
+            })
+          ).acquisitionId,
+          p,
+        );
+    if (economic) {
+      const changed = await ownerships.change(
+        {
+          mreRealmId: REALM_A,
+          propertyReferenceId: s.pr,
+          effectiveDate: day('2029-07-01'),
+          reason: 'Verkauf',
+          close: [s.rows[1] as string],
+          create: [{ ownerPartyId: c, share: { numerator: 2, denominator: 5 }, sourceReferences: [], notes: null }],
+          acquisitionId: x,
+        },
+        actor,
+      );
+      if (changed.kind !== 'CHANGED') throw new Error(changed.kind);
+      await confirm(x);
+    }
     await addMethod(s.assetId, x);
     return { ...s, c, x };
   }

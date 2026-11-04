@@ -7,7 +7,7 @@ import {
   planConfirm,
   structureViolations,
   sumOf,
-  transferDate,
+  ownershipStart,
   type Acquisition,
   type AcquisitionId,
   type ConfirmationInput,
@@ -39,12 +39,15 @@ const acquisition: Acquisition = {
   confirmedAt: null,
   createdAt: new Date('2026-10-25T08:00:00Z'),
   version: 1,
+  economicTransferRecordedAt: null,
+  economicTransferSourceReferences: null,
+  flags: [],
 };
 
 describe('Acquisition', () => {
   it('the transfer date is the economic transfer, or the contract while that is unset (P2-D6)', () => {
-    expect(transferDate(data)).toBe('2026-06-15');
-    expect(transferDate({ ...data, economicTransferDate: day('2026-08-01') })).toBe('2026-08-01');
+    expect(ownershipStart(data)).toBe('2026-06-15');
+    expect(ownershipStart({ ...data, economicTransferDate: day('2026-08-01') })).toBe('2026-08-01');
   });
 
   it('cancel: a draft without VALID Ownerships; a repeat is UNCHANGED; confirmed is final; carried by Ownerships is refused', () => {
@@ -194,7 +197,7 @@ describe('VC-X-30: the acquired share is the increase over the day before (§28.
   });
   /** Every buyer active; `rows` all rows of the PropertyReference, `on`/`before` as the repository reads them. */
   const input = (x: Acquisition, rows: readonly ConfirmationOwnership[], ownIds: readonly string[]): ConfirmationInput => {
-    const d = transferDate(x);
+    const d = ownershipStart(x);
     const dayBefore = day(new Date(Date.parse(`${d}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10));
     const covers = (o: ConfirmationOwnership, t: string) => o.validFrom <= t && (o.validUntil === null || o.validUntil >= t);
     return {

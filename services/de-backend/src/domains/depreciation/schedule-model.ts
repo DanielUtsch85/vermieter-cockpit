@@ -40,6 +40,11 @@ export interface ScheduleAcquisition {
   readonly acquiredShare: { readonly numerator: number; readonly denominator: number };
   readonly contractDate: BusinessDate;
   readonly economicTransferDate: BusinessDate | null;
+  /**
+   * §58N (VC-X-52): set when the date was recorded later (`POST …/economic-transfer-date`); its Ownerships then began on
+   * the contract date (`ownershipStart`). Absent or `null` otherwise.
+   */
+  readonly economicTransferRecordedAt?: Date | null;
   readonly sellerPartyIds: readonly string[];
   readonly costs: readonly ScheduleCost[];
   readonly allocation: ScheduleAllocation | null;

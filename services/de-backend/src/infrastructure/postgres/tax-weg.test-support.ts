@@ -9,7 +9,7 @@ import { PostgresAcquisitionRepository } from './acquisition-repository.js';
 import { createDatabase } from './database.js';
 import { PostgresFinancialAccountRepository } from './financial-account-repository.js';
 import { PostgresLandBuildingAllocationRepository } from './land-building-allocation-repository.js';
-import { confirmAsBeforeVcX34 } from './legacy-acquisition.test-support.js';
+import { insertConfirmedAsBeforeVcX34 } from './legacy-acquisition.test-support.js';
 import { MIGRATION_ADVISORY_LOCK, migrateToLatest } from './migrate.js';
 import { PostgresPartyRepository } from './party-repository.js';
 import type { Database } from './schema.js';
@@ -323,32 +323,47 @@ export function useTaxWegDatabase(name: `${string}_test`) {
     const contract = options.contract ?? (undated ? '2026-02-01' : transfer);
     const realm = options.realm ?? REALM;
     const buyer = await party('Anna', realm);
-    const created = await acquisitions.create(
-      {
-        mreRealmId: realm,
-        propertyReferenceId: pr,
-        purchasePrice: eur('240000.00'),
-        acquiredShare: { numerator: 1, denominator: 1 },
-        contractDate: day(contract),
-        economicTransferDate: undated ? null : day(transfer),
-        landRegistryTransferDate: null,
-        buyerPartyIds: [buyer],
-        sellerPartyIds: [],
-        sourceReferences: [],
-        notes: null,
-      },
-      actor,
-    );
-    if (created.kind !== 'CREATED') throw new Error(created.kind);
-    const id = created.acquisition.id;
-    await pool.query(
-      `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
-       VALUES ($1, $2, $3, 1, 1, $4, 'VALID', $5, 'x')`,
-      [realm, pr, buyer, undated ? contract : transfer, id],
-    );
+    // §58N (0067): a confirmed undated Acquisition is legacy data, inserted as CONFIRMED (never through the transition).
+    const legacy =
+      undated && options.confirm !== false
+        ? await insertConfirmedAsBeforeVcX34(pool, {
+            mreRealmId: realm,
+            propertyReferenceId: pr,
+            contractDate: contract,
+            purchasePrice: '240000.00',
+            buyers: [{ partyId: buyer, share: [1, 1] }],
+          })
+        : undefined;
+    const created =
+      legacy !== undefined
+        ? undefined
+        : await acquisitions.create(
+            {
+              mreRealmId: realm,
+              propertyReferenceId: pr,
+              purchasePrice: eur('240000.00'),
+              acquiredShare: { numerator: 1, denominator: 1 },
+              contractDate: day(contract),
+              economicTransferDate: undated ? null : day(transfer),
+              landRegistryTransferDate: null,
+              buyerPartyIds: [buyer],
+              sellerPartyIds: [],
+              sourceReferences: [],
+              notes: null,
+            },
+            actor,
+          );
+    if (created !== undefined && created.kind !== 'CREATED') throw new Error(created.kind);
+    const id = legacy?.acquisitionId ?? (created as { acquisition: { id: string } }).acquisition.id;
+    if (legacy === undefined) {
+      await pool.query(
+        `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by)
+         VALUES ($1, $2, $3, 1, 1, $4, 'VALID', $5, 'x')`,
+        [realm, pr, buyer, undated ? contract : transfer, id],
+      );
+    }
     if (options.confirm !== false) {
-      if (undated) await confirmAsBeforeVcX34(pool, id);
-      else {
+      if (!undated) {
         const confirmed = await acquisitions.confirm(id, realm, AT, actor);
         if (confirmed.kind !== 'CONFIRMED') throw new Error(JSON.stringify(confirmed));
       }

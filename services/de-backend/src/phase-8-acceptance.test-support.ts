@@ -7,6 +7,7 @@ import type { Express } from 'express';
 import { createApp } from './api/index.js';
 import { commandsWith } from './api/app.test-support.js';
 import {
+  cancelAcquisition,
   changeOwnership,
   confirmAcquisition,
   confirmTransaction,
@@ -31,9 +32,11 @@ import {
   createSpecialAssessment,
   createTaxClassification,
   createWeg,
+  getAcquisition,
   getAnschaffungsnaheCheck,
   getTaxYearView,
   linkPropertyReference,
+  recordEconomicTransferDate,
   refreshPropertyReference,
   replaceAssessmentUses,
   setTransactionSplits,
@@ -66,6 +69,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier, mrePropertyLookup } from './wiring.js';
 import { standardMethodBody } from './infrastructure/postgres/depreciation-method.test-support.js';
+import { insertConfirmedAsBeforeVcX34 } from './infrastructure/postgres/legacy-acquisition.test-support.js';
 
 /**
  * The setup of ACC8 (`phase-8-acceptance.e2e.test.ts`, invariant-suite.md §51): one migrated schema, the fake MRE and the
@@ -154,7 +158,14 @@ export function useAcc8(name: `${string}_e2e`) {
           propertyReferences: { link: linkPropertyReference(propertyReferences), refresh: refreshPropertyReference(propertyReferences) },
           parties: { create: createParty({ repository: new PostgresPartyRepository(db) }) },
           ownerships: { create: createOwnership({ repository: ownerships }), change: changeOwnership({ repository: ownerships }) },
-          acquisitions: { create: createAcquisition({ repository: acquisitions }), confirm: confirmAcquisition({ repository: acquisitions, now }) },
+          acquisitions: {
+            create: createAcquisition({ repository: acquisitions }),
+            get: getAcquisition({ repository: acquisitions }),
+            cancel: cancelAcquisition({ repository: acquisitions, now }),
+            confirm: confirmAcquisition({ repository: acquisitions, now }),
+            // §58N (VC-X-52): recording the transfer of economic ownership later.
+            recordEconomicTransferDate: recordEconomicTransferDate({ repository: acquisitions, now }),
+          },
           acquisitionCosts: {
             createCost: createAcquisitionCost({ repository: new PostgresAcquisitionCostRepository(db) }),
             listCosts: listAcquisitionCosts({ repository: new PostgresAcquisitionCostRepository(db) }),
@@ -257,7 +268,7 @@ export function useAcc8(name: `${string}_e2e`) {
       share: string;
       price: string;
       contract: string;
-      /** `null`: no `economicTransferDate` (§58K: then `confirm` refuses it; legacy data is confirmed past the repository). */
+      /** `null`: no `economicTransferDate` (§58K: then `confirm` refuses it; legacy data is `legacy`'s, §58N). */
       transfer: string | null;
       costs?: readonly (readonly [string, string])[];
       allocation: { total: string; land: string; building: string; reviewState?: 'CONFIRMED' | 'UNREVIEWED' };
@@ -272,14 +283,37 @@ export function useAcc8(name: `${string}_e2e`) {
         buyerPartyIds: p.buyers,
         sellerPartyIds: p.sellers ?? [],
       });
-      const costIds: string[] = [];
-      for (const [category, amount] of p.costs ?? []) {
-        const { costId } = await post(`/acquisitions/${acquisitionId}/costs`, { category, amount: eur(amount) });
-        costIds.push(costId);
-        if (p.classify !== false && ['NOTARY', 'LAND_REGISTRY', 'OTHER'].includes(category)) await api.classifyCost(acquisitionId, costId, amount);
-      }
-      const allocationId = await api.allocate(acquisitionId, p.allocation, null);
-      return { acquisitionId, allocationId, costIds };
+      return { acquisitionId, ...(await costsAndAllocation(acquisitionId, p)) };
+    },
+    /**
+     * Legacy data (§58K K4, §58N open question 7): an Acquisition confirmed before VC-X-34 without the date, inserted as
+     * `CONFIRMED` with the buyers' Ownerships from the contract date (`insertConfirmedAsBeforeVcX34`; sellers' rows in
+     * `close` end the day before), then its costs and allocation through the API as `purchase`.
+     */
+    legacy: async (p: {
+      pr: string;
+      buyers: readonly { partyId: string; share: string }[];
+      sellers?: readonly string[];
+      close?: readonly string[];
+      share: string;
+      price: string;
+      contract: string;
+      costs?: readonly (readonly [string, string])[];
+      allocation: { total: string; land: string; building: string; reviewState?: 'CONFIRMED' | 'UNREVIEWED' };
+      classify?: boolean;
+    }): Promise<{ acquisitionId: string; ownershipIds: string[]; allocationId: string; costIds: string[] }> => {
+      const fraction = (share: string) => share.split('/').map(Number) as [number, number];
+      const { acquisitionId, ownershipIds } = await insertConfirmedAsBeforeVcX34(ctx.pool, {
+        mreRealmId: REALM_A,
+        propertyReferenceId: p.pr,
+        contractDate: p.contract,
+        purchasePrice: p.price,
+        acquiredShare: fraction(p.share),
+        buyers: p.buyers.map((b) => ({ partyId: b.partyId, share: fraction(b.share) })),
+        sellerPartyIds: p.sellers ?? [],
+        close: p.close ?? [],
+      });
+      return { acquisitionId, ownershipIds, ...(await costsAndAllocation(acquisitionId, p)) };
     },
     /** §59D: the whole cost classified as a confirmed `OWNERSHIP_TRANSFER` (the first classification); its id. */
     classifyCost: async (acquisitionId: string, costId: string, amount: string): Promise<string> =>
@@ -360,6 +394,24 @@ export function useAcc8(name: `${string}_e2e`) {
       }
       return rows;
     },
+  };
+  /** The costs (classified as `purchase` says) and the allocation of an Acquisition, through the API. */
+  const costsAndAllocation = async (
+    acquisitionId: string,
+    p: {
+      costs?: readonly (readonly [string, string])[];
+      allocation: { total: string; land: string; building: string; reviewState?: 'CONFIRMED' | 'UNREVIEWED' };
+      classify?: boolean;
+    },
+  ): Promise<{ allocationId: string; costIds: string[] }> => {
+    const costIds: string[] = [];
+    for (const [category, amount] of p.costs ?? []) {
+      const { costId } = await post(`/acquisitions/${acquisitionId}/costs`, { category, amount: eur(amount) });
+      costIds.push(costId);
+      if (p.classify !== false && ['NOTARY', 'LAND_REGISTRY', 'OTHER'].includes(category)) await api.classifyCost(acquisitionId, costId, amount);
+    }
+    const allocationId = await api.allocate(acquisitionId, p.allocation, null);
+    return { allocationId, costIds };
   };
   return api;
 }

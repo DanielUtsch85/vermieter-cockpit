@@ -27,6 +27,9 @@ const acquisition = (buyers: string[], overrides: Partial<Acquisition> = {}): Ac
   confirmedAt: new Date(),
   createdAt: new Date(),
   version: 2,
+  economicTransferRecordedAt: null,
+  economicTransferSourceReferences: null,
+  flags: [],
   ...overrides,
 });
 const own = (id: string, owner: string, n: number, d: number, from = '2026-08-01', until: string | null = null): ConfirmationOwnership => ({

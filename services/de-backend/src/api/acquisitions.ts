@@ -4,8 +4,8 @@ import {
   ACQUISITION_STATUSES,
   checkBusinessDate,
   formatShare,
+  ownershipStart,
   parseShare,
-  transferDate,
   type Acquisition,
   type CancelAcquisition,
   type ConfirmAcquisition,
@@ -13,6 +13,7 @@ import {
   type GetAcquisition,
   type ListAcquisitions,
   type ListPropertyAcquisitions,
+  type RecordEconomicTransferDate,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
@@ -89,6 +90,18 @@ const createBody = z
   });
 
 const cancelBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
+/** §58N: the evidence is required (the tax review's „Eingabe mit Belegquelle“): an empty list is `REQUIRED`. */
+const transferDateBody = z
+  .object({
+    economicTransferDate: businessDate,
+    sourceReferences: z.array(z.string().trim().min(1).max(500)).max(10),
+    notes: optionalText(2000).nullish(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (Array.isArray(body.sourceReferences) && body.sourceReferences.length === 0)
+      ctx.addIssue({ code: 'custom', path: ['sourceReferences'], params: { code: 'REQUIRED' } });
+  });
 const confirmBody = z.object({}).strict();
 
 const paging = {
@@ -120,6 +133,8 @@ export interface AcquisitionCommands {
   readonly listForPropertyReference: ListPropertyAcquisitions;
   readonly cancel: CancelAcquisition;
   readonly confirm: ConfirmAcquisition;
+  /** §58N (VC-X-52). */
+  readonly recordEconomicTransferDate: RecordEconomicTransferDate;
 }
 
 /** Acquisition API (api-design.md §27.1, backlog VC-2-05). */
@@ -220,6 +235,34 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
       .catch(next);
   });
 
+  // §58N (VC-X-52): the transfer of economic ownership recorded later, with its evidence; status unchanged.
+  router.post('/acquisitions/:acquisitionId/economic-transfer-date', express.json({ limit: '32kb' }), (req, res, next) => {
+    const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
+    if (acquisitionId === undefined) return;
+    const idempotency = readIdempotencyKey(req, res);
+    if (idempotency === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = transferDateBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .recordEconomicTransferDate({
+        principal: principalOf(res),
+        acquisitionId,
+        record: { economicTransferDate: parsed.data.economicTransferDate, sourceReferences: parsed.data.sourceReferences, notes: parsed.data.notes ?? null },
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+        ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
+      })
+      .then(({ acquisition, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        sendAcquisition(res, acquisition);
+      })
+      .catch(next);
+  });
+
   router.get('/property-references/:propertyReferenceId/acquisitions', (req, res, next) => {
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
@@ -266,7 +309,10 @@ function toDto(a: Acquisition) {
     contractDate: a.contractDate,
     economicTransferDate: a.economicTransferDate,
     landRegistryTransferDate: a.landRegistryTransferDate,
-    transferDate: transferDate(a),
+    // §58N (b): `transferDate` is `ownershipStart`, the day the buyers' Ownerships begin.
+    transferDate: ownershipStart(a),
+    economicTransferRecordedAt: a.economicTransferRecordedAt?.toISOString() ?? null,
+    economicTransferSourceReferences: a.economicTransferSourceReferences,
     buyerPartyIds: a.buyerPartyIds,
     sellerPartyIds: a.sellerPartyIds,
     sourceReferences: a.sourceReferences,
@@ -276,5 +322,6 @@ function toDto(a: Acquisition) {
     confirmedAt: a.confirmedAt?.toISOString() ?? null,
     createdAt: a.createdAt.toISOString(),
     version: a.version,
+    flags: a.flags,
   };
 }

@@ -1,5 +1,5 @@
 import { sql, type Transaction } from 'kysely';
-import { transferDate } from '../../domains/acquisition/index.js';
+import { ownershipStart } from '../../domains/acquisition/index.js';
 import {
   INFORMATIVE_CODES,
   NOT_OWNED_PART,
@@ -238,6 +238,7 @@ async function withoutAssetIn(trx: Trx, request: TaxYearDepreciationRequest): Pr
       'status',
       sql<string>`to_char(contract_date, 'YYYY-MM-DD')`.as('contract_date'),
       sql<string | null>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('economic_transfer_date'),
+      'economic_transfer_recorded_at',
     ])
     .where('mre_realm_id', '=', mreRealmId)
     .where('property_reference_id', '=', propertyReferenceId)
@@ -248,7 +249,12 @@ async function withoutAssetIn(trx: Trx, request: TaxYearDepreciationRequest): Pr
   const acquisitionIds = acquisitions
     .filter((a) => a.status === 'CONFIRMED' || (a.status === 'DRAFT' && ownerships.some((o) => o.acquisition_id === a.id)))
     .filter(
-      (a) => transferDate({ contractDate: a.contract_date as BusinessDate, economicTransferDate: a.economic_transfer_date as BusinessDate | null }) <= end,
+      (a) =>
+        ownershipStart({
+          contractDate: a.contract_date as BusinessDate,
+          economicTransferDate: a.economic_transfer_date as BusinessDate | null,
+          economicTransferRecordedAt: a.economic_transfer_recorded_at,
+        }) <= end,
     )
     .map((a) => a.id);
   const links = await trx

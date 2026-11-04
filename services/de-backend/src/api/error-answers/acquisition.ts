@@ -15,6 +15,8 @@ import {
   type LinkRefusal,
   OwnershipBasisIncompleteError,
   PaymentRefusedError,
+  TransferDateAlreadySetError,
+  TransferDateBeforeContractDateError,
   formatShare,
 } from '../../application/index.js';
 import { answer, on, type ErrorAnswer } from './answer.js';
@@ -36,6 +38,16 @@ export const ACQUISITION_ANSWERS = [
       reason: 'ACQUISITION_HAS_VALID_OWNERSHIPS',
       ownershipIds: error.ownershipIds,
     }),
+  ),
+  // §58N (VC-X-52): a set date is never changed; a date before the stored contract date is a 422, not §27.1's 400.
+  on(TransferDateAlreadySetError, (error) =>
+    answer(409, 'CONFLICT', 'The economic transfer date is already set; it is never changed.', {
+      reason: 'TRANSFER_DATE_ALREADY_SET',
+      economicTransferDate: error.economicTransferDate,
+    }),
+  ),
+  on(TransferDateBeforeContractDateError, (error) =>
+    answer(422, 'BEFORE_CONTRACT_DATE', 'The economic transfer date lies before the contract date.', { contractDate: error.contractDate }),
   ),
   on(AcquisitionPaymentNotFoundError, (error) => answer(404, 'NOT_FOUND', 'AcquisitionPayment not found.', { paymentId: error.paymentId })),
   on(ConfirmationBlockedError, (error) =>

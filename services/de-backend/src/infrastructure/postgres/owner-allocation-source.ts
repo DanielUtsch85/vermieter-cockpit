@@ -1,5 +1,5 @@
 import { sql, type Kysely } from 'kysely';
-import { transferDate, type CostCategory, type OwnerAllocationInput, type OwnerAllocationSource } from '../../domains/acquisition/index.js';
+import { ownershipStart, type CostCategory, type OwnerAllocationInput, type OwnerAllocationSource } from '../../domains/acquisition/index.js';
 import { addDays, type BusinessDate } from '../../shared/index.js';
 import { ownershipQuery, readAcquisitionIn, toConfirmationOwnership } from './acquisition-repository.js';
 import { fromNumericAmount } from './money-column.js';
@@ -24,7 +24,7 @@ export class PostgresOwnerAllocationSource implements OwnerAllocationSource {
         if (acquisition === undefined) return undefined;
         const own = await ownershipQuery(trx).where('acquisition_id', '=', acquisitionId).execute();
         // §28.1A: the buyers' Ownerships covering the transfer date and the day before, for their increases.
-        const d = transferDate(acquisition);
+        const d = ownershipStart(acquisition);
         const buyersCovering = (day: BusinessDate) =>
           ownershipQuery(trx)
             .where('property_reference_id', '=', acquisition.propertyReferenceId)

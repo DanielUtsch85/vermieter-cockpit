@@ -18,6 +18,7 @@ import {
 import type { InterestFacts } from './construction-period-interest.js';
 import { withInterestFlags, withLoanInterestFlags } from './tax-year-interest.js';
 import { reviewOf, ruleVersionsOf } from './tax-year-review.js';
+import { OWNERSHIP_START_FLAG, ownershipStartChanges, ownershipStartEntry, type OwnershipStartFact } from './ownership-start-changes.js';
 import type { TaxYearAcquisition, TaxYearTotals, TaxYearView, ViewFlag } from './tax-year-response.js';
 import { afaComponentCount, afaOf, afaParticipants, componentOfItem, type TaxYearDepreciation } from './tax-year-depreciation.js';
 import { sectionsOf, withAfa, withoutItems } from './tax-year-sections.js';
@@ -121,6 +122,8 @@ export interface TaxYearRead {
   readonly proposedSplits?: readonly ProposedSplit[];
   /** §58E: the `ACTIVE` acknowledgements of the PropertyReference and `year`, from the same snapshot. */
   readonly acknowledgements?: readonly TaxYearAcknowledgement[];
+  /** §58N: the PropertyReference's Acquisitions dated later than their Ownerships began, from the same snapshot. */
+  readonly ownershipStarts?: readonly OwnershipStartFact[];
   /** §58E: the `ACTIVE` tax confirmations of the sets of `loanAllocationSets`, by set id, from the same snapshot. */
   readonly taxConfirmations?: ReadonlyMap<string, LoanAllocationTaxConfirmation>;
 }
@@ -157,6 +160,10 @@ export function buildTaxYearView(
   // §58G: the part changes of the allocation sets, marked the same way.
   const derivedParts = partChanges(read.parts, year, { propertyReferenceId: read.propertyReferenceId, fingerprinter: options.fingerprinter });
   const parts: MarkedPartChange[] = derivedParts.changes.map((c) => ({ ...c, acknowledgement: matchAcknowledgement(c, read.acknowledgements ?? []) }));
+  // §58N: the Acquisitions whose Ownerships began before the recorded transfer, marked the same way.
+  const starts = ownershipStartChanges(read.ownershipStarts, year, { propertyReferenceId: read.propertyReferenceId, fingerprinter: options.fingerprinter }).map(
+    (c) => ({ ...c, acknowledgement: matchAcknowledgement(c, read.acknowledgements ?? []) }),
+  );
   const interest = read.interest ?? new Map<string, InterestFacts>();
   const listed = read.sources
     .flatMap((s) => deriveItems(s.item, year, read.ownerships, attribution.changes))
@@ -214,6 +221,7 @@ export function buildTaxYearView(
   const flags: ViewFlag[] = [...afa.yearFlags];
   if (attribution.changes.length > 0) flags.push({ code: 'ATTRIBUTION_INPUT_CHANGED', details: attribution.changes.map(changeEntry) });
   if (parts.length > 0) flags.push({ code: PROPERTY_PART_CHANGED, details: parts.map(partChangeEntry) });
+  if (starts.length > 0) flags.push({ code: OWNERSHIP_START_FLAG, details: starts.map(ownershipStartEntry) });
   // §58E: the entity of an unusable history; a reference keeps `rentalContractReferenceId`. §58G adds the sets, §58H the
   // Loan, §58I the deposit and the Transaction; a reconciliation read by both flags is named once.
   const named = new Set<string>();

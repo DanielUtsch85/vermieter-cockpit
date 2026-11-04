@@ -47,6 +47,9 @@ const acquisition = {
   confirmedAt: null,
   createdAt: new Date('2026-10-25T08:00:00Z'),
   version: 1,
+  economicTransferRecordedAt: null,
+  economicTransferSourceReferences: null,
+  flags: [],
 } as unknown as Acquisition;
 
 const admin: PrincipalVerifier = async (_auth, mreRealmId) => ({ email: 'anna@example.com', mreRealmId: mreRealmId ?? '', mreRole: 'administrator' });
@@ -104,6 +107,9 @@ describe('POST /api/v1/acquisitions', () => {
       economicTransferDate: null,
       landRegistryTransferDate: null,
       transferDate: '2026-06-15',
+      // §58N (VC-X-52): additive.
+      economicTransferRecordedAt: null,
+      economicTransferSourceReferences: null,
       buyerPartyIds: [BUYER],
       sellerPartyIds: [SELLER],
       sourceReferences: [],
@@ -113,6 +119,7 @@ describe('POST /api/v1/acquisitions', () => {
       confirmedAt: null,
       createdAt: '2026-10-25T08:00:00.000Z',
       version: 1,
+      flags: [],
     });
     expect(seen[0]).toMatchObject({ acquiredShare: { numerator: 1, denominator: 2 }, buyerPartyIds: [BUYER], sellerPartyIds: [SELLER], idempotencyKey: 'a1' });
     expect((await call(base, 'POST', '/acquisitions', body, { 'idempotency-key': 'a1' })).headers.get('idempotent-replayed')).toBe('true');

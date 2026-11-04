@@ -1,3 +1,4 @@
+import { ownershipStart } from '../acquisition/index.js';
 import { addDays, divideHalfUp, type BusinessDate, type RuleRegistry } from '../../shared/index.js';
 import { isConfirmed, type DepreciationAsset } from './asset.js';
 import { NOT_OWNED_PART, type CapitalizedItem, type ItemRef } from './capitalized-item.js';
@@ -156,7 +157,7 @@ const heldOn = (rows: readonly ScheduleOwnership[], day: BusinessDate) =>
   rows.filter((r) => r.validFrom <= day && (r.validUntil === null || r.validUntil >= day)).reduce((sum, r) => add(sum, ofShare(r.share)), ZERO);
 
 function buyerOn(acquisitions: readonly ScheduleAcquisition[], seller: string, day: BusinessDate): ScheduleAcquisition | undefined {
-  return acquisitions.find((a) => a.status === 'CONFIRMED' && a.sellerPartyIds.includes(seller) && (a.economicTransferDate ?? a.contractDate) === day);
+  return acquisitions.find((a) => a.status === 'CONFIRMED' && a.sellerPartyIds.includes(seller) && ownershipStart(a) === day);
 }
 
 /** One part of an item: its owner's tenure on the item's date, the cut-off, the still-held fraction and the rate. */

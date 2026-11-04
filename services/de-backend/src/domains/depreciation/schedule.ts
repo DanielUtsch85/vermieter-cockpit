@@ -1,5 +1,5 @@
 import { Money, centsOf, moneyOfCents, type RuleRegistry, type RuleVersion } from '../../shared/index.js';
-import { transferDate } from '../acquisition/index.js';
+import { ownershipStart } from '../acquisition/index.js';
 import { isConfirmed } from './asset.js';
 import { byText, yearOfDate } from './exact.js';
 import { componentIdOf, isCapitalized, sameItem, type CapitalizedItem, type ItemRef } from './capitalized-item.js';
@@ -115,7 +115,7 @@ export function scheduleWorks(input: Omit<ScheduleInput, 'today' | 'from' | 'to'
   // A separate asset has no purchase components: its cost is its items (§59B).
   const listed = (separate ? [] : input.acquisitions)
     .filter((a) => a.status === 'CONFIRMED' || (a.status === 'DRAFT' && carrying(a.id).length > 0))
-    .map((a) => ({ a, ownedFrom: transferDate(a) }))
+    .map((a) => ({ a, ownedFrom: ownershipStart(a) }))
     .sort((x, y) => byText(x.ownedFrom, y.ownedFrom) || byText(x.a.id, y.a.id));
   const rowsOf = (partyId: string) => input.ownerships.filter((o) => o.partyId === partyId);
 

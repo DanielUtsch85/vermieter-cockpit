@@ -1,3 +1,4 @@
+import { ownershipStart } from '../acquisition/index.js';
 import { addDays, divideHalfUp, type BusinessDate, type RuleVersion } from '../../shared/index.js';
 import { continuousOwners } from '../ownership/index.js';
 import { ONE, ZERO, add, byText, cmp, div, firstDay, frac, lastDayOf, maxDate, mul, show, yearOfDate, yearOfMonth, type Frac } from './exact.js';
@@ -28,7 +29,7 @@ function eventDays(rows: readonly ScheduleOwnership[], starts: readonly Business
 
 /** The cut-off of a disposal on `day` (the first day the Party no longer holds it): a `CONFIRMED` purchase from it on that day. */
 function buyerOn(acquisitions: readonly ScheduleAcquisition[], seller: string, day: BusinessDate): ScheduleAcquisition | undefined {
-  return acquisitions.find((a) => a.status === 'CONFIRMED' && a.sellerPartyIds.includes(seller) && (a.economicTransferDate ?? a.contractDate) === day);
+  return acquisitions.find((a) => a.status === 'CONFIRMED' && a.sellerPartyIds.includes(seller) && ownershipStart(a) === day);
 }
 
 /** The tenure and the still-held fraction per Party, over all its components at once; the coverage per Party. */

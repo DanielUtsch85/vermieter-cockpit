@@ -1,11 +1,13 @@
 import {
   createFingerprint,
+  recordTransferDateFingerprint,
   type Acquisition,
   type AcquisitionData,
   type AcquisitionFilter,
   type AcquisitionPage,
   type AcquisitionRepository,
   type ConfirmationViolation,
+  type RecordTransferDateInput,
 } from '../domains/acquisition/index.js';
 import { AcquisitionCancelledError } from './acquisition-costs.js';
 import type { RealmPrincipal } from './access.js';
@@ -173,6 +175,70 @@ export function confirmAcquisition(deps: { readonly repository: AcquisitionRepos
         throw new ConfirmationBlockedError(acquisitionId, outcome.violations);
       case 'VERSION_CONFLICT':
         throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+    }
+  };
+}
+
+/** §58N: the date is set once and never changed (→ 409 CONFLICT, `TRANSFER_DATE_ALREADY_SET`, with the stored date). */
+export class TransferDateAlreadySetError extends Error {
+  override readonly name = 'TransferDateAlreadySetError';
+
+  constructor(
+    readonly acquisitionId: string,
+    readonly economicTransferDate: string,
+  ) {
+    super(`Acquisition ${acquisitionId} already has the economic transfer date ${economicTransferDate}`);
+  }
+}
+
+/** §58N: the recorded date lies before the stored contract date (→ 422 BEFORE_CONTRACT_DATE). */
+export class TransferDateBeforeContractDateError extends Error {
+  override readonly name = 'TransferDateBeforeContractDateError';
+
+  constructor(
+    readonly acquisitionId: string,
+    readonly contractDate: string,
+  ) {
+    super(`The economic transfer date of Acquisition ${acquisitionId} lies before its contract date ${contractDate}`);
+  }
+}
+
+export type RecordEconomicTransferDate = (input: {
+  readonly principal: RealmPrincipal;
+  readonly acquisitionId: string;
+  readonly record: RecordTransferDateInput;
+  readonly expectedVersions?: readonly number[];
+  readonly idempotencyKey?: string;
+}) => Promise<{ readonly acquisition: Acquisition; readonly replayed: boolean }>;
+
+/** `POST /acquisitions/{id}/economic-transfer-date` (api-design.md §58N, VC-X-52), in §58N's order of checks. */
+export function recordEconomicTransferDate(deps: { readonly repository: AcquisitionRepository; readonly now?: () => Date }): RecordEconomicTransferDate {
+  const now = deps.now ?? (() => new Date());
+  return async ({ principal, acquisitionId, record, expectedVersions, idempotencyKey }) => {
+    const outcome = await deps.repository.recordEconomicTransferDate({
+      id: acquisitionId,
+      mreRealmId: principal.mreRealmId,
+      record,
+      at: now(),
+      actor: actorOf(principal),
+      ...(expectedVersions === undefined ? {} : { expectedVersions }),
+      ...(idempotencyKey === undefined ? {} : { idempotency: { key: idempotencyKey, fingerprint: recordTransferDateFingerprint(acquisitionId, record) } }),
+    });
+    switch (outcome.kind) {
+      case 'RECORDED':
+        return { acquisition: outcome.acquisition, replayed: outcome.replayed };
+      case 'NOT_FOUND':
+        throw new AcquisitionNotFoundError(acquisitionId);
+      case 'IDEMPOTENCY_CONFLICT':
+        throw new IdempotencyKeyConflictError('Idempotency-Key was already used with a different payload');
+      case 'ACQUISITION_CANCELLED':
+        throw new AcquisitionCancelledError(acquisitionId);
+      case 'TRANSFER_DATE_ALREADY_SET':
+        throw new TransferDateAlreadySetError(acquisitionId, outcome.economicTransferDate);
+      case 'VERSION_CONFLICT':
+        throw new VersionConflictError(outcome.expectedVersions, outcome.currentVersion);
+      case 'BEFORE_CONTRACT_DATE':
+        throw new TransferDateBeforeContractDateError(acquisitionId, outcome.contractDate);
     }
   };
 }
