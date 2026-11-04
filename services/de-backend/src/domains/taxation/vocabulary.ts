@@ -69,8 +69,15 @@ export type StoredReviewState = Exclude<ReviewState, 'SUGGESTED'>;
 export const CREATE_REVIEW_STATES = ['USER_CONFIRMED', 'NEEDS_REVIEW'] as const satisfies readonly StoredReviewState[];
 export type CreateReviewState = (typeof CREATE_REVIEW_STATES)[number];
 
-/** The sources of a classification; VC-7-01 classifies splits, VC-7-02 retained deposits, VC-7-03 the WEG ones (§55, §58B). */
-export const SOURCE_TYPES = ['TRANSACTION_SPLIT', 'WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE', 'DEPOSIT_CLOSING'] as const;
+/** The sources of a tax meaning; VC-7-01 classifies splits, VC-7-02 retained deposits, VC-7-03 the WEG ones (§55, §58B). */
+export const MEANING_SOURCE_TYPES = ['TRANSACTION_SPLIT', 'WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE', 'DEPOSIT_CLOSING'] as const;
+export type MeaningSourceType = (typeof MEANING_SOURCE_TYPES)[number];
+/**
+ * The sources of a classification: the sources of a meaning, and (VC-X-27, §58M) a cost line of a WEG annual statement,
+ * a check-only fact. A cost line is a source of the anschaffungsnahe check only: never a meaning, a list item, a line or a
+ * figure of the tax-year view (§58B "Never counted twice": the Hausgeld paid, `WEG_HAUSGELD`, already holds it).
+ */
+export const SOURCE_TYPES = [...MEANING_SOURCE_TYPES, 'WEG_STATEMENT_COST_LINE'] as const;
 export type SourceType = (typeof SOURCE_TYPES)[number];
 /** The two WEG sources (§58B): named by their row and a `sourcePosition`. */
 export const WEG_SOURCE_TYPES = ['WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE'] as const satisfies readonly SourceType[];

@@ -13,6 +13,15 @@ import {
   type RuleVersion,
 } from '../../shared/index.js';
 import { NO_RULE_COST_CLASSIFICATION, buildingAcquisitionCost, type BasisCost, type UnclassifiedCost } from '../acquisition/index.js';
+import {
+  NO_HAUSGELD,
+  mergeCostLines,
+  readHausgeld,
+  readRangeOf,
+  type HausgeldInput,
+  type MissingStatement,
+  type UnjudgedLine,
+} from './anschaffungsnahe-hausgeld.js';
 import { partInWindow, performedOutside, type Performance } from './performance.js';
 import { ANSCHAFFUNGSNAHE, type AnschaffungsnaheParameters } from './rules/de-anschaffungsnahe.js';
 import type { TreatmentPart } from './treatment-parts.js';
@@ -53,6 +62,8 @@ export interface CheckSource {
   readonly treatmentParts?: readonly TreatmentPart[] | null;
   /** The source's own flags carried into the check (an assumed withdrawal date). */
   readonly sourceFlags: readonly { readonly code: string; readonly details: object }[];
+  /** §58M (VC-X-27): a cost line's statement period and account; `later` for a statement beyond the read range. */
+  readonly costLine?: { readonly statementPeriod: Range; readonly account: string; readonly later: boolean };
 }
 
 export interface CheckAcquisition {
@@ -101,6 +112,10 @@ export type NotFinalReason =
   | 'UNCLASSIFIED_SOURCES'
   | 'WINDOW_OPEN'
   | 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED'
+  /** §58M (M7): a financial year of the read range without its `CONFIRMED` statement, or not ended. */
+  | 'WEG_STATEMENT_MISSING'
+  /** §58M (M6): above, with a cost line among the summed: the Hausgeld deducted needs the advisor's review. */
+  | 'HAUSGELD_MAINTENANCE_ABOVE_THRESHOLD'
   /** §59F: above, but whether each undated source is anschaffungsnah depends on its dates. */
   | 'PERFORMANCE_IN_WINDOW_UNKNOWN'
   /** §59F: an undated source outside the search range: the sources are not complete. */
@@ -112,7 +127,7 @@ export type CheckEntryFlag =
   | { readonly code: 'VAT_NOT_SEPARATED'; readonly details: { readonly acquisitionId: string } }
   | {
       readonly code: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN';
-      readonly details: { readonly acquisitionId: string; readonly final: boolean; readonly rule: RuleRef };
+      readonly details: { readonly acquisitionId: string; readonly final: boolean; readonly rule: RuleRef; readonly paidFromHausgeld?: true };
     }
   | { readonly code: 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE'; readonly details: { readonly acquisitionId: string } }
   | { readonly code: string; readonly details: object };
@@ -144,6 +159,8 @@ export interface CheckEntry {
    * search range (within the outer bound); absent in the other lists.
    */
   readonly beyondSearchRange?: boolean;
+  /** §58M: on a cost line's entry only, its statement's period and the account as printed. */
+  readonly costLine?: { readonly statementPeriod: Range; readonly account: string };
   readonly flags: readonly CheckEntryFlag[];
 }
 
@@ -152,7 +169,22 @@ export type ExcludedReason = 'ANNUALLY_RECURRING' | 'PERFORMED_OUTSIDE_WINDOW';
 
 export type CheckFlag =
   | { readonly code: 'NOT_FINAL'; readonly details: { readonly reasons: readonly NotFinalReason[]; readonly note?: string } }
-  | { readonly code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED'; readonly details: { readonly statementIds: readonly string[] } }
+  /** §58M narrows it to the unjudged lines (`lines`); a rule without `hausgeldMaintenance` names the statements only. */
+  | {
+      readonly code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED';
+      readonly details: { readonly statementIds: readonly string[]; readonly lines?: readonly UnjudgedLine[] };
+    }
+  | { readonly code: 'WEG_STATEMENT_MISSING'; readonly details: { readonly missing: readonly MissingStatement[] } }
+  | {
+      readonly code: 'HAUSGELD_MAINTENANCE_ANSCHAFFUNGSNAH';
+      readonly details: {
+        readonly lines: readonly {
+          readonly statementId: string;
+          readonly position: number;
+          readonly inWindow: { readonly lower: Money; readonly upper: Money };
+        }[];
+      };
+    }
   | { readonly code: 'PARTIAL_ACQUISITION'; readonly details: { readonly acquiredShare: string } }
   /** §58K (VC-X-34): open; the same code and details as §59A's component reason. */
   | { readonly code: 'TRANSFER_DATE_MISSING'; readonly details: { readonly contractDate: BusinessDate } };
@@ -242,6 +274,8 @@ export function searchRangesOf(window: Range, p: AnschaffungsnaheParameters): { 
 
 const NOTE_GROSS = 'Summed at gross amounts where no netAmount is given: the gross amount reaches the threshold sooner than the net one would.';
 const within = (range: Range | null, date: BusinessDate) => range !== null && date >= range.from && date <= range.until;
+/** An undated source in the upper bound only; a refund (negative) in the lower bound only (§59F). */
+const undatedBounds = (cents: bigint) => ({ lower: cents < 0n ? cents : 0n, upper: cents < 0n ? 0n : cents });
 
 /** A summed source with its part in the window, in cents (`lower` ≤ `upper`). */
 interface Placed {
@@ -254,8 +288,9 @@ interface Placed {
  * The check (§58B, §59F). `sources` are the counting sources of the PropertyReference in the order of the per-property
  * list. A source with a performance counts by the part performed in the window (bounds, never estimated), whatever its
  * booking date; one without counts in the upper bound only while its own date lies in the search range, and is listed
- * (`outsideSearchRange`) within the outer bound. `statements` are the `CONFIRMED` statements of the PropertyReference's
- * memberships: one whose period overlaps the window makes the result `NOT_FINAL` (maintenance paid from the Hausgeld).
+ * (`outsideSearchRange`) within the outer bound. §58M: with the rule's `hausgeldMaintenance` the judged maintenance lines
+ * of `hausgeld`'s statements are sources too, an unjudged line or a missing statement holds the result open; without it,
+ * a `CONFIRMED` statement (`statements`) whose period overlaps the window makes the result `NOT_FINAL`, as before.
  */
 export function checkAnschaffungsnahe(
   input: {
@@ -264,6 +299,8 @@ export function checkAnschaffungsnahe(
     readonly allocation: CheckAllocation | null;
     readonly sources: readonly CheckSource[];
     readonly statements: readonly { readonly id: string; readonly periodFrom: BusinessDate; readonly periodUntil: BusinessDate }[];
+    /** §58M: the confirmed statements with their cost lines and the memberships; read only with `hausgeldMaintenance`. */
+    readonly hausgeld?: HausgeldInput;
     readonly today: BusinessDate;
   },
   registry: RuleRegistry,
@@ -280,6 +317,11 @@ export function checkAnschaffungsnahe(
   const ranges = window === null || p === undefined ? null : searchRangesOf(window, p);
   const searchRange = ranges?.searchRange ?? null;
   const outerBound = ranges?.outerBound ?? null;
+  const q = p?.hausgeldMaintenance;
+  const hausgeld =
+    window === null || ranges === null || q === undefined
+      ? null
+      : readHausgeld(input.hausgeld ?? NO_HAUSGELD, window, readRangeOf(window, ranges, q), ranges.outerBound, q, input.today);
   const erhaltung = (s: CheckSource) => p !== undefined && p.taxCategories.includes(s.taxCategory);
   const summedSource = (s: CheckSource) =>
     erhaltung(s) &&
@@ -298,11 +340,19 @@ export function checkAnschaffungsnahe(
   const performedOut: CheckSource[] = [];
   const recurring: CheckSource[] = [];
   const unclassified: { readonly s: CheckSource; readonly beyond: boolean }[] = [];
-  for (const s of window === null ? [] : input.sources) {
+  for (const s of window === null ? [] : mergeCostLines(input.sources, hausgeld?.sources ?? [])) {
     const w = window as Range;
     const overlaps = s.performance !== null && !performedOutside(s.performance, w);
     const undatedNear = s.performance === null && within(searchRange, s.date);
-    if (s.taxCategory === 'UNCLASSIFIED') {
+    if (s.costLine !== undefined) {
+      // §58M: a statement read overlaps the search range, so its undated line is undetermined, never outside; a later
+      // statement's line (performed in the window) is listed, never summed (M3).
+      if (s.costLine.later) outside.push(s);
+      else if (s.annuallyRecurring) recurring.push(s);
+      else if (s.performance === null) undetermined.push({ s, ...undatedBounds(used(s)) });
+      else if (overlaps) summed.push({ s, ...partInWindow(s.performance, used(s), w) });
+      else performedOut.push(s);
+    } else if (s.taxCategory === 'UNCLASSIFIED') {
       // §59F (the owner's decision 239-8, 2026-11-02): beyond the search range but within the outer bound it is listed
       // too, marked, and keeps the check open (`UNCLASSIFIED_SOURCES`); it never makes the check NOT_COMPUTABLE.
       if (within(searchRange, s.date)) unclassified.push({ s, beyond: false });
@@ -315,8 +365,7 @@ export function checkAnschaffungsnahe(
       if (overlaps) summed.push({ s, ...partInWindow(s.performance, used(s), w) });
       else if (within(searchRange, s.date)) performedOut.push(s);
     } else if (undatedNear) {
-      const cents = used(s);
-      undetermined.push({ s, lower: cents < 0n ? cents : 0n, upper: cents < 0n ? 0n : cents });
+      undetermined.push({ s, ...undatedBounds(used(s)) });
     } else if (within(outerBound, s.date)) {
       outside.push(s);
     }
@@ -376,18 +425,26 @@ export function checkAnschaffungsnahe(
   const above = notComputableReason === null && aboveOf(sumCents, upperCents);
   const status: CheckStatus = notComputableReason !== null ? 'NOT_COMPUTABLE' : above ? 'ABOVE_THRESHOLD' : 'NOT_ABOVE_THRESHOLD';
 
+  // §58M narrows the flag to the unjudged lines; a rule without `hausgeldMaintenance` flags every overlapping statement.
   const statementIds =
     window === null
       ? []
-      : input.statements
-          .filter((s) => s.periodFrom <= window.until && s.periodUntil >= window.from)
-          .map((s) => s.id)
-          .sort();
+      : hausgeld !== null
+        ? [...new Set(hausgeld.unjudged.map((l) => l.statementId))].sort()
+        : input.statements
+            .filter((s) => s.periodFrom <= window.until && s.periodUntil >= window.from)
+            .map((s) => s.id)
+            .sort();
+  const missing = hausgeld?.missing ?? [];
+  // §58M (M6): above with a cost line summed: the outcome stands, no suggestion on the line, the advisor reviews.
+  const hausgeldAbove = status === 'ABOVE_THRESHOLD' ? summed.filter((x) => x.s.costLine !== undefined) : [];
   const reasons: NotFinalReason[] = transfer === null ? ['TRANSFER_DATE_MISSING'] : [];
   if (placed.some((x) => x.s.netAmount === null)) reasons.push('GROSS_AMOUNTS');
   if (unclassified.length > 0) reasons.push('UNCLASSIFIED_SOURCES');
   if (window !== null && input.today <= window.until) reasons.push('WINDOW_OPEN');
   if (statementIds.length > 0) reasons.push('WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED');
+  if (missing.length > 0) reasons.push('WEG_STATEMENT_MISSING');
+  if (hausgeldAbove.length > 0) reasons.push('HAUSGELD_MAINTENANCE_ABOVE_THRESHOLD');
   // §59F (the owner's decision of 2026-11-02, open question 7): undated sources in the search range hold open an outcome
   // above (or one not decided), never one not above by the upper bound; sources outside it hold open every outcome.
   if (datesOpen && status !== 'NOT_ABOVE_THRESHOLD') reasons.push('PERFORMANCE_IN_WINDOW_UNKNOWN');
@@ -408,7 +465,9 @@ export function checkAnschaffungsnahe(
     const counted = list === 'SUMMED' || list === 'UNDETERMINED';
     const inWindow = bounds === null ? null : { lower: moneyOfCents(bounds.lower), upper: moneyOfCents(bounds.upper) };
     if (counted && s.netAmount === null) flags.push({ code: 'VAT_NOT_SEPARATED', details: { acquisitionId: acquisition.id } });
-    if (list === 'UNDETERMINED' || list === 'OUTSIDE') flags.push({ code: 'PERFORMANCE_DATE_MISSING', details: { date: s.date, dateSource: s.dateSource } });
+    if (list === 'UNDETERMINED' || (list === 'OUTSIDE' && s.performance === null)) {
+      flags.push({ code: 'PERFORMANCE_DATE_MISSING', details: { date: s.date, dateSource: s.dateSource } });
+    }
     const straddles = list === 'SUMMED' && !whollyIn(s);
     if (straddles && s.performance !== null && inWindow !== null) {
       const bound = { lower: inWindow.lower.toJSON(), upper: inWindow.upper.toJSON() };
@@ -420,14 +479,17 @@ export function checkAnschaffungsnahe(
       // §59F (the owner's decision of 2026-11-02, open question 8): a straddling source is never suggested as a whole.
       // VC-X-38 Part 2 (239-2): a partial treatment on this check is the evidenced split, so none is required any more.
       const details = { acquisitionId: acquisition.id, final, rule: ruleRef };
+      // §58M (M6): a cost line is in the Hausgeld the view deducts; no classification takes it out, so no suggestion.
       const split = (s.treatmentParts ?? null) !== null && s.treatment === 'CAPITALIZED' && s.anschaffungsnaheAcquisitionId === acquisition.id;
-      flags.push({
-        code: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN',
-        details:
-          straddles && inWindow !== null
-            ? { ...details, inWindow: { lower: inWindow.lower.toJSON(), upper: inWindow.upper.toJSON() }, splitRequired: !split }
-            : details,
-      });
+      if (s.costLine !== undefined) flags.push({ code: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', details: { ...details, paidFromHausgeld: true } });
+      else
+        flags.push({
+          code: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN',
+          details:
+            straddles && inWindow !== null
+              ? { ...details, inWindow: { lower: inWindow.lower.toJSON(), upper: inWindow.upper.toJSON() }, splitRequired: !split }
+              : details,
+        });
     }
     if (counted && status === 'NOT_ABOVE_THRESHOLD' && s.treatment === 'CAPITALIZED' && s.anschaffungsnaheAcquisitionId === acquisition.id) {
       flags.push({ code: 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE', details: { acquisitionId: acquisition.id } });
@@ -448,15 +510,27 @@ export function checkAnschaffungsnahe(
       amountUsed: moneyOfCents(used(s)),
       performance: s.performance,
       inWindow,
-      suggestedTreatment: list === 'SUMMED' && !straddles && status === 'ABOVE_THRESHOLD' ? 'CAPITALIZED' : null,
+      suggestedTreatment: list === 'SUMMED' && !straddles && status === 'ABOVE_THRESHOLD' && s.costLine === undefined ? 'CAPITALIZED' : null,
       reason,
+      ...(s.costLine === undefined ? {} : { costLine: { statementPeriod: s.costLine.statementPeriod, account: s.costLine.account } }),
       flags,
     };
   };
 
   const flags: CheckFlag[] = [];
   if (!final) flags.push({ code: 'NOT_FINAL', details: reasons.includes('GROSS_AMOUNTS') ? { reasons, note: NOTE_GROSS } : { reasons } });
-  if (statementIds.length > 0) flags.push({ code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED', details: { statementIds } });
+  if (statementIds.length > 0) {
+    flags.push({ code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED', details: hausgeld === null ? { statementIds } : { statementIds, lines: hausgeld.unjudged } });
+  }
+  if (missing.length > 0) flags.push({ code: 'WEG_STATEMENT_MISSING', details: { missing } });
+  if (hausgeldAbove.length > 0) {
+    const lines = hausgeldAbove.map((x) => ({
+      statementId: x.s.sourceId,
+      position: x.s.sourcePosition as number,
+      inWindow: { lower: moneyOfCents(x.lower), upper: moneyOfCents(x.upper) },
+    }));
+    flags.push({ code: 'HAUSGELD_MAINTENANCE_ANSCHAFFUNGSNAH', details: { lines } });
+  }
   if (transfer === null) flags.push({ code: 'TRANSFER_DATE_MISSING', details: { contractDate: acquisition.contractDate } });
   if (n < d) flags.push({ code: 'PARTIAL_ACQUISITION', details: { acquiredShare: `${share.numerator}/${share.denominator}` } });
   const computable = status !== 'NOT_COMPUTABLE';
@@ -512,49 +586,5 @@ function trimDecimal(value: string): string {
   return `${whole}.${kept}`;
 }
 
-/**
- * The meaning flags a source takes from the checks that read it (§58B, §59F): from `sources` its VAT, Herstellungskosten
- * and no-longer-above flags; from `undetermined` and `outsideSearchRange` `PERFORMANCE_DATE_MISSING`, so the source
- * shows which date the check wants. The suggestion only for a source performed wholly in the window.
- */
-export function checkFlagsOf(
-  checks: readonly AnschaffungsnaheCheck[],
-  source: { readonly sourceType: SourceType; readonly sourceId: string; readonly sourcePosition: number | null },
-): {
-  readonly flags: readonly CheckEntryFlag[];
-  readonly suggestion: {
-    readonly treatment: 'CAPITALIZED';
-    readonly reason: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN';
-    readonly acquisitionIds: readonly string[];
-    readonly final: boolean;
-  } | null;
-} {
-  const flags: CheckEntryFlag[] = [];
-  const above: AnschaffungsnaheCheck[] = [];
-  const same = (e: CheckEntry) => e.sourceType === source.sourceType && e.sourceId === source.sourceId && e.sourcePosition === source.sourcePosition;
-  for (const check of checks) {
-    if (check.notComputableReason === 'NO_APPLICABLE_RULE') continue;
-    if ([...check.undetermined, ...check.outsideSearchRange].some(same)) {
-      flags.push({ code: 'PERFORMANCE_DATE_MISSING', details: { acquisitionId: check.acquisitionId } });
-    }
-    if (check.status === 'NOT_COMPUTABLE') continue;
-    const found = [...check.sources, ...check.undetermined].find(same);
-    if (found === undefined) continue;
-    for (const flag of found.flags) {
-      if (['VAT_NOT_SEPARATED', 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', 'ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE'].includes(flag.code)) flags.push(flag);
-    }
-    if (check.status === 'ABOVE_THRESHOLD' && found.suggestedTreatment === 'CAPITALIZED') above.push(check);
-  }
-  return {
-    flags,
-    suggestion:
-      above.length === 0
-        ? null
-        : {
-            treatment: 'CAPITALIZED',
-            reason: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN',
-            acquisitionIds: above.map((c) => c.acquisitionId).sort(),
-            final: above.every((c) => c.final),
-          },
-  };
-}
+// The meaning flags a source takes from the checks (§58B, §59F), in a file of its own (the size limit).
+export { checkFlagsOf } from './anschaffungsnahe-flags.js';

@@ -11,7 +11,7 @@ import {
   type DepositTaxMeaning,
   type ProposedSplit,
   type RuleRegistry,
-  type SourceType,
+  type MeaningSourceType,
   type TaxListItem,
   type TaxMeaning,
   type TaxYearRead,
@@ -38,7 +38,7 @@ import { type Effects, effectsOf, splitWithEffects, wegWithEffects } from './tax
  */
 
 /** On one date of the per-property list: splits, deposit closings, withdrawals, uses (§58B). */
-const RANK: Record<SourceType, number> = { TRANSACTION_SPLIT: 0, DEPOSIT_CLOSING: 1, WEG_RESERVE_WITHDRAWAL: 2, WEG_ASSESSMENT_USE: 3 };
+const RANK: Record<MeaningSourceType, number> = { TRANSACTION_SPLIT: 0, DEPOSIT_CLOSING: 1, WEG_RESERVE_WITHDRAWAL: 2, WEG_ASSESSMENT_USE: 3 };
 const dateOf = (m: TaxListItem): string =>
   m.sourceType === 'TRANSACTION_SPLIT' ? m.bookingDate : m.sourceType === 'DEPOSIT_CLOSING' ? (m.closingDate as string) : m.date;
 

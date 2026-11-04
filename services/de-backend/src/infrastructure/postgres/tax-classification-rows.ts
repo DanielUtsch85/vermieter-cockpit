@@ -31,6 +31,9 @@ export const COLUMNS = [
   'weg_use_position',
   sql<string | null>`to_char(weg_use_date, 'YYYY-MM-DD')`.as('weg_use_date'),
   sql<string | null>`weg_use_unit_share::text`.as('weg_use_unit_share'),
+  // VC-X-27 (0068, §58M): a cost line by position, with its unit share as classified.
+  'weg_cost_line_position',
+  sql<string | null>`weg_cost_line_unit_share::text`.as('weg_cost_line_unit_share'),
   'tax_category',
   'treatment',
   'review_state',
@@ -92,6 +95,8 @@ interface ClassificationRow {
   weg_use_position: number | null;
   weg_use_date: string | null;
   weg_use_unit_share: string | null;
+  weg_cost_line_position: number | null;
+  weg_cost_line_unit_share: string | null;
   tax_category: string;
   treatment: string | null;
   review_state: string;
@@ -144,6 +149,19 @@ export async function currentOfWeg(trx: Transaction<Database>, facts: readonly W
   return new Map(rows.map((r) => toDomain(r)).map((c) => [wegSourceKey(c), c]));
 }
 
+/** VC-X-27 (§58M): the current classification of each cost line of `statementIds`, by `statementId/position`. */
+export async function currentOfCostLines(trx: Transaction<Database>, statementIds: readonly string[]): Promise<Map<string, TaxClassification>> {
+  if (statementIds.length === 0) return new Map();
+  const rows = await trx
+    .selectFrom('tax_classification')
+    .select(COLUMNS)
+    .where('weg_annual_statement_id', 'in', [...statementIds])
+    .where('weg_cost_line_position', 'is not', null)
+    .where('superseded_at', 'is', null)
+    .execute();
+  return new Map(rows.map((r) => [`${r.weg_annual_statement_id as string}/${r.weg_cost_line_position as number}`, toDomain(r)]));
+}
+
 /** The current classification of each split. */
 export async function currentOf(trx: Transaction<Database>, splitIds: readonly string[]): Promise<Map<string, TaxClassification>> {
   if (splitIds.length === 0) return new Map();
@@ -193,12 +211,14 @@ export function toDomain(row: ClassificationRow): TaxClassification {
       row.deposit_closing_date === null || row.deposit_retained_amount === null
         ? null
         : { closingDate: row.deposit_closing_date as BusinessDate, retainedAmount: fromNumericAmount(row.deposit_retained_amount, 'EUR') },
-    sourcePosition: row.weg_reserve_position ?? row.weg_use_position,
+    sourcePosition: row.weg_reserve_position ?? row.weg_use_position ?? row.weg_cost_line_position,
     reserveWithdrawal: row.weg_withdrawal_unit_share === null ? null : { unitShare: fromNumericAmount(row.weg_withdrawal_unit_share, 'EUR') },
     assessmentUse:
       row.weg_use_date === null || row.weg_use_unit_share === null
         ? null
         : { date: row.weg_use_date as BusinessDate, unitShare: fromNumericAmount(row.weg_use_unit_share, 'EUR') },
+    // VC-X-27: present only on a cost line's classification, so every other classification keeps its shape.
+    ...(row.weg_cost_line_unit_share === null ? {} : { costLine: { unitShare: fromNumericAmount(row.weg_cost_line_unit_share, 'EUR') } }),
     netAmount: eurOrNull(row.net_amount),
     annuallyRecurring: row.annually_recurring,
     distributionYears: row.distribution_years,
@@ -257,7 +277,9 @@ type LaterColumns =
   | 'performed_until'
   | 'performance_progress_estimated'
   | 'performance_progress'
-  | 'treatment_parts';
+  | 'treatment_parts'
+  | 'weg_cost_line_position'
+  | 'weg_cost_line_unit_share';
 
 /** The created row as JSON for the idempotency store. Snapshots of VC-7-01/-02 lack the later fields (read as null). */
 interface ClassificationSnapshot {
@@ -275,7 +297,7 @@ export function toSnapshot(c: TaxClassification): ClassificationSnapshot {
       source_type: c.sourceType,
       transaction_split_id: c.sourceType === 'TRANSACTION_SPLIT' ? c.sourceId : null,
       security_deposit_id: c.sourceType === 'DEPOSIT_CLOSING' ? c.sourceId : null,
-      weg_annual_statement_id: c.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? c.sourceId : null,
+      weg_annual_statement_id: c.sourceType === 'WEG_RESERVE_WITHDRAWAL' || c.sourceType === 'WEG_STATEMENT_COST_LINE' ? c.sourceId : null,
       weg_reserve_position: c.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? c.sourcePosition : null,
       weg_withdrawal_unit_share: c.reserveWithdrawal?.unitShare.amount ?? null,
       weg_special_assessment_id: c.sourceType === 'WEG_ASSESSMENT_USE' ? c.sourceId : null,
@@ -312,6 +334,8 @@ export function toSnapshot(c: TaxClassification): ClassificationSnapshot {
             performance_progress_estimated: c.performance.progressEstimated,
             performance_progress: c.performance.progress.map((p) => ({ through: p.through, amount: p.amount.amount })),
           }),
+      // VC-X-27: only when set.
+      ...((c.costLine ?? null) === null ? {} : { weg_cost_line_position: c.sourcePosition, weg_cost_line_unit_share: c.costLine?.unitShare.amount ?? null }),
       // VC-X-38 Part 2: only when set.
       ...((c.treatmentParts ?? null) === null
         ? {}
@@ -355,6 +379,8 @@ export function fromSnapshot(result: unknown): TaxClassification {
     performance_progress_estimated: row.performance_progress_estimated ?? null,
     performance_progress: row.performance_progress ?? null,
     treatment_parts: row.treatment_parts ?? null,
+    weg_cost_line_position: row.weg_cost_line_position ?? null,
+    weg_cost_line_unit_share: row.weg_cost_line_unit_share ?? null,
     created_at: new Date(row.created_at),
     superseded_at: null,
   });

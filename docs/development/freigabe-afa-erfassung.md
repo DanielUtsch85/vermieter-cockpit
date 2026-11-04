@@ -28,7 +28,7 @@ Prepared (VC-X-45, PR #236), not released. Its release is the first productive e
 
 Each point is one condition of decision 236-5. State on 2026-11-02:
 
-- [ ] **VC-X-27 implemented** (maintenance paid from the Hausgeld in the anschaffungsnahe check). State: planned, not implemented (backlog VC-X-27).
+- [ ] **VC-X-27 implemented** (maintenance paid from the Hausgeld in the anschaffungsnahe check). State: implemented in PR #NNN, not merged (api-design §58M "As implemented (VC-X-27)", migration 0068; backlog VC-X-27).
 - [ ] **VC-X-36 implemented** (capitalised Loan interest in the AfA basis, api-design §59E). State: implemented (migration 0055; backlog VC-X-36).
 - [ ] **VC-X-38 implemented** (the date of performance, api-design §59F). State: implemented (PR #239, migration 0058); its questions 239-1 … 239-9 decided by the owner on 2026-11-02, third round (§59F "Still open"), with the VC-X-38 follow-up (239-6, 239-7, 239-8) planned; VC-X-38 Part 2 (239-2, the split treatment of a source straddling the window) is planned separately, and until it lands such a source is refused for capitalisation on the check.
 - [ ] **A stage-1 year recorded productively:** at least one schedule version of a year at stage 1, recorded in a productive installation after the enablement of recording. State: none (recording disabled).

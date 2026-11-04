@@ -17,6 +17,7 @@ import {
   type OtherWegSource,
   type TreatmentSuggestion,
   type CheckSource,
+  type HausgeldInput,
   type RuleRegistry,
   type TaxClassification,
   type WegSourceFacts,
@@ -33,7 +34,8 @@ import { reserveFromJson } from './weg-annual-statement-repository.js';
 /**
  * What the tax reads of §58B need around one PropertyReference, in the caller's snapshot: the withdrawals and uses of
  * its WEG memberships, their current classifications, its Ownerships (for the § 82b fold) and its Acquisitions (for the
- * anschaffungsnahe check). Reads only; never a statement's cost lines (§58B "Never counted twice").
+ * anschaffungsnahe check). Reads only; never a statement's cost lines (§58B "Never counted twice"): the check's own read
+ * of them (§58M) is `tax-hausgeld-context.ts`, which never adds a line to a meaning, list or view.
  */
 
 export interface WegContext {
@@ -321,15 +323,16 @@ export function wegCheckSource(meaning: WegTaxMeaning, classification: TaxClassi
   };
 }
 
-/** The checks of the Acquisitions, from their sources (already in list order) and the confirmed statements. */
+/** The checks of the Acquisitions, from their sources (already in list order), the confirmed statements and (§58M) the Hausgeld. */
 export function checksOf(
   inputs: readonly AcquisitionInput[],
   sources: readonly CheckSource[],
   statements: WegContext['confirmedStatements'],
   today: BusinessDate,
   registry: RuleRegistry,
+  hausgeld?: HausgeldInput,
 ): AnschaffungsnaheCheck[] {
-  return inputs.map((input) => checkAnschaffungsnahe({ ...input, sources, statements, today }, registry));
+  return inputs.map((input) => checkAnschaffungsnahe({ ...input, sources, statements, ...(hausgeld === undefined ? {} : { hausgeld }), today }, registry));
 }
 
 /** A meaning with its § 82b parts (by the owners on its date) and the checks' flags and suggestion. */

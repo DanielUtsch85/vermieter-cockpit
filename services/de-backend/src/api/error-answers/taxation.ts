@@ -92,22 +92,28 @@ export const TAXATION_ANSWERS = [
             sourceType: error.sourceType,
             reason: error.reason,
           })
-        : error.categoryType === null && error.sourceType !== undefined && error.sourceType !== 'DEPOSIT_CLOSING'
-          ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A WEG withdrawal or use is WEG_SPENDING (Erhaltungsaufwand or Herstellungskosten), or not relevant.', {
+        : error.sourceType === 'WEG_STATEMENT_COST_LINE'
+          ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A cost line is maintenance (MAINTENANCE, DEDUCTIBLE) or not maintenance for the 15 % check (NOT_RELEVANT).', {
               sourceType: error.sourceType,
               allowed: error.allowed,
               allowedTaxCategories: error.taxCategories ?? [],
             })
-          : error.categoryType === null
-            ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A retained deposit is rent or damage compensation, or not relevant.', {
-                sourceType: 'DEPOSIT_CLOSING',
+          : error.categoryType === null && error.sourceType !== undefined && error.sourceType !== 'DEPOSIT_CLOSING'
+            ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A WEG withdrawal or use is WEG_SPENDING (Erhaltungsaufwand or Herstellungskosten), or not relevant.', {
+                sourceType: error.sourceType,
                 allowed: error.allowed,
                 allowedTaxCategories: error.taxCategories ?? [],
               })
-            : answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
-                categoryType: error.categoryType,
-                allowed: error.allowed,
-              }),
+            : error.categoryType === null
+              ? answer(422, 'TREATMENT_NOT_ALLOWED', 'A retained deposit is rent or damage compensation, or not relevant.', {
+                  sourceType: 'DEPOSIT_CLOSING',
+                  allowed: error.allowed,
+                  allowedTaxCategories: error.taxCategories ?? [],
+                })
+              : answer(422, 'TREATMENT_NOT_ALLOWED', 'The category of the split does not allow this treatment.', {
+                  categoryType: error.categoryType,
+                  allowed: error.allowed,
+                }),
   ),
   // Tax year and income (api-design §58A, VC-7-02).
   on(DepositNotCountedError, (error) =>
@@ -129,7 +135,7 @@ export const TAXATION_ANSWERS = [
   ),
   // WEG spending, Erhaltungsaufwand and § 82b (api-design §58B, VC-7-03).
   on(WegSourceNotCountedError, (error) =>
-    answer(409, 'CONFLICT', 'The WEG withdrawal or use does not count for tax.', {
+    answer(409, 'CONFLICT', 'The WEG withdrawal, use or cost line does not count for tax.', {
       reason: 'SOURCE_NOT_COUNTED',
       sourceType: error.sourceType,
       notCountedReason: error.notCountedReason,

@@ -8,6 +8,7 @@ export {
   DEPOSIT_TAX_CATEGORIES,
   ERHALTUNG_TAX_CATEGORIES,
   INCOME_TAX_CATEGORIES,
+  MEANING_SOURCE_TYPES,
   ORIGINS,
   REVIEW_STATES,
   SOURCE_TYPES,
@@ -20,7 +21,17 @@ export {
   isWegSource,
   treatmentFits,
 } from './vocabulary.js';
-export type { CreateReviewState, Origin, ReviewState, SourceType, StoredReviewState, TaxCategory, Treatment, WegSourceType } from './vocabulary.js';
+export type {
+  CreateReviewState,
+  MeaningSourceType,
+  Origin,
+  ReviewState,
+  SourceType,
+  StoredReviewState,
+  TaxCategory,
+  Treatment,
+  WegSourceType,
+} from './vocabulary.js';
 // The registry kernel is shared (P8-D11, §59); re-exported for the Phase-7 importers. `TAX_RULES` is `domains/tax-rules/`'s.
 export { RULE_STATUSES, RuleRegistry, ruleKey } from '../../shared/index.js';
 export type { RuleRef, RuleStatus, RuleVersion } from '../../shared/index.js';
@@ -33,7 +44,12 @@ export type { WegSpendingParameters } from './rules/de-weg-spending.js';
 export { DE_82B_DISTRIBUTION_V1, DISTRIBUTION_82B } from './rules/de-82b-distribution.js';
 export type { Distribution82bParameters } from './rules/de-82b-distribution.js';
 export { ANSCHAFFUNGSNAHE, DE_ANSCHAFFUNGSNAHE_V1 } from './rules/de-anschaffungsnahe.js';
-export type { AnschaffungsnaheParameters, PartialTreatmentParameters, PerformanceParameters } from './rules/de-anschaffungsnahe.js';
+export type {
+  AnschaffungsnaheParameters,
+  HausgeldMaintenanceParameters,
+  PartialTreatmentParameters,
+  PerformanceParameters,
+} from './rules/de-anschaffungsnahe.js';
 export type { CashTimingParameters } from './rules/de-cash-timing.js';
 export {
   DUE_DATE_SOURCES,
@@ -109,6 +125,18 @@ export {
   checkFlagsOf,
   searchRangesOf,
 } from './anschaffungsnahe.js';
+export { NO_HAUSGELD, readHausgeld, readRangeOf } from './anschaffungsnahe-hausgeld.js';
+export type {
+  CostLineGroup,
+  HausgeldInput,
+  HausgeldLine,
+  HausgeldMembership,
+  HausgeldStatement,
+  MissingStatement,
+  UnjudgedLine,
+} from './anschaffungsnahe-hausgeld.js';
+export { costLineNotCounted, costLineRuleOn, planCostLineClassification } from './cost-line-classification.js';
+export type { CostLineFacts } from './cost-line-classification.js';
 export { partInWindow, performanceCheck, performanceJson, performanceParametersOn, performedOutside } from './performance.js';
 export type { Performance, PerformancePoint, PerformanceRefusal } from './performance.js';
 export { partAmountOf, partialTreatmentParts, treatmentPartsJson } from './treatment-parts.js';

@@ -1,9 +1,9 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  MEANING_SOURCE_TYPES,
   ORIGINS,
   REVIEW_STATES,
-  SOURCE_TYPES,
   TAX_CATEGORIES,
   performanceJson,
   treatmentPartsJson,
@@ -35,7 +35,8 @@ const meaningsQuery = z
     reviewState: csv(REVIEW_STATES),
     origin: csv(ORIGINS),
     taxCategory: csv(TAX_CATEGORIES),
-    sourceType: csv(SOURCE_TYPES),
+    // §58M: a cost line is never a tax meaning, so never a list's source type.
+    sourceType: csv(MEANING_SOURCE_TYPES),
     page: z.coerce.number().int().min(1).max(1_000_000).default(1),
     pageSize: z.coerce.number().int().min(1).max(200).default(50),
   })
@@ -263,6 +264,8 @@ function entryDto(e: CheckEntry) {
     inWindow: e.inWindow === null ? null : { lower: e.inWindow.lower.toJSON(), upper: e.inWindow.upper.toJSON() },
     suggestedTreatment: e.suggestedTreatment,
     reason: e.reason,
+    // §58M: on a cost line's entry only, its statement's period and the account as printed.
+    ...(e.costLine === undefined ? {} : { statementPeriod: e.costLine.statementPeriod, account: e.costLine.account }),
     flags: flagsDto(e.flags),
   };
 }

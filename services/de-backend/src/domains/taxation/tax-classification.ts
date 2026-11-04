@@ -36,6 +36,11 @@ export interface TaxClassification {
   readonly reserveWithdrawal: { readonly unitShare: Money } | null;
   /** The use as classified: a replace of the uses that changes it stops the classification counting. */
   readonly assessmentUse: { readonly date: BusinessDate; readonly unitShare: Money } | null;
+  /**
+   * VC-X-27 (§58M): a WEG statement cost line's printed unit share as classified (signed; a confirmed statement never
+   * changes it). Absent or `null` for every other source.
+   */
+  readonly costLine?: { readonly unitShare: Money } | null;
   /** The amount without VAT, for the anschaffungsnahe check only (P7-D6). */
   readonly netAmount: Money | null;
   /** Annually recurring maintenance: left out of the anschaffungsnahe check (A2). */

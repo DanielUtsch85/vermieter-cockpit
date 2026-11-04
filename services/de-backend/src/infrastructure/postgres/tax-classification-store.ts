@@ -33,6 +33,7 @@ import type { Database } from './schema.js';
 import { wegContextOf } from './tax-property-context.js';
 import { UUID, ENTITY_TYPE, COLUMNS, currentOfWeg, readOne, toDomain, toSnapshot, fromSnapshot } from './tax-classification-rows.js';
 import { factsQuery, acquisitionFactsOf, toRead, timingOf, depositFactsOf } from './tax-source-facts.js';
+import { costLineNotCountedOf, planCostLine } from './tax-cost-line-store.js';
 
 /** Classifications (§56–§58B): create (superseding the current one), §57's review steps, one classification and a source's history. */
 
@@ -48,6 +49,8 @@ interface Target {
   readonly depositClosing: { readonly closingDate: BusinessDate; readonly retainedAmount: Money } | undefined;
   readonly reserveWithdrawal: { readonly unitShare: Money } | null;
   readonly assessmentUse: { readonly date: BusinessDate; readonly unitShare: Money } | null;
+  /** §58M: a cost line's printed unit share as classified. */
+  readonly costLine?: { readonly unitShare: Money };
 }
 
 /** The source table of each source type, its column on the classification and (for a WEG source) the position column. */
@@ -56,6 +59,7 @@ const SOURCE_TABLES = {
   DEPOSIT_CLOSING: { table: 'security_deposit', column: 'security_deposit_id', position: null },
   WEG_RESERVE_WITHDRAWAL: { table: 'weg_annual_statement', column: 'weg_annual_statement_id', position: 'weg_reserve_position' },
   WEG_ASSESSMENT_USE: { table: 'weg_special_assessment', column: 'weg_special_assessment_id', position: 'weg_use_position' },
+  WEG_STATEMENT_COST_LINE: { table: 'weg_annual_statement', column: 'weg_annual_statement_id', position: 'weg_cost_line_position' },
 } as const satisfies Record<SourceType, { table: string; column: string; position: string | null }>;
 
 class Rejected extends Error {
@@ -94,7 +98,9 @@ export async function createClassification(
               ? await planWithdrawal(trx, registry, classification)
               : classification.sourceType === 'WEG_ASSESSMENT_USE'
                 ? await planUse(trx, registry, classification)
-                : await planSplit(trx, registry, classification);
+                : classification.sourceType === 'WEG_STATEMENT_COST_LINE'
+                  ? await planCostLineTarget(trx, registry, classification)
+                  : await planSplit(trx, registry, classification);
         const { current, rule, treatmentRule } = target;
         const id = randomUUID();
         const now = new Date();
@@ -108,7 +114,10 @@ export async function createClassification(
         }
         const type = classification.sourceType;
         const performance = classification.performance ?? null;
-        const position = type === 'WEG_RESERVE_WITHDRAWAL' || type === 'WEG_ASSESSMENT_USE' ? (classification.sourcePosition ?? null) : null;
+        const position =
+          type === 'WEG_RESERVE_WITHDRAWAL' || type === 'WEG_ASSESSMENT_USE' || type === 'WEG_STATEMENT_COST_LINE'
+            ? (classification.sourcePosition ?? null)
+            : null;
         await trx
           .insertInto('tax_classification')
           .values({
@@ -119,13 +128,15 @@ export async function createClassification(
             security_deposit_id: type === 'DEPOSIT_CLOSING' ? classification.sourceId : null,
             deposit_closing_date: target.depositClosing?.closingDate ?? null,
             deposit_retained_amount: target.depositClosing === undefined ? null : toNumericAmount(target.depositClosing.retainedAmount),
-            weg_annual_statement_id: type === 'WEG_RESERVE_WITHDRAWAL' ? classification.sourceId : null,
+            weg_annual_statement_id: type === 'WEG_RESERVE_WITHDRAWAL' || type === 'WEG_STATEMENT_COST_LINE' ? classification.sourceId : null,
             weg_reserve_position: type === 'WEG_RESERVE_WITHDRAWAL' ? position : null,
             weg_withdrawal_unit_share: target.reserveWithdrawal === null ? null : toNumericAmount(target.reserveWithdrawal.unitShare),
             weg_special_assessment_id: type === 'WEG_ASSESSMENT_USE' ? classification.sourceId : null,
             weg_use_position: type === 'WEG_ASSESSMENT_USE' ? position : null,
             weg_use_date: target.assessmentUse?.date ?? null,
             weg_use_unit_share: target.assessmentUse === null ? null : toNumericAmount(target.assessmentUse.unitShare),
+            weg_cost_line_position: type === 'WEG_STATEMENT_COST_LINE' ? position : null,
+            weg_cost_line_unit_share: target.costLine === undefined ? null : toNumericAmount(target.costLine.unitShare),
             tax_category: classification.taxCategory,
             treatment: classification.treatment,
             review_state: classification.reviewState,
@@ -185,6 +196,8 @@ export async function createClassification(
               : { closingDate: created.depositClosing.closingDate, retainedAmount: created.depositClosing.retainedAmount.toJSON() }),
             // §58B: the new fields, each only when set (a split's AuditRecord of VC-7-01 stays as it was).
             ...(created.sourcePosition === null ? {} : { sourcePosition: created.sourcePosition }),
+            // §58M: a cost line's unit share as classified.
+            ...((created.costLine ?? null) === null ? {} : { costLineUnitShare: created.costLine?.unitShare.toJSON() }),
             ...(created.netAmount === null ? {} : { netAmount: created.netAmount.toJSON() }),
             ...(created.annuallyRecurring ? { annuallyRecurring: true } : {}),
             ...(created.distributionYears === null ? {} : { distributionYears: created.distributionYears }),
@@ -346,6 +359,21 @@ async function planWithdrawal(trx: Transaction<Database>, registry: RuleRegistry
   return planWeg(trx, registry, classification, facts, current);
 }
 
+/** Statement → classification of a cost line (§58M, P7-D9): `tax-cost-line-store.ts`. */
+async function planCostLineTarget(trx: Transaction<Database>, registry: RuleRegistry, classification: NewTaxClassification): Promise<Target> {
+  const plan = await planCostLine(trx, registry, classification);
+  if (plan.kind !== 'PLANNED') throw new Rejected(plan);
+  return {
+    current: plan.current,
+    rule: plan.rule,
+    treatmentRule: null,
+    depositClosing: undefined,
+    reserveWithdrawal: null,
+    assessmentUse: null,
+    costLine: plan.costLine,
+  };
+}
+
 /** Assessment → classification (§58B, P7-D9): the assessment row written first, then the current classification of the use. */
 async function planUse(trx: Transaction<Database>, registry: RuleRegistry, classification: NewTaxClassification): Promise<Target> {
   const realm = classification.mreRealmId;
@@ -417,7 +445,7 @@ export async function reviewClassification(
         .executeTakeFirst();
       if (row === undefined) return { kind: 'NOT_FOUND' };
       const current = toDomain(row);
-      const plan = planReview(current, step, await sourceStateOf(trx, current), registry);
+      const plan = planReview(current, step, await sourceStateOf(trx, registry, current), registry);
       if ('kind' in plan) return plan;
       if (step.kind === 'ADVISOR_CONFIRM' && step.advisorPartyId !== null) {
         const party = await trx
@@ -488,10 +516,14 @@ const ACTIONS: Record<ReviewStep['kind'], string> = {
 };
 
 /** The state of a classification's source for §57's checks, read without a lock. */
-async function sourceStateOf(trx: Transaction<Database>, current: TaxClassification): Promise<Parameters<typeof planReview>[2]> {
+async function sourceStateOf(trx: Transaction<Database>, registry: RuleRegistry, current: TaxClassification): Promise<Parameters<typeof planReview>[2]> {
   if (current.sourceType === 'DEPOSIT_CLOSING') {
     const [facts] = await depositFactsOf(trx, current.mreRealmId, [current.sourceId]);
     return { deposit: depositNotCounted(facts as DepositFacts, current) };
+  }
+  if (current.sourceType === 'WEG_STATEMENT_COST_LINE') {
+    const notCounted = await costLineNotCountedOf(trx, registry, current);
+    return { weg: notCounted === null ? null : { kind: 'WEG_SOURCE_NOT_COUNTED', sourceType: 'WEG_STATEMENT_COST_LINE', ...notCounted } };
   }
   if (current.sourceType === 'WEG_RESERVE_WITHDRAWAL' || current.sourceType === 'WEG_ASSESSMENT_USE') {
     const table = current.sourceType === 'WEG_RESERVE_WITHDRAWAL' ? 'weg_annual_statement' : 'weg_special_assessment';

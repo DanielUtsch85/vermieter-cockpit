@@ -24,6 +24,7 @@ import {
   type WegContext,
 } from './tax-property-context.js';
 import { UUID, currentOfWeg } from './tax-classification-rows.js';
+import { hausgeldContextOf } from './tax-hausgeld-context.js';
 import { factsQuery, meaningsOf, countingSplits, toRead } from './tax-source-facts.js';
 
 /**
@@ -101,6 +102,9 @@ export async function effectsOf(
         });
       });
   }
+  // §58M: the confirmed statements' cost lines and their classifications, in the same snapshot (the check merges them
+  // into the list order after the sources of the same date).
+  const hausgeld = range === undefined ? undefined : await hausgeldContextOf(trx, mreRealmId, propertyReferenceId);
   // The order of the per-property list.
   sources.sort((a, b) => (a.date !== b.date ? (a.date < b.date ? -1 : 1) : a.rank !== b.rank ? a.rank - b.rank : a.index - b.index));
   return {
@@ -112,6 +116,7 @@ export async function effectsOf(
       weg.confirmedStatements,
       today,
       registry,
+      hausgeld,
     ),
   };
 }

@@ -31,6 +31,8 @@ export type WegNotCounted =
   | { readonly reason: 'STATEMENT_SUPERSEDED'; readonly details: { readonly supersededBy: string | null } }
   | { readonly reason: 'NOT_A_WITHDRAWAL'; readonly details: { readonly kind: string; readonly withdrawal: Money | null } }
   | { readonly reason: 'ASSESSMENT_VOID'; readonly details: Record<string, never> }
+  /** §58M: a cost line not stored `NON_RECOVERABLE`, or of 0.00, is never judged (a `RECOVERABLE`, a `RESERVE` line). */
+  | { readonly reason: 'COST_LINE_NOT_NON_RECOVERABLE'; readonly details: { readonly classification: string; readonly unitShare: Money } }
   | { readonly reason: 'USE_REMOVED'; readonly details: { readonly position: number } }
   | {
       readonly reason: 'USE_CHANGED';

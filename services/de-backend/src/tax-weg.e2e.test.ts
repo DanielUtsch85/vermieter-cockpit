@@ -359,7 +359,9 @@ describe.skipIf(databaseUrl === undefined)('WEG spending, Erhaltungsaufwand and 
     const outside = await check();
     expect(outside).toMatchObject({ status: 'NOT_ABOVE_THRESHOLD', sum: eur('15126.05') });
     expect(outside.excluded).toEqual([expect.objectContaining({ sourceType: 'WEG_ASSESSMENT_USE', reason: 'PERFORMED_OUTSIDE_WINDOW' })]);
-    expect((outside.flags.find((f) => f.code === 'NOT_FINAL')?.details as { reasons: string[] }).reasons).toEqual(['WINDOW_OPEN']);
+    // §58M (VC-X-27, M7; Entscheidung des Projektinhabers, 2026-11-04): the membership has no confirmed statement of the
+    // read range yet, so WEG_STATEMENT_MISSING holds the check open too (updated explicitly).
+    expect((outside.flags.find((f) => f.code === 'NOT_FINAL')?.details as { reasons: string[] }).reasons).toEqual(['WINDOW_OPEN', 'WEG_STATEMENT_MISSING']);
 
     // Realm isolation on the check and on create with the Acquisition.
     expect((await B('GET', `/acquisitions/${acquisition}/anschaffungsnahe-herstellungskosten`)).status).toBe(404);

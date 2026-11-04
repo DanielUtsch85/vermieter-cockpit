@@ -53,8 +53,23 @@ const repair: CheckSource = {
 };
 const unclassified: CheckSource = { ...repair, sourceId: 'U1', taxCategory: 'UNCLASSIFIED', treatment: null, performance: null };
 const statement = { id: 'st-1', periodFrom: day('2026-01-01'), periodUntil: day('2026-12-31') };
+/** §58M: the statement with an unjudged NON_RECOVERABLE line, and its membership (the later years are missing). */
+const hausgeld = {
+  statements: [
+    {
+      ...statement,
+      membershipId: 'm-1',
+      financialYear: 2026,
+      lines: [{ position: 1, account: 'Verwaltervergütung', classification: 'NON_RECOVERABLE' as const, unitShare: eur('600.00'), current: null }],
+    },
+  ],
+  memberships: [{ id: 'm-1', validFrom: day('2026-01-01'), validUntil: null, financialYearStartMonth: 1 }],
+};
 const check = (acquisition: CheckAcquisition, overrides: Partial<Parameters<typeof checkAnschaffungsnahe>[0]> = {}) =>
-  checkAnschaffungsnahe({ acquisition, costs: [], allocation, sources: [repair, unclassified], statements: [statement], today, ...overrides }, TAX_RULES);
+  checkAnschaffungsnahe(
+    { acquisition, costs: [], allocation, sources: [repair, unclassified], statements: [statement], hausgeld, today, ...overrides },
+    TAX_RULES,
+  );
 
 describe('the check without economicTransferDate (§58K "The rule")', () => {
   it('the example: Q NOT_COMPUTABLE, TRANSFER_DATE_MISSING with contractDate, final false, nothing read, no suggestion on the repair', () => {
@@ -104,7 +119,7 @@ describe('the check without economicTransferDate (§58K "The rule")', () => {
         { code: 'TRANSFER_DATE_MISSING', details: { contractDate: '2026-02-01' } },
       ],
     });
-    // No source carries a flag or a suggestion from Q (no WEG statement either: no window to overlap).
+    // No source carries a flag or a suggestion from Q (no WEG statement or cost line either: no window to read them in, §58M).
     expect(checkFlagsOf([q], repair)).toEqual({ flags: [], suggestion: null });
   });
 
@@ -119,7 +134,8 @@ describe('the check without economicTransferDate (§58K "The rule")', () => {
       '36000.00',
       [2026],
     ]);
-    expect(q2.flags.map((f) => f.code)).toEqual(['NOT_FINAL', 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED']);
+    // §58M: the unjudged line, and the financial years 2027–2030 of the read range without a statement.
+    expect(q2.flags.map((f) => f.code)).toEqual(['NOT_FINAL', 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED', 'WEG_STATEMENT_MISSING']);
     expect(checkFlagsOf([q2], repair).suggestion).toMatchObject({ treatment: 'CAPITALIZED', acquisitionIds: ['acq-q2'] });
     // Field by field: any contract date on or before the transfer gives the same check, apart from the internal field.
     for (const contract of ['2026-03-15', '2020-01-01', '2004-06-30']) {

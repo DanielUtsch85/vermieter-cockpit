@@ -26,6 +26,29 @@ export interface AnschaffungsnaheParameters {
    * by the upper bound. A performance lies within `plausibleYearsFromSourceDate` of its source's date.
    */
   readonly performance: PerformanceParameters;
+  /**
+   * §58M (VC-X-27): the maintenance paid from the Hausgeld. A `NON_RECOVERABLE` cost line of a `CONFIRMED` WEG annual
+   * statement is a source of the check once judged by a classification (`MAINTENANCE`/`DEDUCTIBLE`, or `NOT_RELEVANT`);
+   * its amount is the printed `unitShare`, its date the performance. The statements read are those whose period overlaps
+   * `statementsFrom` to `statementsUntil` (the read range; the same range names the missing financial years); a later
+   * statement's judged line performed in the window is listed (`outsideSearchRange`). Without this parameter the check
+   * flags every confirmed statement overlapping the window and reads no line, as before §58M.
+   */
+  readonly hausgeldMaintenance?: HausgeldMaintenanceParameters;
+}
+
+export interface HausgeldMaintenanceParameters {
+  readonly sourceType: 'WEG_STATEMENT_COST_LINE';
+  /** The stored line classifications that must be judged (§ 1 Abs. 2 Nr. 2 BetrKV: Betriebskosten hold no maintenance). */
+  readonly judgedLines: readonly ('RECOVERABLE' | 'NON_RECOVERABLE' | 'RESERVE')[];
+  readonly lines: readonly { readonly taxCategory: TaxCategory; readonly treatment: Treatment }[];
+  readonly amount: 'UNIT_SHARE_AS_PRINTED';
+  readonly statementsFrom: 'WINDOW_START' | 'SEARCH_RANGE_START';
+  readonly statementsUntil: 'WINDOW_END' | 'SEARCH_RANGE_END' | 'OUTER_BOUND_END';
+  readonly laterStatementLinesInWindow: 'OUTSIDE_SEARCH_RANGE';
+  readonly dateMeasured: 'PERFORMANCE';
+  readonly aboveThreshold: 'NO_SUGGESTION_MANUAL_REVIEW';
+  readonly source: string;
 }
 
 export interface PerformanceParameters {
@@ -81,6 +104,9 @@ export const ANSCHAFFUNGSNAHE = 'DE_ANSCHAFFUNGSNAHE';
  * Changed in place again for VC-X-38 Part 2 (Entscheidung des Projektinhabers, 2026-11-02, 239-2): the parameter
  * `performance.partialTreatment`, across the window's end only (`straddledEdge`, the owner's review of #252). The pinned
  * hash is updated explicitly.
+ *
+ * Changed in place again for VC-X-27 (§58M; Entscheidung des Projektinhabers, 2026-11-04, M8): the parameter
+ * `hausgeldMaintenance` (tax review of 2026-11-01, question 16). The pinned hash is updated explicitly.
  */
 export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
   ruleCode: ANSCHAFFUNGSNAHE,
@@ -124,7 +150,22 @@ export const DE_ANSCHAFFUNGSNAHE_V1: RuleVersion<AnschaffungsnaheParameters> = {
       legalBasis: '§ 6 Abs. 1 Nr. 1a EStG; BMF 20.10.2017, Rn. 1 ff. (Durchführung der Maßnahme)',
       source: 'Prüfbericht 2026-11-01, Fragen 14 und 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01)',
     },
+    hausgeldMaintenance: {
+      sourceType: 'WEG_STATEMENT_COST_LINE',
+      judgedLines: ['NON_RECOVERABLE'],
+      lines: [
+        { taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE' },
+        { taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT' },
+      ],
+      amount: 'UNIT_SHARE_AS_PRINTED',
+      statementsFrom: 'WINDOW_START',
+      statementsUntil: 'SEARCH_RANGE_END',
+      laterStatementLinesInWindow: 'OUTSIDE_SEARCH_RANGE',
+      dateMeasured: 'PERFORMANCE',
+      aboveThreshold: 'NO_SUGGESTION_MANUAL_REVIEW',
+      source: 'Prüfbericht 2026-11-01, Frage 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); api-design §58M',
+    },
   },
   source:
-    'docs/germany/taxation.md §6; phase-7-plan P7-D6; api-design §58B (review on #167); verification-checklist A2, A6; changed in place 2026-11-01 by api-design §59D (VC-X-42): costClassification, Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F; VC-X-38 Part 2 in place: performance.partialTreatment, Entscheidung des Projektinhabers 2026-11-02 (239-2), api-design §59F',
+    'docs/germany/taxation.md §6; phase-7-plan P7-D6; api-design §58B (review on #167); verification-checklist A2, A6; changed in place 2026-11-01 by api-design §59D (VC-X-42): costClassification, Prüfbericht 2026-11-01, Fragen 10 und 24 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); VC-X-38 in place: Prüfbericht 2026-11-01, Fragen 14, 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); owner decision 2026-11-01, api-design §59F; VC-X-38 Part 2 in place: performance.partialTreatment, Entscheidung des Projektinhabers 2026-11-02 (239-2), api-design §59F; VC-X-27 in place: hausgeldMaintenance, Prüfbericht 2026-11-01, Frage 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidung des Projektinhabers 2026-11-04, api-design §58M',
 };
