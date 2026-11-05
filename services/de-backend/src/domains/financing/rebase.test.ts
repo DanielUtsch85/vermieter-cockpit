@@ -194,3 +194,19 @@ describe('the rebase (§58O question 12 (b))', () => {
     expect([r.plan.schedule.entries.length, r.plan.schedule.summary.endReason, r.plan.schedule.summary.balanceDue]).toEqual([2, 'CLOSED', 11_945_940n]);
   });
 });
+
+describe('the actual remaining debt a restart starts from (§41.6, never below 0)', () => {
+  /** A small Loan of 1 000.00; a special repayment of 1 200.00 overpays it by 200.00. Synthetic figures only. */
+  const small = loanOf({ principalOriginal: eur('1000.00') });
+  const terms = [period({ scheduledPayment: eur('100.00') })];
+
+  it('an overpayment anchors the plan at 0.00, not at the negative remainder', () => {
+    const r = reconciledPlan(small, terms, special('s-over', '2027-02-15', 120_000n));
+    expect(r.rebases.map((x) => [x.bookingDate, x.actualBalance])).toEqual([['2027-02-15', 0n]]);
+  });
+
+  it('counter-check: a special repayment below the debt anchors at the actual remainder', () => {
+    const r = reconciledPlan(small, terms, special('s-part', '2027-02-15', 40_000n));
+    expect(r.rebases.map((x) => [x.bookingDate, x.actualBalance])).toEqual([['2027-02-15', 60_000n]]);
+  });
+});
