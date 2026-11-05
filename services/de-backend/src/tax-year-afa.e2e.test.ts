@@ -28,6 +28,7 @@ import {
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
+import { confirmedStatementsOf } from './infrastructure/postgres/weg-statements.test-support.js';
 import { classifyAsTransfer } from './infrastructure/postgres/acquisition-cost-classification.test-support.js';
 import { testSchemaName } from './infrastructure/postgres/test-schema.test-support.js';
 import { HttpMreClient } from './integrations/mre/index.js';
@@ -731,7 +732,16 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
 
     // Example 3: after the window, version 2 of the building through 2028 (naming the changed years) and the kitchen's
     // version 1. 2026 is final for the first time, and 2027 and 2028 too (§59F: the start rule confirmed, performances stated).
-    at('2029-10-15');
+    // §58M (VC-X-27, M7; Entscheidung des Projektinhabers, 2026-11-04; updated explicitly): the check of a WEG member is
+    // final only with a confirmed statement of every financial year of its read range (2026 to 2030, W + 365 days) and
+    // after the last of them ended; so this example reads on 2031-01-15 with those statements filed (no line to judge).
+    at('2031-01-15');
+    await confirmedStatementsOf(
+      db(),
+      { mreRealmId: REALM_A, membershipId: membership, years: [2026, 2027, 2028, 2029, 2030] },
+      actor,
+      new Date('2031-01-15T10:00:00Z'),
+    );
     const v2 = await recordVersion(building, 2028, [2026, 2027]);
     await recordVersion(kitchen.assetId, 2028);
     const e3 = await view(pr, 2026);

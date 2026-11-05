@@ -564,17 +564,34 @@ describe('the anschaffungsnahe check (§58B)', () => {
     expect(draft.sources).toHaveLength(1);
   });
 
-  it('WINDOW_OPEN; WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED with an overlapping confirmed statement, not without', () => {
+  it('WINDOW_OPEN; WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED with an unjudged line of a statement read, not of one before the window (§58M)', () => {
     expect((check([source()], { today: day('2029-03-15') }).flags[0]?.details as { reasons: string[] }).reasons).toContain('WINDOW_OPEN');
     expect((check([source()], { today: day('2029-03-16') }).flags[0]?.details as { reasons: string[] }).reasons).not.toContain('WINDOW_OPEN');
-    const statements = [
-      { id: 'st-2', periodFrom: day('2025-01-01'), periodUntil: day('2025-12-31') },
-      { id: 'st-1', periodFrom: day('2026-01-01'), periodUntil: day('2026-12-31') },
-    ];
-    const withHausgeld = check([source({ netAmount: eur('1.00') })], { statements });
-    expect(withHausgeld.flags).toContainEqual({ code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED', details: { statementIds: ['st-1'] } });
+    // §58M narrows the flag to the unjudged lines (updated explicitly): statements with lines, through `hausgeld`.
+    const statement = (id: string, year: number) => ({
+      id,
+      membershipId: 'm-1',
+      financialYear: year,
+      periodFrom: day(`${year}-01-01`),
+      periodUntil: day(`${year}-12-31`),
+      lines: [{ position: 1, account: 'Verwaltervergütung', classification: 'NON_RECOVERABLE' as const, unitShare: eur('600.00'), current: null }],
+    });
+    const statements = [statement('st-2', 2025), statement('st-1', 2026)];
+    const withHausgeld = check([source({ netAmount: eur('1.00') })], { hausgeld: { statements, memberships: [] } });
+    expect(withHausgeld.flags).toContainEqual({
+      code: 'WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED',
+      details: { statementIds: ['st-1'], lines: [{ statementId: 'st-1', position: 1, account: 'Verwaltervergütung', unitShare: eur('600.00') }] },
+    });
     expect(withHausgeld).toMatchObject({ final: false, status: 'NOT_ABOVE_THRESHOLD' });
-    expect(check([source({ netAmount: eur('1.00') })], { statements: [statements[0] as (typeof statements)[number]] })).toMatchObject({ final: true });
+    // Counter-check: the statement of 2025 ends before the window and is not read.
+    const before = { statements: [statements[0] as (typeof statements)[number]], memberships: [] };
+    expect(check([source({ netAmount: eur('1.00') })], { hausgeld: before })).toMatchObject({ final: true });
+    // The `statements` input alone (the shape before §58M) names nothing under a rule with `hausgeldMaintenance`.
+    expect(
+      check([source({ netAmount: eur('1.00') })], { statements: [{ id: 'st-1', periodFrom: day('2026-01-01'), periodUntil: day('2026-12-31') }] }),
+    ).toMatchObject({
+      final: true,
+    });
   });
 
   it('above 15 %: every summed source flagged, affectedYears; a capitalisation on this check kept in the sum; below again ANSCHAFFUNGSNAHE_NO_LONGER_ABOVE', () => {

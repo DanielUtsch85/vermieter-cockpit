@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { checkStoredRuleReferences, createDatabase } from './infrastructure/postgres/index.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
+import { confirmedStatementsOf } from './infrastructure/postgres/weg-statements.test-support.js';
 import { routesOf } from './phase-2-acceptance.test-support.js';
 import {
   PHASE_8,
@@ -440,8 +441,49 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // After the window (2029-07-01) and its 90-day strip: version 3 through 2028, naming the changed 2027. 2026 is final
     // for the first time, and so are 2027 and 2028 (§59F, VC-X-38: SUBSEQUENT_COST_START_TO_VERIFY is withdrawn, the start
     // rule confirmed by Prüfbericht 2026-11-01, Frage 5, and every item states its performance).
+    // §58M (VC-X-27, M7; Entscheidung des Projektinhabers, 2026-11-04; updated explicitly): the check of a WEG member is
+    // final only with a confirmed statement of every financial year of its read range (2026 to 2030, W + 365 days), after
+    // the last of them ended: on 2029-10-15 it is not final by WEG_STATEMENT_MISSING alone; ACC8 reads on 2031-01-15
+    // with those statements filed (one RECOVERABLE line each, nothing to judge). No figure of ACC8 changes.
+    // Entscheidung des Projektinhabers, 2026-11-05 (§58M, question 10): the adaptation touches only `final`, the
+    // `notFinalReasons` and the flag; no amount, sum or threshold. So the check's figures and the views' figures of
+    // 2026–2028 on the new read date equal those on 2029-10-15, and the threshold is main's 38,160.00.
+    const figuresOf = (c: Json) => [
+      c.status,
+      c.threshold,
+      c.thresholdWithUnclassified,
+      c.basis,
+      c.sum,
+      c.sumUpper,
+      c.attributableAmount,
+      c.percentOfBasis,
+      c.percentOfBasisUpper,
+      c.affectedYears,
+      c.sources.map((e: Json) => [e.sourceId, e.amountUsed, e.inWindow, e.suggestedTreatment]),
+    ];
+    const viewFiguresOf = async () =>
+      Promise.all(
+        [2026, 2027, 2028].map(async (year) => {
+          const v = await view(pr, year);
+          return [year, v.einnahmen.total, v.werbungskosten.total, v.result, ownerFigures(v), totalOf(v, 'AFA_BUILDING'), totalOf(v, 'MAINTENANCE')];
+        }),
+      );
     at('2029-10-15');
-    expect((await api.check(w)).final).toBe(true);
+    const waiting = await api.check(w);
+    expect([waiting.final, waiting.flags.find((f: Json) => f.code === 'NOT_FINAL').details.reasons]).toEqual([false, ['WEG_STATEMENT_MISSING']]);
+    const viewsWaiting = await viewFiguresOf();
+    at('2031-01-15');
+    await confirmedStatementsOf(
+      createDatabase(api.ctx.pool),
+      { mreRealmId: REALM_A, membershipId: membership, years: [2026, 2027, 2028, 2029, 2030], firstFrom: '2026-07-01' },
+      { actorType: 'USER', actorId: 'anna@example.com' },
+      new Date('2031-01-15T10:00:00Z'),
+    );
+    const closed = await api.check(w);
+    expect(closed.final).toBe(true);
+    expect(figuresOf(closed)).toEqual(figuresOf(waiting));
+    expect(closed.threshold.amount).toBe('38160.00');
+    expect(await viewFiguresOf()).toEqual(viewsWaiting);
     // §59F (the owner's decision 239-6, 2026-11-02): before 2027 and 2028 become final in the test wiring, the shipped
     // default (recording off) refuses the same record through 2028 before any data access; nothing is written (no
     // version, no AuditRecord, no Idempotency-Key), and its views of 2027 and 2028 are the test wiring's, not final.
@@ -522,7 +564,7 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
 
     // The extension of 2030-09-15 (12,000.00 CAPITALIZED, outside the window): 240.00 a year from 2030 at the building's
     // rate (B11), A 144.00 and B 96.00. 2030: 5,088.00 + 714.00 + 180.00 + 240.00 + 24.70 = 6,246.70; 2031: … + 24.68.
-    at('2030-10-01');
+    at('2031-01-20');
     const [extension] = await booked(account, 'OUTFLOW', '2030-09-15', [on('12000.00', 'MAINTENANCE')]);
     await classify({ sourceId: extension, taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED', performance: { from: '2030-09-01', until: '2030-09-15' } });
     at('2032-01-15');

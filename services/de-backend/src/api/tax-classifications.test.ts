@@ -710,3 +710,98 @@ describe('VC-7-03 (§58B)', () => {
     expect(await fields(await get(base, `/acquisitions/x/anschaffungsnahe-herstellungskosten`))).toEqual([{ field: 'acquisitionId', code: 'INVALID_FORMAT' }]);
   });
 });
+
+describe('a WEG statement cost line (§58M, VC-X-27): the 400s, the DTO, the history query and the error mapping', () => {
+  const costLine = { sourceType: 'WEG_STATEMENT_COST_LINE', sourceId: OTHER, sourcePosition: 3, taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE' };
+
+  it('400 NOT_ALLOWED_WITH_TREATMENT for every other line or treatment and each field a cost line never takes; REQUIRED position; passed through', async () => {
+    const seen: CreateTaxClassificationInput[] = [];
+    const created = {
+      ...classification,
+      sourceType: 'WEG_STATEMENT_COST_LINE' as const,
+      sourceId: OTHER,
+      sourcePosition: 3,
+      costLine: { unitShare: Money.of('2000.00', 'EUR') },
+    };
+    const base = await start({
+      taxation: {
+        create: async (input) => {
+          seen.push(input);
+          return { classification: created, replayed: false };
+        },
+      },
+    });
+    const send = (payload: unknown) => post(base, '/tax-classifications', payload);
+    for (const [taxCategory, treatment] of [
+      ['MAINTENANCE', 'CAPITALIZED'],
+      ['WEG_SPENDING', 'DEDUCTIBLE'],
+      ['INSURANCE', 'DEDUCTIBLE'],
+      ['MAINTENANCE', 'DISTRIBUTED_82B'],
+    ]) {
+      expect(await fields(await send({ ...costLine, taxCategory, treatment }))).toContainEqual({ field: 'treatment', code: 'NOT_ALLOWED_WITH_TREATMENT' });
+    }
+    for (const [field, value] of [
+      ['taxYear', 2027],
+      ['refundOfYear', 2026],
+      ['anschaffungsnaheAcquisitionId', PARTY],
+      ['partialTreatment', true],
+      ['distributionYears', 3],
+      ['mostlyResidentialConfirmed', true],
+    ] as const) {
+      expect(await fields(await send({ ...costLine, [field]: value }))).toEqual([{ field, code: 'NOT_ALLOWED_WITH_TREATMENT' }]);
+    }
+    expect(await fields(await send({ ...costLine, sourcePosition: undefined }))).toEqual([{ field: 'sourcePosition', code: 'REQUIRED' }]);
+    expect(
+      await fields(await send({ ...costLine, taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT', netAmount: { amount: '1.00', currency: 'EUR' } })),
+    ).toEqual([{ field: 'netAmount', code: 'NOT_ALLOWED_WITH_TAX_CATEGORY' }]);
+    expect(seen).toEqual([]);
+    const res = await send({ ...costLine, netAmount: { amount: '1680.67', currency: 'EUR' }, performance: { from: '2027-06-01', until: '2027-07-15' } });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({
+      sourceType: 'WEG_STATEMENT_COST_LINE',
+      sourcePosition: 3,
+      costLine: { unitShare: { amount: '2000.00', currency: 'EUR' } },
+    });
+    expect(seen[0]).toMatchObject({ sourceType: 'WEG_STATEMENT_COST_LINE', sourcePosition: 3, netAmount: Money.of('1680.67', 'EUR') });
+    // A split's DTO keeps its shape without the key: the first test's exact DTO above.
+  });
+
+  it('the history query takes the position; the refusals map to 409 SOURCE_NOT_COUNTED and 422 TREATMENT_NOT_ALLOWED with the cost line', async () => {
+    const asked: unknown[] = [];
+    const base = await start({
+      taxation: {
+        history: async (input) => {
+          asked.push(input);
+          return [];
+        },
+        create: async (input) => {
+          if (input.taxCategory === 'WEG_SPENDING')
+            throw new TreatmentNotAllowedError(null, ['DEDUCTIBLE', 'NOT_RELEVANT'], ['MAINTENANCE', 'NOT_RELEVANT'], 'WEG_STATEMENT_COST_LINE');
+          throw new WegSourceNotCountedError('WEG_STATEMENT_COST_LINE', 'COST_LINE_NOT_NON_RECOVERABLE', {
+            classification: 'RECOVERABLE',
+            unitShare: Money.of('1800.00', 'EUR'),
+          });
+        },
+      },
+    });
+    expect(await fields(await get(base, `/tax-classifications?sourceType=WEG_STATEMENT_COST_LINE&sourceId=${OTHER}`))).toEqual([
+      { field: 'sourcePosition', code: 'REQUIRED' },
+    ]);
+    expect((await get(base, `/tax-classifications?sourceType=WEG_STATEMENT_COST_LINE&sourceId=${OTHER}&sourcePosition=3`)).status).toBe(200);
+    expect(asked).toEqual([expect.objectContaining({ sourceType: 'WEG_STATEMENT_COST_LINE', sourceId: OTHER, sourcePosition: 3 })]);
+    const notCounted = await post(base, '/tax-classifications', { ...costLine, sourcePosition: 1 });
+    expect([notCounted.status, ((await notCounted.json()) as { error: { details: unknown } }).error.details]).toEqual([
+      409,
+      {
+        reason: 'SOURCE_NOT_COUNTED',
+        sourceType: 'WEG_STATEMENT_COST_LINE',
+        notCountedReason: 'COST_LINE_NOT_NON_RECOVERABLE',
+        classification: 'RECOVERABLE',
+        unitShare: { amount: '1800.00', currency: 'EUR' },
+      },
+    ]);
+    const notAllowed = await post(base, '/tax-classifications', { ...costLine, taxCategory: 'WEG_SPENDING', treatment: 'DEDUCTIBLE' });
+    expect(notAllowed.status).toBe(400);
+    expect((await get(base, `/property-references/${PR}/tax-meanings?year=2027&sourceType=WEG_STATEMENT_COST_LINE`)).status).toBe(400);
+  });
+});

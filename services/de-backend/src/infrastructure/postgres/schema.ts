@@ -727,6 +727,9 @@ export interface TaxClassificationTable {
   created_txid: Generated<string | null>;
   /** VC-X-38 Part 2 (0062, §59F): the parts in `tax_classification_treatment_part` (window part CAPITALIZED, rest DEDUCTIBLE). */
   partial_treatment: Generated<boolean>;
+  /** VC-X-27 (0068, §58M): a cost line of `weg_annual_statement_id` by position, with its printed unit share as classified. */
+  weg_cost_line_position: Generated<number | null>;
+  weg_cost_line_unit_share: Generated<string | null>;
 }
 
 /** §59F (VC-X-38 Part 2, migration 0062): the two parts of a partial treatment, summing to the source's amount. */

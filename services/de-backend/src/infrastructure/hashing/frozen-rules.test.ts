@@ -67,7 +67,11 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // Again in the same PR (the owner's review of #252): `performance.partialTreatment.straddledEdge` "END", the partial
   // treatment across the window's end only; a source begun before the transfer date stays refused (`STRADDLES_START`)
   // until the owner and the advisor decide. Before: dadb1895…6587 (the counter-check below recomputes it).
-  ['DE_ANSCHAFFUNGSNAHE', 1, 'd4e797c45dc1c24b7c2d389bdfaccd9a73756ec7e0b65c7413639fba712a9f45'],
+  // Again for VC-X-27 (§58M; Prüfbericht 2026-11-01, Frage 16, mündlich bestätigt durch den Steuerberater, laut
+  // Projektinhaber am 2026-11-01; Entscheidung des Projektinhabers, 2026-11-04, M8: in `@1` with a parameter): the
+  // parameter `hausgeldMaintenance` and the change note in its `source`. Recording is still disabled. Before:
+  // d4e797c4…9f45 (the counter-check below recomputes it).
+  ['DE_ANSCHAFFUNGSNAHE', 1, '7cbb166d2593d3af818f039a68048bba8948cf672fd8b01bfa61dee8e78c5eae'],
   // New with §59E (VC-X-36, decided by the owner on 2026-11-01; Prüfbericht 2026-11-01, Frage 23, mündlich bestätigt
   // durch den Steuerberater, laut Projektinhaber am 2026-11-01): a classification's `treatmentRule`, so pinned from its
   // first commit on; a change is `@2` (§59E "Frozen rules"). The AfA rules and DE_CATEGORY_DEFAULTS@1 are unchanged.
@@ -83,6 +87,14 @@ const PINNED: readonly (readonly [string, number, string])[] = [
 
 /** The change note VC-X-38 Part 2 added to `DE_ANSCHAFFUNGSNAHE@1`'s `source`. */
 const PART_2_NOTE = '; VC-X-38 Part 2 in place: performance.partialTreatment, Entscheidung des Projektinhabers 2026-11-02 (239-2), api-design §59F';
+/** The change note VC-X-27 (§58M) added to `DE_ANSCHAFFUNGSNAHE@1`'s `source`. */
+const HAUSGELD_NOTE =
+  '; VC-X-27 in place: hausgeldMaintenance, Prüfbericht 2026-11-01, Frage 16 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01); Entscheidung des Projektinhabers 2026-11-04, api-design §58M';
+/** `DE_ANSCHAFFUNGSNAHE@1` as it was before VC-X-27: without `hausgeldMaintenance` and its change note. */
+const beforeHausgeld = (v: typeof DE_ANSCHAFFUNGSNAHE_V1): typeof DE_ANSCHAFFUNGSNAHE_V1 => {
+  const { hausgeldMaintenance: _withdrawn, ...parameters } = v.parameters;
+  return { ...v, parameters, source: v.source.replace(HAUSGELD_NOTE, '') };
+};
 
 describe('the frozen rule versions (§60)', () => {
   it.each(PINNED)('%s@%i keeps its pinned hash', (ruleCode, version, hash) => {
@@ -193,7 +205,7 @@ describe('the frozen rule versions (§60)', () => {
   });
 
   it('counter-checks on a copy of the check rule (§59F): the search range days and the outer bound change the hash; the version before VC-X-38 had the pinned e8e55a58…c3ff', () => {
-    const v = DE_ANSCHAFFUNGSNAHE_V1;
+    const v = beforeHausgeld(DE_ANSCHAFFUNGSNAHE_V1);
     const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
     for (const performance of [
       { ...v.parameters.performance, undatedReadAfterWindowDays: 366 },
@@ -215,7 +227,7 @@ describe('the frozen rule versions (§60)', () => {
   });
 
   it('counter-checks on a copy of the check rule (VC-X-38 Part 2): the partial treatment changes the hash; the version before it had the pinned 6f14e4ac…1c57', () => {
-    const v = DE_ANSCHAFFUNGSNAHE_V1;
+    const v = beforeHausgeld(DE_ANSCHAFFUNGSNAHE_V1);
     const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
     const partial = v.parameters.performance.partialTreatment;
     expect(partial).toBeDefined();
@@ -231,7 +243,7 @@ describe('the frozen rule versions (§60)', () => {
   });
 
   it('counter-checks on a copy of the check rule (review of #252): the straddled edge changes the hash; without it the pinned dadb1895…6587', () => {
-    const v = DE_ANSCHAFFUNGSNAHE_V1;
+    const v = beforeHausgeld(DE_ANSCHAFFUNGSNAHE_V1);
     const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
     const partial = v.parameters.performance.partialTreatment;
     expect(partial?.straddledEdge).toBe('END');
@@ -240,5 +252,23 @@ describe('the frozen rule versions (§60)', () => {
     expect(hash(withPartial({ ...partial, straddledEdge: 'BOTH' }))).not.toBe(hash(v));
     const { straddledEdge: _withdrawn, ...partialBefore } = partial ?? {};
     expect(hash(withPartial(partialBefore))).toBe('dadb1895baf30b42ea3dd5029e04a1888fc7dc96c1d7cab155efc397d7ad6587');
+  });
+
+  it('counter-checks on a copy of the check rule (VC-X-27, §58M): each Hausgeld parameter changes the hash; without it the former pinned d4e797c4…9f45', () => {
+    const v = DE_ANSCHAFFUNGSNAHE_V1;
+    const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
+    const q = v.parameters.hausgeldMaintenance;
+    expect(q?.statementsUntil).toBe('SEARCH_RANGE_END');
+    expect(v.source).toContain(HAUSGELD_NOTE);
+    for (const changed of [
+      { ...q, statementsUntil: 'OUTER_BOUND_END' },
+      { ...q, statementsFrom: 'SEARCH_RANGE_START' },
+      { ...q, judgedLines: ['RECOVERABLE', 'NON_RECOVERABLE'] },
+      { ...q, lines: [{ taxCategory: 'MAINTENANCE', treatment: 'DEDUCTIBLE' }] },
+    ]) {
+      expect(hash({ ...v, parameters: { ...v.parameters, hausgeldMaintenance: changed } } as typeof v)).not.toBe(hash(v));
+    }
+    expect(hash(beforeHausgeld(v))).toBe('d4e797c45dc1c24b7c2d389bdfaccd9a73756ec7e0b65c7413639fba712a9f45');
+    expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
   });
 });

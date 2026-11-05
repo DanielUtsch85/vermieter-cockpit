@@ -49,7 +49,7 @@ export type DepositNotCounted = {
 /** A WEG source that does not count (§58B), with the details its `notCountedReason` names. */
 export type WegSourceNotCounted = {
   readonly kind: 'WEG_SOURCE_NOT_COUNTED';
-  readonly sourceType: 'WEG_RESERVE_WITHDRAWAL' | 'WEG_ASSESSMENT_USE';
+  readonly sourceType: 'WEG_RESERVE_WITHDRAWAL' | 'WEG_ASSESSMENT_USE' | 'WEG_STATEMENT_COST_LINE';
 } & WegNotCounted;
 
 export type DistributionNotAllowedReason = 'NOT_MOSTLY_RESIDENTIAL' | 'NOT_AN_OUTFLOW';

@@ -586,6 +586,8 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
           // 0055 (VC-X-36) adds guards to tax_classification and 0047 (VC-7-03) builds on 0046: they go first.
           // 0058 (VC-X-38) adds columns, a table and guards to tax_classification.
           // 0062 (VC-X-38 Part 2) adds a column, a table and guards to tax_classification: its own down first.
+          // 0068 (VC-X-27) adds columns, constraints and a guard to tax_classification: its own down first.
+          await (await import('./migrations/0068_hausgeld_cost_line_classification.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0062_classification_partial_treatment.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0058_classification_performance.js')).down(createDatabase(downPool) as never);
           await (await import('./migrations/0055_construction_period_interest.js')).down(createDatabase(downPool) as never);

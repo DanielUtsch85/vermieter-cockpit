@@ -415,7 +415,8 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
         await admin.end();
         const down = new pg.Pool({ connectionString: databaseUrl, options: `-c search_path=${downSchema}`, max: 3 });
         try {
-          const before0067 = Object.fromEntries(Object.entries(migrations).filter(([name]) => name !== '0067_acquisition_transfer_date_record'));
+          // The migrations before 0067 (0068, VC-X-27, sorts after it and is applied with it below).
+          const before0067 = Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0067'));
           await migrateToLatest(down, { migrationTableSchema: downSchema, migrations: before0067 });
           const defs = async () => {
             const out: string[] = [];
@@ -479,8 +480,10 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
             await down.query(`DELETE FROM acquisition_party WHERE acquisition_id = $1`, [other.acquisitionId]);
             await down.query(`DELETE FROM acquisition WHERE id = $1`, [other.acquisitionId]);
             for (const t of ['ownership', 'acquisition_party', 'acquisition']) await down.query(`ALTER TABLE ${t} ENABLE TRIGGER USER`);
+            // 0068 (VC-X-27, tax_classification only) sorts after 0067: its own down first (no cost-line classification here).
+            await (migrations['0068_hausgeld_cost_line_classification'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await migration.down(createDatabase(down) as never);
-            await down.query(`DELETE FROM kysely_migration WHERE name = '0067_acquisition_transfer_date_record'`);
+            await down.query(`DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification')`);
           }
           expect(await defs()).toEqual(original);
           expect(await legacyRow()).toEqual(untouched);

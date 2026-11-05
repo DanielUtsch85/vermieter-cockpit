@@ -35,6 +35,17 @@ import { fieldErrors, integerIn, readIdempotencyKey, readIfMatch, sendValidation
 
 const issue = (ctx: z.RefinementCtx, path: string, code: string) => ctx.addIssue({ code: 'custom', path: [path], params: { code } });
 const has = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value);
+/** The sources named with a `sourcePosition`: the WEG ones (§58B) and a statement's cost line (§58M). */
+const POSITIONED = [...WEG_SOURCE_TYPES, 'WEG_STATEMENT_COST_LINE'] as const;
+/** §58M: what a cost line's classification never takes (check-only; the Hausgeld is deducted when paid). */
+const NOT_FOR_COST_LINES = [
+  'anschaffungsnaheAcquisitionId',
+  'partialTreatment',
+  'distributionYears',
+  'mostlyResidentialConfirmed',
+  'taxYear',
+  'refundOfYear',
+] as const;
 
 const taxYear = integerIn(2000, 2100);
 /** A reserve line's or a use's `position` (§58B). */
@@ -80,8 +91,19 @@ const createBody = z
     if (weg && given(body.refundOfYear)) issue(ctx, 'refundOfYear', 'NOT_SUPPORTED');
     if (body.sourceType === 'WEG_ASSESSMENT_USE' && given(body.taxYear)) issue(ctx, 'taxYear', 'NOT_SUPPORTED');
     if (body.sourceType !== undefined) {
-      if (weg && !given(body.sourcePosition)) issue(ctx, 'sourcePosition', 'REQUIRED');
-      if (!weg && given(body.sourcePosition)) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
+      const positioned = has(POSITIONED, body.sourceType);
+      if (positioned && !given(body.sourcePosition)) issue(ctx, 'sourcePosition', 'REQUIRED');
+      if (!positioned && given(body.sourcePosition)) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
+    }
+    // §58M: a cost line is MAINTENANCE/DEDUCTIBLE or NOT_RELEVANT, and takes none of a treatment's fields.
+    if (body.sourceType === 'WEG_STATEMENT_COST_LINE') {
+      const refused = NOT_FOR_COST_LINES.filter((field) => given(body[field]) && body[field] !== false);
+      const fits =
+        (body.taxCategory === 'MAINTENANCE' && body.treatment === 'DEDUCTIBLE') || (body.taxCategory === 'NOT_RELEVANT' && body.treatment === 'NOT_RELEVANT');
+      for (const field of refused) issue(ctx, field, 'NOT_ALLOWED_WITH_TREATMENT');
+      if (body.taxCategory !== undefined && body.treatment !== undefined && !fits) issue(ctx, 'treatment', 'NOT_ALLOWED_WITH_TREATMENT');
+      // The general field rules below would name the same fields again.
+      if (refused.length > 0 || !fits) return;
     }
     const category = body.taxCategory;
     if (category === undefined || body.treatment === undefined) return;
@@ -132,9 +154,9 @@ const historyQuery = z
   .strict()
   .superRefine((query, ctx) => {
     if (query.sourceType === undefined) return;
-    const weg = has(WEG_SOURCE_TYPES, query.sourceType);
-    if (weg && query.sourcePosition === undefined) issue(ctx, 'sourcePosition', 'REQUIRED');
-    if (!weg && query.sourcePosition !== undefined) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
+    const positioned = has(POSITIONED, query.sourceType);
+    if (positioned && query.sourcePosition === undefined) issue(ctx, 'sourcePosition', 'REQUIRED');
+    if (!positioned && query.sourcePosition !== undefined) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
   });
 
 export interface TaxationCommands {
@@ -300,6 +322,8 @@ function classificationDto(c: TaxClassification) {
     depositClosing: c.depositClosing === null ? null : { closingDate: c.depositClosing.closingDate, retainedAmount: c.depositClosing.retainedAmount.toJSON() },
     reserveWithdrawal: c.reserveWithdrawal === null ? null : { unitShare: c.reserveWithdrawal.unitShare.toJSON() },
     assessmentUse: c.assessmentUse === null ? null : { date: c.assessmentUse.date, unitShare: c.assessmentUse.unitShare.toJSON() },
+    // §58M: present only on a cost line's classification (the printed unit share as classified).
+    ...((c.costLine ?? null) === null ? {} : { costLine: { unitShare: c.costLine?.unitShare.toJSON() } }),
     netAmount: c.netAmount?.toJSON() ?? null,
     annuallyRecurring: c.annuallyRecurring,
     distributionYears: c.distributionYears,
