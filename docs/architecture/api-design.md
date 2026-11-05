@@ -8553,6 +8553,226 @@ Implemented as specified, with the owner's decisions of 2026-11-04 (questions 1�
 
 ---
 
+# 58O. Payment Interval on the Loan's Terms (VC-X-53, spec)
+
+**Status:** **specified, not implemented**; open questions 1–10 at the end of this section are pending with the owner. Backlog VC-X-53, created by the owner's decision on §58L open question 4 (Entscheidung des Projektinhabers, 2026-11-04). **Migration:** one, the next free number at implementation (0070 at the time of writing: main 10709ad ends at 0069). Productive AfA recording stays disabled; nothing here touches it, and no unconfirmed tax assumption reads as released by it (open question 8 names the one tax question this item raises).
+
+**What it amends:** §41.2 (the field `paymentIntervalMonths`, its order of checks, the annuity check 7, "In the database"; the bullet "`paymentFrequency`: unknown key; Phase 3 is monthly only" and P3-D2's "monthly only"), §41.4 (payment dates, interest, the 600-payment cap), §41.5's proposal and §41.6's planned remaining debt (through the schedule only), §41.7's cut schedule (unchanged rule, new dates), §58A's due date of a Loan interest split (`interestTiming`'s first period), §58L rule 1 (the schedule's period now follows the interval) and its "As implemented (VC-X-40)" (the new item flag for a recorded `interestPeriod` that deviates from the plan); data-model §21/§22 (`paymentFrequency` "not stored" becomes `paymentIntervalMonths`, stored).
+
+**Unchanged guarantees:** with `paymentIntervalMonths = 1`, the value of every existing terms period (no backfill, the column's default), **every derived figure is the same as today, cent for cent and byte for byte apart from the new DTO key**: the schedule, the planned remaining debt and its per-property parts, the payment proposal, the payments read, §58A's years and due dates, §58L's periods and parts, §59E's sources, ACC7 and ACC8. Terms stay appended, never edited, only the last one voidable (P3-D2). The ledger stays the truth (ADR-015): the interval changes only the plan, never a split, a classification or cash. §58L's rules 2–10 (calendar days, one `distribute` per split, uncovered days, rule 8 without a schedule, the owners on the booking date, the year by payment) are unchanged; the recorded `interestPeriod` keeps winning over the schedule's for the allocation only, never for the 10-day rule. `DE_CASH_TIMING@1` and its pinned hash are unchanged (the hash covers the rule's parameters, `infrastructure/hashing/frozen-rules.test.ts:85`, not the schedule). Realm isolation, idempotency and the locks of P3-D8 are unchanged. Financing's `paymentsInYear` (§41.6) stays by the booking date's set (§58L decision 12).
+
+**Why a section of its own, after §58N:** VC-X-53 is a backlog item of its own; §58L created it and left the payment interval out of VC-X-40, so its number is the next free letter (verified: §58N is the last §58 letter on main 10709ad).
+
+### The decided fact (verbatim)
+
+Cited as „Entscheidung des Projektinhabers, 2026-11-04“ (the owner's answer on §58L open question 4, L4; recorded in full in §58L "Decided by the owner on 2026-11-04 (chat)"):
+
+> - **L4: wie vorgeschlagen, plus eine Backlog-Zeile.** Der erfasste `interestPeriod` an der Klassifikation macht das Dezember-Beispiel abbildbar und ist verhältnismäßig, weil deutsche Annuitätendarlehen fast immer monatlich zahlen. Der dauerhaft richtige Ort des Fakts ist aber das Zahlungsintervall in den Konditionen, denn ein jährlich zahlendes Darlehen hat heute auch einen falschen Plan und eine falsche Restschuld. Also neue Zeile `paymentIntervalMonths` an den Terms; sobald sie da ist, wird ein erfasster Zeitraum, der vom Plan abweicht, geflaggt.
+
+So two things are decided: **the field** (`paymentIntervalMonths` on the terms, the lasting place of the fact) and **the flag** (once the field exists, a recorded `interestPeriod` that deviates from the plan is flagged). Everything else below (the values, the derivation, the flag's name and level, the migration) is this section's proposal and open to the owner (open questions 1–10). The name of the field is the owner's; data-model §21's `paymentFrequency` (an enum, "fixed to `MONTHLY`" by P3-D2) is not used.
+
+### As the code stands (main 10709ad; paths relative to `services/de-backend/src/`)
+
+- **The terms have no interval:** `LoanTermsData` (`domains/financing/terms.ts:23-37`) has no such field; the module's doc states "monthly payments from `firstPaymentDate`" (`:5-10`). The create body is strict (`api/loan-terms.ts:32-45`), so `paymentFrequency` and any other key are `400` (pinned by `api/loan-terms.test.ts:151` and `api/loans.test.ts:160`). The response (`api/loan-terms.ts:266-286`), the `CREATED` AuditRecord's metadata (`infrastructure/postgres/loan-terms-repository.ts:135-149`) and the idempotency fingerprint (`terms.ts:308-322`) carry no interval.
+- **The schedule is monthly:** `walkSchedule` (`terms.ts:116-149`) takes `addMonths(period.firstPaymentDate, k)` for k = 0, 1, 2, … (`:129`), stops at the next `VALID` period's `validFrom`, after `maturityDate`, at a balance of 0 and at `MAX_PAYMENTS = 600` entries in all (`:93-94`, `:128`), and charges `monthlyInterest(balance, rate)` = `round_half_up(balance × rate / 100 / 12)` (`:75-80`, `:131`). `addMonths` counts from the original date and clamps to the month's last day (`shared/business-date.ts:43-58`). The annuity check 7 of §41.2 compares `scheduledPayment` with one month's interest (`terms.ts:348-353`).
+- **Everything else reads that one schedule:** the planned remaining debt `plannedBalanceOn` (`terms.ts:274-285`) and `debtOn` (`domains/financing/debt.ts:67-86`); `fixedRateEnd` (`terms.ts:222-232`); the cut at a closing `closedSchedule`/`loanSchedule` (`terms.ts:238-263`); the payment proposal's `nearestEntry` (`domains/financing/payment-proposal.ts:46-57`); the 10-day rule's timing (`infrastructure/postgres/tax-source-facts.ts:243-258`); §58L's period facts (`infrastructure/postgres/loan-interest-periods.ts:14-23`, used by the view, §58G's `partOn`, §58I Part 2 and §59E); §58E's `LOAN_TERMS_ADDED`/`_VOIDED` and §58H's `LOAN_CLOSED` year changes (`domains/taxation/attribution-history.ts:204-208`, `:240-246`). Every one of them reads the terms through `periodsOf`/`toTerms` (`loan-terms-repository.ts:279-291`, `:300`), so one new column reaches them all.
+- **The interest period of an entry:** `interestTiming` (`domains/taxation/cash-timing.ts:117-141`) takes the entry nearest to the booking date and the period from the day after the previous entry to its payment date; **the first entry's period is one month long** (`addMonths(due, -1)`, `:131`). §58L's `interestPeriodOf` (`domains/taxation/loan-interest-periods.ts:44-56`) clips it at `debtFrom`.
+- **So a non-monthly Loan is wrong in three places today:** its plan has a payment every month (twelve where the lender debits four or one), its planned remaining debt falls monthly, and its interest periods are one month long, so an annual or quarterly interest is distributed by the last month's sets (§58L Example 2). VC-X-40's recorded `interestPeriod` on the classification (`tax_classification.interest_period_from`/`_until`, migration 0069) repairs the third for one split at a time; nothing compares it with the plan.
+- **The database:** `loan_terms` (`infrastructure/postgres/migrations/0025_loan_terms.ts:20-45`) with `loan_terms_append` (`:52-88`) and `loan_terms_frozen` (`:89-126`), whose `IS DISTINCT FROM` lists every data column by name (`:97-103`), so a new column is not frozen until that list names it.
+- **The flags:** §58L's `INTEREST_PERIOD_UNKNOWN` (`domains/taxation/tax-year-loan-interest.ts:154-157`; its level `domains/taxation/tax-year-review.ts:91-92`) is the only flag about the interest period; no flag reads the recorded period.
+
+### The rule
+
+1. **The field.** Each terms period has `paymentIntervalMonths`, an integer in **{1, 3, 6, 12}** (monthly, quarterly, half-yearly, yearly; open question 1): the months between two planned payments of that period. **Default 1**: a create without the key is a monthly period, exactly as today; every existing period is 1 (the column's default, no backfill, no AuditRecord).
+2. **Payment dates** (§41.4): a period's k-th payment falls on `addMonths(firstPaymentDate, k × paymentIntervalMonths)`, k = 0, 1, 2, …, always counted from `firstPaymentDate` and clamped to the month's last day (open question 2: the anchor is `firstPaymentDate`, not the calendar). Quarterly from 2027-01-31: 2027-04-30, 2027-07-31, 2027-10-31, 2028-01-31; quarterly from 2027-11-30: 2028-02-29, 2028-05-30, 2028-08-30; half-yearly from 2027-08-31: 2028-02-29, 2028-08-31; yearly from 2028-02-29: 2029-02-28, 2030-02-28, 2031-02-28, 2032-02-29. With 1 this is today's formula.
+3. **Where a period's payments stop:** unchanged (before the next `VALID` period's `validFrom`, never after `maturityDate`, once the balance is 0), and **the cap is 50 years of intervals**: the plan ends with `PAYMENT_CAP` once the sum of the entries' intervals reaches 600 months (600 monthly, 200 quarterly, 100 half-yearly, 50 yearly payments; open question 9). With 1 this is today's 600 payments.
+4. **Interest per entry:** `round_half_up(balanceBefore × rate × paymentIntervalMonths / 100 / 12)` to the cent, the same 30/360 convention, in integer arithmetic (`monthlyInterest` becomes `periodInterest(balance, rate, months)`; with 1 the same function). **Every entry charges its full interval**, the first entry of a period too, as today's first monthly entry charges a full month whatever the days since `debtFrom` or `validFrom` (open question 3).
+5. **Principal, payment, balance:** unchanged formulas per entry (`ANNUITY`: `min(scheduledPayment − interest, balanceBefore)`; `INTEREST_ONLY`: 0). `scheduledPayment` is the payment **per interval**, as on the contract (a quarterly rate of 1 800.00 is entered as 1 800.00).
+6. **The annuity check** (§41.2 check 7): `scheduledPayment` must exceed the first entry's interest **over the period's interval** (rule 4); `details.firstInterest` is that amount. With 1, unchanged.
+7. **Successive terms** may have different intervals (an Anschlussfinanzierung may change it; open question 4). Each period's entries follow its own interval from its own `firstPaymentDate`; the balance carries over as today.
+8. **The interest period of an entry** (§58A's `economicPeriod`, §58L rule 1): from the day after the previous entry of the plan (whatever its period) to the entry's payment date, as today; **the first entry of the plan runs from `addMonths(paymentDate, −paymentIntervalMonths)` + 1 day**, the interval of its own period instead of one month (`cash-timing.ts:131`), clipped at `debtFrom` by §58L rule 1 as today. So the entry's period and its interest (rule 4) are the same interval, except for a first entry after `debtFrom` or a follow-up period starting off the previous rhythm (open question 3).
+9. **A closing** (§41.7): unchanged: entries after `closingDate` are omitted, `endReason = CLOSED` when one was. A closing inside an interval leaves the days from the last kept entry to the closing without an entry, as today a closing inside a month does (open question 5).
+
+### Effects
+
+- **Schedule (§41.4):** the entries and the summary follow rules 2–5; `number`, the window and `endReason` work as today. `fixedRateEnd` reads the planned balance as today, so it follows the interval.
+- **Remaining debt (§41.6):** `planned` is the balance after the last entry on or before `d` (unchanged definition): for a quarterly Loan it steps once a quarter, so a Loan the lender debits quarterly no longer shows a positive `difference` in the months between. `actual`, `difference`, the per-property distribution (largest remainder, ties by `propertyReferenceId`) and `LOAN_NOT_ALLOCATED` are unchanged. `MATURITY` and `PAYMENT_CAP` keep their meaning.
+- **Payment proposal (§41.5):** proposes from the nearest entry of the interval's plan; its interest is the interval's (rule 4). Refusals unchanged.
+- **Payments read (§41.6):** unchanged (by the booking date, from the ledger).
+- **Closings (§41.7):** the cut is unchanged; `settledAmount`, `SPLITS_AFTER_CLOSING` and `REMAINING_DEBT_NOT_ZERO` read the ledger and are unchanged. The schedule's `balanceDue` after a cut is the omitted entry's `balanceBefore`, as today.
+- **§58A's 10-day rule:** the due date of a Loan interest split is the nearest entry of the interval's plan (source `LOAN_SCHEDULE`, unchanged); its window, its "payment and due date in the window" test (§58F) and `DE_CASH_TIMING@1` are unchanged (open question 8). A split's year can move only where the nearest entry of the interval's plan differs from the monthly one's, e.g. a quarterly Loan due on the 5th of February, May, August and November (`firstPaymentDate` 2027-02-05) with a debit booked 2028-01-03: the same terms without the interval (monthly from 2027-02-05) have the nearest entry 2028-01-05 lies in the window (2027 by the 10-day rule), the quarterly plan's nearest entry 2028-02-05 (33 days, against 59 to 2027-11-05) does not (2028, the booking year). Such a move is caused by a `LoanTerms` record and is flagged as today by §58E's year kinds `LOAN_TERMS_ADDED`/`_VOIDED` (`attribution-history.ts:204-208`, which reads the same `loanSchedule`).
+- **§58L's interest periods:** rule 8 above makes the schedule's period the interval, so a quarterly or yearly Loan's interest is distributed over the quarter or the year by the sets valid on each day, **without a recorded `interestPeriod`** (§58L Example 2 with `paymentIntervalMonths = 12` and `firstPaymentDate` 2026-12-31, entries 2026-12-31, 2027-12-31, …: the debit of 2027-12-30 is nearest to 2027-12-31, its period 2027-01-01 – 2027-12-31, P1 2,730.00, P2 920.00, as with the recorded period). A recorded period still wins (§58L rule 1).
+- **§59E's capitalised interest** reads the same period (`loanPeriodFactsOf`): a quarterly construction-period interest spanning a set change now meets `SEVERAL_ALLOCATION_SETS` where a monthly period did not; the rule is unchanged.
+- **The new flag** (below) is the only new code in the tax-year view.
+
+### The deviation flag (the owner's decision; its form open questions 6 and 7)
+
+- **Name:** `INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE`, an **item flag** on the Loan interest item of a split whose current classification records an `interestPeriod` (VC-X-40) **and** whose Loan has a schedule (at least one entry, so not §58L rule 8).
+- **When:** the recorded `{ from, until }` differs from the schedule's period of the split (rule 8 above: `interestTiming` over the interval's plan, nearest entry to the booking date, clipped at `debtFrom`) in either end. Equal periods raise nothing; under open question 5's proposal a recorded period from the day after a `CLOSED` Loan's last kept entry to its `closingDate` counts as equal. A Loan without terms has no plan to deviate from (no flag; rule 8 of §58L does not apply either, the recorded period wins).
+- **Level (open question 6, proposal): open when the deviation matters, informative otherwise.** The view distributes the split once by the recorded period (as today) and once by the schedule's (§58L rules 2–5); **open** when the two give different parts for some PropertyReference (or one is covered and the other not), **informative** when every part is the same (e.g. a recorded 2027-04-02 – 2027-07-01 against the schedule's 2027-04-01 – 2027-06-30, both in one set). The level is the same in every view, since it compares the whole distribution. An open flag makes the year not final (§58C's rule for `final`); it clears when the terms state the right interval (a new or re-entered terms period, §41.2) or the classification is superseded by one with a matching or no `interestPeriod`; there is no acknowledgement for it.
+- **`details`:** `{ loanId, recorded: { from, until }, schedule: { from, until }, termsId, paymentIntervalMonths, partsDiffer }` (`termsId` and `paymentIntervalMonths` of the period of the nearest entry; `partsDiffer` decides the level, as `validAllocationSets` does for `INTEREST_PERIOD_UNKNOWN`, `tax-year-review.ts:91-92`).
+- **Where it shows:** on the item in the PropertyReference and owner views of every PropertyReference the split is attributed to, counted in the year's `review` like every item flag; on a not attributed entry (§58L rule 3) it is listed informative (the year is open by `LOAN_INTEREST_NOT_ATTRIBUTED` anyway, as VC-X-40's deviation (d) keeps `INTEREST_PERIOD_UNKNOWN` off such entries). Not in Financing's reads (the plan is Financing's, the classification is Taxation's).
+- **Not a change flag:** it is no `ATTRIBUTION_INPUT_CHANGED` or `PROPERTY_PART_CHANGED` kind; it appears and disappears with the inputs, like `INTEREST_PERIOD_UNKNOWN`.
+- **After the deployment** every recorded `interestPeriod` on a Loan whose terms keep the default 1 is compared with a monthly plan, so a recorded quarter or year is flagged at once (open question 7, proposal: as the owner's decision says, no exemption). No year is productively filed yet, so this is a release note, not a deployment flag (as §58L open question 2).
+
+### API
+
+- **`POST /api/v1/loans/{loanId}/terms`** (§41.2): the body gains `paymentIntervalMonths` (optional, a JSON integer in {1, 3, 6, 12}, default 1). A string, a fraction or `null` → `400 INVALID_FORMAT`; another integer → `400 OUT_OF_RANGE`. `paymentFrequency` stays an unknown key (`400`). Its place in the order of checks is step 1 (`400`); check 7 uses it (rule 6).
+- **Idempotency (§15):** the fingerprint gains the interval **only when it is not 1**, so a key stored before the deployment replays (an omitted key and an explicit 1 are the same request).
+- **AuditRecord `CREATED`** on `LoanTerms`: the metadata gains `paymentIntervalMonths` (always, from the deployment on); readers treat its absence in older records as 1.
+- **`POST …/terms/{termsId}/void`:** unchanged (no body change; a period is never edited, so the interval of a wrong period is corrected by void and re-append while it is the last one, P3-D2).
+- **Responses (additive):** every terms period (`POST`, `GET …/terms`, the void's `200`) gains `paymentIntervalMonths` (integer, never `null`). The schedule's items and summary, the remaining debt and the proposal keep their shapes (their figures follow the rule). The tax-year view gains only the new flag code.
+- **No route changes;** `docs/development/api-inventory.md` unchanged (`yarn api:inventory:check`).
+
+### Migration (the next free number at implementation; 0070 at the time of writing)
+
+- `ALTER TABLE loan_terms ADD COLUMN payment_interval_months smallint NOT NULL DEFAULT 1`, with `CONSTRAINT loan_terms_payment_interval CHECK (payment_interval_months IN (1, 3, 6, 12))`. Existing rows read 1 (a constant default; no `UPDATE`, so `loan_terms_frozen` does not fire and writes no version, and no AuditRecord is written: **no backfill**).
+- **Frozen:** `loan_terms_frozen` is replaced (`CREATE OR REPLACE FUNCTION`) with `payment_interval_months` added to both rows of its `IS DISTINCT FROM` (`0025_loan_terms.ts:97-103`); everything else of 0025's function stays word for word (the Loan write, `TERMS_NOT_LAST`, the `VALID` → `VOID` step with `version` + 1, never deleted).
+- **`loan_terms_append`:** unchanged (the CHECK covers the values; the append rules do not read the interval).
+- **Not in the database:** the annuity check (needs the derivation, as today), the `400` codes, the flag (derived on read).
+- **`down`:** refuses (`RAISE EXCEPTION`, naming the first such terms id) while any row has `payment_interval_months <> 1`, since dropping it would turn a quarterly plan silently monthly; otherwise restores 0025's `loan_terms_frozen` verbatim and drops the column (and with it the CHECK). The down tests of earlier migrations that run later `down`s first run this one first too.
+
+### Example (synthetic)
+
+PropertyReferences P1 and P2 (`propertyReferenceId` P1 < P2); P1 owned by A and B `"1/2"` each (A < B), P2 by C `"1/1"`, all from 2026-01-01. Two Loans, each `principalOriginal` 120 000.00, `debtFrom` 2027-01-01, one `ANNUITY` period from 2027-01-01 at `"3.000"`, no `maturityDate`. Sets of each Loan, `MANUAL`: S1 from 2027-01-01, P1 `"1/1"`; S2 from **2027-03-01**, P1 `"1/2"`, P2 `"1/2"`. All debits confirmed `OUTFLOW`s with `LOAN_INTEREST` and `LOAN_PRINCIPAL` splits naming the Loan, each exactly the contract's payment (for Loan Q the quarterly table below, also where its terms are entered without the interval).
+
+**Loan M, monthly** (`paymentIntervalMonths` 1 or omitted; `scheduledPayment` 600.00, `firstPaymentDate` 2027-01-31). Unchanged by this item:
+
+| # | paymentDate | balanceBefore | interest | principal | balanceAfter |
+|---|---|---|---|---|---|
+| 1 | 2027-01-31 | 120 000.00 | 300.00 | 300.00 | 119 700.00 |
+| 2 | 2027-02-28 | 119 700.00 | 299.25 | 300.75 | 119 399.25 |
+| 3 | 2027-03-31 | 119 399.25 | 298.50 (298.498125) | 301.50 | 119 097.75 |
+| 4 | 2027-04-30 | 119 097.75 | 297.74 (297.744375) | 302.26 | 118 795.49 |
+| … | … | … | … | … | … |
+| 12 | 2027-12-31 | 116 658.44 | 291.65 | 308.35 | 116 350.09 |
+
+2027: 12 payments, interest 3 550.09, principal 3 649.91.
+
+**Loan Q, quarterly** (`paymentIntervalMonths` 3; `scheduledPayment` 1 800.00 per quarter, `firstPaymentDate` 2027-03-31). Interest `round_half_up(balance × 3 % × 3 / 12)`:
+
+| # | paymentDate | balanceBefore | interest | principal | balanceAfter |
+|---|---|---|---|---|---|
+| 1 | 2027-03-31 | 120 000.00 | 900.00 | 900.00 | 119 100.00 |
+| 2 | 2027-06-30 | 119 100.00 | 893.25 | 906.75 | 118 193.25 |
+| 3 | 2027-09-30 | 118 193.25 | 886.45 (886.449375) | 913.55 | 117 279.70 |
+| 4 | 2027-12-31 | 117 279.70 | 879.60 (879.59775) | 920.40 | 116 359.30 |
+
+2027: 4 payments, interest 3 559.30, principal 3 640.70. The annuity check 7: 1 800.00 > 900.00.
+
+**Loan Q as it must be entered today** (the same contract, no interval, so monthly from 2027-03-31 with 1 800.00): entries every month from 2027-03-31, the first 300.00 interest and 1 500.00 principal (balance 118 500.00), the second 296.25 and 1 503.75 (116 996.25), …, the tenth on 2027-12-31 leaving 104 830.12.
+
+**Remaining debt (§41.6)**, the debits paid as planned:
+
+| `asOf` | Loan M `planned` = `actual` | Loan Q today: `planned` / `actual` / `difference` | Loan Q with interval 3: `planned` = `actual`, `difference` |
+|---|---|---|---|
+| 2027-02-15 | 119 700.00 | 120 000.00 / 120 000.00 / 0.00 (no entry before 03-31) | 120 000.00, 0.00 |
+| 2027-05-15 | 118 795.49 | 116 996.25 / 119 100.00 / **+2 103.75** | 119 100.00, 0.00 |
+| 2027-12-31 | 116 350.09 | 104 830.12 / 116 359.30 / **+11 529.18** | 116 359.30, 0.00 |
+
+Per property on 2027-05-15 (S2): Loan Q with interval 3, 119 100.00 → P1 **59 550.00**, P2 **59 550.00**; Loan M, 118 795.49 = 11 879 549 cents, 5 939 774.5 each, the cent to the lower id: P1 **59 397.75**, P2 **59 397.74** (unchanged).
+
+**Interest period and distribution of the debit of 2027-03-31** (no recorded `interestPeriod`):
+
+| | Period (schedule, §58L rule 1) | Segments | P1 | P2 |
+|---|---|---|---|---|
+| Loan M, 298.50 | 2027-03-01 – 2027-03-31 | S2 31 days | 149.25 | 149.25 |
+| Loan Q today (monthly plan), 900.00 | 2027-03-01 – 2027-03-31 (the first entry, one month) | S2 31 days | 450.00 | 450.00 |
+| **Loan Q with interval 3**, 900.00 | **2027-01-01 – 2027-03-31** (`addMonths(2027-03-31, −3)` + 1 day = 2027-01-01, 90 days; the clip at `debtFrom` changes nothing) | S1 59 days, S2 31 days | `w_P1` = 59/90 + 31/90 × 1/2 = **149/180**: **745.00** | `w_P2` = **31/180**: **155.00** |
+
+- **The owners:** P1's 745.00 → A 372.50, B 372.50; P2's 155.00 → C. Each split's parts sum to its amount (90 000 cents × 149/180 = 74 500 exactly).
+- **Loan Q's debit of 2027-06-30** (893.25, period 2027-04-01 – 2027-06-30, wholly S2, §58L rule 7): 89 325 cents, 44 662.5 each, the cent to the lower id: P1 **446.63**, P2 **446.62**.
+- **Loan Q's 2027 by PropertyReference** (the September debit 886.45 = 88 645 cents, 44 322.5 each: P1 443.23, P2 443.22; the December debit 879.60: 439.80 each; both periods wholly S2):
+  - **with interval 3:** P1 745.00 + 446.63 + 443.23 + 439.80 = **2 074.66**, P2 155.00 + 446.62 + 443.22 + 439.80 = **1 484.64**; sum **3 559.30**;
+  - **today** (monthly plan, every debit's period the month of its nearest entry, all in S2): P1 450.00 + 446.63 + 443.23 + 439.80 = **1 779.66**, P2 450.00 + 446.62 + 443.22 + 439.80 = **1 779.64**; sum **3 559.30**;
+  - the interval moves 295.00 from P2 to P1 and nothing into or out of the year; the sum is the Loan's interest of 2027 in both.
+- **The year:** 2027 for each debit (booked in 2027; no window case).
+
+**The deviation flag:**
+
+- Loan Q entered **without** the interval, its debit of 2027-03-31 classified with the recorded `interestPeriod` 2027-01-01 – 2027-03-31 (VC-X-40): the view distributes by the recorded period (P1 745.00, P2 155.00), the schedule's period is 2027-03-01 – 2027-03-31 (P1 450.00, P2 450.00): **`INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE` open** (`partsDiffer: true`), 2027 not final.
+- The same with **interval 3** on the terms: the schedule's period equals the recorded one: **no flag**.
+- Interval 3 and the debit of 2027-06-30 recorded as 2027-04-02 – 2027-07-01 (the lender's statement off by a day): deviates, both periods wholly in S2, the parts the same (446.63, 446.62): **informative** (`partsDiffer: false`).
+
+### Interaction with VC-X-54 and the change flags (§58E, §58G, §58H)
+
+- **Setting the interval on an existing Loan** is a terms record: void the last period and append it again with the interval (P3-D2), or append a follow-up period. Both are `LoanTerms` AuditRecords (`CREATED`/`VOIDED`).
+- **A year that moves** by such a record (the 10-day case above) is flagged as today: `LOAN_TERMS_ADDED`/`_VOIDED` are §58E's year kinds (0064, 0065) and read the schedule through `loanSchedule`, which then carries the interval.
+- **A part that moves** (Loan Q's March debit: P1 450.00 → 745.00, P2 450.00 → 155.00 when the interval is entered after 2027's end) is **not flagged** until VC-X-54 makes terms records `PROPERTY_PART_CHANGED` kinds; VC-X-40's pinning test ("a `LoanTerms` record after the year's end can move a part without a flag") stays, and VC-X-53 adds the interval case to it. Today's §58L already has the same gap for `firstPaymentDate` and terms changes; the interval makes it more frequent, since entering it on an existing non-monthly Loan is the expected step (open question 10).
+- **The deviation flag** itself is no change kind (above); it may appear or disappear with such a record, which is visible in `review`, not acknowledged.
+- **§58G, §58I Part 2, §59E:** follow the period through the one shared function (`distributeOverPeriod`, `loanPeriodFactsOf`); no rule of theirs changes.
+
+### The code that changes (pointers)
+
+- `domains/financing/terms.ts`: `LoanTermsData.paymentIntervalMonths`, `SchedulePeriod` (the Pick), `walkSchedule` (dates, interest, the cap in months), `periodInterest`, check 7, `termsFingerprint` (only when ≠ 1); the module's doc;
+- `api/loan-terms.ts` (body, response), `infrastructure/postgres/loan-terms-repository.ts` (`COLUMNS`, insert, `toTerms`, the AuditRecord's metadata), `infrastructure/postgres/schema.ts` (`LoanTermsTable`);
+- the schedule's entries carry the period's interval, so `interestTiming`'s first entry can take it (`domains/taxation/cash-timing.ts:131`; `LoanPeriodFacts` gains the first entry's interval or each entry's period start), read in `tax-source-facts.ts:243-258`, `loan-interest-periods.ts:14-23` and `attribution-history.ts`;
+- `domains/taxation/tax-year-loan-interest.ts` (the flag, the second distribution for its level), `tax-year-review.ts` (the level by `partsDiffer`);
+- the migration.
+
+### The text that changes with the implementation
+
+- §41.2: the field, the `paymentFrequency` bullet replaced, check 7, the response, "In the database"; §41.4: "Payment dates", "Interest", the cap; data-model §21/§22 (`paymentFrequency` "not stored" → `paymentIntervalMonths`); `docs/development/phase-3-plan.md`'s P3-D2 "monthly only" annotated with VC-X-53;
+- §58L "As the code stands" ("The schedule is monthly only") and Example 2 (the interval as the lasting source); §58A's Loan interest period (the first entry's interval);
+- the invariant suite: "a terms period's plan pays every `paymentIntervalMonths` months from `firstPaymentDate`" beside the existing schedule invariants.
+
+### Tests the implementation needs
+
+- **Domain (Financing, pure):**
+  - Loan M's and Loan Q's tables row for row, the summaries, the annuity check at equality and one cent above for intervals 3, 6 and 12;
+  - **unchanged money sums for monthly Loans:** a seeded property test over a few hundred plans (several periods, `principalAtStart`, `INTEREST_ONLY`, `maturityDate`, closings) comparing every entry, the summary, `plannedBalanceOn`, `debtOn` and `fixedRateEnd` with interval 1 (explicit and omitted) against today's derivation kept as an oracle in the test: identical in every cent;
+  - the property test of §41.4 for each interval (Σ principal = `principalOriginal`, `payment = interest + principal`, `balanceAfter = balanceBefore − principal`, only the last payment below `scheduledPayment`);
+  - **day of month 29–31:** quarterly from the 31st (30 April, 31 July), from 30 November (29 February in a leap year, then the 30th again), half-yearly from 31 August, yearly from 29 February (28 February, back to 29 February in 2032), always counted from `firstPaymentDate` (a counter-check: counting from the previous, clamped date drifts to the 28th);
+  - **the first period:** a first entry after `debtFrom` with interval 3 charging a full quarter (rule 4); `debtFrom` 2027-01-15, `firstPaymentDate` 2027-03-31;
+  - **an interval change via new terms:** monthly to quarterly and quarterly to yearly, the carried balance, the stop before `validFrom`, each period's own rhythm; `PREVIOUS_TERMS_WITHOUT_PAYMENT` unchanged;
+  - **a closing mid-interval:** a quarterly Loan closed on 2027-05-15 (entries after it omitted, `endReason = CLOSED`, `balanceDue` 119 100.00, the omitted 2027-06-30 entry's `balanceBefore`), and one closed on a payment date (no entry omitted, the reason kept);
+  - the cap: 200 quarterly / 50 yearly payments `PAYMENT_CAP`, 600 monthly unchanged; `MATURITY` between two quarterly entries;
+  - the proposal's nearest entry on a quarterly plan.
+- **Domain (Taxation, pure):** the example's distribution (745.00 / 155.00, the owners, the June cent, 2027's lines, the sum 3 559.30 unchanged); §58L Example 2 with interval 12 equal to the recorded year; the first period of the interval clipped at `debtFrom`; the 10-day case above (2027 with the monthly plan, 2028 with the quarterly), and `LOAN_TERMS_ADDED` flagging it; the deviation flag: equal (none), parts differ (open), parts equal (informative), no terms (none), a not attributed entry (informative), the flag the same in every view; `INTEREST_PERIOD_UNKNOWN` unchanged; every non-interest line, section and `result` unchanged; for every split the parts sum to its amount, per Loan and year attributed + not attributed = the Loan's interest.
+- **API:** the new key's `400`s (`INVALID_FORMAT` for `"3"`, `2.5` and `null`; `OUT_OF_RANGE` for 0, 2, 4 and 24; JSON `3.0` parses as the integer 3 and is accepted), the default, the response key on every terms read, `paymentFrequency` still `400`, the fingerprint (a key stored without the field replays; the same key with 3 is `IDEMPOTENCY_CONFLICT`).
+- **Repository (PostgreSQL):** create and read with each value, the AuditRecord's metadata (history: `CREATED` with the interval, `VOIDED` unchanged, a period re-entered with another interval as void + create), the schedule, remaining debt and proposal reads through the real tables; **Realm isolation:** another Realm's Loan with the same dates and a different interval changes nothing here, and every read carries the Realm; one snapshot.
+- **Schema past the repository**, each with a counter-check: a raw insert with 0, 2, 24 and `NULL` refused, with 1, 3, 6 and 12 accepted; a raw update of `payment_interval_months` on a `VALID` and on a `VOID` row refused by `loan_terms_frozen`, the void step itself still accepted; existing rows read 1 after `up`; `down` refused with a row ≠ 1 and passing (0025's function back, verbatim) without one.
+- **End to end:** a new `loan-payment-interval.e2e.test.ts`: Loan Q through the HTTP API (terms, schedule, remaining debt at the three dates, per property), its 2027 tax-year view at both levels with the figures above, the deviation flag's three cases, Realm isolation.
+- **ACC7 and ACC8 byte-identical:** no line of `phase-7-acceptance*` or `phase-8-acceptance*` changes and both stay green (their Loans have no terms or monthly terms, so interval 1); a repository test renders ACC8's tax-year view with the interval omitted and with an explicit 1 and asserts the two JSON responses equal byte for byte. `phase-3-acceptance.e2e.test.ts` stays green; where a test compares a terms response by equality, the new key is the only addition.
+
+### Mutations (each applied alone, restored byte for byte)
+
+| Mutation | Must turn red |
+|---|---|
+| the payment date `addMonths(firstPaymentDate, k)` again (interval ignored) | Loan Q's table, the e2e test |
+| the date counted from the previous entry (`addMonths(previous, n)`, drift at month ends) | the 29–31 tests |
+| the interest with one month for every interval | Loan Q's interest, check 7 |
+| the interest with the interval twice (`× n²`) | Loan Q's table |
+| the cap still 600 payments for every interval | the cap tests |
+| the first entry's period one month again (`cash-timing.ts:131`) | the 745.00/155.00 distribution, §58L Example 2 with interval 12 |
+| the fingerprint always including the interval | the stored-key replay |
+| the flag compared with `until` only | the off-by-a-day case (informative) |
+| the flag always open | the informative case |
+| the flag never raised | the open case |
+| the flag's level per view (comparing P's part only) | the same-level-in-every-view test |
+| the migration's CHECK without one value (e.g. `IN (1, 3, 6)`) | the schema test with 12 |
+| `loan_terms_frozen` without the new column | the raw update test |
+| `down` without its refusal | the down test |
+
+### Release note (proposal)
+
+*From VC-X-53 on, a Loan's terms period states its payment interval (`paymentIntervalMonths`: 1, 3, 6 or 12; default 1). Every existing period is monthly, as before, and every figure of a monthly Loan is unchanged. For a Loan entered with another interval, the schedule pays every 3, 6 or 12 months with that interval's interest, the planned remaining debt steps accordingly, and the tax-year view distributes each interest debit over the whole quarter, half-year or year by the allocation sets valid on each day, without a recorded interest period. To correct an existing non-monthly Loan, void its last terms period and enter it again with the interval, or append a follow-up period; a year it moves is flagged as before (`LOAN_TERMS_ADDED`/`_VOIDED`), a part it moves is not yet (VC-X-54). A recorded interest period on a classification that differs from the Loan's plan is now flagged (`INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE`), open where it changes a PropertyReference's part, so recorded quarters and years on Loans still entered as monthly show up at once. No year is productively filed yet, so the deployment raises no change flag.*
+
+### Open questions
+
+1. **The allowed values.** **Proposal:** {1, 3, 6, 12}: the intervals German loan contracts use (monatlich, vierteljährlich, halbjährlich, jährlich), each dividing the year, so every plan repeats on the same calendar months. **Alternatives:** (a) every divisor of 12 (1, 2, 3, 4, 6, 12), for the rare two- or four-monthly contract; (b) any integer 1–12, with plans that drift through the calendar months.
+2. **The anchor.** **Proposal:** `firstPaymentDate`, each payment `k × n` months after it (as today's monthly rule; a calendar-quarter Loan is one whose `firstPaymentDate` is a quarter's end). **Alternative:** calendar-anchored intervals (quarters ending in March, June, September, December, whatever `firstPaymentDate`), which needs a rule for a `firstPaymentDate` off that grid.
+3. **The first entry and stubs.** **Proposal:** every entry charges its full interval (rule 4), the first one of a period too, as today's first monthly entry charges a full month; the first entry's interest period is its interval clipped at `debtFrom` (rule 8). A lender's stub interest then differs from the plan by the stub, as today by a part month (the ledger is the truth). **Alternatives:** (a) for intervals above 1, the first entry's interest pro rata by 30/360 days since `debtFrom` or the previous entry (a monthly plan unchanged, but two rules); (b) for every interval, which changes today's monthly figures (refused by "unchanged behaviour").
+4. **A different interval in a follow-up period.** **Proposal:** allowed (an Anschlussfinanzierung may change the rhythm); each period follows its own interval from its own `firstPaymentDate`, and the first entry after the change charges its full interval while its §58L period runs from the day after the previous entry. **Alternatives:** (a) refused (`422 PAYMENT_INTERVAL_CHANGED`) until stubs are decided; (b) allowed only with `principalAtStart` (the follow-up contract restating the balance).
+5. **A closing inside an interval.** **Proposal:** unchanged (§41.7: the entries after `closingDate` omitted, no stub entry; the final interest's schedule period is the nearest kept entry's, as today), and a recorded `interestPeriod` from the day after the last kept entry to `closingDate` counts as matching the plan for the flag (the closing's stub). **Alternative:** a closing stub in the derivation for every interval (the period of a split booked after the last kept entry runs to `closingDate`), which changes the final period of monthly Loans with a set change in their last month.
+6. **The flag's name and level.** **Proposal:** `INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE`, an item flag, open when the recorded and the schedule's period give different parts, informative when the parts are equal; cleared by right terms or a superseding classification, no acknowledgement. **Alternatives:** (a) always open (every off-by-a-day statement blocks `final` until the classification is restated); (b) always informative (the decision's „geflaggt“ without effect on `final`); (c) open with an acknowledgement of §58E Part 2 (a new kind, migration of 0065's CHECKs).
+7. **Existing recorded periods on Loans still at interval 1.** **Proposal:** flagged from the deployment on, like any other (that is the decision's purpose: it shows where the terms need the interval), with the release note. **Alternative:** compared only for classifications created after the deployment, or only for Loans whose terms state an interval other than 1 (fewer flags, but a monthly-entered annual Loan stays unnoticed).
+8. **The 10-day rule with longer intervals.** **Proposal:** unchanged in form (`DE_CASH_TIMING@1`, its hash, §58F): the due date is the nearest entry of the interval's plan, which is now right where today's monthly plan invents due dates; the Steuerberater is asked before enablement whether quarterly, half-yearly and yearly interest count as „regelmäßig wiederkehrend“ (§ 11 EStG; not part of the tax review of 2026-11-01), and until the answer the item counts as unconfirmed for that case. **Alternatives:** (a) the 10-day rule only for interval 1, longer intervals by the booking date (a new rule version); (b) no question, treated as monthly.
+9. **The 50-year cap.** **Proposal:** 600 months of intervals (rule 3), so the cap keeps meaning 50 years. **Alternative:** 600 payments for every interval (600 years for a yearly Loan; harmless with a `maturityDate`, but `INTEREST_ONLY` without one then plans six centuries).
+10. **VC-X-54 and the order.** **Proposal:** VC-X-53 first, on its own (one migration); VC-X-54 after it, then also covering a part moved by an interval entered after the year's end (the pinning test extended until then). **Alternatives:** (a) both in one item and PR (terms records as part kinds with 0065 widened, one migration for both); (b) VC-X-54 first, so the first interval entered on an old Loan is already flagged as a part change.
+
+---
+
 # 59. Depreciation Asset API (VC-8-01, implemented: migration 0049)
 
 **Status:** implemented (VC-8-01, migration 0049). The deviations and interpretations are listed under "As implemented (VC-8-01)" below.
