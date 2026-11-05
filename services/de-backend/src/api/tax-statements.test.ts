@@ -468,3 +468,71 @@ describe('the kinds of §58I (VC-X-50): the deposit kinds in the year shape with
     ]);
   });
 });
+
+describe('the kinds of §58P (VC-X-54): a terms record or the closing in the part shape, on LoanTerms or Loan', () => {
+  const item = (partBefore: string | null, partAfter: string | null) => ({
+    sourceType: 'TRANSACTION_SPLIT' as const,
+    sourceId: CONF,
+    taxYear: 2027,
+    stateBefore: partBefore === null ? ('NONE' as const) : ('ATTRIBUTED' as const),
+    partBefore: partBefore === null ? null : Money.of(partBefore, 'EUR'),
+    stateAfter: partAfter === null ? ('NONE' as const) : ('ATTRIBUTED' as const),
+    partAfter: partAfter === null ? null : Money.of(partAfter, 'EUR'),
+  });
+  const added: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: { ...acknowledgement.change, kind: 'LOAN_TERMS_PART_ADDED', entityType: 'LoanTerms', items: [item('450.00', '745.00')] },
+  };
+  const closedPart: TaxYearAcknowledgement = {
+    ...acknowledgement,
+    change: { ...acknowledgement.change, kind: 'LOAN_CLOSED_PART', entityType: 'Loan', items: [item(null, '190.00')] },
+  };
+
+  it('each new kind passed on; one kind for both terms actions or for terms and closing 400 INVALID_FORMAT (no such kind, §58P Frage 1)', async () => {
+    const base = await start();
+    for (const kind of ['LOAN_TERMS_PART_ADDED', 'LOAN_TERMS_PART_VOIDED', 'LOAN_CLOSED_PART', 'LOAN_TERMS_ADDED', 'LOAN_CLOSED']) {
+      expect((await send(base, 'POST', ACKS, { ...body, kind })).status).toBe(201);
+      expect(seen.at(-1)).toMatchObject({ kind });
+    }
+    for (const kind of ['LOAN_TERMS_PART_CHANGED', 'LOAN_SCHEDULE_PART_CHANGED']) {
+      expect(await fields(await send(base, 'POST', ACKS, { ...body, kind }))).toEqual([{ field: 'kind', code: 'INVALID_FORMAT' }]);
+    }
+  });
+
+  it('the DTO: LOAN_TERMS_PART_ADDED on LoanTerms and LOAN_CLOSED_PART on Loan with TRANSACTION_SPLIT part items', async () => {
+    const base = await start2({ listAcknowledgements: async () => [added, closedPart] });
+    const list = (await (await send(base, 'GET', ACKS)).json()) as { items: { change: { kind: string; entityType: string; items: unknown[] } }[] };
+    expect(list.items.map((i) => [i.change.kind, i.change.entityType, i.change.items])).toEqual([
+      [
+        'LOAN_TERMS_PART_ADDED',
+        'LoanTerms',
+        [
+          {
+            sourceType: 'TRANSACTION_SPLIT',
+            sourceId: CONF,
+            taxYear: 2027,
+            stateBefore: 'ATTRIBUTED',
+            partBefore: { amount: '450.00', currency: 'EUR' },
+            stateAfter: 'ATTRIBUTED',
+            partAfter: { amount: '745.00', currency: 'EUR' },
+          },
+        ],
+      ],
+      [
+        'LOAN_CLOSED_PART',
+        'Loan',
+        [
+          {
+            sourceType: 'TRANSACTION_SPLIT',
+            sourceId: CONF,
+            taxYear: 2027,
+            stateBefore: 'NONE',
+            partBefore: null,
+            stateAfter: 'ATTRIBUTED',
+            partAfter: { amount: '190.00', currency: 'EUR' },
+          },
+        ],
+      ],
+    ]);
+  });
+});

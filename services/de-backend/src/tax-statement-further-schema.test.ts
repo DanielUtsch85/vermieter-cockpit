@@ -168,6 +168,9 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0064 past the reposito
         // 0065 (VC-X-50) builds on 0064: rolled back first, as the Migrator would, and applied again below.
         const movers = migrations['0065_tax_year_deposit_and_correction_movers'] as typeof migration;
         const db = () => createDatabase(downPool) as never;
+        const loanParts = migrations['0071_tax_year_loan_schedule_part_kinds'] as typeof migration;
+        // 0071 (VC-X-54) widens these CHECKs and patches the shape guard after them: its own down first, up again at the end.
+        await withMigrationLock(() => loanParts.down(db()));
         await withMigrationLock(() => movers.down(db()));
         const pr = (
           await downPool.query(
@@ -247,6 +250,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0064 past the reposito
         }
         await withMigrationLock(() => migration.up(db()));
         await withMigrationLock(() => movers.up(db()));
+        await withMigrationLock(() => loanParts.up(db()));
         expect(await downPool.query(ackRow(pr, CLOSED)).then(() => 'accepted', classify)).toBe('accepted');
       } finally {
         await downPool.end();

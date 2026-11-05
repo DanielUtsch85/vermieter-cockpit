@@ -578,6 +578,9 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           const further = migrations['0064_tax_year_further_inputs'] as typeof migration;
           // 0065 (VC-X-50) builds on 0064: its own down first.
           const movers = migrations['0065_tax_year_deposit_and_correction_movers'] as typeof migration;
+          const loanParts = migrations['0071_tax_year_loan_schedule_part_kinds'] as typeof migration;
+          // 0071 (VC-X-54) widens these CHECKs and patches the shape guard after them: its own down first, up again at the end.
+          await withMigrationLock(() => loanParts.down(createDatabase(downPool) as never));
           await withMigrationLock(() => movers.down(createDatabase(downPool) as never));
           await withMigrationLock(() => further.down(createDatabase(downPool) as never));
           await withMigrationLock(() => parts.down(createDatabase(downPool) as never));
@@ -592,6 +595,7 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           await withMigrationLock(() => parts.up(createDatabase(downPool) as never));
           await withMigrationLock(() => further.up(createDatabase(downPool) as never));
           await withMigrationLock(() => movers.up(createDatabase(downPool) as never));
+          await withMigrationLock(() => loanParts.up(createDatabase(downPool) as never));
           expect(await tables()).toBe(3);
         } finally {
           await downPool.end();

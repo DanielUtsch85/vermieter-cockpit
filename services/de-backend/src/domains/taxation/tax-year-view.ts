@@ -163,7 +163,7 @@ export function buildTaxYearView(
   const marked: MarkedChange[] = derivedChanges.changes.map((c) => ({ ...c, acknowledgement: matchAcknowledgement(c, read.acknowledgements ?? []) }));
   const attribution = { changes: marked, inconsistent: derivedChanges.inconsistent };
   // §58G: the part changes of the allocation sets, marked the same way.
-  const derivedParts = partChanges(read.parts, year, { propertyReferenceId: read.propertyReferenceId, fingerprinter: options.fingerprinter });
+  const derivedParts = partChanges(read.parts, year, { propertyReferenceId: read.propertyReferenceId, fingerprinter: options.fingerprinter, registry });
   const parts: MarkedPartChange[] = derivedParts.changes.map((c) => ({ ...c, acknowledgement: matchAcknowledgement(c, read.acknowledgements ?? []) }));
   // §58N: the Acquisitions whose Ownerships began before the recorded transfer, marked the same way.
   const starts = ownershipStartChanges(read.ownershipStarts, year, { propertyReferenceId: read.propertyReferenceId, fingerprinter: options.fingerprinter }).map(

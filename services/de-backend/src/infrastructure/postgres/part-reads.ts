@@ -2,13 +2,17 @@ import type { Transaction } from 'kysely';
 import {
   depositNotCounted,
   type DepositPartHistory,
+  type LoanScheduleHistory,
   type PartChangeInput,
   type RuleRegistry,
   type TaxMeaning,
   type TaxYearRead,
 } from '../../domains/taxation/index.js';
+import { debtFrom } from '../../domains/financing/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import { history, recordsOf } from './audit-history-reads.js';
+import { readLoanIn } from './loan-repository.js';
+import { periodsOf } from './loan-terms-repository.js';
 import { correctionHistoriesOf } from './mover-reads.js';
 import type { Database } from './schema.js';
 import { DEPOSIT_RENT_CODES, depositFactsOf } from './tax-source-facts.js';
@@ -20,7 +24,9 @@ import { DEPOSIT_RENT_CODES, depositFactsOf } from './tax-source-facts.js';
  * `audit_record_entity_idx`, after the sets were selected in the Realm (`audit_record` has no Realm column), so another
  * Realm's record is never read. Used by the view and by the acknowledgement command (its own snapshot). §58H Part 2: the
  * candidate deposits of the Realm and `year` with their Tenants' reconciliations (`depositPartsOf`). §58I Part 2 (VC-X-50):
- * the corrected Transactions with a split that can count in `year` for P (`correctionHistoriesOf`).
+ * the corrected Transactions with a split that can count in `year` for P (`correctionHistoriesOf`). §58P (VC-X-54): each
+ * such Loan's terms (`VALID` and `VOID`) with their `CREATED`/`VOIDED` records and its `CLOSED` record, the Loan and its
+ * terms selected in the Realm first (`loanScheduleOf`).
  */
 export async function partChangeInputOf(
   trx: Transaction<Database>,
@@ -37,16 +43,60 @@ export async function partChangeInputOf(
     sets.map((s) => s.id),
     ['CREATED', 'VOIDED'],
   );
+  const schedules = new Map<string, LoanScheduleHistory>();
+  for (const loanId of loanIds) {
+    const schedule = await loanScheduleOf(trx, mreRealmId, loanId);
+    if (schedule !== undefined) schedules.set(loanId, schedule);
+  }
   return {
     deposits: await depositPartsOf(trx, mreRealmId, year),
     corrections: await correctionHistoriesOf(trx, movers.registry, mreRealmId, movers.propertyReferenceId, year, movers.today),
-    loans: loanIds.map((loanId) => ({
-      loanId,
-      candidates: wide.allocatedLoanInterest
-        .filter((i) => i.loanId === loanId)
-        .map((i) => ({ sourceId: i.item.sourceId, bookingDate: (i.item as TaxMeaning).bookingDate, amount: i.item.amount, period: i.period })),
-      sets: (wide.loanAllocationSets.get(loanId) ?? []).map(({ validUntil: _derived, ...set }) => ({ set, records: history(records, set.id) })),
-    })),
+    loans: loanIds.map((loanId) => {
+      const schedule = schedules.get(loanId);
+      return {
+        loanId,
+        candidates: wide.allocatedLoanInterest
+          .filter((i) => i.loanId === loanId)
+          .map((i) => {
+            const meaning = i.item as TaxMeaning;
+            return {
+              sourceId: i.item.sourceId,
+              bookingDate: meaning.bookingDate,
+              amount: i.item.amount,
+              period: i.period,
+              recordedPeriod: i.recordedPeriod ?? null,
+              financialCategoryCode: meaning.financialCategoryCode,
+              taxYearOverride: meaning.attribution.overridden ? meaning.taxYear : null,
+            };
+          }),
+        sets: (wide.loanAllocationSets.get(loanId) ?? []).map(({ validUntil: _derived, ...set }) => ({ set, records: history(records, set.id) })),
+        ...(schedule === undefined ? {} : { schedule }),
+      };
+    }),
+  };
+}
+
+/**
+ * §58P: the Loan read in the Realm, its terms (`VALID` and `VOID`) in the Realm, their `CREATED`/`VOIDED` AuditRecords
+ * and the Loan's `CLOSED` record by `audit_record_entity_idx` (the entities selected in the Realm first, so another
+ * Realm's record is never read); `undefined` for a Loan not of the Realm.
+ */
+async function loanScheduleOf(trx: Transaction<Database>, mreRealmId: string, loanId: string): Promise<LoanScheduleHistory | undefined> {
+  const loan = await readLoanIn(trx, loanId, mreRealmId);
+  if (loan === undefined) return undefined;
+  const periods = await periodsOf(trx, loanId, mreRealmId);
+  const records = await recordsOf(
+    trx,
+    'LoanTerms',
+    periods.map((t) => t.id),
+    ['CREATED', 'VOIDED'],
+  );
+  const closing = await recordsOf(trx, 'Loan', [loanId], ['CLOSED']);
+  return {
+    loan,
+    debtFrom: debtFrom(loan),
+    terms: periods.map((t) => ({ period: t, validNow: t.status === 'VALID', records: history(records, t.id) })),
+    closing: history(closing, loanId),
   };
 }
 

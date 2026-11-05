@@ -294,6 +294,7 @@ export async function allocatedLoanInterest(
         loanId,
         period: periodOfSplit(meaning.bookingDate, pair.classification, loans.get(loanId)),
         deviation: deviationOfSplit(meaning.bookingDate, pair.classification, loans.get(loanId)),
+        recordedPeriod: pair.classification?.interestPeriod ?? null,
       },
     ];
   });

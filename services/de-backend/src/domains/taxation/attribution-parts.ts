@@ -1,9 +1,10 @@
-import { canonicalJson, type BusinessDate, type Fingerprinter, type Money, type MoneyJson } from '../../shared/index.js';
+import { canonicalJson, type BusinessDate, type Fingerprinter, type Money, type MoneyJson, type RuleRegistry } from '../../shared/index.js';
 import type { LoanAllocationSet } from '../financing/index.js';
 import { partMoved, partOn, type PartState } from './attribution-part-rule.js';
 import { correctionSteps, type CorrectionHistory } from './attribution-corrections.js';
 import type { InterestPeriod } from './loan-interest-periods.js';
 import { depositSteps, type DepositPartHistory } from './attribution-deposits.js';
+import { scheduleSteps, type LoanScheduleHistory } from './attribution-loan-schedule-parts.js';
 import { replay, walk, type HistoryRecord } from './attribution-history.js';
 import { recordedAfter } from './attribution-rule.js';
 
@@ -21,6 +22,9 @@ import { recordedAfter } from './attribution-rule.js';
  * Frage 2): the kinds `DEPOSIT_RECONCILIATION_CONFIRMED`, `DEPOSIT_RECONCILIATION_RELEASED`, items `DEPOSIT_CLOSING`.
  * §58I Part 2 (VC-X-50) adds the split correction (`attribution-corrections.ts`; Entscheidung des Projektinhabers,
  * 2026-11-03, §58I Fragen 5 und 6): the kinds `TRANSACTION_CORRECTED`, `TRANSACTION_REVERSED`, items `TRANSACTION_SPLIT`.
+ * §58P (VC-X-54) adds a Loan's terms record and closing (`attribution-loan-schedule-parts.ts`; Entscheidung des
+ * Projektinhabers, 2026-11-05, §58P Fragen 1–11): the kinds `LOAN_TERMS_PART_ADDED`, `LOAN_TERMS_PART_VOIDED`,
+ * `LOAN_CLOSED_PART`, items `TRANSACTION_SPLIT`.
  */
 
 export const PROPERTY_PART_CHANGED = 'PROPERTY_PART_CHANGED';
@@ -31,9 +35,12 @@ export const PART_CHANGE_KINDS = [
   'DEPOSIT_RECONCILIATION_RELEASED',
   'TRANSACTION_CORRECTED',
   'TRANSACTION_REVERSED',
+  'LOAN_TERMS_PART_ADDED',
+  'LOAN_TERMS_PART_VOIDED',
+  'LOAN_CLOSED_PART',
 ] as const;
 export type PartChangeKind = (typeof PART_CHANGE_KINDS)[number];
-export type PartChangeEntityType = 'LoanAllocationSet' | 'RentPaymentReconciliation' | 'Transaction';
+export type PartChangeEntityType = 'LoanAllocationSet' | 'RentPaymentReconciliation' | 'Transaction' | 'LoanTerms' | 'Loan';
 
 export { PART_STATES, partMoved, partOn } from './attribution-part-rule.js';
 export type { Part, PartState } from './attribution-part-rule.js';
@@ -60,6 +67,11 @@ export interface PartCandidate {
   readonly amount: Money;
   /** §58L: the split's interest period as the view reads it; `null` without one (rule 8). */
   readonly period: InterestPeriod | null;
+  /** §58P: the classification's recorded `interestPeriod` (VC-X-40), whatever the plan says; absent: none. */
+  readonly recordedPeriod?: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
+  /** §58P: the split's category and `taxYear` override, for its year on each side (§58A); absent: `LOAN_INTEREST`, none. */
+  readonly financialCategoryCode?: string;
+  readonly taxYearOverride?: number | null;
 }
 
 /** A set of the Loan (`VALID` or `VOID`) with its `CREATED`/`VOIDED` records. */
@@ -73,6 +85,8 @@ export interface LoanSetsHistory {
   readonly loanId: string;
   readonly candidates: readonly PartCandidate[];
   readonly sets: readonly AllocationSetHistory[];
+  /** §58P: the Loan's terms and closing histories and `debtFrom`; absent: no terms record or closing is judged. */
+  readonly schedule?: LoanScheduleHistory;
 }
 
 export interface PartChangeInput {
@@ -104,7 +118,9 @@ export interface PartChange {
         readonly reversalTransactionId: string | null;
         readonly replacementTransactionId: string | null;
         readonly reason: string | null;
-      };
+      }
+    | { readonly loanId: string; readonly termsId: string; readonly validFrom: BusinessDate }
+    | { readonly loanId: string; readonly closingDate: BusinessDate | null; readonly closingReason: string | null };
   readonly items: readonly PartItem[];
   /** SHA-256 of the canonical `{ propertyReferenceId, year, auditRecordId, kind, items }`, parts as exact cents (§58G). */
   readonly changeFingerprint: string;
@@ -146,7 +162,7 @@ export function partChangeFingerprint(
 export function partChanges(
   input: PartChangeInput | undefined,
   year: number,
-  context: { readonly propertyReferenceId: string; readonly fingerprinter: Fingerprinter },
+  context: { readonly propertyReferenceId: string; readonly fingerprinter: Fingerprinter; readonly registry?: RuleRegistry },
 ): PartChanges {
   const changes: PartChange[] = [];
   const inconsistent: PartChanges['inconsistent'][number][] = [];
@@ -157,6 +173,27 @@ export function partChanges(
       const records = replay(h.records, 'CREATED', 'VOIDED', h.set.status === 'VALID');
       histories.set(h.set.id, records);
       if (records === undefined) inconsistent.push({ entityType: 'LoanAllocationSet', entityId: h.set.id });
+    }
+    // §58P: the Loan's terms records and closing, each one change with the parts it moved.
+    const schedule = scheduleSteps(loan, year, pr, context.registry);
+    inconsistent.push(...schedule.inconsistent);
+    for (const step of schedule.steps) {
+      changes.push({
+        kind: step.kind,
+        entityType: step.entityType,
+        entityId: step.entityId,
+        auditRecordId: step.record.auditRecordId,
+        amendedAt: step.record.occurredAt,
+        keys: step.keys,
+        items: step.items,
+        changeFingerprint: partChangeFingerprint(context.fingerprinter, {
+          propertyReferenceId: pr,
+          year,
+          auditRecordId: step.record.auditRecordId,
+          kind: step.kind,
+          items: step.items,
+        }),
+      });
     }
     if (loan.candidates.length === 0) continue;
     for (const step of walk(

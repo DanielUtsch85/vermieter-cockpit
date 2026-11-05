@@ -465,8 +465,12 @@ describe.skipIf(databaseUrl === undefined)('the payment interval through Postgre
           await down.query(`ALTER TABLE loan_terms DISABLE TRIGGER USER`);
           await down.query(`DELETE FROM loan_terms WHERE id = $1`, [q.rows[0].id]);
           await down.query(`ALTER TABLE loan_terms ENABLE TRIGGER USER`);
-          await withMigrationLock(() => migration.down(createDatabase(down) as never));
-          await down.query(`DELETE FROM kysely_migration WHERE name = '0070_loan_terms_payment_interval'`);
+          await withMigrationLock(async () => {
+            // 0071 (VC-X-54, tax_year_acknowledgement only) sorts after 0070: its own down first (no acknowledgement of its kinds here).
+            await (migrations['0071_tax_year_loan_schedule_part_kinds'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
+            await migration.down(createDatabase(down) as never);
+          });
+          await down.query(`DELETE FROM kysely_migration WHERE name IN ('0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds')`);
           expect(await frozenDef()).toBe(original);
           expect(
             (

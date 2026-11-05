@@ -181,6 +181,9 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0065 past the reposito
         await migrateToLatest(downPool, { migrationTableSchema: downSchema });
         const migration = migrations['0065_tax_year_deposit_and_correction_movers'] as { up: (db: never) => Promise<void>; down: (db: never) => Promise<void> };
         const db = () => createDatabase(downPool) as never;
+        // 0071 (VC-X-54) widens these CHECKs and patches the shape guard after them: its own down first, up again at the end.
+        const loanParts = migrations['0071_tax_year_loan_schedule_part_kinds'] as typeof migration;
+        await withMigrationLock(() => loanParts.down(db()));
         const pr = (
           await downPool.query(
             `INSERT INTO property_reference (mre_realm_id, mre_property_id, external_reference_state, created_by) VALUES ($1, '6512f0c2a1b2c3d4e5f6e50f', 'ACTIVE', 'x') RETURNING id`,
@@ -254,6 +257,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0065 past the reposito
           restored.release();
         }
         await withMigrationLock(() => migration.up(db()));
+        await withMigrationLock(() => loanParts.up(db()));
         expect(await query(ackRow(pr, REOPENED))).toBe('accepted');
       } finally {
         await downPool.end();

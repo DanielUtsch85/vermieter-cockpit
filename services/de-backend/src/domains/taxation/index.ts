@@ -198,6 +198,8 @@ export { DEPOSIT_YEAR_KINDS, isDepositYearKind } from './attribution-rule.js';
 export { closingYear, depositClosingChanges, replayClosing } from './attribution-reopen.js';
 export type { ClosingStep, DepositClosingHistory, DepositClosingRecord, DepositClosingState } from './attribution-reopen.js';
 export { correctionRecordOf, correctionSteps, splitPartOn } from './attribution-corrections.js';
+export { planFactsOf, scheduleSteps } from './attribution-loan-schedule-parts.js';
+export type { LoanScheduleHistory, ScheduleKind, ScheduleStep } from './attribution-loan-schedule-parts.js';
 export type { CorrectionHistory, CorrectionRecord, CorrectionSplit, CorrectionStep } from './attribution-corrections.js';
 export {
   PART_CHANGE_KINDS,

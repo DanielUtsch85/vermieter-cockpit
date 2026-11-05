@@ -56,7 +56,9 @@ export function interestPeriodOf(
   const schedule = schedulePeriodOf(bookingDate, loan);
   if (recorded === null) return schedule;
   // §58O precedence case 3 (Entscheidung des Projektinhabers, 2026-11-05, question 11): a recorded period equal to the plan's is redundant.
-  if (schedule !== null && deviationOf(bookingDate, recorded, loan) === null) return schedule;
+  if (schedule !== null && recorded.from === schedule.from && recorded.until === schedule.until) return schedule;
+  // §58P question 10 (Entscheidung des Projektinhabers, 2026-11-05): every other recorded period is used, also a closing
+  // stub that `deviationOf` counts as matching the plan (§58O question 5: not flagged, but used).
   return { from: recorded.from, until: recorded.until, source: 'CLASSIFICATION' };
 }
 
