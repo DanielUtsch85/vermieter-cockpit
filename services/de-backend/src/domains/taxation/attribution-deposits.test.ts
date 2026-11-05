@@ -230,6 +230,10 @@ describe('one record as two changes (§58G Frage 4: CHANGE_AMBIGUOUS arises here
       // §58I Part 2 (VC-X-50): the split corrections.
       'TRANSACTION_CORRECTED',
       'TRANSACTION_REVERSED',
+      // §58P (VC-X-54): the terms records and the closing.
+      'LOAN_TERMS_PART_ADDED',
+      'LOAN_TERMS_PART_VOIDED',
+      'LOAN_CLOSED_PART',
     ]);
     expect(PART_CHANGE_KINDS.some((k) => k.startsWith('WEG_'))).toBe(false);
   });

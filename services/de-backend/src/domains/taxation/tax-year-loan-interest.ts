@@ -35,6 +35,8 @@ export interface LoanInterestSplit {
   readonly period: InterestPeriod | null;
   /** §58O: the recorded period where it deviates from the plan's (the view's reads only; absent elsewhere). */
   readonly deviation?: PeriodDeviation | null;
+  /** §58P: the classification's recorded `interestPeriod` as stored (the part change judges it on each side's plan; reads only). */
+  readonly recordedPeriod?: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
 }
 
 /** §58O: `INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE`'s details; `partsDiffer` decides its level (open when true). */

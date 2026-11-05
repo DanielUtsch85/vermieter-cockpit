@@ -1,8 +1,9 @@
 import type { Transaction } from 'kysely';
-import { debtFrom, firstIntervalOf, loanSchedule } from '../../domains/financing/index.js';
+import { debtFrom } from '../../domains/financing/index.js';
 import {
   deviationOf,
   interestPeriodOf,
+  planFactsOf,
   type InterestPeriod,
   type LoanPeriodFacts,
   type PeriodDeviation,
@@ -24,16 +25,9 @@ export async function loanPeriodFactsOf(trx: Transaction<Database>, mreRealmId: 
     const loan = await readLoanIn(trx, loanId, mreRealmId);
     if (loan === undefined) continue;
     const periods = (await periodsOf(trx, loanId, mreRealmId)).filter((t) => t.status === 'VALID');
-    // The contract plan (§58O question 12 (b)); the first entry's interval (rule 8) and each entry's period (the flag's details).
-    const schedule = loanSchedule(loan, periods);
-    const intervalOf = new Map(periods.map((p) => [p.id as string, p.paymentIntervalMonths]));
-    found.set(loanId, {
-      debtFrom: debtFrom(loan),
-      paymentDates: schedule.entries.map((e) => e.paymentDate),
-      firstIntervalMonths: firstIntervalOf(schedule, periods),
-      entryTerms: schedule.entries.map((e) => ({ termsId: e.termsId, paymentIntervalMonths: intervalOf.get(e.termsId) ?? 1 })),
-      closingDate: loan.status === 'CLOSED' ? loan.closingDate : null,
-    });
+    // The contract plan (§58O question 12 (b)); the first entry's interval (rule 8) and each entry's period (the flag's
+    // details); built as §58P's sides are (`planFactsOf`).
+    found.set(loanId, planFactsOf(loan, debtFrom(loan), periods));
   }
   return found;
 }

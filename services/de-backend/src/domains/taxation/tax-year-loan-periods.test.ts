@@ -33,6 +33,7 @@ import {
   viewOf,
   views,
 } from './tax-year-loan-periods.test-support.js';
+import { loanCase, terms } from './attribution-loan-schedule-parts.test-support.js';
 
 /**
  * VC-X-40 (api-design.md §58L; Entscheidung des Projektinhabers, 2026-11-04, L1–L12; Prüfbericht 2026-11-01, Frage 22,
@@ -425,29 +426,70 @@ describe('§58G and §59E under the period distribution', () => {
     expect(changes({ ...candidate(d), period: { from: bd(d), until: bd(d), source: 'LOAN_SCHEDULE' } })).toEqual([]);
   });
 
-  it('pinned until VC-X-54: other terms after the year end move a part without any flag (only sets, deposits and corrections are part kinds)', () => {
-    const sets = views([S1, S2]);
-    const before = split('310.00', '2027-03-31', ex1('2027-03-31'));
-    // New terms due on the 15th: the payment nearest 2027-03-31 is 2027-04-15, its period 2027-03-16 – 2027-04-15, wholly S2.
-    const after = { ...before, period: scheduled('2027-03-31', '2027-01-01', '2027-01-15') };
-    expect(parts(viewOf(readOf(P1, [before], sets)))).toEqual([[before.item.sourceId, '230.00']]);
-    const v = viewOf(readOf(P1, [after], sets));
-    expect(parts(v)).toEqual([[before.item.sourceId, '155.00']]);
-    expect(v.flags.map((f) => f.code)).not.toContain('PROPERTY_PART_CHANGED');
-    // VC-X-53 (§58O, Entscheidung des Projektinhabers, 2026-11-05, question 10): the interval entered after the year's end
-    // moves a part the same way, still without a flag until VC-X-54. Quarterly from 2027-03-31: 2027-01-01 – 2027-03-31.
-    const quarterly = {
-      ...before,
-      period: interestPeriodOf(day('2027-03-31'), null, {
-        debtFrom: day('2027-01-01'),
-        paymentDates: [day('2027-03-31'), day('2027-06-30')],
-        firstIntervalMonths: 3,
-      }),
-    };
-    const q = viewOf(readOf(P1, [quarterly], sets));
-    // 74 days S1, 16 days S2: 310.00 × 82/90.
-    expect(parts(q)).toEqual([[before.item.sourceId, '282.44']]);
-    expect(q.flags.map((f) => f.code)).not.toContain('PROPERTY_PART_CHANGED');
+  it('VC-X-54 (§58P Frage 5, the former pin inverted): other terms recorded after the year end move a part and raise PROPERTY_PART_CHANGED', () => {
+    // Loan L monthly due on the last day (TL); new terms due on the 15th from 2027-03-01 (T15): the payment nearest
+    // 2027-03-31 is 2027-04-15, its period 2027-03-16 – 2027-04-15, wholly S2: P1 230.00 → 155.00.
+    const TL = terms('0000dddd-0000-4000-8000-000000000201', { repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, firstPaymentDate: day('2027-01-31') });
+    const T15 = terms('0000dddd-0000-4000-8000-000000000202', {
+      repaymentModel: 'INTEREST_ONLY',
+      scheduledPayment: null,
+      validFrom: day('2027-03-01'),
+      firstPaymentDate: day('2027-03-15'),
+    });
+    // VC-X-53: the interval entered on the same Loan (void and re-entry, P3-D2): quarterly from 2027-03-31, 2027-01-01 – 2027-03-31.
+    const TQ = terms('0000dddd-0000-4000-8000-000000000203', { repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, paymentIntervalMonths: 3 });
+    const tl = rec('r-tl', 'CREATED', '2027-01-02T09:00:00Z');
+    const sets = [
+      { set: S1, records: [rec('r-s1', 'CREATED', '2027-01-02T10:00:00Z')] },
+      { set: S2, records: [rec('r-s2', 'CREATED', '2027-01-02T10:01:00Z')] },
+    ];
+    const debits = [{ amount: '310.00', bookingDate: '2027-03-31' }];
+    const view = (c: ReturnType<typeof loanCase>) => viewOf(readOf(P1, c.splits, views([S1, S2]), { parts: c.input }));
+    const kinds = (v: ReturnType<typeof viewOf>) =>
+      (
+        (flagOf(v, 'PROPERTY_PART_CHANGED') ?? []) as {
+          kind: string;
+          items: { partBefore: { amount: string } | null; partAfter: { amount: string } | null }[];
+        }[]
+      ).map((e) => [e.kind, e.items[0]?.partBefore?.amount, e.items[0]?.partAfter?.amount]);
+    const fifteenth = (at: string) =>
+      loanCase({
+        terms: [
+          { period: TL, validNow: true, records: [tl] },
+          { period: T15, validNow: true, records: [rec('r15', 'CREATED', at)] },
+        ],
+        sets,
+        debits,
+      });
+    const late = view(fifteenth('2028-02-10T10:00:00Z'));
+    expect(parts(late)[0]?.[1]).toBe('155.00');
+    expect(kinds(late)).toEqual([['LOAN_TERMS_PART_ADDED', '230.00', '155.00']]);
+    expect(late.review.open).toContainEqual({ code: 'PROPERTY_PART_CHANGED', count: 2 });
+    const quarterly = (voidAt: string, createAt: string) =>
+      loanCase({
+        terms: [
+          { period: TL, validNow: false, records: [tl, rec('r-v', 'VOIDED', voidAt)] },
+          { period: TQ, validNow: true, records: [rec('r-q', 'CREATED', createAt)] },
+        ],
+        sets,
+        debits,
+      });
+    // 74 days S1, 16 days S2: 310.00 × 82/90. Each record alone: the void 230.00 → 155.00 (rule 8), the re-entry 155.00 → 282.44.
+    const q = view(quarterly('2028-02-10T09:00:00Z', '2028-02-10T09:05:00Z'));
+    expect(parts(q)[0]?.[1]).toBe('282.44');
+    expect(kinds(q)).toEqual([
+      ['LOAN_TERMS_PART_VOIDED', '230.00', '155.00'],
+      ['LOAN_TERMS_PART_ADDED', '155.00', '282.44'],
+    ]);
+    // Counter-check: the same records made before the year end (no record after it): the same figures, no record, no flag.
+    for (const v of [view(fifteenth('2027-06-01T10:00:00Z')), view(quarterly('2027-06-01T09:00:00Z', '2027-06-01T09:05:00Z'))]) {
+      expect(v.flags.map((f) => f.code)).not.toContain('PROPERTY_PART_CHANGED');
+      expect(v.review.open.map((o) => o.code)).not.toContain('PROPERTY_PART_CHANGED');
+    }
+    expect([parts(view(fifteenth('2027-06-01T10:00:00Z')))[0]?.[1], parts(view(quarterly('2027-06-01T09:00:00Z', '2027-06-01T09:05:00Z')))[0]?.[1]]).toEqual([
+      '155.00',
+      '282.44',
+    ]);
   });
 
   it('§59E: a capitalised split over two sets enters no basis, SEVERAL_ALLOCATION_SETS (L9); over one set it does', () => {

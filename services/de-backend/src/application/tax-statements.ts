@@ -164,7 +164,7 @@ export function acknowledgeAttributionChange(
           planAcknowledgement(
             [
               ...attributionChanges(attribution, year, registry, context).changes,
-              ...partChanges(parts, year, context).changes,
+              ...partChanges(parts, year, { ...context, registry }).changes,
               // §58N: the kind OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER (Entscheidung des Projektinhabers, 2026-11-04, Frage 5).
               ...ownershipStartChanges(ownershipStarts, year, context),
             ],

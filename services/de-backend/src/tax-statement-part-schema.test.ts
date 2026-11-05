@@ -193,6 +193,9 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
         // 0065 (VC-X-50) builds on 0064: its own down first.
         const movers = migrations['0065_tax_year_deposit_and_correction_movers'] as typeof migration;
         const db = () => createDatabase(downPool) as never;
+        const loanParts = migrations['0071_tax_year_loan_schedule_part_kinds'] as typeof migration;
+        // 0071 (VC-X-54) widens these CHECKs and patches the shape guard after them: its own down first, up again at the end.
+        await withMigrationLock(() => loanParts.down(db()));
         await withMigrationLock(() => movers.down(db()));
         await withMigrationLock(() => further.down(db()));
         const table = async () =>
@@ -250,6 +253,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0063 past the reposito
         await withMigrationLock(() => migration.up(db()));
         await withMigrationLock(() => further.up(db()));
         await withMigrationLock(() => movers.up(db()));
+        await withMigrationLock(() => loanParts.up(db()));
         expect(await table()).toBe(1);
         expect(await downPool.query(ackRow(pr)).then(() => 'accepted', classify)).toBe('accepted');
       } finally {

@@ -485,6 +485,8 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
             for (const t of ['ownership', 'acquisition_party', 'acquisition']) await down.query(`ALTER TABLE ${t} ENABLE TRIGGER USER`);
             await withMigrationLock(async () => {
               // 0068 (VC-X-27, tax_classification only) sorts after 0067: its own down first (no cost-line classification here).
+              // 0071 (VC-X-54) patches 0065's shape guard after 0067 did: its own down first (no acknowledgement of its kinds here).
+              await (migrations['0071_tax_year_loan_schedule_part_kinds'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               // 0070 (VC-X-53, loan_terms only) sorts after 0069: its own down first (no interval other than 1 here).
               await (migrations['0070_loan_terms_payment_interval'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               // 0069 (VC-X-40, tax_classification only) sorts after 0068: its own down before it (no interest period here).
@@ -493,7 +495,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
               await migration.down(createDatabase(down) as never);
             });
             await down.query(
-              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval')`,
+              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds')`,
             );
           }
           expect(await defs()).toEqual(original);
