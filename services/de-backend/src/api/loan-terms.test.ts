@@ -16,7 +16,7 @@ import {
   type CreateLoanTermsInput,
   type LoanTermsView,
   type PaymentProposalResult,
-  type Schedule,
+  type LoanScheduleResult,
   type PrincipalVerifier,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
@@ -43,6 +43,7 @@ const view = {
   initialRepaymentRate: 2000n,
   specialRepaymentLimit: null,
   notes: null,
+  paymentIntervalMonths: 1,
   voidedAt: null,
   voidReason: null,
   createdAt: new Date('2026-08-20T10:00:00Z'),
@@ -109,6 +110,7 @@ describe('POST /api/v1/loans/{id}/terms', () => {
       initialRepaymentRate: '2.000',
       specialRepaymentLimit: null,
       notes: null,
+      paymentIntervalMonths: 1,
       voidedAt: null,
       voidReason: null,
       createdAt: '2026-08-20T10:00:00.000Z',
@@ -120,6 +122,8 @@ describe('POST /api/v1/loans/{id}/terms', () => {
       initialRepaymentRate: 2000n,
       principalAtStart: null,
       specialRepaymentLimit: null,
+      // §58O: omitted is monthly.
+      paymentIntervalMonths: 1,
       idempotencyKey: 't1',
     });
     expect((await call(base, 'POST', `/loans/${LOAN}/terms`, body, { 'idempotency-key': 't1' })).headers.get('idempotent-replayed')).toBe('true');
@@ -151,6 +155,45 @@ describe('POST /api/v1/loans/{id}/terms', () => {
     await fieldsOf({ ...body, paymentFrequency: 'MONTHLY' });
     await fieldsOf({ ...body, validFrom: 'x' });
     expect((await call(base, 'POST', '/loans/x/terms', body)).status).toBe(400);
+  });
+
+  it('paymentIntervalMonths (§58O): 1, 3, 6, 12 and JSON 3.0 accepted; a string, a fraction or null INVALID_FORMAT; other integers OUT_OF_RANGE; the response key', async () => {
+    const seen: CreateLoanTermsInput[] = [];
+    const base = await start({
+      loanTerms: {
+        create: async (input) => {
+          seen.push(input);
+          return { terms: { ...view, paymentIntervalMonths: input.paymentIntervalMonths } as LoanTermsView, replayed: false };
+        },
+      },
+    });
+    for (const n of [1, 3, 6, 12]) {
+      const res = await call(base, 'POST', `/loans/${LOAN}/terms`, { ...body, paymentIntervalMonths: n });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as { paymentIntervalMonths: number }).paymentIntervalMonths).toBe(n);
+    }
+    // JSON `3.0` is the number 3.
+    const raw = await fetch(`${base}/api/v1/loans/${LOAN}/terms`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body).replace(/}$/, ',"paymentIntervalMonths":3.0}'),
+    });
+    expect(raw.status).toBe(201);
+    expect(seen.map((s) => s.paymentIntervalMonths)).toEqual([1, 3, 6, 12, 3]);
+    const fieldsOf = async (payload: unknown) => {
+      const res = await call(base, 'POST', `/loans/${LOAN}/terms`, payload);
+      expect(res.status, JSON.stringify(payload)).toBe(400);
+      return ((await errorOf(res)).details as { fields: unknown[] }).fields;
+    };
+    for (const bad of ['3', 2.5, null, true]) {
+      expect(await fieldsOf({ ...body, paymentIntervalMonths: bad })).toEqual([{ field: 'paymentIntervalMonths', code: 'INVALID_FORMAT' }]);
+    }
+    for (const bad of [0, 2, 4, 24, -3]) {
+      expect(await fieldsOf({ ...body, paymentIntervalMonths: bad })).toEqual([{ field: 'paymentIntervalMonths', code: 'OUT_OF_RANGE' }]);
+    }
+    // paymentFrequency stays an unknown key.
+    expect((await call(base, 'POST', `/loans/${LOAN}/terms`, { ...body, paymentFrequency: 'QUARTERLY' })).status).toBe(400);
+    expect(seen).toHaveLength(5);
   });
 
   it.each([
@@ -264,7 +307,9 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
       endReason: 'PAID_OFF',
       fixedRateEnd: { date: '2027-02-28', balance: 40_853n },
     },
-  } as unknown as Schedule;
+    rebasedOn: null,
+    deviations: new Map(),
+  } as unknown as LoanScheduleResult;
 
   it('the items as Money with their numbers, the summary; from/to reach the read; BEFORE_FROM; unknown parameters 400; an unknown Loan 404', async () => {
     const seen: unknown[] = [];
@@ -293,6 +338,7 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
           principal: { amount: '296.47', currency: 'EUR' },
           payment: { amount: '300.00', currency: 'EUR' },
           balanceAfter: { amount: '408.53', currency: 'EUR' },
+          flags: [],
         },
       ],
       summary: {
@@ -305,6 +351,7 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
         endReason: 'PAID_OFF',
         fixedRateEnd: { date: '2027-02-28', balance: { amount: '408.53', currency: 'EUR' } },
       },
+      rebasedOn: null,
     });
     expect(seen[0]).toMatchObject({ loanId: LOAN, from: '2027-02-01', to: '2027-02-28' });
     expect(await (await call(base, 'GET', `/loans/${LOAN}/schedule`)).json()).toMatchObject({ from: null, to: null });
@@ -320,6 +367,36 @@ describe('GET /api/v1/loans/{id}/schedule', () => {
     const missing = await call(base, 'GET', `/loans/${TERMS}/schedule`);
     expect(missing.status).toBe(404);
     expect((await errorOf(missing)).details).toEqual({ loanId: TERMS });
+  });
+
+  it('§58O: rebasedOn and BOOKED_SPLIT_DIFFERS_FROM_PLAN on its entry only, as Money', async () => {
+    const m = (amount: string) => ({ amount, currency: 'EUR' });
+    const flag = {
+      code: 'BOOKED_SPLIT_DIFFERS_FROM_PLAN',
+      transactionId: TERMS,
+      booked: { interest: 600n, principal: 29_400n },
+      planned: { interest: 500n, principal: 29_500n },
+    };
+    const rebased = {
+      ...schedule,
+      rebasedOn: { bookingDate: '2027-01-31', entryNumber: 1, actualBalance: 70_600n, transactionId: TERMS, flags: [flag] },
+      deviations: new Map([
+        [2, [flag]],
+        [3, [flag]],
+      ]),
+    } as unknown as LoanScheduleResult;
+    const base = await start({ loanTerms: { schedule: async () => rebased } });
+    const res = (await (await call(base, 'GET', `/loans/${LOAN}/schedule`)).json()) as { items: { number: number; flags: unknown[] }[]; rebasedOn: unknown };
+    const details = { transactionId: TERMS, booked: { interest: m('6.00'), principal: m('294.00') }, planned: { interest: m('5.00'), principal: m('295.00') } };
+    // The window holds entry 2 only; entry 3's flag is outside it.
+    expect(res.items.map((i) => [i.number, i.flags])).toEqual([[2, [{ code: 'BOOKED_SPLIT_DIFFERS_FROM_PLAN', details }]]]);
+    expect(res.rebasedOn).toEqual({
+      bookingDate: '2027-01-31',
+      entryNumber: 1,
+      actualBalance: m('706.00'),
+      transactionId: TERMS,
+      flags: [{ code: 'BOOKED_SPLIT_DIFFERS_FROM_PLAN', details }],
+    });
   });
 });
 
@@ -344,6 +421,9 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
     interest: 353n,
     principal: 39_647n,
     unallocated: 0n,
+    source: 'SCHEDULE',
+    purposeFormat: null,
+    scheduleSplit: { interest: 353n, principal: 39_647n },
     flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', difference: 10_000n }, { code: 'ALREADY_SPLIT' }],
   } as unknown as PaymentProposalResult;
 
@@ -378,6 +458,9 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
         { financialCategoryCode: 'LOAN_PRINCIPAL', loanId: LOAN, amount: { amount: '396.47', currency: 'EUR' } },
       ],
       unallocated: { amount: '0.00', currency: 'EUR' },
+      source: 'SCHEDULE',
+      purposeFormat: null,
+      scheduleSplit: { interest: { amount: '3.53', currency: 'EUR' }, principal: { amount: '396.47', currency: 'EUR' } },
       flags: [{ code: 'AMOUNT_DIFFERS_FROM_SCHEDULE', details: { difference: { amount: '100.00', currency: 'EUR' } } }, { code: 'ALREADY_SPLIT' }],
     });
     expect(seen[0]).toMatchObject({ loanId: LOAN, transactionId: TX });
@@ -387,6 +470,45 @@ describe('GET /api/v1/loans/{id}/payment-proposal', () => {
     expect((await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=x`)).status).toBe(400);
     expect((await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX}&asOf=2027-01-01`)).status).toBe(400);
     expect((await call(base, 'GET', `/loans/x/payment-proposal?transactionId=${TX}`)).status).toBe(400);
+  });
+
+  it('§58O: the purpose text as source, the plan split beside it, PURPOSE_SPLIT_NOT_MATCHING and SPLIT_DIFFERS_FROM_SCHEDULE with their details', async () => {
+    const m = (amount: string) => ({ amount, currency: 'EUR' });
+    const base = await start({
+      loanTerms: {
+        proposal: async () =>
+          ({
+            ...proposal,
+            amount: 30_000n,
+            interest: 400n,
+            principal: 29_600n,
+            source: 'PURPOSE_TEXT',
+            purposeFormat: 'BBBANK_LOAN_DEBIT',
+            scheduleSplit: { interest: 353n, principal: 29_647n },
+            flags: [
+              { code: 'SPLIT_DIFFERS_FROM_SCHEDULE', purposeText: { interest: 400n, principal: 29_600n }, schedule: { interest: 353n, principal: 29_647n } },
+              { code: 'PURPOSE_SPLIT_NOT_MATCHING', format: 'BBBANK_LOAN_DEBIT', stated: null },
+            ],
+          }) as unknown as PaymentProposalResult,
+      },
+    });
+    const body = (await (await call(base, 'GET', `/loans/${LOAN}/payment-proposal?transactionId=${TX}`)).json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      source: 'PURPOSE_TEXT',
+      purposeFormat: 'BBBANK_LOAN_DEBIT',
+      scheduleSplit: { interest: m('3.53'), principal: m('296.47') },
+      splits: [
+        { financialCategoryCode: 'LOAN_INTEREST', loanId: LOAN, amount: m('4.00') },
+        { financialCategoryCode: 'LOAN_PRINCIPAL', loanId: LOAN, amount: m('296.00') },
+      ],
+      flags: [
+        {
+          code: 'SPLIT_DIFFERS_FROM_SCHEDULE',
+          details: { purposeText: { interest: m('4.00'), principal: m('296.00') }, schedule: { interest: m('3.53'), principal: m('296.47') } },
+        },
+        { code: 'PURPOSE_SPLIT_NOT_MATCHING', details: { format: 'BBBANK_LOAN_DEBIT', stated: null } },
+      ],
+    });
   });
 
   it('a negative difference, an INTEREST_ONLY rest and a zero principal left out', async () => {

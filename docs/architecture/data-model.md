@@ -1374,7 +1374,8 @@ Represent a temporally valid set of Loan conditions.
 - `initialRepaymentRate`
 - `fixedRateUntil`
 - `specialRepaymentLimit`
-- `paymentFrequency`
+- `paymentFrequency` (not stored; replaced by `paymentIntervalMonths`, VC-X-53)
+- `paymentIntervalMonths` (1, 3, 6 or 12, default 1; VC-X-53, api-design §58O)
 - `notes`
 
 ---
@@ -1389,7 +1390,7 @@ Represent a temporally valid set of Loan conditions.
 - A period has `validFrom`; `validUntil` is derived (the next `VALID` period's `validFrom` minus one day), not
   stored. Periods are appended after the last one and never edited; only the last one can be voided.
 - `repaymentModel`: `ANNUITY` (with `scheduledPayment`, as on the contract) or `INTEREST_ONLY` (no
-  `scheduledPayment`; the payment is the interest). `paymentFrequency` is `MONTHLY` in Phase 3 and not stored.
+  `scheduledPayment`; the payment is the interest). `paymentFrequency` is `MONTHLY` in Phase 3 and not stored; since VC-X-53 (api-design §58O, migration 0070) each period stores `paymentIntervalMonths` (`payment_interval_months`, 1, 3, 6 or 12, default 1, frozen with the period), the months between two planned payments, in place of the enum.
 - `interestRate` and `initialRepaymentRate` are exact decimals (percent p.a., at most three decimals).
 - `principalAtStart` (optional, not on the first period, never above `principalOriginal`) restarts the plan's balance.
 

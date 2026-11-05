@@ -68,6 +68,7 @@ import * as m0066 from './0066_anschaffungsnahe_transfer_date.js';
 import * as m0067 from './0067_acquisition_transfer_date_record.js';
 import * as m0068 from './0068_hausgeld_cost_line_classification.js';
 import * as m0069 from './0069_loan_interest_period.js';
+import * as m0070 from './0070_loan_terms_payment_interval.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -145,4 +146,5 @@ export const migrations: Record<string, Migration> = {
   '0067_acquisition_transfer_date_record': m0067,
   '0068_hausgeld_cost_line_classification': m0068,
   '0069_loan_interest_period': m0069,
+  '0070_loan_terms_payment_interval': m0070,
 };

@@ -15,6 +15,7 @@ const period = (overrides: Partial<SchedulePeriod> = {}): SchedulePeriod => ({
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
   fixedRateUntil: null,
+  paymentIntervalMonths: 1,
   ...overrides,
 });
 const rows = (principal: string, maturity: string | null, periods: SchedulePeriod[]) =>

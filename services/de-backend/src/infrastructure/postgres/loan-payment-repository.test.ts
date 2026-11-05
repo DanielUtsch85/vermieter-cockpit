@@ -476,6 +476,7 @@ describe.skipIf(databaseUrl === undefined)('Loan payments (§41.5)', () => {
           firstPaymentDate: day('2027-01-31'),
           principalAtStart: null,
           fixedRateUntil: null,
+          paymentIntervalMonths: 1,
           initialRepaymentRate: null,
           specialRepaymentLimit: null,
           notes: null,

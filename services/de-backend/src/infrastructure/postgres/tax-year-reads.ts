@@ -25,7 +25,7 @@ import { partChangeInputOf } from './part-reads.js';
 import { capitalizedLoanInterestOf, refOf } from './capitalized-loan-interest.js';
 import { interestFactsIn } from './construction-period-reads.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
-import { loanPeriodFactsOf, periodOfSplit } from './loan-interest-periods.js';
+import { deviationOfSplit, loanPeriodFactsOf, periodOfSplit } from './loan-interest-periods.js';
 import { taxYearDepreciationIn } from './tax-year-depreciation.js';
 import type { Database } from './schema.js';
 import { UUID, currentOfDeposits } from './tax-classification-rows.js';
@@ -288,7 +288,14 @@ export async function allocatedLoanInterest(
     if (pair === undefined || pair.meaning.taxYear !== year) return [];
     const { meaning } = pair;
     const loanId = row.loan_id as string;
-    return [{ item: { ...meaning, yearAmount: meaning.amount }, loanId, period: periodOfSplit(meaning.bookingDate, pair.classification, loans.get(loanId)) }];
+    return [
+      {
+        item: { ...meaning, yearAmount: meaning.amount },
+        loanId,
+        period: periodOfSplit(meaning.bookingDate, pair.classification, loans.get(loanId)),
+        deviation: deviationOfSplit(meaning.bookingDate, pair.classification, loans.get(loanId)),
+      },
+    ];
   });
   const sets = await setsOfLoans(trx, mreRealmId, [...new Set(interest.map((i) => i.loanId))]);
   const loanAllocationSets = new Map<string, readonly LoanAllocationSetView[]>([...sets].map(([loanId, own]) => [loanId, withValidUntil(own)]));

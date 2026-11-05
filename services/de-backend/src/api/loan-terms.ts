@@ -1,18 +1,21 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
 import {
+  PAYMENT_INTERVALS,
   REPAYMENT_MODELS,
   TERMS_STATUSES,
   formatRate,
   parseRate,
   type CreateLoanTerms,
   type GetLoanSchedule,
+  type BookedSplitDeviation,
   type GetPaymentProposal,
   type PaymentProposalResult,
   type ListLoanTerms,
+  type LoanScheduleResult,
   type LoanTermsView,
   type NumberedScheduleEntry,
-  type Schedule,
+  type RebasedOn,
   type VoidLoanTerms,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
@@ -29,6 +32,21 @@ const rate = z.string().transform((value, ctx) => {
   return z.NEVER;
 });
 
+/**
+ * §58O: a JSON integer in {1, 3, 6, 12}; a string, a fraction or `null` → `INVALID_FORMAT`, another integer →
+ * `OUT_OF_RANGE` (JSON `3.0` is the number 3).
+ */
+const paymentInterval = z.unknown().transform((value, ctx) => {
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
+    return z.NEVER;
+  }
+  const found = PAYMENT_INTERVALS.find((n) => n === value);
+  if (found !== undefined) return found;
+  ctx.addIssue({ code: 'custom', params: { code: 'OUT_OF_RANGE' } });
+  return z.NEVER;
+});
+
 const createBody = z
   .object({
     validFrom: businessDate,
@@ -41,6 +59,7 @@ const createBody = z
     initialRepaymentRate: rate.nullish(),
     specialRepaymentLimit: money.nullish(),
     notes: optionalText(2000).nullish(),
+    paymentIntervalMonths: paymentInterval.optional(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -120,6 +139,7 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
         initialRepaymentRate: body.initialRepaymentRate ?? null,
         specialRepaymentLimit: body.specialRepaymentLimit ?? null,
         notes: body.notes ?? null,
+        paymentIntervalMonths: body.paymentIntervalMonths ?? 1,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
       .then(({ terms, replayed }) => {
@@ -201,6 +221,38 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
 
 /** Signed cents as Money (a difference may be negative). */
 
+const split = (s: { readonly interest: bigint; readonly principal: bigint }) => ({ interest: eurCents(s.interest), principal: eurCents(s.principal) });
+
+const proposalFlag = (f: PaymentProposalResult['flags'][number]) => {
+  switch (f.code) {
+    case 'AMOUNT_DIFFERS_FROM_SCHEDULE':
+      return { code: f.code, details: { difference: signedEurCents(f.difference) } };
+    case 'PURPOSE_SPLIT_NOT_MATCHING':
+      return { code: f.code, details: { format: f.format, stated: f.stated === null ? null : split(f.stated) } };
+    case 'SPLIT_DIFFERS_FROM_SCHEDULE':
+      return { code: f.code, details: { purposeText: split(f.purposeText), schedule: split(f.schedule) } };
+    default:
+      return { code: f.code };
+  }
+};
+
+const bookedSplitFlag = (f: BookedSplitDeviation) => ({
+  code: f.code,
+  details: { transactionId: f.transactionId, booked: split(f.booked), planned: split(f.planned) },
+});
+
+/** §58O question 12 (b): where the plan was last re-anchored on the actual remaining debt; `null` without a booked payment. */
+export const rebasedOnDto = (r: RebasedOn | null) =>
+  r === null
+    ? null
+    : {
+        bookingDate: r.bookingDate,
+        entryNumber: r.entryNumber,
+        actualBalance: eurCents(r.actualBalance),
+        transactionId: r.transactionId,
+        flags: r.flags.map(bookedSplitFlag),
+      };
+
 function toProposalDto(p: PaymentProposalResult) {
   const splits = [
     { financialCategoryCode: 'LOAN_INTEREST', amount: p.interest },
@@ -222,13 +274,14 @@ function toProposalDto(p: PaymentProposalResult) {
     },
     splits: splits.map((s) => ({ financialCategoryCode: s.financialCategoryCode, loanId: p.loanId, amount: eurCents(s.amount) })),
     unallocated: eurCents(p.unallocated),
-    flags: p.flags.map((f) =>
-      f.code === 'AMOUNT_DIFFERS_FROM_SCHEDULE' ? { code: f.code, details: { difference: signedEurCents(f.difference) } } : { code: f.code },
-    ),
+    source: p.source,
+    purposeFormat: p.purposeFormat,
+    scheduleSplit: split(p.scheduleSplit),
+    flags: p.flags.map(proposalFlag),
   };
 }
 
-function toScheduleDto(loanId: string, from: string | null, to: string | null, { entries, summary }: Schedule) {
+function toScheduleDto(loanId: string, from: string | null, to: string | null, { entries, summary, rebasedOn, deviations }: LoanScheduleResult) {
   const entry = (e: NumberedScheduleEntry) => ({
     number: e.number,
     paymentDate: e.paymentDate,
@@ -238,6 +291,7 @@ function toScheduleDto(loanId: string, from: string | null, to: string | null, {
     principal: eurCents(e.principal),
     payment: eurCents(e.payment),
     balanceAfter: eurCents(e.balanceAfter),
+    flags: (deviations.get(e.number) ?? []).map(bookedSplitFlag),
   });
   return {
     loanId,
@@ -254,6 +308,7 @@ function toScheduleDto(loanId: string, from: string | null, to: string | null, {
       endReason: summary.endReason,
       fixedRateEnd: summary.fixedRateEnd === null ? null : { date: summary.fixedRateEnd.date, balance: eurCents(summary.fixedRateEnd.balance) },
     },
+    rebasedOn: rebasedOnDto(rebasedOn),
   };
 }
 
@@ -278,6 +333,7 @@ function toDto(t: LoanTermsView) {
     initialRepaymentRate: t.initialRepaymentRate === null ? null : formatRate(t.initialRepaymentRate),
     specialRepaymentLimit: t.specialRepaymentLimit?.toJSON() ?? null,
     notes: t.notes,
+    paymentIntervalMonths: t.paymentIntervalMonths,
     voidedAt: t.voidedAt?.toISOString() ?? null,
     voidReason: t.voidReason,
     createdAt: t.createdAt.toISOString(),

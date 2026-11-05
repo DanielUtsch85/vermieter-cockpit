@@ -1,5 +1,14 @@
 import type { BusinessDate, RuleRegistry } from '../../shared/index.js';
-import { loanSchedule, setOn, sumsToOne, type Loan, type LoanAllocationSetView, type SchedulePeriod } from '../financing/index.js';
+import {
+  firstIntervalOf,
+  loanSchedule,
+  setOn,
+  sumsToOne,
+  type Loan,
+  type LoanAllocationSetView,
+  type Schedule,
+  type SchedulePeriod,
+} from '../financing/index.js';
 import type { RentDueDay } from '../rental-contract-reference/index.js';
 import { movedItems, recordedAfter, type ChangeKind, type InconsistentHistory, type RawChange } from './attribution-rule.js';
 import { attributeTaxYear, interestTiming, rentTiming, type TimingInput } from './cash-timing.js';
@@ -201,11 +210,10 @@ export function termsChanges(
     }
     const candidates = loan.candidates.filter((c) => concerns(propertyReferenceId, loan.sets, c.bookingDate));
     if (candidates.length === 0) continue;
-    const paymentDatesOf = (valid: readonly TermsHistory[]) =>
-      loanSchedule(
-        loan.loan,
-        valid.map((t) => t.period).sort((a, b) => (a.validFrom < b.validFrom ? -1 : 1)),
-      ).entries.map((e) => e.paymentDate);
+    const paymentDatesOf = (valid: readonly TermsHistory[]) => {
+      const periods = valid.map((t) => t.period).sort((a, b) => (a.validFrom < b.validFrom ? -1 : 1));
+      return datesOf(loanSchedule(loan.loan, periods), periods);
+    };
     for (const step of walk(
       loan.terms,
       (t) => t.period.id,
@@ -218,7 +226,7 @@ export function termsChanges(
       const items = movedItems(
         candidates,
         year,
-        (c, side) => attributeTaxYear(c, interestTiming(c.bookingDate, side === 'BEFORE' ? before : after), c.taxYearOverride, registry).taxYear,
+        (c, side) => attributeTaxYear(c, timingOn(c.bookingDate, side === 'BEFORE' ? before : after), c.taxYearOverride, registry).taxYear,
       );
       if (items.length === 0) continue;
       const t = step.entity.period;
@@ -236,13 +244,26 @@ export function termsChanges(
   return { changes, inconsistent };
 }
 
+/** A plan's payment dates and its first entry's interval (§58O rule 8), as `interestTiming` reads them. */
+interface PlanDates {
+  readonly dates: readonly BusinessDate[];
+  readonly firstIntervalMonths: number;
+}
+
+const datesOf = (schedule: Schedule, periods: readonly SchedulePeriod[]): PlanDates => ({
+  dates: schedule.entries.map((e) => e.paymentDate),
+  firstIntervalMonths: firstIntervalOf(schedule, periods),
+});
+
+const timingOn = (bookingDate: BusinessDate, plan: PlanDates) => interestTiming(bookingDate, plan.dates, plan.firstIntervalMonths);
+
 /** The payment dates of the Loan's schedule over its `VALID` terms as now (§41.4), cut at `closingDate` when closed (§41.7). */
-function paymentDates(loan: LoanTermsHistory['loan'], terms: readonly TermsHistory[]): BusinessDate[] {
+function paymentDates(loan: LoanTermsHistory['loan'], terms: readonly TermsHistory[]): PlanDates {
   const periods = terms
     .filter((t) => t.validNow)
     .map((t) => t.period)
     .sort((a, b) => (a.validFrom < b.validFrom ? -1 : 1));
-  return loanSchedule(loan, periods).entries.map((e) => e.paymentDate);
+  return datesOf(loanSchedule(loan, periods), periods);
 }
 
 /**
@@ -276,7 +297,7 @@ export function closingChanges(
     const items = movedItems(
       candidates,
       year,
-      (c, side) => attributeTaxYear(c, interestTiming(c.bookingDate, side === 'BEFORE' ? before : after), c.taxYearOverride, registry).taxYear,
+      (c, side) => attributeTaxYear(c, timingOn(c.bookingDate, side === 'BEFORE' ? before : after), c.taxYearOverride, registry).taxYear,
     );
     if (items.length === 0) continue;
     changes.push({

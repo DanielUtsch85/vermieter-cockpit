@@ -74,7 +74,7 @@ flows into the ledger via `TransactionSplit`; remaining debt is derived, never s
   - a period may only be added after the last one;
   - a wrong period is voided (it counts nowhere) only while it is the last one;
   - periods are never edited.
-- **Payment frequency:** monthly only in Phase 3. Data-model §21's `paymentFrequency` is fixed to `MONTHLY`;
+- **Payment frequency:** monthly only in Phase 3 (since VC-X-53, api-design §58O: `paymentIntervalMonths` 1, 3, 6 or 12 on each terms period, default 1, migration 0070). Data-model §21's `paymentFrequency` is fixed to `MONTHLY`;
   quarterly is a later item.
 - Docs: data-model §22, api-design §43.
 

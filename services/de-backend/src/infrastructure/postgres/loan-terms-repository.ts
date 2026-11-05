@@ -6,12 +6,12 @@ import {
   planVoidTerms,
   withValidUntil,
   type CreateTermsOutcome,
-  type Loan,
   type LoanTerms,
   type LoanTermsData,
   type LoanTermsId,
   type LoanTermsRepository,
   type LoanTermsView,
+  type PaymentIntervalMonths,
   type RepaymentModel,
   type TermsStatus,
   type VoidTermsOutcome,
@@ -19,7 +19,7 @@ import {
 import { checkVersion, type AuditActor, type BusinessDate, type Money } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
-import { lockLoan, readLoanIn } from './loan-repository.js';
+import { countedSplitsOf, lockLoan, readLoanIn } from './loan-repository.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -42,6 +42,7 @@ const COLUMNS = [
   sql<string | null>`to_char(fixed_rate_until, 'YYYY-MM-DD')`.as('fixed_rate_until'),
   sql<string | null>`initial_repayment_rate::text`.as('initial_repayment_rate'),
   sql<string | null>`special_repayment_limit::text`.as('special_repayment_limit'),
+  'payment_interval_months',
   'currency',
   'notes',
   'voided_at',
@@ -64,6 +65,7 @@ interface TermsRow {
   fixed_rate_until: string | null;
   initial_repayment_rate: string | null;
   special_repayment_limit: string | null;
+  payment_interval_months: number;
   currency: string;
   notes: string | null;
   voided_at: Date | null;
@@ -124,6 +126,7 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
               fixed_rate_until: terms.fixedRateUntil,
               initial_repayment_rate: terms.initialRepaymentRate === null ? null : formatRate(terms.initialRepaymentRate),
               special_repayment_limit: terms.specialRepaymentLimit === null ? null : toNumericAmount(terms.specialRepaymentLimit),
+              payment_interval_months: terms.paymentIntervalMonths,
               currency: loan.principalOriginal.currency,
               notes: terms.notes,
               created_by: actor.actorId,
@@ -146,6 +149,8 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
               initialRepaymentRate: created.initialRepaymentRate === null ? null : formatRate(created.initialRepaymentRate),
               specialRepaymentLimit: created.specialRepaymentLimit?.toJSON() ?? null,
               notes: created.notes,
+              // §58O: always from VC-X-53 on; readers take its absence in older records as 1.
+              paymentIntervalMonths: created.paymentIntervalMonths,
             },
           });
           return { kind: 'CREATED', terms: created };
@@ -233,6 +238,7 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
                 sql<string>`(amount * 100)::bigint::text`.as('cents'),
                 'direction',
                 'status',
+                'description',
                 (eb) =>
                   eb
                     .selectFrom('transaction_split')
@@ -256,12 +262,13 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
             direction: row.direction,
             status: row.status,
             splitCount: Number(row.split_count ?? 0),
+            description: row.description,
           },
         };
       });
   }
 
-  async scheduleInputs(loanId: string, mreRealmId: string): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[] } | undefined> {
+  async scheduleInputs(loanId: string, mreRealmId: string): ReturnType<LoanTermsRepository['scheduleInputs']> {
     if (!UUID.test(loanId)) return undefined;
     return this.db
       .transaction()
@@ -270,7 +277,8 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
       .execute(async (trx) => {
         const loan = await readLoanIn(trx, loanId, mreRealmId);
         if (loan === undefined) return undefined;
-        return { loan, periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID') };
+        // §58O question 12 (b): the counted splits the rebase reads, in the same snapshot.
+        return { loan, periods: (await periodsOf(trx, loanId)).filter((t) => t.status === 'VALID'), splits: await countedSplitsOf(trx, loanId) };
       });
   }
 }
@@ -313,6 +321,7 @@ function toTerms(row: TermsRow): LoanTerms {
     initialRepaymentRate: row.initial_repayment_rate === null ? null : rate(row.initial_repayment_rate),
     specialRepaymentLimit: money(row.special_repayment_limit, row.currency),
     notes: row.notes,
+    paymentIntervalMonths: row.payment_interval_months as PaymentIntervalMonths,
     voidedAt: row.voided_at,
     voidReason: row.void_reason,
     createdAt: row.created_at,
@@ -341,6 +350,7 @@ function fromSnapshot(result: unknown): LoanTermsView {
     LoanTermsView,
     'interestRate' | 'initialRepaymentRate' | 'scheduledPayment' | 'principalAtStart' | 'specialRepaymentLimit' | 'voidedAt' | 'createdAt'
   > & {
+    paymentIntervalMonths?: LoanTermsView['paymentIntervalMonths'];
     interestRate: string;
     initialRepaymentRate: string | null;
     scheduledPayment: MoneyJson;
@@ -352,6 +362,8 @@ function fromSnapshot(result: unknown): LoanTermsView {
   const m = (j: MoneyJson) => (j === null ? null : fromNumericAmount(j.amount, j.currency));
   return {
     ...s,
+    // §58O: a snapshot stored before VC-X-53 has no interval; it was monthly.
+    paymentIntervalMonths: s.paymentIntervalMonths ?? 1,
     interestRate: parseRate(s.interestRate) as bigint,
     initialRepaymentRate: s.initialRepaymentRate === null ? null : (parseRate(s.initialRepaymentRate) as bigint),
     scheduledPayment: m(s.scheduledPayment),

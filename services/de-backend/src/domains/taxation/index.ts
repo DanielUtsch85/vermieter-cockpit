@@ -290,8 +290,16 @@ export type {
 export { constructionPeriodCheck } from './construction-period-checks.js';
 export type { ConstructionPeriodRecordFacts, ConstructionPeriodRefusal, InterestSplitFacts } from './construction-period-checks.js';
 export { inBuildingBasis, withInterestFlags, withLoanInterestFlags } from './tax-year-interest.js';
-export { daysIn, distributeOverPeriod, interestPeriodOf, setsOfSegments } from './loan-interest-periods.js';
-export type { InterestPeriod, InterestPeriodSource, LoanPeriodFacts, PeriodDistribution, PeriodSegment, PeriodWeight } from './loan-interest-periods.js';
+export { daysIn, deviationOf, distributeOverPeriod, interestPeriodOf, schedulePeriodOf, setsOfSegments } from './loan-interest-periods.js';
+export type {
+  InterestPeriod,
+  InterestPeriodSource,
+  LoanPeriodFacts,
+  PeriodDeviation,
+  PeriodDistribution,
+  PeriodSegment,
+  PeriodWeight,
+} from './loan-interest-periods.js';
 export type { NotInBasisReason } from './tax-year-interest.js';
 export {
   AFA_LINES,

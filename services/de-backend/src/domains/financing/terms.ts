@@ -1,12 +1,14 @@
 import { addDays, addMonths, type AuditActor, type BusinessDate, type Money, type VersionConflict } from '../../shared/index.js';
 import { debtFrom, type Loan, type LoanStatus } from './loan.js';
+import type { CountedSplit } from './debt.js';
 import type { ProposalTransaction } from './payment-proposal.js';
 
 /**
  * Loan terms (data-model.md §22, api-design.md §41.2, backlog VC-3-02): the Loan's conditions as periods, appended
  * after the last one, never edited, only the last one voidable (phase-3-plan P3-D2). The schedule is derived from them
- * on read, never stored (P3-D5): monthly payments from `firstPaymentDate`, interest `round_half_up(balance × rate /
- * 100 / 12)` to the cent (30/360), exact in cents and thousandths of a percent.
+ * on read, never stored (P3-D5): a payment every `paymentIntervalMonths` months from `firstPaymentDate` (§58O, VC-X-53:
+ * 1, 3, 6 or 12; 1 is monthly, as before), interest `round_half_up(balance × rate × months / 100 / 12)` to the cent
+ * (30/360), exact in cents and thousandths of a percent.
  */
 
 export type LoanTermsId = string & { readonly __brand: 'LoanTermsId' };
@@ -16,6 +18,10 @@ export type RepaymentModel = (typeof REPAYMENT_MODELS)[number];
 
 export const TERMS_STATUSES = ['VALID', 'VOID'] as const;
 export type TermsStatus = (typeof TERMS_STATUSES)[number];
+
+/** §58O rule 1 (Entscheidung des Projektinhabers, 2026-11-05, question 1): monthly, quarterly, half-yearly, yearly. */
+export const PAYMENT_INTERVALS = [1, 3, 6, 12] as const;
+export type PaymentIntervalMonths = (typeof PAYMENT_INTERVALS)[number];
 
 /** A rate in percent p.a. with at most three decimals, as thousandths of a percent ("3.450" → 3450n). */
 export type RateMilli = bigint;
@@ -34,6 +40,8 @@ export interface LoanTermsData {
   readonly initialRepaymentRate: RateMilli | null;
   readonly specialRepaymentLimit: Money | null;
   readonly notes: string | null;
+  /** §58O: the months between two planned payments of the period; 1 for every period stored before VC-X-53. */
+  readonly paymentIntervalMonths: PaymentIntervalMonths;
 }
 
 export interface LoanTerms extends LoanTermsData {
@@ -72,11 +80,19 @@ export function toCents(money: Money): bigint {
   return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0').slice(0, 2));
 }
 
-/** One month's interest on `balance` cents: `round_half_up(balance × rate / 100 / 12)`, rate in thousandths of a percent. */
-export function monthlyInterest(balance: bigint, rate: RateMilli): bigint {
-  const numerator = balance * rate;
+/**
+ * The interest of `months` months on `balance` cents (§58O rule 4): `round_half_up(balance × rate × months / 100 / 12)`
+ * in one rounding, rate in thousandths of a percent.
+ */
+export function periodInterest(balance: bigint, rate: RateMilli, months: number): bigint {
+  const numerator = balance * rate * BigInt(months);
   const denominator = 1_200_000n; // 100 (percent) × 1000 (thousandths) × 12 (months)
   return (2n * numerator + denominator) / (2n * denominator);
+}
+
+/** One month's interest on `balance` cents: `periodInterest` with one month. */
+export function monthlyInterest(balance: bigint, rate: RateMilli): bigint {
+  return periodInterest(balance, rate, 1);
 }
 
 export interface ScheduleEntry {
@@ -90,20 +106,47 @@ export interface ScheduleEntry {
   readonly balanceAfter: bigint;
 }
 
-/** The 50-year cap of P3-D5. */
+/** The 50-year cap of P3-D5: 600 months of intervals (§58O rule 3; 600 monthly, 200 quarterly, 50 yearly payments). */
 export const MAX_PAYMENTS = 600;
 
 /** A `VALID` period as the schedule reads it. */
 export type SchedulePeriod = Pick<
   LoanTerms,
-  'id' | 'validFrom' | 'interestRate' | 'repaymentModel' | 'scheduledPayment' | 'firstPaymentDate' | 'principalAtStart' | 'fixedRateUntil'
+  | 'id'
+  | 'validFrom'
+  | 'interestRate'
+  | 'repaymentModel'
+  | 'scheduledPayment'
+  | 'firstPaymentDate'
+  | 'principalAtStart'
+  | 'fixedRateUntil'
+  | 'paymentIntervalMonths'
 >;
 
 /**
- * The planned payments (P3-D5), periods in `validFrom` order. A period's payments fall monthly from its
- * `firstPaymentDate` (the same day, clamped to the month's end) while before the next period's `validFrom`, not after
- * `maturityDate`, and while the balance is above zero; at most 600 in all. A period's balance is its
- * `principalAtStart`, else the balance carried over, the first one `principalOriginal`.
+ * A re-anchoring of the plan on the actual remaining debt (§58O question 12 (b)): the entry at `index` (from 0) and every
+ * later one start from `balance`. Applied in `index` order; one whose entry the plan does not reach (it ended at 0
+ * before) applies where the plan ended.
+ */
+export interface PlanRestart {
+  readonly index: number;
+  /** Cents, ≥ 0. */
+  readonly balance: bigint;
+  /** The last booked payment's date the balance is the actual remaining debt on. */
+  readonly bookingDate: BusinessDate;
+}
+
+/** A restart as the walk applied it: `index` is where it took effect (earlier than asked where the plan had ended). */
+export interface AppliedRestart extends PlanRestart {
+  readonly requestedIndex: number;
+}
+
+/**
+ * The planned payments (P3-D5), periods in `validFrom` order. A period's k-th payment falls on `addMonths(firstPaymentDate,
+ * k × paymentIntervalMonths)` (always from `firstPaymentDate`, clamped to the month's end; §58O rule 2) while before the
+ * next period's `validFrom`, not after `maturityDate`, and while the balance is above zero; at most 600 months of
+ * intervals in all (rule 3). A period's balance is its `principalAtStart`, else the balance carried over, the first one
+ * `principalOriginal`.
  */
 export function deriveSchedule(principalOriginal: Money, maturityDate: BusinessDate | null, periods: readonly SchedulePeriod[]): ScheduleEntry[] {
   return walkSchedule(principalOriginal, maturityDate, periods).entries;
@@ -117,18 +160,36 @@ function walkSchedule(
   principalOriginal: Money,
   maturityDate: BusinessDate | null,
   periods: readonly SchedulePeriod[],
-): { readonly entries: ScheduleEntry[]; readonly balance: bigint; readonly nextPaymentDate: BusinessDate | null } {
+  restarts: readonly PlanRestart[] = [],
+): {
+  readonly entries: ScheduleEntry[];
+  readonly balance: bigint;
+  readonly nextPaymentDate: BusinessDate | null;
+  readonly applied: readonly AppliedRestart[];
+} {
   const entries: ScheduleEntry[] = [];
   let balance = toCents(principalOriginal);
   let nextPaymentDate: BusinessDate | null = null;
+  let months = 0;
+  const applied: AppliedRestart[] = [];
+  // §58O (b): a restart reached by the entries, or one the plan ended before (it resumes from the actual debt).
+  const restart = () => {
+    for (let r = restarts[applied.length]; r !== undefined && (entries.length >= r.index || balance <= 0n); r = restarts[applied.length]) {
+      balance = r.balance;
+      applied.push({ ...r, index: entries.length, requestedIndex: r.index });
+    }
+  };
   periods.forEach((period, i) => {
     if (period.principalAtStart !== null) balance = toCents(period.principalAtStart);
     const next = periods[i + 1]?.validFrom ?? null;
+    const n = period.paymentIntervalMonths;
     let k = 0;
-    for (; balance > 0n && entries.length < MAX_PAYMENTS; k++) {
-      const paymentDate = addMonths(period.firstPaymentDate, k);
+    for (; ; k++) {
+      restart();
+      if (balance <= 0n || months + n > MAX_PAYMENTS) break;
+      const paymentDate = addMonths(period.firstPaymentDate, k * n);
       if ((next !== null && paymentDate >= next) || (maturityDate !== null && paymentDate > maturityDate)) break;
-      const interest = monthlyInterest(balance, period.interestRate);
+      const interest = periodInterest(balance, period.interestRate, n);
       const principal =
         period.repaymentModel === 'ANNUITY' && period.scheduledPayment !== null ? minBig(maxBig(toCents(period.scheduledPayment) - interest, 0n), balance) : 0n;
       entries.push({
@@ -141,11 +202,13 @@ function walkSchedule(
         balanceAfter: balance - principal,
       });
       balance -= principal;
-      // An interest-only period never repays: one payment per month until the next period or maturity.
+      months += n;
+      // An interest-only period never repays: one payment per interval until the next period or maturity.
     }
-    nextPaymentDate = addMonths(period.firstPaymentDate, k);
+    nextPaymentDate = addMonths(period.firstPaymentDate, k * n);
   });
-  return { entries, balance, nextPaymentDate };
+  restart();
+  return { entries, balance, nextPaymentDate, applied };
 }
 
 /**
@@ -189,12 +252,35 @@ export interface Schedule {
   readonly summary: ScheduleSummary;
 }
 
+/** A plan with the restarts the walk applied, and its planned balance before a date (§41.6). */
+export interface WalkedPlan {
+  readonly schedule: Schedule;
+  readonly applied: readonly AppliedRestart[];
+  /**
+   * The balance a period starting on `date` would start from: after every payment before `date`, a period's
+   * `principalAtStart` restarting it; from the last restart booked before `date` on, its actual balance and the entries
+   * from its index (a follow-up period's `principalAtStart` still restarts entries at or after it, as in the walk).
+   */
+  readonly plannedBefore: (date: BusinessDate) => bigint;
+}
+
 /**
  * The whole plan of §41.4 with its summary. A follow-up period that starts after the plan reached 0 and states no
  * `principalAtStart` has no payments, and the plan stays `PAID_OFF` (review on #65).
  */
 export function scheduleOf(principalOriginal: Money, maturityDate: BusinessDate | null, periods: readonly SchedulePeriod[]): Schedule {
-  const { entries, balance, nextPaymentDate } = walkSchedule(principalOriginal, maturityDate, periods);
+  return planOf(principalOriginal, maturityDate, periods).schedule;
+}
+
+/** `scheduleOf` re-anchored by `restarts` (§58O question 12 (b)); without restarts the contract plan. */
+export function planOf(
+  principalOriginal: Money,
+  maturityDate: BusinessDate | null,
+  periods: readonly SchedulePeriod[],
+  restarts: readonly PlanRestart[] = [],
+): WalkedPlan {
+  const { entries, balance, nextPaymentDate, applied } = walkSchedule(principalOriginal, maturityDate, periods, restarts);
+  const plannedBefore = (date: BusinessDate) => plannedFromWalk(principalOriginal, periods, entries, applied, date);
   const endReason: ScheduleEndReason =
     periods.length === 0
       ? 'NO_TERMS'
@@ -203,7 +289,7 @@ export function scheduleOf(principalOriginal: Money, maturityDate: BusinessDate 
         : maturityDate !== null && nextPaymentDate !== null && nextPaymentDate > maturityDate
           ? 'MATURITY'
           : 'PAYMENT_CAP';
-  return {
+  const schedule: Schedule = {
     entries: entries.map((entry, i) => ({ ...entry, number: i + 1 })),
     summary: {
       payments: entries.length,
@@ -213,22 +299,46 @@ export function scheduleOf(principalOriginal: Money, maturityDate: BusinessDate 
       totalPrincipal: entries.reduce((sum, e) => sum + e.principal, 0n),
       balanceDue: balance,
       endReason,
-      fixedRateEnd: fixedRateEndOf(principalOriginal, maturityDate, periods, endReason),
+      fixedRateEnd: fixedRateEndOf(maturityDate, periods, endReason, plannedBefore),
     },
   };
+  return { schedule, applied, plannedBefore };
 }
 
 /** As `debtOn`'s `planned` (§41.6): with `MATURITY` 0 from `maturityDate` on, else the balance after the day's payments. */
 function fixedRateEndOf(
-  principalOriginal: Money,
   maturityDate: BusinessDate | null,
   periods: readonly SchedulePeriod[],
   endReason: ScheduleEndReason,
+  plannedBefore: (date: BusinessDate) => bigint,
 ): FixedRateEnd | null {
   const date = periods.at(-1)?.fixedRateUntil ?? null;
   if (date === null) return null;
   const matured = endReason === 'MATURITY' && maturityDate !== null && date >= maturityDate;
-  return { date, balance: matured ? 0n : plannedBalanceOn(principalOriginal, maturityDate, periods, addDays(date, 1)) };
+  return { date, balance: matured ? 0n : plannedBefore(addDays(date, 1)) };
+}
+
+/** `WalkedPlan.plannedBefore`; without an applied restart before `date` exactly the contract's `plannedBalanceOn`. */
+function plannedFromWalk(
+  principalOriginal: Money,
+  periods: readonly SchedulePeriod[],
+  entries: readonly ScheduleEntry[],
+  applied: readonly AppliedRestart[],
+  date: BusinessDate,
+): bigint {
+  const restart = applied.filter((r) => r.bookingDate < date).at(-1);
+  let balance = restart?.balance ?? toCents(principalOriginal);
+  const from = restart?.index ?? 0;
+  let first = 0;
+  for (const period of periods) {
+    if (period.validFrom >= date) break;
+    if (period.principalAtStart !== null && (restart === undefined || first >= restart.index)) balance = toCents(period.principalAtStart);
+    entries.forEach((entry, i) => {
+      if (entry.termsId === period.id && i >= from && entry.paymentDate < date) balance = entry.balanceAfter;
+    });
+    first += entries.filter((e) => e.termsId === period.id).length;
+  }
+  return balance;
 }
 
 /**
@@ -256,10 +366,28 @@ export function closedSchedule(schedule: Schedule, closingDate: BusinessDate): S
   };
 }
 
-/** The Loan's plan as §41.4 answers it: `scheduleOf`, cut at the closing date of a `CLOSED` Loan (§41.7). */
+/**
+ * The Loan's plan as contracted (§41.4): `scheduleOf`, cut at the closing date of a `CLOSED` Loan (§41.7). Taxation's
+ * due dates and §58L's periods read this one, never the rebased plan (§58O question 12 (b)).
+ */
 export function loanSchedule(loan: Pick<Loan, 'principalOriginal' | 'maturityDate' | 'status' | 'closingDate'>, periods: readonly SchedulePeriod[]): Schedule {
-  const schedule = scheduleOf(loan.principalOriginal, loan.maturityDate, periods);
-  return loan.status === 'CLOSED' && loan.closingDate !== null ? closedSchedule(schedule, loan.closingDate) : schedule;
+  return loanPlan(loan, periods).schedule;
+}
+
+/** `planOf` with the restarts, the schedule cut at the closing date of a `CLOSED` Loan (§41.7). */
+export function loanPlan(
+  loan: Pick<Loan, 'principalOriginal' | 'maturityDate' | 'status' | 'closingDate'>,
+  periods: readonly SchedulePeriod[],
+  restarts: readonly PlanRestart[] = [],
+): WalkedPlan {
+  const plan = planOf(loan.principalOriginal, loan.maturityDate, periods, restarts);
+  return loan.status === 'CLOSED' && loan.closingDate !== null ? { ...plan, schedule: closedSchedule(plan.schedule, loan.closingDate) } : plan;
+}
+
+/** The interval of the plan's first entry's period (§58O rule 8: the first entry's interest period); 1 without one. */
+export function firstIntervalOf(schedule: Schedule, periods: readonly SchedulePeriod[]): number {
+  const first = schedule.entries[0];
+  return first === undefined ? 1 : (periods.find((p) => p.id === first.termsId)?.paymentIntervalMonths ?? 1);
 }
 
 /** The entries with `paymentDate` in `[from, to]`, both optional and inclusive; numbers and summary unchanged. */
@@ -272,16 +400,7 @@ export function scheduleWindow(schedule: Schedule, from?: BusinessDate, to?: Bus
  * began before `date`: a period's `principalAtStart` restarts the balance, its payments before `date` lower it.
  */
 export function plannedBalanceOn(principalOriginal: Money, maturityDate: BusinessDate | null, periods: readonly SchedulePeriod[], date: BusinessDate): bigint {
-  const entries = deriveSchedule(principalOriginal, maturityDate, periods);
-  let balance = toCents(principalOriginal);
-  for (const period of periods) {
-    if (period.validFrom >= date) break;
-    if (period.principalAtStart !== null) balance = toCents(period.principalAtStart);
-    for (const entry of entries) {
-      if (entry.termsId === period.id && entry.paymentDate < date) balance = entry.balanceAfter;
-    }
-  }
-  return balance;
+  return planOf(principalOriginal, maturityDate, periods).plannedBefore(date);
 }
 
 const minBig = (x: bigint, y: bigint) => (x < y ? x : y);
@@ -318,6 +437,8 @@ export function termsFingerprint(loanId: string, terms: LoanTermsData): string {
     terms.initialRepaymentRate?.toString() ?? null,
     terms.specialRepaymentLimit?.amount ?? null,
     terms.notes,
+    // §58O: only when not 1, so a key stored before VC-X-53 replays (an omitted key and an explicit 1 are one request).
+    ...(terms.paymentIntervalMonths === 1 ? [] : [terms.paymentIntervalMonths]),
   ]);
 }
 
@@ -348,7 +469,8 @@ export function checkAppend(loan: Loan, valid: readonly LoanTerms[], terms: Loan
   if (terms.repaymentModel === 'ANNUITY' && terms.scheduledPayment !== null) {
     const balance =
       terms.principalAtStart !== null ? toCents(terms.principalAtStart) : plannedBalanceOn(loan.principalOriginal, loan.maturityDate, valid, terms.validFrom);
-    const firstInterest = monthlyInterest(balance, terms.interestRate);
+    // §58O rule 6: the first entry's interest over the period's interval.
+    const firstInterest = periodInterest(balance, terms.interestRate, terms.paymentIntervalMonths);
     if (toCents(terms.scheduledPayment) <= firstInterest) return { kind: 'PAYMENT_DOES_NOT_COVER_INTEREST', firstInterest, balance };
   }
   return undefined;
@@ -405,15 +527,26 @@ export interface LoanTermsRepository {
   ): Promise<VoidTermsOutcome>;
   /** The Loan's periods in `validFrom`, then `createdAt` order, with `validUntil`; undefined for an unknown or foreign Loan. */
   list(loanId: string, mreRealmId: string, status?: TermsStatus): Promise<readonly LoanTermsView[] | undefined>;
-  /** The Loan and its `VALID` periods in `validFrom` order, in one snapshot (§41.4); undefined for an unknown or foreign Loan. */
-  scheduleInputs(loanId: string, mreRealmId: string): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[] } | undefined>;
+  /**
+   * The Loan, its `VALID` periods in `validFrom` order and its counted splits (§41.5, for §58O's rebase), in one snapshot
+   * (§41.4); undefined for an unknown or foreign Loan.
+   */
+  scheduleInputs(
+    loanId: string,
+    mreRealmId: string,
+  ): Promise<{ readonly loan: Loan; readonly periods: readonly LoanTerms[]; readonly splits: readonly CountedSplit[] } | undefined>;
   /** As `scheduleInputs`, with the Transaction of the Realm, in one snapshot (§41.5's proposal). */
   proposalInputs(
     loanId: string,
     transactionId: string,
     mreRealmId: string,
   ): Promise<
-    | { readonly kind: 'FOUND'; readonly loan: Loan; readonly periods: readonly LoanTerms[]; readonly transaction: ProposalTransaction }
+    | {
+        readonly kind: 'FOUND';
+        readonly loan: Loan;
+        readonly periods: readonly LoanTerms[];
+        readonly transaction: ProposalTransaction;
+      }
     | { readonly kind: 'LOAN_NOT_FOUND' }
     | { readonly kind: 'TRANSACTION_NOT_FOUND' }
   >;

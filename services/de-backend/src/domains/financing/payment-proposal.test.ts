@@ -15,6 +15,7 @@ const period = (overrides: Partial<SchedulePeriod> = {}): SchedulePeriod => ({
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
   fixedRateUntil: null,
+  paymentIntervalMonths: 1,
   ...overrides,
 });
 const annuity = scheduleOf(eur('1000.00'), null, [period()]);
@@ -25,6 +26,7 @@ const tx = (overrides: Partial<ProposalTransaction> = {}): ProposalTransaction =
   direction: 'OUTFLOW',
   status: 'IMPORTED',
   splitCount: 0,
+  description: null,
   ...overrides,
 });
 const model = (m: RepaymentModel) => () => m;

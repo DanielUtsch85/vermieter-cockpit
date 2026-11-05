@@ -434,6 +434,20 @@ describe('§58G and §59E under the period distribution', () => {
     const v = viewOf(readOf(P1, [after], sets));
     expect(parts(v)).toEqual([[before.item.sourceId, '155.00']]);
     expect(v.flags.map((f) => f.code)).not.toContain('PROPERTY_PART_CHANGED');
+    // VC-X-53 (§58O, Entscheidung des Projektinhabers, 2026-11-05, question 10): the interval entered after the year's end
+    // moves a part the same way, still without a flag until VC-X-54. Quarterly from 2027-03-31: 2027-01-01 – 2027-03-31.
+    const quarterly = {
+      ...before,
+      period: interestPeriodOf(day('2027-03-31'), null, {
+        debtFrom: day('2027-01-01'),
+        paymentDates: [day('2027-03-31'), day('2027-06-30')],
+        firstIntervalMonths: 3,
+      }),
+    };
+    const q = viewOf(readOf(P1, [quarterly], sets));
+    // 74 days S1, 16 days S2: 310.00 × 82/90.
+    expect(parts(q)).toEqual([[before.item.sourceId, '282.44']]);
+    expect(q.flags.map((f) => f.code)).not.toContain('PROPERTY_PART_CHANGED');
   });
 
   it('§59E: a capitalised split over two sets enters no basis, SEVERAL_ALLOCATION_SETS (L9); over one set it does', () => {

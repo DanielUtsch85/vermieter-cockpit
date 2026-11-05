@@ -116,11 +116,12 @@ export function hausgeldTiming(bookingDate: BusinessDate, advanceDueDay: number 
 
 /**
  * Loan interest (§58A): the schedule entry (§41.4) whose payment date is nearest to the booking date, ties towards the
- * later one. Its interest period runs from the day after the previous payment (or one month before) to its payment
- * date, in arrears as §41.4 computes it; the economic year is the year holding most of the period's days (ties
- * towards the later year), so December's interest due on 2 January belongs to December's year.
+ * later one. Its interest period runs from the day after the previous payment (or, for the plan's first entry, one
+ * interval of its period before: `firstIntervalMonths`, §58O rule 8, 1 for a monthly plan) to its payment date, in
+ * arrears as §41.4 computes it; the economic year is the year holding most of the period's days (ties towards the later
+ * year), so December's interest due on 2 January belongs to December's year.
  */
-export function interestTiming(bookingDate: BusinessDate, paymentDates: readonly BusinessDate[]): TimingInput {
+export function interestTiming(bookingDate: BusinessDate, paymentDates: readonly BusinessDate[], firstIntervalMonths = 1): TimingInput {
   if (paymentDates.length === 0) return { kind: 'NO_ECONOMIC_PERIOD', reason: 'NO_SCHEDULE' };
   const sorted = [...paymentDates].sort();
   let index = 0;
@@ -128,7 +129,7 @@ export function interestTiming(bookingDate: BusinessDate, paymentDates: readonly
     if (distance(date, bookingDate) <= distance(sorted[index] as BusinessDate, bookingDate)) index = i;
   });
   const due = sorted[index] as BusinessDate;
-  const previous = sorted[index - 1] ?? addMonths(due, -1);
+  const previous = sorted[index - 1] ?? addMonths(due, -firstIntervalMonths);
   const from = addDays(previous, 1);
   const fromYear = yearOf(from);
   let economicYear = yearOf(due);

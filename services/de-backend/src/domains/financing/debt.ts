@@ -3,7 +3,8 @@ import { largestRemainder } from '../acquisition/index.js';
 import type { Fraction } from '../ownership/index.js';
 import { setOn, type LoanAllocationSetView } from './allocation.js';
 import { debtFrom, type ClosingReason, type Loan, type LoanStatus } from './loan.js';
-import { loanSchedule, plannedBalanceOn, scheduleOf, toCents, type FixedRateEnd, type ScheduleEndReason, type SchedulePeriod } from './terms.js';
+import { rebasedOnDay, reconciledPlan, type RebasedOn, type ReconciledPlan } from './rebase.js';
+import { toCents, type FixedRateEnd, type ScheduleEndReason, type SchedulePeriod } from './terms.js';
 
 /**
  * Remaining debt, payments and lender statements (api-design.md §41.6, backlog VC-3-06, phase-3-plan P3-D6, ADR-016).
@@ -22,13 +23,21 @@ export interface CountedSplit {
   readonly amount: bigint;
 }
 
-/** The Loan-level values on a day; `planned` and `difference` are null without terms. */
+/**
+ * The Loan-level values on a day; `planned` and `difference` are null without terms. `planned` is the forecast from the
+ * last booked payment (§58O question 12 (b): the plan rebased on the actual remaining debt); `plannedAsContracted` and
+ * `differenceAsContracted` are the plan as contracted, the difference cumulative (the meaning of `planned` before VC-X-53).
+ */
 export interface DebtOnDay {
   readonly principalPaid: bigint;
   readonly actual: bigint;
   readonly planned: bigint | null;
   readonly difference: bigint | null;
+  readonly plannedAsContracted: bigint | null;
+  readonly differenceAsContracted: bigint | null;
   readonly planEndReason: ScheduleEndReason;
+  /** The last re-anchoring booked on or before the day; `null` without one (then `planned` is `plannedAsContracted`). */
+  readonly rebasedOn: RebasedOn | null;
 }
 
 /** The inputs of every read of §41.6, from one snapshot. */
@@ -64,25 +73,53 @@ export function actualOn(loan: Loan, splits: readonly CountedSplit[], day: Busin
  * (before the first, the balance the period in effect starts from); with `MATURITY` it is 0 from `maturityDate` on,
  * inclusive (review on #69); `PAYMENT_CAP` keeps `balanceDue`. Before `debtFrom` everything is 0.
  */
-export function debtOn(loan: Loan, periods: readonly SchedulePeriod[], splits: readonly CountedSplit[], day: BusinessDate): DebtOnDay {
-  const { endReason } = scheduleOf(loan.principalOriginal, loan.maturityDate, periods).summary;
-  const planEndReason = loanSchedule(loan, periods).summary.endReason;
+export function debtOn(
+  loan: Loan,
+  periods: readonly SchedulePeriod[],
+  splits: readonly CountedSplit[],
+  day: BusinessDate,
+  reconciled: ReconciledPlan = reconciledPlan(loan, periods, splits),
+): DebtOnDay {
+  const { endReason } = reconciled.contractUncut.schedule.summary;
+  const planEndReason = reconciled.plan.schedule.summary.endReason;
+  const rebasedOn = rebasedOnDay(reconciled, day);
   if (day < debtFrom(loan)) {
     const zero = endReason === 'NO_TERMS' ? null : 0n;
-    return { principalPaid: 0n, actual: 0n, planned: zero, difference: zero, planEndReason };
+    return {
+      principalPaid: 0n,
+      actual: 0n,
+      planned: zero,
+      difference: zero,
+      plannedAsContracted: zero,
+      differenceAsContracted: zero,
+      planEndReason,
+      rebasedOn,
+    };
   }
   const principalPaid = principalPaidOn(splits, day);
   if (closedBefore(loan, day)) {
     // §41.7: after the closing date nothing is owed; principalPaid stays what was paid.
     const zero = endReason === 'NO_TERMS' ? null : 0n;
-    return { principalPaid, actual: 0n, planned: zero, difference: zero, planEndReason };
+    return { principalPaid, actual: 0n, planned: zero, difference: zero, plannedAsContracted: zero, differenceAsContracted: zero, planEndReason, rebasedOn };
   }
   const actual = toCents(loan.principalOriginal) - principalPaid;
-  if (endReason === 'NO_TERMS') return { principalPaid, actual, planned: null, difference: null, planEndReason };
-  const matured = endReason === 'MATURITY' && loan.maturityDate !== null && day >= loan.maturityDate;
-  // plannedBalanceOn(d + 1): the balance after every payment on or before d, restarts of periods from d included.
-  const planned = matured ? 0n : plannedBalanceOn(loan.principalOriginal, loan.maturityDate, periods, addDays(day, 1));
-  return { principalPaid, actual, planned, difference: actual - planned, planEndReason };
+  if (endReason === 'NO_TERMS') {
+    return { principalPaid, actual, planned: null, difference: null, plannedAsContracted: null, differenceAsContracted: null, planEndReason, rebasedOn };
+  }
+  const maturedBy = (reason: ScheduleEndReason) => reason === 'MATURITY' && loan.maturityDate !== null && day >= loan.maturityDate;
+  // plannedBefore(d + 1): the balance after every payment on or before d, restarts of periods from d included.
+  const plannedAsContracted = maturedBy(endReason) ? 0n : reconciled.contractUncut.plannedBefore(addDays(day, 1));
+  const planned = maturedBy(reconciled.uncut.schedule.summary.endReason) ? 0n : reconciled.uncut.plannedBefore(addDays(day, 1));
+  return {
+    principalPaid,
+    actual,
+    planned,
+    difference: actual - planned,
+    plannedAsContracted,
+    differenceAsContracted: actual - plannedAsContracted,
+    planEndReason,
+    rebasedOn,
+  };
 }
 
 /**
@@ -113,7 +150,7 @@ export interface PropertyDebt {
  * `actual` and `planned` distributed; each `difference` derived as `actual_i − planned_i`, never distributed (F4b):
  * largest remainder is not monotone, so a separately distributed difference could break the identity.
  */
-export function debtPerProperty(debt: DebtOnDay, set: LoanAllocationSetView): PropertyDebt[] {
+export function debtPerProperty(debt: Pick<DebtOnDay, 'actual' | 'planned'> & Partial<DebtOnDay>, set: LoanAllocationSetView): PropertyDebt[] {
   const actual = distribute(debt.actual, set.allocations);
   const planned = debt.planned === null ? null : distribute(debt.planned, set.allocations);
   return set.allocations.map((a, i) => {
@@ -143,7 +180,7 @@ export type RemainingDebt = DebtOnDay & {
   readonly principalOriginal: Money;
   readonly latestStatement: StatementView | null;
   readonly closing: Closing | null;
-  /** The plan's balance at the end of the fixed-rate period, as in the schedule's summary (#119). */
+  /** The rebased plan's balance at the end of the fixed-rate period, as in the schedule's summary (#119, §58O). */
   readonly fixedRateEnd: FixedRateEnd | null;
 };
 
@@ -160,8 +197,9 @@ export function remainingDebt(inputs: DebtInputs, asOf: BusinessDate, perPropert
   const { loan, periods, sets, splits, statements } = inputs;
   if (loan.status === 'VOID') return { kind: 'LOAN_NOT_ACTIVE', status: loan.status };
   const latest = latestStatementOn(statements, asOf);
+  const reconciled = reconciledPlan(loan, periods, splits);
   const debt: RemainingDebt = {
-    ...debtOn(loan, periods, splits, asOf),
+    ...debtOn(loan, periods, splits, asOf, reconciled),
     asOf,
     debtFrom: debtFrom(loan),
     principalOriginal: loan.principalOriginal,
@@ -175,7 +213,8 @@ export function remainingDebt(inputs: DebtInputs, asOf: BusinessDate, perPropert
             actualOnClosingDate: actualOn(loan, splits, loan.closingDate),
           }
         : null,
-    fixedRateEnd: loanSchedule(loan, periods).summary.fixedRateEnd,
+    // §58O question 12 (b): the rebased plan's, as the schedule's summary.
+    fixedRateEnd: reconciled.plan.schedule.summary.fixedRateEnd,
   };
   if (!perProperty) return { kind: 'LOAN_LEVEL', debt };
   const set = setOn(sets, asOf);

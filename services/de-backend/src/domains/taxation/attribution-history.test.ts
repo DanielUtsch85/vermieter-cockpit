@@ -107,6 +107,7 @@ describe('Loan terms (LOAN_TERMS_ADDED, LOAN_TERMS_VOIDED)', () => {
     firstPaymentDate: day(firstPaymentDate),
     principalAtStart: null,
     fixedRateUntil: null,
+    paymentIntervalMonths: 1,
   });
   const set = (prs: string[]): LoanAllocationSetView =>
     ({

@@ -117,6 +117,7 @@ describe.skipIf(databaseUrl === undefined)('further silent inputs of the tax yea
         firstPaymentDate: day('2026-01-06'),
         principalAtStart: null,
         fixedRateUntil: null,
+        paymentIntervalMonths: 1,
         initialRepaymentRate: null,
         specialRepaymentLimit: null,
         notes: null,

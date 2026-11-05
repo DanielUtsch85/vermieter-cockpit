@@ -434,6 +434,8 @@ export interface LoanTermsTable {
   fixed_rate_until: string | null;
   initial_repayment_rate: string | null;
   special_repayment_limit: string | null;
+  /** §58O (VC-X-53, 0070): 1, 3, 6 or 12; default 1. */
+  payment_interval_months: Generated<number>;
   currency: string;
   notes: string | null;
   voided_at: Date | null;

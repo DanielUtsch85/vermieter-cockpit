@@ -54,6 +54,8 @@
 
 **Beantwortet** (Prüfbericht 2026-11-01, Frage 18; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): **Nein.** Zahlung und Fälligkeit müssen beide im Zehntageszeitraum liegen, nur bei regelmäßig wiederkehrenden Beträgen (BFH X R 2/21); **ohne nachgewiesene Fälligkeit keine automatische Verschiebung**, dann bleibt der Zu- bzw. Abfluss maßgeblich. **Folge für DE:** Die Annahme `PERIOD_START` mit Verschiebung widerspricht der Antwort (VC-X-39). **Umgesetzt** durch VC-X-39 (`api-design.md` §58F „As implemented (VC-X-39)“, PR #237): keine Verschiebung ohne erfasste Fälligkeit, wie oben unter „Was die Software tut“.
 
+
+**Nachfrage (offen, VC-X-53, `api-design.md` §58O Frage 8; Entscheidung des Projektinhabers, 2026-11-05):** Gelten Darlehenszinsen, die **vierteljährlich, halbjährlich oder jährlich** gezahlt werden (Zahlungsintervall über einen Monat), als „regelmäßig wiederkehrend“ im Sinne des § 11 EStG, sodass die 10-Tage-Regel auf sie anzuwenden ist? Die Software wendet die Regel seit VC-X-53 unverändert an (`DE_CASH_TIMING@1`, Fälligkeit ist der nächstgelegene Termin des Tilgungsplans mit seinem Intervall). **Bis zur Antwort gilt dieser Fall als unbestätigt**; die produktive Erfassung bleibt ohnehin deaktiviert.
 ---
 
 ## 4. AfA: Satz, Nutzungsdauer, Beginn, Ende (Abschnitt B, vor Phase 8)
