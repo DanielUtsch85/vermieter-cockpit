@@ -316,21 +316,68 @@ describe('§58P Example 3: one record, a year change and a part change', () => {
 });
 
 describe('§58P rule 5: a split whose year moves is no part item', () => {
-  it('the January debit moves to 2028 and its part would move too (a set from 2028-01-15 inside its new period): no part item, in neither year', () => {
-    const U3 = set('2028-01-15', [[P2, '1/1']]);
-    const c = loanCase({
+  const U3 = set('2028-01-15', [[P2, '1/1']]);
+  /** The January debit of Example 3 with a set from 2028-01-15 (P2) inside its new period; T5Q recorded by `record`. */
+  const movingCase = (record = R5, override?: number) =>
+    loanCase({
       terms: [
         { period: T5, validNow: true, records: [rec('r-5', 'CREATED', '2027-01-02T09:00:00Z')] },
-        { period: T5Q, validNow: true, records: [R5] },
+        { period: T5Q, validNow: true, records: [record] },
       ],
       sets: [
         { set: U1, records: [rec('r-u1', 'CREATED', '2027-01-02T10:00:00Z')] },
         { set: U3, records: [rec('r-u3', 'CREATED', '2027-01-02T10:01:00Z')] },
       ],
-      debits: [{ amount: '300.00', bookingDate: '2028-01-03' }],
+      debits: [{ amount: '300.00', bookingDate: '2028-01-03', ...(override === undefined ? {} : { override }) }],
     });
+
+  it('the January debit moves to 2028 and its part would move too (a set from 2028-01-15 inside its new period): no part item, in neither year', () => {
+    const c = movingCase();
     // Before 2027-12-06 – 2028-01-05 wholly U1 (P1 300.00, 2027); after 2027-11-06 – 2028-02-05 across U3 (2028): its part moved with its year.
     for (const year of [2027, 2028]) for (const pr of [P1, P2]) expect(shapes(c.input, pr, year), `${pr} ${year}`).toEqual([]);
+  });
+
+  it('the before side: a record after the year end of 2028 moves the January debit from 2027 into 2028; in 2028 LOAN_TERMS_ADDED, no part item', () => {
+    // T5Q recorded 2029-02-10, after the year end of 2028 as well: the 2028 view judges it.
+    const r = rec('r5-2029', 'CREATED', '2029-02-10T09:00:00Z');
+    const c = movingCase(r);
+    const [january] = c.splits.map((s) => s.item.sourceId) as [string];
+    expect(c.splits.map((s) => (s.item as { taxYear: number }).taxYear)).toEqual([2028]);
+    const yearInput = {
+      references: [],
+      candidates: [],
+      loans: [
+        {
+          loanId: L,
+          loan: ACTIVE_LOAN,
+          terms: c.input.loans[0]?.schedule?.terms ?? [],
+          closing: [],
+          candidates: [{ sourceId: january, bookingDate: day('2028-01-03'), financialCategoryCode: 'LOAN_INTEREST', taxYearOverride: null }],
+          sets: [
+            { ...U1, validUntil: day('2028-01-14') },
+            { ...U3, validUntil: null },
+          ],
+        },
+      ],
+    };
+    const year = attributionChanges(yearInput, 2028, TAX_RULES, { propertyReferenceId: P1, fingerprinter }).changes;
+    expect(year.map((x) => [x.kind, x.auditRecordId, x.items])).toEqual([
+      ['LOAN_TERMS_ADDED', 'r5-2029', [{ sourceId: january, yearBefore: 2027, yearAfter: 2028 }]],
+    ]);
+    // Its part moves (before wholly U1, after across U3), but its year before is 2027: rule 5 on the before side, no part item.
+    for (const pr of [P1, P2]) expect(shapes(c.input, pr, 2028), pr).toEqual([]);
+    expect(shapes(ofYear(c, 2028).input, P1, 2028)).toEqual([]);
+  });
+
+  it('a taxYear override with a moving part: the January debit overridden to 2027 (timing year 2028 after) is a part item of 2027, of 2028 none', () => {
+    const c = movingCase(R5, 2027);
+    const [january] = c.splits.map((s) => s.item.sourceId) as [string];
+    expect(c.splits.map((s) => (s.item as { taxYear: number }).taxYear)).toEqual([2027]);
+    // Overridden to 2027 on both sides, although its timing year after r5 is 2028. Before 2027-12-06 – 2028-01-05 wholly U1:
+    // P1 300.00. After 2027-11-06 – 2028-02-05 (92 days): 70 days U1 (P1), 22 days U3 (P2).
+    expect(shapes(c.input, P1)).toEqual([['LOAN_TERMS_PART_ADDED', 'r5', [[january, 'ATTRIBUTED', '300.00', 'ATTRIBUTED', '228.26']]]]);
+    expect(shapes(c.input, P2)).toEqual([['LOAN_TERMS_PART_ADDED', 'r5', [[january, 'NONE', null, 'ATTRIBUTED', '71.74']]]]);
+    for (const pr of [P1, P2]) expect(shapes(c.input, pr, 2028), pr).toEqual([]);
   });
 });
 
