@@ -320,7 +320,12 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
     const otherPr = 'ffffffff-2f2c-4a8e-9d55-1f0d8c1e2a3d';
     const loanSplit = (amount: string, bookingDate: string) => {
       const m = meaning(amount, 'LOAN_INTEREST', 'DEDUCTIBLE', bookingDate);
-      return { item: { ...m.item, propertyReferenceId: null }, loanId };
+      // §58L rule 7: a one-day period in one set reads as §58D's booking-date rule.
+      return {
+        item: { ...m.item, propertyReferenceId: null },
+        loanId,
+        period: { from: day(bookingDate), until: day(bookingDate), source: 'LOAN_SCHEDULE' as const },
+      };
     };
     const [attributed, gap] = [loanSplit('100.01', '2027-03-01'), loanSplit('40.00', '2027-01-15')];
     const priced = {
@@ -368,6 +373,9 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
     });
     expect(item['loanAllocation']).toEqual({
       loanId,
+      // §58L (additive): the fixture's one-day period, wholly in the set.
+      interestPeriod: { from: '2027-03-01', until: '2027-03-01', source: 'LOAN_SCHEDULE' },
+      segments: [{ from: '2027-03-01', until: '2027-03-01', allocationSetId: setId, basis: 'PURCHASE_PRICE', share: '3/5' }],
       allocationSetId: setId,
       validFrom: '2027-02-01',
       validUntil: null,
@@ -386,8 +394,12 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
         reason: 'NO_LOAN_ALLOCATION',
         candidates: [PR, otherPr].sort(),
         href: `/api/v1/loans/${loanId}/allocations?asOf=2027-01-15`,
+        interestPeriod: { from: '2027-01-15', until: '2027-01-15', source: 'LOAN_SCHEDULE' },
+        uncovered: [{ from: '2027-01-15', until: '2027-01-15' }],
         loanAllocation: {
           loanId,
+          interestPeriod: { from: '2027-01-15', until: '2027-01-15', source: 'LOAN_SCHEDULE' },
+          segments: [],
           allocationSetId: null,
           validFrom: null,
           validUntil: null,

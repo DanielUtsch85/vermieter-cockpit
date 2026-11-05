@@ -8,6 +8,7 @@ import type { Distribution } from './distribution-82b.js';
 import type { Origin, ReviewState, SourceType, TaxCategory, Treatment } from './vocabulary.js';
 import type { ConfirmationMark } from './tax-statements.js';
 import type { TreatmentPart } from './treatment-parts.js';
+import type { InterestPeriodSource } from './loan-interest-periods.js';
 
 /** The tax-year view as it answers (api-design.md §58C "Response"): its items, lines, sections, totals and review. */
 
@@ -46,7 +47,14 @@ export interface TaxYearItem {
   readonly share: { readonly ownershipId: string; readonly share: string; readonly amount: Money | null } | null;
   readonly flags: readonly ViewFlag[];
   /** "nicht zugeordnet" only: why, the candidates, and the deposit's tax meaning or the Loan's allocation on the day. */
-  readonly notAttributed: { readonly reason: string; readonly candidates: readonly string[]; readonly href: string } | null;
+  readonly notAttributed: {
+    readonly reason: string;
+    readonly candidates: readonly string[];
+    readonly href: string;
+    /** §58L: a Loan's split only: its interest period (`null` without one) and the days without a set. */
+    readonly interestPeriod?: TaxYearLoanAllocation['interestPeriod'];
+    readonly uncovered?: readonly { readonly from: BusinessDate; readonly until: BusinessDate }[];
+  } | null;
   /** An item from a Loan's interest split only (§58D): the set covering its booking date and this property's part. */
   readonly loanAllocation: TaxYearLoanAllocation | null;
   /** §59F (VC-X-38 Part 2): the part of a partially treated source the item stands for (`lineAmount` is its amount); absent otherwise. */
@@ -146,12 +154,23 @@ export interface TaxYearDepreciationBlock {
 }
 
 /**
- * The Loan's allocation behind an interest item (api-design.md §58D "API shape"): the set covering the split's booking
- * date (all `null` for `NO_LOAN_ALLOCATION`), the property's reduced share in it and its non-negative part of the split
+ * The Loan's allocation behind an interest item (api-design.md §58D "API shape", §58L "In the view"): the set when one
+ * set covers the whole interest period (or, without a period, the split's booking date; all `null` otherwise), the
+ * property's reduced weight `w_P` (`share`, equal to its share in that one set) and its non-negative part of the split
  * (both `null` when not attributed). At the owner level `propertyPart` stays the property's part.
  */
 export interface TaxYearLoanAllocation {
   readonly loanId: string;
+  /** §58L: the split's interest period; `null` without one (rule 8, `INTEREST_PERIOD_UNKNOWN`). */
+  readonly interestPeriod: { readonly from: BusinessDate; readonly until: BusinessDate; readonly source: InterestPeriodSource } | null;
+  /** §58L: the runs of days with one set, by `from`, with P's share in each (`null` where P has no entry); `[]` without a period. */
+  readonly segments: readonly {
+    readonly from: BusinessDate;
+    readonly until: BusinessDate;
+    readonly allocationSetId: string;
+    readonly basis: AllocationBasis;
+    readonly share: string | null;
+  }[];
   readonly allocationSetId: string | null;
   readonly validFrom: BusinessDate | null;
   readonly validUntil: BusinessDate | null;

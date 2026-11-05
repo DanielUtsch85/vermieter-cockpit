@@ -248,7 +248,7 @@ export function wegSpendingRefusal(sourceType: SourceType, taxCategory: TaxCateg
 export function planClassification(
   facts: SplitFacts,
   currentId: string | null,
-  request: Pick<NewTaxClassification, 'treatment' | 'supersedes' | 'taxYear' | 'refundOfYear'> & Partial<TreatmentRequest>,
+  request: Pick<NewTaxClassification, 'treatment' | 'supersedes' | 'taxYear' | 'refundOfYear' | 'interestPeriod'> & Partial<TreatmentRequest>,
   registry: RuleRegistry,
   derivedTaxYear: number = yearOf(facts.bookingDate),
   acquisition?: AcquisitionFacts | null,
@@ -259,6 +259,10 @@ export function planClassification(
   if (!splitCounts(facts)) return { kind: 'SOURCE_NOT_COUNTED', transactionStatus: facts.transactionStatus, correctionRole: facts.correctionRole };
   const rule = categoryDefaultsOn(registry, facts.bookingDate);
   if (rule === undefined) return { kind: 'NO_APPLICABLE_RULE', ruleCode: CATEGORY_DEFAULTS, date: facts.bookingDate };
+  // §58L (VC-X-40, L4): an interest period only on a Loan's `LOAN_INTEREST` split (0069 guards it past the repository).
+  if ((request.interestPeriod ?? null) !== null && (interest.loanId === null || facts.financialCategoryCode !== 'LOAN_INTEREST')) {
+    return { kind: 'FIELD_NOT_SUPPORTED', field: 'interestPeriod' };
+  }
   const source: TreatmentSource = {
     date: facts.bookingDate,
     direction: facts.direction,

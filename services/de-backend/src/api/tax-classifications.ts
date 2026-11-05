@@ -27,7 +27,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
-import { performanceBody, performanceFieldIssue, positiveEur } from './tax-classification-performance.js';
+import { interestPeriodBody, performanceBody, performanceFieldIssue, positiveEur } from './tax-classification-performance.js';
 import { ref, uuid } from './tax-classification-dto.js';
 import { taxMeaningRoutes } from './tax-meanings.js';
 import { taxYearRoutes } from './tax-years.js';
@@ -79,6 +79,8 @@ const createBody = z
     performance: performanceBody.nullish(),
     // §59F, VC-X-38 Part 2: the partial treatment of a source straddling the window (its parts derived by DE).
     partialTreatment: z.boolean().optional(),
+    // §58L (VC-X-40, L4): the interest period of a Loan's interest split, from the lender's statement.
+    interestPeriod: interestPeriodBody.nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -90,6 +92,8 @@ const createBody = z
     // A withdrawal or a use is never a refund; a use has its own date, so no taxYear (§58B).
     if (weg && given(body.refundOfYear)) issue(ctx, 'refundOfYear', 'NOT_SUPPORTED');
     if (body.sourceType === 'WEG_ASSESSMENT_USE' && given(body.taxYear)) issue(ctx, 'taxYear', 'NOT_SUPPORTED');
+    // §58L: a split's only (the split's Loan and category are checked when it is read).
+    if (given(body.interestPeriod) && body.sourceType !== undefined && body.sourceType !== 'TRANSACTION_SPLIT') issue(ctx, 'interestPeriod', 'NOT_SUPPORTED');
     if (body.sourceType !== undefined) {
       const positioned = has(POSITIONED, body.sourceType);
       if (positioned && !given(body.sourcePosition)) issue(ctx, 'sourcePosition', 'REQUIRED');
@@ -221,6 +225,7 @@ export function taxationRoutes(commands: TaxationCommands): Router {
           performance: body.performance ?? undefined,
           // Only when asked for, so a body without it keeps its request (and fingerprint).
           partialTreatment: body.partialTreatment === true ? true : undefined,
+          interestPeriod: body.interestPeriod ?? undefined,
         }),
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
@@ -333,6 +338,8 @@ function classificationDto(c: TaxClassification) {
     performance: c.performance === null ? null : performanceJson(c.performance),
     // VC-X-38 Part 2: present only on a partial treatment (the window part CAPITALIZED, the rest DEDUCTIBLE).
     ...((c.treatmentParts ?? null) === null ? {} : { treatmentParts: treatmentPartsJson(c.treatmentParts ?? []) }),
+    // §58L (VC-X-40): present only when recorded (a Loan's interest split).
+    ...((c.interestPeriod ?? null) === null ? {} : { interestPeriod: { from: c.interestPeriod?.from, until: c.interestPeriod?.until } }),
     supersedes: c.supersedes,
     supersededBy: c.supersededBy,
     supersededAt: c.supersededAt?.toISOString() ?? null,

@@ -130,7 +130,11 @@ function sourcesOf(
 ): CapitalizedSourceInput[] {
   const cases = loanInterestOf(
     pr,
-    splits.map((m) => ({ item: { ...m, yearAmount: m.amount }, loanId: L })),
+    splits.map((m) => ({
+      item: { ...m, yearAmount: m.amount },
+      loanId: L,
+      period: { from: m.bookingDate, until: m.bookingDate, source: 'LOAN_SCHEDULE' as const },
+    })),
     new Map([[L, [set]]]),
   );
   return cases.flatMap((c, i): CapitalizedSourceInput[] =>
@@ -140,7 +144,7 @@ function sourcesOf(
           {
             meaning: splits[i] as TaxMeaning,
             anschaffungsnaheAcquisitionId: null,
-            loan: { loanId: L, set: c.set, propertyCents: c.propertyCents },
+            loan: { loanId: L, set: c.sets[0] ?? null, propertyCents: c.propertyCents },
             interest: factsOf(splits[i] as TaxMeaning, r),
           },
         ],
@@ -227,7 +231,7 @@ describe('§59E: exactly once per part of P, never the whole split, never elsewh
         allocations: [{ propertyReferenceId: P1, share: { numerator: 1n, denominator: 1n }, acquisitionId: null }],
       } as unknown as LoanAllocationSet,
     ]);
-    const cases = loanInterestOf(P1, [{ item: { ...split, yearAmount: split.amount }, loanId: L }], new Map([[L, later]]));
+    const cases = loanInterestOf(P1, [{ item: { ...split, yearAmount: split.amount }, loanId: L, period: null }], new Map([[L, later]]));
     expect(cases[0]).toMatchObject({ kind: 'ATTRIBUTED', propertyCents: 30_000n });
   });
 

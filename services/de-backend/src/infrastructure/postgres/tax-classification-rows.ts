@@ -60,6 +60,9 @@ export const COLUMNS = [
   'performance_progress_estimated',
   sql<PointRow[] | null>`(SELECT json_agg(json_build_object('through', to_char(p.through, 'YYYY-MM-DD'), 'amount', p.amount::text) ORDER BY p.position)
     FROM tax_classification_performance_progress p WHERE p.classification_id = tax_classification.id)`.as('performance_progress'),
+  // §58L (0069): the recorded interest period.
+  sql<string | null>`to_char(interest_period_from, 'YYYY-MM-DD')`.as('interest_period_from'),
+  sql<string | null>`to_char(interest_period_until, 'YYYY-MM-DD')`.as('interest_period_until'),
   // §59F, VC-X-38 Part 2 (0062): the parts of a partial treatment, by position (none without one).
   sql<PartRow[] | null>`(SELECT json_agg(json_build_object('position', t.position, 'treatment', t.treatment, 'amount', t.amount::text) ORDER BY t.position)
     FROM tax_classification_treatment_part t WHERE t.classification_id = tax_classification.id)`.as('treatment_parts'),
@@ -122,6 +125,8 @@ interface ClassificationRow {
   performance_progress_estimated: boolean | null;
   performance_progress: PointRow[] | null;
   treatment_parts: PartRow[] | null;
+  interest_period_from: string | null;
+  interest_period_until: string | null;
   supersedes_id: string | null;
   superseded_by: string | null;
   superseded_at: Date | null;
@@ -238,6 +243,10 @@ export function toDomain(row: ClassificationRow): TaxClassification {
     ...(row.treatment_parts === null || row.treatment_parts.length === 0
       ? {}
       : { treatmentParts: row.treatment_parts.map((p) => ({ position: p.position, treatment: p.treatment, amount: fromNumericAmount(p.amount, 'EUR') })) }),
+    // VC-X-40: present only when recorded, so every other classification keeps its shape.
+    ...(row.interest_period_from === null || row.interest_period_until === null
+      ? {}
+      : { interestPeriod: { from: row.interest_period_from as BusinessDate, until: row.interest_period_until as BusinessDate } }),
     treatmentRule:
       row.treatment_rule_code === null || row.treatment_rule_version === null
         ? null
@@ -279,7 +288,9 @@ type LaterColumns =
   | 'performance_progress'
   | 'treatment_parts'
   | 'weg_cost_line_position'
-  | 'weg_cost_line_unit_share';
+  | 'weg_cost_line_unit_share'
+  | 'interest_period_from'
+  | 'interest_period_until';
 
 /** The created row as JSON for the idempotency store. Snapshots of VC-7-01/-02 lack the later fields (read as null). */
 interface ClassificationSnapshot {
@@ -340,6 +351,10 @@ export function toSnapshot(c: TaxClassification): ClassificationSnapshot {
       ...((c.treatmentParts ?? null) === null
         ? {}
         : { treatment_parts: (c.treatmentParts ?? []).map((p) => ({ position: p.position, treatment: p.treatment, amount: p.amount.amount })) }),
+      // VC-X-40: only when set.
+      ...((c.interestPeriod ?? null) === null
+        ? {}
+        : { interest_period_from: c.interestPeriod?.from ?? null, interest_period_until: c.interestPeriod?.until ?? null }),
       supersedes_id: c.supersedes,
       superseded_by: c.supersededBy,
       created_at: c.createdAt.toISOString(),
@@ -381,6 +396,8 @@ export function fromSnapshot(result: unknown): TaxClassification {
     treatment_parts: row.treatment_parts ?? null,
     weg_cost_line_position: row.weg_cost_line_position ?? null,
     weg_cost_line_unit_share: row.weg_cost_line_unit_share ?? null,
+    interest_period_from: row.interest_period_from ?? null,
+    interest_period_until: row.interest_period_until ?? null,
     created_at: new Date(row.created_at),
     superseded_at: null,
   });

@@ -337,7 +337,9 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
       if (payments.kind !== 'PER_PROPERTY') throw new Error(payments.kind);
       expect(payments.items.map((p) => p.interest)).toEqual([a, b].map((xs) => xs.reduce((s, x) => s + centsOf(x.lineAmount as Money), 0n)));
     }
-    // PURCHASE_PRICE (12/19, 7/19): the flag on every item in both views, open.
+    // PURCHASE_PRICE (12/19, 7/19): the flag on every item in both views, open. §58L rule 8: these Loans have no terms,
+    // so each item also carries INTEREST_PERIOD_UNKNOWN, informative with the Loan's one VALID set (L8).
+    const unknown = (loanId: string) => ({ code: 'INTEREST_PERIOD_UNKNOWN', details: { loanId, reason: 'NO_SCHEDULE', validAllocationSets: 1 } });
     for (const v of [v1, v2]) {
       for (const item of items(v, pricedLoan.loanId)) {
         expect(item.flags).toEqual([
@@ -345,9 +347,11 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
             code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY',
             details: { loanId: pricedLoan.loanId, allocationSetId: pricedLoan.setId, confirmation: null },
           },
+          unknown(pricedLoan.loanId),
         ]);
       }
-      for (const item of items(v, manualLoan.loanId)) expect(item.flags).toEqual([]);
+      for (const item of items(v, manualLoan.loanId)) expect(item.flags).toEqual([unknown(manualLoan.loanId)]);
+      expect(v.review.open.map((o) => o.code)).not.toContain('INTEREST_PERIOD_UNKNOWN');
       expect(v.review.open).toContainEqual({ code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', count: 4 });
     }
     expect(items(v1, pricedLoan.loanId)[0]?.loanAllocation).toMatchObject({ basis: 'PURCHASE_PRICE', share: '12/19' });

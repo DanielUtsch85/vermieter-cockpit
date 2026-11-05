@@ -67,6 +67,7 @@ import * as m0065 from './0065_tax_year_deposit_and_correction_movers.js';
 import * as m0066 from './0066_anschaffungsnahe_transfer_date.js';
 import * as m0067 from './0067_acquisition_transfer_date_record.js';
 import * as m0068 from './0068_hausgeld_cost_line_classification.js';
+import * as m0069 from './0069_loan_interest_period.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -143,4 +144,5 @@ export const migrations: Record<string, Migration> = {
   '0066_anschaffungsnahe_transfer_date': m0066,
   '0067_acquisition_transfer_date_record': m0067,
   '0068_hausgeld_cost_line_classification': m0068,
+  '0069_loan_interest_period': m0069,
 };

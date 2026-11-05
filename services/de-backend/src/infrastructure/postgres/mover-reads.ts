@@ -3,6 +3,7 @@ import type { CorrectionHistory, DepositClosingHistory, DepositClosingState, Rul
 import { Money, type BusinessDate, type MoneyJson } from '../../shared/index.js';
 import { recordsOf } from './audit-history-reads.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
+import { loanPeriodFactsOf, periodOfSplit } from './loan-interest-periods.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { DEPOSIT_RENT_CODES, depositFactsOf, factsQuery, meaningsOf, overriddenTo, toRead, yearWindow } from './tax-source-facts.js';
@@ -177,6 +178,8 @@ export async function correctionHistoriesOf(
   const meanings = await meaningsOf(trx, registry, mreRealmId, splitRows.map(toRead), today);
   const loanIds = [...new Set(splitRows.flatMap((r) => (r.loan_id === null ? [] : [r.loan_id])))].sort();
   const sets = await setsOfLoans(trx, mreRealmId, loanIds);
+  // §58L: a Loan split's interest period by its own booking date and classification, as the view reads it.
+  const loans = await loanPeriodFactsOf(trx, mreRealmId, loanIds);
   const records = await recordsOf(
     trx,
     'Transaction',
@@ -218,7 +221,12 @@ export async function correctionHistoriesOf(
             bookingDate: row.booking_date as BusinessDate,
             propertyReferenceId: row.property_reference_id,
             loanId: row.loan_id,
-            ...(row.loan_id === null ? {} : { loanSets: (sets.get(row.loan_id) ?? []).filter((s) => s.status === 'VALID') }),
+            ...(row.loan_id === null
+              ? {}
+              : {
+                  loanSets: (sets.get(row.loan_id) ?? []).filter((s) => s.status === 'VALID'),
+                  period: periodOfSplit(row.booking_date as BusinessDate, meanings[i]?.classification, loans.get(row.loan_id)),
+                }),
           },
         ];
       }),
