@@ -403,6 +403,39 @@ describe('236-4: a check above the threshold with a proposal not yet followed is
   });
 });
 
+describe('§58M: a check not final for WEG_STATEMENT_MISSING is stage 2 (Entscheidung des Projektinhabers, 2026-11-05)', () => {
+  const missing = (from: number | null): PurchaseCheckFacts => ({ ...conclusive, wegStatementMissingFrom: from });
+
+  it('from the first year of the window (2026, the transfer of ACC8) in every year of it: CHECK_OPEN, listed once', () => {
+    expect(summary(acc8(), [2026, 2027, 2028], [missing(2026)])).toEqual([
+      [2026, 2, [[P, 2, ['PURCHASE', 'ANSCHAFFUNGSNAHE_CHECK_OPEN']]]],
+      [2027, 2, [[P, 2, ['PURCHASE', 'ANSCHAFFUNGSNAHE_CHECK_OPEN']]]],
+      [2028, 2, [[P, 2, ['PURCHASE', 'ANSCHAFFUNGSNAHE_CHECK_OPEN']]]],
+    ]);
+    // With the Hausgeld flag as well (A1): the same criterion, listed once.
+    const both = { ...missing(2026), wegHausgeldMaintenanceNotCounted: true };
+    expect(summary(acc8(), [2026, 2027], [both])).toEqual(summary(acc8(), [2026, 2027], [missing(2026)]));
+  });
+
+  it('the year it is dated from counts: not before it (a dated fact, like 236-4)', () => {
+    expect(stagesOf(acc8(), [2026, 2027], [missing(2027)]).map((y) => y.stage)).toEqual([1, 2]);
+  });
+
+  it('counter-checks: final (no missing statement, null or absent) is 1; another purchase not final does not raise this one', () => {
+    expect(stagesOf(acc8(), [2026, 2027], [missing(null)]).map((y) => y.stage)).toEqual([1, 1]);
+    expect(stagesOf(acc8(), [2026, 2027], [conclusive]).map((y) => y.stage)).toEqual([1, 1]);
+    expect(stagesOf(acc8(), [2026, 2027], [conclusive, { ...missing(2026), acquisitionId: X }]).map((y) => y.stage)).toEqual([1, 1]);
+  });
+
+  it('the stage is the mapping of ANSCHAFFUNGSNAHE_CHECK_OPEN (no new criterion: DE_RECORDING_STAGES@1 unchanged)', () => {
+    const raised: StageRule = {
+      ...rule,
+      parameters: { criteria: rule.parameters.criteria.map((c) => (c.code === 'ANSCHAFFUNGSNAHE_CHECK_OPEN' ? { ...c, stage: 3 as const } : c)) },
+    };
+    expect(stagesOf(acc8(), [2026, 2027], [missing(2026)], raised).map((y) => y.stage)).toEqual([3, 3]);
+  });
+});
+
 describe('money unchanged: the stage reads the schedule and changes none of it', () => {
   it.each([
     [
