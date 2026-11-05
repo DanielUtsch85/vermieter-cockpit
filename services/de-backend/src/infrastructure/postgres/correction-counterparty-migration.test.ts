@@ -9,6 +9,7 @@ import { PostgresFinancialAccountRepository } from './financial-account-reposito
 import { migrateToLatest } from './migrate.js';
 import * as m0035 from './migrations/0035_correction_counterparty.js';
 import { testSchemaName } from './test-schema.test-support.js';
+import { withMigrationLock } from './tax-year.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { PostgresTransactionSplitRepository } from './transaction-split-repository.js';
 
@@ -107,7 +108,8 @@ describe.skipIf(databaseUrl === undefined)('migration 0035: counterparty of corr
     const { rows } = await pool.query(`SELECT counterparty_name_raw AS name FROM ledger_transaction WHERE id = $1`, [ids['replacement2']]);
     expect(rows[0]).toEqual({ name: 'Erika Mieterin' });
 
-    await m0035.down(db as unknown as Kysely<unknown>);
+    // Under MIGRATION_ADVISORY_LOCK, like every hand-run down (migration-lock-discipline.test.ts).
+    await withMigrationLock(() => m0035.down(db as unknown as Kysely<unknown>));
     expect(await counterparties()).toEqual({ original: iban, reversal1: null, replacement1: null, reversal2: null, replacement2: null });
   });
 });
