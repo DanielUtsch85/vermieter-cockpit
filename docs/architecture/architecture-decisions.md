@@ -1642,6 +1642,43 @@ Residual risk: the "only the second" case. It needs an export cut inside a day (
 
 ---
 
+# ADR-044 — Buyers' Ownerships Begin on the Economic Transfer When an Acquisition Is Confirmed
+
+**Status:** Proposed
+**Amends:** P2-D6 of `docs/development/phase-2-plan.md` (the transfer date as the day the buyers' Ownerships begin)
+**Origin:** Owner decision on api-design §58Q, 2026-11-05 (backlog VC-X-57); specified in `api-design.md` §58R
+
+## Context
+
+P2-D6 defines the **transfer date** of an Acquisition as `economicTransferDate`, or `contractDate` while that is unset, and P2-D8 requires the buyers' Ownerships carrying the Acquisition to start on it (`api-design.md` §28.1 requirement 2). When P2-D6 was written, an Acquisition could be confirmed without `economicTransferDate`, so its Ownerships began on the contract date.
+
+Since VC-X-34 (§58K, requirement 0) `confirm` refuses an Acquisition without `economicTransferDate`, in the database too since VC-X-52 (§58N). VC-X-52 lets the date be recorded later and decided (§58N open question 1, option (b)) that the Ownerships stay where they are, with `ownershipStart` = `contractDate` for such an Acquisition, the same rule for a `DRAFT` (§58N open question 4). A `DRAFT` dated later is therefore still confirmed with its buyers from the contract date and its seller's row closed on `contractDate − 1`, so between contract and transfer the seller has no AfA and the buyers hold the rent (`OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER`). VC-X-55 (§58Q) repairs this after the fact. The owner decided (2026-11-05) that the case should stop arising: „Seit Anforderung 0 verlangt `confirm` das Übergangsdatum. Dann sollten die Käufer-Ownerships beim Bestätigen von vornherein ab `economicTransferDate` beginnen und die Verkäuferzeile bis `t − 1` laufen, statt ab Vertragsdatum mit späterer Reparatur. Das ändert P2-D6 und braucht einen ADR-Eintrag; VC-X-55 bleibt die Reparatur für Altbestand und für Entwürfe, die vor dem Datum angelegt wurden.“
+
+## Decision (proposed; the details are §58R's open questions)
+
+1. **An Acquisition is confirmed on its `economicTransferDate` `t`.** Its buyers' Ownerships begin on `t` (§28.1 requirement 2 on `t`), and every seller holds on `t − 1` what it held on `contractDate − 1`, so the seller's row runs to `t − 1` (a new requirement 7, `SELLER_SHARE_CHANGED_BEFORE_TRANSFER`). The contract date is no longer a start of Ownerships for any Acquisition confirmed from then on.
+2. **Before the confirmation a recorded date is the ownership start** like a date entered on create: a `DRAFT` dated later by §58N has `ownershipStart` = `economicTransferDate` (this supersedes §58N open question 4 for the future).
+3. **The confirmation stores the day** (`confirmed_ownership_start`, set by the database on the transition), so the start of an Acquisition confirmed under this rule is a fact of its row.
+4. **Legacy data keeps its start:** every Acquisition confirmed before the change keeps `ownershipStart` and every figure (§58N option (b) stays its rule); VC-X-55's act remains the repair for it and for drafts whose Ownerships were written from the contract date before the date was recorded.
+5. **An Acquisition still never writes Ownerships** (P2-D8): WF-002 writes them on `t` (one ownership change with `effectiveDate` = `t`); `confirm` checks.
+6. Both requirements hold past the repository (migration, the next free number at implementation; 0073 at the time of writing).
+
+## Consequences
+
+- For new purchases the seller's AfA and the rent between contract and transfer belong to the seller from the outset; `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER` no longer arises for them.
+- A `DRAFT` whose Ownerships were written from the contract date before its date was recorded is no longer confirmable as it is: it is repaired with VC-X-55's act or, without a seller row, by rewriting the buyers' rows.
+- A seller's row closed before `t − 1` beside buyers from `t` is refused at confirmation (today it is confirmed with an `INCOMPLETE` gap).
+- P2-D6 keeps its text with a pointer to this ADR (Amendment Rule); data-model §13.3, `phase-8-plan.md` and WF-002 get pointers at implementation.
+- Nothing changes for an Acquisition confirmed before the change, for the anschaffungsnahe check (§58K) or for the AfA's start (§59A).
+
+## Rejected Alternatives (proposed; §58R open questions)
+
+- **Keep P2-D6 and repair every case with VC-X-55:** the case keeps arising for every purchase dated later („damit der Fall aufhört zu entstehen“).
+- **`confirm` moves the Ownerships itself:** an Acquisition would write Ownerships (against P2-D8) without evidence; the owner names VC-X-55 as the repair.
+- **No seller check:** the buyers would start on `t` while a seller's row closed on `contractDate − 1` leaves the gap the change is meant to close.
+
+---
+
 # Open Decisions
 
 All decisions originally recorded here have been resolved (see the "Resolved by" status on each). The entries are retained as a historical record of the open questions and their resolutions. Should new architectural questions arise, add them here as `ADR-OPEN-*` with status `Open` until a resolving ADR is accepted.
