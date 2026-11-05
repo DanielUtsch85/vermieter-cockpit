@@ -3,6 +3,7 @@ import type { LoanAllocationSet } from '../financing/index.js';
 import type { HistoryRecord } from './attribution-history.js';
 import { partMoved, partOn, type Part } from './attribution-part-rule.js';
 import { recordedAfter } from './attribution-rule.js';
+import type { InterestPeriod } from './loan-interest-periods.js';
 
 /**
  * A split correction as an input of `PROPERTY_PART_CHANGED` (api-design.md §58I Part 2, VC-X-50; Entscheidung des
@@ -32,6 +33,8 @@ export interface CorrectionSplit {
   readonly loanId: string | null;
   /** A `LOAN_INTEREST` split's Loan's `VALID` sets now (§58D); absent: none. */
   readonly loanSets?: readonly LoanAllocationSet[];
+  /** §58L: a `LOAN_INTEREST` split's interest period by its own booking date and classification; absent or `null`: none. */
+  readonly period?: InterestPeriod | null;
 }
 
 /** A `CORRECTED`/`REVERSED` record with its metadata's links and reason. */
@@ -64,7 +67,10 @@ const NONE: Part = { state: 'NONE', part: null };
 
 /** P's part of a split on a side where it counts (§58G's states; §58D for a Loan's interest). */
 export function splitPartOn(propertyReferenceId: string, split: CorrectionSplit): Part {
-  if (split.loanId !== null) return split.financialCategoryCode === 'LOAN_INTEREST' ? partOn(propertyReferenceId, split.loanSets ?? [], split) : NONE;
+  if (split.loanId !== null)
+    return split.financialCategoryCode === 'LOAN_INTEREST'
+      ? partOn(propertyReferenceId, split.loanSets ?? [], { ...split, period: split.period ?? null })
+      : NONE;
   return split.propertyReferenceId === propertyReferenceId ? { state: 'ATTRIBUTED', part: split.amount } : NONE;
 }
 

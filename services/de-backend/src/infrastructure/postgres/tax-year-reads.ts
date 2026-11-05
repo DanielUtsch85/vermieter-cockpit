@@ -25,6 +25,7 @@ import { partChangeInputOf } from './part-reads.js';
 import { capitalizedLoanInterestOf, refOf } from './capitalized-loan-interest.js';
 import { interestFactsIn } from './construction-period-reads.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
+import { loanPeriodFactsOf, periodOfSplit } from './loan-interest-periods.js';
 import { taxYearDepreciationIn } from './tax-year-depreciation.js';
 import type { Database } from './schema.js';
 import { UUID, currentOfDeposits } from './tax-classification-rows.js';
@@ -235,11 +236,12 @@ export async function capitalizedSources(
 }
 
 /**
- * The interest of the allocated Loans (§58D "What the view reads"): the counting `LOAN_INTEREST` splits of the Loans
+ * The interest of the allocated Loans (§58D "What the view reads", §58L): the counting `LOAN_INTEREST` splits of the Loans
  * with a `VALID` allocation set naming the PropertyReference (the candidates, whatever the set's period and share:
  * which set applies is decided per split by `loanInterestOf`), selected as `yearItems` selects (the windows around
  * `year`, or overridden to it) and kept when §58A's derivation, the list's, puts them in `year`; each as a list item
- * with its own meaning (no treatment effects of the PropertyReference). And every set, `VALID` and `VOID`, of their
+ * with its own meaning (no treatment effects of the PropertyReference) and its interest period (§58L rule 1: the
+ * classification's recorded one, else the Loan's schedule's, clipped at `debtFrom`). And every set, `VALID` and `VOID`, of their
  * Loans with `validUntil`, in the same snapshot. §58G (`anySet`): the Loans any of whose sets, `VALID` or `VOID`, names
  * the PropertyReference, the candidates of a part change (a void may have taken P out of every `VALID` set);
  * `ofValidSets` narrows that read to §58D's.
@@ -275,9 +277,18 @@ export async function allocatedLoanInterest(
     .orderBy('s.position')
     .execute();
   const meanings = await meaningsOf(trx, registry, mreRealmId, rows.map(toRead), today);
+  // §58L: each Loan's debtFrom and schedule, in the same snapshot and Realm, for every candidate's interest period.
+  const loans = await loanPeriodFactsOf(
+    trx,
+    mreRealmId,
+    rows.map((r) => r.loan_id as string),
+  );
   const interest = rows.flatMap((row, i) => {
-    const meaning = meanings[i]?.meaning;
-    return meaning === undefined || meaning.taxYear !== year ? [] : [{ item: { ...meaning, yearAmount: meaning.amount }, loanId: row.loan_id as string }];
+    const pair = meanings[i];
+    if (pair === undefined || pair.meaning.taxYear !== year) return [];
+    const { meaning } = pair;
+    const loanId = row.loan_id as string;
+    return [{ item: { ...meaning, yearAmount: meaning.amount }, loanId, period: periodOfSplit(meaning.bookingDate, pair.classification, loans.get(loanId)) }];
   });
   const sets = await setsOfLoans(trx, mreRealmId, [...new Set(interest.map((i) => i.loanId))]);
   const loanAllocationSets = new Map<string, readonly LoanAllocationSetView[]>([...sets].map(([loanId, own]) => [loanId, withValidUntil(own)]));

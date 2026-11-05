@@ -61,7 +61,12 @@ export function interest(amount: string, bookingDate: string, taxYear = yearOf(d
     suggestion: null,
     flags: [],
   };
-  return { item: { ...meaning, yearAmount: meaning.amount }, loanId: L };
+  // §58L rule 7: a one-day period in one set reads as §58D's booking-date rule (VC-X-48's examples unchanged).
+  return {
+    item: { ...meaning, yearAmount: meaning.amount },
+    loanId: L,
+    period: { from: meaning.bookingDate, until: meaning.bookingDate, source: 'LOAN_SCHEDULE' },
+  };
 }
 
 export function allocationSet(
@@ -125,7 +130,7 @@ export const partsOf = (sets: readonly AllocationSetHistory[], splits: readonly 
   loans: [
     {
       loanId: L,
-      candidates: splits.map((s) => ({ sourceId: s.item.sourceId, bookingDate: (s.item as TaxMeaning).bookingDate, amount: s.item.amount })),
+      candidates: splits.map((s) => ({ sourceId: s.item.sourceId, bookingDate: (s.item as TaxMeaning).bookingDate, amount: s.item.amount, period: s.period })),
       sets,
     },
   ],

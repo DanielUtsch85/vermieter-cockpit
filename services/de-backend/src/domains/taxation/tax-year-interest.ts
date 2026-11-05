@@ -21,7 +21,7 @@ import type { ViewFlag } from './tax-year-response.js';
  */
 
 /** Why a `CAPITALIZED` Loan item is not (yet) provably in P's basis; `null` when it is. */
-export type NotInBasisReason = ReturnType<typeof interestReasonOf> | 'NO_COMPONENT' | 'BASIS_MISMATCH';
+export type NotInBasisReason = ReturnType<typeof interestReasonOf> | 'NO_COMPONENT' | 'BASIS_MISMATCH' | 'SEVERAL_ALLOCATION_SETS';
 
 /** No facts read for a split (a test's read without them): the strict policy without a record, never a source. */
 const noFacts = (d: Derived): InterestFacts => {
@@ -80,7 +80,10 @@ export function withLoanInterestFlags(d: Derived, facts: InterestFacts | undefin
   const known = facts ?? noFacts(d);
   const flags: ViewFlag[] = [...d.flags, ...(facts === undefined ? [] : constructionPeriodFlags(facts, m.treatment))];
   if (d.placement.place === 'CAPITALIZED') {
-    const reason: NotInBasisReason = interestReasonOf(known, propertyReferenceId) ?? notInBasisOf(inBuildingBasis(dep, d));
+    // §58L open question 9 (L9): P's part from several sets enters no basis (one set per recorded component, 0055).
+    const several = d.loanAllocation !== null && d.loanAllocation.allocationSetId === null;
+    const reason: NotInBasisReason =
+      interestReasonOf(known, propertyReferenceId) ?? (several ? 'SEVERAL_ALLOCATION_SETS' : notInBasisOf(inBuildingBasis(dep, d)));
     if (reason !== null) {
       flags.push({
         code: LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS,

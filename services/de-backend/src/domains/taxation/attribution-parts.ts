@@ -2,6 +2,7 @@ import { canonicalJson, type BusinessDate, type Fingerprinter, type Money, type 
 import type { LoanAllocationSet } from '../financing/index.js';
 import { partMoved, partOn, type PartState } from './attribution-part-rule.js';
 import { correctionSteps, type CorrectionHistory } from './attribution-corrections.js';
+import type { InterestPeriod } from './loan-interest-periods.js';
 import { depositSteps, type DepositPartHistory } from './attribution-deposits.js';
 import { replay, walk, type HistoryRecord } from './attribution-history.js';
 import { recordedAfter } from './attribution-rule.js';
@@ -55,8 +56,10 @@ export interface PartItem {
 export interface PartCandidate {
   readonly sourceId: string;
   readonly bookingDate: BusinessDate;
-  /** The split's whole amount, distributed over the set as the view does (`distribute`). */
+  /** The split's whole amount, distributed over the sets as the view does (`distributeOverPeriod`). */
   readonly amount: Money;
+  /** §58L: the split's interest period as the view reads it; `null` without one (rule 8). */
+  readonly period: InterestPeriod | null;
 }
 
 /** A set of the Loan (`VALID` or `VOID`) with its `CREATED`/`VOIDED` records. */

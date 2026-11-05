@@ -244,7 +244,7 @@ export type {
   TaxYearAcknowledgement,
   WithdrawOutcome,
 } from './tax-statements.js';
-export { capitalizedItemsOf, capitalizedSourcesOf } from './capitalized-items.js';
+export { SEVERAL_ALLOCATION_SETS, capitalizedItemsOf, capitalizedSourcesOf } from './capitalized-items.js';
 export type { CapitalizedSource, CapitalizedSourceInput, CapitalizedSourceLoan, NotASource } from './capitalized-items.js';
 export { CONSTRUCTION_PERIOD_INTEREST, DE_CONSTRUCTION_PERIOD_INTEREST_V1 } from './rules/de-construction-period-interest.js';
 export type { ConstructionPeriodInterestParameters } from './rules/de-construction-period-interest.js';
@@ -290,6 +290,8 @@ export type {
 export { constructionPeriodCheck } from './construction-period-checks.js';
 export type { ConstructionPeriodRecordFacts, ConstructionPeriodRefusal, InterestSplitFacts } from './construction-period-checks.js';
 export { inBuildingBasis, withInterestFlags, withLoanInterestFlags } from './tax-year-interest.js';
+export { daysIn, distributeOverPeriod, interestPeriodOf, setsOfSegments } from './loan-interest-periods.js';
+export type { InterestPeriod, InterestPeriodSource, LoanPeriodFacts, PeriodDistribution, PeriodSegment, PeriodWeight } from './loan-interest-periods.js';
 export type { NotInBasisReason } from './tax-year-interest.js';
 export {
   AFA_LINES,
@@ -298,6 +300,7 @@ export {
   OPEN_AFA_YEAR_FLAGS,
   afaOf,
   componentOfItem,
+  INTEREST_PERIOD_UNKNOWN,
   LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY,
   LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS,
   NOT_OWNED,

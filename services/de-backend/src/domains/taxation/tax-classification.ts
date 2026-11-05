@@ -61,6 +61,11 @@ export interface TaxClassification {
    */
   readonly treatmentParts?: readonly TreatmentPart[] | null;
   /**
+   * §58L (VC-X-40, L4): the interest period a Loan's interest split pays for, as the lender's statement states it; it
+   * wins over the schedule's for the allocation only, never for the 10-day rule. Present only when recorded.
+   */
+  readonly interestPeriod?: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
+  /**
    * The second rule reference: `DE_82B_DISTRIBUTION` for an election, `DE_ANSCHAFFUNGSNAHE` for such a capitalisation,
    * `DE_CONSTRUCTION_PERIOD_INTEREST` for a classification naming a construction-period record (§59E).
    */
@@ -100,6 +105,8 @@ export interface NewTaxClassification {
   readonly performance?: Performance | null;
   /** §59F (VC-X-38 Part 2): the partial treatment asked for; DE derives its parts from the evidenced points. */
   readonly partialTreatment?: boolean;
+  /** §58L (VC-X-40): a Loan's `LOAN_INTEREST` split only; omitted means `null`. */
+  readonly interestPeriod?: { readonly from: BusinessDate; readonly until: BusinessDate } | null;
 }
 
 /** The Acquisition a capitalisation following the check names, as a create reads it (without a lock, §58B). */
@@ -131,6 +138,8 @@ export function classificationFingerprint(c: NewTaxClassification): string {
   const performance = p === null ? [] : [{ vcx38: [p.from, p.until, p.progress.map((x) => [x.through, x.amount.amount]), p.progressEstimated] }];
   // VC-X-38 Part 2's partial treatment only when asked for, so a key stored before still replays.
   const partial = c.partialTreatment === true ? [{ vcx38p2: true }] : [];
+  // §58L's interest period only when given, so a key stored before VC-X-40 still replays.
+  const period = (c.interestPeriod ?? null) === null ? [] : [{ vcx40: [c.interestPeriod?.from, c.interestPeriod?.until] }];
   // VC-7-01's fingerprint unchanged without the years, so a key stored before VC-7-02 still replays.
   return JSON.stringify([
     c.sourceType,
@@ -146,5 +155,6 @@ export function classificationFingerprint(c: NewTaxClassification): string {
     ...record,
     ...performance,
     ...partial,
+    ...period,
   ]);
 }

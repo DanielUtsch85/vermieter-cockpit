@@ -69,7 +69,12 @@ export type {
   TaxYearDepreciationPart,
 } from './tax-year-depreciation.js';
 export { flagIsOpen, notCountedIsOpen, reviewOf, ruleVersionsOf } from './tax-year-review.js';
-export { LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS, loanInterestOf } from './tax-year-loan-interest.js';
+export {
+  INTEREST_PERIOD_UNKNOWN,
+  LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY,
+  LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS,
+  loanInterestOf,
+} from './tax-year-loan-interest.js';
 export type { LoanInterestCase, LoanInterestSplit, NotAttributedReason } from './tax-year-loan-interest.js';
 
 /**
@@ -174,7 +179,7 @@ export function buildTaxYearView(
         ? { ...d, flags: [...d.flags, ...partItemFlags(d.source.sourceId, parts)] }
         : d,
     );
-  // §58D: the interest of the allocated Loans, by the set on each split's booking date.
+  // §58D, §58L: the interest of the allocated Loans, by the sets on each day of each split's interest period.
   const loanCases = loanInterestOf(read.propertyReferenceId, read.allocatedLoanInterest, read.loanAllocationSets);
   const attributedLoans = loanCases
     .filter((c): c is Extract<LoanInterestCase, { kind: 'ATTRIBUTED' }> => c.kind === 'ATTRIBUTED')

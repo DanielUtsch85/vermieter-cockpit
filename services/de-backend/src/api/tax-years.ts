@@ -53,6 +53,9 @@ const loanAllocationDto = (a: TaxYearItem['loanAllocation']) =>
     ? null
     : {
         loanId: a.loanId,
+        // §58L: the interest period and its runs of days with one set (P's share in each).
+        interestPeriod: a.interestPeriod === null ? null : { from: a.interestPeriod.from, until: a.interestPeriod.until, source: a.interestPeriod.source },
+        segments: a.segments.map((s) => ({ from: s.from, until: s.until, allocationSetId: s.allocationSetId, basis: s.basis, share: s.share })),
         allocationSetId: a.allocationSetId,
         validFrom: a.validFrom,
         validUntil: a.validUntil,
@@ -109,7 +112,7 @@ function taxYearItemDto(i: TaxYearItem) {
     suggestion: plain(i.suggestion),
     share: i.share === null ? null : { ownershipId: i.share.ownershipId, share: i.share.share, amount: i.share.amount?.toJSON() ?? null },
     flags: flagsDto(i.flags),
-    // §58D: the Loan's set on the booking date and the property's part, on an item from a Loan's interest split only.
+    // §58D, §58L: the Loan's sets over the interest period and the property's part, on an item from a Loan's interest split only.
     loanAllocation: loanAllocationDto(i.loanAllocation),
     // §59F, VC-X-38 Part 2: the part of a partially treated source the item stands for (`lineAmount` its amount).
     ...(i.treatmentPart === undefined
@@ -117,6 +120,16 @@ function taxYearItemDto(i: TaxYearItem) {
       : { treatmentPart: { position: i.treatmentPart.position, treatment: i.treatmentPart.treatment, amount: i.treatmentPart.amount.toJSON() } }),
     // "nicht zugeordnet" (§58C, §58D): the reason, the candidates and the source's own tax meaning or the Loan's allocations.
     ...(i.notAttributed === null ? {} : { reason: i.notAttributed.reason, candidates: i.notAttributed.candidates, href: i.notAttributed.href }),
+    // §58L: a Loan's split: its interest period and the days without a set.
+    ...(i.notAttributed?.uncovered === undefined
+      ? {}
+      : {
+          interestPeriod:
+            i.notAttributed.interestPeriod == null
+              ? null
+              : { from: i.notAttributed.interestPeriod.from, until: i.notAttributed.interestPeriod.until, source: i.notAttributed.interestPeriod.source },
+          uncovered: i.notAttributed.uncovered.map((u) => ({ from: u.from, until: u.until })),
+        }),
   };
 }
 

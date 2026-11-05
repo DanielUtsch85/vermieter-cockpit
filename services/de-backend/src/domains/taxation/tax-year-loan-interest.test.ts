@@ -90,7 +90,12 @@ function interest(amount: string, bookingDate: string, o: InterestOptions = {}):
     suggestion: null,
     flags: o.flags ?? [],
   };
-  return { item: { ...meaning, yearAmount: meaning.amount }, loanId: o.loanId ?? L };
+  // §58L rule 7: a one-day period in one set reads as §58D's booking-date rule (VC-X-29's examples unchanged).
+  return {
+    item: { ...meaning, yearAmount: meaning.amount },
+    loanId: o.loanId ?? L,
+    period: { from: meaning.bookingDate, until: meaning.bookingDate, source: 'LOAN_SCHEDULE' },
+  };
 }
 
 interface SetSpec {
@@ -220,6 +225,9 @@ describe('§58D: the synthetic example', () => {
       expect(v.notAttributed.items[0]?.notAttributed?.href).toBe(`/api/v1/loans/${L}/allocations?asOf=2027-01-29`);
       expect(v.notAttributed.items[0]?.loanAllocation).toEqual({
         loanId: L,
+        // §58L (additive): the one-day period of the fixture and no segment (no set covers it).
+        interestPeriod: { from: '2027-01-29', until: '2027-01-29', source: 'LOAN_SCHEDULE' },
+        segments: [],
         allocationSetId: null,
         validFrom: null,
         validUntil: null,
@@ -235,6 +243,8 @@ describe('§58D: the synthetic example', () => {
     // The item's set and its derived end; the moved debit keeps its open 10-day flag (decision 7).
     expect(line(v1).items[1]?.loanAllocation).toEqual({
       loanId: L,
+      interestPeriod: { from: '2027-07-30', until: '2027-07-30', source: 'LOAN_SCHEDULE' },
+      segments: [{ from: '2027-07-30', until: '2027-07-30', allocationSetId: S2.id, basis: 'MANUAL', share: '1/2' }],
       allocationSetId: S2.id,
       validFrom: '2027-07-01',
       validUntil: '2027-12-31',
