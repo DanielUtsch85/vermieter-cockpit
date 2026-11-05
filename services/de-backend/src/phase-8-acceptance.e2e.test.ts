@@ -445,8 +445,33 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
     // final only with a confirmed statement of every financial year of its read range (2026 to 2030, W + 365 days), after
     // the last of them ended: on 2029-10-15 it is not final by WEG_STATEMENT_MISSING alone; ACC8 reads on 2031-01-15
     // with those statements filed (one RECOVERABLE line each, nothing to judge). No figure of ACC8 changes.
+    // Entscheidung des Projektinhabers, 2026-11-05 (§58M, question 10): the adaptation touches only `final`, the
+    // `notFinalReasons` and the flag; no amount, sum or threshold. So the check's figures and the views' figures of
+    // 2026–2028 on the new read date equal those on 2029-10-15, and the threshold is main's 38,160.00.
+    const figuresOf = (c: Json) => [
+      c.status,
+      c.threshold,
+      c.thresholdWithUnclassified,
+      c.basis,
+      c.sum,
+      c.sumUpper,
+      c.attributableAmount,
+      c.percentOfBasis,
+      c.percentOfBasisUpper,
+      c.affectedYears,
+      c.sources.map((e: Json) => [e.sourceId, e.amountUsed, e.inWindow, e.suggestedTreatment]),
+    ];
+    const viewFiguresOf = async () =>
+      Promise.all(
+        [2026, 2027, 2028].map(async (year) => {
+          const v = await view(pr, year);
+          return [year, v.einnahmen.total, v.werbungskosten.total, v.result, ownerFigures(v), totalOf(v, 'AFA_BUILDING'), totalOf(v, 'MAINTENANCE')];
+        }),
+      );
     at('2029-10-15');
-    expect((await api.check(w)).flags.find((f: Json) => f.code === 'NOT_FINAL').details.reasons).toEqual(['WEG_STATEMENT_MISSING']);
+    const waiting = await api.check(w);
+    expect([waiting.final, waiting.flags.find((f: Json) => f.code === 'NOT_FINAL').details.reasons]).toEqual([false, ['WEG_STATEMENT_MISSING']]);
+    const viewsWaiting = await viewFiguresOf();
     at('2031-01-15');
     await confirmedStatementsOf(
       createDatabase(api.ctx.pool),
@@ -454,7 +479,11 @@ describe.skipIf(databaseUrl === undefined)('Phase 8 acceptance (roadmap exit)', 
       { actorType: 'USER', actorId: 'anna@example.com' },
       new Date('2031-01-15T10:00:00Z'),
     );
-    expect((await api.check(w)).final).toBe(true);
+    const closed = await api.check(w);
+    expect(closed.final).toBe(true);
+    expect(figuresOf(closed)).toEqual(figuresOf(waiting));
+    expect(closed.threshold.amount).toBe('38160.00');
+    expect(await viewFiguresOf()).toEqual(viewsWaiting);
     // §59F (the owner's decision 239-6, 2026-11-02): before 2027 and 2028 become final in the test wiring, the shipped
     // default (recording off) refuses the same record through 2028 before any data access; nothing is written (no
     // version, no AuditRecord, no Idempotency-Key), and its views of 2027 and 2028 are the test wiring's, not final.
