@@ -56,6 +56,7 @@ const period = (overrides: Partial<SchedulePeriod> = {}): SchedulePeriod => ({
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
   fixedRateUntil: null,
+  paymentIntervalMonths: 1,
   ...overrides,
 });
 const annuity = [period()];
@@ -123,7 +124,11 @@ describe('debtOn (§41.6)', () => {
       actual: 40_853n,
       planned: 40_853n,
       difference: 0n,
+      // Booked as planned: the rebased plan is the contract's (§58O question 12 (b)).
+      plannedAsContracted: 40_853n,
+      differenceAsContracted: 0n,
       planEndReason: 'PAID_OFF',
+      rebasedOn: { bookingDate: '2027-02-28', entryNumber: 2, actualBalance: 40_853n, transactionId: 'tx-2027-02-28', flags: [] },
     });
   });
 
@@ -139,9 +144,17 @@ describe('debtOn (§41.6)', () => {
     expect(debtOn(loan, annuity, twoPayments, day('2027-04-01'))).toMatchObject({ actual: 40_853n, planned: 11_057n, difference: 29_796n });
   });
 
-  it('a special repayment shows as actual below planned (negative difference)', () => {
+  it('a special repayment shows as actual below the contract plan (negative differenceAsContracted); the rebased planned follows it', () => {
     const extra = [...twoPayments, split('2027-03-01', 'LOAN_PRINCIPAL', 10_000n, 'special')];
-    expect(debtOn(loan, annuity, extra, day('2027-03-15'))).toMatchObject({ actual: 30_853n, planned: 40_853n, difference: -10_000n });
+    // §58O question 12 (b): `planned` is the forecast from the last booked payment, the cumulative figure moved.
+    expect(debtOn(loan, annuity, extra, day('2027-03-15'))).toMatchObject({
+      actual: 30_853n,
+      planned: 30_853n,
+      difference: 0n,
+      plannedAsContracted: 40_853n,
+      differenceAsContracted: -10_000n,
+      rebasedOn: { bookingDate: '2027-03-01', entryNumber: 2, actualBalance: 30_853n, transactionId: 'special' },
+    });
   });
 
   it('principal paid beyond the original makes the actual negative; only principal counts, interest never does', () => {
@@ -164,7 +177,10 @@ describe('debtOn (§41.6)', () => {
       actual: 40_853n,
       planned: null,
       difference: null,
+      plannedAsContracted: null,
+      differenceAsContracted: null,
       planEndReason: 'NO_TERMS',
+      rebasedOn: null,
     });
     expect(debtOn(loan, [], [], day('2026-12-31'))).toMatchObject({ actual: 0n, planned: null, difference: null });
   });

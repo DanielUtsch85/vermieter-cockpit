@@ -223,6 +223,7 @@ describe.skipIf(databaseUrl === undefined)('Tax year and income (§58A)', () => 
             firstPaymentDate: day(firstPaymentDate),
             principalAtStart: null,
             fixedRateUntil: null,
+            paymentIntervalMonths: 1,
             initialRepaymentRate: null,
             specialRepaymentLimit: null,
             notes: null,

@@ -23,10 +23,17 @@ export interface InterestPeriod {
   readonly source: InterestPeriodSource;
 }
 
-/** What the period reads of the Loan: the day the debt starts (§41.1) and the schedule's payment dates (§41.4). */
+/**
+ * What the period reads of the Loan: the day the debt starts (§41.1) and the contract schedule's payment dates (§41.4).
+ * §58O (VC-X-53): the interval of the first entry's period (its period is that many months; 1 when absent), each
+ * entry's terms period and interval (the deviation flag's details), and a `CLOSED` Loan's closing date (question 5).
+ */
 export interface LoanPeriodFacts {
   readonly debtFrom: BusinessDate;
   readonly paymentDates: readonly BusinessDate[];
+  readonly firstIntervalMonths?: number;
+  readonly entryTerms?: readonly { readonly termsId: string; readonly paymentIntervalMonths: number }[];
+  readonly closingDate?: BusinessDate | null;
 }
 
 const dayNumber = (date: BusinessDate) => Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1, Number(date.slice(8, 10))) / 86_400_000;
@@ -46,13 +53,58 @@ export function interestPeriodOf(
   recorded: { readonly from: BusinessDate; readonly until: BusinessDate } | null,
   loan: LoanPeriodFacts | undefined,
 ): InterestPeriod | null {
-  if (recorded !== null) return { from: recorded.from, until: recorded.until, source: 'CLASSIFICATION' };
+  const schedule = schedulePeriodOf(bookingDate, loan);
+  if (recorded === null) return schedule;
+  // §58O precedence case 3 (Entscheidung des Projektinhabers, 2026-11-05, question 11): a recorded period equal to the plan's is redundant.
+  if (schedule !== null && deviationOf(bookingDate, recorded, loan) === null) return schedule;
+  return { from: recorded.from, until: recorded.until, source: 'CLASSIFICATION' };
+}
+
+/** The schedule's period of a split (rule 1 without a recorded one); `null` without a schedule. */
+export function schedulePeriodOf(bookingDate: BusinessDate, loan: LoanPeriodFacts | undefined): InterestPeriod | null {
   if (loan === undefined) return null;
-  const timing = interestTiming(bookingDate, loan.paymentDates);
+  const timing = interestTiming(bookingDate, loan.paymentDates, loan.firstIntervalMonths ?? 1);
   if (timing.kind !== 'PERIOD') return null;
   const until = timing.economicPeriod.to;
   const clipped = timing.economicPeriod.from < loan.debtFrom ? loan.debtFrom : timing.economicPeriod.from;
   return { from: clipped > until ? until : clipped, until, source: 'LOAN_SCHEDULE' };
+}
+
+/**
+ * §58O "The deviation flag": a recorded period (VC-X-40) that differs from the schedule's in either end, on a Loan with a
+ * schedule; `null` when they are equal, without a recorded period or without a schedule (no plan to deviate from).
+ * A recorded period from the day after a `CLOSED` Loan's last kept entry to its closing date matches (question 5).
+ */
+export interface PeriodDeviation {
+  readonly recorded: { readonly from: BusinessDate; readonly until: BusinessDate };
+  readonly schedule: InterestPeriod;
+  readonly termsId: string | null;
+  readonly paymentIntervalMonths: number;
+}
+
+export function deviationOf(
+  bookingDate: BusinessDate,
+  recorded: { readonly from: BusinessDate; readonly until: BusinessDate } | null,
+  loan: LoanPeriodFacts | undefined,
+): PeriodDeviation | null {
+  const schedule = schedulePeriodOf(bookingDate, loan);
+  if (recorded === null || schedule === null || loan === undefined) return null;
+  if (recorded.from === schedule.from && recorded.until === schedule.until) return null;
+  const last = [...loan.paymentDates].sort().at(-1);
+  if (loan.closingDate != null && last !== undefined && recorded.from === addDays(last, 1) && recorded.until === loan.closingDate) return null;
+  const nearest = nearestIndex(bookingDate, loan.paymentDates);
+  const terms = nearest === undefined ? undefined : loan.entryTerms?.[nearest];
+  return { recorded, schedule, termsId: terms?.termsId ?? null, paymentIntervalMonths: terms?.paymentIntervalMonths ?? 1 };
+}
+
+/** The index of the entry `interestTiming` takes (nearest, ties towards the later one), in the given order. */
+function nearestIndex(bookingDate: BusinessDate, paymentDates: readonly BusinessDate[]): number | undefined {
+  let best: number | undefined;
+  const distance = (d: BusinessDate) => Math.abs(dayNumber(d) - dayNumber(bookingDate));
+  paymentDates.forEach((d, i) => {
+    if (best === undefined || distance(d) <= distance(paymentDates[best] as BusinessDate)) best = i;
+  });
+  return best;
 }
 
 /** Consecutive days of the period with the same set (rule 2). */

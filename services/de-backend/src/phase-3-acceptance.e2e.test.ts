@@ -686,21 +686,24 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
     expect(await debt(l1, 'asOf=2027-03-31')).toMatchObject({ principalPaid: eur('6801.50'), actual: eur('233198.50') });
     await json(await A('POST', `/transactions/${february}/correct`, { reason: 'Zins und Tilgung vertauscht', replacement: { splits: februaryRight } }), 201);
 
-    // Remaining debt is derived: the special repayment is the difference to the plan.
+    // Remaining debt is derived: the special repayment is the difference to the contract plan; `planned` is the forecast
+    // from the last booked payment (§58O question 12 (b), Entscheidung des Projektinhabers, 2026-11-05), so it follows it.
     const march31 = await debt(l1, 'asOf=2027-03-31');
     expect(march31).toMatchObject({
       principalPaid: eur('6804.50'),
       actual: eur('233195.50'),
-      planned: eur('238195.50'),
-      difference: eur('-5000.00'),
+      planned: eur('233195.50'),
+      difference: eur('0.00'),
+      plannedAsContracted: eur('238195.50'),
+      differenceAsContracted: eur('-5000.00'),
       closing: null,
     });
     // Per property by the 2/3 : 1/3 set; the odd cent of the actual by largest remainder; each difference derived.
     const perProperty = await debt(l1, 'asOf=2027-03-31&perProperty=true');
     expect(perProperty.allocationSetId).toBe(byPrice.allocationSetId);
     expect(perProperty.items?.map((i) => [i.propertyReferenceId, i.share, i.actual.amount, i.planned?.amount, i.difference?.amount])).toEqual([
-      [p1, '2/3', '155463.67', '158797.00', '-3333.33'],
-      [p2, '1/3', '77731.83', '79398.50', '-1666.67'],
+      [p1, '2/3', '155463.67', '155463.67', '0.00'],
+      [p2, '1/3', '77731.83', '77731.83', '0.00'],
     ]);
     const cents = (m: Money | null | undefined) => BigInt((m?.amount ?? '0').replace('.', ''));
     for (const column of ['actual', 'planned', 'difference'] as const) {

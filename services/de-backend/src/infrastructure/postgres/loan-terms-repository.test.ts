@@ -111,6 +111,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresLoanTermsRepository', () => 
     initialRepaymentRate: 3000n,
     specialRepaymentLimit: eur('5000.00'),
     notes: null,
+    paymentIntervalMonths: 1,
     ...overrides,
   });
   const followUp = (overrides: Partial<LoanTermsData> = {}) =>

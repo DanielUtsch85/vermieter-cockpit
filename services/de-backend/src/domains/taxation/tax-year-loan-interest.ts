@@ -2,7 +2,14 @@ import { centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js'
 import type { LoanAllocationSetView } from '../financing/index.js';
 import type { MarkedChange } from './attribution-changes.js';
 import type { TaxListItem, TaxMeaning } from './classification.js';
-import { distributeOverPeriod, setsOfSegments, type InterestPeriod, type PeriodSegment } from './loan-interest-periods.js';
+import {
+  distributeOverPeriod,
+  setsOfSegments,
+  type InterestPeriod,
+  type PeriodDeviation,
+  type PeriodDistribution,
+  type PeriodSegment,
+} from './loan-interest-periods.js';
 import { deriveItem, itemAt, type Derived } from './tax-year-items.js';
 import type { TaxYearItem, TaxYearLoanAllocation, ViewFlag } from './tax-year-response.js';
 import { confirmationMark, type LoanAllocationTaxConfirmation } from './tax-statements.js';
@@ -26,6 +33,18 @@ export interface LoanInterestSplit {
   readonly loanId: string;
   /** §58L rule 1 (`interestPeriodOf`): the recorded or the schedule's period, clipped at `debtFrom`; `null` without (rule 8). */
   readonly period: InterestPeriod | null;
+  /** §58O: the recorded period where it deviates from the plan's (the view's reads only; absent elsewhere). */
+  readonly deviation?: PeriodDeviation | null;
+}
+
+/** §58O: `INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE`'s details; `partsDiffer` decides its level (open when true). */
+export interface DeviationDetails {
+  readonly loanId: string;
+  readonly recorded: { readonly from: BusinessDate; readonly until: BusinessDate };
+  readonly schedule: { readonly from: BusinessDate; readonly until: BusinessDate };
+  readonly termsId: string | null;
+  readonly paymentIntervalMonths: number;
+  readonly partsDiffer: boolean;
 }
 
 export type NotAttributedReason = 'NO_LOAN_ALLOCATION' | 'ALLOCATION_SUM_NOT_ONE';
@@ -42,6 +61,7 @@ export type LoanInterestCase =
       /** The property's non-negative part of the split's amount (one `distribute` over the weights). */
       readonly propertyCents: bigint;
       readonly allocation: TaxYearLoanAllocation;
+      readonly deviation: DeviationDetails | null;
     }
   | { readonly kind: 'ELSEWHERE'; readonly split: LoanInterestSplit }
   | {
@@ -53,6 +73,7 @@ export type LoanInterestCase =
       readonly allocation: TaxYearLoanAllocation;
       /** §58L: the days of the period without a set (`[]` for `ALLOCATION_SUM_NOT_ONE`). */
       readonly uncovered: readonly { readonly from: BusinessDate; readonly until: BusinessDate }[];
+      readonly deviation: DeviationDetails | null;
     };
 
 /** The open item flag on interest attributed by a `PURCHASE_PRICE` set with more than one entry (§58D, third set). */
@@ -64,6 +85,22 @@ export const LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY = 'LOAN_ALLOCATION_BY_P
 export const LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS = 'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS';
 /** §58L rule 8 (L8): a split distributed by its booking date's set, its Loan without a schedule; open with several `VALID` sets. */
 export const INTEREST_PERIOD_UNKNOWN = 'INTEREST_PERIOD_UNKNOWN';
+/**
+ * §58O (Entscheidung des Projektinhabers, 2026-11-05, questions 6, 7, 11): a recorded `interestPeriod` that deviates
+ * from the Loan's plan; open where the two periods give different parts for some PropertyReference (or one is covered
+ * and the other not), informative where every part is the same; no acknowledgement.
+ */
+export const INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE = 'INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE';
+
+/** Whether two distributions of one split give different parts (the whole distribution, so the level is the same in every view). */
+function partsDiffer(a: PeriodDistribution, b: PeriodDistribution): boolean {
+  if (a.kind !== b.kind) return true;
+  if (a.kind !== 'COVERED' || b.kind !== 'COVERED') return false;
+  const parts = (d: Extract<PeriodDistribution, { kind: 'COVERED' }>) =>
+    new Map(d.weights.filter((w) => w.cents !== 0n).map((w) => [w.propertyReferenceId, w.cents]));
+  const [x, y] = [parts(a), parts(b)];
+  return x.size !== y.size || [...x].some(([id, cents]) => y.get(id) !== cents);
+}
 
 const bookingDateOf = (item: TaxListItem): BusinessDate => (item as TaxMeaning).bookingDate;
 const shareText = (s: { numerator: bigint; denominator: bigint }) => `${s.numerator}/${s.denominator}`;
@@ -107,12 +144,33 @@ export function loanInterestOf(
   return splits.map((split): LoanInterestCase => {
     const loanSets = sets.get(split.loanId) ?? [];
     const d = distributeOverPeriod(loanSets, centsOf(split.item.amount), split.period, bookingDateOf(split.item));
+    const dev = split.deviation ?? null;
+    // §58O: the split distributed once more by the schedule's period, for the flag's level.
+    const deviation: DeviationDetails | null =
+      dev === null
+        ? null
+        : {
+            loanId: split.loanId,
+            recorded: dev.recorded,
+            schedule: { from: dev.schedule.from, until: dev.schedule.until },
+            termsId: dev.termsId,
+            paymentIntervalMonths: dev.paymentIntervalMonths,
+            partsDiffer: partsDiffer(d, distributeOverPeriod(loanSets, centsOf(split.item.amount), dev.schedule, bookingDateOf(split.item))),
+          };
     const used = setsOfSegments(d.segments);
     const single = used.length === 1 && (d.kind === 'COVERED' || d.reason === 'ALLOCATION_SUM_NOT_ONE') ? (used[0] ?? null) : null;
     const allocation = allocationOf(propertyReferenceId, split, d.segments, single);
     if (d.kind === 'UNCOVERED') {
       const candidates = [...new Set(loanSets.filter((s) => s.status === 'VALID').flatMap((s) => s.allocations.map((a) => a.propertyReferenceId)))].sort();
-      return { kind: 'NOT_ATTRIBUTED', split, reason: d.reason, candidates, allocation, uncovered: d.reason === 'NO_LOAN_ALLOCATION' ? d.uncovered : [] };
+      return {
+        kind: 'NOT_ATTRIBUTED',
+        split,
+        reason: d.reason,
+        candidates,
+        allocation,
+        uncovered: d.reason === 'NO_LOAN_ALLOCATION' ? d.uncovered : [],
+        deviation,
+      };
     }
     const weight = d.weights.find((w) => w.propertyReferenceId === propertyReferenceId);
     if (weight === undefined) return { kind: 'ELSEWHERE', split };
@@ -123,6 +181,7 @@ export function loanInterestOf(
       validSets: loanSets.filter((s) => s.status === 'VALID').length,
       propertyCents: weight.cents,
       allocation: { ...allocation, share: shareText(weight.share), propertyPart: moneyOfCents(weight.cents, split.item.amount.currency) },
+      deviation,
     };
   });
 }
@@ -155,6 +214,8 @@ export function deriveLoanItem(
   if (c.split.period === null) {
     flags.push({ code: INTEREST_PERIOD_UNKNOWN, details: { loanId: c.split.loanId, reason: 'NO_SCHEDULE', validAllocationSets: c.validSets } });
   }
+  // §58O: open where the parts differ, informative where they are the same.
+  if (c.deviation !== null) flags.push({ code: INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE, details: c.deviation });
   return { ...derived, flags, loanAllocation: allocation };
 }
 
@@ -167,6 +228,8 @@ export function notAttributedLoanItem(c: Extract<LoanInterestCase, { kind: 'NOT_
   const flags: ViewFlag[] = [
     ...(m.reviewState === 'NEEDS_REVIEW' ? [{ code: 'NEEDS_REVIEW', details: {} }] : []),
     ...(m.treatment === null ? [{ code: 'UNCLASSIFIED', details: {} }] : []),
+    // §58O: listed informative on a not attributed entry (the year is open by LOAN_INTEREST_NOT_ATTRIBUTED anyway).
+    ...(c.deviation === null ? [] : [{ code: INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE, details: { ...c.deviation, notAttributed: true } }]),
   ];
   const derived: Derived = {
     source: m,

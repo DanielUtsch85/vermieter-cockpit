@@ -16,6 +16,7 @@ import { principalOf } from './access-middleware.js';
 import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { rebasedOnDto } from './loan-terms.js';
 
 const perProperty = z
   .enum(['true', 'false'])
@@ -185,6 +186,10 @@ function toDebtDto(loanId: string, d: RemainingDebt | RemainingDebtPerProperty) 
     actual: signedEurCents(d.actual),
     planned: signedOrNull(d.planned),
     difference: signedOrNull(d.difference),
+    // §58O question 12 (b): `planned` is the forecast from the last booked payment; the contract plan beside it.
+    plannedAsContracted: signedOrNull(d.plannedAsContracted),
+    differenceAsContracted: signedOrNull(d.differenceAsContracted),
+    rebasedOn: rebasedOnDto(d.rebasedOn),
     planEndReason: d.planEndReason,
     latestStatement: d.latestStatement === null ? null : toStatementDto(d.latestStatement),
     closing:

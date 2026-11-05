@@ -90,6 +90,11 @@ export function flagIsOpen(
   if (code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY') return priceKeyIsOpen(details);
   // §58L rule 8 (Entscheidung des Projektinhabers, 2026-11-04, L8): open with more than one VALID set, else informative.
   if (code === 'INTEREST_PERIOD_UNKNOWN') return ((details as { validAllocationSets?: number } | undefined)?.validAllocationSets ?? 2) > 1;
+  // §58O (Entscheidung des Projektinhabers, 2026-11-05, question 6): open where the parts differ; informative on a not attributed entry.
+  if (code === 'INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE') {
+    const d = details as { partsDiffer?: boolean; notAttributed?: boolean } | undefined;
+    return d?.partsDiffer === true && d.notAttributed !== true;
+  }
   if (code === 'NOT_COUNTED') return notCountedIsOpen(details);
   if (OPEN_YEAR_FLAGS.has(code) || OPEN_ITEM_FLAGS.has(code)) return true;
   if (code === 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN') return item.treatment !== 'CAPITALIZED';

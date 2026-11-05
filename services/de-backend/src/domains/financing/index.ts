@@ -25,16 +25,21 @@ export type {
 } from './loan.js';
 export {
   MAX_PAYMENTS,
+  PAYMENT_INTERVALS,
   REPAYMENT_MODELS,
   SCHEDULE_END_REASONS,
   TERMS_STATUSES,
   checkAppend,
   closedSchedule,
   deriveSchedule,
+  firstIntervalOf,
   formatRate,
+  loanPlan,
   loanSchedule,
   monthlyInterest,
   parseRate,
+  periodInterest,
+  planOf,
   planVoidTerms,
   plannedBalanceOn,
   scheduleOf,
@@ -45,7 +50,11 @@ export {
 } from './terms.js';
 export type {
   AppendRefusal,
+  AppliedRestart,
   CreateTermsOutcome,
+  PaymentIntervalMonths,
+  PlanRestart,
+  WalkedPlan,
   LoanTerms,
   LoanTermsData,
   LoanTermsId,
@@ -93,7 +102,11 @@ export type {
   VoidAllocationPlan,
 } from './allocation.js';
 export { nearestEntry, proposePayment } from './payment-proposal.js';
-export type { PaymentProposal, ProposalFlag, ProposalTransaction } from './payment-proposal.js';
+export type { PaymentProposal, ProposalFlag, ProposalSource, ProposalTransaction } from './payment-proposal.js';
+export { BBBANK_LOAN_DEBIT, LOAN_PURPOSE_FORMATS, germanAmountCents, readPurpose } from './purpose-formats.js';
+export type { PurposeFormat, PurposeReading } from './purpose-formats.js';
+export { rebasedOnDay, reconciledPlan } from './rebase.js';
+export type { BookedSplitDeviation, RebasedOn, ReconciledPlan } from './rebase.js';
 export {
   STATEMENT_STATUSES,
   actualOn,

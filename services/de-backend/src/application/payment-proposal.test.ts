@@ -17,8 +17,9 @@ const period = {
   scheduledPayment: Money.of('300.00', 'EUR'),
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
+  paymentIntervalMonths: 1,
 } as unknown as LoanTerms;
-const transaction = { id: 'tx', bookingDate: day('2027-03-01'), amount: 30_000n, direction: 'OUTFLOW', status: 'IMPORTED', splitCount: 0 };
+const transaction = { id: 'tx', bookingDate: day('2027-03-01'), amount: 30_000n, direction: 'OUTFLOW', status: 'IMPORTED', splitCount: 0, description: null };
 const with_ = (inputs: Awaited<ReturnType<LoanTermsRepository['proposalInputs']>>) =>
   getPaymentProposal({ repository: { proposalInputs: async () => inputs } as unknown as LoanTermsRepository });
 const call = (inputs: Awaited<ReturnType<LoanTermsRepository['proposalInputs']>>) => with_(inputs)({ principal, loanId: 'l', transactionId: 'tx' });
@@ -66,7 +67,7 @@ describe('getPaymentProposal (§41.5)', () => {
 describe('getLoanSchedule (§41.4, §41.7)', () => {
   it("a CLOSED Loan's plan is cut at its closing date with endReason CLOSED", async () => {
     const read = (l: Loan) =>
-      getLoanSchedule({ repository: { scheduleInputs: async () => ({ loan: l, periods: [period] }) } as unknown as LoanTermsRepository })({
+      getLoanSchedule({ repository: { scheduleInputs: async () => ({ loan: l, periods: [period], splits: [] }) } as unknown as LoanTermsRepository })({
         principal,
         loanId: 'l',
       });

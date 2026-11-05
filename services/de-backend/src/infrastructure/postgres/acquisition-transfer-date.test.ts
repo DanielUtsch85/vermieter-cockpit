@@ -481,12 +481,14 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
             await down.query(`DELETE FROM acquisition WHERE id = $1`, [other.acquisitionId]);
             for (const t of ['ownership', 'acquisition_party', 'acquisition']) await down.query(`ALTER TABLE ${t} ENABLE TRIGGER USER`);
             // 0068 (VC-X-27, tax_classification only) sorts after 0067: its own down first (no cost-line classification here).
+            // 0070 (VC-X-53, loan_terms only) sorts after 0069: its own down first (no interval other than 1 here).
+            await (migrations['0070_loan_terms_payment_interval'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             // 0069 (VC-X-40, tax_classification only) sorts after 0068: its own down before it (no interest period here).
             await (migrations['0069_loan_interest_period'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await (migrations['0068_hausgeld_cost_line_classification'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await migration.down(createDatabase(down) as never);
             await down.query(
-              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period')`,
+              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval')`,
             );
           }
           expect(await defs()).toEqual(original);

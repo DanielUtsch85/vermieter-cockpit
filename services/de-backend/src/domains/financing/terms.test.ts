@@ -51,6 +51,7 @@ const data = (overrides: Partial<LoanTermsData> = {}): LoanTermsData => ({
   firstPaymentDate: day('2026-10-01'),
   principalAtStart: null,
   fixedRateUntil: null,
+  paymentIntervalMonths: 1,
   initialRepaymentRate: null,
   specialRepaymentLimit: null,
   notes: null,

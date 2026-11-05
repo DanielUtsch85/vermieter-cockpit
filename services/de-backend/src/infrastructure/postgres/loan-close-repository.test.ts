@@ -338,6 +338,7 @@ describe.skipIf(databaseUrl === undefined)('Closing a Loan (§41.7)', () => {
         validFrom: day('2027-07-01'),
         interestRate: 1000n,
         repaymentModel: 'INTEREST_ONLY' as const,
+        paymentIntervalMonths: 1 as const,
         scheduledPayment: null,
         firstPaymentDate: day('2027-07-31'),
         principalAtStart: null,

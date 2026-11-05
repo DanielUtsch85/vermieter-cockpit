@@ -1,9 +1,12 @@
 import {
-  proposePayment,
   loanSchedule,
+  proposePayment,
+  reconciledPlan,
   scheduleWindow,
   termsFingerprint,
+  type BookedSplitDeviation,
   type PaymentProposal,
+  type RebasedOn,
   type Schedule,
   type ScheduleEndReason,
   type AppendRefusal,
@@ -128,19 +131,28 @@ export function listLoanTerms(deps: { readonly repository: LoanTermsRepository }
   };
 }
 
-/** The Loan's derived plan (api-design §41.4), the entries limited to `[from, to]`; the summary covers the whole plan. */
+/**
+ * The Loan's plan (api-design §41.4), rebased on the actual remaining debt after the last booked payment (§58O question
+ * 12 (b)); the entries limited to `[from, to]`, the summary over the whole plan; `deviations` by entry number (§58O (c)).
+ */
+export type LoanScheduleResult = Schedule & {
+  readonly rebasedOn: RebasedOn | null;
+  readonly deviations: ReadonlyMap<number, readonly BookedSplitDeviation[]>;
+};
+
 export type GetLoanSchedule = (input: {
   readonly principal: RealmPrincipal;
   readonly loanId: string;
   readonly from?: BusinessDate;
   readonly to?: BusinessDate;
-}) => Promise<Schedule>;
+}) => Promise<LoanScheduleResult>;
 
 export function getLoanSchedule(deps: { readonly repository: LoanTermsRepository }): GetLoanSchedule {
   return async ({ principal, loanId, from, to }) => {
     const inputs = await deps.repository.scheduleInputs(loanId, principal.mreRealmId);
     if (inputs === undefined) throw new LoanNotFoundError(loanId);
-    return scheduleWindow(loanSchedule(inputs.loan, inputs.periods), from, to);
+    const reconciled = reconciledPlan(inputs.loan, inputs.periods, inputs.splits);
+    return { ...scheduleWindow(reconciled.plan.schedule, from, to), rebasedOn: reconciled.rebases.at(-1) ?? null, deviations: reconciled.deviations };
   };
 }
 
@@ -203,6 +215,7 @@ export function getPaymentProposal(deps: { readonly repository: LoanTermsReposit
     if (loan.status === 'CLOSED' && loan.closingDate !== null && transaction.bookingDate > loan.closingDate)
       throw new LoanClosedOnError(loanId, loan.closingDate);
     const models = new Map(periods.map((p) => [p.id as string, p.repaymentModel]));
+    // §58O "Unchanged guarantees": the proposal reads the contract plan (it changes only where a purpose text states the split).
     const proposal = proposePayment(loanSchedule(loan, periods), transaction, (id) => models.get(id) ?? 'ANNUITY');
     if (proposal.kind === 'NOT_PROPOSABLE') throw new PaymentNotProposableError(transactionId, proposal.direction, proposal.status);
     if (proposal.kind === 'NO_SCHEDULE') throw new NoScheduleError(loanId, proposal.endReason);

@@ -1,5 +1,5 @@
 import { sql, type Transaction } from 'kysely';
-import { loanSchedule } from '../../domains/financing/index.js';
+import { firstIntervalOf, loanSchedule } from '../../domains/financing/index.js';
 import type { CategoryType, Direction, TransactionStatus } from '../../domains/ledger/index.js';
 import type { RentDueDay } from '../../domains/rental-contract-reference/index.js';
 import { retainedAmountOf, type DepositClosingReason } from '../../domains/security-deposit/index.js';
@@ -248,12 +248,14 @@ export async function timingOf(
       continue;
     }
     const periods = (await periodsOf(trx, loan.id)).filter((t) => t.status === 'VALID');
+    // The contract plan (§58O question 12 (b): Taxation never reads the rebased one), its first entry over its interval (rule 8).
     const schedule = loanSchedule(loan, periods);
     found.set(
       r.facts.splitId,
       interestTiming(
         r.facts.bookingDate,
         schedule.entries.map((e) => e.paymentDate),
+        firstIntervalOf(schedule, periods),
       ),
     );
   }

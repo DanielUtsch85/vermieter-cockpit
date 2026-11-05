@@ -58,6 +58,7 @@ const period: SchedulePeriod = {
   firstPaymentDate: day('2027-01-31'),
   principalAtStart: null,
   fixedRateUntil: null,
+  paymentIntervalMonths: 1,
 };
 
 describe('planClose (§41.7)', () => {
@@ -146,14 +147,20 @@ describe('effects of CLOSED (§41.7)', () => {
       actual: 0n,
       planned: 0n,
       difference: 0n,
+      plannedAsContracted: 0n,
+      differenceAsContracted: 0n,
       planEndReason: 'CLOSED',
+      rebasedOn: { bookingDate: '2027-02-28', entryNumber: 2, actualBalance: 40_853n, transactionId: 'tx-2027-02-28', flags: [] },
     });
     expect(debtOn(closed, [], paid, day('2028-01-01'))).toEqual({
       principalPaid: 59_147n,
       actual: 0n,
       planned: null,
       difference: null,
+      plannedAsContracted: null,
+      differenceAsContracted: null,
       planEndReason: 'NO_TERMS',
+      rebasedOn: null,
     });
     // Not a closed Loan: the same day shows the debt left.
     expect(debtOn(loan, [period], paid, day('2027-03-16'))).toMatchObject({ actual: 40_853n });

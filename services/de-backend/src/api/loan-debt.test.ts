@@ -47,6 +47,22 @@ const debt = {
   actual: -10_000n,
   planned: 40_853n,
   difference: -50_853n,
+  plannedAsContracted: 70_500n,
+  differenceAsContracted: -80_500n,
+  rebasedOn: {
+    bookingDate: '2027-02-28',
+    entryNumber: 2,
+    actualBalance: 40_853n,
+    transactionId: 'tx',
+    flags: [
+      {
+        code: 'BOOKED_SPLIT_DIFFERS_FROM_PLAN',
+        transactionId: 'tx',
+        booked: { interest: 400n, principal: 29_600n },
+        planned: { interest: 353n, principal: 29_647n },
+      },
+    ],
+  },
   planEndReason: 'PAID_OFF',
   latestStatement: null,
   closing: null,
@@ -95,6 +111,25 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
       actual: { amount: '-100.00', currency: 'EUR' },
       planned: { amount: '408.53', currency: 'EUR' },
       difference: { amount: '-508.53', currency: 'EUR' },
+      // §58O question 12 (b): the contract plan beside the rebased one, and where it was re-anchored.
+      plannedAsContracted: { amount: '705.00', currency: 'EUR' },
+      differenceAsContracted: { amount: '-805.00', currency: 'EUR' },
+      rebasedOn: {
+        bookingDate: '2027-02-28',
+        entryNumber: 2,
+        actualBalance: { amount: '408.53', currency: 'EUR' },
+        transactionId: 'tx',
+        flags: [
+          {
+            code: 'BOOKED_SPLIT_DIFFERS_FROM_PLAN',
+            details: {
+              transactionId: 'tx',
+              booked: { interest: { amount: '4.00', currency: 'EUR' }, principal: { amount: '296.00', currency: 'EUR' } },
+              planned: { interest: { amount: '3.53', currency: 'EUR' }, principal: { amount: '296.47', currency: 'EUR' } },
+            },
+          },
+        ],
+      },
       planEndReason: 'PAID_OFF',
       latestStatement: null,
       closing: null,
@@ -113,6 +148,9 @@ describe('GET /api/v1/loans/{id}/remaining-debt', () => {
       actual: -1n,
       planned: null,
       difference: null,
+      plannedAsContracted: null,
+      differenceAsContracted: null,
+      rebasedOn: null,
       planEndReason: 'NO_TERMS',
       latestStatement: statementView,
       closing: { closingDate: '2027-02-28', reason: 'REFINANCED', refinancedByLoanId: 'new', actualOnClosingDate: -1n },

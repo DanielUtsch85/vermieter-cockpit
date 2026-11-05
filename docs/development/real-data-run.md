@@ -84,9 +84,9 @@ Not mappable in v1: `Saldo nach Buchung`, `Buchungstext` (Lastschrift/Gutschrift
 **Follow-ups:**
 - F8: balance at the end of the fixed-rate period (#119, VC-3-09: `summary.fixedRateEnd`).
 - F9: verify the first interest period against the bank (#121).
-- F9 answered by the first debit (2026-11-03): case A, 36 days pro-rata interest from the payout; to be implemented with VC-X-53 (§58O question 12).
+- F9 answered by the first debit (2026-11-03): case A, 36 days pro-rata interest from the payout. **Closed** by VC-X-53 (api-design §58O question 12, decided by the owner on 2026-11-05): the plan keeps the simple rule and is reconciled with the real bookings: the proposal takes the split from the bank's purpose text (named format `BBBANK_LOAN_DEBIT`), and the schedule and planned remaining debt are rebased on the actual remaining debt after the last booked payment (#121).
 
-**Still open (part 2):** the comparison with the bank's own plan to the cent, once the bank's amortization plan or the first debits (from the checking account already exported in step 1) are available; then F9 is settled.
+**Still open (part 2):** the comparison with the bank's own plan to the cent, once the bank's amortization plan is available. F9 is settled (§58O question 12, VC-X-53).
 
 ## Step 3: rent reconciliation (done)
 

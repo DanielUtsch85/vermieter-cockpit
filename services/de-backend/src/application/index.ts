@@ -362,11 +362,21 @@ export type {
   GetLoanSchedule,
   GetPaymentProposal,
   ListLoanTerms,
+  LoanScheduleResult,
   PaymentProposalResult,
   VoidLoanTerms,
 } from './loan-terms.js';
-export { REPAYMENT_MODELS, TERMS_STATUSES, formatRate, parseRate } from '../domains/financing/index.js';
-export type { LoanTermsView, NumberedScheduleEntry, RepaymentModel, Schedule, ScheduleSummary, TermsStatus } from '../domains/financing/index.js';
+export { PAYMENT_INTERVALS, REPAYMENT_MODELS, TERMS_STATUSES, formatRate, parseRate } from '../domains/financing/index.js';
+export type {
+  BookedSplitDeviation,
+  LoanTermsView,
+  NumberedScheduleEntry,
+  RebasedOn,
+  RepaymentModel,
+  Schedule,
+  ScheduleSummary,
+  TermsStatus,
+} from '../domains/financing/index.js';
 export {
   LoanBalanceStatementNotFoundError,
   LoanNotAllocatedError,

@@ -1,6 +1,13 @@
 import type { Transaction } from 'kysely';
-import { debtFrom, loanSchedule } from '../../domains/financing/index.js';
-import { interestPeriodOf, type InterestPeriod, type LoanPeriodFacts, type TaxClassification } from '../../domains/taxation/index.js';
+import { debtFrom, firstIntervalOf, loanSchedule } from '../../domains/financing/index.js';
+import {
+  deviationOf,
+  interestPeriodOf,
+  type InterestPeriod,
+  type LoanPeriodFacts,
+  type PeriodDeviation,
+  type TaxClassification,
+} from '../../domains/taxation/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import { readLoanIn } from './loan-repository.js';
 import { periodsOf } from './loan-terms-repository.js';
@@ -17,7 +24,16 @@ export async function loanPeriodFactsOf(trx: Transaction<Database>, mreRealmId: 
     const loan = await readLoanIn(trx, loanId, mreRealmId);
     if (loan === undefined) continue;
     const periods = (await periodsOf(trx, loanId, mreRealmId)).filter((t) => t.status === 'VALID');
-    found.set(loanId, { debtFrom: debtFrom(loan), paymentDates: loanSchedule(loan, periods).entries.map((e) => e.paymentDate) });
+    // The contract plan (§58O question 12 (b)); the first entry's interval (rule 8) and each entry's period (the flag's details).
+    const schedule = loanSchedule(loan, periods);
+    const intervalOf = new Map(periods.map((p) => [p.id as string, p.paymentIntervalMonths]));
+    found.set(loanId, {
+      debtFrom: debtFrom(loan),
+      paymentDates: schedule.entries.map((e) => e.paymentDate),
+      firstIntervalMonths: firstIntervalOf(schedule, periods),
+      entryTerms: schedule.entries.map((e) => ({ termsId: e.termsId, paymentIntervalMonths: intervalOf.get(e.termsId) ?? 1 })),
+      closingDate: loan.status === 'CLOSED' ? loan.closingDate : null,
+    });
   }
   return found;
 }
@@ -28,3 +44,10 @@ export const periodOfSplit = (
   classification: Pick<TaxClassification, 'interestPeriod'> | null | undefined,
   loan: LoanPeriodFacts | undefined,
 ): InterestPeriod | null => interestPeriodOf(bookingDate, classification?.interestPeriod ?? null, loan);
+
+/** §58O: the split's recorded period where it deviates from its Loan's plan (`INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE`), else null. */
+export const deviationOfSplit = (
+  bookingDate: BusinessDate,
+  classification: Pick<TaxClassification, 'interestPeriod'> | null | undefined,
+  loan: LoanPeriodFacts | undefined,
+): PeriodDeviation | null => deviationOf(bookingDate, classification?.interestPeriod ?? null, loan);

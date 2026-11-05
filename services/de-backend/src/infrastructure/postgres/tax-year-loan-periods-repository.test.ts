@@ -223,6 +223,7 @@ describe.skipIf(databaseUrl === undefined)('loan interest by periods of use in t
           firstPaymentDate: day(firstPaymentDate),
           principalAtStart: null,
           fixedRateUntil: null,
+          paymentIntervalMonths: 1,
           initialRepaymentRate: null,
           specialRepaymentLimit: null,
           notes: null,
@@ -374,7 +375,12 @@ describe.skipIf(databaseUrl === undefined)('loan interest by periods of use in t
     expect((await classify(jan, { interestPeriod: { from: day('2028-01-01'), until: day('2028-01-31') } })).kind).toBe('CREATED');
     const y1 = await view(p1, 2027);
     const item = interestItems(y1).find((i) => i.sourceId === jan);
-    expect([item?.taxYear, item?.lineAmount?.amount, item?.flags.map((f) => f.code)]).toEqual([2027, '150.00', ['ATTRIBUTED_BY_10_DAY_RULE']]);
+    // §58O question 7 (Entscheidung des Projektinhabers, 2026-11-05): the recorded month deviates from the monthly plan's December: flagged.
+    expect([item?.taxYear, item?.lineAmount?.amount, item?.flags.map((f) => f.code)]).toEqual([
+      2027,
+      '150.00',
+      ['ATTRIBUTED_BY_10_DAY_RULE', 'INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE'],
+    ]);
     expect(interestItems(await view(p2, 2027)).find((i) => i.sourceId === jan)?.lineAmount?.amount).toBe('160.00');
     expect(interestItems(await view(p1, 2028)).find((i) => i.sourceId === jan)).toBeUndefined();
   });
@@ -416,6 +422,7 @@ describe.skipIf(databaseUrl === undefined)('loan interest by periods of use in t
           firstPaymentDate: day('2027-02-15'),
           principalAtStart: null,
           fixedRateUntil: null,
+          paymentIntervalMonths: 1,
           initialRepaymentRate: null,
           specialRepaymentLimit: null,
           notes: null,

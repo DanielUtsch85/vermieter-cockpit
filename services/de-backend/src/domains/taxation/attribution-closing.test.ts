@@ -34,6 +34,7 @@ const TERMS: SchedulePeriod = {
   firstPaymentDate: day('2026-01-06'),
   principalAtStart: null,
   fixedRateUntil: null,
+  paymentIntervalMonths: 1,
 };
 /** `MANUAL` 1/1 to P3 from 2026-01-01 (the example), or to another PropertyReference. */
 const set = (pr = P3): LoanAllocationSetView =>

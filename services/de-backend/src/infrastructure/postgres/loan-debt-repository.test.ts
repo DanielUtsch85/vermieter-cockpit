@@ -153,6 +153,7 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
           firstPaymentDate: day('2027-01-31'),
           principalAtStart: null,
           fixedRateUntil: null,
+          paymentIntervalMonths: 1,
           initialRepaymentRate: null,
           specialRepaymentLimit: null,
           notes: null,
