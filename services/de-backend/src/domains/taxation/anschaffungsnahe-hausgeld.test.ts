@@ -247,6 +247,28 @@ describe('maintenance paid from the Hausgeld (§58M): edges, ranges and the para
     });
   });
 
+  it('a membership ending mid-year: its last year ends with the membership, not with the financial year', () => {
+    const ended = { ...membership, validUntil: day('2027-06-30') };
+    const statements = [statement(2026, () => [], ['2026-03-15', '2026-12-31']), statement(2027, () => [], ['2027-01-01', '2027-06-30'])];
+    const missing = (today: string) => flagOf(check(statements, { sources: [], memberships: [ended], today }), 'WEG_STATEMENT_MISSING');
+    // After the membership's end (2027-06-30) its year 2027 has ended, though the financial year has not.
+    expect(missing('2027-08-01')).toBeUndefined();
+    // Counter-check: on the day of the membership's end the year has not ended.
+    expect(missing('2027-06-30')).toEqual({ missing: [{ membershipId: 'm-1', financialYear: 2027 }] });
+  });
+
+  it('an annuallyRecurring line of a later statement performed in the window is not listed', () => {
+    const later = (annuallyRecurring: boolean) =>
+      statement(2031, (id) => [
+        line(1, 'Wartungsvertrag Aufzug', '900.00', judged(id, 1, '756.30', performed('2029-01-05', '2029-01-25'), { annuallyRecurring })),
+      ]);
+    const listed = (annuallyRecurring: boolean) =>
+      keys(check([...example(performed('2029-05-02', '2029-05-20')), statement2030, later(annuallyRecurring)], { today: '2032-08-01' }).outsideSearchRange);
+    expect(listed(true)).toEqual([]);
+    // Counter-check: the same line not recurring is listed.
+    expect(listed(false)).toEqual(['st-2031/1']);
+  });
+
   it('a statement beyond the outer bound is not read; RECOVERABLE, RESERVE and 0.00 lines are never unjudged', () => {
     const beyond = statement(2032, (id) => [line(1, 'Instandsetzung', '1000.00', judged(id, 1, '840.34', performed('2029-01-05', '2029-01-25')))], [
       '2032-03-16',

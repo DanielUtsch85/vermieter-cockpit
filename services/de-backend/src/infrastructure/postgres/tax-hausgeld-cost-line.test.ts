@@ -7,6 +7,7 @@ import { migrateToLatest } from './migrate.js';
 import { migrations } from './migrations/index.js';
 import { type PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 import { effectsOf } from './tax-treatment-effects.js';
+import { confirmedStatementsOf } from './weg-statements.test-support.js';
 import { testSchemaName } from './test-schema.test-support.js';
 import { actor, databaseUrl, day, eur, OTHER_REALM, reasonOf, REALM, UNKNOWN, useTaxWegDatabase, withMigrationLock } from './tax-weg.test-support.js';
 import type { NewTaxClassification } from '../../domains/taxation/index.js';
@@ -215,6 +216,26 @@ describe.skipIf(databaseUrl === undefined)('a WEG statement cost line as a sourc
       const missing = check?.flags.find((f) => f.code === 'WEG_STATEMENT_MISSING')?.details as unknown as { missing: { financialYear: number }[] };
       expect(missing.missing.map((m) => m.financialYear)).toEqual([2026, 2028, 2029, 2030]);
       expect(await classifications.anschaffungsnaheCheck(acq, OTHER_REALM, day('2031-08-01'))).toBeUndefined();
+    });
+
+    it('a VOID membership of the PropertyReference names no missing year; counter-check: the same membership ACTIVE does', async () => {
+      const years = async (acq: string) =>
+        (
+          (
+            (await classifications.anschaffungsnaheCheck(acq, REALM, day('2031-08-01')))?.flags.find((f) => f.code === 'WEG_STATEMENT_MISSING')
+              ?.details as unknown as { missing: { membershipId: string; financialYear: number }[] } | undefined
+          )?.missing ?? []
+        ).map((m) => [m.membershipId, m.financialYear]);
+      // P: a membership from 2020 voided, then the active one with its confirmed statements 2026–2030.
+      const { pr, membershipId: voided } = await member();
+      expect((await ctx.wegs.voidMembership(voided, REALM, 'Falsch erfasst (synthetisch)', new Date(), actor)).kind).toBe('VOIDED');
+      const { membershipId: active } = await member({ pr });
+      await confirmedStatementsOf(createDatabase(pool), { mreRealmId: REALM, membershipId: active, years: [2026, 2027, 2028, 2029, 2030] }, actor, new Date());
+      const acq = await acquisition(pr);
+      expect(await years(acq)).toEqual([]);
+      // Counter-check: a membership like the voided one, left ACTIVE, without statements: each year of the read range missing.
+      const { pr: pr2, membershipId: kept } = await member();
+      expect(await years(await acquisition(pr2))).toEqual([2026, 2027, 2028, 2029, 2030].map((y) => [kept, y]));
     });
 
     it('one snapshot: a classification committed between two reads of one check is not seen', async () => {
