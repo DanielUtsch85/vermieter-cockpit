@@ -159,11 +159,13 @@ describe.skipIf(databaseUrl === undefined)('capitalised Loan interest in the AfA
       [p2, '200.00', '180.00'],
     ] as const) {
       const v = await view(pr, 2028);
+      // §58L rule 8: the Loan has no terms, so by the booking date with INTEREST_PERIOD_UNKNOWN, informative (one VALID set).
       expect(v.capitalized.items.filter((i: Json) => i.sourceId === s1 || i.sourceId === s2).map((i: Json) => [i.lineAmount.amount, codes(i.flags)])).toEqual([
-        [part1, []],
-        [part2, []],
+        [part1, ['INTEREST_PERIOD_UNKNOWN']],
+        [part2, ['INTEREST_PERIOD_UNKNOWN']],
       ]);
       expect(codes(v.review.open)).not.toContain('LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS');
+      expect(codes(v.review.open)).not.toContain('INTEREST_PERIOD_UNKNOWN');
       // §59F: SUBSEQUENT_COST_START_TO_VERIFY is withdrawn (Prüfbericht Frage 5 confirmed the rule).
       expect(codes(v.review.open)).not.toContain('SUBSEQUENT_COST_START_TO_VERIFY');
     }

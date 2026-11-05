@@ -159,6 +159,8 @@ export async function createClassification(
             performed_until: performance?.until ?? null,
             performance_progress_estimated: performance === null || performance.progress.length === 0 ? null : performance.progressEstimated,
             partial_treatment: target.treatmentParts !== undefined,
+            interest_period_from: type === 'TRANSACTION_SPLIT' ? (classification.interestPeriod?.from ?? null) : null,
+            interest_period_until: type === 'TRANSACTION_SPLIT' ? (classification.interestPeriod?.until ?? null) : null,
             supersedes_id: current?.id ?? null,
             created_by: actor.actorId,
           })
@@ -207,6 +209,7 @@ export async function createClassification(
             ...(created.performance === null ? {} : { performance: performanceJson(created.performance) }),
             ...((created.treatmentParts ?? null) === null ? {} : { treatmentParts: treatmentPartsJson(created.treatmentParts ?? []) }),
             ...(created.treatmentRule === null ? {} : { treatmentRule: created.treatmentRule }),
+            ...((created.interestPeriod ?? null) === null ? {} : { interestPeriod: created.interestPeriod }),
             ...(current === undefined ? {} : { supersedes: current.id }),
           },
         });

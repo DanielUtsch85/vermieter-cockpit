@@ -4,6 +4,7 @@ import { loanInterestOf, type CapitalizedSourceInput, type RuleRegistry, type Ta
 import type { BusinessDate } from '../../shared/index.js';
 import { interestFactsIn, type InterestSplitRef } from './construction-period-reads.js';
 import { setsOfLoans } from './loan-allocation-repository.js';
+import { loanPeriodFactsOf, periodOfSplit } from './loan-interest-periods.js';
 import type { Database } from './schema.js';
 import { countingSplits, factsQuery, meaningsOf, toRead } from './tax-source-facts.js';
 
@@ -11,8 +12,8 @@ import { countingSplits, factsQuery, meaningsOf, toRead } from './tax-source-fac
  * The capitalised Loan interest sources of a PropertyReference (api-design.md §59E "What becomes a capitalised source",
  * condition 3), the second of the two disjoint reads of `capitalizedSources`: the counting `LOAN_INTEREST` splits with a
  * `loanId` (0027: never with a PropertyReference) of the Loans whose `VALID` sets name P, with a current `CAPITALIZED`
- * classification, over every year; each attributed to P by §58D's `loanInterestOf` (the set covering its booking date,
- * P's part by `distribute` over the whole set) and given its conditions' facts. `ELSEWHERE` and `NOT_ATTRIBUTED` splits
+ * classification, over every year; each attributed to P by §58D's and §58L's `loanInterestOf` (the sets over its
+ * interest period, P's part by one `distribute` over the weights) and given its conditions' facts. `ELSEWHERE` and `NOT_ATTRIBUTED` splits
  * give no source of P. In the caller's transaction.
  */
 export async function capitalizedLoanInterestOf(
@@ -54,9 +55,18 @@ export async function capitalizedLoanInterestOf(
   const splits = rows.map((row, i) => ({ row, pair: pairs[i] as (typeof pairs)[number] }));
   const sets = await setsOfLoans(trx, mreRealmId, [...new Set(rows.map((r) => r.loan_id as string))]);
   const views = new Map<string, readonly LoanAllocationSetView[]>([...sets].map(([loanId, own]) => [loanId, withValidUntil(own)]));
+  const loans = await loanPeriodFactsOf(
+    trx,
+    mreRealmId,
+    rows.map((r) => r.loan_id as string),
+  );
   const cases = loanInterestOf(
     propertyReferenceId,
-    splits.map(({ row, pair }) => ({ item: { ...pair.meaning, yearAmount: pair.meaning.amount }, loanId: row.loan_id as string })),
+    splits.map(({ row, pair }) => ({
+      item: { ...pair.meaning, yearAmount: pair.meaning.amount },
+      loanId: row.loan_id as string,
+      period: periodOfSplit(pair.meaning.bookingDate, pair.classification, loans.get(row.loan_id as string)),
+    })),
     views,
   );
   const facts = await interestFactsIn(
@@ -72,7 +82,8 @@ export async function capitalizedLoanInterestOf(
       {
         meaning: pair.meaning,
         anschaffungsnaheAcquisitionId: pair.classification?.anschaffungsnaheAcquisitionId ?? null,
-        loan: { loanId: c.split.loanId, set: c.set, propertyCents: c.propertyCents },
+        // §58L open question 9: a period over several sets carries no single set (SEVERAL_ALLOCATION_SETS).
+        loan: { loanId: c.split.loanId, set: c.sets.length === 1 ? (c.sets[0] ?? null) : null, propertyCents: c.propertyCents },
         interest: facts.get(pair.meaning.sourceId) ?? null,
       },
     ];

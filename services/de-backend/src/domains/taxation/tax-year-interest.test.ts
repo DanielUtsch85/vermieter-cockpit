@@ -144,7 +144,9 @@ function readOf(
     ownerships: OWNERS,
     checks: [],
     attribution: { references: [], candidates: [] },
-    allocatedLoanInterest: [{ item: { ...m, yearAmount: m.amount }, loanId: L }],
+    allocatedLoanInterest: [
+      { item: { ...m, yearAmount: m.amount }, loanId: L, period: { from: m.bookingDate, until: m.bookingDate, source: 'LOAN_SCHEDULE' } },
+    ],
     loanAllocationSets: new Map([[L, SET]]),
     depreciation: depreciationOf(2026, o.assets ?? [building()]),
     ...(o.facts === false ? {} : { interest: new Map([[SPLIT, factsOf(m, r)]]) }),

@@ -275,12 +275,13 @@ export class PostgresLoanTermsRepository implements LoanTermsRepository {
   }
 }
 
-/** The Loan's periods in `validFrom`, then `createdAt` order. */
-export async function periodsOf(trx: Transaction<Database>, loanId: string): Promise<LoanTerms[]> {
+/** The Loan's periods in `validFrom`, then `createdAt` order; with `mreRealmId`, only the Realm's (§58L's reads). */
+export async function periodsOf(trx: Transaction<Database>, loanId: string, mreRealmId?: string): Promise<LoanTerms[]> {
   const rows = await trx
     .selectFrom('loan_terms')
     .select(COLUMNS)
     .where('loan_id', '=', loanId)
+    .$if(mreRealmId !== undefined, (q) => q.where('mre_realm_id', '=', mreRealmId as string))
     .orderBy('valid_from')
     .orderBy('created_at')
     .orderBy('id')

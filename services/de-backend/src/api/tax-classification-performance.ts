@@ -91,3 +91,15 @@ export function performanceFieldIssue(body: {
   }
   return null;
 }
+
+/**
+ * `interestPeriod` (api-design.md §58L "In the view", open question 4; Entscheidung des Projektinhabers, 2026-11-04, L4):
+ * `from` and `until` required, `until` not before `from` (`OUT_OF_RANGE`). A split's only; its Loan and category are
+ * checked when the split is read (`NOT_SUPPORTED` at `interestPeriod`).
+ */
+export const interestPeriodBody = z
+  .object({ from: businessDate, until: businessDate })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (typeof body.from === 'string' && typeof body.until === 'string' && body.until < body.from) issue(ctx, ['until'], 'OUT_OF_RANGE');
+  });

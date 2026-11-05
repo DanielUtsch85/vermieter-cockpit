@@ -1,26 +1,31 @@
 import { centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
-import { distribute, setOn, sumsToOne, type LoanAllocationSetView } from '../financing/index.js';
+import type { LoanAllocationSetView } from '../financing/index.js';
 import type { MarkedChange } from './attribution-changes.js';
 import type { TaxListItem, TaxMeaning } from './classification.js';
+import { distributeOverPeriod, setsOfSegments, type InterestPeriod, type PeriodSegment } from './loan-interest-periods.js';
 import { deriveItem, itemAt, type Derived } from './tax-year-items.js';
 import type { TaxYearItem, TaxYearLoanAllocation, ViewFlag } from './tax-year-response.js';
 import { confirmationMark, type LoanAllocationTaxConfirmation } from './tax-statements.js';
 import type { ViewOwnership } from './tax-year-shares.js';
 
 /**
- * The interest of an allocated Loan in the tax-year view (api-design.md §58D, VC-X-29). A split with a `loanId` carries no
- * PropertyReference (0027): it reaches a property through the Loan's allocation set valid on its **booking date**
- * (decision 1), by Financing's `distribute` over the whole set (decision 6, §41.6: largest remainder, ties by
- * `propertyReferenceId`), and then the owners on that date by §58C's `shareOut` (decision 3), as any item. Any complete
- * set counts, `PURCHASE_PRICE` included (decided 2026-10-31, third set; ADR-038's one key), a multi-entry one flagged
- * open. Without a usable set the split is listed as not attributed and estimated nowhere (decision 5). An attribution
- * changes neither the item's meaning nor its review state (decision 7).
+ * The interest of an allocated Loan in the tax-year view (api-design.md §58D, VC-X-29; §58L, VC-X-40). A split with a
+ * `loanId` carries no PropertyReference (0027): it reaches a property through the Loan's allocation sets valid on each
+ * day of its **interest period** (§58L, decision 1 as amended by the owner on 2026-11-04, L1), by one `distribute` over
+ * the exact weights (§58L rule 5, decision 6, §41.6: largest remainder, ties by `propertyReferenceId`), and then the
+ * owners on its booking date by §58C's `shareOut` (decision 3, L6), as any item. Without a period (rule 8) the set on the
+ * booking date, flagged `INTEREST_PERIOD_UNKNOWN`. Any complete set counts, `PURCHASE_PRICE` included (decided
+ * 2026-10-31, third set; ADR-038's one key), a multi-entry one flagged open. A period with a day without a usable set
+ * leaves the split listed as not attributed and estimated nowhere (decision 5, L3). An attribution changes neither the
+ * item's meaning nor its review state (decision 7); the interest period never moves a split between years (rule 10).
  */
 
 /** A counting interest split of a candidate Loan whose tax year is the view's (§58D "What the view reads"). */
 export interface LoanInterestSplit {
   readonly item: TaxListItem;
   readonly loanId: string;
+  /** §58L rule 1 (`interestPeriodOf`): the recorded or the schedule's period, clipped at `debtFrom`; `null` without (rule 8). */
+  readonly period: InterestPeriod | null;
 }
 
 export type NotAttributedReason = 'NO_LOAN_ALLOCATION' | 'ALLOCATION_SUM_NOT_ONE';
@@ -30,8 +35,11 @@ export type LoanInterestCase =
   | {
       readonly kind: 'ATTRIBUTED';
       readonly split: LoanInterestSplit;
-      readonly set: LoanAllocationSetView;
-      /** The property's non-negative part of the split's amount (`distribute` over the set's entries). */
+      /** §58L: the distinct sets of the period's segments, by `from` (one set in the common case). */
+      readonly sets: readonly LoanAllocationSetView[];
+      /** The Loan's `VALID` sets (§58L rule 8: `INTEREST_PERIOD_UNKNOWN` open with more than one). */
+      readonly validSets: number;
+      /** The property's non-negative part of the split's amount (one `distribute` over the weights). */
       readonly propertyCents: bigint;
       readonly allocation: TaxYearLoanAllocation;
     }
@@ -43,6 +51,8 @@ export type LoanInterestCase =
       /** The PropertyReferences named by any `VALID` set of the Loan, sorted. */
       readonly candidates: readonly string[];
       readonly allocation: TaxYearLoanAllocation;
+      /** §58L: the days of the period without a set (`[]` for `ALLOCATION_SUM_NOT_ONE`). */
+      readonly uncovered: readonly { readonly from: BusinessDate; readonly until: BusinessDate }[];
     };
 
 /** The open item flag on interest attributed by a `PURCHASE_PRICE` set with more than one entry (§58D, third set). */
@@ -52,24 +62,42 @@ export const LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY = 'LOAN_ALLOCATION_BY_P
  * once (§58D open question 4, decided by the owner on 2026-11-01; raised or dropped by §59E's `withLoanInterestFlags`).
  */
 export const LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS = 'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS';
+/** §58L rule 8 (L8): a split distributed by its booking date's set, its Loan without a schedule; open with several `VALID` sets. */
+export const INTEREST_PERIOD_UNKNOWN = 'INTEREST_PERIOD_UNKNOWN';
 
 const bookingDateOf = (item: TaxListItem): BusinessDate => (item as TaxMeaning).bookingDate;
+const shareText = (s: { numerator: bigint; denominator: bigint }) => `${s.numerator}/${s.denominator}`;
 
-const allocationOf = (loanId: string, set: LoanAllocationSetView | null): TaxYearLoanAllocation => ({
-  loanId,
-  allocationSetId: set?.id ?? null,
-  validFrom: set?.validFrom ?? null,
-  validUntil: set?.validUntil ?? null,
-  basis: set?.basis ?? null,
+/** The item's allocation: the one set covering the whole period (or the booking date), else `null`s; the period and segments. */
+const allocationOf = (
+  propertyReferenceId: string,
+  split: LoanInterestSplit,
+  segments: readonly PeriodSegment[],
+  single: LoanAllocationSetView | null,
+): TaxYearLoanAllocation => ({
+  loanId: split.loanId,
+  interestPeriod: split.period === null ? null : { from: split.period.from, until: split.period.until, source: split.period.source },
+  segments:
+    split.period === null
+      ? []
+      : segments.map((s) => {
+          const entry = s.set.allocations.find((a) => a.propertyReferenceId === propertyReferenceId);
+          return { from: s.from, until: s.until, allocationSetId: s.set.id, basis: s.set.basis, share: entry === undefined ? null : shareText(entry.share) };
+        }),
+  allocationSetId: single?.id ?? null,
+  validFrom: single?.validFrom ?? null,
+  validUntil: single?.validUntil ?? null,
+  basis: single?.basis ?? null,
   share: null,
   propertyPart: null,
   taxConfirmation: null,
 });
 
 /**
- * Each split's case for `propertyReferenceId`: the set covering its booking date (`setOn`: `VALID`, `validFrom ≤ day ≤
- * validUntil`; a `VOID` set covers nothing), usable when its shares sum to exactly `1/1` (`sumsToOne`, defensive: 0026
- * refuses any other at commit). `sets` are every set of each Loan, with `validUntil` derived over the `VALID` ones.
+ * Each split's case for `propertyReferenceId` (§58L): `distributeOverPeriod` over its period (or its booking date, rule
+ * 8) and the Loan's sets (`setOn` per day: `VALID`, `validFrom ≤ day ≤ validUntil`; a `VOID` set covers nothing),
+ * usable when each set's shares sum to exactly `1/1` (`sumsToOne`, defensive: 0026 refuses any other at commit). `sets`
+ * are every set of each Loan, with `validUntil` derived over the `VALID` ones.
  */
 export function loanInterestOf(
   propertyReferenceId: string,
@@ -78,32 +106,23 @@ export function loanInterestOf(
 ): LoanInterestCase[] {
   return splits.map((split): LoanInterestCase => {
     const loanSets = sets.get(split.loanId) ?? [];
-    const set = setOn(loanSets, bookingDateOf(split.item));
-    if (set === null || !sumsToOne(set.allocations.map((a) => a.share))) {
+    const d = distributeOverPeriod(loanSets, centsOf(split.item.amount), split.period, bookingDateOf(split.item));
+    const used = setsOfSegments(d.segments);
+    const single = used.length === 1 && (d.kind === 'COVERED' || d.reason === 'ALLOCATION_SUM_NOT_ONE') ? (used[0] ?? null) : null;
+    const allocation = allocationOf(propertyReferenceId, split, d.segments, single);
+    if (d.kind === 'UNCOVERED') {
       const candidates = [...new Set(loanSets.filter((s) => s.status === 'VALID').flatMap((s) => s.allocations.map((a) => a.propertyReferenceId)))].sort();
-      return {
-        kind: 'NOT_ATTRIBUTED',
-        split,
-        reason: set === null ? 'NO_LOAN_ALLOCATION' : 'ALLOCATION_SUM_NOT_ONE',
-        candidates,
-        allocation: allocationOf(split.loanId, set),
-      };
+      return { kind: 'NOT_ATTRIBUTED', split, reason: d.reason, candidates, allocation, uncovered: d.reason === 'NO_LOAN_ALLOCATION' ? d.uncovered : [] };
     }
-    const index = set.allocations.findIndex((a) => a.propertyReferenceId === propertyReferenceId);
-    if (index < 0) return { kind: 'ELSEWHERE', split };
-    // Over the whole set, so every view of its PropertyReferences computes the same parts, summing to the split.
-    const propertyCents = distribute(centsOf(split.item.amount), set.allocations)[index] as bigint;
-    const share = set.allocations[index]?.share as { numerator: bigint; denominator: bigint };
+    const weight = d.weights.find((w) => w.propertyReferenceId === propertyReferenceId);
+    if (weight === undefined) return { kind: 'ELSEWHERE', split };
     return {
       kind: 'ATTRIBUTED',
       split,
-      set,
-      propertyCents,
-      allocation: {
-        ...allocationOf(split.loanId, set),
-        share: `${share.numerator}/${share.denominator}`,
-        propertyPart: moneyOfCents(propertyCents, split.item.amount.currency),
-      },
+      sets: used,
+      validSets: loanSets.filter((s) => s.status === 'VALID').length,
+      propertyCents: weight.cents,
+      allocation: { ...allocation, share: shareText(weight.share), propertyPart: moneyOfCents(weight.cents, split.item.amount.currency) },
     };
   });
 }
@@ -124,11 +143,17 @@ export function deriveLoanItem(
   if (derived === undefined) return undefined;
   const flags: ViewFlag[] = [...derived.flags];
   let allocation = c.allocation;
-  if (c.set.basis === 'PURCHASE_PRICE' && c.set.allocations.length > 1) {
+  // §58L: one entry per multi-entry PURCHASE_PRICE set among the segments (§58E Part 3: a confirmation clears its own).
+  for (const set of c.sets) {
+    if (set.basis !== 'PURCHASE_PRICE' || set.allocations.length <= 1) continue;
     // §58E Part 3: the set's ACTIVE confirmation, or null; the flag is informative with one, open without.
-    const confirmation = confirmationMark(confirmations.get(c.set.id));
-    flags.push({ code: LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, details: { loanId: c.split.loanId, allocationSetId: c.set.id, confirmation } });
-    allocation = { ...allocation, taxConfirmation: confirmation };
+    const confirmation = confirmationMark(confirmations.get(set.id));
+    flags.push({ code: LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY, details: { loanId: c.split.loanId, allocationSetId: set.id, confirmation } });
+    if (c.sets.length === 1) allocation = { ...allocation, taxConfirmation: confirmation };
+  }
+  // §58L rule 8 (L8): open with more than one VALID set, informative with exactly one.
+  if (c.split.period === null) {
+    flags.push({ code: INTEREST_PERIOD_UNKNOWN, details: { loanId: c.split.loanId, reason: 'NO_SCHEDULE', validAllocationSets: c.validSets } });
   }
   return { ...derived, flags, loanAllocation: allocation };
 }
@@ -156,7 +181,14 @@ export function notAttributedLoanItem(c: Extract<LoanInterestCase, { kind: 'NOT_
   };
   return {
     ...itemAt(derived, year, m.amount.currency, undefined),
-    notAttributed: { reason: c.reason, candidates: c.candidates, href: `/api/v1/loans/${c.split.loanId}/allocations?asOf=${bookingDateOf(m)}` },
+    notAttributed: {
+      reason: c.reason,
+      candidates: c.candidates,
+      href: `/api/v1/loans/${c.split.loanId}/allocations?asOf=${bookingDateOf(m)}`,
+      // §58L: the period and the days without a set.
+      interestPeriod: c.allocation.interestPeriod,
+      uncovered: c.uncovered,
+    },
   };
 }
 

@@ -110,7 +110,7 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
   };
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
 
-  it('the example of §58D: per property and per owner, by the set on each booking date; the debit before S1 not attributed', async () => {
+  it('the example of §58D under §58L: per property and per owner, by the sets over each interest period; the debit before S1 not attributed', async () => {
     const property = async (n: number) =>
       (
         await pool.query(
@@ -188,31 +188,33 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
     const [v1, v2] = [await view(P1, 2027), await view(P2, 2027)];
     const parts = (v: View) =>
       lineOf(v, 'LOAN_INTEREST').items.map((i) => [i.sourceId, i.date, i.taxYear, i.lineAmount?.amount, i.loanAllocation?.allocationSetId]);
+    // §58L (VC-X-40, rule 10): the 2028-01-03 debit pays December 2027 (the schedule's period 2027-12-01 – 2027-12-31),
+    // so it is distributed by December's set (50/50), no longer by the set of its booking date (70/30, §58D's rule).
     expect(parts(v1)).toEqual([
       [march, '2027-03-31', 2027, '270.01', sets[0]],
       [july, '2027-07-30', 2027, '225.00', sets[1]],
-      [moved, '2028-01-03', 2027, '313.60', sets[2]],
+      [moved, '2028-01-03', 2027, '224.00', sets[1]],
     ]);
-    expect(parts(v2).map((p) => p[3])).toEqual(['180.00', '224.99', '134.40']);
-    expect([lineOf(v1, 'LOAN_INTEREST').total, lineOf(v2, 'LOAN_INTEREST').total]).toEqual([eur('808.61'), eur('539.39')]);
+    expect(parts(v2).map((p) => p[3])).toEqual(['180.00', '224.99', '224.00']);
+    expect([lineOf(v1, 'LOAN_INTEREST').total, lineOf(v2, 'LOAN_INTEREST').total]).toEqual([eur('719.01'), eur('628.99')]);
     expect(cents(lineOf(v1, 'LOAN_INTEREST').total) + cents(lineOf(v2, 'LOAN_INTEREST').total)).toBe(134800n);
     // The 10-day rule moved the 2028-01-03 debit into 2027 (due 2027-12-31), open while its origin is DEFAULT.
     expect(codes(lineOf(v1, 'LOAN_INTEREST').items[2]?.flags ?? [])).toEqual(['ATTRIBUTED_BY_10_DAY_RULE']);
     const owners = (v: View) => v.owners?.map((o) => [o.ownerPartyId, o.werbungskosten.total.amount]);
     expect([owners(v1), owners(v2)]).toEqual([
       [
-        [ownerA, '404.31'],
-        [ownerB, '404.30'],
+        [ownerA, '359.51'],
+        [ownerB, '359.50'],
       ],
-      [[ownerC, '539.39']],
+      [[ownerC, '628.99']],
     ]);
     const a = await view(P1, 2027, ownerA);
     expect(lineOf(a, 'LOAN_INTEREST').items.map((i) => [i.lineAmount?.amount, i.share?.share, i.loanAllocation?.propertyPart?.amount])).toEqual([
       ['135.01', '1/2', '270.01'],
       ['112.50', '1/2', '225.00'],
-      ['156.80', '1/2', '313.60'],
+      ['112.00', '1/2', '224.00'],
     ]);
-    expect(lineOf(await view(P1, 2027, ownerB), 'LOAN_INTEREST').items.map((i) => i.lineAmount?.amount)).toEqual(['135.00', '112.50', '156.80']);
+    expect(lineOf(await view(P1, 2027, ownerB), 'LOAN_INTEREST').items.map((i) => i.lineAmount?.amount)).toEqual(['135.00', '112.50', '112.00']);
     for (const v of [v1, v2, a, await view(P2, 2027, ownerC)]) {
       expect(v.notAttributed.items.map((i) => [i.sourceId, i.lineAmount, i.share, i.reason, i.candidates])).toEqual([
         [before, null, null, 'NO_LOAN_ALLOCATION', [P1, P2]],

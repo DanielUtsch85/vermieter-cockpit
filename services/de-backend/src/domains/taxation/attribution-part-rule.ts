@@ -1,5 +1,6 @@
 import { centsOf, moneyOfCents, type BusinessDate, type Money } from '../../shared/index.js';
-import { distribute, setOn, sumsToOne, withValidUntil, type LoanAllocationSet } from '../financing/index.js';
+import { withValidUntil, type LoanAllocationSet } from '../financing/index.js';
+import { distributeOverPeriod, type InterestPeriod } from './loan-interest-periods.js';
 
 /**
  * P's state and part of an item on one side of a part change (api-design.md §58G's table), and when it moved; shared by
@@ -16,22 +17,21 @@ export interface Part {
 }
 
 /**
- * P's part of a split under the Loan's `VALID` sets of one side (§58G's table, §58D's three cases): the set covering the
- * booking date (`validUntil` derived over these sets), usable when its shares sum to `1/1`, P's part by `distribute`
- * over the whole set; without a usable set `NOT_ATTRIBUTED` while a set of the side names P; else `NONE`.
+ * P's part of a split under the Loan's `VALID` sets of one side (§58G's table, §58D's three cases, §58L): the view's own
+ * `distributeOverPeriod` over the split's interest period (or its booking date without one, rule 8), `validUntil`
+ * derived over these sets, P's part by one `distribute` over the weights; a covered split without a weight of P is
+ * `NONE`; with a day without a usable set `NOT_ATTRIBUTED` while a set of the side names P, else `NONE`.
  */
 export function partOn(
   propertyReferenceId: string,
   valid: readonly LoanAllocationSet[],
-  candidate: { readonly bookingDate: BusinessDate; readonly amount: Money },
+  candidate: { readonly bookingDate: BusinessDate; readonly amount: Money; readonly period: InterestPeriod | null },
 ): Part {
   const sets = withValidUntil(valid.map((s) => ({ ...s, status: 'VALID' as const })));
-  const set = setOn(sets, candidate.bookingDate);
-  if (set !== null && sumsToOne(set.allocations.map((a) => a.share))) {
-    const index = set.allocations.findIndex((a) => a.propertyReferenceId === propertyReferenceId);
-    if (index < 0) return { state: 'NONE', part: null };
-    const cents = distribute(centsOf(candidate.amount), set.allocations)[index] as bigint;
-    return { state: 'ATTRIBUTED', part: moneyOfCents(cents, candidate.amount.currency) };
+  const d = distributeOverPeriod(sets, centsOf(candidate.amount), candidate.period, candidate.bookingDate);
+  if (d.kind === 'COVERED') {
+    const weight = d.weights.find((w) => w.propertyReferenceId === propertyReferenceId);
+    return weight === undefined ? { state: 'NONE', part: null } : { state: 'ATTRIBUTED', part: moneyOfCents(weight.cents, candidate.amount.currency) };
   }
   return sets.some((s) => s.allocations.some((a) => a.propertyReferenceId === propertyReferenceId))
     ? { state: 'NOT_ATTRIBUTED', part: null }

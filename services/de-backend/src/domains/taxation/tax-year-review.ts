@@ -88,6 +88,8 @@ export function flagIsOpen(
   // §58G: PROPERTY_PART_CHANGED takes the same rule (open while an entry is not acknowledged; then informative).
   if (code === 'ATTRIBUTION_INPUT_CHANGED' || code === 'PROPERTY_PART_CHANGED') return attributionChangeIsOpen(details);
   if (code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY') return priceKeyIsOpen(details);
+  // §58L rule 8 (Entscheidung des Projektinhabers, 2026-11-04, L8): open with more than one VALID set, else informative.
+  if (code === 'INTEREST_PERIOD_UNKNOWN') return ((details as { validAllocationSets?: number } | undefined)?.validAllocationSets ?? 2) > 1;
   if (code === 'NOT_COUNTED') return notCountedIsOpen(details);
   if (OPEN_YEAR_FLAGS.has(code) || OPEN_ITEM_FLAGS.has(code)) return true;
   if (code === 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN') return item.treatment !== 'CAPITALIZED';

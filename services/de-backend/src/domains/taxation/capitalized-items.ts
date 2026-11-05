@@ -19,10 +19,12 @@ export interface CapitalizedSourceInput {
   readonly meaning: TaxMeaning | WegTaxMeaning;
   readonly anschaffungsnaheAcquisitionId: string | null;
   /**
-   * §59E: a Loan's interest split attributed to the PropertyReference by §58D (`loanInterestOf`: the set covering its
-   * booking date, P's part by `distribute` over the whole set); absent or `null` for a split of the PropertyReference.
+   * §59E: a Loan's interest split attributed to the PropertyReference by §58D and §58L (`loanInterestOf`: the sets over
+   * its interest period, P's part by one `distribute` over the weights); absent or `null` for a split of the
+   * PropertyReference. `set` is the one set covering the whole period; `null` when the period spans several sets (§58L
+   * open question 9: no source, `SEVERAL_ALLOCATION_SETS`; 0055 stores one set per component).
    */
-  readonly loan?: { readonly loanId: string; readonly set: LoanAllocationSetView; readonly propertyCents: bigint } | null;
+  readonly loan?: { readonly loanId: string; readonly set: LoanAllocationSetView | null; readonly propertyCents: bigint } | null;
   /** §59E: the conditions' facts of an interest split (`isInterestSplit`); absent or `null` for every other source. */
   readonly interest?: InterestFacts | null;
 }
@@ -69,11 +71,17 @@ export interface CapitalizedSource {
   readonly flags: readonly { readonly code: string; readonly details: Readonly<Record<string, unknown>> }[];
 }
 
-/** An interest split classified `CAPITALIZED` that is no source of the PropertyReference, with the reason (§59E). */
+/**
+ * §58L open question 9 (Entscheidung des Projektinhabers, 2026-11-04, L9): a capitalised Loan split whose interest period
+ * spans more than one allocation set is no source (a recorded component holds one set, 0055).
+ */
+export const SEVERAL_ALLOCATION_SETS = 'SEVERAL_ALLOCATION_SETS';
+
+/** An interest split classified `CAPITALIZED` that is no source of the PropertyReference, with the reason (§59E, §58L). */
 export interface NotASource {
   readonly sourceId: string;
   readonly loanId: string | null;
-  readonly reason: InterestReason;
+  readonly reason: InterestReason | typeof SEVERAL_ALLOCATION_SETS;
 }
 
 /** Each counting source whose current classification places it in `capitalized`, in the input's order (§59B, §59E). */
@@ -124,6 +132,10 @@ export function capitalizedSourcesOf(
         return [];
       }
     }
+    if (loan !== null && loan.set === null) {
+      notSources.push({ sourceId: meaning.sourceId, loanId: loan.loanId, reason: SEVERAL_ALLOCATION_SETS });
+      return [];
+    }
     const date = split ? meaning.bookingDate : meaning.date;
     // §59F (VC-X-38 Part 2): a partially treated source enters with its part in the window only (the rest is deductible).
     const amount =
@@ -131,9 +143,9 @@ export function capitalizedSourcesOf(
     const lineCents = signedCents({ amount, direction: split ? meaning.direction : null, taxCategory: meaning.taxCategory }, placement);
     const participants = participantsOn(ownerships, date);
     const parts = shareOut(lineCents, participants);
-    const entry = loan === null ? undefined : loan.set.allocations.find((a) => a.propertyReferenceId === propertyReferenceId);
+    const entry = loan?.set?.allocations.find((a) => a.propertyReferenceId === propertyReferenceId);
     // A Loan source reaches P only through P's entry of the covering set (§58D's ATTRIBUTED): anything else is a bug.
-    if (loan !== null && entry === undefined) throw new Error(`Loan interest split ${meaning.sourceId}: the set ${loan.set.id} names no entry for P`);
+    if (loan !== null && entry === undefined) throw new Error(`Loan interest split ${meaning.sourceId}: the set ${loan.set?.id} names no entry for P`);
     return [
       {
         sourceType: meaning.sourceType,
@@ -152,7 +164,7 @@ export function capitalizedSourcesOf(
         counts: meaning.counts,
         anschaffungsnaheAcquisitionId,
         loan:
-          loan === null || entry === undefined
+          loan === null || loan.set === null || entry === undefined
             ? null
             : {
                 loanId: loan.loanId,

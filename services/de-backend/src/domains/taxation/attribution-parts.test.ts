@@ -35,7 +35,12 @@ import { centsOf } from '../../shared/index.js';
  * `NOT_ATTRIBUTED` ↔ `NONE`); the fingerprint; the order of checks with the optional `kind` (Frage 4). Synthetic only.
  */
 const ctx = (propertyReferenceId: string) => ({ propertyReferenceId, fingerprinter });
-const candidateOf = (d: LoanInterestSplit) => ({ sourceId: d.item.sourceId, bookingDate: (d.item as TaxMeaning).bookingDate, amount: d.item.amount });
+const candidateOf = (d: LoanInterestSplit) => ({
+  sourceId: d.item.sourceId,
+  bookingDate: (d.item as TaxMeaning).bookingDate,
+  amount: d.item.amount,
+  period: d.period,
+});
 const run = (pr: string, year: number, sets: readonly AllocationSetHistory[], splits: readonly LoanInterestSplit[] = DEBITS[year as 2027 | 2028]) =>
   partChanges(partsOf(sets, splits), year, ctx(pr));
 /** Each change as [kind, auditRecordId, items as [sourceId, stateBefore, partBefore, stateAfter, partAfter]]. */
@@ -453,7 +458,7 @@ describe('the order of checks with the optional kind (Entscheidung des Projektin
 });
 
 describe('partOn (§58G table)', () => {
-  const c = { sourceId: D4, bookingDate: day('2028-06-30'), amount: eur('446.00') };
+  const c = { sourceId: D4, bookingDate: day('2028-06-30'), amount: eur('446.00'), period: null };
   it('ATTRIBUTED by distribute over the whole set; NONE without an entry; NOT_ATTRIBUTED without a covering set while a set names P', () => {
     expect(partOn(P1, [S1_HISTORY.set], c)).toEqual({ state: 'ATTRIBUTED', part: eur('267.60') });
     expect(partOn('0000c48a-0000-4000-8000-000000000009', [S1_HISTORY.set], c)).toEqual({ state: 'NONE', part: null });

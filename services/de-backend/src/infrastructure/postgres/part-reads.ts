@@ -44,7 +44,7 @@ export async function partChangeInputOf(
       loanId,
       candidates: wide.allocatedLoanInterest
         .filter((i) => i.loanId === loanId)
-        .map((i) => ({ sourceId: i.item.sourceId, bookingDate: (i.item as TaxMeaning).bookingDate, amount: i.item.amount })),
+        .map((i) => ({ sourceId: i.item.sourceId, bookingDate: (i.item as TaxMeaning).bookingDate, amount: i.item.amount, period: i.period })),
       sets: (wide.loanAllocationSets.get(loanId) ?? []).map(({ validUntil: _derived, ...set }) => ({ set, records: history(records, set.id) })),
     })),
   };
