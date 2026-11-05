@@ -393,6 +393,57 @@ describe.skipIf(databaseUrl === undefined)('loan interest by periods of use in t
     expect((await classify(await interestOf(l.loanId, '310.00', '2027-03-31'), period)).kind).toBe('CREATED');
   });
 
+  it('only VALID terms make the schedule: a VOID later period due on the 15th is never read; counter-check: the same terms VALID give the other period', async () => {
+    const { p1, p2 } = await properties();
+    const sets = [
+      manual('2027-01-01', [[p1, '1/1']]),
+      manual('2027-03-16', [
+        [p1, '1/2'],
+        [p2, '1/2'],
+      ]),
+    ];
+    /** Example 1's Loan (terms from 2027-01-01, due on the last day) and a second period from 2027-02-01, due on the 15th. */
+    const withSecondTerms = async () => {
+      const l = await loan('2027-01-01', '2027-01-31', sets);
+      const added = await terms.create(
+        l.loanId,
+        REALM,
+        {
+          validFrom: day('2027-02-01'),
+          interestRate: parseRate('3.000') as bigint,
+          repaymentModel: 'INTEREST_ONLY',
+          scheduledPayment: null,
+          firstPaymentDate: day('2027-02-15'),
+          principalAtStart: null,
+          fixedRateUntil: null,
+          initialRepaymentRate: null,
+          specialRepaymentLimit: null,
+          notes: null,
+        },
+        actor,
+      );
+      if (added.kind !== 'CREATED') throw new Error(added.kind);
+      return { ...l, termsId: added.terms.id };
+    };
+    const voided = await withSecondTerms();
+    expect((await terms.void(voided.loanId, voided.termsId, REALM, 'falsch erfasst (synthetisch)', new Date('2027-02-10T10:00:00Z'), actor)).kind).toBe(
+      'VOIDED',
+    );
+    const valid = await withSecondTerms();
+    const fromVoided = await interestOf(voided.loanId, '310.00', '2027-03-31');
+    const fromValid = await interestOf(valid.loanId, '310.00', '2027-03-31');
+    const items = interestItems(await view(p1, 2027));
+    const of = (splitId: string) => items.find((i) => i.sourceId === splitId);
+    // The VOID period is ignored: monthly to the last day, 2027-03-01 – 2027-03-31 over S1 and S2, P1 230.00.
+    expect(of(fromVoided)?.loanAllocation?.interestPeriod).toEqual({ from: '2027-03-01', until: '2027-03-31', source: 'LOAN_SCHEDULE' });
+    expect(of(fromVoided)?.lineAmount?.amount).toBe('230.00');
+    // Counter-check: VALID, the payment of 2027-04-15 is nearest, 2027-03-16 – 2027-04-15 wholly S2, P1 155.00.
+    expect(of(fromValid)?.loanAllocation?.interestPeriod).toEqual({ from: '2027-03-16', until: '2027-04-15', source: 'LOAN_SCHEDULE' });
+    expect(of(fromValid)?.lineAmount?.amount).toBe('155.00');
+    const p2Parts = new Map(parts(await view(p2, 2027)).map(([id, amount]) => [id, amount] as const));
+    expect([p2Parts.get(fromVoided), p2Parts.get(fromValid)]).toEqual(['80.00', '155.00']);
+  });
+
   describe('0069 past the repository', () => {
     const insert = async (values: Record<string, unknown>, disableTriggers = false): Promise<string> => {
       const row: Record<string, unknown> = {
