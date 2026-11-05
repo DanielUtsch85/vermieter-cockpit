@@ -106,6 +106,11 @@ export interface PurchaseCheckFacts {
   /** The check's open flag `WEG_HAUSGELD_MAINTENANCE_NOT_COUNTED`. */
   readonly wegHausgeldMaintenanceNotCounted: boolean;
   /**
+   * §58M with the decision of 2026-11-05 (question 2 of #269): the first year of the check's window while it is not final
+   * for `WEG_STATEMENT_MISSING`; `null` or absent otherwise.
+   */
+  readonly wegStatementMissingFrom?: number | null;
+  /**
    * 236-4: the check's summed sources (its `sources`, §58B, §59F), each with its tax year and its current treatment
    * (`CAPITALIZED` once its proposal is followed).
    */

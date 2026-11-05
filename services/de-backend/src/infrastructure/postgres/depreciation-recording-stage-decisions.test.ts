@@ -74,6 +74,8 @@ describe.skipIf(databaseUrl === undefined)('recording stages per the decisions 2
         acquisitionId: s.acquisitionId,
         status: 'ABOVE_THRESHOLD',
         wegHausgeldMaintenanceNotCounted: false,
+        // §58M (2026-11-05): no WEG membership, no missing statement.
+        wegStatementMissingFrom: null,
         summedSources: [{ taxYear: 2027, treatment: 'DEDUCTIBLE' }],
       },
     ]);

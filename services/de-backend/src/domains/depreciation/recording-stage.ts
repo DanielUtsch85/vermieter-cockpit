@@ -65,7 +65,7 @@ interface Dated {
 
 const always = (codes: readonly StageCriterion[]): Dated[] => codes.map((code) => ({ code, from: null }));
 
-/** The criteria of a purchase component (§59A, §59C, §59G; A1; the decisions of 2026-11-02, 236-2 and 236-4, and 3 of the third round). */
+/** The criteria of a purchase component (§59A, §59C, §59G; A1; the decisions of 2026-11-02, 236-2 and 236-4, and 3 of the third round; §58M, 2026-11-05). */
 function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchases: readonly ScheduleComponent[]): Dated[] {
   const criteria: StageCriterion[] = ['PURCHASE'];
   // A shorter-life entry on the purchase, in any review state („auch unbestätigt“).
@@ -79,6 +79,10 @@ function purchaseCriteria(c: ScheduleComponent, read: ScheduleRead, purchases: r
   // the first summed source on; the mapping is unchanged (one more fact meeting the same criterion).
   const proposal = check === undefined ? null : openProposalFrom(check);
   if (proposal !== null) dated.push({ code: 'ANSCHAFFUNGSNAHE_CHECK_OPEN', from: proposal });
+  // §58M (Entscheidung des Projektinhabers, 2026-11-05): a check not final for `WEG_STATEMENT_MISSING` is open too (like
+  // A1's Hausgeld flag: the sum is known to be incomplete), from the first year of the window; the mapping is unchanged.
+  const missingFrom = check?.wegStatementMissingFrom ?? null;
+  if (missingFrom !== null) dated.push({ code: 'ANSCHAFFUNGSNAHE_CHECK_OPEN', from: missingFrom });
   // 236-2 with decision 3 (third round): every purchase of an owner from the year of the owner's first share reduction
   // at which more than one of its purchases is active on; a reduction while it holds one purchase starts nothing, a later
   // purchase is a new layer (before it each purchase counts for itself, 236-3).
