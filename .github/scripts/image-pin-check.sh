@@ -5,12 +5,14 @@
 set -euo pipefail
 
 fail=0
-digest='@sha256:[0-9a-f]{64}'
+# Exactly 64 hex characters, then `}` (end of the ${MRE_VERSION:-…} default), a quote, whitespace or the end.
+digest="@sha256:[0-9a-f]{64}([}\"'[:space:]]|\$)"
 
 # `image:` lines in the compose files and the workflows (job services); the MRE images carry the digest in the
-# default of ${MRE_VERSION:-<commit>@sha256:…}.
+# default of ${MRE_VERSION:-<commit>@sha256:…}. A digest only in a trailing comment does not count.
 while IFS= read -r line; do
-  if ! grep -Eq "$digest" <<<"$line"; then
+  ref=${line%%#*}
+  if ! grep -Eq "$digest" <<<"$ref"; then
     echo "image not pinned by digest: $line" >&2
     fail=1
   fi

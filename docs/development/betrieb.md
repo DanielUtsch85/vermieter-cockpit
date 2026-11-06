@@ -380,7 +380,7 @@ docker buildx imagetools inspect ghcr.io/microrealestate/microrealestate/gateway
 Ohne Docker über die Registry-API (anonymes Token, `HEAD` auf das Manifest, Header `Docker-Content-Digest`):
 
 ```sh
-accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
+accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
 # Docker Hub (offizielle Images liegen unter library/)
 token=$(curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/postgres:pull" | jq -r .token)
 curl -fsSI -H "Authorization: Bearer $token" -H "Accept: $accept" https://registry-1.docker.io/v2/library/postgres/manifests/16 | grep -i docker-content-digest
