@@ -3,14 +3,22 @@ import { Money, type BusinessDate, type RuleRegistry, type RuleVersion } from '.
 import type { CapitalizedItem } from '../../domains/depreciation/index.js';
 import type { CapitalizedSource } from '../../domains/taxation/index.js';
 
-/** The assertions of §59B "Load order", shared by the three cases: both Depreciation rules, eight codes, the mapping. */
+/**
+ * The assertions of §59B "Load order", shared by the three cases: both Depreciation rules, nine codes, the mapping.
+ * §58T (VC-X-44) added `DE_LAND_BUILDING_PLAUSIBILITY@1` to Depreciation's versions (a flag's rule, no figure's).
+ */
 export function assertLoaded(
   versions: readonly RuleVersion[],
   rules: RuleRegistry,
   toCapitalizedItem: (source: CapitalizedSource, propertyReferenceId: string) => CapitalizedItem,
 ): void {
-  expect(versions.map((v) => `${v.ruleCode}@${v.version}`)).toEqual(['DE_AFA_BUILDING_LINEAR@1', 'DE_AFA_BUILDING_LINEAR@2', 'DE_AFA_MOVABLE_LINEAR@1']);
-  expect(rules.codes()).toHaveLength(8);
+  expect(versions.map((v) => `${v.ruleCode}@${v.version}`)).toEqual([
+    'DE_AFA_BUILDING_LINEAR@1',
+    'DE_AFA_BUILDING_LINEAR@2',
+    'DE_AFA_MOVABLE_LINEAR@1',
+    'DE_LAND_BUILDING_PLAUSIBILITY@1',
+  ]);
+  expect(rules.codes()).toHaveLength(9);
   expect(rules.find({ ruleCode: 'DE_AFA_MOVABLE_LINEAR', version: 1 })).toBeDefined();
   const source: CapitalizedSource = {
     sourceType: 'WEG_ASSESSMENT_USE',

@@ -96,6 +96,10 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
       supersededById: null,
       current: true,
       createdAt: '2026-10-26T15:00:00.000Z',
+      // §58T: additive; a BMF_TOOL split without a comparison carries no flag.
+      comparison: null,
+      deviationReason: null,
+      flags: [],
     });
     expect(seen[0]).toMatchObject({
       acquisitionId: ACQ,
@@ -163,5 +167,111 @@ describe('GET /api/v1/acquisitions/{id}/land-building-allocations', () => {
       items: [{ allocationId: NEW }, { allocationId: OLD, current: false, supersededById: NEW }],
     });
     expect((await call(base, 'GET', `/acquisitions/${ACQ}/land-building-allocations?page=1`)).status).toBe(400);
+  });
+});
+
+/** §58T (VC-X-44): the comparison and the reason in the body, the DTO's `comparison`, `deviationReason` and `flags`. */
+describe('the plausibility warning over HTTP (§58T)', () => {
+  const comparison = {
+    method: 'BMF_TOOL',
+    landValue: { amount: '132200.00', currency: 'EUR' },
+    buildingValue: { amount: '198300.00', currency: 'EUR' },
+    sourceReferences: ['BMF-Arbeitshilfe (synthetisch)'],
+  };
+  const reason = 'Bodenwert laut Vertrag gemindert (synthetisch)';
+  const stored: LandBuildingAllocation = {
+    ...allocation,
+    method: 'PURCHASE_CONTRACT',
+    reviewState: 'CONFIRMED',
+    comparison: { method: 'BMF_TOOL', landValue: eur('132200.00'), buildingValue: eur('198300.00'), sourceReferences: ['BMF-Arbeitshilfe (synthetisch)'] },
+    deviationReason: null,
+  };
+  const flag = (level: string, closedBy: string | null, reasonGiven: boolean) => ({
+    code: 'ALLOCATION_DEVIATES_FROM_COMPARISON',
+    level,
+    details: {
+      allocationId: NEW,
+      comparisonMethod: 'BMF_TOOL',
+      allocationLandShare: '0.2000',
+      comparisonLandShare: '0.4000',
+      deviation: '0.2000',
+      threshold: '0.10',
+      direction: 'LAND_SHARE_LOWER',
+      reasonGiven,
+      reviewState: 'CONFIRMED',
+      closedBy,
+      rule: { ruleCode: 'DE_LAND_BUILDING_PLAUSIBILITY', version: 1 },
+    },
+  });
+
+  it('201 of a conspicuous allocation carries the open flag at once; the comparison passed on, its landShare derived', async () => {
+    const seen: unknown[] = [];
+    const base = await start({
+      landBuildingAllocations: {
+        create: async (input) => {
+          seen.push(input);
+          return { allocation: stored, replayed: false };
+        },
+      },
+    });
+    const res = await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, { ...body, method: 'PURCHASE_CONTRACT', comparison });
+    expect(res.status).toBe(201);
+    const dto = (await res.json()) as Record<string, unknown>;
+    expect([dto['comparison'], dto['deviationReason'], dto['flags']]).toEqual([{ ...comparison, landShare: '0.4000' }, null, [flag('OPEN', null, false)]]);
+    expect(seen[0]).toMatchObject({ comparison: { method: 'BMF_TOOL', sourceReferences: comparison.sourceReferences }, deviationReason: null });
+    expect((seen[0] as { comparison: { landValue: Money } }).comparison.landValue.amount).toBe('132200.00');
+  });
+
+  it('both lists judge each allocation by its own data: the current with the reason INFORMATIVE, the superseded one OPEN', async () => {
+    const withReason = { ...stored, deviationReason: reason };
+    const old = { ...stored, id: OLD, current: false, supersededById: NEW };
+    const base = await start({ landBuildingAllocations: { list: async () => ({ current: withReason, items: [withReason, old] }) } });
+    const res = (await (await call(base, 'GET', `/acquisitions/${ACQ}/land-building-allocations`)).json()) as {
+      current: Record<string, unknown>;
+      items: Record<string, unknown>[];
+    };
+    expect([res.current['deviationReason'], res.current['flags']]).toEqual([reason, [flag('INFORMATIVE', 'DEVIATION_REASON', true)]]);
+    expect(res.items.map((i) => (i['flags'] as { level: string }[]).map((f) => f.level))).toEqual([['INFORMATIVE'], ['OPEN']]);
+  });
+
+  it('400: comparison unknown key, method, negative value, sum 0, another currency, empty and missing sources, a reason without comparison, 2001 characters', async () => {
+    const base = await start({});
+    const fields = async (b: unknown) => (await errorOf(await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, b))).details;
+    const zero = { amount: '0.00', currency: 'EUR' };
+    expect(await fields({ ...body, comparison: { ...comparison, landShare: '0.4' } })).toMatchObject({ fields: [{ field: 'comparison' }] });
+    expect(await fields({ ...body, comparison: { ...comparison, method: 'PURCHASE_CONTRACT' } })).toMatchObject({ fields: [{ field: 'comparison.method' }] });
+    expect(await fields({ ...body, comparison: { ...comparison, landValue: { amount: '-1.00', currency: 'EUR' } } })).toEqual({
+      fields: [{ field: 'comparison.landValue.amount', code: 'NEGATIVE_AMOUNT' }],
+    });
+    expect(await fields({ ...body, comparison: { ...comparison, landValue: zero, buildingValue: zero } })).toEqual({
+      fields: [{ field: 'comparison.landValue', code: 'NOT_POSITIVE' }],
+    });
+    // EUR only (data-model §17.4): another currency is UNSUPPORTED_CURRENCY before any CURRENCY_MISMATCH could arise.
+    const usd = { amount: '1.00', currency: 'USD' };
+    expect(await fields({ ...body, comparison: { ...comparison, buildingValue: usd } })).toEqual({
+      fields: [{ field: 'comparison.buildingValue.currency', code: 'UNSUPPORTED_CURRENCY' }],
+    });
+    expect(await fields({ ...body, comparison: { ...comparison, sourceReferences: [] } })).toEqual({
+      fields: [{ field: 'comparison.sourceReferences', code: 'REQUIRED' }],
+    });
+    const { sourceReferences: _none, ...withoutSources } = comparison;
+    expect(await fields({ ...body, comparison: withoutSources })).toEqual({ fields: [{ field: 'comparison.sourceReferences', code: 'REQUIRED' }] });
+    expect(await fields({ ...body, comparison: { ...comparison, sourceReferences: Array.from({ length: 11 }, (_, i) => `Q${i}`) } })).toMatchObject({
+      fields: [{ field: 'comparison.sourceReferences' }],
+    });
+    expect(await fields({ ...body, deviationReason: reason })).toEqual({ fields: [{ field: 'deviationReason', code: 'NOT_SUPPORTED' }] });
+    expect(await fields({ ...body, comparison: null, deviationReason: reason })).toEqual({ fields: [{ field: 'deviationReason', code: 'NOT_SUPPORTED' }] });
+    expect(await fields({ ...body, comparison, deviationReason: 'x'.repeat(2001) })).toMatchObject({ fields: [{ field: 'deviationReason' }] });
+  });
+
+  it('accepted: 2000 characters, a comparison 0.00 / x, ten sources; a conspicuous input is never refused', async () => {
+    const base = await start({ landBuildingAllocations: { create: async () => ({ allocation: stored, replayed: false }) } });
+    const path = `/acquisitions/${ACQ}/land-building-allocation`;
+    const ok = async (b: unknown) => (await call(base, 'POST', path, b)).status;
+    expect(await ok({ ...body, comparison, deviationReason: 'x'.repeat(2000) })).toBe(201);
+    expect(await ok({ ...body, comparison: { ...comparison, landValue: { amount: '0.00', currency: 'EUR' } } })).toBe(201);
+    expect(await ok({ ...body, comparison: { ...comparison, sourceReferences: Array.from({ length: 10 }, (_, i) => `Q${i}`) } })).toBe(201);
+    const far = { ...comparison, landValue: { amount: '330000.00', currency: 'EUR' }, buildingValue: { amount: '500.00', currency: 'EUR' } };
+    expect(await ok({ ...body, comparison: far })).toBe(201);
   });
 });

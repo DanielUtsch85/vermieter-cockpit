@@ -1,9 +1,13 @@
 import {
   allocationFingerprint,
+  plausibilityFlags,
   type AllocationData,
+  type PlausibilityFlag,
   type LandBuildingAllocation,
   type LandBuildingAllocationRepository,
 } from '../domains/acquisition/index.js';
+import { TAX_RULES } from '../domains/tax-rules/index.js';
+import type { RuleRegistry } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { AcquisitionCancelledError } from './acquisition-costs.js';
 import { IdempotencyKeyConflictError } from './errors.js';
@@ -68,4 +72,12 @@ export function listLandBuildingAllocations(deps: { readonly repository: LandBui
     if (result === undefined) throw new AcquisitionNotFoundError(acquisitionId);
     return result;
   };
+}
+
+/**
+ * §58T (VC-X-44): the allocation's plausibility flags, derived on read and never stored; each allocation by its own data
+ * and the version of `DE_LAND_BUILDING_PLAUSIBILITY` on its own `effectiveDate` (default registry `TAX_RULES`).
+ */
+export function allocationFlagsOf(a: LandBuildingAllocation, registry: RuleRegistry = TAX_RULES): PlausibilityFlag[] {
+  return plausibilityFlags({ ...a, comparison: a.comparison ?? null, deviationReason: a.deviationReason ?? null }, registry);
 }

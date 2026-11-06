@@ -299,9 +299,17 @@ export type {
 } from './construction-period-interest.js';
 export { CONSTRUCTION_PERIOD_REVIEW_STATES, MAX_CONSTRUCTION_PERIOD_PROPERTIES, MAX_FUNDS_SHARE_DENOMINATOR } from '../domains/taxation/index.js';
 export type { ConstructionPeriodInterest, NamingClassification } from '../domains/taxation/index.js';
-export { CurrentAllocationChangedError, createLandBuildingAllocation, listLandBuildingAllocations } from './land-building-allocations.js';
+export { CurrentAllocationChangedError, allocationFlagsOf, createLandBuildingAllocation, listLandBuildingAllocations } from './land-building-allocations.js';
 export type { CreateLandBuildingAllocation, ListLandBuildingAllocations } from './land-building-allocations.js';
-export { ALLOCATION_METHODS, ALLOCATION_REVIEW_STATES, shareOf } from '../domains/acquisition/index.js';
+export {
+  ALLOCATION_METHODS,
+  ALLOCATION_REVIEW_STATES,
+  COMPARISON_METHODS,
+  MAX_COMPARISON_SOURCE_REFERENCES,
+  MAX_DEVIATION_REASON_LENGTH,
+  comparisonLandShare,
+  shareOf,
+} from '../domains/acquisition/index.js';
 export type { LandBuildingAllocation } from '../domains/acquisition/index.js';
 export { OwnershipBasisIncompleteError, getOwnerAllocation } from './owner-allocation.js';
 export type { GetOwnerAllocation } from './owner-allocation.js';

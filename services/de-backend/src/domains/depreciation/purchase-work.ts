@@ -4,6 +4,7 @@ import {
   buildingAcquisitionCost,
   buildingCostReasonDetails,
   largestRemainder,
+  plausibilityFlags,
   type BuildingAcquisitionCost,
 } from '../acquisition/index.js';
 import { isConfirmed, type DepreciationAsset, type ShorterUsefulLife } from './asset.js';
@@ -298,6 +299,11 @@ export function purchaseWorkOf(ctx: PurchaseContext, a: ScheduleAcquisition, own
       code: 'OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER',
       details: { acquisitionId: a.id, ownershipStart: ownedFrom, economicTransferDate: start, level: sellerHasAfaComponent ? 'OPEN' : 'INFORMATIVE' },
     });
+  }
+  // §58T (VC-X-44): the current allocation's plausibility flags as raised, their level in the details; never a figure.
+  const allocation = a.allocation;
+  if (allocation?.plausibility !== undefined) {
+    for (const f of plausibilityFlags({ ...allocation, ...allocation.plausibility }, registry)) flags.push({ code: f.code, details: f.details });
   }
   const unpaid = a.costs.filter((c) => c.paymentStatus !== 'PAID').map((c) => c.id);
   if (unpaid.length > 0) flags.push({ code: 'ACQUISITION_COST_UNPAID', details: { costIds: [...unpaid].sort(byText) } });

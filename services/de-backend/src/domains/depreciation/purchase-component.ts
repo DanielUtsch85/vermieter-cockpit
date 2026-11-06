@@ -2,7 +2,7 @@ import { ExactDecimal, RoundingMode, centsOf, divideHalfUp, moneyOfCents, type M
 import { ZERO, cmp, monthLabel, monthOf, show, yearOfDate, yearOfMonth, type Frac } from './exact.js';
 import { isRateVerified } from './rate.js';
 import type { ComponentRate, ComponentYear, Flag, OwnerYear, ScheduleComponent, YearRule } from './schedule-model.js';
-import { isOpen, mergeOwnerFlags, sortFlags } from './schedule-review.js';
+import { flagIsOpen, isOpen, mergeOwnerFlags, sortFlags } from './schedule-review.js';
 import type { Part, Work } from './purchase-work.js';
 
 /**
@@ -54,7 +54,8 @@ export function componentOf(
             legalBasis: yr.band.legalBasis,
             shorterUsefulLife,
           };
-  const componentOpen = w.flags.some((f) => isOpen(f.code));
+  // §58T: judged on the flags as raised, so a level by state (`ALLOCATION_DEVIATES_FROM_COMPARISON`) counts as decided.
+  const componentOpen = w.flags.some(flagIsOpen);
   const reasonsOfComponent = [...assetReasons, ...w.reasons];
 
   const ownerYearOf = (p: Part, year: number): OwnerYear => {

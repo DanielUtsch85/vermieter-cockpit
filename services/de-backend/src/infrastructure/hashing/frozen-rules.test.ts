@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DE_AFA_BUILDING_LINEAR_V1, DE_AFA_BUILDING_LINEAR_V2, ruleVersionHash } from '../../domains/depreciation/index.js';
+import { DE_AFA_BUILDING_LINEAR_V1, DE_AFA_BUILDING_LINEAR_V2, DE_LAND_BUILDING_PLAUSIBILITY_V1, ruleVersionHash } from '../../domains/depreciation/index.js';
 import { DE_ANSCHAFFUNGSNAHE_V1, DE_CASH_TIMING_V1 } from '../../domains/taxation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import type { BusinessDate } from '../../shared/index.js';
@@ -83,6 +83,11 @@ const PINNED: readonly (readonly [string, number, string])[] = [
   // the documented go-live of the first productive installation: until then a change updates this literal explicitly,
   // in the same commit; after it, a change is `@2`.
   ['DE_CASH_TIMING', 1, 'dab6ce4e53383d47c0505dee9988316075c9c25cc2bb28abfb2ff75b292241cf'],
+  // New with §58T (VC-X-44; Entscheidung des Projektinhabers, 2026-11-06, question 9): a pin of its own, added; no existing
+  // pin changes. It decides no figure (never in §59A's `ruleVersions`). Its threshold is provisional (question 2): an
+  // advisor's answer before the first enablement of stage 1 is taken into @1 and updates this literal explicitly, in the
+  // same commit (as §60 open question 11 allows); after it, the answer is @2.
+  ['DE_LAND_BUILDING_PLAUSIBILITY', 1, '7d8049fd4c45562bf0f1d1919094f5733ee6a03417c3adab32aa247764b6cef5'],
 ];
 
 /** The change note VC-X-38 Part 2 added to `DE_ANSCHAFFUNGSNAHE@1`'s `source`. */
@@ -101,6 +106,23 @@ describe('the frozen rule versions (§60)', () => {
     const rule = TAX_RULES.find({ ruleCode, version });
     expect(rule).toBeDefined();
     expect(ruleVersionHash(rule as NonNullable<typeof rule>, sha256Fingerprinter)).toBe(hash);
+  });
+
+  it('counter-checks on a copy of the plausibility rule (§58T): the threshold, a direction, a method and the closing states each move the hash; effectiveTo does not', () => {
+    const v = DE_LAND_BUILDING_PLAUSIBILITY_V1;
+    const hash = (rule: typeof v) => ruleVersionHash(rule, sha256Fingerprinter);
+    expect(hash(v)).toBe('7d8049fd4c45562bf0f1d1919094f5733ee6a03417c3adab32aa247764b6cef5');
+    for (const parameters of [
+      { ...v.parameters, landShareDeviation: '0.15' },
+      { ...v.parameters, landShareDeviationVerified: true },
+      { ...v.parameters, directions: ['LAND_SHARE_LOWER' as const] },
+      { ...v.parameters, notCheckedMethods: ['PURCHASE_CONTRACT' as const] },
+      { ...v.parameters, closingReviewStates: [] },
+    ]) {
+      expect(hash({ ...v, parameters })).not.toBe(hash(v));
+    }
+    expect(hash({ ...v, source: `${v.source} ` })).not.toBe(hash(v));
+    expect(hash({ ...v, effectiveTo: '2040-01-01' as BusinessDate })).toBe(hash(v));
   });
 
   it('counter-checks on a copy of the building rule: shorterThanYears, title or legalBasis change the hash; effectiveTo does not', () => {

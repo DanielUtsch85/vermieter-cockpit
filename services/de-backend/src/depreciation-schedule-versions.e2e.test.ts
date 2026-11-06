@@ -118,8 +118,9 @@ describe.skipIf(databaseUrl === undefined)('recorded schedule versions (VC-8-04)
     expect([on.status, on.headers.get('idempotent-replayed'), on.headers.get('etag')]).toEqual([201, null, '"1"']);
     expect(on.headers.get('location')).toBe(`/api/v1/depreciation-assets/${mine.assetId}/schedule-versions/${on.body['versionId']}`);
     const after = await counts();
-    // One header, one rule, one component, two parts with one fraction each, two years, four entries; the flags that stood.
-    expect(VERSION_TABLES.map((t) => (after[t] as number) - (before[t] as number))).toEqual([1, 1, 1, 2, 2, 2, 4, 2]);
+    // One header, one rule, one component, two parts with one fraction each, two years, four entries; the flags that stood
+    // (§58T: each year also stores the contract split's informative ALLOCATION_PLAUSIBILITY_NOT_CHECKED).
+    expect(VERSION_TABLES.map((t) => (after[t] as number) - (before[t] as number))).toEqual([1, 1, 1, 2, 2, 2, 4, 4]);
     expect([
       (after['idempotency_key'] as number) - (before['idempotency_key'] as number),
       (after['audit_record'] as number) - (before['audit_record'] as number),
@@ -146,11 +147,11 @@ describe.skipIf(databaseUrl === undefined)('recorded schedule versions (VC-8-04)
     expect(
       off.body['years'].map((y: { year: number; recording: string; flags: { code: string }[] }) => [y.year, y.recording, y.flags.map((f) => f.code)]),
     ).toEqual([
-      [2026, 'NOT_RECORDED', ['ACQUISITION_COST_UNPAID', 'DEPRECIATION_SCHEDULE_NOT_RECORDED']],
-      [2027, 'NOT_RECORDED', ['ACQUISITION_COST_UNPAID', 'DEPRECIATION_SCHEDULE_NOT_RECORDED']],
-      [2028, 'NOT_RECORDED', ['ACQUISITION_COST_UNPAID', 'DEPRECIATION_SCHEDULE_NOT_RECORDED']],
+      [2026, 'NOT_RECORDED', ['ACQUISITION_COST_UNPAID', 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', 'DEPRECIATION_SCHEDULE_NOT_RECORDED']],
+      [2027, 'NOT_RECORDED', ['ACQUISITION_COST_UNPAID', 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', 'DEPRECIATION_SCHEDULE_NOT_RECORDED']],
+      [2028, 'NOT_RECORDED', ['ACQUISITION_COST_UNPAID', 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', 'DEPRECIATION_SCHEDULE_NOT_RECORDED']],
     ]);
-    expect(off.body['years'][0].flags[1].details).toEqual({ assetId, assetType: 'BUILDING', currentVersionId: null, currentThroughYear: null });
+    expect(off.body['years'][0].flags[2].details).toEqual({ assetId, assetType: 'BUILDING', currentVersionId: null, currentThroughYear: null });
   });
 
   it('with it on: a stale fingerprint is 412; the version read back while off: listed, readable, reproducible, 2026–2027 UNCHANGED, 2028 not recorded', async () => {

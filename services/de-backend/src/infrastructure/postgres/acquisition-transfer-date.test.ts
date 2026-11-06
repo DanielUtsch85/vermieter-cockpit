@@ -514,6 +514,8 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
             await withMigrationLock(async () => {
               // 0073 (VC-X-57) patches 0020's, 0022's and 0050's functions after 0072 did: its own down first (no confirmation here).
               // 0074 (VC-X-12, an index only) sorts after 0073: its own down first.
+              // 0075 (VC-X-44, land_building_allocation only) sorts after 0074: its own down first, not applied again.
+              await (migrations['0075_land_building_allocation_plausibility'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               await (migrations['0074_idempotency_key_retention'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               await (migrations['0073_ownership_start_on_confirm'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               // 0072 (VC-X-55) patches 0020's, 0050's and 0065's functions after 0067 did: its own down first (nothing aligned here).
@@ -529,7 +531,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
               await migration.down(createDatabase(down) as never);
             });
             await down.query(
-              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm', '0074_idempotency_key_retention')`,
+              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm', '0074_idempotency_key_retention', '0075_land_building_allocation_plausibility')`,
             );
           }
           expect(await defs()).toEqual(original);

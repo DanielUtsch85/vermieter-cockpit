@@ -2,11 +2,13 @@ import { sql, type Kysely, type Transaction } from 'kysely';
 import {
   checkAllocation,
   type AcquisitionStatus,
+  type AllocationComparison,
   type AllocationMethod,
   type AllocationReviewState,
   type CreateAllocationOutcome,
   type LandBuildingAllocation,
   type LandBuildingAllocationRepository,
+  type ComparisonMethod,
   type NewAllocation,
 } from '../../domains/acquisition/index.js';
 import type { AuditActor, BusinessDate } from '../../shared/index.js';
@@ -14,6 +16,26 @@ import { writeAudit } from './audit.js';
 import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { fromNumericAmount, toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
+
+/** §58T's comparison columns of 0075, read as text (Money as §31). */
+export interface ComparisonRow {
+  readonly currency: string;
+  readonly comparison_method: string | null;
+  readonly comparison_land: string | null;
+  readonly comparison_building: string | null;
+  readonly comparison_source_references: string[] | null;
+}
+
+/** The comparison of a row, or `null` (0075's CHECK: all four columns set or none). */
+export function comparisonOf(row: ComparisonRow): AllocationComparison | null {
+  if (row.comparison_method === null || row.comparison_land === null || row.comparison_building === null) return null;
+  return {
+    method: row.comparison_method as ComparisonMethod,
+    landValue: fromNumericAmount(row.comparison_land, row.currency),
+    buildingValue: fromNumericAmount(row.comparison_building, row.currency),
+    sourceReferences: row.comparison_source_references ?? [],
+  };
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ENTITY_TYPE = 'LandBuildingAllocation';
@@ -88,6 +110,7 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
               .where('id', '=', current.id)
               .execute();
           }
+          const comparison = allocation.comparison ?? null;
           const { id } = await trx
             .insertInto('land_building_allocation')
             .values({
@@ -105,6 +128,11 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
               notes: allocation.notes,
               supersedes_id: current?.id ?? null,
               created_by: actor.actorId,
+              comparison_method: comparison?.method ?? null,
+              comparison_land_value: comparison === null ? null : toNumericAmount(comparison.landValue),
+              comparison_building_value: comparison === null ? null : toNumericAmount(comparison.buildingValue),
+              comparison_source_references: comparison === null ? null : [...comparison.sourceReferences],
+              deviation_reason: allocation.deviationReason ?? null,
             })
             .returning('id')
             .executeTakeFirstOrThrow();
@@ -122,6 +150,9 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
               reviewState: created.reviewState,
               effectiveDate: created.effectiveDate,
               supersedes: created.supersedesId,
+              // §58T: the comparison and the reason with the split they explain (`null` without).
+              comparison: comparisonJson(created.comparison ?? null),
+              deviationReason: created.deviationReason ?? null,
             },
           });
           if (current !== undefined) {
@@ -179,6 +210,11 @@ async function allocationsOf(trx: Transaction<Database>, acquisitionId: string, 
       'a.supersedes_id',
       'a.superseded_at',
       'a.created_at',
+      'a.comparison_method',
+      sql<string | null>`a.comparison_land_value::text`.as('comparison_land'),
+      sql<string | null>`a.comparison_building_value::text`.as('comparison_building'),
+      'a.comparison_source_references',
+      'a.deviation_reason',
       sql<string | null>`(SELECT s.id FROM land_building_allocation s WHERE s.supersedes_id = a.id)`.as('superseded_by_id'),
     ])
     .where('a.acquisition_id', '=', acquisitionId);
@@ -206,8 +242,17 @@ async function allocationsOf(trx: Transaction<Database>, acquisitionId: string, 
       supersededById: row.superseded_by_id,
       current: row.superseded_at === null,
       createdAt: row.created_at,
+      comparison: comparisonOf(row),
+      deviationReason: row.deviation_reason,
     };
   });
+}
+
+/** A comparison as JSON (Money as `{ amount, currency }`), for the AuditRecord and the idempotency store. */
+function comparisonJson(c: AllocationComparison | null) {
+  return c === null
+    ? null
+    : { method: c.method, landValue: c.landValue.toJSON(), buildingValue: c.buildingValue.toJSON(), sourceReferences: [...c.sourceReferences] };
 }
 
 /** The created allocation as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
@@ -219,21 +264,43 @@ function toSnapshot(a: LandBuildingAllocation): unknown {
     buildingAmount: a.buildingAmount.toJSON(),
     supersededAt: a.supersededAt?.toISOString() ?? null,
     createdAt: a.createdAt.toISOString(),
+    comparison: comparisonJson(a.comparison ?? null),
+    deviationReason: a.deviationReason ?? null,
   };
 }
 
-/** Written by toSnapshot in the same codebase, so its shape is trusted. */
+/**
+ * Written by toSnapshot in the same codebase, so its shape is trusted. A snapshot stored before §58T has neither
+ * `comparison` nor `deviationReason`: both read as `null`, so such a key still replays.
+ */
 function fromSnapshot(result: unknown): LandBuildingAllocation {
   type MoneyJson = { amount: string; currency: string };
-  const s = result as Omit<LandBuildingAllocation, 'totalAllocableAmount' | 'landAmount' | 'buildingAmount' | 'supersededAt' | 'createdAt'> & {
+  type ComparisonJson = { method: ComparisonMethod; landValue: MoneyJson; buildingValue: MoneyJson; sourceReferences: string[] };
+  const s = result as Omit<
+    LandBuildingAllocation,
+    'totalAllocableAmount' | 'landAmount' | 'buildingAmount' | 'supersededAt' | 'createdAt' | 'comparison' | 'deviationReason'
+  > & {
     totalAllocableAmount: MoneyJson;
     landAmount: MoneyJson;
     buildingAmount: MoneyJson;
     supersededAt: string | null;
     createdAt: string;
+    comparison?: ComparisonJson | null;
+    deviationReason?: string | null;
   };
+  const c = s.comparison ?? null;
   return {
     ...s,
+    comparison:
+      c === null
+        ? null
+        : {
+            method: c.method,
+            landValue: fromNumericAmount(c.landValue.amount, c.landValue.currency),
+            buildingValue: fromNumericAmount(c.buildingValue.amount, c.buildingValue.currency),
+            sourceReferences: c.sourceReferences,
+          },
+    deviationReason: s.deviationReason ?? null,
     totalAllocableAmount: fromNumericAmount(s.totalAllocableAmount.amount, s.totalAllocableAmount.currency),
     landAmount: fromNumericAmount(s.landAmount.amount, s.landAmount.currency),
     buildingAmount: fromNumericAmount(s.buildingAmount.amount, s.buildingAmount.currency),

@@ -554,6 +554,12 @@ export interface LandBuildingAllocationTable {
   superseded_at: Date | null;
   created_at: Generated<Date>;
   created_by: string;
+  /** §58T (VC-X-44, migration 0075): the comparison, all four set or none, and the reason (only with a comparison). */
+  comparison_method: string | null;
+  comparison_land_value: string | null;
+  comparison_building_value: string | null;
+  comparison_source_references: string[] | null;
+  deviation_reason: string | null;
 }
 
 export interface IdempotencyKeyTable {

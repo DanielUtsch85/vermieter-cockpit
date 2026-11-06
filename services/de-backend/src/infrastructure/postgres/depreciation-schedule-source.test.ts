@@ -311,7 +311,11 @@ describe.skipIf(databaseUrl === undefined)('PostgresDepreciationScheduleSource (
       [s.a, '3052.80'],
       [s.b, '2035.20'],
     ]);
-    expect(schedule.components[0]?.flags).toEqual([{ code: 'ACQUISITION_COST_UNPAID', details: { costIds: expect.any(Array) } }]);
+    // §58T: a contract split without a comparison carries the informative hint (no figure changes).
+    expect(schedule.components[0]?.flags).toEqual([
+      { code: 'ACQUISITION_COST_UNPAID', details: { costIds: expect.any(Array) } },
+      { code: 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', details: { allocationId: expect.any(String), method: 'PURCHASE_CONTRACT' } },
+    ]);
     expect((schedule.components[0]?.flags[0]?.details['costIds'] as string[]).length).toBe(2);
   });
 
