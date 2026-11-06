@@ -56,3 +56,27 @@ None yet. An entry has this form:
 - Rule versions and the stage mapping in force (DE_RECORDING_STAGES@n).
 - Owner's statement (verbatim).
 ```
+
+## Go-live der ersten produktiven Installation
+
+**A template, not an entry.** The date is left empty on purpose: the owner enters and commits the entry on the day of the start (Entscheidung des Projektinhabers, 2026-11-06): „Die Hashes von `DE_CASH_TIMING@1` und `DE_ANSCHAFFUNGSNAHE@1` such bitte vorab heraus und lege sie als Vorlage des Go-live-Eintrags ins Protokoll, mit leerem Datum. Den Eintrag selbst und den Start mit leerer Datenbank übernehme ich am Tag des Starts.“ (issue #281). This go-live is the freeze point of the Phase-7 rules (api-design §58F, "Decided by the owner on 2026-11-01", "Freeze point"): from it on, a change of `DE_CASH_TIMING@1` or `DE_ANSCHAFFUNGSNAHE@1` is a new version (`@2`), and the pins in `services/de-backend/src/infrastructure/hashing/frozen-rules.test.ts` are never updated in place again. It is not a release of a stage and turns on no recording.
+
+```
+### Go-live der ersten produktiven Installation (Entscheidung des Projektinhabers, YYYY-MM-DD)
+
+- Datum:
+- Installation:
+- Voraussetzungen (api-design §58F, "Prerequisites": VC-X-39, VC-X-27 and VC-X-40 done before the go-live):
+  - VC-X-27 done: PR #269 (migration 0068), merged 2026-11-05 (e7cb10e); follow-up PR #271 (10709ad) (backlog VC-X-27).
+  - VC-X-39 done: PR #237 (migration 0057), merged 2026-11-02 (766b28c); follow-ups PR #242 and PR #247 (backlog VC-X-39, "VC-X-39 follow-up", "VC-X-39 follow-up 2").
+  - VC-X-40 done: PR #270 (migration 0069), merged 2026-11-05 (cb8eb63) (backlog VC-X-40).
+- Freeze of the Phase-7 rules (api-design §58F, "Freeze point"), the ruleVersionHash of each:
+  - DE_CASH_TIMING@1:       dab6ce4e53383d47c0505dee9988316075c9c25cc2bb28abfb2ff75b292241cf
+  - DE_ANSCHAFFUNGSNAHE@1:  7cbb166d2593d3af818f039a68048bba8948cf672fd8b01bfa61dee8e78c5eae
+  - Computed on: ddeb37334a1d3e7ab889ef0734bfd519be651be1 (main); on the day of the start, recheck them on the commit deployed.
+- Database: empty at the start (backlog VC-X-23, closed 2026-11-06).
+- DEPRECIATION_RECORDING_ENABLED: stays unset (false, api-design §60); this go-live enables no recording and releases no stage.
+- Owner's statement (verbatim):
+```
+
+**How the hashes were computed:** `ruleVersionHash` (`services/de-backend/src/domains/depreciation/fingerprint.ts`) is the SHA-256 (`sha256Fingerprinter`, UTF-8, lower-case hex) over the canonical JSON of the version's `ruleCode`, `version`, `title`, `legalBasis`, `effectiveFrom`, `parameters` and `source` (not `effectiveTo`, not `status`), read from the registry `TAX_RULES` with the repository's own code on commit `ddeb373`. Both values equal the literals pinned in `frozen-rules.test.ts` (green on that commit) and the `dab6ce4e…41cf` of `DE_CASH_TIMING@1` in `invariant-suite.md` and backlog VC-X-39. If a change lands on either rule before the start, its pin is updated explicitly in the same commit, and this template takes the new value.
