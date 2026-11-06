@@ -38,6 +38,7 @@ export { PostgresWegSpecialAssessmentRepository } from './weg-special-assessment
 export { PostgresTaxClassificationRepository } from './tax-classification-repository.js';
 export { PostgresTaxStatementRepository } from './tax-statement-repository.js';
 export { checkStoredRuleReferences } from './tax-rule-check.js';
+export { purgeExpiredIdempotencyKeys, startIdempotencyKeyCleanup } from './idempotency-retention.js';
 export { PostgresRentalContractReferenceRepository } from './rental-contract-reference-repository.js';
 export { PostgresDepreciationAssetRepository } from './depreciation-asset-repository.js';
 export { PostgresDepreciationScheduleSource } from './depreciation-schedule-source.js';

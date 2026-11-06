@@ -217,6 +217,11 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0073 past the reposito
             .rows;
         const [rowsBefore, readsBefore] = [await rowsOf(), await reads()];
         await migrateToLatest(down, { migrationTableSchema: downSchema });
+        // 0074 (VC-X-12) indexes idempotency_key.created_at and sorts after 0073: its own down first, not applied again
+        // (defs lists the schema's indexes).
+        await withMigrationLock(() =>
+          (migrations['0074_idempotency_key_retention'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never),
+        );
         const after = await defs();
         expect(after).not.toEqual(original);
         expect([await rowsOf(), await reads()]).toEqual([rowsBefore, readsBefore]);

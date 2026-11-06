@@ -203,6 +203,8 @@ import {
   PostgresTransactionSplitRepository,
   checkStoredRuleReferences,
   createDatabase,
+  purgeExpiredIdempotencyKeys,
+  startIdempotencyKeyCleanup,
   createPool,
   isDatabaseReachable,
   migrateToLatest,
@@ -519,6 +521,15 @@ try {
   process.exit(1);
 }
 
+// VC-X-12 (api-design.md §15 "Retention"): expired Idempotency-Keys deleted once now and once a day, no external
+// scheduler; the interval is unref()'d and cleared on shutdown. The claim treats an expired key as new even before this.
+const idempotencyCleanup = startIdempotencyKeyCleanup({
+  purge: (now) => purgeExpiredIdempotencyKeys(db, now),
+  log: (line) => console.log(line),
+  logError: (line) => console.error(line),
+});
+await idempotencyCleanup.firstRun;
+
 const server = app.listen(config.PORT, () => {
   console.log(`de-backend listening on port ${config.PORT}`);
   console.log(
@@ -528,6 +539,7 @@ const server = app.listen(config.PORT, () => {
 
 function shutdown(signal: string): void {
   console.log(`${signal} received, shutting down`);
+  idempotencyCleanup.stop();
   server.close(() => {
     void pool.end().finally(() => process.exit(0));
   });
