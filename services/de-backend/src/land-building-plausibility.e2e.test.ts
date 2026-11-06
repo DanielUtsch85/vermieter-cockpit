@@ -144,7 +144,7 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
   );
 
   it(
-    'question 5: ADVISOR_CONFIRMED without a reason informative and CALCULATED; the replacement adding a reason falls back to CONFIRMED',
+    'question 5: ADVISOR_CONFIRMED without a reason informative and CALCULATED; repeated for the reason only 422; the replacement adding a reason falls back to CONFIRMED',
     { timeout: 300_000 },
     async () => {
       const q = await purchase(1);
@@ -157,6 +157,15 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
       // A version of 2026 recorded (the test harness's switch on; productive recording stays disabled), and §58B's check.
       await api.record(q.building, 2026);
       const check = await api.check(q.acquisitionId);
+      // Decided 2026-11-06: ADVISOR_CONFIRMED repeated for the reason only is 422 at reviewState, nothing written.
+      const repeated = e1Body(e1.allocationId, { deviationReason: REASON, reviewState: 'ADVISOR_CONFIRMED', advisorPartyId: advisor });
+      const refused = await call('POST', `/acquisitions/${q.acquisitionId}/land-building-allocation`, repeated);
+      expect(refused.status).toBe(422);
+      expect(((await refused.json()) as Json).error).toMatchObject({
+        code: 'REVIEW_STATE_NOT_ALLOWED',
+        details: { field: 'reviewState', supersededAllocationId: e1.allocationId },
+      });
+      expect((await get(`/acquisitions/${q.acquisitionId}/land-building-allocations`)).items.map((i: Json) => i.allocationId)).toEqual([e1.allocationId]);
       const e2 = await allocate(q.acquisitionId, e1Body(e1.allocationId, { deviationReason: REASON }));
       // The supersede is a new allocationId: the recorded 2026 shows DEPRECIATION_CHANGED_SINCE_RECORDED; the check is unchanged.
       const recorded = (await api.schedule(q.building, 'from=2026&to=2026')).years[0];

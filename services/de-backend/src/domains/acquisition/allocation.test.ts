@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Money } from '../../shared/index.js';
-import { allocationFingerprint, checkAllocation, shareOf, type NewAllocation } from './allocation.js';
+import { Money, type BusinessDate } from '../../shared/index.js';
+import { allocationFingerprint, checkAdvisorReasonOnly, checkAllocation, shareOf, type LandBuildingAllocation, type NewAllocation } from './allocation.js';
 
 /** VC-2-08 domain rules (api-design.md §27.3, phase-2-plan P2-D9). */
 const eur = (amount: string) => Money.of(amount, 'EUR');
@@ -41,5 +41,76 @@ describe('land/building allocation', () => {
     };
     expect(allocationFingerprint(base)).not.toBe(allocationFingerprint({ ...base, acquisitionId: 'b' }));
     expect(allocationFingerprint(base)).not.toBe(allocationFingerprint({ ...base, supersedes: 'x' }));
+  });
+
+  describe('checkAdvisorReasonOnly (§58T rule 3, decided 2026-11-06)', () => {
+    const comparison = {
+      method: 'BMF_TOOL',
+      landValue: eur('120000.00'),
+      buildingValue: eur('280000.00'),
+      sourceReferences: ['Arbeitshilfe (synthetisch)'],
+    } as const;
+    const superseded = {
+      id: 'e1',
+      totalAllocableAmount: eur('400000.00'),
+      landAmount: eur('40000.00'),
+      buildingAmount: eur('360000.00'),
+      method: 'PURCHASE_CONTRACT',
+      reviewState: 'ADVISOR_CONFIRMED',
+      effectiveDate: '2026-07-01' as BusinessDate,
+      advisorPartyId: 'p1',
+      sourceReferences: ['Kaufvertrag (synthetisch)'],
+      notes: null,
+      comparison,
+      deviationReason: null,
+    } as unknown as LandBuildingAllocation;
+    const next = {
+      totalAllocableAmount: eur('400000.00'),
+      landAmount: eur('40000.00'),
+      buildingAmount: eur('360000.00'),
+      method: 'PURCHASE_CONTRACT',
+      reviewState: 'ADVISOR_CONFIRMED',
+      effectiveDate: '2026-07-01' as BusinessDate,
+      advisorPartyId: 'p1',
+      sourceReferences: ['Kaufvertrag (synthetisch)'],
+      notes: null,
+      supersedes: 'e1',
+      comparison,
+      deviationReason: 'Altlasten (synthetisch)',
+    } as const;
+    const refused = { kind: 'REVIEW_STATE_NOT_ALLOWED', supersededAllocationId: 'e1' };
+
+    it('the narrow case is refused; advisorPartyId, sourceReferences and notes do not count as a change', () => {
+      expect(checkAdvisorReasonOnly(superseded, next)).toEqual(refused);
+      expect(checkAdvisorReasonOnly(superseded, { ...next, advisorPartyId: 'p2' })).toEqual(refused);
+      expect(checkAdvisorReasonOnly(superseded, { ...next, advisorPartyId: null })).toEqual(refused);
+      expect(checkAdvisorReasonOnly(superseded, { ...next, sourceReferences: ['anders (synthetisch)'] })).toEqual(refused);
+      expect(checkAdvisorReasonOnly(superseded, { ...next, notes: 'Notiz (synthetisch)' })).toEqual(refused);
+      // Another reason over a row that already carries one is still a reason-only change.
+      expect(checkAdvisorReasonOnly({ ...superseded, deviationReason: 'alt (synthetisch)' }, next)).toEqual(refused);
+    });
+
+    it.each([
+      ['totalAllocableAmount and buildingAmount', { totalAllocableAmount: eur('400000.01'), buildingAmount: eur('360000.01') }],
+      ['landAmount and buildingAmount', { landAmount: eur('40000.01'), buildingAmount: eur('359999.99') }],
+      ['method', { method: 'ADVISOR' }],
+      ['effectiveDate', { effectiveDate: '2026-07-02' as BusinessDate }],
+      ['comparison.method', { comparison: { ...comparison, method: 'APPRAISAL' } }],
+      ['comparison.landValue', { comparison: { ...comparison, landValue: eur('120000.01') } }],
+      ['comparison.buildingValue', { comparison: { ...comparison, buildingValue: eur('279999.99') } }],
+      ['comparison.sourceReferences', { comparison: { ...comparison, sourceReferences: ['Gutachten (synthetisch)'] } }],
+      ['comparison removed', { comparison: null }],
+    ] as const)('a changed %s is a genuine re-confirmation: not refused', (_field, change) => {
+      expect(checkAdvisorReasonOnly(superseded, { ...next, ...change })).toBeUndefined();
+    });
+
+    it('not refused: CONFIRMED sent, a CONFIRMED row superseded, no reason sent, the same reason repeated', () => {
+      expect(checkAdvisorReasonOnly(superseded, { ...next, reviewState: 'CONFIRMED' })).toBeUndefined();
+      expect(checkAdvisorReasonOnly({ ...superseded, reviewState: 'CONFIRMED' }, next)).toBeUndefined();
+      expect(checkAdvisorReasonOnly(superseded, { ...next, deviationReason: null })).toBeUndefined();
+      expect(checkAdvisorReasonOnly({ ...superseded, deviationReason: next.deviationReason }, next)).toBeUndefined();
+      // Counter-check: the same pair with only the superseded row's state set back is refused again.
+      expect(checkAdvisorReasonOnly({ ...superseded, reviewState: 'ADVISOR_CONFIRMED' }, next)).toEqual(refused);
+    });
   });
 });

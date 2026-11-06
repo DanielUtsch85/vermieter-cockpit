@@ -28,6 +28,19 @@ export class CurrentAllocationChangedError extends Error {
   }
 }
 
+/**
+ * §58T rule 3 (VC-X-44; Entscheidung des Projektinhabers, 2026-11-06): `ADVISOR_CONFIRMED` sent over an
+ * `ADVISOR_CONFIRMED` row that the new one differs from only in the reason (→ 422 REVIEW_STATE_NOT_ALLOWED at
+ * `reviewState`). Nothing is written and nothing is downgraded.
+ */
+export class ReviewStateNotAllowedError extends Error {
+  override readonly name = 'ReviewStateNotAllowedError';
+
+  constructor(readonly supersededAllocationId: string) {
+    super(`ADVISOR_CONFIRMED is not allowed for a reason-only supersede of ${supersededAllocationId}`);
+  }
+}
+
 const actorOf = (principal: RealmPrincipal) => ({ actorType: 'USER', actorId: principal.email }) as const;
 
 export type CreateLandBuildingAllocation = (
@@ -57,6 +70,8 @@ export function createLandBuildingAllocation(deps: { readonly repository: LandBu
         throw new AcquisitionCancelledError(acquisitionId);
       case 'CURRENT_ALLOCATION_CHANGED':
         throw new CurrentAllocationChangedError(outcome.currentAllocationId);
+      case 'REVIEW_STATE_NOT_ALLOWED':
+        throw new ReviewStateNotAllowedError(outcome.supersededAllocationId);
     }
   };
 }

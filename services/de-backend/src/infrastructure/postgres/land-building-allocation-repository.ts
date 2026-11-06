@@ -1,5 +1,6 @@
 import { sql, type Kysely, type Transaction } from 'kysely';
 import {
+  checkAdvisorReasonOnly,
   checkAllocation,
   type AcquisitionStatus,
   type AllocationComparison,
@@ -101,6 +102,14 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
             .executeTakeFirst();
           const refusal = checkAllocation(acquisition.status as AcquisitionStatus, current?.id ?? null, allocation.supersedes);
           if (refusal !== undefined) throw new Rejected(refusal);
+          const effectiveDate = allocation.effectiveDate ?? (acquisition.transfer_date as BusinessDate);
+          if (current !== undefined) {
+            // §58T rule 3 (decided 2026-11-06): read under the serialising write above, so no other supersede interleaves.
+            const superseded = (await allocationsOf(trx, allocation.acquisitionId, current.id))[0];
+            if (superseded === undefined) throw new Error(`LandBuildingAllocation ${current.id} vanished`);
+            const narrow = checkAdvisorReasonOnly(superseded, { ...allocation, effectiveDate });
+            if (narrow !== undefined) throw new Rejected(narrow);
+          }
 
           // The old row first: the partial unique index of the current one cannot be deferred (review on #52).
           if (current !== undefined) {
@@ -122,7 +131,7 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
               currency: allocation.totalAllocableAmount.currency,
               method: allocation.method,
               review_state: allocation.reviewState,
-              effective_date: allocation.effectiveDate ?? acquisition.transfer_date,
+              effective_date: effectiveDate,
               advisor_party_id: advisor,
               source_references: [...allocation.sourceReferences],
               notes: allocation.notes,
