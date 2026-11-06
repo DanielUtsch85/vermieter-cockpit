@@ -137,6 +137,9 @@ export function violationDto(v: ConfirmationViolation) {
       };
     case 'OWNERSHIP_INCOMPLETE':
       return { code: v.code, date: v.date, shareSum: formatShare(v.shareSum) };
+    // §58R requirement 7 (VC-X-57).
+    case 'SELLER_SHARE_CHANGED_BEFORE_TRANSFER':
+      return { code: v.code, partyId: v.partyId, shareOnContractEve: formatShare(v.shareOnContractEve), shareOnTransferEve: formatShare(v.shareOnTransferEve) };
     default:
       return v;
   }

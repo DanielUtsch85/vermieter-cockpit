@@ -270,14 +270,19 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
       expect(await statusOf(x2)).toBe('CONFIRMED');
     });
 
-    it('a seller’s row is never required: B’s row ending before D − 1 (a gap) still confirms X', async () => {
-      const pr = await propertyReference();
-      const [a, b, c] = [await party('Anna'), await party('Bernd'), await party('Clara')];
-      await insertOwnership(pool, { pr, owner: c, share: [1, 2], from: W_D });
-      await insertOwnership(pool, { pr, owner: b, share: [1, 2], from: W_D, until: '2026-06-30' });
-      const x = await acquisition(pr, [a], { sellerPartyIds: [b] });
-      await insertOwnership(pool, { pr, owner: a, share: [1, 2], from: D, acquisitionId: x });
-      expect((await acquisitions.confirm(x, REALM, AT, actor)).kind).toBe('CONFIRMED');
+    it('a seller row ending before D − 1 (a gap) is refused since VC-X-57 (§58R requirement 7); counter-check: ending on D − 1 confirms X', async () => {
+      const outcome = async (sellerUntil: string) => {
+        const pr = await propertyReference();
+        const [a, b, c] = [await party('Anna'), await party('Bernd'), await party('Clara')];
+        await insertOwnership(pool, { pr, owner: c, share: [1, 2], from: W_D });
+        await insertOwnership(pool, { pr, owner: b, share: [1, 2], from: W_D, until: sellerUntil });
+        const x = await acquisition(pr, [a], { sellerPartyIds: [b] });
+        await insertOwnership(pool, { pr, owner: a, share: [1, 2], from: D, acquisitionId: x });
+        const o = await acquisitions.confirm(x, REALM, AT, actor);
+        return o.kind === 'CONFIRMATION_BLOCKED' ? o.violations.map((v) => v.code) : o.kind;
+      };
+      expect(await outcome('2026-06-30')).toEqual(['SELLER_SHARE_CHANGED_BEFORE_TRANSFER']);
+      expect(await outcome(BEFORE)).toBe('CONFIRMED');
     });
   });
 

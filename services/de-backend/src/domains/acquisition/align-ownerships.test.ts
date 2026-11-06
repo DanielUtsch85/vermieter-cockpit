@@ -36,6 +36,7 @@ const legacy = (o: Partial<Acquisition> = {}): Acquisition => ({
   economicTransferSourceReferences: ['Übergabeprotokoll (synthetisch)'],
   ownershipAlignedAt: null,
   ownershipAlignmentSourceReferences: null,
+  confirmedOwnershipStart: null,
   flags: [],
   ...o,
 });
@@ -237,7 +238,7 @@ describe('the act of §58Q, planned', () => {
 
 describe('ownershipStart and the flag of §58N with the alignment', () => {
   it('undated, created with the date, recorded later, aligned', () => {
-    const facts = { contractDate: day('2025-03-01') };
+    const facts = { status: 'CONFIRMED', contractDate: day('2025-03-01') };
     expect(ownershipStart({ ...facts, economicTransferDate: null })).toBe('2025-03-01');
     expect(ownershipStart({ ...facts, economicTransferDate: day('2025-05-01') })).toBe('2025-05-01');
     expect(ownershipStart({ ...facts, economicTransferDate: day('2025-05-01'), economicTransferRecordedAt: AT })).toBe('2025-03-01');

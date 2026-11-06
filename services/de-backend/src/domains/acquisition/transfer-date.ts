@@ -64,10 +64,12 @@ export function recordTransferDateFingerprint(acquisitionId: string, input: Reco
  * The flag of §58N (open question 5, decided 2026-11-04, a deviation from the proposal): raised when `ownershipStart` ≠
  * `economicTransferDate`, `OPEN` when a seller of the same Acquisition in the same Realm has an AfA component (between
  * contract and transfer nobody gets AfA: a wrong figure in DE), `INFORMATIVE` otherwise (an external seller). Never on a
- * `CANCELLED` Acquisition, and never once §58Q's act aligned the Ownerships (`ownershipStart` is then the date).
+ * `CANCELLED` Acquisition, and never once §58Q's act aligned the Ownerships (`ownershipStart` is then the date). From
+ * VC-X-57 on (§58R rule 7, Frage 5) it arises neither for a `DRAFT` nor for an Acquisition confirmed from the transfer:
+ * `ownershipStart` is `economicTransferDate` for both; only legacy data keeps it.
  */
 export function ownershipStartFlag(
-  acquisition: { readonly id: string; readonly ownershipAlignedAt?: Date | null } & Pick<
+  acquisition: { readonly id: string; readonly ownershipAlignedAt?: Date | null; readonly confirmedOwnershipStart?: BusinessDate | null } & Pick<
     Acquisition,
     'status' | 'contractDate' | 'economicTransferDate' | 'economicTransferRecordedAt'
   >,

@@ -54,6 +54,11 @@ export interface Acquisition extends AcquisitionData {
   readonly ownershipAlignedAt: Date | null;
   /** §58Q open question 5 (decided 2026-11-05): the act's own evidence, set with it; `null` otherwise. */
   readonly ownershipAlignmentSourceReferences: readonly string[] | null;
+  /**
+   * §58R (VC-X-57, 0073): `economicTransferDate`, stored by the transition to `CONFIRMED` from VC-X-57 on; `null` for a
+   * `DRAFT`, a `CANCELLED` row and every Acquisition confirmed before. Once set, `ownershipStart` is this day.
+   */
+  readonly confirmedOwnershipStart: BusinessDate | null;
   /** §58N: `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER` when the dates differ (derived on read, never stored). */
   readonly flags: readonly AcquisitionFlag[];
 }
@@ -70,25 +75,34 @@ export interface NewAcquisition extends AcquisitionData {
   readonly mreRealmId: string;
 }
 
-/** What `ownershipStart` reads: the dates and whether `economicTransferDate` was recorded later (§58N). */
+/** What `ownershipStart` reads: the status, the dates and whether `economicTransferDate` was recorded later (§58N). */
 export interface OwnershipStartFacts {
+  /** §58R rule 1, branch 3: before the confirmation a recorded date is the start like a created one. */
+  readonly status: string;
   readonly contractDate: BusinessDate;
   readonly economicTransferDate: BusinessDate | null;
   /** Set when `POST …/economic-transfer-date` recorded the date (0067); absent or `null` otherwise. */
   readonly economicTransferRecordedAt?: Date | null;
   /** Set when `POST …/align-ownerships-to-transfer` moved the Ownerships to the transfer (0072); absent or `null` otherwise. */
   readonly ownershipAlignedAt?: Date | null;
+  /** The day the confirmation stored (0073, §58R rule 5); absent or `null` otherwise. */
+  readonly confirmedOwnershipStart?: BusinessDate | null;
 }
 
 /**
- * The day the buyers' Ownerships begin (§27.1's `transferDate`): `economicTransferDate` once the act of §58Q aligned
- * them (VC-X-55, Entscheidung des Projektinhabers, 2026-11-05, Frage 1 (A)); else `contractDate` for an Acquisition
- * whose `economicTransferDate` was recorded later (§58N open question 1, decided 2026-11-04, option (b): its Ownerships
- * began on the contract date and stay); else `economicTransferDate ?? contractDate` (P2-D6), as before VC-X-52. The
- * anschaffungsnahe check (§58K) and the AfA's start (§59A) read `economicTransferDate` itself.
+ * The day the buyers' Ownerships begin (§27.1's `transferDate`; §58R rule 1, ADR-044, Entscheidung des
+ * Projektinhabers, 2026-11-06), the first that applies: (1) the day the confirmation stored (VC-X-57); (2)
+ * `economicTransferDate` once the act of §58Q aligned them (VC-X-55, Entscheidung des Projektinhabers, 2026-11-05,
+ * Frage 1 (A)); (3) for an Acquisition that is not `CONFIRMED`, `economicTransferDate ?? contractDate` (§58R Frage 2:
+ * before the confirmation a recorded date is the start); (4) `contractDate` for a `CONFIRMED` Acquisition whose
+ * `economicTransferDate` was recorded later (§58N open question 1, decided 2026-11-04, option (b): legacy data and drafts
+ * confirmed under it before VC-X-57); (5) `economicTransferDate ?? contractDate` (P2-D6). The anschaffungsnahe check
+ * (§58K) and the AfA's start (§59A) read `economicTransferDate` itself.
  */
 export function ownershipStart(acquisition: OwnershipStartFacts): BusinessDate {
+  if (acquisition.confirmedOwnershipStart != null) return acquisition.confirmedOwnershipStart;
   if (acquisition.ownershipAlignedAt != null && acquisition.economicTransferDate !== null) return acquisition.economicTransferDate;
+  if (acquisition.status !== 'CONFIRMED') return acquisition.economicTransferDate ?? acquisition.contractDate;
   if (acquisition.economicTransferRecordedAt != null) return acquisition.contractDate;
   return acquisition.economicTransferDate ?? acquisition.contractDate;
 }
@@ -163,7 +177,14 @@ export type ConfirmationViolation =
   | { readonly code: 'BUYER_WITHOUT_OWNERSHIP'; readonly partyId: string }
   | { readonly code: 'BUYER_SHARE_NOT_INCREASED'; readonly partyId: string; readonly shareBefore: ExactFraction; readonly share: ExactFraction }
   | { readonly code: 'SHARE_SUM_MISMATCH'; readonly expected: ExactFraction; readonly actual: ExactFraction; readonly byBuyer: readonly BuyerIncrease[] }
-  | { readonly code: 'OWNERSHIP_INCOMPLETE'; readonly date: BusinessDate; readonly shareSum: ExactFraction };
+  | { readonly code: 'OWNERSHIP_INCOMPLETE'; readonly date: BusinessDate; readonly shareSum: ExactFraction }
+  /** §58R requirement 7 (VC-X-57): a seller holds on `t − 1` other than on `contractDate − 1`. */
+  | {
+      readonly code: 'SELLER_SHARE_CHANGED_BEFORE_TRANSFER';
+      readonly partyId: string;
+      readonly shareOnContractEve: ExactFraction;
+      readonly shareOnTransferEve: ExactFraction;
+    };
 
 export interface ConfirmationInput {
   /** Status of each buyer, read under `FOR SHARE`. */
@@ -174,6 +195,11 @@ export interface ConfirmationInput {
   readonly onTransferDate: readonly ConfirmationOwnership[];
   /** All `VALID` Ownerships of the PropertyReference covering the day before the transfer date (§28.1A). */
   readonly beforeTransferDate: readonly ConfirmationOwnership[];
+  /**
+   * §58R requirement 7: the `VALID` Ownerships of the sellers of the PropertyReference in the Realm covering
+   * `contractDate − 1` or `economicTransferDate − 1` (more rows are ignored).
+   */
+  readonly sellerRows: readonly ConfirmationOwnership[];
 }
 
 export type ConfirmPlan =
@@ -241,8 +267,9 @@ export function buyerIncreases(
 }
 
 /**
- * Status first (a no-op before a cancelled one), then requirement 0 (§58K: `economicTransferDate` set) and 1–6 of §28.1, all of them reported. The version is
- * checked by the caller between `ACQUISITION_CANCELLED` and the requirements.
+ * Status first (a no-op before a cancelled one), then requirement 0 (§58K: `economicTransferDate` set), 1–6 of §28.1 and
+ * 7 (§58R), all of them reported. The version is checked by the caller between `ACQUISITION_CANCELLED` and the
+ * requirements. The confirmation stores `economicTransferDate` as `confirmedOwnershipStart` (§58R rule 5).
  */
 export function planConfirm(current: Acquisition, input: ConfirmationInput, at: Date): ConfirmPlan {
   if (current.status === 'CONFIRMED') return { kind: 'UNCHANGED' };
@@ -257,8 +284,29 @@ export function planConfirm(current: Acquisition, input: ConfirmationInput, at: 
   violations.push(...structureViolations(current, input.own, input.onTransferDate, input.beforeTransferDate));
   const total = sumOf(input.onTransferDate.map((o) => o.share));
   if (total.numerator !== total.denominator) violations.push({ code: 'OWNERSHIP_INCOMPLETE', date: d, shareSum: total });
+  violations.push(...sellerViolations(current, input.sellerRows));
   if (violations.length > 0) return { kind: 'CONFIRMATION_BLOCKED', violations };
-  return { kind: 'CONFIRM', next: { ...current, status: 'CONFIRMED', confirmedAt: at, version: current.version + 1 } };
+  return {
+    kind: 'CONFIRM',
+    next: { ...current, status: 'CONFIRMED', confirmedAt: at, confirmedOwnershipStart: current.economicTransferDate, version: current.version + 1 },
+  };
+}
+
+/**
+ * Requirement 7 of §58R (Entscheidung des Projektinhabers, 2026-11-06, Frage 3): every seller, by `partyId`, holds on
+ * `t − 1` what it held on `c − 1` (`held` as §28.1A). Not evaluated while requirement 0 fails; empty for `t = c`.
+ */
+export function sellerViolations(current: Acquisition, sellerRows: readonly ConfirmationOwnership[]): ConfirmationViolation[] {
+  const t = current.economicTransferDate;
+  if (t === null || t === current.contractDate) return [];
+  const contractEve = addDays(current.contractDate, -1);
+  const transferEve = addDays(t, -1);
+  return [...current.sellerPartyIds].sort().flatMap((partyId): ConfirmationViolation[] => {
+    const shareOnContractEve = heldOn(partyId, sellerRows, contractEve);
+    const shareOnTransferEve = heldOn(partyId, sellerRows, transferEve);
+    const same = shareOnContractEve.numerator === shareOnTransferEve.numerator && shareOnContractEve.denominator === shareOnTransferEve.denominator;
+    return same ? [] : [{ code: 'SELLER_SHARE_CHANGED_BEFORE_TRANSFER', partyId, shareOnContractEve, shareOnTransferEve }];
+  });
 }
 
 /**

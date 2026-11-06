@@ -128,6 +128,8 @@ export interface AcquisitionTable {
   /** 0072 (§58Q): set with its evidence by `POST …/align-ownerships-to-transfer`, `NULL` otherwise. */
   ownership_aligned_at: Date | null;
   ownership_alignment_source_references: string[] | null;
+  /** 0073 (§58R): `economic_transfer_date`, stored by `acquisition_step` on the transition to `CONFIRMED`; `NULL` otherwise. */
+  confirmed_ownership_start: string | null;
   land_registry_transfer_date: string | null;
   source_references: Generated<string[]>;
   notes: string | null;

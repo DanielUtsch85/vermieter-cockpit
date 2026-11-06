@@ -281,6 +281,20 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
         const onTransferDate = await covering(d);
         // §28.1A: the share each buyer held the day before, read after the same locks as the transfer date's.
         const beforeTransferDate = await covering(addDays(d, -1));
+        // §58R requirement 7: the sellers' rows of the PropertyReference in the Realm on c − 1 and t − 1, after the same locks.
+        const sellerDays = current.economicTransferDate === null ? [] : [addDays(current.contractDate, -1), addDays(current.economicTransferDate, -1)];
+        const sellerRows =
+          current.sellerPartyIds.length === 0 || sellerDays.length === 0
+            ? []
+            : await ownerships((q) =>
+                q
+                  .where('property_reference_id', '=', current.propertyReferenceId)
+                  .where('mre_realm_id', '=', mreRealmId)
+                  .where('owner_party_id', 'in', current.sellerPartyIds)
+                  .where((eb) =>
+                    eb.or(sellerDays.map((day) => eb.and([eb('valid_from', '<=', day), eb.or([eb('valid_until', 'is', null), eb('valid_until', '>=', day)])]))),
+                  ),
+              );
         const plan = planConfirm(
           current,
           {
@@ -288,6 +302,7 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
             own: own.map(toConfirmationOwnership),
             onTransferDate: onTransferDate.map(toConfirmationOwnership),
             beforeTransferDate: beforeTransferDate.map(toConfirmationOwnership),
+            sellerRows: sellerRows.map(toConfirmationOwnership),
           },
           at,
         );
