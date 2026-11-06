@@ -2,6 +2,7 @@ import { ACQUISITION_ANSWERS } from './error-answers/acquisition.js';
 import type { ErrorAnswer } from './error-answers/answer.js';
 import { COMMON_ANSWERS } from './error-answers/common.js';
 import { DEPRECIATION_ANSWERS } from './error-answers/depreciation.js';
+import { EXPORT_ANSWERS } from './error-answers/exports.js';
 import { FINANCING_ANSWERS } from './error-answers/financing.js';
 import { LEDGER_ANSWERS } from './error-answers/ledger.js';
 import { OWNERSHIP_ANSWERS } from './error-answers/ownership.js';
@@ -42,6 +43,7 @@ const TABLE = [
   ...TAXATION_ANSWERS,
   ...TAX_STATEMENT_ANSWERS,
   ...DEPRECIATION_ANSWERS,
+  ...EXPORT_ANSWERS,
 ];
 
 /** The answer for an error a use case threw, or undefined (→ 500). */

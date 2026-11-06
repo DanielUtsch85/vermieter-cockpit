@@ -52,3 +52,34 @@ export interface TransactionQueries {
   /** A page in booking order, newest first (booking date, then creation, then id). */
   list(mreRealmId: string, filter: TransactionFilter, page: PageRequest): Promise<TransactionPage>;
 }
+
+/** The head of a Kassenbuch export (api-design.md §58S), read in its snapshot before the first row. */
+export interface TransactionExportHead {
+  /** The snapshot's start, as the server clock reads it. */
+  readonly generatedAt: Date;
+  readonly transactionCount: number;
+  /** One per split, or one for a Transaction without splits; counted only when asked for (`rows=splits`). */
+  readonly rowCount: number | undefined;
+}
+
+export interface TransactionWithSplits {
+  readonly transaction: Transaction;
+  /** In `position` order. */
+  readonly splits: readonly TransactionSplit[];
+}
+
+/** Receives an export: the head once, then the batches in order. A throw ends the read and its snapshot. */
+export interface TransactionExportSink {
+  begin(head: TransactionExportHead): void | Promise<void>;
+  batch(items: readonly TransactionWithSplits[]): Promise<void>;
+}
+
+/** Export read port (§58S): every Transaction of the filter, oldest booking first, in keyset batches of one snapshot. */
+export interface TransactionExportQueries {
+  exportAll(
+    mreRealmId: string,
+    filter: TransactionFilter,
+    options: { readonly batchSize: number; readonly countRows: boolean },
+    sink: TransactionExportSink,
+  ): Promise<void>;
+}

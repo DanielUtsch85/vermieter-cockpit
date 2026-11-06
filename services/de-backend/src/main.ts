@@ -2,6 +2,8 @@ import { createApp } from './api/index.js';
 import { loadConfig } from './config.js';
 import {
   closeFinancialAccount,
+  exportProperty,
+  exportTransactions,
   confirmTransaction,
   correctTransaction,
   reverseTransaction,
@@ -198,6 +200,8 @@ import {
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
   PostgresTransactionQueries,
+  PostgresTransactionExport,
+  PostgresPropertyExportSnapshots,
   PostgresUnconfirmedTransactionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
@@ -505,6 +509,11 @@ const app = createApp({
     resolveReviewItem: resolveReviewItem({ imports }),
   },
   financialCategories: { list: listFinancialCategories({ categories }), get: getFinancialCategory({ categories }) },
+  // VC-X-04 (§58S): both exports read in one snapshot each, from DE's rows only (no MRE call).
+  exports: {
+    transactions: exportTransactions({ queries: new PostgresTransactionExport(db) }),
+    property: exportProperty({ snapshots: new PostgresPropertyExportSnapshots(db) }),
+  },
 });
 
 // Migrate before accepting requests; a failed migration aborts the start.

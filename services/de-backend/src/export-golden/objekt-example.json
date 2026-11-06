@@ -1,0 +1,115 @@
+{
+  "exportFormat": "vermieter-cockpit.property-export",
+  "exportFormatVersion": 1,
+  "generatedAt": "2026-11-06T12:00:00.000Z",
+  "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+  "propertyReference": {
+    "propertyReferenceId": "7e000000-0000-4000-8000-0000000000aa",
+    "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+    "mrePropertyId": "6b0000000000000000000001",
+    "externalReferenceState": "ACTIVE",
+    "displayName": "Musterstraße 1, Whg. 3",
+    "cachedAddress": { "street1": "Musterstraße 1", "city": "Berlin" },
+    "cachedSurface": "72.5",
+    "lastRefreshedAt": "2026-10-01T06:00:00.000Z",
+    "lastObservedAt": "2026-10-01T06:00:00.000Z",
+    "createdAt": "2026-09-30T18:00:00.000Z",
+    "version": 1
+  },
+  "ownerships": [
+    {
+      "ownershipId": "0a000000-0000-4000-8000-000000000001",
+      "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+      "propertyReferenceId": "7e000000-0000-4000-8000-0000000000aa",
+      "ownerPartyId": "0c000000-0000-4000-8000-000000000001",
+      "share": "1/2",
+      "validFrom": "2026-01-01",
+      "validUntil": null,
+      "status": "VOID",
+      "voidedAt": "2026-09-30T18:05:00.000Z",
+      "voidReason": "1/2 statt 1/1 erfasst",
+      "acquisitionId": null,
+      "sourceReferences": [],
+      "notes": null,
+      "createdAt": "2026-09-30T18:01:00.000Z",
+      "version": 2
+    },
+    {
+      "ownershipId": "0a000000-0000-4000-8000-000000000002",
+      "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+      "propertyReferenceId": "7e000000-0000-4000-8000-0000000000aa",
+      "ownerPartyId": "0c000000-0000-4000-8000-000000000001",
+      "share": "1/1",
+      "validFrom": "2026-01-01",
+      "validUntil": null,
+      "status": "VALID",
+      "voidedAt": null,
+      "voidReason": null,
+      "acquisitionId": null,
+      "sourceReferences": ["Grundbuch von Mitte Blatt 1234, Abt. I Nr. 2"],
+      "notes": null,
+      "createdAt": "2026-09-30T18:06:00.000Z",
+      "version": 1
+    }
+  ],
+  "acquisitions": [],
+  "loans": [],
+  "wegMemberships": [
+    {
+      "membership": {
+        "membershipId": "0e000000-0000-4000-8000-000000000011",
+        "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+        "wegId": "0e000000-0000-4000-8000-000000000001",
+        "propertyReferenceId": "7e000000-0000-4000-8000-0000000000aa",
+        "miteigentumsanteil": "125.5/1000",
+        "validFrom": "2026-01-01",
+        "validUntil": null,
+        "status": "ACTIVE",
+        "voidedAt": null,
+        "voidReason": null,
+        "sourceReferences": [],
+        "notes": null,
+        "createdAt": "2026-09-30T18:10:00.000Z",
+        "version": 1
+      },
+      "weg": {
+        "wegId": "0e000000-0000-4000-8000-000000000001",
+        "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+        "status": "ACTIVE",
+        "displayName": "WEG Musterstraße 1",
+        "administratorPartyId": null,
+        "financialYearStartMonth": 1,
+        "notes": null,
+        "voidedAt": null,
+        "voidReason": null,
+        "createdAt": "2026-09-30T18:08:00.000Z",
+        "version": 1
+      }
+    }
+  ],
+  "securityDeposits": [],
+  "securityDepositsNotAttributed": [
+    {
+      "securityDepositId": "0d000000-0000-4000-8000-000000000001",
+      "reason": "SEVERAL_PROPERTY_REFERENCES",
+      "candidates": ["7e000000-0000-4000-8000-0000000000aa", "7e000000-0000-4000-8000-0000000000bb"]
+    }
+  ],
+  "parties": [
+    {
+      "partyId": "0c000000-0000-4000-8000-000000000001",
+      "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+      "partyType": "PERSON",
+      "displayName": "Max Mustermann",
+      "firstName": "Max",
+      "lastName": "Mustermann",
+      "email": null,
+      "phone": null,
+      "status": "ACTIVE",
+      "deactivatedAt": null,
+      "deactivationReason": null,
+      "createdAt": "2026-09-30T17:55:00.000Z",
+      "version": 1
+    }
+  ]
+}

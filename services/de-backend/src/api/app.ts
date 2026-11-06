@@ -5,6 +5,7 @@ import { acquisitionCostRoutes, type AcquisitionCostCommands } from './acquisiti
 import { acquisitionRoutes, type AcquisitionCommands } from './acquisitions.js';
 import { depreciationAssetRoutes, type DepreciationAssetCommandsWithVersions } from './depreciation-assets.js';
 import { errorHandler } from './errors.js';
+import { exportRoutes, type ExportCommands } from './exports.js';
 import { financialAccountRoutes, type FinancialAccountCommands } from './financial-accounts.js';
 import { financialCategoryRoutes, type FinancialCategoryQueries } from './financial-categories.js';
 import { importRoutes, type ImportCommands } from './imports.js';
@@ -92,6 +93,8 @@ export interface AppCommands {
   readonly imports: ImportCommands;
   /** Financial categories, read-only (VC-1-07). */
   readonly financialCategories: FinancialCategoryQueries;
+  /** Data export: the Kassenbuch as CSV, a PropertyReference as JSON (VC-X-04, §58S). */
+  readonly exports: ExportCommands;
 }
 
 export interface AppDependencies extends AppCommands {
@@ -155,6 +158,7 @@ export function createApp(deps: AppDependencies): Express {
   api.use(transactionRoutes(deps.transactions));
   api.use(importRoutes(deps.imports));
   api.use(financialCategoryRoutes(deps.financialCategories));
+  api.use(exportRoutes(deps.exports));
   app.use('/api/v1', api);
 
   app.use((_req, res) => {

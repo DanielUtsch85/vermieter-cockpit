@@ -140,7 +140,7 @@ function sendCommonError(res: Response, error: unknown, outcome: string): boolea
   return false;
 }
 
-function toDto(reference: PropertyReference) {
+export function toDto(reference: PropertyReference) {
   return {
     propertyReferenceId: reference.id,
     mreRealmId: reference.mreRealmId,

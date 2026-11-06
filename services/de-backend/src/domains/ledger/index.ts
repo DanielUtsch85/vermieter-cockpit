@@ -143,4 +143,13 @@ export type {
   UnconfirmedTransactionRepository,
 } from './amend-transaction.js';
 export { CURRENT_STATUSES, REVIEWABLE_STATUSES } from './transaction-query.js';
-export type { PageRequest, TransactionFilter, TransactionPage, TransactionQueries } from './transaction-query.js';
+export type {
+  PageRequest,
+  TransactionExportHead,
+  TransactionExportQueries,
+  TransactionExportSink,
+  TransactionFilter,
+  TransactionPage,
+  TransactionQueries,
+  TransactionWithSplits,
+} from './transaction-query.js';

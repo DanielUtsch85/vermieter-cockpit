@@ -147,6 +147,8 @@ import {
   importBankStatement,
   linkPropertyReference,
   listFinancialCategories,
+  exportProperty,
+  exportTransactions,
   listReviewItems,
   refreshPropertyReference,
   resolveReviewItem,
@@ -184,6 +186,8 @@ import {
   PostgresPropertyReferenceRepository,
   PostgresCorrectionRepository,
   PostgresTransactionQueries,
+  PostgresTransactionExport,
+  PostgresPropertyExportSnapshots,
   PostgresUnconfirmedTransactionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
@@ -495,6 +499,10 @@ describe.skipIf(databaseUrl === undefined)('Phase 3 acceptance (roadmap exit)', 
         resolveReviewItem: resolveReviewItem({ imports }),
       },
       financialCategories: { list: listFinancialCategories({ categories }), get: getFinancialCategory({ categories }) },
+      exports: {
+        transactions: exportTransactions({ queries: new PostgresTransactionExport(db) }),
+        property: exportProperty({ snapshots: new PostgresPropertyExportSnapshots(db) }),
+      },
     });
     server = app.listen(0, '127.0.0.1');
     await new Promise<void>((resolve) => server.once('listening', () => resolve()));

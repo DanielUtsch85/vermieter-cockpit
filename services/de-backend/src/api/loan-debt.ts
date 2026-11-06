@@ -222,7 +222,7 @@ function sendStatement(res: Response, statement: StatementView): void {
   res.json(toStatementDto(statement));
 }
 
-function toStatementDto(s: StatementView) {
+export function toStatementDto(s: StatementView) {
   return {
     statementId: s.id,
     loanId: s.loanId,

@@ -278,7 +278,7 @@ const flagDto = (flag: DepositFlag) => ({
 });
 
 /** §47.1's fields and §47.3's figures; `cash` only where the read carries it (the single read). */
-function toDto(deposit: DepositView) {
+export function toDto(deposit: DepositView) {
   const { figures } = deposit;
   return {
     securityDepositId: deposit.id,

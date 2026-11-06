@@ -160,13 +160,17 @@ const dateRange = {
 
 export const listQuery = listFields.strict().refine(dateRange.check, dateRange.issue);
 
+/** §58S: the export's filters are §30.1's, the same fields without the page (the export is the whole filtered set). */
+export const filterFields = listFields.omit({ page: true, pageSize: true });
+export const checkDateRange = dateRange;
+
 /** `GET /property-references/{id}/transactions`: the same, with the PropertyReference in the path. */
 export const propertyReferenceListQuery = listFields.omit({ propertyReferenceId: true }).strict().refine(dateRange.check, dateRange.issue);
 
 type ListQuery = z.infer<typeof listQuery>;
 
 /** The filter of a parsed list query (§30.1). */
-export function listFilter(q: Omit<ListQuery, 'propertyReferenceId'> & { propertyReferenceId?: string | undefined }): TransactionFilter {
+export function listFilter(q: Omit<ListQuery, 'propertyReferenceId' | 'page' | 'pageSize'> & { propertyReferenceId?: string | undefined }): TransactionFilter {
   // `reviewable=true` is the statuses IMPORTED and UNREVIEWED; with `status` too, both must hold.
   const reviewable: readonly TransactionStatus[] | undefined = q.reviewable === 'true' ? REVIEWABLE_STATUSES : undefined;
   const statuses = q.status !== undefined && reviewable !== undefined ? q.status.filter((s) => reviewable.includes(s)) : (q.status ?? reviewable);

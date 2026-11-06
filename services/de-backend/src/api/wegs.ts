@@ -418,7 +418,7 @@ function sendMembership(res: Response, membership: WegMembership): void {
   res.json(membershipDto(membership));
 }
 
-function wegDto(weg: Weg) {
+export function wegDto(weg: Weg) {
   return {
     wegId: weg.id,
     mreRealmId: weg.mreRealmId,
@@ -434,7 +434,7 @@ function wegDto(weg: Weg) {
   };
 }
 
-function membershipDto(membership: WegMembership) {
+export function membershipDto(membership: WegMembership) {
   return {
     membershipId: membership.id,
     mreRealmId: membership.mreRealmId,
