@@ -580,6 +580,8 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           const movers = migrations['0065_tax_year_deposit_and_correction_movers'] as typeof migration;
           const loanParts = migrations['0071_tax_year_loan_schedule_part_kinds'] as typeof migration;
           // 0071 (VC-X-54) widens these CHECKs and patches the shape guard after them: its own down first, up again at the end.
+          // 0073 (VC-X-57) patches 0072's passages of acquisition_frozen and 0050's functions: rolled back before 0072, not applied again.
+          await withMigrationLock(() => (migrations['0073_ownership_start_on_confirm'] as typeof migration).down(createDatabase(downPool) as never));
           // 0072 (VC-X-55) widens the same CHECKs and patches 0067's passage of the shape guard after 0071: rolled back first.
           // It is not applied again below: 0065's up writes its own shape guard, without 0067's passage that 0072 patches.
           await withMigrationLock(() => (migrations['0072_ownership_extend_to_economic_transfer'] as typeof migration).down(createDatabase(downPool) as never));

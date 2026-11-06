@@ -85,6 +85,7 @@ export async function readScheduleIn(
       sql<string | null>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('economic_transfer_date'),
       'economic_transfer_recorded_at',
       'ownership_aligned_at',
+      sql<string | null>`to_char(confirmed_ownership_start, 'YYYY-MM-DD')`.as('confirmed_ownership_start'),
     ])
     .where('property_reference_id', '=', asset.propertyReferenceId)
     .where('mre_realm_id', '=', mreRealmId)
@@ -189,6 +190,7 @@ export async function readScheduleIn(
       economicTransferDate: r.economic_transfer_date as BusinessDate | null,
       economicTransferRecordedAt: r.economic_transfer_recorded_at,
       ownershipAlignedAt: r.ownership_aligned_at,
+      confirmedOwnershipStart: r.confirmed_ownership_start as BusinessDate | null,
       sellerPartyIds: sellers.filter((s) => s.acquisition_id === r.id).map((s) => s.party_id),
       costs: costs
         .filter((c) => c.acquisition_id === r.id)

@@ -240,6 +240,7 @@ async function withoutAssetIn(trx: Trx, request: TaxYearDepreciationRequest): Pr
       sql<string | null>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('economic_transfer_date'),
       'economic_transfer_recorded_at',
       'ownership_aligned_at',
+      sql<string | null>`to_char(confirmed_ownership_start, 'YYYY-MM-DD')`.as('confirmed_ownership_start'),
     ])
     .where('mre_realm_id', '=', mreRealmId)
     .where('property_reference_id', '=', propertyReferenceId)
@@ -252,6 +253,8 @@ async function withoutAssetIn(trx: Trx, request: TaxYearDepreciationRequest): Pr
     .filter(
       (a) =>
         ownershipStart({
+          status: a.status,
+          confirmedOwnershipStart: a.confirmed_ownership_start as BusinessDate | null,
           contractDate: a.contract_date as BusinessDate,
           economicTransferDate: a.economic_transfer_date as BusinessDate | null,
           economicTransferRecordedAt: a.economic_transfer_recorded_at,

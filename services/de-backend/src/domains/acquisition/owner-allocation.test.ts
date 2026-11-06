@@ -31,6 +31,7 @@ const acquisition = (buyers: string[], overrides: Partial<Acquisition> = {}): Ac
   economicTransferSourceReferences: null,
   ownershipAlignedAt: null,
   ownershipAlignmentSourceReferences: null,
+  confirmedOwnershipStart: null,
   flags: [],
   ...overrides,
 });

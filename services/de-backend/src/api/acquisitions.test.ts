@@ -177,6 +177,7 @@ describe('POST /api/v1/acquisitions', () => {
 describe('POST /api/v1/acquisitions/{id}/confirm', () => {
   it('200 with the confirmed Acquisition and its ETag; a no-op is marked; If-Match passed on; 409, 422 with the violations, 400', async () => {
     const seen: unknown[] = [];
+    const SELLER_7 = '0000aaaa-0000-4000-8000-000000000057';
     const outcomes: unknown[] = [
       { acquisition: { ...acquisition, status: 'CONFIRMED', confirmedAt: new Date('2026-10-26T10:00:00Z'), version: 2 }, changed: true },
       { acquisition: { ...acquisition, status: 'CONFIRMED', version: 2 }, changed: false },
@@ -205,6 +206,13 @@ describe('POST /api/v1/acquisitions/{id}/confirm', () => {
           ],
         },
         { code: 'OWNERSHIP_INCOMPLETE', date: '2026-08-01' as never, shareSum: { numerator: 1n, denominator: 8n } },
+        // §58R requirement 7 (VC-X-57): shares as "n/d".
+        {
+          code: 'SELLER_SHARE_CHANGED_BEFORE_TRANSFER',
+          partyId: SELLER_7,
+          shareOnContractEve: { numerator: 1n, denominator: 1n },
+          shareOnTransferEve: { numerator: 0n, denominator: 1n },
+        },
       ]),
       new VersionConflictError([1], 2),
     ];
@@ -246,6 +254,7 @@ describe('POST /api/v1/acquisitions/{id}/confirm', () => {
             ],
           },
           { code: 'OWNERSHIP_INCOMPLETE', date: '2026-08-01', shareSum: '1/8' },
+          { code: 'SELLER_SHARE_CHANGED_BEFORE_TRANSFER', partyId: SELLER_7, shareOnContractEve: '1/1', shareOnTransferEve: '0/1' },
         ],
       },
     });

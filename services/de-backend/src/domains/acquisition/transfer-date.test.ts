@@ -32,6 +32,7 @@ const legacy: Acquisition = {
   economicTransferSourceReferences: null,
   ownershipAlignedAt: null,
   ownershipAlignmentSourceReferences: null,
+  confirmedOwnershipStart: null,
   flags: [],
 };
 const body = { economicTransferDate: day('2025-05-01'), sourceReferences: ['Übergabeprotokoll 2025-05-01 (synthetisch)'], notes: null };
@@ -106,7 +107,8 @@ describe('ownershipStart and the flag (§58N option (b), Frage 5)', () => {
     // A DRAFT dated, then cancelled: no flag at either level.
     const cancelled = { ...recorded, status: 'CANCELLED' as const, confirmedAt: null };
     expect([ownershipStartFlag(cancelled, true), ownershipStartFlag(cancelled, false)]).toEqual([null, null]);
-    // Counter-check: the same as DRAFT carries it.
-    expect(ownershipStartFlag({ ...cancelled, status: 'DRAFT' }, true)?.level).toBe('OPEN');
+    // Counter-check: the same as CONFIRMED (legacy) carries it; as DRAFT no longer (§58R rule 7, Frage 5).
+    expect(ownershipStartFlag({ ...cancelled, status: 'CONFIRMED' }, true)?.level).toBe('OPEN');
+    expect(ownershipStartFlag({ ...cancelled, status: 'DRAFT' }, true)).toBeNull();
   });
 });

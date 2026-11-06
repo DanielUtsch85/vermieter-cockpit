@@ -282,13 +282,17 @@ describe.skipIf(databaseUrl === undefined)('aligning the Ownerships to the econo
       await own(pr, { owner: a, from: '2025-03-01', acquisitionId: d });
       await recordDate(d, '2025-05-01');
       const confirm = () => t.ctx.acquisitions.confirm(d, REALM, AT, actor);
+      // §58R rule 4 (VC-X-57): a DRAFT whose rows began on the contract date is refused by confirm until aligned;
+      // confirm moves nothing, so after a refusal the act and a second confirm give the same state.
       const kinds =
         order === 'confirm first'
-          ? [(await confirm()).kind, (await align(d)).kind]
+          ? [(await confirm()).kind, (await align(d)).kind, (await confirm()).kind]
           : order === 'align first'
             ? [(await align(d)).kind, (await confirm()).kind]
             : (await Promise.all([confirm(), align(d)])).map((o) => o.kind);
-      expect([order, ...kinds.sort()]).toEqual([order, 'ALIGNED', 'CONFIRMED']);
+      if (kinds.includes('CONFIRMATION_BLOCKED') && !kinds.includes('CONFIRMED')) kinds.push((await confirm()).kind);
+      expect([order, ...kinds.filter((k) => k !== 'CONFIRMATION_BLOCKED').sort()]).toEqual([order, 'ALIGNED', 'CONFIRMED']);
+      if (order === 'confirm first') expect(kinds[0]).toBe('CONFIRMATION_BLOCKED');
       const row = await acquisitionRow(d);
       expect([row.status, row.ownership_aligned_at !== null]).toEqual(['CONFIRMED', true]);
       // Both orders end in the same state: the buyer's row from the transfer, the seller's to the day before.

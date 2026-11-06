@@ -28,7 +28,7 @@ With it, the exit of Phase 7 is complete (P7-D8): the tax-year view's AfA block 
 # 0. Input from the earlier phases
 
 - **Phase 2 records the acquisition truth** (P2-D6–P2-D10):
-  - the `Acquisition` with `purchasePrice`, `acquiredShare`, `contractDate` and `economicTransferDate` (Übergang von Nutzen und Lasten); the transfer date is `economicTransferDate`, else `contractDate` (P2-D6);
+  - the `Acquisition` with `purchasePrice`, `acquiredShare`, `contractDate` and `economicTransferDate` (Übergang von Nutzen und Lasten); the transfer date is `economicTransferDate`, else `contractDate` (P2-D6; amended by ADR-044: the buyers' Ownerships of an Acquisition confirmed from VC-X-57 on begin on `economicTransferDate`);
   - its `AcquisitionCost`s by category, with `FINANCING_RELATED` among them (A6: not acquisition cost);
   - the current `LandBuildingAllocation` with `method` (`PURCHASE_CONTRACT`, `BMF_TOOL`, `APPRAISAL`, `ADVISOR`, `OTHER`) and `reviewState`; recorded as entered, never computed;
   - the Ownerships carrying the Acquisition's id, and §27.4's split among the buyers (weights `share / acquiredShare`, largest remainder). §27.4 states that only a `CONFIRMED` Acquisition feeds Phases 7 and 8.
@@ -105,7 +105,7 @@ Each decision names whether it **needs the user** (a choice only the project own
 
 ### P8-D5 The start and the first year (B6; depreciation.md §5)
 
-- **The start** of a component of P8-D2 (1) is its Acquisition's **transfer date** (P2-D6): the Übergang des wirtschaftlichen Eigentums, regularly Nutzen und Lasten (B6). A newly built building's completion is out of scope (P8-D13).
+- **The start** of a component of P8-D2 (1) is its Acquisition's **transfer date** (P2-D6): the Übergang des wirtschaftlichen Eigentums, regularly Nutzen und Lasten (B6). A newly built building's completion is out of scope (P8-D13). **Amended by ADR-044** (VC-X-57, api-design §58R; Entscheidung des Projektinhabers, 2026-11-06): the AfA's start stays `economicTransferDate`; from VC-X-57 on the buyers' Ownerships begin on it as well, so a seller's tenure ends on `t − 1` from the outset.
 - **No `economicTransferDate`:** the `contractDate` serves, flagged `TRANSFER_DATE_ASSUMED` (open). The assumption is never silent. This answers `depreciation.md` §9's second open point: the field exists (P2-D6). **Superseded (decided 2026-10-31, second set; api-design §59A open question 6):** not computable, `TRANSFER_DATE_MISSING`; implemented by VC-X-33 (`TRANSFER_DATE_ASSUMED` withdrawn).
 - **The first year** (§ 7 Abs. 1 S. 4 EStG, B6): the annual amount less 1/12 for each **full** month before the transfer month; the transfer month counts in full. A transfer in April gives 9/12 (depreciation.md §5), one on 31 December gives 1/12, one on 1 January 12/12 of that year and nothing of the year before.
 - **The tax year of AfA is the calendar year of the months it covers.** § 11 EStG and the 10-day rule do not apply (AfA is no Abfluss); a capitalised item keeps its own date (P8-D6), not its tax year by §58A.

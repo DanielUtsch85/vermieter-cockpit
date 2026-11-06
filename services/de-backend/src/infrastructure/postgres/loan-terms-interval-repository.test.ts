@@ -468,12 +468,14 @@ describe.skipIf(databaseUrl === undefined)('the payment interval through Postgre
           await withMigrationLock(async () => {
             // 0072 (VC-X-55) and 0071 (VC-X-54) sort after 0070: their own downs first, the later first (nothing aligned, no
             // acknowledgement of their kinds here).
+            // 0073 (VC-X-57) patches 0072's passages: rolled back first (no confirmation from the transfer here).
+            await (migrations['0073_ownership_start_on_confirm'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await (migrations['0072_ownership_extend_to_economic_transfer'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await (migrations['0071_tax_year_loan_schedule_part_kinds'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await migration.down(createDatabase(down) as never);
           });
           await down.query(
-            `DELETE FROM kysely_migration WHERE name IN ('0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer')`,
+            `DELETE FROM kysely_migration WHERE name IN ('0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm')`,
           );
           expect(await frozenDef()).toBe(original);
           expect(

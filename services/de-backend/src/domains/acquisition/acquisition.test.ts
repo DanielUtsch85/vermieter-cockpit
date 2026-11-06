@@ -43,13 +43,14 @@ const acquisition: Acquisition = {
   economicTransferSourceReferences: null,
   ownershipAlignedAt: null,
   ownershipAlignmentSourceReferences: null,
+  confirmedOwnershipStart: null,
   flags: [],
 };
 
 describe('Acquisition', () => {
   it('the transfer date is the economic transfer, or the contract while that is unset (P2-D6)', () => {
-    expect(ownershipStart(data)).toBe('2026-06-15');
-    expect(ownershipStart({ ...data, economicTransferDate: day('2026-08-01') })).toBe('2026-08-01');
+    expect(ownershipStart({ ...data, status: 'DRAFT' })).toBe('2026-06-15');
+    expect(ownershipStart({ ...data, status: 'DRAFT', economicTransferDate: day('2026-08-01') })).toBe('2026-08-01');
   });
 
   it('cancel: a draft without VALID Ownerships; a repeat is UNCHANGED; confirmed is final; carried by Ownerships is refused', () => {
@@ -93,15 +94,19 @@ describe('planConfirm (§28.1)', () => {
   it('confirms when the buyers hold exactly the acquired share from the transfer date and the day is complete', () => {
     const mine = [own('o1', 'b1', 1, 4), own('o2', 'b2', 1, 4)];
     expect(
-      planConfirm(draft, { buyerStatuses: active, own: mine, onTransferDate: [...mine, own('o3', 'k', 1, 2, '2020-01-01')], beforeTransferDate: [] }, at),
+      planConfirm(
+        draft,
+        { buyerStatuses: active, own: mine, onTransferDate: [...mine, own('o3', 'k', 1, 2, '2020-01-01')], beforeTransferDate: [], sellerRows: [] },
+        at,
+      ),
     ).toEqual({
       kind: 'CONFIRM',
-      next: { ...draft, status: 'CONFIRMED', confirmedAt: at, version: 2 },
+      next: { ...draft, status: 'CONFIRMED', confirmedAt: at, confirmedOwnershipStart: draft.economicTransferDate, version: 2 },
     });
   });
 
   it('status first: CONFIRMED is a no-op, CANCELLED is refused, whatever the requirements', () => {
-    const none = { buyerStatuses: new Map(), own: [], onTransferDate: [], beforeTransferDate: [] };
+    const none = { buyerStatuses: new Map(), own: [], onTransferDate: [], beforeTransferDate: [], sellerRows: [] };
     expect(planConfirm({ ...draft, status: 'CONFIRMED' }, none, at)).toEqual({ kind: 'UNCHANGED' });
     expect(planConfirm({ ...draft, status: 'CANCELLED' }, none, at)).toEqual({ kind: 'ACQUISITION_CANCELLED' });
   });
@@ -117,6 +122,7 @@ describe('planConfirm (§28.1)', () => {
         own: [own('o2', 'x', 1, 8), own('o1', 'b1', 1, 4, '2026-08-02')],
         onTransferDate: [own('o2', 'x', 1, 8)],
         beforeTransferDate: [],
+        sellerRows: [],
       },
       at,
     );
@@ -146,7 +152,7 @@ describe('planConfirm (§28.1)', () => {
   it('§58K (K4): without economicTransferDate refused TRANSFER_DATE_MISSING first, the others still reported; equal to the contract date confirms', () => {
     const undated = { ...draft, economicTransferDate: null, contractDate: day('2026-08-01') };
     const mine = [own('o1', 'b1', 1, 4), own('o2', 'b2', 1, 4)];
-    const input = { buyerStatuses: active, own: mine, onTransferDate: [...mine, own('o3', 'k', 1, 2, '2020-01-01')], beforeTransferDate: [] };
+    const input = { buyerStatuses: active, own: mine, onTransferDate: [...mine, own('o3', 'k', 1, 2, '2020-01-01')], beforeTransferDate: [], sellerRows: [] };
     expect(planConfirm(undated, input, at)).toEqual({
       kind: 'CONFIRMATION_BLOCKED',
       violations: [{ code: 'TRANSFER_DATE_MISSING', contractDate: '2026-08-01' }],
@@ -207,9 +213,13 @@ describe('VC-X-30: the acquired share is the increase over the day before (§28.
       own: rows.filter((o) => ownIds.includes(o.id)),
       onTransferDate: rows.filter((o) => covers(o, d)),
       beforeTransferDate: rows.filter((o) => covers(o, dayBefore)),
+      sellerRows: [],
     };
   };
-  const confirmed = (x: Acquisition) => ({ kind: 'CONFIRM', next: { ...x, status: 'CONFIRMED', confirmedAt: at, version: 2 } });
+  const confirmed = (x: Acquisition) => ({
+    kind: 'CONFIRM',
+    next: { ...x, status: 'CONFIRMED', confirmedAt: at, confirmedOwnershipStart: x.economicTransferDate, version: 2 },
+  });
 
   it('A held nothing and buys B’s 1/2: the full share, as before VC-X-30', () => {
     const x = draft(['A'], 1, 2);

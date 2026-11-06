@@ -226,24 +226,46 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
     expect(same.kind === 'RECORDED' && same.acquisition.flags).toEqual([]);
   });
 
-  it('a DRAFT dated by the command is confirmed: with Ownerships from the contract date, without any, and with the transfer on the contract date', async () => {
-    for (const [date, ownBefore] of [
-      ['2025-05-01', true],
-      ['2025-05-01', false],
-      ['2025-03-01', false],
-    ] as const) {
+  it('a DRAFT dated by the command is refused with Ownerships from the contract date (§58R, VC-X-57); counter-check: from the recorded date, without any yet, and on the contract date it is confirmed', async () => {
+    // The turned case (§58N Frage 4 superseded for the future by §58R Frage 2, Entscheidung des Projektinhabers, 2026-11-06).
+    for (const ownBefore of [true, false]) {
       const pr = await propertyReference();
       const a = await party('Käufer D (synthetisch)');
       const d = await draft(pr, a);
       if (ownBefore) await own(pr, a, '2025-03-01', d);
-      const recorded = await rec(d, record(date));
+      const recorded = await rec(d, record('2025-05-01'));
       expect(recorded.kind === 'RECORDED' && [recorded.acquisition.status, recorded.acquisition.version]).toEqual(['DRAFT', 2]);
-      // ownershipStart is the contract date: the Ownerships are written from it (§58N Frage 4).
       if (!ownBefore) await own(pr, a, '2025-03-01', d);
-      const confirmed = await acquisitions.confirm(d, REALM, AT, actor);
-      expect(confirmed.kind === 'CONFIRMED' && [confirmed.acquisition.status, confirmed.acquisition.version]).toEqual(['CONFIRMED', 3]);
+      const before = await row(d);
+      const refused = await acquisitions.confirm(d, REALM, AT, actor);
+      expect(refused.kind === 'CONFIRMATION_BLOCKED' && refused.violations[0]).toMatchObject({
+        code: 'OWNERSHIP_NOT_FROM_TRANSFER_DATE',
+        validFrom: '2025-03-01',
+        transferDate: '2025-05-01',
+      });
+      expect(await row(d)).toEqual(before);
     }
-    // Counter-check: a DRAFT created with 2025-05-01 and an Ownership from the contract date fails requirement 2.
+    // Counter-check: the Ownership from the recorded date (written after the date, or before it, on t) is confirmed.
+    for (const ownBefore of [true, false]) {
+      const pr = await propertyReference();
+      const a = await party('Käufer D2 (synthetisch)');
+      const d = await draft(pr, a);
+      if (ownBefore) await own(pr, a, '2025-05-01', d);
+      await rec(d, record('2025-05-01'));
+      if (!ownBefore) await own(pr, a, '2025-05-01', d);
+      const confirmed = await acquisitions.confirm(d, REALM, AT, actor);
+      expect(
+        confirmed.kind === 'CONFIRMED' && [confirmed.acquisition.status, confirmed.acquisition.version, confirmed.acquisition.confirmedOwnershipStart],
+      ).toEqual(['CONFIRMED', 3, '2025-05-01']);
+    }
+    // The transfer on the contract date: unchanged, the rows from it.
+    const pr0 = await propertyReference();
+    const a0 = await party('Käufer D3 (synthetisch)');
+    const d0 = await draft(pr0, a0);
+    await rec(d0, record('2025-03-01'));
+    await own(pr0, a0, '2025-03-01', d0);
+    expect((await acquisitions.confirm(d0, REALM, AT, actor)).kind).toBe('CONFIRMED');
+    // Counter-check (unchanged): a DRAFT created with 2025-05-01 and an Ownership from the contract date fails requirement 2.
     const pr = await propertyReference();
     const a = await party('Käufer E (synthetisch)');
     const d = await draft(pr, a, { economicTransferDate: day('2025-05-01') });
@@ -374,9 +396,15 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
       const dated = await draft(pr2, a, { economicTransferDate: day('2025-03-01') });
       await own(pr2, a, '2025-03-01', dated);
       expect(await attempt(confirmRaw, [dated])).toBe('accepted');
-      // A DRAFT dated by the command, its Ownership from the contract date: 0050's functions read ownershipStart.
+      // A DRAFT dated by the command, its Ownership from the contract date: 0050's functions read ownershipStart, which is
+      // the recorded date for a DRAFT since 0073 (§58R): refused; counter-check below with the Ownership from the date.
       await pool.query(`UPDATE acquisition SET ${SET} WHERE id = $1`, [undated]);
-      expect(await attempt(confirmRaw, [undated])).toBe('accepted');
+      expect(await attempt(confirmRaw, [undated])).toMatch(/OWNERSHIP_NOT_FROM_TRANSFER_DATE/);
+      const pr3 = await propertyReference();
+      const later = await draft(pr3, a);
+      await own(pr3, a, '2025-05-01', later);
+      await pool.query(`UPDATE acquisition SET ${SET} WHERE id = $1`, [later]);
+      expect(await attempt(confirmRaw, [later])).toBe('accepted');
     });
 
     it('the acknowledgement kind on the entity Acquisition, without items; counter-checks: another entity refused, an item of another kind accepted', async () => {
@@ -454,7 +482,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
           const legacyRow = async () =>
             (
               await down.query(
-                `SELECT to_jsonb(a) - 'economic_transfer_recorded_at' - 'economic_transfer_source_references' - 'ownership_aligned_at' - 'ownership_alignment_source_references' AS r FROM acquisition a WHERE id = $1`,
+                `SELECT to_jsonb(a) - 'economic_transfer_recorded_at' - 'economic_transfer_source_references' - 'ownership_aligned_at' - 'ownership_alignment_source_references' - 'confirmed_ownership_start' AS r FROM acquisition a WHERE id = $1`,
                 [kept.acquisitionId],
               )
             ).rows[0].r;
@@ -484,6 +512,8 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
             await down.query(`DELETE FROM acquisition WHERE id = $1`, [other.acquisitionId]);
             for (const t of ['ownership', 'acquisition_party', 'acquisition']) await down.query(`ALTER TABLE ${t} ENABLE TRIGGER USER`);
             await withMigrationLock(async () => {
+              // 0073 (VC-X-57) patches 0020's, 0022's and 0050's functions after 0072 did: its own down first (no confirmation here).
+              await (migrations['0073_ownership_start_on_confirm'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               // 0072 (VC-X-55) patches 0020's, 0050's and 0065's functions after 0067 did: its own down first (nothing aligned here).
               await (migrations['0072_ownership_extend_to_economic_transfer'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               // 0068 (VC-X-27, tax_classification only) sorts after 0067: its own down first (no cost-line classification here).
@@ -497,7 +527,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
               await migration.down(createDatabase(down) as never);
             });
             await down.query(
-              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer')`,
+              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm')`,
             );
           }
           expect(await defs()).toEqual(original);

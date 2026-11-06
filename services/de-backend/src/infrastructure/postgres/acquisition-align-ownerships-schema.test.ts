@@ -443,7 +443,12 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0072 past the reposito
             ])
           ).rows[0].r;
         const untouched = await legacyRow();
-        await migrateToLatest(down, { migrationTableSchema: downSchema });
+        // Up to 0072 only: 0073 (VC-X-57) patches the same passages after it (its own down test is in
+        // acquisition-ownership-start-schema.test.ts).
+        await migrateToLatest(down, {
+          migrationTableSchema: downSchema,
+          migrations: Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0073')),
+        });
         const after = await defs();
         expect(after).not.toEqual(original);
         expect(await legacyRow()).toEqual(untouched);
