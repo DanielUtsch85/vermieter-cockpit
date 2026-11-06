@@ -254,8 +254,46 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0073 past the reposito
         await down.query(`ALTER TABLE acquisition DISABLE TRIGGER USER`);
         await down.query(`UPDATE acquisition SET status = 'DRAFT', confirmed_at = NULL, confirmed_ownership_start = NULL WHERE id = $1`, [n]);
         await down.query(`ALTER TABLE acquisition ENABLE TRIGGER USER`);
+        // Review on #284: an Acquisition created WITH the date and confirmed under 0073 (confirmed_ownership_start set,
+        // economic_transfer_recorded_at NULL) does not block down: after it, branch 5 still gives the date.
+        const pr3 = (
+          await down.query(
+            `INSERT INTO property_reference (mre_realm_id, mre_property_id, external_reference_state, created_by) VALUES ($1, '6512f0c2a1b2c3d4e5f57359', 'ACTIVE', 'x') RETURNING id`,
+            [REALM],
+          )
+        ).rows[0].id as string;
+        const created = (
+          await down.query(
+            `INSERT INTO acquisition (mre_realm_id, property_reference_id, status, purchase_price, currency, acquired_share_numerator, acquired_share_denominator, contract_date, economic_transfer_date, created_by)
+             VALUES ($1, $2, 'DRAFT', 200000, 'EUR', 1, 1, '2025-03-01', '2025-05-01', 'x') RETURNING id`,
+            [REALM, pr3],
+          )
+        ).rows[0].id as string;
+        await down.query(`INSERT INTO acquisition_party (acquisition_id, mre_realm_id, party_id, role, position) VALUES ($1, $2, $3, 'BUYER', 1)`, [
+          created,
+          REALM,
+          a,
+        ]);
+        await down.query(
+          `INSERT INTO ownership (mre_realm_id, property_reference_id, owner_party_id, share_numerator, share_denominator, valid_from, status, acquisition_id, created_by) VALUES ($1, $2, $3, 1, 1, '2025-05-01', 'VALID', $4, 'x')`,
+          [REALM, pr3, a, created],
+        );
+        await down.query(CONFIRM, [created]);
+        expect(
+          (
+            await down.query(
+              `SELECT to_char(confirmed_ownership_start, 'YYYY-MM-DD') AS c, economic_transfer_recorded_at AS r FROM acquisition WHERE id = $1`,
+              [created],
+            )
+          ).rows[0],
+        ).toEqual({ c: '2025-05-01', r: null });
         await withMigrationLock(() => migration.down(createDatabase(down) as never));
         expect(await defs()).toEqual(original);
+        // Its start is unchanged after down (branch 5): the row still meets requirements 1–6 on the date.
+        expect((await down.query(`SELECT status, acquisition_confirmation_violation(id) AS v FROM acquisition WHERE id = $1`, [created])).rows[0]).toEqual({
+          status: 'CONFIRMED',
+          v: null,
+        });
         expect((await down.query(`SELECT acquisition_confirmation_violation($1) AS v`, [n])).rows[0].v).toBe('OWNERSHIP_NOT_FROM_TRANSFER_DATE');
         expect((await down.query(`SELECT to_jsonb(a) AS r FROM acquisition a WHERE id = $1`, [dated.acquisitionId])).rows[0].r).toEqual(
           rowsBefore.find((r: { id: string }) => r.id === dated.acquisitionId),

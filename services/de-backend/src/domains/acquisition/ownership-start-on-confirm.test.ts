@@ -179,6 +179,13 @@ describe('planConfirm on the transfer (§58R rules 2, 3, 5)', () => {
     expect(confirm(n(), [A_FROM_T], ['oa']).kind).toBe('CONFIRM');
   });
 
+  it('requirement 7: the same share on t − 1 through another row (the row changes in the gap) passes (review on #284)', () => {
+    const rows = [row('os', 'S', '2015-07-01', '2025-03-31'), row('os2', 'S', '2025-04-01', '2025-04-30'), A_FROM_T];
+    expect(confirm(n(), rows, ['oa']).kind).toBe('CONFIRM');
+    // Counter-check: without the second row S holds 0/1 on t − 1 and is refused.
+    expect(codes(confirm(n(), [rows[0] as ConfirmationOwnership, A_FROM_T], ['oa']))).toEqual(['SELLER_SHARE_CHANGED_BEFORE_TRANSFER']);
+  });
+
   it('requirement 7 with two sellers: only the failing one, by partyId', () => {
     const x = n({ sellerPartyIds: ['T', 'S'] });
     const rows = [row('os', 'S', '2015-07-01', '2025-04-30', [1, 2]), row('ot', 'T', '2015-07-01', '2025-02-28', [1, 2]), A_FROM_T];

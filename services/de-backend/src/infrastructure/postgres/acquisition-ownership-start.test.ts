@@ -8,7 +8,7 @@ import { insertConfirmedAsBeforeVcX34 } from './legacy-acquisition.test-support.
 import { PostgresOwnerAllocationSource } from './owner-allocation-source.js';
 import { PostgresOwnershipRepository } from './ownership-repository.js';
 import { ownershipStartFactsOf } from './ownership-start-reads.js';
-import { ownershipStartFixtures } from './ownership-start-on-confirm.test-support.js';
+import { CONFIRM, ownershipStartFixtures } from './ownership-start-on-confirm.test-support.js';
 
 /**
  * §58R (VC-X-57, migration 0073; ADR-044; Entscheidung des Projektinhabers, 2026-11-06, Fragen 1–7) through the
@@ -185,6 +185,25 @@ describe.skipIf(databaseUrl === undefined)('the Ownerships from the economic tra
       return created.kind === 'CREATED' ? created.allocation.effectiveDate : created.kind;
     };
     expect([await allocate(x.n), await allocate(l.acquisitionId)]).toEqual(['2025-05-01', '2025-03-01']);
+  });
+
+  it('the seller holds the same share on t − 1 through another row (its row changes in the gap): confirmed through the repository and raw (review on #284)', async () => {
+    const gap = async () => {
+      const x = await scenario({ dated: false });
+      // S's row ends inside the gap and a new row with the same share begins the day after; A from t carrying N.
+      await t.ctx.pool.query(`UPDATE ownership SET valid_until = '2025-03-31' WHERE id = $1`, [x.oS]);
+      await own(x.pr, { owner: x.s, from: '2025-04-01', until: '2025-04-30' });
+      await own(x.pr, { owner: x.a, from: '2025-05-01', acquisitionId: x.n });
+      await recordDate(x.n, '2025-05-01');
+      return x;
+    };
+    const viaRepository = await gap();
+    const outcome = await confirm(viaRepository.n);
+    expect(outcome.kind === 'CONFIRMED' && outcome.acquisition.confirmedOwnershipStart).toBe('2025-05-01');
+    const raw = await gap();
+    expect((await t.ctx.pool.query(`SELECT acquisition_confirmation_violation($1) AS v`, [raw.n])).rows[0].v).toBeNull();
+    expect(await t.inTransaction([[CONFIRM, [raw.n]]])).toBe('committed');
+    expect((await acquisitionRow(raw.n)).confirmed_ownership_start).toBe('2025-05-01');
   });
 
   it('Realm isolation: Realm B identical DRAFT untouched by A, a confirm of it from A NOT_FOUND; each Realm confirms its own', async () => {
