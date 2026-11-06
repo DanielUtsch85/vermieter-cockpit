@@ -9685,6 +9685,300 @@ Every mutation but M20a/M20b turns at least one test red. **M20a/M20b survive, a
 
 ---
 
+# 58S. Data Export: the Kassenbuch as CSV and a Property as JSON (VC-X-04, spec)
+
+**Status:** **specified, not implemented**; open questions 1–13 for the owner (below, "Open questions"). Backlog VC-X-04 (constitution Art. I "Data must always remain exportable"; ADR-030 "Open Data Formats and Exportability"; `technology.md` §35 "Exportability": JSON for structured complete exports, CSV for tabular financial data, stable identifiers kept). Go-live checklist issue #281, item 2. **Migration:** none. **Routes:** two new `GET` routes, nothing else changes. Productive AfA recording stays disabled; nothing here touches it, and no unconfirmed tax assumption reads as released by it (no tax figure is exported).
+
+**What it adds:** `GET /api/v1/exports/transactions.csv` (the Realm's Kassenbuch, §30.1's filters) and `GET /api/v1/property-references/{propertyReferenceId}/export.json` (one PropertyReference with its Ownerships, Acquisitions, Loans, WEG memberships and deposits). The UI guide (`docs/development/ui-guide.md` §3.1 and §6.1) lists both as a P1 function (Entscheidung des Projektinhabers, 2026-11-06).
+
+**Unchanged guarantees:** every existing route, response, filter and error code is unchanged; §30.1's list, its order, its paging and its query plan (VC-X-19) are unchanged. Both exports only read: no write, no AuditRecord, no MRE call, no `Idempotency-Key`. Money is never a float (§86, §31.2), shares stay exact fractions (§87), dates stay `YYYY-MM-DD` and timestamps RFC 3339 (§88). Realm isolation is that of the reads (§9, §30.1, §23.3). No figure, sum or rule is computed anew: every value comes from an existing DTO or from a column the DTO already shows.
+
+**Why a section of its own, after §58R:** VC-X-04 is a cross-cutting backlog item of its own; §58S is the next free letter (verified on main ddeb373 and on every remote branch: §58R is the last §58 letter, no branch adds §58S; §58R itself stays untouched).
+
+### The decided facts (verbatim)
+
+Issue #281, item 2: „`GET /api/v1/exports/transactions.csv` (Kassenbuch, Realm, Filter wie §30.1) und `GET /api/v1/property-references/{id}/export.json` (Objekt mit Ownerships, Anschaffung, Darlehen, Mitgliedschaften, Kaution); Spec-PR, dann Implementierung.“
+
+Entscheidung des Projektinhabers, 2026-11-06: „**P1-Ergänzung im UI-Leitfaden: freigegeben.** In §3.1 eine Zeile „Export | CSV des Kassenbuchs, JSON je Objekt | P1“ und in §6.1 die Zeile „Export | Direkt, sobald VC-X-04 umgesetzt ist | Routen aus der Spec“. Das kann mit dem Spec-PR zum Export gehen.“ … „**Reihenfolge wie von dir genannt:** VC-X-57 zu Ende, parallel der Spec-PR zum Export, danach Backup und Proxy.“
+
+### As the code stands (main ddeb373; paths relative to `services/de-backend/src/`)
+
+- **The list:** `api/transactions.ts:40` (`GET /transactions`) parses `listQuery` (`api/transaction-dto.ts`, `listFields` and `listFilter`) and calls `PostgresTransactionQueryRepository.list` (`infrastructure/postgres/transaction-query-repository.ts:66`), which builds the filter in `filtered`, counts and pages in one `REPEATABLE READ READ ONLY` snapshot, newest booking first. A malformed or foreign `financialAccountId` / `propertyReferenceId` filter is an empty page there (`:69–70`).
+- **The DTOs:** `toDto` and `toSplitDto` (`api/transaction-dto.ts`) carry every Transaction and split field below; `counterpartyNameRaw` and `counterpartyIbanRaw` are in the DTO (§30.1's "no counterparty fields yet" refers to a filter only). Money is `Money.amount`, a fixed-scale string (`shared/money.ts:160`, `"1250.00"`), at most 18 integer digits (`MAX_INTEGER_DIGITS`).
+- **The property reads:** §23.3 (`api/property-references.ts:143`), §26.1 without `asOf` (the full history, `VOID` included), §27.1/§27.2/§27.3, §41.1–§41.3 and §41.6 (`GET /property-references/{id}/loans` leaves `VOID` Loans out), §49.1/§49.2 (`GET /property-references/{id}/weg-memberships`), §47.1/§47.3 (the single read with `cash`), §19.1 (Parties). A deposit has no PropertyReference of its own; §58A's rule derives it ("The deposit's PropertyReference", `infrastructure/postgres/mover-reads.ts:32`).
+- **Nothing exports yet:** no route answers anything but JSON; no route streams.
+
+### The rule (proposal)
+
+**Both exports are reads of the caller's Realm in one `REPEATABLE READ READ ONLY` snapshot, built from the existing DTOs and filters, never from new figures. The CSV is RFC 4180 in UTF-8; the JSON is one document with a format name and version. Neither includes AuditRecords; both include every status, `VOID`, `CANCELLED`, `CORRECTED`, `IGNORED` and reversals marked as such, unless a filter says otherwise.**
+
+### Access, Realm and the 404 rule (both routes)
+
+- **Auth:** behind `requireDeAccess` like every business route (`Authorization: Bearer <MRE token>`, `organizationid: <mreRealmId>`; `mre-integration.md` §47.2). Its answers (`401`, `403`, `503 AUTH_UNAVAILABLE`) are unchanged and JSON (§12). Every role with DE access may export: the exports show nothing the reads do not already show to it (open question 12 for the contact data).
+- **Realm:** every row is selected by `mre_realm_id` first; a child row is only reached through a parent of the Realm (composite foreign keys). Another Realm's rows are never read, also not to count them.
+- **404 rule:** a **path** id that is unknown or foreign is `404 NOT_FOUND` with `details.propertyReferenceId` (the JSON route; existence is never revealed, §23.3). A **filter** id that is unknown or foreign matches nothing, as in §30.1: the CSV is the header line only, not a `404`. A malformed id is `400 VALIDATION_ERROR` in both places.
+- **No MRE call:** both answer from DE's rows (`displayName` and `cachedAddress` are the cached, non-authoritative values of §23.3). A test asserts the fake MRE's call count is unchanged.
+- **Headers on success:** `Cache-Control: no-store` (personal data: counterparty names, IBANs, contact data); `Content-Disposition: attachment; filename="…"` (below); `X-Export-Generated-At` (RFC 3339, UTC, milliseconds: the snapshot's start as the server clock reads it); `X-Export-Format` (below). No `ETag`.
+
+### `GET /api/v1/exports/transactions.csv`
+
+- **Query:** exactly §30.1's filters, parsed by the same schema (`listFields` without `page` and `pageSize`): `financialAccountId`, `status`, `provenance`, `reviewable`, `current`, `propertyReferenceId`, `financialCategoryCode`, `bookingDateFrom`, `bookingDateTo`, with §30.1's meanings, combinations and refusals (`400 INVALID_RANGE` when inverted, `400` for an unknown value). One parameter of its own: `rows` = `transactions` (default) or `splits` (open question 1). `page` and `pageSize` are unknown parameters here (`400`): the export is the whole filtered set. The filter is built by the **same function** as §30.1's list (`filtered`, moved to a module both read), so the two never diverge.
+- **What history:** without `status` or `current`, every Transaction of the filter, as §30.1's raw list: `CORRECTED` originals, reversals, replacements and `IGNORED` ones included, each with its `status` and `correctionRole` (open question 5). `current=true` gives the current Transactions of §35.3; summing their `signedAmount` gives the net effect per account and period. Transactions are never deleted, so nothing "voided" is missing. **No AuditRecords** (open question 8): the amendments of an unconfirmed Transaction are not in the file, only its current values; a confirmed one is never changed, only corrected, and the correction chain is in the rows.
+- **Rows:** `rows=transactions`: one row per Transaction. `rows=splits`: one row per split, the Transaction's columns repeated on each; a Transaction without splits is one row with empty split columns. Split rows of one Transaction are consecutive, in `position` order.
+- **Columns, in this order** (the header names are the DTO's field names, open question 6):
+
+  | # | Column | Value |
+  |---|---|---|
+  | 1 | `transactionId` | UUID, lower case |
+  | 2 | `bookingDate` | `YYYY-MM-DD` |
+  | 3 | `valueDate` | `YYYY-MM-DD` or empty |
+  | 4 | `financialAccountId` | UUID |
+  | 5 | `direction` | `INFLOW` / `OUTFLOW` |
+  | 6 | `amount` | the non-negative amount, e.g. `1250.00` |
+  | 7 | `signedAmount` | `amount`, with `-` for `OUTFLOW` (`-312.40`); `0.00` never signed |
+  | 8 | `currency` | `EUR` |
+  | 9 | `status` | as the DTO |
+  | 10 | `provenance` | as the DTO |
+  | 11 | `description` | text or empty |
+  | 12 | `counterpartyNameRaw` | text or empty |
+  | 13 | `counterpartyIbanRaw` | text or empty |
+  | 14 | `propertyReferenceId` | the Transaction's own, or empty |
+  | 15 | `splitCount` | integer ≥ 0 |
+  | 16 | `correctionOfTransactionId` | UUID or empty |
+  | 17 | `correctionRole` | `REVERSAL` / `REPLACEMENT` or empty |
+  | 18 | `reversalTransactionId` | UUID or empty |
+  | 19 | `replacementTransactionId` | UUID or empty |
+  | 20 | `confirmedAt` | RFC 3339 or empty |
+  | 21 | `confirmedBy` | as the DTO (the confirming MRE user's email, §34.2), or empty |
+  | 22 | `createdAt` | RFC 3339 |
+  | 23 | `version` | integer |
+
+  With `rows=splits` ten more follow: 24 `splitPosition`, 25 `splitAmount`, 26 `signedSplitAmount` (signed by the Transaction's `direction`), 27 `financialCategoryCode`, 28 `splitPropertyReferenceId`, 29 `loanId`, 30 `securityDepositId`, 31 `wegAnnualStatementId`, 32 `wegSpecialAssessmentId`, 33 `splitDescription`; all empty on the row of an unsplit Transaction. `mreRealmId` is not a column (one Realm per file; it is in `X-Export-Realm`). Columns are only ever **added at the end** in a later format version; none is renamed or reordered.
+- **Values:**
+  - **Money:** the exact decimal string of `Money.amount`: decimal point, exactly two decimals for EUR, no thousands separator, no currency sign, never rounded, never through a float; up to 18 integer digits as stored. `signedAmount` is a string operation (a `-` prefix), not arithmetic.
+  - **Dates and timestamps:** as the DTO (§88): `YYYY-MM-DD`; RFC 3339 in UTC with milliseconds (`2026-10-02T08:15:00.000Z`), never a locale format.
+  - **`null`:** an empty field. DE stores no empty strings in these columns (trimmed, empty = `null`, §31.2), so empty is unambiguous.
+- **Encoding and escaping (open questions 2 and 3):**
+  - UTF-8, **no BOM**; the first byte is the `t` of `transactionId`.
+  - RFC 4180: delimiter `,`, record separator CRLF (also after the last record), a header line always (also for an empty result).
+  - A field is enclosed in double quotes exactly when it contains `,`, `"`, CR or LF; a `"` inside is doubled. Other fields are written bare. Line breaks inside a description are kept, inside the quotes.
+  - **Formula guard** (CWE-1236): in the free-text columns `description`, `counterpartyNameRaw`, `counterpartyIbanRaw` and `splitDescription`, a value whose first character is `=`, `+`, `-`, `@`, TAB or CR gets a leading `'` before quoting. Bank texts and counterparty names come from third parties (`technology.md`: no trust in CSV content). Ids, codes, dates and amounts are never changed (a negative `signedAmount` stays `-312.40`).
+- **Order (open question 4):** oldest booking first: `bookingDate` ascending, then `createdAt`, then `transactionId`, then split `position`, i.e. §30.1's order reversed, read backwards from the same index `(mre_realm_id, booking_date DESC, created_at DESC, id DESC)`.
+- **Streaming and size (open question 11):**
+  - The response is **streamed** (`Transfer-Encoding: chunked`), read in keyset batches of 500 Transactions (with their splits, one query each) inside the one snapshot, so memory stays bounded and the file is consistent.
+  - **Before the first byte**, the filtered Transactions are counted in the snapshot. Above **100,000**: `409 CONFLICT` with `reason = "EXPORT_TOO_LARGE"`, `details.total` and `details.limit`, as JSON; narrow the filter (e.g. by year). The count goes out as `X-Export-Transaction-Count` (and, with `rows=splits`, `X-Export-Row-Count`), so a client can check it has every row.
+  - An error **after** the first byte cannot change the status any more: the server destroys the connection without the closing chunk, so the client sees a broken transfer, never a complete-looking file. Logged with the request id.
+  - A client that disconnects ends the read and the snapshot.
+- **Headers:** `Content-Type: text/csv; charset=utf-8; header=present`; `Content-Disposition: attachment; filename="kassenbuch-<YYYY-MM-DD>.csv"` (the UTC date of `X-Export-Generated-At`); `X-Export-Format: vermieter-cockpit.transactions-csv; version=1; rows=transactions` (or `rows=splits`); `X-Export-Realm: <mreRealmId>`.
+
+### `GET /api/v1/property-references/{propertyReferenceId}/export.json`
+
+- **Query:** none; any parameter is `400`. Path id as above (`400` malformed, `404` unknown or foreign).
+- **Response `200`**, `Content-Type: application/json; charset=utf-8`, `Content-Disposition: attachment; filename="objekt-<propertyReferenceId>-<YYYY-MM-DD>.json"`, `X-Export-Format: vermieter-cockpit.property-export; version=1`. Not streamed: a property's records are few, the document is built in the snapshot and sent whole.
+- **Schema (format version 1).** Every element is the **existing single-read DTO** named, field for field, so the export never has a second shape of an entity; `ETag`s are not part of it:
+
+  | Key | Content | Which, and in what order |
+  |---|---|---|
+  | `exportFormat` | `"vermieter-cockpit.property-export"` | |
+  | `exportFormatVersion` | `1` (a JSON integer; it is not an amount) | |
+  | `generatedAt` | RFC 3339, as `X-Export-Generated-At` | |
+  | `mreRealmId` | the caller's Realm | |
+  | `propertyReference` | §23.3's single read | |
+  | `ownerships` | §26.1's DTO | every Ownership of P, `VOID` included (as §26.1's history read): `validFrom`, `createdAt`, `ownershipId` |
+  | `acquisitions` | §27.1's DTO, plus `costs` (§27.2, `VOID` included), `payments` (§27.2's links, unlinked ones included) and `landBuildingAllocations` (§27.3's history) | every Acquisition of P, `DRAFT`, `CONFIRMED` and `CANCELLED`: `contractDate`, `createdAt`, `acquisitionId` (ascending; §27.1's list is newest first) |
+  | `loans` | `{ loan, terms, allocationSets, balanceStatements }`: §41.1's DTO; §41.2's terms history, `VOID` included; §41.3's sets of the Loan, `VOID` included, each with all its entries (other PropertyReferences of the Realm included, since the set is the Loan's fact); §41.6's lender statements, `VOID` included | every Loan any of whose sets, in any status, names P, the Loan in any status (unlike §41.3's per-property list, which leaves `VOID` Loans out): `loanId` |
+  | `wegMemberships` | `{ membership, weg }`: §49.2's DTO and §49.1's DTO of its WEG | every membership of P, `VOID` included: `validFrom`, `createdAt`, `membershipId` |
+  | `securityDeposits` | §47.1/§47.3's single read with `cash` | every deposit, in any status, whose PropertyReference by §58A's rule is P: `securityDepositId` |
+  | `securityDepositsNotAttributed` | `{ securityDepositId, reason, candidates }` | every deposit whose §58A PropertyReference is `null` with `SEVERAL_PROPERTY_REFERENCES` and P among `candidates`; it is listed, not exported, in every candidate's file (open question 9) |
+  | `parties` | §19.1's DTO, current values | every Party named by a `…PartyId` / `…PartyIds` field above (owners, buyers, sellers, lenders), `INACTIVE` included: `partyId` (open question 12) |
+
+- **Values:** Money as §31 (`{ "amount": "1250.00", "currency": "EUR" }`, a string, never a number); Ownership shares and `acquiredShare` as reduced fractions `"n/d"`; the MEA as printed (§49.2); `cachedSurface` a decimal string (§23.3); dates and timestamps as §88; `null` as `null`. Arrays are always present (empty `[]`). Keys in the order of the table and of each DTO.
+- **What history:** every status, as the table says. Derived values only where the named DTO already carries them (§47.3's deposit figures, §27.1's `transferDate`); no other derived read (no schedule, remaining debt, owner allocation, tax-year view, AfA; open question 13). **No AuditRecords** (open question 8). **Not in format version 1** (open question 10): the Transactions (they are the CSV, `?propertyReferenceId=P`), WEG plans, statements and assessments, RentalContractReferences, rent reconciliations, tax classifications, depreciation assets, Party external references.
+- **Size:** the records over all collections are counted in the snapshot; above **10,000**: `409 CONFLICT` with `reason = "EXPORT_TOO_LARGE"`, `details.total`, `details.limit`. Far above a private landlord's property.
+
+### Error codes and the api inventory
+
+| Status | Code / reason | When |
+|---|---|---|
+| `400` | `VALIDATION_ERROR` (`details.fields[]`: `INVALID_FORMAT`, `INVALID_RANGE`, unknown parameter) | as §30.1; `page`, `pageSize` on the CSV; any parameter on the JSON; a bad `rows` value; a malformed path id |
+| `401` / `403` / `503` | as `requireDeAccess` | unchanged |
+| `404` | `NOT_FOUND`, `details.propertyReferenceId` | JSON route only: unknown or foreign PropertyReference |
+| `409` | `CONFLICT`, `reason = "EXPORT_TOO_LARGE"`, `details.total`, `details.limit` | above 100,000 Transactions (CSV) or 10,000 records (JSON); before the first byte |
+
+Every error is JSON (§12), also on the CSV route. **api-inventory** (`docs/development/api-inventory.md`, regenerated by `yarn api:inventory` in the implementation PR, not in this docs-only PR): two lines, `GET /api/v1/exports/transactions.csv` (a new module `exports`) and `GET /api/v1/property-references/:propertyReferenceId/export.json` (module `property-references`); "Routes: 172" becomes 174. Express 4 matches the `.` in both paths literally. The route list of §30 and §22 get a pointer to §58S at implementation.
+
+### Example (synthetic)
+
+Realm `6a1b2c3d4e5f60718293a4b5`; account A `0b1c2d3e-0000-4000-8000-000000000001`; PropertyReference P `7e000000-0000-4000-8000-0000000000aa`. Three Transactions, all booked on A:
+
+- **T1** `5d2c0f1e-0000-4000-8000-000000000101`: 2026-10-01, `INFLOW` 1250.00, `BANK_CSV`, `CONFIRMED`, description `Miete Oktober, Whg. 3 "EG links"`, counterparty `Erika Mustermann` / `DE02120300000000202051`; splits 1 `RENT_BASE` 1000.00 on P, 2 `RENT_OPERATING_COST_ADVANCE` 250.00 on P.
+- **T2** `…0102`: 2026-10-05, `OUTFLOW` 312.40, `MANUAL`, `CONFIRMED`, description `Hausgeld 10/2026`; split 1 `WEG_HAUSGELD` 312.40 on P.
+- **T3** `…0103`: 2026-10-07, `INFLOW` 50.00, `BANK_CSV`, `UNREVIEWED`, description `=HYPERLINK("http://x.example")`, counterparty `+Test` / `DE89370400440532013000`; no splits.
+
+`GET /api/v1/exports/transactions.csv?financialAccountId=0b1c2d3e-0000-4000-8000-000000000001&bookingDateFrom=2026-10-01&bookingDateTo=2026-10-31` answers `200` with `X-Export-Transaction-Count: 3` and (CRLF line ends, no BOM):
+
+```text
+transactionId,bookingDate,valueDate,financialAccountId,direction,amount,signedAmount,currency,status,provenance,description,counterpartyNameRaw,counterpartyIbanRaw,propertyReferenceId,splitCount,correctionOfTransactionId,correctionRole,reversalTransactionId,replacementTransactionId,confirmedAt,confirmedBy,createdAt,version
+5d2c0f1e-0000-4000-8000-000000000101,2026-10-01,2026-10-01,0b1c2d3e-0000-4000-8000-000000000001,INFLOW,1250.00,1250.00,EUR,CONFIRMED,BANK_CSV,"Miete Oktober, Whg. 3 ""EG links""",Erika Mustermann,DE02120300000000202051,,2,,,,,2026-10-03T09:00:00.000Z,vermieter@example.org,2026-10-02T08:15:00.000Z,2
+5d2c0f1e-0000-4000-8000-000000000102,2026-10-05,,0b1c2d3e-0000-4000-8000-000000000001,OUTFLOW,312.40,-312.40,EUR,CONFIRMED,MANUAL,Hausgeld 10/2026,,,,1,,,,,2026-10-05T10:00:00.000Z,vermieter@example.org,2026-10-05T09:58:00.000Z,2
+5d2c0f1e-0000-4000-8000-000000000103,2026-10-07,2026-10-07,0b1c2d3e-0000-4000-8000-000000000001,INFLOW,50.00,50.00,EUR,UNREVIEWED,BANK_CSV,"'=HYPERLINK(""http://x.example"")",'+Test,DE89370400440532013000,,0,,,,,,,2026-10-08T07:30:00.000Z,1
+```
+
+- Σ `signedAmount` = 1250.00 − 312.40 + 50.00 = **987.60**; with `&current=true` T3 drops out (`UNREVIEWED`): **937.60**.
+- With `&rows=splits`: `X-Export-Row-Count: 4` (T1 two rows, T2 one, T3 one with empty split columns); T1's rows end `…,1,1000.00,1000.00,RENT_BASE,7e000000-0000-4000-8000-0000000000aa,,,,,` and `…,2,250.00,250.00,RENT_OPERATING_COST_ADVANCE,7e000000-0000-4000-8000-0000000000aa,,,,,`, T2's `…,1,312.40,-312.40,WEG_HAUSGELD,7e000000-0000-4000-8000-0000000000aa,,,,,`. Σ `signedSplitAmount` = **937.60**, equal to the confirmed Transactions' sum (a confirmed Transaction's splits sum exactly to its amount, §34.2).
+- With `&page=2`: `400 VALIDATION_ERROR`, `details.fields: [{ "field": "page", … }]`. With another Realm's account as `financialAccountId`: `200`, the header line only, `X-Export-Transaction-Count: 0`.
+
+`GET /api/v1/property-references/7e000000-0000-4000-8000-0000000000aa/export.json` for P with one Ownership recorded as `1/2` by mistake, voided and recorded again as `1/1`, no Acquisition, Loan or membership, and one deposit of a Tenant whose rent is booked on P and on Q `7e000000-0000-4000-8000-0000000000bb`:
+
+```json
+{
+  "exportFormat": "vermieter-cockpit.property-export",
+  "exportFormatVersion": 1,
+  "generatedAt": "2026-11-06T12:00:00.000Z",
+  "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+  "propertyReference": {
+    "propertyReferenceId": "7e000000-0000-4000-8000-0000000000aa",
+    "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+    "mrePropertyId": "6b0000000000000000000001",
+    "externalReferenceState": "ACTIVE",
+    "displayName": "Musterstraße 1, Whg. 3",
+    "cachedAddress": { "street1": "Musterstraße 1", "city": "Berlin" },
+    "cachedSurface": "72.50",
+    "lastRefreshedAt": "2026-10-01T06:00:00.000Z",
+    "lastObservedAt": "2026-10-01T06:00:00.000Z",
+    "createdAt": "2026-09-30T18:00:00.000Z",
+    "version": 1
+  },
+  "ownerships": [
+    {
+      "ownershipId": "0a000000-0000-4000-8000-000000000001",
+      "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+      "propertyReferenceId": "7e000000-0000-4000-8000-0000000000aa",
+      "ownerPartyId": "0c000000-0000-4000-8000-000000000001",
+      "share": "1/2",
+      "validFrom": "2026-01-01",
+      "validUntil": null,
+      "status": "VOID",
+      "voidedAt": "2026-09-30T18:05:00.000Z",
+      "voidReason": "1/2 statt 1/1 erfasst",
+      "acquisitionId": null,
+      "sourceReferences": [],
+      "notes": null,
+      "createdAt": "2026-09-30T18:01:00.000Z",
+      "version": 2
+    },
+    {
+      "ownershipId": "0a000000-0000-4000-8000-000000000002",
+      "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+      "propertyReferenceId": "7e000000-0000-4000-8000-0000000000aa",
+      "ownerPartyId": "0c000000-0000-4000-8000-000000000001",
+      "share": "1/1",
+      "validFrom": "2026-01-01",
+      "validUntil": null,
+      "status": "VALID",
+      "voidedAt": null,
+      "voidReason": null,
+      "acquisitionId": null,
+      "sourceReferences": ["Grundbuch von Mitte Blatt 1234, Abt. I Nr. 2"],
+      "notes": null,
+      "createdAt": "2026-09-30T18:06:00.000Z",
+      "version": 1
+    }
+  ],
+  "acquisitions": [],
+  "loans": [],
+  "wegMemberships": [],
+  "securityDeposits": [],
+  "securityDepositsNotAttributed": [
+    {
+      "securityDepositId": "0d000000-0000-4000-8000-000000000001",
+      "reason": "SEVERAL_PROPERTY_REFERENCES",
+      "candidates": ["7e000000-0000-4000-8000-0000000000aa", "7e000000-0000-4000-8000-0000000000bb"]
+    }
+  ],
+  "parties": [
+    {
+      "partyId": "0c000000-0000-4000-8000-000000000001",
+      "mreRealmId": "6a1b2c3d4e5f60718293a4b5",
+      "partyType": "PERSON",
+      "displayName": "Max Mustermann",
+      "firstName": "Max",
+      "lastName": "Mustermann",
+      "email": null,
+      "phone": null,
+      "status": "ACTIVE",
+      "deactivatedAt": null,
+      "deactivationReason": null,
+      "createdAt": "2026-09-30T17:55:00.000Z",
+      "version": 1
+    }
+  ]
+}
+```
+
+The same request with `?asOf=2026-10-01` is `400`; for Realm B's caller it is `404 NOT_FOUND` with `details.propertyReferenceId`. Q's export lists the same deposit in its `securityDepositsNotAttributed`.
+
+### Tests the implementation needs
+
+- **Route tests** (`api/exports.test.ts`): every §30.1 filter on the CSV, alone and combined (the same cases as §30.1's list tests, one table), `rows=splits`, `page`/`pageSize`/an unknown parameter/`rows=all` → `400`, `INVALID_RANGE`, the headers (`Content-Type`, `Content-Disposition`, `Cache-Control`, `X-Export-*`), an empty result (header line, CRLF, count 0); the JSON route's `400`/`404`; `EXPORT_TOO_LARGE` with the limits injected small.
+- **The CSV's bytes** (a golden file of the example above, compared byte for byte): no BOM; CRLF after every record; quoting of `,`, `"`, CR, LF; the formula guard on each of the four text columns and on none of the others (a negative `signedAmount`, a description starting with `'` stays as it is); umlauts as UTF-8; `0.00` unsigned; the largest amount §31.2 accepts (18 integer digits) exact; a parse back with an RFC 4180 parser gives every DTO value.
+- **History and sums:** a corrected Transaction (original `CORRECTED`, reversal, replacement) and an `IGNORED` one are rows of the raw export and not of `current=true`; Σ `signedAmount` of `current=true` equals §35.3's net effect from the list API for the same filter; Σ `signedSplitAmount` per `financialCategoryCode` equals the splits' sums read through `GET /transactions/{id}`; the money sums of the Realm are unchanged by the export (it writes nothing: row counts and `version`s of every table before and after).
+- **Order and streaming:** more than one batch (e.g. 1,201 Transactions with batch size 500): the order is complete and stable across batch edges with equal `bookingDate` and `createdAt`; a write committed during the stream is not in the file (snapshot); `X-Export-Transaction-Count` equals the rows; a failure injected after the first batch ends the response without the closing chunk.
+- **JSON:** the example above as a golden document; each collection with a `VOID` / `CANCELLED` member; a Loan whose only set naming P is `VOID`, and a `VOID` Loan; a set with P and another PropertyReference; an Acquisition with a voided cost and an unlinked payment; a membership and its WEG; a deposit attributed to P (with `cash`), one with `SEVERAL_PROPERTY_REFERENCES` (in both candidates' files), one with `NO_RECONCILED_RENT` (in none); `parties` once each, `INACTIVE` included; every element deep-equal to the single-read route's body.
+- **Realm isolation** (both routes): Realm B's Transactions, Ownerships, Acquisitions, Loans, memberships, deposits and Parties never appear in A's files; B's PropertyReference id → `404`; B's account as filter → header only; a Realm-A Loan set cannot name a Realm-B property (existing foreign keys) — asserted via the export, not assumed.
+- **No MRE call** for either route (fake MRE call count unchanged). **No AuditRecord** written (count before and after).
+- **Inventory:** `route-inventory.test.ts` with the two lines; `yarn api:inventory:check`.
+
+### Mutations (each applied alone, restored byte for byte)
+
+| Mutation | Turns red |
+|---|---|
+| the Realm condition dropped from the CSV's `filtered` | the Realm isolation test (B's Transactions in A's file) |
+| the CSV builds its own filter instead of `filtered` and drops `current` | the filter table, `current=true` |
+| `page`/`pageSize` accepted on the CSV | the `400` test |
+| order `DESC` (as §30.1) | the golden file, the batch-edge test |
+| keyset without `transactionId` as the last key | the batch-edge test with equal dates and timestamps |
+| a BOM written | the golden file's first bytes |
+| `\n` instead of CRLF | the golden file |
+| `"` not doubled inside a quoted field | the golden file, the parse-back test |
+| the formula guard removed | the golden file (T3), the guard tests |
+| the formula guard applied to `signedAmount` | the negative-amount test |
+| `signedAmount` computed as `Number(amount) * -1` | the 18-digit test, `0.00` unsigned, `312.40` (`-312.4`) |
+| the count check removed or after the first byte | `EXPORT_TOO_LARGE` (status `200` instead of `409`) |
+| two snapshots instead of one (count outside the stream's transaction) | the write-during-stream test |
+| `VOID` Ownerships filtered out | the JSON golden document |
+| Loans by `VALID` sets only (§41.3's rule) | the Loan with only a `VOID` set naming P |
+| `VOID` Loans left out | the `VOID` Loan test |
+| deposits by a `CONFIRMED` reconciliation on P without §58A's "exactly one" | the `SEVERAL_PROPERTY_REFERENCES` deposit in `securityDeposits` |
+| `securityDepositsNotAttributed` dropped | the two candidates' files |
+| `parties` missing the lender | the Loan test |
+| the PropertyReference read without the Realm | B's id → `404` |
+| a refresh (MRE call) instead of the cached row | the fake MRE call count |
+
+### Release note
+
+*New: two exports in open formats (constitution Art. I, ADR-030). `GET /api/v1/exports/transactions.csv` returns the Kassenbuch of the Realm as CSV (RFC 4180, UTF-8 without BOM, comma, decimal point, `YYYY-MM-DD`), with the filters of `GET /transactions` and one row per Transaction or, with `rows=splits`, per split; corrected, reversed and ignored Transactions are included unless `current=true` is given; text starting with `=`, `+`, `-` or `@` is prefixed with `'`. `GET /api/v1/property-references/{id}/export.json` returns one property with its Ownerships, Acquisitions, Loans, WEG memberships, deposits and the Parties they name, voided records included and marked. Neither contains the change history (AuditRecords). Exports above 100,000 Transactions or 10,000 records answer `409 EXPORT_TOO_LARGE`; narrow the filter.*
+
+### Open questions
+
+1. **One row per Transaction or per split.** **Proposal:** `rows=transactions` by default (Σ `signedAmount` is the cash, no double counting), `rows=splits` on request (Σ `signedSplitAmount` per category and property; the Transaction columns repeated). **Alternatives:** (a) only per split (one format, but summing `signedAmount` counts a split Transaction several times); (b) only per Transaction with the categories joined in one column (`RENT_BASE:1000.00;…`), not summable in a spreadsheet; (c) two files in a ZIP (not an open plain format any more).
+2. **Delimiter, decimal mark, BOM.** **Proposal:** RFC 4180 with `,` and decimal point, UTF-8 **without** BOM: exact, machine-readable, the same digits as the API; German Excel opens it through "Daten → Aus Text/CSV" (LibreOffice asks anyway). **Alternatives:** (a) the same with a BOM (Excel recognises UTF-8 on double-click, but still splits on `;` in a German locale, and some tools read the BOM as part of the first header); (b) a second dialect `dialect=excel-de`: `;`, decimal comma (`1250,00`, still exact, no thousands separator), BOM, same columns; (c) `;` and decimal comma as the only format (convenient in German Excel, not RFC 4180).
+3. **The formula guard.** **Proposal:** a leading `'` in the four free-text columns when the value starts with `=`, `+`, `-`, `@`, TAB or CR (OWASP's CSV injection advice; counterparty names are chosen by whoever sends money). Documented, so a re-import strips it; the value `'=x` and the guarded `=x` then look the same, which the release note says. **Alternatives:** (a) no change of any value (exact round trip, the risk left to the spreadsheet's warnings); (b) the guard only in `dialect=excel-de` (question 2 (b)).
+4. **Order.** **Proposal:** oldest first (a Kassenbuch reads forward; a running balance can be added in the spreadsheet). **Alternative:** §30.1's newest first (one order everywhere).
+5. **Default scope of the CSV.** **Proposal:** the raw set, as §30.1 without filters (nothing is dropped from an export by default; `status` and `correctionRole` say what each row is); `current=true` for the net Kassenbuch. **Alternative:** `current=true` by default and `current=false` for the raw set (the file sums to the cash, but deviates from §30.1's meaning of an absent filter).
+6. **Column names.** **Proposal:** the DTO's English field names (stable, the same as the API and the JSON). **Alternatives:** German headers (`Buchungsdatum`, `Betrag`, …) for the reader in a spreadsheet; or English names with readable extra columns (`financialAccountName`, `financialCategoryName`, property `displayName`), which are values of other records, cached or translated, and change over time.
+7. **Voided and cancelled records in the JSON.** **Proposal:** included, marked by `status` (a recording error and its correction are part of the record, as §26.1's history read shows them). **Alternative:** only the records that count (`VALID`/`ACTIVE`/not `CANCELLED`), smaller but not complete.
+8. **AuditRecords.** **Proposal:** in neither export in version 1: their retention and pseudonymisation (VC-X-24, decided 2026-11-06, not implemented) must hold in an export too, and no audit read exists yet (ui-guide §6.1, decision of 30.10.2026). **Alternatives:** (a) `?include=audit` once VC-X-24 is implemented, the pseudonymised history in an `auditRecords` array per entity; (b) a Realm-wide audit export of its own (`GET /exports/audit-records.jsonl`) with VC-X-24.
+9. **Deposits of the property.** **Proposal:** §58A's rule (the one PropertyReference on which the Tenant's confirmed rent is booked); a deposit with several candidates is listed by id in `securityDepositsNotAttributed` of each candidate; one without reconciled rent is in no property's file and comes with the Realm-wide export (question 10). **Alternatives:** (a) the deposit exported in full in every candidate's file (duplicated, reads as attributed); (b) a `propertyReferenceId` on the deposit (a migration and a decision of its own; §58A names it as a later option); (c) asking MRE for the Tenant's property (an MRE call, not reproducible from DE's data).
+10. **Scope of version 1.** **Proposal:** what issue #281 names, nothing more; a Realm-wide complete export (all entities as JSON Lines, Transactions as this CSV) as **VC-X-04 Part 2**, a backlog line of its own, to meet Art. I's "migrate away" in full. **Alternatives:** (a) the property file grows now (WEG plans, statements and assessments of each membership; RentalContractReferences and reconciliations of the Tenants; tax classifications and depreciation assets of P); (b) no Part 2 until a migration target exists.
+11. **Limits and streaming.** **Proposal:** CSV streamed in one snapshot with a cap of 100,000 Transactions (a private landlord books a few thousand a year), JSON whole with a cap of 10,000 records, both `409 EXPORT_TOO_LARGE` before the first byte. **Alternatives:** (a) no cap (an export of everything may hold a snapshot for long); (b) an asynchronous export job with a download link (API-OPEN-005, more machinery than needed now); (c) the CSV built in memory with `Content-Length` (simpler, but memory grows with the file).
+12. **Parties and contact data in the JSON.** **Proposal:** the Parties named by the exported records, with §19.1's fields (names, `email`, `phone`): the file is then readable without the API, and it is the caller's own Realm data, shown by `GET /parties/{id}` to the same roles. **Alternatives:** (a) ids only (smaller, no contact data in a file that may be passed on); (b) names only, without `email` and `phone`.
+13. **Derived values.** **Proposal:** only those the single-read DTOs already carry (deposit figures and state, `transferDate`), so every element equals its single read; no schedule, remaining debt, owner allocation, tax or AfA figure. **Alternatives:** (a) stored facts only, the deposit's derived figures removed (the element then differs from its read); (b) the derived reads added (`schedule`, `remainingDebt`), which are computed by rules and versions that would have to be named in the file (`docs/product/reports.md` §3).
+
+**Still open (owner):** questions 1–13. Nothing of this section is implemented; until it is, data leaves the system only through the reads (`GET /transactions` page by page, the per-entity reads) and the database backup (issue #281, item 1).
+
+---
+
 # 59. Depreciation Asset API (VC-8-01, implemented: migration 0049)
 
 **Status:** implemented (VC-8-01, migration 0049). The deviations and interpretations are listed under "As implemented (VC-8-01)" below.

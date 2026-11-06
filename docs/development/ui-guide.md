@@ -60,6 +60,7 @@ Bei einem Widerspruch nicht stillschweigend ein UI-Verhalten erfinden: Fundstell
 | Personen | Personen/Organisationen, Kontaktangaben, MRE-Referenzen | P1 |
 | Objekte | MRE-Verknüpfung und kontextbezogene Fachansichten | P1, Einstiegslücke beachten |
 | Erwerbe | Erwerb, Nebenkosten, Zahlungslinks, Eigentümerverteilung | P1 |
+| Export | CSV des Kassenbuchs, JSON je Objekt | P1 (Entscheidung des Projektinhabers, 2026-11-06) |
 | Steuern | Steuerjahressicht pro Objekt und Eigentümer, Klassifikationen, 15 %-Prüfung (Phase 7) | P2, nach den P1-Bereichen; AfA (Phase 8, Routen vorhanden): Einordnung offen, Entscheidung des Projektinhabers |
 
 **Entscheidung (30.10.2026):** Version 1 umfasst genau die P0-Zeilen, Buchungen, Import und Mietabgleich, als durchgehender Ablauf gegen die echte API, dazu die Übersicht als Arbeitsnavigation. Die P1-Zeilen folgen danach in der Reihenfolge Finanzierung, Kautionen, WEG, Erwerbe, Personen, Objekte. Menüpunkte für P1 erscheinen erst, wenn ihr Bereich fertig ist.
@@ -188,6 +189,7 @@ Kategorien aus GET /financial-categories laden. Fachcodes in Requests verwenden;
 | Erwerb, Eigentum und WEG pro bekanntem Objekt | Direkt | Objekt-ID muss verlässlich verfügbar sein |
 | Vollständige Kontoauswahl nach Neuladen | Vorhanden (#160, #165) | GET /financial-accounts (Filter `status`, `accountType`; seitenweise) und GET /financial-accounts/{id} mit `ETag`; api-design §29.3 |
 | Allgemeine DE-Objektliste und passives Objektdetail | Vorhanden (#160, #165) | GET /property-references (Filter `externalReferenceState`; seitenweise) und GET /property-references/{id} mit `ETag`, aus dem Cache ohne MRE-Aufruf; nur link und refresh schreiben; api-design §23.3 |
+| Export | Direkt, sobald VC-X-04 umgesetzt ist | Routen aus der Spec (api-design §58S; Entscheidung des Projektinhabers, 2026-11-06) |
 | Unverändernde fachliche Importvorschau | Lücke | Kein dry-run/preview-Endpunkt |
 | Liste früherer Importläufe | Lücke | GET eines bekannten Batches vorhanden, kein Batch-Listen-Endpunkt |
 | Audit-Timeline aller Änderungen | Nicht in Version 1 (Entscheidung 30.10.2026) | Kein Audit-Read, und die Aufbewahrung personenbezogener Daten im Audit (VC-X-24) ist offen. Die Korrekturkette einer Buchung (Original, Storno, Ersatz) kommt aus dem Transaction-DTO und ist die sichtbare Historie |
