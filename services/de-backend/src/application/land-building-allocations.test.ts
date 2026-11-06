@@ -4,7 +4,12 @@ import { Money } from '../shared/index.js';
 import type { RealmPrincipal } from './access.js';
 import { AcquisitionCancelledError } from './acquisition-costs.js';
 import { IdempotencyKeyConflictError } from './errors.js';
-import { CurrentAllocationChangedError, createLandBuildingAllocation, listLandBuildingAllocations } from './land-building-allocations.js';
+import {
+  CurrentAllocationChangedError,
+  ReviewStateNotAllowedError,
+  createLandBuildingAllocation,
+  listLandBuildingAllocations,
+} from './land-building-allocations.js';
 import { AcquisitionNotFoundError } from './ownerships.js';
 import { PartyNotFoundError } from './parties.js';
 
@@ -36,6 +41,7 @@ describe('createLandBuildingAllocation', () => {
       { kind: 'PARTY_NOT_FOUND', partyId: 'p' },
       { kind: 'ACQUISITION_CANCELLED' },
       { kind: 'CURRENT_ALLOCATION_CHANGED', currentAllocationId: 'l0' },
+      { kind: 'REVIEW_STATE_NOT_ALLOWED', supersededAllocationId: 'l0' },
     ] as const;
     let i = 0;
     const repository: LandBuildingAllocationRepository = {
@@ -55,6 +61,7 @@ describe('createLandBuildingAllocation', () => {
     await expect(create(input)).rejects.toEqual(new PartyNotFoundError('p'));
     await expect(create(input)).rejects.toBeInstanceOf(AcquisitionCancelledError);
     await expect(create(input)).rejects.toEqual(new CurrentAllocationChangedError('l0'));
+    await expect(create(input)).rejects.toEqual(new ReviewStateNotAllowedError('l0'));
   });
 
   it('list: an unknown Acquisition is 404, not an empty history', async () => {

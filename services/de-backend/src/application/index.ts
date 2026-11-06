@@ -299,7 +299,13 @@ export type {
 } from './construction-period-interest.js';
 export { CONSTRUCTION_PERIOD_REVIEW_STATES, MAX_CONSTRUCTION_PERIOD_PROPERTIES, MAX_FUNDS_SHARE_DENOMINATOR } from '../domains/taxation/index.js';
 export type { ConstructionPeriodInterest, NamingClassification } from '../domains/taxation/index.js';
-export { CurrentAllocationChangedError, allocationFlagsOf, createLandBuildingAllocation, listLandBuildingAllocations } from './land-building-allocations.js';
+export {
+  CurrentAllocationChangedError,
+  ReviewStateNotAllowedError,
+  allocationFlagsOf,
+  createLandBuildingAllocation,
+  listLandBuildingAllocations,
+} from './land-building-allocations.js';
 export type { CreateLandBuildingAllocation, ListLandBuildingAllocations } from './land-building-allocations.js';
 export {
   ALLOCATION_METHODS,

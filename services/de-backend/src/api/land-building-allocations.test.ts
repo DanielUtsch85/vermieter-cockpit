@@ -5,6 +5,7 @@ import {
   AcquisitionCancelledError,
   AcquisitionNotFoundError,
   CurrentAllocationChangedError,
+  ReviewStateNotAllowedError,
   type LandBuildingAllocation,
   type PrincipalVerifier,
 } from '../application/index.js';
@@ -154,6 +155,33 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
       code: 'CONFLICT',
       details: { reason: 'CURRENT_ALLOCATION_CHANGED', currentAllocationId: NEW },
     });
+  });
+});
+
+describe('the advisor reason-only supersede over HTTP (§58T rule 3, decided 2026-11-06)', () => {
+  it('422 REVIEW_STATE_NOT_ALLOWED at reviewState with the hint; the body passed on as sent, never downgraded', async () => {
+    const seen: Json[] = [];
+    const base = await start({
+      landBuildingAllocations: {
+        create: async (input) => {
+          seen.push(input);
+          throw new ReviewStateNotAllowedError(OLD);
+        },
+      },
+    });
+    const res = await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, { ...body, reviewState: 'ADVISOR_CONFIRMED' });
+    expect(res.status).toBe(422);
+    expect(await errorOf(res)).toEqual({
+      code: 'REVIEW_STATE_NOT_ALLOWED',
+      message: 'ADVISOR_CONFIRMED is not allowed when the supersede changes only the reason.',
+      details: {
+        field: 'reviewState',
+        reviewState: 'ADVISOR_CONFIRMED',
+        supersededAllocationId: OLD,
+        hint: 'An advisor-confirmed allocation needs no reason: send reviewState CONFIRMED, or leave deviationReason out.',
+      },
+    });
+    expect(seen.map((input) => input.reviewState)).toEqual(['ADVISOR_CONFIRMED']);
   });
 });
 

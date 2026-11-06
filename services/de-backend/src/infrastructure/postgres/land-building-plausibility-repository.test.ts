@@ -7,7 +7,8 @@ import { COMPARISON, OTHER_REALM, REALM, REASON, actor, databaseUrl, eur, usePla
  * §58T (VC-X-44, migration 0075) through the repository: the round trip of every new column, the history judged row by
  * row in one snapshot (E1 `OPEN`, E2 `INFORMATIVE`), the replacement without `reviewState` (E2′, stored `UNREVIEWED`),
  * question 5 (an `ADVISOR_CONFIRMED` split closed without a reason; a replacement adding the reason stored as sent: the
- * fallback to `CONFIRMED` is the caller's, a repeated `ADVISOR_CONFIRMED` is kept as asserted), the AuditRecords, the
+ * fallback to `CONFIRMED` is the caller's, `ADVISOR_CONFIRMED` over that fallback is kept as asserted; the refusal of a
+ * reason-only `ADVISOR_CONFIRMED` over `ADVISOR_CONFIRMED` is in land-building-advisor-reason-guard.test.ts), the AuditRecords, the
  * idempotency (a snapshot stored before §58T still replays) and Realm isolation. Synthetic data only.
  */
 const levelOf = (a: LandBuildingAllocation) =>

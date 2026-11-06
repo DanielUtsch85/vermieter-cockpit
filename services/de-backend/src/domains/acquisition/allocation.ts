@@ -60,13 +60,49 @@ export function shareOf(part: Money, total: Money): string {
 export type AllocationRefusal =
   | { readonly kind: 'ACQUISITION_CANCELLED' }
   /** `supersedes` does not name the current allocation (→ 409 CURRENT_ALLOCATION_CHANGED). */
-  | { readonly kind: 'CURRENT_ALLOCATION_CHANGED'; readonly currentAllocationId: string | null };
+  | { readonly kind: 'CURRENT_ALLOCATION_CHANGED'; readonly currentAllocationId: string | null }
+  /** §58T rule 3 (decided 2026-11-06): an advisor's confirmation repeated for a reason only (→ 422 at `reviewState`). */
+  | { readonly kind: 'REVIEW_STATE_NOT_ALLOWED'; readonly supersededAllocationId: string };
 
 /** The checks of §27.3 after the 404s; `undefined` = the allocation may be written. */
 export function checkAllocation(acquisitionStatus: AcquisitionStatus, currentId: string | null, supersedes: string | null): AllocationRefusal | undefined {
   if (acquisitionStatus === 'CANCELLED') return { kind: 'ACQUISITION_CANCELLED' };
   if (supersedes !== currentId) return { kind: 'CURRENT_ALLOCATION_CHANGED', currentAllocationId: currentId };
   return undefined;
+}
+
+const sameComparison = (a: AllocationComparison | null, b: AllocationComparison | null): boolean =>
+  a === null || b === null
+    ? a === b
+    : a.method === b.method &&
+      a.landValue.equals(b.landValue) &&
+      a.buildingValue.equals(b.buildingValue) &&
+      a.sourceReferences.length === b.sourceReferences.length &&
+      a.sourceReferences.every((reference, i) => reference === b.sourceReferences[i]);
+
+/**
+ * §58T rule 3 (VC-X-44; Entscheidung des Projektinhabers, 2026-11-06): a supersede that sends `ADVISOR_CONFIRMED` over an
+ * `ADVISOR_CONFIRMED` row and differs from it only in the reason is refused, never downgraded. "Only in the reason": the
+ * amounts (total, land, building, with the currency), `method`, the comparison (method, both values, its sources in
+ * order) and the resolved `effectiveDate` all equal, and a reason sent that the superseded row does not carry. Not
+ * compared, as the decision names them not: `advisorPartyId`, `sourceReferences` and `notes` (changing them is no new
+ * confirmation of the split). Changed amounts or a changed comparison are a genuine re-confirmation (`undefined`).
+ */
+export function checkAdvisorReasonOnly(
+  superseded: LandBuildingAllocation,
+  next: Omit<AllocationData, 'effectiveDate'> & { readonly effectiveDate: BusinessDate },
+): AllocationRefusal | undefined {
+  if (next.reviewState !== 'ADVISOR_CONFIRMED' || superseded.reviewState !== 'ADVISOR_CONFIRMED') return undefined;
+  const reason = next.deviationReason ?? null;
+  if (reason === null || reason === (superseded.deviationReason ?? null)) return undefined;
+  const same =
+    next.totalAllocableAmount.equals(superseded.totalAllocableAmount) &&
+    next.landAmount.equals(superseded.landAmount) &&
+    next.buildingAmount.equals(superseded.buildingAmount) &&
+    next.method === superseded.method &&
+    next.effectiveDate === superseded.effectiveDate &&
+    sameComparison(next.comparison ?? null, superseded.comparison ?? null);
+  return same ? { kind: 'REVIEW_STATE_NOT_ALLOWED', supersededAllocationId: superseded.id } : undefined;
 }
 
 /**
