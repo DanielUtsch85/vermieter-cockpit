@@ -617,6 +617,8 @@ POST /api/v1/property-references/link
 POST /api/v1/property-references/{propertyReferenceId}/refresh
 ```
 
+The property's export as one JSON document, `GET /api/v1/property-references/{propertyReferenceId}/export.json`, is §58S (VC-X-04).
+
 ---
 
 # 23. Link Property Command
@@ -1412,6 +1414,8 @@ GET /api/v1/transactions
 GET /api/v1/transactions/{id}
 GET /api/v1/property-references/{propertyReferenceId}/transactions
 ```
+
+The Kassenbuch as CSV with these filters, `GET /api/v1/exports/transactions.csv`, is §58S (VC-X-04).
 
 Useful filters:
 
@@ -9697,9 +9701,9 @@ Every mutation but M20a/M20b turns at least one test red. M22 and M23 survived t
 
 ---
 
-# 58S. Data Export: the Kassenbuch as CSV and a Property as JSON (VC-X-04, spec)
+# 58S. Data Export: the Kassenbuch as CSV and a Property as JSON (VC-X-04, implemented)
 
-**Status:** **specified and decided, not implemented.** **Open questions 1–13 decided by the owner on 2026-11-06** (chat; "Decided by the owner on 2026-11-06 (chat)" under "Open questions (decided)" at the end of this section): 1 and 4–13 as proposed; 2 and 3, which belong together, differing: the default CSV stays RFC 4180 with `,`, decimal point and no BOM and is written character for character, **without** a formula guard; a second dialect `dialect=excel-de` (`;`, decimal comma, BOM, the same columns) carries the formula guard ("`dialect`" below). The body below is amended accordingly. Implementation after VC-X-12, without a migration (the owner's order: „VC-X-57 zu Ende, VC-X-12 mit 0074, dann VC-X-04 ohne Migration.“). Backlog VC-X-04 (constitution Art. I "Data must always remain exportable"; ADR-030 "Open Data Formats and Exportability"; `technology.md` §35 "Exportability": JSON for structured complete exports, CSV for tabular financial data, stable identifiers kept). Go-live checklist issue #281, item 2. **Migration:** none. **Routes:** two new `GET` routes, nothing else changes. Productive AfA recording stays disabled; nothing here touches it, and no unconfirmed tax assumption reads as released by it (no tax figure is exported).
+**Status:** **implemented** (VC-X-04, no migration, PR #PRNUM, not merged; below, "As implemented (VC-X-04)"); specified and decided 2026-11-06. **Open questions 1–13 decided by the owner on 2026-11-06** (chat; "Decided by the owner on 2026-11-06 (chat)" under "Open questions (decided)" at the end of this section): 1 and 4–13 as proposed; 2 and 3, which belong together, differing: the default CSV stays RFC 4180 with `,`, decimal point and no BOM and is written character for character, **without** a formula guard; a second dialect `dialect=excel-de` (`;`, decimal comma, BOM, the same columns) carries the formula guard ("`dialect`" below). The body below is amended accordingly. Implementation after VC-X-12, without a migration (the owner's order: „VC-X-57 zu Ende, VC-X-12 mit 0074, dann VC-X-04 ohne Migration.“). Backlog VC-X-04 (constitution Art. I "Data must always remain exportable"; ADR-030 "Open Data Formats and Exportability"; `technology.md` §35 "Exportability": JSON for structured complete exports, CSV for tabular financial data, stable identifiers kept). Go-live checklist issue #281, item 2. **Migration:** none. **Routes:** two new `GET` routes, nothing else changes. Productive AfA recording stays disabled; nothing here touches it, and no unconfirmed tax assumption reads as released by it (no tax figure is exported).
 
 **What it adds:** `GET /api/v1/exports/transactions.csv` (the Realm's Kassenbuch, §30.1's filters) and `GET /api/v1/property-references/{propertyReferenceId}/export.json` (one PropertyReference with its Ownerships, Acquisitions, Loans, WEG memberships and deposits). The UI guide (`docs/development/ui-guide.md` §3.1 and §6.1) lists both as a P1 function (Entscheidung des Projektinhabers, 2026-11-06).
 
@@ -10050,7 +10054,73 @@ The same request with `?asOf=2026-10-01` is `400`; for Realm B's caller it is `4
 
 Reihenfolge bleibt: VC-X-57 zu Ende, VC-X-12 mit 0074, dann VC-X-04 ohne Migration.“
 
-**Still open (owner):** none. Questions 1–13 are decided (2026-11-06, above): 1 and 4–13 as proposed; 2 the proposal plus alternative (b) (`dialect=excel-de`), 3 alternative (b) (the formula guard only in `dialect=excel-de`), amended in the body above. The details of `dialect=excel-de` the decision does not name (ISO dates and timestamps, the `-` of negative amounts, CRLF, the quoting set, `INVALID_FORMAT` for a bad value, the filename) are this section's reading, stated in "`dialect`" above. **Follow-up backlog row the decisions create:** **VC-X-04 Part 2** (the Realm-wide complete export, including the deposits without reconciled rent). Nothing of this section is implemented; until it is, data leaves the system only through the reads (`GET /transactions` page by page, the per-entity reads) and the database backup (issue #281, item 1). Implementation after VC-X-12, without a migration.
+**Still open (owner):** none. Questions 1–13 are decided (2026-11-06, above): 1 and 4–13 as proposed; 2 the proposal plus alternative (b) (`dialect=excel-de`), 3 alternative (b) (the formula guard only in `dialect=excel-de`), amended in the body above. The details of `dialect=excel-de` the decision does not name (ISO dates and timestamps, the `-` of negative amounts, CRLF, the quoting set, `INVALID_FORMAT` for a bad value, the filename) are this section's reading, stated in "`dialect`" above. **Follow-up backlog row the decisions create:** **VC-X-04 Part 2** (the Realm-wide complete export, including the deposits without reconciled rent). Implemented after VC-X-12, without a migration ("As implemented (VC-X-04)" below).
+
+### As implemented (VC-X-04)
+
+Implemented as specified and decided (open questions 1–13, Entscheidung des Projektinhabers, 2026-11-06), **without a migration** (main c8ddbe0, after VC-X-12's 0074). Paths relative to `services/de-backend/src/`.
+
+**What was built:**
+
+1. **One filter for list and export** (`infrastructure/postgres/transaction-reads.ts`): `filtered` (moved out of `transaction-query-repository.ts`, unchanged; the Realm condition first), `matchesNothing` (no status left, a malformed id filter) and `splitsOf` (the splits of many Transactions in `position` order, also used by `GET /transactions/{id}`). §30.1's list, order, paging and query plan are unchanged (`transaction-query-plan.test.ts` green).
+2. **The Kassenbuch read** (`infrastructure/postgres/transaction-export-repository.ts`, `PostgresTransactionExport`, port `TransactionExportQueries` in `domains/ledger/transaction-query.ts`): one `REPEATABLE READ READ ONLY` transaction; the clock read right after its first statement (`X-Export-Generated-At`); the count (and with `rows=splits` the row count, one per split or one for an unsplit Transaction) first; then keyset batches of 500 ids, oldest first (`booking_date`, `created_at`, `id` ascending; the cursor is the row comparison against the last id's own key, read back in SQL, so it is exact to the microsecond), each batch's DTO rows and splits by one query each. A throw of the sink ends the read and rolls the snapshot back.
+3. **The use cases** (`application/exports.ts`): `exportTransactions` (the limit 100,000 checked on the head, before the sink's head: `ExportTooLargeError`), `exportProperty` (below); `PROPERTY_EXPORT_LIMIT`, `TRANSACTION_EXPORT_LIMIT` and the batch size injectable for tests.
+4. **The CSV** (`api/transaction-csv.ts`): the 23 (+ 10) columns of the table above, every value from `toDto` / `toSplitDto`; `signedAmount` / `signedSplitAmount` a `-` prefix (zero never signed); the two dialects as decided: `rfc4180` (`,`, no BOM, quoted exactly on `,` `"` CR LF, no guard) and `excel-de` (BOM once, `;`, quoted exactly on `;` `"` CR LF, `.` → `,` in the four money columns as a string operation, the formula guard `'` before `=` `+` `-` `@` TAB CR in `description`, `counterpartyNameRaw`, `counterpartyIbanRaw` and `splitDescription` only, then quoting; a value already starting with `'` unchanged; dates, timestamps, ids, codes and integers as the default). CRLF after every record.
+5. **The routes** (`api/exports.ts`, module `exports`, mounted after the other routers; `ExportCommands` in `AppCommands`): `GET /api/v1/exports/transactions.csv` parses §30.1's `listFields` without `page`/`pageSize` (exported as `filterFields`, with the same date-range check) plus `rows` and `dialect` (`z.enum`, case-sensitive), strict; the filter through `listFilter`, as the list. The sink sets the headers and writes the header line on the head, each batch as one chunk, waiting for `drain`; a client that disconnects rejects the next write (`ClientGoneError`), which ends the read. `GET /api/v1/property-references/{propertyReferenceId}/export.json` takes no parameter and answers with `res.end` (no `ETag`; Express's `send` would add one). Headers as specified. `ExportTooLargeError` is in the central error table (`api/error-answers/exports.ts`): `409 CONFLICT`, `details: { reason: "EXPORT_TOO_LARGE", total, limit }`.
+6. **The property read** (`infrastructure/postgres/property-export-snapshot.ts`): `PostgresPropertyExportSnapshots` opens one `REPEATABLE READ READ ONLY` transaction and builds the single reads' own repositories on it (`joiningSnapshot`: a `Kysely` whose `transaction()` joins the open one, so a repository read that opens its own snapshot runs in this one; read only, a write fails in PostgreSQL). `PropertyExportScope` gives P's id lists in the export's order and in the Realm: Acquisitions (contract date, creation, id), Loans with a set naming P in any status (by id), memberships (valid from, creation, id), and the deposits by §58A (`depositFactsOf`: attributed to P; `SEVERAL_PROPERTY_REFERENCES` with P among the candidates). `exportProperty` reads each element through the single read's repository method (`findById`, §26.1's `history`, `listCosts` and `listPayments` without filter, §27.3's `list`, §41.2's terms, §41.3's sets, §41.6's statements via `debtInputs` and `statementViews`, also for a `VOID` Loan), then the Parties named by `ownerPartyId`, `buyerPartyIds`, `sellerPartyIds`, `counterpartyPartyId`, the classification's and the land/building allocation's `advisorPartyId`, `lenderPartyId`, `borrowerPartyIds` and `administratorPartyId`, once each by id. The API maps each with the single read's DTO function (now exported from its route file).
+7. **Wiring:** `main.ts` and the three acceptance harnesses that build the whole app (`phase-2-acceptance.test-support.ts`, `phase-3-acceptance.e2e.test.ts`, `slice-1-acceptance.e2e.test.ts`) get `exports`. api-inventory regenerated: 172 → 174 routes, the new module `exports` (the JSON route is listed under `property-references`, by its path, as `route-inventory.ts` groups).
+
+**Deviations and interpretations** (none changes a decided rule):
+
+- (a) **`WEG_HAUSGELD` in the example is no financial category** (§33's codes are `WEG_RECOVERABLE`, `WEG_NON_RECOVERABLE`, `WEG_RESERVE_CONTRIBUTION`; each needs a WEG membership of P, which the JSON example rules out). The e2e seed books T2's split as `OTHER_EXPENSE`; the golden files have no split column and are unaffected; the `rows=splits` assertions name `OTHER_EXPENSE`.
+- (b) **`cachedSurface` is `"72.5"`, not `"72.50"`:** §23.3's single read writes the cached surface in ExactDecimal's plain notation, without trailing zeros. The export is the single read's DTO, so the golden JSON test compares the spec's document with that one value replaced (the test asserts the spec's `72.50` and the replacement explicitly).
+- (c) **`cachedAddress` key order:** the column is `jsonb`, which stores `city` before `street1`; the JSON test compares deep and the top-level and DTO key orders separately. The bytes of the JSON document are not compared (the spec's example is pretty-printed; the response is compact).
+- (d) **An unknown parameter is named by itself** (`field: "page"`, `"include"`, `"asOf"`, `code: "INVALID_FORMAT"`), as §58S's example demands; the other routes still answer `field: "(body)"` for an unknown parameter (unchanged).
+- (e) **No request id exists in DE:** an error after the first byte is logged as `export aborted after the first byte: GET /api/v1/exports/transactions.csv (<error name>)`, without data; the connection is destroyed without the closing chunk. A client that went away is not logged.
+- (f) **Record count of the JSON limit:** the PropertyReference, each Ownership, each Acquisition with each cost, payment and land/building allocation, each Loan with each terms version, set and statement, each membership and its WEG (two), each deposit, each not attributed entry and each Party. The Ownership history is read with one page past the limit and refused on its total before anything else.
+- (g) **`X-Export-Row-Count`** is sent only with `rows=splits` (as specified); `X-Export-Transaction-Count` always.
+- (h) ui-guide §6.1 ("Direkt, sobald VC-X-04 umgesetzt ist") left as it is.
+
+**Tests** (60 new): `export-csv.test.ts` (12: both dialects field by field, parse-back with csv-parse, the guard per start character and column, quoting, the 18-digit amount, `0.00`/`0,00` unsigned, umlauts); `api/exports.test.ts` (21: the filter table against `GET /transactions`, every `400` incl. the four `dialect` refusals before any count, headers per dialect and rows, empty result, BOM once over several batches, `409` with the limit injected small, a failure after the first batch without the closing chunk, a disconnecting client, the JSON route's `400`/`404`/`409`); `application/exports.test.ts` (4: the limits at 100,000/100,001 and over all collections, the Parties named); `infrastructure/postgres/transaction-export-repository.test.ts` (7: every §30.1 filter alone and combined equal to the list, history (a correction chain and an ignored Transaction in the raw set, not in `current=true`), Realm, row count, 1,201 Transactions with one `created_at` in batches of 500, a write committed after the count and after the first batch not in the file, a throwing sink); `infrastructure/postgres/property-export-snapshot.test.ts` (3: one snapshot across repository reads, read only, the scope in the Realm); `export-golden.e2e.test.ts` (9: the example seeded with its ids and times, both golden CSV files byte for byte (1,098 and 1,103 bytes, `src/export-golden/`), parse-back equal to `GET /transactions/{id}`, `rows=splits`, the sums 987.60 / 937.60 (exact, `Money`) equal to the list API's net effect, the JSON document, Q's file, `400`/`404`, Realm isolation, no MRE call and every table's row count and version sum unchanged); `export.e2e.test.ts` (4, through the API wired as `main.ts`: every collection with a `VOID`/`CANCELLED` member, a Loan whose only set naming P is `VOID`, a `VOID` Loan, a set on P and Q, a voided cost and an unlinked payment, a membership and its WEG, the three deposits, the Parties with an `INACTIVE` one, every element deep-equal to its single-read route, Realm isolation, no write, no MRE call).
+
+**Mutations** (each applied alone, restored byte for byte with a SHA-256 check; red tests over the seven new test files):
+
+| Mutation | Red |
+|---|---|
+| the Realm condition dropped from the CSV's `filtered` | 9 |
+| the CSV builds its own filter instead of `filtered` and drops `current` | 3 |
+| `page`/`pageSize` accepted on the CSV | 3 |
+| order `DESC` (as §30.1) | 9 |
+| keyset without `transactionId` as the last key | 3 |
+| a BOM written in `rfc4180` | 6 |
+| `\n` instead of CRLF | 18 |
+| `"` not doubled inside a quoted field | 8 |
+| the formula guard applied in `rfc4180` | 3 |
+| the formula guard missing in `excel-de` | 4 |
+| the formula guard applied to `signedAmount` (any non-text column) in `excel-de` | 5 |
+| the formula guard in `excel-de` not on `splitDescription` | 1 |
+| the BOM missing in `excel-de` | 4 |
+| the BOM written once per batch in `excel-de` | 3 |
+| the decimal point kept in `excel-de` | 4 |
+| the decimal comma through `Number(…).toLocaleString('de-DE')` | 5 |
+| `,` as delimiter in `excel-de` | 12 |
+| `;` as delimiter in `rfc4180` (the dialect ignored) | 12 |
+| quoting on `,` instead of `;` in `excel-de` | 4 |
+| dates formatted `TT.MM.JJJJ` in `excel-de` | 3 |
+| an unknown `dialect` value falls back to the default | 4 |
+| `signedAmount` computed as `Number(amount) * -1` | 7 |
+| the count check removed | 2 |
+| two snapshots instead of one (count outside the stream's transaction) | 2 |
+| `VOID` Ownerships filtered out | 2 |
+| Loans by `VALID` sets only (§41.3's rule) | 1 |
+| `VOID` Loans left out | 3 |
+| deposits by a `CONFIRMED` reconciliation on P without §58A's "exactly one" | 3 |
+| `securityDepositsNotAttributed` dropped | 5 |
+| `parties` missing the lender | 3 |
+| the PropertyReference read without the Realm | 3 |
+| a refresh (MRE call) instead of the cached row (in the e2e app's wiring) | 1 |
+
+**Release note:** as above ("Release note"), unchanged.
 
 ---
 

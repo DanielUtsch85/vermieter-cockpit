@@ -317,7 +317,7 @@ function sendTerms(res: Response, terms: LoanTermsView): void {
   res.json(toDto(terms));
 }
 
-function toDto(t: LoanTermsView) {
+export function toDto(t: LoanTermsView) {
   return {
     termsId: t.id,
     loanId: t.loanId,

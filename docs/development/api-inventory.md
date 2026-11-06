@@ -8,7 +8,7 @@ Implemented routes only: a route in `docs/architecture/api-design.md` that is no
 Contracts, payloads and error codes are in `api-design.md`; the business routes need `Authorization: Bearer <MRE token>` and
 `organizationid: <mreRealmId>` (`mre-integration.md` §47.2).
 
-Routes: 172.
+Routes: 174.
 
 | Method | Path |
 |---|---|
@@ -46,6 +46,7 @@ Routes: 172.
 | POST | `/api/v1/depreciation-assets/:assetId/schedule-versions` |
 | GET | `/api/v1/depreciation-assets/:assetId/schedule-versions/:versionId` |
 | POST | `/api/v1/depreciation-assets/:assetId/void` |
+| GET | `/api/v1/exports/transactions.csv` |
 | GET | `/api/v1/financial-accounts` |
 | POST | `/api/v1/financial-accounts` |
 | GET | `/api/v1/financial-accounts/:financialAccountId` |
@@ -95,6 +96,7 @@ Routes: 172.
 | GET | `/api/v1/property-references/:propertyReferenceId` |
 | GET | `/api/v1/property-references/:propertyReferenceId/acquisitions` |
 | GET | `/api/v1/property-references/:propertyReferenceId/depreciation-assets` |
+| GET | `/api/v1/property-references/:propertyReferenceId/export.json` |
 | GET | `/api/v1/property-references/:propertyReferenceId/loans` |
 | POST | `/api/v1/property-references/:propertyReferenceId/ownership-changes` |
 | GET | `/api/v1/property-references/:propertyReferenceId/ownerships` |
@@ -230,6 +232,10 @@ Routes: 172.
 - GET `/api/v1/depreciation-assets/:assetId/schedule-versions/:versionId`
 - POST `/api/v1/depreciation-assets/:assetId/void`
 
+### `exports`
+
+- GET `/api/v1/exports/transactions.csv`
+
 ### `financial-accounts`
 
 - GET `/api/v1/financial-accounts`
@@ -304,6 +310,7 @@ Routes: 172.
 - GET `/api/v1/property-references/:propertyReferenceId`
 - GET `/api/v1/property-references/:propertyReferenceId/acquisitions`
 - GET `/api/v1/property-references/:propertyReferenceId/depreciation-assets`
+- GET `/api/v1/property-references/:propertyReferenceId/export.json`
 - GET `/api/v1/property-references/:propertyReferenceId/loans`
 - POST `/api/v1/property-references/:propertyReferenceId/ownership-changes`
 - GET `/api/v1/property-references/:propertyReferenceId/ownerships`

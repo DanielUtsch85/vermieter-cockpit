@@ -109,7 +109,7 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
   return router;
 }
 
-function toDto(a: LandBuildingAllocation) {
+export function toDto(a: LandBuildingAllocation) {
   return {
     allocationId: a.id,
     acquisitionId: a.acquisitionId,

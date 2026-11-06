@@ -186,7 +186,7 @@ function sendSet(res: Response, set: LoanAllocationSetView): void {
   res.json(toDto(set));
 }
 
-function toDto(s: LoanAllocationSetView) {
+export function toDto(s: LoanAllocationSetView) {
   return {
     allocationSetId: s.id,
     loanId: s.loanId,

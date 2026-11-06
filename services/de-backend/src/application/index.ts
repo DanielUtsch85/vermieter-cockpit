@@ -126,6 +126,24 @@ export type { AmendTransaction, IgnoreTransaction, RestoreTransaction } from './
 export type { TransactionChanges } from '../domains/ledger/index.js';
 export { getTransaction, listPropertyReferenceTransactions, listTransactions } from './read-transactions.js';
 export type { GetTransaction, ListPropertyReferenceTransactions, ListTransactions } from './read-transactions.js';
+export {
+  ExportTooLargeError,
+  PROPERTY_EXPORT_LIMIT,
+  TRANSACTION_EXPORT_BATCH_SIZE,
+  TRANSACTION_EXPORT_LIMIT,
+  exportProperty,
+  exportTransactions,
+} from './exports.js';
+export type {
+  ExportProperty,
+  ExportTransactions,
+  PropertyExport,
+  PropertyExportAcquisition,
+  PropertyExportLoan,
+  PropertyExportReads,
+  PropertyExportSnapshots,
+} from './exports.js';
+export type { TransactionExportHead, TransactionExportSink, TransactionWithSplits } from '../domains/ledger/index.js';
 export { PROVENANCES, REVIEWABLE_STATUSES, TRANSACTION_STATUSES } from '../domains/ledger/index.js';
 export type { TransactionFilter, TransactionPage, TransactionStatus } from '../domains/ledger/index.js';
 export { PartyFieldNotAllowedError, PartyNotFoundError, amendParty, createParty, deactivateParty, getParty, listParties } from './parties.js';

@@ -209,7 +209,7 @@ function sendParty(res: Response, party: Party): void {
   res.json(toDto(party));
 }
 
-function toDto(party: Party) {
+export function toDto(party: Party) {
   const typeFields =
     party.partyType === 'PERSON'
       ? { firstName: party.firstName, lastName: party.lastName }

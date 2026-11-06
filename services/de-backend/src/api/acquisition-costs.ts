@@ -223,7 +223,7 @@ function sendOne(res: Response, version: number, body: unknown): void {
   res.json(body);
 }
 
-function costDto(c: AcquisitionCost) {
+export function costDto(c: AcquisitionCost) {
   return {
     costId: c.id,
     acquisitionId: c.acquisitionId,
@@ -245,7 +245,7 @@ function costDto(c: AcquisitionCost) {
   };
 }
 
-function paymentDto(p: AcquisitionPayment) {
+export function paymentDto(p: AcquisitionPayment) {
   return {
     paymentId: p.id,
     acquisitionId: p.acquisitionId,

@@ -121,6 +121,7 @@ export const unusedCommands: AppCommands = {
   },
   imports: { importStatement: unused, getBatch: unused, listReviewItems: unused, resolveReviewItem: unused },
   financialCategories: { list: unused, get: unused },
+  exports: { transactions: unused, property: unused },
 };
 
 /** Commands a test supplies: per module, any subset of that module's commands. */

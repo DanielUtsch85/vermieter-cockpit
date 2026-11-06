@@ -349,7 +349,7 @@ function sendAcquisition(res: Response, acquisition: Acquisition): void {
   res.json(toDto(acquisition));
 }
 
-function toDto(a: Acquisition) {
+export function toDto(a: Acquisition) {
   return {
     acquisitionId: a.id,
     mreRealmId: a.mreRealmId,

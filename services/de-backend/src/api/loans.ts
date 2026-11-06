@@ -277,7 +277,7 @@ function sendLoan(res: Response, loan: Loan): void {
   res.json(toDto(loan));
 }
 
-function toDto(loan: Loan) {
+export function toDto(loan: Loan) {
   return {
     loanId: loan.id,
     mreRealmId: loan.mreRealmId,
