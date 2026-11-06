@@ -187,7 +187,7 @@ describe.skipIf(databaseUrl === undefined)('the data export of the spec example 
     const lines = text.split('\r\n');
     expect(lines[1]).toMatch(/,1,1000\.00,1000\.00,RENT_BASE,7e000000-0000-4000-8000-0000000000aa,,,,,$/);
     expect(lines[2]).toMatch(/,2,250\.00,250\.00,RENT_OPERATING_COST_ADVANCE,7e000000-0000-4000-8000-0000000000aa,,,,,$/);
-    expect(lines[3]).toMatch(/,1,312\.40,-312\.40,OTHER_EXPENSE,7e000000-0000-4000-8000-0000000000aa,,,,,$/);
+    expect(lines[3]).toMatch(/,1,312\.40,-312\.40,WEG_NON_RECOVERABLE,7e000000-0000-4000-8000-0000000000aa,,,,,$/);
     // T3, unsplit: one row, the ten split columns empty.
     expect(lines[4]).toMatch(/^5d2c0f1e-0000-4000-8000-000000000103,.*,2026-10-08T07:30:00\.000Z,1,{10}$/);
     const [header = [], ...rows] = records(Buffer.from(text));
@@ -200,7 +200,7 @@ describe.skipIf(databaseUrl === undefined)('the data export of the spec example 
     expect(sum(rows, 'signedSplitAmount')).toBe('937.60');
     const de = (await bytes(await get(`/exports/transactions.csv?${EXAMPLE_FILTER}&rows=splits&dialect=excel-de`))).toString('utf8').split('\r\n');
     expect(de[1]).toMatch(/;1;1000,00;1000,00;RENT_BASE;7e000000-0000-4000-8000-0000000000aa;;;;;$/);
-    expect(de[3]).toMatch(/;1;312,40;-312,40;OTHER_EXPENSE;7e000000-0000-4000-8000-0000000000aa;;;;;$/);
+    expect(de[3]).toMatch(/;1;312,40;-312,40;WEG_NON_RECOVERABLE;7e000000-0000-4000-8000-0000000000aa;;;;;$/);
   });
 
   it('the raw set sums to 987.60, current=true to 937.60, equal to the list API; page and another Realm account as filter', async () => {
@@ -239,11 +239,7 @@ describe.skipIf(databaseUrl === undefined)('the data export of the spec example 
     expect(res.headers.get('content-disposition')).toBe(`attachment; filename="objekt-${P}-2026-11-06.json"`);
     expect(res.headers.get('etag')).toBeNull();
     const doc = (await res.json()) as Record<string, unknown>;
-    const expected = JSON.parse(golden('objekt-example.json').toString('utf8')) as Record<string, unknown> & { propertyReference: { cachedSurface: string } };
-    // The one difference: §23.3's single read writes `cachedSurface` without trailing zeros (`72.5`, ExactDecimal's plain
-    // notation); the spec's example prints `72.50`. The export is the single read's DTO (§58S), so `72.5`.
-    expect(expected.propertyReference.cachedSurface).toBe('72.50');
-    expected.propertyReference.cachedSurface = '72.5';
+    const expected = JSON.parse(golden('objekt-example.json').toString('utf8')) as Record<string, unknown>;
     expect(doc).toStrictEqual(expected);
     // Keys in the order of the table and of each DTO (jsonb keeps `cachedAddress` in its own order, MRE's cached value).
     expect(Object.keys(doc)).toEqual(Object.keys(expected));

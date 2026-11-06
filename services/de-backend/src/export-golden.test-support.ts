@@ -15,6 +15,8 @@ export const T3 = '5d2c0f1e-0000-4000-8000-000000000103';
 export const OWNER = '0c000000-0000-4000-8000-000000000001';
 export const DEPOSIT = '0d000000-0000-4000-8000-000000000001';
 export const TENANT = '6c0000000000000000000001';
+export const WEG = '0e000000-0000-4000-8000-000000000001';
+export const MEMBERSHIP = '0e000000-0000-4000-8000-000000000011';
 /** The example's generatedAt (the JSON's `generatedAt`; the CSV files carry no time). */
 export const GENERATED_AT = new Date('2026-11-06T12:00:00.000Z');
 
@@ -73,7 +75,7 @@ export async function book(pool: pg.Pool, realm: string, b: Booking): Promise<vo
   }
 }
 
-/** §58S's example in `realm`: account A, P and Q, T1–T3, the Ownership voided and recorded again, the deposit of a Tenant on P and Q. */
+/** §58S's example in `realm`: account A, P and Q, T1–T3, the WEG membership of P, the Ownership voided and recorded again, the deposit of a Tenant on P and Q. */
 export async function seedExample(pool: pg.Pool, realm = EXAMPLE_REALM): Promise<void> {
   await pool.query(
     `INSERT INTO financial_account (id, mre_realm_id, account_type, display_name, currency, status, created_by) VALUES ($1, $2, 'BANK', 'Giro A', 'EUR', 'OPEN', 'seed')`,
@@ -108,8 +110,18 @@ export async function seedExample(pool: pg.Pool, realm = EXAMPLE_REALM): Promise
       { code: 'RENT_OPERATING_COST_ADVANCE', amount: '250.00', propertyReferenceId: P },
     ],
   });
-  // §58S writes T2's split as `WEG_HAUSGELD`, which is no financial category (§33); the `WEG_*` codes need a WEG membership
-  // of P, which the JSON example rules out (no membership). `OTHER_EXPENSE` stands in; the golden files have no split column.
+  // T2 is Hausgeld: `WEG_NON_RECOVERABLE`, which needs a WEG membership of P on its booking date (Entscheidung des
+  // Projektinhabers, 2026-11-06, #290 question 1). The example's minimal WEG and membership.
+  await pool.query(
+    `INSERT INTO weg (id, mre_realm_id, status, display_name, financial_year_start_month, created_at, created_by)
+     VALUES ($1, $2, 'ACTIVE', 'WEG Musterstraße 1', 1, '2026-09-30T18:08:00Z', 'seed')`,
+    [WEG, realm],
+  );
+  await pool.query(
+    `INSERT INTO weg_membership (id, mre_realm_id, weg_id, property_reference_id, mea_numerator, mea_denominator, valid_from, status, created_at, created_by)
+     VALUES ($1, $2, $3, $4, '125.5', '1000', '2026-01-01', 'ACTIVE', '2026-09-30T18:10:00Z', 'seed')`,
+    [MEMBERSHIP, realm, WEG, P],
+  );
   await book(pool, realm, {
     id: T2,
     bookingDate: '2026-10-05',
@@ -120,7 +132,7 @@ export async function seedExample(pool: pg.Pool, realm = EXAMPLE_REALM): Promise
     description: 'Hausgeld 10/2026',
     createdAt: '2026-10-05T09:58:00.000Z',
     confirmedAt: '2026-10-05T10:00:00.000Z',
-    splits: [{ code: 'OTHER_EXPENSE', amount: '312.40', propertyReferenceId: P }],
+    splits: [{ code: 'WEG_NON_RECOVERABLE', amount: '312.40', propertyReferenceId: P }],
   });
   await book(pool, realm, {
     id: T3,
