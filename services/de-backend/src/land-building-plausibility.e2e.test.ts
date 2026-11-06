@@ -161,7 +161,7 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
       const repeated = e1Body(e1.allocationId, { deviationReason: REASON, reviewState: 'ADVISOR_CONFIRMED', advisorPartyId: advisor });
       const refused = await call('POST', `/acquisitions/${q.acquisitionId}/land-building-allocation`, repeated);
       expect(refused.status).toBe(422);
-      expect((await refused.json()).error).toMatchObject({
+      expect(((await refused.json()) as Json).error).toMatchObject({
         code: 'REVIEW_STATE_NOT_ALLOWED',
         details: { field: 'reviewState', supersededAllocationId: e1.allocationId },
       });
