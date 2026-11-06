@@ -186,6 +186,7 @@ Before implementing significant functionality, read the relevant documents rathe
 | [`docs/development/phase-4-plan.md`](docs/development/phase-4-plan.md) | Rent reconciliation and MRE write-back implementation plan |
 | [`docs/development/phase-5-plan.md`](docs/development/phase-5-plan.md) | Security Deposit implementation plan (decisions P5-D1–D9 ahead of the item specs) |
 | [`docs/development/real-data-run.md`](docs/development/real-data-run.md) | Run of the implemented API with a real bank export, a real loan and real rent payments; findings F1–F11 and their follow-ups |
+| [`docs/development/betrieb.md`](docs/development/betrieb.md) | Operations (German): daily backup of DE (PostgreSQL) and MRE (MongoDB), retention, restore step by step, restore rehearsals (`scripts/ops/`) |
 | [`docs/development/invariant-suite.md`](docs/development/invariant-suite.md) | Implemented invariants and their test coverage |
 | [`docs/development/ui-guide.md`](docs/development/ui-guide.md) | Hand-over guide for the first user interface (draft): information architecture, style guide, data contracts, view-by-view fit to the implemented API, open decisions |
 | [`docs/development/api-inventory.md`](docs/development/api-inventory.md) | Generated list of the routes the backend registers (`yarn api:inventory`, checked in CI) |
