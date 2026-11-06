@@ -2,7 +2,7 @@
 #   docker build -f services/de-backend/Dockerfile .
 # Yarn is the release pinned in the repository (.yarn/releases), as in MRE.
 
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS build
 WORKDIR /app
 COPY package.json yarn.lock .yarnrc.yml tsconfig.base.json ./
 COPY .yarn/releases .yarn/releases
@@ -12,7 +12,7 @@ RUN node .yarn/releases/yarn-3.3.0.cjs install --immutable
 COPY services/de-backend services/de-backend
 RUN node .yarn/releases/yarn-3.3.0.cjs workspace @vermieter-cockpit/de-backend build
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9 AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json yarn.lock .yarnrc.yml ./

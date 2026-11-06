@@ -4,7 +4,7 @@
 
 **Grundlage:** `docker-compose.yml` (Dienste, Volumes, Datenbanknamen), `technology.md` §34. Nur synthetische Beispiele: diese Datei nennt keine Person, keinen Rechnernamen und keine Zugangsdaten einer echten Installation.
 
-**Gliederung:** ein Betriebsdokument für #281 (Entscheidung des Projektinhabers, 2026-11-06): Abschnitte 1 bis 8 Sicherung und Wiederherstellung (Punkt 1), Abschnitt 9 Reverse-Proxy, VPN und Secrets (Punkt 4), Abschnitt 10 Entscheidungen zu #286.
+**Gliederung:** ein Betriebsdokument für #281 (Entscheidung des Projektinhabers, 2026-11-06): Abschnitte 1 bis 8 Sicherung und Wiederherstellung (Punkt 1), Abschnitt 9 Reverse-Proxy, VPN und Secrets (Punkt 4), Abschnitt 10 Entscheidungen zu #286, Abschnitt 11 Pinning und Aktualisierung der Images und Actions (VC-X-09).
 
 ## 1. Was gesichert wird
 
@@ -325,7 +325,7 @@ Einschalten darf man ihn nur nach api-design §60 „Turning it on“ und dem Fr
 
 ### 9.8 Bewusst offen
 
-- **VC-X-09 (Images per Digest):** offen. `caddy:2.8` ist wie `postgres:16`, `mongo:7` und `redis:7.4-bookworm` per Tag gepinnt, nicht per `@sha256:…`. Caddy gehört bei der Umsetzung von VC-X-09 in dieselbe Liste.
+- **VC-X-09 (Images per Digest):** umgesetzt. `caddy:2.8` ist wie alle anderen Images per `tag@sha256:…` gepinnt (Abschnitt 11).
 - **VC-X-10 (Logging, Rate-Limit):** offen. Der Proxy schreibt kein Access-Log und begrenzt keine Rate. Ein Rate-Limit für `/api/v1` kommt erst, wenn der Dienst über das VPN hinaus erreichbar wird (Issue #281, Punkt 4; §47.1). Solange nur VPN-Peers zugreifen, bleibt es weg.
 
 ## 10. Entscheidungen
@@ -337,3 +337,86 @@ Die Fragen aus #286, entschieden am 2026-11-06 (Entscheidung des Projektinhabers
 3. **Aufbewahrung 14/8/12:** bestätigt; VC-X-24 betrifft die Live-Daten, Sicherungen älter als ein Jahr sind weg (Abschnitt 4).
 4. **Überwachung:** aktiv melden, Cron-Check gegen 26 Stunden über `BACKUP_ALERT_CMD`, Standard Cron-Mail (Abschnitt 2a).
 5. **Restore auf frischem Rechner:** beim Projektinhaber, auf dem Produktivrechner vor dem ersten Datenbestand (Abschnitt 8).
+
+## 11. Images und Actions: Pinning und Aktualisierung (VC-X-09)
+
+### 11.1 Was gepinnt ist
+
+Jedes Container-Image steht als `tag@sha256:…`, jede GitHub Action als `owner/action@<Commit-SHA> # vX.Y.Z`. Das Tag und der Versionskommentar dienen nur der Lesbarkeit: Docker zieht bei `tag@sha256:…` ausschließlich den Digest und ignoriert das Tag, GitHub führt genau den genannten Commit aus. Ein neu veröffentlichtes `postgres:16` oder ein verschobenes `v7`-Tag ändert damit nichts, bis der Pin bewusst geändert wird.
+
+| Stelle | Image / Action |
+| --- | --- |
+| `docker-compose.yml` | `postgres:16`, `redis:7.4-bookworm`, `mongo:7`, die sechs MRE-Images (`gateway`, `authenticator`, `api`, `tenantapi`, `pdfgenerator`, `emailer`) |
+| `docker-compose.proxy.yml` | `caddy:2.8` |
+| `services/de-backend/Dockerfile` | `node:24-bookworm-slim` (beide Stufen, derselbe Digest) |
+| `.github/workflows/ci.yml` | Service-Container `postgres:16` (derselbe Digest wie in `docker-compose.yml`), `actions/checkout`, `actions/setup-node` |
+
+Gepinnt wird der Digest des **Multi-Arch-Index** (`application/vnd.oci.image.index.v1+json`), nicht der einer einzelnen Plattform; so passt derselbe Pin auf amd64 und arm64. Die MRE-Images veröffentlicht Upstream nur für eine Plattform: Ihr Digest ist der des einzigen Manifests (`application/vnd.docker.distribution.manifest.v2+json`).
+
+CI prüft im Job `build-test` mit `.github/scripts/image-pin-check.sh`, dass jede `image:`-Zeile der Compose-Dateien und Workflows und jede `FROM`-Zeile eines Dockerfiles einen Digest trägt und jede Action per Commit-SHA mit Versionskommentar eingebunden ist. Ein neues Image oder eine neue Action ohne Pin macht CI rot.
+
+### 11.2 MRE-Images und `MRE_VERSION`
+
+Die MRE-Images tragen als Tag den gepinnten Commit aus ADR-036 (`mre-integration.md` §55). Damit `MRE_VERSION` als Override erhalten bleibt, steckt der Digest **im Default** der Variablen:
+
+```yaml
+image: ghcr.io/microrealestate/microrealestate/gateway:${MRE_VERSION:-479d0ad…@sha256:1f48…}
+```
+
+- **`MRE_VERSION` ungesetzt** (Normalfall, auch in CI): Commit-Tag und Digest, je Dienst ein eigener Digest.
+- **`MRE_VERSION` gesetzt:** nur dieses Tag, ohne Digest. Das ist gewollt: Ein fremdes Tag mit dem alten Digest würde Docker stillschweigend auf den alten Digest auflösen, also den alten Stand starten. Ein gesetztes `MRE_VERSION` dient deshalb nur zum Ausprobieren eines anderen MRE-Stands (Abschnitt 11.3); die produktive Installation lässt es ungesetzt.
+
+Verworfen: sechs eigene Digest-Variablen neben `MRE_VERSION` (vergisst man eine, läuft ein Dienst auf dem alten Stand) und das Entfernen von `MRE_VERSION` (bricht den dokumentierten Override und `scripts/ops/backup.sh`, das den Wert ins `MANIFEST` schreibt).
+
+### 11.3 Neuen Digest nachschlagen
+
+Mit Docker (Buildx), ohne das Image zu ziehen:
+
+```sh
+docker buildx imagetools inspect postgres:16 --format '{{json .Manifest}}' | jq -r '.mediaType + " " + .digest'
+docker buildx imagetools inspect ghcr.io/microrealestate/microrealestate/gateway:<MRE-Commit> --format '{{json .Manifest}}' | jq -r '.mediaType + " " + .digest'
+```
+
+Ohne Docker über die Registry-API (anonymes Token, `HEAD` auf das Manifest, Header `Docker-Content-Digest`):
+
+```sh
+accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
+# Docker Hub (offizielle Images liegen unter library/)
+token=$(curl -fsS "https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/postgres:pull" | jq -r .token)
+curl -fsSI -H "Authorization: Bearer $token" -H "Accept: $accept" https://registry-1.docker.io/v2/library/postgres/manifests/16 | grep -i docker-content-digest
+# ghcr.io
+token=$(curl -fsS "https://ghcr.io/token?scope=repository:microrealestate/microrealestate/gateway:pull" | jq -r .token)
+curl -fsSI -H "Authorization: Bearer $token" -H "Accept: $accept" https://ghcr.io/v2/microrealestate/microrealestate/gateway/manifests/<MRE-Commit> | grep -i docker-content-digest
+```
+
+Ist `mediaType` ein einzelnes Manifest, obwohl das Image mehrere Plattformen hat, war der `Accept`-Header unvollständig: Den Digest eines Plattform-Manifests nicht übernehmen.
+
+Für eine Action den Commit des Release-Tags:
+
+```sh
+git ls-remote --tags https://github.com/actions/checkout | grep -E 'refs/tags/v7\.[0-9]+\.[0-9]+(\^\{\})?$' | sort -V -k2
+```
+
+Bei einem annotierten Tag zählt die Zeile mit `^{}` (der Commit), nicht das Tag-Objekt. Vor einem Wechsel der Hauptversion die Release-Notes (README „What's new“ / „Breaking changes“, `CHANGELOG.md`) gegen die im Workflow benutzten Eingaben prüfen.
+
+Für einen anderen MRE-Stand zuerst ohne Digest ausprobieren: `MRE_VERSION=<neuer Commit>` in `.env`, `docker compose up -d --wait`, dann der MRE-Contract-Test (`mre-integration.md` §21.1, §55).
+
+### 11.4 Pin ändern
+
+- **Basis-Images** (`postgres`, `redis`, `mongo`, `caddy`, `node`): Digest an jeder Stelle aus 11.1 ersetzen, das Tag nur ändern, wenn bewusst eine andere Version gewählt wird. `postgres:16` steht in `docker-compose.yml` und in `ci.yml` und bekommt an beiden Stellen denselben Digest; `node:24-bookworm-slim` in beiden Stufen des Dockerfiles. Eine neue Hauptversion von Postgres oder MongoDB ist kein Digest-Update, sondern eine Datenmigration (Dump und Restore, Abschnitte 1 und 6).
+- **MRE:** Commit und alle sechs Digests im Default von `docker-compose.yml` gemeinsam ändern, dazu `.env.example` und die Referenz in ADR-036 / `mre-integration.md` nach dem Upgrade-Verfahren aus §55.
+- **Actions:** SHA und Versionskommentar gemeinsam ändern, an jeder `uses:`-Zeile derselben Action.
+- Ein Pin-Update ist ein eigener PR, im Titel „Pin“ oder „Bump“, im Text altes und neues Digest bzw. alte und neue SHA.
+
+### 11.5 Prüfung
+
+Lokal:
+
+```sh
+.github/scripts/image-pin-check.sh
+docker compose config -q
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml config -q
+docker compose pull            # zieht genau die gepinnten Digests; ein falscher Digest scheitert hier
+```
+
+In CI: `build-test` (Pin-Prüfung, Tests gegen den Postgres-Service-Container) und `compose-smoke` (zieht alle gepinnten Images, startet den Stack, MRE-Contract-Test, Auth-, Backup- und Proxy-Prüfung inklusive `caddy validate` im gepinnten Caddy-Image). Erst wenn beide grün sind, ist der neue Pin geprüft. Auf dem Produktivrechner danach `docker compose -f docker-compose.yml -f docker-compose.proxy.yml pull` und `up -d --wait`, vorher eine Sicherung (Abschnitt 2).

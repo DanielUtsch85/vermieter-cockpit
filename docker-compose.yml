@@ -7,6 +7,8 @@
 #
 # MRE runs from the published images of the pinned baseline commit (ADR-036,
 # mre-integration.md §55). The frontends are not started; DE only needs the APIs.
+# Every image is pinned by digest (VC-X-09): `tag@sha256:…`; for MRE the digest sits in the default of
+# ${MRE_VERSION:-…}, so a set MRE_VERSION is tag-only (docs/development/betrieb.md §11).
 # All secrets below are development defaults — override them via .env, never use
 # them in production. Published ports bind to 127.0.0.1 only: with the known
 # default ACCESS_TOKEN_SECRET anyone who can reach the gateway could forge MRE
@@ -23,7 +25,7 @@ services:
   # DE (Vermieter Cockpit)
   #############################################################################
   de-postgres:
-    image: postgres:16
+    image: postgres:16@sha256:933463a6c8eba2b9f5cd414138738cd8d5519cd2c471214c222652f547a66a32
     environment:
       POSTGRES_USER: ${DE_DB_USER:-de}
       POSTGRES_PASSWORD: ${DE_DB_PASSWORD:-de_dev_password}
@@ -57,19 +59,19 @@ services:
   # MRE (pinned baseline)
   #############################################################################
   redis:
-    image: redis:7.4-bookworm
+    image: redis:7.4-bookworm@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
     command: ['sh', '-c', 'docker-entrypoint.sh --requirepass ${REDIS_PASSWORD:-redis_password} --loglevel warning']
     networks: [net]
 
   mongo:
-    image: mongo:7
+    image: mongo:7@sha256:8bb4442761a63a8dda452744082cdac9644b429807eb977b42324a63cef59ca4
     command: --quiet --logpath /dev/null
     volumes:
       - mre-mongo-data:/data/db
     networks: [net]
 
   gateway:
-    image: ghcr.io/microrealestate/microrealestate/gateway:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    image: ghcr.io/microrealestate/microrealestate/gateway:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:1f482431144203a1df628c219d66d0a03069f7e7091f2c13bff7e7b36a3a640a}
     environment:
       NODE_ENV: production
       LOGGER_LEVEL: info
@@ -92,7 +94,7 @@ services:
     networks: [net]
 
   authenticator:
-    image: ghcr.io/microrealestate/microrealestate/authenticator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    image: ghcr.io/microrealestate/microrealestate/authenticator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:2147a7eecd884c7e254033dc736b32daed133737b414ec9db33e565dd7430096}
     environment:
       NODE_ENV: production
       PORT: 8000
@@ -112,7 +114,7 @@ services:
     networks: [net]
 
   api:
-    image: ghcr.io/microrealestate/microrealestate/api:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    image: ghcr.io/microrealestate/microrealestate/api:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:e764969e031f0b5efa2e104bce4b74f4f7e02982be4174cd6fc4e7f2b9083a92}
     environment:
       NODE_ENV: production
       PORT: 8200
@@ -128,7 +130,7 @@ services:
     networks: [net]
 
   tenantapi:
-    image: ghcr.io/microrealestate/microrealestate/tenantapi:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    image: ghcr.io/microrealestate/microrealestate/tenantapi:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:cb41ee6f5ef823a1de726ae19327e8618ea68bd08ea721ba85a31ef740443ec9}
     environment:
       NODE_ENV: production
       PORT: 8250
@@ -139,7 +141,7 @@ services:
     networks: [net]
 
   pdfgenerator:
-    image: ghcr.io/microrealestate/microrealestate/pdfgenerator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    image: ghcr.io/microrealestate/microrealestate/pdfgenerator:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:05e614a8b5c534cae360e20df59e93a99a80afb0fb6afef127db388c08ef1c15}
     environment:
       NODE_ENV: production
       PORT: 8300
@@ -158,7 +160,7 @@ services:
     networks: [net]
 
   emailer:
-    image: ghcr.io/microrealestate/microrealestate/emailer:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5}
+    image: ghcr.io/microrealestate/microrealestate/emailer:${MRE_VERSION:-479d0ad703436071b64dfdf4e48321c121d8efb5@sha256:00df04b1171b44226e2ea03c0fe373e4a819fc09a5859a40edcf274d6a930a63}
     environment:
       NODE_ENV: production
       ALLOW_SENDING_EMAILS: 'false'
