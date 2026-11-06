@@ -1,0 +1,51 @@
+# Reverse proxy of the productive installation (issue #281, item 4; docs/development/betrieb-proxy.md).
+#
+# One origin for everything (mre-integration.md §47.2): the MRE refresh token is an httpOnly cookie with
+# sameSite=strict, so the cockpit can renew a session only on the origin that also serves /api/v2. No CORS.
+#
+#   /api/v1, /api/v1/*   -> DE backend      (de-backend:8090; DE mounts its API under /api/v1, prefix kept)
+#   /cockpit, /cockpit/* -> cockpit UI      (webapps/cockpit; built with base path /cockpit, prefix kept)
+#   /api/v2/*, everything else -> MRE gateway (gateway:8080; the gateway itself routes /api/v2/authenticator,
+#                           /api/v2/documents, /api/v2 and /tenantapi and strips its own prefixes, so the
+#                           proxy passes the path through unchanged)
+#
+# Access only over the VPN (WireGuard or Tailscale). The hostname is internal and never in public DNS;
+# docker-compose.proxy.yml publishes 443 only on the VPN interface address (PROXY_BIND_ADDRESS).
+#
+# TLS: "tls internal" lets Caddy issue the certificate from its own local CA. Its root certificate
+# (/data/caddy/pki/authorities/local/root.crt in the caddy-data volume) must be trusted once on every
+# client device. Keep the caddy-data volume: a new volume means a new CA and every client must trust it again.
+# With Tailscale a *.ts.net name and its certificate are an alternative (betrieb-proxy.md, "TLS").
+#
+# Used with: docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+{
+	# No ACME, no public CA: the name is internal-only and not reachable from the internet.
+	skip_install_trust
+}
+
+{$COCKPIT_HOSTNAME:cockpit.internal} {
+	tls internal
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	# DE backend. /health/* of DE is deliberately not routed; it stays on the loopback port 8090.
+	@de path /api/v1 /api/v1/*
+	handle @de {
+		reverse_proxy de-backend:8090
+	}
+
+	# Cockpit UI (ui-guide.md §7.1, webapps/cockpit). Until that service exists this answers 502.
+	@cockpit path /cockpit /cockpit/*
+	handle @cockpit {
+		reverse_proxy {$COCKPIT_UI_UPSTREAM:cockpit-ui:80}
+	}
+
+	# MRE gateway: /api/v2 (incl. the authenticator's signin and refreshtoken) and the rest (/, /tenantapi, /health).
+	handle {
+		reverse_proxy gateway:8080
+	}
+}
