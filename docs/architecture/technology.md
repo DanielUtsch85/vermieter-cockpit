@@ -1053,7 +1053,7 @@ MRE backup remains governed by MRE's own deployment/storage requirements.
 
 Restore should be tested, not merely documented.
 
-Procedure, scripts and the record of restore rehearsals: `docs/development/betrieb.md` (`scripts/ops/backup.sh`, `scripts/ops/restore-de.sh`).
+Procedure, scripts and the record of restore rehearsals: `docs/development/betrieb.md` (`scripts/ops/backup.sh`, `scripts/ops/restore-de.sh`, `scripts/ops/backup-check.sh`).
 
 ---
 

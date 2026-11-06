@@ -2,14 +2,17 @@
 # Issue #281 item 1 (docs/development/betrieb.md): runs scripts/ops/backup.sh against the compose stack after
 # compose-auth-smoke.sh has written data, then restores both dumps into side databases of the same containers and
 # compares them with the originals: exact row counts of every DE table (kysely_migration included) and document counts of
-# every MRE collection. A side database is not a fresh machine; the restore on a fresh machine is recorded by hand in
-# betrieb.md "Restore geübt".
+# every MRE collection. The MRE files (pdfgenerator volumes) are backed up with a seeded synthetic file, which is deleted
+# and restored from the tar. Last, backup-check.sh passes on the fresh backup and alerts on a too strict age limit. A side
+# database is not a fresh machine; the restore on a fresh machine is recorded by hand in betrieb.md "Restore geübt".
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 backup_dir=$(mktemp -d)
 check_db=de_restore_check
 check_mongo=mredb_restore_check
+files_root=/usr/app/services/pdfgenerator
+seed=uploads/backup-smoke/beleg-synthetisch.pdf
 trap 'rm -rf "$backup_dir"' EXIT
 
 pg() { docker compose exec -T de-postgres psql -U de -v ON_ERROR_STOP=1 -tA "$@"; }
@@ -19,7 +22,10 @@ row_counts() {
     WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
 }
 
-# 1. Backup of both databases, with the script's own verification (pg_restore --list, gzip -t, mongorestore --dryRun).
+# 0. A synthetic upload in the pdfgenerator volume.
+docker compose exec -T pdfgenerator sh -c "mkdir -p $files_root/uploads/backup-smoke && echo synthetisch-$$ >$files_root/$seed"
+
+# 1. Backup of both databases and the MRE files, with the script's own verification (pg_restore --list, gzip -t, mongorestore --dryRun).
 BACKUP_DIR="$backup_dir" "$root/scripts/ops/backup.sh"
 day_dir=$(find "$backup_dir/daily" -mindepth 1 -maxdepth 1 -type d | head -n 1)
 ls -l "$day_dir"
@@ -58,4 +64,19 @@ docker compose exec -T mongo mongosh --quiet --eval "
   b.dropDatabase();
   quit(bad === 0 ? 0 : 1);
 "
+
+# 4. MRE files: the seeded upload is in the tar; deleted in the volume, it comes back from the tar unchanged.
+tar -tzf "$day_dir"/mre-files-*.tar.gz | grep -qx "$seed"
+docker compose exec -T pdfgenerator rm "$files_root/$seed"
+gunzip -c "$day_dir"/mre-files-*.tar.gz | docker compose exec -T pdfgenerator tar -C "$files_root" -xf -
+test "$(docker compose exec -T pdfgenerator cat "$files_root/$seed")" = "synthetisch-$$"
+docker compose exec -T pdfgenerator rm -r "$files_root/uploads/backup-smoke"
+
+# 5. Monitoring: quiet on the fresh backup, an alert (exit 1) when the age limit is 0 hours.
+BACKUP_DIR="$backup_dir" "$root/scripts/ops/backup-check.sh"
+sleep 1
+if BACKUP_DIR="$backup_dir" BACKUP_MAX_AGE_HOURS=0 "$root/scripts/ops/backup-check.sh" 2>/dev/null; then
+  echo "backup-check did not alert on a backup older than its limit" >&2
+  exit 1
+fi
 echo "backup and restore smoke: ok"

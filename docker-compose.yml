@@ -149,6 +149,11 @@ services:
       CIPHER_KEY: ${CIPHER_KEY:-cipher_key}
       CIPHER_IV_KEY: ${CIPHER_IV_KEY:-cipher_iv_key}
       UPLOAD_MAX_SIZE: 2000000000
+    # Uploaded documents and generated PDFs (WORKDIR /usr/app of the pinned image); without volumes they live on the
+    # container's own layer and are lost when it is recreated. Backed up by scripts/ops/backup.sh (betrieb.md §1).
+    volumes:
+      - mre-pdf-uploads:/usr/app/services/pdfgenerator/uploads
+      - mre-pdf-data:/usr/app/services/pdfgenerator/pdf_documents
     depends_on: [mongo]
     networks: [net]
 
@@ -172,6 +177,8 @@ services:
 volumes:
   de-postgres-data:
   mre-mongo-data:
+  mre-pdf-uploads:
+  mre-pdf-data:
 
 networks:
   net:
