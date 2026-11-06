@@ -25,7 +25,7 @@ import {
 } from '../../domains/rent-reconciliation/index.js';
 import { type Money, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
-import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
+import { claimIdempotencyKey, peekIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import {
@@ -67,16 +67,11 @@ export class PostgresRentReconciliationRepository implements RentReconciliationR
       .setAccessMode('read only')
       .execute(async (trx): Promise<PrecheckOutcome> => {
         if (idempotency !== undefined) {
-          const existing = await trx
-            .selectFrom('idempotency_key')
-            .select(['request_fingerprint', 'result'])
-            .where('mre_realm_id', '=', match.mreRealmId)
-            .where('scope', '=', CREATE_SCOPE)
-            .where('key', '=', idempotency.key)
-            .executeTakeFirst();
-          // A key claimed but not yet recorded belongs to a request still running: create decides.
-          if (existing !== undefined && existing.request_fingerprint !== idempotency.fingerprint) return { kind: 'IDEMPOTENCY_CONFLICT' };
-          if (existing?.result != null) return { kind: 'REPLAYED', reconciliation: fromSnapshot(existing.result) };
+          // A key claimed but not yet recorded belongs to a request still running: create decides. An expired key is a new
+          // request (VC-X-12): peek does not see it.
+          const seen = await peekIdempotencyKey(trx, { mreRealmId: match.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key }, idempotency.fingerprint);
+          if (seen?.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+          if (seen?.kind === 'REPLAY') return { kind: 'REPLAYED', reconciliation: fromSnapshot(seen.result) };
         }
         const refusal = checkMatch(await cashOf(trx, match.transactionId, match.mreRealmId, false), match);
         return refusal ?? { kind: 'PROCEED' };

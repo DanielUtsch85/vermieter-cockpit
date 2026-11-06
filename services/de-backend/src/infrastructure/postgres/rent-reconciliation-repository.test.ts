@@ -149,6 +149,20 @@ describe.skipIf(databaseUrl === undefined)('RentPaymentReconciliation (§37.1)',
       expect((await repository.create(match(u, '200.00'), actor, refusedKey)).kind).toBe('RENT_CASH_EXCEEDED');
       expect((await repository.create(match(u, '100.00'), actor, { ...refusedKey, fingerprint: 'f4' })).kind).toBe('CREATED');
     });
+
+    it('VC-X-12: an expired key is a new request in the precheck too, neither replayed nor a conflict', async () => {
+      const t = await transaction();
+      const key = { key: `k-expired-${t}`, fingerprint: 'f1' };
+      const first = await repository.create(match(t), actor, key);
+      if (first.kind !== 'CREATED') throw new Error(first.kind);
+      await pool.query(`UPDATE idempotency_key SET created_at = now() - interval '7 days 1 minute' WHERE key = $1`, [key.key]);
+      // The Transaction is matched by the first: the precheck goes on to its checks and answers them.
+      expect((await repository.precheck(match(t), key)).kind).toBe('ALREADY_MATCHED');
+      expect((await repository.precheck(match(t), { ...key, fingerprint: 'f2' })).kind).toBe('ALREADY_MATCHED');
+      // Counter-check: kept one minute short of seven days, it replays.
+      await pool.query(`UPDATE idempotency_key SET created_at = now() - interval '6 days 23 hours 59 minutes' WHERE key = $1`, [key.key]);
+      expect(await repository.precheck(match(t), key)).toEqual({ kind: 'REPLAYED', reconciliation: first.reconciliation });
+    });
   });
 
   describe('release and reads', () => {

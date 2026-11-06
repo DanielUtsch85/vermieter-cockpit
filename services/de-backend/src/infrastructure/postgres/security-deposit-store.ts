@@ -20,7 +20,7 @@ import {
 } from '../../domains/security-deposit/index.js';
 import { checkVersion, type AuditActor } from '../../shared/index.js';
 import { writeAudit } from './audit.js';
-import { claimIdempotencyKey, recordIdempotentResult } from './idempotency.js';
+import { claimIdempotencyKey, peekIdempotencyKey, recordIdempotentResult } from './idempotency.js';
 import { toNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 import { COLUMNS, ENTITY_TYPE, UUID, countedCashOf, fromSnapshot, readOne, toDeposit, toSnapshot, viewsOf } from './security-deposit-rows.js';
@@ -47,16 +47,11 @@ export async function createPrecheck(
     .setAccessMode('read only')
     .execute(async (trx): Promise<CreatePrecheck> => {
       if (idempotency !== undefined) {
-        const existing = await trx
-          .selectFrom('idempotency_key')
-          .select(['request_fingerprint', 'result'])
-          .where('mre_realm_id', '=', request.mreRealmId)
-          .where('scope', '=', CREATE_SCOPE)
-          .where('key', '=', idempotency.key)
-          .executeTakeFirst();
-        // A key claimed but not yet recorded belongs to a request still running: create decides.
-        if (existing !== undefined && existing.request_fingerprint !== idempotency.fingerprint) return { kind: 'IDEMPOTENCY_CONFLICT' };
-        if (existing?.result != null) return { kind: 'REPLAYED', deposit: asCreated(fromSnapshot(existing.result)) };
+        // A key claimed but not yet recorded belongs to a request still running: create decides. An expired key is a new
+        // request (VC-X-12): peek does not see it.
+        const seen = await peekIdempotencyKey(trx, { mreRealmId: request.mreRealmId, scope: CREATE_SCOPE, key: idempotency.key }, idempotency.fingerprint);
+        if (seen?.kind === 'CONFLICT') return { kind: 'IDEMPOTENCY_CONFLICT' };
+        if (seen?.kind === 'REPLAY') return { kind: 'REPLAYED', deposit: asCreated(fromSnapshot(seen.result)) };
       }
       const refusal = await accountRefusalOf(trx, request.mreRealmId, request.holdingFinancialAccountId, false);
       if (refusal !== undefined) return refusal;

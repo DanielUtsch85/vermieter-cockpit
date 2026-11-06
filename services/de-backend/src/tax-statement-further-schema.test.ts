@@ -171,6 +171,8 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0064 past the reposito
         const loanParts = migrations['0071_tax_year_loan_schedule_part_kinds'] as typeof migration;
         // 0071 (VC-X-54) widens these CHECKs and patches the shape guard after them: its own down first, up again at the end.
         // 0073 (VC-X-57) patches 0072's passages of acquisition_frozen and 0050's functions: rolled back before 0072, not applied again.
+        // 0074 (VC-X-12, an index only) sorts after 0073: its own down first, not applied again.
+        await withMigrationLock(() => (migrations['0074_idempotency_key_retention'] as typeof migration).down(db()));
         await withMigrationLock(() => (migrations['0073_ownership_start_on_confirm'] as typeof migration).down(db()));
         // 0072 (VC-X-55) widens the same CHECKs and patches 0067's passage of the shape guard after 0071: rolled back first.
         // It is not applied again below: 0065's up writes its own shape guard, without 0067's passage that 0072 patches.
