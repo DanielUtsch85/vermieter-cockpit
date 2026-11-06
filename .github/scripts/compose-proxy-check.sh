@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Issue #281 item 4 (docs/development/betrieb-proxy.md; Entscheidung des Projektinhabers, 2026-11-06): the optional
+# Issue #281 item 4 (docs/development/betrieb.md §9; Entscheidung des Projektinhabers, 2026-11-06): the optional
 # proxy override still renders together with docker-compose.yml, publishes Caddy on no wildcard address, and the
 # Caddyfile is valid in the very Caddy image the override names. Needs docker; starts nothing of the stack.
 set -euo pipefail

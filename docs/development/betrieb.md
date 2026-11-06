@@ -1,8 +1,10 @@
-# Betrieb: Sicherung und Wiederherstellung
+# Betrieb: Sicherung, Wiederherstellung, Reverse-Proxy, VPN und Secrets
 
-**Status:** Anleitung und Skripte für Punkt 1 von #281 („Backup und Wiederherstellung, geübt“). Der DE-Restore ist einmal in einem Container geübt (Abschnitt 8); der Restore auf einem frischen Rechner steht noch aus und wird vom Projektinhaber auf dem Produktivrechner durchgeführt und eingetragen. Die Fragen aus #286 sind entschieden (Abschnitt 9) (Entscheidung des Projektinhabers, 2026-11-06). `technology.md` §34 verlangt einen **getesteten** Restore, nicht nur einen dokumentierten.
+**Status:** Anleitung und Skripte für Punkt 1 von #281 („Backup und Wiederherstellung, geübt“). Der DE-Restore ist einmal in einem Container geübt (Abschnitt 8); der Restore auf einem frischen Rechner steht noch aus und wird vom Projektinhaber auf dem Produktivrechner durchgeführt und eingetragen. Die Fragen aus #286 sind entschieden (Abschnitt 10) (Entscheidung des Projektinhabers, 2026-11-06). `technology.md` §34 verlangt einen **getesteten** Restore, nicht nur einen dokumentierten.
 
 **Grundlage:** `docker-compose.yml` (Dienste, Volumes, Datenbanknamen), `technology.md` §34. Nur synthetische Beispiele: diese Datei nennt keine Person, keinen Rechnernamen und keine Zugangsdaten einer echten Installation.
+
+**Gliederung:** ein Betriebsdokument für #281 (Entscheidung des Projektinhabers, 2026-11-06): Abschnitte 1 bis 8 Sicherung und Wiederherstellung (Punkt 1), Abschnitt 9 Reverse-Proxy, VPN und Secrets (Punkt 4), Abschnitt 10 Entscheidungen zu #286.
 
 ## 1. Was gesichert wird
 
@@ -51,7 +53,7 @@ Konfiguration über Umgebungsvariablen (alle optional; die vollständige Liste s
 | `DE_PG_SERVICE`, `DE_DB_USER`, `DE_DB_NAME` | `de-postgres`, aus `.env`, sonst `de` | DE-Datenbank |
 | `MRE_MONGO_SERVICE`, `MRE_MONGO_DB` | `mongo`, `mredb` | MRE-Datenbank |
 | `MRE_FILES_SERVICE`, `MRE_FILES_ROOT`, `MRE_FILES_DIRS` | `pdfgenerator`, `/usr/app/services/pdfgenerator`, `uploads pdf_documents` | MRE-Dateien |
-| `KEEP_DAILY`, `KEEP_WEEKLY`, `KEEP_MONTHLY` | `14`, `8`, `12` | Aufbewahrung (Abschnitt 4) |
+| `KEEP_DAILY`, `KEEP_WEEKLY`, `KEEP_MONTHLY` | `14`, `8`, `12` | Aufbewahrung (Abschnitt 4); je mindestens `1` |
 | `WEEKLY_DAY` | `7` (Sonntag) | Wochentag der Wochensicherung |
 | `BACKUP_ENCRYPT_CMD`, `BACKUP_ENCRYPT_SUFFIX` | leer, `.age` | Verschlüsselung vor der Kopie (Abschnitt 3) |
 | `BACKUP_COPY_CMD` | leer | Kopie an den zweiten Ort (Abschnitt 3); ohne Verschlüsselung verweigert |
@@ -104,7 +106,7 @@ Eine Sicherung auf demselben Rechner schützt nicht gegen Plattenausfall, Diebst
 | wöchentlich | Lauf am Sonntag (`WEEKLY_DAY`) | die letzten **8** | `weekly/JJJJ-Www` (ISO-Woche) |
 | monatlich | Lauf am 1. des Monats | die letzten **12** | `monthly/JJJJ-MM` |
 
-Wochen- und Monatskopien sind harte Links auf die Tagessicherung und belegen keinen zusätzlichen Platz, solange die Tagessicherung existiert. Damit reicht die Sicherung rund ein Jahr zurück; am zweiten Ort gilt dieselbe Grenze über dessen Lebenszyklus-Regel (Löschen nach 365 Tagen, wo die Objektsperre es erlaubt). Gelöscht wird nach Name, also nach Datum: je Art bleiben die neuesten N Verzeichnisse. Ein zweiter Lauf am selben Tag erhält das Verzeichnis `daily/JJJJ-MM-TT-<Zeitstempel>` und zählt als eigene Tagessicherung. Die Zahlen 14/8/12 sind bestätigt (Entscheidung des Projektinhabers, 2026-11-06). VC-X-24 (Pseudonymisierung im Audit) betrifft die Live-Daten; Sicherungen älter als ein Jahr sind gelöscht, das ist mit beidem vereinbar. Wer die Zahlen ändert, setzt die drei Variablen und trägt das hier ein.
+Wochen- und Monatskopien sind harte Links auf die Tagessicherung und belegen keinen zusätzlichen Platz, solange die Tagessicherung existiert. Damit reicht die Sicherung rund ein Jahr zurück; am zweiten Ort gilt dieselbe Grenze über dessen Lebenszyklus-Regel (Löschen nach 365 Tagen, wo die Objektsperre es erlaubt). Gelöscht wird nach Name, also nach Datum: je Art bleiben die neuesten N Verzeichnisse. Ein zweiter Lauf am selben Tag erhält das Verzeichnis `daily/JJJJ-MM-TT-<Zeitstempel>` und zählt als eigene Tagessicherung. Die Zahlen 14/8/12 sind bestätigt (Entscheidung des Projektinhabers, 2026-11-06). VC-X-24 (Pseudonymisierung im Audit) betrifft die Live-Daten; Sicherungen älter als ein Jahr sind gelöscht, das ist mit beidem vereinbar. Wer die Zahlen ändert, setzt die drei Variablen und trägt das hier ein. Jede muss mindestens 1 sein: bei 0 bricht `backup.sh` mit „FEHLER“ ab, bevor es etwas schreibt, denn `KEEP_DAILY=0` löschte die eben geschriebene Sicherung und ihre Datei in `outbox/` gleich wieder.
 
 ## 5. Prüfung jeder Sicherung
 
@@ -115,7 +117,7 @@ Das Skript prüft jeden Dump, bevor er veröffentlicht wird:
 - **MRE-Dateien:** `tar -tzf` listet das Archiv vollständig, und jedes Verzeichnis aus `MRE_FILES_DIRS` steht darin.
 - **Alle:** `SHA256SUMS` über Dumps, Datei-Archiv und `MANIFEST`, direkt nach dem Schreiben gegengeprüft. Am zweiten Ort und vor jedem Restore: `cd <sicherung> && sha256sum -c SHA256SUMS`.
 
-Diese Prüfungen zeigen, dass ein Dump lesbar ist, nicht, dass er sich vollständig wiederherstellen lässt. Das zeigt nur ein Restore (Abschnitte 6 bis 8). Zusätzlich läuft in CI im Job `compose-smoke` das Skript `.github/scripts/compose-backup-smoke.sh`: Sicherung des Compose-Stacks nach dem Auth-Smoke, Restore beider Dumps in Nebendatenbanken derselben Container (`de_restore_check`, `mredb_restore_check`), Vergleich der Zeilenzahlen jeder DE-Tabelle und der Dokumentzahlen jeder MRE-Sammlung; eine synthetische Datei im Upload-Volume wird gesichert, gelöscht und aus dem `tar` zurückgeholt; `backup-check.sh` schweigt bei der frischen Sicherung und meldet bei einer Grenze von 0 Stunden. Das ersetzt den Restore auf einem frischen Rechner nicht.
+Diese Prüfungen zeigen, dass ein Dump lesbar ist, nicht, dass er sich vollständig wiederherstellen lässt. Das zeigt nur ein Restore (Abschnitte 6 bis 8). Zusätzlich läuft in CI im Job `compose-smoke` das Skript `.github/scripts/compose-backup-smoke.sh`: Sicherung des Compose-Stacks nach dem Auth-Smoke, Restore beider Dumps in Nebendatenbanken derselben Container (`de_restore_check`, `mredb_restore_check`), Vergleich der Zeilenzahlen jeder DE-Tabelle und der Dokumentzahlen jeder MRE-Sammlung; eine synthetische Datei im Upload-Volume wird gesichert, gelöscht und aus dem `tar` zurückgeholt; `backup-check.sh` schweigt bei der frischen Sicherung und meldet bei einer Grenze von 0 Stunden; `backup.sh` verweigert `KEEP_DAILY=0`, ohne etwas anzulegen. Das ersetzt den Restore auf einem frischen Rechner nicht.
 
 ## 6. Wiederherstellung auf einem frischen Rechner
 
@@ -188,7 +190,145 @@ Voraussetzungen: Docker mit Compose v2, Git, Zugriff auf den zweiten Ort und auf
 - **Nicht geübt:** MongoDB läuft in diesem Container nicht; der MRE-Teil (`mongodump`, `mongorestore`) ist hier nicht ausgeführt worden. Er läuft in CI gegen den Compose-Stack (Abschnitt 5) und beim Restore auf dem frischen Rechner (zweite Zeile). Ebenso nicht geübt: `docker compose exec` und `docker compose cp` selbst.
 - Die Probedatenbanken wurden danach gelöscht.
 
-## 9. Entscheidungen
+## 9. Reverse-Proxy, VPN und Secrets
+
+**Geltung:** erste produktive Installation (Issue #281, Punkt 4). Backup und Wiederherstellung stehen in den Abschnitten 1 bis 8 (Issue #281, Punkt 1).
+**Dateien:** `deploy/caddy/Caddyfile`, `docker-compose.proxy.yml`, `.env.example`. `docker-compose.yml` bleibt unverändert und ist weiterhin der Stack, den CI startet.
+
+### 9.1 Überblick
+
+Eine einzige Origin für MRE, DE und die Oberfläche, wie in `docs/architecture/mre-integration.md` §47.2 festgelegt. Der Refresh-Token von MRE ist ein Cookie mit `httpOnly` und `sameSite: strict`; nur eine Seite auf derselben Origin kann die Sitzung erneuern. CORS ist deshalb nicht nötig, und DE bietet es nicht an.
+
+| Pfad | Ziel | Präfix |
+|---|---|---|
+| `/api/v1`, `/api/v1/*` | DE-Backend (`de-backend:8090`) | bleibt; DE hängt seine API selbst unter `/api/v1` ein (`services/de-backend/src/api/app.ts`, `app.use('/api/v1', api)`) |
+| `/cockpit`, `/cockpit/*` | Oberfläche (`webapps/cockpit`, `ui-guide.md` §7.1) | bleibt; die Oberfläche wird mit dem Basispfad `/cockpit` gebaut |
+| `/api/v2/*` und alles andere (`/`, `/tenantapi`, `/health`) | MRE-Gateway (`gateway:8080`) | bleibt |
+
+Zum MRE-Gateway: Es erwartet die vollen Pfade und entfernt seine Präfixe selbst. Im gepinnten Stand `479d0ad` (`services/gateway/src/index.ts`, `exposeServices`) leitet es `/api/v2/authenticator` an den Authenticator (Präfix entfernt), `/api/v2/documents` und `/api/v2/templates` an den PDF-Generator, `/api/v2` an die API und `/tenantapi` an die Mieter-API. Das DE-Backend ruft das Gateway intern genauso auf (`MRE_API_URL: http://gateway:8080/api/v2`). Der Proxy reicht den Pfad deshalb unverändert durch.
+
+Weitere Punkte:
+
+- `/health/live` und `/health/ready` von DE werden nicht über den Proxy geroutet. Sie bleiben auf dem Loopback-Port `127.0.0.1:8090` des Hosts, wie in `docker-compose.yml`. `/health` über den Proxy ist der Health-Check des MRE-Gateways.
+- `/api/reset` des Gateways gibt es nur außerhalb von `NODE_ENV=production`. Der Stack setzt `production`, die Route existiert also nicht.
+- Das Gateway läuft mit `EXPOSE_FRONTENDS: 'false'`. Unter `/` antwortet daher nur das Gateway selbst, ohne MRE-Landlord-Oberfläche.
+- Bis die Oberfläche als Dienst läuft, antwortet `/cockpit` mit `502`. Ihr Ziel steht in `COCKPIT_UI_UPSTREAM` (Default `cockpit-ui:80`).
+
+### 9.2 Zugriff nur über VPN
+
+Die Installation ist nur über ein VPN erreichbar. Es gibt keine öffentlichen Ports, keine Portweiterleitung am Router und keinen Eintrag im öffentlichen DNS.
+
+- **VPN:** WireGuard oder Tailscale (ein auf WireGuard aufbauender Dienst), allgemein beschrieben: Der Host bekommt eine feste Adresse im VPN, zum Beispiel `10.8.0.1` bei WireGuard oder eine `100.x.y.z` bei Tailscale. Jedes Gerät, das die Oberfläche benutzt, ist Peer im selben VPN. Wer nicht im VPN ist, erreicht den Host nicht.
+- **Bindung:** `docker-compose.proxy.yml` veröffentlicht nur Port `443`, und nur auf `PROXY_BIND_ADDRESS`, der VPN-Adresse des Hosts. Ohne Angabe gilt `127.0.0.1`, dann ist der Proxy nur vom Host selbst erreichbar. Nie `0.0.0.0` und nie eine öffentliche Adresse eintragen. Die Bindung ist der eigentliche Schutz: Docker umgeht Host-Firewalls wie `ufw` bei veröffentlichten Ports.
+- **Startreihenfolge:** Die VPN-Schnittstelle muss vor Docker existieren, sonst kann Docker nicht an die Adresse binden und der Caddy-Container startet nicht. Den VPN-Dienst also vor Docker starten (bei systemd zum Beispiel `After=` und `Wants=` für den VPN-Dienst in einem Drop-in für `docker.service`).
+- **Port 80:** wird nicht veröffentlicht. Caddy leitet HTTP intern auf HTTPS um, aber von außen ist nur `443` erreichbar.
+- **Loopback-Ports:** Die Ports `127.0.0.1:8080` (Gateway) und `127.0.0.1:8090` (DE) aus `docker-compose.yml` bleiben für Prüfungen auf dem Host selbst. Sie sind nicht über das Netz erreichbar.
+- **Name:** `COCKPIT_HOSTNAME` (Default `cockpit.internal`) ist ein interner Name, der nur im VPN aufgelöst wird: über den DNS des VPN (bei Tailscale MagicDNS oder Split-DNS) oder über einen Eintrag in der `hosts`-Datei jedes Geräts. Der Browser muss genau diesen Namen aufrufen, denn er ist auch die Cookie-Domain des Refresh-Tokens (Abschnitt 9.4).
+
+### 9.3 TLS
+
+Der Caddyfile nutzt `tls internal` mit dem Namen `cockpit.internal` (Entscheidung des Projektinhabers, 2026-11-06). Caddy stellt das Zertifikat aus seiner eigenen lokalen CA aus, ohne ACME und ohne öffentliche CA, denn der Name ist von außen nicht erreichbar.
+
+- Das Volume `caddy-data` bleibt erhalten. Ein neues Volume bedeutet eine neue CA, und jedes Gerät müsste die neue Wurzel wieder installieren. `docker compose down -v` löscht es.
+- HTTPS ist Pflicht, nicht Zierde: Der Authenticator setzt den Refresh-Token nur mit `secure`, wenn `APP_PROTOCOL=https` ist (Abschnitt 9.4).
+- **Tailscale-Zertifikat:** ein `*.ts.net`-Name mit einem Zertifikat aus `tailscale cert` statt der lokalen CA ist als VC-X-58 geplant, nicht jetzt (Entscheidung des Projektinhabers, 2026-11-06). Dann würde im Caddyfile `tls internal` durch `tls <cert> <key>` ersetzt.
+
+#### 9.3.1 Die lokale CA auf jedem Gerät installieren
+
+Die Entscheidung des Projektinhabers vom 2026-11-06 legt fest: Die lokale CA von Caddy wird auf jedem Gerät installiert, das die Oberfläche benutzt. Ohne sie zeigt der Browser eine Zertifikatswarnung, und Apps verweigern die Verbindung. Installiert wird nur das Root-Zertifikat, nie der private Schlüssel daneben (`root.key`).
+
+- **Wo es liegt:** im Volume `caddy-data` unter `/data/caddy/pki/authorities/local/root.crt`. Caddy legt die CA beim ersten Start an. Sie gilt rund zehn Jahre (3600 Tage); das Zwischenzertifikat und die Serverzertifikate erneuert Caddy selbst, die Geräte merken davon nichts.
+- **Exportieren** (auf dem Host, im Projektverzeichnis):
+
+  ```sh
+  docker compose -f docker-compose.yml -f docker-compose.proxy.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+  openssl x509 -in caddy-root.crt -noout -subject -fingerprint -sha256   # Fingerprint notieren
+  ```
+
+  Die Datei über einen vertrauenswürdigen Weg auf die Geräte bringen, zum Beispiel per USB-Stick oder per `scp` im VPN. Vor dem Installieren den SHA-256-Fingerprint auf dem Gerät mit dem notierten vergleichen.
+- **Windows:** Doppelklick auf `caddy-root.crt`, dann „Zertifikat installieren“, „Lokaler Computer“, Speicher „Vertrauenswürdige Stammzertifizierungsstellen“. Alternativ als Administrator: `certutil -addstore -f Root caddy-root.crt`. Chrome und Edge nutzen diesen Speicher; Firefox nur, wenn `security.enterprise_roots.enabled` an ist, sonst das Zertifikat in Firefox unter Einstellungen, Zertifikate, Importieren eintragen.
+- **macOS:** `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root.crt`. Alternativ in der Schlüsselbundverwaltung importieren und bei „Vertrauen“ „Immer vertrauen“ wählen.
+- **iOS und iPadOS:** die Datei per AirDrop oder Mail öffnen; dann Einstellungen, „Profil geladen“, Installieren. Danach unter Einstellungen, Allgemein, Info, Zertifikatsvertrauenseinstellungen das volle Vertrauen für das Root-Zertifikat einschalten. Ohne diesen zweiten Schritt vertraut Safari ihm nicht.
+- **Android:** Einstellungen, Sicherheit (je nach Hersteller unter „Weitere Sicherheitseinstellungen“ oder „Verschlüsselung und Anmeldedaten“), „Zertifikat installieren“, „CA-Zertifikat“. Chrome vertraut Nutzer-CAs; viele andere Apps tun das seit Android 7 nicht, für die Oberfläche im Browser reicht es.
+- **Linux:** Debian und Ubuntu: `sudo cp caddy-root.crt /usr/local/share/ca-certificates/caddy-root.crt && sudo update-ca-certificates`. Fedora: nach `/etc/pki/ca-trust/source/anchors/` kopieren, dann `sudo update-ca-trust`. Chrome und Firefox haben unter Linux oft einen eigenen Speicher: dort zusätzlich importieren (Einstellungen, Zertifikate).
+- **Prüfen:** `https://cockpit.internal/health` öffnet sich ohne Warnung.
+- **Neue CA:** Wird das Volume `caddy-data` gelöscht, entsteht beim nächsten Start eine neue CA. Dann die alte Wurzel auf allen Geräten entfernen und die neue wie oben installieren.
+
+### 9.4 MRE-Sitzung hinter dem Proxy
+
+`docker-compose.proxy.yml` überschreibt dazu Umgebungsvariablen der MRE-Dienste, ohne `docker-compose.yml` zu ändern:
+
+- **Authenticator:** `APP_DOMAIN` wird `COCKPIT_HOSTNAME` und `APP_PROTOCOL` wird `https`. Im gepinnten Stand (`services/authenticator/src/index.js`) setzt der Authenticator das Cookie `refreshToken` mit `domain: APP_DOMAIN` und `secure: APP_PROTOCOL === 'https'`. Mit dem Entwicklungswert `localhost` würde der Browser das Cookie auf `cockpit.internal` verwerfen, und der Refresh nach 30 s schlüge fehl.
+- **Authenticator:** `SIGNUP` kommt aus `MRE_SIGNUP`, Default `false`; die Selbstregistrierung ist zu (Entscheidung des Projektinhabers, 2026-11-06). Für das erste Vermieterkonto gilt dieser Ablauf:
+  1. In `.env` einmalig `MRE_SIGNUP=true` setzen.
+  2. Den Authenticator neu erstellen: `docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d authenticator`. Compose erkennt die geänderte Umgebung und erstellt den Container neu. Ein `restart` reicht nicht, er übernimmt keine neuen Variablen.
+  3. Das Konto über die Anmeldung anlegen.
+  4. `MRE_SIGNUP=false` zurücksetzen und den Authenticator mit demselben Befehl erneut neu erstellen.
+  5. Prüfen: `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://cockpit.internal/api/v2/authenticator/landlord/signup` antwortet `404`. Ohne `SIGNUP` legt der gepinnte Authenticator die Route gar nicht an (`services/authenticator/src/routes/landlord.js`, `if (SIGNUP)`).
+- **Gateway:** `CORS_ENABLED: 'false'`, denn es gibt nur eine Origin (§47.2). `APP_DOMAIN` wird `COCKPIT_HOSTNAME`; das Gateway braucht den Wert nur für CORS.
+- **Emailer:** `LANDLORD_APP_URL` und `TENANT_APP_URL` zeigen auf den internen Namen. Der Versand bleibt aus (`ALLOW_SENDING_EMAILS: 'false'`).
+
+### 9.5 Secrets
+
+`docker-compose.yml` setzt für jedes Secret einen bekannten Entwicklungs-Default ein, wenn die Variable fehlt. Alle sind schon heute über `${VAR:-default}` überschreibbar; `docker-compose.yml` musste dafür nicht geändert werden.
+
+```sh
+cp .env.example .env && chmod 600 .env
+# jeden Platzhalter CHANGE_ME_… durch einen eigenen Wert ersetzen, z. B.:
+openssl rand -hex 32
+```
+
+Überschrieben werden müssen in der produktiven Installation ausnahmslos: `DE_DB_PASSWORD`, `REDIS_PASSWORD`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`, `RESET_TOKEN_SECRET`, `APPCREDZ_TOKEN_SECRET`, `CIPHER_KEY`, `CIPHER_IV_KEY`. `.env.example` erklärt jede Variable. `.env` steht in `.gitignore` und wird nie committet.
+
+Regeln:
+
+- **Vor dem ersten Start setzen.** Postgres übernimmt `DE_DB_PASSWORD` nur beim ersten Initialisieren des Volumes. `CIPHER_KEY` und `CIPHER_IV_KEY` dürfen sich nicht mehr ändern, sobald MRE Daten verschlüsselt hat; sie gehören zum Backup (Abschnitt 1). Eine Änderung von `ACCESS_TOKEN_SECRET` oder `REFRESH_TOKEN_SECRET` beendet alle Sitzungen.
+- **Hex-Werte verwenden.** `DE_DB_PASSWORD` steht ungeschützt in `DATABASE_URL`; Zeichen wie `@`, `:` oder `/` brechen die URL.
+- **Kontrolle:** `docker compose -f docker-compose.yml -f docker-compose.proxy.yml config | grep -E '_secret|_password|cipher_'` darf keinen der Entwicklungs-Defaults mehr zeigen.
+- `MONGO_URL` enthält keine Zugangsdaten, denn MongoDB läuft im gepinnten Stack ohne Authentifizierung. Erreichbar ist es nur im internen Docker-Netz `net`, ohne veröffentlichten Port. Als VC-X-59 im Backlog; keine Go-live-Voraussetzung, solange das Netz intern und nur per VPN erreichbar ist (Entscheidung des Projektinhabers, 2026-11-06).
+
+### 9.6 Start und Prüfung
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build --wait
+```
+
+Prüfung von einem Gerät im VPN (Root-Zertifikat installiert):
+
+```sh
+curl -fsS https://cockpit.internal/health                     # MRE-Gateway: OK
+curl -s -o /dev/null -w '%{http_code}\n' https://cockpit.internal/api/v1/health   # DE ohne Token: 401
+```
+
+Von außerhalb des VPN darf weder `443` noch ein anderer Port der Installation antworten.
+
+CI prüft im Job `compose-smoke` mit `.github/scripts/compose-proxy-check.sh` (Entscheidung des Projektinhabers, 2026-11-06), dass:
+
+- das Override zusammen mit `docker-compose.yml` rendert;
+- Caddy auf keiner Wildcard-Adresse veröffentlicht;
+- `SIGNUP` standardmäßig `false` ist;
+- der Caddyfile im Caddy-Image des Overrides gültig ist (`caddy validate`).
+
+### 9.7 AfA-Erfassung: `DEPRECIATION_RECORDING_ENABLED` bleibt ungesetzt
+
+Die produktive Installation läuft mit ausgeschaltetem Erfassungsschalter. `DEPRECIATION_RECORDING_ENABLED` wird nicht gesetzt, weder in `.env` noch in einer Compose-Datei. `docker-compose.yml` reicht die Variable nicht an den Container `de-backend` durch; ein Eintrag in `.env` allein hätte deshalb keine Wirkung.
+
+So liest das Backend den Schalter (`services/de-backend/src/config.ts`, `configSchema`): `z.enum(['true', 'false']).default('false')`, einmal beim Start. Ungesetzt heißt aus. Jeder andere Wert, auch `""`, `TRUE`, `1` oder `yes`, bricht den Start mit `Invalid configuration: DEPRECIATION_RECORDING_ENABLED` ab (`config.test.ts`). `main.ts` gibt den Wert an den Plan und an das Erfassen weiter und protokolliert beim Start `depreciation schedule recording: disabled`.
+
+Wäre er auf `true` gesetzt (und an den Container durchgereicht):
+
+- `POST /api/v1/depreciation-assets/{id}/schedule-versions` würde Planversionen tatsächlich erfassen. Heute wirft `recordScheduleVersion` vor jedem Datenzugriff `RecordingNotEnabledError` (`services/de-backend/src/application/depreciation-schedule-versions.ts`, `if (!deps.recordingEnabled)`), also `409 CONFLICT` mit `details.reason: "RECORDING_NOT_ENABLED"` (api-design §60 „The recording switch“). Eingeschränkt bliebe es nur durch die freigegebene Stufe `DEPRECIATION_RECORDING_STAGE` (Default `1`, §60A; Jahre darüber `409 STAGE_NOT_RELEASED`).
+- Der Planabruf meldete `recordingEnabled: true`.
+- **Das erste produktive Einschalten ist der verbindliche Freeze-Punkt der AfA-Regelversionen** (`config.ts`; api-design §60, entschieden am 2026-10-31, dritter Satz). Ein späteres Ausschalten hebt ihn nicht auf.
+
+Einschalten darf man ihn nur nach api-design §60 „Turning it on“ und dem Freigabeprotokoll `docs/development/freigabe-afa-erfassung.md`: Antworten des Steuerberaters eingearbeitet, offene Tests von VC-X-35, dokumentierte Entscheidung des Projektinhabers. Der Go-live (Issue #281) setzt das ausdrücklich nicht voraus. CI prüft den ausgeschalteten Default gegen den echten Stack (`.github/scripts/compose-auth-smoke.sh`, Abschnitt VC-8-04: `409 RECORDING_NOT_ENABLED`).
+
+### 9.8 Bewusst offen
+
+- **VC-X-09 (Images per Digest):** offen. `caddy:2.8` ist wie `postgres:16`, `mongo:7` und `redis:7.4-bookworm` per Tag gepinnt, nicht per `@sha256:…`. Caddy gehört bei der Umsetzung von VC-X-09 in dieselbe Liste.
+- **VC-X-10 (Logging, Rate-Limit):** offen. Der Proxy schreibt kein Access-Log und begrenzt keine Rate. Ein Rate-Limit für `/api/v1` kommt erst, wenn der Dienst über das VPN hinaus erreichbar wird (Issue #281, Punkt 4; §47.1). Solange nur VPN-Peers zugreifen, bleibt es weg.
+
+## 10. Entscheidungen
 
 Die Fragen aus #286, entschieden am 2026-11-06 (Entscheidung des Projektinhabers, 2026-11-06):
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restore of the DE database from a dump of scripts/ops/backup.sh onto a fresh installation; docs/development/betrieb.md §5.
+# Restore of the DE database from a dump of scripts/ops/backup.sh onto a fresh installation; docs/development/betrieb.md §6.
 #
 #   scripts/ops/restore-de.sh /path/to/daily/<date>/de-<stamp>.dump
 #
@@ -45,7 +45,7 @@ DE_DB_NAME=${DE_DB_NAME:-de}
 compose() { (cd "$COMPOSE_DIR" && $COMPOSE_CMD "$@"); }
 psql_de() { compose exec -T "$DE_PG_SERVICE" psql -U "$DE_DB_USER" -d "$DE_DB_NAME" -v ON_ERROR_STOP=1 -tA "$@"; }
 
-# Exact row count of every table in public, one "table count" line each (also used in betrieb.md §6).
+# Exact row count of every table in public, one "table count" line each (also used in betrieb.md §7).
 ROW_COUNTS_SQL="SELECT table_name, (xpath('/row/c/text()', query_to_xml(format('SELECT count(*) AS c FROM %I.%I', \
 table_schema, table_name), false, true, '')))[1]::text::bigint FROM information_schema.tables \
 WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
@@ -76,7 +76,7 @@ compose exec -T "$DE_PG_SERVICE" pg_restore -U "$DE_DB_USER" -d "$DE_DB_NAME" --
 compose exec -T "$DE_PG_SERVICE" rm -f "$inside" || true
 [ "$restore_status" -eq 0 ] || fail "pg_restore fehlgeschlagen (Status $restore_status); die Transaktion ist zurückgerollt"
 
-# 4. Short report: migration state and row counts per table (betrieb.md §6 compares them with the source).
+# 4. Short report: migration state and row counts per table (betrieb.md §7 compares them with the source).
 log "kysely_migration: $(psql_de -c "SELECT count(*) || ' Migrationen, letzte ' || max(name) FROM public.kysely_migration")"
 psql_de -F ' ' -c "$ROW_COUNTS_SQL" >&2
-log "fertig in $(($(date +%s) - started)) s; jetzt de-backend starten und betrieb.md §6 prüfen"
+log "fertig in $(($(date +%s) - started)) s; jetzt de-backend starten und betrieb.md §7 prüfen"

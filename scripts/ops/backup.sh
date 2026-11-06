@@ -23,7 +23,7 @@
 #   MRE_FILES_SERVICE  compose service holding the MRE files         (default: pdfgenerator)
 #   MRE_FILES_ROOT     their parent directory in that container      (default: /usr/app/services/pdfgenerator)
 #   MRE_FILES_DIRS     the directories below it                      (default: "uploads pdf_documents")
-#   KEEP_DAILY / KEEP_WEEKLY / KEEP_MONTHLY   retention              (default: 14 / 8 / 12)
+#   KEEP_DAILY / KEEP_WEEKLY / KEEP_MONTHLY   retention, each >= 1   (default: 14 / 8 / 12)
 #   WEEKLY_DAY         ISO weekday of the weekly copy, 1 = Monday    (default: 7, Sunday)
 #   BACKUP_ENCRYPT_CMD filter (stdin to stdout) that encrypts a run for the second location, e.g.
 #                      'age -R /etc/vermieter-cockpit/backup-recipients.txt' (public keys only; default: none)
@@ -77,6 +77,10 @@ compose() { (cd "$COMPOSE_DIR" && $COMPOSE_CMD "$@"); }
 
 for n in "$KEEP_DAILY" "$KEEP_WEEKLY" "$KEEP_MONTHLY" "$WEEKLY_DAY"; do
   case $n in '' | *[!0-9]*) fail "Aufbewahrung und WEEKLY_DAY müssen ganze Zahlen sein: '$n'" ;; esac
+done
+# 0 would delete the run just written (daily/ and outbox/) right after writing it.
+for v in KEEP_DAILY KEEP_WEEKLY KEEP_MONTHLY; do
+  [ "$((10#${!v}))" -ge 1 ] || fail "$v muss mindestens 1 sein: '${!v}' (0 löschte die eben geschriebene Kopie gleich wieder; betrieb.md §4)"
 done
 [ -n "${BACKUP_TARGETS// /}" ] || fail "BACKUP_TARGETS ist leer"
 for t in $BACKUP_TARGETS; do

@@ -1,4 +1,4 @@
-# Reverse proxy of the productive installation (issue #281, item 4; docs/development/betrieb-proxy.md).
+# Reverse proxy of the productive installation (issue #281, item 4; docs/development/betrieb.md §9).
 #
 # One origin for everything (mre-integration.md §47.2): the MRE refresh token is an httpOnly cookie with
 # sameSite=strict, so the cockpit can renew a session only on the origin that also serves /api/v2. No CORS.
@@ -15,7 +15,7 @@
 # TLS: "tls internal" lets Caddy issue the certificate from its own local CA. Its root certificate
 # (/data/caddy/pki/authorities/local/root.crt in the caddy-data volume) must be trusted once on every
 # client device. Keep the caddy-data volume: a new volume means a new CA and every client must trust it again.
-# With Tailscale a *.ts.net name and its certificate are an alternative (betrieb-proxy.md, "TLS").
+# With Tailscale a *.ts.net name and its certificate are an alternative (betrieb.md §9.3, "TLS").
 #
 # Used with: docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
 {

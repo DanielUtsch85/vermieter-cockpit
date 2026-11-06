@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Proxy override renders and the Caddyfile validates in the Caddy image (issue 281 item 4; betrieb-proxy.md)
+      - name: Proxy override renders and the Caddyfile validates in the Caddy image (issue 281 item 4; betrieb.md §9)
         run: .github/scripts/compose-proxy-check.sh
       - name: Start stack
         run: docker compose up -d --build --wait --wait-timeout 300
