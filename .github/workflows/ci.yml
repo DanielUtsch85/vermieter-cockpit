@@ -73,6 +73,8 @@ jobs:
         run: curl -fsS http://localhost:8080/health
       - name: DE against real MRE (signup → signin → realm → /api/v1/health → property link → refresh → financial account → transaction → splits → confirm → correct → reverse → bank import → review)
         run: .github/scripts/compose-auth-smoke.sh
+      - name: Backup and restore (issue 281 item 1; betrieb.md) — backup.sh, restore-de.sh and mongorestore into side databases, counts compared
+        run: .github/scripts/compose-backup-smoke.sh
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
