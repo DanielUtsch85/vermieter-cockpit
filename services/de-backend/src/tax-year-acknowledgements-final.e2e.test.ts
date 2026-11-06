@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PROPERTIES, databaseUrl, eur, useAcc8, type Json } from './phase-8-acceptance.test-support.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-28 (api-design.md §58E "The effect on `final`"; decided by the owner on 2026-11-01, question 8: the step "a year
@@ -46,7 +47,7 @@ describe.skipIf(databaseUrl === undefined)('a year leaves and reaches final agai
       });
       const recordOf = async (entityId: string, action: string) =>
         (await api.ctx.pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2`, [entityId, action])).rows[0].id as string;
-      await api.ctx.pool.query(`UPDATE audit_record SET occurred_at = '2026-07-01T10:00:00Z' WHERE id = $1`, [await recordOf(termsId, 'CREATED')]);
+      await stageAudit(api.ctx.pool, `UPDATE audit_record SET occurred_at = '2026-07-01T10:00:00Z' WHERE id = $1`, [await recordOf(termsId, 'CREATED')]);
       await post(`/loans/${loanId}/allocations`, { validFrom: '2026-07-01', basis: 'MANUAL', allocations: [{ propertyReferenceId: pr, share: '1/1' }] });
       const account = await api.account();
       // Paid on 2027-01-04, due 2026-12-31: December's interest, in 2026 by the 10-day rule; classified by the user.
@@ -62,7 +63,7 @@ describe.skipIf(databaseUrl === undefined)('a year leaves and reaches final agai
       // The terms voided on 2027-03-01, after 2026's end: the interest leaves 2026 (no schedule, the booking year).
       await post(`/loans/${loanId}/terms/${termsId}/void`, { reason: 'Vertrag falsch erfasst (synthetisch)' }, 200);
       const voided = await recordOf(termsId, 'VOIDED');
-      await api.ctx.pool.query(`UPDATE audit_record SET occurred_at = '2027-03-01T10:00:00Z' WHERE id = $1`, [voided]);
+      await stageAudit(api.ctx.pool, `UPDATE audit_record SET occurred_at = '2027-03-01T10:00:00Z' WHERE id = $1`, [voided]);
       const left = await view(pr, 2026);
       const entry = left.flags.find((f: Json) => f.code === 'ATTRIBUTION_INPUT_CHANGED').details[0];
       expect([interestLine(left)?.items, entry.kind, entry.items, left.review.open, left.review.final]).toEqual([

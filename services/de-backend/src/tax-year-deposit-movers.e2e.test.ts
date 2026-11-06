@@ -42,6 +42,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { codes, type Json as View } from './phase-8-acceptance.test-support.js';
 import { mrePrincipalVerifier, mreRentTermLookup, mreTenantDepositReader } from './wiring.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-50 end to end (api-design.md §58I "Tests the implementation needs"; Entscheidung des Projektinhabers, 2026-11-03,
@@ -154,7 +155,7 @@ describe.skipIf(databaseUrl === undefined)('the deposit s other movers (VC-X-50)
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
   let counter = 0;
   let giro = '';
-  const at = (id: string, iso: string) => pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   /** The record of the action not yet re-timed (a time set here may lie after a record written now). */
   const timed = new Set<string>();
   const recordOf = async (entityId: string, action: string) => {

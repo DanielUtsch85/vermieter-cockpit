@@ -209,6 +209,8 @@ import {
   createDatabase,
   purgeExpiredIdempotencyKeys,
   startIdempotencyKeyCleanup,
+  pseudonymiseDueAuditRecords,
+  startAuditPseudonymisation,
   createPool,
   isDatabaseReachable,
   migrateToLatest,
@@ -538,6 +540,14 @@ const idempotencyCleanup = startIdempotencyKeyCleanup({
   logError: (line) => console.error(line),
 });
 await idempotencyCleanup.firstRun;
+// VC-X-24 (api-design.md §58U): personal values in AMENDED history past ten years replaced by the marker, once now (also
+// after a restore of an older copy, before the first response) and once a day; unref()'d, cleared on shutdown.
+const auditPseudonymisation = startAuditPseudonymisation({
+  pseudonymise: (now) => pseudonymiseDueAuditRecords(db, now),
+  log: (line) => console.log(line),
+  logError: (line) => console.error(line),
+});
+await auditPseudonymisation.firstRun;
 
 const server = app.listen(config.PORT, () => {
   console.log(`de-backend listening on port ${config.PORT}`);
@@ -549,6 +559,7 @@ const server = app.listen(config.PORT, () => {
 function shutdown(signal: string): void {
   console.log(`${signal} received, shutting down`);
   idempotencyCleanup.stop();
+  auditPseudonymisation.stop();
   server.close(() => {
     void pool.end().finally(() => process.exit(0));
   });

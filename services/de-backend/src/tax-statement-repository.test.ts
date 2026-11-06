@@ -33,6 +33,7 @@ import {
   useTaxYearDatabase,
   withMigrationLock,
 } from './infrastructure/postgres/tax-year.test-support.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-28 persistence (api-design.md §58E, migration 0060): the orders of checks of both commands and their answers,
@@ -48,7 +49,7 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
   const statements = () => new PostgresTaxStatementRepository(createDatabase(ctx.pool));
   const acknowledge = (repository = statements()) => acknowledgeAttributionChange({ repository, fingerprinter });
   const taxYear = () => getTaxYearView({ repository: ctx.classifications, fingerprinter, now });
-  const at = (id: string, iso: string) => ctx.pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(ctx.pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   const recordOf = async (entityId: string, action: string) =>
     (await ctx.pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2`, [entityId, action])).rows[0].id as string;
   const auditsOf = async (entityId: string) =>
@@ -583,6 +584,8 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
           // 0073 (VC-X-57) patches 0072's passages of acquisition_frozen and 0050's functions: rolled back before 0072, not applied again.
           // 0074 (VC-X-12, an index only) sorts after 0073: its own down first, not applied again.
           // 0075 (VC-X-44, land_building_allocation only) sorts after 0074: its own down first, not applied again.
+          // 0076 (VC-X-24, audit_record only) sorts after 0075: its own down first, not applied again.
+          await withMigrationLock(() => (migrations['0076_audit_record_pseudonymisation'] as typeof migration).down(createDatabase(downPool) as never));
           await withMigrationLock(() => (migrations['0075_land_building_allocation_plausibility'] as typeof migration).down(createDatabase(downPool) as never));
           await withMigrationLock(() => (migrations['0074_idempotency_key_retention'] as typeof migration).down(createDatabase(downPool) as never));
           await withMigrationLock(() => (migrations['0073_ownership_start_on_confirm'] as typeof migration).down(createDatabase(downPool) as never));

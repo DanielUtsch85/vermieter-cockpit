@@ -58,6 +58,7 @@ import { testSchemaName } from './infrastructure/postgres/test-schema.test-suppo
 import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier, mreRentTermLookup, mreTenantDepositReader, mreTenantLookup } from './wiring.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-7-04 end to end (api-design.md §58C), wired as in main.ts, on PropertyReferences of WEG units: two owners and an
@@ -410,12 +411,12 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
     await json(await A('POST', `${path}/amend`, { rentDueDays: [{ validFrom: '2026-01-01', day: 15 }] }, { 'if-match': '"1"' }), 200);
     const { rows } = await pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = 'AMENDED'`, [reference.rentalContractReferenceId]);
     const auditRecordId = rows[0].id as string;
-    await pool.query(`UPDATE audit_record SET occurred_at = '2026-10-30T10:00:00Z' WHERE id = $1`, [auditRecordId]);
+    await stageAudit(pool, `UPDATE audit_record SET occurred_at = '2026-10-30T10:00:00Z' WHERE id = $1`, [auditRecordId]);
     expect(lineOf(await view(pr, 2027), 'RENT').items.map((i) => i.sourceId)).toEqual([rentId]);
     expect(codes((await view(pr, 2027)).flags)).not.toContain('ATTRIBUTION_INPUT_CHANGED');
     expect(codes((await view(pr, 2028)).flags)).not.toContain('ATTRIBUTION_INPUT_CHANGED');
     // The same correction recorded after both years (a filed return may be affected): both views flagged.
-    await pool.query(`UPDATE audit_record SET occurred_at = '2029-01-15T10:00:00Z' WHERE id = $1`, [auditRecordId]);
+    await stageAudit(pool, `UPDATE audit_record SET occurred_at = '2029-01-15T10:00:00Z' WHERE id = $1`, [auditRecordId]);
     const flagged = await view(pr, 2027);
     // §58E: the entry's kind, entity, fingerprint (one per year) and acknowledgement (none yet), additively.
     const expected = [
@@ -454,7 +455,7 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
       ),
       200,
     );
-    await pool.query(`UPDATE audit_record SET occurred_at = '2029-02-15T10:00:00Z' WHERE entity_id = $1 AND action = 'AMENDED' AND id <> $2`, [
+    await stageAudit(pool, `UPDATE audit_record SET occurred_at = '2029-02-15T10:00:00Z' WHERE entity_id = $1 AND action = 'AMENDED' AND id <> $2`, [
       reference.rentalContractReferenceId,
       auditRecordId,
     ]);
@@ -475,7 +476,7 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
       ),
       200,
     );
-    await pool.query(`UPDATE audit_record SET occurred_at = '2029-03-01T10:00:00Z' WHERE entity_id = $1 AND action = 'AMENDED'`, [
+    await stageAudit(pool, `UPDATE audit_record SET occurred_at = '2029-03-01T10:00:00Z' WHERE entity_id = $1 AND action = 'AMENDED'`, [
       foreign.rentalContractReferenceId,
     ]);
     expect((await view(pr, 2028)).flags.find((f) => f.code === 'ATTRIBUTION_INPUT_CHANGED')?.details).toEqual(expected);
