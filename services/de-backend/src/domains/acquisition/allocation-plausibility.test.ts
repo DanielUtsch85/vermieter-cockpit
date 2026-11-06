@@ -233,5 +233,9 @@ describe('the plausibility of the land/building allocation (§58T)', () => {
       allocationFingerprint({ ...base, comparison: c, deviationReason: 'Grund B' }),
     );
     expect(allocationFingerprint({ ...base, comparison: { ...c, method: 'APPRAISAL' } })).not.toBe(withComparison);
+    // Review on #294: each comparison value is part of the identity (landValue, buildingValue, sourceReferences).
+    expect(allocationFingerprint({ ...base, comparison: { ...c, landValue: eur('120000.01') } })).not.toBe(withComparison);
+    expect(allocationFingerprint({ ...base, comparison: { ...c, buildingValue: eur('280000.01') } })).not.toBe(withComparison);
+    expect(allocationFingerprint({ ...base, comparison: { ...c, sourceReferences: ['Gutachten (synthetisch)'] } })).not.toBe(withComparison);
   });
 });

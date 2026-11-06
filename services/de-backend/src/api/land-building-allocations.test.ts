@@ -10,6 +10,7 @@ import {
 } from '../application/index.js';
 import { Money, type BusinessDate } from '../shared/index.js';
 import { createApp } from './app.js';
+import { toDto } from './land-building-allocations.js';
 import { commandsWith, type CommandOverrides } from './app.test-support.js';
 
 /** VC-2-08 HTTP contract (api-design.md §27.3). */
@@ -55,6 +56,8 @@ afterEach(async () => {
 const headers = { authorization: 'Bearer a.b.c', organizationid: REALM, 'content-type': 'application/json' };
 const call = (base: string, method: string, path: string, body?: unknown, extra: Record<string, string> = {}) =>
   fetch(`${base}/api/v1${path}`, { method, headers: { ...headers, ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Json = any;
 const errorOf = async (res: Response) => ((await res.json()) as { error: { code: string; details?: unknown } }).error;
 const body = {
   totalAllocableAmount: { amount: '330500.00', currency: 'EUR' },
@@ -220,6 +223,27 @@ describe('the plausibility warning over HTTP (§58T)', () => {
     expect([dto['comparison'], dto['deviationReason'], dto['flags']]).toEqual([{ ...comparison, landShare: '0.4000' }, null, [flag('OPEN', null, false)]]);
     expect(seen[0]).toMatchObject({ comparison: { method: 'BMF_TOOL', sourceReferences: comparison.sourceReferences }, deviationReason: null });
     expect((seen[0] as { comparison: { landValue: Money } }).comparison.landValue.amount).toBe('132200.00');
+  });
+
+  it('comparison.landShare is over landValue plus buildingValue, never over the total: 150000.00 / 350000.00 against 400000.00 is 0.3000', async () => {
+    const odd: LandBuildingAllocation = {
+      ...stored,
+      totalAllocableAmount: eur('400000.00'),
+      landAmount: eur('40000.00'),
+      buildingAmount: eur('360000.00'),
+      comparison: { method: 'APPRAISAL', landValue: eur('150000.00'), buildingValue: eur('350000.00'), sourceReferences: ['Gutachten (synthetisch)'] },
+    };
+    const base = await start({
+      landBuildingAllocations: { create: async () => ({ allocation: odd, replayed: false }), list: async () => ({ current: odd, items: [odd] }) },
+    });
+    const created = (await (await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, { ...body, comparison })).json()) as Json;
+    const listed = (await (await call(base, 'GET', `/acquisitions/${ACQ}/land-building-allocations`)).json()) as { current: Json; items: Json[] };
+    for (const dto of [created, listed.current, listed.items[0]]) {
+      expect(dto['comparison']['landShare']).toBe('0.3000');
+      expect(dto['flags'][0]['details']).toMatchObject({ comparisonLandShare: '0.3000', allocationLandShare: '0.1000', deviation: '0.2000' });
+    }
+    // The export renders the same DTO (api/exports.ts, propertyExportDto): the same landShare there.
+    expect(toDto(odd).comparison?.landShare).toBe('0.3000');
   });
 
   it('both lists judge each allocation by its own data: the current with the reason INFORMATIVE, the superseded one OPEN', async () => {

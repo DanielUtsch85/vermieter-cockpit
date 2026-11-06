@@ -123,6 +123,21 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning through the
     expect(replay.kind === 'REPLAYED' ? [replay.allocation.comparison, replay.allocation.deviationReason] : []).toEqual([null, null]);
   });
 
+  it.each([
+    ['landValue', { landValue: eur('120000.01') }],
+    ['buildingValue', { buildingValue: eur('280000.01') }],
+    ['sourceReferences', { sourceReferences: ['Gutachten 2026-09-01 (synthetisch)'] }],
+  ] as const)('idempotency: the same key with another comparison %s is a conflict, nothing written', async (field, change) => {
+    const a = await acquisition();
+    const request = entered(a, null, { comparison: COMPARISON });
+    const key = `x44-${field}`;
+    const first = await ctx.allocations.create(request, actor, { key, fingerprint: allocationFingerprint(request) });
+    expect(first.kind).toBe('CREATED');
+    const other = { ...request, comparison: { ...COMPARISON, ...change } };
+    expect((await ctx.allocations.create(other, actor, { key, fingerprint: allocationFingerprint(other) })).kind).toBe('IDEMPOTENCY_CONFLICT');
+    expect((await ctx.allocations.list(a, REALM))?.items).toHaveLength(1);
+  });
+
   it('Realm isolation: another Realm reads nothing and writes nothing on this Acquisition', async () => {
     const a = await acquisition();
     await created(entered(a, null, { comparison: COMPARISON }));
