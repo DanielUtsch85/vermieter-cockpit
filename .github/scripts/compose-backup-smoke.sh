@@ -3,8 +3,9 @@
 # compose-auth-smoke.sh has written data, then restores both dumps into side databases of the same containers and
 # compares them with the originals: exact row counts of every DE table (kysely_migration included) and document counts of
 # every MRE collection. The MRE files (pdfgenerator volumes) are backed up with a seeded synthetic file, which is deleted
-# and restored from the tar. Last, backup-check.sh passes on the fresh backup and alerts on a too strict age limit. A side
-# database is not a fresh machine; the restore on a fresh machine is recorded by hand in betrieb.md "Restore geübt".
+# and restored from the tar. Last, backup-check.sh passes on the fresh backup and alerts on a too strict age limit, and
+# backup.sh refuses KEEP_DAILY=0. A side database is not a fresh machine; the restore on a fresh machine is recorded by
+# hand in betrieb.md "Restore geübt".
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -79,4 +80,10 @@ if BACKUP_DIR="$backup_dir" BACKUP_MAX_AGE_HOURS=0 "$root/scripts/ops/backup-che
   echo "backup-check did not alert on a backup older than its limit" >&2
   exit 1
 fi
+# 6. Retention guard: KEEP_DAILY=0 would delete the run just written; refused before anything is created.
+if BACKUP_DIR="$backup_dir/keep-zero" KEEP_DAILY=0 "$root/scripts/ops/backup.sh" 2>/dev/null; then
+  echo "backup.sh did not refuse KEEP_DAILY=0" >&2
+  exit 1
+fi
+test ! -e "$backup_dir/keep-zero"
 echo "backup and restore smoke: ok"
