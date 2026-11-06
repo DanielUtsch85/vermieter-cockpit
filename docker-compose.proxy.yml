@@ -1,0 +1,59 @@
+# Optional override for the productive installation (issue #281, item 4): Caddy as the single origin in front of
+# the MRE gateway, the DE backend and the cockpit UI (mre-integration.md §47.2). Reachable only over the VPN.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build --wait
+#
+# docker-compose.yml stays unchanged and is still what CI starts. Set the values in .env (see .env.example), at
+# least PROXY_BIND_ADDRESS (the host's VPN address) and COCKPIT_HOSTNAME, and override every secret. Guide:
+# docs/development/betrieb-proxy.md.
+#
+# The loopback ports of docker-compose.yml (127.0.0.1:8080, 127.0.0.1:8090) stay for local checks on the host
+# itself; nothing in this file publishes a port on a public interface.
+
+services:
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    environment:
+      COCKPIT_HOSTNAME: ${COCKPIT_HOSTNAME:-cockpit.internal}
+      COCKPIT_UI_UPSTREAM: ${COCKPIT_UI_UPSTREAM:-cockpit-ui:80}
+    ports:
+      # Only the VPN interface address of the host (WireGuard e.g. 10.8.0.1, Tailscale 100.x.y.z). The default
+      # 127.0.0.1 is safe but reachable only from the host itself. Never 0.0.0.0.
+      - '${PROXY_BIND_ADDRESS:-127.0.0.1}:443:443'
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Holds Caddy's local CA and certificates: keep it, or every client has to trust a new root again.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      gateway:
+        condition: service_healthy
+      de-backend:
+        condition: service_started
+    networks: [net]
+
+  # The MRE session behind the proxy (§47.2): the refresh-token cookie is set for APP_DOMAIN, and only with
+  # secure=true when APP_PROTOCOL is https (pinned authenticator, services/authenticator/src/index.js).
+  authenticator:
+    environment:
+      APP_DOMAIN: ${COCKPIT_HOSTNAME:-cockpit.internal}
+      APP_PROTOCOL: https
+      # Self sign-up stays closed. For the first landlord account set MRE_SIGNUP=true once in .env, recreate the
+      # authenticator, then set it back to false and recreate it again (docs/development/betrieb-proxy.md §4).
+      SIGNUP: ${MRE_SIGNUP:-false}
+
+  gateway:
+    environment:
+      APP_DOMAIN: ${COCKPIT_HOSTNAME:-cockpit.internal}
+      # One origin: no CORS (§47.2).
+      CORS_ENABLED: 'false'
+
+  emailer:
+    environment:
+      LANDLORD_APP_URL: https://${COCKPIT_HOSTNAME:-cockpit.internal}/landlord
+      TENANT_APP_URL: https://${COCKPIT_HOSTNAME:-cockpit.internal}/tenant
+
+volumes:
+  caddy-data:
+  caddy-config:
