@@ -1,4 +1,5 @@
 import type { BusinessDate, RuleRegistry } from '../../shared/index.js';
+import { ALLOCATION_DEVIATES_FROM_COMPARISON, ALLOCATION_PLAUSIBILITY_NOT_CHECKED, deviationIsOpen } from '../acquisition/index.js';
 import { byText } from './exact.js';
 import type { Flag, ItemComponent, ScheduleComponent, ScheduleYear } from './schedule-model.js';
 
@@ -19,6 +20,8 @@ export const INFORMATIVE_CODES: readonly string[] = [
   'GWG_THRESHOLD_MAY_APPLY',
   // §58N: the buyers' figures are right; the decided level (`details.level`) is held, and closed, in the tax-year view.
   'OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER',
+  // §58T (Entscheidung des Projektinhabers, 2026-11-06, question 7): the contract split without a comparison, a hint.
+  ALLOCATION_PLAUSIBILITY_NOT_CHECKED,
 ];
 export const isOpen = (code: string) => !INFORMATIVE_CODES.includes(code);
 
@@ -29,6 +32,8 @@ export const isOpen = (code: string) => !INFORMATIVE_CODES.includes(code);
  */
 const LEVEL_BY_DETAILS: Readonly<Record<string, (details: Readonly<Record<string, unknown>>) => boolean>> = {
   CAPITALIZED_YEAR_DIFFERS: (details) => details['dateSource'] !== 'PERFORMANCE_UNTIL',
+  // §58T (Entscheidung des Projektinhabers, 2026-11-06, questions 4 and 5): open until a reason or the advisor closes it.
+  [ALLOCATION_DEVIATES_FROM_COMPARISON]: deviationIsOpen,
 };
 
 /** Whether a flag as raised (its details intact) is open; a merged flag (details replaced) is judged by its sources. */

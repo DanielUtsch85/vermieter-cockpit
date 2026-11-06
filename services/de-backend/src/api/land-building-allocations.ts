@@ -3,6 +3,11 @@ import { z } from 'zod';
 import {
   ALLOCATION_METHODS,
   ALLOCATION_REVIEW_STATES,
+  COMPARISON_METHODS,
+  MAX_COMPARISON_SOURCE_REFERENCES,
+  MAX_DEVIATION_REASON_LENGTH,
+  allocationFlagsOf,
+  comparisonLandShare,
   shareOf,
   type CreateLandBuildingAllocation,
   type LandBuildingAllocation,
@@ -18,6 +23,28 @@ const uuid = z
   .regex(RESOURCE_ID)
   .transform((id) => id.toLowerCase());
 
+/**
+ * §58T rule 1 (VC-X-44): the values of land and building by another method, with at least one source; only their ratio
+ * is compared, so they need not sum to the total.
+ */
+const comparison = z
+  .object({
+    method: z.enum(COMPARISON_METHODS),
+    landValue: money,
+    buildingValue: money,
+    sourceReferences: z.array(z.string().trim().min(1).max(500)).max(MAX_COMPARISON_SOURCE_REFERENCES),
+  })
+  .strict()
+  .superRefine((c, ctx) => {
+    if (Array.isArray(c.sourceReferences) && c.sourceReferences.length === 0)
+      ctx.addIssue({ code: 'custom', path: ['sourceReferences'], params: { code: 'REQUIRED' } });
+    if (c.landValue instanceof Money && c.buildingValue instanceof Money) {
+      if (c.landValue.currency !== c.buildingValue.currency)
+        ctx.addIssue({ code: 'custom', path: ['buildingValue', 'currency'], params: { code: 'CURRENCY_MISMATCH' } });
+      else if (!c.landValue.add(c.buildingValue).isPositive()) ctx.addIssue({ code: 'custom', path: ['landValue'], params: { code: 'NOT_POSITIVE' } });
+    }
+  });
+
 const body = z
   .object({
     totalAllocableAmount: money,
@@ -30,6 +57,8 @@ const body = z
     sourceReferences: z.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
     supersedes: uuid.nullable(),
+    comparison: comparison.nullish(),
+    deviationReason: optionalText(MAX_DEVIATION_REASON_LENGTH).nullish(),
     // Documents do not exist yet: refused, never stored unchecked (as §33.2).
     documentIds: z.unknown().optional(),
   })
@@ -47,6 +76,11 @@ const body = z
         ctx.addIssue({ code: 'custom', path: ['totalAllocableAmount'], params: { code: 'ALLOCATION_SUM_MISMATCH' } });
       }
     }
+    // §58T: the comparison in the allocation's currency; a reason only explains a comparison.
+    const c = b.comparison;
+    if (c != null && total instanceof Money && c.landValue instanceof Money && c.landValue.currency !== total.currency)
+      ctx.addIssue({ code: 'custom', path: ['comparison', 'landValue', 'currency'], params: { code: 'CURRENCY_MISMATCH' } });
+    if (b.deviationReason != null && b.comparison == null) ctx.addIssue({ code: 'custom', path: ['deviationReason'], params: { code: 'NOT_SUPPORTED' } });
   });
 
 export interface LandBuildingAllocationCommands {
@@ -83,6 +117,16 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
         sourceReferences: (b.sourceReferences ?? []).filter((reference): reference is string => reference !== null),
         notes: b.notes ?? null,
         supersedes: b.supersedes,
+        comparison:
+          b.comparison == null
+            ? null
+            : {
+                method: b.comparison.method,
+                landValue: b.comparison.landValue,
+                buildingValue: b.comparison.buildingValue,
+                sourceReferences: b.comparison.sourceReferences,
+              },
+        deviationReason: b.deviationReason ?? null,
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
       .then(({ allocation, replayed }) => {
@@ -102,14 +146,20 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
     }
     commands
       .list({ principal: principalOf(res), acquisitionId })
-      .then(({ current, items }) => res.json({ current: current === null ? null : toDto(current), items: items.map(toDto) }))
+      .then(({ current, items }) => res.json({ current: current === null ? null : toDto(current), items: items.map((a) => toDto(a)) }))
       .catch(next);
   });
 
   return router;
 }
 
+/**
+ * The allocation as §27.3 answers it, with §58T's `comparison`, `deviationReason` and `flags` (derived on read, each
+ * allocation by its own data and the version of `DE_LAND_BUILDING_PLAUSIBILITY` on its own `effectiveDate`).
+ */
 export function toDto(a: LandBuildingAllocation) {
+  const c = a.comparison ?? null;
+  const deviationReason = a.deviationReason ?? null;
   return {
     allocationId: a.id,
     acquisitionId: a.acquisitionId,
@@ -129,5 +179,17 @@ export function toDto(a: LandBuildingAllocation) {
     supersededById: a.supersededById,
     current: a.current,
     createdAt: a.createdAt.toISOString(),
+    comparison:
+      c === null
+        ? null
+        : {
+            method: c.method,
+            landValue: c.landValue.toJSON(),
+            buildingValue: c.buildingValue.toJSON(),
+            sourceReferences: c.sourceReferences,
+            landShare: comparisonLandShare(c),
+          },
+    deviationReason,
+    flags: allocationFlagsOf(a),
   };
 }

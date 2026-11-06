@@ -487,8 +487,9 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
       ],
       reviewStates: { SUGGESTED: 0, USER_CONFIRMED: 18, ADVISOR_CONFIRMED: 0, NEEDS_REVIEW: 0 },
     });
-    // The fixture's costs are unpaid (unlike Example 1): ACQUISITION_COST_UNPAID is informative and changes nothing.
-    expect(e1.review.info.map((i: Json) => i.code).filter((c: string) => c !== 'ACQUISITION_COST_UNPAID')).toEqual([]);
+    // The fixture's costs are unpaid (unlike Example 1): ACQUISITION_COST_UNPAID is informative and changes nothing; so is
+    // §58T's hint on the contract split without a comparison.
+    expect(e1.review.info.map((i: Json) => i.code).filter((c: string) => c !== 'ACQUISITION_COST_UNPAID')).toEqual(['ALLOCATION_PLAUSIBILITY_NOT_CHECKED']);
     expect(e1.ruleVersions).toContainEqual(expect.objectContaining({ ruleCode: 'DE_AFA_BUILDING_LINEAR', version: 2, status: 'ACTIVE', itemCount: 1 }));
     // Lower by exactly the AfA than Phase 7's 6,840.00; the owners' AfA is the schedule's parts.
     const ownerA = await view(pr, 2026, a);
@@ -613,7 +614,8 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view (VC-8-0
         unpaidAside(i.flags),
       ]),
     ).toEqual([
-      [`ACQUISITION:${w}`, 'ACQUISITION', '254400.00', '2026-07', 'TRANSFER_DATE', 12, '5088.00', []],
+      // §58T: the contract split without a comparison carries the informative hint, as raised.
+      [`ACQUISITION:${w}`, 'ACQUISITION', '254400.00', '2026-07', 'TRANSFER_DATE', 12, '5088.00', ['ALLOCATION_PLAUSIBILITY_NOT_CHECKED']],
       [`TRANSACTION_SPLIT:${repair}`, 'CAPITALIZED_ITEM', '35700.00', '2027-01', 'START_OF_YEAR', 12, '714.00', ['ANSCHAFFUNGSNAHE_CAPITALIZED']],
     ]);
     expect(

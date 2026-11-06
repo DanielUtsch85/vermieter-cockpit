@@ -86,6 +86,29 @@ export type {
   LandBuildingAllocationRepository,
   NewAllocation,
 } from './allocation.js';
+// §58T (VC-X-44): the plausibility warning on the allocation.
+export {
+  ALLOCATION_DEVIATES_FROM_COMPARISON,
+  ALLOCATION_PLAUSIBILITY_NOT_CHECKED,
+  COMPARISON_METHODS,
+  DEVIATION_DIRECTIONS,
+  LAND_BUILDING_PLAUSIBILITY,
+  MAX_COMPARISON_SOURCE_REFERENCES,
+  MAX_DEVIATION_REASON_LENGTH,
+  comparisonLandShare,
+  deviationIsOpen,
+  plausibilityFlags,
+  plausibilityRuleOn,
+} from './allocation-plausibility.js';
+export type {
+  AllocationComparison,
+  ComparisonMethod,
+  DeviationClosedBy,
+  DeviationDirection,
+  LandBuildingPlausibilityParameters,
+  PlausibilityFlag,
+  PlausibilitySubject,
+} from './allocation-plausibility.js';
 export { fromCents, largestRemainder, planOwnerAllocation, toCents } from './owner-allocation.js';
 export type { AllocationBasis, AllocationTotals, OwnerAllocationInput, OwnerAllocationPlan, OwnerAllocationSource, OwnerPart } from './owner-allocation.js';
 export { BUILDING_COST_REASONS, NO_RULE_COST_CLASSIFICATION, buildingAcquisitionCost, buildingCostReasonDetails, treatCost } from './building-cost.js';

@@ -97,7 +97,7 @@ export function propertyExportDto(doc: PropertyExport) {
       ...acquisitionDto(a.acquisition),
       costs: a.costs.map(costDto),
       payments: a.payments.map(paymentDto),
-      landBuildingAllocations: a.landBuildingAllocations.map(landBuildingAllocationDto),
+      landBuildingAllocations: a.landBuildingAllocations.map((x) => landBuildingAllocationDto(x)),
     })),
     loans: doc.loans.map((l) => ({
       loan: loanDto(l.loan),

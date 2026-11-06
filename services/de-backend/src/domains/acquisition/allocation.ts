@@ -1,5 +1,6 @@
 import { RoundingMode, type AuditActor, type BusinessDate, type Money } from '../../shared/index.js';
 import type { AcquisitionStatus } from './acquisition.js';
+import type { AllocationComparison } from './allocation-plausibility.js';
 
 /**
  * Land/building allocation (data-model.md §15, api-design.md §27.3, phase-2-plan P2-D9): recorded as entered, never
@@ -27,6 +28,10 @@ export interface AllocationData {
   readonly notes: string | null;
   /** The current allocation this one replaces; `null` for the first. */
   readonly supersedes: string | null;
+  /** §58T (VC-X-44): the values by another method with their sources; absent or `null` without one. */
+  readonly comparison?: AllocationComparison | null;
+  /** §58T: why the split deviates from the comparison (only with a comparison); absent or `null` without one. */
+  readonly deviationReason?: string | null;
 }
 
 export interface NewAllocation extends AllocationData {
@@ -64,8 +69,13 @@ export function checkAllocation(acquisitionStatus: AcquisitionStatus, currentId:
   return undefined;
 }
 
-/** Identity of a create for `Idempotency-Key` replays: the Acquisition and the normalized payload. */
+/**
+ * Identity of a create for `Idempotency-Key` replays: the Acquisition and the normalized payload. §58T's `comparison`
+ * and `deviationReason` are appended only when present, so a body without them keeps the fingerprint of before.
+ */
 export function allocationFingerprint(a: NewAllocation): string {
+  const comparison = a.comparison ?? null;
+  const deviationReason = a.deviationReason ?? null;
   return JSON.stringify([
     a.acquisitionId,
     a.totalAllocableAmount.amount,
@@ -79,6 +89,20 @@ export function allocationFingerprint(a: NewAllocation): string {
     a.sourceReferences,
     a.notes,
     a.supersedes,
+    ...(comparison === null
+      ? []
+      : [
+          {
+            comparison: [
+              comparison.method,
+              comparison.landValue.amount,
+              comparison.buildingValue.amount,
+              comparison.landValue.currency,
+              comparison.sourceReferences,
+            ],
+          },
+        ]),
+    ...(deviationReason === null ? [] : [{ deviationReason }]),
   ]);
 }
 

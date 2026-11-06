@@ -19,6 +19,8 @@ import {
   listCostClassifications,
   createFinancialAccount,
   createLandBuildingAllocation,
+  exportProperty,
+  listLandBuildingAllocations,
   createLoan,
   createLoanAllocation,
   createLoanTerms,
@@ -50,6 +52,7 @@ import {
   PostgresAcquisitionRepository,
   PostgresFinancialAccountRepository,
   PostgresLandBuildingAllocationRepository,
+  PostgresPropertyExportSnapshots,
   PostgresLoanAllocationRepository,
   PostgresLoanRepository,
   PostgresLoanTermsRepository,
@@ -177,7 +180,12 @@ export function useAcc8(name: `${string}_e2e`) {
             create: createCostClassification({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
             list: listCostClassifications({ repository: new PostgresAcquisitionCostClassificationRepository(db) }),
           },
-          landBuildingAllocations: { create: createLandBuildingAllocation({ repository: new PostgresLandBuildingAllocationRepository(db) }) },
+          landBuildingAllocations: {
+            create: createLandBuildingAllocation({ repository: new PostgresLandBuildingAllocationRepository(db) }),
+            // §58T (VC-X-44): the history with each allocation's flags, and the export showing them.
+            list: listLandBuildingAllocations({ repository: new PostgresLandBuildingAllocationRepository(db) }),
+          },
+          exports: { property: exportProperty({ snapshots: new PostgresPropertyExportSnapshots(db) }) },
           wegs: { createWeg: createWeg({ repository: wegs }), createMembership: createMembership({ repository: wegs }) },
           wegSpecialAssessments: {
             create: createSpecialAssessment({ repository: assessments, now }),

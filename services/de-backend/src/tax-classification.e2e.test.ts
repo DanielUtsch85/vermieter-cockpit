@@ -277,6 +277,8 @@ describe.skipIf(databaseUrl === undefined)('Tax classification (VC-7-01) end to 
       ['DE_CASH_TIMING', [[1, 'ACTIVE']]],
       ['DE_CATEGORY_DEFAULTS', [[1, 'ACTIVE']]],
       ['DE_CONSTRUCTION_PERIOD_INTEREST', [[1, 'ACTIVE']]],
+      // VC-X-44 (§58T): the plausibility warning's rule, deciding no figure.
+      ['DE_LAND_BUILDING_PLAUSIBILITY', [[1, 'ACTIVE']]],
       ['DE_WEG_SPENDING', [[1, 'ACTIVE']]],
     ]);
     const before = await cash();

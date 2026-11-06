@@ -1,5 +1,5 @@
 import type { BusinessDate, Money, RuleStatus } from '../../shared/index.js';
-import type { BasisCostClassification, UnclassifiedCost } from '../acquisition/index.js';
+import type { AllocationComparison, BasisCostClassification, UnclassifiedCost } from '../acquisition/index.js';
 import type { DepreciationAsset } from './asset.js';
 import type { CapitalizedItem, ItemRef } from './capitalized-item.js';
 import type { BuildingBand } from './rules/de-afa-building-linear.js';
@@ -30,6 +30,16 @@ export interface ScheduleAllocation {
   readonly reviewState: string;
   readonly totalAllocableAmount: Money;
   readonly buildingAmount: Money;
+  /**
+   * §58T (VC-X-44): what the plausibility check reads besides the above; set by the source. Without it (a fixture of
+   * before) no plausibility flag is raised. It never enters a figure.
+   */
+  readonly plausibility?: {
+    readonly landAmount: Money;
+    readonly effectiveDate: BusinessDate;
+    readonly comparison: AllocationComparison | null;
+    readonly deviationReason: string | null;
+  };
 }
 
 /** An Acquisition of the asset's PropertyReference that is not `CANCELLED`, with its `ACTIVE` costs and current allocation. */

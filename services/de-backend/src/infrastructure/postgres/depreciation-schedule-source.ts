@@ -16,6 +16,7 @@ import { capitalizedItemsIn, type CapitalizedSourcesReader } from './capitalized
 import { depreciationSnapshot, readAsset } from './depreciation-asset-repository.js';
 import { purchaseChecksIn } from './depreciation-purchase-checks.js';
 import { currentVersionOf } from './depreciation-schedule-version-reads.js';
+import { comparisonOf } from './land-building-allocation-repository.js';
 import { fromNumericAmount } from './money-column.js';
 import type { Database } from './schema.js';
 
@@ -143,6 +144,14 @@ export async function readScheduleIn(
             'currency',
             sql<string>`total_allocable_amount::text`.as('total'),
             sql<string>`building_amount::text`.as('building'),
+            // §58T (VC-X-44): what the plausibility flags read; never a figure.
+            sql<string>`land_amount::text`.as('land'),
+            sql<string>`to_char(effective_date, 'YYYY-MM-DD')`.as('effective_date'),
+            'comparison_method',
+            sql<string | null>`comparison_land_value::text`.as('comparison_land'),
+            sql<string | null>`comparison_building_value::text`.as('comparison_building'),
+            'comparison_source_references',
+            'deviation_reason',
           ])
           .where('acquisition_id', 'in', ids)
           .where('mre_realm_id', '=', mreRealmId)
@@ -213,6 +222,12 @@ export async function readScheduleIn(
               reviewState: allocation.review_state,
               totalAllocableAmount: fromNumericAmount(allocation.total, allocation.currency),
               buildingAmount: fromNumericAmount(allocation.building, allocation.currency),
+              plausibility: {
+                landAmount: fromNumericAmount(allocation.land, allocation.currency),
+                effectiveDate: allocation.effective_date as BusinessDate,
+                comparison: comparisonOf(allocation),
+                deviationReason: allocation.deviation_reason,
+              },
             },
     };
   });
