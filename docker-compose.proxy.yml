@@ -39,8 +39,9 @@ services:
     environment:
       APP_DOMAIN: ${COCKPIT_HOSTNAME:-cockpit.internal}
       APP_PROTOCOL: https
-      # Open self sign-up for the first landlord account, then set MRE_SIGNUP=false and restart.
-      SIGNUP: ${MRE_SIGNUP:-true}
+      # Self sign-up stays closed. For the first landlord account set MRE_SIGNUP=true once in .env, recreate the
+      # authenticator, then set it back to false and recreate it again (docs/development/betrieb-proxy.md §4).
+      SIGNUP: ${MRE_SIGNUP:-false}
 
   gateway:
     environment:

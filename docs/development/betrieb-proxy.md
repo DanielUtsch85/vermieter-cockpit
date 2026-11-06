@@ -35,19 +35,44 @@ Die Installation ist nur über ein VPN erreichbar. Es gibt keine öffentlichen P
 
 ## 3. TLS
 
-Der Caddyfile nutzt `tls internal`. Caddy stellt das Zertifikat aus seiner eigenen lokalen CA aus, ohne ACME und ohne öffentliche CA, denn der Name ist von außen nicht erreichbar.
+Der Caddyfile nutzt `tls internal` mit dem Namen `cockpit.internal` (Entscheidung des Projektinhabers, 2026-11-06). Caddy stellt das Zertifikat aus seiner eigenen lokalen CA aus, ohne ACME und ohne öffentliche CA, denn der Name ist von außen nicht erreichbar.
 
-- Das Root-Zertifikat liegt im Volume `caddy-data` unter `/data/caddy/pki/authorities/local/root.crt`. Es wird auf jedem Gerät einmal als vertrauenswürdig installiert, zum Beispiel mit `docker compose -f docker-compose.yml -f docker-compose.proxy.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt`.
 - Das Volume `caddy-data` bleibt erhalten. Ein neues Volume bedeutet eine neue CA, und jedes Gerät müsste die neue Wurzel wieder installieren. `docker compose down -v` löscht es.
 - HTTPS ist Pflicht, nicht Zierde: Der Authenticator setzt den Refresh-Token nur mit `secure`, wenn `APP_PROTOCOL=https` ist (Abschnitt 4).
-- **Alternative mit Tailscale:** ein `*.ts.net`-Name mit einem Zertifikat aus `tailscale cert`. Dann im Caddyfile `tls internal` durch `tls <cert> <key>` ersetzen und die Dateien einbinden. Das ist nicht vorbereitet.
+- **Tailscale-Zertifikat:** ein `*.ts.net`-Name mit einem Zertifikat aus `tailscale cert` statt der lokalen CA ist als VC-X-58 geplant, nicht jetzt (Entscheidung des Projektinhabers, 2026-11-06). Dann würde im Caddyfile `tls internal` durch `tls <cert> <key>` ersetzt.
+
+### 3.1 Die lokale CA auf jedem Gerät installieren
+
+Die Entscheidung des Projektinhabers vom 2026-11-06 legt fest: Die lokale CA von Caddy wird auf jedem Gerät installiert, das die Oberfläche benutzt. Ohne sie zeigt der Browser eine Zertifikatswarnung, und Apps verweigern die Verbindung. Installiert wird nur das Root-Zertifikat, nie der private Schlüssel daneben (`root.key`).
+
+- **Wo es liegt:** im Volume `caddy-data` unter `/data/caddy/pki/authorities/local/root.crt`. Caddy legt die CA beim ersten Start an. Sie gilt rund zehn Jahre (3600 Tage); das Zwischenzertifikat und die Serverzertifikate erneuert Caddy selbst, die Geräte merken davon nichts.
+- **Exportieren** (auf dem Host, im Projektverzeichnis):
+
+  ```sh
+  docker compose -f docker-compose.yml -f docker-compose.proxy.yml cp caddy:/data/caddy/pki/authorities/local/root.crt ./caddy-root.crt
+  openssl x509 -in caddy-root.crt -noout -subject -fingerprint -sha256   # Fingerprint notieren
+  ```
+
+  Die Datei über einen vertrauenswürdigen Weg auf die Geräte bringen, zum Beispiel per USB-Stick oder per `scp` im VPN. Vor dem Installieren den SHA-256-Fingerprint auf dem Gerät mit dem notierten vergleichen.
+- **Windows:** Doppelklick auf `caddy-root.crt`, dann „Zertifikat installieren“, „Lokaler Computer“, Speicher „Vertrauenswürdige Stammzertifizierungsstellen“. Alternativ als Administrator: `certutil -addstore -f Root caddy-root.crt`. Chrome und Edge nutzen diesen Speicher; Firefox nur, wenn `security.enterprise_roots.enabled` an ist, sonst das Zertifikat in Firefox unter Einstellungen, Zertifikate, Importieren eintragen.
+- **macOS:** `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain caddy-root.crt`. Alternativ in der Schlüsselbundverwaltung importieren und bei „Vertrauen“ „Immer vertrauen“ wählen.
+- **iOS und iPadOS:** die Datei per AirDrop oder Mail öffnen; dann Einstellungen, „Profil geladen“, Installieren. Danach unter Einstellungen, Allgemein, Info, Zertifikatsvertrauenseinstellungen das volle Vertrauen für das Root-Zertifikat einschalten. Ohne diesen zweiten Schritt vertraut Safari ihm nicht.
+- **Android:** Einstellungen, Sicherheit (je nach Hersteller unter „Weitere Sicherheitseinstellungen“ oder „Verschlüsselung und Anmeldedaten“), „Zertifikat installieren“, „CA-Zertifikat“. Chrome vertraut Nutzer-CAs; viele andere Apps tun das seit Android 7 nicht, für die Oberfläche im Browser reicht es.
+- **Linux:** Debian und Ubuntu: `sudo cp caddy-root.crt /usr/local/share/ca-certificates/caddy-root.crt && sudo update-ca-certificates`. Fedora: nach `/etc/pki/ca-trust/source/anchors/` kopieren, dann `sudo update-ca-trust`. Chrome und Firefox haben unter Linux oft einen eigenen Speicher: dort zusätzlich importieren (Einstellungen, Zertifikate).
+- **Prüfen:** `https://cockpit.internal/health` öffnet sich ohne Warnung.
+- **Neue CA:** Wird das Volume `caddy-data` gelöscht, entsteht beim nächsten Start eine neue CA. Dann die alte Wurzel auf allen Geräten entfernen und die neue wie oben installieren.
 
 ## 4. MRE-Sitzung hinter dem Proxy
 
 `docker-compose.proxy.yml` überschreibt dazu Umgebungsvariablen der MRE-Dienste, ohne `docker-compose.yml` zu ändern:
 
 - **Authenticator:** `APP_DOMAIN` wird `COCKPIT_HOSTNAME` und `APP_PROTOCOL` wird `https`. Im gepinnten Stand (`services/authenticator/src/index.js`) setzt der Authenticator das Cookie `refreshToken` mit `domain: APP_DOMAIN` und `secure: APP_PROTOCOL === 'https'`. Mit dem Entwicklungswert `localhost` würde der Browser das Cookie auf `cockpit.internal` verwerfen, und der Refresh nach 30 s schlüge fehl.
-- **Authenticator:** `SIGNUP` kommt aus `MRE_SIGNUP` (Default `true`). Für das erste Vermieterkonto offen lassen, danach `MRE_SIGNUP=false` setzen und den Stack neu starten.
+- **Authenticator:** `SIGNUP` kommt aus `MRE_SIGNUP`, Default `false`; die Selbstregistrierung ist zu (Entscheidung des Projektinhabers, 2026-11-06). Für das erste Vermieterkonto gilt dieser Ablauf:
+  1. In `.env` einmalig `MRE_SIGNUP=true` setzen.
+  2. Den Authenticator neu erstellen: `docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d authenticator`. Compose erkennt die geänderte Umgebung und erstellt den Container neu. Ein `restart` reicht nicht, er übernimmt keine neuen Variablen.
+  3. Das Konto über die Anmeldung anlegen.
+  4. `MRE_SIGNUP=false` zurücksetzen und den Authenticator mit demselben Befehl erneut neu erstellen.
+  5. Prüfen: `curl -s -o /dev/null -w '%{http_code}\n' -X POST https://cockpit.internal/api/v2/authenticator/landlord/signup` antwortet `404`. Ohne `SIGNUP` legt der gepinnte Authenticator die Route gar nicht an (`services/authenticator/src/routes/landlord.js`, `if (SIGNUP)`).
 - **Gateway:** `CORS_ENABLED: 'false'`, denn es gibt nur eine Origin (§47.2). `APP_DOMAIN` wird `COCKPIT_HOSTNAME`; das Gateway braucht den Wert nur für CORS.
 - **Emailer:** `LANDLORD_APP_URL` und `TENANT_APP_URL` zeigen auf den internen Namen. Der Versand bleibt aus (`ALLOW_SENDING_EMAILS: 'false'`).
 
@@ -68,7 +93,7 @@ Regeln:
 - **Vor dem ersten Start setzen.** Postgres übernimmt `DE_DB_PASSWORD` nur beim ersten Initialisieren des Volumes. `CIPHER_KEY` und `CIPHER_IV_KEY` dürfen sich nicht mehr ändern, sobald MRE Daten verschlüsselt hat; sie gehören zum Backup (`betrieb.md`). Eine Änderung von `ACCESS_TOKEN_SECRET` oder `REFRESH_TOKEN_SECRET` beendet alle Sitzungen.
 - **Hex-Werte verwenden.** `DE_DB_PASSWORD` steht ungeschützt in `DATABASE_URL`; Zeichen wie `@`, `:` oder `/` brechen die URL.
 - **Kontrolle:** `docker compose -f docker-compose.yml -f docker-compose.proxy.yml config | grep -E '_secret|_password|cipher_'` darf keinen der Entwicklungs-Defaults mehr zeigen.
-- `MONGO_URL` enthält keine Zugangsdaten, denn MongoDB läuft im gepinnten Stack ohne Authentifizierung. Erreichbar ist es nur im internen Docker-Netz `net`, ohne veröffentlichten Port (offene Frage im PR).
+- `MONGO_URL` enthält keine Zugangsdaten, denn MongoDB läuft im gepinnten Stack ohne Authentifizierung. Erreichbar ist es nur im internen Docker-Netz `net`, ohne veröffentlichten Port. Als VC-X-59 im Backlog; keine Go-live-Voraussetzung, solange das Netz intern und nur per VPN erreichbar ist (Entscheidung des Projektinhabers, 2026-11-06).
 
 ## 6. Start und Prüfung
 
@@ -84,6 +109,13 @@ curl -s -o /dev/null -w '%{http_code}\n' https://cockpit.internal/api/v1/health 
 ```
 
 Von außerhalb des VPN darf weder `443` noch ein anderer Port der Installation antworten.
+
+CI prüft im Job `compose-smoke` mit `.github/scripts/compose-proxy-check.sh` (Entscheidung des Projektinhabers, 2026-11-06), dass:
+
+- das Override zusammen mit `docker-compose.yml` rendert;
+- Caddy auf keiner Wildcard-Adresse veröffentlicht;
+- `SIGNUP` standardmäßig `false` ist;
+- der Caddyfile im Caddy-Image des Overrides gültig ist (`caddy validate`).
 
 ## 7. AfA-Erfassung: `DEPRECIATION_RECORDING_ENABLED` bleibt ungesetzt
 
