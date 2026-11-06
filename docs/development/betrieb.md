@@ -1,0 +1,199 @@
+# Betrieb: Sicherung und Wiederherstellung
+
+**Status:** Anleitung und Skripte für Punkt 1 von #281 („Backup und Wiederherstellung, geübt“). Der DE-Restore ist einmal in einem Container geübt (Abschnitt 8); der Restore auf einem frischen Rechner steht noch aus und wird vom Projektinhaber auf dem Produktivrechner durchgeführt und eingetragen. Die Fragen aus #286 sind entschieden (Abschnitt 9) (Entscheidung des Projektinhabers, 2026-11-06). `technology.md` §34 verlangt einen **getesteten** Restore, nicht nur einen dokumentierten.
+
+**Grundlage:** `docker-compose.yml` (Dienste, Volumes, Datenbanknamen), `technology.md` §34. Nur synthetische Beispiele: diese Datei nennt keine Person, keinen Rechnernamen und keine Zugangsdaten einer echten Installation.
+
+## 1. Was gesichert wird
+
+| Teil | Dienst (Compose) | Datenbank | Volume | Werkzeug | Datei |
+|---|---|---|---|---|---|
+| DE (Vermieter Cockpit) | `de-postgres` (PostgreSQL 16) | `${DE_DB_NAME:-de}`, Benutzer `${DE_DB_USER:-de}` | `de-postgres-data` | `pg_dump -Fc` (custom format) | `de-<Zeitstempel>.dump` |
+| MRE (MicroRealEstate) | `mongo` (MongoDB 7) | `mredb` (aus `MONGO_URL` der MRE-Dienste) | `mre-mongo-data` | `mongodump --archive --gzip` | `mre-<Zeitstempel>.archive.gz` |
+| MRE-Dateien | `pdfgenerator` | – (Dateien) | `mre-pdf-uploads` → `/usr/app/services/pdfgenerator/uploads`, `mre-pdf-data` → `/usr/app/services/pdfgenerator/pdf_documents` | `tar` im Container | `mre-files-<Zeitstempel>.tar.gz` |
+
+**MRE-Dateien (Befund vom 2026-11-06):** Der gepinnte `pdfgenerator` (`MRE_VERSION` 479d0ad, Image auf `node:20.17-alpine`, `WORKDIR /usr/app`) legt hochgeladene Dokumente mit multer `diskStorage` unter `UPLOADS_DIRECTORY` ab, Standard `/usr/app/services/pdfgenerator/uploads` (je Organisation ein Unterordner); erzeugte PDFs schreibt er nach `PDF_DIRECTORY`, Standard `/usr/app/services/pdfgenerator/pdf_documents` (`services/pdfgenerator/src/index.js` Zeilen 36 bis 44, `src/utils/uploadmiddelware.js`, `src/pdf.js`). Ohne Volume liegen beide auf der Schicht des Containers und gehen bei jedem Neuerstellen verloren; das Upstream-Compose hat dieselbe Lücke (Backlog VC-X-60). `docker-compose.yml` hängt deshalb zwei benannte Volumes an (Entscheidung des Projektinhabers, 2026-11-06). Erzeugte PDFs entstehen bei jedem Abruf neu aus den Daten in MongoDB; gesichert werden sie trotzdem, sie sind klein.
+
+**Abweichung von der Entscheidung, zur Bestätigung:** Die Entscheidung nennt `data/` als zweites Verzeichnis. `/usr/app/services/pdfgenerator/data` enthält aber keinen Datenbestand, sondern Code des Images (`data/index.js`, `data/invoice/index.js`, `data/rentcall*/index.js`, die Datenquellen der Vorlagen, geladen über `DATA_DIRECTORY` in `src/datapicker.js`). Ein Volume darüber würde diesen Code beim ersten Start einfrieren und bei jedem MRE-Update veralten lassen. `mre-pdf-data` hängt deshalb an `pdf_documents/`, dem Ort der erzeugten PDFs.
+
+**Umstellung einer bestehenden Installation:** Beim ersten `docker compose up` mit den Volumes wird `pdfgenerator` neu erstellt, und was bis dahin in seinen Verzeichnissen lag, ist weg. Vorher sichern: `docker compose cp pdfgenerator:/usr/app/services/pdfgenerator/uploads ./uploads-vorher`, danach mit `docker compose cp ./uploads-vorher/. pdfgenerator:/usr/app/services/pdfgenerator/uploads/` zurückspielen. Neue benannte Volumes übernehmen beim ersten Einhängen Inhalt und Eigentümer (UID 1000) des Image-Verzeichnisses.
+
+Nicht in den Dumps, aber für eine Wiederherstellung nötig:
+
+- **`.env`** mit allen Secrets (`DE_DB_PASSWORD`, `ACCESS_TOKEN_SECRET`, `REFRESH_TOKEN_SECRET`, `RESET_TOKEN_SECRET`, `APPCREDZ_TOKEN_SECRET`, `REDIS_PASSWORD`, `CIPHER_KEY`, `CIPHER_IV_KEY`, ggf. `MRE_VERSION`). Wird **getrennt** gesichert (Passwortmanager oder verschlüsselter Speicher), nie neben den Dumps und nie im Repository. **`CIPHER_KEY` und `CIPHER_IV_KEY` sind unverzichtbar:** MRE verschlüsselt damit Felder in MongoDB; ein MRE-Dump ohne diese beiden Werte ist nicht vollständig nutzbar.
+- **Der Code-Stand:** die Datei `MANIFEST` jeder Sicherung nennt den Git-Commit der Installation und die MRE-Version. Der Restore läuft mit demselben oder einem neueren Commit; ein neuerer wendet beim Start nur die fehlenden Migrationen an.
+- Redis wird nicht gesichert: dort liegen nur Sitzungen und Tokens des MRE-Authenticators, die nach einem Restore neu entstehen (alle Nutzer melden sich neu an).
+- DE speichert keine Dokument-Binärdateien.
+- Ist für eine Organisation in MRE ein Backblaze-B2-Speicher eingetragen, lädt der `pdfgenerator` Uploads zusätzlich dorthin; dieser Speicher wird von hier nicht gesichert.
+
+## 2. Täglicher Cron
+
+`scripts/ops/backup.sh` erstellt die Dumps und das Datei-Archiv **innerhalb der Container** über `docker compose exec -T` und schreibt sie über die Standardausgabe in ein Verzeichnis **außerhalb der Docker-Volumes** (Standard `/var/backups/vermieter-cockpit`). Es braucht kein Passwort: `pg_dump` verbindet sich im Container über den lokalen Socket (im offiziellen `postgres`-Image `trust` für lokale Verbindungen), MongoDB läuft im Compose-Netz ohne Authentifizierung und ist von außen nicht erreichbar.
+
+Beispiel `/etc/cron.d/vermieter-cockpit` (der Benutzer `backup` ist Mitglied der Gruppe `docker`; die Installation liegt in `/opt/vermieter-cockpit`):
+
+```cron
+MAILTO=betrieb@example.org
+# Täglich 03:17 Uhr: DE- und MRE-Dump, MRE-Dateien, Prüfung, Aufbewahrung, Verschlüsselung, Kopie an den zweiten Ort.
+17 3 * * * backup cd /opt/vermieter-cockpit && BACKUP_DIR=/srv/backup/vermieter-cockpit BACKUP_ENCRYPT_CMD='age -R /etc/vermieter-cockpit/backup-recipients.txt' BACKUP_COPY_CMD='rclone copy --immutable "$BACKUP_OUTBOX" offsite:vc-backup' scripts/ops/backup.sh >>/var/log/vermieter-cockpit-backup.log 2>&1
+# Täglich 09:47 Uhr: Überwachung (Abschnitt 2a).
+47 9 * * * backup BACKUP_DIR=/srv/backup/vermieter-cockpit /opt/vermieter-cockpit/scripts/ops/backup-check.sh
+```
+
+Konfiguration über Umgebungsvariablen (alle optional; die vollständige Liste steht im Kopf des Skripts):
+
+| Variable | Standard | Bedeutung |
+|---|---|---|
+| `BACKUP_DIR` | `/var/backups/vermieter-cockpit` | Zielverzeichnis, außerhalb der Docker-Volumes |
+| `COMPOSE_DIR` | Wurzel des Repositorys | Verzeichnis von `docker-compose.yml` und `.env` |
+| `COMPOSE_CMD` | `docker compose` | Compose-Aufruf |
+| `BACKUP_TARGETS` | `de mre mre-files` | was gesichert wird |
+| `DE_PG_SERVICE`, `DE_DB_USER`, `DE_DB_NAME` | `de-postgres`, aus `.env`, sonst `de` | DE-Datenbank |
+| `MRE_MONGO_SERVICE`, `MRE_MONGO_DB` | `mongo`, `mredb` | MRE-Datenbank |
+| `MRE_FILES_SERVICE`, `MRE_FILES_ROOT`, `MRE_FILES_DIRS` | `pdfgenerator`, `/usr/app/services/pdfgenerator`, `uploads pdf_documents` | MRE-Dateien |
+| `KEEP_DAILY`, `KEEP_WEEKLY`, `KEEP_MONTHLY` | `14`, `8`, `12` | Aufbewahrung (Abschnitt 4) |
+| `WEEKLY_DAY` | `7` (Sonntag) | Wochentag der Wochensicherung |
+| `BACKUP_ENCRYPT_CMD`, `BACKUP_ENCRYPT_SUFFIX` | leer, `.age` | Verschlüsselung vor der Kopie (Abschnitt 3) |
+| `BACKUP_COPY_CMD` | leer | Kopie an den zweiten Ort (Abschnitt 3); ohne Verschlüsselung verweigert |
+| `BACKUP_COPY_ENCRYPTS` | `0` | `1` nur, wenn das Kopierwerkzeug selbst verschlüsselt (restic) |
+
+Ablauf eines Laufs:
+
+1. Sperre `BACKUP_DIR/.lock` (nur ein Lauf gleichzeitig; nach einem Absturz von Hand entfernen).
+2. DE: `pg_dump -U <user> -d <db> -Fc --no-owner --no-privileges` in ein Arbeitsverzeichnis `BACKUP_DIR/.work-…`.
+3. MRE: `mongodump --db=mredb --archive --gzip` in dasselbe Arbeitsverzeichnis.
+4. MRE-Dateien: `tar -C /usr/app/services/pdfgenerator -cf - uploads pdf_documents` im Container, auf dem Host mit `gzip` gepackt.
+5. Prüfung jeder Datei (Abschnitt 5), dann `MANIFEST` (Zeitpunkt, Rechner, Git-Commit, MRE-Version, Datei-Verzeichnisse) und `SHA256SUMS`.
+6. Das Arbeitsverzeichnis wird in einem Schritt zu `daily/JJJJ-MM-TT` umbenannt: ein Verzeichnis unter `daily/` ist immer vollständig. Ein abgebrochener Lauf hinterlässt nichts außer seiner Meldung.
+7. Wochen- und Monatskopie, Aufbewahrung.
+8. Verschlüsselung des Laufs nach `outbox/`, dann Kopie an den zweiten Ort (Abschnitt 3).
+
+Jeder Fehler beendet das Skript mit Status ungleich 0 und einer Meldung „FEHLER“ oder „abgebrochen“ auf stderr; Cron verschickt diese Ausgabe per Mail, wenn `MAILTO` gesetzt ist.
+
+## 2a. Überwachung
+
+Eine Sicherung, die still ausbleibt, ist der häufigste Ausfall; ein Fehler-Mail fehlt dann gerade, weil der Lauf nie startet. Deshalb meldet ein eigener Cron-Eintrag aktiv (Entscheidung des Projektinhabers, 2026-11-06): `scripts/ops/backup-check.sh` prüft die jüngste Sicherung unter `daily/` und schlägt Alarm, wenn
+
+- keine Sicherung da ist (oder `daily/` fehlt),
+- sie älter als `BACKUP_MAX_AGE_HOURS` ist (Standard **26 Stunden**, gemessen an `created_utc` im `MANIFEST`), oder
+- ihre `SHA256SUMS` nicht stimmen.
+
+Ein Alarm ist eine Zeile auf stderr und Status 1; Cron verschickt sie per Mail an `MAILTO` (Standardweg). Mit `BACKUP_ALERT_CMD` läuft zusätzlich ein Befehl (`sh -c`, die Meldung in `BACKUP_ALERT_MESSAGE` und auf stdin), z. B. `curl -fsS -d @- https://ntfy.example/vc-backup`. Ohne Befund schreibt das Skript nichts und endet mit 0, Cron schickt dann keine Mail. Der Check liest keine Secrets und braucht kein Docker; er sollte einige Stunden nach der Sicherung laufen (im Beispiel 09:47 Uhr).
+
+## 3. Kopie an einen zweiten Ort
+
+Eine Sicherung auf demselben Rechner schützt nicht gegen Plattenausfall, Diebstahl oder Verschlüsselungstrojaner. Den Anbieter des zweiten Orts wählt der Projektinhaber; diese Anleitung beschreibt nur den Weg dorthin (Entscheidung des Projektinhabers, 2026-11-06).
+
+**Pflichtschritt: verschlüsseln vor dem Kopieren.** Die Dumps enthalten personenbezogene Daten (Mieter, Kontoverbindungen) und verlassen den Rechner nur verschlüsselt. `backup.sh` verweigert `BACKUP_COPY_CMD`, solange weder `BACKUP_ENCRYPT_CMD` gesetzt ist noch `BACKUP_COPY_ENCRYPTS=1` (für ein Kopierwerkzeug, das selbst verschlüsselt).
+
+- **age (Standardweg):** einmalig auf einem anderen Gerät `age-keygen -o backup-key.txt`; den **privaten** Schlüssel nur im Passwortmanager oder offline aufbewahren, nie auf dem Server und nie im Repository. Auf den Server kommt nur der öffentliche Schlüssel (`age-keygen -y backup-key.txt`) in `/etc/vermieter-cockpit/backup-recipients.txt`; mehrere Zeilen sind mehrere Empfänger (z. B. ein Ersatzschlüssel). Mit `BACKUP_ENCRYPT_CMD='age -R /etc/vermieter-cockpit/backup-recipients.txt'` packt das Skript jeden Lauf als ein `tar` und verschlüsselt ihn nach `BACKUP_DIR/outbox/vermieter-cockpit-<stempel>.tar.age`, daneben `….sha256` über die verschlüsselte Datei. Der Server selbst kann die Kopien nicht entschlüsseln.
+- **restic:** verschlüsselt selbst (Repository-Passwort aus einer Datei außerhalb des Repositorys, `RESTIC_PASSWORD_FILE`); dann `BACKUP_COPY_ENCRYPTS=1` und z. B. `BACKUP_COPY_CMD='restic backup --exclude ".*" --exclude outbox "$BACKUP_DIR"'`.
+
+**Kopie:** Nach Verschlüsselung führt das Skript `BACKUP_COPY_CMD` mit `sh -c` aus; `BACKUP_DIR` und `BACKUP_OUTBOX` sind gesetzt. Kopiert wird nur `BACKUP_OUTBOX`, und nur hinzu, nie mit Löschen:
+
+- **rclone** zu einem Objektspeicher: `rclone copy --immutable "$BACKUP_OUTBOX" <remote>:<pfad>`.
+- **rsync** auf ein NAS über SSH: `rsync -a --ignore-existing "$BACKUP_OUTBOX/" <ziel>:<pfad>/`.
+
+**Anforderungen an das Ziel:** Versionierung oder Objektsperre (Object Lock, NAS-Snapshots), und der Zugang des Servers darf nur hinzufügen, nicht löschen oder überschreiben, damit ein kompromittierter Rechner die Kopien nicht zerstören kann. Die Aufbewahrung am Ziel regelt dessen Lebenszyklus-Regel (Abschnitt 4), nicht das Skript. Lokal behält `outbox/` die letzten `KEEP_DAILY` Läufe. Schlägt Verschlüsselung oder Kopie fehl, bleibt die lokale Sicherung vollständig; das Skript endet trotzdem mit Fehler, damit es auffällt.
+
+## 4. Aufbewahrung
+
+| Art | Wann | Behalten | Verzeichnis |
+|---|---|---|---|
+| täglich | jeder Lauf | die letzten **14** | `daily/JJJJ-MM-TT` |
+| wöchentlich | Lauf am Sonntag (`WEEKLY_DAY`) | die letzten **8** | `weekly/JJJJ-Www` (ISO-Woche) |
+| monatlich | Lauf am 1. des Monats | die letzten **12** | `monthly/JJJJ-MM` |
+
+Wochen- und Monatskopien sind harte Links auf die Tagessicherung und belegen keinen zusätzlichen Platz, solange die Tagessicherung existiert. Damit reicht die Sicherung rund ein Jahr zurück; am zweiten Ort gilt dieselbe Grenze über dessen Lebenszyklus-Regel (Löschen nach 365 Tagen, wo die Objektsperre es erlaubt). Gelöscht wird nach Name, also nach Datum: je Art bleiben die neuesten N Verzeichnisse. Ein zweiter Lauf am selben Tag erhält das Verzeichnis `daily/JJJJ-MM-TT-<Zeitstempel>` und zählt als eigene Tagessicherung. Die Zahlen 14/8/12 sind bestätigt (Entscheidung des Projektinhabers, 2026-11-06). VC-X-24 (Pseudonymisierung im Audit) betrifft die Live-Daten; Sicherungen älter als ein Jahr sind gelöscht, das ist mit beidem vereinbar. Wer die Zahlen ändert, setzt die drei Variablen und trägt das hier ein.
+
+## 5. Prüfung jeder Sicherung
+
+Das Skript prüft jeden Dump, bevor er veröffentlicht wird:
+
+- **DE:** Datei nicht leer; `pg_restore --list` liest das Inhaltsverzeichnis des Archivs vollständig, und es enthält die Daten von `public.kysely_migration` (den Migrationsstand).
+- **MRE:** Datei nicht leer; `gzip -t`; `mongorestore --archive --gzip --dryRun` liest das ganze Archiv, ohne etwas zu schreiben.
+- **MRE-Dateien:** `tar -tzf` listet das Archiv vollständig, und jedes Verzeichnis aus `MRE_FILES_DIRS` steht darin.
+- **Alle:** `SHA256SUMS` über Dumps, Datei-Archiv und `MANIFEST`, direkt nach dem Schreiben gegengeprüft. Am zweiten Ort und vor jedem Restore: `cd <sicherung> && sha256sum -c SHA256SUMS`.
+
+Diese Prüfungen zeigen, dass ein Dump lesbar ist, nicht, dass er sich vollständig wiederherstellen lässt. Das zeigt nur ein Restore (Abschnitte 6 bis 8). Zusätzlich läuft in CI im Job `compose-smoke` das Skript `.github/scripts/compose-backup-smoke.sh`: Sicherung des Compose-Stacks nach dem Auth-Smoke, Restore beider Dumps in Nebendatenbanken derselben Container (`de_restore_check`, `mredb_restore_check`), Vergleich der Zeilenzahlen jeder DE-Tabelle und der Dokumentzahlen jeder MRE-Sammlung; eine synthetische Datei im Upload-Volume wird gesichert, gelöscht und aus dem `tar` zurückgeholt; `backup-check.sh` schweigt bei der frischen Sicherung und meldet bei einer Grenze von 0 Stunden. Das ersetzt den Restore auf einem frischen Rechner nicht.
+
+## 6. Wiederherstellung auf einem frischen Rechner
+
+Voraussetzungen: Docker mit Compose v2, Git, Zugriff auf den zweiten Ort und auf die gesicherte `.env`.
+
+1. **Code holen:** Repository nach `/opt/vermieter-cockpit` klonen und den Commit aus `MANIFEST` (`git_commit=`) auschecken, oder einen neueren.
+2. **Secrets einspielen:** die gesicherte `.env` nach `/opt/vermieter-cockpit/.env` kopieren, Rechte `600`. Ohne die alten `CIPHER_KEY`/`CIPHER_IV_KEY` sind MRE-Daten nicht lesbar; ohne die alten Token-Secrets melden sich alle neu an (unschädlich).
+3. **Sicherung holen, entschlüsseln und prüfen:** den gewünschten Lauf (in der Regel den jüngsten) vom zweiten Ort holen, z. B. nach `/srv/restore/`, dann
+
+   ```sh
+   cd /srv/restore && sha256sum -c vermieter-cockpit-<stempel>.tar.age.sha256
+   age -d -i backup-key.txt vermieter-cockpit-<stempel>.tar.age | tar -xf -
+   cd <datum> && sha256sum -c SHA256SUMS
+   ```
+
+   Den privaten Schlüssel nur für diesen Schritt auf den Rechner holen und danach löschen. Mit restic entsprechend `restic restore latest --target /srv/restore`.
+4. **Nur die Datenbanken starten:** `docker compose up -d --wait de-postgres mongo`. `de-postgres` legt dabei die leere Datenbank `${DE_DB_NAME:-de}` an. `de-backend` und die MRE-Dienste laufen noch **nicht**, damit niemand schreibt und `de-backend` nicht vorab migriert.
+5. **DE wiederherstellen:** `scripts/ops/restore-de.sh /srv/restore/<datum>/de-<stempel>.dump`. Das Skript prüft die Prüfsumme, verweigert eine Datenbank, die schon Tabellen enthält, kopiert den Dump in den Container und spielt ihn mit `pg_restore --exit-on-error --single-transaction --no-owner --no-privileges` ein; bei einem Fehler wird alles zurückgerollt. Zum Schluss nennt es die Zahl der Migrationen und die Zeilenzahl jeder Tabelle. Von Hand entspricht das:
+
+   ```sh
+   docker compose cp de-<stempel>.dump de-postgres:/tmp/de.dump
+   docker compose exec -T de-postgres pg_restore -U de -d de --exit-on-error --single-transaction --no-owner --no-privileges /tmp/de.dump
+   docker compose exec -T de-postgres rm /tmp/de.dump
+   ```
+
+6. **MRE wiederherstellen:**
+
+   ```sh
+   docker compose exec -T mongo mongorestore --archive --gzip --drop --nsInclude='mredb.*' < /srv/restore/<datum>/mre-<stempel>.archive.gz
+   ```
+
+   `--drop` ersetzt vorhandene Sammlungen; auf dem frischen Rechner ist `mredb` ohnehin leer.
+7. **MRE-Dateien wiederherstellen:** `pdfgenerator` allein starten, das Archiv in seine Volumes entpacken:
+
+   ```sh
+   docker compose up -d --no-deps pdfgenerator
+   gunzip -c /srv/restore/<datum>/mre-files-<stempel>.tar.gz | docker compose exec -T pdfgenerator tar -C /usr/app/services/pdfgenerator -xf -
+   ```
+
+   Das `tar` läuft im Container als UID 1000, also mit dem Eigentümer, unter dem der Dienst die Dateien liest.
+8. **Alles starten:** `docker compose up -d --build --wait`. `de-backend` meldet im Log `database migrations applied: none pending` (gleicher Commit) oder die Namen der nachgezogenen Migrationen (neuerer Commit).
+9. **Prüfen** (Abschnitt 7), dann Sicherung und Überwachung (Abschnitte 2 und 2a) auf dem neuen Rechner einrichten und den Eintrag in Abschnitt 8 ergänzen.
+
+## 7. Prüfung nach dem Restore
+
+- **Zeilenzahlen DE:** die Ausgabe von `restore-de.sh` mit der Quelle vergleichen. Ist die Quelle nicht mehr erreichbar, gegen die Zahlen der letzten Prüfung oder das Inhaltsverzeichnis des Dumps (`pg_restore --list`). Mindestens `kysely_migration` (Zahl und letzte Migration gleich), `ledger_transaction`, `transaction_split`, `audit_record`, `property_reference`, `party`, `ownership`, `loan`, `security_deposit`.
+- **Dokumente MRE:** `docker compose exec -T mongo mongosh --quiet mredb --eval 'db.getCollectionNames().sort().forEach((n) => print(n, db.getCollection(n).countDocuments()))'` und mit der Quelle vergleichen; jede Sammlung gleich, mindestens `realms` (Organisationen), Objekte und Mieter.
+- **MRE-Dateien:** `docker compose exec -T pdfgenerator find /usr/app/services/pdfgenerator/uploads -type f | wc -l` gleich der Zahl der Upload-Dateien im Archiv (`tar -tzf mre-files-….tar.gz | grep '^uploads/' | grep -vc '/$'`); ein hochgeladenes Dokument in MRE öffnen.
+- **Gesundheit:** `curl -fsS http://localhost:8090/health/live`, `curl -fsS http://localhost:8090/health/ready` (beide `{"status":"ok"}`), `curl -fsS http://localhost:8080/health` (MRE-Gateway).
+- **Ein Lesezugriff je Bereich**, angemeldet als ein Nutzer der Installation (über die Oberfläche oder mit Token und `organizationid`): Kassenbuch (`GET /api/v1/transactions`), Objekte (`GET /api/v1/property-references`), Darlehen, Kaution, WEG, Steuerjahr-Ansicht eines Objekts, Mietabgleich eines Monats; in MRE die Mieterliste. Jede Antwort `200` mit den erwarteten Einträgen, keine `500`.
+- **Unveränderlichkeit greift:** eine bestätigte Buchung lässt sich weiterhin nicht ändern (die Trigger aus ADR-037 sind Teil des Dumps).
+- `DEPRECIATION_RECORDING_ENABLED` ist nach dem Restore so gesetzt wie vorher (für den Go-live: ungesetzt, also aus).
+
+## 8. Restore geübt
+
+| Datum | Umgebung | Umfang | Dauer | Ergebnis | Durchgeführt von |
+|---|---|---|---|---|---|
+| 2026-11-06 | **Container-Probe**, kein frischer Rechner: PostgreSQL 16.15 im Entwicklungscontainer, ohne Docker; die Skripte liefen mit einem Ersatz für `docker compose`, der die Befehle gegen die lokale Datenbank ausführt | nur DE; synthetische Daten | Sicherung 0,5 s, Restore 2,5 s (Dump 4,9 MB) | Zeilenzahlen aller 224 Tabellen gleich, `kysely_migration` gleich, Start auf der wiederhergestellten Datenbank ohne ausstehende Migration | Claude Code (für #281) |
+| | **Frischer Rechner** (der Produktivrechner, bevor er Daten trägt), Docker Compose | DE, MRE und MRE-Dateien | | | Projektinhaber |
+
+**Restore auf dem frischen Rechner:** Den führt der Projektinhaber selbst auf dem Produktivrechner durch, bevor dieser Daten trägt: VPN einrichten, Stack starten, die Probe-Dumps aus #286 einspielen, DE und MRE prüfen (Abschnitt 7), Eintrag in die leere Zeile oben. Damit ist die Probe zugleich die Abnahme des Rechners (Entscheidung des Projektinhabers, 2026-11-06). Aus der Entwicklungsumgebung geht das nicht: dort gibt es keinen Docker-Daemon.
+
+**Probe vom 2026-11-06 im Einzelnen:**
+
+- **Quelle:** Datenbank `de_backup_src`, mit den Migrationen des Repositorys auf den Stand von `main` (23e313e, 72 Migrationen) gebracht; darin vier synthetische Zeilen im Schema `public` (ein Objekt, eine Person, ein Konto, eine Buchung) und die Daten dreier Abnahmetests (`phase-3`, `phase-5`, `phase-8-acceptance.e2e.test.ts`) in ihren eigenen Schemas, die für die Probe nicht gelöscht wurden. Zusammen 224 Tabellen in vier Schemas, 1 096 Zeilen in 73 nicht leeren Tabellen, darunter bestätigte und korrigierte Buchungen mit Splits, Darlehen, Kautionen, Anschaffungen und AuditRecords.
+- **Sicherung:** `scripts/ops/backup.sh` mit `BACKUP_TARGETS=de`, also `pg_dump -Fc --no-owner --no-privileges` über die Standardausgabe; Prüfung mit `pg_restore --list`, `SHA256SUMS`, Kopie an einen zweiten Ort mit rsync.
+- **Restore:** `scripts/ops/restore-de.sh` vom zweiten Ort in die leere Datenbank `de_backup_dst`.
+- **Vergleich:** exakte Zeilenzahl (`count(*)`) jeder der 224 Tabellen: gleich. `kysely_migration` in allen vier Schemas je 72 Zeilen, Prüfsumme über Name und Zeitpunkt gleich. Zahl der Trigger (616), Constraints (2 820) und Indizes (792) gleich; MD5 über den vollständigen Inhalt einer `ledger_transaction`- und einer `audit_record`-Tabelle gleich.
+- **Danach:** `migrateToLatest` auf `de_backup_dst` wendet nichts an; `de-backend` startet auf der wiederhergestellten Datenbank mit `database migrations applied: none pending`, `/health/live` und `/health/ready` antworten `200`; eine Änderung einer bestätigten Buchung wird vom Trigger abgewiesen („is immutable (ADR-037)“). Wiederherstellungsreihenfolge: Daten vor Triggern und Fremdschlüsseln (Abschnitt „post-data“ von `pg_dump`), daher feuern die Einfüge-Trigger beim Restore nicht.
+- **Nicht geübt:** MongoDB läuft in diesem Container nicht; der MRE-Teil (`mongodump`, `mongorestore`) ist hier nicht ausgeführt worden. Er läuft in CI gegen den Compose-Stack (Abschnitt 5) und beim Restore auf dem frischen Rechner (zweite Zeile). Ebenso nicht geübt: `docker compose exec` und `docker compose cp` selbst.
+- Die Probedatenbanken wurden danach gelöscht.
+
+## 9. Entscheidungen
+
+Die Fragen aus #286, entschieden am 2026-11-06 (Entscheidung des Projektinhabers, 2026-11-06):
+
+1. **Zweiter Ort:** vor dem Kopieren verschlüsseln (`age` oder `restic`), weil die Dumps personenbezogene Daten enthalten; Ziel mit Versionierung oder Objektsperre, Schreibzugang nur anhängend. Den Anbieter wählt der Projektinhaber; die Anleitung bleibt bei `BACKUP_COPY_CMD` und beschreibt die Verschlüsselung als Pflichtschritt davor. Umgesetzt in Abschnitt 3.
+2. **MRE-Dateien:** ja, zwei Volumes am `pdfgenerator`, `mre-pdf-uploads` und `mre-pdf-data`, gesichert als `tar` mit in `MANIFEST` und `SHA256SUMS`, mit Restore-Schritt; Backlog-Zeile VC-X-60 mit dem Hinweis, dass Upstream dieselbe Lücke hat. Umgesetzt in den Abschnitten 1, 2, 5 und 6, mit der Abweichung `pdf_documents/` statt `data/` (Abschnitt 1, zur Bestätigung).
+3. **Aufbewahrung 14/8/12:** bestätigt; VC-X-24 betrifft die Live-Daten, Sicherungen älter als ein Jahr sind weg (Abschnitt 4).
+4. **Überwachung:** aktiv melden, Cron-Check gegen 26 Stunden über `BACKUP_ALERT_CMD`, Standard Cron-Mail (Abschnitt 2a).
+5. **Restore auf frischem Rechner:** beim Projektinhaber, auf dem Produktivrechner vor dem ersten Datenbestand (Abschnitt 8).
