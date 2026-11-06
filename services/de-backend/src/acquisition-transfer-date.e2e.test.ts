@@ -271,7 +271,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
   );
 
   it(
-    'the DRAFT path: dated then confirmed; the transfer on the contract date without a flag; a date after today; CANCELLED 409; the key replayed; dated then cancelled without a flag',
+    'the DRAFT path: dated then confirmed; the transfer on the contract date without a flag; a date after today with the rows on it (from the contract date refused, VC-X-57); CANCELLED 409; the key replayed; a dated DRAFT without a flag',
     { timeout: 120_000 },
     async () => {
       at('2026-11-04');
@@ -294,7 +294,8 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
       expect([replay.status, replay.headers.get('idempotent-replayed')]).toEqual([200, 'true']);
       expect((await record(d, { economicTransferDate: '2026-04-01', sourceReferences: ['x'] }, key)).status).toBe(409);
       expect((await api.confirm(d)).status).toBe('CONFIRMED');
-      // A date after today (Frage 3): accepted; the DRAFT confirmed afterwards with its Ownership from the contract date.
+      // A date after today (Frage 3): accepted; since VC-X-57 (§58R rules 1 and 4, Entscheidung des Projektinhabers,
+      // 2026-11-06) the DRAFT is confirmed with its Ownership from the recorded date, not from the contract date.
       const pr2 = await api.link(PROPERTIES[3] as string);
       const { acquisitionId: future } = await api.purchase({
         pr: pr2,
@@ -308,8 +309,25 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
       expect(
         (await json(await record(future, { economicTransferDate: '2027-01-01', sourceReferences: ['Kaufvertrag § 5 (synthetisch)'] }))).economicTransferDate,
       ).toBe('2027-01-01');
-      await api.own(pr2, a, '1/1', '2026-10-01', future);
+      expect((await json(await call('GET', `/acquisitions/${future}`))).transferDate).toBe('2027-01-01');
+      await api.own(pr2, a, '1/1', '2027-01-01', future);
       expect((await api.confirm(future)).status).toBe('CONFIRMED');
+      // Counter-check (the old expectation): the same DRAFT with its Ownership from the contract date is refused, 422.
+      const prOld = await api.link(PROPERTIES[6] as string);
+      const { acquisitionId: old } = await api.purchase({
+        pr: prOld,
+        buyers: [a],
+        share: '1/1',
+        price: '200000.00',
+        contract: '2026-10-01',
+        transfer: null,
+        allocation: ALLOCATION,
+      });
+      await api.own(prOld, a, '1/1', '2026-10-01', old);
+      await record(old, { economicTransferDate: '2027-01-01', sourceReferences: ['Kaufvertrag § 5 (synthetisch)'] });
+      const refused = await json(await call('POST', `/acquisitions/${old}/confirm`, {}), 422);
+      expect(codes(refused.error.details.violations)[0]).toBe('OWNERSHIP_NOT_FROM_TRANSFER_DATE');
+      expect((await json(await call('GET', `/acquisitions/${old}`))).status).toBe('DRAFT');
       // CANCELLED: 409 ACQUISITION_CANCELLED, also with a stale If-Match.
       const pr3 = await api.link(PROPERTIES[4] as string);
       const { acquisitionId: gone } = await api.purchase({
@@ -326,7 +344,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
         (await json(await record(gone, { economicTransferDate: '2026-03-01', sourceReferences: EVIDENCE }, { 'if-match': '"1"' }), 409)).error.details.reason,
       ).toBe('ACQUISITION_CANCELLED');
       expect(await count(`SELECT count(*) AS n FROM audit_record WHERE entity_id = $1 AND action = 'ECONOMIC_TRANSFER_DATE_RECORDED'`, [gone])).toBe(0);
-      // Dated, then cancelled (review of #268): the year flag and the Acquisition's flag go with it, nothing to acknowledge.
+      // A DRAFT dated later (§58R rule 7, Frage 5): neither the Acquisition's flag nor the year flag, before and after a cancel.
       const pr4 = await api.link(PROPERTIES[5] as string);
       const { acquisitionId: dropped } = await api.purchase({
         pr: pr4,
@@ -337,22 +355,12 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
         transfer: null,
         allocation: ALLOCATION,
       });
-      expect((await json(await record(dropped, { economicTransferDate: '2026-05-01', sourceReferences: EVIDENCE }))).flags.map((f: Json) => f.code)).toEqual([
-        KIND,
-      ]);
-      // Counter-check: not cancelled, the DRAFT carries the year flag in 2026.
-      const [entry] = flag(await api.view(pr4, 2026)).details;
-      expect(entry).toMatchObject({ acquisitionId: dropped, ownershipStart: '2026-03-01', economicTransferDate: '2026-05-01' });
+      const dated = await json(await record(dropped, { economicTransferDate: '2026-05-01', sourceReferences: EVIDENCE }));
+      expect([dated.transferDate, dated.flags]).toEqual(['2026-05-01', []]);
+      expect(flag(await api.view(pr4, 2026))).toBeUndefined();
       await post(`/acquisitions/${dropped}/cancel`, { reason: 'geplatzt (synthetisch)' }, 200);
       expect(flag(await api.view(pr4, 2026))).toBeUndefined();
       expect((await json(await call('GET', `/acquisitions/${dropped}`))).flags).toEqual([]);
-      const notFlagged = await call('POST', `/property-references/${pr4}/tax-years/2026/acknowledgements`, {
-        auditRecordId: entry.auditRecordId,
-        kind: KIND,
-        expectedFingerprint: entry.changeFingerprint,
-        reason: 'storniert (synthetisch)',
-      });
-      expect((await json(notFlagged, 409)).error.details.reason).toBe('CHANGE_NOT_FLAGGED');
       expect(await count(`SELECT count(*) AS n FROM audit_record WHERE entity_id = $1 AND action = 'ECONOMIC_TRANSFER_DATE_RECORDED'`, [d])).toBe(1);
     },
   );

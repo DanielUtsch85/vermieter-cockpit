@@ -32,7 +32,7 @@ export interface AlignOwnership extends ConfirmationOwnership {
 }
 
 /** Why the act does not apply (`422 OWNERSHIP_EXTENSION_NOT_APPLICABLE`, step 6), the first of them. */
-export type NotApplicableReason = 'TRANSFER_DATE_NOT_RECORDED' | 'TRANSFER_ON_CONTRACT_DATE' | 'NO_SELLER_ROW';
+export type NotApplicableReason = 'TRANSFER_DATE_NOT_RECORDED' | 'TRANSFER_ON_CONTRACT_DATE' | 'CONFIRMED_FROM_TRANSFER' | 'NO_SELLER_ROW';
 
 /** A fact resting on the old dates (`422 OWNERSHIP_EXTENSION_BLOCKED`, step 7, rule 4). */
 export type AlignBlocker =
@@ -99,6 +99,8 @@ export function planAlignOwnerships(
   const c = current.contractDate;
   if (current.economicTransferRecordedAt === null || t === null) return { kind: 'OWNERSHIP_EXTENSION_NOT_APPLICABLE', reason: 'TRANSFER_DATE_NOT_RECORDED' };
   if (t <= c) return { kind: 'OWNERSHIP_EXTENSION_NOT_APPLICABLE', reason: 'TRANSFER_ON_CONTRACT_DATE' };
+  // §58R rule 8 (Entscheidung des Projektinhabers, 2026-11-06, Frage 7): confirmed from the transfer, nothing to align.
+  if (current.confirmedOwnershipStart !== null) return { kind: 'OWNERSHIP_EXTENSION_NOT_APPLICABLE', reason: 'CONFIRMED_FROM_TRANSFER' };
   const dayBefore = addDays(c, -1);
   const newEnd = addDays(t, -1);
   const sellers = new Set(current.sellerPartyIds);

@@ -25,6 +25,7 @@ export const COLUMNS = [
   'economic_transfer_source_references',
   'ownership_aligned_at',
   'ownership_alignment_source_references',
+  sql<string | null>`to_char(confirmed_ownership_start, 'YYYY-MM-DD')`.as('confirmed_ownership_start'),
   sql<string | null>`to_char(land_registry_transfer_date, 'YYYY-MM-DD')`.as('land_registry_transfer_date'),
   'source_references',
   'notes',
@@ -50,6 +51,7 @@ export interface AcquisitionRow {
   economic_transfer_source_references: string[] | null;
   ownership_aligned_at: Date | null;
   ownership_alignment_source_references: string[] | null;
+  confirmed_ownership_start: string | null;
   land_registry_transfer_date: string | null;
   source_references: string[];
   notes: string | null;
@@ -97,6 +99,7 @@ export async function withParties(trx: Transaction<Database>, rows: readonly Acq
     economicTransferSourceReferences: row.economic_transfer_source_references,
     ownershipAlignedAt: row.ownership_aligned_at,
     ownershipAlignmentSourceReferences: row.ownership_alignment_source_references,
+    confirmedOwnershipStart: row.confirmed_ownership_start as BusinessDate | null,
     landRegistryTransferDate: row.land_registry_transfer_date as BusinessDate | null,
     buyerPartyIds: of(row.id, 'BUYER'),
     sellerPartyIds: of(row.id, 'SELLER'),
@@ -120,6 +123,7 @@ const flagsOf = (row: AcquisitionRow, sellerHasAfaComponent: boolean) => {
       economicTransferDate: row.economic_transfer_date as BusinessDate | null,
       economicTransferRecordedAt: row.economic_transfer_recorded_at,
       ownershipAlignedAt: row.ownership_aligned_at,
+      confirmedOwnershipStart: row.confirmed_ownership_start as BusinessDate | null,
     },
     sellerHasAfaComponent,
   );
@@ -128,8 +132,12 @@ const flagsOf = (row: AcquisitionRow, sellerHasAfaComponent: boolean) => {
 
 /** The created Acquisition as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
 export interface AcquisitionSnapshot
-  extends Omit<Acquisition, 'purchasePrice' | 'createdAt' | 'cancelledAt' | 'confirmedAt' | 'economicTransferRecordedAt' | 'ownershipAlignedAt'> {
+  extends Omit<
+    Acquisition,
+    'purchasePrice' | 'createdAt' | 'cancelledAt' | 'confirmedAt' | 'economicTransferRecordedAt' | 'ownershipAlignedAt' | 'confirmedOwnershipStart'
+  > {
   readonly purchasePrice: { readonly amount: string; readonly currency: string };
+  readonly confirmedOwnershipStart?: BusinessDate | null;
   readonly createdAt: string;
   readonly economicTransferRecordedAt: string | null;
   readonly ownershipAlignedAt?: string | null;
@@ -164,6 +172,8 @@ export function fromSnapshot(result: unknown): Acquisition {
     // A snapshot stored before 0072 has neither field.
     ownershipAlignedAt: s.ownershipAlignedAt === null || s.ownershipAlignedAt === undefined ? null : new Date(s.ownershipAlignedAt),
     ownershipAlignmentSourceReferences: s.ownershipAlignmentSourceReferences ?? null,
+    // A snapshot stored before 0073 has no such field.
+    confirmedOwnershipStart: s.confirmedOwnershipStart ?? null,
     flags: s.flags ?? [],
     cancelledAt: s.cancelledAt === null ? null : new Date(s.cancelledAt),
     confirmedAt: s.confirmedAt === null ? null : new Date(s.confirmedAt),

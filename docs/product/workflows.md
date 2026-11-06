@@ -355,6 +355,9 @@ confirmAcquisition()
 - PropertyReference exists
 - purchase price > 0 for normal purchase
 - Ownership structure is valid
+- **the Ownerships are written on `economicTransferDate` `t`** (ADR-044, api-design §58R rule 6, VC-X-57): the buyers'
+  Ownerships begin on `t` and each seller's row ends on `t − 1`, which one ownership change with `effectiveDate` = `t`
+  and the Acquisition's id produces (§26.2); `confirm` refuses rows from another day (§28.1 requirements 2 and 7)
 - linked Transactions exist where referenced
 - Land/Building Allocation reconciles if confirmed
 

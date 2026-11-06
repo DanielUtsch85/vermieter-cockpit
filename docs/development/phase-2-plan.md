@@ -116,7 +116,9 @@ Nothing here is legal advice; German tax rules stay with `docs/germany/*` and re
 - The **transfer date** of an Acquisition is `economicTransferDate`, or `contractDate` while that is unset; P2-D8
   and P2-D10 use it. UC-003's "acquisition date" is `contractDate`. When depreciation starts is
   `germany/depreciation.md`'s rule (VERIFY), not this plan's.
-  **Amended by ADR-044 (proposed)** (`docs/architecture/architecture-decisions.md`; api-design §58R, VC-X-57).
+  **Amended by ADR-044** (accepted, Entscheidung des Projektinhabers, 2026-11-06; `docs/architecture/architecture-decisions.md`;
+  api-design §58R, VC-X-57, migration 0073): an Acquisition confirmed from VC-X-57 on has its buyers' Ownerships
+  begin on `economicTransferDate`; the contract date stays the start only of legacy data (§58N option (b)).
 - Docs: data-model §13 (§13.3 dates, §13.5 lifecycle replaced); api-design §27–28; workflows WF-002.
 
 ### P2-D7 Purchase price once; payments link Transactions, not splits (resolves data-model §14 / §74; review F2)

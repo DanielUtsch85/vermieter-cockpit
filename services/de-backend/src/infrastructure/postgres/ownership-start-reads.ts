@@ -1,4 +1,5 @@
 import { sql, type Transaction } from 'kysely';
+import { ownershipStart } from '../../domains/acquisition/index.js';
 import type { OwnershipAlignmentFact, OwnershipStartFact } from '../../domains/taxation/index.js';
 import type { BusinessDate } from '../../shared/index.js';
 import type { Database } from './schema.js';
@@ -35,8 +36,10 @@ export async function sellersWithAfaComponent(trx: Transaction<Database>, acquis
 }
 
 /**
- * The PropertyReference's Acquisitions (not cancelled, not aligned by §58Q) whose date was recorded later than their Ownerships began, with
- * their `ECONOMIC_TRANSFER_DATE_RECORDED` record (the latest, there is one) and the seller's AfA component.
+ * The PropertyReference's `CONFIRMED` Acquisitions (not aligned by §58Q, not confirmed from the transfer by §58R) whose
+ * date was recorded later than their Ownerships began, with their `ECONOMIC_TRANSFER_DATE_RECORDED` record (the latest,
+ * there is one) and the seller's AfA component. A `DRAFT` dated under §58N no longer raises the flag (§58R rule 7,
+ * Entscheidung des Projektinhabers, 2026-11-06, Frage 5): its `ownershipStart` is the date.
  */
 export async function ownershipStartFactsOf(trx: Transaction<Database>, mreRealmId: string, propertyReferenceId: string): Promise<OwnershipStartFact[]> {
   const rows = await trx
@@ -45,13 +48,17 @@ export async function ownershipStartFactsOf(trx: Transaction<Database>, mreRealm
       'id',
       sql<string>`to_char(contract_date, 'YYYY-MM-DD')`.as('contract_date'),
       sql<string>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('economic_transfer_date'),
+      'status',
+      'economic_transfer_recorded_at',
     ])
     .where('mre_realm_id', '=', mreRealmId)
     .where('property_reference_id', '=', propertyReferenceId)
-    .where('status', '<>', 'CANCELLED')
+    .where('status', '=', 'CONFIRMED')
     .where('economic_transfer_recorded_at', 'is not', null)
     // §58Q: an aligned Acquisition's Ownerships begin on the transfer; the gap is closed and the flag no longer arises.
     .where('ownership_aligned_at', 'is', null)
+    // §58R: confirmed from the transfer, the gap never arose.
+    .where('confirmed_ownership_start', 'is', null)
     .whereRef('economic_transfer_date', '>', 'contract_date')
     .orderBy('id')
     .execute();
@@ -74,7 +81,13 @@ export async function ownershipStartFactsOf(trx: Transaction<Database>, mreRealm
     return [
       {
         acquisitionId: r.id,
-        ownershipStart: r.contract_date as BusinessDate,
+        // Read through the rule (§58R rule 7), not hard-coded: branch 4, the contract date.
+        ownershipStart: ownershipStart({
+          status: r.status,
+          contractDate: r.contract_date as BusinessDate,
+          economicTransferDate: r.economic_transfer_date as BusinessDate,
+          economicTransferRecordedAt: r.economic_transfer_recorded_at,
+        }),
         economicTransferDate: r.economic_transfer_date as BusinessDate,
         sellerHasAfaComponent: sellers.has(r.id),
         auditRecordId: record.id,
