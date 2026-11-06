@@ -209,6 +209,56 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0072 past the reposito
     }
   });
 
+  it('ownership_alignment_complete for a CONFIRMED X: the buyer predecessor shortened instead of extended is refused by 5a/5b at commit (review on #279); counter-check extended to t − 1', async () => {
+    const setup = async () => {
+      const pr = await propertyReference();
+      const [s, a] = [await party('Verkäufer S (synthetisch)'), await party('Käuferin A (synthetisch)')];
+      const w = await insertConfirmedAsBeforeVcX34(t.ctx.pool, {
+        mreRealmId: REALM,
+        propertyReferenceId: pr,
+        contractDate: '2015-06-01',
+        buyers: [
+          { partyId: a, share: [1, 2] },
+          { partyId: s, share: [1, 2] },
+        ],
+      });
+      const [wA, wS] = w.ownershipIds as [string, string];
+      const l = await insertConfirmedAsBeforeVcX34(t.ctx.pool, {
+        mreRealmId: REALM,
+        propertyReferenceId: pr,
+        contractDate: '2025-03-01',
+        acquiredShare: [1, 2],
+        buyers: [{ partyId: a, share: [1, 1] }],
+        sellerPartyIds: [s],
+        close: [wA, wS],
+      });
+      await recordDate(l.acquisitionId, '2025-05-01');
+      return { x: l.acquisitionId, oX: l.ownershipIds[0] as string, wA, wS };
+    };
+    // Outwardly complete: X aligned, A's 1/1 from t, S to t − 1; A's 1/2 (W) shortened to 2025-02-27, so neither 0050's
+    // guard (no successor from c any more) nor BUYER_PREDECESSOR_NOT_EXTENDED (no row ends on c − 1) applies. A held
+    // nothing on t − 1 and 1/1 on t: the increase 1/1 differs from acquiredShare 1/2 (5b), only that branch refuses it.
+    const short1 = await setup();
+    expect(
+      await run([
+        [ALIGN, [short1.x]],
+        [FROM('2025-05-01'), [short1.oX]],
+        [UNTIL('2025-04-30'), [short1.wS]],
+        [UNTIL('2025-02-27'), [short1.wA]],
+      ]),
+    ).toBe('incomplete:SHARE_SUM_MISMATCH');
+    // Counter-check: the same act with A's 1/2 extended to t − 1 commits.
+    const extended = await setup();
+    expect(
+      await run([
+        [ALIGN, [extended.x]],
+        [FROM('2025-05-01'), [extended.oX]],
+        [UNTIL('2025-04-30'), [extended.wS]],
+        [UNTIL('2025-04-30'), [extended.wA]],
+      ]),
+    ).toBe('committed');
+  });
+
   it('the write order: the seller extended before the buyers moved is OWNERSHIP_TOTAL_EXCEEDS_ONE (the reason for rule 3)', async () => {
     const x = await example();
     expect(
