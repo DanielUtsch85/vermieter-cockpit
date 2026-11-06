@@ -125,6 +125,9 @@ export interface AcquisitionTable {
   /** 0067 (§58N): set with the date by `POST …/economic-transfer-date`, `NULL` otherwise. */
   economic_transfer_recorded_at: Date | null;
   economic_transfer_source_references: string[] | null;
+  /** 0072 (§58Q): set with its evidence by `POST …/align-ownerships-to-transfer`, `NULL` otherwise. */
+  ownership_aligned_at: Date | null;
+  ownership_alignment_source_references: string[] | null;
   land_registry_transfer_date: string | null;
   source_references: Generated<string[]>;
   notes: string | null;

@@ -134,7 +134,9 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0071 past the reposito
         await migrateToLatest(downPool, { migrationTableSchema: downSchema, migrations: upTo0070 });
         const before = await defs();
         expect(before.join('\n')).not.toContain('LOAN_CLOSED_PART');
-        await migrateToLatest(downPool, { migrationTableSchema: downSchema });
+        // The schema up to 0071 only: 0072 (VC-X-55) widens the same CHECKs and patches the same guard after 0071.
+        const upTo0071 = Object.fromEntries(Object.entries(migrations).filter(([name]) => name < '0072'));
+        await migrateToLatest(downPool, { migrationTableSchema: downSchema, migrations: upTo0071 });
         const after = await defs();
         expect(after).not.toEqual(before);
         expect(after[0]).toContain(`'TRANSACTION_REVERSED', 'LOAN_TERMS_PART_ADDED', 'LOAN_TERMS_PART_VOIDED', 'LOAN_CLOSED_PART'`);

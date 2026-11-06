@@ -1,6 +1,7 @@
 import { TAX_RULES } from '../domains/tax-rules/index.js';
 import {
   attributionChanges,
+  ownershipAlignmentChanges,
   ownershipStartChanges,
   partChanges,
   planAcknowledgement,
@@ -160,13 +161,15 @@ export function acknowledgeAttributionChange(
                 ]),
               },
             }),
-        decide: ({ attribution, parts, ownershipStarts }, active) =>
+        decide: ({ attribution, parts, ownershipStarts, ownershipAlignments }, active) =>
           planAcknowledgement(
             [
               ...attributionChanges(attribution, year, registry, context).changes,
               ...partChanges(parts, year, { ...context, registry }).changes,
               // §58N: the kind OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER (Entscheidung des Projektinhabers, 2026-11-04, Frage 5).
               ...ownershipStartChanges(ownershipStarts, year, context),
+              // §58Q: the kind OWNERSHIP_EXTENDED_TO_ECONOMIC_TRANSFER (Entscheidung des Projektinhabers, 2026-11-05, Frage 7).
+              ...ownershipAlignmentChanges(ownershipAlignments, year, context),
             ],
             request,
             active,

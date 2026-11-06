@@ -30,6 +30,8 @@ const legacy: Acquisition = {
   version: 2,
   economicTransferRecordedAt: null,
   economicTransferSourceReferences: null,
+  ownershipAlignedAt: null,
+  ownershipAlignmentSourceReferences: null,
   flags: [],
 };
 const body = { economicTransferDate: day('2025-05-01'), sourceReferences: ['Übergabeprotokoll 2025-05-01 (synthetisch)'], notes: null };

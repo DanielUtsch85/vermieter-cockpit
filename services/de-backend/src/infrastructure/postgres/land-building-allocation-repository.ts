@@ -54,8 +54,8 @@ export class PostgresLandBuildingAllocationRepository implements LandBuildingAll
             .where('id', '=', allocation.acquisitionId)
             .where('mre_realm_id', '=', allocation.mreRealmId)
             .returning([
-              'status', // §58N (b): the day the Ownerships begin (`ownershipStart`), the contract date for a date recorded later.
-              sql<string>`to_char(CASE WHEN economic_transfer_recorded_at IS NOT NULL THEN contract_date ELSE coalesce(economic_transfer_date, contract_date) END, 'YYYY-MM-DD')`.as(
+              'status', // §58N (b), §58Q: the day the Ownerships begin (`ownershipStart`): the transfer once aligned, else the contract date for a date recorded later.
+              sql<string>`to_char(CASE WHEN ownership_aligned_at IS NOT NULL THEN economic_transfer_date WHEN economic_transfer_recorded_at IS NOT NULL THEN contract_date ELSE coalesce(economic_transfer_date, contract_date) END, 'YYYY-MM-DD')`.as(
                 'transfer_date',
               ),
             ])

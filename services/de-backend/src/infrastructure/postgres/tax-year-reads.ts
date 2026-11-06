@@ -1,4 +1,4 @@
-import { ownershipStartFactsOf } from './ownership-start-reads.js';
+import { ownershipAlignmentFactsOf, ownershipStartFactsOf } from './ownership-start-reads.js';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import { withValidUntil, type LoanAllocationSetView } from '../../domains/financing/index.js';
 import {
@@ -136,6 +136,8 @@ export async function readTaxYear(
     );
     // §58N: the Acquisitions dated later than their Ownerships began, in this snapshot.
     const ownershipStarts = await ownershipStartFactsOf(trx, mreRealmId, propertyReferenceId);
+    // §58Q: the Acquisitions whose Ownerships were aligned to the transfer, in this snapshot.
+    const ownershipAlignments = await ownershipAlignmentFactsOf(trx, mreRealmId, propertyReferenceId);
     if (afterOwnReads !== undefined) await afterOwnReads();
     const depreciation = await taxYearDepreciationIn(trx, {
       mreRealmId,
@@ -167,6 +169,7 @@ export async function readTaxYear(
       proposedSplits: proposed,
       ...statements,
       ownershipStarts,
+      ownershipAlignments,
     };
   });
 }

@@ -205,7 +205,23 @@ export type {
   ListPropertyAcquisitions,
 } from './acquisitions.js';
 export { ACQUISITION_STATUSES, ownershipStart } from '../domains/acquisition/index.js';
-export type { Acquisition, AcquisitionFilter, AcquisitionPage, AcquisitionStatus, ConfirmationViolation } from '../domains/acquisition/index.js';
+export type {
+  Acquisition,
+  AcquisitionFilter,
+  AcquisitionPage,
+  AcquisitionStatus,
+  AlignBlocker,
+  AlignOwnershipsInput,
+  AlignResult,
+  ConfirmationViolation,
+} from '../domains/acquisition/index.js';
+export {
+  OwnershipExtensionBlockedError,
+  OwnershipExtensionNotApplicableError,
+  OwnershipsAlreadyAlignedError,
+  alignOwnershipsToTransfer,
+} from './acquisition-align-ownerships.js';
+export type { AlignOwnershipsToTransfer } from './acquisition-align-ownerships.js';
 export {
   AcquisitionCancelledError,
   AcquisitionCostNotFoundError,
@@ -884,7 +900,7 @@ export type {
   WithdrawAcknowledgement,
   WithdrawConfirmation,
 } from './tax-statements.js';
-export { CHANGE_KINDS, OWNERSHIP_START_FLAG, PART_CHANGE_KINDS, TAX_STATEMENT_STATUSES } from '../domains/taxation/index.js';
+export { CHANGE_KINDS, OWNERSHIP_EXTENDED_FLAG, OWNERSHIP_START_FLAG, PART_CHANGE_KINDS, TAX_STATEMENT_STATUSES } from '../domains/taxation/index.js';
 export type {
   AcknowledgedKind,
   LoanAllocationTaxConfirmation,

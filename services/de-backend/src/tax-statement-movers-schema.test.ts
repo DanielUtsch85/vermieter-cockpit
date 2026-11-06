@@ -183,6 +183,9 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0065 past the reposito
         const db = () => createDatabase(downPool) as never;
         // 0071 (VC-X-54) widens these CHECKs and patches the shape guard after them: its own down first, up again at the end.
         const loanParts = migrations['0071_tax_year_loan_schedule_part_kinds'] as typeof migration;
+        // 0072 (VC-X-55) widens the same CHECKs and patches 0067's passage of the shape guard after 0071: rolled back first.
+        // It is not applied again below: 0065's up writes its own shape guard, without 0067's passage that 0072 patches.
+        await withMigrationLock(() => (migrations['0072_ownership_extend_to_economic_transfer'] as typeof migration).down(db()));
         await withMigrationLock(() => loanParts.down(db()));
         const pr = (
           await downPool.query(

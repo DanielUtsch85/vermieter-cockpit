@@ -14,9 +14,11 @@ import {
   type ListAcquisitions,
   type ListPropertyAcquisitions,
   type RecordEconomicTransferDate,
+  type AlignOwnershipsToTransfer,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
+import { toDto as ownershipDto } from './ownerships.js';
 import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
 
 export const businessDate = z.string().transform((value, ctx) => {
@@ -103,6 +105,17 @@ const transferDateBody = z
       ctx.addIssue({ code: 'custom', path: ['sourceReferences'], params: { code: 'REQUIRED' } });
   });
 const confirmBody = z.object({}).strict();
+/** §58Q: no date (every new date follows from X); the evidence is new and required (open question 5). */
+const alignBody = z
+  .object({
+    sourceReferences: z.array(z.string().trim().min(1).max(500)).max(10),
+    notes: optionalText(2000).nullish(),
+  })
+  .strict()
+  .superRefine((body, ctx) => {
+    if (Array.isArray(body.sourceReferences) && body.sourceReferences.length === 0)
+      ctx.addIssue({ code: 'custom', path: ['sourceReferences'], params: { code: 'REQUIRED' } });
+  });
 
 const paging = {
   status: z.enum(ACQUISITION_STATUSES).optional(),
@@ -135,6 +148,8 @@ export interface AcquisitionCommands {
   readonly confirm: ConfirmAcquisition;
   /** §58N (VC-X-52). */
   readonly recordEconomicTransferDate: RecordEconomicTransferDate;
+  /** §58Q (VC-X-55). */
+  readonly alignOwnershipsToTransfer: AlignOwnershipsToTransfer;
 }
 
 /** Acquisition API (api-design.md §27.1, backlog VC-2-05). */
@@ -263,6 +278,42 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
       .catch(next);
   });
 
+  // §58Q (VC-X-55): the seller's Ownership extended up to the transfer, the buyers' moved to it, in one act with evidence.
+  router.post('/acquisitions/:acquisitionId/align-ownerships-to-transfer', express.json({ limit: '32kb' }), (req, res, next) => {
+    const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
+    if (acquisitionId === undefined) return;
+    const idempotency = readIdempotencyKey(req, res);
+    if (idempotency === undefined) return;
+    const ifMatch = readIfMatch(req, res);
+    if (ifMatch === undefined) return;
+    const parsed = alignBody.safeParse(req.body);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
+      return;
+    }
+    commands
+      .alignOwnershipsToTransfer({
+        principal: principalOf(res),
+        acquisitionId,
+        align: { sourceReferences: parsed.data.sourceReferences, notes: parsed.data.notes ?? null },
+        ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
+        ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
+      })
+      .then(({ result, replayed }) => {
+        if (replayed) res.setHeader('Idempotent-Replayed', 'true');
+        // The ETag is X's version (decided question 9: `If-Match` on X).
+        res.setHeader('ETag', `"${result.acquisition.version}"`);
+        res.json({
+          acquisition: toDto(result.acquisition),
+          extended: result.extended.map(ownershipDto),
+          moved: result.moved.map(ownershipDto),
+          completeness: result.completeness,
+          shareSum: formatShare(result.shareSum),
+        });
+      })
+      .catch(next);
+  });
+
   router.get('/property-references/:propertyReferenceId/acquisitions', (req, res, next) => {
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
@@ -309,10 +360,13 @@ function toDto(a: Acquisition) {
     contractDate: a.contractDate,
     economicTransferDate: a.economicTransferDate,
     landRegistryTransferDate: a.landRegistryTransferDate,
-    // §58N (b): `transferDate` is `ownershipStart`, the day the buyers' Ownerships begin.
+    // §58N (b), §58Q: `transferDate` is `ownershipStart`, the day the buyers' Ownerships begin (the transfer once aligned).
     transferDate: ownershipStart(a),
     economicTransferRecordedAt: a.economicTransferRecordedAt?.toISOString() ?? null,
     economicTransferSourceReferences: a.economicTransferSourceReferences,
+    // §58Q (VC-X-55): additive.
+    ownershipAlignedAt: a.ownershipAlignedAt?.toISOString() ?? null,
+    ownershipAlignmentSourceReferences: a.ownershipAlignmentSourceReferences,
     buyerPartyIds: a.buyerPartyIds,
     sellerPartyIds: a.sellerPartyIds,
     sourceReferences: a.sourceReferences,

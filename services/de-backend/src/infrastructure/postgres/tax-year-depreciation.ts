@@ -239,6 +239,7 @@ async function withoutAssetIn(trx: Trx, request: TaxYearDepreciationRequest): Pr
       sql<string>`to_char(contract_date, 'YYYY-MM-DD')`.as('contract_date'),
       sql<string | null>`to_char(economic_transfer_date, 'YYYY-MM-DD')`.as('economic_transfer_date'),
       'economic_transfer_recorded_at',
+      'ownership_aligned_at',
     ])
     .where('mre_realm_id', '=', mreRealmId)
     .where('property_reference_id', '=', propertyReferenceId)
@@ -254,6 +255,7 @@ async function withoutAssetIn(trx: Trx, request: TaxYearDepreciationRequest): Pr
           contractDate: a.contract_date as BusinessDate,
           economicTransferDate: a.economic_transfer_date as BusinessDate | null,
           economicTransferRecordedAt: a.economic_transfer_recorded_at,
+          ownershipAlignedAt: a.ownership_aligned_at,
         }) <= end,
     )
     .map((a) => a.id);

@@ -45,6 +45,8 @@ export interface ScheduleAcquisition {
    * the contract date (`ownershipStart`). Absent or `null` otherwise.
    */
   readonly economicTransferRecordedAt?: Date | null;
+  /** §58Q (VC-X-55): set once the Ownerships were aligned to the transfer (`ownershipStart` = `economicTransferDate`). */
+  readonly ownershipAlignedAt?: Date | null;
   readonly sellerPartyIds: readonly string[];
   readonly costs: readonly ScheduleCost[];
   readonly allocation: ScheduleAllocation | null;

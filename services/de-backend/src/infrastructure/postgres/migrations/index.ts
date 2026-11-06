@@ -70,6 +70,7 @@ import * as m0068 from './0068_hausgeld_cost_line_classification.js';
 import * as m0069 from './0069_loan_interest_period.js';
 import * as m0070 from './0070_loan_terms_payment_interval.js';
 import * as m0071 from './0071_tax_year_loan_schedule_part_kinds.js';
+import * as m0072 from './0072_ownership_extend_to_economic_transfer.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -149,4 +150,5 @@ export const migrations: Record<string, Migration> = {
   '0069_loan_interest_period': m0069,
   '0070_loan_terms_payment_interval': m0070,
   '0071_tax_year_loan_schedule_part_kinds': m0071,
+  '0072_ownership_extend_to_economic_transfer': m0072,
 };

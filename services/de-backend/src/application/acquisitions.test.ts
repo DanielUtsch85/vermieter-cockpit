@@ -41,6 +41,7 @@ const repository = (overrides: Partial<AcquisitionRepository>): AcquisitionRepos
   cancel: () => Promise.reject(new Error('unused')),
   confirm: () => Promise.reject(new Error('unused')),
   recordEconomicTransferDate: () => Promise.reject(new Error('unused')),
+  alignOwnershipsToTransfer: () => Promise.reject(new Error('unused')),
   ...overrides,
 });
 
