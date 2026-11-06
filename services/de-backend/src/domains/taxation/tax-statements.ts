@@ -3,6 +3,7 @@ import type { AllocationBasis, LoanAllocationSetView, LoanStatus } from '../fina
 import type { AttributionChange, AttributionInput } from './attribution-changes.js';
 import type { ChangeEntityType, ChangeItem, ChangeKind } from './attribution-rule.js';
 import type { PartChange, PartChangeEntityType, PartChangeInput, PartChangeKind, PartItem } from './attribution-parts.js';
+import type { OwnershipAlignmentChange, OwnershipAlignmentFact, OwnershipAlignmentKind } from './ownership-alignment-changes.js';
 import type { OwnershipStartChange, OwnershipStartFact, OwnershipStartKind } from './ownership-start-changes.js';
 
 /**
@@ -24,10 +25,10 @@ export interface StatementWithdrawal {
 
 /**
  * A change of either flag (§58G): `ATTRIBUTION_INPUT_CHANGED`'s year shape or `PROPERTY_PART_CHANGED`'s part shape; or
- * §58N's `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER`, which has no items.
+ * §58N's `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER` or §58Q's `OWNERSHIP_EXTENDED_TO_ECONOMIC_TRANSFER`, which have no items.
  */
-export type AcknowledgedKind = ChangeKind | PartChangeKind | OwnershipStartKind;
-export type AnyChange = AttributionChange | PartChange | OwnershipStartChange;
+export type AcknowledgedKind = ChangeKind | PartChangeKind | OwnershipStartKind | OwnershipAlignmentKind;
+export type AnyChange = AttributionChange | PartChange | OwnershipStartChange | OwnershipAlignmentChange;
 
 export interface TaxYearAcknowledgement extends StatementWithdrawal {
   readonly acknowledgementId: string;
@@ -187,7 +188,13 @@ export interface TaxStatementRepository {
     readonly idempotency?: { readonly key: string; readonly fingerprint: string };
     /** Steps 3–5, on the inputs of both flags read in the command's snapshot (§58E Part 1, §58G). */
     readonly decide: (
-      inputs: { readonly attribution: AttributionInput; readonly parts: PartChangeInput; readonly ownershipStarts?: readonly OwnershipStartFact[] },
+      inputs: {
+        readonly attribution: AttributionInput;
+        readonly parts: PartChangeInput;
+        readonly ownershipStarts?: readonly OwnershipStartFact[];
+        /** §58Q: the aligned Acquisitions. */
+        readonly ownershipAlignments?: readonly OwnershipAlignmentFact[];
+      },
       active: readonly TaxYearAcknowledgement[],
     ) => AcknowledgeDecision;
   }): Promise<AcknowledgeOutcome>;

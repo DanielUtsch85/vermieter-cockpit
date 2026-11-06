@@ -14,6 +14,10 @@ import {
   CurrentAllocationChangedError,
   type LinkRefusal,
   OwnershipBasisIncompleteError,
+  OwnershipExtensionBlockedError,
+  OwnershipExtensionNotApplicableError,
+  OwnershipsAlreadyAlignedError,
+  type AlignBlocker,
   PaymentRefusedError,
   TransferDateAlreadySetError,
   TransferDateBeforeContractDateError,
@@ -48,6 +52,27 @@ export const ACQUISITION_ANSWERS = [
   ),
   on(TransferDateBeforeContractDateError, (error) =>
     answer(422, 'BEFORE_CONTRACT_DATE', 'The economic transfer date lies before the contract date.', { contractDate: error.contractDate }),
+  ),
+  // §58Q (VC-X-55): the act applied once; not applicable; blocked by a fact resting on the old dates.
+  on(OwnershipsAlreadyAlignedError, (error) =>
+    answer(409, 'CONFLICT', 'The Ownerships of this Acquisition are already aligned to the transfer.', {
+      reason: 'OWNERSHIPS_ALREADY_ALIGNED',
+      acquisitionId: error.acquisitionId,
+      ownershipAlignedAt: error.ownershipAlignedAt.toISOString(),
+      ownershipStart: error.ownershipStart,
+    }),
+  ),
+  on(OwnershipExtensionNotApplicableError, (error) =>
+    answer(422, 'OWNERSHIP_EXTENSION_NOT_APPLICABLE', 'The Ownerships of this Acquisition cannot be aligned to the transfer.', {
+      acquisitionId: error.acquisitionId,
+      reason: error.reason,
+    }),
+  ),
+  on(OwnershipExtensionBlockedError, (error) =>
+    answer(422, 'OWNERSHIP_EXTENSION_BLOCKED', 'A later fact rests on the old dates of the Ownerships.', {
+      acquisitionId: error.acquisitionId,
+      blockedBy: error.blockedBy.map(blockerDto),
+    }),
   ),
   on(AcquisitionPaymentNotFoundError, (error) => answer(404, 'NOT_FOUND', 'AcquisitionPayment not found.', { paymentId: error.paymentId })),
   on(ConfirmationBlockedError, (error) =>
@@ -114,6 +139,18 @@ export function violationDto(v: ConfirmationViolation) {
       return { code: v.code, date: v.date, shareSum: formatShare(v.shareSum) };
     default:
       return v;
+  }
+}
+
+/** A blocker of §58Q rule 4 as the API shows it (shares as `"n/d"`). */
+function blockerDto(b: AlignBlocker) {
+  switch (b.code) {
+    case 'OWNERSHIP_TOTAL_EXCEEDS_ONE':
+      return { code: b.code, date: b.date, shareSum: formatShare(b.shareSum) };
+    case 'CONFIRMATION_REQUIREMENTS':
+      return { code: b.code, violations: b.violations.map(violationDto) };
+    default:
+      return b;
   }
 }
 

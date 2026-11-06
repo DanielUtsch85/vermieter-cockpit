@@ -49,6 +49,8 @@ const acquisition = {
   version: 1,
   economicTransferRecordedAt: null,
   economicTransferSourceReferences: null,
+  ownershipAlignedAt: null,
+  ownershipAlignmentSourceReferences: null,
   flags: [],
 } as unknown as Acquisition;
 
@@ -110,6 +112,9 @@ describe('POST /api/v1/acquisitions', () => {
       // §58N (VC-X-52): additive.
       economicTransferRecordedAt: null,
       economicTransferSourceReferences: null,
+      // §58Q (VC-X-55): additive.
+      ownershipAlignedAt: null,
+      ownershipAlignmentSourceReferences: null,
       buyerPartyIds: [BUYER],
       sellerPartyIds: [SELLER],
       sourceReferences: [],

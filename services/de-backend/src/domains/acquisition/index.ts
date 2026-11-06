@@ -5,6 +5,17 @@
 export { ACQUISITION_STATUSES, buyerIncreases, createFingerprint, ownershipStart, planCancel, planConfirm, structureViolations, sumOf } from './acquisition.js';
 export { OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER, ownershipStartFlag, planRecordTransferDate, recordTransferDateFingerprint } from './transfer-date.js';
 export type { RecordTransferDateInput, RecordTransferDateOutcome, RecordTransferDatePlan } from './transfer-date.js';
+export { alignOwnershipsFingerprint, planAlignOwnerships } from './align-ownerships.js';
+export type {
+  AlignBlocker,
+  AlignOwnership,
+  AlignOwnershipsInput,
+  AlignOwnershipsOutcome,
+  AlignPlan,
+  AlignResult,
+  AlignStep,
+  NotApplicableReason,
+} from './align-ownerships.js';
 export type {
   AcquiredShare,
   Acquisition,

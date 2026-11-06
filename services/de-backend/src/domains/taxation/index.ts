@@ -231,6 +231,8 @@ export type {
 export { TAX_STATEMENT_STATUSES, confirmationMark, matchAcknowledgement, nothingToConfirm, planAcknowledgement } from './tax-statements.js';
 export { OWNERSHIP_START_FLAG, ownershipStartChanges, ownershipStartEntry, ownershipStartIsOpen } from './ownership-start-changes.js';
 export type { OwnershipStartChange, OwnershipStartFact, OwnershipStartKind } from './ownership-start-changes.js';
+export { OWNERSHIP_EXTENDED_FLAG, ownershipAlignmentChanges, ownershipAlignmentEntry } from './ownership-alignment-changes.js';
+export type { OwnershipAlignmentChange, OwnershipAlignmentFact, OwnershipAlignmentKind } from './ownership-alignment-changes.js';
 export type {
   AcknowledgeDecision,
   AcknowledgeOutcome,

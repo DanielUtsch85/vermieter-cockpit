@@ -16,6 +16,7 @@ export const unusedCommands: AppCommands = {
     cancel: unused,
     confirm: unused,
     recordEconomicTransferDate: unused,
+    alignOwnershipsToTransfer: unused,
   },
   ownerAllocation: { get: unused },
   landBuildingAllocations: { create: unused, list: unused },

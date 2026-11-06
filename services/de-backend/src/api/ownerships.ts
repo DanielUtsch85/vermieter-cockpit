@@ -301,7 +301,8 @@ function sendOwnership(res: Response, ownership: Ownership): void {
   res.json(toDto(ownership));
 }
 
-function toDto(ownership: Ownership) {
+/** An Ownership as §26.1 shows it; also in §58Q's answer (`api/acquisitions.ts`). */
+export function toDto(ownership: Ownership) {
   return {
     ownershipId: ownership.id,
     mreRealmId: ownership.mreRealmId,

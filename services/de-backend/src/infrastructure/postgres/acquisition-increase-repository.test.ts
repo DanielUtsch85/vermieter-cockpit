@@ -428,6 +428,8 @@ describe.skipIf(databaseUrl === undefined)('VC-X-30: an existing owner buying a 
       expect(rows).toEqual([
         { tgname: 'ownership_acquisition_confirmed', before: true },
         { tgname: 'ownership_acquisition_draft', before: true },
+        // 0072 (§58Q): the deferred constraint trigger of the alignment, AFTER as every constraint trigger.
+        { tgname: 'ownership_alignment_complete', before: false },
         { tgname: 'ownership_frozen', before: true },
         { tgname: 'ownership_invariants', before: false },
         { tgname: 'ownership_predecessor_of_confirmed', before: true },

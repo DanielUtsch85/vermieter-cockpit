@@ -1,3 +1,5 @@
+import type { Ownership } from '../ownership/index.js';
+import type { AlignOwnershipsInput, AlignOwnershipsOutcome } from './align-ownerships.js';
 import type { RecordTransferDateInput, RecordTransferDateOutcome } from './transfer-date.js';
 import { addDays, type AuditActor, type BusinessDate, type Money, type VersionConflict } from '../../shared/index.js';
 
@@ -45,6 +47,13 @@ export interface Acquisition extends AcquisitionData {
   readonly economicTransferRecordedAt: Date | null;
   /** §58N open question 2 (decided 2026-11-04): the evidence of the recorded date, set with it; `null` otherwise. */
   readonly economicTransferSourceReferences: readonly string[] | null;
+  /**
+   * §58Q (VC-X-55, 0072): when `POST …/align-ownerships-to-transfer` moved the Ownerships to the transfer; `null`
+   * otherwise. Once set, `ownershipStart` is `economicTransferDate`.
+   */
+  readonly ownershipAlignedAt: Date | null;
+  /** §58Q open question 5 (decided 2026-11-05): the act's own evidence, set with it; `null` otherwise. */
+  readonly ownershipAlignmentSourceReferences: readonly string[] | null;
   /** §58N: `OWNERSHIP_START_BEFORE_ECONOMIC_TRANSFER` when the dates differ (derived on read, never stored). */
   readonly flags: readonly AcquisitionFlag[];
 }
@@ -67,15 +76,19 @@ export interface OwnershipStartFacts {
   readonly economicTransferDate: BusinessDate | null;
   /** Set when `POST …/economic-transfer-date` recorded the date (0067); absent or `null` otherwise. */
   readonly economicTransferRecordedAt?: Date | null;
+  /** Set when `POST …/align-ownerships-to-transfer` moved the Ownerships to the transfer (0072); absent or `null` otherwise. */
+  readonly ownershipAlignedAt?: Date | null;
 }
 
 /**
- * The day the buyers' Ownerships begin (§27.1's `transferDate`; §58N open question 1, decided 2026-11-04, option (b)):
- * `contractDate` for an Acquisition whose `economicTransferDate` was recorded later (its Ownerships began on the contract
- * date and stay), else `economicTransferDate ?? contractDate` (P2-D6), as before VC-X-52. The anschaffungsnahe check
- * (§58K) and the AfA's start (§59A) read `economicTransferDate` itself.
+ * The day the buyers' Ownerships begin (§27.1's `transferDate`): `economicTransferDate` once the act of §58Q aligned
+ * them (VC-X-55, Entscheidung des Projektinhabers, 2026-11-05, Frage 1 (A)); else `contractDate` for an Acquisition
+ * whose `economicTransferDate` was recorded later (§58N open question 1, decided 2026-11-04, option (b): its Ownerships
+ * began on the contract date and stay); else `economicTransferDate ?? contractDate` (P2-D6), as before VC-X-52. The
+ * anschaffungsnahe check (§58K) and the AfA's start (§59A) read `economicTransferDate` itself.
  */
 export function ownershipStart(acquisition: OwnershipStartFacts): BusinessDate {
+  if (acquisition.ownershipAlignedAt != null && acquisition.economicTransferDate !== null) return acquisition.economicTransferDate;
   if (acquisition.economicTransferRecordedAt != null) return acquisition.contractDate;
   return acquisition.economicTransferDate ?? acquisition.contractDate;
 }
@@ -361,4 +374,18 @@ export interface AcquisitionRepository {
     readonly expectedVersions?: readonly number[];
     readonly idempotency?: { readonly key: string; readonly fingerprint: string };
   }): Promise<RecordTransferDateOutcome>;
+  /**
+   * §58Q: in one READ COMMITTED transaction, claims the key, writes the PropertyReference (no-op), locks the buyers and
+   * sellers `FOR SHARE` in id order, the Acquisition `FOR UPDATE` and the PropertyReference's Ownerships of its buyers and
+   * sellers `FOR UPDATE` in id order, applies `planAlignOwnerships`, writes in rule 3's order and the AuditRecords.
+   */
+  alignOwnershipsToTransfer(input: {
+    readonly id: string;
+    readonly mreRealmId: string;
+    readonly align: AlignOwnershipsInput;
+    readonly at: Date;
+    readonly actor: AuditActor;
+    readonly expectedVersions?: readonly number[];
+    readonly idempotency?: { readonly key: string; readonly fingerprint: string };
+  }): Promise<AlignOwnershipsOutcome<Ownership>>;
 }

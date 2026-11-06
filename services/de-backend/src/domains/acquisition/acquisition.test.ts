@@ -41,6 +41,8 @@ const acquisition: Acquisition = {
   version: 1,
   economicTransferRecordedAt: null,
   economicTransferSourceReferences: null,
+  ownershipAlignedAt: null,
+  ownershipAlignmentSourceReferences: null,
   flags: [],
 };
 

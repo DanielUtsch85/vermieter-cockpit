@@ -8,6 +8,7 @@ import {
   type AcquisitionPage,
   type AcquisitionRepository,
   type AcquisitionStatus,
+  type AlignOwnershipsOutcome,
   type CancelAcquisitionOutcome,
   type ConfirmAcquisitionOutcome,
   type ConfirmationOwnership,
@@ -15,7 +16,9 @@ import {
   type NewAcquisition,
   type RecordTransferDateOutcome,
 } from '../../domains/acquisition/index.js';
+import type { Ownership } from '../../domains/ownership/index.js';
 import { addDays, checkVersion, type AuditActor, type BusinessDate } from '../../shared/index.js';
+import { alignOwnershipsToTransferIn } from './acquisition-align-ownerships.js';
 import { COLUMNS, fromSnapshot, readOne, toSnapshot, withParties } from './acquisition-rows.js';
 import { recordEconomicTransferDateIn } from './acquisition-transfer-date.js';
 import { writeAudit } from './audit.js';
@@ -311,6 +314,10 @@ export class PostgresAcquisitionRepository implements AcquisitionRepository {
 
   recordEconomicTransferDate(input: Parameters<AcquisitionRepository['recordEconomicTransferDate']>[0]): Promise<RecordTransferDateOutcome> {
     return recordEconomicTransferDateIn(this.db, input);
+  }
+
+  alignOwnershipsToTransfer(input: Parameters<AcquisitionRepository['alignOwnershipsToTransfer']>[0]): Promise<AlignOwnershipsOutcome<Ownership>> {
+    return alignOwnershipsToTransferIn(this.db, input);
   }
 }
 

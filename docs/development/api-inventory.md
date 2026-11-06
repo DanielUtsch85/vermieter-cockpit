@@ -8,13 +8,14 @@ Implemented routes only: a route in `docs/architecture/api-design.md` that is no
 Contracts, payloads and error codes are in `api-design.md`; the business routes need `Authorization: Bearer <MRE token>` and
 `organizationid: <mreRealmId>` (`mre-integration.md` §47.2).
 
-Routes: 171.
+Routes: 172.
 
 | Method | Path |
 |---|---|
 | GET | `/api/v1/acquisitions` |
 | POST | `/api/v1/acquisitions` |
 | GET | `/api/v1/acquisitions/:acquisitionId` |
+| POST | `/api/v1/acquisitions/:acquisitionId/align-ownerships-to-transfer` |
 | GET | `/api/v1/acquisitions/:acquisitionId/anschaffungsnahe-herstellungskosten` |
 | POST | `/api/v1/acquisitions/:acquisitionId/cancel` |
 | POST | `/api/v1/acquisitions/:acquisitionId/confirm` |
@@ -191,6 +192,7 @@ Routes: 171.
 - GET `/api/v1/acquisitions`
 - POST `/api/v1/acquisitions`
 - GET `/api/v1/acquisitions/:acquisitionId`
+- POST `/api/v1/acquisitions/:acquisitionId/align-ownerships-to-transfer`
 - GET `/api/v1/acquisitions/:acquisitionId/anschaffungsnahe-herstellungskosten`
 - POST `/api/v1/acquisitions/:acquisitionId/cancel`
 - POST `/api/v1/acquisitions/:acquisitionId/confirm`

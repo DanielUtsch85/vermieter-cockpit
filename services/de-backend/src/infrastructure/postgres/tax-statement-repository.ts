@@ -17,7 +17,7 @@ import {
 import type { LoanStatus } from '../../domains/financing/index.js';
 import { checkVersion } from '../../shared/index.js';
 import { attributionInputOf } from './attribution-reads.js';
-import { ownershipStartFactsOf } from './ownership-start-reads.js';
+import { ownershipAlignmentFactsOf, ownershipStartFactsOf } from './ownership-start-reads.js';
 import { partChangeInputOf } from './part-reads.js';
 import { allocatedLoanInterest } from './tax-year-reads.js';
 import { writeAudit } from './audit.js';
@@ -107,8 +107,10 @@ export class PostgresTaxStatementRepository implements TaxStatementRepository {
           const parts = await partChangeInputOf(trx, wide, mreRealmId, year, { propertyReferenceId, registry: this.registry, today });
           // §58N: the Acquisitions dated later than their Ownerships began.
           const ownershipStarts = await ownershipStartFactsOf(trx, mreRealmId, propertyReferenceId);
+          // §58Q: the Acquisitions whose Ownerships were aligned to the transfer.
+          const ownershipAlignments = await ownershipAlignmentFactsOf(trx, mreRealmId, propertyReferenceId);
           const active = await acknowledgementsOf(trx, mreRealmId, propertyReferenceId, year, ['ACTIVE']);
-          const decision = decide({ attribution, parts, ownershipStarts }, active);
+          const decision = decide({ attribution, parts, ownershipStarts, ownershipAlignments }, active);
           if (this.afterDerivation !== undefined) await this.afterDerivation();
           if (decision.kind === 'NOT_FLAGGED' || decision.kind === 'AMBIGUOUS' || decision.kind === 'DIFFERS') throw new Rejected<AcknowledgeOutcome>(decision);
           const record = async (kind: StatementSnapshot['kind'], acknowledgement: TaxYearAcknowledgement) => {

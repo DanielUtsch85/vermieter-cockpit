@@ -4,6 +4,7 @@ import type { TaxYearItem, TaxYearReview, TaxYearRuleVersion, ViewFlag } from '.
 import type { Origin, ReviewState, Treatment } from './vocabulary.js';
 import { REVIEW_STATES } from './vocabulary.js';
 import { OPEN_AFA_YEAR_FLAGS } from './tax-year-depreciation.js';
+import { OWNERSHIP_EXTENDED_FLAG } from './ownership-alignment-changes.js';
 import { OWNERSHIP_START_FLAG, ownershipStartIsOpen } from './ownership-start-changes.js';
 import { PROPOSED_BY_10_DAY_RULE, proposalIsOpen, yearProposalIsOpen } from './ten-day-proposal.js';
 
@@ -121,8 +122,9 @@ export function reviewOf(
       ? yearProposalIsOpen(f.details)
       : f.code === 'ATTRIBUTION_INPUT_CHANGED' || f.code === 'PROPERTY_PART_CHANGED'
         ? attributionChangeIsOpen(f.details)
-        : f.code === OWNERSHIP_START_FLAG
-          ? // §58N: open while an OPEN entry is not acknowledged (Entscheidung des Projektinhabers, 2026-11-04, Frage 5).
+        : f.code === OWNERSHIP_START_FLAG || f.code === OWNERSHIP_EXTENDED_FLAG
+          ? // §58N, §58Q: open while an OPEN entry is not acknowledged (Entscheidungen des Projektinhabers, 2026-11-04, Frage 5;
+            // 2026-11-05, Frage 7).
             ownershipStartIsOpen(f.details)
           : OPEN_YEAR_FLAGS.has(f.code);
   for (const f of yearFlags) bump(yearFlagOpen(f) ? open : info, f.code);

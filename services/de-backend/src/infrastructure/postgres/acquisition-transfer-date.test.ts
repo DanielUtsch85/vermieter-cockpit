@@ -454,7 +454,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
           const legacyRow = async () =>
             (
               await down.query(
-                `SELECT to_jsonb(a) - 'economic_transfer_recorded_at' - 'economic_transfer_source_references' AS r FROM acquisition a WHERE id = $1`,
+                `SELECT to_jsonb(a) - 'economic_transfer_recorded_at' - 'economic_transfer_source_references' - 'ownership_aligned_at' - 'ownership_alignment_source_references' AS r FROM acquisition a WHERE id = $1`,
                 [kept.acquisitionId],
               )
             ).rows[0].r;
@@ -484,6 +484,8 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
             await down.query(`DELETE FROM acquisition WHERE id = $1`, [other.acquisitionId]);
             for (const t of ['ownership', 'acquisition_party', 'acquisition']) await down.query(`ALTER TABLE ${t} ENABLE TRIGGER USER`);
             await withMigrationLock(async () => {
+              // 0072 (VC-X-55) patches 0020's, 0050's and 0065's functions after 0067 did: its own down first (nothing aligned here).
+              await (migrations['0072_ownership_extend_to_economic_transfer'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               // 0068 (VC-X-27, tax_classification only) sorts after 0067: its own down first (no cost-line classification here).
               // 0071 (VC-X-54) patches 0065's shape guard after 0067 did: its own down first (no acknowledgement of its kinds here).
               await (migrations['0071_tax_year_loan_schedule_part_kinds'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
@@ -495,7 +497,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
               await migration.down(createDatabase(down) as never);
             });
             await down.query(
-              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds')`,
+              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer')`,
             );
           }
           expect(await defs()).toEqual(original);

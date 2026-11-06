@@ -37,6 +37,7 @@ import {
   getTaxYearView,
   linkPropertyReference,
   recordEconomicTransferDate,
+  alignOwnershipsToTransfer,
   refreshPropertyReference,
   replaceAssessmentUses,
   setTransactionSplits,
@@ -165,6 +166,7 @@ export function useAcc8(name: `${string}_e2e`) {
             confirm: confirmAcquisition({ repository: acquisitions, now }),
             // §58N (VC-X-52): recording the transfer of economic ownership later.
             recordEconomicTransferDate: recordEconomicTransferDate({ repository: acquisitions, now }),
+            alignOwnershipsToTransfer: alignOwnershipsToTransfer({ repository: acquisitions, now }),
           },
           acquisitionCosts: {
             createCost: createAcquisitionCost({ repository: new PostgresAcquisitionCostRepository(db) }),
