@@ -19,6 +19,7 @@ import {
   OwnershipsAlreadyAlignedError,
   type AlignBlocker,
   PaymentRefusedError,
+  ReviewStateNotAllowedError,
   TransferDateAlreadySetError,
   TransferDateBeforeContractDateError,
   formatShare,
@@ -90,6 +91,15 @@ export const ACQUISITION_ANSWERS = [
     answer(409, 'CONFLICT', 'supersedes does not name the current allocation.', {
       reason: 'CURRENT_ALLOCATION_CHANGED',
       currentAllocationId: error.currentAllocationId,
+    }),
+  ),
+  // §58T rule 3 (VC-X-44; Entscheidung des Projektinhabers, 2026-11-06): refused, never downgraded.
+  on(ReviewStateNotAllowedError, (error) =>
+    answer(422, 'REVIEW_STATE_NOT_ALLOWED', 'ADVISOR_CONFIRMED is not allowed when the supersede changes only the reason.', {
+      field: 'reviewState',
+      reviewState: 'ADVISOR_CONFIRMED',
+      supersededAllocationId: error.supersededAllocationId,
+      hint: 'An advisor-confirmed allocation needs no reason: send reviewState CONFIRMED, or leave deviationReason out.',
     }),
   ),
   // §59D: the classification of a cost.
