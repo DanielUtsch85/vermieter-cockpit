@@ -12,7 +12,7 @@
 
 services:
   caddy:
-    image: caddy:2.8@sha256:226d1f059b75399fe19182893c7184591c07b97afc8dfcf44eeb80c9a77a530f
+    image: caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0
     restart: unless-stopped
     environment:
       COCKPIT_HOSTNAME: ${COCKPIT_HOSTNAME:-cockpit.internal}
