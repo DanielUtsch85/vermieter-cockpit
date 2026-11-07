@@ -359,7 +359,7 @@ describe.skipIf(databaseUrl === undefined)('the payment interval through Postgre
 
     it(
       'existing rows read 1 after up (no version, no AuditRecord); down refused with an interval other than 1, else 0025 function back verbatim',
-      { timeout: 60_000 },
+      { timeout: 90_000 },
       async () => {
         const downSchema = testSchemaName('loan_interval_down_test');
         const admin = new pg.Client({ connectionString: databaseUrl });
@@ -471,6 +471,8 @@ describe.skipIf(databaseUrl === undefined)('the payment interval through Postgre
             // 0073 (VC-X-57) patches 0072's passages: rolled back first (no confirmation from the transfer here).
             // 0074 (VC-X-12, an index only) sorts after 0073: its own down first.
             // 0075 (VC-X-44, land_building_allocation only) sorts after 0074: its own down first, not applied again.
+            // 0076 (VC-X-24, audit_record only) sorts after 0075: its own down first, not applied again.
+            await (migrations['0076_audit_record_pseudonymisation'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await (migrations['0075_land_building_allocation_plausibility'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await (migrations['0074_idempotency_key_retention'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
             await (migrations['0073_ownership_start_on_confirm'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
@@ -479,7 +481,7 @@ describe.skipIf(databaseUrl === undefined)('the payment interval through Postgre
             await migration.down(createDatabase(down) as never);
           });
           await down.query(
-            `DELETE FROM kysely_migration WHERE name IN ('0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm', '0074_idempotency_key_retention', '0075_land_building_allocation_plausibility')`,
+            `DELETE FROM kysely_migration WHERE name IN ('0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm', '0074_idempotency_key_retention', '0075_land_building_allocation_plausibility', '0076_audit_record_pseudonymisation')`,
           );
           expect(await frozenDef()).toBe(original);
           expect(

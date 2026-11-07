@@ -47,6 +47,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { cents, codes, type Json as View } from './phase-8-acceptance.test-support.js';
 import { mrePrincipalVerifier, mreRentTermLookup, mreTenantLookup } from './wiring.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-28 end to end (api-design.md §58E "Tests the implementation must have"), wired as in main.ts, synthetic values
@@ -144,7 +145,7 @@ describe.skipIf(databaseUrl === undefined)('acknowledgements in the tax-year vie
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
   let counter = 0;
   let giro = '';
-  const at = (id: string, iso: string) => pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   const recordOf = async (entityId: string, action: string) =>
     (await pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2`, [entityId, action])).rows[0].id as string;
 
