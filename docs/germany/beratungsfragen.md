@@ -126,3 +126,17 @@
 **Warum es zählt:** Bei mehreren Eigentümern verschiebt die Faltung Werbungskosten zwischen Personen und Jahren.
 
 **Beantwortet** (Prüfbericht 2026-11-01, Frage 19; mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01): **Ja.** Gleicher Verteilungszeitraum für alle; verkauft nur ein Miteigentümer, zieht er seinen eigenen Rest im Veräußerungsjahr ab, die übrigen verteilen weiter; eigentümer- und anteilsbezogen, kein pauschaler Vollabzug der gemeinschaftlichen Restsumme beim Ausscheidenden; vorübergehender Leerstand beendet die Verteilung nicht. DE stimmt. **Nicht beantwortet:** der Verkauf nur eines Teils des eigenen Anteils (der Bericht verweist dafür auf eine gesonderte Bestätigung).
+
+---
+
+## 7. Darlehen teils außerhalb der Vermietung: Entwicklung der Anteile über die Laufzeit (Prüfbericht Frage 21; VC-X-43)
+
+*(Nummer 7, weil die Nummer 6 mit VC-X-24, PR #297, vergeben ist.)*
+
+**Frage:** Ein Darlehen finanziert teils vermietete Objekte und teils private oder andere Zwecke (z. B. 1/5 der Mittel für einen privaten Pkw, synthetisch). Bleibt der nicht einkünfterelevante Anteil über die Laufzeit so, wie die Mittel bei der Auszahlung verwendet wurden, oder dürfen Tilgungen (auch Sondertilgungen) zuerst dem privaten Teil zugeordnet werden, sodass der Anteil der Vermietung steigt? Was ändert die Anteile sonst (Verkauf des privat Angeschafften, Umschuldung), und welche Belege genügen als Nachweis der Mittelverwendung?
+
+**Stand der Spezifikation** (`api-design.md` §58V, offene Fragen 9 und 12, Vorschlag; nichts davon entschieden): Ein Aufteilungssatz des Darlehens (§41.3) kann neben den Objekten einen Teil „außerhalb der Vermietung“ tragen; Objekte und dieser Teil ergeben genau 1/1, mit Belegverweisen zur Verwendung (Prüfbericht Frage 21: „nach tatsächlicher Mittelverwendung; Bezeichnung/Sicherheit genügt nicht; … nicht einkünfterelevante Mittel getrennt“, mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01). Die Zinsen dieses Teils gehen in keine Steuerjahresansicht, keinen Eigentümeranteil und keine AfA-Bemessungsgrundlage ein; sie werden nur ausgewiesen. Eine Änderung der Verwendung erfasst der Nutzer als neuen Satz ab dem Tag der Änderung; die Software ändert die Anteile nie selbst, auch nicht durch Tilgungen.
+
+**Was die Software tut:** Noch nichts (nicht umgesetzt). Heute ergibt ein Satz genau 1/1 über die Objekte; ein privat verwendeter Teil ist nicht ausdrückbar.
+
+**Warum es zählt:** Hängt der Anteil an der Tilgungsreihenfolge, wären Sätze nach jeder Tilgung neu zu erfassen, und die abziehbaren Zinsen der Objekte änderten sich über die Jahre. **VERIFY**, auch: ob Zinsen auf Mittel für eine andere Einkunftsart dort Werbungskosten sind (außerhalb von DE), und ob nach dem Ende der Vermietung weiterlaufende Zinsen noch abziehbar sein können (nachträgliche Schuldzinsen; §58V, offene Frage 4).
