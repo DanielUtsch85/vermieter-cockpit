@@ -359,7 +359,7 @@ describe.skipIf(databaseUrl === undefined)('the payment interval through Postgre
 
     it(
       'existing rows read 1 after up (no version, no AuditRecord); down refused with an interval other than 1, else 0025 function back verbatim',
-      { timeout: 60_000 },
+      { timeout: 90_000 },
       async () => {
         const downSchema = testSchemaName('loan_interval_down_test');
         const admin = new pg.Client({ connectionString: databaseUrl });

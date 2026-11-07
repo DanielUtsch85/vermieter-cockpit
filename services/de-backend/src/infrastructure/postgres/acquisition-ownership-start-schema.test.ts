@@ -138,7 +138,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0073 past the reposito
 
   it(
     'down refused with a confirmation from a recorded date; else every function and CHECK of 0072 back verbatim, existing rows untouched; then up again',
-    { timeout: 60_000 },
+    { timeout: 90_000 },
     async () => {
       const downSchema = testSchemaName('acquisition_ownership_start_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });

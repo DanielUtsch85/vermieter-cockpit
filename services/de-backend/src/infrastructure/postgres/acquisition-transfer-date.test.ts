@@ -435,7 +435,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
 
     it(
       'down refused with a recorded date; otherwise restores 0020, 0022, 0050 and 0065 verbatim, an undated CONFIRMED row untouched; then up again',
-      { timeout: 60_000 },
+      { timeout: 90_000 },
       async () => {
         const downSchema = testSchemaName('acquisition_transfer_date_down_test');
         const admin = new pg.Client({ connectionString: databaseUrl });

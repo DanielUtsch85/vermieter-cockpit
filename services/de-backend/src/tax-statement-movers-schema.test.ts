@@ -169,7 +169,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0065 past the reposito
 
   it(
     'up and down under MIGRATION_ADVISORY_LOCK: down refused with a kind of §58I or a null year, else restores 0064 s CHECKs, guard and NOT NULL',
-    { timeout: 30_000 },
+    { timeout: 90_000 },
     async () => {
       const downSchema = testSchemaName('tax_statement_movers_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });

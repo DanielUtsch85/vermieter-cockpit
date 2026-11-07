@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { AUDIT_MARKER, AUDIT_PERSONAL_FIELDS } from '../../domains/audit/index.js';
+import { stageAudit } from './audit-stage.test-support.js';
 import { REALM, databaseUrl, useAuditDatabase } from './audit-retention.test-support.js';
 import { createDatabase } from './database.js';
 import { withMigrationLock } from './depreciation-asset.test-support.js';
@@ -187,6 +188,20 @@ describe.skipIf(databaseUrl === undefined)('the guard of 0076 on audit_record (Â
   it('the job index covers the due records only: AMENDED, not pseudonymised, by occurred_at', async () => {
     const { rows } = await ctx.pool.query(`SELECT indexdef FROM pg_indexes WHERE indexname = 'audit_record_retention_idx' AND schemaname = current_schema()`);
     expect(rows[0].indexdef).toMatch(/\(occurred_at\) WHERE \(\(action = 'AMENDED'::text\) AND \(pseudonymised_at IS NULL\)\)$/);
+  });
+
+  it('stageAudit runs its update with the guard off and re-enables it: a plain update afterwards is refused', async () => {
+    const enabled = async () =>
+      (await ctx.pool.query(`SELECT tgenabled FROM pg_trigger WHERE tgrelid = to_regclass('audit_record') AND tgname = 'audit_record_update_guard'`)).rows[0]
+        .tgenabled as string;
+    const staged = await stageAudit(ctx.pool, `UPDATE audit_record SET occurred_at = '2025-01-02T00:00:00Z' WHERE id = $1`, [created]);
+    expect(staged.rowCount).toBe(1);
+    expect(await enabled()).toBe('O');
+    // Outside the helper the guard is on again.
+    const plain = `UPDATE audit_record SET occurred_at = '2025-01-03T00:00:00Z' WHERE id = '${created}'`;
+    expect(await attempt(plain)).toBe('23000');
+    // Counter-check: the same statement with the update trigger dropped passes.
+    expect(await attempt(plain, [drop('audit_record_update_guard')])).toBe('accepted');
   });
 
   it('the service writes its records unchanged: a Party amendment is accepted with the guard on', async () => {

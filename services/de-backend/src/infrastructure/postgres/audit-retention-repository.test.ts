@@ -77,6 +77,17 @@ describe.skipIf(databaseUrl === undefined)('the pseudonymisation job (VC-X-24)',
     expect((await record(late)).pseudonymised_at).toEqual(y2038);
   });
 
+  it('the AUDIT_PSEUDONYMISED record names the end of retention of its own creation year: 31.12.2026 23:30 UTC ends on 2037-12-31', async () => {
+    const party = await person('Fristende Silvester');
+    const id = await amend(party, { email: 'silvester@example.org' });
+    await backdate([id], '2026-12-31T23:30:00Z');
+    const due = new Date('2038-01-01T00:00:00+01:00');
+    await run(ms(due, -1));
+    expect(await documenting(party)).toEqual([]);
+    await run(due);
+    expect((await documenting(party)).map((d) => [d.metadata.auditRecordId, d.metadata.retentionEndedOn])).toEqual([[id, '2037-12-31']]);
+  });
+
   it('a leap day record (29.02.2028) is due from 01.01.2039 Berlin, not before', async () => {
     const party = await person('Schalttag');
     const id = await amend(party, { lastName: 'Schalttag' });

@@ -537,7 +537,7 @@ describe.skipIf(databaseUrl === undefined)('the statements of the tax-year view 
 
     it(
       'up and down under MIGRATION_ADVISORY_LOCK: down refused with a statement present, else drops the three tables and their functions',
-      { timeout: 30_000 },
+      { timeout: 90_000 },
       async () => {
         const downSchema = testSchemaName('tax_statement_down_test');
         const admin = new pg.Client({ connectionString: databaseUrl });

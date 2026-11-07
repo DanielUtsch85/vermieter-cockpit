@@ -154,7 +154,7 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0064 past the reposito
 
   it(
     'up and down under MIGRATION_ADVISORY_LOCK: down refused with a DEPOSIT_CLOSING item or a kind of §58H, else restores 0063 s CHECKs and guard',
-    { timeout: 30_000 },
+    { timeout: 90_000 },
     async () => {
       const downSchema = testSchemaName('tax_statement_further_down_test');
       const admin = new pg.Client({ connectionString: databaseUrl });

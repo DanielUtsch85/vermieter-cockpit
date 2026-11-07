@@ -10621,6 +10621,8 @@ Paths relative to `services/de-backend/src/`.
 | M18 | guard accepting a pseudonymisation without any change | migration 0076 | schema | red (1) |
 | M19 | insert with `pseudonymised_at` accepted | migration 0076 | schema | red (1) |
 | M20 | `stageAudit` not disabling the guard | `audit-stage.test-support.ts` | `tax-year-view.e2e` | red (1) |
+| M21 | `stageAudit` not re-enabling the guard (review on #297) | `audit-stage.test-support.ts` | schema | red (1) |
+| M22 | `retentionEndedOn` fixed to `2036-12-31` (review on #297) | `audit-retention.ts` | job | red (1) |
 
 # 59. Depreciation Asset API (VC-8-01, implemented: migration 0049)
 
