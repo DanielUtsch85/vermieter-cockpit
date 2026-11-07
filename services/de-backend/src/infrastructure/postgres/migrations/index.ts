@@ -74,6 +74,7 @@ import * as m0072 from './0072_ownership_extend_to_economic_transfer.js';
 import * as m0073 from './0073_ownership_start_on_confirm.js';
 import * as m0074 from './0074_idempotency_key_retention.js';
 import * as m0075 from './0075_land_building_allocation_plausibility.js';
+import * as m0076 from './0076_audit_record_pseudonymisation.js';
 
 /**
  * All DE migrations, in order. Listed statically (instead of scanning the
@@ -157,4 +158,5 @@ export const migrations: Record<string, Migration> = {
   '0073_ownership_start_on_confirm': m0073,
   '0074_idempotency_key_retention': m0074,
   '0075_land_building_allocation_plausibility': m0075,
+  '0076_audit_record_pseudonymisation': m0076,
 };

@@ -42,6 +42,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import type { Json as View } from './phase-8-acceptance.test-support.js';
 import { mrePrincipalVerifier } from './wiring.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-54 end to end (api-design.md §58P "Tests the implementation needs"; Entscheidung des Projektinhabers, 2026-11-05,
@@ -127,7 +128,7 @@ describe.skipIf(databaseUrl === undefined)('terms records and closings as part c
     return (await res.json()) as T;
   };
   const eur = (amount: string) => ({ amount, currency: 'EUR' });
-  const at = (id: string, iso: string) => pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   const recordOf = async (entityId: string, action: string) =>
     (await pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2`, [entityId, action])).rows[0].id as string;
   let counter = 0;

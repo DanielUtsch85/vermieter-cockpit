@@ -12,6 +12,7 @@ import { PostgresTaxStatementRepository } from './infrastructure/postgres/tax-st
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
 import { OTHER_REALM, REALM, actor, databaseUrl, day, due, eur, nextTenant, useTaxYearDatabase } from './infrastructure/postgres/tax-year.test-support.js';
 import { Money } from './shared/index.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-49 persistence (api-design.md §58H, migration 0064): `LOAN_CLOSED` derived in the view's and the command's
@@ -48,7 +49,7 @@ describe.skipIf(databaseUrl === undefined)('further silent inputs of the tax yea
   };
   const lineOf = async (pr: string, year: number, category: string) =>
     [...(await view(pr, year)).einnahmen.lines, ...(await view(pr, year)).werbungskosten.lines].find((l) => l.taxCategory === category)?.total.amount ?? '0.00';
-  const at = (id: string, iso: string) => ctx.pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(ctx.pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   const recordOf = async (entityId: string, action: string) =>
     (await ctx.pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2 ORDER BY occurred_at DESC LIMIT 1`, [entityId, action])).rows[0]
       .id as string;

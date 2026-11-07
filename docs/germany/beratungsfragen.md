@@ -4,7 +4,7 @@
 **Stand:** 31.10.2026 (#172; VC-X-30); Antworten nachgetragen am 01.11.2026 (Prüfbericht, [`pruefbericht-2026-11-01.md`](pruefbericht-2026-11-01.md))
 **Bezug:** [`verification-checklist.md`](verification-checklist.md) v0.3, Spalte „Bestätigt durch“
 
-> **Zweck:** Die Prüfliste ist von einer Coding-Session recherchiert, nicht von einer Fachperson bestätigt. Diese Seite fasst die fünf Punkte zusammen, bei denen Geld und Unsicherheit zusammentreffen, als Vorlage für ein Gespräch mit der Steuerberatung. Je Punkt: die Frage in einem Satz, der heutige Stand der Spezifikation und was die Software damit tut. Alle Rechtsangaben stammen aus der Prüfliste, `taxation.md` oder `depreciation.md`; was dort nicht belegt ist, ist mit **VERIFY** markiert. Die Seite enthält keine personenbezogenen Daten; Beispiele im Gespräch nur mit erfundenen Werten.
+> **Zweck:** Die Prüfliste ist von einer Coding-Session recherchiert, nicht von einer Fachperson bestätigt. Diese Seite fasst die fünf Punkte zusammen, bei denen Geld und Unsicherheit zusammentreffen, als Vorlage für ein Gespräch mit der Steuerberatung; die Punkte 6 und 7 (VC-X-24, nachgetragen am 06.11.2026) betreffen die Aufbewahrung der Audit-Historie. Je Punkt: die Frage in einem Satz, der heutige Stand der Spezifikation und was die Software damit tut. Alle Rechtsangaben stammen aus der Prüfliste, `taxation.md` oder `depreciation.md`; was dort nicht belegt ist, ist mit **VERIFY** markiert. Die Seite enthält keine personenbezogenen Daten; Beispiele im Gespräch nur mit erfundenen Werten.
 
 **Nicht auf dieser Seite:** Punkte mit `Primärquelle` (C1, E1, E6) und A7 (GrESt-Sätze, ein datierter Länderparameter, der mit dem jeweiligen Landesgesetz zu belegen ist, keine Beratungsfrage), sowie alles Mechanische (Rundung, Stichtagsgrenzen, Idempotenz).
 
@@ -129,9 +129,31 @@
 
 ---
 
-## 7. Darlehen teils außerhalb der Vermietung: Entwicklung der Anteile über die Laufzeit (Prüfbericht Frage 21; VC-X-43)
+## 6. Aufbewahrung der Audit-Historie: verlängert eine offene Festsetzungsfrist die zehn Jahre? (VC-X-24)
 
-*(Nummer 7, weil die Nummer 6 mit VC-X-24, PR #297, vergeben ist.)*
+**Frage:** Verlängert eine noch offene Festsetzungsfrist (§ 147 Abs. 3 Satz 5 AO) die Aufbewahrung der Änderungshistorie über die zehn Jahre ab Ende des Entstehungsjahres hinaus, sodass DE die Werte in dieser Zeit noch nicht ersetzen dürfte?
+
+**Stand der Spezifikation:** Die zehn Jahre sind eine Entscheidung des Projektinhabers, keine Bestätigung der Beratung (Entscheidung des Projektinhabers, 2026-11-06; `api-design.md` §58U, offene Frage 5). Gezählt wird ab dem Ende des Kalenderjahres, in dem der AuditRecord entstand (Europe/Berlin); fällig ab dem 1. Januar des Jahres `Y + 11`. Seit 2025 gilt für Buchungsbelege eine Frist von acht Jahren (**VERIFY**); auch das ändert die zehn Jahre nicht, solange der Projektinhaber nichts anderes entscheidet.
+
+**Was die Software tut:** Sie ersetzt ab dem Fälligkeitstag in der Historie geänderter Parteien (Namen, Registernummer, E-Mail, Telefon) die alten und neuen Werte durch einen festen Marker; der Datensatz bleibt. **Bis zur Antwort gilt die vorsichtige Lesart:** keine Verlängerung, **keine Sperrflagge** je Realm, die den Lauf aussetzt.
+
+**Warum es zählt:** Ist eine Frist offen, könnte die Historie für eine Prüfung noch gebraucht werden; dann bräuchte es eine Sperre je Realm.
+
+**Offen.**
+
+## 7. Fällt die Historie von E-Mail und Telefon überhaupt unter § 147 AO? (VC-X-24)
+
+**Frage:** Gehört die Änderungshistorie von E-Mail-Adresse und Telefonnummer einer Partei (Mieter, Eigentümer, Darlehensgeber) zu den aufzubewahrenden Unterlagen nach § 147 AO, oder darf sie auf Antrag der Person (Art. 17 DSGVO) vor Ablauf der zehn Jahre entfernt werden?
+
+**Stand der Spezifikation:** Ein Antrag auf Löschung innerhalb der zehn Jahre ändert nichts; der Betreiber antwortet mit dem Fristende und schränkt die Verarbeitung ein (Art. 17 Abs. 3 lit. b, Art. 18 DSGVO; Entscheidung des Projektinhabers, 2026-11-06; `api-design.md` §58U, offene Frage 9; `betrieb.md` Abschnitt 12).
+
+**Was die Software tut:** Das Skript `scripts/ops/audit-erasure.sh` listet die Datensätze mit ihrem Fristende und ersetzt nur, was abgelaufen ist. **Bis zur Antwort gilt die vorsichtige Lesart:** auch E-Mail und Telefon bleiben zehn Jahre.
+
+**Warum es zählt:** E-Mail und Telefon sind keine steuerlichen Zahlen; dürfen sie früher weg, würde das Skript sie auf Antrag sofort ersetzen und die zehn Jahre gälten nur noch für die Namen.
+
+**Offen.**
+
+## 8. Darlehen teils außerhalb der Vermietung: Entwicklung der Anteile über die Laufzeit (Prüfbericht Frage 21; VC-X-43)
 
 **Frage:** Ein Darlehen finanziert teils vermietete Objekte und teils private oder andere Zwecke (z. B. 1/5 der Mittel für einen privaten Pkw, synthetisch). Bleibt der nicht einkünfterelevante Anteil über die Laufzeit so, wie die Mittel bei der Auszahlung verwendet wurden, oder dürfen Tilgungen (auch Sondertilgungen) zuerst dem privaten Teil zugeordnet werden, sodass der Anteil der Vermietung steigt? Was ändert die Anteile sonst (Verkauf des privat Angeschafften, Umschuldung), und welche Belege genügen als Nachweis der Mittelverwendung?
 

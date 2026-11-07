@@ -10,6 +10,7 @@ import { PostgresTaxClassificationRepository } from './infrastructure/postgres/t
 import { PostgresTaxStatementRepository } from './infrastructure/postgres/tax-statement-repository.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
 import { OTHER_REALM, REALM, actor, databaseUrl, day, eur, nextTenant, useTaxYearDatabase } from './infrastructure/postgres/tax-year.test-support.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-50 persistence (api-design.md §58I, migration 0065): `DEPOSIT_REOPENED`/`DEPOSIT_CLOSED` derived in the view's and
@@ -43,7 +44,7 @@ describe.skipIf(databaseUrl === undefined)('the deposit s other movers (§58I)',
   const openCodes = (v: Awaited<ReturnType<typeof view>>) => v.review.open.map((o) => o.code).filter((c) => c !== 'OWNERSHIP_INCOMPLETE');
   const lineOf = async (pr: string, year: number, category: string) =>
     (await view(pr, year)).einnahmen.lines.find((l) => l.taxCategory === category)?.total.amount ?? '0.00';
-  const at = (id: string, iso: string) => ctx.pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(ctx.pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   const recordIds = async (entityId: string, action: string) =>
     (await ctx.pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2`, [entityId, action])).rows.map((r) => r.id as string);
   /** The one record of the action not yet re-timed: the times set here may lie after the new record's (written now). */
@@ -249,7 +250,7 @@ describe.skipIf(databaseUrl === undefined)('the deposit s other movers (§58I)',
   it('an inconsistent deposit history (a REOPENED clearing another closing) is ATTRIBUTION_HISTORY_INCONSISTENT with SecurityDeposit; its records unused', async () => {
     const { P1, D } = await exampleA();
     const reopened = await reopen(D, '2028-02-12T10:00:00Z');
-    await ctx.pool.query(`UPDATE audit_record SET metadata = jsonb_set(metadata, '{cleared,closingDate}', '"2027-12-21"') WHERE id = $1`, [reopened]);
+    await stageAudit(ctx.pool, `UPDATE audit_record SET metadata = jsonb_set(metadata, '{cleared,closingDate}', '"2027-12-21"') WHERE id = $1`, [reopened]);
     const v = await view(P1, 2027);
     expect(v.flags.filter((f) => f.code === 'ATTRIBUTION_HISTORY_INCONSISTENT')).toEqual([
       { code: 'ATTRIBUTION_HISTORY_INCONSISTENT', details: { entityType: 'SecurityDeposit', entityId: D } },
@@ -454,7 +455,8 @@ describe.skipIf(databaseUrl === undefined)('the deposit s other movers (§58I)',
   it('an inconsistent correction history (the record s replacement differs from the link) is ATTRIBUTION_HISTORY_INCONSISTENT with Transaction', async () => {
     const { P1, U, tx, reconciliationId, P2 } = await exampleB();
     const { record } = await moved({ tx, reconciliationId }, U, [split('950.00', 'RENT_BASE', { propertyReferenceId: P2 })]);
-    await ctx.pool.query(
+    await stageAudit(
+      ctx.pool,
       `UPDATE audit_record SET metadata = jsonb_set(metadata, '{replacementTransactionId}', '"00000000-0000-4000-8000-000000000000"') WHERE id = $1`,
       [record],
     );

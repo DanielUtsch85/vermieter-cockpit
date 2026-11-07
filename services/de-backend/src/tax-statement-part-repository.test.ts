@@ -13,6 +13,7 @@ import { readTaxYear } from './infrastructure/postgres/tax-year-reads.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
 import { OTHER_REALM, REALM, actor, databaseUrl, day, useTaxYearDatabase } from './infrastructure/postgres/tax-year.test-support.js';
 import { Money } from './shared/index.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-48 persistence (api-design.md §58G, migration 0063): the part changes derived in the view's and the command's
@@ -38,7 +39,7 @@ describe.skipIf(databaseUrl === undefined)('part changes of the allocation sets 
   };
   const interestLine = async (pr: string, year: number) =>
     (await view(pr, year)).werbungskosten.lines.find((l) => l.taxCategory === 'LOAN_INTEREST')?.total.amount ?? '0.00';
-  const at = (id: string, iso: string) => ctx.pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(ctx.pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   const recordOf = async (entityId: string, action: string) =>
     (await ctx.pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2`, [entityId, action])).rows[0].id as string;
   const share = (n: bigint, d: bigint) => ({ numerator: n, denominator: d });

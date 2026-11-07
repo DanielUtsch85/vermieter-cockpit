@@ -106,7 +106,7 @@ Eine Sicherung auf demselben Rechner schützt nicht gegen Plattenausfall, Diebst
 | wöchentlich | Lauf am Sonntag (`WEEKLY_DAY`) | die letzten **8** | `weekly/JJJJ-Www` (ISO-Woche) |
 | monatlich | Lauf am 1. des Monats | die letzten **12** | `monthly/JJJJ-MM` |
 
-Wochen- und Monatskopien sind harte Links auf die Tagessicherung und belegen keinen zusätzlichen Platz, solange die Tagessicherung existiert. Damit reicht die Sicherung rund ein Jahr zurück; am zweiten Ort gilt dieselbe Grenze über dessen Lebenszyklus-Regel (Löschen nach 365 Tagen, wo die Objektsperre es erlaubt). Gelöscht wird nach Name, also nach Datum: je Art bleiben die neuesten N Verzeichnisse. Ein zweiter Lauf am selben Tag erhält das Verzeichnis `daily/JJJJ-MM-TT-<Zeitstempel>` und zählt als eigene Tagessicherung. Die Zahlen 14/8/12 sind bestätigt (Entscheidung des Projektinhabers, 2026-11-06). VC-X-24 (Pseudonymisierung im Audit) betrifft die Live-Daten; Sicherungen älter als ein Jahr sind gelöscht, das ist mit beidem vereinbar. Wer die Zahlen ändert, setzt die drei Variablen und trägt das hier ein. Jede muss mindestens 1 sein: bei 0 bricht `backup.sh` mit „FEHLER“ ab, bevor es etwas schreibt, denn `KEEP_DAILY=0` löschte die eben geschriebene Sicherung und ihre Datei in `outbox/` gleich wieder.
+Wochen- und Monatskopien sind harte Links auf die Tagessicherung und belegen keinen zusätzlichen Platz, solange die Tagessicherung existiert. Damit reicht die Sicherung rund ein Jahr zurück; am zweiten Ort gilt dieselbe Grenze über dessen Lebenszyklus-Regel (Löschen nach 365 Tagen, wo die Objektsperre es erlaubt). Gelöscht wird nach Name, also nach Datum: je Art bleiben die neuesten N Verzeichnisse. Ein zweiter Lauf am selben Tag erhält das Verzeichnis `daily/JJJJ-MM-TT-<Zeitstempel>` und zählt als eigene Tagessicherung. Die Zahlen 14/8/12 sind bestätigt (Entscheidung des Projektinhabers, 2026-11-06). VC-X-24 (Pseudonymisierung im Audit, Abschnitt 12) betrifft die Live-Daten: Ein Dump hält die Werte so, wie sie an seinem Tag standen; ein ersetzter Wert hat damit spätestens rund ein Jahr nach dem Lauf jede Kopie verlassen (365 Tage am zweiten Ort). Sicherungen älter als ein Jahr sind gelöscht, das ist mit beidem vereinbar. Ein Restore einer älteren Kopie bringt lesbare fällige Werte zurück; der Lauf beim Start ersetzt sie vor der ersten Antwort (Abschnitt 7). Wer die Zahlen ändert, setzt die drei Variablen und trägt das hier ein. Jede muss mindestens 1 sein: bei 0 bricht `backup.sh` mit „FEHLER“ ab, bevor es etwas schreibt, denn `KEEP_DAILY=0` löschte die eben geschriebene Sicherung und ihre Datei in `outbox/` gleich wieder.
 
 ## 5. Prüfung jeder Sicherung
 
@@ -169,6 +169,7 @@ Voraussetzungen: Docker mit Compose v2, Git, Zugriff auf den zweiten Ort und auf
 - **Gesundheit:** `curl -fsS http://localhost:8090/health/live`, `curl -fsS http://localhost:8090/health/ready` (beide `{"status":"ok"}`), `curl -fsS http://localhost:8080/health` (MRE-Gateway).
 - **Ein Lesezugriff je Bereich**, angemeldet als ein Nutzer der Installation (über die Oberfläche oder mit Token und `organizationid`): Kassenbuch (`GET /api/v1/transactions`), Objekte (`GET /api/v1/property-references`), Darlehen, Kaution, WEG, Steuerjahr-Ansicht eines Objekts, Mietabgleich eines Monats; in MRE die Mieterliste. Jede Antwort `200` mit den erwarteten Einträgen, keine `500`.
 - **Unveränderlichkeit greift:** eine bestätigte Buchung lässt sich weiterhin nicht ändern (die Trigger aus ADR-037 sind Teil des Dumps).
+- **Pseudonymisierung gelaufen (VC-X-24):** im Log des ersten Starts nach dem Restore steht vor `de-backend listening` die Zeile `audit pseudonymisation: <n> record(s) pseudonymised (retention 10 years, created before <Datum>)`; bei `audit pseudonymisation failed` den Fehler beheben und neu starten. Danach jede Löschung auf Antrag aus den Unterlagen des Betreibers wiederholen, die jünger ist als die Kopie (Abschnitt 12). Die Wächter auf `audit_record` (Migration 0076) sind Teil des Dumps und entstehen erst nach den Daten (Abschnitt „post-data“), daher weist der Restore pseudonymisierte Datensätze nicht ab.
 - `DEPRECIATION_RECORDING_ENABLED` ist nach dem Restore so gesetzt wie vorher (für den Go-live: ungesetzt, also aus).
 
 ## 8. Restore geübt
@@ -334,7 +335,7 @@ Die Fragen aus #286, entschieden am 2026-11-06 (Entscheidung des Projektinhabers
 
 1. **Zweiter Ort:** vor dem Kopieren verschlüsseln (`age` oder `restic`), weil die Dumps personenbezogene Daten enthalten; Ziel mit Versionierung oder Objektsperre, Schreibzugang nur anhängend. Den Anbieter wählt der Projektinhaber; die Anleitung bleibt bei `BACKUP_COPY_CMD` und beschreibt die Verschlüsselung als Pflichtschritt davor. Umgesetzt in Abschnitt 3.
 2. **MRE-Dateien:** ja, zwei Volumes am `pdfgenerator`, `mre-pdf-uploads` und `mre-pdf-data`, gesichert als `tar` mit in `MANIFEST` und `SHA256SUMS`, mit Restore-Schritt; Backlog-Zeile VC-X-60 mit dem Hinweis, dass Upstream dieselbe Lücke hat. Umgesetzt in den Abschnitten 1, 2, 5 und 6, mit der Abweichung `pdf_documents/` statt `data/` (Abschnitt 1, zur Bestätigung).
-3. **Aufbewahrung 14/8/12:** bestätigt; VC-X-24 betrifft die Live-Daten, Sicherungen älter als ein Jahr sind weg (Abschnitt 4).
+3. **Aufbewahrung 14/8/12:** bestätigt; VC-X-24 betrifft die Live-Daten, Sicherungen älter als ein Jahr sind weg (Abschnitt 4); die Pseudonymisierung und die Löschung auf Antrag stehen in Abschnitt 12.
 4. **Überwachung:** aktiv melden, Cron-Check gegen 26 Stunden über `BACKUP_ALERT_CMD`, Standard Cron-Mail (Abschnitt 2a).
 5. **Restore auf frischem Rechner:** beim Projektinhaber, auf dem Produktivrechner vor dem ersten Datenbestand (Abschnitt 8).
 
@@ -420,3 +421,38 @@ docker compose pull            # zieht genau die gepinnten Digests; ein falscher
 ```
 
 In CI: `build-test` (Pin-Prüfung, Tests gegen den Postgres-Service-Container) und `compose-smoke` (zieht alle gepinnten Images, startet den Stack, MRE-Contract-Test, Auth-, Backup- und Proxy-Prüfung inklusive `caddy validate` im gepinnten Caddy-Image). Erst wenn beide grün sind, ist der neue Pin geprüft. Auf dem Produktivrechner danach `docker compose -f docker-compose.yml -f docker-compose.proxy.yml pull` und `up -d --wait`, vorher eine Sicherung (Abschnitt 2).
+
+## 12. Personenbezogene Daten im Audit: Pseudonymisierung und Löschung auf Antrag (VC-X-24)
+
+Grundlage: `api-design.md` §58U; Entscheidung des Projektinhabers, 2026-11-06.
+
+### 12.1 Was der Dienst selbst tut
+
+- **Zehn Jahre lesbar:** Ein `AMENDED`-AuditRecord hält die alten und neuen Werte einer Änderung. Zehn Jahre ab dem Ende seines Entstehungsjahres (Kalenderjahr in Europe/Berlin, § 147 Abs. 4 AO) bleiben sie, wie sie geschrieben wurden.
+- **Danach ersetzt, nie gelöscht:** Ab dem 1. Januar des Jahres `Entstehungsjahr + 11`, 00:00 Uhr Berlin, ersetzt `de-backend` in diesen Datensätzen die sieben Felder der Partei (`displayName`, `firstName`, `lastName`, `legalName`, `registrationNumber`, `email`, `phone`, jeweils `from` und `to`) durch den festen Marker `[entfernt:v1]`; `null` bleibt `null`. Der Datensatz bleibt, mit Feldnamen und Zeitpunkt; er sagt weiter, welches Feld wann geändert wurde. Im Dokument heißt das „pseudonymisiert“; **es gibt keinen Schlüssel**, aus dem Marker lässt sich nichts zurückrechnen, der Personenbezug endet. Je ersetztem Datensatz schreibt der Dienst einen `AUDIT_PSEUDONYMISED`-Datensatz an derselben Partei (Pfade, Grundlage, Ende der Aufbewahrung; kein Wert).
+- **Wann:** einmal beim Start, bevor der Dienst Anfragen annimmt, und einmal täglich. Je Lauf eine Log-Zeile `audit pseudonymisation: <n> record(s) pseudonymised (retention 10 years, created before <Datum>)`. Ein Fehler steht als `audit pseudonymisation failed: …` im Log, hält den Start nicht auf; der nächste Lauf versucht es wieder. Kein Cron, kein Secret, keine Einstellung.
+- **Außerhalb:** die aktuellen Werte einer Partei (auch einer deaktivierten), Freitexte (`description`, `notes`, `sourceReferences`, `contractNumber`, Nachweise), andere Aktionen (`reason` von `VOIDED`/`DEACTIVATED`/`CORRECTED`, Notizen in `CREATED`) und `actor_id`. Wer in Freitexte Namen schreibt, tut es gegen die Anleitung.
+- **Datenbank:** `audit_record` ist seit Migration 0076 unveränderlich: `DELETE` und `TRUNCATE` werden abgewiesen, `UPDATE` nur als diese Ersetzung. Der Wächter schützt vor einem Fehler im Dienst, nicht vor dem Datenbankeigentümer, der einen Trigger abschalten kann; eine eigene Datenbankrolle ohne `UPDATE`/`DELETE` ist eine eigene Backlog-Zeile (Betriebshärtung).
+
+### 12.2 Löschung auf Antrag (Art. 17 DSGVO)
+
+1. **Antrag ablegen:** wer, wann, was, und wie die Person identifiziert wurde, in den Unterlagen des Betreibers, **nicht** im Repository und nicht in der DE-Datenbank.
+2. **Partei bestimmen:** die `partyId` in DE und den Realm (`mreRealmId`) mit der antragstellenden Person klären.
+3. **Probelauf** (Standard, schreibt nichts):
+
+   ```sh
+   scripts/ops/audit-erasure.sh <mreRealmId> <partyId>
+   ```
+
+   Eine Zeile je `AMENDED`-Datensatz der Partei: Id, Zeitpunkt, Entstehungsjahr, Ende der Aufbewahrung, `pseudonymised_at`, Zustand und die Pfade, die ersetzt würden; am Ende eine Zusammenfassung mit dem spätesten Fristende. Nur Ids und Daten, kein Wert. Eine Partei eines anderen Realms wird nicht gefunden (Status 1).
+4. **Aufbewahrungspflicht prüfen:** Innerhalb der zehn Jahre wird **nichts geändert**. Der Betreiber antwortet mit dem Fristende (`31.12.` des Entstehungsjahres + 10) unter Verweis auf § 147 AO und Art. 17 Abs. 3 lit. b DSGVO und schränkt die Verarbeitung ein (Art. 18 DSGVO): Version 1 hat keine Audit-Lesung, nichts zeigt die Historie an. Ob die Historie von E-Mail und Telefon überhaupt unter § 147 AO fällt oder auf Antrag früher entfernt werden darf, ist eine offene Frage an die Beratung (`docs/germany/beratungsfragen.md`, Frage 7); bis zur Antwort gilt diese vorsichtige Lesart.
+5. **Anwenden:**
+
+   ```sh
+   scripts/ops/audit-erasure.sh <mreRealmId> <partyId> --apply
+   ```
+
+   Ersetzt die Werte der Datensätze, deren Aufbewahrung abgelaufen ist, mit demselben Code wie der tägliche Lauf (`basis: "ERASURE_REQUEST"`); mit dem täglichen Lauf ist das normalerweise nichts. Die aktuellen Werte der Partei ändert das Skript nicht; deckt der Antrag sie ab, ändert oder deaktiviert der Betreiber die Partei über die API.
+6. **Ergebnis vermerken:** in den Unterlagen des Betreibers (Ids und Daten), damit es nach einem Restore wiederholt werden kann (Abschnitt 7).
+
+Das Skript läuft gegen den laufenden Container (`docker compose exec -T de-backend node dist/audit-erasure.js …`, liest dort `DATABASE_URL`); `COMPOSE_DIR`, `COMPOSE_CMD` und `DE_BACKEND_SERVICE` wie in den anderen Skripten. Eine offene Festsetzungsfrist verlängert die zehn Jahre bis zur Antwort der Beratung nicht (`beratungsfragen.md`, Frage 6); eine Sperrflagge gibt es nicht.

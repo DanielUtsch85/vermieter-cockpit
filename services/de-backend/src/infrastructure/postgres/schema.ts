@@ -36,6 +36,8 @@ export interface AuditRecordTable {
   metadata: Json<Record<string, unknown> | null> | null;
   previous_version: number | null;
   new_version: number | null;
+  /** VC-X-24 (migration 0076): when the personal values were replaced by the marker; `NULL` on insert. */
+  pseudonymised_at: Generated<Date | null>;
 }
 
 export interface FinancialAccountTable {

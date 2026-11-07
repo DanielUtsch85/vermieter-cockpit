@@ -10,6 +10,7 @@ import { readTaxYear } from './infrastructure/postgres/tax-year-reads.js';
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
 import { OTHER_REALM, REALM, actor, databaseUrl, day, useTaxYearDatabase } from './infrastructure/postgres/tax-year.test-support.js';
 import { Money } from './shared/index.js';
+import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
 
 /**
  * VC-X-54 persistence (api-design.md §58P, migration 0071): `LOAN_TERMS_PART_ADDED`, `LOAN_TERMS_PART_VOIDED` and
@@ -38,7 +39,7 @@ describe.skipIf(databaseUrl === undefined)('terms records and closings as part c
     (e?.items ?? []).map((i) => [i.sourceId, i.stateBefore, i.partBefore?.amount ?? null, i.stateAfter, i.partAfter?.amount ?? null]);
   const interestLine = async (pr: string, year: number) =>
     (await view(pr, year)).werbungskosten.lines.find((l) => l.taxCategory === 'LOAN_INTEREST')?.total.amount ?? '0.00';
-  const at = (id: string, iso: string) => ctx.pool.query(`UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
+  const at = (id: string, iso: string) => stageAudit(ctx.pool, `UPDATE audit_record SET occurred_at = $2 WHERE id = $1`, [id, iso]);
   const recordOf = async (entityId: string, action: string) =>
     (await ctx.pool.query(`SELECT id FROM audit_record WHERE entity_id = $1 AND action = $2 ORDER BY occurred_at DESC LIMIT 1`, [entityId, action])).rows[0]
       .id as string;

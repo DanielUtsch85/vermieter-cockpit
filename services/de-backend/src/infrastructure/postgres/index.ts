@@ -41,6 +41,7 @@ export { PostgresTaxClassificationRepository } from './tax-classification-reposi
 export { PostgresTaxStatementRepository } from './tax-statement-repository.js';
 export { checkStoredRuleReferences } from './tax-rule-check.js';
 export { purgeExpiredIdempotencyKeys, startIdempotencyKeyCleanup } from './idempotency-retention.js';
+export { pseudonymiseDueAuditRecords, startAuditPseudonymisation } from './audit-retention.js';
 export { PostgresRentalContractReferenceRepository } from './rental-contract-reference-repository.js';
 export { PostgresDepreciationAssetRepository } from './depreciation-asset-repository.js';
 export { PostgresDepreciationScheduleSource } from './depreciation-schedule-source.js';
