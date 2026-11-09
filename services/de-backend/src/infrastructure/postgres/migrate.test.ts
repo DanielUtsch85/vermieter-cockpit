@@ -56,6 +56,20 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
     const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration`);
     expect(applied.rows.map((r) => r.name)).not.toContain('9999_failing');
   });
+
+  it('a migration throwing a plain object names it as JSON in the message, not as [object Object]', { timeout: 30_000 }, async () => {
+    const failing = {
+      ...migrations,
+      '9999_failing_object': {
+        up: async () => {
+          throw { code: 'X1', detail: 'plain' };
+        },
+      },
+    };
+    await expect(migrateToLatest(pool, { migrations: failing, migrationTableSchema: schema })).rejects.toThrow(
+      'Database migration failed at 9999_failing_object: {"code":"X1","detail":"plain"}',
+    );
+  });
 });
 
 describe.skipIf(databaseUrl === undefined)('migrateToLatest with a single-connection pool', () => {
