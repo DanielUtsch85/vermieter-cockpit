@@ -1,5 +1,5 @@
 import { centsOf, moneyOfCents, type BusinessDate, type Money, type RuleRef } from '../../shared/index.js';
-import type { AfaItem, AfaLine, CapitalizedComponent, TaxYearDepreciationBlock, TaxYearItem, ViewFlag } from './tax-year-response.js';
+import type { AfaItem, AfaItemFlag, AfaLine, CapitalizedComponent, TaxYearDepreciationBlock, TaxYearItem, ViewFlag } from './tax-year-response.js';
 import { NOT_OWNED } from './tax-year-shares.js';
 
 /**
@@ -261,10 +261,12 @@ function afaItemOf(p: Placed, year: number, currency: string, participant: strin
   const cents = parts.reduce((s, x) => s + centsOf(x.amount as Money), 0n);
   const own = participant === undefined ? undefined : parts[0];
   // At the property level each part flag once, the owners named (as the schedule's component year); else the owner's.
-  const partFlags: readonly ViewFlag[] =
+  // A part flag merged at the property level is open while any part raised it open (§58T follow-up, 2026-11-07).
+  const partFlags: readonly AfaItemFlag[] =
     participant === undefined
       ? unique(c.parts.flatMap((x) => x.flags.map((f) => f.code))).map((code) => ({
           code,
+          level: c.parts.some((x) => x.flags.some((f) => f.code === code && f.level === 'OPEN')) ? 'OPEN' : 'INFORMATIVE',
           details: { ownerPartyIds: unique(c.parts.filter((x) => x.flags.some((f) => f.code === code)).map(keyOf)).sort() },
         }))
       : (own?.flags ?? []);
@@ -293,7 +295,7 @@ function afaItemOf(p: Placed, year: number, currency: string, participant: strin
             partKey: own.partKey,
           },
     href: hrefOf(p.asset.assetId, year, participant),
-    flags: [...c.flags.map((f) => ({ code: f.code, details: f.details })), ...partFlags.map((f) => ({ code: f.code, details: f.details }))],
+    flags: [...c.flags, ...partFlags].map((f) => ({ code: f.code, level: f.level, details: f.details })),
   };
 }
 

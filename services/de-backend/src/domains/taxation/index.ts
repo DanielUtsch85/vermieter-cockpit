@@ -335,6 +335,7 @@ export {
 } from './tax-year-view.js';
 export type {
   AfaItem,
+  AfaItemFlag,
   AfaLine,
   AfaLineCode,
   CapitalizedComponent,
