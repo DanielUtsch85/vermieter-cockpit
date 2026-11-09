@@ -170,7 +170,7 @@ describe('the schedule read with its stages (§60A "The schedule read")', () => 
       today,
     });
     expect(staged.years.map((y) => y.stage)).toEqual([null]);
-    const owner = read(withRepair, 1, acc8().ownerships[1]?.partyId as string).staged;
+    const owner = read(withRepair, 1, acc8().ownerships[1]?.partyId).staged;
     expect(owner.years.map((y) => y.stage?.stage)).toEqual([1, 2, 2]);
   });
 });

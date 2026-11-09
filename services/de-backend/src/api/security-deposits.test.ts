@@ -243,7 +243,7 @@ describe('POST /api/v1/security-deposits/{id}/amend', () => {
   it('passes only the given fields; null clears; If-Match carries the versions', async () => {
     const seen: { changes: DepositChanges; expectedVersions?: readonly number[] }[] = [];
     const base = await start({
-      securityDeposits: { amend: async (input) => (seen.push(input), { deposit: { ...deposit, version: 2 } as DepositView, changed: true }) },
+      securityDeposits: { amend: async (input) => (seen.push(input), { deposit: { ...deposit, version: 2 }, changed: true }) },
     });
     const res = await call(base, 'POST', `/security-deposits/${ID}/amend`, { holdingFinancialAccountId: null, notes: '' }, { 'if-match': '"1"' });
     expect(res.status).toBe(200);
@@ -284,7 +284,7 @@ describe('POST /api/v1/security-deposits/{id}/void', () => {
     const base = await start({
       securityDeposits: {
         void: async ({ reason }) => ({
-          deposit: { ...deposit, status: 'VOID', voidReason: reason, voidedAt: new Date('2027-02-01T00:00:00Z'), version: 2 } as DepositView,
+          deposit: { ...deposit, status: 'VOID', voidReason: reason, voidedAt: new Date('2027-02-01T00:00:00Z'), version: 2 },
           changed: true,
         }),
       },

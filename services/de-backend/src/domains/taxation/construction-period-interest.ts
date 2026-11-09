@@ -124,7 +124,7 @@ export function pickFacts(r: ConstructionPeriodFacts): ConstructionPeriodFacts {
 }
 
 const definedOnly = (changes: ConstructionPeriodChanges): Partial<ConstructionPeriodFacts> =>
-  Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined)) as Partial<ConstructionPeriodFacts>;
+  Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined));
 
 // ---------------------------------------------------------------------------------------------------------------------
 // The conditions (§59E "What becomes a capitalised source")

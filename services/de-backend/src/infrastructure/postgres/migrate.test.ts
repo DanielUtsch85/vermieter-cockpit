@@ -50,7 +50,9 @@ describe.skipIf(databaseUrl === undefined)('migrateToLatest', () => {
         },
       },
     };
-    await expect(migrateToLatest(pool, { migrations: failing, migrationTableSchema: schema })).rejects.toThrow('Database migration failed at 9999_failing');
+    await expect(migrateToLatest(pool, { migrations: failing, migrationTableSchema: schema })).rejects.toThrow(
+      'Database migration failed at 9999_failing: Error: boom',
+    );
     const applied = await pool.query<{ name: string }>(`SELECT name FROM "${schema}".kysely_migration`);
     expect(applied.rows.map((r) => r.name)).not.toContain('9999_failing');
   });

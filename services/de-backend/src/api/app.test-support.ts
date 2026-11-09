@@ -131,7 +131,7 @@ export type CommandOverrides = { readonly [M in keyof AppCommands]?: Partial<App
 export function commandsWith(...overrides: readonly CommandOverrides[]): AppCommands {
   const merged: Record<string, object> = { ...unusedCommands };
   for (const override of overrides) {
-    for (const [module, commands] of Object.entries(override)) merged[module] = { ...merged[module], ...(commands as object) };
+    for (const [module, commands] of Object.entries(override)) merged[module] = { ...merged[module], ...commands };
   }
   return merged as unknown as AppCommands;
 }

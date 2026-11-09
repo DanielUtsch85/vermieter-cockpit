@@ -50,7 +50,21 @@ async function migrate(pool: pg.Pool, options: MigrateOptions): Promise<readonly
   const { error, results } = await migrator.migrateToLatest();
   if (error !== undefined) {
     const failed = results?.find((r) => r.status === 'Error')?.migrationName ?? 'unknown';
-    throw new Error(`Database migration failed at ${failed}: ${String(error)}`);
+    throw new Error(`Database migration failed at ${failed}: ${describeError(error)}`);
   }
   return results ?? [];
+}
+
+/**
+ * Kysely reports the failure as `unknown` (whatever the migration threw). Errors and primitives render exactly as
+ * `String(error)` did; a thrown plain object is serialised instead of collapsing to `[object Object]`.
+ */
+function describeError(error: unknown): string {
+  if (error instanceof Error) return String(error);
+  if (typeof error !== 'object' || error === null) return String(error);
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return Object.prototype.toString.call(error);
+  }
 }

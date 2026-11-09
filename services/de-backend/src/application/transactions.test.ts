@@ -126,7 +126,7 @@ describe('confirmTransaction', () => {
     [{ kind: 'INACTIVE_CATEGORY', codes: ['OLD'] }, InactiveCategoryError],
     [{ kind: 'VERSION_CONFLICT', expectedVersions: [2], currentVersion: 3 }, VersionConflictError],
   ] as const)('maps %o', async (outcome, error) => {
-    const { repository } = answering(outcome as ConfirmOutcome);
+    const { repository } = answering(outcome);
     await expect(confirmTransaction({ repository })({ principal, transactionId: 't-1' })).rejects.toBeInstanceOf(error);
   });
 });

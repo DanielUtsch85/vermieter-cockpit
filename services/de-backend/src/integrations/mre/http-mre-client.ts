@@ -413,7 +413,7 @@ function toAddress(value: unknown): MreAddress | null {
   const parsed = addressDto.safeParse(value);
   if (!parsed.success) return null;
   const parts = Object.fromEntries(Object.entries(parsed.data).filter(([, part]) => part !== undefined && part !== ''));
-  return Object.keys(parts).length === 0 ? null : (parts as MreAddress);
+  return Object.keys(parts).length === 0 ? null : parts;
 }
 
 /**

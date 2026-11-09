@@ -12,7 +12,6 @@ import {
   PropertyReferenceNotFoundError,
   type CreateManualTransaction,
   type CreateManualTransactionInput,
-  type Transaction,
 } from '../application/index.js';
 import { Money } from '../shared/index.js';
 import { createApp } from './app.js';
@@ -175,7 +174,7 @@ describe('GET /api/v1/transactions(/{id}) (§30.1, VC-X-21)', () => {
         get: async ({ transactionId }) => {
           if (transactionId !== transaction.id) throw new TransactionNotFoundError(transactionId);
           return {
-            transaction: { ...transaction, version: 3, counterpartyNameRaw: 'Erika Mieterin', counterpartyIbanRaw: 'DE02120300000000202051' } as Transaction,
+            transaction: { ...transaction, version: 3, counterpartyNameRaw: 'Erika Mieterin', counterpartyIbanRaw: 'DE02120300000000202051' },
             splits: [split],
           };
         },

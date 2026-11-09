@@ -256,7 +256,7 @@ export function summarize(rows: readonly RowOutcome[], ownPendingItems: number) 
     needsReviewCount: ownPendingItems,
     errorCount: count('error'),
     skippedCount: count('skipped'),
-    status: (ownPendingItems > 0 ? 'NEEDS_REVIEW' : 'COMPLETED') as ImportBatchStatus,
+    status: ownPendingItems > 0 ? 'NEEDS_REVIEW' : 'COMPLETED',
   };
 }
 

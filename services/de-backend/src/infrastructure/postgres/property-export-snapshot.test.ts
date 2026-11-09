@@ -72,7 +72,7 @@ describe.skipIf(databaseUrl === undefined)('PostgresPropertyExportSnapshots (VC-
 
   it('read only: a write through the snapshot fails in PostgreSQL', async () => {
     await expect(
-      snapshots.read((reads) => reads.parties.amend(id['pOwner'] as never, REALM, { displayName: 'Olga B.' } as never, { actorType: 'USER', actorId: 'x' })),
+      snapshots.read((reads) => reads.parties.amend(id['pOwner'] as never, REALM, { displayName: 'Olga B.' }, { actorType: 'USER', actorId: 'x' })),
     ).rejects.toThrow(/read-only transaction/);
   });
 

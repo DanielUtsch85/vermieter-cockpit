@@ -150,7 +150,7 @@ export async function wegContextOf(
           propertyReferenceId: m.property_reference_id,
           financialYearStartMonth: m.financial_year_start_month,
           use,
-          usesExceedPaid: exceeded === undefined ? null : (exceeded.details as { uses: Money; paid: Money }),
+          usesExceedPaid: exceeded === undefined ? null : exceeded.details,
         }),
       );
     }

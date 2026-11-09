@@ -98,7 +98,7 @@ function use(amount: string, date = '2028-02-15'): WegTaxMeaning {
     classificationId: id(),
     distribution: null,
     suggestion: null,
-    flags: [{ code: 'WITHDRAWAL_DATE_ASSUMED', details: { date: day(date), periodUntil: day(date) } }] as unknown as WegTaxMeaning['flags'],
+    flags: [{ code: 'WITHDRAWAL_DATE_ASSUMED', details: { date: day(date), periodUntil: day(date) } }],
   };
 }
 

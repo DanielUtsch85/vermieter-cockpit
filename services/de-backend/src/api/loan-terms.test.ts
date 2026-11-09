@@ -163,7 +163,7 @@ describe('POST /api/v1/loans/{id}/terms', () => {
       loanTerms: {
         create: async (input) => {
           seen.push(input);
-          return { terms: { ...view, paymentIntervalMonths: input.paymentIntervalMonths } as LoanTermsView, replayed: false };
+          return { terms: { ...view, paymentIntervalMonths: input.paymentIntervalMonths }, replayed: false };
         },
       },
     });
@@ -238,7 +238,7 @@ describe('POST /api/v1/loans/{id}/terms/{termsId}/void', () => {
       loanTerms: {
         void: async (input) => {
           seen.push(input);
-          return { terms: { ...view, status: 'VOID', voidReason: input.reason, version: 2 } as LoanTermsView, changed: true };
+          return { terms: { ...view, status: 'VOID', voidReason: input.reason, version: 2 }, changed: true };
         },
       },
     });

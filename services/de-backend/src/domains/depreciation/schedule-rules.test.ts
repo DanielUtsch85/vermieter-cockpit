@@ -64,7 +64,7 @@ describe('reasons, the rule versions and the historical cases (§59A, decided 20
       [{ reviewState: 'NEEDS_REVIEW' }, 'ASSET_NOT_CONFIRMED'],
       [{ reviewState: 'UNREVIEWED' }, 'ASSET_NOT_CONFIRMED'],
     ] as const) {
-      const s = derive({ ...acc8(), asset: asset(facts as Partial<DepreciationAsset>) });
+      const s = derive({ ...acc8(), asset: asset(facts) });
       expect(s.reasons.map((r) => r.code)).toEqual([code]);
       expect(s.status).toBe('DEPRECIATION_NOT_AVAILABLE');
       expect(component(s).status).toBe('NOT_COMPUTABLE');

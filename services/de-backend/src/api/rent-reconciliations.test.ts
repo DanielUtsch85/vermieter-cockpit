@@ -229,7 +229,7 @@ describe('POST /api/v1/rent-reconciliations/{id}/release', () => {
       rentReconciliations: {
         release: async (input) => {
           seen.push(input);
-          return { reconciliation: { ...reconciliation, status: 'RELEASED', version: 2 } as RentPaymentReconciliation, changed: true };
+          return { reconciliation: { ...reconciliation, status: 'RELEASED', version: 2 }, changed: true };
         },
       },
     });
@@ -479,7 +479,7 @@ describe('suggestions (§37.3)', () => {
       rentReconciliations: {
         confirm: async (input) => {
           seen.push(input);
-          return { reconciliation: { ...reconciliation, version: 2 } as RentPaymentReconciliation, changed: true };
+          return { reconciliation: { ...reconciliation, version: 2 }, changed: true };
         },
       },
     });
@@ -528,7 +528,7 @@ describe('suggestions (§37.3)', () => {
         reject: async (input) => {
           seen.push(input);
           if ((input as { reason: string }).reason === 'nein') throw new NotRejectableError('CONFIRMED');
-          return { reconciliation: { ...suggestion, status: 'REJECTED', version: 2 } as RentPaymentReconciliation, changed: true };
+          return { reconciliation: { ...suggestion, status: 'REJECTED', version: 2 }, changed: true };
         },
       },
     });

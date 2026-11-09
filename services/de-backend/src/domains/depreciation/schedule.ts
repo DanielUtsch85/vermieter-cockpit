@@ -139,11 +139,7 @@ export function scheduleWorks(input: Omit<ScheduleInput, 'today' | 'from' | 'to'
   const excluded = separate ? [] : capitalizedItems.filter((i) => isCapitalized(i) && links.some((l) => sameItem(l, i)));
   const itemWorks: ItemWork[] = deriveItemWorks(
     itemContext,
-    separate
-      ? linkedItems
-      : capitalizedItems
-          .filter((i) => isCapitalized(i) && !excluded.includes(i))
-          .map((item) => ({ ref: item as ItemRef, item: item as CapitalizedItem | null })),
+    separate ? linkedItems : capitalizedItems.filter((i) => isCapitalized(i) && !excluded.includes(i)).map((item) => ({ ref: item, item })),
   );
   return { separate, assetReasons, linkedItems, works, itemWorks, itemContext, parties, coverage, excluded };
 }

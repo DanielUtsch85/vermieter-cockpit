@@ -8,7 +8,6 @@ import {
   yearStages,
   type RecordingStage,
   type ScheduleRead,
-  type StageRule,
 } from '../../domains/depreciation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { centsOf } from '../../shared/index.js';
@@ -128,7 +127,7 @@ describe.skipIf(databaseUrl === undefined)('decision 3: the partial-sale criteri
   const severalIn = async (assetId: string, years: readonly number[]) => {
     const r = await read(assetId);
     const schedule = deriveSchedule({ ...r, today: TODAY, from: Math.min(...years), to: Math.max(...years), ownerPartyId: null }, TAX_RULES);
-    return yearStages(schedule, r, years, DE_RECORDING_STAGES_V1 as StageRule).map((s) => [
+    return yearStages(schedule, r, years, DE_RECORDING_STAGES_V1).map((s) => [
       s.year,
       s.stage,
       s.components.filter((c) => c.criteria.includes('SEVERAL_PURCHASES_PARTIAL_SALE')).map((c) => c.componentId),

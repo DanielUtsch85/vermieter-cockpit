@@ -18,7 +18,7 @@ import { readOf } from './version.test-support.js';
  * reduction at which more than one purchase of the owner is active starts 236-2. The stage never changes a figure.
  */
 const registry = new RuleRegistry(DEPRECIATION_RULE_VERSIONS);
-const rule = DE_RECORDING_STAGES_V1 as StageRule;
+const rule = DE_RECORDING_STAGES_V1;
 const conclusive: PurchaseCheckFacts = { acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] };
 const P = `ACQUISITION:${W}`;
 const stagesOf = (input: ScheduleInput, years: readonly number[], checks: readonly PurchaseCheckFacts[] = [conclusive], r: StageRule | null = rule) => {

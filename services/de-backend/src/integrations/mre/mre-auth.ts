@@ -93,7 +93,7 @@ function landlordAccountEmail(token: string): string | undefined {
     return undefined;
   }
   if (typeof payload !== 'object' || payload === null || !('account' in payload)) return undefined;
-  const account = (payload as { account: unknown }).account;
+  const account = payload.account;
   if (typeof account !== 'object' || account === null) return undefined;
   const { email, role } = account as { email?: unknown; role?: unknown };
   if (typeof email !== 'string' || email === '' || role === 'tenant') return undefined;

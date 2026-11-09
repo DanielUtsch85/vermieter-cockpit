@@ -310,7 +310,7 @@ describe('balance statements', () => {
         voidStatement: async (input) => {
           seen.push(input.expectedVersions);
           if (fail !== undefined) throw fail;
-          return { statement: { ...statementView, status: 'VOID', version: 2 } as StatementView, changed: true };
+          return { statement: { ...statementView, status: 'VOID', version: 2 }, changed: true };
         },
       },
     });
