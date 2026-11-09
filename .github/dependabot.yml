@@ -60,6 +60,10 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: mongo
         update-types: ['version-update:semver-major']
+      # Redis belongs to the MRE stack (ADR-036 baseline); the tag 7.4-bookworm targets exactly 7.4, so a new major or
+      # minor is untested against the pinned MRE version. Patch and digest updates still come (review on #299).
+      - dependency-name: redis
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
 
   - package-ecosystem: github-actions
     directory: /
