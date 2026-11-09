@@ -93,12 +93,20 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
       expect(totalOf(v1, 'AFA_BUILDING')).toBe('3870.00');
       expect(v1.review.open).toContainEqual({ code: DEVIATES, count: 1 });
       expect(v1.review.final).toBe(false);
-      // The flag carried on the AfA item with its details as raised (its level in review), never re-decided in Taxation.
+      // The flag carried on the AfA item with its details and its level as raised, never re-decided in Taxation (the level
+      // added by the §58T follow-up, Entscheidung des Projektinhabers, 2026-11-07).
       const carried = (v: Json) =>
         lineOf(v, 'AFA_BUILDING')
           .items[0].flags.filter((f: Json) => f.code === DEVIATES)
-          .map((f: Json) => f.details.closedBy);
-      expect(carried(v1)).toEqual([null]);
+          .map((f: Json) => [f.details.closedBy, f.level]);
+      expect(carried(v1)).toEqual([[null, 'OPEN']]);
+      expect(carried(await api.view(p.pr, 2026, p.a))).toEqual([[null, 'OPEN']]);
+      // Every AfA item flag has the one form code, level, details; a cash item flag and a year flag keep code and details.
+      const afaItemFlags = (v: Json) =>
+        v.werbungskosten.lines.filter((l: Json) => l.line.startsWith('AFA_')).flatMap((l: Json) => l.items.flatMap((i: Json) => i.flags));
+      expect(afaItemFlags(v1).length).toBeGreaterThan(0);
+      for (const f of afaItemFlags(v1)) expect(Object.keys(f)).toEqual(['code', 'level', 'details']);
+      for (const f of v1.flags) expect(Object.keys(f)).toEqual(['code', 'details']);
 
       // E2: every field repeated, the reason added.
       const e2 = await allocate(p.acquisitionId, e1Body(e1.allocationId, { deviationReason: REASON }));
@@ -109,7 +117,12 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
       expect(totalOf(v2, 'AFA_BUILDING')).toBe('3870.00');
       expect(v2.review.info).toContainEqual({ code: DEVIATES, count: 1 });
       expect(v2.review.open).toEqual(v1.review.open.filter((o: Json) => o.code !== DEVIATES));
-      expect(carried(v2)).toEqual(['DEVIATION_REASON']);
+      expect(carried(v2)).toEqual([['DEVIATION_REASON', 'INFORMATIVE']]);
+      expect(carried(await api.view(p.pr, 2026, p.a))).toEqual([['DEVIATION_REASON', 'INFORMATIVE']]);
+      // The level is the only change: without it the AfA item flags read as before, and the money is the same as v1's.
+      const withoutLevel = (v: Json) => afaItemFlags(v).map(({ level: _level, ...rest }: Json) => rest);
+      expect(withoutLevel(v2).map((f: Json) => f.code)).toEqual(withoutLevel(v1).map((f: Json) => f.code));
+      expect([v2.depreciation.amount, v2.werbungskosten.total, v2.result]).toEqual([v1.depreciation.amount, v1.werbungskosten.total, v1.result]);
       const history = await get(`/acquisitions/${p.acquisitionId}/land-building-allocations`);
       expect(history.items.map((i: Json) => [i.allocationId, i.flags[0].level])).toEqual([
         [e2.allocationId, 'INFORMATIVE'],
@@ -134,7 +147,8 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
       expect(figures(c3)).toEqual(['387000.00', [2026, null, 'NOT_CALCULABLE'], [2027, null, 'NOT_CALCULABLE']]);
       expect(c3.flags.map((f: Json) => f.code)).toContain(DEVIATES);
 
-      // Realm B: nothing found, nothing written.
+      // Realm B: nothing found, nothing written; the view of Realm A's property is not found either.
+      expect((await call('GET', `/property-references/${p.pr}/tax-years/2026`, undefined, { realm: REALM_B })).status).toBe(404);
       expect((await call('GET', `/acquisitions/${p.acquisitionId}/land-building-allocations`, undefined, { realm: REALM_B })).status).toBe(404);
       expect((await call('POST', `/acquisitions/${p.acquisitionId}/land-building-allocation`, e1Body(e3.allocationId), { realm: REALM_B })).status).toBe(404);
       expect((await get(`/acquisitions/${p.acquisitionId}/land-building-allocations`)).items).toHaveLength(3);
@@ -186,6 +200,11 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
       const v = await api.view(q.pr, 2026);
       expect(v.review.info).toContainEqual({ code: 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', count: 1 });
       expect(v.review.open.map((o: Json) => o.code)).not.toContain(DEVIATES);
+      expect(
+        lineOf(v, 'AFA_BUILDING')
+          .items[0].flags.filter((f: Json) => f.code.startsWith('ALLOCATION_'))
+          .map((f: Json) => [f.code, f.level]),
+      ).toEqual([['ALLOCATION_PLAUSIBILITY_NOT_CHECKED', 'INFORMATIVE']]);
       expect(totalOf(v, 'AFA_BUILDING')).toBe('3870.00');
       void json;
     },

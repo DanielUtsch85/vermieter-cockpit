@@ -161,7 +161,8 @@ const afaItemDto = (i: AfaItem) => ({
           partKey: i.share.partKey,
         },
   href: i.href,
-  flags: flagsDto(i.flags),
+  // §58T follow-up (Entscheidung des Projektinhabers, 2026-11-07): each AfA item flag with its level as raised.
+  flags: i.flags.map((f) => ({ code: f.code, level: f.level, details: plain(f.details) })),
 });
 
 const lineHead = (l: Omit<TaxYearLine, 'items'> | Omit<AfaLine, 'items'>) => ({

@@ -14,7 +14,7 @@ import { PostgresFinancialAccountRepository } from './financial-account-reposito
 import type { Database } from './schema.js';
 import { PostgresTaxClassificationRepository, taxYearSnapshot } from './tax-classification-repository.js';
 import { readTaxYear } from './tax-year-reads.js';
-import { levelOf, taxYearDepreciationIn } from './tax-year-depreciation.js';
+import { carried, levelOf, taxYearDepreciationIn } from './tax-year-depreciation.js';
 import { rowsSnapshot } from './tax-year-view.test-support.js';
 import { PostgresTransactionRepository } from './transaction-repository.js';
 import { performedOnSourceDate } from './performance.test-support.js';
@@ -165,6 +165,16 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
       levelOf('HISTORICAL_RULE_TO_VERIFY', { dateSource: 'PERFORMANCE_UNTIL' }),
       levelOf('OWNER_SHARE_CHANGED', {}),
     ]).toEqual(['INFORMATIVE', 'OPEN', 'OPEN', 'OPEN', 'INFORMATIVE']);
+    // §58T follow-up (Entscheidung des Projektinhabers, 2026-11-07): the deviation judged per raised flag by closedBy, as
+    // the AfA item flag carries it; by code alone it would be open.
+    const DEVIATES = 'ALLOCATION_DEVIATES_FROM_COMPARISON';
+    expect(
+      [null, 'DEVIATION_REASON', 'ADVISOR_CONFIRMED'].map((closedBy) => carried({ code: DEVIATES, details: { closedBy, reviewState: 'CONFIRMED' } }).level),
+    ).toEqual(['OPEN', 'INFORMATIVE', 'INFORMATIVE']);
+    expect([levelOf(DEVIATES), carried({ code: 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', details: { method: 'PURCHASE_CONTRACT' } }).level]).toEqual([
+      'OPEN',
+      'INFORMATIVE',
+    ]);
   });
 
   it('the view’s AfA equals the schedule’s components of the year at both levels; nothing recorded (the shipped default): NOT_RECORDED, final false', async () => {
