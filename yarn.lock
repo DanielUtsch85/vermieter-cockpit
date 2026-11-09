@@ -242,6 +242,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@eslint/js@npm:9.39.5":
+  version: 9.39.5
+  resolution: "@eslint/js@npm:9.39.5"
+  checksum: fb012ffa4be0e1eb3fea59e4df6394a2abc054c800554596a682e7086aec4dc3c39801b3a4c2f1aaeba097ab09c17d2f02bcdd47fdcd0120dc94af6e5c3b00c4
+  languageName: node
+  linkType: hard
+
 "@eslint/object-schema@npm:^2.1.4":
   version: 2.1.7
   resolution: "@eslint/object-schema@npm:2.1.7"
@@ -2953,7 +2960,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "vermieter-cockpit@workspace:."
   dependencies:
-    "@eslint/js": 9.13.0
+    "@eslint/js": 9.39.5
     eslint: 9.13.0
     prettier: 3.9.10
     typescript-eslint: 8.72.1
