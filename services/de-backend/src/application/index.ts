@@ -774,6 +774,7 @@ export type {
   TaxCategory,
   AfaItem,
   AfaItemFlag,
+  ItemFlag,
   AfaLine,
   TaxYearItem,
   TaxYearLine,

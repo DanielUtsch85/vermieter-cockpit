@@ -313,7 +313,11 @@ describe('the flags', () => {
     expect(parts(two)).toEqual([[d.item.sourceId, '155.00']]);
     const item = interestLine(two)?.items[0];
     expect(item?.loanAllocation).toMatchObject({ interestPeriod: null, segments: [], allocationSetId: S2.id, share: '1/2' });
-    expect(item?.flags).toContainEqual({ code: 'INTEREST_PERIOD_UNKNOWN', details: { loanId: L, reason: 'NO_SCHEDULE', validAllocationSets: 2 } });
+    expect(item?.flags).toContainEqual({
+      code: 'INTEREST_PERIOD_UNKNOWN',
+      level: 'OPEN',
+      details: { loanId: L, reason: 'NO_SCHEDULE', validAllocationSets: 2 },
+    });
     expect(two.review.open).toContainEqual({ code: 'INTEREST_PERIOD_UNKNOWN', count: 1 });
     const one = viewOf(readOf(P1, [d], views([S1])));
     expect(one.review.info).toContainEqual({ code: 'INTEREST_PERIOD_UNKNOWN', count: 1 });

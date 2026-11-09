@@ -64,6 +64,33 @@ function normalize(value: unknown, names: ReadonlyMap<string, string>): unknown 
   return walk(value);
 }
 
+/**
+ * §58C follow-up (Entscheidung des Projektinhabers, 2026-11-09, after this record): every item flag of a tax-year view
+ * carries `level`. The record is kept as recorded before 0077; here `level` is removed from the item flags of a view
+ * (every `flags` array but the year's at the body's root) and counted, each `OPEN` or `INFORMATIVE`.
+ */
+function withoutItemFlagLevels(body: unknown, seen: { count: number }): unknown {
+  const walk = (v: unknown, root: boolean): unknown => {
+    if (Array.isArray(v)) return v.map((x) => walk(x, false));
+    if (v === null || typeof v !== 'object') return v;
+    return Object.fromEntries(
+      Object.entries(v).map(([k, x]) => {
+        if (k !== 'flags' || root || !Array.isArray(x)) return [k, walk(x, false)];
+        return [
+          k,
+          x.map((flag: Record<string, unknown>) => {
+            const { level, ...rest } = flag;
+            expect(['OPEN', 'INFORMATIVE']).toContain(level);
+            seen.count += 1;
+            return rest;
+          }),
+        ];
+      }),
+    );
+  };
+  return walk(body, true);
+}
+
 /** Removes the new keys where they are `null`; counts them, so the test can show they were answered. */
 function withoutNewNulls(value: unknown, seen: { count: number }): unknown {
   if (Array.isArray(value)) return value.map((x) => withoutNewNulls(x, seen));
@@ -285,12 +312,20 @@ describe.skipIf(databaseUrl === undefined)('existing allocation sets unchanged b
       return;
     }
     const seen = { count: 0 };
-    const after = withoutNewNulls(now, seen);
+    const levels = { count: 0 };
+    const after = Object.fromEntries(
+      Object.entries(withoutNewNulls(now, seen) as Record<string, { status: number; body: unknown }>).map(([key, r]) => [
+        key,
+        key.startsWith('view ') ? { ...r, body: withoutItemFlagLevels(r.body, levels) } : r,
+      ]),
+    );
     const before = JSON.parse(readFileSync(golden, 'utf8')) as Record<string, unknown>;
     expect(Object.keys(after as object)).toEqual(Object.keys(before));
     for (const key of Object.keys(before)) expect((after as Record<string, unknown>)[key], key).toEqual(before[key]);
     // The new fields are answered (as null) on the sets, the items, the segments, Financing and the export.
     expect(seen.count).toBeGreaterThan(50);
+    // The item flags of the views carry their level (the price key's flag on the Loan items among them).
+    expect(levels.count).toBeGreaterThan(0);
     // The record itself proves its case: the odd cent, the part change's fingerprint, the price key's flag, the VOID set.
     const text = JSON.stringify(before);
     for (const needle of ['"amount":"33.34"', 'PROPERTY_PART_CHANGED', 'changeFingerprint', 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', '"status":"VOID"'])

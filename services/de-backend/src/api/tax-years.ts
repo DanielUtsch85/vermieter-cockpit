@@ -1,6 +1,6 @@
 import express, { type Router } from 'express';
 import { z } from 'zod';
-import type { AfaItem, AfaLine, TaxYearItem, TaxYearLine, TaxYearSection, TaxYearTotals, TaxYearView } from '../application/index.js';
+import type { AfaItem, AfaLine, ItemFlag, TaxYearItem, TaxYearLine, TaxYearSection, TaxYearTotals, TaxYearView } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { distributionDto, flagsDto, plain, ref, uuid } from './tax-classification-dto.js';
 import type { TaxationCommands } from './tax-classifications.js';
@@ -44,6 +44,12 @@ export function taxYearRoutes(commands: TaxationCommands): Router {
 
   return router;
 }
+
+/**
+ * An item flag in the one shape of every item kind, `{ code, level, details }` (§58C "Follow-up: the level on the item
+ * flags", Entscheidung des Projektinhabers, 2026-11-09; the AfA items' since §58T's follow-up, 2026-11-07).
+ */
+const itemFlagsDto = (flags: readonly ItemFlag[]) => flags.map((f) => ({ code: f.code, level: f.level, details: plain(f.details) }));
 
 const refundDto = (r: TaxYearItem['refund']) =>
   r === null ? null : { kind: r.kind, ofYear: r.ofYear, ofYearSource: r.ofYearSource, presentation: r.presentation, line: r.line };
@@ -121,7 +127,7 @@ function taxYearItemDto(i: TaxYearItem) {
           },
     suggestion: plain(i.suggestion),
     share: i.share === null ? null : { ownershipId: i.share.ownershipId, share: i.share.share, amount: i.share.amount?.toJSON() ?? null },
-    flags: flagsDto(i.flags),
+    flags: itemFlagsDto(i.flags),
     // §58D, §58L: the Loan's sets over the interest period and the property's part, on an item from a Loan's interest split only.
     loanAllocation: loanAllocationDto(i.loanAllocation),
     // §59F, VC-X-38 Part 2: the part of a partially treated source the item stands for (`lineAmount` its amount).
@@ -172,7 +178,7 @@ const afaItemDto = (i: AfaItem) => ({
         },
   href: i.href,
   // §58T follow-up (Entscheidung des Projektinhabers, 2026-11-07): each AfA item flag with its level as raised.
-  flags: i.flags.map((f) => ({ code: f.code, level: f.level, details: plain(f.details) })),
+  flags: itemFlagsDto(i.flags),
 });
 
 const lineHead = (l: Omit<TaxYearLine, 'items'> | Omit<AfaLine, 'items'>) => ({

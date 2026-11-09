@@ -184,6 +184,24 @@ describe('the deposit of §58H in the views of 2027', () => {
     expect(level(withdrawn)).toEqual([true, false]);
   });
 
+  it('the part change on the entry not attributed carries its level by its details: OPEN until acknowledged, then INFORMATIVE, as review counts it', () => {
+    // §58C follow-up (Entscheidung des Projektinhabers, 2026-11-09): the item flag appended to a notAttributed entry is
+    // judged per raised flag by its entries' acknowledgements (attributionChangeIsOpen), never by its code alone.
+    const read = readOf(P1, [ON_P1, MATCHED]);
+    const [change] = partChanges(read.parts, 2027, { propertyReferenceId: P1, fingerprinter }).changes as [PartChange];
+    const partFlag = (v: TaxYearView) => v.notAttributed.items.find((i) => i.sourceId === D)?.flags.find((f) => f.code === 'PROPERTY_PART_CHANGED');
+    const count = (list: readonly { code: string; count: number }[]) => list.find((o) => o.code === 'PROPERTY_PART_CHANGED')?.count ?? 0;
+    const open = viewOf(read);
+    const acknowledged = viewOf(readOf(P1, [ON_P1, MATCHED], { acknowledgements: [ackOf(change)] }));
+    expect([partFlag(open)?.level, partFlag(acknowledged)?.level]).toEqual(['OPEN', 'INFORMATIVE']);
+    // The review counts the year flag and the entry's flag at the same level: two open, then two informative.
+    expect([count(open.review.open), count(open.review.info), open.review.final]).toEqual([2, 0, false]);
+    expect([count(acknowledged.review.open), count(acknowledged.review.info)]).toEqual([0, 2]);
+    // The acknowledgement stands on the entry's details; no figure moves.
+    expect(itemFlag(acknowledged.notAttributed.items.find((i) => i.sourceId === D)).map((e) => e.acknowledgement === null)).toEqual([false]);
+    expect([acknowledged.einnahmen.total, acknowledged.result]).toEqual([open.einnahmen.total, open.result]);
+  });
+
   it('an inconsistent reconciliation read by both flags is named once in ATTRIBUTION_HISTORY_INCONSISTENT', () => {
     const broken = r('rec-2', P2, true, [rec('a-3', 'RELEASED', '2028-02-20T10:00:00Z')]);
     const read = readOf(P1, [ON_P1, broken], {

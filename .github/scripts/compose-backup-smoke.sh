@@ -67,7 +67,9 @@ docker compose exec -T mongo mongosh --quiet --eval "
 "
 
 # 4. MRE files: the seeded upload is in the tar; deleted in the volume, it comes back from the tar unchanged.
-tar -tzf "$day_dir"/mre-files-*.tar.gz | grep -qx "$seed"
+# grep reads the whole listing (no -q): `grep -q` exits at the first match, tar then dies on the closed pipe (SIGPIPE,
+# "tar: stdout: write error") and pipefail fails the step depending on timing (CI on #308).
+tar -tzf "$day_dir"/mre-files-*.tar.gz | grep -x "$seed" >/dev/null
 docker compose exec -T pdfgenerator rm "$files_root/$seed"
 gunzip -c "$day_dir"/mre-files-*.tar.gz | docker compose exec -T pdfgenerator tar -C "$files_root" -xf -
 test "$(docker compose exec -T pdfgenerator cat "$files_root/$seed")" = "synthetisch-$$"

@@ -336,6 +336,7 @@ export {
 export type {
   AfaItem,
   AfaItemFlag,
+  ItemFlag,
   AfaLine,
   AfaLineCode,
   CapitalizedComponent,

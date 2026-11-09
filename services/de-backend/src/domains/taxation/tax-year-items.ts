@@ -8,6 +8,7 @@ import type { DepositTaxMeaning } from './deposit-closing.js';
 import { partOf, type Distribution } from './distribution-82b.js';
 import { placementOf, signedCents, type Placement } from './tax-year-placement.js';
 import type { TaxYearItem, TaxYearLoanAllocation, ViewFlag } from './tax-year-response.js';
+import { leveledFlag } from './tax-year-review.js';
 import type { TreatmentPart } from './treatment-parts.js';
 import {
   covers,
@@ -171,6 +172,9 @@ export function itemAt(d: Derived, year: number, currency: string, participant: 
       : [...(d.folded.parts.get(participant) ?? new Map<number, bigint>()).entries()]
           .sort(([a], [b]) => a - b)
           .map(([y, cents]) => ({ year: y, amount: money(cents) }));
+  const attribution = m.sourceType === 'DEPOSIT_CLOSING' ? null : m.attribution;
+  // §58C follow-up (Entscheidung des Projektinhabers, 2026-11-09): each flag with its level, as `review` judges it.
+  const judged = { treatment: m.treatment, origin: m.origin, reviewState: m.reviewState, attribution };
   return {
     sourceType: m.sourceType,
     sourceId: m.sourceId,
@@ -189,7 +193,7 @@ export function itemAt(d: Derived, year: number, currency: string, participant: 
     classificationId: m.classificationId,
     rule: m.rule,
     treatmentRule: m.sourceType === 'DEPOSIT_CLOSING' ? null : m.treatmentRule,
-    attribution: m.sourceType === 'DEPOSIT_CLOSING' ? null : m.attribution,
+    attribution,
     refund: refundOfItem(m),
     distribution: distribution === null ? null : { ...distribution, yearAmount: partOf(distribution, year) ?? money(0n), ownerParts },
     suggestion: m.sourceType === 'DEPOSIT_CLOSING' ? null : m.suggestion,
@@ -201,7 +205,7 @@ export function itemAt(d: Derived, year: number, currency: string, participant: 
             share: formatFraction(p.share),
             amount: lineCents === null ? null : money(lineCents),
           },
-    flags: [...(m.flags as readonly ViewFlag[]), ...d.flags],
+    flags: [...(m.flags as readonly ViewFlag[]), ...d.flags].map((f) => leveledFlag(f, judged)),
     notAttributed: null,
     loanAllocation: d.loanAllocation,
     ...(d.treatmentPart === undefined ? {} : { treatmentPart: d.treatmentPart }),
@@ -238,7 +242,7 @@ export function notAttributedItem(m: DepositTaxMeaning): TaxYearItem {
       ...(m.flags as readonly ViewFlag[]),
       ...(m.reviewState === 'NEEDS_REVIEW' ? [{ code: 'NEEDS_REVIEW', details: {} }] : []),
       ...(m.treatment === null ? [{ code: 'UNCLASSIFIED', details: {} }] : []),
-    ],
+    ].map((f) => leveledFlag(f, { treatment: m.treatment, origin: m.origin, reviewState: m.reviewState, attribution: null })),
     notAttributed: { reason: details.reason, candidates: details.candidates ?? [], href: `/api/v1/security-deposits/${m.sourceId}/tax-meaning` },
     loanAllocation: null,
   };

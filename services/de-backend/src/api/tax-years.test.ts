@@ -257,8 +257,9 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       suggestion: null,
       share: null,
       flags: [
-        { code: 'ATTRIBUTED_BY_10_DAY_RULE', details: { bookingDate: '2026-12-29' } },
-        { code: 'SHARE_DATE_OUTSIDE_TAX_YEAR', details: { shareDate: '2026-12-29', nearestDayOfYear: '2027-01-01' } },
+        // §58C follow-up (Entscheidung des Projektinhabers, 2026-11-09): each item flag `{ code, level, details }`.
+        { code: 'ATTRIBUTED_BY_10_DAY_RULE', level: 'OPEN', details: { bookingDate: '2026-12-29' } },
+        { code: 'SHARE_DATE_OUTSIDE_TAX_YEAR', level: 'INFORMATIVE', details: { shareDate: '2026-12-29', nearestDayOfYear: '2027-01-01' } },
       ],
       loanAllocation: null,
     });
@@ -284,6 +285,11 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
         href: `/api/v1/security-deposits/${deposit}/tax-meaning`,
       }),
     ]);
+    expect((v.notAttributed.items[0] as unknown as { flags: unknown[] }).flags).toContainEqual({
+      code: 'NO_PROPERTY_REFERENCE',
+      level: 'INFORMATIVE',
+      details: { reason: 'NO_RECONCILED_RENT' },
+    });
     // The late rent is A's and the seller's; March's A's and B's: 375.01 + 375.01, 375.00, 375.00 (A < B < SELLER by id).
     expect(v.owners.map((o) => [o.ownerPartyId, o.result])).toEqual([
       [A, { amount: { amount: '750.02', currency: 'EUR' }, kind: 'SURPLUS', basis: 'BEFORE_DEPRECIATION' }],
@@ -354,14 +360,14 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       loanAllocationSets: new Map([[loanId, [priced]]]),
     };
     const base = await start((pr, owner) => (pr === PR ? { ...read, ownerPartyFound: owner === null ? null : true } : undefined));
-    type Item = Record<string, unknown> & { sourceId: string; flags: { code: string; details: unknown }[] };
+    type Item = Record<string, unknown> & { sourceId: string; flags: { code: string; level: string; details: unknown }[] };
     type View = {
       einnahmen: { lines: { items: Item[] }[] };
       werbungskosten: { lines: { taxCategory: string; items: Item[] }[] };
       notAttributed: { items: Item[] };
     };
     const v = (await (await get(base, `/property-references/${PR}/tax-years/2027`)).json()) as View & {
-      flags: { code: string; details: unknown }[];
+      flags: { code: string; level?: string; details: unknown }[];
       review: { open: unknown[] };
     };
     expect(v.einnahmen.lines[0]?.items[0]?.['loanAllocation']).toBeNull();
@@ -386,7 +392,9 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       taxConfirmation: null,
       outsideLetting: null,
     });
-    expect(item.flags).toEqual([{ code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId, allocationSetId: setId, confirmation: null } }]);
+    expect(item.flags).toEqual([
+      { code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', level: 'OPEN', details: { loanId, allocationSetId: setId, confirmation: null } },
+    ]);
     expect(v.notAttributed.items).toEqual([
       expect.objectContaining({
         sourceType: 'TRANSACTION_SPLIT',

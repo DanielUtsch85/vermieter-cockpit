@@ -290,7 +290,7 @@ describe('§58D: the synthetic example', () => {
         const [first, second] = line(v).items;
         expect(first?.loanAllocation?.propertyPart?.amount).toBe(part);
         expect(first?.flags.filter((f) => f.code === 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY')).toEqual([
-          { code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId: L, allocationSetId: S1.id, confirmation: null } },
+          { code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', level: 'OPEN', details: { loanId: L, allocationSetId: S1.id, confirmation: null } },
         ]);
         // July's set is MANUAL: no flag there.
         expect(codes(second?.flags ?? [])).not.toContain('LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY');
@@ -466,6 +466,7 @@ describe('§58D: placement, owners and review (decision 7)', () => {
     expect(v.capitalized).toMatchObject({ total: eur('60.00'), items: [{ sourceId: capitalized.item.sourceId, lineAmount: eur('60.00') }] });
     expect(v.capitalized.items[0]?.flags).toContainEqual({
       code: 'LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS',
+      level: 'OPEN',
       // §59E: read without a construction-period record (as every classification stored before 0055): MISSING.
       details: { loanId: L, allocationSetId: expect.any(String), reason: 'CONSTRUCTION_PERIOD_INTEREST_MISSING' },
     });
@@ -520,6 +521,7 @@ describe('§58D: placement, owners and review (decision 7)', () => {
       expect(line(b.view).items.map((i) => i.lineAmount?.amount)).toEqual(['100.00']);
       expect(line(b.view).items[0]?.flags).toContainEqual({
         code: 'SHARE_DATE_OUTSIDE_TAX_YEAR',
+        level: 'INFORMATIVE',
         details: { shareDate: '2028-01-05', nearestDayOfYear: '2027-12-31' },
       });
     }

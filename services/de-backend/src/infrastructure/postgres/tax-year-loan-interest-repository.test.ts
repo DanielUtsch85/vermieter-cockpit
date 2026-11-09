@@ -339,12 +339,17 @@ describe.skipIf(databaseUrl === undefined)('the interest of an allocated Loan in
     }
     // PURCHASE_PRICE (12/19, 7/19): the flag on every item in both views, open. §58L rule 8: these Loans have no terms,
     // so each item also carries INTEREST_PERIOD_UNKNOWN, informative with the Loan's one VALID set (L8).
-    const unknown = (loanId: string) => ({ code: 'INTEREST_PERIOD_UNKNOWN', details: { loanId, reason: 'NO_SCHEDULE', validAllocationSets: 1 } });
+    const unknown = (loanId: string) => ({
+      code: 'INTEREST_PERIOD_UNKNOWN',
+      level: 'INFORMATIVE',
+      details: { loanId, reason: 'NO_SCHEDULE', validAllocationSets: 1 },
+    });
     for (const v of [v1, v2]) {
       for (const item of items(v, pricedLoan.loanId)) {
         expect(item.flags).toEqual([
           {
             code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY',
+            level: 'OPEN',
             details: { loanId: pricedLoan.loanId, allocationSetId: pricedLoan.setId, confirmation: null },
           },
           unknown(pricedLoan.loanId),
