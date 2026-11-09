@@ -10879,6 +10879,14 @@ The owner's prioritisation of the next work packages (Entscheidung des Projektin
 >
 > - **VC-X-61 zuerst.** Es ist klein und dient direkt dem UI-Vertrag: Der Leitfaden verlangt in §6.3, dass nur unterstützte Parameter gesendet werden und unbekannte abgelehnt werden. Solange nur der Export das tut, lernt ein Frontend-Team auf den anderen Routen falsch. Ein Tag, keine Migration.
 
+The owner revised this order with the answers on this section's open questions (chat; Entscheidung des Projektinhabers, 2026-11-09, verbatim):
+
+> Reihenfolge: **VC-X-61 → VC-X-69 → webapps/cockpit (Version 1) → die vier Hauptversionen.** Das ändert meine Reihenfolge vom 2026-11-09, aus drei Gründen:
+>
+> - **Du willst die Software bald nutzen.** Ohne UI nützt dir keine Hauptversion. Die Majors ändern keinen Vertrag, den die UI sieht, und Dependabot ignoriert sie bis dahin.
+> - **VC-X-61 entkoppelt Express 5.** Das einzige Major mit API-Berührung, die `req.query`-Typen, ist nach VC-X-61 egal, weil nur `validation.ts` die Query liest.
+> - **Die Majors füllen Wartezeiten.** Wenn die UI auf eine Entscheidung von dir oder mir wartet, kann die Sitzung ein Major dazwischenschieben, in der festen Reihenfolge Zod 4, Express 5, Vitest 5, ESLint 10.
+
 The UI contract it serves, `docs/development/ui-guide.md` §6.3 (Buchungen), as written there: „Keine erfundenen q, sort, counterparty oder unreconciled-Parameter. Nur tatsächlich unterstützte Parameter senden; unbekannte werden abgelehnt.“ The sentence stands in the section on the Buchungen; the owner's reading above makes it the rule of every route.
 
 ### As the code stands (main e4c1f95; paths relative to `services/de-backend/src/api/`)
