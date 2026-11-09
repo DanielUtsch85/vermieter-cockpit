@@ -10626,7 +10626,7 @@ Paths relative to `services/de-backend/src/`.
 
 # 58V. A Loan Partly Used Outside Letting (VC-X-43, implemented: migration 0077)
 
-**Status:** **implemented** (VC-X-43, PR #PRNUM; below, "As implemented (VC-X-43)"). All 13 open questions are **decided as proposed** (Entscheidung des Projektinhabers, 2026-11-07; verbatim below, "Open questions (decided)"), so every rule below that was a proposal is decided. Backlog VC-X-43 (report P1), created from the tax review of 2026-11-01, question 21 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01). **Migration:** one, **0077** (verified free at implementation on main 9284f29, which ends at 0076, and on every remote branch). **Routes:** none new; the bodies and responses of §41.3 and §41.6 and the item DTO of §58D gain fields, additively. Productive AfA recording stays **disabled**; nothing here touches it, and no unconfirmed tax assumption reads as released by it: a part outside letting is the user's statement of the Loan's use, not a confirmation by the tax advisor, and every tax reading below that the review does not give is marked **VERIFY**.
+**Status:** **implemented** (VC-X-43, PR #301; below, "As implemented (VC-X-43)"). All 13 open questions are **decided as proposed** (Entscheidung des Projektinhabers, 2026-11-07; verbatim below, "Open questions (decided)"), so every rule below that was a proposal is decided. Backlog VC-X-43 (report P1), created from the tax review of 2026-11-01, question 21 (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01). **Migration:** one, **0077** (verified free at implementation on main 9284f29, which ends at 0076, and on every remote branch). **Routes:** none new; the bodies and responses of §41.3 and §41.6 and the item DTO of §58D gain fields, additively. Productive AfA recording stays **disabled**; nothing here touches it, and no unconfirmed tax assumption reads as released by it: a part outside letting is the user's statement of the Loan's use, not a confirmation by the tax advisor, and every tax reading below that the review does not give is marked **VERIFY**.
 
 **What it amends:** §41.3 (the set's body, response, checks and "In the database"; the sum of exactly `1/1` then runs over the PropertyReferences **and** the part outside letting), §41.6 (the per-property reads gain the part outside letting beside their items), §58D and §58L (the weights of a split include the part outside letting; its interest enters no figure and is listed on the item and in an informative year flag), §58G's `partOn` (unchanged in rule, fed by the same weights), §59E (P's part is already net of the part outside letting; no rule changes), §58S (the set's DTO in the JSON export gains the fields), ADR-038 and BR-FIN-008 (open question 10), data-model §23 with the implementation.
 
@@ -10751,7 +10751,7 @@ PropertyReferences P1 and P2 (`propertyReferenceId` P1 < P2), P1 owned by A `"1/
 
 ### As implemented (VC-X-43)
 
-Implemented as decided (Entscheidung des Projektinhabers, 2026-11-07), PR #PRNUM, on main 9284f29; paths relative to `services/de-backend/src/`.
+Implemented as decided (Entscheidung des Projektinhabers, 2026-11-07), PR #301, on main 9284f29; paths relative to `services/de-backend/src/`.
 
 1. **Migration 0077** (`infrastructure/postgres/migrations/0077_loan_allocation_outside_letting.ts`) as "Migration 0077" above: `loan_allocation.use` (`LETTING` default, a constant: no rewrite, no backfill), `property_reference_id` nullable, CHECKs `loan_allocation_use`, `loan_allocation_use_property`, `loan_allocation_outside_letting_no_acquisition`, the partial unique index `loan_allocation_outside_letting_once`; `loan_allocation_set.use_evidence` with CHECK `loan_allocation_set_use_evidence` (by the new IMMUTABLE `loan_allocation_set_texts_valid`: each text 1–500 characters after trimming and at most 500 as stored, no `NULL` element); `loan_allocation_set_frozen` with `use_evidence` in both tuples; `loan_allocation_complete` with the sum over every row unchanged and, in the same deferred check, `OUTSIDE_LETTING_NOT_ALLOWED_FOR_BASIS`, `OUTSIDE_LETTING_ONLY` (no `LETTING` row) and `USE_EVIDENCE_REQUIRED`. The bodies of 0026's two functions are kept as constants and restored verbatim by `down` (the test compares the definitions with a schema migrated to 0076). `down` is refused (`check_violation`) while a part or any `use_evidence` exists. The seven hand-run down chains of the test suite roll back 0077 first.
 2. **Domain:** `domains/financing/allocation.ts` (`OutsideLetting`, `setShares`, the request's `outsideLetting`/`useEvidence`, the fingerprint appending both only when present, `PropertyLoan.outsideLettingShare`); `domains/financing/debt.ts` (`OUTSIDE_LETTING_KEY = '#OUTSIDE_LETTING'`, which sorts before every lowercase uuid; `distributeSet` hands `largestRemainder` the entries and, only with a part, the part; `distribute` stays the entries-only form for sets without one; `debtOfSet` and `paymentsInYear` answer `outsideLetting` beside `items`); `domains/taxation/loan-interest-periods.ts` (`w_O` per day, `sumsToOne(setShares(set))`, one `distributeSet` per split); `domains/taxation/tax-year-loan-interest.ts` (`loanAllocation.outsideLetting`, `segments[].outsideLettingShare`, `outsideLettingDetails`); `domains/taxation/tax-year-view.ts` (the informative year flag `LOAN_INTEREST_OUTSIDE_LETTING`, not in `OPEN_YEAR_FLAGS`); `attribution-history.ts`'s `concerns` reads `setShares` as well. The set's domain type carries the two fields as optional (`?: … | null`), so the hand-built sets of the existing tests stay as they are; the repository always answers both (`null` without).
@@ -10771,28 +10771,28 @@ Implemented as decided (Entscheidung des Projektinhabers, 2026-11-07), PR #PRNUM
 | M3 | the part outside letting added to P part | red (7 tests) | domain T, e2e |
 | M4 | w_O from the booking date set instead of per day | red (8 tests) | domain T, e2e |
 | M5 | sumsToOne without the part | red (16 tests) | domain T, e2e |
-| M6 | an outside key of weight 0 added for every set | red (1 tests) | domain F |
+| M6 | an outside key of weight 0 added for every set | red (1 test) | domain F |
 | M7 | the flag made open | red (2 tests) | domain T, e2e |
 | M8a | the flag not raised | red (6 tests) | domain T, e2e |
 | M8b | interestTotal over the whole splits | red (4 tests) | domain T, e2e |
 | M9 | loan_allocation_use_property dropped | red (2 tests) | schema |
 | M10 | the partial unique index dropped | red (2 tests) | schema |
 | M11 | use_evidence missing from the frozen column list | red (2 tests) | schema |
-| M12 | the evidence check with the part dropped | red (1 tests) | schema |
-| M13 | the at-least-one-LETTING check dropped | red (1 tests) | schema |
+| M12 | the evidence check with the part dropped | red (1 test) | schema |
+| M13 | the at-least-one-LETTING check dropped | red (1 test) | schema |
 | M14 | NOT_ALLOWED_FOR_BASIS for PURCHASE_PRICE dropped at the API | red (2 tests) | API, e2e |
 | M15 | Financing outsideLetting folded into items | red (2 tests) | domain F, e2e |
 | M16 | the fingerprint appending nulls for an old body | red (3 tests) | domain F, repository, unchanged |
 | M17 | the Realm filter dropped from the batched set read | red (3 tests) | repository, §58D plans |
-| M18 | down not refusing with a part | red (1 tests) | schema |
+| M18 | down not refusing with a part | red (1 test) | schema |
 | M19 | loan_allocation_use dropped | red (2 tests) | schema |
 | M20 | loan_allocation_outside_letting_no_acquisition dropped | red (2 tests) | schema |
-| M21 | OUTSIDE_LETTING_NOT_ALLOWED_FOR_BASIS dropped in the deferred check | red (1 tests) | schema |
-| M22 | loan_allocation_set_use_evidence dropped | red (1 tests) | schema |
+| M21 | OUTSIDE_LETTING_NOT_ALLOWED_FOR_BASIS dropped in the deferred check | red (1 test) | schema |
+| M22 | loan_allocation_set_use_evidence dropped | red (1 test) | schema |
 | M23 | REQUIRED useEvidence with the part dropped at the API | red (2 tests) | API, e2e |
 | M24 | the API sum without the part | red (4 tests) | API, e2e |
 | M25 | 1/1 accepted as the part at the API | red (2 tests) | API, e2e |
-| M26 | the CREATED record without the part | red (1 tests) | repository |
+| M26 | the CREATED record without the part | red (1 test) | repository |
 | M27 | the item outsideLetting null in the view | red (9 tests) | domain T, e2e |
 
 Test files: domain F = `domains/financing/outside-letting.test.ts`, domain T = `domains/taxation/tax-year-loan-outside-letting.test.ts`, API = `api/loan-allocations-outside.test.ts`, schema = `infrastructure/postgres/loan-outside-letting-schema.test.ts`, repository = `infrastructure/postgres/loan-outside-letting-repository.test.ts`, e2e = `tax-year-loan-outside-letting.e2e.test.ts`, unchanged = `loan-outside-letting-unchanged.e2e.test.ts`, §58D plans = `infrastructure/postgres/tax-year-loan-interest-repository.test.ts`. M1–M18 are the section's; M19–M27 cover the further guards (every new CHECK and rule of the deferred check, the API's evidence, sum and range, the AuditRecord, the item). **M6** is equivalent by behaviour (the proof in "Effect on existing sets", item 2) and is killed by the assertion on `largestRemainder`'s input. **M17** is equivalent by behaviour too (0026's composite keys keep another Realm's set from naming the Loan): only the assertions on the statement turn red, as §58D's equivalent mutant.
