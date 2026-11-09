@@ -4,6 +4,7 @@ import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.j
 import { rowsSnapshot } from './infrastructure/postgres/tax-year-view.test-support.js';
 import { databaseUrl, REALM_A, REALM_B, usePhase2App } from './phase-2-acceptance.test-support.js';
 import { codes, type Json as View } from './phase-8-acceptance.test-support.js';
+import { itemFlagKinds } from './tax-year-item-flags.test-support.js';
 
 /**
  * VC-X-43 end to end (api-design.md §58V; Entscheidung des Projektinhabers, 2026-11-07), wired as in main.ts: the
@@ -166,6 +167,8 @@ describe.skipIf(databaseUrl === undefined)('a Loan partly used outside letting (
     }
     // The owner level: A's and B's parts of P1's part only.
     expect(lineOf(await view(P1, 2027, OA), 'LOAN_INTEREST').items.map((i: View) => i.lineAmount?.amount)).toEqual(['112.51', '168.75']);
+    // §58C follow-up (Entscheidung des Projektinhabers, 2026-11-09): the generic walk over the views with outsideLetting.
+    for (const v of [v1, v2, await view(P1, 2027, OA)]) itemFlagKinds(v);
     // 2028: nothing of 2027, no flag.
     expect(codes((await view(P1, 2028)).flags)).not.toContain('LOAN_INTEREST_OUTSIDE_LETTING');
   });

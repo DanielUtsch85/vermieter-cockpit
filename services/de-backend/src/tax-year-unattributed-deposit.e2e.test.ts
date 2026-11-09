@@ -236,6 +236,7 @@ describe.skipIf(databaseUrl === undefined)('an unattributed deposit closed anew 
       ]);
       expect(v.notAttributed.items[0].flags[0], pr).toEqual({
         code: 'NOT_COUNTED',
+        level: 'OPEN',
         details: { depositStatus: 'CLOSED', retainedAmount: eur('250.00'), reason: 'CLOSING_CHANGED' },
       });
       const { reason, candidates, href } = v.notAttributed.items[0];

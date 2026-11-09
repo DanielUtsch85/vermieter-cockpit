@@ -105,6 +105,7 @@ describe('§58O precedence and INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE (questions
     expect(interestLine(v)?.items[0]?.loanAllocation?.interestPeriod).toMatchObject({ source: 'CLASSIFICATION' });
     expect(flag(v)).toEqual({
       code: 'INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE',
+      level: 'OPEN',
       details: {
         loanId: d.loanId,
         recorded: { from: '2027-01-01', until: '2027-03-31' },

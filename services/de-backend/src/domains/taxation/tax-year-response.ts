@@ -20,12 +20,16 @@ export interface ViewFlag {
 }
 
 /**
- * A flag on an AfA item with the level the schedule raised it at (§58T "Follow-up: the level on the AfA item flags";
- * Entscheidung des Projektinhabers, 2026-11-07): judged per raised flag, never re-decided in Taxation.
+ * A flag on an item of the view with its level, in one shape for every item kind (§58C "Follow-up: the level on the item
+ * flags"; Entscheidung des Projektinhabers, 2026-11-09): judged per raised flag. A money item's by `flagIsOpen`, the rule
+ * `review` counts by; an AfA item's as the schedule raised it (§58T, Entscheidung des Projektinhabers, 2026-11-07).
  */
-export interface AfaItemFlag extends ViewFlag {
+export interface ItemFlag extends ViewFlag {
   readonly level: 'OPEN' | 'INFORMATIVE';
 }
+
+/** An AfA item's flag (§58T "Follow-up: the level on the AfA item flags"): the one item flag shape. */
+export type AfaItemFlag = ItemFlag;
 
 /** An item of the view (§58C "Response"). */
 export interface TaxYearItem {
@@ -52,7 +56,7 @@ export interface TaxYearItem {
     (Distribution & { readonly yearAmount: Money; readonly ownerParts: readonly { readonly year: number; readonly amount: Money }[] | null }) | null;
   readonly suggestion: TreatmentSuggestion | null;
   readonly share: { readonly ownershipId: string; readonly share: string; readonly amount: Money | null } | null;
-  readonly flags: readonly ViewFlag[];
+  readonly flags: readonly ItemFlag[];
   /** "nicht zugeordnet" only: why, the candidates, and the deposit's tax meaning or the Loan's allocation on the day. */
   readonly notAttributed: {
     readonly reason: string;

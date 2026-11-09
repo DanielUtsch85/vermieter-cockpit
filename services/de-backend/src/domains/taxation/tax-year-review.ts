@@ -1,6 +1,6 @@
 import type { BusinessDate, RuleRef, RuleRegistry } from '../../shared/index.js';
 import type { AnschaffungsnaheCheck } from './anschaffungsnahe.js';
-import type { TaxYearItem, TaxYearReview, TaxYearRuleVersion, ViewFlag } from './tax-year-response.js';
+import type { ItemFlag, TaxYearItem, TaxYearReview, TaxYearRuleVersion, ViewFlag } from './tax-year-response.js';
 import type { Origin, ReviewState, Treatment } from './vocabulary.js';
 import { REVIEW_STATES } from './vocabulary.js';
 import { OPEN_AFA_YEAR_FLAGS } from './tax-year-depreciation.js';
@@ -104,12 +104,23 @@ export function flagIsOpen(
 }
 
 /**
+ * A money item's flag with its level (§58C "Follow-up: the level on the item flags"; Entscheidung des Projektinhabers,
+ * 2026-11-09): judged per raised flag, its details included, by `flagIsOpen`, the rule `reviewOf` counts by, so an item
+ * flag's `level` and `review.open` / `review.info` never disagree.
+ */
+export const leveledFlag = (flag: ViewFlag, item: Parameters<typeof flagIsOpen>[1]): ItemFlag => ({
+  code: flag.code,
+  level: flagIsOpen(flag.code, item, flag.details) ? 'OPEN' : 'INFORMATIVE',
+  details: flag.details,
+});
+
+/**
  * `afaUnits` (VC-8-05): each AfA item's flags and each gap's reason codes, with their carried levels; a code counts once
  * per unit, as a cash item's.
  */
 export function reviewOf(
   yearFlags: readonly ViewFlag[],
-  items: readonly TaxYearItem[],
+  items: readonly (Omit<TaxYearItem, 'flags'> & { readonly flags: readonly ViewFlag[] })[],
   afaUnits: readonly (readonly { readonly code: string; readonly open: boolean }[])[] = [],
 ): TaxYearReview {
   const open = new Map<string, number>();

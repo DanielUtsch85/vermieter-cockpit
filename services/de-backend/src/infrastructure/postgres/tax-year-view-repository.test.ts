@@ -312,8 +312,9 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (§58C)', () => {
           m.classificationId,
           m.amount.amount,
         ]);
-        // The meaning's own flags, as they are; the view only adds its own.
-        expect(item.flags.slice(0, m.flags.length)).toEqual(m.flags);
+        // The meaning's own flags, as they are (each with its level, §58C follow-up 2026-11-09); the view only adds its own.
+        expect(item.flags.slice(0, m.flags.length).map(({ level: _level, ...f }) => f)).toEqual(m.flags);
+        for (const f of item.flags) expect(['OPEN', 'INFORMATIVE']).toContain(f.level);
         // What counts in the year: the list's yearAmount, signed (no co-owner sells here, so nothing is folded).
         if (item.lineAmount !== null) expect(item.lineAmount.amount.replace('-', '')).toBe(m.yearAmount.amount);
         seen.set(sourceKeyOf(m), [...(seen.get(sourceKeyOf(m)) ?? []), year]);

@@ -347,6 +347,7 @@ describe.skipIf(databaseUrl === undefined)('loan interest by periods of use in t
     expect(parts(v)).toEqual([[s, '450.00']]);
     expect(interestItems(v)[0]?.flags).toContainEqual({
       code: 'INTEREST_PERIOD_UNKNOWN',
+      level: 'INFORMATIVE',
       details: { loanId: l.loanId, reason: 'NO_SCHEDULE', validAllocationSets: 1 },
     });
     expect(v.review.info).toContainEqual({ code: 'INTEREST_PERIOD_UNKNOWN', count: 1 });

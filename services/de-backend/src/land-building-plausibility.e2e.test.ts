@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { itemFlagKinds } from './tax-year-item-flags.test-support.js';
 import { PROPERTIES, REALM_B, databaseUrl, eur, lineOf, totalOf, useAcc8, type Json } from './phase-8-acceptance.test-support.js';
 
 /**
@@ -101,12 +102,12 @@ describe.skipIf(databaseUrl === undefined)('the plausibility warning on the allo
           .map((f: Json) => [f.details.closedBy, f.level]);
       expect(carried(v1)).toEqual([[null, 'OPEN']]);
       expect(carried(await api.view(p.pr, 2026, p.a))).toEqual([[null, 'OPEN']]);
-      // Every AfA item flag has the one form code, level, details; a cash item flag and a year flag keep code and details.
+      // Every item flag, AfA and cash, has the one form code, level, details (§58C follow-up, Entscheidung des
+      // Projektinhabers, 2026-11-09: the generic walk); a year flag keeps code and details.
       const afaItemFlags = (v: Json) =>
         v.werbungskosten.lines.filter((l: Json) => l.line.startsWith('AFA_')).flatMap((l: Json) => l.items.flatMap((i: Json) => i.flags));
       expect(afaItemFlags(v1).length).toBeGreaterThan(0);
-      for (const f of afaItemFlags(v1)) expect(Object.keys(f)).toEqual(['code', 'level', 'details']);
-      for (const f of v1.flags) expect(Object.keys(f)).toEqual(['code', 'details']);
+      for (const v of [v1, await api.view(p.pr, 2026, p.a)]) expect([...itemFlagKinds(v).keys()]).toContain('werbungskosten.lines[AFA].items[]');
 
       // E2: every field repeated, the reason added.
       const e2 = await allocate(p.acquisitionId, e1Body(e1.allocationId, { deviationReason: REASON }));

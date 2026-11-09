@@ -59,6 +59,7 @@ import { HttpMreClient } from './integrations/mre/index.js';
 import { signJwt, startFakeMre, type FakeMre } from './integrations/mre/fake-mre.test-support.js';
 import { mrePrincipalVerifier, mreRentTermLookup, mreTenantDepositReader, mreTenantLookup } from './wiring.js';
 import { stageAudit } from './infrastructure/postgres/audit-stage.test-support.js';
+import { collectItemFlagKinds } from './tax-year-item-flags.test-support.js';
 
 /**
  * VC-7-04 end to end (api-design.md §58C), wired as in main.ts, on PropertyReferences of WEG units: two owners and an
@@ -77,7 +78,7 @@ const T3 = '6512f0c2a1b2c3d4e5f6b003';
 const T4 = '6512f0c2a1b2c3d4e5f6b004';
 
 type Money = { amount: string; currency: string };
-type Flag = { code: string; details: unknown };
+type Flag = { code: string; level?: string; details: unknown };
 type Item = {
   sourceType: string;
   sourceId: string;
@@ -110,7 +111,7 @@ type View = {
   owners: (Totals & { ownerPartyId: string })[] | null;
   notOwned: Totals | null;
   flags: Flag[];
-  review: { final: boolean; open: { code: string; count: number }[] };
+  review: { final: boolean; open: { code: string; count: number }[]; info: { code: string; count: number }[] };
 };
 
 /** Cents of a Money JSON, exact. */
@@ -704,6 +705,10 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
     const use = lineOf(v2027, 'WEG_SPENDING').items[0] as Item;
     expect([use.sourceId, use.treatment, use.lineAmount]).toEqual([assessment, 'DEDUCTIBLE', eur('14800.00')]);
     expect(codes(use.flags)).toEqual(expect.arrayContaining(['ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', 'VAT_NOT_SEPARATED']));
+    // §58C follow-up (Entscheidung des Projektinhabers, 2026-11-09): one money item, two codes, each its own level.
+    const levelOf = (flags: readonly Flag[], code: string) => flags.find((f) => f.code === code)?.level;
+    expect([levelOf(use.flags, 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN'), levelOf(use.flags, 'VAT_NOT_SEPARATED')]).toEqual(['OPEN', 'INFORMATIVE']);
+    expect(v2027.review.info).toContainEqual({ code: 'VAT_NOT_SEPARATED', count: 1 });
     expect(v2027.acquisitions).toEqual([expect.objectContaining({ acquisitionId: acquisition, status: 'ABOVE_THRESHOLD', final: false })]);
     expect(v2027.acquisitions[0]?.notFinalReasons).toEqual(expect.arrayContaining(['GROSS_AMOUNTS', 'WINDOW_OPEN']));
     expect(codes(v2027.flags)).toContain('ANSCHAFFUNGSNAHE_CHECK_NOT_FINAL');
@@ -716,11 +721,42 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
     expect(lineOf(v2026, 'MAINTENANCE').total).toEqual(eur('18000.00'));
   });
 
-  it('no cash mutated around every view at both levels and of three years; Realm isolation of the route', async () => {
+  it('every item kind with a flag over HTTP: capitalized, notInView and unclassified items carry NEEDS_REVIEW and UNCLASSIFIED with their level, the money unchanged', async () => {
+    const { pr } = await flat();
+    await own(pr, await party('Anna Fünf'), '1/1', '2020-01-01');
+    const unclear = (await booked('OUTFLOW', '2027-04-02', [on(pr, '80.00', 'OTHER_EXPENSE')])).splitIds[0] as string;
+    const repair = (await booked('OUTFLOW', '2027-04-03', [on(pr, '4000.00', 'MAINTENANCE')])).splitIds[0] as string;
+    await classify({ sourceType: 'TRANSACTION_SPLIT', sourceId: repair, taxCategory: 'MAINTENANCE', treatment: 'CAPITALIZED', reviewState: 'NEEDS_REVIEW' });
+    const reserve = (await booked('OUTFLOW', '2027-04-04', [on(pr, '300.00', 'WEG_RESERVE_CONTRIBUTION')])).splitIds[0] as string;
+    await classify({ sourceType: 'TRANSACTION_SPLIT', sourceId: reserve, taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT', reviewState: 'NEEDS_REVIEW' });
+    await booked('OUTFLOW', '2027-04-05', [on(pr, '120.00', 'MAINTENANCE')]);
+    const v = await view(pr, 2027);
+    const levelsOf = (items: Item[]) => items.map((i) => [i.sourceId, i.flags.map((f) => [f.code, f.level])]);
+    expect(levelsOf(v.capitalized.items)).toEqual([[repair, [['NEEDS_REVIEW', 'OPEN']]]]);
+    expect(levelsOf(v.notInView.items)).toEqual([[reserve, [['NEEDS_REVIEW', 'OPEN']]]]);
+    expect(levelsOf(v.unclassified.items)).toEqual([
+      [
+        unclear,
+        [
+          ['NEEDS_REVIEW', 'OPEN'],
+          ['UNCLASSIFIED', 'OPEN'],
+        ],
+      ],
+    ]);
+    // The levels add nothing to the money: the capitalised repair, the reserve and the open split are summed nowhere.
+    expect([v.werbungskosten.total, v.result.amount, v.capitalized.total]).toEqual([eur('120.00'), eur('-120.00'), eur('4000.00')]);
+    // (Realm A's deposit without reconciled rent, from an earlier case, may be in this view's notAttributed as well.)
+    expect(v.review.open.map((e) => e.code)).toEqual(expect.arrayContaining(['NEEDS_REVIEW', 'UNCLASSIFIED']));
+  });
+
+  it('no cash mutated around every view at both levels and of three years; every item flag with its level; Realm isolation of the route', async () => {
     const before = await rowsSnapshot(pool);
+    // §58C follow-up (Entscheidung des Projektinhabers, 2026-11-09): the generic walk over every view of the file.
+    const kinds = new Map<string, number>();
     for (const { pr, parties } of properties) {
       for (const year of [2026, 2027, 2028]) {
         const property = await view(pr, year);
+        collectItemFlagKinds(kinds, property);
         // VC-8-05: no asset here; NO_ASSET keeps a year with an Ownership from being final, an empty year needs no AfA.
         expect(property.review.final).toBe(property.review.open.length === 0);
         if (property.depreciation.status !== 'AVAILABLE') expect(property.flags[0]?.code).toBe('DEPRECIATION_NOT_AVAILABLE');
@@ -728,9 +764,21 @@ describe.skipIf(databaseUrl === undefined)('the tax-year view (VC-7-04) end to e
         for (const p of parties) {
           const res = await A('GET', `/property-references/${pr}/tax-years/${year}?ownerPartyId=${p}`);
           expect([200, 422]).toContain(res.status);
+          if (res.status === 200) collectItemFlagKinds(kinds, await res.json());
         }
       }
     }
+    // The fixtures raise flags on every cash item kind (the AfA items in land-building-plausibility.e2e.test.ts).
+    expect([...kinds.keys()].sort()).toEqual(
+      expect.arrayContaining([
+        'capitalized.items[]',
+        'einnahmen.lines[cash].items[]',
+        'notAttributed.items[]',
+        'notInView.items[]',
+        'unclassified.items[]',
+        'werbungskosten.lines[cash].items[]',
+      ]),
+    );
     expect(await rowsSnapshot(pool)).toEqual(before);
     // Realm isolation: another Realm's PropertyReference and Party are unknown.
     const pr = properties[0]?.pr as string;
