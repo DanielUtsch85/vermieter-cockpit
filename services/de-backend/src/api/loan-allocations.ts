@@ -33,6 +33,25 @@ const share = z.string().transform((value, ctx) => {
   return z.NEVER;
 });
 
+/**
+ * §58V rule 2: the part outside letting, `0 < share < 1` in §26.1's notation; `0/d` and `1/1` (or `d/d`) are
+ * `OUT_OF_RANGE`, the share of a set keeping at least one PropertyReference.
+ */
+const outsideShare = z.string().transform((value, ctx) => {
+  if (/^0\/[1-9][0-9]{0,8}$/.test(value)) {
+    ctx.addIssue({ code: 'custom', params: { code: 'OUT_OF_RANGE' } });
+    return z.NEVER;
+  }
+  const result = parseShare(value);
+  if ('share' in result && result.share.numerator < result.share.denominator)
+    return { numerator: BigInt(result.share.numerator), denominator: BigInt(result.share.denominator) };
+  ctx.addIssue({ code: 'custom', params: { code: 'share' in result ? 'OUT_OF_RANGE' : result.error } });
+  return z.NEVER;
+});
+
+/** §58V rule 4: 1–10 references of 1–500 characters, trimmed. */
+export const MAX_USE_EVIDENCE = 10;
+
 const createBody = z
   .object({
     validFrom: businessDate,
@@ -42,6 +61,9 @@ const createBody = z
       .min(1)
       .max(MAX_ALLOCATIONS),
     notes: optionalText(2000).nullish(),
+    // §58V (Entscheidung des Projektinhabers, 2026-11-07, questions 3–5): MANUAL only, with its evidence.
+    outsideLetting: z.object({ share: outsideShare }).strict().nullish(),
+    useEvidence: z.array(z.string().trim().min(1).max(500)).min(1).max(MAX_USE_EVIDENCE).nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {
@@ -61,8 +83,17 @@ const createBody = z
         ctx.addIssue({ code: 'custom', path: ['allocations', i, 'acquisitionId'], params: { code: 'DUPLICATE' } });
       }
     });
+    const outside = body.outsideLetting?.share;
+    if (body.outsideLetting != null) {
+      // §58V rule 3: a price key has no price for private use; a mixed Loan is a MANUAL set.
+      if (body.basis === 'PURCHASE_PRICE') ctx.addIssue({ code: 'custom', path: ['outsideLetting'], params: { code: 'NOT_ALLOWED_FOR_BASIS' } });
+      // §58V rule 4: the evidence of the use is required with the part.
+      if (body.useEvidence == null) ctx.addIssue({ code: 'custom', path: ['useEvidence'], params: { code: 'REQUIRED' } });
+    }
     const shares = body.allocations.flatMap((a) => (typeof a?.share?.numerator === 'bigint' ? [a.share] : []));
-    if (body.basis === 'MANUAL' && shares.length === body.allocations.length && !sumsToOne(shares)) {
+    // §58V rule 2: the PropertyReferences' shares plus the part outside letting sum to exactly 1/1.
+    const outsideShares = typeof outside?.numerator === 'bigint' ? [outside] : [];
+    if (body.basis === 'MANUAL' && shares.length === body.allocations.length && !sumsToOne([...shares, ...outsideShares])) {
       ctx.addIssue({ code: 'custom', path: ['allocations'], params: { code: 'SHARE_SUM_NOT_ONE' } });
     }
   });
@@ -113,6 +144,9 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
         basis: body.basis,
         allocations,
         notes: body.notes ?? null,
+        // §58V: only when given, so an old body's request (and fingerprint) is exactly as before.
+        ...(body.outsideLetting == null ? {} : { outsideLetting: body.outsideLetting.share }),
+        ...(body.useEvidence == null ? {} : { useEvidence: body.useEvidence }),
         ...(idempotency.key === undefined ? {} : { idempotencyKey: idempotency.key }),
       })
       .then(({ set, replayed }) => {
@@ -195,6 +229,9 @@ export function toDto(s: LoanAllocationSetView) {
     validUntil: s.validUntil,
     basis: s.basis,
     allocations: s.allocations.map((a) => ({ propertyReferenceId: a.propertyReferenceId, share: formatShare(a.share), acquisitionId: a.acquisitionId })),
+    // §58V rule 10: after allocations; null without.
+    outsideLetting: s.outsideLetting == null ? null : { share: formatShare(s.outsideLetting.share) },
+    useEvidence: s.useEvidence == null ? null : [...s.useEvidence],
     notes: s.notes,
     voidedAt: s.voidedAt?.toISOString() ?? null,
     voidReason: s.voidReason,
@@ -214,5 +251,7 @@ function toPropertyLoanDto(i: PropertyLoan) {
     validUntil: i.validUntil,
     basis: i.basis,
     share: formatShare(i.share),
+    // §58V rule 7: the set's part outside letting, null without.
+    outsideLettingShare: i.outsideLettingShare === null ? null : formatShare(i.outsideLettingShare),
   };
 }

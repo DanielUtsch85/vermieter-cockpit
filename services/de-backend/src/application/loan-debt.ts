@@ -4,6 +4,7 @@ import {
   statementFingerprint,
   statementViews,
   type LoanDebtRepository,
+  type OutsideLettingPayments,
   type PropertyPayments,
   type RemainingDebt,
   type RemainingDebtPerProperty,
@@ -96,7 +97,7 @@ export type GetLoanPayments = (input: {
   readonly loanId: string;
   readonly year: number;
   readonly perProperty: boolean;
-}) => Promise<YearPayments & { readonly items?: readonly PropertyPayments[] }>;
+}) => Promise<YearPayments & { readonly items?: readonly PropertyPayments[]; readonly outsideLetting?: OutsideLettingPayments | null }>;
 
 export function getLoanPayments(deps: Deps): GetLoanPayments {
   return async ({ principal, loanId, year, perProperty }) => {
@@ -107,7 +108,7 @@ export function getLoanPayments(deps: Deps): GetLoanPayments {
       case 'LOAN_LEVEL':
         return outcome.payments;
       case 'PER_PROPERTY':
-        return { ...outcome.payments, items: outcome.items };
+        return { ...outcome.payments, items: outcome.items, outsideLetting: outcome.outsideLetting };
       case 'LOAN_NOT_ACTIVE':
         throw new LoanNotActiveError(loanId, outcome.status);
       case 'LOAN_NOT_ALLOCATED':

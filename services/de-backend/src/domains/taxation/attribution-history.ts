@@ -3,6 +3,7 @@ import {
   firstIntervalOf,
   loanSchedule,
   setOn,
+  setShares,
   sumsToOne,
   type Loan,
   type LoanAllocationSetView,
@@ -188,7 +189,7 @@ export function reconciliationChanges(
  */
 function concerns(propertyReferenceId: string, sets: readonly LoanAllocationSetView[], day: BusinessDate): boolean {
   const set = setOn(sets, day);
-  if (set !== null && sumsToOne(set.allocations.map((a) => a.share))) return set.allocations.some((a) => a.propertyReferenceId === propertyReferenceId);
+  if (set !== null && sumsToOne(setShares(set))) return set.allocations.some((a) => a.propertyReferenceId === propertyReferenceId);
   return sets.some((s) => s.status === 'VALID' && s.allocations.some((a) => a.propertyReferenceId === propertyReferenceId));
 }
 

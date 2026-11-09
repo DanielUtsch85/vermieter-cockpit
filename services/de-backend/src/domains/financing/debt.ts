@@ -123,19 +123,47 @@ export function debtOn(
 }
 
 /**
- * `total` cents by the set's shares by largest remainder, ties by `propertyReferenceId`; a negative total by its
- * absolute value, the sign restored on each part. In the set's order; the parts sum exactly to `total`.
+ * §58V rule 5 (Entscheidung des Projektinhabers, 2026-11-07, question 7): the key of the part outside letting in
+ * `largestRemainder`. It sorts before every `propertyReferenceId` (a lowercase uuid, `0-9a-f`), so on a tie of
+ * remainders the rounding cent goes to the part outside letting first and no property's interest is overstated by it.
+ */
+export const OUTSIDE_LETTING_KEY = '#OUTSIDE_LETTING';
+
+/** `distributeSet`'s parts: one per entry, in the set's order, and the part outside letting (`null` without one). */
+export interface SetDistribution {
+  readonly parts: bigint[];
+  readonly outsideLetting: bigint | null;
+}
+
+/**
+ * `total` cents by the set's shares **and** its part outside letting (§58V rule 5) by largest remainder, ties by key
+ * (`OUTSIDE_LETTING_KEY` first, then `propertyReferenceId`); a negative total by its absolute value, the sign restored
+ * on each part. The parts, the part outside letting included, sum exactly to `total`. Without a part outside letting
+ * `largestRemainder` receives exactly the entries' weights, as before 0077 (no key of weight 0 is added).
+ */
+export function distributeSet(
+  total: bigint,
+  allocations: readonly { readonly propertyReferenceId: string; readonly share: Fraction }[],
+  outsideLetting: Fraction | null,
+): SetDistribution {
+  const negative = total < 0n;
+  const weights = allocations.map((a) => ({ key: a.propertyReferenceId, weight: a.share }));
+  if (outsideLetting !== null) weights.push({ key: OUTSIDE_LETTING_KEY, weight: outsideLetting });
+  const parts = largestRemainder(negative ? -total : total, weights);
+  const signed = (part: bigint) => (negative ? -part : part);
+  return {
+    parts: allocations.map((a) => signed(parts.get(a.propertyReferenceId) ?? 0n)),
+    outsideLetting: outsideLetting === null ? null : signed(parts.get(OUTSIDE_LETTING_KEY) ?? 0n),
+  };
+}
+
+/**
+ * `total` cents by shares summing to `1/1` by largest remainder, ties by `propertyReferenceId`; a negative total by its
+ * absolute value, the sign restored on each part. In the given order; the parts sum exactly to `total`. A set with a
+ * part outside letting is distributed by `distributeSet`.
  */
 export function distribute(total: bigint, allocations: readonly { readonly propertyReferenceId: string; readonly share: Fraction }[]): bigint[] {
-  const negative = total < 0n;
-  const parts = largestRemainder(
-    negative ? -total : total,
-    allocations.map((a) => ({ key: a.propertyReferenceId, weight: a.share })),
-  );
-  return allocations.map((a) => {
-    const part = parts.get(a.propertyReferenceId) ?? 0n;
-    return negative ? -part : part;
-  });
+  return distributeSet(total, allocations, null).parts;
 }
 
 export interface PropertyDebt {
@@ -146,16 +174,29 @@ export interface PropertyDebt {
   readonly difference: bigint | null;
 }
 
+/** §58V rule 7: the part outside letting of the remaining debt, beside the items, never one of them. */
+export interface OutsideLettingDebt {
+  readonly share: Fraction;
+  readonly actual: bigint;
+  readonly planned: bigint | null;
+  readonly difference: bigint | null;
+}
+
 /**
- * `actual` and `planned` distributed; each `difference` derived as `actual_i − planned_i`, never distributed (F4b):
- * largest remainder is not monotone, so a separately distributed difference could break the identity.
+ * `actual` and `planned` distributed over the entries and the part outside letting; each `difference` derived as
+ * `actual_i − planned_i`, never distributed (F4b): largest remainder is not monotone, so a separately distributed
+ * difference could break the identity. The items plus `outsideLetting` sum exactly to each total.
  */
-export function debtPerProperty(debt: Pick<DebtOnDay, 'actual' | 'planned'> & Partial<DebtOnDay>, set: LoanAllocationSetView): PropertyDebt[] {
-  const actual = distribute(debt.actual, set.allocations);
-  const planned = debt.planned === null ? null : distribute(debt.planned, set.allocations);
-  return set.allocations.map((a, i) => {
-    const actualPart = actual[i] as bigint;
-    const plannedPart = planned === null ? null : (planned[i] as bigint);
+export function debtOfSet(
+  debt: Pick<DebtOnDay, 'actual' | 'planned'> & Partial<DebtOnDay>,
+  set: LoanAllocationSetView,
+): { readonly items: PropertyDebt[]; readonly outsideLetting: OutsideLettingDebt | null } {
+  const outside = set.outsideLetting?.share ?? null;
+  const actual = distributeSet(debt.actual, set.allocations, outside);
+  const planned = debt.planned === null ? null : distributeSet(debt.planned, set.allocations, outside);
+  const items = set.allocations.map((a, i) => {
+    const actualPart = actual.parts[i] as bigint;
+    const plannedPart = planned === null ? null : (planned.parts[i] as bigint);
     return {
       propertyReferenceId: a.propertyReferenceId,
       share: a.share,
@@ -164,6 +205,23 @@ export function debtPerProperty(debt: Pick<DebtOnDay, 'actual' | 'planned'> & Pa
       difference: plannedPart === null ? null : actualPart - plannedPart,
     };
   });
+  if (outside === null) return { items, outsideLetting: null };
+  const outsideActual = actual.outsideLetting as bigint;
+  const outsidePlanned = planned === null ? null : (planned.outsideLetting as bigint);
+  return {
+    items,
+    outsideLetting: {
+      share: outside,
+      actual: outsideActual,
+      planned: outsidePlanned,
+      difference: outsidePlanned === null ? null : outsideActual - outsidePlanned,
+    },
+  };
+}
+
+/** The items of `debtOfSet` (PropertyReferences only). */
+export function debtPerProperty(debt: Pick<DebtOnDay, 'actual' | 'planned'> & Partial<DebtOnDay>, set: LoanAllocationSetView): PropertyDebt[] {
+  return debtOfSet(debt, set).items;
 }
 
 /** A `CLOSED` Loan's closing (§41.7); `actualOnClosingDate` is derived now, so a later correction shows here. */
@@ -184,7 +242,12 @@ export type RemainingDebt = DebtOnDay & {
   readonly fixedRateEnd: FixedRateEnd | null;
 };
 
-export type RemainingDebtPerProperty = RemainingDebt & { readonly allocationSetId: string; readonly items: readonly PropertyDebt[] };
+export type RemainingDebtPerProperty = RemainingDebt & {
+  readonly allocationSetId: string;
+  readonly items: readonly PropertyDebt[];
+  /** §58V rule 7: beside `items`, `null` without a part outside letting. */
+  readonly outsideLetting: OutsideLettingDebt | null;
+};
 
 export type RemainingDebtOutcome =
   | { readonly kind: 'LOAN_LEVEL'; readonly debt: RemainingDebt }
@@ -219,7 +282,7 @@ export function remainingDebt(inputs: DebtInputs, asOf: BusinessDate, perPropert
   if (!perProperty) return { kind: 'LOAN_LEVEL', debt };
   const set = setOn(sets, asOf);
   if (set === null) return { kind: 'LOAN_NOT_ALLOCATED', asOf };
-  return { kind: 'PER_PROPERTY', debt: { ...debt, allocationSetId: set.id, items: debtPerProperty(debt, set) } };
+  return { kind: 'PER_PROPERTY', debt: { ...debt, allocationSetId: set.id, ...debtOfSet(debt, set) } };
 }
 
 export interface YearPayments {
@@ -236,9 +299,21 @@ export interface PropertyPayments {
   readonly principal: bigint;
 }
 
+/** §58V rule 7: the part outside letting of the year's payments, summed over the splits whose set had one. */
+export interface OutsideLettingPayments {
+  readonly interest: bigint;
+  readonly principal: bigint;
+}
+
 export type YearPaymentsOutcome =
   | { readonly kind: 'LOAN_LEVEL'; readonly payments: YearPayments }
-  | { readonly kind: 'PER_PROPERTY'; readonly payments: YearPayments; readonly items: readonly PropertyPayments[] }
+  | {
+      readonly kind: 'PER_PROPERTY';
+      readonly payments: YearPayments;
+      readonly items: readonly PropertyPayments[];
+      /** §58V: beside `items`, `null` when no split of the year had a set with a part outside letting. */
+      readonly outsideLetting: OutsideLettingPayments | null;
+    }
   | { readonly kind: 'LOAN_NOT_ACTIVE'; readonly status: LoanStatus }
   /** `bookingDate`: the first counted split of the year on a day without a set. */
   | { readonly kind: 'LOAN_NOT_ALLOCATED'; readonly bookingDate: BusinessDate };
@@ -263,21 +338,29 @@ export function paymentsInYear(inputs: DebtInputs, year: number, perProperty: bo
   };
   if (!perProperty) return { kind: 'LOAN_LEVEL', payments };
   const totals = new Map<string, { interest: bigint; principal: bigint }>();
+  let outside: { interest: bigint; principal: bigint } | null = null;
+  const add = (entry: { interest: bigint; principal: bigint }, category: LoanSplitCategory, part: bigint) => {
+    if (category === 'LOAN_INTEREST') entry.interest += part;
+    else entry.principal += part;
+  };
   for (const s of splits) {
     const set = setOn(sets, s.bookingDate);
     if (set === null) return { kind: 'LOAN_NOT_ALLOCATED', bookingDate: s.bookingDate };
-    const parts = distribute(s.amount, set.allocations);
+    const parts = distributeSet(s.amount, set.allocations, set.outsideLetting?.share ?? null);
     set.allocations.forEach((a, i) => {
       const entry = totals.get(a.propertyReferenceId) ?? { interest: 0n, principal: 0n };
-      if (s.category === 'LOAN_INTEREST') entry.interest += parts[i] as bigint;
-      else entry.principal += parts[i] as bigint;
+      add(entry, s.category, parts.parts[i] as bigint);
       totals.set(a.propertyReferenceId, entry);
     });
+    if (parts.outsideLetting !== null) {
+      outside ??= { interest: 0n, principal: 0n };
+      add(outside, s.category, parts.outsideLetting);
+    }
   }
   const items = [...totals.entries()]
     .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
     .map(([propertyReferenceId, t]) => ({ propertyReferenceId, interest: t.interest, principal: t.principal }));
-  return { kind: 'PER_PROPERTY', payments, items };
+  return { kind: 'PER_PROPERTY', payments, items, outsideLetting: outside };
 }
 
 // Lender statements.

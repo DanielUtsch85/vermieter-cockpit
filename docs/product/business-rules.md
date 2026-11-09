@@ -700,6 +700,8 @@ The system must not invent a hidden allocation basis.
 
 Where a Loan is defined as fully allocated across Properties for a period, active allocation shares must reconcile to 100%.
 
+*Amended 2026-11-07 (VC-X-43, ADR-038 "Addendum"; Entscheidung des Projektinhabers, 2026-11-07):* the 100 % include the set's part outside letting where it has one (`api-design.md` §58V): the shares of the Properties plus that part reconcile to exactly 100 %, and at least one Property keeps a share.
+
 ---
 
 ## BR-FIN-009 — Undefined Allocation Policy Is a Stop Condition

@@ -1,5 +1,5 @@
 import { addDays, type BusinessDate } from '../../shared/index.js';
-import { distribute, setOn, sumsToOne, type LoanAllocationSetView } from '../financing/index.js';
+import { distributeSet, setOn, setShares, sumsToOne, type LoanAllocationSetView } from '../financing/index.js';
 import { gcd, type Fraction } from '../ownership/index.js';
 import { interestTiming } from './cash-timing.js';
 
@@ -131,8 +131,13 @@ export type PeriodDistribution =
       readonly period: InterestPeriod | null;
       /** By `from`; under rule 8 the booking date's set alone, as one segment of that day. */
       readonly segments: readonly PeriodSegment[];
-      /** Every PropertyReference named by a segment's set, by id; the shares sum to `1/1`, the cents to the split's. */
+      /**
+       * Every PropertyReference named by a segment's set, by id; with `outsideLetting` the shares sum to `1/1`, the cents
+       * to the split's.
+       */
       readonly weights: readonly PeriodWeight[];
+      /** §58V rule 5: `w_O = Σ (days_k / D) × outside_k` and its part; `null` when no segment's set has a part outside letting. */
+      readonly outsideLetting: { readonly share: Fraction; readonly cents: bigint } | null;
     }
   | {
       readonly kind: 'UNCOVERED';
@@ -191,33 +196,35 @@ export function distributeOverPeriod(
     ({ segments, uncovered } = segmentsOver(sets, period.from, period.until));
   }
   if (uncovered.length > 0) return { kind: 'UNCOVERED', reason: 'NO_LOAN_ALLOCATION', period, segments, uncovered };
-  if (segments.some((s) => !sumsToOne(s.set.allocations.map((a) => a.share)))) {
+  // §58V: usable with the part outside letting (a set whose entries alone sum to 1/1 plus such a part is not).
+  if (segments.some((s) => !sumsToOne(setShares(s.set)))) {
     return { kind: 'UNCOVERED', reason: 'ALLOCATION_SUM_NOT_ONE', period, segments, uncovered };
   }
   const total = BigInt(segments.reduce((sum, s) => sum + s.days, 0));
   const sums = new Map<string, Fraction>();
+  let outside: Fraction | null = null;
+  // (days_k / D) × n / d, added exactly to `seen`.
+  const plus = (seen: Fraction | null | undefined, days: number, share: Fraction): Fraction => {
+    const term = { numerator: BigInt(days) * share.numerator, denominator: total * share.denominator };
+    return seen == null
+      ? reduced(term.numerator, term.denominator)
+      : reduced(seen.numerator * term.denominator + term.numerator * seen.denominator, seen.denominator * term.denominator);
+  };
   for (const s of segments) {
-    for (const a of s.set.allocations) {
-      // (days_k / D) × n / d, added exactly.
-      const term = { numerator: BigInt(s.days) * a.share.numerator, denominator: total * a.share.denominator };
-      const seen = sums.get(a.propertyReferenceId);
-      sums.set(
-        a.propertyReferenceId,
-        seen === undefined
-          ? reduced(term.numerator, term.denominator)
-          : reduced(seen.numerator * term.denominator + term.numerator * seen.denominator, seen.denominator * term.denominator),
-      );
-    }
+    for (const a of s.set.allocations) sums.set(a.propertyReferenceId, plus(sums.get(a.propertyReferenceId), s.days, a.share));
+    // §58V rule 5: the part outside letting per day, as the PropertyReferences' (never the booking date's set alone).
+    if (s.set.outsideLetting != null) outside = plus(outside, s.days, s.set.outsideLetting.share);
   }
   const keys = [...sums.keys()].sort();
   const allocations = keys.map((propertyReferenceId) => ({ propertyReferenceId, share: sums.get(propertyReferenceId) as Fraction }));
-  // Once per split (L7): every view distributes over the whole union, so all compute the same parts.
-  const cents = distribute(totalCents, allocations);
+  // Once per split (L7), over the PropertyReferences and the part outside letting (§58V): every view computes the same parts.
+  const cents = distributeSet(totalCents, allocations, outside);
   return {
     kind: 'COVERED',
     period,
     segments,
-    weights: allocations.map((a, i) => ({ ...a, cents: cents[i] as bigint })),
+    weights: allocations.map((a, i) => ({ ...a, cents: cents.parts[i] as bigint })),
+    outsideLetting: outside === null ? null : { share: outside, cents: cents.outsideLetting as bigint },
   };
 }
 

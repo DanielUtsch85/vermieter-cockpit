@@ -235,6 +235,8 @@ describe('§58D: the synthetic example', () => {
         share: null,
         propertyPart: null,
         taxConfirmation: null,
+        // §58V (additive): never on a not attributed split.
+        outsideLetting: null,
       });
       expect(flag(v, 'LOAN_INTEREST_NOT_ATTRIBUTED')).toEqual({ loanIds: [L], interestTotal: eur('451.20').toJSON(), splitIds: [before.item.sourceId] });
       expect(v.review.open).toContainEqual({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', count: 1 });
@@ -244,7 +246,8 @@ describe('§58D: the synthetic example', () => {
     expect(line(v1).items[1]?.loanAllocation).toEqual({
       loanId: L,
       interestPeriod: { from: '2027-07-30', until: '2027-07-30', source: 'LOAN_SCHEDULE' },
-      segments: [{ from: '2027-07-30', until: '2027-07-30', allocationSetId: S2.id, basis: 'MANUAL', share: '1/2' }],
+      // §58V (additive): S2 has no part outside letting.
+      segments: [{ from: '2027-07-30', until: '2027-07-30', allocationSetId: S2.id, basis: 'MANUAL', share: '1/2', outsideLettingShare: null }],
       allocationSetId: S2.id,
       validFrom: '2027-07-01',
       validUntil: '2027-12-31',
@@ -252,6 +255,7 @@ describe('§58D: the synthetic example', () => {
       share: '1/2',
       propertyPart: eur('225.00'),
       taxConfirmation: null,
+      outsideLetting: null,
     });
     expect(line(v1).items[2]).toMatchObject({ date: '2028-01-03', taxYear: 2027, reviewState: 'SUGGESTED', origin: 'DEFAULT', amount: eur('448.00') });
     expect(v1.review.open).toContainEqual({ code: 'ATTRIBUTED_BY_10_DAY_RULE', count: 1 });

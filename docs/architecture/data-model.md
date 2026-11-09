@@ -1444,6 +1444,11 @@ The allocation does not create new Loans.
 - **Tax confirmation (VC-X-28, api-design §58E; specified, not implemented):** a multi-entry `PURCHASE_PRICE` set
   can be confirmed for the tax view by a `LoanAllocationTaxConfirmation` (§36A), Taxation's record that references the
   set; the set itself never changes, and Financing never reads the confirmation.
+- **Part outside letting (VC-X-43, api-design §58V; implemented: migration 0077):** a `MANUAL` set may carry one entry
+  with `use = OUTSIDE_LETTING` and no `propertyReferenceId` (`outsideLetting.share`), with `useEvidence` on the set
+  (1–10 references, required with the part). The PropertyReferences' shares plus that part sum to exactly `1/1`; at
+  least one PropertyReference remains. Its amounts are derived beside the PropertyReferences' and never attributed to one
+  (ADR-038 "Addendum").
 
 ---
 

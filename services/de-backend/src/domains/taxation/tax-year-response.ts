@@ -178,6 +178,8 @@ export interface TaxYearLoanAllocation {
     readonly allocationSetId: string;
     readonly basis: AllocationBasis;
     readonly share: string | null;
+    /** §58V: the segment set's part outside letting, `null` without. */
+    readonly outsideLettingShare: string | null;
   }[];
   readonly allocationSetId: string | null;
   readonly validFrom: BusinessDate | null;
@@ -187,6 +189,11 @@ export interface TaxYearLoanAllocation {
   readonly propertyPart: Money | null;
   /** §58E: the set's `ACTIVE` tax confirmation; `null` without one and on every `MANUAL` or one-entry set. */
   readonly taxConfirmation: ConfirmationMark | null;
+  /**
+   * §58V (Entscheidung des Projektinhabers, 2026-11-07, question 6): the split's weight outside letting `w_O` and its
+   * part, the same in every view of the split; no figure of any view. `null` without one and on a not attributed split.
+   */
+  readonly outsideLetting: { readonly share: string; readonly part: Money } | null;
 }
 
 export interface TaxYearLine {

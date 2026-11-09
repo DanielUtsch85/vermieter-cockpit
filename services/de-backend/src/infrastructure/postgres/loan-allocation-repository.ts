@@ -40,6 +40,7 @@ const SET_COLUMNS = [
   'void_reason',
   'created_at',
   'version',
+  'use_evidence',
 ] as const;
 
 /** Thrown inside the transaction to roll back the key claim and every write together. */
@@ -89,14 +90,16 @@ export class PostgresLoanAllocationRepository implements LoanAllocationRepositor
               valid_from: request.validFrom,
               basis: request.basis,
               notes: request.notes,
+              use_evidence: request.useEvidence == null ? null : [...request.useEvidence],
               created_by: actor.actorId,
             })
             .returning('id')
             .executeTakeFirstOrThrow();
+          const outside = request.outsideLetting ?? null;
           await trx
             .insertInto('loan_allocation')
-            .values(
-              allocations.map((a, position) => ({
+            .values([
+              ...allocations.map((a, position) => ({
                 set_id: id,
                 mre_realm_id: mreRealmId,
                 position,
@@ -105,7 +108,22 @@ export class PostgresLoanAllocationRepository implements LoanAllocationRepositor
                 share_denominator: a.share.denominator.toString(),
                 acquisition_id: a.acquisitionId,
               })),
-            )
+              // §58V: the part outside letting, one row after the entries, without a PropertyReference (0077).
+              ...(outside === null
+                ? []
+                : [
+                    {
+                      set_id: id,
+                      mre_realm_id: mreRealmId,
+                      position: allocations.length,
+                      property_reference_id: null,
+                      use: 'OUTSIDE_LETTING',
+                      share_numerator: outside.numerator.toString(),
+                      share_denominator: outside.denominator.toString(),
+                      acquisition_id: null,
+                    },
+                  ]),
+            ])
             .execute();
           const created = await viewOf(trx, loanId, id);
           if (idempotency !== undefined) await recordIdempotentResult(trx, ref, id, toSnapshot(created));
@@ -120,6 +138,9 @@ export class PostgresLoanAllocationRepository implements LoanAllocationRepositor
                 share: formatShare(a.share),
                 acquisitionId: a.acquisitionId,
               })),
+              // §58V: only when present, so a record of a set without them reads as before 0077.
+              ...(created.outsideLetting == null ? {} : { outsideLetting: { share: formatShare(created.outsideLetting.share) } }),
+              ...(created.useEvidence == null ? {} : { useEvidence: created.useEvidence }),
             },
           });
           return { kind: 'CREATED', set: created };
@@ -295,7 +316,14 @@ async function withEntries(trx: Transaction<Database>, rows: readonly SetRow[]):
   if (rows.length === 0) return [];
   const entries = await trx
     .selectFrom('loan_allocation')
-    .select(['set_id', 'property_reference_id', sql<string>`share_numerator::text`.as('n'), sql<string>`share_denominator::text`.as('d'), 'acquisition_id'])
+    .select([
+      'set_id',
+      'property_reference_id',
+      'use',
+      sql<string>`share_numerator::text`.as('n'),
+      sql<string>`share_denominator::text`.as('d'),
+      'acquisition_id',
+    ])
     .where(
       'set_id',
       'in',
@@ -304,26 +332,33 @@ async function withEntries(trx: Transaction<Database>, rows: readonly SetRow[]):
     .orderBy('set_id')
     .orderBy('position')
     .execute();
-  return rows.map((row) => ({
-    id: row.id as LoanAllocationSetId,
-    loanId: row.loan_id,
-    mreRealmId: row.mre_realm_id,
-    status: row.status as AllocationStatus,
-    validFrom: row.valid_from as BusinessDate,
-    basis: row.basis as AllocationBasis,
-    allocations: entries
-      .filter((e) => e.set_id === row.id)
-      .map((e) => ({
-        propertyReferenceId: e.property_reference_id,
-        share: { numerator: BigInt(e.n), denominator: BigInt(e.d) },
-        acquisitionId: e.acquisition_id,
-      })),
-    notes: row.notes,
-    voidedAt: row.voided_at,
-    voidReason: row.void_reason,
-    createdAt: row.created_at,
-    version: row.version,
-  }));
+  return rows.map((row) => {
+    const own = entries.filter((e) => e.set_id === row.id);
+    // §58V: the LETTING rows are the entries, as before 0077; the OUTSIDE_LETTING row (at most one) is the part.
+    const outside = own.find((e) => e.use === 'OUTSIDE_LETTING');
+    return {
+      id: row.id as LoanAllocationSetId,
+      loanId: row.loan_id,
+      mreRealmId: row.mre_realm_id,
+      status: row.status as AllocationStatus,
+      validFrom: row.valid_from as BusinessDate,
+      basis: row.basis as AllocationBasis,
+      allocations: own
+        .filter((e) => e.use === 'LETTING')
+        .map((e) => ({
+          propertyReferenceId: e.property_reference_id as string,
+          share: { numerator: BigInt(e.n), denominator: BigInt(e.d) },
+          acquisitionId: e.acquisition_id,
+        })),
+      outsideLetting: outside === undefined ? null : { share: { numerator: BigInt(outside.n), denominator: BigInt(outside.d) } },
+      useEvidence: row.use_evidence,
+      notes: row.notes,
+      voidedAt: row.voided_at,
+      voidReason: row.void_reason,
+      createdAt: row.created_at,
+      version: row.version,
+    };
+  });
 }
 
 async function viewOf(trx: Transaction<Database>, loanId: string, id: string): Promise<LoanAllocationSetView> {
@@ -335,6 +370,7 @@ function toSnapshot(s: LoanAllocationSetView): unknown {
   return {
     ...s,
     allocations: s.allocations.map((a) => ({ ...a, share: formatShare(a.share) })),
+    outsideLetting: s.outsideLetting == null ? null : { share: formatShare(s.outsideLetting.share) },
     voidedAt: s.voidedAt?.toISOString() ?? null,
     createdAt: s.createdAt.toISOString(),
   };
@@ -342,17 +378,22 @@ function toSnapshot(s: LoanAllocationSetView): unknown {
 
 /** Written by toSnapshot in the same codebase, so its shape is trusted. */
 function fromSnapshot(result: unknown): LoanAllocationSetView {
-  const s = result as Omit<LoanAllocationSetView, 'allocations' | 'voidedAt' | 'createdAt'> & {
+  const s = result as Omit<LoanAllocationSetView, 'allocations' | 'outsideLetting' | 'voidedAt' | 'createdAt'> & {
     allocations: { propertyReferenceId: string; share: string; acquisitionId: string | null }[];
+    /** Absent in a snapshot stored before 0077. */
+    outsideLetting?: { share: string } | null;
     voidedAt: string | null;
     createdAt: string;
   };
+  const fraction = (text: string) => {
+    const [n = '', d = ''] = text.split('/');
+    return { numerator: BigInt(n), denominator: BigInt(d) };
+  };
   return {
     ...s,
-    allocations: s.allocations.map((a) => {
-      const [n = '', d = ''] = a.share.split('/');
-      return { ...a, share: { numerator: BigInt(n), denominator: BigInt(d) } };
-    }),
+    allocations: s.allocations.map((a) => ({ ...a, share: fraction(a.share) })),
+    outsideLetting: s.outsideLetting == null ? null : { share: fraction(s.outsideLetting.share) },
+    useEvidence: s.useEvidence ?? null,
     voidedAt: s.voidedAt === null ? null : new Date(s.voidedAt),
     createdAt: new Date(s.createdAt),
   };

@@ -92,8 +92,9 @@ describe('Example 1: a set change within an interest period', () => {
     expect(march).toMatchObject({ share: '23/31', allocationSetId: null, validFrom: null, basis: null, propertyPart: eur('230.00') });
     expect(march?.interestPeriod).toEqual({ from: '2027-03-01', until: '2027-03-31', source: 'LOAN_SCHEDULE' });
     expect(march?.segments).toEqual([
-      { from: '2027-03-01', until: '2027-03-15', allocationSetId: S1.id, basis: 'MANUAL', share: '1/1' },
-      { from: '2027-03-16', until: '2027-03-31', allocationSetId: S2.id, basis: 'MANUAL', share: '1/2' },
+      // §58V (additive): neither set has a part outside letting.
+      { from: '2027-03-01', until: '2027-03-15', allocationSetId: S1.id, basis: 'MANUAL', share: '1/1', outsideLettingShare: null },
+      { from: '2027-03-16', until: '2027-03-31', allocationSetId: S2.id, basis: 'MANUAL', share: '1/2', outsideLettingShare: null },
     ]);
     expect(interestLine(v2)?.items[0]?.loanAllocation).toMatchObject({ share: '8/31', allocationSetId: null });
     expect(interestLine(v2)?.items[0]?.loanAllocation?.segments.map((s) => s.share)).toEqual([null, '1/2']);
