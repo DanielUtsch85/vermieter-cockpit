@@ -1,5 +1,5 @@
 > **Status (30.10.2026): Entwurf zur Übergabe, noch nicht übergeben.**
-> Der Leitfaden wurde gegen den Referenzstand dd110b9 geprüft; seine Aussagen zu vorhandenen Routen, Lücken und Limits treffen zu. Vor der Übergabe an ein Frontend-Team ging es um drei Dinge; offen ist nur noch Punkt 3:
+> Der Leitfaden wurde gegen den Referenzstand dd110b9 geprüft; seine Aussagen zu vorhandenen Routen, Lücken und Limits treffen zu. Vor der Übergabe an ein Frontend-Team ging es um drei Dinge; alle drei sind erledigt, die Übergabe selbst steht aus:
 >
 > 1. **Backend-Voraussetzungen:** erledigt. Die Lese-Endpunkte für FinancialAccounts und PropertyReferences (#160, mit #162 und #165; `docs/architecture/api-design.md` §23.3 und §29.3) sowie der Token-Verifikations-Cache und der Sitzungsvertrag für Clients (#161, mit #163; `docs/architecture/mre-integration.md` §47.1 und §47.2).
 > 2. **Entscheidungen des Projektinhabers:** am 30.10.2026 getroffen und in Abschnitt 7.1, 7.2, 11 und 13 eingetragen: gemeinsame Origin hinter einem Reverse-Proxy, eigene App im Monorepo mit dem MRE-Stack, Version 1 auf die drei P0-Bereiche begrenzt, Import ohne Vorschau, kein Audit-Verlauf in Version 1.

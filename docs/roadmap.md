@@ -101,7 +101,7 @@ Scope: dedicated Security Deposit domain (ADR-013): expected amount, holding `Fi
 
 Scope: `WEG`, membership, Wirtschaftsplan, Jahresabrechnung, WEG cost lines, Erhaltungsrücklage, Sonderumlage; Hausgeld payments split into components.
 
-**Prerequisite:** `docs/germany/weg.md` (researched 29.10.2026 (v0.2), no professional confirmation yet); ADR-018 scope limits respected.
+**Prerequisite:** `docs/germany/weg.md` (researched 29.10.2026 (v0.2); part of the checklist points confirmed orally by the tax advisor on 01.11.2026 (15 across the four documents) (`docs/germany/pruefbericht-2026-11-01.md`), written confirmation outstanding); ADR-018 scope limits respected.
 
 **Exit:** a Jahresabrechnung is represented with preserved statement structure and split into ledger effects without losing provenance.
 
@@ -111,7 +111,7 @@ Scope: `WEG`, membership, Wirtschaftsplan, Jahresabrechnung, WEG cost lines, Erh
 
 Scope: Werbungskosten classification, acquisition-cost classification, umlagefähig/nicht umlagefähig, versioned tax rules (ADR-022).
 
-**Prerequisite:** `docs/germany/taxation.md` and `docs/germany/rent-and-operating-costs.md` (researched 29.10.2026 (v0.2), no professional confirmation yet). Rule execution model resolved: **ADR-041** (versioned code modules).
+**Prerequisite:** `docs/germany/taxation.md` and `docs/germany/rent-and-operating-costs.md` (researched 29.10.2026 (v0.2); part of the checklist points confirmed orally by the tax advisor on 01.11.2026 (15 across the four documents) (`docs/germany/pruefbericht-2026-11-01.md`), written confirmation outstanding). Rule execution model resolved: **ADR-041** (versioned code modules).
 
 **Exit:** a tax-year view derives Einkünfte aus Vermietung und Verpachtung from classified cash + AfA, every figure traceable, no cash mutated.
 
@@ -123,11 +123,11 @@ Scope: Werbungskosten classification, acquisition-cost classification, umlagefä
 
 Scope: AfA schedules from acquisition + land/building allocation; version-aware AfA rules.
 
-**Prerequisite:** `docs/germany/depreciation.md` (researched 29.10.2026 (v0.2), no professional confirmation yet).
+**Prerequisite:** `docs/germany/depreciation.md` (researched 29.10.2026 (v0.2); part of the checklist points confirmed orally by the tax advisor on 01.11.2026 (15 across the four documents) (`docs/germany/pruefbericht-2026-11-01.md`), written confirmation outstanding).
 
 **Exit:** an AfA schedule is reproducible from acquisition truth, stored as derivation (not cash), and feeds the tax-year view.
 
-**Status:** implemented; productive recording disabled pending the tax advisor's answers (VC-X-35 + owner decision). VC-8-01…06 (backlog §3g, `docs/development/phase-8-plan.md`) are implemented and the exit is shown end to end by ACC8 (`phase-8-acceptance.e2e.test.ts`, invariant-suite §51), with the recording switch on in test wiring only. `DEPRECIATION_RECORDING_ENABLED` ships off; turning it on needs the tax advisor's answers to the VERIFY points (plan §3), the open tests of VC-X-35 and a documented owner decision (api-design §60 "Turning it on"). Until then the productive AfA is a provisional preview, no year with AfA is final, and "stored as derivation" holds in production only from that enablement: Phase 8 is not marked done.
+**Status:** implemented; productive recording disabled and released in stages by the owner's decision (`docs/development/freigabe-afa-erfassung.md`, VC-X-45; the tests of VC-X-35 are done). VC-8-01…06 (backlog §3g, `docs/development/phase-8-plan.md`) are implemented and the exit is shown end to end by ACC8 (`phase-8-acceptance.e2e.test.ts`, invariant-suite §51), with the recording switch on in test wiring only. `DEPRECIATION_RECORDING_ENABLED` ships off; turning it on needs the tax advisor's answers to the VERIFY points (plan §3), the open tests of VC-X-35 and a documented owner decision (api-design §60 "Turning it on"). Until then the productive AfA is a provisional preview, no year with AfA is final, and "stored as derivation" holds in production only from that enablement: Phase 8 is not marked done.
 
 ## Phase 9 — Investment analytics & scenarios + Reporting
 
@@ -179,12 +179,12 @@ The architecture ADRs that previously blocked this roadmap are now **all resolve
 
 | Spec | Needed for | Status |
 |---|---|---|
-| `docs/germany/rent-and-operating-costs.md` | Phase 7 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2, checklist D, E3, E4) |
-| `docs/germany/taxation.md` | Phase 7 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2, checklist A, E1, E2, E5, E6) |
-| `docs/germany/depreciation.md` | Phase 8 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2, checklist B) |
-| `docs/germany/weg.md` | Phase 6 | **Researched** 29.10.2026, no professional confirmation yet, see the column „Bestätigt durch“ (v0.2) |
+| `docs/germany/rent-and-operating-costs.md` | Phase 7 | **Researched** 29.10.2026; part of the checklist points confirmed orally by the tax advisor on 01.11.2026 (15 across the four documents) (`pruefbericht-2026-11-01.md`), written confirmation outstanding; see the column „Bestätigt durch“ (v0.2, checklist D, E3, E4) |
+| `docs/germany/taxation.md` | Phase 7 | **Researched** 29.10.2026; part of the checklist points confirmed orally by the tax advisor on 01.11.2026 (15 across the four documents) (`pruefbericht-2026-11-01.md`), written confirmation outstanding; see the column „Bestätigt durch“ (v0.2, checklist A, E1, E2, E5, E6) |
+| `docs/germany/depreciation.md` | Phase 8 | **Researched** 29.10.2026; part of the checklist points confirmed orally by the tax advisor on 01.11.2026 (15 across the four documents) (`pruefbericht-2026-11-01.md`), written confirmation outstanding; see the column „Bestätigt durch“ (v0.2, checklist B) |
+| `docs/germany/weg.md` | Phase 6 | **Researched** 29.10.2026; part of the checklist points confirmed orally by the tax advisor on 01.11.2026 (15 across the four documents) (`pruefbericht-2026-11-01.md`), written confirmation outstanding; see the column „Bestätigt durch“ (v0.2) |
 
-Phases 0–5 have **no remaining roadmap-level blocker** and can proceed once scaffolding (Phase 0) is done.
+Phases 0–8 are implemented. The remaining roadmap-level gates are the release of the AfA recording by stages (`docs/development/freigabe-afa-erfassung.md`), the go-live of the first productive installation (issue #281) and the written confirmation of the tax advisor; Phase 9 has not started.
 
 ---
 
