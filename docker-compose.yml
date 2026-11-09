@@ -59,7 +59,7 @@ services:
   # MRE (pinned baseline)
   #############################################################################
   redis:
-    image: redis:7.4-bookworm@sha256:2e3eb11462c4e3759e6972678dd051d150ff54b1e60714b3c33b701260172a90
+    image: redis:8.4-bookworm@sha256:c22af04bb576503bf16b3e34a1fd2fd82de0f765afd866d2e380145e0af30d78
     command: ['sh', '-c', 'docker-entrypoint.sh --requirepass ${REDIS_PASSWORD:-redis_password} --loglevel warning']
     networks: [net]
 
