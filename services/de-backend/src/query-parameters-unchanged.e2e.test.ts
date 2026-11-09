@@ -182,7 +182,8 @@ describe.skipIf(databaseUrl === undefined)('valid queries answer as before VC-X-
       '/transactions?financialCategoryCode=LOAN_INTEREST',
       `/property-references/${P1}/transactions?status=CONFIRMED&pageSize=1`,
       '/financial-accounts?status=OPEN&accountType=BANK,CASH&page=1&pageSize=10',
-      '/parties?partyType=PERSON&status=ACTIVE&page=1&pageSize=1',
+      // A single match: the order of display names depends on the database collation (C locally, en_US in CI).
+      '/parties?partyType=PERSON&status=ACTIVE&name=Zwei&page=1&pageSize=1',
       '/parties?name=Bank',
       '/property-references?externalReferenceState=ACTIVE&pageSize=1',
       `/property-references/${P1}/ownerships?asOf=2027-06-30`,

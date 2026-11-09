@@ -41,11 +41,11 @@
     "disposition": null,
     "text": "{\"items\":[{\"financialAccountId\":\"CASH\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"accountType\":\"CASH\",\"displayName\":\"Bar\",\"currency\":\"EUR\",\"iban\":null,\"status\":\"OPEN\",\"createdAt\":\"<instant>\",\"closedAt\":null,\"version\":1},{\"financialAccountId\":\"GIRO\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"accountType\":\"BANK\",\"displayName\":\"Giro\",\"currency\":\"EUR\",\"iban\":null,\"status\":\"OPEN\",\"createdAt\":\"<instant>\",\"closedAt\":null,\"version\":1}],\"page\":1,\"pageSize\":10,\"total\":2}"
   },
-  "/parties?partyType=PERSON&status=ACTIVE&page=1&pageSize=1": {
+  "/parties?partyType=PERSON&status=ACTIVE&name=Zwei&page=1&pageSize=1": {
     "status": 200,
     "contentType": "application/json; charset=utf-8",
     "disposition": null,
-    "text": "{\"items\":[{\"partyId\":\"O2\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"partyType\":\"PERSON\",\"displayName\":\"Eigentümer Zwei\",\"firstName\":null,\"lastName\":null,\"email\":null,\"phone\":null,\"status\":\"ACTIVE\",\"deactivatedAt\":null,\"deactivationReason\":null,\"createdAt\":\"<instant>\",\"version\":1}],\"page\":1,\"pageSize\":1,\"total\":2}"
+    "text": "{\"items\":[{\"partyId\":\"O2\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"partyType\":\"PERSON\",\"displayName\":\"Eigentümer Zwei\",\"firstName\":null,\"lastName\":null,\"email\":null,\"phone\":null,\"status\":\"ACTIVE\",\"deactivatedAt\":null,\"deactivationReason\":null,\"createdAt\":\"<instant>\",\"version\":1}],\"page\":1,\"pageSize\":1,\"total\":1}"
   },
   "/parties?name=Bank": {
     "status": 200,
