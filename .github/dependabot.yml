@@ -1,0 +1,73 @@
+# Issue/PR #291, questions 1 and 2 (Entscheidung des Projektinhabers, 2026-11-07): Dependabot instead of Renovate,
+# weekly and bundled per ecosystem, no automerge. Every update runs through the same CI as any other PR
+# (build-test with .github/scripts/image-pin-check.sh, compose-smoke with `caddy validate`) and is merged by hand.
+# Handling: docs/development/betrieb.md §11.6.
+#
+# Pins (VC-X-09, betrieb.md §11): Dependabot keeps the existing form. An image written as `tag@sha256:…` gets a new
+# tag and the new digest, an action written as `owner/action@<sha> # vX.Y.Z` a new SHA and a new version comment.
+version: 2
+
+updates:
+  # Yarn berry (3.3.0, yarnPath in .yarnrc.yml) at the repository root; the root manifest covers the workspaces
+  # services/* and the single yarn.lock.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Berlin
+    groups:
+      npm:
+        patterns: ['*']
+    ignore:
+      # Node major follows engines.node (^24) and .nvmrc, changed on purpose, not by a bump.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+
+  # Dockerfile base image (node:24-bookworm-slim, both stages).
+  - package-ecosystem: docker
+    directory: /services/de-backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Berlin
+    groups:
+      docker:
+        patterns: ['*']
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+
+  # docker-compose.yml (postgres, redis, mongo) and docker-compose.proxy.yml (caddy).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Berlin
+    groups:
+      docker-compose:
+        patterns: ['*']
+    ignore:
+      # MRE images: the pinned baseline of ADR-036, changed only by the upgrade procedure of mre-integration.md §55
+      # (commit and six digests together in the ${MRE_VERSION:-…} default, betrieb.md §11.4).
+      - dependency-name: ghcr.io/microrealestate/microrealestate/*
+      # A new Postgres or MongoDB major is a data migration (dump and restore), not a pin update (betrieb.md §11.4).
+      - dependency-name: postgres
+        update-types: ['version-update:semver-major']
+      - dependency-name: mongo
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Berlin
+    groups:
+      github-actions:
+        patterns: ['*']
