@@ -19,7 +19,14 @@ updates:
       timezone: Europe/Berlin
     # The weekly bundle holds minor and patch updates only; every other major comes as its own PR, so a red upgrade
     # never blocks the bundle and its cause shows at once (Entscheidung des Projektinhabers, 2026-11-09, on #303).
+    # prettier and typescript-eslint get their own weekly group: their minors reformat code and add lint rules, which
+    # would otherwise turn the whole bundle red. Rule for these PRs: reformatting in one commit, new lint findings in a
+    # second, no behaviour changed (Entscheidung des Projektinhabers, 2026-11-09). Dependabot puts a dependency into
+    # the first group that matches, so lint-format stands before npm.
     groups:
+      lint-format:
+        patterns: ['prettier', 'typescript-eslint', '@typescript-eslint/*']
+        update-types: ['minor', 'patch']
       npm:
         patterns: ['*']
         update-types: ['minor', 'patch']
