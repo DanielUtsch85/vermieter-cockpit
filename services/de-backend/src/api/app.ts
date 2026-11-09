@@ -31,6 +31,7 @@ import { wegAnnualStatementRoutes, type WegAnnualStatementCommands } from './weg
 import { wegEconomicPlanRoutes, type WegEconomicPlanCommands } from './weg-economic-plans.js';
 import { wegSpecialAssessmentRoutes, type WegSpecialAssessmentCommands } from './weg-special-assessments.js';
 import { wegRoutes, type WegCommands } from './wegs.js';
+import { NO_QUERY, readQuery, refuseQuery } from './validation.js';
 
 /**
  * HTTP application (ADR-026, api-design.md). Infrastructure is injected by the
@@ -126,7 +127,9 @@ export function createApp(deps: AppDependencies): Express {
   // Business API: every route below requires a verified principal with DE access.
   const api = express.Router();
   api.use(requireDeAccess(deps.verifyPrincipal));
-  api.get('/health', (_req, res) => {
+  api.get('/health', (req, res) => {
+    const query = readQuery(NO_QUERY, req);
+    if (refuseQuery(res, query)) return;
     const principal = principalOf(res);
     res.json({ status: 'ok', mreRealmId: principal.mreRealmId });
   });

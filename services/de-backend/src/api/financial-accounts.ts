@@ -11,7 +11,7 @@ import {
 } from '../application/index.js';
 import { isSupportedCurrency, normalizeIban } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, PAGING, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Field mapping verbatim from data-model.md §16 (api-design.md §29.1). */
 const createBody = z.object({
@@ -32,14 +32,11 @@ const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
     .pipe(z.array(z.enum(values)).min(1));
 
 /** api-design.md §29.3; unknown parameters are `400`. */
-const listQuery = z
-  .object({
-    status: commaList(ACCOUNT_STATUSES).optional(),
-    accountType: commaList(ACCOUNT_TYPES).optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  status: commaList(ACCOUNT_STATUSES).optional(),
+  accountType: commaList(ACCOUNT_TYPES).optional(),
+  ...PAGING,
+});
 
 export interface FinancialAccountCommands {
   readonly create: CreateFinancialAccount;
@@ -53,9 +50,11 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
   const router = express.Router();
 
   router.post('/financial-accounts', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     const idempotencyKey = idempotency.key;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -80,11 +79,8 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
   });
 
   router.get('/financial-accounts', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status, accountType } = parsed.data;
     commands
       .list({
@@ -99,11 +95,13 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
   });
 
   router.get('/financial-accounts/:financialAccountId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const { financialAccountId } = req.params;
     if (!RESOURCE_ID.test(financialAccountId)) {
       sendValidationError(res, [{ field: 'financialAccountId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), financialAccountId: financialAccountId.toLowerCase() })
       .then((account) => sendAccount(res, account))
@@ -111,11 +109,13 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
   });
 
   router.post('/financial-accounts/:financialAccountId/close', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const { financialAccountId } = req.params;
     if (!RESOURCE_ID.test(financialAccountId)) {
       sendValidationError(res, [{ field: 'financialAccountId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    if (refuseQuery(res, query)) return;
     commands
       .close({ principal: principalOf(res), financialAccountId })
       .then((account) => {

@@ -15,7 +15,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { dayOfMonth, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { dayOfMonth, fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 
@@ -52,7 +52,7 @@ const amendBody = z
     if (body.mreTenantId !== undefined) ctx.addIssue({ code: 'custom', path: ['mreTenantId'], params: { code: 'NOT_AMENDABLE' } });
   });
 
-const listQuery = z.object({ mreTenantId }).strict();
+const listQuery = z.object({ mreTenantId });
 
 export interface RentalContractReferenceCommands {
   readonly create: CreateRentalContractReference;
@@ -66,8 +66,10 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
   const router = express.Router();
 
   router.post('/rental-contract-references', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -93,11 +95,8 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
   });
 
   router.get('/rental-contract-references', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     commands
       .list({ principal: principalOf(res), mreTenantId: parsed.data.mreTenantId })
       .then((items) => res.json({ items: items.map(referenceDto) }))
@@ -105,8 +104,10 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
   });
 
   router.get('/rental-contract-references/:rentalContractReferenceId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const rentalContractReferenceId = readId(req.params['rentalContractReferenceId'], 'rentalContractReferenceId', res);
     if (rentalContractReferenceId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), rentalContractReferenceId })
       .then((reference) => sendReference(res, reference))
@@ -114,10 +115,12 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
   });
 
   router.post('/rental-contract-references/:rentalContractReferenceId/amend', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const rentalContractReferenceId = readId(req.params['rentalContractReferenceId'], 'rentalContractReferenceId', res);
     if (rentalContractReferenceId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));

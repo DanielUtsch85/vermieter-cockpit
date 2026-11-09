@@ -22,7 +22,7 @@ import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, money, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Percent p.a. as a decimal string, at most three decimals, `0 ≤ r < 100`; a JSON number is refused (no float in transit). */
 const rate = z.string().transform((value, ctx) => {
@@ -83,20 +83,17 @@ const createBody = z
   });
 
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
-const listQuery = z.object({ status: z.enum(TERMS_STATUSES).optional() }).strict();
+const listQuery = z.object({ status: z.enum(TERMS_STATUSES).optional() });
 
-const proposalQuery = z
-  .object({
-    transactionId: z
-      .string()
-      .regex(RESOURCE_ID)
-      .transform((id) => id.toLowerCase()),
-  })
-  .strict();
+const proposalQuery = z.object({
+  transactionId: z
+    .string()
+    .regex(RESOURCE_ID)
+    .transform((id) => id.toLowerCase()),
+});
 
 const scheduleQuery = z
   .object({ from: businessDate.optional(), to: businessDate.optional() })
-  .strict()
   .refine((query) => typeof query.from !== 'string' || typeof query.to !== 'string' || query.from <= query.to, {
     path: ['to'],
     params: { code: 'BEFORE_FROM' },
@@ -115,10 +112,12 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   const router = express.Router();
 
   router.post('/loans/:loanId/terms', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -150,12 +149,14 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   });
 
   router.post('/loans/:loanId/terms/:termsId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const termsId = readId(req.params['termsId'], 'termsId', res);
     if (termsId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -174,13 +175,10 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   });
 
   router.get('/loans/:loanId/terms', (req, res, next) => {
+    const parsed = readQuery(listQuery, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .list({ principal: principalOf(res), loanId, ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }) })
       .then((items) => res.json({ items: items.map(toDto) }))
@@ -188,13 +186,10 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   });
 
   router.get('/loans/:loanId/schedule', (req, res, next) => {
+    const parsed = readQuery(scheduleQuery, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
-    const parsed = scheduleQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { from, to } = parsed.data;
     commands
       .schedule({ principal: principalOf(res), loanId, ...(from === undefined ? {} : { from }), ...(to === undefined ? {} : { to }) })
@@ -203,13 +198,10 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
   });
 
   router.get('/loans/:loanId/payment-proposal', (req, res, next) => {
+    const parsed = readQuery(proposalQuery, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
-    const parsed = proposalQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .proposal({ principal: principalOf(res), loanId, transactionId: parsed.data.transactionId })
       .then((proposal) => res.json(toProposalDto(proposal)))

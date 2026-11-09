@@ -14,7 +14,7 @@ import {
   type SetTransactionSplits,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import { createBody, listQuery, propertyReferenceListQuery, listFilter, sendPage, setVersionTag, toSplitDto, toDto } from './transaction-dto.js';
 import { transactionLifecycleRoutes } from './transaction-lifecycle.js';
 import { transactionSplitRoutes } from './transaction-splits.js';
@@ -38,11 +38,8 @@ export function transactionRoutes(commands: TransactionCommands): Router {
   const router = express.Router();
 
   router.get('/transactions', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const q = parsed.data;
     commands
       .list({ principal: principalOf(res), filter: listFilter(q), page: { page: q.page, pageSize: q.pageSize } })
@@ -51,16 +48,13 @@ export function transactionRoutes(commands: TransactionCommands): Router {
   });
 
   router.get('/property-references/:propertyReferenceId/transactions', (req, res, next) => {
+    const parsed = readQuery(propertyReferenceListQuery, req);
     const propertyReferenceId = req.params['propertyReferenceId'] ?? '';
     if (!RESOURCE_ID.test(propertyReferenceId)) {
       sendValidationError(res, [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
       return;
     }
-    const parsed = propertyReferenceListQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const q = parsed.data;
     commands
       .listForPropertyReference({
@@ -74,11 +68,13 @@ export function transactionRoutes(commands: TransactionCommands): Router {
   });
 
   router.get('/transactions/:transactionId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), transactionId: id.toLowerCase() })
       .then(({ transaction, splits }) => {
@@ -89,8 +85,10 @@ export function transactionRoutes(commands: TransactionCommands): Router {
   });
 
   router.post('/transactions', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(

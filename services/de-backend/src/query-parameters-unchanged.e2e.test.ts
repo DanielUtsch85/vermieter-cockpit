@@ -25,6 +25,7 @@ const O1 = '0000b061-0000-4000-8000-000000000001';
 const O2 = '0000b061-0000-4000-8000-000000000002';
 const BANK = '0000b061-0000-4000-8000-000000000009';
 const ACQ1 = '0000c061-0000-4000-8000-000000000001';
+const UNKNOWN_ID = '0000d061-0000-4000-8000-000000000001';
 
 /** The raw body with every id named and every instant marked (byte-stable across runs). */
 function normalize(text: string, names: ReadonlyMap<string, string>): string {
@@ -243,5 +244,81 @@ describe.skipIf(databaseUrl === undefined)('valid queries answer as before VC-X-
     // Counter-check: the record holds the money of the fixture (the comparison is not of empty answers).
     expect(before['/transactions']?.text).toContain('"amount":"523.46"');
     expect(Object.values(before).filter((a) => a.status === 200).length).toBeGreaterThan(30);
+  });
+
+  /** Every table's row count and the sum of each of its numeric columns (`audit_record` and `idempotency_key` included). */
+  const sums = async () => {
+    const tables = await pool.query(
+      `SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() AND table_type = 'BASE TABLE' AND table_name NOT LIKE 'kysely%' ORDER BY table_name`,
+    );
+    const columns = await pool.query(
+      `SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = current_schema() AND data_type IN ('numeric', 'integer', 'bigint') AND table_name NOT LIKE 'kysely%' ORDER BY table_name, column_name`,
+    );
+    const out: Record<string, string> = {};
+    for (const { table_name } of tables.rows as { table_name: string }[])
+      out[`${table_name}.count`] = (await pool.query(`SELECT count(*)::text AS n FROM "${table_name}"`)).rows[0].n as string;
+    for (const { table_name, column_name } of columns.rows as { table_name: string; column_name: string }[])
+      out[`${table_name}.${column_name}`] = (await pool.query(`SELECT coalesce(sum("${column_name}"), 0)::text AS s FROM "${table_name}"`)).rows[0].s as string;
+    return out;
+  };
+  /** The fake MRE's data calls (the access check's `/realms` calls aside). */
+  const mreDataCalls = () => ctx.mre.requests.filter((r) => !r.path.startsWith('/api/v2/realms')).length;
+
+  it('an unknown parameter reads nothing, writes nothing, calls no MRE, and answers the same in a Realm the data is not in', { timeout: 60_000 }, async () => {
+    const L = ids['loan'] as string;
+    const G = ids['giro'] as string;
+    const T = [...names].find(([, v]) => v === 'T1')?.[0] as string;
+    const refused: [string, string, unknown?][] = [
+      ['GET', '/health'],
+      ['GET', '/transactions'],
+      ['GET', `/transactions/${T}`],
+      ['GET', `/financial-accounts/${G}`],
+      ['GET', '/parties'],
+      ['GET', `/parties/${O1}`],
+      ['GET', `/property-references/${P1}/ownerships`],
+      ['GET', `/acquisitions/${ACQ1}`],
+      ['GET', `/loans/${L}/payments?year=2027`],
+      ['GET', '/wegs'],
+      ['GET', '/security-deposits'],
+      ['GET', `/rent-reconciliations/${UNKNOWN_ID}?checkMre=true`],
+      ['GET', `/property-references/${P1}/export.json`],
+      ['GET', '/exports/transactions.csv'],
+      ['GET', '/financial-categories'],
+      ['GET', '/tax-rules'],
+      ['POST', '/transactions', { financialAccountId: G, amount: eur('1.00'), direction: 'INFLOW', bookingDate: '2027-05-01' }],
+      ['POST', `/transactions/${T}/ignore`, { reason: 'synthetisch' }],
+      ['POST', '/parties', { partyType: 'PERSON', displayName: 'Neue Person' }],
+      ['POST', `/loans/${L}/terms`, { validFrom: '2027-06-01', interestRate: '4.000', repaymentModel: 'INTEREST_ONLY', firstPaymentDate: '2027-06-30' }],
+      ['POST', '/wegs', { displayName: 'WEG Zwei' }],
+      ['POST', `/property-references/${P1}/refresh`],
+      ['POST', `/financial-accounts/${G}/close`],
+    ];
+    const before = await sums();
+    const mreBefore = mreDataCalls();
+    for (const [method, path, body] of refused) {
+      const url = `${path}${path.includes('?') ? '&' : '?'}zzz=1`;
+      const answers = [];
+      for (const realm of [REALM_A, REALM_B]) {
+        const res = await call(realm, method, url, body);
+        answers.push({ status: res.status, text: await res.text() });
+      }
+      expect(answers[0], `${method} ${path}`).toEqual({
+        status: 400,
+        text: JSON.stringify({
+          error: { code: 'VALIDATION_ERROR', message: 'Validation failed.', details: { fields: [{ field: 'zzz', code: 'INVALID_FORMAT' }] } },
+        }),
+      });
+      // Realm B owns none of these rows: the same answer, before any read, so nothing tells it they exist.
+      expect(answers[1], `${method} ${path} (Realm B)`).toEqual(answers[0]);
+    }
+    expect(await sums()).toEqual(before);
+    expect(mreDataCalls()).toBe(mreBefore);
+    // Counter-checks: without the parameter the refresh calls MRE, the read of another Realm's row is 404, a command writes.
+    await call(REALM_A, 'POST', `/property-references/${P1}/refresh`);
+    expect(mreDataCalls()).toBeGreaterThan(mreBefore);
+    expect((await call(REALM_B, 'GET', `/transactions/${T}`)).status).toBe(404);
+    await json(await A('POST', '/parties', { partyType: 'PERSON', displayName: 'Neue Person' }), 201);
+    expect((await sums())['party.count']).not.toBe(before['party.count']);
   });
 });

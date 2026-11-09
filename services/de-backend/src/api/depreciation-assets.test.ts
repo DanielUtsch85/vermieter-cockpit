@@ -466,7 +466,7 @@ describe('reads (§59)', () => {
     expect(await fields(await get(base, `/depreciation-assets/${ASSET}?year=1999`))).toEqual([{ field: 'year', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await get(base, `/depreciation-assets/${ASSET}?year=2101`))).toEqual([{ field: 'year', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await get(base, `/depreciation-assets/${ASSET}?year=20x6`))).toEqual([{ field: 'year', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await get(base, `/depreciation-assets/${ASSET}?yaer=2026`))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, `/depreciation-assets/${ASSET}?yaer=2026`))).toEqual([{ field: 'yaer', code: 'INVALID_FORMAT' }]);
     expect(await fields(await get(base, '/depreciation-assets/x'))).toEqual([{ field: 'assetId', code: 'INVALID_FORMAT' }]);
   });
 
@@ -486,11 +486,9 @@ describe('reads (§59)', () => {
     expect(seen[0]).toEqual({ principal: expect.anything(), propertyReferenceId: PR, statuses: ['ACTIVE', 'VOID'], year: 2023 });
     await get(base, `/property-references/${PR}/depreciation-assets`);
     expect(seen[1]).toEqual({ principal: expect.anything(), propertyReferenceId: PR, statuses: null });
-    expect(await fields(await get(base, `/property-references/${PR}/depreciation-assets?status=OPEN`))).toEqual([
-      { field: 'status.0', code: 'INVALID_FORMAT' },
-    ]);
+    expect(await fields(await get(base, `/property-references/${PR}/depreciation-assets?status=OPEN`))).toEqual([{ field: 'status', code: 'INVALID_FORMAT' }]);
     expect(await fields(await get(base, `/property-references/${PR}/depreciation-assets?assetType=BUILDING`))).toEqual([
-      { field: '(body)', code: 'INVALID_FORMAT' },
+      { field: 'assetType', code: 'INVALID_FORMAT' },
     ]);
   });
 });

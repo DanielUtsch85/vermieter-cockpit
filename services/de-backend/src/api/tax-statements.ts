@@ -19,7 +19,7 @@ import {
   type WithdrawConfirmation,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError, type FieldError } from './validation.js';
+import { type FieldError, fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /**
  * The statements of the tax-year view (api-design.md §58E, VC-X-28): acknowledging an attribution change of a
@@ -46,21 +46,19 @@ const kind = z.enum([...CHANGE_KINDS, ...PART_CHANGE_KINDS, OWNERSHIP_START_FLAG
 const acknowledgeBody = z.object({ auditRecordId: uuid, kind: kind.optional(), expectedFingerprint: z.string().regex(FINGERPRINT), reason }).strict();
 const confirmBody = z.object({ reason, advisorPartyId: uuid.nullish() }).strict();
 const withdrawBody = z.object({ reason }).strict();
-const listQuery = z
-  .object({
-    status: z
-      .string()
-      .transform((value, ctx) => {
-        const statuses = value.split(',');
-        if (statuses.some((s) => !(TAX_STATEMENT_STATUSES as readonly string[]).includes(s))) {
-          ctx.addIssue({ code: 'custom', path: [], params: { code: 'INVALID_FORMAT' } });
-          return z.NEVER;
-        }
-        return [...new Set(statuses)] as TaxStatementStatus[];
-      })
-      .optional(),
-  })
-  .strict();
+const listQuery = z.object({
+  status: z
+    .string()
+    .transform((value, ctx) => {
+      const statuses = value.split(',');
+      if (statuses.some((s) => !(TAX_STATEMENT_STATUSES as readonly string[]).includes(s))) {
+        ctx.addIssue({ code: 'custom', path: [], params: { code: 'INVALID_FORMAT' } });
+        return z.NEVER;
+      }
+      return [...new Set(statuses)] as TaxStatementStatus[];
+    })
+    .optional(),
+});
 
 /** The path's ids and `year` (§58C: `INVALID_FORMAT` for anything but digits, `OUT_OF_RANGE` outside 2000–2100). */
 function pathOf(req: Request, ids: readonly string[], withYear: boolean): { errors: FieldError[]; ids: Record<string, string>; year: number } {
@@ -87,9 +85,12 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
   const router = express.Router();
 
   router.post(ACK_PATH, express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['propertyReferenceId'], true);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
+    if (!query.ok) return sendValidationError(res, path.errors);
     const parsed = acknowledgeBody.safeParse(req.body);
     if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
     if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);
@@ -117,10 +118,9 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
   });
 
   router.get(ACK_PATH, (req, res, next) => {
+    const query = readQuery(listQuery, req);
     const path = pathOf(req, ['propertyReferenceId'], true);
-    const query = listQuery.safeParse(req.query);
-    if (!query.success) path.errors.push(...fieldErrors(query.error).map((e) => ({ ...e, field: e.field === '(body)' ? 'status' : e.field })));
-    if (path.errors.length > 0 || !query.success) return sendValidationError(res, path.errors);
+    if (path.errors.length > 0 || !query.ok) return sendValidationError(res, path.errors);
     commands
       .listAcknowledgements({
         principal: principalOf(res),
@@ -133,9 +133,12 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
   });
 
   router.post(`${ACK_PATH}/:acknowledgementId/withdraw`, express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['propertyReferenceId', 'acknowledgementId'], true);
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
+    if (!query.ok) return sendValidationError(res, path.errors);
     const parsed = withdrawBody.safeParse(req.body);
     if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
     if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);
@@ -153,9 +156,12 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
   });
 
   router.post(CONFIRM_PATH, express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['loanId', 'allocationSetId'], false);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
+    if (!query.ok) return sendValidationError(res, path.errors);
     const parsed = confirmBody.safeParse(req.body);
     if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
     if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);
@@ -180,10 +186,9 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
   });
 
   router.get(CONFIRM_PATH, (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['loanId', 'allocationSetId'], false);
-    const query = z.object({}).strict().safeParse(req.query);
-    if (!query.success) path.errors.push(...fieldErrors(query.error));
-    if (path.errors.length > 0) return sendValidationError(res, path.errors);
+    if (path.errors.length > 0 || !query.ok) return sendValidationError(res, path.errors);
     commands
       .listConfirmations({ principal: principalOf(res), loanId: path.ids['loanId'] as string, allocationSetId: path.ids['allocationSetId'] as string })
       .then((items) => res.json({ items: items.map(confirmationDto) }))
@@ -191,9 +196,12 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
   });
 
   router.post(`${CONFIRM_PATH}/:confirmationId/withdraw`, express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const path = pathOf(req, ['loanId', 'allocationSetId', 'confirmationId'], false);
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
+    if (!query.ok) return sendValidationError(res, path.errors);
     const parsed = withdrawBody.safeParse(req.body);
     if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
     if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);

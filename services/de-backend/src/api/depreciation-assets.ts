@@ -27,7 +27,7 @@ import {
 } from './depreciation-asset-dto.js';
 import { depreciationScheduleRoutes } from './depreciation-schedule.js';
 import { scheduleVersionRoutes, type ScheduleVersionCommands } from './depreciation-schedule-versions.js';
-import { fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 export interface DepreciationAssetCommands {
   readonly create: CreateDepreciationAsset;
@@ -47,8 +47,10 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
   const router = express.Router();
 
   router.post('/depreciation-assets', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -97,13 +99,10 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
   });
 
   router.get('/depreciation-assets/:assetId', (req, res, next) => {
+    const query = readQuery(getQuery, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
-    const query = getQuery.safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), assetId, ...(query.data.year === undefined ? {} : { year: query.data.year }) })
       .then(({ asset, rate, methods }) => sendAsset(res, asset, rate, methods))
@@ -111,13 +110,10 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
   });
 
   router.get('/property-references/:propertyReferenceId/depreciation-assets', (req, res, next) => {
+    const query = readQuery(listQuery, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
-    const query = listQuery.safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .listForPropertyReference({
         principal: principalOf(res),
@@ -130,10 +126,12 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
   });
 
   router.post('/depreciation-assets/:assetId/amend', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -162,10 +160,12 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
   });
 
   router.post('/depreciation-assets/:assetId/confirm', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = confirmBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -185,10 +185,12 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
   });
 
   router.post('/depreciation-assets/:assetId/void', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));

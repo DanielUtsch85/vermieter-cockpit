@@ -16,7 +16,7 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, sendValidationError } from './validation.js';
+import { fieldErrors, money, NO_QUERY, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -93,10 +93,12 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
   const router = express.Router();
 
   router.post('/acquisitions/:acquisitionId/land-building-allocation', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = body.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -137,13 +139,10 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
   });
 
   router.get('/acquisitions/:acquisitionId/land-building-allocations', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
-    const query = z.object({}).strict().safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .list({ principal: principalOf(res), acquisitionId })
       .then(({ current, items }) => res.json({ current: current === null ? null : toDto(current), items: items.map((a) => toDto(a)) }))

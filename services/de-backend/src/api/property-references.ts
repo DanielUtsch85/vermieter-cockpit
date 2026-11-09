@@ -12,7 +12,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, PAGING, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** A malformed MRE id would end in a 500 upstream, so it is rejected here (mre-integration.md §21.1). */
 const linkBody = z.object({
@@ -21,17 +21,14 @@ const linkBody = z.object({
 });
 
 /** api-design.md §23.3; unknown parameters are `400`. */
-const listQuery = z
-  .object({
-    externalReferenceState: z
-      .string()
-      .transform((value) => value.split(','))
-      .pipe(z.array(z.enum(EXTERNAL_REFERENCE_STATES)).min(1))
-      .optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  externalReferenceState: z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(EXTERNAL_REFERENCE_STATES)).min(1))
+    .optional(),
+  ...PAGING,
+});
 
 export interface PropertyReferenceCommands {
   readonly link: LinkPropertyReference;
@@ -45,6 +42,8 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
   const router = express.Router();
 
   router.post('/property-references/link', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
+    if (refuseQuery(res, query)) return;
     const parsed = linkBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -70,11 +69,8 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
 
   // Both reads answer from DE's cached data and never call MRE (§23.3).
   router.get('/property-references', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, externalReferenceState } = parsed.data;
     commands
       .list({
@@ -89,11 +85,13 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
   });
 
   router.get('/property-references/:propertyReferenceId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const { propertyReferenceId } = req.params;
     if (!RESOURCE_ID.test(propertyReferenceId)) {
       sendValidationError(res, [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), propertyReferenceId: propertyReferenceId.toLowerCase() })
       .then((reference) => {
@@ -106,12 +104,14 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
 
   // Takes no body; a refresh only re-reads MRE (VC-1-02).
   router.post('/property-references/:propertyReferenceId/refresh', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const { propertyReferenceId } = req.params;
     if (!RESOURCE_ID.test(propertyReferenceId)) {
       sendValidationError(res, [{ field: 'propertyReferenceId', code: 'INVALID_FORMAT' }]);
       return;
     }
 
+    if (refuseQuery(res, query)) return;
     commands
       .refresh({
         principal: principalOf(res),

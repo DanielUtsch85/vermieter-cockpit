@@ -27,7 +27,18 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import {
+  fieldErrors,
+  money,
+  NO_QUERY,
+  PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = z
   .string()
@@ -54,7 +65,7 @@ const createBody = z
   });
 
 /** §37.6's split proposal query (strict). */
-const splitProposalQuery = z.object({ transactionId: uuid, mreTenantId, mreRentTerm }).strict();
+const splitProposalQuery = z.object({ transactionId: uuid, mreTenantId, mreRentTerm });
 
 const releaseBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
@@ -86,21 +97,17 @@ const statusList = z
   .transform((value) => value.split(','))
   .pipe(z.array(z.enum(RECONCILIATION_STATUSES)).min(1));
 
-const listQuery = z
-  .object({
-    status: statusList.optional(),
-    transactionId: uuid.optional(),
-    mreTenantId: mreTenantId.optional(),
-    mreRentTerm: mreRentTerm.optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  status: statusList.optional(),
+  transactionId: uuid.optional(),
+  mreTenantId: mreTenantId.optional(),
+  mreRentTerm: mreRentTerm.optional(),
+  ...PAGING,
+});
 
 /** The coverage reads take no query parameters (§37.2). */
-const noQuery = z.object({}).strict();
 /** One reconciliation's read: the presence check is `checkMre=true` (§37.4); nothing else. */
-const getQuery = z.object({ checkMre: z.enum(['true', 'false']).optional() }).strict();
+const getQuery = z.object({ checkMre: z.enum(['true', 'false']).optional() });
 /** The write-back takes no body, or `{}` (§37.4). */
 const writeBackBody = z.object({}).strict();
 
@@ -125,8 +132,10 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   const router = express.Router();
 
   router.post('/rent-reconciliations', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -152,6 +161,8 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   });
 
   router.post('/rent-reconciliations/suggest', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
+    if (refuseQuery(res, query)) return;
     const parsed = suggestBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -165,11 +176,8 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
 
   // §37.6 (#126): a read, never a write. Registered before `/rent-reconciliations/:reconciliationId`.
   router.get('/rent-reconciliations/split-proposal', (req, res, next) => {
-    const parsed = splitProposalQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(splitProposalQuery, req);
+    if (refuseQuery(res, parsed)) return;
     commands
       .splitProposal({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
       .then((proposal) => res.json(splitProposalDto(proposal)))
@@ -177,10 +185,12 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   });
 
   router.post('/rent-reconciliations/:reconciliationId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = confirmBody.safeParse(req.body ?? {});
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -199,10 +209,12 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   });
 
   router.post('/rent-reconciliations/:reconciliationId/reject', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = releaseBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -220,11 +232,8 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   });
 
   router.get('/rent-reconciliations', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, ...filter } = parsed.data;
     commands
       .list({ principal: principalOf(res), filter: definedOnly(filter), page: { page, pageSize } })
@@ -233,12 +242,13 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   });
 
   router.get('/rent-reconciliations/terms/:mreTenantId/:mreRentTerm', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const parsed = z.object({ mreTenantId, mreRentTerm }).safeParse(req.params);
-    const query = noQuery.safeParse(req.query);
-    if (!parsed.success || !query.success) {
-      sendValidationError(res, [...(parsed.success ? [] : fieldErrors(parsed.error)), ...(query.success ? [] : fieldErrors(query.error))]);
+    if (!parsed.success) {
+      sendValidationError(res, fieldErrors(parsed.error));
       return;
     }
+    if (refuseQuery(res, query)) return;
     commands
       .termCoverage({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', ...parsed.data })
       .then((result) => res.json(toTermDto(result)))
@@ -246,13 +256,10 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   });
 
   router.get('/transactions/:transactionId/rent-reconciliations', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const transactionId = readId(req.params['transactionId'], 'transactionId', res);
     if (transactionId === undefined) return;
-    const query = noQuery.safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .transactionCoverage({ principal: principalOf(res), transactionId })
       .then((result) => res.json(toTransactionDto(result)))
@@ -260,13 +267,10 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   });
 
   router.get('/rent-reconciliations/:reconciliationId', (req, res, next) => {
+    const query = readQuery(getQuery, req);
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;
-    const query = getQuery.safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     const read =
       query.data.checkMre === 'true'
         ? commands.getWithPresence({ principal: principalOf(res), authorizationHeader: req.headers.authorization ?? '', reconciliationId })
@@ -285,10 +289,12 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     ['remove-from-mre', commands.removeFromMre],
   ] as const) {
     router.post(`/rent-reconciliations/:reconciliationId/${path}`, express.json({ limit: '16kb' }), (req, res, next) => {
+      const query = readQuery(NO_QUERY, req);
       const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
       if (reconciliationId === undefined) return;
       const ifMatch = readIfMatch(req, res);
       if (ifMatch === undefined) return;
+      if (refuseQuery(res, query)) return;
       const parsed = writeBackBody.safeParse(req.body ?? {});
       if (!parsed.success) {
         sendValidationError(res, fieldErrors(parsed.error));
@@ -306,10 +312,12 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   }
 
   router.post('/rent-reconciliations/:reconciliationId/release', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const reconciliationId = readId(req.params['reconciliationId'], 'reconciliationId', res);
     if (reconciliationId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = releaseBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));

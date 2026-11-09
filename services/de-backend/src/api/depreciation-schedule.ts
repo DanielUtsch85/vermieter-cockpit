@@ -4,7 +4,7 @@ import type { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { scheduleQuery } from './depreciation-asset-dto.js';
 import type { DepreciationAssetCommands } from './depreciation-assets.js';
-import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
+import { readQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** The schedule of a DepreciationAsset (api-design.md §59A, §59B; backlogs VC-8-02, VC-8-03). */
 export function depreciationScheduleRoutes(commands: DepreciationAssetCommands): Router {
@@ -15,14 +15,13 @@ export function depreciationScheduleRoutes(commands: DepreciationAssetCommands):
    * or an unknown parameter, all at once, and `to` < `from` at `to`; no version `ETag` (a derived read).
    */
   router.get('/depreciation-assets/:assetId/schedule', (req, res, next) => {
+    const query = readQuery(scheduleQuery, req);
     const errors: { field: string; code: string }[] = [];
     const rawId = req.params['assetId'];
     if (rawId === undefined || !RESOURCE_ID.test(rawId)) errors.push({ field: 'assetId', code: 'INVALID_FORMAT' });
-    const query = scheduleQuery.safeParse(req.query);
-    if (!query.success) errors.push(...fieldErrors(query.error));
-    else if (query.data.from !== undefined && query.data.to !== undefined && query.data.to < query.data.from)
+    if (query.ok && query.data.from !== undefined && query.data.to !== undefined && query.data.to < query.data.from)
       errors.push({ field: 'to', code: 'OUT_OF_RANGE' });
-    if (errors.length > 0 || !query.success || rawId === undefined) {
+    if (errors.length > 0 || !query.ok || rawId === undefined) {
       sendValidationError(res, errors);
       return;
     }

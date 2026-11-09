@@ -7,7 +7,7 @@ import {
   type ListFinancialCategories,
 } from '../application/index.js';
 import { sendError } from './errors.js';
-import { sendValidationError } from './validation.js';
+import { NO_QUERY, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 export interface FinancialCategoryQueries {
   readonly list: ListFinancialCategories;
@@ -18,7 +18,9 @@ export interface FinancialCategoryQueries {
 export function financialCategoryRoutes(queries: FinancialCategoryQueries): Router {
   const router = express.Router();
 
-  router.get('/financial-categories', (_req, res, next) => {
+  router.get('/financial-categories', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
+    if (refuseQuery(res, query)) return;
     queries
       .list()
       .then((categories) => {
@@ -28,11 +30,13 @@ export function financialCategoryRoutes(queries: FinancialCategoryQueries): Rout
   });
 
   router.get('/financial-categories/:code', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const code = req.params['code'] ?? '';
     if (!CATEGORY_CODE.test(code)) {
       sendValidationError(res, [{ field: 'code', code: 'INVALID_FORMAT' }]);
       return;
     }
+    if (refuseQuery(res, query)) return;
     queries
       .get(code)
       .then((category) => {

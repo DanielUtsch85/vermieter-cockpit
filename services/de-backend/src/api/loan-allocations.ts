@@ -18,7 +18,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -102,11 +102,10 @@ const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict(
 
 const listQuery = z
   .object({ status: z.enum(ALLOCATION_STATUSES).optional(), asOf: businessDate.optional() })
-  .strict()
   // A day's set is one set or none: the status filter belongs to the history only (§41.3).
   .refine((query) => query.asOf === undefined || query.status === undefined, { path: ['status'], params: { code: 'NOT_SUPPORTED' } });
 
-const propertyQuery = z.object({ asOf: businessDate.optional() }).strict();
+const propertyQuery = z.object({ asOf: businessDate.optional() });
 
 export interface LoanAllocationCommands {
   readonly create: CreateLoanAllocation;
@@ -121,10 +120,12 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
   const router = express.Router();
 
   router.post('/loans/:loanId/allocations', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -157,12 +158,14 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
   });
 
   router.post('/loans/:loanId/allocations/:allocationSetId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const allocationSetId = readId(req.params['allocationSetId'], 'allocationSetId', res);
     if (allocationSetId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -181,13 +184,10 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
   });
 
   router.get('/loans/:loanId/allocations', (req, res, next) => {
+    const parsed = readQuery(listQuery, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { status, asOf } = parsed.data;
     const principal = principalOf(res);
     (asOf === undefined
@@ -199,13 +199,10 @@ export function loanAllocationRoutes(commands: LoanAllocationCommands): Router {
   });
 
   router.get('/property-references/:propertyReferenceId/loans', (req, res, next) => {
+    const parsed = readQuery(propertyQuery, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
-    const parsed = propertyQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .propertyLoans({ principal: principalOf(res), propertyReferenceId, ...(parsed.data.asOf === undefined ? {} : { asOf: parsed.data.asOf }) })
       .then((items) => res.json({ items: items.map(toPropertyLoanDto) }))

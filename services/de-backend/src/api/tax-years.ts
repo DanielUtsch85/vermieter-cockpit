@@ -4,10 +4,10 @@ import type { AfaItem, AfaLine, ItemFlag, TaxYearItem, TaxYearLine, TaxYearSecti
 import { principalOf } from './access-middleware.js';
 import { distributionDto, flagsDto, plain, ref, uuid } from './tax-classification-dto.js';
 import type { TaxationCommands } from './tax-classifications.js';
-import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
+import { readQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** §58C: only `ownerPartyId`; any other parameter is `400`. */
-const taxYearQuery = z.object({ ownerPartyId: uuid.optional() }).strict();
+const taxYearQuery = z.object({ ownerPartyId: uuid.optional() });
 
 /** The tax-year view per PropertyReference and per owner (api-design.md §58C, VC-7-04; §58D, VC-X-29; the AfA, VC-8-05). */
 export function taxYearRoutes(commands: TaxationCommands): Router {
@@ -18,6 +18,7 @@ export function taxYearRoutes(commands: TaxationCommands): Router {
    * outside 2000–2100), `ownerPartyId` or an unknown parameter; no version `ETag` (a derived read).
    */
   router.get('/property-references/:propertyReferenceId/tax-years/:year', (req, res, next) => {
+    const query = readQuery(taxYearQuery, req);
     const errors: { field: string; code: string }[] = [];
     const rawId = req.params['propertyReferenceId'];
     if (rawId === undefined || !RESOURCE_ID.test(rawId)) errors.push({ field: 'propertyReferenceId', code: 'INVALID_FORMAT' });
@@ -25,9 +26,7 @@ export function taxYearRoutes(commands: TaxationCommands): Router {
     const year = Number(rawYear);
     if (!/^\d{1,9}$/.test(rawYear)) errors.push({ field: 'year', code: 'INVALID_FORMAT' });
     else if (year < 2000 || year > 2100) errors.push({ field: 'year', code: 'OUT_OF_RANGE' });
-    const query = taxYearQuery.safeParse(req.query);
-    if (!query.success) errors.push(...fieldErrors(query.error));
-    if (errors.length > 0 || !query.success) {
+    if (errors.length > 0 || !query.ok) {
       sendValidationError(res, errors);
       return;
     }

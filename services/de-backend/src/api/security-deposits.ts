@@ -20,7 +20,18 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import {
+  fieldErrors,
+  money,
+  NO_QUERY,
+  PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = z
   .string()
@@ -85,7 +96,7 @@ const closeBody = z
 
 const reopenBody = z.object({}).strict();
 
-const getQuery = z.object({ checkMre: z.enum(['true', 'false']).default('false') }).strict();
+const getQuery = z.object({ checkMre: z.enum(['true', 'false']).default('false') });
 
 /** A comma-separated list of the given values, any of them. */
 const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
@@ -94,17 +105,14 @@ const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
     .transform((value) => value.split(','))
     .pipe(z.array(z.enum(values)).min(1));
 
-const listQuery = z
-  .object({
-    status: commaList(DEPOSIT_STATUSES).optional(),
-    // The derived state (§47.3), applied before paging.
-    state: commaList(DEPOSIT_STATES).optional(),
-    mreTenantId: mreTenantId.optional(),
-    holdingFinancialAccountId: uuid.optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  status: commaList(DEPOSIT_STATUSES).optional(),
+  // The derived state (§47.3), applied before paging.
+  state: commaList(DEPOSIT_STATES).optional(),
+  mreTenantId: mreTenantId.optional(),
+  holdingFinancialAccountId: uuid.optional(),
+  ...PAGING,
+});
 
 export interface SecurityDepositCommands {
   readonly create: CreateDeposit;
@@ -121,8 +129,10 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
   const router = express.Router();
 
   router.post('/security-deposits', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -149,11 +159,8 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
   });
 
   router.get('/security-deposits', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status, state, ...rest } = parsed.data;
     commands
       .list({ principal: principalOf(res), filter: definedOnly({ statuses: status, states: state, ...rest }), page: { page, pageSize } })
@@ -162,13 +169,10 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
   });
 
   router.get('/security-deposits/:securityDepositId', (req, res, next) => {
+    const parsed = readQuery(getQuery, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
-    const parsed = getQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .get({
         principal: principalOf(res),
@@ -180,10 +184,12 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
   });
 
   router.post('/security-deposits/:securityDepositId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -203,10 +209,12 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
   });
 
   router.post('/security-deposits/:securityDepositId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -224,10 +232,12 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
   });
 
   router.post('/security-deposits/:securityDepositId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = closeBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -246,11 +256,13 @@ export function securityDepositRoutes(commands: SecurityDepositCommands): Router
   });
 
   router.post('/security-deposits/:securityDepositId/reopen', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const securityDepositId = readId(req.params['securityDepositId'], 'securityDepositId', res);
     if (securityDepositId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     // An empty body is `{}` (§47.4).
+    if (refuseQuery(res, query)) return;
     const parsed = reopenBody.safeParse(req.body ?? {});
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));

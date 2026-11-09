@@ -1,5 +1,5 @@
 import express, { type Request, type Response, type Router } from 'express';
-import { z, type ZodError } from 'zod';
+import { z } from 'zod';
 import type { ExportProperty, ExportTransactions, PropertyExport, TransactionExportHead } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { costDto, paymentDto } from './acquisition-costs.js';
@@ -15,7 +15,7 @@ import { toDto as propertyReferenceDto } from './property-references.js';
 import { toDto as depositDto } from './security-deposits.js';
 import { CSV_DIALECTS, CSV_ROWS, csvHead, csvRecords, type CsvDialect, type CsvRows } from './transaction-csv.js';
 import { checkDateRange, filterFields, listFilter } from './transaction-dto.js';
-import { fieldErrors, sendValidationError, type FieldError } from './validation.js';
+import { NO_QUERY, readQuery, refuseQuery } from './validation.js';
 import { membershipDto, wegDto } from './wegs.js';
 
 /**
@@ -30,21 +30,13 @@ export interface ExportCommands {
   readonly logError?: (line: string) => void;
 }
 
-/** §30.1's filters (the same schema), `rows` and `dialect`; anything else, `page` and `pageSize` included, is `400`. */
+/**
+ * §30.1's filters (the same schema), `rows` and `dialect`; anything else, `page` and `pageSize` included, is `400`, named
+ * by `readQuery` (§58W; the JSON route takes no parameter, `NO_QUERY`).
+ */
 const csvQuery = filterFields
   .extend({ rows: z.enum(CSV_ROWS).default('transactions'), dialect: z.enum(CSV_DIALECTS).default('rfc4180') })
-  .strict()
   .refine(checkDateRange.check, checkDateRange.issue);
-
-/** The JSON route takes no parameter. */
-const jsonQuery = z.object({}).strict();
-
-/** As `fieldErrors`, with an unknown parameter named by itself (`page`, `include`), so the client sees which one. */
-function queryErrors(error: ZodError): FieldError[] {
-  return error.issues.flatMap((issue) =>
-    issue.code === 'unrecognized_keys' ? issue.keys.map((key) => ({ field: key, code: 'INVALID_FORMAT' })) : fieldErrors(new z.ZodError([issue])),
-  );
-}
 
 /** `YYYY-MM-DD` of the UTC day of an instant (the file names). */
 const utcDay = (at: Date) => at.toISOString().slice(0, 10);
@@ -121,12 +113,9 @@ export function exportRoutes(commands: ExportCommands): Router {
   const logError = commands.logError ?? ((line: string) => console.error(line));
 
   router.get('/exports/transactions.csv', (req: Request, res: Response, next) => {
-    const parsed = csvQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, queryErrors(parsed.error));
-      return;
-    }
-    const { rows, dialect, ...filters } = parsed.data;
+    const query = readQuery(csvQuery, req);
+    if (refuseQuery(res, query)) return;
+    const { rows, dialect, ...filters } = query.data;
     const principal = principalOf(res);
     commands
       .transactions({
@@ -155,13 +144,10 @@ export function exportRoutes(commands: ExportCommands): Router {
   });
 
   router.get('/property-references/:propertyReferenceId/export.json', (req: Request, res: Response, next) => {
+    const query = readQuery(NO_QUERY, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
-    const parsed = jsonQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, queryErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .property({ principal: principalOf(res), propertyReferenceId })
       .then((doc) => {

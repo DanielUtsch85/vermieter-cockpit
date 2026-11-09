@@ -166,7 +166,7 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
     expect(await fields(await get(base, `/property-references/${PR}/tax-years/2027?ownerPartyId=x`))).toEqual([
       { field: 'ownerPartyId', code: 'INVALID_FORMAT' },
     ]);
-    expect(await fields(await get(base, `/property-references/${PR}/tax-years/2027?year=2027`))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, `/property-references/${PR}/tax-years/2027?year=2027`))).toEqual([{ field: 'year', code: 'INVALID_FORMAT' }]);
     expect((await get(base, `/property-references/${PR}/tax-years/2000`)).status).toBe(200);
     expect((await get(base, `/property-references/${PR}/tax-years/2100`)).status).toBe(200);
   });

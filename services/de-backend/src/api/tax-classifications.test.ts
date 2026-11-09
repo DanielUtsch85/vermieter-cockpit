@@ -557,7 +557,7 @@ describe('VC-7-03 (§58B)', () => {
     expect(listed.items).toEqual([{ ...wegDto, yearAmount: { amount: '250.00', currency: 'EUR' } }]);
     expect(seen.at(-1)).toEqual({ sourceTypes: ['WEG_RESERVE_WITHDRAWAL', 'WEG_ASSESSMENT_USE'] });
     expect(await fields(await get(base, `/property-references/${PR}/tax-meanings?year=2027&sourceType=DEPOSIT`))).toEqual([
-      { field: 'sourceType.0', code: 'INVALID_FORMAT' },
+      { field: 'sourceType', code: 'INVALID_FORMAT' },
     ]);
   });
 
@@ -705,7 +705,7 @@ describe('VC-7-03 (§58B)', () => {
     expect(cancelled.status).toBe(409);
     expect(((await cancelled.json()) as { error: unknown }).error).toMatchObject({ details: { reason: 'ACQUISITION_CANCELLED' } });
     expect(await fields(await get(base, `/acquisitions/${ACQ}/anschaffungsnahe-herstellungskosten?asOf=2026-01-01`))).toEqual([
-      { field: '(body)', code: 'INVALID_FORMAT' },
+      { field: 'asOf', code: 'INVALID_FORMAT' },
     ]);
     expect(await fields(await get(base, `/acquisitions/x/anschaffungsnahe-herstellungskosten`))).toEqual([{ field: 'acquisitionId', code: 'INVALID_FORMAT' }]);
   });

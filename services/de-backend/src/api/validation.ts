@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express';
 import { z, type ZodError } from 'zod';
 import { Money, MoneyError } from '../shared/index.js';
-import { sendError } from './errors.js';
+import { sendError } from './error-envelope.js';
 
 /** DE resource ids (PostgreSQL uuid). */
 export const RESOURCE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,21 +14,116 @@ export interface FieldError {
   readonly code: string;
 }
 
+/**
+ * Answers `400 VALIDATION_ERROR` with the fields given and, after them, the errors of the request's query when
+ * `readQuery` refused it (api-design.md §58W rule 5): a malformed path id and the query's errors in one answer.
+ */
 export function sendValidationError(res: Response, fields: readonly FieldError[]): void {
-  sendError(res, 400, 'VALIDATION_ERROR', 'Validation failed.', { fields });
+  sendError(res, 400, 'VALIDATION_ERROR', 'Validation failed.', { fields: [...fields, ...(refusedQueries.get(res.req) ?? [])] });
+}
+
+/** The §90 code of a zod issue: a route's own code, REQUIRED for a missing field, anything else INVALID_FORMAT. */
+function codeOf(issue: z.ZodIssue): string {
+  return issue.code === 'custom' && typeof issue.params?.['code'] === 'string'
+    ? issue.params['code']
+    : issue.code === 'invalid_type' && issue.received === 'undefined'
+      ? 'REQUIRED'
+      : 'INVALID_FORMAT';
 }
 
 /** zod issues as api-design §90 field errors: a missing field is REQUIRED, anything else INVALID_FORMAT. */
 export function fieldErrors(error: ZodError): FieldError[] {
-  return error.issues.map((issue) => ({
-    field: issue.path.join('.') || '(body)',
-    code:
-      issue.code === 'custom' && typeof issue.params?.['code'] === 'string'
-        ? issue.params['code']
-        : issue.code === 'invalid_type' && issue.received === 'undefined'
-          ? 'REQUIRED'
-          : 'INVALID_FORMAT',
-  }));
+  return error.issues.map((issue) => ({ field: issue.path.join('.') || '(body)', code: codeOf(issue) }));
+}
+
+/** The query of a route without parameters (§58W rule 1): every parameter is unknown. */
+export const NO_QUERY = z.object({});
+
+/** §11's paging, the one fragment of every paged route (§58W "Pagination consistent across routes"). */
+export const PAGING = {
+  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+};
+
+/** The same bounds without defaults: the two day-or-history reads, where `asOf` excludes paging (§26.1, §49.2). */
+export const OPTIONAL_PAGING = { page: PAGING.page.removeDefault().optional(), pageSize: PAGING.pageSize.removeDefault().optional() };
+
+export type QueryResult<T> = { readonly ok: true; readonly data: T } | QueryRefusal;
+export interface QueryRefusal {
+  readonly ok: false;
+  readonly errors: readonly FieldError[];
+}
+
+/** The errors of every query `readQuery` refused, by request, for `sendValidationError`. */
+const refusedQueries = new WeakMap<Request, readonly FieldError[]>();
+
+/** The parameter names a query schema knows: the keys of its object, under any refinement. */
+const knownKeysOf = new WeakMap<z.ZodTypeAny, ReadonlySet<string>>();
+function knownKeys(schema: z.ZodTypeAny): ReadonlySet<string> {
+  const cached = knownKeysOf.get(schema);
+  if (cached !== undefined) return cached;
+  let inner: z.ZodTypeAny = schema;
+  while (inner instanceof z.ZodEffects) inner = inner.innerType() as z.ZodTypeAny;
+  if (!(inner instanceof z.ZodObject)) throw new Error('readQuery: a query schema is an object');
+  const keys = new Set(Object.keys(inner.shape as object));
+  knownKeysOf.set(schema, keys);
+  return keys;
+}
+
+/** The query string as the client sent it: the part of the request line's target after the first `?`. */
+function rawQuery(req: Request): string {
+  const target = req.originalUrl;
+  const at = target.indexOf('?');
+  return at === -1 ? '' : target.slice(at + 1);
+}
+
+/**
+ * The query of a request (api-design.md §58W), the only reader of the query in `src/api/` (the lint rule). Read from the
+ * raw query string with `URLSearchParams` (a key decoded, `+` a space, nothing dropped, no arrays or objects), not from
+ * Express's `req.query`. Every key the schema does not know is refused by its name, as sent; a key given more than once,
+ * known or not, is refused once; both `INVALID_FORMAT`, in the order of first appearance, after the schema's own errors
+ * on the known parameters (each named by the parameter alone, a comma list without an index). The schema is strict by
+ * construction: only its own keys reach it. A refused query is also remembered for `sendValidationError`, so a path
+ * error answered before the handler checks the result carries the query's errors beside it (rule 5).
+ */
+export function readQuery<S extends z.ZodTypeAny>(schema: S, req: Request): QueryResult<z.output<S>> {
+  const known = knownKeys(schema);
+  const counts = new Map<string, { readonly first: string; count: number }>();
+  for (const [key, value] of new URLSearchParams(rawQuery(req))) {
+    const seen = counts.get(key);
+    if (seen === undefined) counts.set(key, { first: value, count: 1 });
+    else seen.count += 1;
+  }
+  const input = Object.create(null) as Record<string, string>;
+  const refused: FieldError[] = [];
+  const repeated = new Set<string>();
+  for (const [key, { first, count }] of counts) {
+    if (!known.has(key)) refused.push({ field: key, code: 'INVALID_FORMAT' });
+    else {
+      if (count > 1) {
+        repeated.add(key);
+        refused.push({ field: key, code: 'INVALID_FORMAT' });
+      }
+      input[key] = first;
+    }
+  }
+  const parsed = schema.safeParse(input);
+  const own = parsed.success
+    ? []
+    : parsed.error.issues
+        .map((issue) => ({ field: issue.path.length === 0 ? '(query)' : String(issue.path[0]), code: codeOf(issue) }))
+        .filter((error) => !repeated.has(error.field));
+  if (parsed.success && refused.length === 0) return { ok: true, data: parsed.data as z.output<S> };
+  const errors = [...own, ...refused];
+  refusedQueries.set(req, errors);
+  return { ok: false, errors };
+}
+
+/** Answers a refused query (`400`, with `sendValidationError`) and says so; the handler then returns. */
+export function refuseQuery(res: Response, query: QueryResult<unknown>): query is QueryRefusal {
+  if (query.ok) return false;
+  sendValidationError(res, []);
+  return true;
 }
 
 /**

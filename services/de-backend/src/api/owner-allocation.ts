@@ -1,10 +1,9 @@
 import express, { type Router } from 'express';
-import { z } from 'zod';
 import { formatShare, type GetOwnerAllocation, type OwnerPart } from '../application/index.js';
 import type { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { readId } from './acquisitions.js';
-import { fieldErrors, sendValidationError } from './validation.js';
+import { NO_QUERY, readQuery, refuseQuery } from './validation.js';
 
 export interface OwnerAllocationCommands {
   readonly get: GetOwnerAllocation;
@@ -15,13 +14,10 @@ export function ownerAllocationRoutes(commands: OwnerAllocationCommands): Router
   const router = express.Router();
 
   router.get('/acquisitions/:acquisitionId/owner-allocation', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
-    const query = z.object({}).strict().safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), acquisitionId })
       .then((plan) =>

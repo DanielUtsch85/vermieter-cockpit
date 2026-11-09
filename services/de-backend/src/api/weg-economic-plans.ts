@@ -15,7 +15,19 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, dayOfMonth, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import {
+  dayOfMonth,
+  fieldErrors,
+  money,
+  NO_QUERY,
+  PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = z
   .string()
@@ -68,20 +80,17 @@ const planBody = z
 
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
-const listQuery = z
-  .object({
-    status: z
-      .string()
-      .transform((value) => value.split(','))
-      .pipe(z.array(z.enum(PLAN_STATUSES)).min(1))
-      .optional(),
-    financialYear: z.coerce.number().int().min(1900).max(2200).optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  status: z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(PLAN_STATUSES)).min(1))
+    .optional(),
+  financialYear: z.coerce.number().int().min(1900).max(2200).optional(),
+  ...PAGING,
+});
 
-const proposalQuery = z.object({ propertyReferenceId: uuid.optional() }).strict();
+const proposalQuery = z.object({ propertyReferenceId: uuid.optional() });
 
 export interface WegEconomicPlanCommands {
   readonly create: CreateEconomicPlan;
@@ -96,10 +105,12 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
   const router = express.Router();
 
   router.post('/weg-memberships/:membershipId/economic-plans', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = planBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -133,13 +144,10 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
   });
 
   router.get('/weg-memberships/:membershipId/economic-plans', (req, res, next) => {
+    const parsed = readQuery(listQuery, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status, financialYear } = parsed.data;
     commands
       .list({ principal: principalOf(res), membershipId, filter: definedOnly({ statuses: status, financialYear }), page: { page, pageSize } })
@@ -148,8 +156,10 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
   });
 
   router.get('/weg-economic-plans/:planId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const economicPlanId = readId(req.params['planId'], 'planId', res);
     if (economicPlanId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), economicPlanId })
       .then((plan) => sendPlan(res, plan))
@@ -157,10 +167,12 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
   });
 
   router.post('/weg-economic-plans/:planId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const economicPlanId = readId(req.params['planId'], 'planId', res);
     if (economicPlanId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -178,13 +190,10 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
   });
 
   router.get('/transactions/:transactionId/hausgeld-proposal', (req, res, next) => {
+    const parsed = readQuery(proposalQuery, req);
     const transactionId = readId(req.params['transactionId'], 'transactionId', res);
     if (transactionId === undefined) return;
-    const parsed = proposalQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .hausgeldProposal({ principal: principalOf(res), transactionId, propertyReferenceId: parsed.data.propertyReferenceId ?? null })
       .then((proposal) => res.json(proposalDto(proposal)))

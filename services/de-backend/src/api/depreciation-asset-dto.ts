@@ -315,19 +315,17 @@ const year = z.string().transform((value, ctx) => {
   }
   return parsed;
 });
-export const getQuery = z.object({ year: year.optional() }).strict();
+export const getQuery = z.object({ year: year.optional() });
 /** §59A: `from` and `to` as `year`, `ownerPartyId` a UUID; any other parameter is `400`. */
-export const scheduleQuery = z.object({ from: year.optional(), to: year.optional(), ownerPartyId: uuid.optional() }).strict();
-export const listQuery = z
-  .object({
-    status: z
-      .string()
-      .transform((value) => value.split(','))
-      .pipe(z.array(z.enum(ASSET_STATUSES)).min(1))
-      .optional(),
-    year: year.optional(),
-  })
-  .strict();
+export const scheduleQuery = z.object({ from: year.optional(), to: year.optional(), ownerPartyId: uuid.optional() });
+export const listQuery = z.object({
+  status: z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(ASSET_STATUSES)).min(1))
+    .optional(),
+  year: year.optional(),
+});
 
 export const entriesOf = (list: readonly z.infer<typeof entry>[] | null | undefined) =>
   (list ?? []).map((e): UsefulLifeAmendment => ({

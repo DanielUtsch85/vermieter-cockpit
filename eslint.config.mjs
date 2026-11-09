@@ -36,6 +36,20 @@ export default tseslint.config(
       '@typescript-eslint/no-base-to-string': 'off',
     },
   },
+  {
+    // VC-X-61 (api-design.md §58W): `readQuery` in validation.ts is the only reader of a request's query; a route that
+    // read `req.query` itself would bypass the refusal of unknown and repeated parameters.
+    files: ['services/de-backend/src/api/**/*.ts'],
+    ignores: ['services/de-backend/src/api/validation.ts', '**/*.test.ts', '**/*.test-support.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: "MemberExpression[property.name='query']", message: 'Read the query with readQuery (validation.ts, §58W).' },
+        { selector: "MemberExpression[property.value='query']", message: 'Read the query with readQuery (validation.ts, §58W).' },
+        { selector: "ObjectPattern > Property[key.name='query']", message: 'Read the query with readQuery (validation.ts, §58W).' },
+      ],
+    },
+  },
   { files: ['**/*.mjs', '**/*.js'], ...tseslint.configs.disableTypeChecked },
   {
     // Repository scripts and this config run on Node: its globals, without a dependency on the `globals` package.

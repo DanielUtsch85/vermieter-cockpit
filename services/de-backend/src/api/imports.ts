@@ -12,7 +12,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { RESOURCE_ID, fieldErrors, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Upper bound of an uploaded statement, enforced while streaming, before any parsing. */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -57,6 +57,13 @@ export function importRoutes(commands: ImportCommands): Router {
   const router = express.Router();
 
   router.post('/imports/bank-transactions', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
+    if (!query.ok) {
+      // §58W: the upload is not read for a refused query; end the connection instead of draining it.
+      res.setHeader('Connection', 'close');
+      refuseQuery(res, query);
+      return;
+    }
     readUpload(req)
       .then((upload) => {
         if (upload.kind === 'TOO_LARGE') {
@@ -108,11 +115,13 @@ export function importRoutes(commands: ImportCommands): Router {
   });
 
   router.get('/imports/:importBatchId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = req.params['importBatchId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
       sendValidationError(res, [{ field: 'importBatchId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    if (refuseQuery(res, query)) return;
     commands
       .getBatch({
         principal: principalOf(res),
@@ -125,15 +134,13 @@ export function importRoutes(commands: ImportCommands): Router {
   });
 
   router.get('/imports/:importBatchId/review-items', (req, res, next) => {
+    const query = readQuery(listQuery, req);
     const id = req.params['importBatchId'] ?? '';
-    const query = listQuery.safeParse(req.query);
-    if (!RESOURCE_ID.test(id) || !query.success) {
-      sendValidationError(res, [
-        ...(RESOURCE_ID.test(id) ? [] : [{ field: 'importBatchId', code: 'INVALID_FORMAT' }]),
-        ...(query.success ? [] : fieldErrors(query.error)),
-      ]);
+    if (!RESOURCE_ID.test(id)) {
+      sendValidationError(res, [{ field: 'importBatchId', code: 'INVALID_FORMAT' }]);
       return;
     }
+    if (refuseQuery(res, query)) return;
     commands
       .listReviewItems({
         principal: principalOf(res),
@@ -148,6 +155,7 @@ export function importRoutes(commands: ImportCommands): Router {
   });
 
   router.post('/imports/:importBatchId/review-items/:reviewItemId/resolve', express.json({ limit: '1kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const batchId = req.params['importBatchId'] ?? '';
     const itemId = req.params['reviewItemId'] ?? '';
     const ids = [
@@ -158,6 +166,7 @@ export function importRoutes(commands: ImportCommands): Router {
       sendValidationError(res, ids);
       return;
     }
+    if (refuseQuery(res, query)) return;
     const body = resolveBody.safeParse(req.body);
     if (!body.success) {
       // An invalid resolution value is a validation issue of the request content (api-design.md §32.2 → 422).
