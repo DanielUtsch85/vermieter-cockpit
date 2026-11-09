@@ -7,7 +7,7 @@ import {
   type ReplacementInput,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import {
   toSplitInput,
   correctBody,
@@ -28,6 +28,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   const router = express.Router();
 
   router.post('/transactions/:transactionId/confirm', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
@@ -35,6 +36,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     }
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .confirm({
         principal: principalOf(res),
@@ -50,6 +52,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   });
 
   router.post('/transactions/:transactionId/correct', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     const id = req.params['transactionId'] ?? '';
@@ -59,6 +62,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     }
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = correctBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(
@@ -112,6 +116,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   });
 
   router.post('/transactions/:transactionId/reverse', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     const id = req.params['transactionId'] ?? '';
@@ -121,6 +126,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     }
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = reverseBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -142,6 +148,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   });
 
   router.post('/transactions/:transactionId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
@@ -149,6 +156,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     }
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -189,6 +197,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   });
 
   router.post('/transactions/:transactionId/ignore', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
@@ -196,6 +205,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     }
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = ignoreBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -217,6 +227,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
   });
 
   router.post('/transactions/:transactionId/restore', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
@@ -224,6 +235,7 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     }
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .restore({
         principal: principalOf(res),

@@ -21,7 +21,7 @@ import { principalOf } from './access-middleware.js';
 import { definedOnly, readId } from './acquisitions.js';
 import { distributionDto, flagsDto, plain, ref } from './tax-classification-dto.js';
 import type { TaxationCommands } from './tax-classifications.js';
-import { fieldErrors, sendValidationError } from './validation.js';
+import { NO_QUERY, PAGING, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const csv = <T extends readonly [string, ...string[]]>(values: T) =>
   z
@@ -29,18 +29,15 @@ const csv = <T extends readonly [string, ...string[]]>(values: T) =>
     .transform((value) => value.split(','))
     .pipe(z.array(z.enum(values)).min(1))
     .optional();
-const meaningsQuery = z
-  .object({
-    year: z.coerce.number().int().min(2000).max(2100),
-    reviewState: csv(REVIEW_STATES),
-    origin: csv(ORIGINS),
-    taxCategory: csv(TAX_CATEGORIES),
-    // §58M: a cost line is never a tax meaning, so never a list's source type.
-    sourceType: csv(MEANING_SOURCE_TYPES),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const meaningsQuery = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  reviewState: csv(REVIEW_STATES),
+  origin: csv(ORIGINS),
+  taxCategory: csv(TAX_CATEGORIES),
+  // §58M: a cost line is never a tax meaning, so never a list's source type.
+  sourceType: csv(MEANING_SOURCE_TYPES),
+  ...PAGING,
+});
 
 /** A position in a path (§58B): an integer 1–1000, else `400` at `position`. */
 function readPosition(value: string | undefined, res: Response): number | undefined {
@@ -53,7 +50,9 @@ function readPosition(value: string | undefined, res: Response): number | undefi
 export function taxMeaningRoutes(commands: TaxationCommands): Router {
   const router = express.Router();
 
-  router.get('/tax-rules', (_req, res, next) => {
+  router.get('/tax-rules', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
+    if (refuseQuery(res, query)) return;
     commands
       .listRules()
       .then((rules) => res.json({ items: rules.map(ruleDto) }))
@@ -61,6 +60,8 @@ export function taxMeaningRoutes(commands: TaxationCommands): Router {
   });
 
   router.get('/tax-rules/:ruleCode', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
+    if (refuseQuery(res, query)) return;
     commands
       .getRule({ ruleCode: req.params['ruleCode'] ?? '' })
       .then((rule) => res.json(ruleDto(rule)))
@@ -68,8 +69,10 @@ export function taxMeaningRoutes(commands: TaxationCommands): Router {
   });
 
   router.get('/transaction-splits/:splitId/tax-meaning', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const splitId = readId(req.params['splitId'], 'splitId', res);
     if (splitId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .taxMeaning({ principal: principalOf(res), splitId })
       .then((meaning) => res.json(meaningDto(meaning)))
@@ -77,8 +80,10 @@ export function taxMeaningRoutes(commands: TaxationCommands): Router {
   });
 
   router.get('/security-deposits/:depositId/tax-meaning', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const depositId = readId(req.params['depositId'], 'depositId', res);
     if (depositId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .depositTaxMeaning({ principal: principalOf(res), depositId })
       .then((meaning) => res.json(depositMeaningDto(meaning)))
@@ -88,10 +93,12 @@ export function taxMeaningRoutes(commands: TaxationCommands): Router {
   /** §58B: the two WEG sources, by their row and position; no `ETag` (a derived read). */
   const wegRoute = (path: string, idParam: string, read: GetWegTaxMeaning) =>
     router.get(path, (req, res, next) => {
+      const query = readQuery(NO_QUERY, req);
       const sourceId = readId(req.params[idParam], idParam, res);
       if (sourceId === undefined) return;
       const at = readPosition(req.params['position'], res);
       if (at === undefined) return;
+      if (refuseQuery(res, query)) return;
       read({ principal: principalOf(res), sourceId, position: at })
         .then((meaning) => res.json(wegMeaningDto(meaning)))
         .catch(next);
@@ -100,13 +107,10 @@ export function taxMeaningRoutes(commands: TaxationCommands): Router {
   wegRoute('/weg-special-assessments/:assessmentId/uses/:position/tax-meaning', 'assessmentId', (input) => commands.useTaxMeaning(input));
 
   router.get('/acquisitions/:acquisitionId/anschaffungsnahe-herstellungskosten', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
-    const query = z.object({}).strict().safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .anschaffungsnahe({ principal: principalOf(res), acquisitionId })
       .then((check) => res.json(checkDto(check)))
@@ -114,13 +118,10 @@ export function taxMeaningRoutes(commands: TaxationCommands): Router {
   });
 
   router.get('/property-references/:propertyReferenceId/tax-meanings', (req, res, next) => {
+    const parsed = readQuery(meaningsQuery, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
-    const parsed = meaningsQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { year, reviewState, origin, taxCategory, sourceType, page, pageSize } = parsed.data;
     commands
       .taxMeanings({

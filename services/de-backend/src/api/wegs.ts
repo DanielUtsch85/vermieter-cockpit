@@ -24,7 +24,18 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import {
+  fieldErrors,
+  NO_QUERY,
+  OPTIONAL_PAGING,
+  PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = z
   .string()
@@ -117,24 +128,20 @@ const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
     .transform((value) => value.split(','))
     .pipe(z.array(z.enum(values)).min(1));
 
-const paging = {
-  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
-};
+const wegListQuery = z.object({
+  status: commaList(WEG_STATUSES).optional(),
+  administratorPartyId: uuid.optional(),
+  propertyReferenceId: uuid.optional(),
+  ...PAGING,
+});
 
-const wegListQuery = z
-  .object({ status: commaList(WEG_STATUSES).optional(), administratorPartyId: uuid.optional(), propertyReferenceId: uuid.optional(), ...paging })
-  .strict();
-
-const membershipListQuery = z.object({ status: commaList(MEMBERSHIP_STATUSES).optional(), propertyReferenceId: uuid.optional(), ...paging }).strict();
+const membershipListQuery = z.object({ status: commaList(MEMBERSHIP_STATUSES).optional(), propertyReferenceId: uuid.optional(), ...PAGING });
 
 const unitQuery = z
   .object({
     asOf: businessDate.optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).optional(),
-    pageSize: z.coerce.number().int().min(1).max(200).optional(),
+    ...OPTIONAL_PAGING,
   })
-  .strict()
   // A day's membership is not paged (§49.2): paging parameters belong to the history only.
   .refine((query) => query.asOf === undefined || (query.page === undefined && query.pageSize === undefined), {
     path: ['page'],
@@ -164,8 +171,10 @@ export function wegRoutes(commands: WegCommands): Router {
   const router = express.Router();
 
   router.post('/wegs', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = wegBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -190,11 +199,8 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.get('/wegs', (req, res, next) => {
-    const parsed = wegListQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(wegListQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status, ...rest } = parsed.data;
     commands
       .listWegs({ principal: principalOf(res), filter: definedOnly({ statuses: status, ...rest }), page: { page, pageSize } })
@@ -203,8 +209,10 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.get('/wegs/:wegId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .getWeg({ principal: principalOf(res), wegId })
       .then((weg) => sendWeg(res, weg))
@@ -212,10 +220,12 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.post('/wegs/:wegId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = wegAmendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -235,10 +245,12 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.post('/wegs/:wegId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -256,10 +268,12 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.post('/wegs/:wegId/memberships', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = membershipBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -286,13 +300,10 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.get('/wegs/:wegId/memberships', (req, res, next) => {
+    const parsed = readQuery(membershipListQuery, req);
     const wegId = readId(req.params['wegId'], 'wegId', res);
     if (wegId === undefined) return;
-    const parsed = membershipListQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status, ...rest } = parsed.data;
     commands
       .listMemberships({ principal: principalOf(res), wegId, filter: definedOnly({ statuses: status, ...rest }), page: { page, pageSize } })
@@ -301,8 +312,10 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.get('/weg-memberships/:membershipId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .getMembership({ principal: principalOf(res), membershipId })
       .then((membership) => sendMembership(res, membership))
@@ -310,10 +323,12 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.post('/weg-memberships/:membershipId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = membershipAmendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -337,10 +352,12 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.post('/weg-memberships/:membershipId/end', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = endBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -358,10 +375,12 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.post('/weg-memberships/:membershipId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -379,13 +398,10 @@ export function wegRoutes(commands: WegCommands): Router {
   });
 
   router.get('/property-references/:propertyReferenceId/weg-memberships', (req, res, next) => {
+    const parsed = readQuery(unitQuery, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
-    const parsed = unitQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { asOf, page, pageSize } = parsed.data;
     commands
       .readUnitMemberships(

@@ -24,7 +24,18 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError, signedMoney } from './validation.js';
+import {
+  fieldErrors,
+  NO_QUERY,
+  PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+  signedMoney,
+} from './validation.js';
 
 const uuid = z
   .string()
@@ -140,18 +151,15 @@ type StatementBody = z.infer<typeof statementBody>;
 
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
-const listQuery = z
-  .object({
-    status: z
-      .string()
-      .transform((value) => value.split(','))
-      .pipe(z.array(z.enum(ANNUAL_STATEMENT_STATUSES)).min(1))
-      .optional(),
-    financialYear: z.coerce.number().int().min(1900).max(2200).optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  status: z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(ANNUAL_STATEMENT_STATUSES)).min(1))
+    .optional(),
+  financialYear: z.coerce.number().int().min(1900).max(2200).optional(),
+  ...PAGING,
+});
 
 /** The validated body as the content of create and replace; absent optionals are null. */
 function contentOf(body: StatementBody): StatementContent {
@@ -222,10 +230,12 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   const router = express.Router();
 
   router.post('/weg-memberships/:membershipId/annual-statements', express.json({ limit: '256kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = statementBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -246,13 +256,10 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   });
 
   router.get('/weg-memberships/:membershipId/annual-statements', (req, res, next) => {
+    const parsed = readQuery(listQuery, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status, financialYear } = parsed.data;
     commands
       .list({ principal: principalOf(res), membershipId, filter: definedOnly({ statuses: status, financialYear }), page: { page, pageSize } })
@@ -269,8 +276,10 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   });
 
   router.get('/weg-annual-statements/:statementId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), statementId })
       .then((statement) => sendStatement(res, statement))
@@ -278,10 +287,12 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   });
 
   router.put('/weg-annual-statements/:statementId', express.json({ limit: '256kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = statementBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -299,10 +310,12 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   });
 
   router.post('/weg-annual-statements/:statementId/confirm', express.json({ limit: '1kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = z.object({}).strict().optional().safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -315,10 +328,12 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   });
 
   router.post('/weg-annual-statements/:statementId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -336,8 +351,10 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   });
 
   router.get('/weg-annual-statements/:statementId/comparison', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .comparison({ principal: principalOf(res), statementId })
       .then((comparison) => res.json(comparisonDto(comparison)))
@@ -345,13 +362,10 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   });
 
   router.get('/transactions/:transactionId/settlement-proposal', (req, res, next) => {
+    const parsed = readQuery(settlementQuery, req);
     const transactionId = readId(req.params['transactionId'], 'transactionId', res);
     if (transactionId === undefined) return;
-    const parsed = settlementQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .settlementProposal({ principal: principalOf(res), transactionId, statementId: parsed.data.statementId })
       .then((proposal) => res.json(settlementDto(proposal)))
@@ -361,7 +375,7 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
   return router;
 }
 
-const settlementQuery = z.object({ statementId: uuid }).strict();
+const settlementQuery = z.object({ statementId: uuid });
 
 function comparisonDto(comparison: StatementComparison) {
   const figures = (c: StatementComparison['classes']['RECOVERABLE']) => ({

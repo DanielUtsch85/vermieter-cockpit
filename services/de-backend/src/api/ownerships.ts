@@ -14,7 +14,17 @@ import {
   type VoidOwnership,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import {
+  fieldErrors,
+  NO_QUERY,
+  OPTIONAL_PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const businessDate = z.string().transform((value, ctx) => {
   const result = checkBusinessDate(value);
@@ -114,13 +124,11 @@ const changeBody = z
 const closeBody = z.object({ validUntil: businessDate }).strict();
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
-const readQuery = z
+const ownershipQuery = z
   .object({
     asOf: businessDate.optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).optional(),
-    pageSize: z.coerce.number().int().min(1).max(200).optional(),
+    ...OPTIONAL_PAGING,
   })
-  .strict()
   // A day's ownership is not paged (§26.1): paging parameters belong to the history only.
   .refine((query) => query.asOf === undefined || (query.page === undefined && query.pageSize === undefined), {
     path: ['page'],
@@ -141,8 +149,10 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
   const router = express.Router();
 
   router.post('/ownerships', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -170,8 +180,10 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
   });
 
   router.get('/ownerships/:ownershipId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const ownershipId = readId(req.params['ownershipId'], 'ownershipId', res);
     if (ownershipId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), ownershipId })
       .then((ownership) => sendOwnership(res, ownership))
@@ -179,10 +191,12 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
   });
 
   router.post('/ownerships/:ownershipId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const ownershipId = readId(req.params['ownershipId'], 'ownershipId', res);
     if (ownershipId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = closeBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -200,10 +214,12 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
   });
 
   router.post('/ownerships/:ownershipId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const ownershipId = readId(req.params['ownershipId'], 'ownershipId', res);
     if (ownershipId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -221,10 +237,12 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
   });
 
   router.post('/property-references/:propertyReferenceId/ownership-changes', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = changeBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -255,13 +273,10 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
   });
 
   router.get('/property-references/:propertyReferenceId/ownerships', (req, res, next) => {
+    const parsed = readQuery(ownershipQuery, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
-    const parsed = readQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { asOf, page, pageSize } = parsed.data;
     commands
       .read(

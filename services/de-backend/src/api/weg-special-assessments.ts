@@ -16,7 +16,7 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, money, NO_QUERY, PAGING, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const positive = money.superRefine((m, ctx) => {
   if (m instanceof Money && !m.isPositive()) ctx.addIssue({ code: 'custom', params: { code: 'NOT_POSITIVE' } });
@@ -69,24 +69,21 @@ const usesBody = z
   .strict()
   .superRefine((body, ctx) => uniquePositions('uses', body.uses, ctx));
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
-const asOfQuery = z.object({ asOf: businessDate.optional() }).strict();
-const listQuery = z
-  .object({
-    status: z
-      .string()
-      .transform((value) => value.split(','))
-      .pipe(z.array(z.enum(ASSESSMENT_STATUSES)).min(1))
-      .optional(),
-    purpose: z
-      .string()
-      .transform((value) => value.split(','))
-      .pipe(z.array(z.enum(ASSESSMENT_PURPOSES)).min(1))
-      .optional(),
-    asOf: businessDate.optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const asOfQuery = z.object({ asOf: businessDate.optional() });
+const listQuery = z.object({
+  status: z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(ASSESSMENT_STATUSES)).min(1))
+    .optional(),
+  purpose: z
+    .string()
+    .transform((value) => value.split(','))
+    .pipe(z.array(z.enum(ASSESSMENT_PURPOSES)).min(1))
+    .optional(),
+  asOf: businessDate.optional(),
+  ...PAGING,
+});
 
 const contentOf = (body: z.infer<typeof amendBody>): AssessmentContent => ({
   description: body.description,
@@ -112,10 +109,12 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
   const router = express.Router();
 
   router.post('/weg-memberships/:membershipId/special-assessments', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -137,13 +136,10 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
   });
 
   router.get('/weg-memberships/:membershipId/special-assessments', (req, res, next) => {
+    const parsed = readQuery(listQuery, req);
     const membershipId = readId(req.params['membershipId'], 'membershipId', res);
     if (membershipId === undefined) return;
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status, purpose, asOf } = parsed.data;
     commands
       .list({
@@ -166,13 +162,10 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
   });
 
   router.get('/weg-special-assessments/:assessmentId', (req, res, next) => {
+    const parsed = readQuery(asOfQuery, req);
     const assessmentId = readId(req.params['assessmentId'], 'assessmentId', res);
     if (assessmentId === undefined) return;
-    const parsed = asOfQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .get({ principal: principalOf(res), assessmentId, ...(parsed.data.asOf === undefined ? {} : { asOf: parsed.data.asOf }) })
       .then((assessment) => sendAssessment(res, assessment))
@@ -180,10 +173,12 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
   });
 
   router.post('/weg-special-assessments/:assessmentId/amend', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const assessmentId = readId(req.params['assessmentId'], 'assessmentId', res);
     if (assessmentId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -201,10 +196,12 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
   });
 
   router.post('/weg-special-assessments/:assessmentId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const assessmentId = readId(req.params['assessmentId'], 'assessmentId', res);
     if (assessmentId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -222,10 +219,12 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
   });
 
   router.put('/weg-special-assessments/:assessmentId/uses', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const assessmentId = readId(req.params['assessmentId'], 'assessmentId', res);
     if (assessmentId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = usesBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));

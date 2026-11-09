@@ -11,7 +11,7 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, sendValidationError } from './validation.js';
+import { fieldErrors, money, NO_QUERY, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -69,12 +69,14 @@ export function costClassificationRoutes(commands: CostClassificationCommands): 
   const router = express.Router();
 
   router.post('/acquisitions/:acquisitionId/costs/:costId/classifications', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const costId = readId(req.params['costId'], 'costId', res);
     if (costId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = body.safeParse(req.body);
     const advisor = advisorNotAllowed(req.body) ? [{ field: 'advisorPartyId', code: 'NOT_ALLOWED' }] : [];
     if (!parsed.success || advisor.length > 0) {
@@ -107,15 +109,12 @@ export function costClassificationRoutes(commands: CostClassificationCommands): 
   });
 
   router.get('/acquisitions/:acquisitionId/costs/:costId/classifications', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const costId = readId(req.params['costId'], 'costId', res);
     if (costId === undefined) return;
-    const query = z.object({}).strict().safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .list({ principal: principalOf(res), acquisitionId, costId })
       .then(({ current, items }) => res.json({ current: current === null ? null : classificationDto(current), items: items.map(classificationDto) }))

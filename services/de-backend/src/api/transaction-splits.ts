@@ -2,7 +2,7 @@ import express, { type Router } from 'express';
 import { z } from 'zod';
 import { CurrencyMismatchError, FinancialCategoryNotFoundError, type SplitTransaction, type TransactionSplit } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import { split, toSplitInput, setVersionTag, toSplitDto, splitFieldCode, sendLoanSplitError } from './transaction-dto.js';
 import type { TransactionCommands } from './transactions.js';
 
@@ -25,6 +25,7 @@ export function transactionSplitRoutes(commands: TransactionCommands): Router {
   const router = express.Router();
 
   router.put('/transactions/:transactionId/splits', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
       sendValidationError(res, [{ field: 'transactionId', code: 'INVALID_FORMAT' }]);
@@ -32,6 +33,7 @@ export function transactionSplitRoutes(commands: TransactionCommands): Router {
     }
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = splitsBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(

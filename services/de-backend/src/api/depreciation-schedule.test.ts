@@ -188,7 +188,7 @@ describe('GET /depreciation-assets/{assetId}/schedule: 400 (§59A)', () => {
     expect(await fields(await get(base, `${path}?to=2101`))).toEqual([{ field: 'to', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await get(base, `${path}?from=2027&to=2026`))).toEqual([{ field: 'to', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await get(base, `${path}?ownerPartyId=x`))).toEqual([{ field: 'ownerPartyId', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await get(base, `${path}?year=2026`))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, `${path}?year=2026`))).toEqual([{ field: 'year', code: 'INVALID_FORMAT' }]);
     expect(await fields(await get(base, '/depreciation-assets/x/schedule?from=20x6&ownerPartyId=y'))).toEqual([
       { field: 'assetId', code: 'INVALID_FORMAT' },
       { field: 'from', code: 'INVALID_FORMAT' },

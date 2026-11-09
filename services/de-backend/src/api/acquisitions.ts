@@ -19,7 +19,18 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { toDto as ownershipDto } from './ownerships.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import {
+  fieldErrors,
+  money,
+  NO_QUERY,
+  PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 export const businessDate = z.string().transform((value, ctx) => {
   const result = checkBusinessDate(value);
@@ -117,27 +128,21 @@ const alignBody = z
       ctx.addIssue({ code: 'custom', path: ['sourceReferences'], params: { code: 'REQUIRED' } });
   });
 
-const paging = {
-  status: z.enum(ACQUISITION_STATUSES).optional(),
-  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
-};
-const listQuery = z
-  .object({
-    ...paging,
-    propertyReferenceId: z
-      .string()
-      .regex(RESOURCE_ID)
-      .transform((id) => id.toLowerCase())
-      .optional(),
-    partyId: z
-      .string()
-      .regex(RESOURCE_ID)
-      .transform((id) => id.toLowerCase())
-      .optional(),
-  })
-  .strict();
-const propertyListQuery = z.object(paging).strict();
+const statusAndPaging = { status: z.enum(ACQUISITION_STATUSES).optional(), ...PAGING };
+const listQuery = z.object({
+  ...statusAndPaging,
+  propertyReferenceId: z
+    .string()
+    .regex(RESOURCE_ID)
+    .transform((id) => id.toLowerCase())
+    .optional(),
+  partyId: z
+    .string()
+    .regex(RESOURCE_ID)
+    .transform((id) => id.toLowerCase())
+    .optional(),
+});
+const propertyListQuery = z.object(statusAndPaging);
 
 export interface AcquisitionCommands {
   readonly create: CreateAcquisition;
@@ -157,8 +162,10 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   const router = express.Router();
 
   router.post('/acquisitions', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -188,11 +195,8 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   });
 
   router.get('/acquisitions', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, ...filter } = parsed.data;
     commands
       .list({ principal: principalOf(res), filter: definedOnly(filter), page: { page, pageSize } })
@@ -201,8 +205,10 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   });
 
   router.get('/acquisitions/:acquisitionId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), acquisitionId })
       .then((acquisition) => sendAcquisition(res, acquisition))
@@ -210,10 +216,12 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   });
 
   router.post('/acquisitions/:acquisitionId/cancel', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = cancelBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -231,11 +239,13 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   });
 
   router.post('/acquisitions/:acquisitionId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     // No body, or an empty object (§28.1).
+    if (refuseQuery(res, query)) return;
     const parsed = confirmBody.safeParse(req.body ?? {});
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -252,12 +262,14 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
 
   // §58N (VC-X-52): the transfer of economic ownership recorded later, with its evidence; status unchanged.
   router.post('/acquisitions/:acquisitionId/economic-transfer-date', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = transferDateBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -280,12 +292,14 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
 
   // §58Q (VC-X-55): the seller's Ownership extended up to the transfer, the buyers' moved to it, in one act with evidence.
   router.post('/acquisitions/:acquisitionId/align-ownerships-to-transfer', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = alignBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -315,13 +329,10 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
   });
 
   router.get('/property-references/:propertyReferenceId/acquisitions', (req, res, next) => {
+    const parsed = readQuery(propertyListQuery, req);
     const propertyReferenceId = readId(req.params['propertyReferenceId'], 'propertyReferenceId', res);
     if (propertyReferenceId === undefined) return;
-    const parsed = propertyListQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, ...filter } = parsed.data;
     commands
       .listForPropertyReference({ principal: principalOf(res), propertyReferenceId, filter: definedOnly(filter), page: { page, pageSize } })

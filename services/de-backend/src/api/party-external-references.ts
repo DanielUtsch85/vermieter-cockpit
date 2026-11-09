@@ -9,7 +9,7 @@ import {
   type PartyExternalReference,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, PAGING, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Phase 2: MRE Tenants only (api-design.md §20.1); `metadata` is not accepted yet. */
 const createBody = z
@@ -21,13 +21,10 @@ const createBody = z
   })
   .strict();
 
-const listQuery = z
-  .object({
-    status: z.enum(EXTERNAL_REFERENCE_STATUSES).optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  status: z.enum(EXTERNAL_REFERENCE_STATUSES).optional(),
+  ...PAGING,
+});
 
 export interface ExternalReferenceCommands {
   readonly create: CreateExternalReference;
@@ -40,8 +37,10 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
   const router = express.Router();
 
   router.post('/parties/:partyId/external-references', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const partyId = readId(req.params['partyId'], 'partyId', res);
     if (partyId === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -62,12 +61,14 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
 
   // Takes no body: ending only sets the status (§20.1).
   router.post('/parties/:partyId/external-references/:externalReferenceId/end', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const partyId = readId(req.params['partyId'], 'partyId', res);
     if (partyId === undefined) return;
     const externalReferenceId = readId(req.params['externalReferenceId'], 'externalReferenceId', res);
     if (externalReferenceId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .end({
         principal: principalOf(res),
@@ -80,13 +81,10 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
   });
 
   router.get('/parties/:partyId/external-references', (req, res, next) => {
+    const parsed = readQuery(listQuery, req);
     const partyId = readId(req.params['partyId'], 'partyId', res);
     if (partyId === undefined) return;
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, status } = parsed.data;
     commands
       .list({ principal: principalOf(res), partyId, filter: status === undefined ? {} : { status }, page: { page, pageSize } })

@@ -17,7 +17,7 @@ import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { classificationDto } from './acquisition-cost-classifications.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, money, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -57,17 +57,15 @@ const paymentBody = z
 
 const reasonBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
-const costQuery = z.object({ status: z.enum(COST_STATUSES).optional() }).strict();
-const paymentQuery = z
-  .object({
-    // The literal `null` names the price's payments; an empty value is malformed.
-    acquisitionCostId: z.union([z.literal('null').transform(() => null), uuid]).optional(),
-    counting: z
-      .enum(['true', 'false'])
-      .transform((value) => value === 'true')
-      .optional(),
-  })
-  .strict();
+const costQuery = z.object({ status: z.enum(COST_STATUSES).optional() });
+const paymentQuery = z.object({
+  // The literal `null` names the price's payments; an empty value is malformed.
+  acquisitionCostId: z.union([z.literal('null').transform(() => null), uuid]).optional(),
+  counting: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
+});
 
 export interface AcquisitionCostCommands {
   readonly createCost: CreateAcquisitionCost;
@@ -83,10 +81,12 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
   const router = express.Router();
 
   router.post('/acquisitions/:acquisitionId/costs', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = costBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -113,12 +113,14 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
   });
 
   router.post('/acquisitions/:acquisitionId/costs/:costId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const costId = readId(req.params['costId'], 'costId', res);
     if (costId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = reasonBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -137,13 +139,10 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
   });
 
   router.get('/acquisitions/:acquisitionId/costs', (req, res, next) => {
+    const parsed = readQuery(costQuery, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
-    const parsed = costQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .listCosts({ principal: principalOf(res), acquisitionId, filter: definedOnly(parsed.data) })
       .then((costs) => res.json({ items: costs.map(costDto) }))
@@ -151,10 +150,12 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
   });
 
   router.post('/acquisitions/:acquisitionId/payments', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = paymentBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -177,12 +178,14 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
   });
 
   router.post('/acquisitions/:acquisitionId/payments/:paymentId/unlink', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
     const paymentId = readId(req.params['paymentId'], 'paymentId', res);
     if (paymentId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = reasonBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -201,13 +204,10 @@ export function acquisitionCostRoutes(commands: AcquisitionCostCommands): Router
   });
 
   router.get('/acquisitions/:acquisitionId/payments', (req, res, next) => {
+    const parsed = readQuery(paymentQuery, req);
     const acquisitionId = readId(req.params['acquisitionId'], 'acquisitionId', res);
     if (acquisitionId === undefined) return;
-    const parsed = paymentQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .listPayments({ principal: principalOf(res), acquisitionId, filter: definedOnly(parsed.data) })
       .then(({ purchasePrice, items }) => res.json({ purchasePrice: priceDto(purchasePrice), items: items.map(paymentDto) }))

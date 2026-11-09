@@ -14,7 +14,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -80,7 +80,7 @@ const confirmBody = z
     if (b.reviewState === 'CONFIRMED' && advisor) issue(ctx, ['advisorPartyId'], 'NOT_ALLOWED');
   });
 const voidBody = z.object({ reason: text(500) }).strict();
-const listQuery = z.object({ loanId: uuid.optional(), propertyReferenceId: uuid.optional() }).strict();
+const listQuery = z.object({ loanId: uuid.optional(), propertyReferenceId: uuid.optional() });
 
 export interface ConstructionPeriodInterestCommands {
   readonly create: CreateConstructionPeriodInterest;
@@ -97,8 +97,10 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
   const base = '/construction-period-interest';
 
   router.post(base, express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -130,11 +132,8 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
   });
 
   router.get(base, (req, res, next) => {
-    const query = listQuery.safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    const query = readQuery(listQuery, req);
+    if (refuseQuery(res, query)) return;
     commands
       .list({ principal: principalOf(res), ...definedOf(query.data) })
       .then((records) => res.json({ items: records.map(recordDto) }))
@@ -142,13 +141,10 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
   });
 
   router.get(`${base}/:recordId`, (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const id = readId(req.params['recordId'], 'recordId', res);
     if (id === undefined) return;
-    const query = z.object({}).strict().safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(res, fieldErrors(query.error));
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), id })
       .then(({ record, classifications }) => {
@@ -166,10 +162,12 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
     }>,
   ) =>
     router.post(`${base}/:recordId/${path}`, express.json({ limit: '64kb' }), (req, res, next) => {
+      const query = readQuery(NO_QUERY, req);
       const id = readId(req.params['recordId'], 'recordId', res);
       if (id === undefined) return;
       const ifMatch = readIfMatch(req, res);
       if (ifMatch === undefined) return;
+      if (refuseQuery(res, query)) return;
       const parsed = schema.safeParse(req.body);
       if (!parsed.success) {
         sendValidationError(res, fieldErrors(parsed.error));

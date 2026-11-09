@@ -31,7 +31,7 @@ import { interestPeriodBody, performanceBody, performanceFieldIssue, positiveEur
 import { ref, uuid } from './tax-classification-dto.js';
 import { taxMeaningRoutes } from './tax-meanings.js';
 import { taxYearRoutes } from './tax-years.js';
-import { fieldErrors, integerIn, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, integerIn, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const issue = (ctx: z.RefinementCtx, path: string, code: string) => ctx.addIssue({ code: 'custom', path: [path], params: { code } });
 const has = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value);
@@ -153,15 +153,12 @@ const advisorBody = z
   .optional();
 const markBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const queryPosition = z.coerce.number().int().min(1).max(1000);
-const historyQuery = z
-  .object({ sourceType: z.enum(SOURCE_TYPES), sourceId: uuid, sourcePosition: queryPosition.optional() })
-  .strict()
-  .superRefine((query, ctx) => {
-    if (query.sourceType === undefined) return;
-    const positioned = has(POSITIONED, query.sourceType);
-    if (positioned && query.sourcePosition === undefined) issue(ctx, 'sourcePosition', 'REQUIRED');
-    if (!positioned && query.sourcePosition !== undefined) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
-  });
+const historyQuery = z.object({ sourceType: z.enum(SOURCE_TYPES), sourceId: uuid, sourcePosition: queryPosition.optional() }).superRefine((query, ctx) => {
+  if (query.sourceType === undefined) return;
+  const positioned = has(POSITIONED, query.sourceType);
+  if (positioned && query.sourcePosition === undefined) issue(ctx, 'sourcePosition', 'REQUIRED');
+  if (!positioned && query.sourcePosition !== undefined) issue(ctx, 'sourcePosition', 'NOT_ALLOWED');
+});
 
 export interface TaxationCommands {
   readonly create: CreateTaxClassification;
@@ -192,8 +189,10 @@ export function taxationRoutes(commands: TaxationCommands): Router {
   router.use(taxYearRoutes(commands));
 
   router.post('/tax-classifications', express.json({ limit: '64kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -238,11 +237,8 @@ export function taxationRoutes(commands: TaxationCommands): Router {
   });
 
   router.get('/tax-classifications', (req, res, next) => {
-    const parsed = historyQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(historyQuery, req);
+    if (refuseQuery(res, parsed)) return;
     commands
       .history({
         principal: principalOf(res),
@@ -255,8 +251,10 @@ export function taxationRoutes(commands: TaxationCommands): Router {
   });
 
   router.get('/tax-classifications/:classificationId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const classificationId = readId(req.params['classificationId'], 'classificationId', res);
     if (classificationId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), classificationId })
       .then((classification) => sendClassification(res, classification))
@@ -266,10 +264,12 @@ export function taxationRoutes(commands: TaxationCommands): Router {
   /** §57's three steps: `If-Match`, the body read by `stepOf`. */
   const reviewRoute = (path: string, stepOf: (body: unknown) => { step: ReviewStep } | { error: z.ZodError }) =>
     router.post(`/tax-classifications/:classificationId/${path}`, express.json({ limit: '16kb' }), (req, res, next) => {
+      const query = readQuery(NO_QUERY, req);
       const classificationId = readId(req.params['classificationId'], 'classificationId', res);
       if (classificationId === undefined) return;
       const ifMatch = readIfMatch(req, res);
       if (ifMatch === undefined) return;
+      if (refuseQuery(res, query)) return;
       const read = stepOf(req.body);
       if ('error' in read) {
         sendValidationError(res, fieldErrors(read.error));

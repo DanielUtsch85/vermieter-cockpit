@@ -17,7 +17,18 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import {
+  fieldErrors,
+  money,
+  NO_QUERY,
+  PAGING,
+  readIdempotencyKey,
+  readIfMatch,
+  readQuery,
+  refuseQuery,
+  RESOURCE_ID,
+  sendValidationError,
+} from './validation.js';
 
 const uuid = z
   .string()
@@ -117,15 +128,12 @@ const closeBody = z
     if (body.reason === 'OTHER' && (body.closingNote ?? null) === null) ctx.addIssue({ code: 'custom', path: ['closingNote'], params: { code: 'REQUIRED' } });
   });
 
-const listQuery = z
-  .object({
-    status: z.enum(LOAN_STATUSES).optional(),
-    partyId: uuid.optional(),
-    acquisitionId: uuid.optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
-  })
-  .strict();
+const listQuery = z.object({
+  status: z.enum(LOAN_STATUSES).optional(),
+  partyId: uuid.optional(),
+  acquisitionId: uuid.optional(),
+  ...PAGING,
+});
 
 export interface LoanCommands {
   readonly create: CreateLoan;
@@ -141,8 +149,10 @@ export function loanRoutes(commands: LoanCommands): Router {
   const router = express.Router();
 
   router.post('/loans', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -172,11 +182,8 @@ export function loanRoutes(commands: LoanCommands): Router {
   });
 
   router.get('/loans', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, ...filter } = parsed.data;
     commands
       .list({ principal: principalOf(res), filter: definedOnly(filter), page: { page, pageSize } })
@@ -185,8 +192,10 @@ export function loanRoutes(commands: LoanCommands): Router {
   });
 
   router.get('/loans/:loanId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), loanId })
       .then((loan) => sendLoan(res, loan))
@@ -194,10 +203,12 @@ export function loanRoutes(commands: LoanCommands): Router {
   });
 
   router.post('/loans/:loanId/amend', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -219,10 +230,12 @@ export function loanRoutes(commands: LoanCommands): Router {
   });
 
   router.post('/loans/:loanId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -240,10 +253,12 @@ export function loanRoutes(commands: LoanCommands): Router {
   });
 
   router.post('/loans/:loanId/close', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = closeBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));

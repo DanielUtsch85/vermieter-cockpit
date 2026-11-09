@@ -15,7 +15,7 @@ import {
 import { principalOf } from './access-middleware.js';
 import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { fieldErrors, money, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, money, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 import { rebasedOnDto } from './loan-terms.js';
 
 const perProperty = z
@@ -23,19 +23,17 @@ const perProperty = z
   .transform((value) => value === 'true')
   .optional();
 
-const debtQuery = z.object({ asOf: businessDate.optional(), perProperty }).strict();
+const debtQuery = z.object({ asOf: businessDate.optional(), perProperty });
 
-const paymentsQuery = z
-  .object({
-    year: z.string().transform((value, ctx) => {
-      const year = /^\d{4}$/.test(value) ? Number(value) : undefined;
-      if (year !== undefined && year >= 2000 && year <= 2100) return year;
-      ctx.addIssue({ code: 'custom', params: { code: year === undefined ? 'INVALID_FORMAT' : 'OUT_OF_RANGE' } });
-      return z.NEVER;
-    }),
-    perProperty,
-  })
-  .strict();
+const paymentsQuery = z.object({
+  year: z.string().transform((value, ctx) => {
+    const year = /^\d{4}$/.test(value) ? Number(value) : undefined;
+    if (year !== undefined && year >= 2000 && year <= 2100) return year;
+    ctx.addIssue({ code: 'custom', params: { code: year === undefined ? 'INVALID_FORMAT' : 'OUT_OF_RANGE' } });
+    return z.NEVER;
+  }),
+  perProperty,
+});
 
 const createBody = z
   .object({
@@ -48,7 +46,7 @@ const createBody = z
   .strict();
 
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
-const listQuery = z.object({ status: z.enum(STATEMENT_STATUSES).optional() }).strict();
+const listQuery = z.object({ status: z.enum(STATEMENT_STATUSES).optional() });
 
 export interface LoanDebtCommands {
   readonly remainingDebt: GetRemainingDebt;
@@ -63,13 +61,10 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
   const router = express.Router();
 
   router.get('/loans/:loanId/remaining-debt', (req, res, next) => {
+    const parsed = readQuery(debtQuery, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
-    const parsed = debtQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     const { asOf } = parsed.data;
     commands
       .remainingDebt({ principal: principalOf(res), loanId, perProperty: parsed.data.perProperty ?? false, ...(asOf === undefined ? {} : { asOf }) })
@@ -78,13 +73,10 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
   });
 
   router.get('/loans/:loanId/payments', (req, res, next) => {
+    const parsed = readQuery(paymentsQuery, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
-    const parsed = paymentsQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .payments({ principal: principalOf(res), loanId, year: parsed.data.year, perProperty: parsed.data.perProperty ?? false })
       .then((p) =>
@@ -108,10 +100,12 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
   });
 
   router.post('/loans/:loanId/balance-statements', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -136,12 +130,14 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
   });
 
   router.post('/loans/:loanId/balance-statements/:statementId/void', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
     const statementId = readId(req.params['statementId'], 'statementId', res);
     if (statementId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = voidBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -160,13 +156,10 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
   });
 
   router.get('/loans/:loanId/balance-statements', (req, res, next) => {
+    const parsed = readQuery(listQuery, req);
     const loanId = readId(req.params['loanId'], 'loanId', res);
     if (loanId === undefined) return;
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    if (refuseQuery(res, parsed)) return;
     commands
       .listStatements({ principal: principalOf(res), loanId, ...(parsed.data.status === undefined ? {} : { status: parsed.data.status }) })
       .then((items) => res.json({ items: items.map(toStatementDto) }))

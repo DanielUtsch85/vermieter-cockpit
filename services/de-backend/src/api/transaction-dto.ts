@@ -17,7 +17,7 @@ import {
   type TransactionSplit,
 } from '../application/index.js';
 import { sendError } from './errors.js';
-import { RESOURCE_ID, money } from './validation.js';
+import { money, PAGING, RESOURCE_ID } from './validation.js';
 
 /** The Transaction API's request schemas and response mapping, shared by its route files (api-design.md §30–§35). */
 
@@ -148,8 +148,7 @@ const listFields = z.object({
   financialCategoryCode: z.string().regex(CATEGORY_CODE).optional(),
   bookingDateFrom: businessDate.optional(),
   bookingDateTo: businessDate.optional(),
-  page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+  ...PAGING,
 });
 
 const dateRange = {
@@ -158,14 +157,14 @@ const dateRange = {
   issue: { path: ['bookingDateTo'], params: { code: 'INVALID_RANGE' } },
 };
 
-export const listQuery = listFields.strict().refine(dateRange.check, dateRange.issue);
+export const listQuery = listFields.refine(dateRange.check, dateRange.issue);
 
 /** §58S: the export's filters are §30.1's, the same fields without the page (the export is the whole filtered set). */
 export const filterFields = listFields.omit({ page: true, pageSize: true });
 export const checkDateRange = dateRange;
 
 /** `GET /property-references/{id}/transactions`: the same, with the PropertyReference in the path. */
-export const propertyReferenceListQuery = listFields.omit({ propertyReferenceId: true }).strict().refine(dateRange.check, dateRange.issue);
+export const propertyReferenceListQuery = listFields.omit({ propertyReferenceId: true }).refine(dateRange.check, dateRange.issue);
 
 type ListQuery = z.infer<typeof listQuery>;
 

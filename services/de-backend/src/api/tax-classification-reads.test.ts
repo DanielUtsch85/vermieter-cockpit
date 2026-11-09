@@ -215,10 +215,10 @@ describe('reads (§55)', () => {
     for (const year of ['1999', '2101', 'x', '2026.5'])
       expect(await fields(await get(base, path(`year=${year}`)))).toEqual([{ field: 'year', code: 'INVALID_FORMAT' }]);
     expect(await fields(await get(base, path('year=2026&pageSize=201')))).toEqual([{ field: 'pageSize', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await get(base, path('year=2026&reviewState=MAYBE')))).toEqual([{ field: 'reviewState.0', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await get(base, path('year=2026&origin=X')))).toEqual([{ field: 'origin.0', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await get(base, path('year=2026&taxCategory=X')))).toEqual([{ field: 'taxCategory.0', code: 'INVALID_FORMAT' }]);
-    expect(await fields(await get(base, path('year=2026&other=1')))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, path('year=2026&reviewState=MAYBE')))).toEqual([{ field: 'reviewState', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, path('year=2026&origin=X')))).toEqual([{ field: 'origin', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, path('year=2026&taxCategory=X')))).toEqual([{ field: 'taxCategory', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await get(base, path('year=2026&other=1')))).toEqual([{ field: 'other', code: 'INVALID_FORMAT' }]);
     expect((await get(base, `/property-references/${OTHER}/tax-meanings?year=2026`)).status).toBe(404);
   });
 });

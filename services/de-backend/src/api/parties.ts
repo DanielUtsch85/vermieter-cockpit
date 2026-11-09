@@ -12,7 +12,7 @@ import {
   type Party,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { RESOURCE_ID, fieldErrors, readIdempotencyKey, readIfMatch, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, PAGING, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Trimmed, at most `max`; empty (or null) becomes null (api-design.md §19.1). */
 const optionalText = (max: number) =>
@@ -66,10 +66,8 @@ const listQuery = z
     name: z.string().min(1).max(100).optional(),
     externalSystem: z.literal('MRE').optional(),
     externalId: z.string().regex(MRE_EXTERNAL_ID).optional(),
-    page: z.coerce.number().int().min(1).max(1_000_000).default(1),
-    pageSize: z.coerce.number().int().min(1).max(200).default(50),
+    ...PAGING,
   })
-  .strict()
   // The two come together (api-design.md §20.1): one alone would silently match nothing or everything.
   .refine((query) => (query.externalSystem === undefined) === (query.externalId === undefined), {
     path: ['externalId'],
@@ -89,8 +87,10 @@ export function partyRoutes(commands: PartyCommands): Router {
   const router = express.Router();
 
   router.post('/parties', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -118,11 +118,8 @@ export function partyRoutes(commands: PartyCommands): Router {
   });
 
   router.get('/parties', (req, res, next) => {
-    const parsed = listQuery.safeParse(req.query);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
-      return;
-    }
+    const parsed = readQuery(listQuery, req);
+    if (refuseQuery(res, parsed)) return;
     const { page, pageSize, ...filter } = parsed.data;
     commands
       .list({
@@ -144,8 +141,10 @@ export function partyRoutes(commands: PartyCommands): Router {
   });
 
   router.get('/parties/:partyId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const partyId = readPartyId(req.params['partyId'], res);
     if (partyId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .get({ principal: principalOf(res), partyId })
       .then((party) => sendParty(res, party))
@@ -153,10 +152,12 @@ export function partyRoutes(commands: PartyCommands): Router {
   });
 
   router.post('/parties/:partyId/amend', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const partyId = readPartyId(req.params['partyId'], res);
     if (partyId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = amendBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
@@ -174,10 +175,12 @@ export function partyRoutes(commands: PartyCommands): Router {
   });
 
   router.post('/parties/:partyId/deactivate', express.json({ limit: '16kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const partyId = readPartyId(req.params['partyId'], res);
     if (partyId === undefined) return;
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
+    if (refuseQuery(res, query)) return;
     const parsed = deactivateBody.safeParse(req.body);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));

@@ -14,7 +14,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { readId } from './acquisitions.js';
-import { RESOURCE_ID, fieldErrors, integerIn, readIdempotencyKey, sendValidationError } from './validation.js';
+import { fieldErrors, integerIn, NO_QUERY, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /**
  * Recorded depreciation schedule versions (api-design.md §60, backlog VC-8-04): the record command and the two reads.
@@ -48,31 +48,35 @@ const recordBody = z
   })
   .strict();
 
-const listQuery = z
-  .object({
-    status: z
-      .string()
-      .transform((value, ctx) => {
-        const statuses = value.split(',');
-        if (statuses.some((s) => !(SCHEDULE_VERSION_STATUSES as readonly string[]).includes(s))) {
-          issue(ctx, [], 'INVALID_FORMAT');
-          return z.NEVER;
-        }
-        return [...new Set(statuses)] as ScheduleVersionStatus[];
-      })
-      .optional(),
-  })
-  .strict();
+const listQuery = z.object({
+  status: z
+    .string()
+    .transform((value, ctx) => {
+      const statuses = value.split(',');
+      if (statuses.some((s) => !(SCHEDULE_VERSION_STATUSES as readonly string[]).includes(s))) {
+        issue(ctx, [], 'INVALID_FORMAT');
+        return z.NEVER;
+      }
+      return [...new Set(statuses)] as ScheduleVersionStatus[];
+    })
+    .optional(),
+});
 
 export function scheduleVersionRoutes(commands: ScheduleVersionCommands): Router {
   const router = express.Router();
 
   router.post('/depreciation-assets/:assetId/schedule-versions', express.json({ limit: '32kb' }), (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const errors: { field: string; code: string }[] = [];
     const rawId = req.params['assetId'];
     if (rawId === undefined || !RESOURCE_ID.test(rawId)) errors.push({ field: 'assetId', code: 'INVALID_FORMAT' });
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
+    if (!query.ok) {
+      // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
+      sendValidationError(res, errors);
+      return;
+    }
     const parsed = recordBody.safeParse(req.body);
     if (!parsed.success) errors.push(...fieldErrors(parsed.error));
     if (errors.length > 0 || !parsed.success || rawId === undefined) {
@@ -98,16 +102,10 @@ export function scheduleVersionRoutes(commands: ScheduleVersionCommands): Router
   });
 
   router.get('/depreciation-assets/:assetId/schedule-versions', (req, res, next) => {
+    const query = readQuery(listQuery, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
-    const query = listQuery.safeParse(req.query);
-    if (!query.success) {
-      sendValidationError(
-        res,
-        fieldErrors(query.error).map((e) => ({ ...e, field: e.field === '(body)' ? 'status' : e.field })),
-      );
-      return;
-    }
+    if (refuseQuery(res, query)) return;
     commands
       .listVersions({ principal: principalOf(res), assetId, statuses: query.data.status ?? null })
       .then((versions) => res.json({ items: versions.map(headerDto) }))
@@ -115,10 +113,12 @@ export function scheduleVersionRoutes(commands: ScheduleVersionCommands): Router
   });
 
   router.get('/depreciation-assets/:assetId/schedule-versions/:versionId', (req, res, next) => {
+    const query = readQuery(NO_QUERY, req);
     const assetId = readId(req.params['assetId'], 'assetId', res);
     if (assetId === undefined) return;
     const versionId = readId(req.params['versionId'], 'versionId', res);
     if (versionId === undefined) return;
+    if (refuseQuery(res, query)) return;
     commands
       .getVersion({ principal: principalOf(res), assetId, versionId })
       .then((view) => sendVersion(res, view))
