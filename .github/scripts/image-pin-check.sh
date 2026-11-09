@@ -41,7 +41,8 @@ done < <(grep -HnE '^\s*-?\s*uses:' .github/workflows/*.yml | grep -vE 'uses:\s*
 
 # postgres:16 drift (Entscheidung des Projektinhabers, 2026-11-09, zu #299 Frage 2): CI tests against the same
 # PostgreSQL image that runs in production. Dependabot updates the compose file but not the job service in ci.yml.
-pg_ref() { grep -hoE 'image:\s*postgres:[^[:space:]#]+' "$1" | head -n1 | sed -E 's/^image:\s*//'; }
+# A quoted image ("postgres:16@sha256:…" or 'postgres:…') is the same reference: the quotes are stripped before comparing.
+pg_ref() { grep -hoE "image:\s*[\"']?postgres:[^[:space:]#\"']+" "$1" | head -n1 | sed -E "s/^image:\s*[\"']?//"; }
 pg_compose=$(pg_ref docker-compose.yml)
 pg_ci=$(pg_ref .github/workflows/ci.yml)
 if [ -z "$pg_compose" ] || [ -z "$pg_ci" ]; then
