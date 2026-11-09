@@ -316,7 +316,14 @@ async function withEntries(trx: Transaction<Database>, rows: readonly SetRow[]):
   if (rows.length === 0) return [];
   const entries = await trx
     .selectFrom('loan_allocation')
-    .select(['set_id', 'property_reference_id', 'use', sql<string>`share_numerator::text`.as('n'), sql<string>`share_denominator::text`.as('d'), 'acquisition_id'])
+    .select([
+      'set_id',
+      'property_reference_id',
+      'use',
+      sql<string>`share_numerator::text`.as('n'),
+      sql<string>`share_denominator::text`.as('d'),
+      'acquisition_id',
+    ])
     .where(
       'set_id',
       'in',
@@ -346,8 +353,8 @@ async function withEntries(trx: Transaction<Database>, rows: readonly SetRow[]):
       outsideLetting: outside === undefined ? null : { share: { numerator: BigInt(outside.n), denominator: BigInt(outside.d) } },
       useEvidence: row.use_evidence,
       notes: row.notes,
-    voidedAt: row.voided_at,
-    voidReason: row.void_reason,
+      voidedAt: row.voided_at,
+      voidReason: row.void_reason,
       createdAt: row.created_at,
       version: row.version,
     };
