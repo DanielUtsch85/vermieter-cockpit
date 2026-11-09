@@ -766,4 +766,34 @@ describe('§58T follow-up: the level on the AfA item flags', () => {
       ['2544.00', '2544.00', '0.00', '2544.00', '-2544.00'],
     ]);
   });
+
+  it('part flags of two codes at different levels: at the property level each code keeps its own level', () => {
+    const OPEN_CODE = 'HISTORICAL_RULE_TO_VERIFY';
+    const INFO_CODE = 'OWNER_SHARE_CHANGED';
+    const twoCodes = (owner: string | null = null) =>
+      viewOf(
+        readOf(
+          depreciationOf(2026, [
+            asset(BUILDING, [
+              component(W, [
+                part(A, '1526.40', {
+                  flags: [
+                    { ...flag(INFO_CODE, 'INFORMATIVE'), ownerPartyIds: [A] },
+                    { ...flag(OPEN_CODE, 'OPEN'), ownerPartyIds: [A] },
+                  ],
+                }),
+                part(B, '1017.60', { flags: [{ ...flag(INFO_CODE, 'INFORMATIVE'), ownerPartyIds: [B] }] }),
+              ]),
+            ]),
+          ]),
+        ),
+        owner,
+      );
+    expect(itemFlags(twoCodes())?.map((f) => [f.code, f.level, f.details])).toEqual([
+      [INFO_CODE, 'INFORMATIVE', { ownerPartyIds: [A, B] }],
+      [OPEN_CODE, 'OPEN', { ownerPartyIds: [A] }],
+    ]);
+    expect(itemFlags(twoCodes(B))?.map((f) => [f.code, f.level])).toEqual([[INFO_CODE, 'INFORMATIVE']]);
+    expect(sums(twoCodes())).toEqual(['2544.00', '2544.00', '0.00', '2544.00', '-2544.00']);
+  });
 });
