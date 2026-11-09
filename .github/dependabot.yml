@@ -17,12 +17,27 @@ updates:
       day: monday
       time: '06:00'
       timezone: Europe/Berlin
+    # The weekly bundle holds minor and patch updates only; every other major comes as its own PR, so a red upgrade
+    # never blocks the bundle and its cause shows at once (Entscheidung des Projektinhabers, 2026-11-09, on #303).
     groups:
       npm:
         patterns: ['*']
+        update-types: ['minor', 'patch']
     ignore:
       # Node major follows engines.node (^24) and .nvmrc, changed on purpose, not by a bump.
       - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # The four majors from #303 are planned work with a backlog row each, not weekly PRs (same decision):
+      # TypeScript 7 (VC-X-07), Zod 4 (VC-X-65), Express 5 with @types/express 5 (VC-X-66), Vitest 5 (VC-X-67).
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
+      - dependency-name: zod
+        update-types: ['version-update:semver-major']
+      - dependency-name: express
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@types/express'
+        update-types: ['version-update:semver-major']
+      - dependency-name: vitest
         update-types: ['version-update:semver-major']
 
   # Dockerfile base image (node:24-bookworm-slim, both stages).
