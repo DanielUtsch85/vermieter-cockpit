@@ -11163,7 +11163,7 @@ Read from the code and checked by a probe against the app as `createApp` builds 
 
 **Totals:** of the 92 `POST`/`PUT` routes, **82 refuse** an unknown top-level field without naming it (`(body)`), **4 drop it**, **5 never read the body**, and the bank import refuses an unknown metadata key as `IMPORT_ERROR`; inside a body, an unknown field of a nested object is named by its container, and one of an amount object is dropped on every route with an amount.
 
-**Existing tests:** about 128 lines in 69 test files assert `(body)`; some are unknown fields (they change to the name), some are errors of the whole body (they stay). The implementation's full run sorts them and lists the changed files.
+**Existing tests:** `(body)` stands as a field value (`'(body)'`) in 17 lines of 12 test files on main 20e8f13 (a plain search for `(body)` also matches request helpers such as `JSON.stringify(body)`, 128 lines in 70 files, which are not assertions); some are unknown fields (they change to the name), some are errors of the whole body (they stay). The implementation's full run sorts them and lists the changed files.
 
 ### The rule (proposal)
 
