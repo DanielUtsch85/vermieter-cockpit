@@ -1492,7 +1492,7 @@ with both linked to the original for a complete, auditable chain. `POST /api/v1/
 
 # ADR-038 — Shared Loan Allocation Uses One Overridable Percentage Basis
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-11-07: the 100 % include one part outside letting, see "Addendum" below)
 **Resolves:** ADR-OPEN-005
 
 ## Context
@@ -1509,6 +1509,15 @@ Shared-loan allocation uses **one explicit percentage allocation per `PropertyRe
 - Property-level financing analytics derive from this one basis; no separate per-metric schemes in MVP.
 - A future need for a materially different basis requires a superseding ADR (`AGENTS.md` §13).
 - Unblocks roadmap Phase 3 (Financing).
+
+## Addendum (2026-11-07) — The 100 % include one part outside letting (VC-X-43)
+
+Decided by the project owner (Entscheidung des Projektinhabers, 2026-11-07, `api-design.md` §58V question 10): an addendum to this ADR under the Amendment Rule, **not a new basis and no superseding ADR**. The tax review of 2026-11-01, question 21, says a Loan's funds are allocated „nach tatsächlicher Mittelverwendung; … nicht einkünfterelevante Mittel getrennt“ (mündlich bestätigt durch den Steuerberater, laut Projektinhaber am 2026-11-01). A set that sums to 100 % over `PropertyReference`s alone could not say that part of the funds was used privately or for another kind of income.
+
+- **The one basis stays** and still applies uniformly to **principal, interest and remaining debt**: one explicit share per `PropertyReference`, defaulted from the financed purchase amounts, user-overridable.
+- **The 100 % now include at most one part outside letting** per set (`outsideLetting`, the user's statement of the use of the funds, with evidence `useEvidence`; `MANUAL` sets only, at least one `PropertyReference`, the part below 100 %). Its share takes part in every distribution of the set (largest remainder, the part first on a tie), and its amounts are shown beside the properties' (Financing) or listed (Taxation), never attributed to a `PropertyReference`, an owner or an AfA basis.
+- **Unchanged:** the Loan is one canonical entity, never duplicated; a set without the part is exactly the set of before (no backfill, the figures proven unchanged); `PURCHASE_PRICE` keeps its key among the financed properties and takes no part outside letting.
+- **Migration consequence:** migration 0077 stores the part as an entry row without a PropertyReference, so the exact `1/1` stays one check over every row (`api-design.md` §58V "Migration 0077"). BR-FIN-008 reads the 100 % with the part.
 
 ---
 
