@@ -10857,6 +10857,223 @@ The questions as they were put (each answered by the proposal it names):
 12. **Interest on funds used for another kind of income (VERIFY).** **Proposal:** out of DE's scope; the part is listed, never attributed to that income, and the release note says so. **Alternative:** two kinds (question 2 (b)) so a later export can hand the other income's interest over. Whether that interest is that income's expense (e.g. Kapitalvermögen with its own deduction limits) is the advisor's, not DE's.
 13. **Order and scope of the implementation.** **Proposal:** one PR after the owner's answers: migration 0077 (or the next free number), §41.3/§41.6/§58D/§58L changes, the before/after fixture, its own e2e test; ACC7 and ACC8 unchanged (no part outside letting in them); `docs/development/ui-guide.md` later, in its own change. **Alternative:** two PRs, Financing first (the set and §41.6), the tax-year view second (a window in which a set with the part is refused by the view as `ALLOCATION_SUM_NOT_ONE`, so nothing is silently attributed).
 
+# 58W. Unknown Query Parameters Named and Refused on Every Route (VC-X-61, spec)
+
+**Status:** **specified, open questions pending** (VC-X-61; no migration). Every rule below marked **Proposal** waits for the owner's answers ("Open questions" at the end of this section). Backlog VC-X-61 was created by the owner's decision on #290, question 3, and is now the next work package by the owner's prioritisation of 2026-11-09 ("The decided basis (verbatim)" below).
+
+**What it amends:** the query handling of every route the app registers (`docs/development/api-inventory.md`, 174 routes on main e4c1f95): one shared mechanism in `services/de-backend/src/api/validation.ts` reads and checks the query of every route, and an unknown parameter is answered as §58S's exports answer it today ("As implemented (VC-X-04)" (d)): `400 VALIDATION_ERROR`, one entry per unknown parameter, `field` = the parameter's name, `code: "INVALID_FORMAT"`. It amends the sentences that name `(body)` for an unknown query parameter (§58C "Errors" (`400`), §59A "Errors") and the `field: "status"` the two status lists of §58E and §60 give an unknown parameter today (below, "As the code stands" (c)); the implementation rewrites those sentences. §90's shape is unchanged.
+
+**Unchanged guarantees:** the **status** of every refusal that exists today (`400 VALIDATION_ERROR`); every supported parameter, its values, its defaults, its meaning and its own refusal (`INVALID_FORMAT`, `OUT_OF_RANGE`, `INVALID_RANGE`, `BEFORE_FROM`, `NOT_SUPPORTED`, `NOT_ALLOWED`, `REQUIRED`); every response body of a request that sends only supported parameters; every money sum, every figure and every query plan; Realm isolation (a query check runs after the access check, before any read, as today). Request bodies are **not** in scope (open question 9). No migration, no new route, no new error code (open question 3). `docs/development/ui-guide.md` is not touched by this spec.
+
+**Why a section of its own, after §58V:** VC-X-61 is a backlog item of its own; its number is the next free letter (verified on main e4c1f95 and on every remote branch: §58V is the last §58 letter, and no branch carries a §58W).
+
+### The decided basis (verbatim)
+
+The owner's decision on #290, question 3 (Entscheidung des Projektinhabers, 2026-11-06):
+
+> 3. **Vorerst nur beim Export**, mit Backlog-Zeile für alle Routen. Der Export ist die erste Route, bei der ein ignorierter Parameter still eine andere Datei liefert; dort ist die Ablehnung Pflicht. Für die übrigen Routen ist es eine Konsistenzfrage, die mit der UI-Arbeit ohnehin aufkommt.
+
+The owner's prioritisation of the next work packages (Entscheidung des Projektinhabers, 2026-11-09):
+
+> **2. Nächstes Arbeitspaket: VC-X-61, dann die vier Hauptversionen in fester Reihenfolge. Nicht Export Teil 2, nicht VC-X-62 bis 64.**
+>
+> - **VC-X-61 zuerst.** Es ist klein und dient direkt dem UI-Vertrag: Der Leitfaden verlangt in §6.3, dass nur unterstützte Parameter gesendet werden und unbekannte abgelehnt werden. Solange nur der Export das tut, lernt ein Frontend-Team auf den anderen Routen falsch. Ein Tag, keine Migration.
+
+The UI contract it serves, `docs/development/ui-guide.md` §6.3 (Buchungen), as written there: „Keine erfundenen q, sort, counterparty oder unreconciled-Parameter. Nur tatsächlich unterstützte Parameter senden; unbekannte werden abgelehnt.“ The sentence stands in the section on the Buchungen; the owner's reading above makes it the rule of every route.
+
+### As the code stands (main e4c1f95; paths relative to `services/de-backend/src/api/`)
+
+Read from the code and checked by a probe against the app as `createApp` builds it, with every command rejecting (`app.test-support.ts`'s `commandsWith()`): each of the 174 routes once without a query, once with `?zzz=1`, and the GET routes with further variants (repeated, empty, upper case, `[]`, `[a]`, `page`, `pageSize`, `limit`, `cursor`, `asOf`, `include`). A route that ignores the query reaches its rejecting command (`500`); a route that checks it answers `400` before. The probe is not committed; the implementation's generic test ("Tests the implementation needs" (1)) is the same walk.
+
+**(a) The export (§58S).** `exports.ts`: `csvQuery` (§30.1's `filterFields` plus `rows`, `dialect`; `.strict()`) and `jsonQuery` (`z.object({}).strict()`); a failed parse is answered through the file's own `queryErrors`: a zod `unrecognized_keys` issue becomes one field error per key (`{ field: key, code: "INVALID_FORMAT" }`), every other issue goes through `fieldErrors` (`validation.ts`). `?zzz=1&yyy=2` answers `400` with `fields: [{ "field": "zzz", … }, { "field": "yyy", … }]`; `?page=1` on the CSV `[{ "field": "page", "code": "INVALID_FORMAT" }]`.
+
+**(b) Every other route that checks its query** parses `req.query` with its own zod schema, `.strict()`, and answers through `fieldErrors`, which writes an issue without a path, so also `unrecognized_keys`, as `field: "(body)"`. The unknown parameter's name is lost: `GET /transactions?zzz=1&yyy=2` answers one entry, `{ "field": "(body)", "code": "INVALID_FORMAT" }`. 50 GET routes.
+
+**(c) Two routes name the wrong field.** `GET /depreciation-assets/{assetId}/schedule-versions` (`depreciation-schedule-versions.ts`) and `GET /property-references/{id}/tax-years/{year}/acknowledgements` (`tax-statements.ts`) rename every `(body)` to `status`, because their `status` list reports a bad value without a path; an unknown parameter therefore reads `{ "field": "status", "code": "INVALID_FORMAT" }`, as if `status` were wrong.
+
+**(d) One route reads its query without `.strict()`:** `GET /imports/{importBatchId}/review-items` (`imports.ts`, `listQuery = z.object({ status: … })`, zod's default strips unknown keys): an unknown parameter is silently dropped.
+
+**(e) 119 routes never read the query**, so an unknown parameter is silently ignored: 27 GET routes (the single reads by id, the two catalogues, the comparison and tax-meaning reads, the three health routes) and all 92 POST/PUT routes (no command takes a query parameter).
+
+**Totals:** of 174 routes, **54 refuse** an unknown query parameter (2 naming it, 50 as `(body)`, 2 as `status`) and **120 silently ignore** it (119 never read the query, 1 strips it).
+
+**The api-inventory** (`docs/development/api-inventory.md`, `route-inventory.ts`, `yarn api:inventory:check`) lists method and path only, no parameter. It is the route list the generic test walks ("Tests the implementation needs" (1)); whether it should also list each route's parameters is open question 8.
+
+**The query parser:** Express 4's default (`qs`, "extended"): `a[b]=1` becomes an object, `a[]=1` and a repeated key an array, `__proto__` is dropped, and pairs after the 1,000th are dropped (`parameterLimit`). Express 5 (VC-X-66) changes the default to Node's `querystring` ("simple"), which keeps every key flat.
+
+**Pagination today:** 19 routes are paged, all with `page` (integer 1–1,000,000, default 1) and `pageSize` (integer 1–200, default 50) and the response `{ items, page, pageSize, total }` (§11); on two of them (`…/ownerships`, `…/weg-memberships` of a PropertyReference) both are optional and refused beside `asOf` (`NOT_SUPPORTED` on `page`; a day's answer is not paged). No route knows `limit`, `offset`, `cursor`, `after` or `sort`; on the routes that check their query they are unknown (`400`), on the others ignored.
+
+**The routes and their parameters.** Today's answer to `?zzz=1`: **N** named (`field: "zzz"`), **B** `field: "(body)"`, **S** `field: "status"`, **I** ignored. A parameter in *italics* is required; "paging" is `page`, `pageSize`. Paths relative to `/api/v1` unless they start with `/health`.
+
+| GET route | Supported query parameters | `?zzz=1` today |
+|---|---|---|
+| `/acquisitions` | `status`, `propertyReferenceId`, `partyId`, paging | B |
+| `/acquisitions/:acquisitionId` | none | I |
+| `/acquisitions/:acquisitionId/anschaffungsnahe-herstellungskosten` | none | B |
+| `/acquisitions/:acquisitionId/costs` | `status` | B |
+| `/acquisitions/:acquisitionId/costs/:costId/classifications` | none | B |
+| `/acquisitions/:acquisitionId/land-building-allocations` | none | B |
+| `/acquisitions/:acquisitionId/owner-allocation` | none | B |
+| `/acquisitions/:acquisitionId/payments` | `acquisitionCostId` (a UUID or the literal `null`), `counting` (`true`/`false`) | B |
+| `/construction-period-interest` | `loanId`, `propertyReferenceId` | B |
+| `/construction-period-interest/:recordId` | none | B |
+| `/depreciation-assets/:assetId` | `year` | B |
+| `/depreciation-assets/:assetId/schedule` | `from`, `to`, `ownerPartyId` | B |
+| `/depreciation-assets/:assetId/schedule-versions` | `status` (comma list) | S |
+| `/depreciation-assets/:assetId/schedule-versions/:versionId` | none | I |
+| `/exports/transactions.csv` | §30.1's filters (below, `/transactions`, without paging), `rows`, `dialect` | N |
+| `/financial-accounts` | `status`, `accountType` (comma lists), paging | B |
+| `/financial-accounts/:financialAccountId` | none | I |
+| `/financial-categories` | none | I |
+| `/financial-categories/:code` | none | I |
+| `/health` | none | I |
+| `/imports/:importBatchId` | none | I |
+| `/imports/:importBatchId/review-items` | `status` | I (stripped) |
+| `/loans` | `status`, `partyId`, `acquisitionId`, paging | B |
+| `/loans/:loanId` | none | I |
+| `/loans/:loanId/allocations` | `status` or `asOf` (not both: `NOT_SUPPORTED` on `status`) | B |
+| `/loans/:loanId/allocations/:allocationSetId/tax-confirmations` | none | B |
+| `/loans/:loanId/balance-statements` | `status` | B |
+| `/loans/:loanId/payment-proposal` | *`transactionId`* | B |
+| `/loans/:loanId/payments` | *`year`*, `perProperty` | B |
+| `/loans/:loanId/remaining-debt` | `asOf`, `perProperty` | B |
+| `/loans/:loanId/schedule` | `from`, `to` | B |
+| `/loans/:loanId/terms` | `status` | B |
+| `/ownerships/:ownershipId` | none | I |
+| `/parties` | `partyType`, `status`, `name`, `externalSystem` with `externalId` (both or neither), paging | B |
+| `/parties/:partyId` | none | I |
+| `/parties/:partyId/external-references` | `status`, paging | B |
+| `/property-references` | `externalReferenceState` (comma list), paging | B |
+| `/property-references/:propertyReferenceId` | none | I |
+| `/property-references/:propertyReferenceId/acquisitions` | `status`, paging | B |
+| `/property-references/:propertyReferenceId/depreciation-assets` | `status` (comma list), `year` | B |
+| `/property-references/:propertyReferenceId/export.json` | none | N |
+| `/property-references/:propertyReferenceId/loans` | `asOf` | B |
+| `/property-references/:propertyReferenceId/ownerships` | `asOf` or paging (not both: `NOT_SUPPORTED` on `page`) | B |
+| `/property-references/:propertyReferenceId/tax-meanings` | *`year`*, `reviewState`, `origin`, `taxCategory`, `sourceType` (comma lists), paging | B |
+| `/property-references/:propertyReferenceId/tax-years/:year` | `ownerPartyId` | B |
+| `/property-references/:propertyReferenceId/tax-years/:year/acknowledgements` | `status` (comma list) | S |
+| `/property-references/:propertyReferenceId/transactions` | as `/transactions` without `propertyReferenceId` | B |
+| `/property-references/:propertyReferenceId/weg-memberships` | `asOf` or paging (not both: `NOT_SUPPORTED` on `page`) | B |
+| `/rent-reconciliations` | `status` (list), `transactionId`, `mreTenantId`, `mreRentTerm`, paging | B |
+| `/rent-reconciliations/:reconciliationId` | `checkMre` (`true`/`false`) | B |
+| `/rent-reconciliations/split-proposal` | *`transactionId`*, *`mreTenantId`*, *`mreRentTerm`* | B |
+| `/rent-reconciliations/terms/:mreTenantId/:mreRentTerm` | none | B |
+| `/rental-contract-references` | *`mreTenantId`* | B |
+| `/rental-contract-references/:rentalContractReferenceId` | none | I |
+| `/security-deposits` | `status`, `state` (comma lists), `mreTenantId`, `holdingFinancialAccountId`, paging | B |
+| `/security-deposits/:depositId/tax-meaning` | none | I |
+| `/security-deposits/:securityDepositId` | `checkMre` (`true`/`false`, default `false`) | B |
+| `/tax-classifications` | *`sourceType`*, *`sourceId`*, `sourcePosition` (required for a positioned source type, `NOT_ALLOWED` otherwise) | B |
+| `/tax-classifications/:classificationId` | none | I |
+| `/tax-rules` | none | I |
+| `/tax-rules/:ruleCode` | none | I |
+| `/transaction-splits/:splitId/tax-meaning` | none | I |
+| `/transactions` | `financialAccountId`, `status`, `provenance` (comma lists), `reviewable` (`true`), `current` (`true`), `propertyReferenceId`, `financialCategoryCode`, `bookingDateFrom`, `bookingDateTo`, paging | B |
+| `/transactions/:transactionId` | none | I |
+| `/transactions/:transactionId/hausgeld-proposal` | `propertyReferenceId` | B |
+| `/transactions/:transactionId/rent-reconciliations` | none | B |
+| `/transactions/:transactionId/settlement-proposal` | *`statementId`* | B |
+| `/weg-annual-statements/:statementId` | none | I |
+| `/weg-annual-statements/:statementId/comparison` | none | I |
+| `/weg-annual-statements/:statementId/reserve-withdrawals/:position/tax-meaning` | none | I |
+| `/weg-economic-plans/:planId` | none | I |
+| `/weg-memberships/:membershipId` | none | I |
+| `/weg-memberships/:membershipId/annual-statements` | `status` (comma list), `financialYear`, paging | B |
+| `/weg-memberships/:membershipId/economic-plans` | `status` (comma list), `financialYear`, paging | B |
+| `/weg-memberships/:membershipId/special-assessments` | `status`, `purpose` (comma lists), `asOf`, paging | B |
+| `/weg-special-assessments/:assessmentId` | `asOf` | B |
+| `/weg-special-assessments/:assessmentId/uses/:position/tax-meaning` | none | I |
+| `/wegs` | `status` (comma list), `administratorPartyId`, `propertyReferenceId`, paging | B |
+| `/wegs/:wegId` | none | I |
+| `/wegs/:wegId/memberships` | `status` (comma list), `propertyReferenceId`, paging | B |
+| `/health/live` | none | I |
+| `/health/ready` | none | I |
+
+**POST and PUT (92 routes):** none takes a query parameter, none reads `req.query`; every one ignores an unknown parameter (**I**). By module: `acquisitions` 11, `construction-period-interest` 4, `depreciation-assets` 5, `financial-accounts` 2, `imports` 2, `loans` 12, `ownerships` 3, `parties` 5, `property-references` 5, `rent-reconciliations` 7, `rental-contract-references` 2, `security-deposits` 5, `tax-classifications` 4, `transactions` 8, `weg-annual-statements` 3 (1 of them `PUT`), `weg-economic-plans` 1, `weg-memberships` 6, `weg-special-assessments` 3 (2 of them `PUT`), `wegs` 4.
+
+**Further findings of the probe** (each an edge case below):
+
+- A repeated **known** parameter (`?page=1&page=1`, `?status=A&status=B`) is `INVALID_FORMAT` on that parameter, also when both values are equal (`qs` makes an array, the schema expects a string). A repeated **unknown** one is one unknown key.
+- `?page[]=2` is **accepted** as `page=2` on every paged route (`z.coerce.number` turns the one-element array `['2']` into `2`); `?status[]=X` is `INVALID_FORMAT`.
+- `?__proto__=1` is dropped by `qs` before any schema sees it, so it is ignored even on the export.
+- More than 1,000 pairs: `qs` drops the rest silently, so an unknown 1,001st parameter is ignored even on the export.
+- An empty value (`?page=`, `?status=`, `?reviewable=`) and a bare key (`?page`) are the empty string and refused by the parameter's own schema (`INVALID_FORMAT`); none is read as absent.
+- Keys are case-sensitive (`?Page=1` is unknown); enum values too (`?reviewable=TRUE` is `INVALID_FORMAT`); ids are matched case-insensitively and lowercased.
+- A bad value in a comma list is named with the value's index on the 11 routes whose list is parsed into an array (`status.0` on `/financial-accounts`, `/security-deposits`, `/wegs`, `/wegs/:wegId/memberships`, `/rent-reconciliations`, the three WEG lists, `…/depreciation-assets`; `accountType.0`, `state.0`, `purpose.0`, `externalReferenceState.0`, `reviewState.0`, `origin.0`, `taxCategory.0`, `sourceType.0`), with the plain name on the others (`/transactions`, the export, the two status lists of (c)).
+
+### The rule (proposal)
+
+1. **Every route checks its query, through one mechanism.** `validation.ts` gains `readQuery(schema, req)`, the only reader of the query in `src/api/`: it returns the parsed parameters or the field errors. A route without parameters passes the shared `NO_QUERY` (`z.object({})`). Every schema is made strict by `readQuery` itself, so a route cannot forget it. §58S's `queryErrors` moves from `exports.ts` into `validation.ts` and is the only translation of query issues; the export then uses `readQuery` like every other route, with the same answers as today. **Proposal for the source** (open question 4): `readQuery` reads the query string itself (`new URLSearchParams` of the part of `req.originalUrl` after `?`), not `req.query`, so the answer does not depend on Express's parser (the same under Express 4 and 5, VC-X-66), every key is seen as sent, and nothing is dropped or turned into an object.
+2. **The answer to an unknown parameter is the export's:** `400 VALIDATION_ERROR`, `details.fields[]` with one `{ "field": "<name as sent>", "code": "INVALID_FORMAT" }` per unknown key, in the order of first appearance in the query string. No new error code (open question 3).
+3. **On every route**, GET, POST and PUT: a command takes no query parameter, so any parameter on a POST or PUT is unknown (open question 2). The two server-root probes `/health/live` and `/health/ready` are the one exception (open question 2): they serve the container's health checks, outside the API and the UI contract, and keep ignoring the query.
+4. **A repeated key is refused** (open question 5): a key that occurs more than once, known or unknown, with equal values or not, is one field error `{ "field": "<name>", "code": "INVALID_FORMAT" }`, given once. A list is a comma list in one parameter, as today (`status=A,B`); the repetition `status=A&status=B` stays refused, now named and documented as such.
+5. **Order and combination of errors** (open question 6): the malformed path ids and the query's errors are reported together, in one answer (path first, then query in the order above), as §58C and §59A already do; a route's body is read only after its path and query are valid (its errors unchanged). A route that today reports only a malformed id answers the same id error with the query's errors beside it.
+6. **The check comes first among the reads:** after the access check (`requireDeAccess`), before any read or MRE call; an unknown parameter never reaches a use case.
+
+### Edge cases (proposal)
+
+- **Empty value, bare key:** `?zzz=` and `?zzz` are unknown parameters (named `zzz`). For a known parameter the empty string is a value, refused by its schema as today (`INVALID_FORMAT`); it is never read as absent (ui-guide §6.3: send only what is meant).
+- **Case:** keys are case-sensitive: `?Page=1` is the unknown parameter `Page`; `page` and `pageSize` are the names. Values keep their rules (enums case-sensitive, ids case-insensitive).
+- **Array and object syntax:** with rule 1's source, `page[]=2` and `a[b]=1` are keys as sent (`page[]`, `a[b]`), unknown, and named so; `page[]=2` is no longer accepted as `page=2`. `__proto__` and `constructor` are unknown keys like any other.
+- **Encoding:** a key is named decoded (`%7A%7A%7A=1` is `zzz`), `+` is a space, as `URLSearchParams` reads it; an undecodable sequence is kept as sent (`URLSearchParams` does not throw).
+- **Count:** no limit of 1,000 pairs: every pair is read and every unknown one named. The URL itself is bounded by Node's header limit (16 KiB by default; `431` before Express).
+- **A parameter a route reads only conditionally** is known: `asOf` with paging on the two day-or-history reads (`NOT_SUPPORTED` on `page`), `status` with `asOf` on `/loans/:loanId/allocations` (`NOT_SUPPORTED` on `status`), `sourcePosition` for a source type without a position (`NOT_ALLOWED`), `externalId` without `externalSystem`: each keeps its own refusal and code. A parameter known on one route and unknown on another (`asOf` on the export, `page` on the CSV, `year` on `/depreciation-assets/:assetId/schedule`) is unknown there, `INVALID_FORMAT`.
+- **Pagination consistent across routes:** one shared `PAGING` fragment in `validation.ts` (`page` 1–1,000,000 default 1, `pageSize` 1–200 default 50, the bounds and codes of today) replaces the 19 copies, and the optional variant of the two day-or-history reads is derived from it. `limit`, `offset`, `cursor`, `after` and `sort` are unknown on every route (`400`, named); a later cursor (§82's "cursor-based pagination later if needed") is a parameter of its own route when it comes.
+- **A comma-list value** is named by the parameter alone (`status`, not `status.0`) (open question 7).
+- **Required parameters** stay `REQUIRED` on their name; an unknown parameter beside a missing required one gives both entries.
+- **`HEAD`:** Express answers `HEAD` through the GET route, so the same check applies; no body.
+
+### Effect on existing clients and tests
+
+- **Clients:** no UI exists yet (`webapps/cockpit` is not built); the clients are the acceptance tests and manual calls. A client that sends only supported parameters sees no change. **What changes:** on 120 routes, a request with an unknown parameter answered `200`/`201` (or its command's answer) is now `400`; on 50 routes the field of an unknown parameter changes from `(body)` to its name; on the two status lists from `status` to its name; on every paged route `page[]=N` is refused; the comma lists of 11 routes name the parameter without the index. The status of every existing refusal is unchanged.
+- **Existing tests that change** (to be confirmed by the implementation's full run): the assertions of `(body)` for an unknown query parameter, `depreciation-assets.test.ts` (2), `depreciation-schedule.test.ts` (1), `tax-classifications.test.ts` (1, the anschaffungsnahe read), `tax-classification-reads.test.ts` (1, plus the `….0` fields of its list assertions), `tax-years.test.ts` (1), and any test that sends a parameter a route does not know (the full suite finds them: each is either a test bug, now visible, or a parameter the spec forgot, which the implementation reports and does not add silently). `exports.test.ts` stays green unchanged (the export's answers are the reference).
+- **The api-inventory** stays as it is unless open question 8 decides otherwise; no route is added or removed, so `yarn api:inventory:check` is unchanged.
+
+### Tests the implementation needs
+
+1. **The generic test over the route inventory** (`src/api/query-parameters.test.ts`, no database): builds the app with `createApp` and `commandsWith()` (every command rejects) and an administrator verifier, walks `listRoutes(appForInventory())`, fills each path parameter from one table of synthetic values by name (a UUID for `…Id`, `2027` for `year`, a 24-hex MRE id, `2027-01` for `mreRentTerm`, `1` for `position`, a valid code for `code` and `ruleCode`); a path parameter missing from the table fails the test, so a new route cannot slip through by an unknown name. For **every** route but the two exempted probes: `?zzz=1&yyy=2` (with an empty JSON object as the body of a POST/PUT) answers `400 VALIDATION_ERROR` whose fields contain exactly `zzz` and `yyy` with `INVALID_FORMAT`, and no command was called. The exempted list is a literal of two paths, compared with the inventory, so a third exemption fails. A new route without `readQuery` fails this test: it reaches its rejecting command (`500`).
+2. **Per kind of answer, against today's export answers:** a table over a paged list (`/transactions`), a single read (`/transactions/:transactionId`), a command (`POST /transactions/:transactionId/confirm`) and the export: `?zzz=1`, `?zzz=1&zzz=2` (one entry), `?zzz=`, `?zzz`, `?Page=1`, `?page[]=2`, `?a[b]=1`, `?__proto__=1`, `?%7A%7A%7A=1`, `?page=1&page=1`, `?status=A&status=B`, 1,001 unknown pairs (1,001 entries), `?limit=10`, `?cursor=x`, `?after=x`, `?sort=x`; each with its exact fields.
+3. **Known parameters unchanged:** for each route of the table above with parameters, one request with every supported parameter at a valid value answers as before (the command receives the same arguments: a spy compares them with today's parsing, a table per route); the conditional refusals (`NOT_SUPPORTED`, `NOT_ALLOWED`, the `externalSystem`/`externalId` pair, `REQUIRED`) unchanged.
+4. **Paging consistent:** for each of the 19 paged routes, `pageSize=200` accepted, `pageSize=201`, `page=0`, `page=1000001` refused with today's codes, and the defaults `1`/`50`; the test finds the paged routes from the shared `PAGING` (a route that pages without it fails).
+5. **Order:** a malformed path id with an unknown parameter gives both, path first; a POST with an unknown parameter and an invalid body gives the query's errors only (body not read).
+6. **The two status lists:** an unknown parameter is named, a bad `status` is still `status`.
+7. **No read, no write:** for one route of each module, a refused request leaves every table's row count unchanged and calls no MRE (the existing fake MRE's call count), in one E2E test through the wired app (`main.ts`), which also proves Realm isolation is untouched (the same request for another Realm gets the same `400` before any read).
+8. **A guard against raw reads:** an ESLint `no-restricted-syntax` rule (or an architecture test in `architecture.test.ts`) refuses `req.query` and `.query` on a request anywhere in `src/api/` but `validation.ts`.
+
+### Mutations (each applied alone, restored byte for byte)
+
+| Mutation | Expected red |
+|---|---|
+| one route's `readQuery` call removed (e.g. `GET /transactions/:transactionId`) | test 1 (that route `500`) |
+| a new GET route added without `readQuery` | test 1 |
+| `readQuery` no longer makes the schema strict | tests 1, 2 |
+| `queryErrors` back to `fieldErrors` (unknown as `(body)`) | tests 1, 2, 6 |
+| the repetition check removed | test 2 (`zzz=1&zzz=2`, `page=1&page=1`) |
+| `readQuery` reads `req.query` instead of the query string | test 2 (`page[]`, `a[b]`, `__proto__`, 1,001 pairs) |
+| a third path exempted | test 1 (the exemption literal) |
+| a path parameter name added to a route but not to the test's table | test 1 |
+| `pageSize` maximum 500 on one route | test 4 |
+| the query checked after the use case is called | tests 1, 7 |
+| `req.query` read in one route file | test 8 |
+
+### Release note
+
+*Every route now refuses a query parameter it does not know, as the two exports already do: `400 VALIDATION_ERROR` with one entry per unknown parameter, named (`{ "field": "sort", "code": "INVALID_FORMAT" }`). Until now most single reads and all commands ignored an unknown parameter, and the list routes refused it without naming it (`"(body)"`). A repeated parameter is refused (lists are comma-separated in one parameter), and `page[]=2` is no longer read as `page=2`. A client that sends only the documented parameters sees no change.*
+
+### Open questions
+
+1. **One mechanism: a function or a middleware.** **Proposal:** a function `readQuery(schema, req)` called in each handler (as the routes check their path ids today), enforced by the generic test and the lint rule. **Alternatives:** (a) a per-route middleware `query(schema)` in the route's registration, which the inventory test can also find in Express's layer stack; it runs before the handler, so path and query errors cannot be combined (rule 5) without moving the path checks into it too; (b) one router-level middleware with a map from route to schema, kept beside the routes (one more list to keep in step).
+2. **Scope: POST/PUT and the health probes.** **Proposal:** every route, POST and PUT included (a command takes no parameter, so a client's `?_=…` or a misplaced filter on a command is a mistake to report), except `/health/live` and `/health/ready` (infrastructure probes outside `/api/v1`, which a load balancer may call with its own parameters). `/api/v1/health` is in scope. **Alternatives:** (a) GET only, commands keep ignoring the query; (b) no exception, the probes too.
+3. **The code of an unknown parameter.** **Proposal:** `INVALID_FORMAT`, as the export answers since #290 and §58S's example shows; no new code, so the export does not change. **Alternative:** a new code `UNKNOWN_PARAMETER` on every route, the export included (a visible change of a shipped answer; the UI could tell "unknown" from "malformed" without a second look).
+4. **The source of the query.** **Proposal:** `readQuery` reads the raw query string with `URLSearchParams` (rule 1): no `qs` objects or arrays, no dropped `__proto__`, no 1,000-pair cut, and the same under Express 5. **Alternatives:** (a) `app.set('query parser', 'simple')` now (Node's `querystring`, Express 5's default), the schemas keep reading `req.query`; repeated keys still arrive as arrays, `maxKeys` still 1,000; (b) keep `qs` and check `req.query` for arrays and objects before the schema (the 1,000 cut and `__proto__` stay).
+5. **Repeated keys.** **Proposal:** refused, also with equal values, one entry per key, `INVALID_FORMAT`; lists stay comma lists. **Alternatives:** (a) equal repeats accepted as one; (b) the last value wins (common in frameworks, silent, which ui-guide §6.3 argues against).
+6. **Path, query and body errors together.** **Proposal:** path and query in one answer, the body only after both pass (rule 5). **Alternatives:** (a) all three in one answer (the body read even when the query is wrong); (b) each route keeps its order today, the query errors only added where it already checks.
+7. **Comma lists named with an index (`status.0`).** **Proposal:** the parameter's name alone, on every route (the fields of 11 routes change; a client cannot use the index of a value it sent inside one string). **Alternative:** unchanged, outside VC-X-61.
+8. **Parameters in the api-inventory.** **Proposal:** not now: the inventory stays method and path; the parameters stay in api-design per route, and the generic test proves every route checks its query. **Alternative:** `route-inventory.ts` lists each route's parameter names, read from the schema `readQuery` registers (needs the registration of alternative 1(a) or (b)); `api:inventory:check` then fails on a parameter change, and the UI team reads one list.
+9. **Unknown body fields (a separate question, not in VC-X-61's scope unless decided otherwise).** Today 82 of the 92 POST/PUT routes refuse an unknown body field, as `field: "(body)"` (the name lost, as the query before this section); 10 do not: four bodies are not strict (`POST /financial-accounts`, `POST /property-references/link`, `POST /transactions`, `POST /imports/{importBatchId}/review-items/{reviewItemId}/resolve`), five commands read no body at all (`…/financial-accounts/{id}/close`, `…/property-references/{id}/refresh`, `…/transactions/{id}/confirm`, `…/transactions/{id}/restore`, `…/external-references/{id}/end`), and the bank import's multipart metadata keeps unknown keys by design (§32.1, adapter options). **Proposal:** a backlog row of its own (name the unknown body field, make the four bodies strict, decide whether a body on the five commands is refused), after VC-X-61 and before the UI consumes the commands; VC-X-61 changes no body handling. **Alternatives:** (a) within VC-X-61 (one day becomes two; same mechanism for body keys); (b) leave bodies as they are.
+10. **Order of the implementation.** **Proposal:** one PR, no migration: `readQuery`, `NO_QUERY`, `PAGING` and `queryErrors` in `validation.ts`; every route file switched; the generic test and the lint rule; the sentences of §58C, §59A, §58E and §60 that name `(body)` or `status` rewritten; the release note. Before VC-X-65 (Zod 4), as the owner's order says, so the Zod upgrade then changes one translation function instead of 55 schemas' answers. **Alternative:** two PRs (the mechanism with the 54 routes that check today, then the 120 that ignore).
+
 # 59. Depreciation Asset API (VC-8-01, implemented: migration 0049)
 
 **Status:** implemented (VC-8-01, migration 0049). The deviations and interpretations are listed under "As implemented (VC-8-01)" below.
