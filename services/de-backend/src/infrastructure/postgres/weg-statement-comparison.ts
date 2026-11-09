@@ -110,7 +110,7 @@ async function comparisonOf(trx: Transaction<Database>, statement: AnnualStateme
     .where('id', '=', statement.membershipId)
     .executeTakeFirstOrThrow();
   const chain = [statement.id as string];
-  for (let next = statement.supersedes; next !== null; ) {
+  for (let next = statement.supersedes; next !== null;) {
     chain.push(next);
     const predecessor = await trx.selectFrom('weg_annual_statement').select('supersedes_id').where('id', '=', next).executeTakeFirstOrThrow();
     next = predecessor.supersedes_id;

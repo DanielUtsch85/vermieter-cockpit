@@ -124,7 +124,7 @@ export function tenureOf(rows: readonly ScheduleOwnership[], date: BusinessDate)
   const covering = rows.filter((r) => r.validFrom <= date && (r.validUntil === null || r.validUntil >= date));
   if (covering.length === 0) return undefined;
   let from = covering.map((r) => r.validFrom).sort(byText)[0] as BusinessDate;
-  for (let extended = true; extended; ) {
+  for (let extended = true; extended;) {
     extended = false;
     for (const r of rows) {
       if (r.validFrom < from && (r.validUntil === null || r.validUntil >= addDays(from, -1))) {
@@ -139,7 +139,7 @@ export function tenureOf(rows: readonly ScheduleOwnership[], date: BusinessDate)
         .map((r) => r.validUntil as BusinessDate)
         .sort(byText)
         .pop() as BusinessDate);
-  for (let extended = until !== null; extended && until !== null; ) {
+  for (let extended = until !== null; extended && until !== null;) {
     extended = false;
     const reach: BusinessDate = addDays(until, 1);
     for (const r of rows) {

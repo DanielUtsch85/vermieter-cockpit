@@ -6,7 +6,7 @@ import { attributeTaxYear, interestTiming } from './cash-timing.js';
 import { capitalizedSourcesOf } from './capitalized-items.js';
 import type { TaxMeaning } from './classification.js';
 import { partChanges, partOn } from './attribution-parts.js';
-import { distributeOverPeriod, interestPeriodOf, type InterestPeriod } from './loan-interest-periods.js';
+import { distributeOverPeriod, interestPeriodOf } from './loan-interest-periods.js';
 import { DE_CONSTRUCTION_PERIOD_INTEREST_V1 } from './rules/de-construction-period-interest.js';
 import { flagIsOpen, loanInterestOf, type LoanInterestSplit } from './tax-year-view.js';
 import {
@@ -559,7 +559,7 @@ describe('§58G and §59E under the period distribution', () => {
     const voided = set('2027-03-16', [[P2, '1/1']], { status: 'VOID' });
     const all = withValidUntil([S1, voided]);
     expect(setOn(all, day('2027-03-20'))?.id).toBe(S1.id);
-    const d = distributeOverPeriod(all, 31_000n, ex1('2027-03-31') as InterestPeriod, day('2027-03-31'));
+    const d = distributeOverPeriod(all, 31_000n, ex1('2027-03-31'), day('2027-03-31'));
     expect(d.kind === 'COVERED' ? d.weights.map((w) => [w.propertyReferenceId, w.cents]) : []).toEqual([[P1, 31_000n]]);
   });
 });

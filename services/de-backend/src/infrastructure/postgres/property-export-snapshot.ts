@@ -36,7 +36,7 @@ export function joiningSnapshot(trx: Transaction<Database>): Kysely<Database> {
       const value: unknown = Reflect.get(target, key, target);
       return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
     },
-  }) as unknown as Kysely<Database>;
+  });
 }
 
 /** The id lists of the property export: P's records in every status, in the export's order (§58S "Schema"). */

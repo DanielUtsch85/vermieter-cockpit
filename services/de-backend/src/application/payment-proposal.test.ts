@@ -72,7 +72,7 @@ describe('getLoanSchedule (§41.4, §41.7)', () => {
         loanId: 'l',
       });
     expect((await read(loan)).summary).toMatchObject({ payments: 4, endReason: 'PAID_OFF' });
-    const closed = await read({ ...loan, status: 'CLOSED', closingDate: day('2027-02-28') } as Loan);
+    const closed = await read({ ...loan, status: 'CLOSED', closingDate: day('2027-02-28') });
     expect([closed.entries.length, closed.summary.endReason, closed.summary.balanceDue]).toEqual([2, 'CLOSED', 40_853n]);
   });
 });

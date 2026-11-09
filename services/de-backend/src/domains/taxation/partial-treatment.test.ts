@@ -272,7 +272,7 @@ describe('a capitalisation on the check with a partial treatment (§59F, 239-2)'
       notCounted: null,
       sourceFlags: [],
       predecessor: null,
-    } as WegSourceFacts;
+    };
     const request = {
       taxCategory: 'WEG_SPENDING',
       treatment: 'CAPITALIZED',
@@ -497,11 +497,11 @@ describe('the tax-year view and the capitalised items with a partial treatment (
 
   it('the review: ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN on both parts informative (the suggestion followed by the partial treatment)', () => {
     const flag = { code: 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN', details: { acquisitionId: 'acq-1', final: true, splitRequired: false } };
-    const v = viewOf({ ...meaning('8400.00', PARTS), flags: [flag] as unknown as TaxMeaning['flags'] });
+    const v = viewOf({ ...meaning('8400.00', PARTS), flags: [flag] });
     expect(v.review.open.map((o) => o.code)).not.toContain('ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN');
     expect(v.review.info.find((o) => o.code === 'ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN')?.count).toBe(2);
     // Counter-check: DEDUCTIBLE whole with the same flag keeps it open.
-    const open = viewOf({ ...meaning('8400.00', null, 'DEDUCTIBLE'), flags: [flag] as unknown as TaxMeaning['flags'] });
+    const open = viewOf({ ...meaning('8400.00', null, 'DEDUCTIBLE'), flags: [flag] });
     expect(open.review.open.map((o) => o.code)).toContain('ANSCHAFFUNGSNAHE_HERSTELLUNGSKOSTEN');
   });
 });

@@ -223,7 +223,7 @@ describe('§59E: exactly once per part of P, never the whole split, never elsewh
     expect(capitalizedSourcesOf(sourcesOf(P1, [interest('500.00', '2028-03-31')], elsewhere), [], P1).items).toEqual([]);
     const split = interest('500.00', '2028-03-31');
     const later = withValidUntil([
-      { ...S, id: S.id, allocations: S.allocations } as unknown as LoanAllocationSet,
+      { ...S, id: S.id, allocations: S.allocations },
       {
         ...S,
         id: '0000eeee-0000-4000-8000-000000000002',

@@ -95,9 +95,7 @@ export function planAmend(transaction: Transaction, changes: TransactionChanges)
 }
 
 export type IgnorePlan =
-  | { readonly kind: 'IGNORE' }
-  | { readonly kind: 'ALREADY_IGNORED' }
-  | { readonly kind: 'NOT_IGNORABLE'; readonly status: TransactionStatus };
+  { readonly kind: 'IGNORE' } | { readonly kind: 'ALREADY_IGNORED' } | { readonly kind: 'NOT_IGNORABLE'; readonly status: TransactionStatus };
 
 export function planIgnore(status: TransactionStatus): IgnorePlan {
   if (status === 'IGNORED') return { kind: 'ALREADY_IGNORED' };
@@ -106,8 +104,7 @@ export function planIgnore(status: TransactionStatus): IgnorePlan {
 }
 
 export type RestorePlan =
-  | { readonly kind: 'RESTORE'; readonly nextStatus: TransactionStatus }
-  | { readonly kind: 'NOT_IGNORED'; readonly status: TransactionStatus };
+  { readonly kind: 'RESTORE'; readonly nextStatus: TransactionStatus } | { readonly kind: 'NOT_IGNORED'; readonly status: TransactionStatus };
 
 /**
  * Back from IGNORED: CLASSIFIED if it kept its split set (they still cover the amount, which cannot change while

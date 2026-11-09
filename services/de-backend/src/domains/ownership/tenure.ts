@@ -33,7 +33,7 @@ export function continuousOwners(ownerships: readonly OwnershipPeriod[], date: B
     if (found.has(o.partyId)) continue;
     const ofParty = ownerships.filter((x) => x.partyId === o.partyId);
     let end: BusinessDate | null = o.validUntil;
-    for (let extended = true; end !== null && extended; ) {
+    for (let extended = true; end !== null && extended;) {
       extended = false;
       const reach: BusinessDate = addDays(end, 1);
       for (const x of ofParty) {

@@ -8,7 +8,6 @@ import {
   yearStages,
   type RecordingStage,
   type ScheduleRead,
-  type StageRule,
 } from '../../domains/depreciation/index.js';
 import { TAX_RULES } from '../../domains/tax-rules/index.js';
 import { centsOf } from '../../shared/index.js';
@@ -35,7 +34,7 @@ describe.skipIf(databaseUrl === undefined)('recording stages per the decisions 2
   const stages = async (assetId: string, years = [2026, 2027, 2028]) => {
     const r = await read(assetId);
     const schedule = deriveSchedule({ ...r, today: TODAY, from: 2026, to: 2028, ownerPartyId: null }, TAX_RULES);
-    return yearStages(schedule, r, years, DE_RECORDING_STAGES_V1 as StageRule).map((y) => [y.year, y.stage, y.components.map((c) => [c.kind, c.criteria])]);
+    return yearStages(schedule, r, years, DE_RECORDING_STAGES_V1).map((y) => [y.year, y.stage, y.components.map((c) => [c.kind, c.criteria])]);
   };
   const counts = async () =>
     Object.fromEntries(

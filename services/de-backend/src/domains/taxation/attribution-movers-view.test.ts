@@ -57,7 +57,7 @@ function depositItem(closingDate: string, retained: string, classifiedCloses: bo
     origin: 'CLASSIFICATION',
     counts: classifiedCloses,
     flags: classifiedCloses ? [] : [{ code: 'NOT_COUNTED', details: { depositStatus: 'CLOSED', retainedAmount: eur(retained), reason: 'CLOSING_CHANGED' } }],
-  } as DepositTaxMeaning;
+  };
 }
 const history = (records: DepositClosingHistory['records'], now: DepositClosingState | null): DepositClosingHistory => ({
   securityDepositId: D,

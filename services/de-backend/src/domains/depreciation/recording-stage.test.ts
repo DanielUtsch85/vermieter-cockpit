@@ -17,7 +17,7 @@ import { readOf } from './version.test-support.js';
  * 236-4 are in `recording-stage-decisions.test.ts`.
  */
 const registry = new RuleRegistry(DEPRECIATION_RULE_VERSIONS);
-const rule = DE_RECORDING_STAGES_V1 as StageRule;
+const rule = DE_RECORDING_STAGES_V1;
 const conclusive: PurchaseCheckFacts = { acquisitionId: W, status: 'NOT_ABOVE_THRESHOLD', wegHausgeldMaintenanceNotCounted: false, summedSources: [] };
 const readWith = (input: ScheduleInput, checks: readonly PurchaseCheckFacts[] = [conclusive, { ...conclusive, acquisitionId: X }]): ScheduleRead => ({
   ...readOf(input),

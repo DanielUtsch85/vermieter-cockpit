@@ -266,9 +266,7 @@ export function planRemoval(
 
 /** How a removal ends (§37.5 step 5); `NOT_REMOVED` returns to `REMOVAL_REQUIRED` (not round-trippable). */
 export type RemovalResult =
-  | { readonly kind: 'REMOVED'; readonly patched: boolean }
-  | { readonly kind: 'FAILED'; readonly error: WriteBackError }
-  | { readonly kind: 'NOT_REMOVED' };
+  { readonly kind: 'REMOVED'; readonly patched: boolean } | { readonly kind: 'FAILED'; readonly error: WriteBackError } | { readonly kind: 'NOT_REMOVED' };
 
 export type RemovalClaimOutcome =
   | { readonly kind: 'CLAIMED'; readonly reconciliation: RentPaymentReconciliation; readonly attemptId: string; readonly bookingDate: BusinessDate }

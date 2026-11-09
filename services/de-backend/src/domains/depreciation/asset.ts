@@ -554,9 +554,7 @@ export type ConfirmAssetOutcome =
   | VersionConflict;
 
 export type VoidAssetOutcome =
-  | { readonly kind: 'VOIDED'; readonly asset: DepreciationAsset; readonly changed: boolean }
-  | { readonly kind: 'NOT_FOUND' }
-  | VersionConflict;
+  { readonly kind: 'VOIDED'; readonly asset: DepreciationAsset; readonly changed: boolean } | { readonly kind: 'NOT_FOUND' } | VersionConflict;
 
 /** Persistence port, implemented in infrastructure/postgres. Everything is scoped to the given Realm. */
 export interface DepreciationAssetRepository {

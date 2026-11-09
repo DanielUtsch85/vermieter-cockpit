@@ -232,7 +232,7 @@ describe('POST /api/v1/loans/{id}/amend', () => {
 describe('POST /api/v1/loans/{id}/void', () => {
   it('200 with the Loan; the reason is required', async () => {
     const base = await start({
-      loans: { void: async ({ reason }) => ({ loan: { ...loan, status: 'VOID', voidReason: reason, version: 2 } as Loan, changed: true }) },
+      loans: { void: async ({ reason }) => ({ loan: { ...loan, status: 'VOID', voidReason: reason, version: 2 }, changed: true }) },
     });
     const res = await call(base, 'POST', `/loans/${ID}/void`, { reason: ' Doppelt ' });
     expect(res.status).toBe(200);

@@ -250,7 +250,7 @@ describe('POST /api/v1/loans/{id}/allocations/{setId}/void', () => {
       loanAllocations: {
         void: async (input) => {
           seen.push(input);
-          return { set: { ...view, status: 'VOID', voidReason: input.reason, version: 2 } as LoanAllocationSetView, changed: true };
+          return { set: { ...view, status: 'VOID', voidReason: input.reason, version: 2 }, changed: true };
         },
       },
     });

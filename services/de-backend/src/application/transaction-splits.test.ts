@@ -46,7 +46,7 @@ describe('setTransactionSplits', () => {
     [{ kind: 'UNKNOWN_CATEGORY', codes: ['X1'] }, FinancialCategoryNotFoundError],
     [{ kind: 'PROPERTY_REFERENCE_NOT_FOUND', propertyReferenceIds: ['p'] }, PropertyReferenceNotFoundError],
   ] as const)('maps %o', async (outcome, error) => {
-    const { repository } = repositoryAnswering(outcome as ReplaceSplitsOutcome);
+    const { repository } = repositoryAnswering(outcome);
     await expect(setTransactionSplits({ repository })({ principal, transactionId: 't-1', splits })).rejects.toBeInstanceOf(error);
   });
 });

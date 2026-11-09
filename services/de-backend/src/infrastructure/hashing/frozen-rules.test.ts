@@ -195,7 +195,7 @@ describe('the frozen rule versions (§60)', () => {
       const shorterUsefulLife = rule.parameters.shorterUsefulLife;
       const lateEvidenceRelease = { ...shorterUsefulLife.lateEvidenceRelease, evidence: true };
       return ruleVersionHash(
-        { ...rule, parameters: { ...rule.parameters, shorterUsefulLife: { ...shorterUsefulLife, lateEvidenceRelease } } } as unknown as typeof rule,
+        { ...rule, parameters: { ...rule.parameters, shorterUsefulLife: { ...shorterUsefulLife, lateEvidenceRelease } } },
         sha256Fingerprinter,
       );
     };

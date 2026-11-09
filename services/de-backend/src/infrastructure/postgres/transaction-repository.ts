@@ -124,7 +124,7 @@ export class PostgresTransactionRepository implements TransactionRepository {
           }
 
           await this.assertPostable(trx, transaction);
-          const inserted = (await trx
+          const inserted = await trx
             .insertInto('ledger_transaction')
             .values({
               mre_realm_id: transaction.mreRealmId,
@@ -141,7 +141,7 @@ export class PostgresTransactionRepository implements TransactionRepository {
               created_by: actor.actorId,
             })
             .returning(COLUMNS)
-            .executeTakeFirstOrThrow()) as Row;
+            .executeTakeFirstOrThrow();
 
           const created = toDomain(inserted);
           if (keyed !== undefined) await recordIdempotentResult(trx, keyed.ref, created.id, toSnapshot(created));

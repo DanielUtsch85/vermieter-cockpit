@@ -168,7 +168,7 @@ describe.skipIf(databaseUrl === undefined)('terms records and closings as part c
     await pay(Q, '2027-12-31', '879.60', '920.40');
     const before = [await interestLine(P1, 2027), await interestLine(P2, 2027)];
     const r1 = await voidTerms(Q, tm.termsId, '2028-02-10T09:00:00Z');
-    const tq = await terms(Q, '2028-02-10T09:05:00Z', { paymentIntervalMonths: 3 } as TermsData);
+    const tq = await terms(Q, '2028-02-10T09:05:00Z', { paymentIntervalMonths: 3 });
     return { P1, P2, Q, d1, tm, r1, tq, before };
   }
 
@@ -288,7 +288,7 @@ describe.skipIf(databaseUrl === undefined)('terms records and closings as part c
   it('Example 2 through the real read: the closing recorded on 2028-01-20 is LOAN_CLOSED_PART, the stub 190.00 from P2 to P1; P1 1 390.00, P2 0.00', async () => {
     const [P1, P2] = [await propertyReference(), await propertyReference()].sort() as [string, string];
     const C = await loan();
-    await terms(C, '2027-01-02T09:00:00Z', { repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, firstPaymentDate: day('2027-01-31') } as TermsData);
+    await terms(C, '2027-01-02T09:00:00Z', { repaymentModel: 'INTEREST_ONLY', scheduledPayment: null, firstPaymentDate: day('2027-01-31') });
     await appendSet(C, '2027-01-01', [[P1, 1n, 1n]]);
     await appendSet(C, '2027-05-01', [[P2, 1n, 1n]]);
     for (const d of ['2027-01-31', '2027-02-28', '2027-03-31', '2027-04-30']) await pay(C, d, '300.00');
@@ -411,7 +411,7 @@ describe.skipIf(databaseUrl === undefined)('terms records and closings as part c
     await pay(Q, '2027-03-31', '900.00', '900.00');
     await voidTerms(Q, tm.termsId, '2028-02-10T09:00:00Z');
     const later = async () => {
-      await terms(Q, '2028-02-10T09:05:00Z', { paymentIntervalMonths: 3 } as TermsData);
+      await terms(Q, '2028-02-10T09:05:00Z', { paymentIntervalMonths: 3 });
     };
     const read = await readTaxYear(createDatabase(ctx.pool), TAX_RULES, P1, REALM, 2027, null, day('2029-10-30'), undefined, later);
     expect(read?.parts?.loans[0]?.schedule?.terms.length).toBe(1);

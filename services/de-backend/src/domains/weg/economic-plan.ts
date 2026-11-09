@@ -255,9 +255,7 @@ export type CreatePlanOutcome =
   | { readonly kind: 'PLAN_EXISTS'; readonly economicPlanId: string };
 
 export type VoidPlanOutcome =
-  | { readonly kind: 'VOIDED'; readonly plan: PlanView; readonly changed: boolean }
-  | { readonly kind: 'NOT_FOUND' }
-  | VersionConflict;
+  { readonly kind: 'VOIDED'; readonly plan: PlanView; readonly changed: boolean } | { readonly kind: 'NOT_FOUND' } | VersionConflict;
 
 /** What the proposal reads in one snapshot (§49.6), or why it cannot propose. */
 export type ProposalContext =

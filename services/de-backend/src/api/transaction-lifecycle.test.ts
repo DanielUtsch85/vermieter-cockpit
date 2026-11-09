@@ -453,7 +453,7 @@ describe('If-Match / ETag (api-design §16, VC-X-20)', () => {
       transactions: {
         amend: async (input) => {
           seen.push(input.expectedVersions);
-          return { transaction: { ...transaction, version: 4 } as Transaction, changed: true, splitsDropped: false };
+          return { transaction: { ...transaction, version: 4 }, changed: true, splitsDropped: false };
         },
       },
     });
@@ -548,7 +548,7 @@ describe('POST /api/v1/transactions/{id}/reverse (§35.9, VC-X-15)', () => {
     const base = await startWith(async (input) => {
       seen.push(input);
       return {
-        original: { ...transaction, status: 'CORRECTED' } as Transaction,
+        original: { ...transaction, status: 'CORRECTED' },
         reversal: { ...transaction, id: 'rev', direction: 'OUTFLOW', correctionRole: 'REVERSAL' } as unknown as Transaction,
         replacement: null,
         replayed: false,

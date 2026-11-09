@@ -251,16 +251,14 @@ export async function readScheduleIn(
     acquisitions,
     capitalizedItems,
     links,
-    ownerships: ownerships.map(
-      (o): ScheduleOwnership => ({
-        id: o.id,
-        partyId: o.owner_party_id,
-        share: { numerator: o.share_numerator, denominator: o.share_denominator },
-        validFrom: o.valid_from as BusinessDate,
-        validUntil: o.valid_until as BusinessDate | null,
-        acquisitionId: o.acquisition_id,
-      }),
-    ),
+    ownerships: ownerships.map((o): ScheduleOwnership => ({
+      id: o.id,
+      partyId: o.owner_party_id,
+      share: { numerator: o.share_numerator, denominator: o.share_denominator },
+      validFrom: o.valid_from as BusinessDate,
+      validUntil: o.valid_until as BusinessDate | null,
+      acquisitionId: o.acquisition_id,
+    })),
     ownerPartyFound,
   };
 }

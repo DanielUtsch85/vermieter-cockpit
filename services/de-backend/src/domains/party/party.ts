@@ -111,9 +111,7 @@ export type AmendPartyOutcome =
   | Exclude<AmendPlan, { kind: 'AMEND' | 'UNCHANGED' }>;
 
 export type DeactivatePartyOutcome =
-  | { readonly kind: 'DEACTIVATED'; readonly party: Party; readonly changed: boolean }
-  | { readonly kind: 'NOT_FOUND' }
-  | VersionConflict;
+  { readonly kind: 'DEACTIVATED'; readonly party: Party; readonly changed: boolean } | { readonly kind: 'NOT_FOUND' } | VersionConflict;
 
 export interface PartyFilter {
   readonly partyType?: PartyType;

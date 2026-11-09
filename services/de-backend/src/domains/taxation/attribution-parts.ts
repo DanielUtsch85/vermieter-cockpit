@@ -247,17 +247,15 @@ export function partChanges(
   for (const step of deposits.steps) {
     const items = step.deposits
       .filter((d) => partMoved(d.before, d.after))
-      .map(
-        (d): PartItem => ({
-          sourceType: 'DEPOSIT_CLOSING',
-          sourceId: d.securityDepositId,
-          taxYear: year,
-          stateBefore: d.before.state,
-          partBefore: d.before.part,
-          stateAfter: d.after.state,
-          partAfter: d.after.part,
-        }),
-      )
+      .map((d): PartItem => ({
+        sourceType: 'DEPOSIT_CLOSING',
+        sourceId: d.securityDepositId,
+        taxYear: year,
+        stateBefore: d.before.state,
+        partBefore: d.before.part,
+        stateAfter: d.after.state,
+        partAfter: d.after.part,
+      }))
       .sort(byIdentity);
     if (items.length === 0) continue;
     const r = step.reconciliation;
@@ -289,17 +287,15 @@ export function partChanges(
   const corrections = correctionSteps(input?.corrections, year, pr);
   for (const step of corrections.steps) {
     const items = step.splits
-      .map(
-        (d): PartItem => ({
-          sourceType: 'TRANSACTION_SPLIT',
-          sourceId: d.sourceId,
-          taxYear: year,
-          stateBefore: d.before.state,
-          partBefore: d.before.part,
-          stateAfter: d.after.state,
-          partAfter: d.after.part,
-        }),
-      )
+      .map((d): PartItem => ({
+        sourceType: 'TRANSACTION_SPLIT',
+        sourceId: d.sourceId,
+        taxYear: year,
+        stateBefore: d.before.state,
+        partBefore: d.before.part,
+        stateAfter: d.after.state,
+        partAfter: d.after.part,
+      }))
       .sort(byIdentity);
     const h = step.history;
     changes.push({

@@ -330,43 +330,39 @@ export const listQuery = z
   .strict();
 
 export const entriesOf = (list: readonly z.infer<typeof entry>[] | null | undefined) =>
-  (list ?? []).map(
-    (e): UsefulLifeAmendment => ({
-      acquisitionId: e.acquisitionId,
-      usefulLifeYears: e.usefulLifeYears,
-      evidence: {
-        source: e.evidence.source,
-        date: e.evidence.date,
-        documentReference: e.evidence.documentReference ?? null,
-        valuationDate: e.evidence.valuationDate,
-      },
-      ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
-      ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
-      releaseNote: e.releaseNote ?? null,
-      declaredAfa: (e.declaredAfa ?? []).map((r) => ({
-        partyId: r.partyId,
-        throughYear: r.throughYear,
-        amount: r.amount,
-        evidenceReference: r.evidenceReference,
-      })),
-    }),
-  );
+  (list ?? []).map((e): UsefulLifeAmendment => ({
+    acquisitionId: e.acquisitionId,
+    usefulLifeYears: e.usefulLifeYears,
+    evidence: {
+      source: e.evidence.source,
+      date: e.evidence.date,
+      documentReference: e.evidence.documentReference ?? null,
+      valuationDate: e.evidence.valuationDate,
+    },
+    ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
+    ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
+    releaseNote: e.releaseNote ?? null,
+    declaredAfa: (e.declaredAfa ?? []).map((r) => ({
+      partyId: r.partyId,
+      throughYear: r.throughYear,
+      amount: r.amount,
+      evidenceReference: r.evidenceReference,
+    })),
+  }));
 
 /** §59C: the method entries of a body; `null` (an amend's "remove every entry") is `[]`. */
 export const purchaseMethodsOf = (list: readonly z.infer<typeof purchaseMethod>[] | null | undefined) =>
-  (list ?? []).map(
-    (e): PurchaseMethodAmendment => ({
-      acquisitionId: e.acquisitionId,
-      consideration: e.consideration,
-      method: e.method,
-      specialDepreciation: e.specialDepreciation,
-      subsidiesReceived: e.subsidiesReceived,
-      newBuildingByConversion: e.newBuildingByConversion,
-      otherSpecialCase: e.otherSpecialCase,
-      otherSpecialCaseNote: e.otherSpecialCaseNote ?? null,
-      evidence: { source: e.evidence.source, date: e.evidence.date, documentReference: e.evidence.documentReference ?? null },
-      notes: e.notes ?? null,
-      ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
-      ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
-    }),
-  );
+  (list ?? []).map((e): PurchaseMethodAmendment => ({
+    acquisitionId: e.acquisitionId,
+    consideration: e.consideration,
+    method: e.method,
+    specialDepreciation: e.specialDepreciation,
+    subsidiesReceived: e.subsidiesReceived,
+    newBuildingByConversion: e.newBuildingByConversion,
+    otherSpecialCase: e.otherSpecialCase,
+    otherSpecialCaseNote: e.otherSpecialCaseNote ?? null,
+    evidence: { source: e.evidence.source, date: e.evidence.date, documentReference: e.evidence.documentReference ?? null },
+    notes: e.notes ?? null,
+    ...(e.reviewState === undefined ? {} : { reviewState: e.reviewState }),
+    ...(e.advisorPartyId === undefined ? {} : { advisorPartyId: e.advisorPartyId }),
+  }));

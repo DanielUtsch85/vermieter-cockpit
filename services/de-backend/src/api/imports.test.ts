@@ -389,7 +389,7 @@ describe('POST /api/v1/imports/{importBatchId}/review-items/{reviewItemId}/resol
     const errors = [
       [new ReviewItemNotFoundError(ITEM), 404, { code: 'NOT_FOUND' }],
       [
-        new ReviewResolutionConflictError({ ...item, resolution: 'SKIP' } as ReviewItem),
+        new ReviewResolutionConflictError({ ...item, resolution: 'SKIP' }),
         409,
         { code: 'CONFLICT', details: { reason: 'ALREADY_RESOLVED', resolution: 'SKIP' } },
       ],

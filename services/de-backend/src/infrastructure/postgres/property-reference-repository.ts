@@ -173,7 +173,7 @@ function toDomain(row: Selectable<PropertyReferenceTable>): PropertyReference {
     mrePropertyId: row.mre_property_id,
     externalReferenceState: row.external_reference_state as ExternalReferenceState,
     displayName: row.display_name,
-    cachedAddress: row.cached_address as CachedAddress | null,
+    cachedAddress: row.cached_address,
     cachedSurface: row.cached_surface === null ? null : ExactDecimal.of(row.cached_surface),
     lastRefreshedAt: row.last_refreshed_at,
     lastObservedAt: row.last_observed_at,
