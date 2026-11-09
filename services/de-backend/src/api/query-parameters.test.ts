@@ -1,4 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -275,28 +274,5 @@ describe('one paging on every paged route (§58W "Pagination consistent across r
       await send('GET', url(r, ''));
       expect(pagingIn(calls[0]?.args), key(r)).toEqual(expect.objectContaining({ page: 1, pageSize: 50 }));
     }
-  });
-});
-
-describe('only validation.ts reads a request query (§58W test 8)', () => {
-  it("the ESLint rule refuses .query, ['query'] and a destructured query in src/api but validation.ts and the tests", () => {
-    const config = readFileSync(new URL('../../../../eslint.config.mjs', import.meta.url), 'utf8');
-    const block = config.slice(config.indexOf("files: ['services/de-backend/src/api/**/*.ts']"));
-    expect(block).toMatch(
-      /^files: \['services\/de-backend\/src\/api\/\*\*\/\*\.ts'\],\n\s*ignores: \['services\/de-backend\/src\/api\/validation\.ts', '\*\*\/\*\.test\.ts', '\*\*\/\*\.test-support\.ts'\],/,
-    );
-    for (const selector of [
-      "MemberExpression[property.name='query']",
-      "MemberExpression[property.value='query']",
-      "ObjectPattern > Property[key.name='query']",
-    ])
-      expect(block.slice(0, block.indexOf('},\n  },')), selector).toContain(`{ selector: "${selector}"`);
-  });
-
-  it('and no production file of src/api but validation.ts mentions a query member (a second guard, by source)', () => {
-    const dir = new URL('.', import.meta.url);
-    const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.test-support.ts') && f !== 'validation.ts');
-    expect(files.length).toBeGreaterThan(40);
-    for (const f of files) expect(readFileSync(new URL(f, dir), 'utf8'), f).not.toMatch(/\.query\b|\[['"]query['"]\]|\{\s*query\b[^}]*\}\s*=\s*req\b/);
   });
 });

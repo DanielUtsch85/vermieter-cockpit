@@ -455,3 +455,26 @@ describe('architecture: no value-import cycle in production code', () => {
     ).toEqual([]);
   });
 });
+
+describe('only validation.ts reads a request query (§58W test 8)', () => {
+  it("the ESLint rule refuses .query, ['query'] and a destructured query in src/api but validation.ts and the tests", () => {
+    const config = readFileSync(join(srcDir, '..', '..', '..', 'eslint.config.mjs'), 'utf8');
+    const block = config.slice(config.indexOf("files: ['services/de-backend/src/api/**/*.ts']"));
+    expect(block).toMatch(
+      /^files: \['services\/de-backend\/src\/api\/\*\*\/\*\.ts'\],\n\s*ignores: \['services\/de-backend\/src\/api\/validation\.ts', '\*\*\/\*\.test\.ts', '\*\*\/\*\.test-support\.ts'\],/,
+    );
+    for (const selector of [
+      "MemberExpression[property.name='query']",
+      "MemberExpression[property.value='query']",
+      "ObjectPattern > Property[key.name='query']",
+    ])
+      expect(block.slice(0, block.indexOf('},\n  },')), selector).toContain(`{ selector: "${selector}"`);
+  });
+
+  it('and no production file of src/api but validation.ts mentions a query member (a second guard, by source)', () => {
+    const dir = join(srcDir, 'api');
+    const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.test-support.ts') && f !== 'validation.ts');
+    expect(files.length).toBeGreaterThan(40);
+    for (const f of files) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/\.query\b|\[['"]query['"]\]|\{\s*query\b[^}]*\}\s*=\s*req\b/);
+  });
+});
