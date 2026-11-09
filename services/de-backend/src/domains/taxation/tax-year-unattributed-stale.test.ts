@@ -147,8 +147,8 @@ describe('§58J: an unattributed deposit closed anew since its classification', 
       ]).toEqual([eur('250.00'), null, null, 'RETAINED_DEPOSIT_DAMAGES', 'INCOME', 'USER_CONFIRMED', 'CLASSIFICATION', OLD_CLASSIFICATION]);
       expect(item?.notAttributed).toEqual({ reason: 'SEVERAL_PROPERTY_REFERENCES', candidates: [P1, P2], href: `/api/v1/security-deposits/${D}/tax-meaning` });
       expect(item?.flags).toEqual([
-        { code: 'NOT_COUNTED', details: { depositStatus: 'CLOSED', retainedAmount: eur('250.00'), reason: 'CLOSING_CHANGED' } },
-        { code: 'NO_PROPERTY_REFERENCE', details: { reason: 'SEVERAL_PROPERTY_REFERENCES', candidates: [P1, P2] } },
+        { code: 'NOT_COUNTED', level: 'OPEN', details: { depositStatus: 'CLOSED', retainedAmount: eur('250.00'), reason: 'CLOSING_CHANGED' } },
+        { code: 'NO_PROPERTY_REFERENCE', level: 'INFORMATIVE', details: { reason: 'SEVERAL_PROPERTY_REFERENCES', candidates: [P1, P2] } },
       ]);
       expect(yearFlag(v, 'UNATTRIBUTED_ITEMS'), pr).toEqual({ count: 1 });
       expect(openOf(v).sort(), pr).toEqual([

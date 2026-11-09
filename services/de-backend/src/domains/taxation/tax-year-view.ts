@@ -19,10 +19,10 @@ import {
 } from './tax-year-loan-interest.js';
 import type { InterestFacts } from './construction-period-interest.js';
 import { withInterestFlags, withLoanInterestFlags } from './tax-year-interest.js';
-import { reviewOf, ruleVersionsOf } from './tax-year-review.js';
+import { leveledFlag, reviewOf, ruleVersionsOf } from './tax-year-review.js';
 import { OWNERSHIP_EXTENDED_FLAG, ownershipAlignmentChanges, ownershipAlignmentEntry, type OwnershipAlignmentFact } from './ownership-alignment-changes.js';
 import { OWNERSHIP_START_FLAG, ownershipStartChanges, ownershipStartEntry, type OwnershipStartFact } from './ownership-start-changes.js';
-import type { TaxYearAcquisition, TaxYearTotals, TaxYearView, ViewFlag } from './tax-year-response.js';
+import type { TaxYearAcquisition, TaxYearItem, TaxYearTotals, TaxYearView, ViewFlag } from './tax-year-response.js';
 import { afaComponentCount, afaOf, afaParticipants, componentOfItem, type TaxYearDepreciation } from './tax-year-depreciation.js';
 import { sectionsOf, withAfa, withoutItems } from './tax-year-sections.js';
 import { NOT_OWNED, type ViewOwnership } from './tax-year-shares.js';
@@ -47,6 +47,7 @@ export type {
   AfaItemFlag,
   AfaLine,
   CapitalizedComponent,
+  ItemFlag,
   Level,
   TaxYearAcquisition,
   TaxYearDepreciationBlock,
@@ -72,7 +73,7 @@ export type {
   TaxYearDepreciationComponent,
   TaxYearDepreciationPart,
 } from './tax-year-depreciation.js';
-export { flagIsOpen, notCountedIsOpen, reviewOf, ruleVersionsOf } from './tax-year-review.js';
+export { flagIsOpen, leveledFlag, notCountedIsOpen, reviewOf, ruleVersionsOf } from './tax-year-review.js';
 export {
   INTEREST_PERIOD_UNKNOWN,
   LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY,
@@ -222,17 +223,13 @@ export function buildTaxYearView(
   // VC-8-05: the AfA of the level, from the schedule's parts (never re-split), its lines in the Werbungskosten.
   const afa = afaOf(read.depreciation, currency, participant);
   const sections = withAfa(sectionsOf(derived, year, currency, participant), afa, currency);
-  const notAttributedDeposits = unattributed.map((d) => {
-    const item = notAttributedItem(d);
-    return { ...item, flags: [...item.flags, ...partItemFlags(item.sourceId, parts)] };
+  // §58G, §58H: the item flag a part change raised, with its level as every item flag's (Entscheidung des Projektinhabers, 2026-11-09).
+  const withPartFlags = (item: TaxYearItem): TaxYearItem => ({
+    ...item,
+    flags: [...item.flags, ...partItemFlags(item.sourceId, parts).map((f) => leveledFlag(f, item))],
   });
-  const notAttributed = [
-    ...notAttributedDeposits,
-    ...unattributedLoans.map((c) => {
-      const item = notAttributedLoanItem(c, year);
-      return { ...item, flags: [...item.flags, ...partItemFlags(item.sourceId, parts)] };
-    }),
-  ];
+  const notAttributedDeposits = unattributed.map((d) => withPartFlags(notAttributedItem(d)));
+  const notAttributed = [...notAttributedDeposits, ...unattributedLoans.map((c) => withPartFlags(notAttributedLoanItem(c, year)))];
 
   // The flags of the year.
   const flags: ViewFlag[] = [...afa.yearFlags];

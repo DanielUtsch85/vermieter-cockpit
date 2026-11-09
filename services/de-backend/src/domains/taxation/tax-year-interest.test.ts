@@ -237,11 +237,13 @@ describe('§59E: interest booked on a PropertyReference (open question 3)', () =
     const v = viewOf(listed(null));
     expect(v.capitalized.items[0]?.flags).toContainEqual({
       code: 'INTEREST_CAPITALIZED_CONDITIONS_MISSING',
+      level: 'OPEN',
       details: { reason: 'CONSTRUCTION_PERIOD_INTEREST_MISSING' },
     });
     expect(v.review.open).toContainEqual({ code: 'INTEREST_CAPITALIZED_CONDITIONS_MISSING', count: 1 });
     expect(viewOf(listed(record({ reviewState: 'NEEDS_REVIEW' }))).capitalized.items[0]?.flags).toContainEqual({
       code: 'INTEREST_CAPITALIZED_CONDITIONS_MISSING',
+      level: 'OPEN',
       details: { reason: 'RECORD_NOT_CONFIRMED' },
     });
     const ok = viewOf(listed(record()));
