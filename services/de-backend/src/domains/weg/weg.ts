@@ -256,8 +256,7 @@ export function holdsOutside(
 
 /** The administrator named on create or amend (§49.1 check 2). */
 export type AdministratorRefusal =
-  | { readonly kind: 'PARTY_NOT_FOUND'; readonly partyId: string }
-  | { readonly kind: 'PARTY_INACTIVE'; readonly partyId: string };
+  { readonly kind: 'PARTY_NOT_FOUND'; readonly partyId: string } | { readonly kind: 'PARTY_INACTIVE'; readonly partyId: string };
 
 export type CreateWegOutcome =
   | { readonly kind: 'CREATED'; readonly weg: Weg }

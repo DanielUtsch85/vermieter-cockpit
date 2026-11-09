@@ -280,20 +280,18 @@ export class PostgresImportRepository implements ImportRepository {
       .orderBy('booking_date')
       .orderBy('id')
       .execute();
-    const conflicting = rows.map(
-      (t): ConflictingTransaction => ({
-        id: t.id,
-        bookingDate: t.booking_date as BusinessDate,
-        valueDate: t.value_date as BusinessDate | null,
-        amount: fromNumericAmount(t.amount, t.currency),
-        direction: t.direction as Direction,
-        description: t.description,
-        counterpartyNameRaw: t.counterparty_name_raw,
-        counterpartyIbanRaw: t.counterparty_iban_raw,
-        externalTransactionId: t.external_transaction_id,
-        importBatchId: t.import_batch_id,
-      }),
-    );
+    const conflicting = rows.map((t): ConflictingTransaction => ({
+      id: t.id,
+      bookingDate: t.booking_date as BusinessDate,
+      valueDate: t.value_date as BusinessDate | null,
+      amount: fromNumericAmount(t.amount, t.currency),
+      direction: t.direction as Direction,
+      description: t.description,
+      counterpartyNameRaw: t.counterparty_name_raw,
+      counterpartyIbanRaw: t.counterparty_iban_raw,
+      externalTransactionId: t.external_transaction_id,
+      importBatchId: t.import_batch_id,
+    }));
     return { items, conflicting };
   }
 

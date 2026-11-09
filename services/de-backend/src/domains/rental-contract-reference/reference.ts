@@ -150,9 +150,7 @@ export type CreateReferenceOutcome =
   | { readonly kind: 'REFERENCE_EXISTS'; readonly rentalContractReferenceId: string };
 
 export type AmendReferenceOutcome =
-  | { readonly kind: 'AMENDED'; readonly reference: RentalContractReference; readonly changed: boolean }
-  | { readonly kind: 'NOT_FOUND' }
-  | VersionConflict;
+  { readonly kind: 'AMENDED'; readonly reference: RentalContractReference; readonly changed: boolean } | { readonly kind: 'NOT_FOUND' } | VersionConflict;
 
 /** Persistence port, implemented in infrastructure/postgres. Everything is scoped to the given Realm. */
 export interface RentalContractReferenceRepository {

@@ -79,17 +79,15 @@ export function loanCase(c: LoanCase): { readonly splits: LoanInterestSplit[]; r
       recordedPeriod: recorded,
     };
   });
-  const candidates = splits.map(
-    (s): PartCandidate => ({
-      sourceId: s.item.sourceId,
-      bookingDate: (s.item as { bookingDate: BusinessDate }).bookingDate,
-      amount: s.item.amount,
-      period: s.period,
-      recordedPeriod: s.recordedPeriod,
-      financialCategoryCode: 'LOAN_INTEREST',
-      taxYearOverride: c.debits[splits.indexOf(s)]?.override ?? null,
-    }),
-  );
+  const candidates = splits.map((s): PartCandidate => ({
+    sourceId: s.item.sourceId,
+    bookingDate: (s.item as { bookingDate: BusinessDate }).bookingDate,
+    amount: s.item.amount,
+    period: s.period,
+    recordedPeriod: s.recordedPeriod,
+    financialCategoryCode: 'LOAN_INTEREST',
+    taxYearOverride: c.debits[splits.indexOf(s)]?.override ?? null,
+  }));
   const schedule: LoanScheduleHistory = { loan, debtFrom, terms: c.terms, closing: c.closing ?? [] };
   return {
     splits,

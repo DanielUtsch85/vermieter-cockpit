@@ -57,9 +57,7 @@ export interface DepositView extends SecurityDeposit {
 
 /** What `checkMre` found: the Tenant's values, or why there are none (never an error, BR-MRE-004). */
 export type MreComparison =
-  | { readonly kind: 'FOUND'; readonly values: MreDepositValues }
-  | { readonly kind: 'UNAVAILABLE' }
-  | { readonly kind: 'TENANT_NOT_FOUND' };
+  { readonly kind: 'FOUND'; readonly values: MreDepositValues } | { readonly kind: 'UNAVAILABLE' } | { readonly kind: 'TENANT_NOT_FOUND' };
 
 /** §47.4's comparison: `mre` and its flags after the others; nothing is written. */
 export function compareWithMre(view: DepositView, comparison: MreComparison): DepositView {

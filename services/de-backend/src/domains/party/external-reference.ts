@@ -77,9 +77,7 @@ export type ClaimOutcome =
 export type ClaimCheck = { readonly kind: 'NOT_FOUND' } | ClaimPlan;
 
 export type EndOutcome =
-  | { readonly kind: 'ENDED'; readonly reference: PartyExternalReference; readonly changed: boolean }
-  | { readonly kind: 'NOT_FOUND' }
-  | VersionConflict;
+  { readonly kind: 'ENDED'; readonly reference: PartyExternalReference; readonly changed: boolean } | { readonly kind: 'NOT_FOUND' } | VersionConflict;
 
 export interface ExternalReferencePage {
   readonly items: readonly PartyExternalReference[];

@@ -49,8 +49,7 @@ export interface TaxYearItem {
   readonly attribution: unknown;
   readonly refund: RefundInfo | null;
   readonly distribution:
-    | (Distribution & { readonly yearAmount: Money; readonly ownerParts: readonly { readonly year: number; readonly amount: Money }[] | null })
-    | null;
+    (Distribution & { readonly yearAmount: Money; readonly ownerParts: readonly { readonly year: number; readonly amount: Money }[] | null }) | null;
   readonly suggestion: TreatmentSuggestion | null;
   readonly share: { readonly ownershipId: string; readonly share: string; readonly amount: Money | null } | null;
   readonly flags: readonly ViewFlag[];

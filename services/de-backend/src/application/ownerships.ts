@@ -241,8 +241,7 @@ export function voidOwnership(deps: { readonly repository: OwnershipRepository; 
 
 export type ReadPropertyOwnerships = (
   input: { readonly principal: RealmPrincipal; readonly propertyReferenceId: string } & (
-    | { readonly asOf: BusinessDate }
-    | { readonly page: { readonly page: number; readonly pageSize: number } }
+    { readonly asOf: BusinessDate } | { readonly page: { readonly page: number; readonly pageSize: number } }
   ),
 ) => Promise<{ readonly day: OwnershipDay } | { readonly history: OwnershipPage }>;
 

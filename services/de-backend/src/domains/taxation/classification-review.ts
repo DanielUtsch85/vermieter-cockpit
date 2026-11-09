@@ -37,9 +37,7 @@ export function planReview(
   current: TaxClassification,
   step: ReviewStep,
   source:
-    | Pick<SplitFacts, 'transactionStatus' | 'correctionRole'>
-    | { readonly deposit: DepositNotCounted | null }
-    | { readonly weg: WegSourceNotCounted | null },
+    Pick<SplitFacts, 'transactionStatus' | 'correctionRole'> | { readonly deposit: DepositNotCounted | null } | { readonly weg: WegSourceNotCounted | null },
   registry: RuleRegistry,
 ): ReviewPlan | ReviewRefusal {
   if (current.supersededBy !== null) return { kind: 'CLASSIFICATION_SUPERSEDED', supersededBy: current.supersededBy };

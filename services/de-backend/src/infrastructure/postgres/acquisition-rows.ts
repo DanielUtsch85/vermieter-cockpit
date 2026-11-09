@@ -131,11 +131,10 @@ const flagsOf = (row: AcquisitionRow, sellerHasAfaComponent: boolean) => {
 };
 
 /** The created Acquisition as JSON for the idempotency store: Money as `{ amount, currency }`, timestamps ISO. */
-export interface AcquisitionSnapshot
-  extends Omit<
-    Acquisition,
-    'purchasePrice' | 'createdAt' | 'cancelledAt' | 'confirmedAt' | 'economicTransferRecordedAt' | 'ownershipAlignedAt' | 'confirmedOwnershipStart'
-  > {
+export interface AcquisitionSnapshot extends Omit<
+  Acquisition,
+  'purchasePrice' | 'createdAt' | 'cancelledAt' | 'confirmedAt' | 'economicTransferRecordedAt' | 'ownershipAlignedAt' | 'confirmedOwnershipStart'
+> {
   readonly purchasePrice: { readonly amount: string; readonly currency: string };
   readonly confirmedOwnershipStart?: BusinessDate | null;
   readonly createdAt: string;

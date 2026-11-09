@@ -69,14 +69,12 @@ export const performanceBody = z
     if (progress.length === 0 && body.progressEstimated !== undefined) issue(ctx, ['progressEstimated'], 'NOT_ALLOWED');
     if (progress.length > 0 && body.progressEstimated === undefined) issue(ctx, ['progressEstimated'], 'REQUIRED');
   })
-  .transform(
-    (body): Performance => ({
-      from: body.from,
-      until: body.until,
-      progress: body.progress ?? [],
-      progressEstimated: (body.progress ?? []).length === 0 ? null : (body.progressEstimated ?? null),
-    }),
-  );
+  .transform((body): Performance => ({
+    from: body.from,
+    until: body.until,
+    progress: body.progress ?? [],
+    progressEstimated: (body.progress ?? []).length === 0 ? null : (body.progressEstimated ?? null),
+  }));
 
 /** The lines that take a performance (§59F "Allowed on"): never with `NOT_RELEVANT`, on a deposit or on an interest line. */
 export function performanceFieldIssue(body: {

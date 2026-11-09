@@ -190,23 +190,21 @@ export function suggestPairs(input: SuggestionInput): readonly Suggestion[] {
 
   return [...unique, ...decided, ...inOrder]
     .filter((e) => e.term?.inWindow === true)
-    .map(
-      (e): Suggestion => ({
-        transactionId: e.transactionId,
-        mreTenantId: e.mreTenantId,
-        mreRentTerm: e.mreRentTerm,
-        matchedAmount: e.term?.openAmount ?? Money.zero('EUR'),
-        confidence: e.history ? 'HIGH' : 'MEDIUM',
-        suggestionReason:
-          e.inOrder === true
-            ? 'EXACT_AMOUNT_IN_ORDER'
-            : e.purposeMonth === true
-              ? 'EXACT_AMOUNT_PURPOSE_MONTH'
-              : e.history
-                ? 'EXACT_AMOUNT_IBAN_HISTORY'
-                : 'EXACT_AMOUNT',
-      }),
-    )
+    .map((e): Suggestion => ({
+      transactionId: e.transactionId,
+      mreTenantId: e.mreTenantId,
+      mreRentTerm: e.mreRentTerm,
+      matchedAmount: e.term?.openAmount ?? Money.zero('EUR'),
+      confidence: e.history ? 'HIGH' : 'MEDIUM',
+      suggestionReason:
+        e.inOrder === true
+          ? 'EXACT_AMOUNT_IN_ORDER'
+          : e.purposeMonth === true
+            ? 'EXACT_AMOUNT_PURPOSE_MONTH'
+            : e.history
+              ? 'EXACT_AMOUNT_IBAN_HISTORY'
+              : 'EXACT_AMOUNT',
+    }))
     .sort((a, b) =>
       a.transactionId !== b.transactionId ? (a.transactionId < b.transactionId ? -1 : 1) : termKey(a) < termKey(b) ? -1 : termKey(a) > termKey(b) ? 1 : 0,
     );

@@ -29,8 +29,7 @@ export type ChangeRecordOutcome =
   | VersionConflict;
 
 export type ConfirmStep =
-  | { readonly reviewState: 'CONFIRMED'; readonly advisorPartyId: null }
-  | { readonly reviewState: 'ADVISOR_CONFIRMED'; readonly advisorPartyId: string };
+  { readonly reviewState: 'CONFIRMED'; readonly advisorPartyId: null } | { readonly reviewState: 'ADVISOR_CONFIRMED'; readonly advisorPartyId: string };
 
 export interface ConstructionPeriodInterestRepository {
   create(
