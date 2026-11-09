@@ -39,6 +39,16 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: vitest
         update-types: ['version-update:semver-major']
+      # ESLint 10 likewise (owner, 2026-11-09, on #306/#307): it needs a typescript-eslint with ESLint 10 support first,
+      # then a config check (VC-X-68). @eslint/js moves with eslint.
+      - dependency-name: eslint
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@eslint/js'
+        update-types: ['version-update:semver-major']
+      # Kysely is 0.x: a minor is a breaking release (VC-X-07: "a 0.x minor upgrade is always a deliberate change");
+      # patch releases still come in the bundle (optional nit from the review on #304).
+      - dependency-name: kysely
+        update-types: ['version-update:semver-minor']
 
   # Dockerfile base image (node:24-bookworm-slim, both stages).
   - package-ecosystem: docker
