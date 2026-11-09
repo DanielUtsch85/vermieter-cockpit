@@ -39,5 +39,18 @@ while IFS= read -r line; do
   fi
 done < <(grep -HnE '^\s*-?\s*uses:' .github/workflows/*.yml | grep -vE 'uses:\s*\./')
 
+# postgres:16 drift (Entscheidung des Projektinhabers, 2026-11-09, zu #299 Frage 2): CI tests against the same
+# PostgreSQL image that runs in production. Dependabot updates the compose file but not the job service in ci.yml.
+pg_ref() { grep -hoE 'image:\s*postgres:[^[:space:]#]+' "$1" | head -n1 | sed -E 's/^image:\s*//'; }
+pg_compose=$(pg_ref docker-compose.yml)
+pg_ci=$(pg_ref .github/workflows/ci.yml)
+if [ -z "$pg_compose" ] || [ -z "$pg_ci" ]; then
+  echo "postgres image not found in docker-compose.yml or .github/workflows/ci.yml" >&2
+  fail=1
+elif [ "$pg_compose" != "$pg_ci" ]; then
+  echo "postgres image differs: docker-compose.yml has $pg_compose, .github/workflows/ci.yml has $pg_ci; update .github/workflows/ci.yml to the image in docker-compose.yml" >&2
+  fail=1
+fi
+
 [ "$fail" = 0 ] || exit 1
-echo "images pinned by digest, actions by commit SHA: OK"
+echo "images pinned by digest, actions by commit SHA, postgres in CI as in compose: OK"

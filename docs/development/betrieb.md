@@ -4,7 +4,7 @@
 
 **Grundlage:** `docker-compose.yml` (Dienste, Volumes, Datenbanknamen), `technology.md` §34. Nur synthetische Beispiele: diese Datei nennt keine Person, keinen Rechnernamen und keine Zugangsdaten einer echten Installation.
 
-**Gliederung:** ein Betriebsdokument für #281 (Entscheidung des Projektinhabers, 2026-11-06): Abschnitte 1 bis 8 Sicherung und Wiederherstellung (Punkt 1), Abschnitt 9 Reverse-Proxy, VPN und Secrets (Punkt 4), Abschnitt 10 Entscheidungen zu #286, Abschnitt 11 Pinning und Aktualisierung der Images und Actions (VC-X-09).
+**Gliederung:** ein Betriebsdokument für #281 (Entscheidung des Projektinhabers, 2026-11-06): Abschnitte 1 bis 8 Sicherung und Wiederherstellung (Punkt 1), Abschnitt 9 Reverse-Proxy, VPN und Secrets (Punkt 4), Abschnitt 10 Entscheidungen zu #286, Abschnitt 11 Pinning und Aktualisierung der Images und Actions (VC-X-09), mit Dependabot (11.6).
 
 ## 1. Was gesichert wird
 
@@ -326,7 +326,7 @@ Einschalten darf man ihn nur nach api-design §60 „Turning it on“ und dem Fr
 
 ### 9.8 Bewusst offen
 
-- **VC-X-09 (Images per Digest):** umgesetzt. `caddy:2.8` ist wie alle anderen Images per `tag@sha256:…` gepinnt (Abschnitt 11).
+- **VC-X-09 (Images per Digest):** umgesetzt. `caddy:2.11.9` ist wie alle anderen Images per `tag@sha256:…` gepinnt (Abschnitt 11); vorher `caddy:2.8`, hochgezogen nach der Entscheidung des Projektinhabers, 2026-11-07, zu #291 Frage 2.
 - **VC-X-10 (Logging, Rate-Limit):** offen. Der Proxy schreibt kein Access-Log und begrenzt keine Rate. Ein Rate-Limit für `/api/v1` kommt erst, wenn der Dienst über das VPN hinaus erreichbar wird (Issue #281, Punkt 4; §47.1). Solange nur VPN-Peers zugreifen, bleibt es weg.
 
 ## 10. Entscheidungen
@@ -348,7 +348,7 @@ Jedes Container-Image steht als `tag@sha256:…`, jede GitHub Action als `owner/
 | Stelle | Image / Action |
 | --- | --- |
 | `docker-compose.yml` | `postgres:16`, `redis:7.4-bookworm`, `mongo:7`, die sechs MRE-Images (`gateway`, `authenticator`, `api`, `tenantapi`, `pdfgenerator`, `emailer`) |
-| `docker-compose.proxy.yml` | `caddy:2.8` |
+| `docker-compose.proxy.yml` | `caddy:2.11.9` |
 | `services/de-backend/Dockerfile` | `node:24-bookworm-slim` (beide Stufen, derselbe Digest) |
 | `.github/workflows/ci.yml` | Service-Container `postgres:16` (derselbe Digest wie in `docker-compose.yml`), `actions/checkout`, `actions/setup-node` |
 
@@ -421,6 +421,10 @@ docker compose pull            # zieht genau die gepinnten Digests; ein falscher
 ```
 
 In CI: `build-test` (Pin-Prüfung, Tests gegen den Postgres-Service-Container) und `compose-smoke` (zieht alle gepinnten Images, startet den Stack, MRE-Contract-Test, Auth-, Backup- und Proxy-Prüfung inklusive `caddy validate` im gepinnten Caddy-Image). Erst wenn beide grün sind, ist der neue Pin geprüft. Auf dem Produktivrechner danach `docker compose -f docker-compose.yml -f docker-compose.proxy.yml pull` und `up -d --wait`, vorher eine Sicherung (Abschnitt 2).
+
+### 11.6 Dependabot
+
+Pin-Updates schlägt Dependabot vor, nicht Renovate (Entscheidung des Projektinhabers, 2026-11-07, zu #291 Frage 1): eingebaut, keine weitere App. Konfiguration in `.github/dependabot.yml`: wöchentlich (montags), je Ökosystem ein gebündelter PR für npm (Yarn, Wurzel mit den Workspaces), das Dockerfile (`services/de-backend`), die Compose-Dateien (`docker-compose.yml`, `docker-compose.proxy.yml`) und die GitHub Actions. Kein Automerge: Ein Dependabot-PR läuft durch dieselbe CI wie jeder andere PR (`build-test` mit `image-pin-check.sh`, `compose-smoke` mit `caddy validate` im neuen Caddy-Image, das Direktiven-Änderungen fängt) und wird von Hand gemergt, wenn beide Jobs grün sind. Dependabot behält die Form der Pins bei (`tag@sha256:…` bekommt Tag und Digest neu, eine Action SHA und Versionskommentar); verliert ein Vorschlag einen Pin, macht `image-pin-check.sh` ihn rot, und er wird nicht gemergt. Ausgenommen sind die MRE-Images (Verfahren nach §55, Abschnitt 11.4) sowie Hauptversionen von `postgres`, `mongo` und `node` (Datenmigration bzw. `engines.node`). Den Service-Container `postgres:16` in `ci.yml` aktualisiert Dependabot nicht: Ändert ein PR den Digest in `docker-compose.yml`, im selben PR auch in `ci.yml` nachziehen (Abschnitt 11.4). `image-pin-check.sh` vergleicht beide Referenzen und wird rot, wenn sie abweichen; die Fehlermeldung nennt `ci.yml` als nachzuziehende Datei (Entscheidung des Projektinhabers, 2026-11-09, zu #299 Frage 2: „Sonst testet CI stillschweigend gegen eine andere PostgreSQL-Version als die, die produktiv läuft, und genau diese Drift soll der Check verhindern.“). Dockerfile und Compose bleiben zwei getrennte Dependabot-PRs; beide laufen montags, kommen also zusammen an und werden zusammen gemergt (Entscheidung des Projektinhabers, 2026-11-09, zu #299 Frage 1: „Zwei PRs für Dockerfile und Compose sind die ehrlichere Darstellung: Das Basisimage des Backends und die Dienst-Images des Stacks sind verschiedene Dinge mit verschiedenen Testwegen.“).
 
 ## 12. Personenbezogene Daten im Audit: Pseudonymisierung und Löschung auf Antrag (VC-X-24)
 
