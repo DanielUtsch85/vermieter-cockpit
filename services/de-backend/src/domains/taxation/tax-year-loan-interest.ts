@@ -1,4 +1,4 @@
-import { centsOf, moneyOfCents, type BusinessDate } from '../../shared/index.js';
+import { centsOf, moneyOfCents, type BusinessDate, type Money } from '../../shared/index.js';
 import type { LoanAllocationSetView } from '../financing/index.js';
 import type { MarkedChange } from './attribution-changes.js';
 import type { TaxListItem, TaxMeaning } from './classification.js';
@@ -93,6 +93,12 @@ export const INTEREST_PERIOD_UNKNOWN = 'INTEREST_PERIOD_UNKNOWN';
  * and the other not), informative where every part is the same; no acknowledgement.
  */
 export const INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE = 'INTEREST_PERIOD_DEVIATES_FROM_SCHEDULE';
+/**
+ * §58V (VC-X-43; Entscheidung des Projektinhabers, 2026-11-07, question 6): the **informative** year flag of a view with
+ * an attributed split that has a part outside letting. The interest is accounted for, nothing is missing; it holds no
+ * year open and its total is summed into nothing.
+ */
+export const LOAN_INTEREST_OUTSIDE_LETTING = 'LOAN_INTEREST_OUTSIDE_LETTING';
 
 /** Whether two distributions of one split give different parts (the whole distribution, so the level is the same in every view). */
 function partsDiffer(a: PeriodDistribution, b: PeriodDistribution): boolean {
@@ -121,7 +127,14 @@ const allocationOf = (
       ? []
       : segments.map((s) => {
           const entry = s.set.allocations.find((a) => a.propertyReferenceId === propertyReferenceId);
-          return { from: s.from, until: s.until, allocationSetId: s.set.id, basis: s.set.basis, share: entry === undefined ? null : shareText(entry.share) };
+          return {
+            from: s.from,
+            until: s.until,
+            allocationSetId: s.set.id,
+            basis: s.set.basis,
+            share: entry === undefined ? null : shareText(entry.share),
+            outsideLettingShare: s.set.outsideLetting == null ? null : shareText(s.set.outsideLetting.share),
+          };
         }),
   allocationSetId: single?.id ?? null,
   validFrom: single?.validFrom ?? null,
@@ -130,6 +143,7 @@ const allocationOf = (
   share: null,
   propertyPart: null,
   taxConfirmation: null,
+  outsideLetting: null,
 });
 
 /**
@@ -182,7 +196,16 @@ export function loanInterestOf(
       sets: used,
       validSets: loanSets.filter((s) => s.status === 'VALID').length,
       propertyCents: weight.cents,
-      allocation: { ...allocation, share: shareText(weight.share), propertyPart: moneyOfCents(weight.cents, split.item.amount.currency) },
+      allocation: {
+        ...allocation,
+        share: shareText(weight.share),
+        propertyPart: moneyOfCents(weight.cents, split.item.amount.currency),
+        // §58V: listed on the item, the same in every view of the split; never P's part.
+        outsideLetting:
+          d.outsideLetting === null
+            ? null
+            : { share: shareText(d.outsideLetting.share), part: moneyOfCents(d.outsideLetting.cents, split.item.amount.currency) },
+      },
       deviation,
     };
   });
@@ -267,6 +290,24 @@ export function notAttributedInterestDetails(cases: readonly Extract<LoanInteres
     loanIds: [...new Set(cases.map((c) => c.split.loanId))].sort(),
     interestTotal: moneyOfCents(total, currency).toJSON(),
     splitIds: cases.map((c) => c.split.item.sourceId).sort(),
+  };
+}
+
+/**
+ * `LOAN_INTEREST_OUTSIDE_LETTING`'s details (§58V rule 6): the view's attributed splits with a part outside letting,
+ * `interestTotal` the signed sum of their parts outside letting (an `INFLOW` subtracted); `undefined` without one.
+ */
+export function outsideLettingDetails(attributed: readonly Derived[], currency: string) {
+  const outside = attributed.filter((d) => d.loanAllocation?.outsideLetting != null);
+  if (outside.length === 0) return undefined;
+  const total = outside.reduce((s, d) => {
+    const cents = centsOf((d.loanAllocation?.outsideLetting as { part: Money }).part);
+    return s + ((d.source as TaxMeaning).direction === 'INFLOW' ? -cents : cents);
+  }, 0n);
+  return {
+    loanIds: [...new Set(outside.map((d) => d.loanAllocation?.loanId as string))].sort(),
+    interestTotal: moneyOfCents(total, currency).toJSON(),
+    splitIds: outside.map((d) => d.source.sourceId).sort(),
   };
 }
 

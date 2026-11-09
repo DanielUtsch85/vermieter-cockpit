@@ -375,7 +375,8 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       loanId,
       // §58L (additive): the fixture's one-day period, wholly in the set.
       interestPeriod: { from: '2027-03-01', until: '2027-03-01', source: 'LOAN_SCHEDULE' },
-      segments: [{ from: '2027-03-01', until: '2027-03-01', allocationSetId: setId, basis: 'PURCHASE_PRICE', share: '3/5' }],
+      // §58V (additive): outsideLettingShare and outsideLetting null without a part outside letting.
+      segments: [{ from: '2027-03-01', until: '2027-03-01', allocationSetId: setId, basis: 'PURCHASE_PRICE', share: '3/5', outsideLettingShare: null }],
       allocationSetId: setId,
       validFrom: '2027-02-01',
       validUntil: null,
@@ -383,6 +384,7 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
       share: '3/5',
       propertyPart: { amount: '60.01', currency: 'EUR' },
       taxConfirmation: null,
+      outsideLetting: null,
     });
     expect(item.flags).toEqual([{ code: 'LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY', details: { loanId, allocationSetId: setId, confirmation: null } }]);
     expect(v.notAttributed.items).toEqual([
@@ -407,6 +409,7 @@ describe('GET /property-references/{id}/tax-years/{year} (§58C)', () => {
           share: null,
           propertyPart: null,
           taxConfirmation: null,
+          outsideLetting: null,
         },
       }),
     ]);

@@ -516,6 +516,8 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
               // 0074 (VC-X-12, an index only) sorts after 0073: its own down first.
               // 0075 (VC-X-44, land_building_allocation only) sorts after 0074: its own down first, not applied again.
               // 0076 (VC-X-24, audit_record only) sorts after 0075: its own down first, not applied again.
+              // 0077 (VC-X-43, loan_allocation only) sorts after 0076: its own down first, not applied again.
+              await (migrations['0077_loan_allocation_outside_letting'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               await (migrations['0076_audit_record_pseudonymisation'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               await (migrations['0075_land_building_allocation_plausibility'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
               await (migrations['0074_idempotency_key_retention'] as { down: (db: never) => Promise<void> }).down(createDatabase(down) as never);
@@ -533,7 +535,7 @@ describe.skipIf(databaseUrl === undefined)('recording the economic transfer date
               await migration.down(createDatabase(down) as never);
             });
             await down.query(
-              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm', '0074_idempotency_key_retention', '0075_land_building_allocation_plausibility', '0076_audit_record_pseudonymisation')`,
+              `DELETE FROM kysely_migration WHERE name IN ('0067_acquisition_transfer_date_record', '0068_hausgeld_cost_line_classification', '0069_loan_interest_period', '0070_loan_terms_payment_interval', '0071_tax_year_loan_schedule_part_kinds', '0072_ownership_extend_to_economic_transfer', '0073_ownership_start_on_confirm', '0074_idempotency_key_retention', '0075_land_building_allocation_plausibility', '0076_audit_record_pseudonymisation', '0077_loan_allocation_outside_letting')`,
             );
           }
           expect(await defs()).toEqual(original);

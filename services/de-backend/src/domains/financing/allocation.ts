@@ -32,6 +32,20 @@ export interface AllocationRequest {
   readonly basis: AllocationBasis;
   readonly allocations: readonly RequestedAllocation[];
   readonly notes: string | null;
+  /** §58V: the share of the Loan's funds used outside letting (`MANUAL` only, `0 < share < 1`); absent or `null` without. */
+  readonly outsideLetting?: Fraction | null;
+  /** §58V: where the use of the funds is documented (1–10 texts); required with `outsideLetting`, optional otherwise. */
+  readonly useEvidence?: readonly string[] | null;
+}
+
+/**
+ * §58V (VC-X-43; Entscheidung des Projektinhabers, 2026-11-07, questions 1, 2, 12): the one part of a set that names no
+ * PropertyReference, the share of the Loan's funds used neither for a PropertyReference of the set nor for any other
+ * letting DE records. Its interest is no Werbungskosten of any PropertyReference. Stored as a `loan_allocation` row with
+ * `use = 'OUTSIDE_LETTING'` (0077), so the exact `1/1` stays one check over every row.
+ */
+export interface OutsideLetting {
+  readonly share: Fraction;
 }
 
 /** A stored entry: the share reduced, exact (a `PURCHASE_PRICE` denominator may exceed 10 000). */
@@ -48,8 +62,12 @@ export interface LoanAllocationSet {
   readonly status: AllocationStatus;
   readonly validFrom: BusinessDate;
   readonly basis: AllocationBasis;
-  /** In the order given. */
+  /** In the order given; PropertyReferences only (§58V: the part outside letting is `outsideLetting`). */
   readonly allocations: readonly Allocation[];
+  /** §58V: the part outside letting; absent or `null` without one (every set before 0077). */
+  readonly outsideLetting?: OutsideLetting | null;
+  /** §58V: the evidence of the use of the funds; absent or `null` without. */
+  readonly useEvidence?: readonly string[] | null;
   readonly notes: string | null;
   readonly voidedAt: Date | null;
   readonly voidReason: string | null;
@@ -76,6 +94,12 @@ export function sumsToOne(shares: readonly Fraction[]): boolean {
   return compareToOne(sumShares(shares)) === 0;
 }
 
+/** Every share of a set: its PropertyReferences' and, after them, its part outside letting (§58V rule 2). */
+export function setShares(set: Pick<LoanAllocationSet, 'allocations' | 'outsideLetting'>): Fraction[] {
+  const shares = set.allocations.map((a) => a.share);
+  return set.outsideLetting == null ? shares : [...shares, set.outsideLetting.share];
+}
+
 /** The `VALID` set covering `day`, or null while the Loan is unallocated on it. */
 export function setOn(sets: readonly LoanAllocationSetView[], day: BusinessDate): LoanAllocationSetView | null {
   return sets.find((s) => s.status === 'VALID' && s.validFrom <= day && (s.validUntil === null || day <= s.validUntil)) ?? null;
@@ -83,13 +107,17 @@ export function setOn(sets: readonly LoanAllocationSetView[], day: BusinessDate)
 
 /** Identity of a create request for `Idempotency-Key` replays: the Loan and the normalized payload (shares reduced). */
 export function allocationFingerprint(loanId: string, request: AllocationRequest): string {
-  return JSON.stringify([
+  const identity: unknown[] = [
     loanId,
     request.validFrom,
     request.basis,
     request.allocations.map((a) => [a.propertyReferenceId, a.share === null ? null : `${a.share.numerator}/${a.share.denominator}`, a.acquisitionId]),
     request.notes,
-  ]);
+  ];
+  // §58V rule 10: appended only when present, so a key stored before 0077 replays as before.
+  if (request.outsideLetting != null) identity.push(['outsideLetting', `${request.outsideLetting.numerator}/${request.outsideLetting.denominator}`]);
+  if (request.useEvidence != null) identity.push(['useEvidence', request.useEvidence]);
+  return JSON.stringify(identity);
 }
 
 export type AllocationAppendRefusal =
@@ -134,6 +162,8 @@ export interface PropertyLoan {
   readonly validUntil: BusinessDate | null;
   readonly basis: AllocationBasis;
   readonly share: Fraction;
+  /** §58V: the set's part outside letting, `null` without. */
+  readonly outsideLettingShare: Fraction | null;
 }
 
 /** The entries of `propertyReferenceId` in the Loan's `VALID` sets, as a history. */
@@ -152,6 +182,7 @@ export function propertyLoansOf(loan: Loan, sets: readonly LoanAllocationSetView
         validUntil: s.validUntil,
         basis: s.basis,
         share: entry.share,
+        outsideLettingShare: s.outsideLetting?.share ?? null,
       },
     ];
   });

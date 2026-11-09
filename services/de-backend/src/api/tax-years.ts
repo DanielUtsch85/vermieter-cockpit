@@ -55,7 +55,15 @@ const loanAllocationDto = (a: TaxYearItem['loanAllocation']) =>
         loanId: a.loanId,
         // §58L: the interest period and its runs of days with one set (P's share in each).
         interestPeriod: a.interestPeriod === null ? null : { from: a.interestPeriod.from, until: a.interestPeriod.until, source: a.interestPeriod.source },
-        segments: a.segments.map((s) => ({ from: s.from, until: s.until, allocationSetId: s.allocationSetId, basis: s.basis, share: s.share })),
+        segments: a.segments.map((s) => ({
+          from: s.from,
+          until: s.until,
+          allocationSetId: s.allocationSetId,
+          basis: s.basis,
+          share: s.share,
+          // §58V: the segment set's part outside letting, null without.
+          outsideLettingShare: s.outsideLettingShare,
+        })),
         allocationSetId: a.allocationSetId,
         validFrom: a.validFrom,
         validUntil: a.validUntil,
@@ -64,6 +72,8 @@ const loanAllocationDto = (a: TaxYearItem['loanAllocation']) =>
         propertyPart: a.propertyPart?.toJSON() ?? null,
         // §58E: the set's ACTIVE tax confirmation (a multi-entry PURCHASE_PRICE set only), else null.
         taxConfirmation: a.taxConfirmation ?? null,
+        // §58V: the split's part outside letting (listed, never summed), null without.
+        outsideLetting: a.outsideLetting === null ? null : { share: a.outsideLetting.share, part: a.outsideLetting.part.toJSON() },
       };
 
 function taxYearItemDto(i: TaxYearItem) {

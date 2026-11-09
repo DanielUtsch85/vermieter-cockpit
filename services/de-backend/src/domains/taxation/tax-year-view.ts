@@ -12,6 +12,8 @@ import {
   loanInterestOf,
   notAttributedInterestDetails,
   notAttributedLoanItem,
+  outsideLettingDetails,
+  LOAN_INTEREST_OUTSIDE_LETTING,
   type LoanInterestCase,
   type LoanInterestSplit,
 } from './tax-year-loan-interest.js';
@@ -74,6 +76,7 @@ export {
   INTEREST_PERIOD_UNKNOWN,
   LOAN_ALLOCATION_BY_PURCHASE_PRICE_TO_VERIFY,
   LOAN_INTEREST_CAPITALIZED_NOT_IN_BASIS,
+  LOAN_INTEREST_OUTSIDE_LETTING,
   loanInterestOf,
 } from './tax-year-loan-interest.js';
 export type { LoanInterestCase, LoanInterestSplit, NotAttributedReason } from './tax-year-loan-interest.js';
@@ -271,6 +274,9 @@ export function buildTaxYearView(
   if (notAttributedDeposits.length > 0) flags.push({ code: 'UNATTRIBUTED_ITEMS', details: { count: notAttributedDeposits.length } });
   // Interest of an allocated Loan without a usable set on its booking date (§58D): flagged at both levels, never summed.
   if (unattributedLoans.length > 0) flags.push({ code: 'LOAN_INTEREST_NOT_ATTRIBUTED', details: notAttributedInterestDetails(unattributedLoans, currency) });
+  // §58V: the interest outside letting of the attributed splits, informative, summed into nothing.
+  const outsideLetting = outsideLettingDetails(attributedLoans, currency);
+  if (outsideLetting !== undefined) flags.push({ code: LOAN_INTEREST_OUTSIDE_LETTING, details: outsideLetting });
   // §58F: the proposal is visible in both years it may belong to; here as the year flag, its amounts not summed.
   const proposed = read.proposedSplits ?? [];
   if (proposed.length > 0) flags.push({ code: PROPOSED_BY_10_DAY_RULE, details: { count: proposed.length, items: proposed } });

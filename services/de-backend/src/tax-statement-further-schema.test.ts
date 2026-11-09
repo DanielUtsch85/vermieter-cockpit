@@ -174,6 +174,8 @@ describe.skipIf(databaseUrl === undefined)('the schema of 0064 past the reposito
         // 0074 (VC-X-12, an index only) sorts after 0073: its own down first, not applied again.
         // 0075 (VC-X-44, land_building_allocation only) sorts after 0074: its own down first, not applied again.
         // 0076 (VC-X-24, audit_record only) sorts after 0075: its own down first, not applied again.
+        // 0077 (VC-X-43, loan_allocation only) sorts after 0076: its own down first, not applied again.
+        await withMigrationLock(() => (migrations['0077_loan_allocation_outside_letting'] as typeof migration).down(db()));
         await withMigrationLock(() => (migrations['0076_audit_record_pseudonymisation'] as typeof migration).down(db()));
         await withMigrationLock(() => (migrations['0075_land_building_allocation_plausibility'] as typeof migration).down(db()));
         await withMigrationLock(() => (migrations['0074_idempotency_key_retention'] as typeof migration).down(db()));

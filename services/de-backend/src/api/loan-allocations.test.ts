@@ -110,6 +110,9 @@ describe('POST /api/v1/loans/{id}/allocations', () => {
         { propertyReferenceId: P1, share: '10000001/20000000', acquisitionId: A1 },
         { propertyReferenceId: P2, share: '9999999/20000000', acquisitionId: A2 },
       ],
+      // §58V (additive): null without a part outside letting.
+      outsideLetting: null,
+      useEvidence: null,
       notes: null,
       voidedAt: null,
       voidReason: null,
@@ -320,6 +323,7 @@ describe('GET /api/v1/property-references/{id}/loans', () => {
       validUntil: null,
       basis: 'PURCHASE_PRICE',
       share: f(12n, 19n),
+      outsideLettingShare: null,
     };
     const base = await start({
       loanAllocations: {
@@ -344,6 +348,7 @@ describe('GET /api/v1/property-references/{id}/loans', () => {
           validUntil: null,
           basis: 'PURCHASE_PRICE',
           share: '12/19',
+          outsideLettingShare: null,
         },
       ],
     });

@@ -524,13 +524,18 @@ export interface LoanAllocationSetTable {
   created_by: string;
   updated_at: Generated<Date>;
   version: Generated<number>;
+  /** 0077 (§58V): where the use of the funds is documented; required with an `OUTSIDE_LETTING` row. */
+  use_evidence: string[] | null;
 }
 
 export interface LoanAllocationTable {
   set_id: string;
   mre_realm_id: string;
   position: number;
-  property_reference_id: string;
+  /** 0077 (§58V): `null` exactly on the `OUTSIDE_LETTING` row. */
+  property_reference_id: string | null;
+  /** 0077: `LETTING` (default) or `OUTSIDE_LETTING`. */
+  use: Generated<string>;
   /** `numeric` integers: written and read as text (exact, unbounded). */
   share_numerator: string;
   share_denominator: string;

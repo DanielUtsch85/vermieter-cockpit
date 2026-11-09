@@ -381,6 +381,8 @@ describe('paymentsInYear (§41.6)', () => {
         { propertyReferenceId: 'p-b', interest: 167n + 118n, principal: 9_833n + 9_882n },
         { propertyReferenceId: 'p-c', interest: 50n, principal: 0n },
       ],
+      // §58V (additive): no set of the year has a part outside letting.
+      outsideLetting: null,
     });
     if (outcome.kind !== 'PER_PROPERTY') return;
     expect(outcome.items.reduce((s, i) => s + i.interest, 0n)).toBe(954n);

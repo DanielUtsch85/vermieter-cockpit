@@ -312,6 +312,8 @@ describe.skipIf(databaseUrl === undefined)('Remaining debt and lender statements
           { propertyReferenceId: a, interest: 500n + feb(a).interest, principal: 29_500n + feb(a).principal },
           { propertyReferenceId: b, interest: feb(b).interest, principal: feb(b).principal },
         ].sort((x, y) => (x.propertyReferenceId < y.propertyReferenceId ? -1 : 1)),
+        // §58V (additive): no set of the year has a part outside letting.
+        outsideLetting: null,
       });
     });
 

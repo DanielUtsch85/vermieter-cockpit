@@ -98,6 +98,9 @@ export function loanDebtRoutes(commands: LoanDebtCommands): Router {
             ? {}
             : {
                 items: p.items.map((i) => ({ propertyReferenceId: i.propertyReferenceId, interest: eurCents(i.interest), principal: eurCents(i.principal) })),
+                // §58V rule 7: beside items, never one of them; null when no split of the year had a part outside letting.
+                outsideLetting:
+                  p.outsideLetting == null ? null : { interest: eurCents(p.outsideLetting.interest), principal: eurCents(p.outsideLetting.principal) },
               }),
         }),
       )
@@ -212,6 +215,16 @@ function toDebtDto(loanId: string, d: RemainingDebt | RemainingDebtPerProperty) 
             planned: signedOrNull(i.planned),
             difference: signedOrNull(i.difference),
           })),
+          // §58V rule 7: beside items, never one of them; null without a part outside letting.
+          outsideLetting:
+            d.outsideLetting == null
+              ? null
+              : {
+                  share: formatShare(d.outsideLetting.share),
+                  actual: signedEurCents(d.outsideLetting.actual),
+                  planned: signedOrNull(d.outsideLetting.planned),
+                  difference: signedOrNull(d.outsideLetting.difference),
+                },
         }
       : {}),
   };
