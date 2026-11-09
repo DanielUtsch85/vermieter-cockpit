@@ -386,10 +386,7 @@ describe.skipIf(databaseUrl === undefined)('the AfA in the tax-year view: the ad
         .set({ notes: 'x' })
         .where('id', '=', assetId)
         .execute()
-        .then(
-          () => 'accepted',
-          (e: { code?: string }) => e.code,
-        );
+        .then(() => 'accepted');
     }).catch((e: { code?: string }) => e.code);
     expect(refused).toBe('25006');
   });
