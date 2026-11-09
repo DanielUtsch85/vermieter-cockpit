@@ -173,6 +173,79 @@ describe('Loan terms (LOAN_TERMS_ADDED, LOAN_TERMS_VOIDED)', () => {
   });
 });
 
+describe('§58V (VC-X-43): which Loan splits concern the PropertyReference, with a part outside letting', () => {
+  const Q = '0000e28e-0000-4000-8000-0000000000fe';
+  const share = (n: bigint, d: bigint) => ({ numerator: n, denominator: d });
+  const view = (id: string, validFrom: string, validUntil: string | null, entries: [string, bigint, bigint][], outside: [bigint, bigint] | null) =>
+    ({
+      id,
+      loanId: 'loan-1',
+      mreRealmId: 'r',
+      status: 'VALID',
+      validFrom: day(validFrom),
+      validUntil: validUntil === null ? null : day(validUntil),
+      basis: 'MANUAL',
+      allocations: entries.map(([p, n, d]) => ({ propertyReferenceId: p, share: share(n, d), acquisitionId: null })),
+      outsideLetting: outside === null ? null : { share: share(...outside) },
+      useEvidence: outside === null ? null : ['Auszahlungsbeleg (synthetisch)'],
+      notes: null,
+      voidedAt: null,
+      voidReason: null,
+      createdAt: new Date(),
+      version: 1,
+    }) as unknown as LoanAllocationSetView;
+  // S1 names P and Q; S2, from 2028-01-01, names only Q and the part outside letting (4/5 + 1/5 = 1/1).
+  const S1 = view(
+    'set-1',
+    '2027-01-01',
+    '2027-12-31',
+    [
+      [PR, 1n, 2n],
+      [Q, 1n, 2n],
+    ],
+    null,
+  );
+  const S2 = view('set-2', '2028-01-01', null, [[Q, 4n, 5n]], [1n, 5n]);
+  const input: AttributionInput = {
+    references: [],
+    candidates: [],
+    loans: [
+      {
+        loanId: 'loan-1',
+        loan: { principalOriginal: Money.of('100000.00', 'EUR'), maturityDate: null, status: 'ACTIVE', closingDate: null },
+        // A period added after the year end that moves the split, booked on 2028-01-03 (inside S2), from 2028 to 2027.
+        terms: [
+          {
+            period: {
+              id: 't-1' as LoanTermsId,
+              validFrom: day('2027-01-01'),
+              interestRate: 3000n,
+              repaymentModel: 'INTEREST_ONLY',
+              scheduledPayment: null,
+              firstPaymentDate: day('2027-01-31'),
+              principalAtStart: null,
+              fixedRateUntil: null,
+              paymentIntervalMonths: 1,
+            },
+            validNow: true,
+            records: [rec('c-1', 'CREATED', '2029-02-01T10:00:00Z')],
+          },
+        ],
+        candidates: [{ sourceId: 'int-1', bookingDate: day('2028-01-03'), financialCategoryCode: 'LOAN_INTEREST', taxYearOverride: null }],
+        sets: [S1, S2],
+      },
+    ],
+  };
+  const changesFor = (pr: string) =>
+    attributionChanges(input, 2027, TAX_RULES, { propertyReferenceId: pr, fingerprinter }).changes.map((c) => [c.kind, c.items]);
+
+  it('a split booked inside S2 (Q and the part) concerns Q only: no change for P, LOAN_TERMS_ADDED for Q', () => {
+    // S2 is usable with its part (4/5 + 1/5): it decides, and it does not name P (mutation: sumsToOne without the part).
+    expect(changesFor(PR)).toEqual([]);
+    expect(changesFor(Q)).toEqual([['LOAN_TERMS_ADDED', [{ sourceId: 'int-1', yearBefore: 2028, yearAfter: 2027 }]]]);
+  });
+});
+
 describe('a reference created (RENT_DUE_DAYS_CREATED, decided by the owner on 2026-11-02)', () => {
   const input = (created: { validFrom: BusinessDate; day: number }[], createdAt: string): AttributionInput => {
     const reference: ReferenceHistory = {

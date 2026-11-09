@@ -213,6 +213,27 @@ describe('§58V rule 7: Financing per property, the part outside letting beside 
     expect(debtOfSet({ actual: 19_900_000n, planned: null }, view[1] as (typeof view)[number]).outsideLetting).toBeNull();
   });
 
+  it('a repayment plan behind the actual debt: outsideLetting.difference is its actual minus its planned; the differences sum to the total', () => {
+    const s1 = view[0] as (typeof view)[number];
+    // Actual 199,000.00 against a planned 195,000.00 (synthetic): the part outside letting 39,800.00 against 39,000.00.
+    const debt = { actual: 19_900_000n, planned: 19_500_000n };
+    const out = debtOfSet(debt, s1);
+    const outside = out.outsideLetting as NonNullable<typeof out.outsideLetting>;
+    expect([outside.actual, outside.planned, outside.difference]).toEqual([3_980_000n, 3_900_000n, 80_000n]);
+    expect(outside.difference).toBe(outside.actual - (outside.planned as bigint));
+    expect(out.items.map((i) => [i.actual, i.planned, i.difference])).toEqual([
+      [9_950_000n, 9_750_000n, 200_000n],
+      [5_970_000n, 5_850_000n, 120_000n],
+    ]);
+    const differences = out.items.reduce((s, i) => s + (i.difference as bigint), 0n) + (outside.difference as bigint);
+    expect(differences).toBe(debt.actual - debt.planned);
+    // With an odd cent: actual 100.01 against planned 99.98 (the parts round apart); the identity still holds.
+    const odd = debtOfSet({ actual: 10_001n, planned: 9_998n }, s1);
+    const oddOutside = odd.outsideLetting as NonNullable<typeof odd.outsideLetting>;
+    expect(oddOutside.difference).toBe(oddOutside.actual - (oddOutside.planned as bigint));
+    expect(odd.items.reduce((s, i) => s + (i.difference as bigint), 0n) + (oddOutside.difference as bigint)).toBe(3n);
+  });
+
   it('payments of 2027: March by S1 (P1 225.01, P2 135.00, outside 90.00), April booked 2027-04-30 by S2 (outside 0); items stay properties', () => {
     const loan = {
       id: 'L',

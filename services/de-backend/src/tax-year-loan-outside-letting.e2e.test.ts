@@ -177,12 +177,14 @@ describe.skipIf(databaseUrl === undefined)('a Loan partly used outside letting (
       [P1, '1/2', '99500.00'],
       [P2, '3/10', '59700.00'],
     ]);
-    expect(debt.outsideLetting).toEqual({
-      share: '1/5',
-      actual: eur('39800.00'),
-      planned: debt.outsideLetting.planned,
-      difference: debt.outsideLetting.difference,
-    });
+    // §58O: `planned` is the plan rebased on the booked repayment (interest only: 199,000.00), so the difference is 0 here;
+    // a plan behind the actual debt is in the domain test. The identities hold on the HTTP figures.
+    expect([debt.planned, debt.difference]).toEqual([eur('199000.00'), eur('0.00')]);
+    expect(debt.outsideLetting).toEqual({ share: '1/5', actual: eur('39800.00'), planned: eur('39800.00'), difference: eur('0.00') });
+    const c = (m: { amount: string }) => Math.round(Number(m.amount) * 100);
+    expect(c(debt.outsideLetting.difference)).toBe(c(debt.outsideLetting.actual) - c(debt.outsideLetting.planned));
+    for (const k of ['actual', 'planned', 'difference'])
+      expect(debt.items.reduce((s: number, i: View) => s + c(i[k]), 0) + c(debt.outsideLetting[k]), k).toBe(c(debt[k]));
     const later = await json<View>(await A('GET', `/loans/${ids['L']}/remaining-debt?asOf=2027-05-31&perProperty=true`), 200);
     expect(later.outsideLetting).toBeNull();
     const payments = await json<View>(await A('GET', `/loans/${ids['L']}/payments?year=2027&perProperty=true`), 200);
