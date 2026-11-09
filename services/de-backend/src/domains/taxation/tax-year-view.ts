@@ -42,6 +42,7 @@ export { NOT_OWNED, foldPerOwner, participantsOn, shareOut } from './tax-year-sh
 export type { FoldedParts, Participant, ViewOwnership } from './tax-year-shares.js';
 export type {
   AfaItem,
+  AfaItemFlag,
   AfaLine,
   CapitalizedComponent,
   Level,

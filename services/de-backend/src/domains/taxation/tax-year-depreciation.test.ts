@@ -685,3 +685,85 @@ describe('VC-8-05: capitalized.component, the review, final, ruleVersions and th
     expect(moneyOfCents(afaOf(dep, 'EUR', undefined).totalCents, 'EUR')).toEqual(eur('7.01'));
   });
 });
+
+/**
+ * §58T follow-up (Entscheidung des Projektinhabers, 2026-11-07, #294 question 2): every AfA item flag carries the level
+ * the schedule raised it at, judged per raised flag (the deviation by `details.closedBy`); `review`, `final`, the codes
+ * and every amount stay as they were.
+ */
+describe('§58T follow-up: the level on the AfA item flags', () => {
+  const DEVIATES = 'ALLOCATION_DEVIATES_FROM_COMPARISON';
+  const raised = (code: string, level: 'OPEN' | 'INFORMATIVE', details: Record<string, unknown> = {}) => ({ code, level, details, ownerPartyIds: [] });
+  const deviation = (closedBy: string | null) => raised(DEVIATES, closedBy === null ? 'OPEN' : 'INFORMATIVE', { closedBy, reviewState: 'CONFIRMED' });
+  const yearOfPurchase = (flags: ReturnType<typeof raised>[], parts = [part(A, '1526.40'), part(B, '1017.60')]) =>
+    viewOf(readOf(depreciationOf(2026, [asset(BUILDING, [component(W, parts, { flags })], { recording: UNCHANGED })])));
+  const itemFlags = (v: TaxYearView, ownerLine = 'AFA_BUILDING') => afaLine(v, ownerLine)?.items[0]?.flags;
+  const sums = (v: TaxYearView) => [
+    amount(v.depreciation.amount),
+    ...(v.werbungskosten.afaLines ?? []).map((l) => amount(l.total)),
+    amount(v.werbungskosten.total),
+    amount(v.result.amount),
+  ];
+
+  it('the deviation open without closedBy, INFORMATIVE when closed by DEVIATION_REASON or ADVISOR_CONFIRMED; the hint INFORMATIVE; review and sums unchanged', () => {
+    const hint = raised('ALLOCATION_PLAUSIBILITY_NOT_CHECKED', 'INFORMATIVE', { method: 'PURCHASE_CONTRACT' });
+    const open = yearOfPurchase([deviation(null)]);
+    const reason = yearOfPurchase([deviation('DEVIATION_REASON')]);
+    const advisor = yearOfPurchase([deviation('ADVISOR_CONFIRMED')]);
+    const plain = yearOfPurchase([hint]);
+    expect(itemFlags(open)).toEqual([{ code: DEVIATES, level: 'OPEN', details: { closedBy: null, reviewState: 'CONFIRMED' } }]);
+    expect(itemFlags(reason)).toEqual([{ code: DEVIATES, level: 'INFORMATIVE', details: { closedBy: 'DEVIATION_REASON', reviewState: 'CONFIRMED' } }]);
+    expect(itemFlags(advisor)?.map((f) => [f.code, f.level])).toEqual([[DEVIATES, 'INFORMATIVE']]);
+    expect(itemFlags(plain)).toEqual([{ code: 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', level: 'INFORMATIVE', details: { method: 'PURCHASE_CONTRACT' } }]);
+    // The review counts as before: open while open, informative once closed; final only without an open flag.
+    expect([open.review.final, open.review.open, open.review.info]).toEqual([false, [{ code: DEVIATES, count: 1 }], []]);
+    expect([reason.review.final, reason.review.open, reason.review.info]).toEqual([true, [], [{ code: DEVIATES, count: 1 }]]);
+    expect([plain.review.final, plain.review.info]).toEqual([true, [{ code: 'ALLOCATION_PLAUSIBILITY_NOT_CHECKED', count: 1 }]]);
+    // Money sums: the same with every flag, without one, and at the level the flag is raised.
+    const none = yearOfPurchase([]);
+    expect(sums(none)).toEqual(['2544.00', '2544.00', '0.00', '2544.00', '-2544.00']);
+    for (const v of [open, reason, advisor, plain]) expect(sums(v)).toEqual(sums(none));
+    // The year flags and the cash items keep their form: code and details, no level.
+    for (const f of open.flags) expect(Object.keys(f)).toEqual(['code', 'details']);
+  });
+
+  it('part flags: at the property level OPEN while any part raised it open, else INFORMATIVE; each owner its own part level', () => {
+    const SPLIT = 'SHARE_REDUCTION_SPLIT_TO_VERIFY';
+    const v = (aLevel: 'OPEN' | 'INFORMATIVE', bLevel: 'OPEN' | 'INFORMATIVE', owner: string | null = null) =>
+      viewOf(
+        readOf(
+          depreciationOf(2026, [
+            asset(BUILDING, [
+              component(
+                W,
+                [
+                  part(A, '1526.40', { flags: [{ ...flag(SPLIT, aLevel), ownerPartyIds: [A] }] }),
+                  part(B, '1017.60', { flags: [{ ...flag(SPLIT, bLevel), ownerPartyIds: [B] }] }),
+                ],
+                {
+                  flags: [raised('OWNER_SHARE_CHANGED', 'INFORMATIVE')],
+                },
+              ),
+            ]),
+          ]),
+        ),
+        owner,
+      );
+    const levels = (view: TaxYearView) => itemFlags(view)?.map((f) => [f.code, f.level]);
+    expect(levels(v('OPEN', 'INFORMATIVE'))).toEqual([
+      ['OWNER_SHARE_CHANGED', 'INFORMATIVE'],
+      [SPLIT, 'OPEN'],
+    ]);
+    expect(itemFlags(v('OPEN', 'INFORMATIVE'))?.[1]?.details).toEqual({ ownerPartyIds: [A, B] });
+    expect(levels(v('INFORMATIVE', 'OPEN'))?.[1]).toEqual([SPLIT, 'OPEN']);
+    expect(levels(v('INFORMATIVE', 'INFORMATIVE'))?.[1]).toEqual([SPLIT, 'INFORMATIVE']);
+    expect([levels(v('OPEN', 'INFORMATIVE', A))?.[1], levels(v('OPEN', 'INFORMATIVE', B))?.[1]]).toEqual([
+      [SPLIT, 'OPEN'],
+      [SPLIT, 'INFORMATIVE'],
+    ]);
+    expect([sums(v('OPEN', 'INFORMATIVE')), sums(v('INFORMATIVE', 'INFORMATIVE'))]).toEqual([
+      ['2544.00', '2544.00', '0.00', '2544.00', '-2544.00'],
+      ['2544.00', '2544.00', '0.00', '2544.00', '-2544.00'],
+    ]);
+  });
+});

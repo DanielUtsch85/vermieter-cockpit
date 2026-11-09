@@ -19,6 +19,14 @@ export interface ViewFlag {
   readonly details: unknown;
 }
 
+/**
+ * A flag on an AfA item with the level the schedule raised it at (§58T "Follow-up: the level on the AfA item flags";
+ * Entscheidung des Projektinhabers, 2026-11-07): judged per raised flag, never re-decided in Taxation.
+ */
+export interface AfaItemFlag extends ViewFlag {
+  readonly level: 'OPEN' | 'INFORMATIVE';
+}
+
 /** An item of the view (§58C "Response"). */
 export interface TaxYearItem {
   readonly sourceType: SourceType;
@@ -108,7 +116,7 @@ export interface AfaItem {
     readonly partKey: string;
   } | null;
   readonly href: string;
-  readonly flags: readonly ViewFlag[];
+  readonly flags: readonly AfaItemFlag[];
 }
 
 /** `AFA_BUILDING` or `AFA_SEPARATE_ASSETS`, after `OTHER_EXPENSE` (decided 2026-10-31, second set, Q4). */
