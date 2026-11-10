@@ -52,6 +52,9 @@ updates:
         update-types: ['version-update:semver-major']
       - dependency-name: '@types/express'
         update-types: ['version-update:semver-major']
+      # Vitest 5 is in (VC-X-67, with Vite 8 in both workspaces); this entry now holds back the next major (Vitest 6),
+      # planned work like Vitest 5 was: the backend and the cockpit move together (one Vitest, Entscheidung des
+      # Projektinhabers, 2026-11-09), and the same tests must be collected and pass before and after.
       - dependency-name: vitest
         update-types: ['version-update:semver-major']
       # ESLint 10 likewise (owner, 2026-11-09, on #306/#307): it needs a typescript-eslint with ESLint 10 support first,
@@ -66,7 +69,8 @@ updates:
         update-types: ['version-update:semver-minor']
       # The cockpit (webapps/cockpit) follows the stack of the pinned MRE landlord app (ui-guide.md §7.1, technology.md
       # §7.1: React 18, Tailwind 3, TanStack Query 5); a new major is a stack decision, not a weekly PR. Vite moves with
-      # Vitest (Vitest 2 runs on Vite 5, the cockpit pins the same Vite), so its major comes with Vitest 5 (VC-X-67).
+      # Vitest: since Vitest 5 it is a peer of Vitest, and the backend and the cockpit pin the same Vite (8 since
+      # VC-X-67), so this entry now holds back Vite 9, which comes with a Vitest major or as planned work of its own.
       - dependency-name: react
         update-types: ['version-update:semver-major']
       - dependency-name: react-dom
