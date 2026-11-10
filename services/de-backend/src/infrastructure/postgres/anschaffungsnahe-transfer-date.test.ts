@@ -166,7 +166,7 @@ describe.skipIf(databaseUrl === undefined)('the anschaffungsnahe check without e
     const p = await propertyReference();
     const q = await acquisition(p, { transfer: null });
     const [s, t] = (await booked([split('40000.00', 'MAINTENANCE', p), split('500.00', 'MAINTENANCE', p)], '2026-07-10')).splitIds as [string, string];
-    let stored = '';
+    let stored: string;
     try {
       await step('down');
       // Before VC-X-34 the window started at the contract date: the capitalisation was accepted.

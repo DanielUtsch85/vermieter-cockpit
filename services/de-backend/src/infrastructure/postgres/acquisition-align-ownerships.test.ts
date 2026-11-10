@@ -144,7 +144,6 @@ describe.skipIf(databaseUrl === undefined)('aligning the Ownerships to the econo
     expect((await align(x.l, { expectedVersions: [version] })).kind).toBe('ALIGNED');
     // Not applicable: undated, created with the date (here: a DRAFT dated on create), t = c, no seller row.
     const undated = await example({ transfer: null });
-    state = await snapshot(undated.pr, [undated.l]);
     expect(await align(undated.l)).toEqual({ kind: 'OWNERSHIP_EXTENSION_NOT_APPLICABLE', reason: 'TRANSFER_DATE_NOT_RECORDED' });
     const same = await example({ transfer: '2025-03-01' });
     expect(await align(same.l)).toEqual({ kind: 'OWNERSHIP_EXTENSION_NOT_APPLICABLE', reason: 'TRANSFER_ON_CONTRACT_DATE' });

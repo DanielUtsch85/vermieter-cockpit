@@ -57,8 +57,10 @@ updates:
       # Projektinhabers, 2026-11-09), and the same tests must be collected and pass before and after.
       - dependency-name: vitest
         update-types: ['version-update:semver-major']
-      # ESLint 10 likewise (owner, 2026-11-09, on #306/#307): it needs a typescript-eslint with ESLint 10 support first,
-      # then a config check (VC-X-68). @eslint/js moves with eslint.
+      # ESLint 10 is in (VC-X-68, with @eslint/js 10; owner, 2026-11-09, on #306/#307); these two entries now hold back
+      # the next major (ESLint 11), planned work like ESLint 10 was: a typescript-eslint with its support first, then the
+      # config checked against the migration notes, no rule silently dropped, and new eslint:recommended findings fixed
+      # in a commit of their own (betrieb.md §11.6). @eslint/js moves with eslint.
       - dependency-name: eslint
         update-types: ['version-update:semver-major']
       - dependency-name: '@eslint/js'

@@ -441,7 +441,7 @@ describe.skipIf(databaseUrl === undefined)('terms records and closings as part c
     // on Q due on the 15th from 2027-03-01, recorded after the year (it would move d1 again).
     await ctx.pool.query(`ALTER TABLE loan_terms DROP CONSTRAINT loan_terms_loan_fk`);
     await ctx.pool.query(`ALTER TABLE loan_terms DISABLE TRIGGER USER`);
-    let foreign = '';
+    let foreign: string;
     try {
       foreign = (
         await ctx.pool.query(

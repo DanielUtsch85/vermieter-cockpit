@@ -427,7 +427,7 @@ describe.skipIf(databaseUrl === undefined)('TaxClassification (§55–§58)', ()
       expect(await pool.query(`DELETE FROM tax_classification WHERE id = $1`, [id]).then(() => 'accepted', reasonOf)).toBe('never deleted');
       // A supersede: the old row first, then the successor naming it, in one transaction.
       const client = await pool.connect();
-      let next = '';
+      let next: string;
       try {
         await client.query('BEGIN');
         next = (await client.query(`SELECT gen_random_uuid() AS id`)).rows[0].id as string;
