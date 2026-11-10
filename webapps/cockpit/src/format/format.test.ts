@@ -29,6 +29,20 @@ describe('MoneyText formatting from the API string (ui-guide.md §5.2), de-DE', 
     expect(eur('-0')).toBe(`0,00${NBSP}€`);
   });
 
+  it('a negative amount between 0 and -1 euro keeps its minus; an outflow under 1 euro is shown as outflow', () => {
+    expect(eur('-0.50')).toBe(`-0,50${NBSP}€`);
+    expect(eur('-0.01')).toBe(`-0,01${NBSP}€`);
+    expect(formatTransactionAmount({ amount: '0.05', currency: 'EUR' }, 'OUTFLOW')).toBe(`-0,05${NBSP}€`);
+    // Counter-check: a positive amount under 1 euro gets no minus.
+    expect(eur('0.50')).toBe(`0,50${NBSP}€`);
+    expect(formatTransactionAmount({ amount: '0.05', currency: 'EUR' }, 'INFLOW')).toBe(`0,05${NBSP}€`);
+  });
+
+  it('a currency code is exactly three capital letters; anything else gives no output', () => {
+    for (const currency of ['EU', 'EURO', 'eur', 'E', '']) expect(formatMoney({ amount: '1.00', currency }), currency).toBeUndefined();
+    expect(formatMoney({ amount: '1.00', currency: 'USD' })).toBe(`1,00${NBSP}USD`);
+  });
+
   it('large values with the backend limit of 18 integer digits stay exact (beyond 2^53 cents)', () => {
     expect(eur('999999999999999999.99')).toBe(`999.999.999.999.999.999,99${NBSP}€`);
     expect(eur('123456789012345678.01')).toBe(`123.456.789.012.345.678,01${NBSP}€`);
