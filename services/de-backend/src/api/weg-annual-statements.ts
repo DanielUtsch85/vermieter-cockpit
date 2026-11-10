@@ -25,9 +25,10 @@ import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import {
-  fieldErrors,
+  EMPTY_BODY,
   NO_QUERY,
   PAGING,
+  readBody,
   readIdempotencyKey,
   readIfMatch,
   readQuery,
@@ -236,9 +237,9 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = statementBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(statementBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -293,9 +294,9 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = statementBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(statementBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -316,9 +317,9 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = z.object({}).strict().optional().safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(EMPTY_BODY, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -334,9 +335,9 @@ export function wegAnnualStatementRoutes(commands: WegAnnualStatementCommands): 
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = voidBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(voidBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

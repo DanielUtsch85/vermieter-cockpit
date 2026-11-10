@@ -14,7 +14,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { readId } from './acquisitions.js';
-import { fieldErrors, integerIn, NO_QUERY, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { integerIn, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /**
  * Recorded depreciation schedule versions (api-design.md §60, backlog VC-8-04): the record command and the two reads.
@@ -72,15 +72,14 @@ export function scheduleVersionRoutes(commands: ScheduleVersionCommands): Router
     if (rawId === undefined || !RESOURCE_ID.test(rawId)) errors.push({ field: 'assetId', code: 'INVALID_FORMAT' });
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
-    if (!query.ok) {
-      // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
+    if (errors.length > 0 || !query.ok || rawId === undefined) {
+      // §58W rule 5, §58X rule 4: the path's errors (and a refused query's), before the body is read.
       sendValidationError(res, errors);
       return;
     }
-    const parsed = recordBody.safeParse(req.body);
-    if (!parsed.success) errors.push(...fieldErrors(parsed.error));
-    if (errors.length > 0 || !parsed.success || rawId === undefined) {
-      sendValidationError(res, errors);
+    const parsed = readBody(recordBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

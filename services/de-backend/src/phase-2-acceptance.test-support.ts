@@ -157,6 +157,12 @@ import {
   getPropertyReference,
   listFinancialAccounts,
   listPropertyReferences,
+  acknowledgeAttributionChange,
+  listAcknowledgements,
+  withdrawAcknowledgement,
+  confirmAllocationSet,
+  listConfirmations,
+  withdrawConfirmation,
 } from './application/index.js';
 import {
   PostgresFinancialAccountRepository,
@@ -191,6 +197,7 @@ import {
   PostgresUnconfirmedTransactionRepository,
   PostgresTransactionRepository,
   PostgresTransactionSplitRepository,
+  PostgresTaxStatementRepository,
   createDatabase,
   migrateToLatest,
 } from './infrastructure/postgres/index.js';
@@ -254,9 +261,10 @@ export interface Phase2Context {
 
 /**
  * Registers the schema's, the fake MRE's and the server's `beforeAll`/`afterAll` in the calling `describe` and returns
- * the context (filled once `beforeAll` has run) with the request helpers bound to it.
+ * the context (filled once `beforeAll` has run) with the request helpers bound to it. `taxStatements` also wires §58E's
+ * statements (VC-X-69's record of the commands' answers); without it they stay unused, as before.
  */
-export function usePhase2App(name: `${string}_e2e`) {
+export function usePhase2App(name: `${string}_e2e`, options: { readonly taxStatements?: boolean } = {}) {
   const schema = testSchemaName(name);
   const ctx = {} as Phase2Context;
   let pool: pg.Pool;
@@ -414,7 +422,17 @@ export function usePhase2App(name: `${string}_e2e`) {
         replaceUses: replaceAssessmentUses({ repository: new PostgresWegSpecialAssessmentRepository(db) }),
         void: voidSpecialAssessment({ repository: new PostgresWegSpecialAssessmentRepository(db) }),
       },
-      taxStatements: unusedCommands.taxStatements,
+      taxStatements:
+        options.taxStatements === true
+          ? {
+              acknowledge: acknowledgeAttributionChange({ repository: new PostgresTaxStatementRepository(db), fingerprinter: sha256Fingerprinter }),
+              listAcknowledgements: listAcknowledgements({ repository: new PostgresTaxStatementRepository(db) }),
+              withdrawAcknowledgement: withdrawAcknowledgement({ repository: new PostgresTaxStatementRepository(db) }),
+              confirm: confirmAllocationSet({ repository: new PostgresTaxStatementRepository(db) }),
+              listConfirmations: listConfirmations({ repository: new PostgresTaxStatementRepository(db) }),
+              withdrawConfirmation: withdrawConfirmation({ repository: new PostgresTaxStatementRepository(db) }),
+            }
+          : unusedCommands.taxStatements,
       taxation: {
         create: createTaxClassification({ repository: new PostgresTaxClassificationRepository(db) }),
         get: getTaxClassification({ repository: new PostgresTaxClassificationRepository(db) }),

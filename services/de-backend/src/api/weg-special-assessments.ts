@@ -16,7 +16,7 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
-import { fieldErrors, money, NO_QUERY, PAGING, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const positive = money.superRefine((m, ctx) => {
   if (m instanceof Money && !m.isPositive()) ctx.addIssue({ code: 'custom', params: { code: 'NOT_POSITIVE' } });
@@ -115,9 +115,9 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -179,9 +179,9 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = amendBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(amendBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -202,9 +202,9 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = voidBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(voidBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -225,9 +225,9 @@ export function wegSpecialAssessmentRoutes(commands: WegSpecialAssessmentCommand
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = usesBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(usesBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

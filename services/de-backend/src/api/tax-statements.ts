@@ -19,7 +19,7 @@ import {
   type WithdrawConfirmation,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { type FieldError, fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { type FieldError, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /**
  * The statements of the tax-year view (api-design.md §58E, VC-X-28): acknowledging an attribution change of a
@@ -89,11 +89,10 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
     const path = pathOf(req, ['propertyReferenceId'], true);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
-    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
-    if (!query.ok) return sendValidationError(res, path.errors);
-    const parsed = acknowledgeBody.safeParse(req.body);
-    if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
-    if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);
+    // §58W rule 5, §58X rule 4: the path's errors (and a refused query's), before the body is read.
+    if (path.errors.length > 0 || !query.ok) return sendValidationError(res, path.errors);
+    const parsed = readBody(acknowledgeBody, req);
+    if (!parsed.ok) return sendValidationError(res, parsed.errors);
     const propertyReferenceId = path.ids['propertyReferenceId'] as string;
     commands
       .acknowledge({
@@ -137,11 +136,10 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
     const path = pathOf(req, ['propertyReferenceId', 'acknowledgementId'], true);
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
-    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
-    if (!query.ok) return sendValidationError(res, path.errors);
-    const parsed = withdrawBody.safeParse(req.body);
-    if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
-    if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);
+    // §58W rule 5, §58X rule 4: the path's errors (and a refused query's), before the body is read.
+    if (path.errors.length > 0 || !query.ok) return sendValidationError(res, path.errors);
+    const parsed = readBody(withdrawBody, req);
+    if (!parsed.ok) return sendValidationError(res, parsed.errors);
     commands
       .withdrawAcknowledgement({
         principal: principalOf(res),
@@ -160,11 +158,10 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
     const path = pathOf(req, ['loanId', 'allocationSetId'], false);
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
-    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
-    if (!query.ok) return sendValidationError(res, path.errors);
-    const parsed = confirmBody.safeParse(req.body);
-    if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
-    if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);
+    // §58W rule 5, §58X rule 4: the path's errors (and a refused query's), before the body is read.
+    if (path.errors.length > 0 || !query.ok) return sendValidationError(res, path.errors);
+    const parsed = readBody(confirmBody, req);
+    if (!parsed.ok) return sendValidationError(res, parsed.errors);
     commands
       .confirm({
         principal: principalOf(res),
@@ -200,11 +197,10 @@ export function taxStatementRoutes(commands: TaxStatementCommands): Router {
     const path = pathOf(req, ['loanId', 'allocationSetId', 'confirmationId'], false);
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
-    // §58W rule 5: a refused query is answered with the path's errors, before the body is read.
-    if (!query.ok) return sendValidationError(res, path.errors);
-    const parsed = withdrawBody.safeParse(req.body);
-    if (!parsed.success) path.errors.push(...fieldErrors(parsed.error));
-    if (path.errors.length > 0 || !parsed.success) return sendValidationError(res, path.errors);
+    // §58W rule 5, §58X rule 4: the path's errors (and a refused query's), before the body is read.
+    if (path.errors.length > 0 || !query.ok) return sendValidationError(res, path.errors);
+    const parsed = readBody(withdrawBody, req);
+    if (!parsed.ok) return sendValidationError(res, parsed.errors);
     commands
       .withdrawConfirmation({
         principal: principalOf(res),

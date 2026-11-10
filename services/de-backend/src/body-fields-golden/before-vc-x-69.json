@@ -1,0 +1,296 @@
+{
+  "POST /parties (person)": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"partyId\":\"O1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"partyType\":\"PERSON\",\"displayName\":\"Eigentümerin Eins\",\"firstName\":null,\"lastName\":null,\"email\":null,\"phone\":null,\"status\":\"ACTIVE\",\"deactivatedAt\":null,\"deactivationReason\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /parties (organization)": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"partyId\":\"BANK\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"partyType\":\"ORGANIZATION\",\"displayName\":\"Bank Beispiel\",\"legalName\":null,\"registrationNumber\":null,\"email\":null,\"phone\":null,\"status\":\"ACTIVE\",\"deactivatedAt\":null,\"deactivationReason\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /parties (unknown type)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"89-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"partyType\",\"code\":\"INVALID_FORMAT\"}]}}}"
+  },
+  "POST /property-references/link": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"189-<hash>\"",
+    "text": "{\"propertyReferenceId\":\"P1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"mrePropertyId\":\"6512f0c2a1b2c3d4e5f60901\",\"externalReferenceState\":\"ACTIVE\",\"displayName\":\"Haus Lindenweg\",\"cachedAddress\":null,\"cachedSurface\":\"180\",\"lastRefreshedAt\":\"<instant>\",\"lastObservedAt\":\"<instant>\",\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /property-references/link (malformed id)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"8d-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"mrePropertyId\",\"code\":\"INVALID_FORMAT\"}]}}}"
+  },
+  "POST …/refresh (no body)": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"189-<hash>\"",
+    "text": "{\"propertyReferenceId\":\"P1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"mrePropertyId\":\"6512f0c2a1b2c3d4e5f60901\",\"externalReferenceState\":\"ACTIVE\",\"displayName\":\"Haus Lindenweg\",\"cachedAddress\":null,\"cachedSurface\":\"180\",\"lastRefreshedAt\":\"<instant>\",\"lastObservedAt\":\"<instant>\",\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST …/refresh ({})": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"189-<hash>\"",
+    "text": "{\"propertyReferenceId\":\"P1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"mrePropertyId\":\"6512f0c2a1b2c3d4e5f60901\",\"externalReferenceState\":\"ACTIVE\",\"displayName\":\"Haus Lindenweg\",\"cachedAddress\":null,\"cachedSurface\":\"180\",\"lastRefreshedAt\":\"<instant>\",\"lastObservedAt\":\"<instant>\",\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /parties/{id}/external-references": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"externalReferenceId\":\"EXT\",\"partyId\":\"O1\",\"system\":\"MRE\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"entityType\":\"tenant\",\"externalId\":\"6512f0c2a1b2c3d4e5f60a01\",\"status\":\"ACTIVE\",\"endedAt\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST …/external-references/{id}/end (no body)": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"2\"",
+    "text": "{\"externalReferenceId\":\"EXT\",\"partyId\":\"O1\",\"system\":\"MRE\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"entityType\":\"tenant\",\"externalId\":\"6512f0c2a1b2c3d4e5f60a01\",\"status\":\"ENDED\",\"endedAt\":\"<instant>\",\"createdAt\":\"<instant>\",\"version\":2}"
+  },
+  "POST /financial-accounts": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"ff-<hash>\"",
+    "text": "{\"financialAccountId\":\"GIRO\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"accountType\":\"BANK\",\"displayName\":\"Giro\",\"currency\":\"EUR\",\"iban\":null,\"status\":\"OPEN\",\"createdAt\":\"<instant>\",\"closedAt\":null,\"version\":1}"
+  },
+  "POST /financial-accounts (with iban)": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"118-<hash>\"",
+    "text": "{\"financialAccountId\":\"TAGESGELD\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"accountType\":\"BANK\",\"displayName\":\"Tagesgeld\",\"currency\":\"EUR\",\"iban\":\"DE89370400440532013000\",\"status\":\"OPEN\",\"createdAt\":\"<instant>\",\"closedAt\":null,\"version\":1}"
+  },
+  "POST /financial-accounts (missing fields)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"d6-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"accountType\",\"code\":\"REQUIRED\"},{\"field\":\"displayName\",\"code\":\"REQUIRED\"},{\"field\":\"currency\",\"code\":\"REQUIRED\"}]}}}"
+  },
+  "POST /financial-accounts (cash)": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"fe-<hash>\"",
+    "text": "{\"financialAccountId\":\"CASH\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"accountType\":\"CASH\",\"displayName\":\"Bar\",\"currency\":\"EUR\",\"iban\":null,\"status\":\"OPEN\",\"createdAt\":\"<instant>\",\"closedAt\":null,\"version\":1}"
+  },
+  "POST /financial-accounts/{id}/close ({})": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"116-<hash>\"",
+    "text": "{\"financialAccountId\":\"CASH\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"accountType\":\"CASH\",\"displayName\":\"Bar\",\"currency\":\"EUR\",\"iban\":null,\"status\":\"CLOSED\",\"createdAt\":\"<instant>\",\"closedAt\":\"<instant>\",\"version\":2}"
+  },
+  "POST /ownerships": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"ownershipId\":\"OWN\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"propertyReferenceId\":\"P1\",\"ownerPartyId\":\"O1\",\"share\":\"1/1\",\"validFrom\":\"2026-01-01\",\"validUntil\":null,\"status\":\"VALID\",\"voidedAt\":null,\"voidReason\":null,\"acquisitionId\":null,\"sourceReferences\":[],\"notes\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /loans": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"loanId\":\"L1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"status\":\"ACTIVE\",\"lenderPartyId\":\"BANK\",\"borrowerPartyIds\":[\"O1\"],\"principalOriginal\":{\"amount\":\"100000.00\",\"currency\":\"EUR\"},\"startDate\":\"2027-01-01\",\"disbursementDate\":null,\"debtFrom\":\"2027-01-01\",\"maturityDate\":null,\"contractNumber\":null,\"acquisitionId\":null,\"sourceReferences\":[],\"notes\":null,\"voidedAt\":null,\"voidReason\":null,\"closingDate\":null,\"closingReason\":null,\"refinancedByLoanId\":null,\"closingNote\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /loans/{id}/terms": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"termsId\":\"TERMS\",\"loanId\":\"L1\",\"status\":\"VALID\",\"validFrom\":\"2027-01-01\",\"validUntil\":null,\"interestRate\":\"3.000\",\"repaymentModel\":\"INTEREST_ONLY\",\"scheduledPayment\":null,\"firstPaymentDate\":\"2027-01-31\",\"principalAtStart\":null,\"fixedRateUntil\":null,\"initialRepaymentRate\":null,\"specialRepaymentLimit\":null,\"notes\":null,\"paymentIntervalMonths\":1,\"voidedAt\":null,\"voidReason\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /loans/{id}/allocations": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"allocationSetId\":\"SET\",\"loanId\":\"L1\",\"status\":\"VALID\",\"validFrom\":\"2027-01-01\",\"validUntil\":null,\"basis\":\"MANUAL\",\"allocations\":[{\"propertyReferenceId\":\"P1\",\"share\":\"1/1\",\"acquisitionId\":null}],\"outsideLetting\":null,\"useEvidence\":null,\"notes\":null,\"voidedAt\":null,\"voidReason\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /transactions": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"transactionId\":\"T1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"523.46\",\"currency\":\"EUR\"},\"direction\":\"OUTFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":\"Rate Februar\",\"propertyReferenceId\":null,\"provenance\":\"MANUAL\",\"status\":\"UNREVIEWED\",\"createdAt\":\"<instant>\",\"version\":1,\"confirmedAt\":null,\"confirmedBy\":null,\"correctionOfTransactionId\":null,\"correctionRole\":null,\"reversalTransactionId\":null,\"replacementTransactionId\":null,\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null}"
+  },
+  "POST /transactions (scale exceeded)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"8d-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"amount.amount\",\"code\":\"SCALE_EXCEEDED\"}]}}}"
+  },
+  "POST /transactions (no fields)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"103-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"financialAccountId\",\"code\":\"REQUIRED\"},{\"field\":\"amount\",\"code\":\"REQUIRED\"},{\"field\":\"direction\",\"code\":\"REQUIRED\"},{\"field\":\"bookingDate\",\"code\":\"REQUIRED\"}]}}}"
+  },
+  "POST /transactions (rentalContractReferenceId)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"98-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"rentalContractReferenceId\",\"code\":\"NOT_SUPPORTED\"}]}}}"
+  },
+  "PUT /transactions/{id}/splits": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"2\"",
+    "text": "{\"transactionId\":\"T1\",\"amount\":{\"amount\":\"523.46\",\"currency\":\"EUR\"},\"direction\":\"OUTFLOW\",\"status\":\"CLASSIFIED\",\"version\":2,\"splits\":[{\"splitId\":\"id-1\",\"position\":1,\"amount\":{\"amount\":\"123.45\",\"currency\":\"EUR\"},\"financialCategoryCode\":\"LOAN_INTEREST\",\"propertyReferenceId\":null,\"loanId\":\"L1\",\"securityDepositId\":null,\"wegAnnualStatementId\":null,\"wegSpecialAssessmentId\":null,\"description\":null},{\"splitId\":\"id-2\",\"position\":2,\"amount\":{\"amount\":\"400.01\",\"currency\":\"EUR\"},\"financialCategoryCode\":\"LOAN_PRINCIPAL\",\"propertyReferenceId\":null,\"loanId\":\"L1\",\"securityDepositId\":null,\"wegAnnualStatementId\":null,\"wegSpecialAssessmentId\":null,\"description\":\"Tilgung\"}]}"
+  },
+  "PUT /transactions/{id}/splits (direction)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"8f-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"splits.0.direction\",\"code\":\"NOT_ALLOWED\"}]}}}"
+  },
+  "POST /transactions/{id}/confirm (no body)": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"3\"",
+    "text": "{\"transactionId\":\"T1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"523.46\",\"currency\":\"EUR\"},\"direction\":\"OUTFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":\"Rate Februar\",\"propertyReferenceId\":null,\"provenance\":\"MANUAL\",\"status\":\"CONFIRMED\",\"createdAt\":\"<instant>\",\"version\":3,\"confirmedAt\":\"<instant>\",\"confirmedBy\":\"anna@example.com\",\"correctionOfTransactionId\":null,\"correctionRole\":null,\"reversalTransactionId\":null,\"replacementTransactionId\":null,\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null}"
+  },
+  "POST /transactions/{id}/correct": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"894-<hash>\"",
+    "text": "{\"original\":{\"transactionId\":\"T1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"523.46\",\"currency\":\"EUR\"},\"direction\":\"OUTFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":\"Rate Februar\",\"propertyReferenceId\":null,\"provenance\":\"MANUAL\",\"status\":\"CORRECTED\",\"createdAt\":\"<instant>\",\"version\":4,\"confirmedAt\":\"<instant>\",\"confirmedBy\":\"anna@example.com\",\"correctionOfTransactionId\":null,\"correctionRole\":null,\"reversalTransactionId\":\"id-1\",\"replacementTransactionId\":\"id-2\",\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null},\"reversal\":{\"transactionId\":\"id-1\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"523.46\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":\"Rate Februar\",\"propertyReferenceId\":null,\"provenance\":\"CORRECTION\",\"status\":\"CONFIRMED\",\"createdAt\":\"<instant>\",\"version\":1,\"confirmedAt\":\"<instant>\",\"confirmedBy\":\"anna@example.com\",\"correctionOfTransactionId\":\"T1\",\"correctionRole\":\"REVERSAL\",\"reversalTransactionId\":null,\"replacementTransactionId\":null,\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null},\"replacement\":{\"transactionId\":\"id-2\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"523.47\",\"currency\":\"EUR\"},\"direction\":\"OUTFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":\"Rate Februar, korrigiert\",\"propertyReferenceId\":null,\"provenance\":\"CORRECTION\",\"status\":\"CONFIRMED\",\"createdAt\":\"<instant>\",\"version\":1,\"confirmedAt\":\"<instant>\",\"confirmedBy\":\"anna@example.com\",\"correctionOfTransactionId\":\"T1\",\"correctionRole\":\"REPLACEMENT\",\"reversalTransactionId\":null,\"replacementTransactionId\":null,\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null}}"
+  },
+  "POST /transactions/{id}/correct (empty replacement split)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"95-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"replacement.splits.0.amount\",\"code\":\"REQUIRED\"}]}}}"
+  },
+  "POST /transactions (second)": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"transactionId\":\"T2\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"10.00\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":null,\"propertyReferenceId\":null,\"provenance\":\"MANUAL\",\"status\":\"UNREVIEWED\",\"createdAt\":\"<instant>\",\"version\":1,\"confirmedAt\":null,\"confirmedBy\":null,\"correctionOfTransactionId\":null,\"correctionRole\":null,\"reversalTransactionId\":null,\"replacementTransactionId\":null,\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null}"
+  },
+  "POST /transactions/{id}/ignore": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"2\"",
+    "text": "{\"transactionId\":\"T2\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"10.00\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":null,\"propertyReferenceId\":null,\"provenance\":\"MANUAL\",\"status\":\"IGNORED\",\"createdAt\":\"<instant>\",\"version\":2,\"confirmedAt\":null,\"confirmedBy\":null,\"correctionOfTransactionId\":null,\"correctionRole\":null,\"reversalTransactionId\":null,\"replacementTransactionId\":null,\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null}"
+  },
+  "POST /transactions/{id}/restore ({})": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"3\"",
+    "text": "{\"transactionId\":\"T2\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"financialAccountId\":\"GIRO\",\"amount\":{\"amount\":\"10.00\",\"currency\":\"EUR\"},\"direction\":\"INFLOW\",\"bookingDate\":\"2027-02-26\",\"valueDate\":null,\"description\":null,\"propertyReferenceId\":null,\"provenance\":\"MANUAL\",\"status\":\"UNREVIEWED\",\"createdAt\":\"<instant>\",\"version\":3,\"confirmedAt\":null,\"confirmedBy\":null,\"correctionOfTransactionId\":null,\"correctionRole\":null,\"reversalTransactionId\":null,\"replacementTransactionId\":null,\"counterpartyNameRaw\":null,\"counterpartyIbanRaw\":null}"
+  },
+  "POST /wegs": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"wegId\":\"WEG\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"status\":\"ACTIVE\",\"displayName\":\"WEG Beispielstraße\",\"administratorPartyId\":\"BANK\",\"financialYearStartMonth\":1,\"notes\":null,\"voidedAt\":null,\"voidReason\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST /wegs/{id}/memberships": {
+    "status": 201,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "\"1\"",
+    "text": "{\"membershipId\":\"MEM\",\"mreRealmId\":\"64b0c0ffee0000000000000a\",\"wegId\":\"WEG\",\"propertyReferenceId\":\"P1\",\"miteigentumsanteil\":\"250/10000\",\"validFrom\":\"2026-01-01\",\"validUntil\":null,\"status\":\"ACTIVE\",\"voidedAt\":null,\"voidReason\":null,\"sourceReferences\":[],\"notes\":null,\"createdAt\":\"<instant>\",\"version\":1}"
+  },
+  "POST …/acknowledgements": {
+    "status": 409,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"c1-<hash>\"",
+    "text": "{\"error\":{\"code\":\"CONFLICT\",\"message\":\"The year shows no such attribution change.\",\"details\":{\"reason\":\"CHANGE_NOT_FLAGGED\",\"auditRecordId\":\"id-1\",\"year\":2027}}}"
+  },
+  "POST …/acknowledgements (missing fields)": {
+    "status": 400,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"de-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"auditRecordId\",\"code\":\"REQUIRED\"},{\"field\":\"expectedFingerprint\",\"code\":\"REQUIRED\"},{\"field\":\"reason\",\"code\":\"REQUIRED\"}]}}}"
+  },
+  "POST …/acknowledgements/{id}/withdraw": {
+    "status": 404,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"8c-<hash>\"",
+    "text": "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Acknowledgement not found.\",\"details\":{\"acknowledgementId\":\"id-1\"}}}"
+  },
+  "POST …/tax-confirmations": {
+    "status": 409,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"d8-<hash>\"",
+    "text": "{\"error\":{\"code\":\"CONFLICT\",\"message\":\"This allocation set needs no tax confirmation.\",\"details\":{\"reason\":\"NOTHING_TO_CONFIRM\",\"allocationSetId\":\"SET\",\"cause\":\"NOT_PURCHASE_PRICE\"}}}"
+  },
+  "POST …/tax-confirmations/{id}/withdraw": {
+    "status": 404,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"86-<hash>\"",
+    "text": "{\"error\":{\"code\":\"NOT_FOUND\",\"message\":\"Confirmation not found.\",\"details\":{\"confirmationId\":\"id-1\"}}}"
+  },
+  "POST /depreciation-assets/{id}/schedule-versions": {
+    "status": 409,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"a4-<hash>\"",
+    "text": "{\"error\":{\"code\":\"CONFLICT\",\"message\":\"Recording depreciation schedule versions is not enabled in this installation.\",\"details\":{\"reason\":\"RECORDING_NOT_ENABLED\"}}}"
+  },
+  "POST …/review-items/{id}/resolve (SKIP)": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"3ae-<hash>\"",
+    "text": "{\"reviewItemId\":\"ITEM-1\",\"importBatchId\":\"BATCH\",\"financialAccountId\":\"GIRO\",\"adapterId\":\"generic-csv\",\"adapterVersion\":\"1\",\"status\":\"RESOLVED\",\"ambiguityReason\":\"AMBIGUOUS_CROSS_FILE_MATCH\",\"normalizedRow\":{\"amount\":{\"amount\":\"310.40\",\"currency\":\"EUR\"},\"rowKey\":\"pos:1\",\"position\":1,\"direction\":\"OUTFLOW\",\"valueDate\":\"2026-09-02\",\"bookingDate\":\"2026-09-02\",\"description\":\"Hausgeld\",\"balanceAfter\":null,\"statementKey\":\"sha256:eae0c20d055af916ea1a43386f07bb51d04e3a96483f3b7f519cf1b96d368ce8\",\"counterpartyIbanRaw\":null,\"counterpartyNameRaw\":\"WEG Musterstr.\",\"externalTransactionId\":null},\"conflictingTransactionIds\":[\"id-1\"],\"priorReviewItemIds\":[],\"resolution\":\"SKIP\",\"resolvedByAccountId\":\"anna@example.com\",\"resolvedAt\":\"<instant>\",\"createdTransactionId\":null,\"createdAt\":\"<instant>\"}"
+  },
+  "POST …/review-items/{id}/resolve (CREATE)": {
+    "status": 200,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"3d5-<hash>\"",
+    "text": "{\"reviewItemId\":\"ITEM-2\",\"importBatchId\":\"BATCH\",\"financialAccountId\":\"GIRO\",\"adapterId\":\"generic-csv\",\"adapterVersion\":\"1\",\"status\":\"RESOLVED\",\"ambiguityReason\":\"AMBIGUOUS_CROSS_FILE_MATCH\",\"normalizedRow\":{\"amount\":{\"amount\":\"1250.00\",\"currency\":\"EUR\"},\"rowKey\":\"pos:2\",\"position\":2,\"direction\":\"INFLOW\",\"valueDate\":\"2026-09-01\",\"bookingDate\":\"2026-09-01\",\"description\":\"Miete September\",\"balanceAfter\":null,\"statementKey\":\"sha256:eae0c20d055af916ea1a43386f07bb51d04e3a96483f3b7f519cf1b96d368ce8\",\"counterpartyIbanRaw\":null,\"counterpartyNameRaw\":\"Max Mieter\",\"externalTransactionId\":null},\"conflictingTransactionIds\":[\"id-1\"],\"priorReviewItemIds\":[],\"resolution\":\"CREATE\",\"resolvedByAccountId\":\"anna@example.com\",\"resolvedAt\":\"<instant>\",\"createdTransactionId\":\"id-2\",\"createdAt\":\"<instant>\"}"
+  },
+  "POST …/review-items/{id}/resolve (unknown value)": {
+    "status": 422,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"8a-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"resolution\",\"code\":\"INVALID_FORMAT\"}]}}}"
+  },
+  "POST …/review-items/{id}/resolve (no fields)": {
+    "status": 422,
+    "contentType": "application/json; charset=utf-8",
+    "location": null,
+    "etag": "W/\"84-<hash>\"",
+    "text": "{\"error\":{\"code\":\"VALIDATION_ERROR\",\"message\":\"Validation failed.\",\"details\":{\"fields\":[{\"field\":\"resolution\",\"code\":\"REQUIRED\"}]}}}"
+  }
+}

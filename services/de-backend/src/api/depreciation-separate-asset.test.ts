@@ -214,7 +214,7 @@ describe('POST /depreciation-assets with a separate asset (§59B)', () => {
     expect(await send({ items: [item({ sourceType: 'DEPOSIT_CLOSING' })] })).toEqual([{ field: 'items.0.sourceType', code: 'NOT_ALLOWED' }]);
     expect(await send({ items: [item({ sourceType: 'CASH' })] })).toEqual([{ field: 'items.0.sourceType', code: 'INVALID_FORMAT' }]);
     expect(await send({ items: [item({ sourceId: 'x' })] })).toEqual([{ field: 'items.0.sourceId', code: 'INVALID_FORMAT' }]);
-    expect(await send({ items: [item({ cost: '100.00' })] })).toMatchObject([{ field: 'items.0' }]);
+    expect(await send({ items: [item({ cost: '100.00' })] })).toMatchObject([{ field: 'items.0.cost' }]);
   });
 
   it('amend: the separate fields and the whole item list passed; never null', async () => {

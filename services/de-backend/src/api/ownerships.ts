@@ -15,9 +15,9 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import {
-  fieldErrors,
   NO_QUERY,
   OPTIONAL_PAGING,
+  readBody,
   readIdempotencyKey,
   readIfMatch,
   readQuery,
@@ -153,9 +153,9 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -197,9 +197,9 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = closeBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(closeBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -220,9 +220,9 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = voidBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(voidBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -243,9 +243,9 @@ export function ownershipRoutes(commands: OwnershipCommands): Router {
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = changeBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(changeBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;

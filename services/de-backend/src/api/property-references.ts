@@ -12,13 +12,15 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { fieldErrors, NO_QUERY, PAGING, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { EMPTY_BODY, NO_QUERY, PAGING, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** A malformed MRE id would end in a 500 upstream, so it is rejected here (mre-integration.md §21.1). */
-const linkBody = z.object({
-  mreRealmId: z.string().min(1),
-  mrePropertyId: z.string().regex(MRE_OBJECT_ID),
-});
+const linkBody = z
+  .object({
+    mreRealmId: z.string().min(1),
+    mrePropertyId: z.string().regex(MRE_OBJECT_ID),
+  })
+  .strict();
 
 /** api-design.md §23.3; unknown parameters are `400`. */
 const listQuery = z.object({
@@ -44,9 +46,9 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
   router.post('/property-references/link', express.json({ limit: '16kb' }), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     if (refuseQuery(res, query)) return;
-    const parsed = linkBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(linkBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
 
@@ -102,8 +104,8 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
       .catch(next);
   });
 
-  // Takes no body; a refresh only re-reads MRE (VC-1-02).
-  router.post('/property-references/:propertyReferenceId/refresh', (req, res, next) => {
+  // Takes no body (no body, an empty one or `{}`; a field is unknown, §58X rule 3); a refresh only re-reads MRE (VC-1-02).
+  router.post('/property-references/:propertyReferenceId/refresh', express.json({ limit: '16kb' }), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const { propertyReferenceId } = req.params;
     if (!RESOURCE_ID.test(propertyReferenceId)) {
@@ -112,6 +114,11 @@ export function propertyReferenceRoutes(commands: PropertyReferenceCommands): Ro
     }
 
     if (refuseQuery(res, query)) return;
+    const empty = readBody(EMPTY_BODY, req);
+    if (!empty.ok) {
+      sendValidationError(res, empty.errors);
+      return;
+    }
     commands
       .refresh({
         principal: principalOf(res),

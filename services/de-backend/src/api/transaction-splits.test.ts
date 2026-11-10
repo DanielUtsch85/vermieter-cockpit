@@ -142,7 +142,7 @@ describe('PUT /api/v1/transactions/{transactionId}/splits', () => {
       // A Loan reaches its properties only through its allocation (§41.5).
       [one({ loanId: LOAN, propertyReferenceId: PROPERTY }), [{ field: 'splits.0.propertyReferenceId', code: 'NOT_ALLOWED_WITH_LOAN' }]],
       [one({ financialCategoryCode: 'loan interest' }), [{ field: 'splits.0.financialCategoryCode', code: 'INVALID_FORMAT' }]],
-      [one({ colour: 'red' }), [{ field: 'splits.0', code: 'INVALID_FORMAT' }]],
+      [one({ colour: 'red' }), [{ field: 'splits.0.colour', code: 'INVALID_FORMAT' }]],
       [{ splits: [] }, [{ field: 'splits', code: 'INVALID_FORMAT' }]],
       [{}, [{ field: 'splits', code: 'REQUIRED' }]],
     ];

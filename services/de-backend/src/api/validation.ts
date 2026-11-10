@@ -31,9 +31,158 @@ function codeOf(issue: z.ZodIssue): string {
       : 'INVALID_FORMAT';
 }
 
-/** zod issues as api-design §90 field errors: a missing field is REQUIRED, anything else INVALID_FORMAT. */
+/**
+ * zod issues as api-design §90 field errors (a missing field REQUIRED, anything else INVALID_FORMAT) for what is not a
+ * JSON body: path parameters and the bank import's multipart metadata. A body is read with `readBody` (§58X).
+ */
 export function fieldErrors(error: ZodError): FieldError[] {
   return error.issues.map((issue) => ({ field: issue.path.join('.') || '(body)', code: codeOf(issue) }));
+}
+
+export type BodyResult<T> = { readonly ok: true; readonly data: T } | { readonly ok: false; readonly errors: readonly FieldError[] };
+
+/** The body of the five commands that take none (§58X rule 3): no body, an empty body or `{}`; any field is unknown. */
+export const EMPTY_BODY = z.object({}).strict();
+
+/** Body schemas found strict (§58X rule 2): each is walked once, at its first request. */
+const strictSchemas = new WeakSet<z.ZodTypeAny>();
+
+/** The zod types that hold no object (nothing to walk). */
+const LEAVES: ReadonlySet<string> = new Set([
+  'ZodString',
+  'ZodNumber',
+  'ZodNaN',
+  'ZodBigInt',
+  'ZodBoolean',
+  'ZodDate',
+  'ZodSymbol',
+  'ZodUndefined',
+  'ZodNull',
+  'ZodAny',
+  'ZodUnknown',
+  'ZodNever',
+  'ZodVoid',
+  'ZodLiteral',
+  'ZodEnum',
+  'ZodNativeEnum',
+]);
+
+/**
+ * Throws unless every object anywhere in `schema` refuses an unknown key (`.strict()`, no catch-all), under every
+ * wrapper: refinements, transforms and preprocessing, optional, nullable, default, catch, readonly, brand, pipe, arrays,
+ * sets, unions, discriminated unions, intersections, records, maps, tuples, promises and lazy schemas (§58X decision 6).
+ * A type it does not know also throws, so a new wrapper cannot hide a non-strict object.
+ */
+export function assertStrictBody(schema: z.ZodTypeAny, at = '(body)', seen = new Set<z.ZodTypeAny>()): void {
+  if (seen.has(schema)) return;
+  seen.add(schema);
+  const def = schema._def as Record<string, unknown> & { typeName?: string };
+  const walk = (inner: unknown, path = at) => assertStrictBody(inner as z.ZodTypeAny, path, seen);
+  const typeName = def.typeName ?? '';
+  if (LEAVES.has(typeName)) return;
+  switch (typeName) {
+    case 'ZodObject': {
+      const object = schema as z.AnyZodObject;
+      if (object._def.unknownKeys !== 'strict' || !(object._def.catchall instanceof z.ZodNever)) throw new Error(`readBody: the object at ${at} is not strict`);
+      for (const [key, value] of Object.entries(object.shape as Record<string, z.ZodTypeAny>)) walk(value, at === '(body)' ? key : `${at}.${key}`);
+      return;
+    }
+    case 'ZodEffects':
+      return walk(def['schema']);
+    case 'ZodOptional':
+    case 'ZodNullable':
+    case 'ZodDefault':
+    case 'ZodCatch':
+    case 'ZodReadonly':
+      return walk(def['innerType']);
+    case 'ZodBranded':
+    case 'ZodPromise':
+      return walk(def['type']);
+    case 'ZodArray':
+      return walk(def['type'], `${at}.*`);
+    case 'ZodSet':
+      return walk(def['valueType'], `${at}.*`);
+    case 'ZodPipeline':
+      walk(def['in']);
+      return walk(def['out']);
+    case 'ZodUnion':
+    case 'ZodDiscriminatedUnion':
+      for (const option of def['options'] as readonly z.ZodTypeAny[]) walk(option);
+      return;
+    case 'ZodIntersection':
+      walk(def['left']);
+      return walk(def['right']);
+    case 'ZodRecord':
+    case 'ZodMap':
+      walk(def['keyType']);
+      return walk(def['valueType'], `${at}.*`);
+    case 'ZodTuple':
+      (def['items'] as readonly z.ZodTypeAny[]).forEach((item, i) => walk(item, `${at}.${i}`));
+      if (def['rest'] !== null && def['rest'] !== undefined) walk(def['rest'], `${at}.*`);
+      return;
+    case 'ZodLazy':
+      return walk((def['getter'] as () => z.ZodTypeAny)());
+    default:
+      throw new Error(`readBody: cannot check a ${typeName || 'schema without a type name'} at ${at} for strictness`);
+  }
+}
+
+/** A path of the parsed document as a set key (a key may contain a dot, so the joined field is not unique). */
+const pathKey = (path: readonly (string | number)[]) => JSON.stringify(path.map(String));
+
+/**
+ * The unknown fields of `unknown` (set keys of their paths), in the order of the parsed document, depth first: each
+ * object's keys as `Object.keys` gives them, an unknown field not descended into (§58X decision 7, edge cases).
+ */
+function inDocumentOrder(value: unknown, unknown: ReadonlySet<string>, path: readonly string[] = [], out: string[][] = []): string[][] {
+  if (Array.isArray(value)) value.forEach((item, i) => inDocumentOrder(item, unknown, [...path, String(i)], out));
+  else if (typeof value === 'object' && value !== null)
+    for (const key of Object.keys(value)) {
+      const at = [...path, key];
+      if (unknown.has(pathKey(at))) out.push(at);
+      else inDocumentOrder((value as Record<string, unknown>)[key], unknown, at, out);
+    }
+  return out;
+}
+
+/**
+ * zod issues of a body as §90 field errors (§58X rules 1, 5): the schema's own errors in zod's order (a missing field
+ * REQUIRED, a route's own code, anything else INVALID_FORMAT; the whole body `(body)`), then `extra`, then one
+ * `INVALID_FORMAT` per unknown field, named by its dotted path with the array index, in the order of the document.
+ */
+function bodyErrors(error: ZodError | undefined, body: unknown, extra: readonly FieldError[]): FieldError[] {
+  const own: FieldError[] = [];
+  const unknown = new Map<string, readonly (string | number)[]>();
+  for (const issue of error?.issues ?? []) {
+    if (issue.code === 'unrecognized_keys') for (const key of issue.keys) unknown.set(pathKey([...issue.path, key]), [...issue.path, key]);
+    else own.push({ field: issue.path.join('.') || '(body)', code: codeOf(issue) });
+  }
+  const ordered = inDocumentOrder(body, new Set(unknown.keys()));
+  for (const at of ordered) unknown.delete(pathKey(at));
+  // A key the walk did not find (none should remain) keeps zod's order, after the others.
+  const paths = [...ordered, ...unknown.values()];
+  return [...own, ...extra, ...paths.map((at) => ({ field: at.map(String).join('.'), code: 'INVALID_FORMAT' }))];
+}
+
+/**
+ * The body of a command (api-design.md §58X), the only reader of a request's body in `src/api/` (the lint rule), the
+ * twin of `readQuery`. The route's `express.json` has parsed it (no body and `{}` are the empty object; malformed JSON,
+ * `null`, whitespace and an oversized body never reach the handler). The schema must be strict throughout
+ * (`assertStrictBody`, once per schema; a route with a non-strict schema answers `500` on its first request). `also`
+ * checks the raw body beside the schema (a rule zod would skip once a field failed): its errors come after the schema's
+ * own, before the unknown fields. The caller answers a refusal with its route's status (`400`; the resolve `422`).
+ */
+export function readBody<S extends z.ZodTypeAny>(schema: S, req: Request, also?: (raw: unknown) => readonly FieldError[]): BodyResult<z.output<S>> {
+  if (!strictSchemas.has(schema)) {
+    assertStrictBody(schema);
+    strictSchemas.add(schema);
+  }
+  const raw: unknown = req.body;
+  if (raw === undefined) throw new Error('readBody: the route parses no JSON body (express.json)');
+  const parsed = schema.safeParse(raw);
+  const extra = also?.(raw) ?? [];
+  if (parsed.success && extra.length === 0) return { ok: true, data: parsed.data as z.output<S> };
+  return { ok: false, errors: bodyErrors(parsed.success ? undefined : parsed.error, raw, extra) };
 }
 
 /** The query of a route without parameters (§58W rule 1): every parameter is unknown. */
@@ -207,21 +356,24 @@ const MONEY_CODES: Record<MoneyError['code'], string> = {
  * non-negative (the sign is `direction`, data-model.md §17.4) and representable
  * in the currency's scale — rejected, never rounded.
  */
-export const money = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
-  try {
-    const parsed = Money.of(value.amount, value.currency);
-    if (parsed.isNegative()) {
-      ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NEGATIVE_AMOUNT' } });
+export const money = z
+  .object({ amount: z.string(), currency: z.string() })
+  .strict()
+  .transform((value, ctx) => {
+    try {
+      const parsed = Money.of(value.amount, value.currency);
+      if (parsed.isNegative()) {
+        ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NEGATIVE_AMOUNT' } });
+        return z.NEVER;
+      }
+      return parsed;
+    } catch (error) {
+      if (!(error instanceof MoneyError)) throw error;
+      const path = error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'];
+      ctx.addIssue({ code: 'custom', path, params: { code: MONEY_CODES[error.code] } });
       return z.NEVER;
     }
-    return parsed;
-  } catch (error) {
-    if (!(error instanceof MoneyError)) throw error;
-    const path = error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'];
-    ctx.addIssue({ code: 'custom', path, params: { code: MONEY_CODES[error.code] } });
-    return z.NEVER;
-  }
-});
+  });
 
 /** An integer in `[min, max]`: another number is `OUT_OF_RANGE`, a non-integer `INVALID_FORMAT`. */
 export const integerIn = (min: number, max: number) =>
@@ -236,13 +388,16 @@ export const integerIn = (min: number, max: number) =>
 export const dayOfMonth = integerIn(1, 31);
 
 /** Money that may be negative, where the sign is part of the figure (a credit line, an Abrechnungsspitze; api-design.md §50). */
-export const signedMoney = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
-  try {
-    return Money.of(value.amount, value.currency);
-  } catch (error) {
-    if (!(error instanceof MoneyError)) throw error;
-    const path = error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'];
-    ctx.addIssue({ code: 'custom', path, params: { code: MONEY_CODES[error.code] } });
-    return z.NEVER;
-  }
-});
+export const signedMoney = z
+  .object({ amount: z.string(), currency: z.string() })
+  .strict()
+  .transform((value, ctx) => {
+    try {
+      return Money.of(value.amount, value.currency);
+    } catch (error) {
+      if (!(error instanceof MoneyError)) throw error;
+      const path = error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'];
+      ctx.addIssue({ code: 'custom', path, params: { code: MONEY_CODES[error.code] } });
+      return z.NEVER;
+    }
+  });

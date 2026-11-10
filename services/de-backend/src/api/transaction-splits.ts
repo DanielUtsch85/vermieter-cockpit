@@ -2,7 +2,7 @@ import express, { type Router } from 'express';
 import { z } from 'zod';
 import { CurrencyMismatchError, FinancialCategoryNotFoundError, type SplitTransaction, type TransactionSplit } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { fieldErrors, NO_QUERY, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { NO_QUERY, readBody, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import { split, toSplitInput, setVersionTag, toSplitDto, splitFieldCode, sendLoanSplitError } from './transaction-dto.js';
 import type { TransactionCommands } from './transactions.js';
 
@@ -34,11 +34,11 @@ export function transactionSplitRoutes(commands: TransactionCommands): Router {
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = splitsBody.safeParse(req.body);
-    if (!parsed.success) {
+    const parsed = readBody(splitsBody, req);
+    if (!parsed.ok) {
       sendValidationError(
         res,
-        fieldErrors(parsed.error).map((f) => ({ ...f, code: splitFieldCode(f.field, f.code) })),
+        parsed.errors.map((f) => ({ ...f, code: splitFieldCode(f.field, f.code) })),
       );
       return;
     }

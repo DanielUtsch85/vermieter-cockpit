@@ -15,7 +15,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { dayOfMonth, fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { dayOfMonth, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 
@@ -70,9 +70,9 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -121,9 +121,9 @@ export function rentalContractReferenceRoutes(commands: RentalContractReferenceC
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = amendBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(amendBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;

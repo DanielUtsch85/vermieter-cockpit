@@ -118,7 +118,7 @@ describe('POST /rental-contract-references (§58A)', () => {
     expect(await fields(await days([{ validFrom: '2025-01-01', day: 3.5 }]))).toEqual([{ field: 'rentDueDays.0.day', code: 'INVALID_FORMAT' }]);
     expect(await fields(await days([{ validFrom: '2025-02-30', day: 3 }]))).toEqual([{ field: 'rentDueDays.0.validFrom', code: 'INVALID_FORMAT' }]);
     expect(await fields(await days([{ validFrom: '2025-01-01' }]))).toEqual([{ field: 'rentDueDays.0.day', code: 'REQUIRED' }]);
-    expect(await fields(await days([{ validFrom: '2025-01-01', day: 3, note: 'x' }]))).toEqual([{ field: 'rentDueDays.0', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await days([{ validFrom: '2025-01-01', day: 3, note: 'x' }]))).toEqual([{ field: 'rentDueDays.0.note', code: 'INVALID_FORMAT' }]);
     expect(
       await fields(
         await days([
@@ -142,7 +142,7 @@ describe('POST /rental-contract-references (§58A)', () => {
     expect(await fields(await send({ mreTenantId: TENANT, sourceReferences: Array.from({ length: 11 }, (_, i) => `R${i}`) }))).toEqual([
       { field: 'sourceReferences', code: 'INVALID_FORMAT' },
     ]);
-    expect(await fields(await send({ mreTenantId: TENANT, mreLeaseDefinitionId: 'x' }))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send({ mreTenantId: TENANT, mreLeaseDefinitionId: 'x' }))).toEqual([{ field: 'mreLeaseDefinitionId', code: 'INVALID_FORMAT' }]);
   });
 
   it('the evidence of an entry (§58F): optional, trimmed, 1–500 characters; null as none; on create and amend', async () => {

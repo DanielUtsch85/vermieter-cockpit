@@ -30,17 +30,21 @@ const UNKNOWN_ID = '0000d061-0000-4000-8000-000000000001';
 /** The raw body with every id named and every instant marked (byte-stable across runs). */
 function normalize(text: string, names: ReadonlyMap<string, string>): string {
   const others = new Map<string, string>();
-  return text
-    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => {
-      const lower = id.toLowerCase();
-      const named = names.get(lower);
-      if (named !== undefined) return named;
-      if (!others.has(lower)) others.set(lower, `id-${others.size + 1}`);
-      return others.get(lower) as string;
-    })
-    .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})/g, '<instant>')
-    .replace(/"computedOn":"\d{4}-\d{2}-\d{2}"/g, '"computedOn":"<today>"')
-    .replace(/kassenbuch-\d{4}-\d{2}-\d{2}/g, 'kassenbuch-<today>');
+  return (
+    text
+      .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, (id) => {
+        const lower = id.toLowerCase();
+        const named = names.get(lower);
+        if (named !== undefined) return named;
+        if (!others.has(lower)) others.set(lower, `id-${others.size + 1}`);
+        return others.get(lower) as string;
+      })
+      .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})/g, '<instant>')
+      .replace(/"computedOn":"\d{4}-\d{2}-\d{2}"/g, '"computedOn":"<today>"')
+      .replace(/kassenbuch-\d{4}-\d{2}-\d{2}/g, 'kassenbuch-<today>')
+      // The property export's file name carries today's date too (found by VC-X-69's full run on the day after the record).
+      .replace(/(objekt-[A-Za-z0-9-]+?-)\d{4}-\d{2}-\d{2}\.json/g, '$1<today>.json')
+  );
 }
 
 describe.skipIf(databaseUrl === undefined)('valid queries answer as before VC-X-61, refused ones read nothing (§58W)', () => {

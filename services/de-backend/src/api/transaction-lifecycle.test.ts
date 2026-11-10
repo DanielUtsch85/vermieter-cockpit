@@ -371,7 +371,11 @@ describe('amend / ignore / restore an unconfirmed Transaction (§31.3–31.4)', 
     const fields = async (body: unknown) =>
       ((await (await postTo(base0, 'amend', body)).json()) as { error: { details: { fields: unknown[] } } }).error.details.fields;
     expect(await fields({})).toEqual([{ field: '(body)', code: 'REQUIRED' }]);
-    expect(await fields({ status: 'CONFIRMED' })).toContainEqual({ field: '(body)', code: 'INVALID_FORMAT' });
+    // The empty amend is an error of the whole body (`(body)` REQUIRED, §58X keeps it); the unknown field is named after it.
+    expect(await fields({ status: 'CONFIRMED' })).toEqual([
+      { field: '(body)', code: 'REQUIRED' },
+      { field: 'status', code: 'INVALID_FORMAT' },
+    ]);
     expect((await postTo(base0, 'amend', { description: 'x' }, 'nope')).status).toBe(400);
     await stop();
 

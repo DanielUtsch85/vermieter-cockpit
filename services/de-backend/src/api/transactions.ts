@@ -14,7 +14,7 @@ import {
   type SetTransactionSplits,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { fieldErrors, NO_QUERY, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import { createBody, listQuery, propertyReferenceListQuery, listFilter, sendPage, setVersionTag, toSplitDto, toDto } from './transaction-dto.js';
 import { transactionLifecycleRoutes } from './transaction-lifecycle.js';
 import { transactionSplitRoutes } from './transaction-splits.js';
@@ -89,11 +89,11 @@ export function transactionRoutes(commands: TransactionCommands): Router {
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
       sendValidationError(
         res,
-        fieldErrors(parsed.error).map((f) => (f.field === 'rentalContractReferenceId' ? { ...f, code: 'NOT_SUPPORTED' } : f)),
+        parsed.errors.map((f) => (f.field === 'rentalContractReferenceId' ? { ...f, code: 'NOT_SUPPORTED' } : f)),
       );
       return;
     }

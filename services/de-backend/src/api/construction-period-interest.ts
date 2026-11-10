@@ -14,7 +14,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -101,9 +101,9 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const b = parsed.data;
@@ -157,7 +157,7 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
   const change = <B extends z.ZodTypeAny>(
     path: string,
     schema: B,
-    run: (input: { principal: ReturnType<typeof principalOf>; id: string; body: z.infer<B>; expectedVersions?: readonly number[] }) => Promise<{
+    run: (input: { principal: ReturnType<typeof principalOf>; id: string; fields: z.infer<B>; expectedVersions?: readonly number[] }) => Promise<{
       readonly record: ConstructionPeriodInterest;
     }>,
   ) =>
@@ -168,32 +168,32 @@ export function constructionPeriodInterestRoutes(commands: ConstructionPeriodInt
       const ifMatch = readIfMatch(req, res);
       if (ifMatch === undefined) return;
       if (refuseQuery(res, query)) return;
-      const parsed = schema.safeParse(req.body);
-      if (!parsed.success) {
-        sendValidationError(res, fieldErrors(parsed.error));
+      const parsed = readBody(schema, req);
+      if (!parsed.ok) {
+        sendValidationError(res, parsed.errors);
         return;
       }
       run({
         principal: principalOf(res),
         id,
-        body: parsed.data as z.infer<B>,
+        fields: parsed.data,
         ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
       })
         .then(({ record }) => send(res, record))
         .catch(next);
     });
 
-  change('amend', amendBody, ({ body, ...rest }) => commands.amend({ ...rest, changes: definedOf(body) }));
-  change('confirm', confirmBody, ({ body, ...rest }) =>
+  change('amend', amendBody, ({ fields, ...rest }) => commands.amend({ ...rest, changes: definedOf(fields) }));
+  change('confirm', confirmBody, ({ fields, ...rest }) =>
     commands.confirm({
       ...rest,
       step:
-        body.reviewState === 'ADVISOR_CONFIRMED'
-          ? { reviewState: 'ADVISOR_CONFIRMED', advisorPartyId: body.advisorPartyId as string }
+        fields.reviewState === 'ADVISOR_CONFIRMED'
+          ? { reviewState: 'ADVISOR_CONFIRMED', advisorPartyId: fields.advisorPartyId as string }
           : { reviewState: 'CONFIRMED', advisorPartyId: null },
     }),
   );
-  change('void', voidBody, ({ body, ...rest }) => commands.void({ ...rest, reason: body.reason }));
+  change('void', voidBody, ({ fields, ...rest }) => commands.void({ ...rest, reason: fields.reason }));
 
   return router;
 }

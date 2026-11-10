@@ -132,7 +132,7 @@ describe('POST /api/v1/acquisitions/{id}/costs', () => {
     expect(await fields({ category: 'NOTARY', amount: { amount: '0.00', currency: 'EUR' } })).toEqual({
       fields: [{ field: 'amount.amount', code: 'NOT_POSITIVE' }],
     });
-    expect(await fields({ category: 'NOTARY', amount, transactionSplitId: TX })).toMatchObject({ fields: [{ field: '(body)' }] });
+    expect(await fields({ category: 'NOTARY', amount, transactionSplitId: TX })).toMatchObject({ fields: [{ field: 'transactionSplitId' }] });
     expect(await fields({ category: 'NOTARY', amount, documentId: TX })).toEqual({ fields: [{ field: 'documentId', code: 'NOT_SUPPORTED' }] });
     expect((await call(base, 'POST', '/acquisitions/x/costs', { category: 'NOTARY', amount })).status).toBe(400);
   });
@@ -279,7 +279,7 @@ describe('POST /api/v1/acquisitions/{id}/payments', () => {
     expect(await fields({ transactionId: TX, amount: { amount: '-1.00', currency: 'EUR' } })).toMatchObject({ fields: [{ field: 'amount.amount' }] });
     expect(await fields({ transactionId: 'x', amount: { amount: '1.00', currency: 'EUR' } })).toMatchObject({ fields: [{ field: 'transactionId' }] });
     expect(await fields({ transactionId: TX, amount: { amount: '1.00', currency: 'EUR' }, direction: 'OUTFLOW' })).toMatchObject({
-      fields: [{ field: '(body)' }],
+      fields: [{ field: 'direction' }],
     });
   });
 });

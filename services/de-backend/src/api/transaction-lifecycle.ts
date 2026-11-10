@@ -7,7 +7,7 @@ import {
   type ReplacementInput,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { EMPTY_BODY, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import {
   toSplitInput,
   correctBody,
@@ -27,7 +27,8 @@ import type { TransactionCommands } from './transactions.js';
 export function transactionLifecycleRoutes(commands: TransactionCommands): Router {
   const router = express.Router();
 
-  router.post('/transactions/:transactionId/confirm', (req, res, next) => {
+  // Takes no body: no body, an empty one or `{}`; a field is unknown (§58X rule 3).
+  router.post('/transactions/:transactionId/confirm', express.json({ limit: '16kb' }), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
@@ -37,6 +38,11 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
+    const empty = readBody(EMPTY_BODY, req);
+    if (!empty.ok) {
+      sendValidationError(res, empty.errors);
+      return;
+    }
     commands
       .confirm({
         principal: principalOf(res),
@@ -63,11 +69,11 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = correctBody.safeParse(req.body);
-    if (!parsed.success) {
+    const parsed = readBody(correctBody, req);
+    if (!parsed.ok) {
       sendValidationError(
         res,
-        fieldErrors(parsed.error).map((f) => (f.field.startsWith('replacement.splits.') ? { ...f, code: splitFieldCode(f.field, f.code) } : f)),
+        parsed.errors.map((f) => (f.field.startsWith('replacement.splits.') ? { ...f, code: splitFieldCode(f.field, f.code) } : f)),
       );
       return;
     }
@@ -127,9 +133,9 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = reverseBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(reverseBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -157,9 +163,9 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = amendBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(amendBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -206,9 +212,9 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = ignoreBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(ignoreBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -226,7 +232,8 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
       .catch(next);
   });
 
-  router.post('/transactions/:transactionId/restore', (req, res, next) => {
+  // Takes no body: no body, an empty one or `{}`; a field is unknown (§58X rule 3).
+  router.post('/transactions/:transactionId/restore', express.json({ limit: '16kb' }), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const id = req.params['transactionId'] ?? '';
     if (!RESOURCE_ID.test(id)) {
@@ -236,6 +243,11 @@ export function transactionLifecycleRoutes(commands: TransactionCommands): Route
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
+    const empty = readBody(EMPTY_BODY, req);
+    if (!empty.ok) {
+      sendValidationError(res, empty.errors);
+      return;
+    }
     commands
       .restore({
         principal: principalOf(res),
