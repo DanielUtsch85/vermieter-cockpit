@@ -9,8 +9,8 @@ import type { TransactionCommands } from './transactions.js';
 
 const splitsBody = z.object({ splits: zod3.array(split).min(1).max(100) }).strict();
 
-/** A stale `If-Match`: 412 Precondition Failed (RFC 9110 §13.2.2), with the versions to compare (§16.1). */
-function toSplitsDto(transaction: SplitTransaction, splits: readonly TransactionSplit[]) {
+/** The answer of `PUT …/splits` (api-design.md §33.2); its `ETag` is set from `version` (§16.1). */
+export function toSplitsDto(transaction: SplitTransaction, splits: readonly TransactionSplit[]) {
   return {
     transactionId: transaction.id,
     amount: transaction.amount.toJSON(),

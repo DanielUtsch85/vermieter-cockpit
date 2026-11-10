@@ -57,3 +57,25 @@ describe('one Vitest and one TypeScript for the repository (Entscheidung des Pro
     expect(entries).toHaveLength(1);
   });
 });
+
+/** The versions the lockfile resolves a package to: one entry per resolution, each with its `version:` line. */
+function lockedVersions(lock: string, name: string): string[] {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  return [...lock.matchAll(new RegExp(`^"${escaped}@npm:[^\\n]*\\n {2}version: (\\S+)$`, 'gm'))].map((match) => match[1] ?? '');
+}
+
+describe('one Vite for the repository (#326 question 2; Entscheidung des Projektinhabers, 2026-11-10)', () => {
+  it('the lockfile resolves Vite to exactly one version, the one the cockpit pins', () => {
+    const cockpit = JSON.parse(read('webapps/cockpit/package.json')) as { devDependencies: Record<string, string> };
+    expect(lockedVersions(read('yarn.lock'), 'vite')).toEqual([cockpit.devDependencies['vite']]);
+  });
+
+  it('counter-check: a second resolved Vite is found, and a package whose name only ends in vite is not counted', () => {
+    const lock = read('yarn.lock');
+    const second = `${lock}\n"vite@npm:^7":\n  version: 7.3.1\n  resolution: "vite@npm:7.3.1"\n`;
+    expect(lockedVersions(second, 'vite')).toHaveLength(2);
+    const other = `${lock}\n"rolldown-vite@npm:7.1.0":\n  version: 7.1.0\n`;
+    expect(lockedVersions(other, 'vite')).toHaveLength(1);
+    expect(lockedVersions(lock, 'vitest')).toHaveLength(1);
+  });
+});

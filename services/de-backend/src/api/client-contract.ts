@@ -9,7 +9,9 @@
 import type { toDto as toFinancialAccountDto } from './financial-accounts.js';
 import type { toDto as toFinancialCategoryDto } from './financial-categories.js';
 import type { toDto as toPropertyReferenceDto } from './property-references.js';
-import type { toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
+import type { z } from 'zod';
+import type { split, toDto as toTransactionDto, toSplitDto } from './transaction-dto.js';
+import type { toSplitsDto } from './transaction-splits.js';
 
 export type { FieldError } from './validation.js';
 
@@ -45,3 +47,7 @@ export type FinancialAccountDto = Wire<ReturnType<typeof toFinancialAccountDto>>
 export type PropertyReferenceDto = Wire<ReturnType<typeof toPropertyReferenceDto>>;
 /** `GET /financial-categories` items (api-design.md §36). */
 export type FinancialCategoryDto = Wire<ReturnType<typeof toFinancialCategoryDto>>;
+/** One split of the `PUT /transactions/{id}/splits` request, as the backend's schema reads it (api-design.md §33.2). */
+export type SplitInputDto = z.input<typeof split>;
+/** The answer of `PUT /transactions/{id}/splits` (api-design.md §33.2); its `ETag` is the next `If-Match`. */
+export type TransactionSplitsDto = Wire<ReturnType<typeof toSplitsDto>>;

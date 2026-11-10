@@ -1,11 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { USED_ROUTES } from '../gate/backend-pin';
 import { readListParams, toApiQuery } from '../transactions/list-params';
-import { account, ACCOUNT, detail, page, property, REALM_A, REALM_B, split, transaction, TX } from '../transactions/fixtures.test-support';
+import {
+  account,
+  ACCOUNT,
+  detail,
+  page,
+  property,
+  PROPERTY,
+  REALM_A,
+  REALM_B,
+  split,
+  transaction,
+  TX,
+  TX_REVERSAL as TX_OTHER,
+} from '../transactions/fixtures.test-support';
 import { createDeClient } from './client';
 import { ApiError, CLIENT_CODES } from './errors';
 import { countingTokens, envelope, json, scriptedFetch, type Call } from './fetch.test-support';
-import { getTransaction, listFinancialAccounts, listFinancialCategories, listPropertyReferences, listTransactions, PICKER_PAGE_SIZE } from './transactions';
+import {
+  getTransaction,
+  listFinancialAccounts,
+  listFinancialCategories,
+  listPropertyReferences,
+  listTransactions,
+  PICKER_PAGE_SIZE,
+  putSplits,
+  type TransactionSplitsDto,
+} from './transactions';
 
 function client(...answers: Parameters<typeof scriptedFetch>) {
   const { fetch, calls } = scriptedFetch(...answers);
@@ -105,20 +127,108 @@ describe('step 2 reads: the lists that name ids (accounts, objects, categories)'
   });
 });
 
-describe('integration gate: step 2 calls only routes of the pinned inventory', () => {
-  it('every request of the step-2 reads is a route of USED_ROUTES, and every step-2 route is used', async () => {
+/** The answer of `PUT …/splits` as the backend's `toSplitsDto` writes it. */
+function splitsAnswer(overrides: Partial<TransactionSplitsDto> = {}): TransactionSplitsDto {
+  return {
+    transactionId: TX,
+    amount: { amount: '850.00', currency: 'EUR' },
+    direction: 'INFLOW',
+    status: 'CLASSIFIED',
+    version: 4,
+    splits: [split(), split({ splitId: '6b4f8c7e-9d0a-4b12-8d34-d5e6f708192a', position: 2, amount: { amount: '150.00', currency: 'EUR' } })],
+    ...overrides,
+  };
+}
+
+const BODY = {
+  splits: [
+    { amount: { amount: '700.00', currency: 'EUR' }, financialCategoryCode: 'RENT_BASE', propertyReferenceId: PROPERTY },
+    { amount: { amount: '150.00', currency: 'EUR' }, financialCategoryCode: 'RENT_OPERATING_COST_ADVANCE', propertyReferenceId: PROPERTY },
+  ],
+};
+
+describe('step 3 write: PUT /transactions/{transactionId}/splits (api-design.md §33.2, §16.1; ui-guide.md §8)', () => {
+  it('sends the whole set as JSON with If-Match, the Realm and the token; no Idempotency-Key (the route takes none)', async () => {
+    const { client: de, calls } = client(json(200, splitsAnswer(), { etag: '"4"' }));
+    await putSplits(de, TX, BODY, '"3"');
+    const call = calls[0];
+    expect(call?.method).toBe('PUT');
+    expect(call?.url).toBe(`/api/v1/transactions/${TX}/splits`);
+    expect(call?.headers.get('if-match')).toBe('"3"');
+    expect(call?.headers.get('organizationid')).toBe(REALM_A);
+    expect(call?.headers.get('authorization')).toBe('Bearer token-1');
+    expect(call?.headers.get('content-type')).toBe('application/json');
+    expect(call?.headers.has('idempotency-key')).toBe(false);
+    expect(call?.body).toBe(JSON.stringify(BODY));
+  });
+
+  it('takes the ETag header, not the version of the body, when the two differ', async () => {
+    const { client: de } = client(json(200, splitsAnswer({ version: 4 }), { etag: '"7"' }));
+    expect((await putSplits(de, TX, BODY, '"3"')).etag).toBe('"7"');
+  });
+
+  it('answers with the new ETag; without the header, the version of the body as entity tag', async () => {
+    const { client: de } = client(json(200, splitsAnswer(), { etag: '"4"' }), json(200, splitsAnswer({ version: 7 })));
+    expect(await putSplits(de, TX, BODY, '"3"')).toMatchObject({ etag: '"4"', result: { version: 4, status: 'CLASSIFIED' } });
+    expect((await putSplits(de, TX, BODY, '"4"')).etag).toBe('"7"');
+  });
+
+  it('a weak or unquoted entity tag is never sent', async () => {
+    const { client: de, calls } = client();
+    await expect(putSplits(de, TX, BODY, 'W/"3"')).rejects.toThrow(TypeError);
+    await expect(putSplits(de, TX, BODY, '3')).rejects.toThrow(TypeError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('412 is an error with the versions; field errors keep their dotted names in the server order', async () => {
+    const fields = [
+      { field: 'splits.1.amount.amount', code: 'SCALE_EXCEEDED' },
+      { field: 'splits.0.financialCategoryCode', code: 'UNKNOWN_CATEGORY' },
+    ];
+    const { client: de, calls } = client(
+      envelope(412, 'VERSION_CONFLICT', { expectedVersions: [3], currentVersion: 4 }),
+      envelope(400, 'VALIDATION_ERROR', { fields }),
+    );
+    await expect(putSplits(de, TX, BODY, '"3"')).rejects.toMatchObject({ status: 412, code: 'VERSION_CONFLICT', details: { currentVersion: 4 } });
+    const error = await putSplits(de, TX, BODY, '"3"').catch((e: unknown) => e);
+    expect((error as ApiError).fields).toEqual(fields);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('an answer for another Transaction is refused, never shown', async () => {
+    const { client: de } = client(json(200, splitsAnswer({ transactionId: TX_OTHER }), { etag: '"4"' }));
+    await expect(putSplits(de, TX, BODY, '"3"')).rejects.toMatchObject({ code: CLIENT_CODES.unexpected });
+  });
+
+  it('the id is one encoded path segment', async () => {
+    const { client: de, calls } = client(envelope(400, 'VALIDATION_ERROR', { fields: [{ field: 'transactionId', code: 'INVALID_FORMAT' }] }));
+    await expect(putSplits(de, '../x', BODY, '"3"')).rejects.toMatchObject({ status: 400 });
+    expect(calls[0]?.url).toBe('/api/v1/transactions/..%2Fx/splits');
+  });
+
+  it('no answer is an error with status 0 (outcome unknown), not repeated by the client', async () => {
+    const { client: de, calls } = client(new TypeError('network down'));
+    await expect(putSplits(de, TX, BODY, '"3"')).rejects.toMatchObject({ status: 0, code: CLIENT_CODES.network });
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('integration gate: steps 2 and 3 call only routes of the pinned inventory', () => {
+  it('every request of the step-2 reads and the step-3 write is a route of USED_ROUTES, and every such route is used', async () => {
     const { client: de, calls } = client(
       json(200, page([transaction()])),
       json(200, detail(), { etag: '"3"' }),
       json(200, page([account()])),
       json(200, page([property()])),
       json(200, { items: [] }),
+      json(200, splitsAnswer(), { etag: '"4"' }),
     );
     await listTransactions(de, { page: '1', pageSize: '50' });
     await getTransaction(de, TX);
     await listFinancialAccounts(de);
     await listPropertyReferences(de);
     await listFinancialCategories(de);
+    await putSplits(de, TX, BODY, '"3"');
     const reached = calls.map(routeOf);
     expect(reached).not.toContain(undefined);
     expect(new Set(reached)).toEqual(new Set(USED_ROUTES.filter(([, path]) => path !== '/api/v1/health').map(([method, path]) => `${method} ${path}`)));
@@ -128,5 +238,7 @@ describe('integration gate: step 2 calls only routes of the pinned inventory', (
     const call = { url: `/api/v1/financial-accounts/${ACCOUNT}`, method: 'GET' } as Call;
     expect(routeOf(call)).toBeUndefined();
     expect(routeOf({ url: `/api/v1/transactions/${TX}/confirm`, method: 'POST' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/splits`, method: 'POST' } as Call)).toBeUndefined();
+    expect(routeOf({ url: `/api/v1/transactions/${TX}/splits`, method: 'PUT' } as Call)).toBe('PUT /api/v1/transactions/:transactionId/splits');
   });
 });

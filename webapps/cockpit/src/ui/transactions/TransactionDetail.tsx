@@ -51,8 +51,9 @@ function Breadcrumbs({ listHref, current }: { readonly listHref: string; readonl
 /**
  * One Transaction (ui-guide.md §6.3, §10 step 2): date, amount and direction, counterparty, purpose, origin, status,
  * account with its name, references of the splits, and the correction chain as the visible history (§6.1: no audit
- * timeline in version 1). Read only: splitting, confirming and correcting are steps 3 and 4, so no button offers them
- * yet (§3.2: no control without a data path). A `404` says "not found or not accessible", never where it might exist.
+ * timeline in version 1). Read only: the split editor of step 3 is its own section below it (`SplitEditor`, shown by the
+ * page for the statuses that allow splits); confirming and correcting are step 4, so no button offers them yet (§3.2: no
+ * control without a data path). A `404` says "not found or not accessible", never where it might exist.
  */
 export function TransactionDetailView(props: {
   readonly realmId: string;
@@ -234,7 +235,7 @@ function Splits({ splits, references }: { readonly splits: readonly TransactionS
         Aufteilung
       </h3>
       {splits.length === 0 ? (
-        <p className="text-muted">Noch nicht aufgeteilt. Das Aufteilen entsteht im Durchstich Schritt 3.</p>
+        <p className="text-muted">Noch nicht aufgeteilt.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left">
