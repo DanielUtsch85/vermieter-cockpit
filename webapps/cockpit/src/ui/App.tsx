@@ -1,15 +1,26 @@
+import { useEffect } from 'react';
 import { useLocationPath } from '../navigation';
-import { BASE_PATH, parseRoute } from '../routing';
+import { BASE_PATH, parseRoute, reloadPage, type RealmLock } from '../routing';
 import { useSession, useSessionState } from '../session/use-session';
 import { LoginPage } from './LoginPage';
 import { RealmChoice } from './RealmChoice';
 import { RealmPage } from './RealmPage';
 import { buttonClass, CenteredPage, LoadingState } from './states';
 
-export function App() {
+/**
+ * The top of the cockpit: the session decides what is shown (mre-integration.md §47.2), then the URL. A URL of another
+ * Realm than the one this document shows is never rendered from this memory: the page is loaded afresh (RealmLock).
+ */
+export function App({ realmLock, reload = reloadPage }: { readonly realmLock: RealmLock; readonly reload?: () => void }) {
   const session = useSession();
   const state = useSessionState();
   const path = useLocationPath();
+  const route = state.status === 'signedIn' ? parseRoute(path) : undefined;
+  const switching = route?.kind === 'area' && realmLock(route.realmId) === 'reload';
+
+  useEffect(() => {
+    if (switching) reload();
+  }, [switching, reload]);
 
   switch (state.status) {
     case 'checking':
@@ -30,14 +41,20 @@ export function App() {
     case 'signedOut':
       return <LoginPage expired={state.expired} />;
     case 'signedIn': {
-      const route = parseRoute(path);
-      if (route.kind === 'realmChoice') return <RealmChoice epoch={state.epoch} />;
+      if (route === undefined || route.kind === 'realmChoice') return <RealmChoice epoch={state.epoch} />;
       if (route.kind === 'notFound') {
         return (
           <CenteredPage title="Seite nicht gefunden">
             <a className="text-primary underline" href={BASE_PATH}>
               Zur Auswahl des Bestands
             </a>
+          </CenteredPage>
+        );
+      }
+      if (switching) {
+        return (
+          <CenteredPage title="Bestand wird gewechselt">
+            <LoadingState label="Die Seite wird für den anderen Bestand neu geladen …" />
           </CenteredPage>
         );
       }

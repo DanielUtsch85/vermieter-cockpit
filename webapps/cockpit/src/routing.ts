@@ -48,6 +48,27 @@ export function areaPath(realmId: string, area: Area): string {
   return `${BASE_PATH}r/${encodeURIComponent(realmId)}/${area.segment}`;
 }
 
+/**
+ * The Realm a document shows. A Realm change is a page load (ui-guide.md §11, version 1: a full reload clears the
+ * previous Realm's data, its selections and its running requests); the links of the cockpit do that. The lock holds the
+ * rule for every other way into another Realm within the same document as well (back and forward through the
+ * history, a link added later): the first Realm a document shows is its Realm, and any other one asks for a reload.
+ */
+export type RealmLock = (realmId: string) => 'show' | 'reload';
+
+export function createRealmLock(): RealmLock {
+  let documentRealm: string | undefined;
+  return (realmId) => {
+    documentRealm ??= realmId;
+    return realmId === documentRealm ? 'show' : 'reload';
+  };
+}
+
+/** Loads the current URL afresh: the new Realm starts with an empty memory. */
+export function reloadPage(): void {
+  window.location.reload();
+}
+
 /** Leaves the Realm: a page load of the choice, so the previous Realm's data and requests are gone (ui-guide.md §11). */
 export function leaveRealm(): void {
   window.location.assign(BASE_PATH);

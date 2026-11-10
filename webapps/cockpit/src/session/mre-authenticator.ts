@@ -93,8 +93,10 @@ export interface MreRealm {
  * The Realms of the session, from `GET /api/v2/realms`. Only id and name are read: membership and role are checked by
  * DE on every call (§47.1), so the choice of a Realm grants nothing by itself.
  */
-export async function listRealms(tokens: TokenSource, fetchFn: FetchLike = defaultFetch): Promise<readonly MreRealm[]> {
-  const response = await authorizedFetch(tokens, fetchFn, '/api/v2/realms', { method: 'GET', headers: { accept: 'application/json' } });
+export async function listRealms(tokens: TokenSource, fetchFn: FetchLike = defaultFetch, signal?: AbortSignal): Promise<readonly MreRealm[]> {
+  const init: RequestInit = { method: 'GET', headers: { accept: 'application/json' } };
+  if (signal !== undefined) init.signal = signal;
+  const response = await authorizedFetch(tokens, fetchFn, '/api/v2/realms', init);
   const body = await readAnswer(response);
   if (!Array.isArray(body)) throw new ApiError(response.status, CLIENT_CODES.unexpected, 'The Realm list is not a list.');
   return body.flatMap((entry: unknown) => {

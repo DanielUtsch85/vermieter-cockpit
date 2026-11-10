@@ -6,8 +6,21 @@ const subscribe = (listener: () => void) => {
   return () => window.removeEventListener('popstate', listener);
 };
 
+const currentPath = () => window.location.pathname;
+
 export function useLocationPath(): string {
-  return useSyncExternalStore(subscribe, () => window.location.pathname);
+  return useSyncExternalStore(subscribe, currentPath, currentPath);
+}
+
+/**
+ * A page the browser restores from its back-forward cache keeps its memory: the session, its token and the data of
+ * the time it was left. After a sign-out in another page of the cockpit that would show a signed-in page again, so a
+ * restored page is loaded afresh and checks its session with the authenticator (mre-integration.md §47.2 point 1).
+ */
+export function reloadWhenRestoredFromCache(target: Pick<Window, 'addEventListener'>, reload: () => void): void {
+  target.addEventListener('pageshow', (event) => {
+    if (event.persisted) reload();
+  });
 }
 
 export function navigate(path: string): void {
