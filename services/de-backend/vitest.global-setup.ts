@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import pg from 'pg';
-import type { GlobalSetupContext } from 'vitest/node';
+import type { TestProject } from 'vitest/node';
 import { MIGRATION_ADVISORY_LOCK } from './src/infrastructure/postgres/migrate.js';
 
 /**
@@ -15,7 +15,7 @@ import { MIGRATION_ADVISORY_LOCK } from './src/infrastructure/postgres/migrate.j
  * the same database keeps its schemas. While dropping it holds the migration
  * advisory lock, so no migration (of either run) introspects meanwhile.
  */
-export default function setup({ provide }: GlobalSetupContext): () => Promise<void> {
+export default function setup({ provide }: TestProject): () => Promise<void> {
   const runId = randomBytes(4).toString('hex');
   provide('testRunId', runId);
   const ownSchema = new RegExp(`^[a-z0-9_]+_(?:test|e2e)_${runId}$`);

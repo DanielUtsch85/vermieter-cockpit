@@ -14,7 +14,8 @@ const proxy = {
 
 export default defineConfig({
   base: '/cockpit/',
-  esbuild: { jsx: 'automatic' },
+  // Vite 8 transforms with Oxc instead of esbuild (VC-X-67); the same automatic JSX runtime as `esbuild.jsx` before.
+  oxc: { jsx: { runtime: 'automatic' } },
   css: {
     postcss: { plugins: [tailwindcss({ config: fileURLToPath(new URL('./tailwind.config.ts', import.meta.url)) })] },
   },
@@ -23,10 +24,10 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    rollupOptions: {
+    rolldownOptions: {
       // TanStack Query marks its modules `"use client"` for server-rendering frameworks; a Vite SPA has no server
-      // components, so the directive means nothing here (Rollup drops it and warns once per module, plus a sourcemap
-      // warning for locating that warning).
+      // components, so the directive means nothing here (Rolldown, the bundler of Vite 8, drops it and warns once per
+      // module, as Rollup did under Vite 5, which also added a sourcemap warning for locating that warning).
       onwarn(warning, warn) {
         const tanstack = warning.id?.includes('/node_modules/@tanstack/') === true;
         if (tanstack && (warning.code === 'MODULE_LEVEL_DIRECTIVE' || warning.code === 'SOURCEMAP_ERROR')) return;

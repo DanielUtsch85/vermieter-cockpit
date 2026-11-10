@@ -25,7 +25,7 @@
     "@vermieter-cockpit/de-backend": "workspace:*",
     "tailwindcss": "3.4.10",
     "typescript": "~5.9",
-    "vite": "5.4.21",
-    "vitest": "^2"
+    "vite": "8.3.5",
+    "vitest": "^5"
   }
 }
