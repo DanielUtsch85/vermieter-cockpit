@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { AREAS, areaPath, parseRoute } from './routing';
+import { AREAS, areaPath, createRealmLock, parseRoute, realmSwitchEffect, realmSwitching, transactionPath } from './routing';
 
 const REALM = '64b7f0c2a1b2c3d4e5f60718';
+const OTHER = '64b7f0c2a1b2c3d4e5f60719';
+const TX = '2d0b4e3a-5f6c-4d7e-8f90-91a2b3c4d5e6';
 
 describe('routes: the Realm in the URL (§47.2 point 3)', () => {
   it('the base path is the Realm choice', () => {
@@ -29,10 +31,51 @@ describe('routes: the Realm in the URL (§47.2 point 3)', () => {
       `/cockpit/x/${REALM}/`,
       `/cockpit/r/${REALM}/finanzierung`,
       `/cockpit/r/${REALM}/buchungen/x`,
+      `/cockpit/r/${REALM}/buchungen/${TX}/splits`,
+      `/cockpit/r/${REALM}/import/${TX}`,
+      `/cockpit/r/${REALM}//${TX}`,
+      `/cockpit/r/${REALM}/buchungen/${TX}x`,
       '/cockpit/r/a%2Fb/',
       '/cockpit/r/../',
     ]) {
       expect(parseRoute(path)).toEqual({ kind: 'notFound' });
     }
+  });
+});
+
+describe('step 2: a Transaction has its own URL (ui-guide.md §3.2: deep links with stable DE ids)', () => {
+  it('the detail path round-trips; the id is read in lower case, as the backend stores it', () => {
+    const transactions = AREAS[1];
+    expect(parseRoute(transactionPath(REALM, TX))).toEqual({ kind: 'area', realmId: REALM, area: transactions, transactionId: TX });
+    expect(parseRoute(`${transactionPath(REALM, TX.toUpperCase())}/`)).toEqual({ kind: 'area', realmId: REALM, area: transactions, transactionId: TX });
+    expect(transactionPath(REALM, TX)).toBe(`/cockpit/r/${REALM}/buchungen/${TX}`);
+  });
+
+  it('the list keeps its search part in its path', () => {
+    const transactions = AREAS[1];
+    if (transactions === undefined) throw new Error('area missing');
+    expect(areaPath(REALM, transactions, '?status=IMPORTED')).toBe(`/cockpit/r/${REALM}/buchungen?status=IMPORTED`);
+  });
+});
+
+describe('the Realm lock reloads the page (review of #322, hint 1)', () => {
+  it('a route of another Realm than the document is switching; its effect reloads exactly once', () => {
+    const lock = createRealmLock();
+    const route = (realmId: string) => parseRoute(`/cockpit/r/${realmId}/`);
+    expect(realmSwitching(route(REALM), lock)).toBe(false);
+    expect(realmSwitching(route(OTHER), lock)).toBe(true);
+    let reloads = 0;
+    realmSwitchEffect(realmSwitching(route(OTHER), lock), () => (reloads += 1))();
+    expect(reloads).toBe(1);
+  });
+
+  it('counter-check: the document Realm, the choice and a page not found never reload', () => {
+    const lock = createRealmLock();
+    let reloads = 0;
+    for (const path of [`/cockpit/r/${REALM}/`, '/cockpit/', `/cockpit/r/${OTHER}/finanzierung`, `/cockpit/r/${REALM}/buchungen/${TX}`]) {
+      realmSwitchEffect(realmSwitching(parseRoute(path), lock), () => (reloads += 1))();
+    }
+    realmSwitchEffect(realmSwitching(undefined, lock), () => (reloads += 1))();
+    expect(reloads).toBe(0);
   });
 });

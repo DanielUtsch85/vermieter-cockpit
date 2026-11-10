@@ -12,6 +12,13 @@ export function useLocationPath(): string {
   return useSyncExternalStore(subscribe, currentPath, currentPath);
 }
 
+/** The search part of the URL (`?status=IMPORTED`): the list's filters and page (ui-guide.md §3.2). */
+const currentSearch = () => window.location.search ?? '';
+
+export function useLocationSearch(): string {
+  return useSyncExternalStore(subscribe, currentSearch, currentSearch);
+}
+
 /**
  * A page the browser restores from its back-forward cache keeps its memory: the session, its token and the data of
  * the time it was left. After a sign-out in another page of the cockpit that would show a signed-in page again, so a

@@ -30,6 +30,8 @@ export interface ApiResult<T> {
 }
 
 export interface DeClient {
+  /** The Realm every call of this client is made for (`organizationid`). */
+  readonly realmId: string;
   get<T>(path: string, options?: RequestOptions): Promise<ApiResult<T>>;
   post<T>(path: string, options?: RequestOptions): Promise<ApiResult<T>>;
   put<T>(path: string, options?: RequestOptions): Promise<ApiResult<T>>;
@@ -100,6 +102,7 @@ export function createDeClient(options: {
   };
 
   return {
+    realmId: options.realmId,
     get: (path, opts) => request('GET', path, opts),
     post: (path, opts) => request('POST', path, opts),
     put: (path, opts) => request('PUT', path, opts),

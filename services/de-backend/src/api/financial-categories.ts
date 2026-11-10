@@ -54,6 +54,6 @@ export function financialCategoryRoutes(queries: FinancialCategoryQueries): Rout
   return router;
 }
 
-function toDto(category: FinancialCategory) {
+export function toDto(category: FinancialCategory) {
   return { code: category.code, name: category.name, categoryType: category.categoryType, active: category.active };
 }

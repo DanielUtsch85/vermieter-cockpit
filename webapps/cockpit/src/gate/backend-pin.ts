@@ -18,4 +18,12 @@ export const BACKEND_PIN = {
 } as const;
 
 /** Every DE route the cockpit calls, as the inventory names it (method, path with `:parameter`). */
-export const USED_ROUTES: readonly (readonly [method: string, path: string])[] = [['GET', '/api/v1/health']];
+export const USED_ROUTES: readonly (readonly [method: string, path: string])[] = [
+  ['GET', '/api/v1/health'],
+  // Step 2 (ui-guide.md §10): the transaction list and detail, and the lists that name accounts, objects and categories.
+  ['GET', '/api/v1/transactions'],
+  ['GET', '/api/v1/transactions/:transactionId'],
+  ['GET', '/api/v1/financial-accounts'],
+  ['GET', '/api/v1/property-references'],
+  ['GET', '/api/v1/financial-categories'],
+];
