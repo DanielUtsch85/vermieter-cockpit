@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { useLocationPath } from '../navigation';
-import { BASE_PATH, parseRoute, reloadPage, type RealmLock } from '../routing';
+import { useLocationPath, useLocationSearch } from '../navigation';
+import { BASE_PATH, parseRoute, realmSwitchEffect, realmSwitching, reloadPage, type RealmLock } from '../routing';
 import { useSession, useSessionState } from '../session/use-session';
 import { LoginPage } from './LoginPage';
 import { RealmChoice } from './RealmChoice';
@@ -15,12 +15,11 @@ export function App({ realmLock, reload = reloadPage }: { readonly realmLock: Re
   const session = useSession();
   const state = useSessionState();
   const path = useLocationPath();
+  const search = useLocationSearch();
   const route = state.status === 'signedIn' ? parseRoute(path) : undefined;
-  const switching = route?.kind === 'area' && realmLock(route.realmId) === 'reload';
+  const switching = realmSwitching(route, realmLock);
 
-  useEffect(() => {
-    if (switching) reload();
-  }, [switching, reload]);
+  useEffect(realmSwitchEffect(switching, reload), [switching, reload]);
 
   switch (state.status) {
     case 'checking':
@@ -58,7 +57,18 @@ export function App({ realmLock, reload = reloadPage }: { readonly realmLock: Re
           </CenteredPage>
         );
       }
-      return <RealmPage realmId={route.realmId} area={route.area} epoch={state.epoch} email={state.email} renewedAt={state.renewedAt} />;
+      return (
+        <RealmPage
+          realmId={route.realmId}
+          area={route.area}
+          transactionId={route.transactionId}
+          search={search}
+          path={path}
+          epoch={state.epoch}
+          email={state.email}
+          renewedAt={state.renewedAt}
+        />
+      );
     }
   }
 }

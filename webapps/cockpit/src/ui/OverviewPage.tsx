@@ -86,7 +86,9 @@ export function OverviewPage(props: {
                 <a className="text-primary underline" href={href} onClick={(event) => onLinkClick(event, href)}>
                   {area.label}
                 </a>{' '}
-                <span className="text-muted">· entsteht im {area.slice}</span>
+                <span className="text-muted">
+                  {area.available === undefined ? `· entsteht im ${area.slice}` : `· ${area.available}; der Rest entsteht im ${area.slice}`}
+                </span>
               </li>
             );
           })}

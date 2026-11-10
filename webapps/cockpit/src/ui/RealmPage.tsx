@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { createDeClient } from '../api/client';
 import { ApiError } from '../api/errors';
-import { fetchHealth } from '../api/health';
+import { fetchHealth, type HealthDto } from '../api/health';
 import { realmKey } from '../query';
 import { leaveRealm, type Area } from '../routing';
 import { useSession } from '../session/use-session';
@@ -10,6 +10,7 @@ import { AppShell } from './AppShell';
 import { AreaPlaceholder, OverviewPage } from './OverviewPage';
 import { useRealms } from './RealmChoice';
 import { ErrorState, LoadingState, secondaryButtonClass } from './states';
+import { TransactionsArea } from './transactions/TransactionsArea';
 
 /**
  * One Realm: its DE client (`organizationid` = the Realm of the URL) and the access check through `GET /api/v1/health`.
@@ -19,6 +20,12 @@ import { ErrorState, LoadingState, secondaryButtonClass } from './states';
 export function RealmPage(props: {
   readonly realmId: string;
   readonly area: Area;
+  /** A Transaction of the Buchungen area (`…/buchungen/<transactionId>`). */
+  readonly transactionId?: string | undefined;
+  /** The URL's search part: the list's filters and page. */
+  readonly search?: string;
+  /** The URL's path: the focus moves to the page title when it changes (AppShell). */
+  readonly path?: string;
   readonly epoch: number;
   readonly email: string | undefined;
   readonly renewedAt: Date | undefined;
@@ -36,15 +43,33 @@ export function RealmPage(props: {
   ) : null;
 
   return (
-    <AppShell realmId={props.realmId} realmName={realmName} area={props.area} email={props.email} access={access}>
-      {health.isSuccess &&
-        (props.area.id === 'uebersicht' ? (
-          <OverviewPage realmId={props.realmId} realmName={realmName} health={health.data} renewedAt={props.renewedAt} />
-        ) : (
-          <AreaPlaceholder slice={props.area.slice} />
-        ))}
+    <AppShell realmId={props.realmId} realmName={realmName} area={props.area} email={props.email} access={access} focusKey={props.path}>
+      {health.isSuccess && <AreaContent {...props} client={client} realmName={realmName} health={health.data} />}
     </AppShell>
   );
+}
+
+function AreaContent(props: {
+  readonly client: ReturnType<typeof createDeClient>;
+  readonly realmId: string;
+  readonly realmName: string | undefined;
+  readonly area: Area;
+  readonly transactionId?: string | undefined;
+  readonly search?: string;
+  readonly epoch: number;
+  readonly health: HealthDto;
+  readonly renewedAt: Date | undefined;
+}) {
+  switch (props.area.id) {
+    case 'uebersicht':
+      return <OverviewPage realmId={props.realmId} realmName={props.realmName} health={props.health} renewedAt={props.renewedAt} />;
+    case 'buchungen':
+      return (
+        <TransactionsArea client={props.client} realmId={props.realmId} epoch={props.epoch} transactionId={props.transactionId} search={props.search ?? ''} />
+      );
+    default:
+      return <AreaPlaceholder slice={props.area.slice} />;
+  }
 }
 
 /**

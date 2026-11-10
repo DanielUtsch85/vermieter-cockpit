@@ -11,7 +11,7 @@ const NAV_ID = 'hauptnavigation';
  * and the session status. Only the version-1 areas are in the navigation (§3.1); P1 areas appear when they are done.
  * On small screens the navigation is a drawer behind the "Menü" button (§4.2); it closes with Escape, which returns the
  * focus to the button, and with the choice of an area. After a navigation inside the Realm the focus moves to the new
- * page's title, so keyboard and screen reader users start on the new page (§4.3, §11).
+ * page's title (also from the list to a Transaction and back), so keyboard and screen reader users start on the new page (§4.3, §11).
  */
 export function AppShell(props: {
   readonly realmId: string;
@@ -19,22 +19,25 @@ export function AppShell(props: {
   readonly area: Area;
   readonly email: string | undefined;
   readonly access: ReactNode;
+  /** Changes with the page shown (the URL's path); defaults to the area. A change moves the focus to the title. */
+  readonly focusKey?: string | undefined;
   readonly children: ReactNode;
 }) {
   const session = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButton = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
-  const shownArea = useRef(props.area.id);
+  const focusKey = props.focusKey ?? props.area.id;
+  const shownPage = useRef(focusKey);
   const realmLabel = props.realmName ?? props.realmId;
 
   useDocumentTitle(pageTitle(props.area.label, realmLabel));
 
   useEffect(() => {
-    if (shownArea.current === props.area.id) return;
-    shownArea.current = props.area.id;
+    if (shownPage.current === focusKey) return;
+    shownPage.current = focusKey;
     heading.current?.focus();
-  }, [props.area.id]);
+  }, [focusKey]);
 
   const closeOnEscape = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Escape' || !menuOpen) return;

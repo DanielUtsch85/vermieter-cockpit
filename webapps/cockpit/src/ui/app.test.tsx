@@ -10,6 +10,8 @@ import { Session } from '../session/session';
 import { SessionContext } from '../session/use-session';
 import { App } from './App';
 import { RealmList } from './RealmChoice';
+import { transactionKeys } from './transactions/TransactionsArea';
+import { detail, page, transaction, TX } from '../transactions/fixtures.test-support';
 
 const A = '64b7f0c2a1b2c3d4e5f60718';
 const B = '64b7f0c2a1b2c3d4e5f60719';
@@ -28,7 +30,8 @@ async function signedIn(): Promise<Session> {
 
 /** The App at a path, rendered to markup: what the user sees first, before any request has answered. */
 function render(session: Session, path: string, options: { queryClient?: QueryClient; realmLock?: RealmLock } = {}): string {
-  Object.assign(globalThis, { window: { location: { pathname: path } } });
+  const [pathname = '', search = ''] = path.split(/(?=\?)/);
+  Object.assign(globalThis, { window: { location: { pathname, search } } });
   const reloads: string[] = [];
   const html = renderToStaticMarkup(
     <SessionContext.Provider value={session}>
@@ -185,5 +188,53 @@ describe('step 1, a Realm in the URL (§47.2 point 3, ui-guide.md §7.3)', () =>
     const html = render(await signedIn(), `/cockpit/r/${A}/finanzierung`);
     expect(html).toContain('Seite nicht gefunden');
     expect(html).not.toContain('Hauptnavigation');
+  });
+});
+
+describe('step 2, the Buchungen area in the app (ui-guide.md §6.3, §7.3, §10)', () => {
+  const health = (realmId: string) => ({ status: 'ok', mreRealmId: realmId });
+  const firstPage = { page: '1', pageSize: '50' };
+
+  function seeded(realmId: string, epoch = 0): QueryClient {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(realmKey(realmId, epoch, 'health'), health(realmId));
+    return queryClient;
+  }
+
+  it('the list of the Realm of the URL, its filters read from the URL', async () => {
+    const queryClient = seeded(A);
+    queryClient.setQueryData(transactionKeys.list(A, 0, { status: 'IMPORTED', ...firstPage }), page([transaction({ mreRealmId: A })]));
+    const html = render(await signedIn(), `/cockpit/r/${A}/buchungen?status=IMPORTED&q=frei`, { queryClient });
+    expect(html).toContain('<h1 tabindex="-1" class="text-title font-semibold">Buchungen</h1>');
+    expect(html).toContain('Miete Maerz Testwohnung');
+    expect(html).toContain('name="status" checked="" value="IMPORTED"');
+    expect(html).not.toContain('noch nicht verfügbar');
+  });
+
+  it('loading until the list of this Realm and session answered: a list of another Realm or session is never shown', async () => {
+    const queryClient = seeded(A);
+    queryClient.setQueryData(transactionKeys.list(B, 0, firstPage), page([transaction({ mreRealmId: B, description: 'Fremder Bestand' })]));
+    queryClient.setQueryData(transactionKeys.list(A, 1, firstPage), page([transaction({ mreRealmId: A, description: 'Andere Sitzung' })]));
+    const html = render(await signedIn(), `/cockpit/r/${A}/buchungen`, { queryClient });
+    expect(html).toContain('Buchungen werden geladen');
+    expect(html).not.toContain('Fremder Bestand');
+    expect(html).not.toContain('Andere Sitzung');
+    expect(html).not.toContain(B);
+  });
+
+  it('a Transaction at its own URL, its detail cached per Realm', async () => {
+    const queryClient = seeded(A);
+    queryClient.setQueryData(transactionKeys.detail(A, 0, TX), { transaction: detail({ mreRealmId: A }), etag: '"3"' });
+    const html = render(await signedIn(), `/cockpit/r/${A}/buchungen/${TX.toUpperCase()}`, { queryClient });
+    expect(html).toContain('<li aria-current="page">Buchung vom 01.03.2026</li>');
+    const other = seeded(B);
+    other.setQueryData(transactionKeys.detail(A, 0, TX), { transaction: detail({ mreRealmId: A }), etag: '"3"' });
+    expect(render(await signedIn(), `/cockpit/r/${B}/buchungen/${TX}`, { queryClient: other })).toContain('Buchung wird geladen');
+  });
+
+  it('the overview says what the Buchungen area offers and what comes later', async () => {
+    const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient: seeded(A) });
+    expect(html).toContain('Liste mit Filtern und Detail; der Rest entsteht im Durchstich Schritte 3 und 4');
+    expect(html).toContain('entsteht im Durchstich Schritt 5');
   });
 });

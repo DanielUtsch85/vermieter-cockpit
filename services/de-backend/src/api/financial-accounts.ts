@@ -141,7 +141,7 @@ function sendAccount(res: Response, account: FinancialAccount): void {
   res.json(toDto(account));
 }
 
-function toDto(account: FinancialAccount) {
+export function toDto(account: FinancialAccount) {
   return {
     financialAccountId: account.id,
     mreRealmId: account.mreRealmId,

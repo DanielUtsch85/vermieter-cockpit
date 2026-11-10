@@ -1,5 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
-import { ApiError } from '../api/errors';
+import { leaveRealm } from '../routing';
+import { ApiError, CLIENT_CODES } from '../api/errors';
 import { describeError, describeFieldError } from './error-text';
 
 export function LoadingState({ label }: { readonly label: string }) {
@@ -38,6 +39,40 @@ export function FieldErrorList({ fields }: { readonly fields: ApiError['fields']
         );
       })}
     </ul>
+  );
+}
+
+/** Whether reading again may help: no answer, an answer that was not the API's, or the service was unavailable. */
+export function isRetryable(error: unknown): boolean {
+  return (
+    error instanceof ApiError &&
+    (error.status === 0 || error.status >= 500 || error.code === CLIENT_CODES.unexpected || error.code === CLIENT_CODES.realmMismatch)
+  );
+}
+
+/**
+ * A failed read of a page (ui-guide.md §7.4): `403` offers the Realm choice, never another Realm by itself (§47.2 point
+ * 4); no answer or `503` offers to read again on the user's request, never in a loop; other refusals (`400`, `404`)
+ * offer what the page passes as `children` (back to the list, reset the filters).
+ */
+export function ReadProblem({ error, onRetry, children }: { readonly error: unknown; readonly onRetry: () => void; readonly children?: ReactNode }) {
+  const forbidden = error instanceof ApiError && error.status === 403;
+  return (
+    <ErrorState error={error}>
+      <div className="mt-3 flex flex-wrap items-center gap-4">
+        {forbidden && (
+          <button type="button" className={secondaryButtonClass} onClick={leaveRealm}>
+            Anderen Bestand wählen
+          </button>
+        )}
+        {!forbidden && isRetryable(error) && (
+          <button type="button" className={secondaryButtonClass} onClick={onRetry}>
+            Erneut laden
+          </button>
+        )}
+        {children}
+      </div>
+    </ErrorState>
   );
 }
 

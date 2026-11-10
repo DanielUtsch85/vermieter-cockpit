@@ -13,6 +13,8 @@ export const CLIENT_CODES = {
   unexpected: 'CLIENT_UNEXPECTED_RESPONSE',
   /** The MRE session ended: the refresh was refused or a renewed token was refused again (mre-integration.md §47.2). */
   sessionExpired: 'CLIENT_SESSION_EXPIRED',
+  /** An answer whose `mreRealmId` is not the Realm the request was made for: never shown (ui-guide.md §7.3). */
+  realmMismatch: 'CLIENT_REALM_MISMATCH',
 } as const;
 
 /** One refusal, as `{ error: { code, message, details? } }` of api-design.md §12–13 reads (ui-guide.md §7.4). */

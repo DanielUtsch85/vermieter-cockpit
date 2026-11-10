@@ -16,6 +16,9 @@ export function describeError(error: unknown): ErrorText {
     return { title: 'Keine Antwort', text: 'Der Server hat nicht geantwortet. Ob die Anfrage ausgeführt wurde, ist unklar.' };
   }
   if (error.code === CLIENT_CODES.sessionExpired) return { title: 'Sitzung abgelaufen', text: 'Bitte melden Sie sich erneut an.' };
+  if (error.code === CLIENT_CODES.realmMismatch) {
+    return { title: 'Antwort eines anderen Bestands', text: 'Die Antwort gehört nicht zu diesem Bestand und wird nicht angezeigt. Bitte die Seite neu laden.' };
+  }
   switch (error.status) {
     case 400:
     case 422:
@@ -53,6 +56,7 @@ const FIELD_CODE_TEXTS: Readonly<Record<string, string>> = {
   AMOUNT_OUT_OF_RANGE: 'Betrag außerhalb des zulässigen Bereichs',
   UNSUPPORTED_CURRENCY: 'Währung wird nicht unterstützt',
   CURRENCY_MISMATCH: 'Währungen passen nicht zusammen',
+  INVALID_RANGE: 'Ende liegt vor dem Beginn',
 };
 
 /** The names that are no input of the request: the whole body, the whole query, the empty name of `?=1` or `{"":1}`. */
