@@ -11,5 +11,6 @@ export function useSession(): Session {
 
 export function useSessionState(): SessionState {
   const session = useSession();
-  return useSyncExternalStore(session.subscribe, session.getState);
+  // The third argument is the snapshot for a render without a browser (the tests render to static markup).
+  return useSyncExternalStore(session.subscribe, session.getState, session.getState);
 }

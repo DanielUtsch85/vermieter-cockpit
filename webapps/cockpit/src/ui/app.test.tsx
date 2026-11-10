@@ -1,0 +1,189 @@
+import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { afterEach, describe, expect, it } from 'vitest';
+import { ApiError, CLIENT_CODES } from '../api/errors';
+import { fakeJwt } from '../api/fetch.test-support';
+import { createQueryClient, realmKey, sessionKey } from '../query';
+import { createRealmLock, type RealmLock } from '../routing';
+import type { MreAuthenticator } from '../session/mre-authenticator';
+import { Session } from '../session/session';
+import { SessionContext } from '../session/use-session';
+import { App } from './App';
+import { RealmList } from './RealmChoice';
+
+const A = '64b7f0c2a1b2c3d4e5f60718';
+const B = '64b7f0c2a1b2c3d4e5f60719';
+const TOKEN = fakeJwt({ account: { email: 'admin1@example.com' }, exp: 4_000_000_000 });
+
+/** An authenticator whose refresh answers as given; nothing here reaches a network. */
+function authenticator(refresh: () => Promise<string | undefined>): MreAuthenticator {
+  return { refresh, signIn: () => Promise.resolve(TOKEN), signOut: () => Promise.resolve() };
+}
+
+async function signedIn(): Promise<Session> {
+  const session = new Session(authenticator(() => Promise.resolve(TOKEN)));
+  await session.start();
+  return session;
+}
+
+/** The App at a path, rendered to markup: what the user sees first, before any request has answered. */
+function render(session: Session, path: string, options: { queryClient?: QueryClient; realmLock?: RealmLock } = {}): string {
+  Object.assign(globalThis, { window: { location: { pathname: path } } });
+  const reloads: string[] = [];
+  const html = renderToStaticMarkup(
+    <SessionContext.Provider value={session}>
+      <QueryClientProvider client={options.queryClient ?? createQueryClient()}>
+        <App realmLock={options.realmLock ?? createRealmLock()} reload={() => reloads.push(path)} />
+      </QueryClientProvider>
+    </SessionContext.Provider>,
+  );
+  // Effects do not run in a render to markup: a reload is asked for by the browser only, never during rendering.
+  expect(reloads).toEqual([]);
+  return html;
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(globalThis, 'window');
+});
+
+describe('step 1, session states of the app (ui-guide.md §7.2, §7.4)', () => {
+  it('loading: while the session is checked, a busy status and nothing of a Realm', () => {
+    const html = render(new Session(authenticator(() => new Promise(() => undefined))), `/cockpit/r/${A}/`);
+    expect(html).toContain('role="status"');
+    expect(html).toContain('Sitzung wird geprüft');
+    expect(html).not.toContain('Hauptnavigation');
+  });
+
+  it('an unreachable authenticator is an error with a retry, not a sign-in page', async () => {
+    const session = new Session(authenticator(() => Promise.reject(new ApiError(0, CLIENT_CODES.network, 'x'))));
+    await session.start();
+    const html = render(session, '/cockpit/');
+    expect(html).toContain('role="alert"');
+    expect(html).toContain('Erneut versuchen');
+    expect(html).not.toContain('Passwort');
+  });
+
+  it('signed out: the sign-in page at every URL, a deep link included, with no shell and no Realm', async () => {
+    const session = new Session(authenticator(() => Promise.resolve(undefined)));
+    await session.start();
+    const html = render(session, `/cockpit/r/${A}/buchungen`);
+    expect(html).toContain('Passwort');
+    expect(html).not.toContain('Hauptnavigation');
+    expect(html).not.toContain(A);
+    expect(html).not.toContain('Sitzung ist abgelaufen');
+  });
+
+  it('an expired session says so on the sign-in page', async () => {
+    const session = await signedIn();
+    session.expire();
+    expect(render(session, `/cockpit/r/${A}/`)).toContain('Ihre Sitzung ist abgelaufen');
+  });
+});
+
+describe('step 1, the Realm choice (§47.2 point 3)', () => {
+  it('loading, then the Realms as links into each Realm', async () => {
+    const session = await signedIn();
+    expect(render(session, '/cockpit/')).toContain('Bestände werden geladen');
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(sessionKey(0, 'realms'), [
+      { id: A, name: 'Bestand Nord' },
+      { id: B, name: '' },
+    ]);
+    const html = render(session, '/cockpit/', { queryClient });
+    expect(html).toContain(`href="/cockpit/r/${A}/"`);
+    expect(html).toContain('Bestand Nord');
+    expect(html).toContain(`href="/cockpit/r/${B}/"`);
+    expect(html).toContain('Ohne Namen');
+  });
+
+  it('empty: no Realm for the account is said, not shown as an error', () => {
+    const html = renderToStaticMarkup(<RealmList realms={{ status: 'success', data: [] }} />);
+    expect(html).toContain('Zu Ihrem Konto gibt es keinen Bestand');
+    expect(html).not.toContain('role="alert"');
+  });
+
+  it('error: a 403 (no landlord account) and a 503 with Retry-After are errors, never an empty list', () => {
+    const forbidden = renderToStaticMarkup(<RealmList realms={{ status: 'error', error: new ApiError(403, CLIENT_CODES.unexpected, 'x') }} />);
+    expect(forbidden).toContain('role="alert"');
+    expect(forbidden).toContain('verweigert diesem Konto die Liste der Bestände');
+    expect(forbidden).not.toContain('keinen Bestand');
+    const unavailable = renderToStaticMarkup(
+      <RealmList realms={{ status: 'error', error: new ApiError(503, 'EXTERNAL_SYSTEM_ERROR', 'x', undefined, [], 7) }} />,
+    );
+    expect(unavailable).toContain('Dienst nicht erreichbar');
+    expect(unavailable).toContain('in 7 Sekunden');
+    const lost = renderToStaticMarkup(<RealmList realms={{ status: 'error', error: new ApiError(0, CLIENT_CODES.network, 'x') }} />);
+    expect(lost).toContain('unklar');
+  });
+});
+
+describe('step 1, a Realm in the URL (§47.2 point 3, ui-guide.md §7.3)', () => {
+  const health = (realmId: string) => ({ status: 'ok', mreRealmId: realmId });
+
+  it('loading: the shell with the Realm of the URL, its content only after DE confirmed access', async () => {
+    const html = render(await signedIn(), `/cockpit/r/${A}/`);
+    expect(html).toContain('Hauptnavigation');
+    expect(html).toContain(A);
+    expect(html).toContain('Zugriff auf den Bestand wird geprüft');
+    expect(html).not.toContain('Arbeitsbereiche');
+  });
+
+  it('success: the overview of the Realm with its name from the Realm list', async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(realmKey(A, 0, 'health'), health(A));
+    queryClient.setQueryData(sessionKey(0, 'realms'), [{ id: A, name: 'Bestand Nord' }]);
+    const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient });
+    expect(html).toContain(`Zugriff bestätigt für Bestand ${A}`);
+    expect(html).toContain('Bestand Nord');
+    expect(html).toContain('Arbeitsbereiche');
+  });
+
+  it('the answer of another Realm is never shown for the Realm of the URL', async () => {
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(realmKey(B, 0, 'health'), health(B));
+    const html = render(await signedIn(), `/cockpit/r/${A}/`, { queryClient });
+    expect(html).toContain('Zugriff auf den Bestand wird geprüft');
+    expect(html).not.toContain(B);
+    expect(html).not.toContain('Zugriff bestätigt');
+  });
+
+  it('the answer of an earlier session is never shown in a new one (epoch in the key)', async () => {
+    const session = await signedIn();
+    await session.signOut();
+    await session.signIn('admin1@example.com', 'x');
+    expect(session.getState()).toMatchObject({ status: 'signedIn', epoch: 1 });
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(realmKey(A, 0, 'health'), health(A));
+    const html = render(session, `/cockpit/r/${A}/`, { queryClient });
+    expect(html).toContain('Zugriff auf den Bestand wird geprüft');
+    expect(html).not.toContain('Zugriff bestätigt');
+  });
+
+  it('another Realm in the same document is not rendered from memory: the page is loaded afresh', async () => {
+    const session = await signedIn();
+    const realmLock = createRealmLock();
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(realmKey(A, 0, 'health'), health(A));
+    expect(render(session, `/cockpit/r/${A}/`, { queryClient, realmLock })).toContain('Zugriff bestätigt');
+    const switched = render(session, `/cockpit/r/${B}/`, { queryClient, realmLock });
+    expect(switched).toContain('Bestand wird gewechselt');
+    expect(switched).not.toContain('Hauptnavigation');
+    expect(switched).not.toContain(A);
+    expect(render(session, `/cockpit/r/${A}/import`, { queryClient, realmLock })).toContain('Hauptnavigation');
+  });
+
+  it('the Realm lock: the first Realm is the document Realm, every other one asks for a reload', () => {
+    const lock = createRealmLock();
+    expect(lock(A)).toBe('show');
+    expect(lock(A)).toBe('show');
+    expect(lock(B)).toBe('reload');
+    expect(lock(A)).toBe('show');
+    expect(createRealmLock()(B)).toBe('show');
+  });
+
+  it('a path that is no page of the cockpit is not found, never another Realm', async () => {
+    const html = render(await signedIn(), `/cockpit/r/${A}/finanzierung`);
+    expect(html).toContain('Seite nicht gefunden');
+    expect(html).not.toContain('Hauptnavigation');
+  });
+});

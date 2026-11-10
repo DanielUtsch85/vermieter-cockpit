@@ -1,4 +1,4 @@
-import { ApiError, CLIENT_CODES } from '../api/errors';
+import { ApiError, CLIENT_CODES, type FieldError } from '../api/errors';
 
 export interface ErrorText {
   readonly title: string;
@@ -41,4 +41,35 @@ export function describeError(error: unknown): ErrorText {
     default:
       return { title: 'Unerwartete Antwort', text: `HTTP ${error.status}, ${code}.` };
   }
+}
+
+/** German texts for the field codes of §90 the backend sends today (validation.ts); any other code is shown as it is. */
+const FIELD_CODE_TEXTS: Readonly<Record<string, string>> = {
+  REQUIRED: 'fehlt',
+  INVALID_FORMAT: 'ungültig oder nicht vorgesehen',
+  OUT_OF_RANGE: 'außerhalb des zulässigen Bereichs',
+  NEGATIVE_AMOUNT: 'darf nicht negativ sein',
+  SCALE_EXCEEDED: 'zu viele Nachkommastellen',
+  AMOUNT_OUT_OF_RANGE: 'Betrag außerhalb des zulässigen Bereichs',
+  UNSUPPORTED_CURRENCY: 'Währung wird nicht unterstützt',
+  CURRENCY_MISMATCH: 'Währungen passen nicht zusammen',
+};
+
+/** The names that are no input of the request: the whole body, the whole query, the empty name of `?=1` or `{"":1}`. */
+const SPECIAL_FIELD_NAMES: Readonly<Record<string, string>> = {
+  '(body)': 'Anfrageinhalt',
+  '(query)': 'Abfrage',
+  '': 'Feld ohne Namen',
+};
+
+/**
+ * One entry of `details.fields` for the summary of a refusal (ui-guide.md §7.4: bound to an input where a form knows the
+ * name, otherwise shown, never swallowed). The name stays as the server sent it, a dotted path with its index
+ * (`splits.0.amount.zzz`, §58X) included, so the user and a report name the same field; only the names that are no
+ * input get a German label. The code is translated where known and kept where not.
+ */
+export function describeFieldError(entry: FieldError): { readonly name: string; readonly text: string } {
+  const special = Object.hasOwn(SPECIAL_FIELD_NAMES, entry.field) ? SPECIAL_FIELD_NAMES[entry.field] : undefined;
+  const known = Object.hasOwn(FIELD_CODE_TEXTS, entry.code) ? FIELD_CODE_TEXTS[entry.code] : undefined;
+  return { name: special ?? entry.field, text: known ?? `Code ${entry.code}` };
 }

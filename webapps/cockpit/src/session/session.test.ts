@@ -186,6 +186,45 @@ describe('sign-out while a refresh is on its way (review on #319)', () => {
   });
 });
 
+describe('sign-out while the start is still checking (review on #319, hint V3)', () => {
+  it('the late answer of the start refresh never signs the user back in', async () => {
+    let deliver: (response: Response) => void = () => undefined;
+    const { session, calls, states } = setup(
+      () =>
+        new Promise<Response>((resolve) => {
+          deliver = resolve;
+        }),
+      new Response(null, { status: 204 }),
+    );
+    const started = session.start();
+    expect(session.getState()).toEqual({ status: 'checking' });
+    await session.signOut();
+    expect(session.getState()).toEqual({ status: 'signedOut', expired: false });
+    deliver(json(200, { accessToken: token(1) }));
+    await started;
+    expect(session.getState()).toEqual({ status: 'signedOut', expired: false });
+    await expect(session.accessToken()).rejects.toMatchObject({ code: CLIENT_CODES.sessionExpired });
+    expect(calls.map((call) => call.url.split('/').pop())).toEqual(['refreshtoken', 'signout']);
+    expect(states).toEqual(['checking', 'signedOut']);
+  });
+
+  it('counter-check: a refusal of the late start refresh does not turn the sign-out into unavailable', async () => {
+    let fail: (error: Error) => void = () => undefined;
+    const { session } = setup(
+      () =>
+        new Promise<Response>((_resolve, reject) => {
+          fail = reject;
+        }),
+      new Response(null, { status: 204 }),
+    );
+    const started = session.start();
+    await session.signOut();
+    fail(new TypeError('Failed to fetch'));
+    await started;
+    expect(session.getState()).toEqual({ status: 'signedOut', expired: false });
+  });
+});
+
 describe('Realm choice from GET /api/v2/realms (§47.2 point 3)', () => {
   const realms = [
     { _id: '64b7f0c2a1b2c3d4e5f60718', name: 'Bestand Nord', members: [{ email: 'admin1@example.com', role: 'administrator' }] },
@@ -216,6 +255,15 @@ describe('Realm choice from GET /api/v2/realms (§47.2 point 3)', () => {
     await expect(listRealms(session, fetch.fetch)).resolves.toHaveLength(2);
     expect(fetch.calls.map((call) => call.headers.get('authorization'))).toEqual([`Bearer ${token(1)}`, `Bearer ${token(2)}`]);
     await expect(listRealms(session, fetch.fetch)).rejects.toMatchObject({ status: 403, code: CLIENT_CODES.unexpected });
+  });
+
+  it('passes the abort signal of its query, so a cancelled read stops', async () => {
+    const { session } = setup(json(200, { accessToken: token(1) }));
+    await session.start();
+    const fetch = scriptedFetch(json(200, realms));
+    const controller = new AbortController();
+    await listRealms(session, fetch.fetch, controller.signal);
+    expect(fetch.calls[0]?.signal).toBe(controller.signal);
   });
 
   it('an answer that is not a list is an error', async () => {

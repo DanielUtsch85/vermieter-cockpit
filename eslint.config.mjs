@@ -54,6 +54,12 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // The cockpit UI writes nothing to the browser console: no token, no bank data, no whole server answer reaches it
+    // (ui-guide.md §11).
+    files: ['webapps/**/*.ts', 'webapps/**/*.tsx'],
+    rules: { 'no-console': 'error' },
+  },
   { files: ['**/*.mjs', '**/*.js'], ...tseslint.configs.disableTypeChecked },
   {
     // Repository scripts and this config run on Node: its globals, without a dependency on the `globals` package.

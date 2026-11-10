@@ -16,6 +16,7 @@ export interface Call {
   readonly headers: Headers;
   readonly body: string | undefined;
   readonly credentials: RequestCredentials | undefined;
+  readonly signal: AbortSignal | undefined;
 }
 
 /** A fetch that answers from a script, one answer per call in order, and records every call; a function may answer later. */
@@ -28,6 +29,7 @@ export function scriptedFetch(...answers: (Response | Error | ((call: Call) => R
       headers: new Headers(init.headers),
       body: typeof init.body === 'string' ? init.body : undefined,
       credentials: init.credentials,
+      signal: init.signal ?? undefined,
     };
     calls.push(call);
     const answer = answers.shift();

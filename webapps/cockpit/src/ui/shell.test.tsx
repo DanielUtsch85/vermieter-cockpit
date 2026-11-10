@@ -9,9 +9,10 @@ import { createMreAuthenticator } from '../session/mre-authenticator';
 import { Session } from '../session/session';
 import { SessionContext } from '../session/use-session';
 import { AppShell } from './AppShell';
-import { describeError } from './error-text';
+import { describeError, describeFieldError } from './error-text';
 import { LoginPage } from './LoginPage';
 import { AccessProblem, RealmPage } from './RealmPage';
+import { ErrorState, pageTitle } from './states';
 
 const REALM = '64b7f0c2a1b2c3d4e5f60718';
 
@@ -40,7 +41,7 @@ describe('app shell (ui-guide.md §3.2)', () => {
     expect(html.match(/aria-current="page"/g)).toHaveLength(1);
     expect(html).toContain('Bestand Nord');
     expect(html).toContain('Angemeldet als admin1@example.com');
-    expect(html).toContain('<h1 class="text-title font-semibold">Buchungen</h1>');
+    expect(html).toContain('<h1 tabindex="-1" class="text-title font-semibold">Buchungen</h1>');
     for (const later of ['Finanzierung', 'Kautionen', 'WEG', 'Steuern', 'Investment']) expect(html).not.toContain(later);
   });
 
@@ -61,9 +62,63 @@ describe('app shell (ui-guide.md §3.2)', () => {
     expect(unavailable).not.toContain('Anderen Bestand wählen');
   });
 
+  it('the browser tab names the page and the Realm', () => {
+    expect(pageTitle('Buchungen', 'Bestand Nord')).toBe('Buchungen · Bestand Nord · Vermieter Cockpit');
+    expect(pageTitle('')).toBe('Vermieter Cockpit');
+  });
+
+  it('on small screens the navigation is a drawer behind a labelled menu button, closed at first', () => {
+    const html = render(
+      <AppShell realmId={REALM} realmName={undefined} area={overview} email={undefined} access={null}>
+        <p>Inhalt</p>
+      </AppShell>,
+    );
+    expect(html).toContain('aria-expanded="false" aria-controls="hauptnavigation">Menü</button>');
+    expect(html).toContain('<nav id="hauptnavigation" aria-label="Hauptnavigation"');
+    expect(html).toContain(REALM);
+  });
+
   it('the sign-in page names the MRE account and an expired session', () => {
     expect(render(<LoginPage expired={false} />)).toContain('Mit dem Konto von MicroRealEstate');
     expect(render(<LoginPage expired={true} />)).toContain('Ihre Sitzung ist abgelaufen');
+  });
+});
+
+describe('field errors in an error state (ui-guide.md §7.4, §90, §58W, §58X)', () => {
+  const fields = [
+    { field: 'splits.0.amount', code: 'SCALE_EXCEEDED' },
+    { field: 'splits.0.zzz', code: 'INVALID_FORMAT' },
+    { field: 'splits.0.amount.zzz', code: 'INVALID_FORMAT' },
+    { field: '(body)', code: 'REQUIRED' },
+    { field: '', code: 'INVALID_FORMAT' },
+    { field: 'If-Match', code: 'SOMETHING_NEW' },
+  ];
+
+  it('shows every entry in the server order, dotted paths with their index as sent', () => {
+    const html = render(<ErrorState error={new ApiError(400, 'VALIDATION_ERROR', 'Validation failed.', { fields }, fields)} />);
+    const entries = [...html.matchAll(/<li><code class="font-mono">([^<]*)<\/code>: ([^<]*)<\/li>/g)].map((match) => `${match[1]}: ${match[2]}`);
+    expect(entries).toEqual([
+      'splits.0.amount: zu viele Nachkommastellen',
+      'splits.0.zzz: ungültig oder nicht vorgesehen',
+      'splits.0.amount.zzz: ungültig oder nicht vorgesehen',
+      'Anfrageinhalt: fehlt',
+      'Feld ohne Namen: ungültig oder nicht vorgesehen',
+      'If-Match: Code SOMETHING_NEW',
+    ]);
+    expect(html).toContain('Eingaben prüfen');
+    expect(html).toContain('Code VALIDATION_ERROR');
+  });
+
+  it('the 422 of the resolve of a review item shows its fields the same way (§58X question 2)', () => {
+    const resolve = [{ field: 'decision', code: 'REQUIRED' }];
+    const html = render(<ErrorState error={new ApiError(422, 'VALIDATION_ERROR', 'x', { fields: resolve }, resolve)} />);
+    expect(html).toContain('<code class="font-mono">decision</code>: fehlt');
+  });
+
+  it('a refusal without fields has no list; names and codes that look special are taken literally', () => {
+    expect(render(<ErrorState error={new ApiError(409, 'CONFLICT', 'x')} />)).not.toContain('Abgelehnte Angaben');
+    expect(describeFieldError({ field: 'toString', code: 'constructor' })).toEqual({ name: 'toString', text: 'Code constructor' });
+    expect(describeFieldError({ field: '(query)', code: 'INVALID_FORMAT' }).name).toBe('Abfrage');
   });
 });
 
