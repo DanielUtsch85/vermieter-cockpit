@@ -19,18 +19,7 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { toDto as ownershipDto } from './ownerships.js';
-import {
-  fieldErrors,
-  money,
-  NO_QUERY,
-  PAGING,
-  readIdempotencyKey,
-  readIfMatch,
-  readQuery,
-  refuseQuery,
-  RESOURCE_ID,
-  sendValidationError,
-} from './validation.js';
+import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 export const businessDate = z.string().transform((value, ctx) => {
   const result = checkBusinessDate(value);
@@ -166,9 +155,9 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -222,9 +211,9 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = cancelBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(cancelBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -246,9 +235,9 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
     if (ifMatch === undefined) return;
     // No body, or an empty object (§28.1).
     if (refuseQuery(res, query)) return;
-    const parsed = confirmBody.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(confirmBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -270,9 +259,9 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = transferDateBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(transferDateBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -300,9 +289,9 @@ export function acquisitionRoutes(commands: AcquisitionCommands): Router {
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = alignBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(alignBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

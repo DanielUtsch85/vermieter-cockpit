@@ -27,7 +27,7 @@ import {
 } from './depreciation-asset-dto.js';
 import { depreciationScheduleRoutes } from './depreciation-schedule.js';
 import { scheduleVersionRoutes, type ScheduleVersionCommands } from './depreciation-schedule-versions.js';
-import { fieldErrors, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 export interface DepreciationAssetCommands {
   readonly create: CreateDepreciationAsset;
@@ -51,9 +51,9 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -132,9 +132,9 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = amendBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(amendBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -166,9 +166,9 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = confirmBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(confirmBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -191,9 +191,9 @@ export function depreciationAssetRoutes(commands: DepreciationAssetCommandsWithV
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = voidBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(voidBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

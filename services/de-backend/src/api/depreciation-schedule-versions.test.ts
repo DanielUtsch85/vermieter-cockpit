@@ -77,17 +77,15 @@ describe('POST …/schedule-versions: 400 first, then the switch (§60, decided 
   it.each([false, true])('every field error with its code, all at once, with the switch %s', async (enabled) => {
     const { calls, overrides } = commands(enabled);
     const base = await start(overrides);
-    const res = await post(base, 'not-a-uuid', {
-      throughYear: 1999.5,
-      reason: '  ',
-      expectedInputFingerprint: 'A'.repeat(64),
-      acceptChangedYears: [2026, 2026],
-      extra: 1,
-    });
+    const bad = { throughYear: 1999.5, reason: '  ', expectedInputFingerprint: 'A'.repeat(64), acceptChangedYears: [2026, 2026], extra: 1 };
+    // §58X rule 4 (Entscheidung des Projektinhabers, 2026-11-10, question 3): a malformed path id is answered alone.
+    const path = await post(base, 'not-a-uuid', bad);
+    expect([path.status, (await errorOf(path)).details?.['fields']]).toEqual([400, [{ field: 'assetId', code: 'INVALID_FORMAT' }]]);
+    const res = await post(base, ASSET, bad);
     expect(res.status).toBe(400);
     expect((await errorOf(res)).details?.['fields']).toEqual(
       expect.arrayContaining([
-        { field: 'assetId', code: 'INVALID_FORMAT' },
+        { field: 'extra', code: 'INVALID_FORMAT' },
         { field: 'throughYear', code: 'INVALID_FORMAT' },
         { field: 'reason', code: 'INVALID_FORMAT' },
         { field: 'expectedInputFingerprint', code: 'INVALID_FORMAT' },

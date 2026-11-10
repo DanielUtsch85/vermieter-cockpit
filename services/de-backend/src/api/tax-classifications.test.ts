@@ -146,7 +146,7 @@ describe('POST /tax-classifications (§56)', () => {
     expect(await fields(await send({ ...body, sourceReferences: Array.from({ length: 21 }, (_, i) => `R${i}`) }))).toEqual([
       { field: 'sourceReferences', code: 'INVALID_FORMAT' },
     ]);
-    expect(await fields(await send({ ...body, jurisdiction: 'DE' }))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send({ ...body, jurisdiction: 'DE' }))).toEqual([{ field: 'jurisdiction', code: 'INVALID_FORMAT' }]);
     // VC-7-03 (§58B): the fields of VC-7-01's NOT_SUPPORTED are checked; see the §58B describe below.
     expect(await fields(await send({ ...body, netAmount: 2026 }))).toEqual([{ field: 'netAmount', code: 'INVALID_FORMAT' }]);
     // VC-7-02 (§58A): the years 2000–2100, a split's only.
@@ -258,7 +258,7 @@ describe('§57 steps', () => {
       { step: { kind: 'ADVISOR_CONFIRM', advisorPartyId: null, note: null } },
       { step: { kind: 'MARK_NEEDS_REVIEW', reason: 'Beleg fehlt' } },
     ]);
-    expect(await fields(await post(base, path('confirm'), { reviewState: 'USER_CONFIRMED' }))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await post(base, path('confirm'), { reviewState: 'USER_CONFIRMED' }))).toEqual([{ field: 'reviewState', code: 'INVALID_FORMAT' }]);
     expect(await fields(await post(base, path('advisor-confirm'), { advisorPartyId: 'x' }))).toEqual([{ field: 'advisorPartyId', code: 'INVALID_FORMAT' }]);
     expect(await fields(await post(base, path('mark-needs-review'), {}))).toEqual([{ field: 'reason', code: 'REQUIRED' }]);
     expect(await fields(await post(base, path('mark-needs-review'), { reason: 'x'.repeat(501) }))).toEqual([{ field: 'reason', code: 'INVALID_FORMAT' }]);

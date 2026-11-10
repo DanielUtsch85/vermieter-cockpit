@@ -456,25 +456,30 @@ describe('architecture: no value-import cycle in production code', () => {
   });
 });
 
-describe('only validation.ts reads a request query (§58W test 8)', () => {
-  it("the ESLint rule refuses .query, ['query'] and a destructured query in src/api but validation.ts and the tests", () => {
+describe('only validation.ts reads a request query (§58W test 8) or body (§58X test 9)', () => {
+  it("the ESLint rule refuses .query, ['query'], a destructured query and the same for body in src/api but validation.ts and the tests", () => {
     const config = readFileSync(join(srcDir, '..', '..', '..', 'eslint.config.mjs'), 'utf8');
     const block = config.slice(config.indexOf("files: ['services/de-backend/src/api/**/*.ts']"));
     expect(block).toMatch(
       /^files: \['services\/de-backend\/src\/api\/\*\*\/\*\.ts'\],\n\s*ignores: \['services\/de-backend\/src\/api\/validation\.ts', '\*\*\/\*\.test\.ts', '\*\*\/\*\.test-support\.ts'\],/,
     );
-    for (const selector of [
-      "MemberExpression[property.name='query']",
-      "MemberExpression[property.value='query']",
-      "ObjectPattern > Property[key.name='query']",
-    ])
-      expect(block.slice(0, block.indexOf('},\n  },')), selector).toContain(`{ selector: "${selector}"`);
+    for (const member of ['query', 'body'])
+      for (const selector of [
+        `MemberExpression[property.name='${member}']`,
+        `MemberExpression[property.value='${member}']`,
+        `ObjectPattern > Property[key.name='${member}']`,
+      ])
+        expect(block.slice(0, block.indexOf('},\n  },')), selector).toContain(`{ selector: "${selector}"`);
   });
 
-  it('and no production file of src/api but validation.ts mentions a query member (a second guard, by source)', () => {
+  it('and no production file of src/api but validation.ts mentions a query or body member (a second guard, by source)', () => {
     const dir = join(srcDir, 'api');
     const files = readdirSync(dir).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts') && !f.endsWith('.test-support.ts') && f !== 'validation.ts');
     expect(files.length).toBeGreaterThan(40);
-    for (const f of files) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/\.query\b|\[['"]query['"]\]|\{\s*query\b[^}]*\}\s*=\s*req\b/);
+    for (const f of files) {
+      const source = readFileSync(join(dir, f), 'utf8');
+      expect(source, f).not.toMatch(/\.query\b|\[['"]query['"]\]|\{\s*query\b[^}]*\}\s*=\s*req\b/);
+      expect(source, f).not.toMatch(/\.body\b|\[['"]body['"]\]|\{\s*body\b[^}]*\}\s*=\s*req\b/);
+    }
   });
 });

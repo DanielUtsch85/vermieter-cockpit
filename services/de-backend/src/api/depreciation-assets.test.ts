@@ -313,7 +313,7 @@ describe('POST /depreciation-assets (§59)', () => {
     ]);
     const many = Array.from({ length: 21 }, (_, i) => entry({ acquisitionId: `6f1c2a9e-0000-4000-8000-0000000001${String(i).padStart(2, '0')}` }));
     expect(await fields(await lives(many))).toEqual([{ field: 'shorterUsefulLives', code: 'OUT_OF_RANGE' }]);
-    expect(await fields(await lives([{ ...entry(), extra: 1 }]))).toEqual([{ field: 'shorterUsefulLives.0', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await lives([{ ...entry(), extra: 1 }]))).toEqual([{ field: 'shorterUsefulLives.0.extra', code: 'INVALID_FORMAT' }]);
   });
 
   it('not input: a basis, a rate, a start and the other former fields are unknown keys (400), and so is jurisdiction', async () => {
@@ -384,7 +384,7 @@ describe('amend, confirm, void (§59)', () => {
     }
     for (const reviewState of ['CONFIRMED', 'ADVISOR_CONFIRMED', 'SUGGESTED'])
       expect(await fields(await amend({ reviewState }))).toEqual([{ field: 'reviewState', code: 'NOT_ALLOWED' }]);
-    expect(await fields(await amend({ notes: 'x', advisorPartyId: ADVISOR }))).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await amend({ notes: 'x', advisorPartyId: ADVISOR }))).toEqual([{ field: 'advisorPartyId', code: 'INVALID_FORMAT' }]);
     expect(await fields(await amend({ buildingCompletionYear: 3000 }))).toEqual([{ field: 'buildingCompletionYear', code: 'OUT_OF_RANGE' }]);
     expect(await fields(await amend({ shorterUsefulLives: [entry(), entry()] }))).toEqual([{ field: 'shorterUsefulLives.1.acquisitionId', code: 'DUPLICATE' }]);
     expect(await fields(await amend({ notes: 'x' }, { 'if-match': 'nope' }))).toEqual([{ field: 'If-Match', code: 'INVALID_FORMAT' }]);

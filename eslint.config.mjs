@@ -38,7 +38,8 @@ export default tseslint.config(
   },
   {
     // VC-X-61 (api-design.md §58W): `readQuery` in validation.ts is the only reader of a request's query; a route that
-    // read `req.query` itself would bypass the refusal of unknown and repeated parameters.
+    // read `req.query` itself would bypass the refusal of unknown and repeated parameters. VC-X-69 (§58X): the same for
+    // `readBody` and a request's body (its strictness check and the naming of unknown fields).
     files: ['services/de-backend/src/api/**/*.ts'],
     ignores: ['services/de-backend/src/api/validation.ts', '**/*.test.ts', '**/*.test-support.ts'],
     rules: {
@@ -47,6 +48,9 @@ export default tseslint.config(
         { selector: "MemberExpression[property.name='query']", message: 'Read the query with readQuery (validation.ts, §58W).' },
         { selector: "MemberExpression[property.value='query']", message: 'Read the query with readQuery (validation.ts, §58W).' },
         { selector: "ObjectPattern > Property[key.name='query']", message: 'Read the query with readQuery (validation.ts, §58W).' },
+        { selector: "MemberExpression[property.name='body']", message: 'Read the body with readBody (validation.ts, §58X).' },
+        { selector: "MemberExpression[property.value='body']", message: 'Read the body with readBody (validation.ts, §58X).' },
+        { selector: "ObjectPattern > Property[key.name='body']", message: 'Read the body with readBody (validation.ts, §58X).' },
       ],
     },
   },

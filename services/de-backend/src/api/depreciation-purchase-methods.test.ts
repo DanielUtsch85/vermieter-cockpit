@@ -191,7 +191,7 @@ describe('purchaseMethods in the create body (§59C)', () => {
       { field: 'purchaseMethods.0.evidence.source', code: 'INVALID_FORMAT' },
       { field: 'purchaseMethods.0.evidence.date', code: 'INVALID_FORMAT' },
     ]);
-    expect(await fields(await send([entry({ unknown: 1 })]))).toEqual([{ field: 'purchaseMethods.0', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send([entry({ unknown: 1 })]))).toEqual([{ field: 'purchaseMethods.0.unknown', code: 'INVALID_FORMAT' }]);
     expect(await fields(await send([entry({ acquisitionId: 'x' })]))).toEqual([{ field: 'purchaseMethods.0.acquisitionId', code: 'INVALID_FORMAT' }]);
     // A separate asset names none (§59C: building only).
     expect(

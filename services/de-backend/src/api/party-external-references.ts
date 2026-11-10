@@ -9,7 +9,7 @@ import {
   type PartyExternalReference,
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
-import { fieldErrors, NO_QUERY, PAGING, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { EMPTY_BODY, NO_QUERY, PAGING, readBody, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Phase 2: MRE Tenants only (api-design.md §20.1); `metadata` is not accepted yet. */
 const createBody = z
@@ -41,9 +41,9 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
     const partyId = readId(req.params['partyId'], 'partyId', res);
     if (partyId === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -59,8 +59,8 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
       .catch(next);
   });
 
-  // Takes no body: ending only sets the status (§20.1).
-  router.post('/parties/:partyId/external-references/:externalReferenceId/end', (req, res, next) => {
+  // Takes no body: ending only sets the status (§20.1); no body, an empty one or `{}`, a field is unknown (§58X rule 3).
+  router.post('/parties/:partyId/external-references/:externalReferenceId/end', express.json({ limit: '16kb' }), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const partyId = readId(req.params['partyId'], 'partyId', res);
     if (partyId === undefined) return;
@@ -69,6 +69,11 @@ export function externalReferenceRoutes(commands: ExternalReferenceCommands): Ro
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
+    const empty = readBody(EMPTY_BODY, req);
+    if (!empty.ok) {
+      sendValidationError(res, empty.errors);
+      return;
+    }
     commands
       .end({
         principal: principalOf(res),

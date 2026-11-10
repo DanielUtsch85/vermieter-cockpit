@@ -22,7 +22,7 @@ import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { fieldErrors, money, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Percent p.a. as a decimal string, at most three decimals, `0 ≤ r < 100`; a JSON number is refused (no float in transit). */
 const rate = z.string().transform((value, ctx) => {
@@ -118,9 +118,9 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -157,9 +157,9 @@ export function loanTermsRoutes(commands: LoanTermsCommands): Router {
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = voidBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(voidBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

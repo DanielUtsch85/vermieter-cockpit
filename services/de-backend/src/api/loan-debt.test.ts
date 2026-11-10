@@ -279,7 +279,7 @@ describe('balance statements', () => {
   it('POST 400: strict body, a negative balance, a missing or too long source, a bad date', async () => {
     const base = await start({});
     const fields = async (b: unknown) => fieldsOf(await call(base, 'POST', `/loans/${LOAN}/balance-statements`, b));
-    expect(await fields({ ...body, extra: 1 })).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields({ ...body, extra: 1 })).toEqual([{ field: 'extra', code: 'INVALID_FORMAT' }]);
     expect(await fields({ ...body, balance: { amount: '-1.00', currency: 'EUR' } })).toEqual([{ field: 'balance.amount', code: 'NEGATIVE_AMOUNT' }]);
     expect((await fields({ ...body, source: '   ' }))[0]?.field).toBe('source');
     expect((await fields({ ...body, source: 'x'.repeat(201) }))[0]?.field).toBe('source');

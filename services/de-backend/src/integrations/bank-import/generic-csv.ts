@@ -112,7 +112,10 @@ function genericCsv(version: string, schema: typeof genericCsvOptions | typeof g
       if ('error' in resolved) return { error: resolved.error };
       const parsedOptions = schema.safeParse(resolved.options);
       if (!parsedOptions.success) {
-        const fields = parsedOptions.error.issues.map((i) => i.path.join('.') || '(options)').join(', ');
+        // An unknown option is named by its own key (`zzz`, `columnMapping.zzz`), not its container (§58X decision 5).
+        const fields = parsedOptions.error.issues
+          .flatMap((i) => (i.code === 'unrecognized_keys' ? i.keys.map((key) => [...i.path, key].join('.')) : [i.path.join('.') || '(options)']))
+          .join(', ');
         return fail('INVALID_OPTIONS', `Invalid adapter options: ${fields}`);
       }
       const options = parsedOptions.data;

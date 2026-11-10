@@ -132,7 +132,7 @@ describe('POST /api/v1/acquisitions/{id}/land-building-allocation', () => {
     const { supersedes: _omitted, ...withoutSupersedes } = body;
     expect(await fields(withoutSupersedes)).toMatchObject({ fields: [{ field: 'supersedes' }] });
     expect(await fields({ ...body, documentIds: [OLD] })).toEqual({ fields: [{ field: 'documentIds', code: 'NOT_SUPPORTED' }] });
-    expect(await fields({ ...body, landShare: '0.2' })).toMatchObject({ fields: [{ field: '(body)' }] });
+    expect(await fields({ ...body, landShare: '0.2' })).toMatchObject({ fields: [{ field: 'landShare' }] });
   });
 
   it('a zero land part is allowed (Erbbaurecht); 404, 409 ACQUISITION_CANCELLED and CURRENT_ALLOCATION_CHANGED', async () => {
@@ -290,7 +290,7 @@ describe('the plausibility warning over HTTP (§58T)', () => {
     const base = await start({});
     const fields = async (b: unknown) => (await errorOf(await call(base, 'POST', `/acquisitions/${ACQ}/land-building-allocation`, b))).details;
     const zero = { amount: '0.00', currency: 'EUR' };
-    expect(await fields({ ...body, comparison: { ...comparison, landShare: '0.4' } })).toMatchObject({ fields: [{ field: 'comparison' }] });
+    expect(await fields({ ...body, comparison: { ...comparison, landShare: '0.4' } })).toMatchObject({ fields: [{ field: 'comparison.landShare' }] });
     expect(await fields({ ...body, comparison: { ...comparison, method: 'PURCHASE_CONTRACT' } })).toMatchObject({ fields: [{ field: 'comparison.method' }] });
     expect(await fields({ ...body, comparison: { ...comparison, landValue: { amount: '-1.00', currency: 'EUR' } } })).toEqual({
       fields: [{ field: 'comparison.landValue.amount', code: 'NEGATIVE_AMOUNT' }],

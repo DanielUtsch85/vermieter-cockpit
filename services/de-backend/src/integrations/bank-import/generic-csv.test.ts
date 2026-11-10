@@ -154,6 +154,15 @@ describe('generic-csv v1', () => {
   });
 
   it.each([
+    ['an unknown option', { columnMapping: mapping, quote: "'" }, 'Invalid adapter options: quote'],
+    ['two unknown options', { zzz: 1, columnMapping: mapping, yyy: 2 }, 'Invalid adapter options: zzz, yyy'],
+    ['an unknown mapped field', { columnMapping: { ...mapping, iban2: 'X' } }, 'Invalid adapter options: columnMapping.iban2'],
+    ['a missing mapping (counter-check: a known field keeps its path)', {}, 'Invalid adapter options: columnMapping'],
+  ])('names %s by its key, not its container (§58X decision 5)', (_label, options, message) => {
+    expect(parse(sparkasse, options)).toEqual({ error: expect.objectContaining({ code: 'INVALID_OPTIONS', message }) });
+  });
+
+  it.each([
     ['an empty file', '', 'EMPTY'],
     ['broken quoting', 'Buchungstag;Betrag\n"01.09.2026;5,00\n', 'UNPARSEABLE'],
     ['a duplicated header column', 'Buchungstag;Betrag;Betrag\n01.09.2026;1,00;2,00\n', 'AMBIGUOUS_COLUMN'],

@@ -31,7 +31,7 @@ import { interestPeriodBody, performanceBody, performanceFieldIssue, positiveEur
 import { ref, uuid } from './tax-classification-dto.js';
 import { taxMeaningRoutes } from './tax-meanings.js';
 import { taxYearRoutes } from './tax-years.js';
-import { fieldErrors, integerIn, NO_QUERY, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
+import { integerIn, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const issue = (ctx: z.RefinementCtx, path: string, code: string) => ctx.addIssue({ code: 'custom', path: [path], params: { code } });
 const has = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value);
@@ -193,9 +193,9 @@ export function taxationRoutes(commands: TaxationCommands): Router {
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -261,8 +261,8 @@ export function taxationRoutes(commands: TaxationCommands): Router {
       .catch(next);
   });
 
-  /** §57's three steps: `If-Match`, the body read by `stepOf`. */
-  const reviewRoute = (path: string, stepOf: (body: unknown) => { step: ReviewStep } | { error: z.ZodError }) =>
+  /** §57's three steps: `If-Match`, the body read with `schema` (`readBody`), the step made of it by `stepOf`. */
+  const reviewRoute = <S extends z.ZodTypeAny>(path: string, schema: S, stepOf: (data: z.output<S>) => ReviewStep) =>
     router.post(`/tax-classifications/:classificationId/${path}`, express.json({ limit: '16kb' }), (req, res, next) => {
       const query = readQuery(NO_QUERY, req);
       const classificationId = readId(req.params['classificationId'], 'classificationId', res);
@@ -270,35 +270,29 @@ export function taxationRoutes(commands: TaxationCommands): Router {
       const ifMatch = readIfMatch(req, res);
       if (ifMatch === undefined) return;
       if (refuseQuery(res, query)) return;
-      const read = stepOf(req.body);
-      if ('error' in read) {
-        sendValidationError(res, fieldErrors(read.error));
+      const read = readBody(schema, req);
+      if (!read.ok) {
+        sendValidationError(res, read.errors);
         return;
       }
       commands
         .review({
           principal: principalOf(res),
           classificationId,
-          step: read.step,
+          step: stepOf(read.data),
           ...(ifMatch.versions === undefined ? {} : { expectedVersions: ifMatch.versions }),
         })
         .then(({ classification }) => sendClassification(res, classification))
         .catch(next);
     });
 
-  reviewRoute('confirm', (body) => {
-    const parsed = emptyBody.safeParse(body);
-    return parsed.success ? { step: { kind: 'CONFIRM' } } : { error: parsed.error };
-  });
-  reviewRoute('advisor-confirm', (body) => {
-    const parsed = advisorBody.safeParse(body);
-    if (!parsed.success) return { error: parsed.error };
-    return { step: { kind: 'ADVISOR_CONFIRM', advisorPartyId: parsed.data?.advisorPartyId ?? null, note: parsed.data?.note ?? null } };
-  });
-  reviewRoute('mark-needs-review', (body) => {
-    const parsed = markBody.safeParse(body);
-    return parsed.success ? { step: { kind: 'MARK_NEEDS_REVIEW', reason: parsed.data.reason } } : { error: parsed.error };
-  });
+  reviewRoute('confirm', emptyBody, () => ({ kind: 'CONFIRM' }));
+  reviewRoute('advisor-confirm', advisorBody, (data) => ({
+    kind: 'ADVISOR_CONFIRM',
+    advisorPartyId: data?.advisorPartyId ?? null,
+    note: data?.note ?? null,
+  }));
+  reviewRoute('mark-needs-review', markBody, (data) => ({ kind: 'MARK_NEEDS_REVIEW', reason: data.reason }));
 
   return router;
 }

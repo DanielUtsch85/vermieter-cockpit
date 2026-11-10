@@ -17,10 +17,10 @@ import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import {
   dayOfMonth,
-  fieldErrors,
   money,
   NO_QUERY,
   PAGING,
+  readBody,
   readIdempotencyKey,
   readIfMatch,
   readQuery,
@@ -111,9 +111,9 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = planBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(planBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -173,9 +173,9 @@ export function wegEconomicPlanRoutes(commands: WegEconomicPlanCommands): Router
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = voidBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(voidBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

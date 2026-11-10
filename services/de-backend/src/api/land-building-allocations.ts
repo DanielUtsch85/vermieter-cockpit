@@ -16,7 +16,7 @@ import {
 import { Money } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
-import { fieldErrors, money, NO_QUERY, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { money, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 const uuid = z
   .string()
@@ -99,9 +99,9 @@ export function landBuildingAllocationRoutes(commands: LandBuildingAllocationCom
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = body.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(body, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const b = parsed.data;
