@@ -152,11 +152,46 @@ describe('sign-out', () => {
   });
 });
 
+describe('sign-out while a refresh is on its way (review on #319)', () => {
+  it('waits for the refresh, then signs out in MRE; the late token never signs the user back in', async () => {
+    let deliver: (response: Response) => void = () => undefined;
+    const order: string[] = [];
+    const { session, calls } = setup(
+      json(200, { accessToken: token(1) }),
+      () =>
+        new Promise<Response>((resolve) => {
+          deliver = (response) => {
+            order.push('refresh resolved');
+            resolve(response);
+          };
+        }),
+      (call) => {
+        order.push(`signout sent ${call.method}`);
+        return new Response(null, { status: 204 });
+      },
+    );
+    await session.start();
+    const renewal = session.renew();
+    const signedOut = session.signOut();
+    expect(session.getState()).toEqual({ status: 'signedOut', expired: false });
+    await Promise.resolve();
+    expect(calls.map((call) => call.url)).toEqual(['/api/v2/authenticator/landlord/refreshtoken', '/api/v2/authenticator/landlord/refreshtoken']);
+    deliver(json(200, { accessToken: token(2) }));
+    await signedOut;
+    await expect(renewal).rejects.toMatchObject({ code: CLIENT_CODES.sessionExpired });
+    expect(session.getState()).toEqual({ status: 'signedOut', expired: false });
+    await expect(session.accessToken()).rejects.toMatchObject({ code: CLIENT_CODES.sessionExpired });
+    expect(calls.map((call) => call.url.split('/').pop())).toEqual(['refreshtoken', 'refreshtoken', 'signout']);
+    expect(order).toEqual(['refresh resolved', 'signout sent DELETE']);
+  });
+});
+
 describe('Realm choice from GET /api/v2/realms (§47.2 point 3)', () => {
   const realms = [
     { _id: '64b7f0c2a1b2c3d4e5f60718', name: 'Bestand Nord', members: [{ email: 'admin1@example.com', role: 'administrator' }] },
     { _id: '64b7f0c2a1b2c3d4e5f60719', members: [] },
     { name: 'ohne id' },
+    { _id: '', name: 'leere id' },
     'kein Objekt',
   ];
 

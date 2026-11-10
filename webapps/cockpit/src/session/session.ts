@@ -56,6 +56,11 @@ export class Session implements TokenSource {
   private token: { readonly value: string; readonly renewAt: number } | undefined;
   private pending: Promise<string> | undefined;
   private epoch = 0;
+  /**
+   * Counts every end or start of a session (sign-in, sign-out, expiry). A refresh answer is applied only when the
+   * generation is still the one it started in, so a late answer never signs a user back in after a sign-out.
+   */
+  private generation = 0;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -73,25 +78,34 @@ export class Session implements TokenSource {
   /** At start: reuse the MRE session of the refresh cookie, if there is one. */
   async start(): Promise<void> {
     this.set({ status: 'checking' });
+    const generation = this.generation;
     try {
       const token = await this.mre.refresh();
+      if (generation !== this.generation) return;
       if (token === undefined) this.set({ status: 'signedOut', expired: false });
       else this.signedIn(token, undefined);
     } catch {
-      this.set({ status: 'unavailable' });
+      if (generation === this.generation) this.set({ status: 'unavailable' });
     }
   }
 
   /** Rejects with a `SignInError`; the state stays signed out then. */
   async signIn(email: string, password: string): Promise<void> {
     const token = await this.mre.signIn(email, password);
+    this.generation += 1;
     this.epoch += 1;
     this.signedIn(token, undefined);
   }
 
+  /**
+   * Ends the session at once in memory, then in MRE. A refresh already on its way is awaited first: its answer may set a
+   * new refresh cookie, and only a sign-out after it clears that cookie. Its result is discarded (generation).
+   */
   async signOut(): Promise<void> {
+    this.generation += 1;
     this.token = undefined;
     this.set({ status: 'signedOut', expired: false });
+    await this.pending?.catch(() => undefined);
     await this.mre.signOut();
   }
 
@@ -103,9 +117,11 @@ export class Session implements TokenSource {
 
   renew(): Promise<string> {
     if (this.state.status !== 'signedIn') return Promise.reject(sessionExpired());
+    const generation = this.generation;
     this.pending ??= this.mre
       .refresh()
       .then((token) => {
+        if (generation !== this.generation) throw sessionExpired();
         if (token === undefined) {
           this.expire();
           throw sessionExpired();
@@ -120,6 +136,7 @@ export class Session implements TokenSource {
   }
 
   expire(): void {
+    this.generation += 1;
     this.token = undefined;
     this.set({ status: 'signedOut', expired: true });
   }

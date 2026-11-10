@@ -18,8 +18,8 @@ export interface Call {
   readonly credentials: RequestCredentials | undefined;
 }
 
-/** A fetch that answers from a script, one answer per call in order, and records every call. */
-export function scriptedFetch(...answers: (Response | Error | ((call: Call) => Response))[]): { fetch: FetchLike; calls: Call[] } {
+/** A fetch that answers from a script, one answer per call in order, and records every call; a function may answer later. */
+export function scriptedFetch(...answers: (Response | Error | ((call: Call) => Response | Promise<Response>))[]): { fetch: FetchLike; calls: Call[] } {
   const calls: Call[] = [];
   const fetch: FetchLike = (url, init = {}) => {
     const call: Call = {
