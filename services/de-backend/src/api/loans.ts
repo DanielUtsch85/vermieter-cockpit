@@ -14,18 +14,15 @@ import {
   type LoanChanges,
   type VoidLoan,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 /** 1–20 Parties, no duplicates (`DUPLICATE` at the later position). */
-const borrowers = z
+const borrowers = zod3
   .array(uuid)
   .min(1)
   .max(20)
@@ -37,7 +34,7 @@ const borrowers = z
 
 const texts = {
   contractNumber: optionalText(100).nullish(),
-  sourceReferences: z.array(optionalText(500)).max(10).optional(),
+  sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
   notes: optionalText(2000).nullish(),
 };
 

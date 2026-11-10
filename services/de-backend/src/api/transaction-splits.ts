@@ -1,12 +1,13 @@
 import express, { type Router } from 'express';
 import { z } from 'zod';
 import { CurrencyMismatchError, FinancialCategoryNotFoundError, type SplitTransaction, type TransactionSplit } from '../application/index.js';
+import { zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { NO_QUERY, readBody, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 import { split, toSplitInput, setVersionTag, toSplitDto, splitFieldCode, sendLoanSplitError } from './transaction-dto.js';
 import type { TransactionCommands } from './transactions.js';
 
-const splitsBody = z.object({ splits: z.array(split).min(1).max(100) }).strict();
+const splitsBody = z.object({ splits: zod3.array(split).min(1).max(100) }).strict();
 
 /** A stale `If-Match`: 412 Precondition Failed (RFC 9110 §13.2.2), with the versions to compare (§16.1). */
 function toSplitsDto(transaction: SplitTransaction, splits: readonly TransactionSplit[]) {

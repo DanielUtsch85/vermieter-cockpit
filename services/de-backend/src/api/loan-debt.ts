@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   STATEMENT_STATUSES,
   formatShare,
@@ -18,15 +19,12 @@ import { businessDate, optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
 import { rebasedOnDto } from './loan-terms.js';
 
-const perProperty = z
-  .enum(['true', 'false'])
-  .transform((value) => value === 'true')
-  .optional();
+const perProperty = zod3.transform(z.enum(['true', 'false']), (value) => value === 'true').optional();
 
 const debtQuery = z.object({ asOf: businessDate.optional(), perProperty });
 
 const paymentsQuery = z.object({
-  year: z.string().transform((value, ctx) => {
+  year: zod3.transform(z.string(), (value, ctx) => {
     const year = /^\d{4}$/.test(value) ? Number(value) : undefined;
     if (year !== undefined && year >= 2000 && year <= 2100) return year;
     ctx.addIssue({ code: 'custom', params: { code: year === undefined ? 'INVALID_FORMAT' : 'OUT_OF_RANGE' } });

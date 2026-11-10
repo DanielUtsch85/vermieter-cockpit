@@ -24,7 +24,7 @@ import {
   type ReleaseReconciliation,
   type RentPaymentReconciliation,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
 import {
@@ -32,6 +32,7 @@ import {
   money,
   NO_QUERY,
   PAGING,
+  parse,
   readBody,
   readIdempotencyKey,
   readIfMatch,
@@ -41,10 +42,7 @@ import {
   sendValidationError,
 } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 /** MRE's term key `YYYYMMDDHH`: only its form (§37.1). */
 const mreRentTerm = z.string().refine(isTermKey, { params: { code: 'INVALID_TERM' } });
@@ -93,10 +91,7 @@ const confirmBody = z
   });
 
 /** `status` as a comma-separated list, any of them. */
-const statusList = z
-  .string()
-  .transform((value) => value.split(','))
-  .pipe(z.array(z.enum(RECONCILIATION_STATUSES)).min(1));
+const statusList = zod3.transform(z.string(), (value) => value.split(',')).pipe(zod3.array(z.enum(RECONCILIATION_STATUSES)).min(1));
 
 const listQuery = z.object({
   status: statusList.optional(),
@@ -244,7 +239,7 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
 
   router.get('/rent-reconciliations/terms/:mreTenantId/:mreRentTerm', (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
-    const parsed = z.object({ mreTenantId, mreRentTerm }).safeParse(req.params);
+    const parsed = parse(z.object({ mreTenantId, mreRentTerm }), req.params);
     if (!parsed.success) {
       sendValidationError(res, fieldErrors(parsed.error));
       return;

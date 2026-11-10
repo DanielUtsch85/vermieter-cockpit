@@ -16,40 +16,30 @@ import {
   type RecordEconomicTransferDate,
   type AlignOwnershipsToTransfer,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { toDto as ownershipDto } from './ownerships.js';
 import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-export const businessDate = z.string().transform((value, ctx) => {
+export const businessDate = zod3.transform(z.string(), (value, ctx) => {
   const result = checkBusinessDate(value);
   if ('date' in result) return result.date;
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
   return z.NEVER;
 });
 
-const share = z.string().transform((value, ctx) => {
+const share = zod3.transform(z.string(), (value, ctx) => {
   const result = parseShare(value);
   if ('share' in result) return result.share;
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
   return z.NEVER;
 });
 
-export const optionalText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .transform((value) => (value === '' ? null : value));
+export const optionalText = (max: number) => zod3.transform(z.string().trim().max(max), (value) => (value === '' ? null : value));
 
 const partyIds = (min: number) =>
-  z
-    .array(
-      z
-        .string()
-        .regex(RESOURCE_ID)
-        .transform((id) => id.toLowerCase()),
-    )
+  zod3
+    .array(zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()))
     .min(min)
     .max(20);
 
@@ -63,7 +53,7 @@ const createBody = z
     landRegistryTransferDate: businessDate.nullish(),
     buyerPartyIds: partyIds(1),
     sellerPartyIds: partyIds(0).optional(),
-    sourceReferences: z.array(optionalText(500)).max(10).optional(),
+    sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
     // Documents do not exist yet: refused, never stored unchecked (as §33.2).
     notarialDocumentId: z.unknown().optional(),
@@ -96,7 +86,7 @@ const cancelBody = z.object({ reason: z.string().trim().min(1).max(500) }).stric
 const transferDateBody = z
   .object({
     economicTransferDate: businessDate,
-    sourceReferences: z.array(z.string().trim().min(1).max(500)).max(10),
+    sourceReferences: zod3.array(z.string().trim().min(1).max(500)).max(10),
     notes: optionalText(2000).nullish(),
   })
   .strict()
@@ -108,7 +98,7 @@ const confirmBody = z.object({}).strict();
 /** §58Q: no date (every new date follows from X); the evidence is new and required (open question 5). */
 const alignBody = z
   .object({
-    sourceReferences: z.array(z.string().trim().min(1).max(500)).max(10),
+    sourceReferences: zod3.array(z.string().trim().min(1).max(500)).max(10),
     notes: optionalText(2000).nullish(),
   })
   .strict()
@@ -120,16 +110,8 @@ const alignBody = z
 const statusAndPaging = { status: z.enum(ACQUISITION_STATUSES).optional(), ...PAGING };
 const listQuery = z.object({
   ...statusAndPaging,
-  propertyReferenceId: z
-    .string()
-    .regex(RESOURCE_ID)
-    .transform((id) => id.toLowerCase())
-    .optional(),
-  partyId: z
-    .string()
-    .regex(RESOURCE_ID)
-    .transform((id) => id.toLowerCase())
-    .optional(),
+  propertyReferenceId: zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()).optional(),
+  partyId: zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()).optional(),
 });
 const propertyListQuery = z.object(statusAndPaging);
 

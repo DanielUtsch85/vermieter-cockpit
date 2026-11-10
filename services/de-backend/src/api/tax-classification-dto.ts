@@ -1,13 +1,11 @@
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import type { Distribution } from '../application/index.js';
 import { RESOURCE_ID } from './validation.js';
 
 /** The request schema and response mapping shared by the Taxation route files (api-design.md §55–§58C). */
 
-export const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+export const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 export const ref = (r: { readonly ruleCode: string; readonly version: number } | null) => (r === null ? null : { ruleCode: r.ruleCode, version: r.version });
 

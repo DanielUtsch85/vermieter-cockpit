@@ -18,3 +18,4 @@ export type { RuleRef, RuleStatus, RuleVersion } from './rule-version.js';
 export { RuleRegistry } from './rule-registry.js';
 export { FINGERPRINT, canonicalJson, centsText } from './canonical-json.js';
 export type { Fingerprinter } from './canonical-json.js';
+export * as zod3 from './zod3.js';

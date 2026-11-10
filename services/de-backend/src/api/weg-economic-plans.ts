@@ -12,7 +12,7 @@ import {
   type PlanView,
   type VoidEconomicPlan,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import {
@@ -29,14 +29,11 @@ import {
   sendValidationError,
 } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 const costLine = z
   .object({
-    position: z.number().int().min(1).max(1000),
+    position: zod3.integer(1, 1000),
     description: z.string().trim().min(1).max(200),
     allocationKey: z.string().trim().min(1).max(100),
     totalAmount: money,
@@ -47,7 +44,7 @@ const costLine = z
 
 const planBody = z
   .object({
-    financialYear: z.number().int().min(1900).max(2200),
+    financialYear: zod3.integer(1900, 2200),
     effectiveFrom: businessDate,
     resolutionDate: businessDate.nullish(),
     advanceDueDay: dayOfMonth.nullish(),
@@ -57,8 +54,8 @@ const planBody = z
     nonRecoverableCosts: money,
     income: money.nullish(),
     annualReserveContribution: money.nullish(),
-    costLines: z.array(costLine).max(100).optional(),
-    sourceReferences: z.array(optionalText(500)).max(10).optional(),
+    costLines: zod3.array(costLine).max(100).optional(),
+    sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
     documentId: z.unknown().optional(),
   })
@@ -81,12 +78,11 @@ const planBody = z
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
 const listQuery = z.object({
-  status: z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(PLAN_STATUSES)).min(1))
+  status: zod3
+    .transform(z.string(), (value) => value.split(','))
+    .pipe(zod3.array(z.enum(PLAN_STATUSES)).min(1))
     .optional(),
-  financialYear: z.coerce.number().int().min(1900).max(2200).optional(),
+  financialYear: zod3.coercedInteger(1900, 2200).optional(),
   ...PAGING,
 });
 

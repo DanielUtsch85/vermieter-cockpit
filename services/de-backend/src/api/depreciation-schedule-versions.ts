@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   FINGERPRINT,
   SCHEDULE_VERSION_STATUSES,
@@ -36,7 +37,7 @@ const recordBody = z
     throughYear: integerIn(2000, 2100),
     reason: z.string().trim().min(1).max(500),
     expectedInputFingerprint: z.string().regex(FINGERPRINT),
-    acceptChangedYears: z
+    acceptChangedYears: zod3
       .array(integerIn(2000, 2100))
       .max(101)
       .superRefine((years, ctx) => {
@@ -49,9 +50,8 @@ const recordBody = z
   .strict();
 
 const listQuery = z.object({
-  status: z
-    .string()
-    .transform((value, ctx) => {
+  status: zod3
+    .transform(z.string(), (value, ctx) => {
       const statuses = value.split(',');
       if (statuses.some((s) => !(SCHEDULE_VERSION_STATUSES as readonly string[]).includes(s))) {
         issue(ctx, [], 'INVALID_FORMAT');

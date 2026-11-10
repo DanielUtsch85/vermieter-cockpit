@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   MEANING_SOURCE_TYPES,
   ORIGINS,
@@ -24,13 +25,12 @@ import type { TaxationCommands } from './tax-classifications.js';
 import { NO_QUERY, PAGING, readQuery, refuseQuery, sendValidationError } from './validation.js';
 
 const csv = <T extends readonly [string, ...string[]]>(values: T) =>
-  z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(values)).min(1))
+  zod3
+    .transform(z.string(), (value) => value.split(','))
+    .pipe(zod3.array(z.enum(values)).min(1))
     .optional();
 const meaningsQuery = z.object({
-  year: z.coerce.number().int().min(2000).max(2100),
+  year: zod3.coercedInteger(2000, 2100),
   reviewState: csv(REVIEW_STATES),
   origin: csv(ORIGINS),
   taxCategory: csv(TAX_CATEGORIES),

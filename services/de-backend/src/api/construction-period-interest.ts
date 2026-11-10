@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   MAX_CONSTRUCTION_PERIOD_PROPERTIES,
   parseShare,
@@ -16,15 +17,12 @@ import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 const issue = (ctx: z.RefinementCtx, path: (string | number)[], code: string) => ctx.addIssue({ code: 'custom', path, params: { code } });
 
 /** `"n/d"` with `0 < n ≤ d ≤ 10000` (§59E `buildingFundsShare`), kept reduced. */
-const fundsShare = z.string().transform((value, ctx) => {
+const fundsShare = zod3.transform(z.string(), (value, ctx) => {
   const result = parseShare(value);
   if ('share' in result) return { numerator: BigInt(result.share.numerator), denominator: BigInt(result.share.denominator) };
   issue(ctx, [], result.error);
@@ -32,7 +30,7 @@ const fundsShare = z.string().transform((value, ctx) => {
 });
 
 /** 1–50 PropertyReferences, no duplicates (`DUPLICATE` at the later position). */
-const propertyReferenceIds = z.array(uuid).superRefine((ids, ctx) => {
+const propertyReferenceIds = zod3.array(uuid).superRefine((ids, ctx) => {
   if (ids.length < 1 || ids.length > MAX_CONSTRUCTION_PERIOD_PROPERTIES) issue(ctx, [], 'OUT_OF_RANGE');
   ids.forEach((id, i) => {
     if (ids.indexOf(id) !== i) issue(ctx, [i], 'DUPLICATE');
@@ -40,7 +38,7 @@ const propertyReferenceIds = z.array(uuid).superRefine((ids, ctx) => {
 });
 
 const text = (max: number) => z.string().trim().min(1).max(max);
-const references = z.array(text(500)).min(1).max(20);
+const references = zod3.array(text(500)).min(1).max(20);
 
 const facts = {
   propertyReferenceIds,

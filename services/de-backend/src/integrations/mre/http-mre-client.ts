@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ExactDecimal, Money, RoundingMode, checkBusinessDate } from '../../shared/index.js';
+import { ExactDecimal, Money, RoundingMode, checkBusinessDate, zod3 } from '../../shared/index.js';
 import {
   MreClientError,
   type MreAddress,
@@ -51,40 +51,40 @@ const memberDto = z.object({
 const realmDto = z.object({
   _id: z.string().min(1),
   name: z.string(),
-  members: z.array(z.unknown()),
+  members: zod3.array(z.unknown()),
 });
-const realmsDto = z.array(realmDto);
+const realmsDto = zod3.array(realmDto);
 
 /**
  * Every property needs an `_id`, otherwise the whole response is rejected: a
  * silently dropped entry would turn an existing Property into "not found".
  * Display fields are optional cache values; a malformed one is left out.
  */
-const propertiesDto = z.array(z.object({ _id: z.string().min(1) }).passthrough());
+const propertiesDto = zod3.array(z.object({ _id: z.string().min(1) }).passthrough());
 /**
  * Only the `_id` of a Tenant is read; the rest (personal data) is dropped here and never logged
  * (mre-integration.md §20.1). A Tenant without `_id` rejects the whole response, as for properties.
  */
-const tenantsDto = z.array(z.object({ _id: z.string().min(1) }));
+const tenantsDto = zod3.array(z.object({ _id: z.string().min(1) }));
 /** The same list for one Tenant's deposit fields (api-design.md §47.1): anything but a finite number is no value. */
-const tenantDepositsDto = z.array(z.object({ _id: z.string().min(1), guaranty: z.unknown().optional(), guarantyPayback: z.unknown().optional() }));
+const tenantDepositsDto = zod3.array(z.object({ _id: z.string().min(1), guaranty: z.unknown().optional(), guarantyPayback: z.unknown().optional() }));
 /**
  * The Tenant list's lease (§37.6): the frequency and, of each property, its rent, its dates (`DD/MM/YYYY`, as
  * `toOccupantData` formats them) and its expenses; a property without its record is skipped, as `computeRent` does.
  */
 const leaseDate = z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/);
-const tenantLeasesDto = z.array(
+const tenantLeasesDto = zod3.array(
   z.object({
     _id: z.string().min(1),
     frequency: z.string().optional(),
-    properties: z
+    properties: zod3
       .array(
         z.object({
           property: z.unknown().optional(),
-          rent: z.number().nullish(),
+          rent: zod3.number().nullish(),
           entryDate: leaseDate.nullish(),
           exitDate: leaseDate.nullish(),
-          expenses: z.array(z.object({ amount: z.number(), beginDate: leaseDate.nullish(), endDate: leaseDate.nullish() })).nullish(),
+          expenses: zod3.array(z.object({ amount: zod3.number(), beginDate: leaseDate.nullish(), endDate: leaseDate.nullish() })).nullish(),
         }),
       )
       .optional(),
@@ -92,12 +92,12 @@ const tenantLeasesDto = z.array(
 );
 /** A rent term of `GET /rents/tenant/:id/:term`: only its key, its amount due and its payments are read. */
 const rentTermDto = z.object({
-  term: z.number().int(),
-  totalWithoutBalanceAmount: z.number(),
-  payments: z.array(
+  term: zod3.integer(),
+  totalWithoutBalanceAmount: zod3.number(),
+  payments: zod3.array(
     z.object({
       date: z.unknown().optional(),
-      amount: z.number(),
+      amount: zod3.number(),
       type: z.unknown().optional(),
       reference: z.unknown().optional(),
     }),
@@ -105,7 +105,7 @@ const rentTermDto = z.object({
 });
 /** `GET /rents/:year/:month`: of each rent only the Tenant's `_id`, its term and its amount due are read. */
 const monthDto = z.object({
-  rents: z.array(z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/), term: z.number().int(), totalWithoutBalanceAmount: z.number() })),
+  rents: zod3.array(z.object({ _id: z.string().regex(/^[0-9a-f]{24}$/), term: zod3.integer(), totalWithoutBalanceAmount: zod3.number() })),
 });
 /**
  * A rent term for the write-back's round trip (api-design.md §37.4): the Tenant's `_id`, `vatRatio` and the settlement
@@ -114,12 +114,20 @@ const monthDto = z.object({
  */
 const rawTermDto = z.object({
   _id: z.string().regex(/^[0-9a-f]{24}$/),
-  term: z.number().int(),
-  vatRatio: z.number().optional(),
-  payments: z.array(z.object({ date: z.unknown(), amount: z.unknown(), type: z.unknown(), reference: z.unknown(), description: z.unknown() })),
-  promo: z.number(),
+  term: zod3.integer(),
+  vatRatio: zod3.number().optional(),
+  payments: zod3.array(
+    z.object({
+      date: z.unknown().optional(),
+      amount: z.unknown().optional(),
+      type: z.unknown().optional(),
+      reference: z.unknown().optional(),
+      description: z.unknown().optional(),
+    }),
+  ),
+  promo: zod3.number(),
   notepromo: z.string(),
-  extracharge: z.number(),
+  extracharge: zod3.number(),
   noteextracharge: z.string(),
   description: z.string().nullish(),
 });

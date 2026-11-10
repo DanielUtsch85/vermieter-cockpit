@@ -25,6 +25,7 @@ import {
   type ReviewTaxClassification,
   type TaxClassification,
 } from '../application/index.js';
+import { zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { definedOnly, optionalText, readId } from './acquisitions.js';
 import { interestPeriodBody, performanceBody, performanceFieldIssue, positiveEur } from './tax-classification-performance.js';
@@ -63,7 +64,7 @@ const createBody = z
     reviewState: z.enum(CREATE_REVIEW_STATES).default('USER_CONFIRMED'),
     supersedes: uuid.nullish(),
     notes: optionalText(2000).nullish(),
-    sourceReferences: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+    sourceReferences: zod3.array(z.string().trim().min(1).max(500)).max(20).optional(),
     taxYear: taxYear.nullish(),
     refundOfYear: taxYear.nullish(),
     // VC-7-03 (§58B).
@@ -152,7 +153,7 @@ const advisorBody = z
   .strict()
   .optional();
 const markBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
-const queryPosition = z.coerce.number().int().min(1).max(1000);
+const queryPosition = zod3.coercedInteger(1, 1000);
 const historyQuery = z.object({ sourceType: z.enum(SOURCE_TYPES), sourceId: uuid, sourcePosition: queryPosition.optional() }).superRefine((query, ctx) => {
   if (query.sourceType === undefined) return;
   const positioned = has(POSITIONED, query.sourceType);

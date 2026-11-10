@@ -18,14 +18,14 @@ import {
   type RebasedOn,
   type VoidLoanTerms,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { eurCents, signedEurCents } from './cents.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Percent p.a. as a decimal string, at most three decimals, `0 ≤ r < 100`; a JSON number is refused (no float in transit). */
-const rate = z.string().transform((value, ctx) => {
+const rate = zod3.transform(z.string(), (value, ctx) => {
   const parsed = parseRate(value);
   if (parsed !== undefined) return parsed;
   ctx.addIssue({ code: 'custom', params: { code: /^\d+(\.\d{1,3})?$/.test(value) ? 'OUT_OF_RANGE' : 'INVALID_FORMAT' } });
@@ -36,7 +36,7 @@ const rate = z.string().transform((value, ctx) => {
  * §58O: a JSON integer in {1, 3, 6, 12}; a string, a fraction or `null` → `INVALID_FORMAT`, another integer →
  * `OUT_OF_RANGE` (JSON `3.0` is the number 3).
  */
-const paymentInterval = z.unknown().transform((value, ctx) => {
+const paymentInterval = zod3.transform(z.unknown(), (value, ctx) => {
   if (typeof value !== 'number' || !Number.isInteger(value)) {
     ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });
     return z.NEVER;
@@ -86,10 +86,7 @@ const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict(
 const listQuery = z.object({ status: z.enum(TERMS_STATUSES).optional() });
 
 const proposalQuery = z.object({
-  transactionId: z
-    .string()
-    .regex(RESOURCE_ID)
-    .transform((id) => id.toLowerCase()),
+  transactionId: zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()),
 });
 
 const scheduleQuery = z

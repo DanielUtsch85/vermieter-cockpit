@@ -1,5 +1,6 @@
 import express, { type Response, type Router } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   checkBusinessDate,
   formatShare,
@@ -26,7 +27,7 @@ import {
   sendValidationError,
 } from './validation.js';
 
-const businessDate = z.string().transform((value, ctx) => {
+const businessDate = zod3.transform(z.string(), (value, ctx) => {
   const result = checkBusinessDate(value);
   if ('date' in result) return result.date;
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
@@ -34,7 +35,7 @@ const businessDate = z.string().transform((value, ctx) => {
 });
 
 /** `"n/d"`, reduced here (api-design.md §26.1, P2-D3). */
-const share = z.string().transform((value, ctx) => {
+const share = zod3.transform(z.string(), (value, ctx) => {
   const result = parseShare(value);
   if ('share' in result) return result.share;
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
@@ -42,12 +43,7 @@ const share = z.string().transform((value, ctx) => {
 });
 
 /** Trimmed; empty becomes absent. */
-const optionalText = (max: number) =>
-  z
-    .string()
-    .trim()
-    .max(max)
-    .transform((value) => (value === '' ? null : value));
+const optionalText = (max: number) => zod3.transform(z.string().trim().max(max), (value) => (value === '' ? null : value));
 
 const createBody = z
   .object({
@@ -57,12 +53,8 @@ const createBody = z
     validFrom: businessDate,
     validUntil: businessDate.nullish(),
     // The Acquisition this Ownership results from (P2-D8, §27.1): a DRAFT of the same Realm and PropertyReference.
-    acquisitionId: z
-      .string()
-      .regex(RESOURCE_ID)
-      .transform((id) => id.toLowerCase())
-      .nullish(),
-    sourceReferences: z.array(optionalText(500)).max(10).optional(),
+    acquisitionId: zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()).nullish(),
+    sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
   })
   .strict()
@@ -76,25 +68,17 @@ const changeBody = z
   .object({
     effectiveDate: businessDate,
     reason: z.string().trim().min(1).max(500),
-    close: z
-      .array(
-        z
-          .string()
-          .regex(RESOURCE_ID)
-          .transform((id) => id.toLowerCase()),
-      )
+    close: zod3
+      .array(zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()))
       .max(50)
       .default([]),
-    create: z
+    create: zod3
       .array(
         z
           .object({
-            ownerPartyId: z
-              .string()
-              .regex(RESOURCE_ID)
-              .transform((id) => id.toLowerCase()),
+            ownerPartyId: zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()),
             share,
-            sourceReferences: z.array(optionalText(500)).max(10).optional(),
+            sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
             notes: optionalText(2000).nullish(),
           })
           .strict(),
@@ -102,11 +86,7 @@ const changeBody = z
       .max(50)
       .default([]),
     // The Acquisition every created Ownership results from (P2-D8, §27.1).
-    acquisitionId: z
-      .string()
-      .regex(RESOURCE_ID)
-      .transform((id) => id.toLowerCase())
-      .nullish(),
+    acquisitionId: zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase()).nullish(),
   })
   .strict()
   .superRefine((body, ctx) => {

@@ -10,7 +10,7 @@ import {
   type RowError,
   type StatementError,
 } from '../../domains/ledger/index.js';
-import { Money, MoneyError, type CurrencyCode } from '../../shared/index.js';
+import { Money, MoneyError, zod3, type CurrencyCode } from '../../shared/index.js';
 import { normalizeIbanRaw, normalizeReference, normalizeText, parseSignedAmount, parseSourceDate } from './normalize.js';
 
 /**
@@ -57,7 +57,7 @@ const formatOptions = {
   dateFormat: z.enum(['DD.MM.YYYY', 'DD.MM.YY', 'YYYY-MM-DD']).default('DD.MM.YYYY'),
   encoding: z.enum(['utf-8', 'windows-1252']).default('utf-8'),
   /** Lines before the header row (bank exports often start with account metadata). */
-  skipLines: z.number().int().min(0).max(50).default(0),
+  skipLines: zod3.integer(0, 50).default(0),
 };
 
 export const genericCsvOptions = z.object({ columnMapping: z.object(columnsV1).strict(), ...formatOptions }).strict();
@@ -113,7 +113,8 @@ function genericCsv(version: string, schema: typeof genericCsvOptions | typeof g
       const parsedOptions = schema.safeParse(resolved.options);
       if (!parsedOptions.success) {
         // An unknown option is named by its own key (`zzz`, `columnMapping.zzz`), not its container (§58X decision 5).
-        const fields = parsedOptions.error.issues
+        const fields = zod3
+          .asZod3(parsedOptions.error.issues)
           .flatMap((i) => (i.code === 'unrecognized_keys' ? i.keys.map((key) => [...i.path, key].join('.')) : [i.path.join('.') || '(options)']))
           .join(', ');
         return fail('INVALID_OPTIONS', `Invalid adapter options: ${fields}`);

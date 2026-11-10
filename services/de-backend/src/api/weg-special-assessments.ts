@@ -13,7 +13,7 @@ import {
   type ReplaceAssessmentUses,
   type VoidSpecialAssessment,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, PAGING, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
@@ -22,10 +22,8 @@ const positive = money.superRefine((m, ctx) => {
   if (m instanceof Money && !m.isPositive()) ctx.addIssue({ code: 'custom', params: { code: 'NOT_POSITIVE' } });
 });
 
-const instalment = z.object({ position: z.number().int().min(1).max(1000), dueDate: businessDate, amount: positive }).strict();
-const use = z
-  .object({ position: z.number().int().min(1).max(1000), date: businessDate, description: z.string().trim().min(1).max(200), unitShare: positive })
-  .strict();
+const instalment = z.object({ position: zod3.integer(1, 1000), dueDate: businessDate, amount: positive }).strict();
+const use = z.object({ position: zod3.integer(1, 1000), date: businessDate, description: z.string().trim().min(1).max(200), unitShare: positive }).strict();
 
 /** Positions unique, with `DUPLICATE` at the later one. */
 const uniquePositions = (path: string, items: unknown, ctx: z.RefinementCtx) => {
@@ -41,8 +39,8 @@ const content = {
   purpose: z.enum(ASSESSMENT_PURPOSES),
   totalAmount: money.nullish(),
   unitShare: positive,
-  instalments: z.array(instalment).min(1).max(24),
-  sourceReferences: z.array(optionalText(500)).max(10).optional(),
+  instalments: zod3.array(instalment).min(1).max(24),
+  sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
   notes: optionalText(2000).nullish(),
 };
 
@@ -65,21 +63,19 @@ const createBody = z
   });
 const amendBody = z.object(content).strict().superRefine(checkInstalments);
 const usesBody = z
-  .object({ uses: z.array(use).max(50) })
+  .object({ uses: zod3.array(use).max(50) })
   .strict()
   .superRefine((body, ctx) => uniquePositions('uses', body.uses, ctx));
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 const asOfQuery = z.object({ asOf: businessDate.optional() });
 const listQuery = z.object({
-  status: z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(ASSESSMENT_STATUSES)).min(1))
+  status: zod3
+    .transform(z.string(), (value) => value.split(','))
+    .pipe(zod3.array(z.enum(ASSESSMENT_STATUSES)).min(1))
     .optional(),
-  purpose: z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(ASSESSMENT_PURPOSES)).min(1))
+  purpose: zod3
+    .transform(z.string(), (value) => value.split(','))
+    .pipe(zod3.array(z.enum(ASSESSMENT_PURPOSES)).min(1))
     .optional(),
   asOf: businessDate.optional(),
   ...PAGING,

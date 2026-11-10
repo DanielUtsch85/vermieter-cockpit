@@ -1,5 +1,6 @@
 import { type Response } from 'express';
 import { z } from 'zod';
+import { zod3 } from '../shared/index.js';
 import {
   CATEGORY_CODE,
   type CurrencyMismatchError,
@@ -22,7 +23,7 @@ import { money, PAGING, RESOURCE_ID } from './validation.js';
 /** The Transaction API's request schemas and response mapping, shared by its route files (api-design.md §30–§35). */
 
 /** `YYYY-MM-DD` within 1900–2100 (api-design.md §88): INVALID_FORMAT or OUT_OF_RANGE. */
-export const businessDate = z.string().transform((value, ctx) => {
+export const businessDate = zod3.transform(z.string(), (value, ctx) => {
   const result = checkBusinessDate(value);
   if ('date' in result) return result.date;
   ctx.addIssue({ code: 'custom', params: { code: result.error } });
@@ -40,7 +41,7 @@ export const createBody = z
     description: z.string().trim().max(500).nullish(),
     propertyReferenceId: z.string().regex(RESOURCE_ID).nullish(),
     // RentalContractReference does not exist yet: refuse rather than store an unchecked id.
-    rentalContractReferenceId: z.undefined(),
+    rentalContractReferenceId: z.undefined().optional(),
     // Manual creation only; other provenances come from imports (data-model.md §17.6).
     provenance: z.literal('MANUAL').optional(),
   })
@@ -64,8 +65,8 @@ export const split = z
     wegSpecialAssessmentId: z.string().regex(RESOURCE_ID).nullish(),
     description: z.string().trim().max(500).nullish(),
     // A split has no direction of its own: it inherits the Transaction's (§17.4).
-    direction: z.undefined(),
-    ...Object.fromEntries(NOT_YET_SUPPORTED.map((key) => [key, z.undefined()])),
+    direction: z.undefined().optional(),
+    ...Object.fromEntries(NOT_YET_SUPPORTED.map((key) => [key, z.undefined().optional()])),
   })
   .strict()
   // A Loan reaches its properties only through its allocation (§41.3), so never both on one split (§41.5).
@@ -122,7 +123,7 @@ export const correctBody = z
         valueDate: businessDate.nullable().optional(),
         description: z.string().trim().max(500).nullable().optional(),
         propertyReferenceId: z.string().regex(RESOURCE_ID).nullable().optional(),
-        splits: z.array(split).min(1).max(100).optional(),
+        splits: zod3.array(split).min(1).max(100).optional(),
       })
       .strict(),
   })
@@ -130,7 +131,7 @@ export const correctBody = z
 
 /** A comma-separated list of known values, any of them (`status`, `provenance`). */
 const anyOf = <T extends string>(values: readonly T[]) =>
-  z.string().transform((value, ctx) => {
+  zod3.transform(z.string(), (value, ctx) => {
     const items = value.split(',').map((s) => s.trim());
     if (items.some((s) => !(values as readonly string[]).includes(s))) {
       ctx.addIssue({ code: 'custom', params: { code: 'INVALID_FORMAT' } });

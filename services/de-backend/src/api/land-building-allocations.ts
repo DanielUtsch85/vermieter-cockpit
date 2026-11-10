@@ -13,15 +13,12 @@ import {
   type LandBuildingAllocation,
   type ListLandBuildingAllocations,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { money, NO_QUERY, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 /**
  * §58T rule 1 (VC-X-44): the values of land and building by another method, with at least one source; only their ratio
@@ -32,7 +29,7 @@ const comparison = z
     method: z.enum(COMPARISON_METHODS),
     landValue: money,
     buildingValue: money,
-    sourceReferences: z.array(z.string().trim().min(1).max(500)).max(MAX_COMPARISON_SOURCE_REFERENCES),
+    sourceReferences: zod3.array(z.string().trim().min(1).max(500)).max(MAX_COMPARISON_SOURCE_REFERENCES),
   })
   .strict()
   .superRefine((c, ctx) => {
@@ -54,7 +51,7 @@ const body = z
     reviewState: z.enum(ALLOCATION_REVIEW_STATES).optional(),
     effectiveDate: businessDate.nullish(),
     advisorPartyId: uuid.nullish(),
-    sourceReferences: z.array(optionalText(500)).max(10).optional(),
+    sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
     supersedes: uuid.nullable(),
     comparison: comparison.nullish(),

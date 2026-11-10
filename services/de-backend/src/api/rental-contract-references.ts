@@ -13,6 +13,7 @@ import {
   type RentDueDay,
   type RentalContractReference,
 } from '../application/index.js';
+import { zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, optionalText, readId } from './acquisitions.js';
 import { dayOfMonth, NO_QUERY, readBody, readIdempotencyKey, readIfMatch, readQuery, refuseQuery, sendValidationError } from './validation.js';
@@ -22,7 +23,7 @@ const mreTenantId = z.string().regex(MRE_EXTERNAL_ID);
 /** The due day over time (§58A): `validFrom` unique and ascending, each day 1–31, at most 20 entries. */
 /** §58F (0057): the optional evidence of an entry, trimmed, 1–500 characters; `null` is the same as omitted. */
 const evidenceReference = z.string().trim().min(1).max(MAX_EVIDENCE_REFERENCE).nullish();
-const rentDueDays = z.array(z.object({ validFrom: businessDate, day: dayOfMonth, evidenceReference }).strict()).superRefine((days, ctx) => {
+const rentDueDays = zod3.array(z.object({ validFrom: businessDate, day: dayOfMonth, evidenceReference }).strict()).superRefine((days, ctx) => {
   // Refinements run even after an entry failed to parse: only check a list that parsed.
   if (days.some((d) => typeof d.validFrom !== 'string' || typeof d.day !== 'number')) return;
   if (days.length > MAX_RENT_DUE_DAYS) {
@@ -33,7 +34,7 @@ const rentDueDays = z.array(z.object({ validFrom: businessDate, day: dayOfMonth,
   const error = rentDueDaysError(entriesOf(days));
   if (error?.code === 'NOT_ASCENDING') ctx.addIssue({ code: 'custom', path: [error.index, 'validFrom'], params: { code: error.code } });
 });
-const sourceReferences = z.array(z.string().trim().min(1).max(500)).max(10);
+const sourceReferences = zod3.array(z.string().trim().min(1).max(500)).max(10);
 
 const createBody = z
   .object({ mreTenantId, rentDueDays: rentDueDays.optional(), notes: optionalText(2000).nullish(), sourceReferences: sourceReferences.optional() })

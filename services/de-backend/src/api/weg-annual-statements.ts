@@ -21,7 +21,7 @@ import {
   type StatementContent,
   type VoidAnnualStatement,
 } from '../application/index.js';
-import { Money } from '../shared/index.js';
+import { Money, zod3 } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
 import { businessDate, definedOnly, optionalText, readId } from './acquisitions.js';
 import {
@@ -38,20 +38,14 @@ import {
   signedMoney,
 } from './validation.js';
 
-const uuid = z
-  .string()
-  .regex(RESOURCE_ID)
-  .transform((id) => id.toLowerCase());
+const uuid = zod3.transform(z.string().regex(RESOURCE_ID), (id) => id.toLowerCase());
 
 /** An allocation quantity as printed: a decimal string with at most 12 integer digits and 3 decimals (§50). */
-const quantity = z
-  .string()
-  .regex(/^\d{1,12}(\.\d{1,3})?$/)
-  .transform(normalizeQuantity);
+const quantity = zod3.transform(z.string().regex(/^\d{1,12}(\.\d{1,3})?$/), normalizeQuantity);
 
 const costLine = z
   .object({
-    position: z.number().int().min(1).max(1000),
+    position: zod3.integer(1, 1000),
     account: z.string().trim().min(1).max(200),
     group: z.enum(COST_GROUPS),
     allocationKey: z.string().trim().min(1).max(100),
@@ -74,7 +68,7 @@ const costLine = z
 
 const reserveLine = z
   .object({
-    position: z.number().int().min(1).max(1000),
+    position: zod3.integer(1, 1000),
     description: z.string().trim().min(1).max(200),
     kind: z.enum(RESERVE_LINE_KINDS),
     opening: signedMoney.nullish(),
@@ -89,7 +83,7 @@ const reserveLine = z
 const reserveSection = z
   .object({
     source: z.enum(RESERVE_SOURCES),
-    lines: z.array(reserveLine).max(20),
+    lines: zod3.array(reserveLine).max(20),
     unitShareOpening: signedMoney.nullish(),
     unitShareClosing: signedMoney.nullish(),
   })
@@ -97,14 +91,14 @@ const reserveSection = z
 
 const statementBody = z
   .object({
-    financialYear: z.number().int().min(1900).max(2200),
+    financialYear: zod3.integer(1900, 2200),
     periodFrom: businessDate,
     periodUntil: businessDate,
     documentDate: businessDate.nullish(),
     resolutionDate: businessDate.nullish(),
     dueDate: businessDate.nullish(),
     supersedes: uuid.nullish(),
-    costLines: z.array(costLine).min(1).max(200),
+    costLines: zod3.array(costLine).min(1).max(200),
     recoverableSubtotal: signedMoney,
     nonRecoverableSubtotal: signedMoney,
     totalCosts: signedMoney,
@@ -115,7 +109,7 @@ const statementBody = z
     settlementPeak: signedMoney,
     settlementResult: signedMoney.nullish(),
     reserve: reserveSection.nullish(),
-    sourceReferences: z.array(optionalText(500)).max(10).optional(),
+    sourceReferences: zod3.array(optionalText(500)).max(10).optional(),
     notes: optionalText(2000).nullish(),
     documentId: z.unknown().optional(),
   })
@@ -153,12 +147,11 @@ type StatementBody = z.infer<typeof statementBody>;
 const voidBody = z.object({ reason: z.string().trim().min(1).max(500) }).strict();
 
 const listQuery = z.object({
-  status: z
-    .string()
-    .transform((value) => value.split(','))
-    .pipe(z.array(z.enum(ANNUAL_STATEMENT_STATUSES)).min(1))
+  status: zod3
+    .transform(z.string(), (value) => value.split(','))
+    .pipe(zod3.array(z.enum(ANNUAL_STATEMENT_STATUSES)).min(1))
     .optional(),
-  financialYear: z.coerce.number().int().min(1900).max(2200).optional(),
+  financialYear: zod3.coercedInteger(1900, 2200).optional(),
   ...PAGING,
 });
 

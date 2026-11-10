@@ -41,6 +41,8 @@ updates:
       # TypeScript 7 (VC-X-07), Zod 4 (VC-X-65), Express 5 with @types/express 5 (VC-X-66), Vitest 5 (VC-X-67).
       - dependency-name: typescript
         update-types: ['version-update:semver-major']
+      # Zod 4 is in (VC-X-65); this entry now holds back the next major (Zod 5), planned work like Zod 4 was: Zod 3's
+      # parsing rules are kept in shared/zod3.ts, and a new major needs the golden of every answer again.
       - dependency-name: zod
         update-types: ['version-update:semver-major']
       - dependency-name: express
