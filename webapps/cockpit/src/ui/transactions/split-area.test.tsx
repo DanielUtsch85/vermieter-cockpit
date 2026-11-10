@@ -6,7 +6,7 @@ import { createDeClient } from '../../api/client';
 import { countingTokens, json, type Call } from '../../api/fetch.test-support';
 import type { FetchLike } from '../../api/transport';
 import { createQueryClient } from '../../query';
-import { category, detail, page, property, PROPERTY, REALM_A, REALM_B, split, TX } from '../../transactions/fixtures.test-support';
+import { category, detail, page, property, PROPERTY, REALM_A, REALM_B, split, TX, TX_REPLACEMENT } from '../../transactions/fixtures.test-support';
 import { TransactionsArea } from './TransactionsArea';
 
 /**
@@ -105,6 +105,28 @@ describe('step 3, the editor in the Buchungen area', () => {
       expect(screen.queryByRole('form', { name: 'Aufteilung bearbeiten' }), status).toBeNull();
       cleanup();
     }
+  });
+
+  it('moving to another Transaction whose status allows no splits shows no editor there', async () => {
+    const { fetch } = routedFetch({
+      ...pickers(),
+      [DETAIL]: [() => json(200, detail(), { etag: '"3"' })],
+      [`GET /api/v1/transactions/${TX_REPLACEMENT}`]: [() => json(200, detail({ transactionId: TX_REPLACEMENT, status: 'CONFIRMED' }), { etag: '"5"' })],
+    });
+    const client = createDeClient({ tokens: countingTokens(), realmId: REALM_A, fetch });
+    const queryClient = createQueryClient();
+    const at = (transactionId: string) => (
+      <QueryClientProvider client={queryClient}>
+        <TransactionsArea client={client} realmId={REALM_A} epoch={1} transactionId={transactionId} search="" />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(at(TX));
+    await screen.findByRole('form', { name: 'Aufteilung bearbeiten' });
+    rerender(at(TX_REPLACEMENT));
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'Aufteilung bearbeiten' })).toBeNull());
+    await screen.findByRole('heading', { name: /Buchung vom/ });
+    expect(screen.queryByRole('form', { name: 'Aufteilung bearbeiten' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Aufteilung speichern' })).toBeNull();
   });
 
   it('a detail of another Realm is never shown and offers no editor', async () => {

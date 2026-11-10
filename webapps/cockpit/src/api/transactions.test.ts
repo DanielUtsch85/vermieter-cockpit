@@ -162,6 +162,11 @@ describe('step 3 write: PUT /transactions/{transactionId}/splits (api-design.md 
     expect(call?.body).toBe(JSON.stringify(BODY));
   });
 
+  it('takes the ETag header, not the version of the body, when the two differ', async () => {
+    const { client: de } = client(json(200, splitsAnswer({ version: 4 }), { etag: '"7"' }));
+    expect((await putSplits(de, TX, BODY, '"3"')).etag).toBe('"7"');
+  });
+
   it('answers with the new ETag; without the header, the version of the body as entity tag', async () => {
     const { client: de } = client(json(200, splitsAnswer(), { etag: '"4"' }), json(200, splitsAnswer({ version: 7 })));
     expect(await putSplits(de, TX, BODY, '"3"')).toMatchObject({ etag: '"4"', result: { version: 4, status: 'CLASSIFIED' } });

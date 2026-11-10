@@ -56,7 +56,8 @@ export function TransactionsArea(props: {
   return props.transactionId === undefined ? (
     <TransactionListPage {...props} references={references} listHref={listHref} />
   ) : (
-    <TransactionDetailPage {...props} transactionId={props.transactionId} references={references} listHref={listHref} />
+    // One instance per Transaction: the editor state of one never carries over to another (correction chain, back/forward).
+    <TransactionDetailPage key={props.transactionId} {...props} transactionId={props.transactionId} references={references} listHref={listHref} />
   );
 }
 
