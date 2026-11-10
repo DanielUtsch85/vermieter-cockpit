@@ -12,7 +12,7 @@ import {
 } from '../application/index.js';
 import { principalOf } from './access-middleware.js';
 import { sendError } from './errors.js';
-import { fieldErrors, NO_QUERY, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { fieldErrors, NO_QUERY, readBody, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Upper bound of an uploaded statement, enforced while streaming, before any parsing. */
 export const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024;
@@ -33,7 +33,7 @@ const metadataSchema = z
   .passthrough();
 
 const listQuery = z.object({ status: z.enum(['PENDING', 'RESOLVED']).optional() });
-const resolveBody = z.object({ resolution: z.enum(['CREATE', 'SKIP']) });
+const resolveBody = z.object({ resolution: z.enum(['CREATE', 'SKIP']) }).strict();
 
 export interface ImportCommands {
   readonly importStatement: ImportBankStatement;
@@ -167,10 +167,10 @@ export function importRoutes(commands: ImportCommands): Router {
       return;
     }
     if (refuseQuery(res, query)) return;
-    const body = resolveBody.safeParse(req.body);
-    if (!body.success) {
-      // An invalid resolution value is a validation issue of the request content (api-design.md §32.2 → 422).
-      sendError(res, 422, 'VALIDATION_ERROR', 'Validation failed.', { fields: fieldErrors(body.error) });
+    const body = readBody(resolveBody, req);
+    if (!body.ok) {
+      // An invalid resolution value, and an unknown field, is a validation issue of the request content (§32.2 → 422; §58X).
+      sendError(res, 422, 'VALIDATION_ERROR', 'Validation failed.', { fields: body.errors });
       return;
     }
     commands

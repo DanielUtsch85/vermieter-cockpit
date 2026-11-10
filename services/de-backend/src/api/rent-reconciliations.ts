@@ -32,6 +32,7 @@ import {
   money,
   NO_QUERY,
   PAGING,
+  readBody,
   readIdempotencyKey,
   readIfMatch,
   readQuery,
@@ -136,9 +137,9 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     const idempotency = readIdempotencyKey(req, res);
     if (idempotency === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     const body = parsed.data;
@@ -163,9 +164,9 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
   router.post('/rent-reconciliations/suggest', express.json({ limit: '16kb' }), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     if (refuseQuery(res, query)) return;
-    const parsed = suggestBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(suggestBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -191,9 +192,9 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = confirmBody.safeParse(req.body ?? {});
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(confirmBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -215,9 +216,9 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = releaseBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(releaseBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands
@@ -295,9 +296,9 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
       const ifMatch = readIfMatch(req, res);
       if (ifMatch === undefined) return;
       if (refuseQuery(res, query)) return;
-      const parsed = writeBackBody.safeParse(req.body ?? {});
-      if (!parsed.success) {
-        sendValidationError(res, fieldErrors(parsed.error));
+      const parsed = readBody(writeBackBody, req);
+      if (!parsed.ok) {
+        sendValidationError(res, parsed.errors);
         return;
       }
       command({
@@ -318,9 +319,9 @@ export function rentReconciliationRoutes(commands: RentReconciliationCommands): 
     const ifMatch = readIfMatch(req, res);
     if (ifMatch === undefined) return;
     if (refuseQuery(res, query)) return;
-    const parsed = releaseBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(releaseBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
     commands

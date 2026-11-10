@@ -11,18 +11,20 @@ import {
 } from '../application/index.js';
 import { isSupportedCurrency, normalizeIban } from '../shared/index.js';
 import { principalOf } from './access-middleware.js';
-import { fieldErrors, NO_QUERY, PAGING, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
+import { EMPTY_BODY, NO_QUERY, PAGING, readBody, readIdempotencyKey, readQuery, refuseQuery, RESOURCE_ID, sendValidationError } from './validation.js';
 
 /** Field mapping verbatim from data-model.md §16 (api-design.md §29.1). */
-const createBody = z.object({
-  accountType: z.enum(ACCOUNT_TYPES),
-  displayName: z.string().trim().min(1).max(200),
-  currency: z.string().refine(isSupportedCurrency),
-  iban: z
-    .string()
-    .transform((value, ctx) => normalizeIban(value) ?? (ctx.addIssue({ code: 'custom' }), z.NEVER))
-    .optional(),
-});
+const createBody = z
+  .object({
+    accountType: z.enum(ACCOUNT_TYPES),
+    displayName: z.string().trim().min(1).max(200),
+    currency: z.string().refine(isSupportedCurrency),
+    iban: z
+      .string()
+      .transform((value, ctx) => normalizeIban(value) ?? (ctx.addIssue({ code: 'custom' }), z.NEVER))
+      .optional(),
+  })
+  .strict();
 
 /** A comma-separated list of the given values, any of them. */
 const commaList = <T extends readonly [string, ...string[]]>(values: T) =>
@@ -55,9 +57,9 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
     if (idempotency === undefined) return;
     const idempotencyKey = idempotency.key;
     if (refuseQuery(res, query)) return;
-    const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) {
-      sendValidationError(res, fieldErrors(parsed.error));
+    const parsed = readBody(createBody, req);
+    if (!parsed.ok) {
+      sendValidationError(res, parsed.errors);
       return;
     }
 
@@ -108,7 +110,8 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
       .catch(next);
   });
 
-  router.post('/financial-accounts/:financialAccountId/close', (req, res, next) => {
+  // Takes no body: no body, an empty one or `{}`; a field is unknown (§58X rule 3).
+  router.post('/financial-accounts/:financialAccountId/close', express.json({ limit: '16kb' }), (req, res, next) => {
     const query = readQuery(NO_QUERY, req);
     const { financialAccountId } = req.params;
     if (!RESOURCE_ID.test(financialAccountId)) {
@@ -116,6 +119,11 @@ export function financialAccountRoutes(commands: FinancialAccountCommands): Rout
       return;
     }
     if (refuseQuery(res, query)) return;
+    const empty = readBody(EMPTY_BODY, req);
+    if (!empty.ok) {
+      sendValidationError(res, empty.errors);
+      return;
+    }
     commands
       .close({ principal: principalOf(res), financialAccountId })
       .then((account) => {

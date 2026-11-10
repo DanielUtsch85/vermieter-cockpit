@@ -136,7 +136,7 @@ describe('POST /api/v1/acquisitions/{id}/costs/{costId}/classifications (§59D)'
     expect(await fields({ ...body, description: ' ' })).toEqual([{ field: 'description', code: 'INVALID_FORMAT' }]);
     const { supersedes: _s, ...withoutSupersedes } = body;
     expect(await fields(withoutSupersedes)).toEqual([{ field: 'supersedes', code: 'REQUIRED' }]);
-    expect(await fields({ ...body, inputVat: 'DEDUCTIBLE' })).toEqual([{ field: '(body)', code: 'INVALID_FORMAT' }]);
+    expect(await fields({ ...body, inputVat: 'DEDUCTIBLE' })).toEqual([{ field: 'inputVat', code: 'INVALID_FORMAT' }]);
     // Counter-check: an advisor with ADVISOR_CONFIRMED and five parts pass validation (the command is not wired: 500 is not a 400).
     expect(
       (

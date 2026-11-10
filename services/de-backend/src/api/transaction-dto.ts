@@ -29,20 +29,22 @@ export const businessDate = z.string().transform((value, ctx) => {
   return z.NEVER;
 });
 
-export const createBody = z.object({
-  financialAccountId: z.string().regex(RESOURCE_ID),
-  amount: money,
-  direction: z.enum(DIRECTIONS),
-  bookingDate: businessDate,
-  // Explicit null means the same as omitted (the usual JSON idiom for "empty").
-  valueDate: businessDate.nullish(),
-  description: z.string().trim().max(500).nullish(),
-  propertyReferenceId: z.string().regex(RESOURCE_ID).nullish(),
-  // RentalContractReference does not exist yet: refuse rather than store an unchecked id.
-  rentalContractReferenceId: z.undefined(),
-  // Manual creation only; other provenances come from imports (data-model.md §17.6).
-  provenance: z.literal('MANUAL').optional(),
-});
+export const createBody = z
+  .object({
+    financialAccountId: z.string().regex(RESOURCE_ID),
+    amount: money,
+    direction: z.enum(DIRECTIONS),
+    bookingDate: businessDate,
+    // Explicit null means the same as omitted (the usual JSON idiom for "empty").
+    valueDate: businessDate.nullish(),
+    description: z.string().trim().max(500).nullish(),
+    propertyReferenceId: z.string().regex(RESOURCE_ID).nullish(),
+    // RentalContractReference does not exist yet: refuse rather than store an unchecked id.
+    rentalContractReferenceId: z.undefined(),
+    // Manual creation only; other provenances come from imports (data-model.md §17.6).
+    provenance: z.literal('MANUAL').optional(),
+  })
+  .strict();
 
 /** References of a split whose entities do not exist yet (data-model.md §18): refused, not stored unchecked. */
 const NOT_YET_SUPPORTED = ['rentalContractReferenceId', 'wegId', 'maintenanceProjectId', 'acquisitionId', 'taxClassificationId'] as const;
@@ -266,8 +268,12 @@ export function toDto(transaction: Transaction) {
   };
 }
 
-/** `splits.0.direction` → NOT_ALLOWED, `splits.0.wegId` → NOT_SUPPORTED. */
+/**
+ * `splits.0.direction` → NOT_ALLOWED, `splits.0.wegId` → NOT_SUPPORTED: a known field of a split only, never an unknown
+ * field of the same name elsewhere (`direction` beside `splits`, `splits.0.amount.direction`; §58X).
+ */
 export function splitFieldCode(field: string, code: string): string {
+  if (!/(^|\.)splits\.\d+\.[^.]+$/.test(field)) return code;
   const key = field.split('.').at(-1) ?? '';
   if (key === 'direction') return 'NOT_ALLOWED';
   return (NOT_YET_SUPPORTED as readonly string[]).includes(key) ? 'NOT_SUPPORTED' : code;

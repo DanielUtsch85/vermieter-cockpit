@@ -90,7 +90,7 @@ describe('performance on create (§59F "API")', () => {
     expect(await fields(await send({ ...body, performance: { ...p, progressEstimated: true } }))).toEqual([
       { field: 'performance.progressEstimated', code: 'NOT_ALLOWED' },
     ]);
-    expect(await fields(await send({ ...body, performance: { ...p, extra: 1 } }))).toEqual([{ field: 'performance', code: 'INVALID_FORMAT' }]);
+    expect(await fields(await send({ ...body, performance: { ...p, extra: 1 } }))).toEqual([{ field: 'performance.extra', code: 'INVALID_FORMAT' }]);
     // The lines: not with NOT_RELEVANT, nor another line without CAPITALIZED, nor interest; CAPITALIZED of any other line yes.
     expect(await fields(await send({ ...body, taxCategory: 'NOT_RELEVANT', treatment: 'NOT_RELEVANT', performance: p }))).toEqual([
       { field: 'performance', code: 'NOT_ALLOWED_WITH_TREATMENT' },

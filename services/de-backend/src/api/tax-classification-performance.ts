@@ -4,28 +4,31 @@ import { Money, MoneyError } from '../shared/index.js';
 import { businessDate } from './acquisitions.js';
 
 /** The body's Money of §58B and §59F (`netAmount`, a point's `amount`): EUR, > 0, at most two decimals (`INVALID_FORMAT`). */
-export const positiveEur = z.object({ amount: z.string(), currency: z.string() }).transform((value, ctx) => {
-  try {
-    const parsed = Money.of(value.amount, value.currency);
-    if (parsed.currency !== 'EUR') {
-      ctx.addIssue({ code: 'custom', path: ['currency'], params: { code: 'CURRENCY_MISMATCH' } });
+export const positiveEur = z
+  .object({ amount: z.string(), currency: z.string() })
+  .strict()
+  .transform((value, ctx) => {
+    try {
+      const parsed = Money.of(value.amount, value.currency);
+      if (parsed.currency !== 'EUR') {
+        ctx.addIssue({ code: 'custom', path: ['currency'], params: { code: 'CURRENCY_MISMATCH' } });
+        return z.NEVER;
+      }
+      if (!parsed.isPositive()) {
+        ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NOT_POSITIVE' } });
+        return z.NEVER;
+      }
+      return parsed;
+    } catch (error) {
+      if (!(error instanceof MoneyError)) throw error;
+      ctx.addIssue({
+        code: 'custom',
+        path: error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'],
+        params: { code: error.code === 'UNSUPPORTED_CURRENCY' ? 'UNSUPPORTED_CURRENCY' : 'INVALID_FORMAT' },
+      });
       return z.NEVER;
     }
-    if (!parsed.isPositive()) {
-      ctx.addIssue({ code: 'custom', path: ['amount'], params: { code: 'NOT_POSITIVE' } });
-      return z.NEVER;
-    }
-    return parsed;
-  } catch (error) {
-    if (!(error instanceof MoneyError)) throw error;
-    ctx.addIssue({
-      code: 'custom',
-      path: error.code === 'UNSUPPORTED_CURRENCY' ? ['currency'] : ['amount'],
-      params: { code: error.code === 'UNSUPPORTED_CURRENCY' ? 'UNSUPPORTED_CURRENCY' : 'INVALID_FORMAT' },
-    });
-    return z.NEVER;
-  }
-});
+  });
 
 const issue = (ctx: z.RefinementCtx, path: (string | number)[], code: string) => ctx.addIssue({ code: 'custom', path, params: { code } });
 

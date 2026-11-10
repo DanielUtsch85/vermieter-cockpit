@@ -71,7 +71,14 @@ describe('POST /api/v1/property-references/link', () => {
   it('201 with the new PropertyReference; the use case gets principal, token and body', async () => {
     const seen: LinkPropertyReferenceInput[] = [];
     const base = await start(async (input) => (seen.push(input), { reference, created: true }));
-    const res = await post(base, { mreRealmId: REALM, mrePropertyId: PROPERTY, extra: 'ignored' });
+    // VC-X-69 (§58X): an unknown field is refused by its name, no longer dropped.
+    const extra = await post(base, { mreRealmId: REALM, mrePropertyId: PROPERTY, extra: 'refused' });
+    expect([extra.status, ((await extra.json()) as { error: { details: unknown } }).error.details]).toEqual([
+      400,
+      { fields: [{ field: 'extra', code: 'INVALID_FORMAT' }] },
+    ]);
+    expect(seen).toEqual([]);
+    const res = await post(base, { mreRealmId: REALM, mrePropertyId: PROPERTY });
 
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({
