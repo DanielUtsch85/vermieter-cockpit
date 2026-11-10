@@ -104,17 +104,22 @@ export function countedApp(answers: Readonly<Record<string, (args: unknown) => u
     await new Promise<void>((resolve) => listening.close(() => resolve()));
   };
 
-  /** Sends `body` as given (raw text, so a key like `__proto__` arrives as sent); no content type without a body. */
-  async function send(method: string, url: string, body?: string, contentType = 'application/json', extra: Record<string, string> = {}): Promise<Answer> {
+  /** Sends `body` as given and returns the status and the raw response text (VC-X-65's golden of the answers). */
+  async function raw(method: string, url: string, body?: string, contentType = 'application/json', extra: Record<string, string> = {}) {
     const res = await fetch(`${base}${url}`, {
       method,
       headers: { authorization: 'Bearer a.b.c', organizationid: REALM, ...(body === undefined ? {} : { 'content-type': contentType }), ...extra },
       ...(body === undefined ? {} : { body }),
     });
-    const text = await res.text();
-    const json = text.startsWith('{') ? (JSON.parse(text) as { error?: { code?: string; details?: { fields?: Answer['fields'] } } }) : {};
-    return { status: res.status, code: json.error?.code, fields: json.error?.details?.fields };
+    return { status: res.status, text: await res.text() };
   }
 
-  return { calls, send, start, stop };
+  /** Sends `body` as given (raw text, so a key like `__proto__` arrives as sent); no content type without a body. */
+  async function send(method: string, url: string, body?: string, contentType = 'application/json', extra: Record<string, string> = {}): Promise<Answer> {
+    const { status, text } = await raw(method, url, body, contentType, extra);
+    const json = text.startsWith('{') ? (JSON.parse(text) as { error?: { code?: string; details?: { fields?: Answer['fields'] } } }) : {};
+    return { status, code: json.error?.code, fields: json.error?.details?.fields };
+  }
+
+  return { calls, raw, send, start, stop };
 }
