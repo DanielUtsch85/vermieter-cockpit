@@ -1,0 +1,28 @@
+# CI only (job compose-smoke, .github/scripts/compose-cockpit-gate.sh): a stand-in for the cockpit UI behind Caddy, so
+# the gate can check that /cockpit/ serves the start page (Entscheidung des Projektinhabers, 2026-11-10, #319 question 3
+# (b)). It is NOT the `cockpit-ui` service: that one comes as its own PR after step 3 of ui-guide §10, in
+# docker-compose.proxy.yml with its own Dockerfile, a Dependabot docker entry and `Cache-Control: no-store` on
+# index.html (same decision, (a)). Nothing productive starts this file.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml -f .github/compose/cockpit-gate.yml up -d --wait
+#
+# - The image is the digest-pinned Caddy of docker-compose.proxy.yml; the gate script reads it from the rendered
+#   override and passes it in, so there is no second image reference to pin or to keep in step with Dependabot.
+# - It serves the built webapps/cockpit/dist (`yarn workspace @vermieter-cockpit/cockpit build`, base path /cockpit/)
+#   read-only under /cockpit/; the productive Caddy keeps the prefix, so the files sit in /srv/cockpit.
+# - The productive Caddyfile is used unchanged; only its upstream variable COCKPIT_UI_UPSTREAM points here.
+
+services:
+  cockpit-ui-ci:
+    image: ${COCKPIT_GATE_CADDY_IMAGE:?set by .github/scripts/compose-cockpit-gate.sh}
+    command: ['caddy', 'file-server', '--root', '/srv', '--listen', ':80']
+    volumes:
+      - ./webapps/cockpit/dist:/srv/cockpit:ro
+    networks: [net]
+
+  caddy:
+    environment:
+      COCKPIT_UI_UPSTREAM: cockpit-ui-ci:80
+    depends_on:
+      cockpit-ui-ci:
+        condition: service_started

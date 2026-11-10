@@ -310,6 +310,8 @@ CI prüft im Job `compose-smoke` mit `.github/scripts/compose-proxy-check.sh` (E
 - `SIGNUP` standardmäßig `false` ist;
 - der Caddyfile im Caddy-Image des Overrides gültig ist (`caddy validate`).
 
+Als letzten Schritt desselben Jobs prüft `.github/scripts/compose-cockpit-gate.sh` das Integrations-Gate der Oberfläche mit `curl` über Caddy (Entscheidung des Projektinhabers, 2026-11-10, zu #319 Frage 3 (b)): `/cockpit/` liefert die Startseite, Anmeldung über den MRE-Authenticator, Refresh-Cookie mit `HttpOnly`, `Secure` und `SameSite=Strict` (am `Set-Cookie`-Header, Groß-/Kleinschreibung egal; dazu ein Refresh mit dem Cookie), `/api/v1/health` über Caddy (`401` ohne Token, `200` mit Token und eigenem Realm). Das Skript startet zusätzlich `docker-compose.proxy.yml` mit dem unveränderten Caddyfile, öffnet die Registrierung dafür mit `MRE_SIGNUP=true` (nur synthetische Konten `gate-*@example.com`) und prüft das TLS-Zertifikat gegen die Wurzel der lokalen CA aus `caddy-data`. Die Oberfläche liefert dabei ein reiner CI-Platzhalter aus `.github/compose/cockpit-gate.yml`: das gepinnte Caddy-Image des Overrides als Dateiserver für das gebaute `webapps/cockpit/dist`, eingebunden über `COCKPIT_UI_UPSTREAM`. Er ist nicht der Dienst `cockpit-ui`; der kommt als eigener PR nach Schritt 3 (gleiche Entscheidung, (a)), bis dahin antwortet `/cockpit` produktiv weiter `502` (Abschnitt 9.1). Der Browser-Durchlauf mit Playwright ist VC-X-70, ein eigener CI-Job, nicht in `compose-smoke`.
+
 ### 9.7 AfA-Erfassung: `DEPRECIATION_RECORDING_ENABLED` bleibt ungesetzt
 
 Die produktive Installation läuft mit ausgeschaltetem Erfassungsschalter. `DEPRECIATION_RECORDING_ENABLED` wird nicht gesetzt, weder in `.env` noch in einer Compose-Datei. `docker-compose.yml` reicht die Variable nicht an den Container `de-backend` durch; ein Eintrag in `.env` allein hätte deshalb keine Wirkung.
@@ -420,7 +422,7 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml config -q
 docker compose pull            # zieht genau die gepinnten Digests; ein falscher Digest scheitert hier
 ```
 
-In CI: `build-test` (Pin-Prüfung, Tests gegen den Postgres-Service-Container) und `compose-smoke` (zieht alle gepinnten Images, startet den Stack, MRE-Contract-Test, Auth-, Backup- und Proxy-Prüfung inklusive `caddy validate` im gepinnten Caddy-Image). Erst wenn beide grün sind, ist der neue Pin geprüft. Auf dem Produktivrechner danach `docker compose -f docker-compose.yml -f docker-compose.proxy.yml pull` und `up -d --wait`, vorher eine Sicherung (Abschnitt 2).
+In CI: `build-test` (Pin-Prüfung, Tests gegen den Postgres-Service-Container) und `compose-smoke` (zieht alle gepinnten Images, startet den Stack, MRE-Contract-Test, Auth-, Backup- und Proxy-Prüfung inklusive `caddy validate` im gepinnten Caddy-Image, zuletzt das Cockpit-Gate über Caddy). Erst wenn beide grün sind, ist der neue Pin geprüft. Auf dem Produktivrechner danach `docker compose -f docker-compose.yml -f docker-compose.proxy.yml pull` und `up -d --wait`, vorher eine Sicherung (Abschnitt 2).
 
 ### 11.6 Dependabot
 
