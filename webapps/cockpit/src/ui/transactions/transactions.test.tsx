@@ -227,13 +227,14 @@ describe('step 2, the filter bar (ui-guide.md §6.3: only the existing filters)'
   it('shows the URL filters in its controls, chosen by name from the lists', () => {
     const html = list(
       { status: 'pending' },
-      `?financialAccountId=${ACCOUNT}&status=IMPORTED,CLASSIFIED&reviewable=true&bookingDateFrom=2026-01-01&financialCategoryCode=OLD_FEE&pageSize=100`,
+      `?financialAccountId=${ACCOUNT}&status=IMPORTED,CLASSIFIED&bookingDateFrom=2026-01-01&financialCategoryCode=OLD_FEE&pageSize=100`,
     );
     expect(html).toContain(`<option value="${ACCOUNT}" selected="">Girokonto Testbank</option>`);
     expect(html).toContain('name="status" checked="" value="IMPORTED"');
     expect(html).toContain('name="status" checked="" value="CLASSIFIED"');
     expect(html).toContain('name="status" value="CONFIRMED"');
-    expect(html).toContain('name="reviewable" checked="" value="true"');
+    expect(html).toContain('name="reviewable" value="true"');
+    expect(html).not.toContain('name="status" disabled=""');
     expect(html).toContain('name="current" value="true"');
     expect(html).toContain('name="bookingDateFrom" class="min-h-touch rounded-input border border-border bg-surface px-3 text-base" value="2026-01-01"');
     expect(html).toContain('<option value="OLD_FEE" selected="">Alte Gebühr (inaktiv)</option>');

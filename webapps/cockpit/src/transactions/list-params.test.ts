@@ -63,12 +63,30 @@ describe('the list filters in the URL and in the request (ui-guide.md §3.2, §6
       ['financialAccountId', ''],
       ['status', 'IMPORTED'],
       ['status', 'UNREVIEWED'],
-      ['reviewable', 'true'],
+      ['current', 'true'],
       ['page', '7'],
       ['pageSize', '100'],
       ['file', new Blob()],
     ]);
-    expect(params).toEqual({ filters: { status: 'IMPORTED,UNREVIEWED', reviewable: 'true' }, page: '1', pageSize: '100' });
+    expect(params).toEqual({ filters: { status: 'IMPORTED,UNREVIEWED', current: 'true' }, page: '1', pageSize: '100' });
+  });
+
+  it('a submitted form with Nur pruefbare sends no status; a URL with both is still read and sent as it is', () => {
+    const both: [string, string][] = [
+      ['status', 'CONFIRMED'],
+      ['reviewable', 'true'],
+    ];
+    expect(paramsFromForm(both).filters).toEqual({ reviewable: 'true' });
+    expect(toSearch(paramsFromForm(both))).toBe('?reviewable=true');
+    // Counter-check: another value of reviewable is no shortcut and keeps the status (the backend judges it).
+    expect(
+      paramsFromForm([
+        ['status', 'CONFIRMED'],
+        ['reviewable', 'false'],
+      ]).filters,
+    ).toEqual({ status: 'CONFIRMED', reviewable: 'false' });
+    // The URL is not rewritten: the backend's AND of both stays what the list asks for (api-design.md §30.1).
+    expect(toApiQuery(readListParams('?status=CONFIRMED&reviewable=true'))).toEqual({ status: 'CONFIRMED', reviewable: 'true', page: '1', pageSize: '50' });
   });
 
   it('paging keeps the filters; counts of pages come from total', () => {
