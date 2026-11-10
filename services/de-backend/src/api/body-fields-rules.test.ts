@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { UUID, useCountedApp } from './route-walk.test-support.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { UUID, countedApp } from './route-walk.test-support.js';
 
 /**
  * VC-X-69 (api-design.md §58X "Tests the implementation needs" (3)–(7)): each rule exact on the routes it concerns. The
@@ -8,7 +8,9 @@ import { UUID, useCountedApp } from './route-walk.test-support.js';
  * and their body variants, the path and the query before the body. No database. Synthetic values only.
  */
 
-const { calls, send } = useCountedApp();
+const { calls, send, start, stop } = countedApp();
+beforeAll(start);
+afterAll(stop);
 const F = (...fields: string[]) => fields.map((field) => ({ field, code: 'INVALID_FORMAT' }));
 const eur = (amount: string) => ({ amount, currency: 'EUR' });
 const split = (extra: Record<string, unknown> = {}) => ({ amount: eur('1.00'), financialCategoryCode: 'MAINTENANCE', ...extra });

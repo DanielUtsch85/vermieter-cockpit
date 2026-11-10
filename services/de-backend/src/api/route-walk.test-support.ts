@@ -1,6 +1,3 @@
-import type { AddressInfo } from 'node:net';
-import type { Server } from 'node:http';
-import { afterAll, beforeAll } from 'vitest';
 import { createApp, type AppCommands } from './app.js';
 import { unusedCommands } from './app.test-support.js';
 import type { InventoryRoute } from './route-inventory.js';
@@ -70,10 +67,11 @@ export type Call = { module: string; command: string; args: unknown };
 export type Answer = { status: number; code: string | undefined; fields: { field: string; code: string }[] | undefined };
 
 /**
- * Registers a server in the calling `describe` whose every command rejects and is recorded in `calls`, or answers with
- * `answers[module.command]` when given (a spy of the arguments). Returns the calls and the raw request helper.
+ * A server whose every command rejects and is recorded in `calls`, or answers with `answers[module.command]` when given
+ * (a spy of the arguments). The caller registers `start` and `stop` (`beforeAll`, `afterAll`; this file imports no test
+ * framework and no Node module, by the architecture rule of `api/`). Returns the calls and the raw request helper.
  */
-export function useCountedApp(answers: Readonly<Record<string, (args: unknown) => unknown>> = {}) {
+export function countedApp(answers: Readonly<Record<string, (args: unknown) => unknown>> = {}) {
   const calls: Call[] = [];
   const counted = Object.fromEntries(
     Object.entries(unusedCommands).map(([module, commands]) => [
@@ -91,17 +89,20 @@ export function useCountedApp(answers: Readonly<Record<string, (args: unknown) =
     ]),
   ) as unknown as AppCommands;
 
-  let server: Server;
+  let server: ReturnType<ReturnType<typeof createApp>['listen']> | undefined;
   let base = '';
-  beforeAll(async () => {
-    server = createApp({ isReady: async () => true, verifyPrincipal: admin, ...counted }).listen(0, '127.0.0.1');
-    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  });
-  afterAll(async () => {
-    server.closeAllConnections();
-    await new Promise<void>((resolve) => server.close(() => resolve()));
-  });
+  const start = async () => {
+    const listening = createApp({ isReady: async () => true, verifyPrincipal: admin, ...counted }).listen(0, '127.0.0.1');
+    server = listening;
+    await new Promise<void>((resolve) => listening.once('listening', () => resolve()));
+    base = `http://127.0.0.1:${(listening.address() as { port: number }).port}`;
+  };
+  const stop = async () => {
+    const listening = server;
+    if (listening === undefined) return;
+    listening.closeAllConnections();
+    await new Promise<void>((resolve) => listening.close(() => resolve()));
+  };
 
   /** Sends `body` as given (raw text, so a key like `__proto__` arrives as sent); no content type without a body. */
   async function send(method: string, url: string, body?: string, contentType = 'application/json', extra: Record<string, string> = {}): Promise<Answer> {
@@ -115,5 +116,5 @@ export function useCountedApp(answers: Readonly<Record<string, (args: unknown) =
     return { status: res.status, code: json.error?.code, fields: json.error?.details?.fields };
   }
 
-  return { calls, send };
+  return { calls, send, start, stop };
 }

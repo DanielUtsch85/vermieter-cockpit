@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { appForInventory, listRoutes } from './route-inventory.js';
-import { fill, key, malformed, paramsOf, useCountedApp, valueOf } from './route-walk.test-support.js';
+import { fill, key, malformed, paramsOf, countedApp, valueOf } from './route-walk.test-support.js';
 
 /**
  * VC-X-69 (api-design.md §58X "Tests the implementation needs" (1), (2), (6)): every JSON command of the inventory, with
@@ -14,7 +14,7 @@ const EXEMPT = ['/api/v1/imports/bank-transactions'];
 /** The route whose body errors are `422` (§32.2, §58X decision 2). */
 const RESOLVE = '/api/v1/imports/:importBatchId/review-items/:reviewItemId/resolve';
 /** The five commands that take no body (§58X (c), rule 3). */
-export const BODYLESS = [
+const BODYLESS = [
   'POST /api/v1/financial-accounts/:financialAccountId/close',
   'POST /api/v1/parties/:partyId/external-references/:externalReferenceId/end',
   'POST /api/v1/property-references/:propertyReferenceId/refresh',
@@ -22,7 +22,9 @@ export const BODYLESS = [
   'POST /api/v1/transactions/:transactionId/restore',
 ];
 
-const { calls, send } = useCountedApp();
+const { calls, send, start, stop } = countedApp();
+beforeAll(start);
+afterAll(stop);
 const routes = listRoutes(appForInventory());
 const commands = routes.filter((r) => r.method === 'POST' || r.method === 'PUT');
 const json = commands.filter((r) => !EXEMPT.includes(r.path));
