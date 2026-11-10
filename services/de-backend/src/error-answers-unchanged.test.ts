@@ -2,9 +2,33 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import type { z } from 'zod';
 import { appForInventory, listRoutes, type InventoryRoute } from './api/route-inventory.js';
 import { countedApp, fill, key, UUID, valueOf } from './api/route-walk.test-support.js';
+import { querySchemaKeys, schemaFieldPaths } from './api/schema-fields.test-support.js';
+import type * as Validation from './api/validation.js';
+
+/** The schemas `readBody` and `readQuery` were called with, by method and path as sent (VC-X-66, schema fields). */
+const seen = vi.hoisted(() => ({ body: new Map<string, Set<unknown>>(), query: new Map<string, Set<unknown>>() }));
+vi.mock('./api/validation.js', async (importOriginal) => {
+  const original = await importOriginal<typeof Validation>();
+  const note = (map: Map<string, Set<unknown>>, schema: unknown, req: { method: string; originalUrl: string }) => {
+    const at = `${req.method} ${req.originalUrl.split('?')[0] as string}`;
+    map.set(at, (map.get(at) ?? new Set()).add(schema));
+  };
+  return {
+    ...original,
+    readBody: (...args: Parameters<typeof original.readBody>) => {
+      note(seen.body, args[0], args[1]);
+      return original.readBody(...args);
+    },
+    readQuery: (...args: Parameters<typeof original.readQuery>) => {
+      note(seen.query, args[0], args[1]);
+      return original.readQuery(...args);
+    },
+  };
+});
 
 /**
  * VC-X-65 (Zod 3 → 4): every accepted and refused input of every route answers as before the upgrade, byte for byte.
@@ -27,6 +51,14 @@ import { countedApp, fill, key, UUID, valueOf } from './api/route-walk.test-supp
  */
 const golden = join(dirname(fileURLToPath(import.meta.url)), 'error-answers-golden', 'before-vc-x-65.json');
 const RECORD = process.env['VC_X65_RECORD_BEFORE'] === '1';
+/**
+ * VC-X-66 (Express 4 → 5; review hint on #324): the fields the schemas know but the walk above did not end on, each at
+ * every fixed value, on the walk's last body; and the query keys a schema knows that the catalogue walk did not find.
+ * Recorded by this file on main 5abb3f1 (Express 4.22.3) with `VC_X66_RECORD_BEFORE=1`, in a file of its own, so the
+ * record of VC-X-65 stays as it is.
+ */
+const schemaGolden = join(dirname(fileURLToPath(import.meta.url)), 'error-answers-golden', 'schema-fields-before-vc-x-66.json');
+const RECORD_SCHEMA = process.env['VC_X66_RECORD_BEFORE'] === '1';
 /** A file to write every request and answer to, for finding a difference (not committed). */
 const DUMP = process.env['VC_X65_DUMP'];
 
@@ -277,7 +309,7 @@ const today = new Date().toISOString().slice(0, 10);
 /** Instants and today's date marked, so a record stays valid on another day. */
 const normalize = (text: string) => text.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})/g, '<instant>').replaceAll(today, '<today>');
 
-type Recorded = { requests: number; sha256: string; first: string; last: string; known?: string[] };
+type Recorded = { requests: number; sha256: string; first: string; last: string; known?: string[]; paths?: string[] };
 type Golden = { zod: string; candidates: string[]; bodies: Record<string, Recorded>; queries: Record<string, Recorded> };
 
 /** The upper-case string literals of the sources (enumeration candidates), harvested at the record only. */
@@ -312,10 +344,17 @@ class Log {
   add(request: string, status: number, text: string, args?: string) {
     this.lines.push(normalize(`${request} -> ${status} ${text}${args === undefined ? '' : ` args=${args}`}`));
   }
-  done(first: string, last: string, known?: string[]): Recorded {
+  done(first: string, last: string, known?: string[], paths?: string[]): Recorded {
     if (DUMP !== undefined) dump.push(...this.lines.map((l) => `${this.route} ${l}`));
     const sha256 = createHash('sha256').update(this.lines.join('\n')).digest('hex');
-    return { requests: this.lines.length, sha256, first: normalize(first), last: normalize(last), ...(known === undefined ? {} : { known }) };
+    return {
+      requests: this.lines.length,
+      sha256,
+      first: normalize(first),
+      last: normalize(last),
+      ...(known === undefined ? {} : { known }),
+      ...(paths === undefined ? {} : { paths }),
+    };
   }
 }
 
@@ -426,7 +465,51 @@ async function walkBody(r: InventoryRoute): Promise<Recorded> {
     );
   for (const object of objects) await sequential(log, r.method, url, setAt(body, object === '' ? 'zzz' : `${object}.zzz`, 1));
   const last = await sequential(log, r.method, url, body);
+  lastBodies.set(key(r), body);
   return log.done(first, `${JSON.stringify(body)} -> ${last.status} ${last.text}`);
+}
+
+/** The last body of each route's walk and the query names the walk found known (for the schema fields of VC-X-66). */
+const lastBodies = new Map<string, unknown>();
+const knownNames = new Map<string, string[]>();
+
+/** The schemas a route was read with (`readBody` or `readQuery`), as the walk sent it. */
+function schemasOf(map: Map<string, Set<unknown>>, r: InventoryRoute): z.ZodType[] {
+  return [...(map.get(`${r.method} ${fill(r.path, valueOf)}`) ?? [])] as z.ZodType[];
+}
+
+/** VC-X-66: every field a body schema knows that is not a leaf of the walk's last body, at every fixed value. */
+async function walkSchemaFields(r: InventoryRoute): Promise<Recorded> {
+  const log = new Log(key(r));
+  const url = fill(r.path, valueOf);
+  const body = lastBodies.get(key(r)) ?? {};
+  const leaves = new Set(pathsOf(body).leaves);
+  const paths = [...new Set(schemasOf(seen.body, r).flatMap((schema) => schemaFieldPaths(schema)))].filter((p) => !leaves.has(p));
+  const first = await sequential(log, r.method, url, body);
+  for (const path of paths)
+    await parallel(
+      log,
+      r.method,
+      BODY_VALUES.map((v) => ({ url, body: setAt(body, path, v) })),
+    );
+  const last = await sequential(log, r.method, url, body);
+  return log.done(first.text, last.text, undefined, paths);
+}
+
+/** VC-X-66: every query key a schema knows that the catalogue walk did not find, at every value of the list. */
+async function walkSchemaKeys(r: InventoryRoute): Promise<Recorded> {
+  const log = new Log(key(r));
+  const required = REQUIRED[key(r)];
+  const base = fill(r.path, valueOf);
+  const known = new Set(knownNames.get(key(r)) ?? []);
+  const keys = [...new Set(schemasOf(seen.query, r).flatMap((schema) => querySchemaKeys(schema)))];
+  const missing = keys.filter((k) => !known.has(k));
+  const first = await sequential(log, r.method, required === undefined ? base : `${base}?${required}`);
+  for (const name of missing) {
+    const others = (required ?? '').split('&').filter((p) => p !== '' && !p.startsWith(`${name}=`));
+    for (const v of QUERY_VALUES) await sequential(log, r.method, `${base}?${[...others, `${name}=${encodeURIComponent(v)}`].join('&')}`);
+  }
+  return log.done(first.text, first.text, keys, missing);
 }
 
 async function walkQuery(r: InventoryRoute): Promise<Recorded> {
@@ -462,6 +545,7 @@ async function walkQuery(r: InventoryRoute): Promise<Recorded> {
   }
   for (const v of ['x', '', '0', '2027', 'ACTIVE']) await sequential(log, r.method, `${base}?${known.map((n) => `${n}=${encodeURIComponent(v)}`).join('&')}`);
   const last = await sequential(log, r.method, url('zzz=1&yyy=2'));
+  knownNames.set(key(r), known);
   return log.done(first.text, last.text, known);
 }
 
@@ -497,6 +581,30 @@ describe('every answer of every route is unchanged by Zod 4 (VC-X-65)', () => {
       expect(Object.keys(now)).toEqual(Object.keys(before?.queries ?? {}));
       for (const [route, recorded] of Object.entries(now)) expect(recorded, route).toEqual(before?.queries[route]);
     }
+  });
+
+  it('VC-X-66: every field and query key the schemas know answers as recorded before Express 5, byte for byte', { timeout: 600_000 }, async () => {
+    const bodies: Record<string, Recorded> = {};
+    for (const r of bodyRoutes) bodies[key(r)] = await walkSchemaFields(r);
+    const queries: Record<string, Recorded> = {};
+    for (const r of queryRoutes) queries[key(r)] = await walkSchemaKeys(r);
+    if (RECORD_SCHEMA) {
+      writeFileSync(schemaGolden, `${JSON.stringify({ express: process.env['VC_X66_EXPRESS'] ?? '', bodies, queries }, null, 2)}\n`);
+      return;
+    }
+    const recorded = JSON.parse(readFileSync(schemaGolden, 'utf8')) as { bodies: Record<string, Recorded>; queries: Record<string, Recorded> };
+    expect(Object.keys(bodies)).toEqual(Object.keys(recorded.bodies));
+    for (const [route, now] of Object.entries(bodies)) expect(now, route).toEqual(recorded.bodies[route]);
+    expect(Object.keys(queries)).toEqual(Object.keys(recorded.queries));
+    for (const [route, now] of Object.entries(queries)) expect(now, route).toEqual(recorded.queries[route]);
+  });
+
+  it('VC-X-66 counter-check: the schemas name fields no answer of the walk reached, and every route was read with a schema', () => {
+    const recorded = JSON.parse(readFileSync(schemaGolden, 'utf8')) as { bodies: Record<string, Recorded>; queries: Record<string, Recorded> };
+    expect(Object.values(recorded.bodies).filter((b) => (b.paths ?? []).length > 0).length).toBeGreaterThan(30);
+    expect(recorded.bodies['POST /api/v1/acquisitions/:acquisitionId/costs']?.paths).toEqual(expect.arrayContaining(['sourceReferences']));
+    expect(recorded.queries['GET /api/v1/transactions']?.known).toEqual(expect.arrayContaining(['page', 'pageSize', 'status']));
+    expect(Object.keys(recorded.queries)).toHaveLength(80);
   });
 
   it('counter-check: the walk reached commands and refusals on many routes, and knows parameters on the lists', () => {

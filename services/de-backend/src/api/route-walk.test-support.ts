@@ -121,5 +121,8 @@ export function countedApp(answers: Readonly<Record<string, (args: unknown) => u
     return { status, code: json.error?.code, fields: json.error?.details?.fields };
   }
 
-  return { calls, raw, send, start, stop };
+  /** The server's origin (`http://127.0.0.1:<port>`), once started. */
+  const origin = () => base;
+
+  return { calls, origin, raw, send, start, stop };
 }
