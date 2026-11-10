@@ -164,7 +164,7 @@ Extraction requires a future ADR.
 
 # TECH-ADR-003 — Node.js 24 LTS + TypeScript + Yarn 3.3
 
-**Status:** Accepted (amended 2026-10-18: Node.js 20 → 24 LTS; rationale in ADR-032 "Amendment")
+**Status:** Accepted (amended 2026-10-18: Node.js 20 → 24 LTS; rationale in ADR-032 "Amendment"; addendum 2026-11-10: Express 5, see "Backend Framework")
 
 ## Context
 
@@ -195,6 +195,10 @@ The frontend should remain compatible with the existing MRE React/Next ecosystem
 The initial backend may use Express-compatible HTTP infrastructure to remain close to MRE, but Express itself is an implementation-level choice unless the initial scaffold requires it.
 
 The architectural commitment is Node.js + TypeScript, not a specific controller framework.
+
+### Addendum 2026-11-10: Express 5 (VC-X-66)
+
+Since VC-X-66 (#325) the DE backend runs on **Express 5** (5.3.x); before, Express 4 as pinned in MRE. The reason to stay close to MRE no longer carries: the DE backend shares no middleware or controller code with MRE, it reaches MRE only over HTTP (`mre-integration.md`), so MRE's Express version binds nothing here. What Express 4 answered is kept, not Express 5's defaults: `api/express-compat.ts` (`optionsAsExpress4` for OPTIONS, `slashAfterMountAsExpress4` for the slash after `/api/v1`) and `jsonBody(limit)` in `validation.ts` (no body or a non-JSON body reads as `{}`, `br` refused) hold every answer byte for byte as under Express 4, proven by the goldens `error-answers-unchanged` and `express-behaviour-unchanged`, which stay in the suite. Taken by the owner's order of the majors (Entscheidung des Projektinhabers, 2026-11-09); the compatibility layer is kept and this addendum recorded by the owner's decision on #325 (Entscheidung des Projektinhabers, 2026-11-10). Details: backlog VC-X-66, `coding-guidelines.md` "HTTP framework".
 
 ## TypeScript Requirements
 
