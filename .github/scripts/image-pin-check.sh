@@ -53,5 +53,28 @@ elif [ "$pg_compose" != "$pg_ci" ]; then
   fail=1
 fi
 
+# One Caddy and one Node (Entscheidung des Projektinhabers, 2026-11-10, zu #319 F3 (a): the cockpit-ui service with the
+# pinned Caddy image). The final stage of webapps/cockpit/Dockerfile is the Caddy of docker-compose.proxy.yml, and its
+# build stage the Node of services/de-backend/Dockerfile; Dependabot proposes the compose file and the Dockerfiles in
+# separate PRs, and the Dockerfile entry leaves caddy out (.github/dependabot.yml), so a Caddy bump of the proxy stays
+# red here until the same PR moves webapps/cockpit/Dockerfile too (betrieb.md §11.4).
+from_refs() { # file image -> the distinct references of that image in the file's FROM lines
+  grep -hiE '^\s*FROM\s' "$1" | sed -E 's/^\s*FROM\s+(--platform=\S+\s+)?(\S+).*/\2/I' | { grep -E "^$2[:@]" || true; } | sort -u
+}
+caddy_proxy=$(grep -hoE "image:\s*[\"']?caddy:[^[:space:]#\"']+" docker-compose.proxy.yml | head -n1 | sed -E "s/^image:\s*[\"']?//" || true)
+caddy_ui=$(from_refs webapps/cockpit/Dockerfile caddy)
+if [ -z "$caddy_proxy" ] || [ -z "$caddy_ui" ]; then
+  echo "caddy image not found in docker-compose.proxy.yml or as a FROM of webapps/cockpit/Dockerfile" >&2
+  fail=1
+elif [ "$caddy_proxy" != "$caddy_ui" ]; then
+  echo "caddy image differs: docker-compose.proxy.yml has $caddy_proxy, webapps/cockpit/Dockerfile has $(tr '\n' ' ' <<<"$caddy_ui"); update webapps/cockpit/Dockerfile to the image in docker-compose.proxy.yml" >&2
+  fail=1
+fi
+node_refs=$(cat services/de-backend/Dockerfile webapps/cockpit/Dockerfile | from_refs /dev/stdin node)
+if [ "$(grep -c . <<<"$node_refs")" != 1 ]; then
+  echo "node image differs between the FROM lines of services/de-backend/Dockerfile and webapps/cockpit/Dockerfile: $(tr '\n' ' ' <<<"$node_refs")" >&2
+  fail=1
+fi
+
 [ "$fail" = 0 ] || exit 1
-echo "images pinned by digest, actions by commit SHA, postgres in CI as in compose: OK"
+echo "images pinned by digest, actions by commit SHA, postgres in CI as in compose, one caddy and one node: OK"

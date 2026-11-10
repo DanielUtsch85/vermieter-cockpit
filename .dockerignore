@@ -4,4 +4,7 @@
 .git
 .github
 docs
+# The one file of docs/ an image needs: the design tokens the cockpit's CSS imports (webapps/cockpit/src/index.css,
+# image of webapps/cockpit/Dockerfile).
+!docs/development/design-tokens.css
 data

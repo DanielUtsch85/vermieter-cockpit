@@ -1,5 +1,6 @@
 # Optional override for the productive installation (issue #281, item 4): Caddy as the single origin in front of
-# the MRE gateway, the DE backend and the cockpit UI (mre-integration.md §47.2). Reachable only over the VPN.
+# the MRE gateway, the DE backend and the cockpit UI (mre-integration.md §47.2), and the cockpit UI itself as the
+# service cockpit-ui. Reachable only over the VPN.
 #
 #   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build --wait
 #
@@ -31,6 +32,19 @@ services:
         condition: service_healthy
       de-backend:
         condition: service_started
+      cockpit-ui:
+        condition: service_healthy
+    networks: [net]
+
+  # The cockpit UI behind /cockpit (ui-guide.md §7.1; Entscheidung des Projektinhabers, 2026-11-10, zu #319 F3 (a)): the
+  # built webapps/cockpit, served by the same pinned Caddy image as above (webapps/cockpit/Dockerfile and Caddyfile),
+  # with the SPA fallback for deep links and `Cache-Control: no-store` on index.html (same day, zu #322 F3). Reached
+  # only by the proxy over the compose network as cockpit-ui:80 (COCKPIT_UI_UPSTREAM); no published port.
+  cockpit-ui:
+    build:
+      context: .
+      dockerfile: webapps/cockpit/Dockerfile
+    restart: unless-stopped
     networks: [net]
 
   # The MRE session behind the proxy (§47.2): the refresh-token cookie is set for APP_DOMAIN, and only with

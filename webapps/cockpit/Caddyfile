@@ -1,0 +1,49 @@
+# File server of the `cockpit-ui` service (docker-compose.proxy.yml; image from webapps/cockpit/Dockerfile).
+#
+# The proxy (deploy/caddy/Caddyfile) forwards /cockpit and /cockpit/* here with the prefix kept, and the cockpit is
+# built with the base path /cockpit/ (vite.config.ts), so the build output sits in /srv/cockpit and the paths match
+# one to one. Plain HTTP on :80 inside the compose network only; TLS ends at the proxy. Nothing here is published.
+#
+# Caching (Entscheidung des Projektinhabers, 2026-11-10, zu #322 F3: "Back-Forward-Cache: beides. Das Neuladen im
+# Client bleibt, dazu `Cache-Control: no-store` auf `index.html` im `cockpit-ui`-Dienst aus #319 F3."):
+# - index.html, also as the answer of the SPA fallback, and every other file outside /cockpit/assets/: no-store.
+# - /cockpit/assets/*: the bundler's output with a content hash in the name (a new build means a new name), so an
+#   existing file may be cached for a year without revalidation (immutable). A missing asset is a 404, never the
+#   start page: an HTML answer under a script's name would fail in the browser with a MIME error, not a clear 404.
+{
+	admin off
+	auto_https off
+}
+
+:80 {
+	root * /srv
+
+	@asset {
+		path /cockpit/assets/*
+		file
+	}
+	handle @asset {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle /cockpit/assets/* {
+		error 404
+	}
+
+	# SPA fallback: a deep link (e.g. /cockpit/r/<realm>/buchungen/<id>) is a route of the client, not a file; it gets
+	# the start page, and the client's router reads the path.
+	handle /cockpit/* {
+		header Cache-Control no-store
+		try_files {path} /cockpit/index.html
+		file_server
+	}
+
+	handle /cockpit {
+		redir * /cockpit/ 308
+	}
+
+	handle {
+		error 404
+	}
+}
